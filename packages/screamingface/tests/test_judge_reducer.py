@@ -105,8 +105,9 @@ def test_judge_repr_round_trips_and_judges_compare_by_field() -> None:
         assert rebuilt == judge
     assert plain != scored
     assert plain != sf.Judge("provider/j", returns="scores", rubric=plain.rubric)
-    with pytest.raises(TypeError):
-        hash(plain)
+    twin = sf.Judge("provider/j", returns="label", rubric=plain.rubric)
+    assert hash(plain) == hash(twin)
+    assert hash(plain) != hash(scored)
     fusion = sf.Fusion(members3(), synthesizer=plain)
     assert repr(fusion).endswith(f"synthesizer={plain!r})")
 

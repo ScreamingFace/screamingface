@@ -12,6 +12,7 @@ import math
 from typing import Any
 
 import pytest
+from _combine_flow_fixtures import flow_operators
 from _reducer_fixtures import FixtureVote, engine_operators, fixture_operators
 
 import screamingface as sf
@@ -93,12 +94,12 @@ def test_reduce_rejects_unknown_op_and_foreign_options() -> None:
         sf.Reduce("context", k=1)
     with pytest.raises(ValueError, match="arrives with sf.Rank"):
         sf.Reduce("top_k", k=2, by="x")
-    with pytest.raises(ValueError, match="arrives with sf.Judge"):
-        sf.Reduce("judge", judge="m")
+    with pytest.raises(TypeError, match="option 'judge' must be an sf.Judge"):
+        sf.Reduce("judge", judge="m")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="arrives with sf.Merge"):
         sf.Reduce("merge", fields={"a": "b"})
-    with pytest.raises(ValueError, match="sf.Judge"):
-        sf.Reduce("judge", judge="m", rubric="r")
+    with pytest.raises(TypeError, match="sf.Judge"):
+        sf.Reduce("judge", judge="m", rubric="r")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -157,6 +158,10 @@ def _one_per_row() -> list[Reduce]:
         sf.Reduce("pick_field", field="score", order="max"),
         sf.Reduce("concat", separator="\n--\n", label=True),
         sf.Reduce("median", mode="compute", extract=LAST),
+        sf.Reduce(
+            "judge",
+            judge=sf.Judge("provider/j", returns="scores", rubric="r", params={"seed": 1}),
+        ),
         sf.Reduce("context"),
     ]
 
@@ -196,6 +201,7 @@ def test_reduce_names_follow_the_spec_reducers() -> None:
         "pick_field": "pick",
         "concat": "concat",
         "median": "median",
+        "judge": "judge",
         "context": "context",
     }
 
@@ -303,37 +309,41 @@ def _roundtrip_cases() -> list[Reduce]:
     for mode in ("select", "compute"):
         for rule in ("last_number", "boxed", "inspect_number"):
             cases.append(sf.Reduce("median", mode=mode, extract=sf.Extract(rule)))  # type: ignore[arg-type]
+    cases.extend(
+        sf.Reduce("judge", judge=sf.Judge("provider/j", returns=returns, rubric="Pick one."))  # type: ignore[arg-type]
+        for returns in ("label", "scores")
+    )
     return cases
 
 
 def _named_or_block(reducer: Reduce) -> type[Reducer]:
     """What a url4 of this block is recovered as (BK#8): the named class when it fits exactly."""
 
-    if reducer.op == "median":
-        return sf.Median
     extract = reducer.options.get("extract")
-    if (
+    plain_vote = (
         reducer.op in ("plurality", "weighted")
         and isinstance(extract, sf.Extract)
         and not extract.args
-    ):
-        return sf.Vote
-    return Reduce
+    )
+    named: dict[str, type[Reducer]] = {"median": sf.Median, "judge": sf.Judge}
+    return sf.Vote if plain_vote else named.get(reducer.op, Reduce)
 
 
 @pytest.mark.parametrize("reducer", _roundtrip_cases(), ids=lambda value: repr(value)[:90])
 def test_reduce_to_python_round_trips(reducer: Reduce) -> None:
     fusion = sf.Fusion(["provider/a", "provider/b", "provider/c"], synthesizer=reducer)
-    url4 = compile_candidate(fusion, operators=engine_operators()).url4
+    # the judge ops (label, scores, ...) come with the Engine's flow catalog, not units 1-3
+    operators = flow_operators() if reducer.op == "judge" else engine_operators()
+    url4 = compile_candidate(fusion, operators=operators).url4
 
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102
 
-    # The named form wins when it holds the spec exactly (Vote, Median); sf.Reduce keeps the rest.
+    # The named form wins when it holds the spec exactly (Vote, Median, Judge); else sf.Reduce.
     assert type(namespace["candidate"].synthesizer) is _named_or_block(reducer)
     if isinstance(namespace["candidate"].synthesizer, Reduce):
         assert namespace["candidate"] == fusion
-    assert compile_candidate(namespace["candidate"], operators=engine_operators()).url4 == url4
+    assert compile_candidate(namespace["candidate"], operators=operators).url4 == url4
 
 
 @pytest.mark.parametrize("reducer", _one_per_row())

@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from _combine_flow_fixtures import flow_operators
 from _reducer_fixtures import engine_operators
 from url4 import Expression, build
 
@@ -37,6 +38,16 @@ def _synthesis_call(url4: str) -> _Call:
     root = build(url4)
     assert isinstance(root, Expression)
     return _calls(root)["synthesis_1"]
+
+
+def _recovered(url4: str) -> Reducer:
+    """The synthesizer ``to_python`` writes (signal reducers skip ``_reducer_from_call``)."""
+
+    namespace: dict[str, Any] = {}
+    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
+    synthesizer = namespace["candidate"].synthesizer
+    assert isinstance(synthesizer, Reducer)
+    return synthesizer
 
 
 def _call_with(spec: dict[str, Any]) -> _Call:
@@ -124,3 +135,15 @@ def test_benchmark_extract_op_in_a_hand_edited_url4_is_refused(op: str) -> None:
 
     with pytest.raises(ValueError, match="benchmark"):
         _reducer_from_call(_call_with({**spec, "extract": {"op": op, "args": {}}}))
+
+
+def test_a_judge_url4_is_recovered_as_the_named_judge_for_both_forms() -> None:
+    judge = sf.Judge("provider/j", returns="label", rubric="Pick one.")
+    block = sf.Reduce("judge", judge=judge)
+    url4 = compile_candidate(_fusion(judge), operators=flow_operators()).url4
+
+    assert compile_candidate(_fusion(block), operators=flow_operators()).url4 == url4
+    for source in (judge, block):
+        recovered = _recovered(compile_candidate(_fusion(source), operators=flow_operators()).url4)
+        assert type(recovered) is sf.Judge
+        assert recovered._python() == judge._python()

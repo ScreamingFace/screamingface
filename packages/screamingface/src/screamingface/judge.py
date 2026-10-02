@@ -10,11 +10,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, ClassVar, Literal
+from typing import Literal, cast
 
 from screamingface import _candidate_policy
 from screamingface._candidate_policy import GenerationParams
 from screamingface._evaluation.operators import STAGES
+from screamingface.blocks import _BLOCK_FORMS, _BlockForm
 from screamingface.recipe import _model_route
 from screamingface.reducer import (
     _REDUCER_CLASSES,
@@ -131,7 +132,18 @@ class Judge(Reducer):
         params = f", params={dict(self.params)!r}" if self.params else ""
         return f"Judge({self.model!r}, returns={self.returns!r}, rubric={self.rubric!r}{params})"
 
-    __hash__: ClassVar[Any] = None
+    def __hash__(self) -> int:
+        # WHY by hand: params is a read-only mapping, which the generated field hash cannot take.
+        return hash((self.model, self.returns, self.rubric, tuple(sorted(self.params.items()))))
+
+
+def _with_rubric(judge: Judge, rubric: object) -> Judge:
+    """The block form's rubric override: the same judge with another rubric (F3)."""
+
+    if rubric is None:
+        return judge
+    assert isinstance(rubric, str)  # the block's rubric check ran first
+    return Judge(judge.model, returns=judge.returns, rubric=rubric, params=judge.params)
 
 
 def judge_from_signals(signals: tuple[_ModelSignal, ...], returns: JudgeReturns) -> Judge:
@@ -168,5 +180,9 @@ def _step_matches(
 
 
 _REDUCER_CLASSES["judge"] = Judge
+_BLOCK_FORMS["judge"] = _BlockForm(
+    build=lambda options: _with_rubric(cast("Judge", options["judge"]), options.get("rubric")),
+    options=lambda named: {"judge": named},
+)
 
 __all__ = ["Judge"]

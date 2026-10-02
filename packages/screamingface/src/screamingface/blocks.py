@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
+from screamingface import _candidate_policy
 from screamingface._regex_rule import check_regex
 from screamingface._signals import FIELD_PATH, Signal
 from screamingface.reducer import (
@@ -181,6 +182,18 @@ type ReduceMode = Literal["select", "compute"]
 
 
 @dataclass(frozen=True, slots=True)
+class _BlockForm:
+    """How a named reducer registers as the block form of one op (F10): the named modules fill
+    ``_BLOCK_FORMS``, so this module never imports them."""
+
+    build: Callable[[Mapping[str, object]], Reducer]  # checked options -> the named reducer
+    options: Callable[[Reducer], Mapping[str, object]]  # named reducer -> canonical options
+
+
+_BLOCK_FORMS: dict[str, _BlockForm] = {}
+
+
+@dataclass(frozen=True, slots=True)
 class _OpRow:
     reducer: str  # the spec reducer; Reduce.name
     modes: tuple[ReduceMode, ...]  # the default first
@@ -221,14 +234,7 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
         ),
         "concat": _OpRow("concat", ("compute",), (), ("separator", "label"), named="sf.Concat"),
         "median": _OpRow("median", ("select", "compute"), ("extract",), named="sf.Median"),
-        "judge": _OpRow(
-            "judge",
-            ("select",),
-            ("judge",),
-            ("rubric",),
-            reserved=frozenset({"judge", "rubric"}),
-            named="sf.Judge",
-        ),
+        "judge": _OpRow("judge", ("select",), ("judge",), ("rubric",), named="sf.Judge"),
         "merge": _OpRow(
             "merge",
             ("compute",),
@@ -286,6 +292,23 @@ def _check_path(name: str) -> Callable[[str, object], str]:
     return check
 
 
+def _check_judge(op: str, value: object) -> object:
+    # WHY lazy: judge.py imports this module to register its block form (F10)
+    from screamingface.judge import Judge
+
+    if not isinstance(value, Judge):
+        raise TypeError(f"sf.Reduce({op!r}) option 'judge' must be an sf.Judge")
+    return value
+
+
+def _check_rubric(op: str, value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"sf.Reduce({op!r}) option 'rubric' must be text")
+    selected = _candidate_policy.prompt(value, f"sf.Reduce({op!r}) rubric")
+    assert selected is not None  # a str never comes back as None
+    return selected
+
+
 def _check_where(op: str, value: object) -> Matches:
     if not isinstance(value, Matches):
         raise TypeError(f"sf.Reduce({op!r}) option 'where' must be an sf.matches predicate")
@@ -339,6 +362,8 @@ _CHECKS: Mapping[str, Callable[[str, object], object]] = MappingProxyType(
         "equals": _check_equals,
         "separator": _check_separator,
         "label": _check_label,
+        "judge": _check_judge,
+        "rubric": _check_rubric,
     }
 )
 
@@ -366,8 +391,10 @@ class Reduce(Reducer):
             for name in (*row.required, *row.optional)
             if name in options
         }
-        if op == "median":
-            checked["extract"] = _median_extract(checked["extract"])
+        canonical = _CANONICAL.get(op)
+        if canonical is not None:
+            canonical(checked)
+        checked = _block_form_options(op, checked)
         object.__setattr__(self, "name", row.reducer)
         object.__setattr__(self, "op", op)
         object.__setattr__(self, "mode", selected_mode)
@@ -400,14 +427,21 @@ class Reduce(Reducer):
 
     def _plan(self) -> _ReducerPlan:
         build = _PLANS.get(self.op)
-        if build is None:
+        if build is not None:
+            return build(self)
+        form = _BLOCK_FORMS.get(self.op)
+        if form is None:
             raise ValueError(
                 f"sf.Reduce({self.op!r}) does not compile in this SDK version yet; "
                 f"its combine operators arrive with {_OPS[self.op].named}"
             )
-        return build(self)
+        return form.build(self.options)._plan()
 
     def _check_members(self, count: int) -> None:
+        form = _BLOCK_FORMS.get(self.op)
+        if form is not None:
+            form.build(self.options)._check_members(count)
+            return
         weights = self.options.get("weights")
         if isinstance(weights, tuple) and len(weights) != count:
             raise ValueError(
@@ -463,6 +497,28 @@ def _median_extract(extract: object) -> Extract:
     if extract.rule == "benchmark" or extract.normalize not in (None, "numeric"):
         raise ValueError("sf.Reduce('median') needs a numeric Extract that is not 'benchmark'")
     return Extract(extract.rule, normalize="numeric", **extract.args)
+
+
+def _canonical_median(checked: dict[str, object]) -> None:
+    checked["extract"] = _median_extract(checked["extract"])
+
+
+# op -> the in-place canonicalization of its checked options (BK#4: one canonical block per op)
+_CANONICAL: Mapping[str, Callable[[dict[str, object]], None]] = MappingProxyType(
+    {"median": _canonical_median}
+)
+
+
+def _block_form_options(op: str, checked: dict[str, object]) -> dict[str, object]:
+    """The options of the named reducer a registered op builds, in row order (BK-1)."""
+
+    form = _BLOCK_FORMS.get(op)
+    if form is None:
+        return checked
+    try:
+        return dict(form.options(form.build(checked)))
+    except (TypeError, ValueError) as exc:
+        raise type(exc)(f"sf.Reduce({op!r}): {exc}") from None
 
 
 def _source(value: object) -> str:
