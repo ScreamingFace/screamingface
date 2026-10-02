@@ -222,8 +222,20 @@ _JUDGE = sf.Judge("provider/j", returns="scores", rubric="Score each answer.")
             sf.Reduce("top_k", k=3, by_signal=sf.signal("field:score")),
             sf.Rank(3, by_signal=sf.signal("field:score")),
         ),
+        (sf.Reduce("concat"), sf.Concat()),
+        (
+            sf.Reduce("concat", separator="\n--\n", label=False),
+            sf.Concat("\n--\n", label=False),
+        ),
     ],
-    ids=["rank-judge", "rank-field-min", "rank-signal-min", "rank-signal"],
+    ids=[
+        "rank-judge",
+        "rank-field-min",
+        "rank-signal-min",
+        "rank-signal",
+        "concat",
+        "concat-options",
+    ],
 )
 def test_a_selection_url4_is_recovered_as_the_named_class_for_both_forms(
     block: sf.Reduce, named: Reducer

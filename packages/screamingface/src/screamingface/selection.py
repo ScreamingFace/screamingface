@@ -272,8 +272,24 @@ def _top_k_options(named: Reducer) -> Mapping[str, object]:
     return {"k": rank.k, **source, **({"order": "min"} if rank.order == "min" else {})}
 
 
+def _concat_from_options(options: Mapping[str, object]) -> Concat:
+    return Concat(
+        cast("str", options.get("separator", _DEFAULT_SEPARATOR)),
+        label=cast("bool", options.get("label", True)),
+    )
+
+
+def _concat_options(named: Reducer) -> Mapping[str, object]:
+    """The canonical options of a concat block: the defaults are not stored."""
+
+    concat = cast("Concat", named)
+    separator = {} if concat.separator == _DEFAULT_SEPARATOR else {"separator": concat.separator}
+    return {**separator, **({} if concat.label else {"label": False})}
+
+
 _RANK_SOURCES = ("by", "by_field", "by_signal")
 _REDUCER_CLASSES.update(rank=Rank, concat=Concat)
 _BLOCK_FORMS["top_k"] = _BlockForm(build=_top_k_from_options, options=_top_k_options)
+_BLOCK_FORMS["concat"] = _BlockForm(build=_concat_from_options, options=_concat_options)
 
 __all__ = ["Concat", "Rank"]

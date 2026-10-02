@@ -252,7 +252,6 @@ def test_reduce_plurality_compiles_byte_identical_to_the_fixture_vote() -> None:
 def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
     not_yet = [
         sf.Reduce("filter", where=sf.matches("a")),
-        sf.Reduce("concat"),
     ]
     for block in not_yet:
         with pytest.raises(ValueError, match="does not compile in this SDK version yet"):
@@ -340,6 +339,13 @@ def _roundtrip_cases() -> list[Reduce]:
             sf.Reduce("pick_field", field="verdict", normalize="text", equals="yes"),
             sf.Reduce("merge", fields={"a": sf.FieldRule.majority(normalize="text")}),
             sf.Reduce("merge", fields={"s": sf.FieldRule.model("provider/w", prompt="Write.")}),
+            sf.Reduce("top_k", k=2, by_field="score"),
+            sf.Reduce("top_k", k=2, by_field="a.b[0]", order="min"),
+            sf.Reduce("top_k", k=1, by=sf.Judge("provider/j", returns="scores", rubric="Score.")),
+            sf.Reduce("top_k", k=2, by_signal=sf.signal("cost_usd"), order="min"),
+            sf.Reduce("top_k", k=2, by_signal=sf.signal("field:confidence")),
+            sf.Reduce("concat"),
+            sf.Reduce("concat", separator="\n--\n", label=False),
         ]
     )
     return cases
@@ -360,26 +366,38 @@ def _named_or_block(reducer: Reduce) -> type[Reducer]:
         "argmax": sf.Pick,
         "pick_field": sf.Pick,
         "merge": sf.Merge,
+        "top_k": sf.Rank,
+        "concat": sf.Concat,
     }
     return sf.Vote if plain_vote else named.get(reducer.op, Reduce)
+
+
+# a selection hands its result to the next stage, so it cannot end a candidate (10S)
+_SELECTION_OPS = ("top_k", "concat", "filter")
 
 
 @pytest.mark.parametrize("reducer", _roundtrip_cases(), ids=lambda value: repr(value)[:90])
 def test_reduce_to_python_round_trips(reducer: Reduce) -> None:
     fusion = sf.Fusion(["provider/a", "provider/b", "provider/c"], synthesizer=reducer)
-    # the judge, argmax, pick and merge ops come with the Engine's flow catalog, not units 1-3
-    flow = reducer.op in ("judge", "argmax", "pick_field", "merge")
+    selection = reducer.op in _SELECTION_OPS
+    candidate: sf.Recipe = sf.Pipeline([fusion, "provider/next"]) if selection else fusion
+    # the judge, argmax, pick, merge, top_k and concat ops come with the Engine's flow catalog,
+    # not units 1-3
+    flow = reducer.op in ("judge", "argmax", "pick_field", "merge", *_SELECTION_OPS)
     operators = flow_operators() if flow else engine_operators()
-    url4 = compile_candidate(fusion, operators=operators).url4
+    url4 = compile_candidate(candidate, operators=operators).url4
 
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102
 
-    # The named form wins when it holds the spec exactly (Vote, Median, Judge, Pick, Merge).
-    assert type(namespace["candidate"].synthesizer) is _named_or_block(reducer)
-    if isinstance(namespace["candidate"].synthesizer, Reduce):
-        assert namespace["candidate"] == fusion
-    assert compile_candidate(namespace["candidate"], operators=operators).url4 == url4
+    recovered = namespace["candidate"]
+    synthesizer = (recovered.stages[0] if selection else recovered).synthesizer
+    # The named form wins when it holds the spec exactly (Vote, Median, Judge, Pick, Merge, Rank,
+    # Concat).
+    assert type(synthesizer) is _named_or_block(reducer)
+    if isinstance(synthesizer, Reduce):
+        assert recovered == candidate
+    assert compile_candidate(recovered, operators=operators).url4 == url4
 
 
 @pytest.mark.parametrize("reducer", _one_per_row())
