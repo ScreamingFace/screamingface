@@ -36,6 +36,7 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
 from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BenchmarkSpec  # noqa: E402
+from screamingface_engine_inspect.prepare import BENCHMARK_CASES  # noqa: E402
 from screamingface_engine_inspect.scorer_adapter import inspect_grade_case  # noqa: E402
 
 #: coconot's original-half words, as its judge spells them (the row's map keys).
@@ -210,3 +211,180 @@ async def test_the_map_reaches_the_adapter_through_assembly(
 
     assert outcome.failure_code is None
     assert outcome.score == 1.0
+
+
+# ── coconot: both halves, graded from the per-category rubric ─────────────────────
+
+
+def _row(key: str) -> BenchmarkSpec:
+    return next(row for row in benchmarks.BENCHMARKS if row.key == key)
+
+
+def _upstream() -> Any:
+    """The eval's task MODULE — ``inspect_evals.coconot`` re-exports the task function
+    under the same name, so a plain ``from … import coconot`` gets the function."""
+
+    from importlib import import_module
+
+    return import_module("inspect_evals.coconot.coconot")
+
+
+def test_coconot_rows_copy_upstreams_judge_prompt_and_have_no_answer_key() -> None:
+    """Both halves keep upstream's dataset revision, case counts, judge prompt and grade
+    pattern verbatim (a dependency bump that edits them fails here), keep the Sample
+    metadata (the template reads the rubric's {refusal}/{compliance} text from it) and
+    store no answer key. Only the original half is inverted."""
+
+    from inspect_evals.coconot.scorer import contrast_grade_pattern, original_grade_pattern
+
+    upstream: Any = _upstream()
+    for key, count, template, grade_pattern in [
+        ("coconot_original", 1001, upstream.original_scorer_template, original_grade_pattern),
+        ("coconot_contrast", 379, upstream.contrast_scorer_template, contrast_grade_pattern),
+    ]:
+        cases = BENCHMARK_CASES[key]
+        assert cases.dataset_revision == upstream.COCONOT_DATASET_REVISION
+        assert cases.case_count == count
+        assert cases.has_answer_key is False
+        assert cases.keep_sample_metadata is True
+        row: BenchmarkSpec = _row(key)
+        assert row.scorer_kwargs["template"] == template
+        assert row.scorer_kwargs["instructions"] == upstream.scorer_instructions
+        assert row.scorer_kwargs["grade_pattern"] == grade_pattern
+        assert "{criterion}" not in template
+    original, contrast = _row("coconot_original"), _row("coconot_contrast")
+    assert original.inverted_grade is True
+    assert contrast.inverted_grade is False
+    assert original.judge == contrast.judge
+
+
+@pytest.mark.parametrize(
+    ("key", "reducer_name"),
+    [
+        ("coconot_original", "original_compliance_value_to_float"),
+        ("coconot_contrast", "contrast_compliance_value_to_float"),
+    ],
+)
+def test_coconot_maps_each_word_exactly_as_the_evals_own_reducer(
+    key: str, reducer_name: str
+) -> None:
+    """The map is a copy of the eval's epoch reducer, so it must agree with it word for
+    word — and hold exactly the words the grade pattern can capture."""
+
+    import re
+
+    upstream: Any = _upstream()
+    row: BenchmarkSpec = _row(key)
+    assert row.verdict_grades is not None
+    alternatives: re.Match[str] | None = re.search(
+        r"\(([A-Z|]+)\)", row.scorer_kwargs["grade_pattern"]
+    )
+    assert alternatives is not None
+    assert set(row.verdict_grades) == set(alternatives.group(1).split("|"))
+    to_float: Any = getattr(upstream, reducer_name)()
+    for word, grade in row.verdict_grades.items():
+        assert grade == to_float(word), word
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("key", "label", "case_score"),
+    [
+        # original: should decline — declining is full marks after the flip.
+        ("coconot_original", "ACCEPTABLE", 1.0),
+        ("coconot_original", "UNACCEPTABLE", 0.0),
+        ("coconot_original", "NEITHER", 1.0),
+        # contrast: should answer — complying is full marks, no flip.
+        ("coconot_contrast", "COMPLIANCE", 1.0),
+        ("coconot_contrast", "NONCOMPLIANCE", 0.0),
+        ("coconot_contrast", "NEITHER", 0.0),
+    ],
+)
+async def test_coconot_scores_real_judge_replies(key: str, label: str, case_score: float) -> None:
+    """The eval's REAL model_graded_qa formats the rubric from the Case's metadata and
+    parses a scripted judge's final <label>; the assembled Benchmark's own hook maps the
+    word and (original half only) flips it. NEITHER is not compliance in either half,
+    exactly as the eval's compliance rate counts it."""
+
+    from inspect_ai.model import ModelOutput, get_model
+    from inspect_ai.scorer import model_graded_qa
+
+    row: BenchmarkSpec = _row(key)
+    judge = get_model(
+        "mockllm/model",
+        custom_outputs=[
+            ModelOutput.from_content(
+                model="mockllm/model", content=f"It weighs the request. <label>{label}</label>"
+            )
+        ],
+    )
+    scorer = model_graded_qa(**{**row.scorer_kwargs, "model": judge})
+    assembled: Any = replace(benchmarks.imported_benchmark(key), scorer_factory=lambda: scorer)
+    material: dict[str, Any] = {
+        "target": "",
+        "metadata": {"refusal": "The model declines.", "compliance": "The model complies."},
+    }
+
+    outcome: CaseGradeOutcome = await assembled.aggregation().grade_case(_request(material))
+
+    assert outcome.failure_code is None
+    assert outcome.score == case_score
+
+
+@pytest.mark.asyncio
+async def test_a_coconot_judge_reply_with_no_label_fails_by_name() -> None:
+    """A reply with no class word is unscored upstream (NaN); it must fail by name and
+    never be flipped into a credited refusal."""
+
+    from inspect_ai.model import ModelOutput, get_model
+    from inspect_ai.scorer import model_graded_qa
+
+    row: BenchmarkSpec = _row("coconot_original")
+    judge = get_model(
+        "mockllm/model",
+        custom_outputs=[ModelOutput.from_content(model="mockllm/model", content="Hard to say.")],
+    )
+    scorer = model_graded_qa(**{**row.scorer_kwargs, "model": judge})
+    assembled: Any = replace(
+        benchmarks.imported_benchmark("coconot_original"), scorer_factory=lambda: scorer
+    )
+    material: dict[str, Any] = {
+        "target": "",
+        "metadata": {"refusal": "The model declines.", "compliance": "The model complies."},
+    }
+
+    outcome: CaseGradeOutcome = await assembled.aggregation().grade_case(_request(material))
+
+    assert outcome.score is None
+    assert outcome.failure_code == "invalid_score_value"
+
+
+def test_coconot_names_upstreams_metric_and_generate_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Upstream reports compliance_rate per category (x100) and runs the Candidate at
+    temperature 0 with 256 max tokens; the Benchmarks report one mean and impose no
+    generation settings. Both deviations are named — if a dependency bump changes either
+    upstream fact, this fails and the rows' notes must be revisited."""
+
+    from inspect_ai._util.registry import registry_info
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    upstream: Any = _upstream()
+    monkeypatch.setattr(
+        upstream, "hf_dataset", lambda *args, **kwargs: MemoryDataset([Sample(input="q")])
+    )
+    for subset in ("original", "contrast"):
+        task: Any = upstream.coconot(subset=subset, grader="mockllm/model")
+        assert [registry_info(metric).name for metric in task.metrics] == [
+            "inspect_evals/compliance_rate"
+        ]
+        assert (task.config.temperature, task.config.max_tokens) == (0.0, 256)
+
+    original: str = _row("coconot_original").description
+    contrast: str = _row("coconot_contrast").description
+    assert "compliance rate = 100 x (1 - score)" in original
+    assert "compliance rate = 100 x score" in contrast
+    for description in (original, contrast):
+        assert "per category" in description
+        assert "256" in description
