@@ -39,7 +39,7 @@ except ImportError:  # bare python3 without PyYAML
 
 GREEN, RED = "✓", "✗"
 
-# Keep TS/TSX contract-change approvals isolated from the Python AST range parser.
+# Keep contract-change approvals isolated from the Python AST range parser.
 _approval_spec = importlib.util.spec_from_file_location(
     "approved_test_changes",
     pathlib.Path(__file__).with_name("approved_test_changes.py"),
@@ -48,6 +48,7 @@ assert _approval_spec is not None and _approval_spec.loader is not None
 _approval_module = importlib.util.module_from_spec(_approval_spec)
 _approval_spec.loader.exec_module(_approval_module)
 approved_unsupported_change = _approval_module.approved_unsupported_change
+approved_python_test_change = _approval_module.approved_python_test_change
 
 
 def fail_config(msg: str) -> NoReturn:
@@ -469,6 +470,13 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
             )
         )
         if bad_removed or bad_inserted:
+            # INVARIANT: an approval exempts only this one file at its exact
+            # base→approved blob pair on the named branch (OME-1468); anything
+            # else falls through to the offender list below.
+            approval = approved_python_test_change(root, base, p)
+            if approval is not None:
+                print(f"{GREEN} approved {approval} test transition: {p}")
+                continue
             detail = []
             if bad_removed:
                 detail.append(f"removed/changed old line(s) {bad_removed}")
