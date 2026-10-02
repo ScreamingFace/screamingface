@@ -9,8 +9,8 @@ keeps it current), so these tests prove "the SDK spec runs on the Engine" and ne
 hand.
 
 PRD ids: WV-1/WV-3/WV-8 are SDK-side. Here: WV-2, WV-4, WV-5, WV-6, WV-7, WV-9 (WV-H1, WV-H2,
-WV-D1, WV-D2, WV-D3, WV-D4, WV-E3). They are contract pins: units 1-3 already deliver the behavior,
-so they pass on their first run by design.
+WV-D1, WV-D2, WV-D3, WV-D4, WV-E3). They are contract pins: the Engine (unit 1 core and its Answer
+rows) already delivers the behavior, so they pass on their first run by design.
 """
 
 from __future__ import annotations
@@ -100,7 +100,14 @@ def test_empty_extract_weight_does_not_count() -> None:
         ("9", 1.0, ["member_2"]),
     ]
     first = evidence["members"][0]
-    assert (first["status"], first["weight"], first["score"]) == ("empty", 5.0, None)
+    # The unit 1 wire: an empty extraction is a failed row with reason "empty", and it is counted.
+    assert (first["status"], first["reason"], first["weight"], first["score"]) == (
+        "fail",
+        "empty",
+        5.0,
+        None,
+    )
+    assert evidence["dropped"] == 1
     assert evidence["agreement"] == 2 / 3
     assert evidence["chosen"] == ["member_3"]
     assert evidence["tie"] is False
