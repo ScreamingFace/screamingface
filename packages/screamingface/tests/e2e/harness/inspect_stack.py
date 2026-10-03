@@ -22,6 +22,7 @@ import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from ._local_proc import ManagedProcess, clean_env, free_port, repo_root, venv_bin
 from .ports import ReplayBackend
@@ -95,4 +96,34 @@ def inspect_replay_stack(
         yield ReplayStack(engine_url=engine_url, aigateway_url=aigateway_url)
     finally:
         engine.stop()
+        asyncio.run(backend.stop())
+
+
+@contextmanager
+def inspect_capture_stack(
+    backend: ReplayBackend,
+    *,
+    work_dir: Path,
+    assets_dir: Path | None = None,
+) -> Iterator[tuple[ReplayStack, Any]]:
+    """``inspect_replay_stack`` with ``slice_snapshot._CaptureProxy`` between Engine and gateway.
+
+    The Engine is handed the proxy URL, so every ``/chat/completions`` body it sends is recorded
+    in ``proxy.records`` (a list of ``{"request_body", "status", "cache_header"}``) before the
+    gateway answers it (FR#13). ``ReplayStack.aigateway_url`` is still the gateway's own.
+    """
+    # Lazy: slice_snapshot is a script-sized module that the other lanes do not need.
+    from fixtures.slice_snapshot import _CaptureProxy
+
+    engine = InspectEngineProcess(work_dir=work_dir, assets_dir=assets_dir)
+    aigateway_url = asyncio.run(backend.start())
+    proxy: Any = None
+    try:
+        proxy = _CaptureProxy(aigateway_url)
+        engine_url = engine.start(proxy.url)
+        yield ReplayStack(engine_url=engine_url, aigateway_url=aigateway_url), proxy
+    finally:
+        engine.stop()
+        if proxy is not None:
+            proxy.shutdown()
         asyncio.run(backend.stop())

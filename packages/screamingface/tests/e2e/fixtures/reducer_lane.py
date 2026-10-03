@@ -78,6 +78,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 _FIXTURES_DIR = Path(__file__).resolve().parent
 _E2E_DIR = _FIXTURES_DIR.parent
 if str(_E2E_DIR) not in sys.path:
@@ -461,13 +463,15 @@ def _refuse(mismatch: bool, message: str) -> None:
         raise SystemExit(f"BLESS REFUSED: {message}")
 
 
-def _refuse_unless_reproduced(report: Any, recording: _Recording) -> dict[str, str]:
-    """The replay must reproduce the saved report, or the recording does not describe this lane.
+def _refuse_unless_board_reproduced(
+    report: Any, facts: Any, failures: dict[str, tuple[GoldenFailure, ...]]
+) -> dict[str, str]:
+    """The replay must reproduce the saved report on the board's own locks (the fusion lane too).
 
-    The order is the order of ``compare_outcome``, then the evidence: board, expression, statuses,
-    score, coverage, failure codes, combine evidence.
+    The order is the order of ``compare_outcome``: board, expression, statuses, score, coverage,
+    failure codes. Returns the replayed case statuses.
     """
-    outcome, facts = report.candidates.only, recording.facts
+    outcome = report.candidates.only
     _refuse(report.benchmark.id != BOARD, f"the engine ran {report.benchmark.id!r}, not {BOARD!r}")
     _refuse(
         str(outcome.url4) != facts.rendered_url4,
@@ -487,11 +491,20 @@ def _refuse_unless_reproduced(report: Any, recording: _Recording) -> dict[str, s
         f"{round(facts.expected_coverage, 4)}",
     )
     _refuse(
-        failure_map(outcome.cases) != recording.failures,
+        failure_map(outcome.cases) != failures,
         "the replay's failure codes differ from the saved report's",
     )
+    return statuses
+
+
+def _refuse_unless_reproduced(report: Any, recording: _Recording) -> dict[str, str]:
+    """The replay must reproduce the saved report, or the recording does not describe this lane.
+
+    The board's locks (``_refuse_unless_board_reproduced``), then the combine evidence.
+    """
+    statuses = _refuse_unless_board_reproduced(report, recording.facts, recording.failures)
     _refuse(
-        replayed_combines(outcome.cases) != recording.combines,
+        replayed_combines(report.candidates.only.cases) != recording.combines,
         "the replay's combine evidence differs from the saved report's",
     )
     return statuses
@@ -627,12 +640,16 @@ def _author_golden(
 
 
 def _write_fixtures(
-    golden: ReducerGolden,
+    golden: BaseModel,
     rows: list[str],
     header: list[str],
     max_snapshot_mb: float,
     work_dir: Path,
+    *,
+    lane: str = LANE,
+    golden_kind: str = "reducer-golden",
 ) -> None:
+    """The snapshot, its manifest and the golden of ``lane`` (the fusion lane has its own)."""
     snapshot = ss.snapshot_gzip(_snapshot_text(header, rows))
     manifest = {
         "schema": ss._MANIFEST_SCHEMA,
@@ -646,14 +663,14 @@ def _write_fixtures(
     out_dir = work_dir if oversized else _FIXTURES_DIR
     (out_dir / "snapshots").mkdir(parents=True, exist_ok=True)
     (out_dir / "goldens").mkdir(parents=True, exist_ok=True)
-    (out_dir / "snapshots" / f"{LANE}.snapshot.gz").write_bytes(snapshot)
-    (out_dir / "snapshots" / f"{LANE}.manifest.json").write_text(
+    (out_dir / "snapshots" / f"{lane}.snapshot.gz").write_bytes(snapshot)
+    (out_dir / "snapshots" / f"{lane}.manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     )
-    (out_dir / "goldens" / f"{LANE}.reducer-golden.json").write_text(
+    (out_dir / "goldens" / f"{lane}.{golden_kind}.json").write_text(
         json.dumps(golden.model_dump(mode="json", by_alias=True), indent=2) + "\n"
     )
-    print(f"[write] {LANE}: snapshot {size_mb:.2f} MB ({len(rows)} rows) -> {out_dir}", flush=True)
+    print(f"[write] {lane}: snapshot {size_mb:.2f} MB ({len(rows)} rows) -> {out_dir}", flush=True)
     if oversized:
         raise SystemExit(
             f"BLESS NOT COMMITTED: the slice is {size_mb:.2f} MB (> {max_snapshot_mb} MB); output "
