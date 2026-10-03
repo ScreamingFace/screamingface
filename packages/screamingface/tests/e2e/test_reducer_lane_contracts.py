@@ -14,13 +14,16 @@ A mistake in any of them would otherwise first show after the user's paid record
 
 from __future__ import annotations
 
+import ast
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fixtures import reducer_lane
+from harness._local_proc import repo_root
 from harness.goldens import GoldenFailure, canonical_score, expression_sha
 from harness.reducer_golden import ReducerCandidateSpec
 from test_reducer_golden_contracts import (
@@ -375,3 +378,48 @@ def test_a_model_with_a_usable_seed_reaches_the_live_run(monkeypatch: pytest.Mon
     fake = _record_with(monkeypatch, {"seed": _seed()})
 
     assert fake.calls == ["connect", "models.get", "evaluate"]
+
+
+# -- the replay snapshots carry the cache entry metadata (F4) -----------------------
+
+_GATEWAY_SNAPSHOT = (
+    repo_root()
+    / "apps"
+    / "aigateway"
+    / "src"
+    / "aigateway"
+    / "core"
+    / "request_cache"
+    / "snapshot.py"
+)
+
+
+def _gateway_columns() -> tuple[str, ...]:
+    """``CANONICAL_COLUMNS``, read from the gateway source (the SDK test job cannot import it)."""
+    if not _GATEWAY_SNAPSHOT.parents[4].is_dir():
+        pytest.skip("the aigateway app is absent from this checkout")
+    for node in ast.parse(_GATEWAY_SNAPSHOT.read_text("utf-8")).body:
+        if (
+            isinstance(node, ast.AnnAssign)
+            and getattr(node.target, "id", "") == "CANONICAL_COLUMNS"
+        ):
+            assert node.value is not None
+            return tuple(ast.literal_eval(node.value))
+    raise AssertionError("CANONICAL_COLUMNS is not assigned in the gateway snapshot module")
+
+
+def test_lane_snapshots_use_the_gateway_column_layout() -> None:
+    columns = _gateway_columns()
+
+    assert len(columns) == 13
+    assert tuple(reducer_lane._COPY_COLUMNS.split(", ")) == columns
+    header = reducer_lane._snapshot_text([], ["r"]).split("\n")[0]
+    assert header == f"COPY public.request_cache_entries ({', '.join(columns)}) FROM stdin;"
+
+
+@pytest.mark.parametrize("sql", ["_RECORD_SQL", "_SLICE_SQL"])
+def test_record_and_slice_sql_select_the_metadata_last(sql: str) -> None:
+    text = getattr(reducer_lane, sql)
+
+    assert re.search(r"r\.metadata_json\n\s+FROM public\.request_cache_entries", text)
+    assert ("bless_baseline" in text) is (sql == "_SLICE_SQL")

@@ -102,15 +102,36 @@ _KEY_ENV = "OPENROUTER_API_KEY"
 _BLESSED_AT = "2026-10-01"
 _RECORDING_FILES = ("report.json", "candidate.json", "recording.json", "cache.sql.gz")
 
+#: The gateway's own 13-column layout (``CANONICAL_COLUMNS``): the board slices stop at 12, and this
+#: lane adds ``metadata_json`` last. WHY: on a cache hit the gateway builds ``cache.reference`` (the
+#: price and latency of the original call) from that column first. Without it OpenRouter's fallback
+#: reports the tokens only, so a replay would give ``cost_usd`` and ``latency_ms`` None and no
+#: signal could be proven end to end (SG-D1).
+_COPY_COLUMNS = f"{ss._COPY_COLUMNS}, metadata_json"
+
 #: Every cache row the recording run wrote, normalized like the board slice (fixed timestamps, no
-#: expiry, counters zeroed). It is ``slice_snapshot._SLICE_SQL`` without the baseline join, because
-#: a recording starts from an empty cache and every row in it is the run's.
+#: expiry, counters zeroed). It is ``_SLICE_SQL`` without the baseline join, because a recording
+#: starts from an empty cache and every row in it is the run's.
 _RECORD_SQL = f"""COPY (
   SELECT r.id, r.key_hash, r.prompt_hash, r.provider, r.model, r.response_json,
          r.response_size_bytes,
          '{ss._ROW_TIMESTAMP}'::timestamptz, '{ss._ROW_TIMESTAMP}'::timestamptz,
-         NULL::timestamptz, NULL::timestamptz, 0
+         NULL::timestamptz, NULL::timestamptz, 0,
+         r.metadata_json
   FROM public.request_cache_entries r
+  ORDER BY r.key_hash
+) TO STDOUT"""
+
+#: ``slice_snapshot._SLICE_SQL`` plus ``metadata_json``: the rows the verified replay touched.
+_SLICE_SQL = f"""COPY (
+  SELECT r.id, r.key_hash, r.prompt_hash, r.provider, r.model, r.response_json,
+         r.response_size_bytes,
+         '{ss._ROW_TIMESTAMP}'::timestamptz, '{ss._ROW_TIMESTAMP}'::timestamptz,
+         NULL::timestamptz, NULL::timestamptz, 0,
+         r.metadata_json
+  FROM public.request_cache_entries r
+  LEFT JOIN public.bless_baseline b USING (key_hash)
+  WHERE r.hit_count > COALESCE(b.hit_count, 0)
   ORDER BY r.key_hash
 ) TO STDOUT"""
 
@@ -142,7 +163,7 @@ def _snapshot_text(header: list[str], rows: list[str]) -> str:
     return "\n".join(
         [
             *header,
-            f"COPY public.request_cache_entries ({ss._COPY_COLUMNS}) FROM stdin;",
+            f"COPY public.request_cache_entries ({_COPY_COLUMNS}) FROM stdin;",
             *rows,
             "\\.",
             "",
@@ -278,6 +299,8 @@ def record(args: argparse.Namespace) -> None:
         "",
     ]
     (args.out / "cache.sql.gz").write_bytes(ss.snapshot_gzip(_snapshot_text(header, rows)))
+    with_metadata = sum(1 for row in rows if not row.endswith("\\N"))
+    print(f"[metadata] rows with metadata_json: {with_metadata}/{len(rows)}", flush=True)
     outcome = report.candidates.only
     print(
         f"[done] score={outcome.score} coverage={outcome.coverage} cache rows={len(rows)}; "
@@ -419,7 +442,7 @@ def _replay_and_slice(
         ss._psql(backend._container, ss._BASELINE_SQL)
         report = ss._evaluate(engine_url, recording.spec.build(), BOARD, recording.limit)
         statuses = _refuse_unless_reproduced(report, recording)
-        rows = _rows(ss._psql(backend._container, ss._SLICE_SQL))
+        rows = _rows(ss._psql(backend._container, _SLICE_SQL))
     finally:
         engine.stop()
         backend.stop_sync()

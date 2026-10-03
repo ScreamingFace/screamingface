@@ -21,6 +21,8 @@ on:
       - "apps/screamingface-engine/src/screamingface_engine/combine/spec.py"
       # the field_rules@1 grammars that tests/unit/test_signal_key_conformance.py binds
       - "apps/screamingface-engine/src/screamingface_engine/combine/operators/fields.py"
+      # the cache snapshot column layout that tests/e2e/test_reducer_lane_contracts.py reads
+      - "apps/aigateway/src/aigateway/core/request_cache/snapshot.py"
       - ".github/workflows/screamingface-tests.yml"
   pull_request:
     paths:
@@ -42,6 +44,8 @@ on:
       - "apps/screamingface-engine/src/screamingface_engine/combine/spec.py"
       # the field_rules@1 grammars that tests/unit/test_signal_key_conformance.py binds
       - "apps/screamingface-engine/src/screamingface_engine/combine/operators/fields.py"
+      # the cache snapshot column layout that tests/e2e/test_reducer_lane_contracts.py reads
+      - "apps/aigateway/src/aigateway/core/request_cache/snapshot.py"
       - ".github/workflows/screamingface-tests.yml"
   workflow_dispatch:
 
