@@ -1,11 +1,16 @@
 """The GSM8K vote replay lane, from recorded responses (OME-1289 E4a, EV-12).
 
-One end-to-end test of the whole reducer path, driven exactly like a notebook:
+End-to-end tests of the whole reducer path, driven exactly like a notebook:
 ``client.evaluate(sf.Fusion(sf.samples(model, 5), synthesizer=sf.Vote(...)), benchmark=...)``
 against the real engine and the real gateway whose only answers come from the lane's recorded cache
 snapshot. Free and keyless. The run is compared to the lane's golden with the five locks of
 ``test_boards`` (expression sha, case statuses, failure codes, coverage, score) plus an evidence
 lock: what the combine step read and decided for one case.
+
+Two more claims ride on the same recording. SG#15: the cost-weighted vote (``weights=
+sf.signal("cost_usd")``) gives the same signals, weights and tally from the cached replay as it gave
+live (SG-D1). RT#16: each replayed ``report-trace.v1`` differs from the live one only in model-call
+accounting (RT-4). One stack boot serves all three tests (a module-scoped fixture).
 
 SKIP DISCIPLINE (like ``test_boards``): a lane with no fixtures SKIPS LOUDLY, naming exactly what is
 missing. It never fake-passes. Three prerequisites:
@@ -23,13 +28,20 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any, Literal
 
 import pytest
 from harness._gating import GOLDENS_DIR, SNAPSHOTS_DIR, require_e2e_stack
 from harness.cache_seeded import CacheSeededGateway
 from harness.goldens import ActualOutcome, compare_outcome, failure_map
 from harness.inspect_stack import inspect_replay_stack
-from harness.reducer_golden import ReducerGolden, assert_evidence_lock, load_reducer_golden
+from harness.reducer_golden import (
+    ReducerGolden,
+    assert_evidence_lock,
+    assert_signal_replay,
+    load_reducer_golden,
+)
+from harness.replay_trace import trace_drift
 
 pytestmark = pytest.mark.e2e
 
@@ -73,7 +85,9 @@ def _require_lane_fixtures() -> tuple[Path, Path | None, ReducerGolden]:
     return snapshot, (manifest if manifest.exists() else None), load_reducer_golden(golden_path)
 
 
-def test_gsm8k_vote_run_reports_evidence_end_to_end(tmp_path) -> None:
+@pytest.fixture(scope="module")
+def _replayed(tmp_path_factory: pytest.TempPathFactory) -> tuple[ReducerGolden, Any, Any]:
+    """One replay stack, both candidates: ``(golden, plain_report, signal_report)``."""
     # Fixture presence is checked FIRST so "no fixtures yet" is visible even on a machine that
     # could not run the stack anyway; then the stack gate.
     snapshot, manifest, golden = _require_lane_fixtures()
@@ -81,15 +95,25 @@ def test_gsm8k_vote_run_reports_evidence_end_to_end(tmp_path) -> None:
 
     import screamingface as sf
 
-    backend = CacheSeededGateway(snapshot=snapshot, manifest=manifest, work_dir=tmp_path)
-    with inspect_replay_stack(backend, work_dir=tmp_path, assets_dir=_assets_root()) as stack:
+    work_dir = tmp_path_factory.mktemp("reducer-replay")
+    backend = CacheSeededGateway(snapshot=snapshot, manifest=manifest, work_dir=work_dir)
+    signal_spec = golden.candidate.model_copy(update={"weights": golden.signal_replay.weights})
+    with inspect_replay_stack(backend, work_dir=work_dir, assets_dir=_assets_root()) as stack:
         with sf.Client(engine_url=stack.engine_url) as client:
-            report = client.evaluate(
-                golden.candidate.build(),
-                benchmark=BOARD,
-                limit=golden.limit,
-                progress=False,
+            # The signal vote first, as `record` ran it.
+            signal_report = client.evaluate(
+                signal_spec.build(), benchmark=BOARD, limit=golden.limit, progress=False
             )
+            report = client.evaluate(
+                golden.candidate.build(), benchmark=BOARD, limit=golden.limit, progress=False
+            )
+    return golden, report, signal_report
+
+
+def test_gsm8k_vote_run_reports_evidence_end_to_end(
+    _replayed: tuple[ReducerGolden, Any, Any],
+) -> None:
+    golden, report, _ = _replayed
 
     assert report.benchmark.id == BOARD
     assert report.benchmark.revision == golden.revision, (
@@ -110,3 +134,25 @@ def test_gsm8k_vote_run_reports_evidence_end_to_end(tmp_path) -> None:
     )
     # The sixth lock: the combine evidence of the pinned case.
     assert_evidence_lock(golden, candidate.cases)
+
+
+def test_cached_replay_gives_same_signals_and_tally(
+    _replayed: tuple[ReducerGolden, Any, Any],
+) -> None:
+    golden, _, signal_report = _replayed
+    candidate = signal_report.candidates.only
+
+    assert_signal_replay(golden, str(candidate.url4), candidate.cases)
+
+
+def test_cached_replay_trace_differs_only_in_cache_and_accounting(
+    _replayed: tuple[ReducerGolden, Any, Any],
+) -> None:
+    golden, report, signal_report = _replayed
+    replayed: dict[Literal["vote", "signal_vote"], dict[str, Any]] = {
+        "vote": report.trace_dict(),
+        "signal_vote": signal_report.trace_dict(),
+    }
+
+    for name, trace in replayed.items():
+        assert trace_drift(golden.live_traces[name], trace) == (), name
