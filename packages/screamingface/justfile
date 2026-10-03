@@ -12,6 +12,8 @@ set default-list := true
 blesser := "uv run python tests/e2e/fixtures/slice_snapshot.py"
 # The GSM8K vote lane (OME-1289 E4a, EV-12) has its own two-step script: record (paid), bless (free).
 reducer_lane := "uv run python tests/e2e/fixtures/reducer_lane.py"
+# The GSM8K Fusion regression lane (OME-1289 E4a, FR#13): the same two steps, record (paid), bless (free).
+fusion_lane := "uv run python tests/e2e/fixtures/fusion_lane.py"
 
 # Where each benchmark's downloaded dataset is written — resolved the SAME way the blesser
 # resolves it (`tests/e2e/fixtures/slice_snapshot.py`: SCREAMINGFACE_E2E_ASSETS, else
@@ -277,6 +279,26 @@ e2e-record-reducer-lane model *flags: _bless-preconditions
 [doc("Bless the GSM8K vote lane's e2e fixtures from a recording (free, keyless)")]
 e2e-bless-reducer-lane recording *flags: _bless-preconditions
     {{ reducer_lane }} bless --recording {{recording}} {{flags}}
+
+# Record the GSM8K Fusion regression lane (OME-1289 E4a, FR#13): LIVE RUNS THAT SPEND REAL MONEY
+# through OPENROUTER_API_KEY (default 5 cases x 2 Fusion shapes, at most 35 short calls, well under
+# $0.10). Also needs SCREAMINGFACE_RECORD_PAID=1, docker and the prepared `inspect-gsm8k` bundle. It
+# refuses before any spend unless the model takes a `seed`. `--out <dir>` is required; other flags:
+# --samples, --temperature, --limit. Example:
+#   just e2e-record-fusion-lane openrouter/<seed-capable-model> --out ~/sf-recordings/gsm8k-fusion
+[confirm("This spends real OpenRouter money. Run the live recording? [y/N]")]
+[doc("Record the GSM8K Fusion regression lane with live runs (spends money)")]
+e2e-record-fusion-lane model *flags: _bless-preconditions
+    {{ fusion_lane }} record --model {{model}} {{flags}}
+
+# Bless the GSM8K Fusion regression lane from a recording (OME-1289 E4a, FR#13): FREE and keyless.
+# Replays the recording through a capture proxy, refuses unless it reproduces the saved reports
+# byte for byte, then writes the three fixture files (snapshot, manifest, fusion golden) under
+# tests/e2e/fixtures/. Example:
+#   just e2e-bless-fusion-lane ~/sf-recordings/gsm8k-fusion
+[doc("Bless the GSM8K Fusion lane's e2e fixtures from a recording (free, keyless)")]
+e2e-bless-fusion-lane recording *flags: _bless-preconditions
+    {{ fusion_lane }} bless --recording {{recording}} {{flags}}
 
 # Paid smoke of every Benchmark (OME-1275): boots the real stack (Postgres + gateway +
 # engine) and spends real money through OPENROUTER_API_KEY: every Benchmark the engine
