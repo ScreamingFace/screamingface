@@ -302,8 +302,8 @@ class Filter(Reducer):
     ``where=sf.signal(key) >= 0.6`` keeps a member whose named signal passes the comparison
     (``>``, ``>=``, ``<``, ``<=`` or ``==``; there is no ``!=``). ``extract=`` reads each member's
     answer first: a member whose answer cannot be read is dropped. A member with no value for the
-    signal is dropped too. A Filter Fusion must be followed by another Pipeline stage, and a Filter
-    that keeps no member fails the Case.
+    signal is dropped too. A Filter Fusion must be followed by another Pipeline stage. A Filter that
+    keeps no member abstains: the next stage gets an empty text.
 
     ``sf.signal("field:x") == True`` also passes a numeric ``1.0``: a signal holds a float, so
     ``True`` means ``1.0`` to the Engine. Compare with ``== 1`` for the number, or keep the bool in

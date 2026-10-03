@@ -664,7 +664,8 @@ each member, and `sf.signal("score:judge")` is refused. A regex reads the origin
 member, never the extracted answer. `extract=` reads each answer first: a member whose answer
 cannot be read is dropped, and the report shows the value it read.
 
-A Filter that keeps no member fails the Case with `combine_no_votes`. The report shows a pass mark in
+A Filter that keeps no member abstains: the Case reports `abstained`, and the next stage gets an
+empty text. The report shows a pass mark in
 `members[].score` of the `combine` evidence: `1.0` when the member is kept, `0.0` when it is
 dropped, and `None` when the member failed to answer. The block form is
 `sf.Reduce("filter", where=..., extract=...)`. The place rules of "Rank and Concat selections" apply
@@ -694,7 +695,9 @@ Before the compile, the SDK rewrites the block form to the Fusion. The two give 
 for byte, and the same operation ids (`op_synthesis_N`). The rewrite keeps the stages after the
 synthesizer (`Pipeline([Fusion(m, Reduce("context")), S, *rest])` is `Pipeline([Fusion(m, S), *rest])`),
 and a named Pipeline keeps its name. A Fusion that was made with `sf.Fusion(...)` is not changed by
-the rewrite. The candidate is named from the rewritten value, so both forms report `a+b`. The
+the rewrite. The candidate is named from the rewritten value, so both forms report `a+b`, and
+`report.candidates[...]` uses that name (the block form's own `name` is `a+b->s`). Two block forms that
+get the same name raise `ValueError`: give each one `name=`. The
 `context` block makes no combine call: it needs no operator catalog (no `GET /v1/operators`) and it
 has no member limit.
 
