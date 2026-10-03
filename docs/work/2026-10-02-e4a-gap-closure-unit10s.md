@@ -92,14 +92,13 @@ only intended edits.
 - `rewrite_fusion_recipe` returns the SAME object when nothing changes, and collapses a Pipeline to its
   one stage only when a pair was lowered. A recipe without a `context` block is therefore never rebuilt, so
   no existing Fusion can change by one byte (the unnamed one-stage `Pipeline(["x"])` stays a Pipeline).
-- `Signal.__eq__`/`__ne__`/ordering return `Any` (a predicate, not a bool) instead of `# type: ignore[override]`.
+- `Signal.__eq__`/`__ne__`/ordering return `Any` (a predicate, not a bool) instead of `# type: ignore[override]` (F5); the `-> Any` return keeps the numpy-style override legal for pyright, and an AIDEV-NOTE in `_signals.py` records that `1 in [s]` raises `TypeError` (F6).
 - `1` and `1.0` thresholds are one predicate (the value is stored as a float, so equal values compile to
   equal bytes); `True` is distinct from both (typed key, GE21).
 - The Engine's `filter@1` regex form reads the member's ORIGINAL text, never the extracted value
   (`operators/signals.py`). `extract=` only decides which members can vote. The Filter docstring, README and
   CHANGELOG say so (F7 of the spec implies the extract feeds the regex; the code wins).
-- The Engine world test records the gateway requests by wrapping `_signal_world._gateway` with
-  `monkeypatch`; the shared harness exposes no request capture and was not edited.
+- The Engine world test records the gateway requests through `run_candidate(..., on_request=...)` (review fix round; first built with a `monkeypatch` of `_gateway`).
 - The 9S test `ST/test_blocks_reduce.py` `argmax` line (`unknown reduce operator 'by_signal'`) became a
   compile assertion, because F9 puts `by_signal@1` and `best_holder@1` in the fixture catalog.
 
@@ -182,3 +181,17 @@ the engine score assertion `[1.0, 0.0, 1.0, 0.0]` (H).
 - Goldens (`ST/data/*.url4`, `ST/data/fusion_docs/`, `ET/data/combine_contract/*.url4`) unchanged since
   Commit C (the one new file is `filter_pipeline_candidate.url4`). The snapshot diff shows only Rank,
   Concat and Filter.
+
+### Review fix round (ACCEPT AFTER FIXES)
+
+1. A duplicate Candidate name made by the Fusion recipe rewrite now says so and asks for `name=`
+   (`compilation._check_rewritten_names`); README and CHANGELOG say a block form is named from the rewritten
+   recipe (GE22). 2. `_finite` adds `0.0`, so `-0.0` and `0.0` compile to the same bytes (RED row first).
+3. `ENGINE_OPERATOR_IDS = dict(FLOW_OPERATOR_IDS)`; `engine_operators()` now covers every built-in, and
+   `test_blocks_reduce.py` was updated in place. 4. One `_inferred_name`, `_inferred_self_name` and `_kept_name`
+   in `recipe.py`, used by Fusion, CorrectiveLoop, SelfCorrective and the rewrite (name goldens unchanged).
+5. AIDEV-NOTE for `1 in [s]`. 6. This ledger records the `-> Any` return. 7. `blocks.py` owns `_MAX_K` and
+   `_MAX_SEPARATOR_CHARS` (selection imports them) and `_check_path` uses `_field_path` (256 cap, op-table
+   message; one 9S row in `test_pick_merge_blocks.py` changed in place). 8. A Filter that keeps no member
+   abstains (the engine's `kept@1` raises `no_votes`); docstring, README and CHANGELOG corrected.
+9. `run_candidate(..., on_request=...)` and `operation()` live in `_signal_world`; four engine tests use them.
