@@ -254,34 +254,26 @@ def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
     # only the recipe rewrite takes it (FR#10).
     with pytest.raises(ValueError, match="first half of the Fusion recipe"):
         _compiled_text(sf.Reduce("context"))
-    # argmax has operators in the fixture catalog since 10S (by_signal@1, best_holder@1);
-    # pick_field has Engine operators since 9S, but the fixture catalog lacks them, so it
-    # compiles against the Engine's flow catalog
-    argmax = sf.Reduce("argmax", by_signal=sf.signal("cost_usd"))
-    pick = sf.Reduce("pick_field", field="a", order="max")
-    assert json.loads(_compiled_text(argmax))["reducer"] == "pick"
-    with pytest.raises(ValueError, match="unknown reduce operator 'values'"):
-        _compiled_text(pick)
-    for block in (argmax, pick):
-        spec = json.loads(combine_spec_text(block, member_count=3, operators=flow_operators()))
-        assert spec["reducer"] == "pick"
-    # top_k has Engine operators since 10E, and compiles to a Rank (10S); the unit 1-3 catalog
-    # lacks scores@1
-    top_k = sf.Reduce("top_k", k=1, by_field="a")
-    with pytest.raises(ValueError, match="unknown reduce operator 'scores'"):
-        _compiled_text(top_k)
-    spec = json.loads(combine_spec_text(top_k, member_count=3, operators=flow_operators()))
-    assert spec["reducer"] == "rank"
-    # filter has Engine operators since 10E, and they are in the unit 1-3 fixture catalog now
-    assert json.loads(_compiled_text(sf.Reduce("filter", where=sf.matches("a"))))["reducer"] == (
-        "filter"
-    )
+    # the engine catalog fixture holds every built-in operator (one list with FLOW_OPERATOR_IDS),
+    # so each op compiles against it
+    reducers = {
+        "pick": [
+            sf.Reduce("argmax", by_signal=sf.signal("cost_usd")),
+            sf.Reduce("pick_field", field="a", order="max"),
+        ],
+        "rank": [sf.Reduce("top_k", k=1, by_field="a")],
+        "filter": [sf.Reduce("filter", where=sf.matches("a"))],
+        "concat": [sf.Reduce("concat")],
+        "judge": [sf.Reduce("judge", judge=sf.Judge("provider/j", returns="label", rubric="r"))],
+    }
+    for name, blocks in reducers.items():
+        for block in blocks:
+            assert json.loads(_compiled_text(block))["reducer"] == name
     # a signal-weighted block compiles since unit 7; only score:judge waits for the judge
     assert '"weights":{"signal":"field:c"}' in _compiled_text(
         sf.Reduce("weighted", extract=LAST, weights=sf.signal("field:c"))
     )
-    with pytest.raises(ValueError, match="unknown extract operator 'json_object'"):
-        _compiled_text(sf.Reduce("plurality", extract=sf.Extract("json")))
+    assert json.loads(_compiled_text(sf.Reduce("plurality", extract=sf.Extract("json"))))
     with pytest.raises(ValueError, match="has 3 weights for 2 members"):
         sf.Fusion(
             ["provider/a", "provider/b"],

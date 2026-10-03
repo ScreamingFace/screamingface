@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 import httpx
+from _combine_flow_fixtures import FLOW_OPERATOR_IDS
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
@@ -43,39 +44,9 @@ OPERATOR_WIRE: dict[str, object] = {
 }
 
 
-# The answer-stage ids the Engine serves (units 1-3, plus the signal and filter operators of 10E):
-# id -> stage. All @1. It still lacks the judge, pick, merge, rank and concat ids; the full
-# built-in set is FLOW_OPERATOR_IDS in _combine_flow_fixtures.py (the 10S flag, 8S F11).
-ENGINE_OPERATOR_IDS: dict[str, str] = {
-    **dict.fromkeys(
-        (
-            "boxed@1",
-            "inspect_aime@1",
-            "inspect_number@1",
-            "json_field@1",
-            "last_line@1",
-            "last_number@1",
-            "regex@1",
-            "whole@1",
-        ),
-        "extract",
-    ),
-    **dict.fromkeys(
-        ("identity@1", "inspect_numeric@1", "numeric@1", "set@1", "text@1"), "normalize"
-    ),
-    **dict.fromkeys(("by_signal@1", "filter@1", "median@1", "mode@1", "weighted_mode@1"), "reduce"),
-    **dict.fromkeys(
-        (
-            "best_holder@1",
-            "first_holder@1",
-            "kept@1",
-            "max_weight_holder@1",
-            "nearest@1",
-            "value@1",
-        ),
-        "select",
-    ),
-}
+# The ids the Engine serves: id -> stage. All @1. WHY derived: one list, so the two fixture catalogs
+# cannot drift; FLOW_OPERATOR_IDS is a literal the Engine's drift guard binds to the built-ins.
+ENGINE_OPERATOR_IDS: dict[str, str] = dict(FLOW_OPERATOR_IDS)
 
 
 def engine_operators() -> _OperatorCatalog:
