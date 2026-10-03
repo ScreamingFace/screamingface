@@ -71,3 +71,28 @@ publish a real cost without a paid rerun. Spec: `docs/spec/2026-10-02-OME-1463-a
     author). It is `partial` now, on the result and the submission.
   - `report.py`, `contract.py`, `leaderboards.py` were already over 450 lines before this change;
     only a few lines were added, not split.
+
+## Review round 1 (2026-10-03, taken over by the general-work session)
+
+The draco3-rerun session that opened #1229 had ended; Filip asked general-work to take over.
+
+- **P1, fixed: the proof and the money came from different evidence.** `_engine/contract.py` now
+  parses the whole run summary into `_CacheSummary` and `_RunState._cache_evidence` takes both
+  savings from it, publishing `unpriced_hits` only when the summary is consistent (counts sum to
+  hits, a total exactly when its provenance had hits, final hit count equals the summary's). A
+  summary amount must be a decimal string; anything else raises `ExecutionError` (fail closed).
+- **P2, fixed: the public `Span` docstring** said the two savings must never be added. It now
+  separates the raw provenance-specific measurements (never combined on an event) from the
+  Scoreboard's reproduction-cost policy (adds them once a run's pricing coverage is complete).
+- **Tests:** 13 new in `tests/test_archive_cost.py` (summary amounts beat missing or disagreeing
+  span totals, archive total, four inconsistent-summary cases, an unaccounted hit span, four
+  malformed amounts, and the reviewer's case end to end). RED first: 12 failed for the stated
+  reason. One test from this PR's first commit,
+  `test_the_summary_count_of_unpriced_hits_is_carried`, set `unpriced_hits = 2` on a 1-hit summary,
+  which the fix now correctly rejects as inconsistent; its setup now states a consistent 3-hit
+  summary, keeping its intent (the count is carried). It is new in this PR, not on `main`.
+- **Mutations (all caught):** amounts taken from spans (4 tests); consistency check removed (5);
+  final-hit-count check removed (1); float summary amount accepted (1).
+- **Gates:** `run_gates.py screamingface --base origin/main --skip-append-only` ALL GATES GREEN.
+  The skip covers only the owner-approved D3-to-D7 rewrites from this PR's first commit; this round
+  changed no test outside `test_archive_cost.py`.
