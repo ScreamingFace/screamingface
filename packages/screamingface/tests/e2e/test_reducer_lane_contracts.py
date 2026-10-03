@@ -555,7 +555,7 @@ def test_record_writes_the_seven_recording_files(
 ) -> None:
     monkeypatch.setattr(reducer_lane, "_require_paid_gate", lambda: None)
     monkeypatch.setattr(reducer_lane, "_require_assets", lambda: tmp_path)
-    stacked = (_FakeReport("signal"), _FakeReport("plain"), ["row"])
+    stacked = ((_FakeReport("signal"), _FakeReport("plain")), ["row"])
     monkeypatch.setattr(reducer_lane, "_record_stack", lambda *args: stacked)
     out = tmp_path / "out"
     args = reducer_lane._parse_args(["record", "--model", "openrouter/x/y", "--out", str(out)])

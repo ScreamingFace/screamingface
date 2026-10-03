@@ -259,7 +259,7 @@ def test_a_refused_record_boots_nothing_and_creates_no_output(
     monkeypatch.delenv("SCREAMINGFACE_RECORD_PAID", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "placeholder-not-a-key")
     booted: list[str] = []
-    monkeypatch.setattr(fusion_lane, "_record_stack", lambda *args: booted.append("stack"))
+    monkeypatch.setattr(fusion_lane.rl, "_record_stack", lambda *args: booted.append("stack"))
     args = fusion_lane._parse_args(
         ["record", "--model", "openrouter/x/y", "--out", str(tmp_path / "out")]
     )
@@ -332,7 +332,7 @@ def test_record_writes_the_five_recording_files(
     monkeypatch.setattr(fusion_lane.rl, "_require_paid_gate", lambda: None)
     monkeypatch.setattr(fusion_lane.rl, "_require_assets", lambda: tmp_path)
     reports = {recipe: _FakeReport(recipe) for recipe in RECIPES}
-    monkeypatch.setattr(fusion_lane, "_record_stack", lambda *args: (reports, ["row"]))
+    monkeypatch.setattr(fusion_lane.rl, "_record_stack", lambda *args: (reports, ["row"]))
     out = tmp_path / "out"
     args = fusion_lane._parse_args(["record", "--model", "openrouter/x/y", "--out", str(out)])
 

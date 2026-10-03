@@ -1,7 +1,7 @@
 """Contract tests for the Fusion regression lane's golden models (OME-1289 E4a, FR#13 support).
 
 DEFAULT lane: no docker, no subprocesses, no key. They pin what the GSM8K Fusion lane
-(``test_fusion_replay.py``) stands on, so a mistake in the models or in the byte-for-byte checks
+(``test_fusion_replay.py``) stands on, so a mistake in the models or in the replay checks
 shows up now and not after the user's paid recording:
 
 - ``FusionLaneSpec`` builds the two recorded shapes, and their block forms compile to the same url4
@@ -84,7 +84,7 @@ def _golden_doc(**overrides: Any) -> dict[str, Any]:
 
 @pytest.mark.parametrize("recipe", RECIPES)
 def test_named_and_block_forms_compile_to_one_url4(recipe: Any) -> None:
-    # Guard (FR-2): the block form is the named Fusion, byte for byte, with no operator catalog.
+    # Guard (FR-2): the block form is the named Fusion, url4 for url4, with no operator catalog.
     spec = FusionLaneSpec.model_validate(_spec_doc())
 
     named = compile_candidate(spec.build(recipe)).url4
@@ -139,7 +139,7 @@ def test_spec_refuses_unknown_keys_and_is_frozen() -> None:
         spec.samples = 4  # type: ignore[misc]
 
 
-# -- body digests and the byte-for-byte check ----------------------------------------
+# -- body digests and the replay check ----------------------------------------
 
 
 def _record(body: dict[str, Any]) -> dict[str, Any]:

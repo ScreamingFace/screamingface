@@ -1,8 +1,8 @@
 """The golden of the GSM8K Fusion regression lane (OME-1289 E4a, FR#13).
 
 Mental model: ``reducer_golden`` pins a vote lane. This module pins the Fusion lane, whose claim is
-byte for byte: the rewritten ``sf.Fusion`` (a Fan-out, a context Reduce, then a Model) must send
-the same requests and give the same answers as the recording did. Two Fusion shapes are pinned
+exact: the rewritten ``sf.Fusion`` (a Fan-out, a context Reduce, then a Model) must send the same
+requests and give the same answers as the recording did. Two Fusion shapes are pinned
 (FR-D2), each over the same ``samples`` seeded members of one model:
 
 - ``model_synthesizer``: ``sf.Fusion(members, synthesizer=sf.Model(m))``;
@@ -13,7 +13,7 @@ the same requests and give the same answers as the recording did. Two Fusion sha
 no models: the same trick as ``ReducerGolden.outcome``), so ``compare_outcome`` runs its five locks
 UNCHANGED. Two locks are new: the Case outputs (a vote hides a changed answer behind an unchanged
 status, a Fusion does not) and the request bodies, pinned as sorted sha256 digests of every body
-the Engine sent to the gateway, key order included.
+the Engine sent to the gateway (a canonical JSON digest, key order included).
 
 Worked example: a 5-Case recipe lock holds five outputs and ``3 * 5 + 5 = 20`` digests for the
 model synthesizer (three members and one synthesis per Case). A replay that built one member
@@ -41,7 +41,7 @@ from pydantic import (
 from screamingface.case_result import CaseStatus
 
 from .goldens import GoldenFailure, GoldenReport
-from .reducer_golden import _BOARD_REFRESH_ADVICE
+from .reducer_golden import lane_remediation, load_golden
 
 FUSION_GOLDEN_SCHEMA: Final = "screamingface.fusion-golden.v1"
 CHECK_PROMPT: Final = "Check the answer above. End with the final number alone on the last line."
@@ -52,6 +52,7 @@ _SYNTHESIZER_NAME: Final = "check"
 type FusionRecipe = Literal["model_synthesizer", "recipe_synthesizer"]
 RECIPES: Final[tuple[FusionRecipe, ...]] = ("model_synthesizer", "recipe_synthesizer")
 
+_SCRIPT: Final = "tests/e2e/fixtures/fusion_lane.py"
 _SHA256_HEX = r"^[0-9a-f]{64}$"
 _Sha = Annotated[str, StringConstraints(pattern=_SHA256_HEX)]
 
@@ -157,20 +158,15 @@ class FusionGolden(BaseModel):
             try:
                 self.outcome(recipe)
             except ValidationError as exc:
-                raise ValueError(f"{recipe}: {_remediation(str(exc))}") from exc
+                raise ValueError(f"{recipe}: {lane_remediation(str(exc), _SCRIPT)}") from exc
         return self
-
-
-def _remediation(message: str) -> str:
-    """GoldenReport's advice names the board refresh recipe, which cannot refresh this lane."""
-    return _BOARD_REFRESH_ADVICE.sub(
-        " — re-record and re-bless the lane (tests/e2e/fixtures/fusion_lane.py)", message
-    )
 
 
 def body_digests(records: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
     """The sorted sha256 of every captured request body, one per body, duplicates kept.
 
+    This is a canonical JSON digest, not a digest of the wire bytes: the capture proxy parses each
+    body, and the digest hashes the re-encoded JSON (compact separators, ``ensure_ascii=False``).
     The encoding keeps the key order the Engine wrote (no ``sort_keys``): the gateway keys its cache
     on the parsed body, but a body that is built in another order is another build.
     """
@@ -194,20 +190,29 @@ def case_outputs(cases: Sequence[Any]) -> dict[str, str | None]:
 def assert_fusion_replay(
     lock: FusionRecipeLock, cases: Sequence[Any], digests: Sequence[str]
 ) -> None:
-    """FR#13: the replay's Case outputs and request bodies are the recorded ones, byte for byte.
+    """FR#13: the replay's Case outputs and request body digests are the recorded ones.
 
     Raises ``AssertionError`` naming the first Case whose output drifted (golden, actual) or that
     one side lacks, or, after the outputs, how many request bodies are missing and how many are new
     (a multiset compare, so a body sent twice instead of once is a drift too).
     """
-    actual = case_outputs(cases)
-    for case_id in (*lock.case_outputs, *(key for key in actual if key not in lock.case_outputs)):
-        _assert_output(case_id, lock.case_outputs, actual)
+    assert_outputs(lock.case_outputs, cases)
     golden_bodies, replayed_bodies = Counter(lock.request_bodies), Counter(digests)
     missing = sum((golden_bodies - replayed_bodies).values())
     new = sum((replayed_bodies - golden_bodies).values())
     if missing or new:
         raise AssertionError(f"request bodies drifted: {missing} missing, {new} new")
+
+
+def assert_outputs(golden: Mapping[str, str | None], cases: Sequence[Any]) -> None:
+    """Every Case output is the recorded one, and the Case sets agree (first drift, in saved order).
+
+    Raises ``AssertionError`` naming the first Case whose output drifted (golden, actual) or that
+    one side lacks.
+    """
+    actual = case_outputs(cases)
+    for case_id in (*golden, *(key for key in actual if key not in golden)):
+        _assert_output(case_id, golden, actual)
 
 
 def _assert_output(
@@ -225,11 +230,4 @@ def _assert_output(
 
 def load_fusion_golden(path: Path) -> FusionGolden:
     """Read + validate one ``*.fusion-golden.json``; any shape problem raises at load time."""
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"golden file {path.name} is not valid JSON: {exc}") from exc
-    try:
-        return FusionGolden.model_validate(raw)
-    except ValidationError as exc:
-        raise ValueError(f"golden file {path.name} failed validation: {exc}") from exc
+    return load_golden(path, FusionGolden)

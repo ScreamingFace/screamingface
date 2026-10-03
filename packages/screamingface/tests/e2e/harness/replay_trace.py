@@ -7,6 +7,11 @@ Mental model: walk both documents level by level (candidates, Cases, entries, ke
 first place of each difference. A level whose shape differs (a count, a label, a Case id, a kind,
 a key set) is reported at that level and not walked deeper, because the deeper paths would not
 line up.
+
+RISK: Cases are matched by INDEX, then their ids are compared. If the Engine ever returns the Cases
+in completion order, a correct replay is refused at ``case_id``, not at a value. Sort both sides
+first if that happens.
+
 Worked example: a replay that served ``op_model_2`` from the cache has another ``cache`` and no
 ``cost_usd`` there. That is allowed. A replay whose second extract read "41" instead of "42" is
 reported as ``candidates[0].cases[3].entries[2].value``.

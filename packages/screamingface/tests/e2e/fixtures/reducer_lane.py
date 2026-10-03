@@ -74,6 +74,7 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -123,8 +124,9 @@ _RECORD_PAID_ENV = "SCREAMINGFACE_RECORD_PAID"
 _KEY_ENV = "OPENROUTER_API_KEY"
 #: Fixed manifest date: committed fixtures carry no wall-clock traces.
 _BLESSED_AT = "2026-10-01"
-#: The signal the cost-weighted vote reads (SG#15). Cost is the one accounting signal that every
-#: replayed call can carry, because it rides on the cache entry metadata (``_COPY_COLUMNS``).
+#: The signal the cost-weighted vote reads (SG#15). KNOWN GAP: this lane proves SG-D1 end to end for
+#: ``cost_usd`` only. The cache entry metadata also carries latency and tokens, but no candidate of
+#: this lane reads ``latency_ms`` or the token signals, so a replay that lost them would pass.
 _SIGNAL = "cost_usd"
 _MAX_DRIFT_PATHS = 5
 _RECORDING_FILES = (
@@ -139,14 +141,20 @@ _RECORDING_FILES = (
 
 #: The gateway's own 13-column layout (``CANONICAL_COLUMNS``): the board slices stop at 12, and this
 #: lane adds ``metadata_json`` last. WHY: on a cache hit the gateway builds ``cache.reference`` (the
-#: price and latency of the original call) from that column first. Without it OpenRouter's fallback
-#: reports the tokens only, so a replay would give ``cost_usd`` and ``latency_ms`` None and no
-#: signal could be proven end to end (SG-D1).
+#: price, latency and tokens of the original call) from that column first. Without it OpenRouter's
+#: fallback reports the tokens only, with no price and no latency, so a replay would give
+#: ``cost_usd`` None and the cost-weighted vote could not be proven end to end (SG-D1). Only
+#: ``cost_usd`` is proven (see ``_SIGNAL``); latency and tokens are a known gap.
 _COPY_COLUMNS = f"{ss._COPY_COLUMNS}, metadata_json"
 
-#: Every cache row the recording run wrote, normalized like the board slice (fixed timestamps, no
-#: expiry, counters zeroed). It is ``_SLICE_SQL`` without the baseline join, because a recording
+#: Every cache row the recording run wrote, normalized like the board slice (fixed row timestamps,
+#: no expiry, counters zeroed). It is ``_SLICE_SQL`` without the baseline join, because a recording
 #: starts from an empty cache and every row in it is the run's.
+#: ONE EXCEPTION to "no wall-clock traces": ``metadata_json`` is copied verbatim, so its
+#: ``observed_at`` keeps the time of the live call. It is TEXT (compact JSON), and normalizing it
+#: needs a jsonb round trip that rewrites the stored bytes (spacing, key order) and cannot be tried
+#: before a recording exists. Nothing in bless compares it: the evidence and the trace rule do not
+#: read ``cache.observed_at``.
 _RECORD_SQL = f"""COPY (
   SELECT r.id, r.key_hash, r.prompt_hash, r.provider, r.model, r.response_json,
          r.response_size_bytes,
@@ -299,10 +307,13 @@ def _record_run(engine_url: str, spec: ReducerCandidateSpec, limit: int) -> tupl
         return signal_report, report
 
 
-def _record_stack(
-    spec: ReducerCandidateSpec, limit: int, assets_root: Path, work_dir: Path
-) -> tuple[Any, Any, list[str]]:
-    """Postgres, live gateway, inspect engine; the live runs; the cache rows they wrote."""
+def _record_stack[T](
+    assets_root: Path, work_dir: Path, run: Callable[[str], T]
+) -> tuple[T, list[str]]:
+    """Postgres, live gateway, inspect engine; ``run(engine_url)``; the cache rows it wrote.
+
+    Both record lanes share this boot: they differ only in what ``run`` evaluates.
+    """
     backend = CacheSeededGateway(snapshot=Path("unused"), manifest=None, work_dir=work_dir)
     gateway: ManagedProcess | None = None
     engine = InspectEngineProcess(work_dir=work_dir, assets_dir=assets_root)
@@ -310,14 +321,14 @@ def _record_stack(
         database_url = backend._start_postgres()
         backend._migrate(database_url)
         gateway, gateway_url = _start_live_gateway(database_url, work_dir)
-        signal_report, report = _record_run(engine.start(gateway_url), spec, limit)
+        result = run(engine.start(gateway_url))
         rows = _rows(ss._psql(backend._container, _RECORD_SQL))
     finally:
         engine.stop()
         if gateway is not None:
             gateway.stop()
         backend.stop_sync()
-    return signal_report, report, rows
+    return result, rows
 
 
 def _write_trace(path: Path, report: Any) -> None:
@@ -359,11 +370,13 @@ def record(args: argparse.Namespace) -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     work_dir = args.work_dir or args.out / "work"
     work_dir.mkdir(parents=True, exist_ok=True)
-    signal_report, report, rows = _record_stack(spec, args.limit, assets_root, work_dir)
-    _write_recording(args.out, spec, args.limit, (signal_report, report), rows)
+    reports, rows = _record_stack(
+        assets_root, work_dir, lambda url: _record_run(url, spec, args.limit)
+    )
+    _write_recording(args.out, spec, args.limit, reports, rows)
     with_metadata = sum(1 for row in rows if not row.endswith("\\N"))
     print(f"[metadata] rows with metadata_json: {with_metadata}/{len(rows)}", flush=True)
-    outcome = report.candidates.only
+    outcome = reports[1].candidates.only
     print(
         f"[done] score={outcome.score} coverage={outcome.coverage} cache rows={len(rows)}; "
         f"recording in {args.out}. Next: reducer_lane.py bless --recording {args.out}",

@@ -293,7 +293,7 @@ e2e-record-fusion-lane model *flags: _bless-preconditions
 
 # Bless the GSM8K Fusion regression lane from a recording (OME-1289 E4a, FR#13): FREE and keyless.
 # Replays the recording through a capture proxy, refuses unless it reproduces the saved reports
-# byte for byte, then writes the three fixture files (snapshot, manifest, fusion golden) under
+# (url4, outputs, request body digests), then writes the three fixture files (snapshot, manifest, fusion golden) under
 # tests/e2e/fixtures/. Example:
 #   just e2e-bless-fusion-lane ~/sf-recordings/gsm8k-fusion
 [doc("Bless the GSM8K Fusion lane's e2e fixtures from a recording (free, keyless)")]

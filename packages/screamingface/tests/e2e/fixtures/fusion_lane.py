@@ -6,10 +6,11 @@ imported board ``inspect-gsm8k`` and replayed from a recorded cache (``test_fusi
     model_synthesizer     sf.Fusion(members, synthesizer=sf.Model(m))
     recipe_synthesizer    sf.Fusion(members, synthesizer=<a named two-stage Pipeline>)
 
-The replay must repeat the recording BYTE FOR BYTE: the same url4, the same Case outputs, and the
-same request body for every call the Engine sends to the gateway. It also runs the BLOCK form of
-each shape (``sf.Pipeline([sf.Fusion(members, synthesizer=sf.Reduce("context")), S])``) against the
-same cache and demands the same url4, outputs and bodies (FR-2). Two fixture files make the lane
+The replay must repeat the recording exactly: the same url4, the same Case outputs, and the same
+canonical JSON digest of the request body of every call the Engine sends to the gateway. It also
+runs the BLOCK form of each shape
+(``sf.Pipeline([sf.Fusion(members, synthesizer=sf.Reduce("context")), S])``) against the same
+cache and demands the same url4, outputs and bodies (FR-2). Two fixture files make the lane
 go green, and until they exist the lane SKIPS loudly:
 
     fixtures/snapshots/inspect-gsm8k-fusion.snapshot.gz         the sliced response cache
@@ -72,8 +73,6 @@ if str(_E2E_DIR) not in sys.path:
 # WHY the package path: the same module objects the contract tests import.
 from fixtures import reducer_lane as rl  # noqa: E402
 from fixtures import slice_snapshot as ss  # noqa: E402
-from harness._local_proc import ManagedProcess  # noqa: E402
-from harness.cache_seeded import CacheSeededGateway  # noqa: E402
 from harness.fusion_golden import (  # noqa: E402
     RECIPES,
     FusionGolden,
@@ -81,6 +80,7 @@ from harness.fusion_golden import (  # noqa: E402
     FusionRecipe,
     FusionRecipeLock,
     assert_fusion_replay,
+    assert_outputs,
     body_digests,
     case_outputs,
 )
@@ -122,27 +122,6 @@ def _record_runs(engine_url: str, spec: FusionLaneSpec, limit: int) -> dict[Fusi
         }
 
 
-def _record_stack(
-    spec: FusionLaneSpec, limit: int, assets_root: Path, work_dir: Path
-) -> tuple[dict[FusionRecipe, Any], list[str]]:
-    """Postgres, live gateway, inspect engine; the live runs; the cache rows they wrote."""
-    backend = CacheSeededGateway(snapshot=Path("unused"), manifest=None, work_dir=work_dir)
-    gateway: ManagedProcess | None = None
-    engine = InspectEngineProcess(work_dir=work_dir, assets_dir=assets_root)
-    try:
-        database_url = backend._start_postgres()
-        backend._migrate(database_url)
-        gateway, gateway_url = rl._start_live_gateway(database_url, work_dir)
-        reports = _record_runs(engine.start(gateway_url), spec, limit)
-        rows = rl._rows(ss._psql(backend._container, rl._RECORD_SQL))
-    finally:
-        engine.stop()
-        if gateway is not None:
-            gateway.stop()
-        backend.stop_sync()
-    return reports, rows
-
-
 def _write_recording(
     out: Path, spec: FusionLaneSpec, limit: int, reports: dict[FusionRecipe, Any], rows: list[str]
 ) -> None:
@@ -167,7 +146,9 @@ def record(args: argparse.Namespace) -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     work_dir = args.work_dir or args.out / "work"
     work_dir.mkdir(parents=True, exist_ok=True)
-    reports, rows = _record_stack(spec, args.limit, assets_root, work_dir)
+    reports, rows = rl._record_stack(
+        assets_root, work_dir, lambda url: _record_runs(url, spec, args.limit)
+    )
     _write_recording(args.out, spec, args.limit, reports, rows)
     scores = ", ".join(f"{recipe}={reports[recipe].candidates.only.score}" for recipe in RECIPES)
     print(
@@ -198,19 +179,7 @@ class _Recording:
 
 
 def _read_report(recording: Path, recipe: FusionRecipe, limit: int) -> _RecordedReport:
-    name = f"report-{recipe}.json"
-    raw = json.loads((recording / name).read_text("utf-8"))
-    facts = ss.parse_fresh_report(raw)
-    if facts.board != BOARD:
-        raise SystemExit(f"{name} describes board {facts.board!r}, not {BOARD!r}")
-    if facts.kind != "fusion":
-        raise SystemExit(f"{name} records a {facts.kind!r} run; this lane blesses a fusion")
-    if limit != len(facts.case_statuses):
-        raise SystemExit(
-            f"the recording asked for limit {limit} but the report holds "
-            f"{len(facts.case_statuses)} cases ({name}); it does not describe one run"
-        )
-    cases = raw["candidates"][0]["cases"]
+    facts, cases = rl._read_report(recording, f"report-{recipe}.json", limit)
     return _RecordedReport(
         facts=facts,
         failures=rl._recorded_failures(cases),
@@ -233,20 +202,6 @@ def _read_recording(recording: Path) -> _Recording:
     )
 
 
-def _first_output_drift(
-    recorded: dict[str, str | None], replayed: dict[str, str | None]
-) -> str | None:
-    """The first Case (saved order, then the replay's extras) whose output is not the saved one."""
-    for case_id in (*recorded, *(key for key in replayed if key not in recorded)):
-        if (
-            case_id not in recorded
-            or case_id not in replayed
-            or recorded[case_id] != replayed[case_id]
-        ):
-            return case_id
-    return None
-
-
 def _refuse_unless_reproduced(
     report: Any,
     facts: Any,
@@ -260,20 +215,17 @@ def _refuse_unless_reproduced(
     an unchanged status, and a Fusion does not.
     """
     statuses = rl._refuse_unless_board_reproduced(report, facts, recorded_failures)
-    replayed = case_outputs(report.candidates.only.cases)
-    drifted = _first_output_drift(recorded_outputs, replayed)
-    rl._refuse(
-        drifted is not None,
-        f"case {drifted!r} output differs from the saved report's (saved, replay): "
-        f"{recorded_outputs.get(drifted or '')!r} != {replayed.get(drifted or '')!r}",
-    )
+    try:
+        assert_outputs(recorded_outputs, report.candidates.only.cases)
+    except AssertionError as exc:
+        raise SystemExit(f"BLESS REFUSED: {exc}") from exc
     return statuses
 
 
 def _refuse_unless_block_matches(
     named: Any, block: Any, named_digests: tuple[str, ...], block_digests: tuple[str, ...]
 ) -> None:
-    """FR-2 at the request level: the block form is the named Fusion, byte for byte."""
+    """FR-2 at the request level: the block form is the named Fusion (url4, outputs, digests)."""
     left, right = named.candidates.only, block.candidates.only
     rl._refuse(
         str(left.url4) != str(right.url4),
@@ -368,7 +320,7 @@ def _author_golden(replays: dict[FusionRecipe, _Replay], recording: _Recording) 
             "recipes": {recipe: _lock(replays[recipe]) for recipe in RECIPES},
         }
     )
-    # The golden must pass its own byte-for-byte check on the very runs it was authored from.
+    # The golden must pass its own replay check on the very runs it was authored from.
     for recipe in RECIPES:
         replay = replays[recipe]
         assert_fusion_replay(

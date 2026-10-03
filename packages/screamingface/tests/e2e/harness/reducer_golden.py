@@ -45,6 +45,7 @@ _MEMBER_PREFIX: Final = "member_"
 _BOARD_REFRESH_ADVICE: Final = re.compile(
     r" — re-bless this golden from its committed snapshot \(`just e2e-refresh-golden [^`]*`\)"
 )
+_SCRIPT: Final = "tests/e2e/fixtures/reducer_lane.py"
 _MAX_SAMPLES: Final = 256  # sf.samples()'s own bound
 _SIGNAL_KEY: Final = "cost_usd"
 _OPERATION_ID: Final = "op_synthesis_1"
@@ -157,7 +158,7 @@ class ReducerGolden(BaseModel):
         try:
             self.outcome()
         except ValidationError as exc:
-            raise ValueError(_reducer_remediation(str(exc))) from exc
+            raise ValueError(lane_remediation(str(exc), _SCRIPT)) from exc
         if self.evidence.case_id not in self.case_statuses:
             raise ValueError(
                 f"evidence pins case {self.evidence.case_id!r} that case_statuses does not list"
@@ -176,23 +177,29 @@ class ReducerGolden(BaseModel):
         return self
 
 
-def _reducer_remediation(message: str) -> str:
-    """GoldenReport's advice names the board refresh recipe, which cannot refresh this lane."""
-    return _BOARD_REFRESH_ADVICE.sub(
-        " — re-record and re-bless the lane (tests/e2e/fixtures/reducer_lane.py)", message
-    )
+def lane_remediation(message: str, script: str) -> str:
+    """GoldenReport's advice names the board refresh recipe, which cannot refresh a lane.
+
+    ``script`` is the lane's own record and bless script, e.g. ``tests/e2e/fixtures/x_lane.py``.
+    """
+    return _BOARD_REFRESH_ADVICE.sub(f" — re-record and re-bless the lane ({script})", message)
 
 
-def load_reducer_golden(path: Path) -> ReducerGolden:
-    """Read + validate one ``*.reducer-golden.json``; any shape problem raises at load time."""
+def load_golden[Model: BaseModel](path: Path, model: type[Model]) -> Model:
+    """Read + validate one lane golden file; any shape problem raises at load time, by file name."""
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"golden file {path.name} is not valid JSON: {exc}") from exc
     try:
-        return ReducerGolden.model_validate(raw)
+        return model.model_validate(raw)
     except ValidationError as exc:
         raise ValueError(f"golden file {path.name} failed validation: {exc}") from exc
+
+
+def load_reducer_golden(path: Path) -> ReducerGolden:
+    """Read + validate one ``*.reducer-golden.json``; any shape problem raises at load time."""
+    return load_golden(path, ReducerGolden)
 
 
 def assert_evidence_lock(golden: ReducerGolden, cases: Sequence[Any]) -> None:
@@ -201,8 +208,8 @@ def assert_evidence_lock(golden: ReducerGolden, cases: Sequence[Any]) -> None:
     Raises ``AssertionError`` naming the first thing that is wrong: the case or its combine
     evidence is missing, the evidence differs from the golden, the pinned case did not answer with
     its chosen member, the readings are not one per sample, the agreement is not in (0, 1], the
-    synthesis text is not the chosen member's text byte for byte, or a member operation has no
-    output (EV-H3).
+    synthesis text is not the chosen member's text, character for character, or a member operation
+    has no output (EV-H3).
     """
     lock = golden.evidence
     case = next((item for item in cases if str(item.case_id) == lock.case_id), None)
