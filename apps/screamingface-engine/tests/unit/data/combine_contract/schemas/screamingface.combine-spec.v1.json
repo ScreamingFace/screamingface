@@ -1,0 +1,128 @@
+{
+  "$defs": {
+    "SignalWeights": {
+      "additionalProperties": false,
+      "description": "``weights: {\"signal\": key}``: each member's vote weight comes from the named signal.",
+      "properties": {
+        "signal": {
+          "title": "Signal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "signal"
+      ],
+      "title": "SignalWeights",
+      "type": "object"
+    },
+    "StepSpec": {
+      "additionalProperties": false,
+      "description": "One pipeline step: a pinned operator id and its args.",
+      "properties": {
+        "args": {
+          "additionalProperties": true,
+          "title": "Args",
+          "type": "object"
+        },
+        "op": {
+          "pattern": "^[a-z][a-z0-9_]{0,47}@[1-9][0-9]{0,5}$",
+          "title": "Op",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "args"
+      ],
+      "title": "StepSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``screamingface.combine-spec.v1``: every key required, ``null`` only where typed.",
+  "properties": {
+    "extract": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StepSpec"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "members": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Members",
+      "type": "array"
+    },
+    "normalize": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StepSpec"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reduce": {
+      "$ref": "#/$defs/StepSpec"
+    },
+    "reducer": {
+      "enum": [
+        "vote",
+        "median",
+        "judge",
+        "pick",
+        "merge",
+        "project",
+        "rank",
+        "concat",
+        "filter"
+      ],
+      "title": "Reducer",
+      "type": "string"
+    },
+    "schema": {
+      "const": "screamingface.combine-spec.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "select": {
+      "$ref": "#/$defs/StepSpec"
+    },
+    "weights": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/SignalWeights"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Weights"
+    }
+  },
+  "required": [
+    "schema",
+    "reducer",
+    "members",
+    "extract",
+    "normalize",
+    "reduce",
+    "select",
+    "weights"
+  ],
+  "title": "CombineSpec",
+  "type": "object"
+}

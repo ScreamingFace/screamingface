@@ -1,0 +1,493 @@
+{
+  "$defs": {
+    "AnswerRecord": {
+      "additionalProperties": false,
+      "description": "One spec member, in author order.",
+      "properties": {
+        "member_id": {
+          "title": "Member Id",
+          "type": "string"
+        },
+        "raw": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Raw"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "empty",
+                "not_numeric",
+                "not_json",
+                "field_missing",
+                "too_large",
+                "no_match",
+                "no_votes",
+                "cut_not_met"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Score"
+        },
+        "signals": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Signals",
+          "type": "object"
+        },
+        "status": {
+          "enum": [
+            "answered",
+            "fail"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Weight"
+        }
+      },
+      "required": [
+        "member_id",
+        "raw",
+        "value",
+        "status",
+        "reason",
+        "signals",
+        "weight",
+        "score"
+      ],
+      "title": "AnswerRecord",
+      "type": "object"
+    },
+    "FieldReadingRecord": {
+      "additionalProperties": false,
+      "description": "One field-level rule applied by a pick or merge reducer.",
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "rule": {
+          "title": "Rule",
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "field",
+        "rule",
+        "values",
+        "result"
+      ],
+      "title": "FieldReadingRecord",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "JudgeReadingRecord": {
+      "additionalProperties": false,
+      "description": "What the strict judge parse found: a label (``member_2``) or per-member scores.",
+      "properties": {
+        "parsed": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            }
+          ],
+          "title": "Parsed"
+        },
+        "raw": {
+          "title": "Raw",
+          "type": "string"
+        },
+        "returns": {
+          "enum": [
+            "label",
+            "scores"
+          ],
+          "title": "Returns",
+          "type": "string"
+        }
+      },
+      "required": [
+        "raw",
+        "returns",
+        "parsed"
+      ],
+      "title": "JudgeReadingRecord",
+      "type": "object"
+    },
+    "ResultRecord": {
+      "additionalProperties": false,
+      "description": "The computed answer of the step: a member's text, a built text, or an abstain.",
+      "properties": {
+        "member_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Member Id"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "no_votes",
+                "cut_not_met"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "status": {
+          "enum": [
+            "answered",
+            "abstain"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "member_id",
+        "value",
+        "status",
+        "reason"
+      ],
+      "title": "ResultRecord",
+      "type": "object"
+    },
+    "SignalRecord": {
+      "additionalProperties": false,
+      "description": "The one signal the spec reads, and the order a reducer asked for (None: no order).",
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "order": {
+          "anyOf": [
+            {
+              "enum": [
+                "max",
+                "min"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Order"
+        }
+      },
+      "required": [
+        "key",
+        "order"
+      ],
+      "title": "SignalRecord",
+      "type": "object"
+    },
+    "TallyRowRecord": {
+      "additionalProperties": false,
+      "description": "One distinct value, its score and its holders in author order.",
+      "properties": {
+        "holders": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Holders",
+          "type": "array"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "score",
+        "holders"
+      ],
+      "title": "TallyRowRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Everything one combine step decided, minus the answer text.",
+  "properties": {
+    "agreement": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Agreement"
+    },
+    "built": {
+      "title": "Built",
+      "type": "boolean"
+    },
+    "chosen": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Chosen",
+      "type": "array"
+    },
+    "dropped": {
+      "title": "Dropped",
+      "type": "integer"
+    },
+    "fields": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/FieldReadingRecord"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Fields"
+    },
+    "finish_reason": {
+      "const": "stop",
+      "title": "Finish Reason",
+      "type": "string"
+    },
+    "judge": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JudgeReadingRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kind": {
+      "enum": [
+        "answer",
+        "selection",
+        "projection"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "median": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Median"
+    },
+    "members": {
+      "items": {
+        "$ref": "#/$defs/AnswerRecord"
+      },
+      "title": "Members",
+      "type": "array"
+    },
+    "operators": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Operators",
+      "type": "array"
+    },
+    "presentation_order": {
+      "anyOf": [
+        {
+          "const": "author",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Presentation Order"
+    },
+    "reducer": {
+      "enum": [
+        "vote",
+        "median",
+        "judge",
+        "pick",
+        "merge",
+        "project",
+        "rank",
+        "concat",
+        "filter"
+      ],
+      "title": "Reducer",
+      "type": "string"
+    },
+    "result": {
+      "$ref": "#/$defs/ResultRecord"
+    },
+    "schema": {
+      "const": "screamingface.combine-evidence.v1",
+      "default": "screamingface.combine-evidence.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "separator_collision": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Separator Collision"
+    },
+    "signal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SignalRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tally": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/TallyRowRecord"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Tally"
+    },
+    "tie": {
+      "title": "Tie",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "kind",
+    "reducer",
+    "operators",
+    "members",
+    "tally",
+    "judge",
+    "fields",
+    "chosen",
+    "built",
+    "agreement",
+    "tie",
+    "median",
+    "presentation_order",
+    "separator_collision",
+    "signal",
+    "result",
+    "dropped",
+    "finish_reason"
+  ],
+  "title": "CombineEvidence",
+  "type": "object"
+}
