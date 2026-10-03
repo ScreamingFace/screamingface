@@ -29,6 +29,21 @@ hit". Hence:
 - summary arrived: `unpriced_hits` from it;
 - no summary: unknown (`None`), and any hit sends `partial`.
 
+**Amended in review round 1 (2026-10-03): the summary is the authority for the money too.** The
+first version took the proof from the summary but the saving amounts from span frames. The engine
+tallies a hit's saving on the summary before checking that the span exists
+(`executor._fold_response`), so an unknown span keeps the run-level money and produces no span
+total; a run could then claim `complete` with no saving and be ranked at its bare $0 spend. Now:
+
+- with a summary carrying its coverage counts, BOTH savings are the summary's own totals
+  (`cache.saved_cost_usd`, `cache.saved_cost_archive_usd`, exact decimal strings; any other
+  carrier stops the run);
+- `unpriced_hits` is published only when the summary agrees with itself and with the run: every
+  coverage count present, `reported + archive + unpriced == hits`, a total present exactly when its
+  provenance had hits, and the run's final hit count equal to the summary's. Otherwise `None`, so
+  the submission sends `partial`;
+- without coverage counts, the span totals are the only amounts, and nothing is proven complete.
+
 The SDK already reads this summary for `cache.hits` (`_engine/contract.py:207`, root source only).
 
 ## Published pair (`_scoreboard/leaderboards.py::_published_cost`)
