@@ -22,6 +22,7 @@ from typing import Any, get_args
 import pytest
 from schema_freeze_support import check_frozen
 
+from screamingface_engine.budget import BUDGET_SCHEMA, budget_schemas
 from screamingface_engine.combine.evidence import COMBINE_EVIDENCE_SCHEMA, CombineEvidence
 from screamingface_engine.combine.spec import COMBINE_SPEC_SCHEMA, CombineSpec
 
@@ -78,22 +79,29 @@ _WIRE = [
     pytest.param(
         COMBINE_SPEC_SCHEMA,
         CombineSpec.model_json_schema(by_alias=True, mode="validation"),
-        CombineSpec,
         id="combine-spec",
     ),
     pytest.param(
         COMBINE_EVIDENCE_SCHEMA,
         CombineEvidence.model_json_schema(by_alias=True, mode="validation"),
-        CombineEvidence,
         id="combine-evidence",
     ),
+    pytest.param(BUDGET_SCHEMA, budget_schemas(), id="budget"),
 ]
 
 
-@pytest.mark.parametrize(("schema_id", "schema", "model"), _WIRE)
-def test_frozen_wire_schemas_match_snapshot_unless_id_changes(
-    schema_id: str, schema: dict[str, Any], model: Any
+@pytest.mark.parametrize(
+    ("schema_id", "model"),
+    [(COMBINE_SPEC_SCHEMA, CombineSpec), (COMBINE_EVIDENCE_SCHEMA, CombineEvidence)],
+)
+def test_the_schema_literal_of_a_wire_model_is_the_module_constant(
+    schema_id: str, model: Any
 ) -> None:
     assert get_args(model.model_fields["schema_id"].annotation) == (schema_id,)
 
+
+@pytest.mark.parametrize(("schema_id", "schema"), _WIRE)
+def test_frozen_wire_schemas_match_snapshot_unless_id_changes(
+    schema_id: str, schema: Mapping[str, Any]
+) -> None:
     check_frozen(SCHEMAS, schema_id, schema, update=UPDATE)
