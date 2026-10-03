@@ -24,6 +24,7 @@ from fixtures import reducer_lane
 from harness.goldens import GoldenFailure, canonical_score, expression_sha
 from harness.reducer_golden import ReducerCandidateSpec
 from test_reducer_golden_contracts import (
+    _abstained_evidence,
     _answered,
     _case,
     _evidence,
@@ -232,8 +233,16 @@ def test_the_pinned_evidence_is_the_first_case_that_carries_it() -> None:
     assert lock.combine == _evidence().to_dict()
 
 
+def test_the_pinned_evidence_skips_an_abstained_first_case() -> None:
+    cases = [_case("1", evidence=_abstained_evidence()), _case("2")]
+
+    assert reducer_lane._evidence(cases).case_id == "2"
+    with pytest.raises(SystemExit, match="no case answered"):
+        reducer_lane._evidence([_case("1", evidence=_abstained_evidence())])
+
+
 def test_a_run_without_combine_evidence_refuses_the_bless() -> None:
-    with pytest.raises(SystemExit, match="no case carries combine evidence"):
+    with pytest.raises(SystemExit, match="no case answered"):
         reducer_lane._evidence([_failed_case()])
 
 

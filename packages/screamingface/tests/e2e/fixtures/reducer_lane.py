@@ -427,16 +427,28 @@ def _replay_and_slice(
 
 
 def _evidence(cases: Any) -> EvidenceLock:
-    """The first case (report order) whose ``op_synthesis_1`` carries combine evidence."""
+    """The first case (report order) whose ``op_synthesis_1`` combine step answered.
+
+    WHY answered only: with abstain, a Case that nobody voted for is ``scored`` with evidence whose
+    result is an abstain and whose ``chosen`` is empty, and the evidence lock has no text to check.
+    """
     for case in cases:
         for operation in case.operations or ():
-            if operation.operation_id == _OPERATION_ID and operation.combine is not None:
+            if _is_answered(operation):
                 return EvidenceLock(
                     case_id=str(case.case_id),
                     operation_id=_OPERATION_ID,
                     combine=json.loads(json.dumps(operation.combine.to_dict())),
                 )
-    raise SystemExit(f"BLESS REFUSED: no case carries combine evidence on {_OPERATION_ID}")
+    raise SystemExit(f"BLESS REFUSED: no case answered on {_OPERATION_ID}")
+
+
+def _is_answered(operation: Any) -> bool:
+    return (
+        operation.operation_id == _OPERATION_ID
+        and operation.combine is not None
+        and operation.combine.result.status == "answered"
+    )
 
 
 def _author_golden(

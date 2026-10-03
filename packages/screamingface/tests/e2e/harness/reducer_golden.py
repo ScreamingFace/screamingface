@@ -150,9 +150,10 @@ def assert_evidence_lock(golden: ReducerGolden, cases: Sequence[Any]) -> None:
     """The sixth lock: the pinned case's combine evidence, read off the replayed ``CaseResult`` s.
 
     Raises ``AssertionError`` naming the first thing that is wrong: the case or its combine
-    evidence is missing, the evidence differs from the golden, the readings are not one per sample,
-    the agreement is not in (0, 1], the synthesis text is not the chosen member's text byte for
-    byte, or a member operation has no output (EV-H3).
+    evidence is missing, the evidence differs from the golden, the pinned case did not answer with
+    its chosen member, the readings are not one per sample, the agreement is not in (0, 1], the
+    synthesis text is not the chosen member's text byte for byte, or a member operation has no
+    output (EV-H3).
     """
     lock = golden.evidence
     case = next((item for item in cases if str(item.case_id) == lock.case_id), None)
@@ -172,8 +173,24 @@ def assert_evidence_lock(golden: ReducerGolden, cases: Sequence[Any]) -> None:
             f"combine evidence drifted on case {lock.case_id!r} (golden, actual): "
             f"{lock.combine!r} != {actual!r}"
         )
+    _check_answered(combine)
     _check_readings(golden, combine)
     _check_text(operations, synthesis, combine)
+
+
+def _check_answered(combine: Any) -> None:
+    """The pinned case answered with a member: an abstained Case has no text to lock (F3)."""
+    result = combine.result
+    if result.status != "answered":
+        raise AssertionError(
+            f"the pinned case did not answer (result status {result.status!r}, "
+            f"reason {result.reason!r})"
+        )
+    if combine.chosen and result.member_id != combine.chosen[0]:
+        raise AssertionError(
+            f"the pinned case did not answer with the chosen member "
+            f"(result {result.member_id!r}, chosen {combine.chosen[0]!r})"
+        )
 
 
 def _check_readings(golden: ReducerGolden, combine: Any) -> None:

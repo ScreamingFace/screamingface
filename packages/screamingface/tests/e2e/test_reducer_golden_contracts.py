@@ -91,6 +91,33 @@ def _evidence(agreement: float = 0.6) -> CombineEvidence:
     )
 
 
+def _abstained_evidence() -> CombineEvidence:
+    """A vote whose five members all failed: an honest abstain, with nothing chosen."""
+    failed = [
+        CombineAnswerRow(
+            member_id=f"member_{index}",
+            raw="",
+            value=None,
+            status="fail",
+            reason="empty",
+            signals={},
+        )
+        for index in range(1, 6)
+    ]
+    return CombineEvidence(
+        kind="answer",
+        reducer="vote",
+        operators=("last_number@1", "numeric@1", "mode@1", "first_holder@1"),
+        members=failed,
+        chosen=(),
+        built=False,
+        tie=False,
+        result=CombineResult(member_id=None, value=None, status="abstain", reason="no_votes"),
+        dropped=5,
+        finish_reason="stop",
+    )
+
+
 def _evidence_kwargs() -> dict[str, Any]:
     base = _evidence()
     return {
@@ -367,3 +394,34 @@ def test_evidence_lock_wants_every_member_output_attributed() -> None:
     answers = [*_ANSWERS[:4], None]
     with pytest.raises(AssertionError, match="op_model_5"):
         _lock([_case(answers=answers)])
+
+
+class _Forged:
+    """A combine reading with some attributes overridden, for what the constructor refuses."""
+
+    def __init__(self, base: CombineEvidence, **overrides: Any) -> None:
+        self._base, self._overrides = base, overrides
+
+    def __getattr__(self, name: str) -> Any:
+        return self._overrides.get(name, getattr(self._base, name))
+
+    def to_dict(self) -> dict[str, object]:
+        return self._base.to_dict()
+
+
+def test_evidence_lock_refuses_an_abstained_pinned_case() -> None:
+    abstained = _abstained_evidence()
+    golden = ReducerGolden.model_validate(
+        _golden_doc(evidence={"case_id": "1", "combine": abstained.to_dict()})
+    )
+    with pytest.raises(AssertionError, match="did not answer"):
+        _lock([_case(evidence=abstained)], golden)
+
+
+def test_evidence_lock_wants_the_result_member_to_be_the_chosen_member() -> None:
+    forged = _Forged(_evidence(), result=_answered("member_3", "42"))
+    case = _case()
+    synthesis = SimpleNamespace(operation_id="op_synthesis_1", output="so 42", combine=forged)
+    case.operations = (*case.operations[:-1], synthesis)
+    with pytest.raises(AssertionError, match="did not answer"):
+        _lock([case])
