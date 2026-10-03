@@ -22,14 +22,29 @@ from screamingface.combine_evidence import CombineEvidence
 
 _CASES = COMBINE_CONTRACT / "evidence_cases.json"
 _EXPECTED_NAMES = {
+    "argmax_cost_min",
     "concat_collision",
+    "filter_none_pass",
+    "filter_pattern",
+    "filter_threshold",
     "judge_label",
     "judge_scores",
+    "median_nearest",
     "median_value",
+    "merge_abstain",
     "merge_model_field",
     "pick",
     "projection",
     "rank_by_judge",
+    "rank_by_signal",
+    "rank_cut_not_met",
+    "regex_no_match",
+    "set_normalized",
+    "vote_abstain",
+    "vote_cost_signal",
+    "vote_field_signal",
+    "vote_judge_weights",
+    "vote_one_failed",
     "vote_tie",
     "vote_weighted",
 }
@@ -41,7 +56,7 @@ def _cases() -> dict[str, Any]:
 
 
 @requires_engine_app
-def test_the_engine_fixture_holds_the_ten_scenarios() -> None:
+def test_the_engine_fixture_holds_the_25_scenarios() -> None:
     assert set(_cases()) == _EXPECTED_NAMES
 
 
