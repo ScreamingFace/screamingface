@@ -131,12 +131,14 @@ def _check_errors() -> None:
             "normalize must be 'text' or 'numeric'",
         ),
         ({"field": "x", "order": "max", "normalize": "text"}, "normalize applies to equals only"),
-        ({"field": "a" * 257, "order": "max"}, "at most 256 characters"),
         ({"field": "x", "equals": " "}, "equals must not be blank"),
     ]
     for options, message in bad:
         with pytest.raises(ValueError, match=prefix + ".*" + message):
             sf.Reduce("pick_field", **options)
+    # the path cap is the block's own check (10S): the op-table message, not the Pick's
+    with pytest.raises(ValueError, match=r"sf\.Reduce\('pick_field'\) option 'field'.*256"):
+        sf.Reduce("pick_field", field="a" * 257, order="max")
 
     with pytest.raises(ValueError, match=r"from_member\(4\).*needs 4 members"):
         sf.Fusion(

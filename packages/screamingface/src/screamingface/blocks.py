@@ -17,9 +17,11 @@ from screamingface import _candidate_policy
 from screamingface._regex_rule import check_regex
 from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal, _Comparison
 from screamingface.reducer import (
+    _MAX_REDUCER_MEMBERS,
     BENCHMARK_EXTRACT,
     Reducer,
     _check_judge_weights,
+    _field_path,
     _ModelSignal,
     _recovered_weights,
     _ReducerPlan,
@@ -247,8 +249,12 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
         "context": _OpRow("context", ("compute",), (), named="the Fusion recipe rewrite"),
     }
 )
-_MAX_K = 256
-_MAX_SEPARATOR = 1024
+# INVARIANT: the Engine's top_k@1 `_MAX_K` (operators/selection.py), copied; it is also the most
+# members a reducer Fusion takes, so one constant serves both. sf.Rank reads it from here.
+_MAX_K = _MAX_REDUCER_MEMBERS
+# INVARIANT: the Engine's join@1 `_MAX_SEPARATOR_CHARS` (operators/selection.py), copied; a longer
+# separator is refused before any call is made. sf.Concat reads it from here.
+_MAX_SEPARATOR_CHARS = 1024
 CONTEXT_MISUSE = (
     "sf.Reduce('context') is the first half of the Fusion recipe: put the synthesizer right after "
     "it, as sf.Pipeline([sf.Fusion(members, synthesizer=sf.Reduce('context')), synthesizer, ...])"
@@ -298,13 +304,7 @@ def _check_k(op: str, value: object) -> int:
 
 def _check_path(name: str) -> Callable[[str, object], str]:
     def check(op: str, value: object) -> str:
-        if not isinstance(value, str):
-            raise TypeError(f"sf.Reduce({op!r}) option {name!r} must be text")
-        if FIELD_PATH.fullmatch(value) is None:
-            raise ValueError(
-                f"sf.Reduce({op!r}) option {name!r} must be a JSON path like 'a', 'a.b' or 'a[0].b'"
-            )
-        return value
+        return _field_path(value, f"sf.Reduce({op!r}) option {name!r}")
 
     return check
 
@@ -363,9 +363,9 @@ def _check_equals(op: str, value: object) -> object:
 def _check_separator(op: str, value: object) -> str:
     if not isinstance(value, str):
         raise TypeError(f"sf.Reduce({op!r}) option 'separator' must be text")
-    if not 1 <= len(value) <= _MAX_SEPARATOR:
+    if not 1 <= len(value) <= _MAX_SEPARATOR_CHARS:
         raise ValueError(
-            f"sf.Reduce({op!r}) option 'separator' must be 1 to {_MAX_SEPARATOR} characters"
+            f"sf.Reduce({op!r}) option 'separator' must be 1 to {_MAX_SEPARATOR_CHARS} characters"
         )
     return value
 

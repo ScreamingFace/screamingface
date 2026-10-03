@@ -16,6 +16,8 @@ from typing import Any, ClassVar, Literal, cast
 from screamingface._signals import Signal, _Comparison, _comparison
 from screamingface.blocks import (
     _BLOCK_FORMS,
+    _MAX_K,
+    _MAX_SEPARATOR_CHARS,
     Extract,
     Matches,
     _answer_steps,
@@ -26,7 +28,6 @@ from screamingface.blocks import (
 )
 from screamingface.judge import Judge, judge_from_signals
 from screamingface.reducer import (
-    _MAX_REDUCER_MEMBERS,
     _REDUCER_CLASSES,
     Reducer,
     _as_python,
@@ -43,12 +44,6 @@ from screamingface.reducer import (
     _Steps,
 )
 
-# INVARIANT: the Engine's top_k@1 `_MAX_K` (operators/selection.py), copied; it is also the most
-# members a reducer Fusion takes, so one constant serves both.
-_MAX_K = _MAX_REDUCER_MEMBERS
-# INVARIANT: the Engine's join@1 `_MAX_SEPARATOR_CHARS` (operators/selection.py), copied; a longer
-# separator is refused here, before any call is made.
-_MAX_SEPARATOR_CHARS = 1024
 _DEFAULT_SEPARATOR = "\n\n---\n\n"
 # WHY the exact id: scores@1 assumes the v1 output form of the numeric normalizer, so a later
 # numeric@2 must not change what a Rank by field means.

@@ -249,3 +249,18 @@ def test_reduce_top_k_block_canonical_form_equality_and_hash() -> None:
         sf.Reduce("top_k", k=2, by=sf.Judge("provider/j", returns="label", rubric=RUBRIC))
     with pytest.raises(ValueError, match="option 'order' must be 'max' or 'min'"):
         sf.Reduce("top_k", k=2, by_field="s", order="up")
+
+
+@pytest.mark.parametrize(
+    ("op", "option", "options"),
+    [("top_k", "by_field", {"k": 2}), ("pick_field", "field", {"order": "max"})],
+)
+def test_a_block_path_option_is_capped_at_256_characters_with_the_op_table_message(
+    op: str, option: str, options: dict[str, Any]
+) -> None:
+    sf.Reduce(op, **{option: "a" * 256}, **options)
+    with pytest.raises(ValueError, match=rf"sf\.Reduce\('{op}'\) option '{option}'") as caught:
+        sf.Reduce(op, **{option: "a" * 257}, **options)
+    assert "at most 256 characters" in str(caught.value)
+    with pytest.raises(ValueError, match=rf"sf\.Reduce\('{op}'\) option '{option}'"):
+        sf.Reduce(op, **{option: "a b"}, **options)
