@@ -26,7 +26,9 @@ from harness.reducer_golden import (
     REDUCER_GOLDEN_SCHEMA,
     ReducerCandidateSpec,
     ReducerGolden,
+    SignalReplayLock,
     assert_evidence_lock,
+    assert_signal_replay,
     load_reducer_golden,
 )
 from pydantic import ValidationError
@@ -37,6 +39,7 @@ from screamingface.combine_evidence import (
     CombineAnswerRow,
     CombineEvidence,
     CombineResult,
+    CombineSignal,
     CombineTallyRow,
 )
 
@@ -89,6 +92,25 @@ def _evidence(agreement: float = 0.6) -> CombineEvidence:
         dropped=0,
         finish_reason="stop",
     )
+
+
+def _priced_evidence(member_2_cost: float = 0.002) -> CombineEvidence:
+    """The cost-weighted vote over the same five answers: every member row carries its price."""
+    costs = {2: member_2_cost}
+    members = [
+        CombineAnswerRow(
+            member_id=f"member_{index}",
+            raw=text.split()[-1],
+            value=text.split()[-1],
+            status="answered",
+            reason=None,
+            signals={"cost_usd": costs.get(index, 0.001)},
+            weight=costs.get(index, 0.001),
+        )
+        for index, text in enumerate(_ANSWERS, start=1)
+    ]
+    kwargs = {**_evidence_kwargs(), "members": members}
+    return CombineEvidence(**kwargs, signal=CombineSignal(key="cost_usd", order=None))
 
 
 def _abstained_evidence() -> CombineEvidence:
@@ -159,6 +181,20 @@ def _case(
     return SimpleNamespace(case_id=case_id, operations=tuple(operations))
 
 
+def _trace() -> dict[str, Any]:
+    return {"schema": "screamingface.report-trace.v1", "candidates": []}
+
+
+def _signal_doc(**overrides: Any) -> dict[str, Any]:
+    document: dict[str, Any] = {
+        "weights": "cost_usd",
+        "expression_sha": _SHA,
+        "combines": {"1": json.loads(json.dumps(_priced_evidence().to_dict()))},
+    }
+    document.update(overrides)
+    return document
+
+
 def _golden_doc(**overrides: Any) -> dict[str, Any]:
     document: dict[str, Any] = {
         "schema": REDUCER_GOLDEN_SCHEMA,
@@ -174,6 +210,8 @@ def _golden_doc(**overrides: Any) -> dict[str, Any]:
         "case_statuses": {"1": "scored", "2": "failed"},
         "case_failures": {"2": [{"stage": "candidate", "code": "upstream_error"}]},
         "evidence": {"case_id": "1", "combine": _evidence().to_dict()},
+        "signal_replay": _signal_doc(),
+        "live_traces": {"vote": _trace(), "signal_vote": _trace()},
     }
     document.update(overrides)
     return document
@@ -221,6 +259,17 @@ def test_spec_refuses_unknown_keys_and_is_frozen() -> None:
     spec = ReducerCandidateSpec.model_validate(_spec_doc())
     with pytest.raises(ValidationError):
         spec.samples = 6  # type: ignore[misc]
+
+
+def test_build_with_cost_weights_compiles_a_signal_vote() -> None:
+    plain = ReducerCandidateSpec.model_validate(_spec_doc())
+    weighted = ReducerCandidateSpec.model_validate({**_spec_doc(), "weights": "cost_usd"})
+
+    assert plain.weights is None
+    assert weighted.build().synthesizer == sf.Vote(
+        extract="last_number", normalize="numeric", weights=sf.signal("cost_usd")
+    )
+    assert plain.model_copy(update={"weights": "cost_usd"}) == weighted
 
 
 # -- ReducerGolden ------------------------------------------------------------------
@@ -425,3 +474,79 @@ def test_evidence_lock_wants_the_result_member_to_be_the_chosen_member() -> None
     case.operations = (*case.operations[:-1], synthesis)
     with pytest.raises(AssertionError, match="did not answer"):
         _lock([case])
+
+
+# -- the signal replay lock (SG#15) and the live traces (RT#16) ---------------------
+
+
+def _unpriced_combine() -> dict[str, Any]:
+    return json.loads(json.dumps(_evidence().to_dict()))
+
+
+def test_signal_lock_refuses_an_unpriced_recording() -> None:
+    with pytest.raises(ValidationError, match="priced no call"):
+        SignalReplayLock.model_validate(_signal_doc(combines={"1": _unpriced_combine()}))
+    with pytest.raises(ValidationError, match="priced no call"):
+        SignalReplayLock.model_validate(_signal_doc(combines={}))
+
+
+def test_signal_lock_accepts_a_priced_recording_and_refuses_a_bad_shape() -> None:
+    lock = SignalReplayLock.model_validate(_signal_doc())
+
+    assert lock.weights == "cost_usd"
+    with pytest.raises(ValidationError):
+        SignalReplayLock.model_validate(_signal_doc(weights="latency_ms"))
+    with pytest.raises(ValidationError):
+        SignalReplayLock.model_validate(_signal_doc(expression_sha="not-a-sha"))
+
+
+@pytest.mark.parametrize(
+    "live_traces",
+    [
+        {"vote": _trace()},  # the signal vote's trace is missing
+        {"vote": _trace(), "signal_vote": {"schema": "screamingface.report-trace.v2"}},
+        {"vote": _trace(), "signal_vote": _trace(), "other": _trace()},
+    ],
+    ids=["missing signal_vote", "wrong schema", "unknown key"],
+)
+def test_golden_needs_both_live_traces(live_traces: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        ReducerGolden.model_validate(_golden_doc(live_traces=live_traces))
+
+
+def _signal_golden() -> ReducerGolden:
+    return ReducerGolden.model_validate(_golden_doc())
+
+
+def _signal_case(evidence: CombineEvidence) -> Any:
+    return _case("1", evidence=evidence)
+
+
+def test_assert_signal_replay_accepts_the_same_signals_and_tally() -> None:
+    assert_signal_replay(
+        _signal_golden(), "rendered expression", [_signal_case(_priced_evidence())]
+    )
+
+
+def test_assert_signal_replay_names_a_signal_drift() -> None:
+    drifted = _signal_case(_priced_evidence(member_2_cost=0.003))
+
+    with pytest.raises(AssertionError, match="case '1'.*signals"):
+        assert_signal_replay(_signal_golden(), "rendered expression", [drifted])
+
+
+def test_assert_signal_replay_names_a_tally_drift_and_a_missing_case() -> None:
+    other_pick = CombineEvidence(
+        **{**_evidence_kwargs(), "chosen": ("member_3",), "result": _answered("member_3", "42")}
+    )
+    with pytest.raises(AssertionError, match="case '1'.*more than the signals.*chosen"):
+        assert_signal_replay(_signal_golden(), "rendered expression", [_signal_case(other_pick)])
+    with pytest.raises(AssertionError, match="case '1'.*missing"):
+        assert_signal_replay(_signal_golden(), "rendered expression", [])
+
+
+def test_assert_signal_replay_names_another_url4() -> None:
+    with pytest.raises(AssertionError, match="different url4"):
+        assert_signal_replay(
+            _signal_golden(), "another expression", [_signal_case(_priced_evidence())]
+        )

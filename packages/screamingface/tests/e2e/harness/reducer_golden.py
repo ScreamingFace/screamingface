@@ -8,6 +8,11 @@ a ``GoldenReport`` (``kind: "model"``, with the candidate's route as the one mod
 ``goldens.compare_outcome`` runs them UNCHANGED (it never reads ``kind``). The sixth lock is
 ``assert_evidence_lock``.
 
+Two more claims ride on the same recording (OME-1289 E4a, SG#15 and RT#16). ``SignalReplayLock``
+holds the evidence of a live cost-weighted vote, and ``assert_signal_replay`` demands that the
+cached replay gives the same signals, weights, tally and result (SG-D1). ``live_traces`` holds the
+two live ``report-trace.v1`` documents, which ``replay_trace.trace_drift`` holds to the replay's.
+
 A reducer candidate is not a ``GoldenReport`` candidate (it is a Fusion of N seeded samples with a
 Vote), so the golden carries its own replay input: ``ReducerCandidateSpec``. ``build()`` rebuilds
 the exact candidate the user recorded. The expression sha then proves the rebuild.
@@ -22,15 +27,16 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from screamingface.case_result import CaseStatus
+from screamingface.report_trace import TRACE_SCHEMA
 
-from .goldens import GoldenFailure, GoldenReport
+from .goldens import GoldenFailure, GoldenReport, expression_sha
 
 REDUCER_GOLDEN_SCHEMA: Final = "screamingface.reducer-golden.v1"
 
@@ -40,6 +46,11 @@ _BOARD_REFRESH_ADVICE: Final = re.compile(
     r" — re-bless this golden from its committed snapshot \(`just e2e-refresh-golden [^`]*`\)"
 )
 _MAX_SAMPLES: Final = 256  # sf.samples()'s own bound
+_SIGNAL_KEY: Final = "cost_usd"
+_OPERATION_ID: Final = "op_synthesis_1"
+_PRICED_NOTHING: Final = (
+    "the recording priced no call, so the signal replay (SG#15) would prove nothing"
+)
 
 
 class ReducerCandidateSpec(BaseModel):
@@ -52,14 +63,19 @@ class ReducerCandidateSpec(BaseModel):
     temperature: float | None
     extract: str = Field(min_length=1)
     normalize: str | None
+    weights: Literal["cost_usd"] | None = None
 
     def build(self):  # -> sf.Fusion
-        """Fusion of ``samples`` seeded Models of ``model`` with a ``Vote`` synthesizer."""
+        """Fusion of ``samples`` seeded Models of ``model`` with a ``Vote`` synthesizer.
+
+        ``weights="cost_usd"`` makes it the cost-weighted vote of the SG#15 claim.
+        """
         import screamingface as sf
 
+        weights = None if self.weights is None else sf.signal(self.weights)
         return sf.Fusion(
             list(sf.samples(self.model, self.samples, temperature=self.temperature)),
-            synthesizer=sf.Vote(extract=self.extract, normalize=self.normalize),
+            synthesizer=sf.Vote(extract=self.extract, normalize=self.normalize, weights=weights),
         )
 
 
@@ -71,6 +87,26 @@ class EvidenceLock(BaseModel):
     case_id: str = Field(min_length=1)
     operation_id: str = "op_synthesis_1"
     combine: dict[str, Any]
+
+
+class SignalReplayLock(BaseModel):
+    """SG#15: the live cost-weighted vote's evidence per Case, which the replay must repeat."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    weights: Literal["cost_usd"] = "cost_usd"
+    expression_sha: str = Field(pattern=_SHA256_HEX)
+    combines: dict[str, dict[str, Any]]
+
+    @field_validator("combines")
+    @classmethod
+    def _some_call_was_priced(
+        cls, combines: dict[str, dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        # INVARIANT: a replay can only prove signals if the live run had a price to repeat.
+        if not has_priced_signal(combines):
+            raise ValueError(_PRICED_NOTHING)
+        return combines
 
 
 class ReducerGolden(BaseModel):
@@ -93,6 +129,8 @@ class ReducerGolden(BaseModel):
     case_statuses: dict[str, CaseStatus]
     case_failures: dict[str, tuple[GoldenFailure, ...]] = {}
     evidence: EvidenceLock
+    signal_replay: SignalReplayLock
+    live_traces: dict[Literal["vote", "signal_vote"], dict[str, Any]]
 
     def outcome(self) -> GoldenReport:
         """The five-lock answer sheet, so ``compare_outcome`` runs unchanged."""
@@ -124,6 +162,17 @@ class ReducerGolden(BaseModel):
             raise ValueError(
                 f"evidence pins case {self.evidence.case_id!r} that case_statuses does not list"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _carries_both_live_traces(self) -> ReducerGolden:
+        # INVARIANT: RT#16 compares two replays with two live traces, and each is a trace document.
+        missing = {"vote", "signal_vote"} - set(self.live_traces)
+        if missing:
+            raise ValueError(f"live_traces lacks {', '.join(sorted(missing))}")
+        for name, trace in self.live_traces.items():
+            if trace.get("schema") != TRACE_SCHEMA:
+                raise ValueError(f"live_traces[{name!r}] is not a {TRACE_SCHEMA} document")
         return self
 
 
@@ -216,4 +265,80 @@ def _check_text(operations: dict[str, Any], synthesis: Any, combine: Any) -> Non
         raise AssertionError(
             "the synthesis output is not the chosen member's text verbatim: "
             f"{synthesis.output!r} != {chosen.output!r}"
+        )
+
+
+def has_priced_signal(combines: Mapping[str, Mapping[str, Any]]) -> bool:
+    """True when some member row of some Case holds a real number under ``signals.cost_usd``."""
+    return any(
+        _is_number(row.get("signals", {}).get(_SIGNAL_KEY))
+        for combine in combines.values()
+        for row in combine.get("members", ())
+    )
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def replayed_combines(cases: Sequence[Any]) -> dict[str, dict[str, Any]]:
+    """case id -> the JSON form of the ``op_synthesis_1`` combine evidence (absent when none)."""
+    return {
+        str(case.case_id): json.loads(json.dumps(operation.combine.to_dict()))
+        for case in cases
+        for operation in case.operations or ()
+        if operation.operation_id == _OPERATION_ID and operation.combine is not None
+    }
+
+
+def combines_drift(
+    expected: Mapping[str, Mapping[str, Any]], actual: Mapping[str, Mapping[str, Any]]
+) -> str | None:
+    """Name the first Case whose evidence differs, or None. ``signals`` when only they moved."""
+    for case_id in (*expected, *(key for key in actual if key not in expected)):
+        if expected.get(case_id) != actual.get(case_id):
+            return _describe_drift(case_id, expected.get(case_id), actual.get(case_id))
+    return None
+
+
+def _describe_drift(
+    case_id: str, expected: Mapping[str, Any] | None, actual: Mapping[str, Any] | None
+) -> str:
+    if expected is None or actual is None:
+        where = "recording" if expected is None else "replay"
+        return f"case {case_id!r} is missing from the {where}"
+    if _without_signals(expected) == _without_signals(actual):
+        return (
+            f"case {case_id!r} drifted in signals (recorded, replayed): "
+            f"{_signal_rows(expected)!r} != {_signal_rows(actual)!r}"
+        )
+    keys = sorted(key for key in {*expected, *actual} if expected.get(key) != actual.get(key))
+    return f"case {case_id!r} drifted in more than the signals (differing keys: {', '.join(keys)})"
+
+
+def _signal_rows(combine: Mapping[str, Any]) -> dict[str, tuple[Any, Any]]:
+    return {row["member_id"]: (row["signals"], row["weight"]) for row in combine["members"]}
+
+
+def _without_signals(combine: Mapping[str, Any]) -> dict[str, Any]:
+    members = [
+        {key: value for key, value in row.items() if key not in ("signals", "weight")}
+        for row in combine["members"]
+    ]
+    return {**combine, "members": members}
+
+
+def assert_signal_replay(golden: ReducerGolden, rendered_url4: str, cases: Sequence[Any]) -> None:
+    """SG#15: the cached replay of the cost-weighted vote repeats the live run's evidence.
+
+    Raises ``AssertionError`` naming the first thing that is wrong: the candidate rebuilt another
+    url4, or a Case's signals, weights, tally or result differ from the recorded ones (SG-D1).
+    """
+    lock = golden.signal_replay
+    if expression_sha(rendered_url4) != lock.expression_sha:
+        raise AssertionError("the signal candidate rebuilt a different url4 than the recording")
+    drift = combines_drift(lock.combines, replayed_combines(cases))
+    if drift is not None:
+        raise AssertionError(
+            f"the cached replay's signals or tally differ from the live run's (SG-D1): {drift}"
         )

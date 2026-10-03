@@ -16,18 +16,33 @@ Two steps make them. The first one SPENDS MONEY and is run by the user, never by
     ``benchmarks`` extra, then ``client.connect("openrouter", ...)``, the same path a notebook user
     takes. It refuses before any spend unless the model's ``seed`` parameter is published, enabled
     and not ``unsupported`` by the provider (a vote over unseeded samples counts one cached answer N
-    times). It writes ``<out>/report.json`` (the SDK report), ``<out>/candidate.json`` (the
-    ``ReducerCandidateSpec``), ``<out>/recording.json`` (the requested ``limit``) and
-    ``<out>/cache.sql.gz`` (every cache row the run wrote). The key is
-    read from the environment, handed to the gateway through the connect route, and never written to
-    disk. Needs ``OPENROUTER_API_KEY``, ``SCREAMINGFACE_RECORD_PAID=1`` and a docker daemon. Cost:
-    about ``limit * samples`` short calls (20 * 5 = 100), well under $0.10, 5 to 15 minutes.
+    times). It runs TWO candidates on the same Cases: first the cost-weighted vote
+    (``Vote(..., weights=sf.signal("cost_usd"))``, SG#15), then the plain vote. Their member
+    requests are byte-identical, so the first takes the live misses and the second is served from
+    the live cache: the spend is the plain lane's. It writes seven files into ``<out>``:
+
+        report.json, signals-report.json     the SDK reports of the plain and the signal vote
+        trace.json, signals-trace.json       their live ``report-trace.v1`` documents (RT#16)
+        candidate.json                       the ``ReducerCandidateSpec`` (the plain vote)
+        recording.json                       the requested ``limit`` and the signal key
+        cache.sql.gz                         every cache row the runs wrote
+
+    The cache rows have 13 columns, the gateway's own layout (``CANONICAL_COLUMNS``): the board
+    slices stop at 12, and this lane adds ``metadata_json``. WHY: on a hit the gateway reads the
+    price and the latency of the original call from that column. Without it a replay would give
+    ``cost_usd`` and ``latency_ms`` None, and the signal replay could not hold. ``record`` prints
+    how many rows carry it. The key is read from the environment, handed to the gateway through the
+    connect route, and never written to disk. Needs ``OPENROUTER_API_KEY``,
+    ``SCREAMINGFACE_RECORD_PAID=1`` and a docker daemon. Cost: about ``limit * samples`` short
+    calls (20 * 5 = 100), well under $0.10, 5 to 15 minutes.
 
 ``bless`` (free, docker, keyless)
-    Replays the recording with NO key: the sliced cache goes into a keyless gateway and the same
-    candidate runs on the Engine. It refuses unless the replay reproduces the saved report (same
-    board, url4 expression, case statuses, score, coverage, failure codes and combine evidence) and
-    the evidence lock holds, then writes the
+    Replays the recording with NO key: the sliced cache goes into a keyless gateway and both
+    candidates run on the Engine. It refuses unless the replay reproduces the saved reports (same
+    board, url4 expression, case statuses, score, coverage, failure codes and combine evidence),
+    the cached replay of the signal vote repeats the live signals and tally (SG-D1), the replayed
+    traces differ from the live ones only in model-call accounting (RT-4), and the evidence lock
+    holds. A refusal on SG-D1 or RT-4 is a product defect, not a bad recording. Then it writes the
     three fixture files above. Run ``git add`` on them and commit them in a follow-up commit.
 
 The commands, from ``packages/screamingface`` (the asset preparation downloads GSM8K from Hugging
@@ -89,8 +104,14 @@ from harness.reducer_golden import (  # noqa: E402
     EvidenceLock,
     ReducerCandidateSpec,
     ReducerGolden,
+    SignalReplayLock,
     assert_evidence_lock,
+    assert_signal_replay,
+    combines_drift,
+    has_priced_signal,
+    replayed_combines,
 )
+from harness.replay_trace import trace_drift  # noqa: E402
 
 BOARD = "inspect-gsm8k"
 LANE = "inspect-gsm8k-vote"
@@ -100,7 +121,19 @@ _RECORD_PAID_ENV = "SCREAMINGFACE_RECORD_PAID"
 _KEY_ENV = "OPENROUTER_API_KEY"
 #: Fixed manifest date: committed fixtures carry no wall-clock traces.
 _BLESSED_AT = "2026-10-01"
-_RECORDING_FILES = ("report.json", "candidate.json", "recording.json", "cache.sql.gz")
+#: The signal the cost-weighted vote reads (SG#15). Cost is the one accounting signal that every
+#: replayed call can carry, because it rides on the cache entry metadata (``_COPY_COLUMNS``).
+_SIGNAL = "cost_usd"
+_MAX_DRIFT_PATHS = 5
+_RECORDING_FILES = (
+    "report.json",
+    "signals-report.json",
+    "trace.json",
+    "signals-trace.json",
+    "candidate.json",
+    "recording.json",
+    "cache.sql.gz",
+)
 
 #: The gateway's own 13-column layout (``CANONICAL_COLUMNS``): the board slices stop at 12, and this
 #: lane adds ``metadata_json`` last. WHY: on a cache hit the gateway builds ``cache.reference`` (the
@@ -243,20 +276,31 @@ def _require_seed_support(client: Any, model: str) -> None:
     print(f"[seed] {model}: enabled, provider_support={seed.provider_support}", flush=True)
 
 
-def _record_run(engine_url: str, spec: ReducerCandidateSpec, limit: int) -> Any:
+def _record_run(engine_url: str, spec: ReducerCandidateSpec, limit: int) -> tuple[Any, Any]:
+    """The cost-weighted vote, then the plain vote: ``(signal_report, report)``.
+
+    WHY this order: both candidates send byte-identical member requests (the weights are read after
+    the calls), so the first run takes the live misses and the second is served from the live cache.
+    The spend is the plain lane's. The signal run is the one whose prices are real.
+    """
     import screamingface as sf
 
+    signal_spec = spec.model_copy(update={"weights": _SIGNAL})
     with sf.Client(engine_url=engine_url) as client:
         client.connect("openrouter", api_key=os.environ[_KEY_ENV])
         _require_seed_support(client, spec.model)
         print(f"[record] {spec.samples} samples x {limit} cases of {BOARD}, LIVE", flush=True)
-        return client.evaluate(spec.build(), benchmark=BOARD, limit=limit, progress=False)
+        signal_report = client.evaluate(
+            signal_spec.build(), benchmark=BOARD, limit=limit, progress=False
+        )
+        report = client.evaluate(spec.build(), benchmark=BOARD, limit=limit, progress=False)
+        return signal_report, report
 
 
 def _record_stack(
     spec: ReducerCandidateSpec, limit: int, assets_root: Path, work_dir: Path
-) -> tuple[Any, list[str]]:
-    """Postgres, live gateway, inspect engine; one live run; the cache rows it wrote."""
+) -> tuple[Any, Any, list[str]]:
+    """Postgres, live gateway, inspect engine; the live runs; the cache rows they wrote."""
     backend = CacheSeededGateway(snapshot=Path("unused"), manifest=None, work_dir=work_dir)
     gateway: ManagedProcess | None = None
     engine = InspectEngineProcess(work_dir=work_dir, assets_dir=assets_root)
@@ -264,14 +308,40 @@ def _record_stack(
         database_url = backend._start_postgres()
         backend._migrate(database_url)
         gateway, gateway_url = _start_live_gateway(database_url, work_dir)
-        report = _record_run(engine.start(gateway_url), spec, limit)
+        signal_report, report = _record_run(engine.start(gateway_url), spec, limit)
         rows = _rows(ss._psql(backend._container, _RECORD_SQL))
     finally:
         engine.stop()
         if gateway is not None:
             gateway.stop()
         backend.stop_sync()
-    return report, rows
+    return signal_report, report, rows
+
+
+def _write_trace(path: Path, report: Any) -> None:
+    path.write_text(json.dumps(report.trace_dict(), ensure_ascii=False, indent=2) + "\n")
+
+
+def _write_recording(
+    out: Path, spec: ReducerCandidateSpec, limit: int, reports: tuple[Any, Any], rows: list[str]
+) -> None:
+    """The seven recording files (``_RECORDING_FILES``)."""
+    signal_report, report = reports
+    report.export(out / "report.json")
+    signal_report.export(out / "signals-report.json")
+    # The live traces: `Report` has no loader, so RT#16 needs them saved, not rebuilt.
+    _write_trace(out / "trace.json", report)
+    _write_trace(out / "signals-trace.json", signal_report)
+    (out / "candidate.json").write_text(spec.model_dump_json(indent=2) + "\n")
+    # The requested limit: `bless` replays the same selection and cross-checks it with the report.
+    (out / "recording.json").write_text(json.dumps({"limit": limit, "signal": _SIGNAL}) + "\n")
+    header = [
+        "--",
+        f"-- Raw cache rows recorded for lane '{LANE}' (reducer_lane.py record).",
+        "--",
+        "",
+    ]
+    (out / "cache.sql.gz").write_bytes(ss.snapshot_gzip(_snapshot_text(header, rows)))
 
 
 def record(args: argparse.Namespace) -> None:
@@ -287,18 +357,8 @@ def record(args: argparse.Namespace) -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     work_dir = args.work_dir or args.out / "work"
     work_dir.mkdir(parents=True, exist_ok=True)
-    report, rows = _record_stack(spec, args.limit, assets_root, work_dir)
-    report.export(args.out / "report.json")
-    (args.out / "candidate.json").write_text(spec.model_dump_json(indent=2) + "\n")
-    # The requested limit: `bless` replays the same selection and cross-checks it with the report.
-    (args.out / "recording.json").write_text(json.dumps({"limit": args.limit}) + "\n")
-    header = [
-        "--",
-        f"-- Raw cache rows recorded for lane '{LANE}' (reducer_lane.py record).",
-        "--",
-        "",
-    ]
-    (args.out / "cache.sql.gz").write_bytes(ss.snapshot_gzip(_snapshot_text(header, rows)))
+    signal_report, report, rows = _record_stack(spec, args.limit, assets_root, work_dir)
+    _write_recording(args.out, spec, args.limit, (signal_report, report), rows)
     with_metadata = sum(1 for row in rows if not row.endswith("\\N"))
     print(f"[metadata] rows with metadata_json: {with_metadata}/{len(rows)}", flush=True)
     outcome = report.candidates.only
@@ -322,6 +382,9 @@ class _Recording:
     limit: int
     failures: dict[str, tuple[GoldenFailure, ...]]
     combines: dict[str, dict[str, Any]]
+    signal_facts: Any
+    signal_combines: dict[str, dict[str, Any]]
+    live_traces: dict[str, dict[str, Any]]
 
 
 def _recorded_failures(cases: list[dict[str, Any]]) -> dict[str, tuple[GoldenFailure, ...]]:
@@ -346,25 +409,35 @@ def _recorded_combines(cases: list[dict[str, Any]]) -> dict[str, dict[str, Any]]
     }
 
 
+def _read_json(recording: Path, name: str) -> Any:
+    return json.loads((recording / name).read_text("utf-8"))
+
+
+def _read_report(recording: Path, name: str, limit: int) -> tuple[Any, list[dict[str, Any]]]:
+    """One saved report: its facts and Cases, once it is shown to describe one run of this lane."""
+    raw = _read_json(recording, name)
+    facts = ss.parse_fresh_report(raw)
+    if facts.board != BOARD:
+        raise SystemExit(f"{name} describes board {facts.board!r}, not {BOARD!r}")
+    if facts.kind != "fusion":
+        raise SystemExit(f"{name} records a {facts.kind!r} run; this lane blesses a fusion")
+    if limit != len(facts.case_statuses):
+        raise SystemExit(
+            f"the recording asked for limit {limit} but the report holds "
+            f"{len(facts.case_statuses)} cases ({name}); it does not describe one run"
+        )
+    return facts, raw["candidates"][0]["cases"]
+
+
 def _read_recording(recording: Path) -> _Recording:
     missing = [name for name in _RECORDING_FILES if not (recording / name).is_file()]
     if missing:
         raise SystemExit(
             f"the recording {recording} lacks {', '.join(missing)}: run `record` first"
         )
-    raw = json.loads((recording / "report.json").read_text("utf-8"))
-    facts = ss.parse_fresh_report(raw)
-    if facts.board != BOARD:
-        raise SystemExit(f"the report describes board {facts.board!r}, not {BOARD!r}")
-    if facts.kind != "fusion":
-        raise SystemExit(f"the report records a {facts.kind!r} run; this lane blesses a fusion")
-    limit = json.loads((recording / "recording.json").read_text("utf-8"))["limit"]
-    if limit != len(facts.case_statuses):
-        raise SystemExit(
-            f"the recording asked for limit {limit} but the report holds "
-            f"{len(facts.case_statuses)} cases; it does not describe one run"
-        )
-    cases = raw["candidates"][0]["cases"]
+    limit = _read_json(recording, "recording.json")["limit"]
+    facts, cases = _read_report(recording, "report.json", limit)
+    signal_facts, signal_cases = _read_report(recording, "signals-report.json", limit)
     return _Recording(
         facts=facts,
         spec=ReducerCandidateSpec.model_validate_json(
@@ -374,21 +447,18 @@ def _read_recording(recording: Path) -> _Recording:
         limit=limit,
         failures=_recorded_failures(cases),
         combines=_recorded_combines(cases),
+        signal_facts=signal_facts,
+        signal_combines=_recorded_combines(signal_cases),
+        live_traces={
+            "vote": _read_json(recording, "trace.json"),
+            "signal_vote": _read_json(recording, "signals-trace.json"),
+        },
     )
 
 
 def _refuse(mismatch: bool, message: str) -> None:
     if mismatch:
         raise SystemExit(f"BLESS REFUSED: {message}")
-
-
-def _replayed_combines(cases: Any) -> dict[str, dict[str, Any]]:
-    return {
-        str(case.case_id): json.loads(json.dumps(operation.combine.to_dict()))
-        for case in cases
-        for operation in case.operations or ()
-        if operation.operation_id == _OPERATION_ID and operation.combine is not None
-    }
 
 
 def _refuse_unless_reproduced(report: Any, recording: _Recording) -> dict[str, str]:
@@ -421,15 +491,62 @@ def _refuse_unless_reproduced(report: Any, recording: _Recording) -> dict[str, s
         "the replay's failure codes differ from the saved report's",
     )
     _refuse(
-        _replayed_combines(outcome.cases) != recording.combines,
+        replayed_combines(outcome.cases) != recording.combines,
         "the replay's combine evidence differs from the saved report's",
     )
     return statuses
 
 
+def _refuse_unless_signals_reproduced(signal_report: Any, recording: _Recording) -> None:
+    """SG-D1: the cached replay of the cost-weighted vote repeats the live run's evidence.
+
+    The rules: the url4 is the recorded one, every Case's evidence (signals, weights, tally,
+    result) equals the recorded one, and the live run priced at least one call. A refusal here is a
+    product defect report, not a recording mistake (the hit accounting lost a price).
+    """
+    outcome, facts = signal_report.candidates.only, recording.signal_facts
+    _refuse(
+        str(outcome.url4) != facts.rendered_url4,
+        "the signal replay rendered a different url4 expression than signals-report.json "
+        "recorded; candidate.json does not rebuild the recorded run",
+    )
+    drift = combines_drift(recording.signal_combines, replayed_combines(outcome.cases))
+    _refuse(
+        drift is not None,
+        f"the cached replay's signals or tally differ from the live run's (SG-D1): {drift}",
+    )
+    _refuse(
+        not has_priced_signal(recording.signal_combines),
+        "the recording priced no call (SG#15 would prove nothing)",
+    )
+
+
+def _refuse_unless_traces_match(recording: _Recording, replayed: dict[str, Any]) -> None:
+    """RT-4: each replayed trace differs from its live trace only in model-call accounting."""
+    drift = [
+        f"{name}:{path}"
+        for name in ("vote", "signal_vote")
+        for path in trace_drift(recording.live_traces[name], replayed[name])
+    ]
+    shown = ", ".join(drift[:_MAX_DRIFT_PATHS])
+    _refuse(
+        bool(drift),
+        f"the replay trace drifted outside model-call accounting (RT-4): {len(drift)} "
+        f"{'path' if len(drift) == 1 else 'paths'}, the first {_MAX_DRIFT_PATHS} at most: {shown}",
+    )
+
+
+def _evaluate_both(engine_url: str, recording: _Recording) -> tuple[Any, Any]:
+    """The cost-weighted vote, then the plain one, as ``record`` ran them: ``(signal, plain)``."""
+    signal_spec = recording.spec.model_copy(update={"weights": _SIGNAL})
+    signal_report = ss._evaluate(engine_url, signal_spec.build(), BOARD, recording.limit)
+    report = ss._evaluate(engine_url, recording.spec.build(), BOARD, recording.limit)
+    return signal_report, report
+
+
 def _replay_and_slice(
     recording: _Recording, assets_root: Path, work_dir: Path
-) -> tuple[Any, dict[str, str], list[str]]:
+) -> tuple[Any, Any, dict[str, str], list[str]]:
     """Boot a KEYLESS gateway, seed the recording, replay, verify, and slice what the replay hit."""
     cache = recording.cache
     backend, gateway_url = ss._boot_gateway(argparse.Namespace(dump=cache, work_dir=work_dir))
@@ -440,13 +557,16 @@ def _replay_and_slice(
         engine_url = engine.start(gateway_url)
         # Baseline BEFORE the verified replay, so the slice can observe movement.
         ss._psql(backend._container, ss._BASELINE_SQL)
-        report = ss._evaluate(engine_url, recording.spec.build(), BOARD, recording.limit)
+        signal_report, report = _evaluate_both(engine_url, recording)
         statuses = _refuse_unless_reproduced(report, recording)
+        _refuse_unless_signals_reproduced(signal_report, recording)
+        traces = {"vote": report.trace_dict(), "signal_vote": signal_report.trace_dict()}
+        _refuse_unless_traces_match(recording, traces)
         rows = _rows(ss._psql(backend._container, _SLICE_SQL))
     finally:
         engine.stop()
         backend.stop_sync()
-    return report, statuses, rows
+    return report, signal_report, statuses, rows
 
 
 def _evidence(cases: Any) -> EvidenceLock:
@@ -475,9 +595,10 @@ def _is_answered(operation: Any) -> bool:
 
 
 def _author_golden(
-    report: Any, spec: ReducerCandidateSpec, statuses: dict[str, str], limit: int
+    report: Any, signal_report: Any, recording: _Recording, statuses: dict[str, str]
 ) -> ReducerGolden:
-    outcome = report.candidates.only
+    spec, limit = recording.spec, recording.limit
+    outcome, signal = report.candidates.only, signal_report.candidates.only
     golden = ReducerGolden.model_validate(
         {
             "lane": LANE,
@@ -492,10 +613,16 @@ def _author_golden(
             "case_statuses": statuses,
             "case_failures": failure_map(outcome.cases),
             "evidence": _evidence(outcome.cases),
+            "signal_replay": SignalReplayLock(
+                expression_sha=expression_sha(str(signal.url4)),
+                combines=recording.signal_combines,
+            ),
+            "live_traces": recording.live_traces,
         }
     )
-    # The golden must pass its own lock on the very run it was authored from.
+    # The golden must pass its own locks on the very run it was authored from.
     assert_evidence_lock(golden, outcome.cases)
+    assert_signal_replay(golden, str(signal.url4), signal.cases)
     return golden
 
 
@@ -540,18 +667,19 @@ def bless(args: argparse.Namespace) -> None:
     assets_root = _require_assets()
     work_dir = args.work_dir or args.recording / "bless-work"
     work_dir.mkdir(parents=True, exist_ok=True)
-    report, statuses, rows = _replay_and_slice(recording, assets_root, work_dir)
-    golden = _author_golden(report, recording.spec, statuses, recording.limit)
+    report, signal_report, statuses, rows = _replay_and_slice(recording, assets_root, work_dir)
+    golden = _author_golden(report, signal_report, recording, statuses)
     report_sha = hashlib.sha256((args.recording / "report.json").read_bytes()).hexdigest()
+    signals_sha = hashlib.sha256((args.recording / "signals-report.json").read_bytes()).hexdigest()
     # Provenance rule: sources are described generically plus content shas, never local paths.
     header = [
         "--",
         f"-- Sliced replay fixture for lane '{LANE}' (OME-1289 E4a; see reducer_lane.py).",
         "-- Every row VERBATIM from a recording made through this checkout's gateway",
         f"-- (cache content sha256 {ss._dump_content_sha(recording.cache)}), so the keys are",
-        "-- already this protocol's. The bless proved the replay reproduces the saved SDK report",
-        f"-- (content sha256 {report_sha}): expression, statuses, score, coverage, failures and",
-        "-- combine evidence.",
+        "-- already this protocol's. The bless proved the replay reproduces the saved SDK reports",
+        f"-- (content sha256 {report_sha} and {signals_sha}): expression, statuses, score,",
+        "-- coverage, failures, combine evidence, the cost-weighted signals and the traces.",
         "--",
         "",
     ]

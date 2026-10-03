@@ -32,18 +32,29 @@ from test_reducer_golden_contracts import (
     _case,
     _evidence,
     _evidence_kwargs,
+    _priced_evidence,
     _spec_doc,
+    _trace,
 )
 
 import screamingface as sf
 from screamingface.combine_evidence import CombineEvidence
 
 _URL4 = "(rendered expression)"
+_SIGNAL_URL4 = "(rendered signal expression)"
 _SPEC = ReducerCandidateSpec.model_validate(_spec_doc())
 
 
 def _combine() -> dict[str, Any]:
     return json.loads(json.dumps(_evidence().to_dict()))
+
+
+def _priced_combine(member_2_cost: float = 0.002) -> dict[str, Any]:
+    return json.loads(json.dumps(_priced_evidence(member_2_cost).to_dict()))
+
+
+def _live_traces() -> dict[str, Any]:
+    return {"vote": _trace(), "signal_vote": _trace()}
 
 
 def _recording(**overrides: Any) -> Any:
@@ -62,6 +73,16 @@ def _recording(**overrides: Any) -> Any:
         "limit": 2,
         "failures": {"2": (GoldenFailure(stage="candidate", code="upstream_error"),)},
         "combines": {"1": _combine()},
+        "signal_facts": SimpleNamespace(
+            board="inspect-gsm8k",
+            kind="fusion",
+            rendered_url4=_SIGNAL_URL4,
+            expected_score=0.5,
+            expected_coverage=0.5,
+            case_statuses={"1": "scored", "2": "failed"},
+        ),
+        "signal_combines": {"1": _priced_combine()},
+        "live_traces": _live_traces(),
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -79,6 +100,7 @@ def _report(
     score: float | None = 0.5,
     coverage: float = 0.5,
     cases: list[Any] | None = None,
+    trace: dict[str, Any] | None = None,
 ) -> Any:
     scored = _case("1")
     scored.status, scored.failures = "scored", ()
@@ -88,7 +110,18 @@ def _report(
     return SimpleNamespace(
         benchmark=SimpleNamespace(id=board, revision="rev-1"),
         candidates=SimpleNamespace(only=outcome),
+        trace_dict=lambda: _trace() if trace is None else trace,
     )
+
+
+def _priced_case(member_2_cost: float = 0.002) -> Any:
+    priced = _case("1", evidence=_priced_evidence(member_2_cost))
+    priced.status, priced.failures = "scored", ()
+    return priced
+
+
+def _signal_report(member_2_cost: float = 0.002, *, url4: str = _SIGNAL_URL4) -> Any:
+    return _report(url4=url4, cases=[_priced_case(member_2_cost), _failed_case()])
 
 
 # -- bless: the replay must reproduce the saved report ------------------------------
@@ -147,17 +180,92 @@ def test_a_replay_that_lost_the_combine_evidence_refuses_the_bless() -> None:
         reducer_lane._refuse_unless_reproduced(_report(cases=[bare, _failed_case()]), _recording())
 
 
+def test_a_reproducing_signal_replay_is_accepted() -> None:
+    reducer_lane._refuse_unless_signals_reproduced(_signal_report(), _recording())
+
+
+def test_a_replay_with_other_signals_refuses_the_bless() -> None:
+    drifted = _signal_report(member_2_cost=0.003)
+
+    with pytest.raises(SystemExit, match=r"BLESS REFUSED.*SG-D1.*case '1'.*signals"):
+        reducer_lane._refuse_unless_signals_reproduced(drifted, _recording())
+
+
+def test_a_signal_replay_of_another_expression_refuses_the_bless() -> None:
+    with pytest.raises(SystemExit, match="BLESS REFUSED.*different url4"):
+        reducer_lane._refuse_unless_signals_reproduced(
+            _signal_report(url4="(another expression)"), _recording()
+        )
+
+
+def test_a_recording_that_priced_no_call_refuses_the_bless() -> None:
+    unpriced = _report(url4=_SIGNAL_URL4)
+    recording = _recording(signal_combines={"1": _combine()})
+
+    with pytest.raises(SystemExit, match=r"BLESS REFUSED.*priced no call \(SG#15"):
+        reducer_lane._refuse_unless_signals_reproduced(unpriced, recording)
+
+
+def _extract_trace(value: str) -> dict[str, Any]:
+    entry = {"kind": "extract", "operation_id": "op_synthesis_1", "value": value}
+    case = {"case_id": 1, "entries": [entry, *({"kind": "budget", "n": n} for n in range(6))]}
+    return {**_trace(), "candidates": [{"candidate": "vote", "cases": [case]}]}
+
+
+def test_matching_traces_are_accepted() -> None:
+    recording = _recording(live_traces={"vote": _extract_trace("42"), "signal_vote": _trace()})
+
+    reducer_lane._refuse_unless_traces_match(
+        recording, {"vote": _extract_trace("42"), "signal_vote": _trace()}
+    )
+
+
+def test_a_trace_drift_refuses_the_bless() -> None:
+    recording = _recording(live_traces={"vote": _extract_trace("42"), "signal_vote": _trace()})
+    replayed = {"vote": _extract_trace("41"), "signal_vote": _trace()}
+    path = "candidates[0].cases[0].entries[0].value"
+
+    with pytest.raises(SystemExit, match=rf"BLESS REFUSED.*RT-4.*{re.escape(path)}"):
+        reducer_lane._refuse_unless_traces_match(recording, replayed)
+
+
+def test_a_trace_drift_lists_at_most_five_paths_and_counts_the_rest() -> None:
+    live = {"vote": _extract_trace("42"), "signal_vote": _trace()}
+    wide = _extract_trace("41")
+    wide["candidates"][0]["cases"][0]["entries"][1:] = [
+        {"kind": "budget", "n": n + 1} for n in range(6)
+    ]
+    recording = _recording(live_traces=live)
+
+    with pytest.raises(SystemExit) as refused:
+        reducer_lane._refuse_unless_traces_match(recording, {"vote": wide, "signal_vote": _trace()})
+
+    message = str(refused.value)
+    assert message.count("candidates[0]") == 5
+    assert "7 paths" in message
+
+
 # -- bless: the recording must describe one run of this lane ------------------------
 
 
-def _raw_report(*, kind: str = "fusion", board: str = "inspect-gsm8k") -> dict[str, Any]:
+def _raw_report(
+    *,
+    kind: str = "fusion",
+    board: str = "inspect-gsm8k",
+    url4: str = _URL4,
+    combine: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     scored = {
         "case_id": 1,
         "status": "scored",
         "failures": [],
         "operations": [
             {"operation_id": "op_model_1", "output": "so 41"},
-            {"operation_id": "op_synthesis_1", "output": "so 42", "combine": _combine()},
+            {
+                "operation_id": "op_synthesis_1",
+                "output": "so 42",
+                "combine": _combine() if combine is None else combine,
+            },
         ],
     }
     failed = {
@@ -167,7 +275,7 @@ def _raw_report(*, kind: str = "fusion", board: str = "inspect-gsm8k") -> dict[s
     }
     candidate = {
         "kind": kind,
-        "url4": _URL4,
+        "url4": url4,
         "score": 0.5,
         "coverage": 0.5,
         "cases": [scored, failed],
@@ -179,10 +287,16 @@ def _raw_report(*, kind: str = "fusion", board: str = "inspect-gsm8k") -> dict[s
     }
 
 
-def _write_recording(root: Path, *, limit: int = 2, **report_options: Any) -> Path:
+def _write_recording(
+    root: Path, *, limit: int = 2, signal_kind: str = "fusion", **report_options: Any
+) -> Path:
+    signal = _raw_report(kind=signal_kind, url4=_SIGNAL_URL4, combine=_priced_combine())
     (root / "report.json").write_text(json.dumps(_raw_report(**report_options)))
+    (root / "signals-report.json").write_text(json.dumps(signal))
+    (root / "trace.json").write_text(json.dumps(_trace()))
+    (root / "signals-trace.json").write_text(json.dumps(_trace()))
     (root / "candidate.json").write_text(_SPEC.model_dump_json())
-    (root / "recording.json").write_text(json.dumps({"limit": limit}))
+    (root / "recording.json").write_text(json.dumps({"limit": limit, "signal": "cost_usd"}))
     (root / "cache.sql.gz").write_bytes(b"")
     return root
 
@@ -194,7 +308,11 @@ def test_a_recording_is_read_with_its_failures_combines_and_limit(tmp_path: Path
     assert recording.spec == _SPEC
     assert recording.failures == _recording().failures
     assert recording.combines == {"1": _combine()}
+    assert recording.signal_combines == {"1": _priced_combine()}
+    assert recording.signal_facts.rendered_url4 == _SIGNAL_URL4
+    assert recording.live_traces == _live_traces()
     # And it is exactly what a reproducing replay is compared with.
+    reducer_lane._refuse_unless_signals_reproduced(_signal_report(), recording)
     assert reducer_lane._refuse_unless_reproduced(_report(), recording) == {
         "1": "scored",
         "2": "failed",
@@ -207,6 +325,7 @@ def test_a_recording_is_read_with_its_failures_combines_and_limit(tmp_path: Path
         ({"board": "ifeval"}, "not 'inspect-gsm8k'"),
         ({"kind": "model"}, "this lane blesses a fusion"),
         ({"limit": 20}, "limit 20 but the report holds 2 cases"),
+        ({"signal_kind": "model"}, "this lane blesses a fusion"),
     ],
 )
 def test_a_recording_of_another_run_is_refused(
@@ -216,12 +335,27 @@ def test_a_recording_of_another_run_is_refused(
         reducer_lane._read_recording(_write_recording(tmp_path, **options))
 
 
-def test_an_incomplete_recording_is_refused_naming_the_missing_files(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", reducer_lane._RECORDING_FILES)
+def test_an_incomplete_recording_is_refused_naming_the_missing_files(
+    tmp_path: Path, name: str
+) -> None:
     _write_recording(tmp_path)
-    (tmp_path / "recording.json").unlink()
+    (tmp_path / name).unlink()
 
-    with pytest.raises(SystemExit, match="lacks recording.json"):
+    with pytest.raises(SystemExit, match=f"lacks {name}"):
         reducer_lane._read_recording(tmp_path)
+
+
+def test_a_recording_holds_the_seven_files_of_the_signal_and_plain_runs() -> None:
+    assert set(reducer_lane._RECORDING_FILES) == {
+        "report.json",
+        "signals-report.json",
+        "trace.json",
+        "signals-trace.json",
+        "candidate.json",
+        "recording.json",
+        "cache.sql.gz",
+    }
 
 
 # -- bless: the pinned evidence and the golden --------------------------------------
@@ -252,7 +386,7 @@ def test_a_run_without_combine_evidence_refuses_the_bless() -> None:
 def test_the_authored_golden_holds_the_five_locks_and_the_evidence() -> None:
     statuses = {"1": "scored", "2": "failed"}
 
-    golden = reducer_lane._author_golden(_report(), _SPEC, statuses, limit=2)
+    golden = reducer_lane._author_golden(_report(), _signal_report(), _recording(), statuses)
 
     assert golden.lane == "inspect-gsm8k-vote"
     assert (golden.board, golden.revision, golden.limit) == ("inspect-gsm8k", "rev-1", 2)
@@ -263,6 +397,9 @@ def test_the_authored_golden_holds_the_five_locks_and_the_evidence() -> None:
         ("candidate", "upstream_error")
     ]
     assert golden.evidence.case_id == "1"
+    assert golden.signal_replay.expression_sha == expression_sha(_SIGNAL_URL4)
+    assert golden.signal_replay.combines == {"1": _priced_combine()}
+    assert golden.live_traces == _live_traces()
 
 
 # -- record: every spend refusal comes before any spend -----------------------------
@@ -319,6 +456,7 @@ class _FakeClient:
     def __init__(self, parameters: dict[str, Any]) -> None:
         self._parameters = parameters
         self.calls = []
+        self.candidates: list[Any] = []
         self.models = SimpleNamespace(get=self._get)
 
     def _get(self, model: str) -> Any:
@@ -328,9 +466,10 @@ class _FakeClient:
     def connect(self, *args: Any, **kwargs: Any) -> None:
         self.calls.append("connect")
 
-    def evaluate(self, *args: Any, **kwargs: Any) -> str:
+    def evaluate(self, candidate: Any, *args: Any, **kwargs: Any) -> str:
         self.calls.append("evaluate")
-        return "report"
+        self.candidates.append(candidate)
+        return f"report-{len(self.candidates)}"
 
     def __enter__(self) -> _FakeClient:
         return self
@@ -377,7 +516,64 @@ def test_a_model_with_a_usable_seed_reaches_the_live_run(monkeypatch: pytest.Mon
     # The control of the test above: the fake does let a seed-capable model through.
     fake = _record_with(monkeypatch, {"seed": _seed()})
 
-    assert fake.calls == ["connect", "models.get", "evaluate"]
+    assert fake.calls == ["connect", "models.get", "evaluate", "evaluate"]
+
+
+def test_record_runs_the_signal_vote_first_and_the_plain_vote_second(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeClient({"seed": _seed()})
+    monkeypatch.setattr(sf, "Client", lambda **kwargs: fake)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "placeholder-not-a-key")
+
+    reports = reducer_lane._record_run("http://engine.invalid", _SPEC, 2)
+
+    signal_vote = sf.Vote(extract="last_number", normalize="numeric", weights=sf.signal("cost_usd"))
+    plain_vote = sf.Vote(extract="last_number", normalize="numeric")
+    assert [candidate.synthesizer for candidate in fake.candidates] == [signal_vote, plain_vote]
+    # Same members, so the plain vote's requests are the signal vote's, served from the live cache.
+    assert fake.candidates[0].members == fake.candidates[1].members
+    assert reports == ("report-1", "report-2")
+
+
+class _FakeReport:
+    """The three things ``record`` reads off a live report."""
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self.candidates = SimpleNamespace(only=SimpleNamespace(score=0.5, coverage=0.5))
+
+    def export(self, path: Path) -> None:
+        Path(path).write_text(json.dumps({"label": self.label}))
+
+    def trace_dict(self) -> dict[str, Any]:
+        return {"schema": "screamingface.report-trace.v1", "label": self.label}
+
+
+def test_record_writes_the_seven_recording_files(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(reducer_lane, "_require_paid_gate", lambda: None)
+    monkeypatch.setattr(reducer_lane, "_require_assets", lambda: tmp_path)
+    stacked = (_FakeReport("signal"), _FakeReport("plain"), ["row"])
+    monkeypatch.setattr(reducer_lane, "_record_stack", lambda *args: stacked)
+    out = tmp_path / "out"
+    args = reducer_lane._parse_args(["record", "--model", "openrouter/x/y", "--out", str(out)])
+
+    args.run(args)
+
+    written = {path.name for path in out.iterdir() if path.is_file()}
+    assert written == set(reducer_lane._RECORDING_FILES)
+
+    def read(name: str) -> dict[str, Any]:
+        return json.loads((out / name).read_text("utf-8"))
+
+    assert read("report.json") == {"label": "plain"}
+    assert read("signals-report.json") == {"label": "signal"}
+    assert read("trace.json")["label"] == "plain"
+    assert read("signals-trace.json")["label"] == "signal"
+    assert read("recording.json") == {"limit": 20, "signal": "cost_usd"}
+    assert read("candidate.json")["weights"] is None
 
 
 # -- the replay snapshots carry the cache entry metadata (F4) -----------------------
