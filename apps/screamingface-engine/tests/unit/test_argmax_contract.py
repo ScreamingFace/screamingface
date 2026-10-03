@@ -19,8 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _signal_world import run_candidate
-from test_signal_vote_replay import _operation
+from _signal_world import operation, run_candidate
 
 _CANDIDATE = (
     (Path(__file__).parent / "data" / "combine_contract" / "argmax_cost_candidate.url4")
@@ -38,7 +37,7 @@ _MODELS = {
 
 
 def _assert_cheapest_member(record: dict[str, Any]) -> None:
-    synthesis = _operation(record, "op_synthesis_1")
+    synthesis = operation(record, "op_synthesis_1")
     combine = synthesis["combine"]
     assert synthesis["output"] == "B"
     assert (combine["kind"], combine["reducer"]) == ("answer", "pick")
@@ -62,12 +61,12 @@ async def test_sdk_argmax_by_cost_runs_and_replays_from_cache() -> None:
     _assert_cheapest_member(first)
     _assert_cheapest_member(second)
     assert (
-        _operation(first, "op_synthesis_1")["combine"]
-        == _operation(second, "op_synthesis_1")["combine"]
+        operation(first, "op_synthesis_1")["combine"]
+        == operation(second, "op_synthesis_1")["combine"]
     )
     # The retained accounting keeps its own truth (a hit costs nothing now), which proves the
     # costs above came from the cache reference and not from this run's accounting.
-    miss_cost = _operation(first, "op_model_2")["accounting"]["usage"]["cost_usd"]
-    hit_cost = _operation(second, "op_model_2")["accounting"]["usage"]["cost_usd"]
+    miss_cost = operation(first, "op_model_2")["accounting"]["usage"]["cost_usd"]
+    hit_cost = operation(second, "op_model_2")["accounting"]["usage"]["cost_usd"]
     assert hit_cost == "0"
     assert miss_cost != hit_cost

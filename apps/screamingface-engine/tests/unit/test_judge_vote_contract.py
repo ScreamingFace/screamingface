@@ -21,6 +21,7 @@ from typing import Any
 
 import httpx
 import pytest
+from _signal_world import operation
 from test_samples_seed_contract import _wrapped_candidate
 
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
@@ -84,15 +85,11 @@ async def _run() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return bodies, record
 
 
-def _operation(record: dict[str, Any], operation_id: str) -> dict[str, Any]:
-    return next(op for op in record["operations"] if op["operation_id"] == operation_id)
-
-
 @pytest.mark.asyncio
 async def test_sdk_judge_weighted_vote_runs_in_the_engine_world() -> None:
     bodies, record = await _run()
 
-    synthesis = _operation(record, "op_synthesis_1")
+    synthesis = operation(record, "op_synthesis_1")
     assert synthesis["output"] == "beta says 7"
     combine = synthesis["combine"]
     tally = [(row["value"], row["score"], row["holders"]) for row in combine["tally"]]
@@ -107,7 +104,7 @@ async def test_sdk_judge_weighted_vote_runs_in_the_engine_world() -> None:
     assert combine["judge"] is None
     assert combine["presentation_order"] == "author"
     assert combine["chosen"] == ["member_2"]
-    assert _operation(record, "op_judge_1")["output"] == _ANSWERS["prov/judge"]
+    assert operation(record, "op_judge_1")["output"] == _ANSWERS["prov/judge"]
     # one judge call, and the attribution param never reaches the gateway
     judge_calls = [body for body in bodies if body["model"] == "prov/judge"]
     assert len(judge_calls) == 1

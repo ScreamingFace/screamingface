@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _signal_world import run_candidate
+from _signal_world import operation, run_candidate
 
 _CANDIDATE = (
     (Path(__file__).parent / "data" / "combine_contract" / "signal_vote_candidate.url4")
@@ -33,13 +33,9 @@ _MODELS = {
 }
 
 
-def _operation(record: dict[str, Any], operation_id: str) -> dict[str, Any]:
-    return next(op for op in record["operations"] if op["operation_id"] == operation_id)
-
-
 def _assert_cost_vote(record: dict[str, Any]) -> None:
-    combine = _operation(record, "op_synthesis_1")["combine"]
-    assert _operation(record, "op_synthesis_1")["output"] == "A"
+    combine = operation(record, "op_synthesis_1")["combine"]
+    assert operation(record, "op_synthesis_1")["output"] == "A"
     assert combine["signal"] == {"key": "cost_usd", "order": None}
     assert [member["signals"] for member in combine["members"]] == [
         {"cost_usd": 0.004},
@@ -66,12 +62,12 @@ async def test_signal_reduce_replays_identically_from_cache() -> None:
     _assert_cost_vote(first)
     _assert_cost_vote(second)
     assert (
-        _operation(first, "op_synthesis_1")["combine"]
-        == _operation(second, "op_synthesis_1")["combine"]
+        operation(first, "op_synthesis_1")["combine"]
+        == operation(second, "op_synthesis_1")["combine"]
     )
     # The retained accounting keeps its own truth (a hit costs nothing now), which proves the
     # signals above came from the cache reference and not from this run's accounting.
-    miss_cost = _operation(first, "op_model_1")["accounting"]["usage"]["cost_usd"]
-    hit_cost = _operation(second, "op_model_1")["accounting"]["usage"]["cost_usd"]
+    miss_cost = operation(first, "op_model_1")["accounting"]["usage"]["cost_usd"]
+    hit_cost = operation(second, "op_model_1")["accounting"]["usage"]["cost_usd"]
     assert hit_cost == "0"
     assert miss_cost != hit_cost

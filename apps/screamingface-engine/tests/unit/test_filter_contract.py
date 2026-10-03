@@ -16,15 +16,11 @@ run by design (units 1, 3 and 10E deliver the behavior). The world runner is
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-import _signal_world
-import httpx
 import pytest
-from _signal_world import run_candidate
-from test_signal_vote_replay import _operation
+from _signal_world import operation, run_candidate
 
 _CANDIDATE = (
     (Path(__file__).parent / "data" / "combine_contract" / "filter_pipeline_candidate.url4")
@@ -44,31 +40,11 @@ _MODELS = {
 }
 
 
-def _recording(
-    seen: list[dict[str, Any]], gateway: Callable[..., Callable[[httpx.Request], httpx.Response]]
-) -> Callable[..., Callable[[httpx.Request], httpx.Response]]:
-    def build(
-        models: Mapping[str, tuple[str, str]], cache: str
-    ) -> Callable[[httpx.Request], httpx.Response]:
-        handle = gateway(models, cache)
-
-        def record(request: httpx.Request) -> httpx.Response:
-            seen.append(json.loads(request.content))
-            return handle(request)
-
-        return record
-
-    return build
-
-
 @pytest.mark.asyncio
-async def test_sdk_filter_pipeline_runs_and_the_writer_sees_only_the_kept_members(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_sdk_filter_pipeline_runs_and_the_writer_sees_only_the_kept_members() -> None:
     seen: list[dict[str, Any]] = []
-    monkeypatch.setattr(_signal_world, "_gateway", _recording(seen, _signal_world._gateway))
 
-    record = await run_candidate(_CANDIDATE, _MODELS, "miss")
+    record = await run_candidate(_CANDIDATE, _MODELS, "miss", on_request=seen.append)
 
     assert record["status"] == "completed"
     assert record["output"] == "final"
@@ -90,7 +66,7 @@ async def test_sdk_filter_pipeline_runs_and_the_writer_sees_only_the_kept_member
     for dropped in ("prov/beta", "prov/delta"):
         assert _REPLIES[dropped] not in envelope
 
-    combine = _operation(record, "op_synthesis_1")["combine"]
+    combine = operation(record, "op_synthesis_1")["combine"]
     assert (combine["kind"], combine["reducer"]) == ("selection", "filter")
     assert combine["chosen"] == ["member_1", "member_3"]
     # 10E F6: a voter's pass mark is 1.0 (kept) or 0.0 (dropped)

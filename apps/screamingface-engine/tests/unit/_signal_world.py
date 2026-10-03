@@ -61,10 +61,15 @@ def _body(content: str, cost: str, cache: str) -> dict[str, Any]:
 
 
 def _gateway(
-    models: Mapping[str, tuple[str, str]], cache: str
+    models: Mapping[str, tuple[str, str]],
+    cache: str,
+    on_request: Callable[[dict[str, Any]], None] | None = None,
 ) -> Callable[[httpx.Request], httpx.Response]:
     def handle(request: httpx.Request) -> httpx.Response:
-        content, cost = models[json.loads(request.content)["model"]]
+        sent = json.loads(request.content)
+        if on_request is not None:
+            on_request(sent)
+        content, cost = models[sent["model"]]
         return httpx.Response(
             200, headers={"X-AIGW-Cache": cache}, json=_body(content, cost, cache)
         )
@@ -72,13 +77,26 @@ def _gateway(
     return handle
 
 
+def operation(record: dict[str, Any], operation_id: str) -> dict[str, Any]:
+    """The operation ``operation_id`` of a run record."""
+
+    return next(op for op in record["operations"] if op["operation_id"] == operation_id)
+
+
 async def run_candidate(
-    candidate: str, models: Mapping[str, tuple[str, str]], cache: str
+    candidate: str,
+    models: Mapping[str, tuple[str, str]],
+    cache: str,
+    on_request: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Run ``candidate`` once and return the run record (``operations`` and the rest)."""
+    """Run ``candidate`` once and return the run record (``operations`` and the rest).
+
+    ``on_request`` sees the JSON body of every gateway request, in call order.
+    """
 
     client = httpx.AsyncClient(
-        transport=httpx.MockTransport(_gateway(models, cache)), base_url="http://aigateway.test"
+        transport=httpx.MockTransport(_gateway(models, cache, on_request)),
+        base_url="http://aigateway.test",
     )
     world = await build_aigateway_world(
         AigatewayConfig(
