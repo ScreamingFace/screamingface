@@ -173,10 +173,13 @@ def _candidate_result(
             failures=failures,
             usage=outcome.root_usage or Usage(),
             run_cost_status=_run_cost_status(outcome),
-            # OME-1326: the REPORTED sum only, the same one the status above reads. Never the
-            # archive sum, and never the two added (OME-1251 D3).
+            # OME-1326: the REPORTED sum, the one the local status above reads.
             cache_saved_cost_usd=outcome.cache_saved_cost_usd,
             cache_hits=outcome.cache_hits,
+            # OME-1463 (D7 reverses D3): the archive sum travels too, still never added to the
+            # reported one or to the spend; the board sums the parts.
+            cache_saved_cost_archive_usd=outcome.cache_saved_cost_archive_usd,
+            cache_unpriced_hits=outcome.cache_unpriced_hits,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"SF Engine Candidate result is invalid: {exc}") from exc
@@ -185,12 +188,11 @@ def _candidate_result(
 def _run_cost_status(outcome: _RunOutcome) -> RunCostStatus:
     """What this run's cost is worth, per `OME-1251` D4.
 
-    INVARIANT: `partial` is decided by the REPORTED sum alone. `archive_matched` money is a real
-    amount measured from a different call of the same model and kind, not from this row, and
-    `OME-1251` D3 decided it is not published. A run whose only evidence is archive-matched has
-    nothing publishable about its own cost, so it is `unavailable` — not `partial`.
+    INVARIANT (OME-1463, D7 on `OME-1251`, superseding D3): `partial` means an unpriced spend with
+    cache saving evidence, REPORTED or ARCHIVE-matched. Archive money is a real amount measured
+    from a paired call of the same model and kind; D7 publishes it, so it counts as evidence.
 
-    INVARIANT: the two sums are never added. url4 keeps them as two differently-named fields
+    INVARIANT: the two sums are never added here. url4 keeps them as two differently-named fields
     "precisely so the two can never be summed — a single amount plus a label invites a consumer
     to add the labels away" (PRD S5), and the engine carries a structural test forbidding a third
     accumulator. Doing it here would defeat both.
@@ -201,7 +203,10 @@ def _run_cost_status(outcome: _RunOutcome) -> RunCostStatus:
     usage = outcome.root_usage
     if usage is not None and usage.cost_usd is not None:
         return "complete"
-    if outcome.cache_saved_cost_usd is not None:
+    # OME-1463 (D7 reverses D3): archive-matched money is published now, so it is saving evidence
+    # too. An unpriced run with only an archive saving is `partial`, never `unavailable`: the
+    # board refuses `unavailable` beside either saving.
+    if outcome.cache_saved_cost_usd is not None or outcome.cache_saved_cost_archive_usd is not None:
         return "partial"
     return "unavailable"
 
