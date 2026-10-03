@@ -33,7 +33,12 @@ from pydantic import ValidationError
 
 import screamingface as sf
 from screamingface.case_result import CaseOperation
-from screamingface.combine_evidence import CombineEvidence, CombineMemberReading, CombineTallyRow
+from screamingface.combine_evidence import (
+    CombineAnswerRow,
+    CombineEvidence,
+    CombineResult,
+    CombineTallyRow,
+)
 
 _SHA = hashlib.sha256(b"rendered expression").hexdigest()
 _ANSWERS = ["so 41", "so 42", "so 42", "so 42", "so 40"]
@@ -49,21 +54,28 @@ def _spec_doc() -> dict[str, Any]:
     }
 
 
+def _row(index: int, value: str) -> CombineAnswerRow:
+    return CombineAnswerRow(
+        member_id=f"member_{index}",
+        raw=value,
+        value=value,
+        status="answered",
+        reason=None,
+        signals={},
+    )
+
+
+def _answered(member_id: str, value: str) -> CombineResult:
+    return CombineResult(member_id=member_id, value=value, status="answered", reason=None)
+
+
 def _evidence(agreement: float = 0.6) -> CombineEvidence:
     """A real vote over the five answers above: member_2 holds the most common value first."""
     return CombineEvidence(
         kind="answer",
         reducer="vote",
         operators=("last_number@1", "numeric@1", "mode@1", "first_holder@1"),
-        members=[
-            CombineMemberReading(
-                member=f"member_{index}",
-                raw=text.split()[-1],
-                value=text.split()[-1],
-                status="voted",
-            )
-            for index, text in enumerate(_ANSWERS, start=1)
-        ],
+        members=[_row(index, text.split()[-1]) for index, text in enumerate(_ANSWERS, start=1)],
         tally=[
             CombineTallyRow(value="42", score=3.0, holders=("member_2", "member_3", "member_4")),
             CombineTallyRow(value="41", score=1.0, holders=("member_1",)),
@@ -73,6 +85,8 @@ def _evidence(agreement: float = 0.6) -> CombineEvidence:
         built=False,
         tie=False,
         agreement=agreement,
+        result=_answered("member_2", "42"),
+        dropped=0,
         finish_reason="stop",
     )
 
@@ -89,6 +103,8 @@ def _evidence_kwargs() -> dict[str, Any]:
         "built": base.built,
         "tie": base.tie,
         "agreement": base.agreement,
+        "result": base.result,
+        "dropped": base.dropped,
         "finish_reason": base.finish_reason,
     }
 
@@ -129,7 +145,7 @@ def _golden_doc(**overrides: Any) -> dict[str, Any]:
         "case_count": 2,
         "gradeable_count": 1,
         "case_statuses": {"1": "scored", "2": "failed"},
-        "case_failures": {"2": [{"stage": "candidate", "code": "combine_no_votes"}]},
+        "case_failures": {"2": [{"stage": "candidate", "code": "upstream_error"}]},
         "evidence": {"case_id": "1", "combine": _evidence().to_dict()},
     }
     document.update(overrides)
@@ -198,7 +214,7 @@ def test_golden_validates_and_maps_to_a_golden_report() -> None:
     assert {
         case: [(f.stage, f.code) for f in entries]
         for case, entries in outcome.case_failures.items()
-    } == {"2": [("candidate", "combine_no_votes")]}
+    } == {"2": [("candidate", "upstream_error")]}
 
 
 def _actual(**overrides: Any) -> ActualOutcome:
@@ -307,14 +323,13 @@ def test_evidence_lock_wants_one_reading_per_sample() -> None:
         kind="answer",
         reducer="vote",
         operators=("last_number@1",),
-        members=[
-            CombineMemberReading(member=f"member_{i}", raw="1", value="1", status="voted")
-            for i in range(1, 5)
-        ],
+        members=[_row(i, "1") for i in range(1, 5)],
         chosen=("member_1",),
         built=False,
         tie=False,
         agreement=1.0,
+        result=_answered("member_1", "1"),
+        dropped=0,
         finish_reason="stop",
     )
     golden = ReducerGolden.model_validate(
@@ -339,7 +354,8 @@ def test_evidence_lock_wants_the_synthesis_to_be_the_chosen_members_text_verbati
 
 
 def test_evidence_lock_names_a_vote_that_chose_no_member() -> None:
-    empty = CombineEvidence(**{**_evidence_kwargs(), "chosen": ()})
+    built = CombineResult(member_id=None, value="42", status="answered", reason=None)
+    empty = CombineEvidence(**{**_evidence_kwargs(), "chosen": (), "built": True, "result": built})
     golden = ReducerGolden.model_validate(
         _golden_doc(evidence={"case_id": "1", "combine": empty.to_dict()})
     )

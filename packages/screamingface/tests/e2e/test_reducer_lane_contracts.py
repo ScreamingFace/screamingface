@@ -23,7 +23,13 @@ import pytest
 from fixtures import reducer_lane
 from harness.goldens import GoldenFailure, canonical_score, expression_sha
 from harness.reducer_golden import ReducerCandidateSpec
-from test_reducer_golden_contracts import _case, _evidence, _evidence_kwargs, _spec_doc
+from test_reducer_golden_contracts import (
+    _answered,
+    _case,
+    _evidence,
+    _evidence_kwargs,
+    _spec_doc,
+)
 
 import screamingface as sf
 from screamingface.combine_evidence import CombineEvidence
@@ -50,7 +56,7 @@ def _recording(**overrides: Any) -> Any:
         "spec": _SPEC,
         "cache": Path("cache.sql.gz"),
         "limit": 2,
-        "failures": {"2": (GoldenFailure(stage="candidate", code="combine_no_votes"),)},
+        "failures": {"2": (GoldenFailure(stage="candidate", code="upstream_error"),)},
         "combines": {"1": _combine()},
     }
     values.update(overrides)
@@ -58,7 +64,7 @@ def _recording(**overrides: Any) -> Any:
 
 
 def _failed_case() -> Any:
-    failure = SimpleNamespace(stage="candidate", code="combine_no_votes")
+    failure = SimpleNamespace(stage="candidate", code="upstream_error")
     return SimpleNamespace(case_id="2", status="failed", operations=None, failures=(failure,))
 
 
@@ -92,14 +98,15 @@ def test_a_reproducing_replay_is_accepted_and_its_statuses_returned() -> None:
 
 
 def _scored_case(chosen: tuple[str, ...] = ("member_2",)) -> Any:
-    evidence = CombineEvidence(**{**_evidence_kwargs(), "chosen": chosen})
+    result = _answered(chosen[0], "42")
+    evidence = CombineEvidence(**{**_evidence_kwargs(), "chosen": chosen, "result": result})
     scored = _case("1", evidence=evidence)
     scored.status, scored.failures = "scored", ()
     return scored
 
 
 def _other_failure_case() -> Any:
-    failure = SimpleNamespace(stage="candidate", code="upstream_error")
+    failure = SimpleNamespace(stage="candidate", code="combine_spec_invalid")
     return SimpleNamespace(case_id="2", status="failed", operations=None, failures=(failure,))
 
 
@@ -152,7 +159,7 @@ def _raw_report(*, kind: str = "fusion", board: str = "inspect-gsm8k") -> dict[s
     failed = {
         "case_id": 2,
         "status": "failed",
-        "failures": [{"stage": "candidate", "code": "combine_no_votes", "message": "no votes"}],
+        "failures": [{"stage": "candidate", "code": "upstream_error", "message": "no votes"}],
     }
     candidate = {
         "kind": kind,
@@ -241,7 +248,7 @@ def test_the_authored_golden_holds_the_five_locks_and_the_evidence() -> None:
     assert golden.final_score == canonical_score(0.5) == "0.5"
     assert (golden.case_count, golden.gradeable_count) == (2, 1)
     assert [(f.stage, f.code) for f in golden.case_failures["2"]] == [
-        ("candidate", "combine_no_votes")
+        ("candidate", "upstream_error")
     ]
     assert golden.evidence.case_id == "1"
 
