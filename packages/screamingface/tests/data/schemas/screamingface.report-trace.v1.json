@@ -1,0 +1,58 @@
+{
+  "candidate": [
+    "candidate",
+    "cases"
+  ],
+  "case": [
+    "case_id",
+    "entries"
+  ],
+  "document": [
+    "schema",
+    "candidates"
+  ],
+  "kinds": {
+    "budget": [
+      "event",
+      "operation_id",
+      "member_id",
+      "stage",
+      "amount",
+      "estimated",
+      "source",
+      "remaining_after"
+    ],
+    "extract": [
+      "operation_id",
+      "member_id",
+      "rule",
+      "raw",
+      "value",
+      "status",
+      "reason"
+    ],
+    "model_call": [
+      "operation_id",
+      "member_id",
+      "provider",
+      "model",
+      "cache",
+      "cost_usd",
+      "latency_ms",
+      "tokens_in",
+      "tokens_out",
+      "status"
+    ],
+    "reduce": [
+      "operation_id",
+      "op",
+      "rule",
+      "mode",
+      "tally",
+      "chosen",
+      "signal",
+      "result",
+      "dropped"
+    ]
+  }
+}

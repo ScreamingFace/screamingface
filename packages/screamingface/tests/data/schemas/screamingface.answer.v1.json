@@ -1,0 +1,38 @@
+{
+  "abstain_reason": [
+    "cut_not_met",
+    "no_votes"
+  ],
+  "fields": [
+    "member_id",
+    "text",
+    "raw",
+    "value",
+    "status",
+    "reason",
+    "signals"
+  ],
+  "member_status": [
+    "answered",
+    "fail"
+  ],
+  "reason": [
+    "cut_not_met",
+    "empty",
+    "field_missing",
+    "no_match",
+    "no_votes",
+    "not_json",
+    "not_numeric",
+    "too_large"
+  ],
+  "signal_order": [
+    "max",
+    "min"
+  ],
+  "status": [
+    "abstain",
+    "answered",
+    "fail"
+  ]
+}

@@ -15,6 +15,8 @@ from typing import Literal, get_args
 
 from screamingface._report_primitives import _optional_number
 
+# Not in ``__all__``: the schema id of the frozen field set, not public surface.
+ANSWER_SCHEMA = "screamingface.answer.v1"
 type AnswerStatus = Literal["answered", "abstain", "fail"]
 type MemberStatus = Literal["answered", "fail"]
 type AbstainReason = Literal["no_votes", "cut_not_met"]
