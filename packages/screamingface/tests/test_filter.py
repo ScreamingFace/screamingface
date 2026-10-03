@@ -600,3 +600,19 @@ def test_a_filter_evidence_case_decodes_with_answers_and_a_select_trace() -> Non
         "order": None,
         "values": {"member_1": 0.9, "member_2": 0.2, "member_3": None},
     }
+
+
+def test_equal_comparisons_compile_to_equal_bytes_for_a_negative_zero() -> None:
+    """GE21: -0.0 == 0.0 in Python, so they must be one predicate with one set of bytes."""
+
+    negative, positive = _CONFIDENCE >= -0.0, _CONFIDENCE >= 0.0
+
+    assert negative == positive
+    assert hash(negative) == hash(positive)
+    assert _url4(sf.Filter(where=negative)) == _url4(sf.Filter(where=positive))  # type: ignore[arg-type]
+    assert '"value":0.0' in combine_spec_text(
+        sf.Filter(where=negative),  # type: ignore[arg-type]
+        member_count=3,
+        operators=flow_operators(),
+    )
+    assert negative.value == 0.0 and str(negative.value) == "0.0"  # type: ignore[union-attr]

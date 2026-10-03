@@ -63,6 +63,9 @@ class Signal:
     def _python(self) -> str:
         return f"sf.signal({self.key!r})"
 
+    # AIDEV-NOTE: ``x in seq`` and ``seq.index(x)`` raise TypeError when ``seq`` holds a Signal and
+    # ``x`` is a number or a bool (``1 in [s]``): the equality returns a predicate, and its truth
+    # value is refused. No SDK path does this (every option validator type-checks first).
     # WHY the operators build predicates (unit 4 F13, FL-D2): ``sf.signal(key) >= 0.6`` is an
     # sf.Filter predicate. ``Signal == Signal`` stays a plain bool (BK-D4), so equality and the hash
     # are explicit and the dataclass eq is off. The overrides return a predicate, not a bool, on
@@ -168,7 +171,8 @@ def _finite(value: float) -> float:
         number = math.inf
     if not math.isfinite(number):
         raise ValueError("sf.signal comparison value must be finite")
-    return number
+    # WHY + 0.0: -0.0 == 0.0 in Python but they render as different JSON, so they must be one value
+    return number + 0.0
 
 
 def _rejection(key: str) -> str:
