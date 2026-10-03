@@ -9,7 +9,6 @@ INVARIANT: the url4 pins the rule's operator ids, so a replay never looks the ru
 from __future__ import annotations
 
 import copy
-from collections.abc import Callable
 from typing import Any, NoReturn
 
 import httpx
@@ -30,7 +29,7 @@ from _vote_run_fixtures import (
     engine_handler,
     spec_of,
 )
-from test_client_run import _engine, _ForbiddenTransport
+from test_client_run import _ForbiddenTransport
 
 import screamingface as sf
 from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
@@ -230,16 +229,10 @@ def test_engine_without_inspect_operators_raises_capability_error(
     assert transport.called is False
 
 
-def _record_paths(paths: list[str]) -> Callable[[httpx.Request], httpx.Response]:
-    def record(request: httpx.Request) -> httpx.Response:
-        paths.append(request.url.path)
-        return _engine(request)
-
-    return record
-
-
 def test_resolved_url4_replays_without_benchmark_lookup() -> None:
     # GP#14: a guard. A url4 replay never recompiles, so it is green as soon as the rule is pinned.
+    # Unit 12: a replay of a combine url4 asks for the operator catalog once (to check the pinned
+    # operators before it spends), and never for the benchmark.
     first = ScriptedTransport(_GSM8K, "fixture-revision", _one_case)
     with sf.Client(
         engine_url="https://engine.example",
@@ -255,12 +248,13 @@ def test_resolved_url4_replays_without_benchmark_lookup() -> None:
     replay_paths: list[str] = []
     with sf.Client(
         engine_url="https://engine.example",
-        http_transport=httpx.MockTransport(_record_paths(replay_paths)),
+        http_transport=_gsm8k_engine(replay_paths),
         run_transport=replay,
     ) as client:
         client.evaluate(url4, progress=False)
 
-    assert not [p for p in replay_paths if p.startswith("/v1/benchmarks") or p == "/v1/operators"]
+    assert not [p for p in replay_paths if p.startswith("/v1/benchmarks")]
+    assert replay_paths.count("/v1/operators") == 1
     assert replay.candidate is not None
     assert replay.candidate.url4 == url4
     namespace: dict[str, Any] = {}

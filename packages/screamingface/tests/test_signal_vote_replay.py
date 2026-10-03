@@ -3,7 +3,8 @@
 FEATURE: ``sf.Vote(weights=sf.signal("cost_usd"))`` compiles to a url4 that holds everything the
 Engine needs: the spec and the combine context `sources`.
 STORY: as a researcher, I replay a recorded run from its url4 and the SDK asks the Engine for no
-catalog and no benchmark again.
+benchmark again. It asks for the operator catalog once, to check the pinned operators before it
+spends (unit 12), and the run is the same.
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ from typing import Any
 import httpx
 from _combine_contract import GSM8K_RULE_WIRE, engine_operators
 from _vote_run_fixtures import ScriptedTransport, benchmark_resource, case_wire, engine_handler
-from test_client_run import _engine
 from test_engine_url4_contract_fixtures import signal_vote_url4
 from url4 import build, render
 
@@ -23,7 +23,7 @@ from screamingface._evaluation.model import Candidate
 from screamingface.url4 import _candidate_expression
 
 _GSM8K = "inspect-gsm8k"
-_CATALOG = ("/v1/operators", "/v1/benchmarks")
+_BENCHMARKS = "/v1/benchmarks"
 
 
 def _vote() -> sf.Fusion:
@@ -39,10 +39,11 @@ def _one_case(candidate: Candidate) -> list[dict[str, Any]]:
 
 
 def _replay_handler(paths: list[str]) -> Any:
+    engine = engine_handler(paths, resources={})
+
     def handle(request: httpx.Request) -> httpx.Response:
-        paths.append(request.url.path)
-        assert not request.url.path.startswith(_CATALOG), "a replay asked for the catalog"
-        return _engine(request)
+        assert not request.url.path.startswith(_BENCHMARKS), "a replay asked for the benchmark"
+        return engine(request)
 
     return handle
 
@@ -72,7 +73,8 @@ def test_signal_reduce_replays_identically_from_cache() -> None:
     ) as client:
         client.evaluate(url4, progress=False)
 
-    assert not [path for path in paths if path.startswith(_CATALOG)]
+    assert not [path for path in paths if path.startswith(_BENCHMARKS)]
+    assert paths.count("/v1/operators") == 1
     assert replay.candidate is not None
     assert replay.candidate.url4 == url4
     namespace: dict[str, Any] = {}
