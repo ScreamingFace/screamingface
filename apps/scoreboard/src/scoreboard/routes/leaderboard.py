@@ -23,6 +23,7 @@ from scoreboard.scores.frontier import (
 )
 from scoreboard.scores.models import Benchmark
 from scoreboard.scores.pareto import compute_pareto_frontier_ids
+from scoreboard.scores.reproduction_cost import reproduction_cost
 from scoreboard.scores.schemas import (
     Authors,
     BaselineSchema,
@@ -207,7 +208,12 @@ def _history_submission(score: ScoreSchema) -> HistorySubmission:
         submitted_by=score.submitted_by,
         authors=score.authors,
         verified_by_screamingface=score.verified_by_screamingface,
-        run_cost_usd=score.run_cost_usd,
+        run_cost_usd=reproduction_cost(
+            score.run_cost_usd,
+            score.run_cost_status,
+            score.cache_saved_cost_usd,
+            score.cache_saved_cost_archive_usd,
+        ),
     )
 
 
