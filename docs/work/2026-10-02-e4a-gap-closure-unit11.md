@@ -12,7 +12,7 @@ finished: 2026-10-02
 
 Fold the e2e replay lane (`e4a-e2e-replay`) into the gap-closure stack. The branch is rebased onto
 `e4a-rank-concat-sdk`. Three rows land on top of the EV-10 and EV-12 lane: FR#13 (a GSM8K Fusion
-regression lane, byte for byte), SG#15 (a cost-weighted vote replayed from cache gives the same
+regression lane: the same url4, outputs and request body digests), SG#15 (a cost-weighted vote replayed from cache gives the same
 signals and tally) and RT#16 (the cached replay's trace differs from the live trace only in
 model-call accounting). The paid recordings are made later by the user. Until then every e2e replay
 test SKIPS loudly. No source file changes: this unit is tests, harness, fixtures, CI and docs.
@@ -119,9 +119,13 @@ Deviations from the spec:
 - D3 (DRY) `reducer_lane._refuse_unless_board_reproduced` is the first six checks of
   `_refuse_unless_reproduced`, and `_write_fixtures` takes `lane` and `golden_kind`, so the fusion lane
   reuses both. `replayed_combines` moved to `reducer_golden.py` (the lane and the golden share it).
+  The review fix round went further: `rl._record_stack(assets_root, work_dir, run)` is the one boot
+  for both record lanes, `rl._read_report` reads a saved report for both, `load_golden` and
+  `lane_remediation` serve both golden models, `assert_outputs` serves both the golden check and the
+  bless refusal, and `harness/benchmark_assets.py` holds the assets root.
 - D4 `_author_golden(report, signal_report, recording, statuses)` has a new signature,
   `_record_run` returns `(signal_report, report)` and `_record_stack` returns
-  `(signal_report, report, rows)`. The tests that called the old forms were changed in place.
+  `((signal_report, report), rows)`. The tests that called the old forms were changed in place.
 - D5 (Commit I) the script, its read and CLI parts and the contract tests were written together.
   Only the two refusal functions were stubbed (RED). For the other rows, each of 10 mutations of
   `fusion_lane.py` (no missing-file check, no board check, no kind check, no limit check, no seed
@@ -131,6 +135,18 @@ Deviations from the spec:
 - D7 the engine venv had lost its extras after a plain `uv sync`, which made pyright fail on
   `tests/unit/inspect/test_combine_grader_parity.py` (missing `inspect_ai`). `uv sync --offline
   --extra benchmarks` restored it, and the engine gates are green.
+
+## Review fix round
+
+- M4 KNOWN GAP: the lanes prove SG-D1 end to end for `cost_usd` only. `metadata_json` also carries
+  latency and tokens, but no candidate reads `latency_ms` or the token signals. The comments in
+  `reducer_lane.py` say so.
+- N1 CHOICE: the exception is recorded, `observed_at` is not normalized. `metadata_json` is TEXT, a
+  jsonb round trip rewrites its bytes, and the SQL cannot be tried before a recording exists. Bless
+  compares neither the evidence nor the trace rule against `cache.observed_at`.
+- N3 RISK: `trace_drift` matches Cases by index, so Cases returned in completion order would make a
+  correct replay fail at `case_id`.
+- N4: `body_digests` is a canonical JSON digest (parsed and re-encoded), not a digest of wire bytes.
 
 ## Recording the lanes
 
@@ -143,6 +159,9 @@ From `packages/screamingface`, after the assets are prepared once:
     --root ~/.screamingface/benchmark-assets --bundle inspect-gsm8k)
 export OPENROUTER_API_KEY=...  SCREAMINGFACE_RECORD_PAID=1
 ```
+
+COST: use a cheap flash-tier model that accepts `seed`. With a frontier model the lane costs more
+than $0.10. The vote lane makes about 100 live misses, and the Fusion lane about 25.
 
 EV-12 (the vote lane; SG#15 and RT#16 ride on it). `record` now runs the cost-weighted vote FIRST,
 then the plain vote (same member requests, so the same spend), and writes 7 files: `report.json`,
