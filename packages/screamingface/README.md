@@ -239,8 +239,8 @@ A call that sets its own `seed` keeps it, and a run seed (`answer_seed=`, one "s
 evaluation) only applies to calls without one. So `sf.samples()` members, and any
 `sf.Model(params={"seed": ...})`, send the same requests in every sitting, and a mean and
 confidence interval across sittings would look tighter than the model really is. When a run seed is
-set and a Recipe or a replayed URL4 has such calls, the SDK emits `sf.FixedSeedSittingWarning` before the run starts,
-naming the calls, and then runs as usual. If you already pass different `seeds=` to `sf.samples()` in
+set and a Recipe or a replayed URL4 has such calls, the SDK emits `sf.FixedSeedSittingWarning`
+before the run starts, naming the calls, and then runs as usual. If you already pass different `seeds=` to `sf.samples()` in
 each sitting, the warning is expected, and you can silence it:
 
 ```python
@@ -326,7 +326,7 @@ by_median = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number", selec
 The combine step makes no model call. The answer is one member's text byte for byte, or the median
 number itself for `select="value"`. A tie goes to the first member in author order and sets `tie`.
 A member with no usable value does not vote. When no member votes, the Case abstains: its output is
-`""`, its score is 0.0 and `case.abstained` is true. It does not fail. An abstained Case scores 0.0.
+`""`, its score is 0.0 and `case.abstained` is true. It does not fail.
 On HealthBench a harmful answer can score below 0, so an abstain can rank above a bad answer; this
 is intended. Only the final step of a Candidate can mark a Case as abstained: a combine step that
 feeds another stage (a Rank or a Filter) never does.
@@ -345,10 +345,10 @@ A benchmark with no answer rule raises `ValueError` before any spend. For a rule
 **Regex patterns.** `sf.Extract("regex", pattern=...)` and `sf.matches(pattern)` run on RE2 in the
 Engine. RE2 has no lookarounds and no backreferences. `\d` and `\w` match ASCII only: use `\p{L}` and
 `\p{N}` for Unicode letters and digits. `$` is the end of the text, so write `\s*$` to allow a
-trailing newline. The repeat limit is 1000. The SDK checks the pattern before any spend, and it is a
-little stricter than RE2 for `\Q...\E`, `\C`, `\x{...}` and POSIX `[[:class:]]`. The Engine compile is
-authoritative: a pattern that the SDK accepts and RE2 refuses fails the Case with
-`combine_spec_invalid`.
+trailing newline. The repeat limit is 1000. The Engine refuses a compiled program over 5000
+instructions. The SDK checks the pattern before any spend, and it is a little stricter than RE2 for
+`\Q...\E`, `\C`, `\x{...}` and POSIX `[[:class:]]`. The Engine compile is authoritative: a pattern
+that the SDK accepts and RE2 refuses fails the Case with `combine_spec_invalid`.
 
 The evidence (the Answer row per member, the tally, the result, the agreement and the chosen member)
 is in the `combine` field of each case's `operations` entry (`op_synthesis_1` for a single reducer).
@@ -407,7 +407,8 @@ its own calls, use `sf.samples()` (a different `seed` for each member).
 
 A cached replay reads each call's original cost, latency and tokens, so it gives the same signals
 and the same tally. A fresh live rerun can give a different `latency_ms` (and a different cost, if
-prices changed).
+prices changed). Only `cost_usd` is proven end to end by the paid replay lane. `latency_ms`,
+`tokens_in` and `tokens_out` are carried by the cache metadata and covered by unit tests only.
 
 ### Judge synthesizer
 
@@ -620,8 +621,8 @@ field path like `score` or `result.score[0]`). The next stage receives this JSON
 `{"selected":[{"id":"member_2","text":"..."},{"id":"member_4","text":"..."}]}`. A tie at the cut
 goes to the earlier member, and the evidence sets `tie`. `k` is from 1 to 256 and must not be more
 than the number of members. If fewer than `k` members have a usable score, the combine step
-abstains with `cut_not_met`, and the next stage gets an empty text. The judge call and the scores of all the members stay in the report
-(`op_judge_1` and the `combine` evidence), also for the members that do not continue. A judge reply
+abstains with `cut_not_met`, and the next stage gets an empty text. The judge call and the scores
+of all the members stay in the report (`op_judge_1` and the `combine` evidence), also for the members that do not continue. A judge reply
 that is not valid fails the Case with `judge_reply_invalid`, as for `sf.Judge`.
 
 `sf.Concat(separator="\n\n---\n\n", label=True)` makes no model call. With `label=True`, each part
@@ -682,8 +683,9 @@ checked = sf.Filter(where=sf.matches("yes"), extract=sf.Extract("field", path="v
 `sf.signal(key)` compares with `>`, `>=`, `<`, `<=` and `==`. The number must be finite. There is
 no `!=`, and no `and` or `or`: a Filter has one test. `sf.signal(key) == sf.signal(key)` stays a
 plain `bool`, and a comparison is not a `bool` (`if sf.signal("cost_usd") < 1:` raises
-`TypeError`). A threshold is stored as a float, so `1` and `1.0` are one test. `sf.signal("field:x") == True` also passes a member whose number is `1.0`, because a
-signal holds a float. A member with no value for the signal, or that failed to answer, is dropped.
+`TypeError`). A threshold is stored as a float, so `1` and `1.0` are one test.
+`sf.signal("field:x") == True` also passes a member whose number is `1.0`, because a signal holds a
+float. A member with no value for the signal, or that failed to answer, is dropped.
 An accounting key (`cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`) reads the model calls of
 each member, and `sf.signal("score:judge")` is refused. A regex reads the original text of the
 member, never the extracted answer. `extract=` reads each answer first: a member whose answer
