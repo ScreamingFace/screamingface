@@ -205,6 +205,22 @@ def test_charges_sum_exactly_in_decimal() -> None:
         BudgetState.model_validate_json(tampered)
 
 
+@pytest.mark.parametrize(
+    "bad", [float("nan"), float("inf"), float("-inf")], ids=["nan", "inf", "-inf"]
+)
+def test_a_non_finite_number_is_unpriced_never_an_error(bad: float) -> None:
+    # erd I-S2: NaN and +-inf are "unknown" for every signal, so the call is unpriced.
+    assert charge(SignalAccounting(cost_usd=bad), "usd", cached=False) == (None, "unpriced")
+    for pair in ((bad, 30.0), (120.0, bad)):
+        signals = SignalAccounting(tokens_in=pair[0], tokens_out=pair[1])
+        assert charge(signals, "tokens", cached=True) == (None, "unpriced")
+
+    state = _spend(_start(cap=0.01), 0.002, bad)
+
+    assert state.charges[1].source == "unpriced"
+    assert state.spent == 0.002 and state.unpriced_charges == 1
+
+
 def test_charge_returns_an_exact_decimal() -> None:
     amount, source = charge(_usd(0.1), "usd", cached=False)
 

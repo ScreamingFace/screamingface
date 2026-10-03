@@ -8,6 +8,7 @@ unpriced, never zero. AIDEV-NOTE: E4a declares no Budget on any request and writ
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Sequence
 from decimal import Decimal, localcontext
@@ -197,12 +198,12 @@ def charge(
 
 
 def _amount(signals: SignalAccounting, unit: BudgetUnit) -> Decimal | None:
-    if unit == "usd":
-        return None if signals.cost_usd is None else _decimal(signals.cost_usd)
-    if signals.tokens_in is None or signals.tokens_out is None:
+    # erd I-S2: a NaN or infinite number is unknown, so the call is unpriced (None), never an error.
+    numbers = (signals.cost_usd,) if unit == "usd" else (signals.tokens_in, signals.tokens_out)
+    if not all(number is not None and math.isfinite(number) for number in numbers):
         return None
     with localcontext(DECIMAL_CONTEXT):
-        return _decimal(signals.tokens_in) + _decimal(signals.tokens_out)
+        return sum((_decimal(number) for number in numbers if number is not None), Decimal(0))
 
 
 def budget_schemas() -> dict[str, dict[str, Any]]:
