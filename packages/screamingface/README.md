@@ -326,7 +326,10 @@ by_median = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number", selec
 The combine step makes no model call. The answer is one member's text byte for byte, or the median
 number itself for `select="value"`. A tie goes to the first member in author order and sets `tie`.
 A member with no usable value does not vote. When no member votes, the Case abstains: its output is
-`""`, its score is 0.0 and `case.abstained` is true. It does not fail.
+`""`, its score is 0.0 and `case.abstained` is true. It does not fail. An abstained Case scores 0.0.
+On HealthBench a harmful answer can score below 0, so an abstain can rank above a bad answer; this
+is intended. Only the final step of a Candidate can mark a Case as abstained: a combine step that
+feeds another stage (a Rank or a Filter) never does.
 
 To group answers the way the benchmark grades them, let the benchmark choose the extract rule. The
 SDK reads the rule from the benchmark before any spend:
@@ -339,10 +342,20 @@ report = client.evaluate(by_grader, benchmark="inspect-gsm8k")
 A benchmark with no answer rule raises `ValueError` before any spend. For a rule with arguments, use
 `sf.Reduce("plurality", extract=sf.Extract("regex", pattern=...))`.
 
+**Regex patterns.** `sf.Extract("regex", pattern=...)` and `sf.matches(pattern)` run on RE2 in the
+Engine. RE2 has no lookarounds and no backreferences. `\d` and `\w` match ASCII only: use `\p{L}` and
+`\p{N}` for Unicode letters and digits. `$` is the end of the text, so write `\s*$` to allow a
+trailing newline. The repeat limit is 1000. The SDK checks the pattern before any spend, and it is a
+little stricter than RE2 for `\Q...\E`, `\C`, `\x{...}` and POSIX `[[:class:]]`. The Engine compile is
+authoritative: a pattern that the SDK accepts and RE2 refuses fails the Case with
+`combine_spec_invalid`.
+
 The evidence (the Answer row per member, the tally, the result, the agreement and the chosen member)
 is in the `combine` field of each case's `operations` entry (`op_synthesis_1` for a single reducer).
 `case.answers()` joins each member's text to its Answer. `case.trace()` and `report.trace_dict()`
-show what each block did, in order. This needs an Engine that serves `GET /v1/operators`.
+show what each block did, in order. `report.trace_dict()` is `screamingface.report-trace.v1`, and
+`report.to_dict()` and `report.export()` stay `report.v1`. This needs an Engine that serves
+`GET /v1/operators`.
 
 Give a vote weights to make some members count more. A list gives each member a fixed weight, one
 positive number per member in author order. A `sf.signal` weighs each member by a number on its own
@@ -391,6 +404,10 @@ that a later stage or another Fusion also calls), the Engine cannot tell the cal
 members have no accounting value and do not vote. This also holds in a corrective loop with
 `max_rounds` of 2 or more, where every round sends the member's calls again. To give each member
 its own calls, use `sf.samples()` (a different `seed` for each member).
+
+A cached replay reads each call's original cost, latency and tokens, so it gives the same signals
+and the same tally. A fresh live rerun can give a different `latency_ms` (and a different cost, if
+prices changed).
 
 ### Judge synthesizer
 
@@ -443,7 +460,9 @@ several rubrics: `sf.Reduce("judge", judge=j, rubric="Prefer the shortest correc
 **A judge-weighted vote.** A judge that returns scores can also weigh a vote. Each answer scores the
 sum of the judge scores of the members who gave it. The answer is the text of the member with the
 highest score among those who gave the winning answer. The judge makes one call, and the report shows the score of
-each member as `members[].signals["score:judge"]` and `weight`.
+each member as `members[].signals["score:judge"]` and `weight`. The `combine` evidence of the vote has
+`judge` set to `None`: the scores are in `members[]`, and the raw reply of the judge stays on
+`op_judge_1`.
 
 ```python
 weighted = sf.Fusion(
@@ -470,7 +489,10 @@ weighted_block = sf.Fusion(
 The weights and the judge must go together. `weights=sf.signal("score:judge")` without a judge, a
 judge without that weight, or a judge that returns labels each raise `ValueError` when the vote is
 built, before any call is paid (the Engine reads `score:judge` strictly, so a lone half would fail
-after the member calls). A judge that is not an `sf.Judge` raises `TypeError`.
+after the member calls). A judge that is not an `sf.Judge` raises `TypeError`. The same strict read
+applies to the reply: a malformed or too large reply, a `NaN` or an infinite score fails the Case
+with `judge_reply_invalid`. It never counts as "no weight", which would hide the defect behind an
+abstain.
 
 ### Pick and merge JSON fields
 
@@ -544,8 +566,9 @@ in sorted key order. Each field has one rule:
 
 A member whose reply is not a JSON object is skipped, and the report shows the status `not_json`.
 A field with a JSON `null` value counts as absent. If no member gives a usable value for a
-`majority`, `max` or `union` field, or no member is usable at all, the case fails with
-`combine_no_votes`. The report shows the value of each member for each field and the result.
+`majority`, `max` or `union` field, or no member is usable at all, the combine step abstains with
+`no_votes`. A `from_member` field that is `null`, and the empty text of a writer, are values and never
+cause an abstain. The report shows the value of each member for each field and the result.
 The evidence of a Merge holds the JSON object that each member gave (in `raw` and `value`), for the
 projection step and for the final merge step. A member that replies with large JSON makes a large report.
 
@@ -596,8 +619,8 @@ joined = sf.Fusion(routes, synthesizer=sf.Concat(separator="\n\n---\n\n", label=
 field path like `score` or `result.score[0]`). The next stage receives this JSON, best member first:
 `{"selected":[{"id":"member_2","text":"..."},{"id":"member_4","text":"..."}]}`. A tie at the cut
 goes to the earlier member, and the evidence sets `tie`. `k` is from 1 to 256 and must not be more
-than the number of members. If fewer than `k` members have a usable score, the Case fails with
-`combine_no_votes`. The judge call and the scores of all the members stay in the report
+than the number of members. If fewer than `k` members have a usable score, the combine step
+abstains with `cut_not_met`, and the next stage gets an empty text. The judge call and the scores of all the members stay in the report
 (`op_judge_1` and the `combine` evidence), also for the members that do not continue. A judge reply
 that is not valid fails the Case with `judge_reply_invalid`, as for `sf.Judge`.
 
@@ -659,15 +682,16 @@ checked = sf.Filter(where=sf.matches("yes"), extract=sf.Extract("field", path="v
 `sf.signal(key)` compares with `>`, `>=`, `<`, `<=` and `==`. The number must be finite. There is
 no `!=`, and no `and` or `or`: a Filter has one test. `sf.signal(key) == sf.signal(key)` stays a
 plain `bool`, and a comparison is not a `bool` (`if sf.signal("cost_usd") < 1:` raises
-`TypeError`). `sf.signal("field:x") == True` also passes a member whose number is `1.0`, because a
+`TypeError`). A threshold is stored as a float, so `1` and `1.0` are one test. `sf.signal("field:x") == True` also passes a member whose number is `1.0`, because a
 signal holds a float. A member with no value for the signal, or that failed to answer, is dropped.
 An accounting key (`cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`) reads the model calls of
 each member, and `sf.signal("score:judge")` is refused. A regex reads the original text of the
 member, never the extracted answer. `extract=` reads each answer first: a member whose answer
 cannot be read is dropped, and the report shows the value it read.
 
-A Filter that keeps no member abstains: the Case reports `abstained`, and the next stage gets an
-empty text. The report shows a pass mark in
+A Filter that keeps no member abstains: its `combine` evidence has the result `abstain` with the
+reason `no_votes`, and the next stage gets an empty text. (The Case is not marked `abstained`, because
+a Filter is never the final step.) The report shows a pass mark in
 `members[].score` of the `combine` evidence: `1.0` when the member is kept, `0.0` when it is
 dropped, and `None` when the member failed to answer. The block form is
 `sf.Reduce("filter", where=..., extract=...)`. The place rules of "Rank and Concat selections" apply
