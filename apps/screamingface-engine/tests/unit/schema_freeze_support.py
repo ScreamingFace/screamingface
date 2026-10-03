@@ -2,6 +2,9 @@
 
 Test-only. One JSON file per schema id holds the pinned ``model_json_schema()`` of the wire model
 that carries that id. A change to the schema with the same id is refused: bump the id to ``v2``.
+
+AIDEV-NOTE: the freeze pins the JSON Schema text only. A validator-rule change under the same id (a
+``model_validator`` that the schema cannot show) is not caught, so a reviewer must check it by hand.
 """
 
 from __future__ import annotations

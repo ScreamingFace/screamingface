@@ -3,6 +3,9 @@
 One JSON file per schema id holds the pinned field set of the SDK records that carry that id. A
 change with the same id is refused: bump the id to ``v2``. The same contract as the Engine's
 ``schema_freeze_support.check_frozen`` (two separate packages, so two small copies).
+
+AIDEV-NOTE: the freeze pins the field names and vocabularies only. A validator-rule or field-type
+change under the same id is not caught, so a reviewer must check it by hand.
 """
 
 from __future__ import annotations
