@@ -68,7 +68,9 @@ list; the shape does not change with the count).
 - **FL-D3** Envelope size `[existing E/combine/endpoint.py:279]` (M×L): the 8 MiB output cap applies; a
   too-large envelope fails the Case with `combine_input_too_large`.
 - **FL-D4** Determinism (M×L): order is author order, never dict order.
-- **FL-D5** Regex safety (H×M): `sf.matches` uses the `regex@1` ban and window (RX-D1, RX-D2).
+- **FL-D5** Regex safety (H×M): `sf.matches` uses the `regex@1` RE2 compile, program-size cap and
+  window (RX-D1, RX-D2; the static ban was replaced by RE2, ans:Q17). The pattern reads the member's
+  original text, not the extracted value; `extract=` only decides which members vote (GE31).
 
 ## 4. Non-functional requirements
 
