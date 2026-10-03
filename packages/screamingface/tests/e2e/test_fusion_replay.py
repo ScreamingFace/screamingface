@@ -1,7 +1,7 @@
 """The GSM8K Fusion regression lane, from recorded responses (OME-1289 E4a, FR#13).
 
 The claim: the rewritten ``sf.Fusion`` (a Fan-out, a context Reduce, then a Model) sends the same
-requests and gives the same answers as the recording, BYTE FOR BYTE. Two Fusion shapes are replayed
+requests and gives the same answers as the recording. Two Fusion shapes are replayed
 (``model_synthesizer`` and ``recipe_synthesizer``, see ``harness.fusion_golden``), each as the named
 ``sf.Fusion`` and as its block form ``sf.Pipeline([sf.Fusion(members, synthesizer=sf.Reduce(
 "context")), S])`` (FR-2). Every run goes through the real engine and the real gateway whose only
@@ -9,8 +9,8 @@ answers come from the lane's cache snapshot, with a capture proxy between them s
 ``/chat/completions`` request body is pinned too. Free and keyless.
 
 Each run is held to the golden of its shape: the five locks of ``test_boards`` (expression sha,
-case statuses, failure codes, coverage, score), the Case outputs, and the sorted digests of every
-request body. A block form must also render the url4 of its named form.
+case statuses, failure codes, coverage, score), the Case outputs, and the sorted canonical JSON
+digests of every request body. A block form must also render the url4 of its named form.
 
 SKIP DISCIPLINE (like ``test_boards``): a lane with no fixtures SKIPS LOUDLY, naming exactly what is
 missing. It never fake-passes. Three prerequisites:
@@ -31,6 +31,7 @@ from typing import Any, Literal
 
 import pytest
 from harness._gating import GOLDENS_DIR, SNAPSHOTS_DIR, require_e2e_stack
+from harness.benchmark_assets import ASSETS_ENV, assets_root
 from harness.cache_seeded import CacheSeededGateway
 from harness.fusion_golden import (
     RECIPES,
@@ -42,7 +43,6 @@ from harness.fusion_golden import (
 )
 from harness.goldens import ActualOutcome, compare_outcome, failure_map
 from harness.inspect_stack import inspect_capture_stack
-from test_reducer_replay import _ASSETS_ENV, _assets_root
 
 pytestmark = pytest.mark.e2e
 
@@ -77,13 +77,13 @@ def _require_lane_fixtures() -> tuple[Path, Path | None, FusionGolden]:
             f"(tests/e2e/fixtures/fusion_lane.py: `record`, then `bless`); "
             f"this skip is the honest state, never a pass."
         )
-    assets = _assets_root() / BOARD
+    assets = assets_root() / BOARD
     if not assets.is_dir():
         pytest.skip(
             f"lane '{LANE}' needs prepared assets of '{BOARD}' at {assets} (run "
             f"`uv run python -m screamingface_engine.benchmarks.prepare --root <assets-root> "
             f"--bundle {BOARD}` in apps/screamingface-engine with `uv sync --extra benchmarks`, "
-            f"or point {_ASSETS_ENV} at them)"
+            f"or point {ASSETS_ENV} at them)"
         )
     manifest = SNAPSHOTS_DIR / f"{LANE}.manifest.json"
     return snapshot, (manifest if manifest.exists() else None), load_fusion_golden(golden_path)
@@ -102,7 +102,7 @@ def _lane(tmp_path_factory: pytest.TempPathFactory) -> _Lane:
     work_dir = tmp_path_factory.mktemp("fusion-replay")
     backend = CacheSeededGateway(snapshot=snapshot, manifest=manifest, work_dir=work_dir)
     runs: dict[tuple[str, str], _Run] = {}
-    with inspect_capture_stack(backend, work_dir=work_dir, assets_dir=_assets_root()) as (
+    with inspect_capture_stack(backend, work_dir=work_dir, assets_dir=assets_root()) as (
         stack,
         proxy,
     ):
@@ -146,7 +146,7 @@ def test_fusion_regression_replay_is_byte_identical(
             case_failures=failure_map(candidate.cases),
         ),
     )
-    # The lane's own locks: every Case output, and every request body, byte for byte.
+    # The lane's own locks: every Case output, and the canonical JSON digest of every request body.
     assert_fusion_replay(golden.recipes[recipe], candidate.cases, run.digests)
     # FR-2: the block form is the named form, down to the url4.
     named = _lane.runs[(recipe, "named")].report.candidates.only

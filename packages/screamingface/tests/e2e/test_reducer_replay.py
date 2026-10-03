@@ -26,12 +26,12 @@ engine of this lane is synced WITH the ``benchmarks`` extra (``harness.inspect_s
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Literal
 
 import pytest
 from harness._gating import GOLDENS_DIR, SNAPSHOTS_DIR, require_e2e_stack
+from harness.benchmark_assets import ASSETS_ENV, assets_root
 from harness.cache_seeded import CacheSeededGateway
 from harness.goldens import ActualOutcome, compare_outcome, failure_map
 from harness.inspect_stack import inspect_replay_stack
@@ -48,18 +48,6 @@ pytestmark = pytest.mark.e2e
 LANE = "inspect-gsm8k-vote"
 BOARD = "inspect-gsm8k"
 
-_ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
-
-
-def _assets_root() -> Path:
-    # WHY this default: it is where `screamingface prepare` writes (see test_boards).
-    from screamingface._runtime.config import default_data_dir
-
-    configured = os.environ.get(_ASSETS_ENV)
-    if configured:
-        return Path(configured)
-    return default_data_dir() / "benchmark-assets"
-
 
 def _require_lane_fixtures() -> tuple[Path, Path | None, ReducerGolden]:
     """The lane's snapshot + optional manifest + golden, or a LOUD skip naming the gap."""
@@ -73,13 +61,13 @@ def _require_lane_fixtures() -> tuple[Path, Path | None, ReducerGolden]:
             f"(tests/e2e/fixtures/reducer_lane.py: `record`, then `bless`); "
             f"this skip is the honest state, never a pass."
         )
-    assets = _assets_root() / BOARD
+    assets = assets_root() / BOARD
     if not assets.is_dir():
         pytest.skip(
             f"lane '{LANE}' needs prepared assets of '{BOARD}' at {assets} (run "
             f"`uv run python -m screamingface_engine.benchmarks.prepare --root <assets-root> "
             f"--bundle {BOARD}` in apps/screamingface-engine with `uv sync --extra benchmarks`, "
-            f"or point {_ASSETS_ENV} at them)"
+            f"or point {ASSETS_ENV} at them)"
         )
     manifest = SNAPSHOTS_DIR / f"{LANE}.manifest.json"
     return snapshot, (manifest if manifest.exists() else None), load_reducer_golden(golden_path)
@@ -98,7 +86,7 @@ def _replayed(tmp_path_factory: pytest.TempPathFactory) -> tuple[ReducerGolden, 
     work_dir = tmp_path_factory.mktemp("reducer-replay")
     backend = CacheSeededGateway(snapshot=snapshot, manifest=manifest, work_dir=work_dir)
     signal_spec = golden.candidate.model_copy(update={"weights": golden.signal_replay.weights})
-    with inspect_replay_stack(backend, work_dir=work_dir, assets_dir=_assets_root()) as stack:
+    with inspect_replay_stack(backend, work_dir=work_dir, assets_dir=assets_root()) as stack:
         with sf.Client(engine_url=stack.engine_url) as client:
             # The signal vote first, as `record` ran it.
             signal_report = client.evaluate(
