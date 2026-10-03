@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
-from screamingface.recipe import Recipe, _name, _optional, _recipe
+from screamingface.recipe import Recipe, _inferred_name, _name, _optional, _recipe
 from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer
 
 
@@ -44,7 +44,7 @@ class Fusion(Recipe):
         optional = _optional(optional)
         object.__setattr__(self, "quorum", _quorum(quorum, len(selected_members)))
         object.__setattr__(self, "optional", optional)
-        inferred_name = "+".join(member.name for member in selected_members)
+        inferred_name = _inferred_name(selected_members)
         object.__setattr__(
             self,
             "name",
@@ -62,7 +62,7 @@ class Fusion(Recipe):
         members = ", ".join(
             repr(member) if member.optional else repr(member.name) for member in self.members
         )
-        inferred_name = "+".join(member.name for member in self.members)
+        inferred_name = _inferred_name(self.members)
         arguments = [f"[{members}]"]
         if self.name != inferred_name:
             arguments.append(f"name={self.name!r}")

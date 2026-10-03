@@ -565,3 +565,54 @@ def test_a_cyclic_value_is_left_for_the_compiler_to_refuse() -> None:
     assert rewrite_fusion_recipe(pipeline) is pipeline
     with pytest.raises(ValueError, match="cycle"):
         compile_candidate(pipeline)
+
+
+# --- review fixes: the shared name rule and the duplicate-name message ------------------------
+
+
+def test_the_inferred_name_rule_lives_once_in_recipe_py() -> None:
+    from screamingface.recipe import _inferred_name, _inferred_self_name, _kept_name
+
+    members = (sf.Model("provider/a"), sf.Model("provider/b"))
+    fusion = sf.Fusion(["provider/a", "provider/b"], synthesizer="provider/s")
+    loop = sf.CorrectiveLoop(["provider/a", "provider/b"], judge="provider/j")
+    solo = sf.SelfCorrective("provider/a")
+
+    assert _inferred_name(members) == "a+b" == fusion.name == loop.name
+    assert _inferred_self_name(members[0]) == "a" == solo.name
+    assert _kept_name("a+b", "a+b") is None
+    assert _kept_name("mine", "a+b") == "mine"
+    # the reprs show name= exactly when the name is not the inferred one
+    assert "name=" not in repr(fusion)
+    assert "name=" not in repr(loop)
+    assert "name='mine'" in repr(
+        sf.Fusion(["provider/a", "provider/b"], name="mine", synthesizer="s")
+    )
+    assert "name='mine'" in repr(sf.CorrectiveLoop(["p/a", "p/b"], judge="p/j", name="mine"))
+
+
+def _benchmark() -> Any:
+    from test_pipeline_compilation import _whole_candidate_benchmark
+
+    return _whole_candidate_benchmark()
+
+
+def test_a_duplicate_name_made_by_the_rewrite_says_so_and_asks_for_a_name() -> None:
+    from screamingface._evaluation.compilation import compile_evaluation
+
+    first = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s1"])
+    second = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s2"])
+
+    with pytest.raises(ValueError, match="duplicate Candidate name 'a\\+b'") as caught:
+        compile_evaluation((first, second), _benchmark(), 1)
+    message = str(caught.value)
+    assert "Fusion recipe rewrite" in message
+    assert "name=" in message
+    # a name the user wrote is not blamed on the rewrite
+    plain = sf.Fusion(_AB, synthesizer="provider/s1")
+    with pytest.raises(ValueError, match="duplicate Candidate name 'a\\+b'") as again:
+        compile_evaluation((plain, sf.Fusion(_AB, synthesizer="provider/s2")), _benchmark(), 1)
+    assert "rewrite" not in str(again.value)
+    # one name= each resolves it
+    named = sf.Pipeline([sf.Fusion(_AB, name="x", synthesizer=_CONTEXT), "provider/s2"])
+    assert compile_evaluation((first, named), _benchmark(), 1).candidates

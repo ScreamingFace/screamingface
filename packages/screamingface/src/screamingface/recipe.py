@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unicodedata
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal
 
 from screamingface.reducer import Reducer
@@ -46,6 +47,24 @@ def _name(value: object, label: str) -> str:
     if any(unicodedata.category(char).startswith("C") for char in text):
         raise ValueError(f"{label} must not contain control characters")
     return text
+
+
+def _inferred_name(members: Sequence[Recipe]) -> str:
+    """The name a Fusion or CorrectiveLoop gets from its members: their names joined by ``+``."""
+
+    return "+".join(member.name for member in members)
+
+
+def _inferred_self_name(member: Recipe) -> str:
+    """The name a SelfCorrective gets from its member: the member's own name."""
+
+    return member.name
+
+
+def _kept_name(name: str, inferred: str) -> str | None:
+    """``name=`` for a rebuilt value: None (infer again) when ``name`` was the inferred one."""
+
+    return None if name == inferred else name
 
 
 def _model_route(value: object) -> str:

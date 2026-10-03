@@ -19,7 +19,13 @@ from screamingface.blocks import CONTEXT_MISUSE, Reduce
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.fusion import Fusion
 from screamingface.pipeline import Pipeline
-from screamingface.recipe import Recipe, _recipe_kind
+from screamingface.recipe import (
+    Recipe,
+    _inferred_name,
+    _inferred_self_name,
+    _kept_name,
+    _recipe_kind,
+)
 from screamingface.reducer import Reducer
 
 
@@ -69,8 +75,7 @@ def _fusion(fusion: Fusion, active: tuple[int, ...]) -> Recipe:
 
 
 def _fusion_name(fusion: Fusion) -> str | None:
-    inferred = "+".join(member.name for member in fusion.members)
-    return None if fusion.name == inferred else fusion.name
+    return _kept_name(fusion.name, _inferred_name(fusion.members))
 
 
 def _lowered_pair(stages: Sequence[Recipe], index: int, active: tuple[int, ...]) -> Fusion:
@@ -112,10 +117,9 @@ def _loop(loop: CorrectiveLoop, active: tuple[int, ...]) -> Recipe:
     judge = _rewrite(loop.judge, active)
     if _same(loop.members, members) and judge is loop.judge:
         return loop
-    inferred = "+".join(member.name for member in loop.members)
     return CorrectiveLoop(
         members,
-        name=None if loop.name == inferred else loop.name,
+        name=_kept_name(loop.name, _inferred_name(loop.members)),
         judge=judge,
         max_rounds=loop.max_rounds,
     )
@@ -127,7 +131,7 @@ def _self_corrective(solo: SelfCorrective, active: tuple[int, ...]) -> Recipe:
         return solo
     return SelfCorrective(
         member,
-        name=None if solo.name == solo.member.name else solo.name,
+        name=_kept_name(solo.name, _inferred_self_name(solo.member)),
         max_rounds=solo.max_rounds,
     )
 
