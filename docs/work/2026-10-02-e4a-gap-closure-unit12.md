@@ -164,3 +164,9 @@ Gates (`--base e4a-e2e-replay`; the parent tip is `82b9eee33`):
 - screamingface, with `--skip-append-only`: ruff, format, pyright, pytest (coverage above 95%; 97.08% on the full run), notebooks,
   build and distribution all green.
 - screamingface-engine with `--skip-append-only` and `repo`: green (see the final message).
+
+Review fix round (2026-10-03): GE33 sentence in the README and CHANGELOG (only `cost_usd` is proven
+end to end by the paid replay lane); the 5000-instruction RE2 limit in the README; an SDK test that
+reads the Engine budget snapshot (enums and schema id; RED shown by mutating the SDK stage enum);
+`charge` treats a NaN or infinite cost or token count as unpriced (erd I-S2), with a test; the
+AIDEV-NOTE in both freeze helpers; wording and wrap fixes. D4 is accepted.
