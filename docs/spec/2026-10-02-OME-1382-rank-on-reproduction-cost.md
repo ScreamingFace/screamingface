@@ -61,5 +61,14 @@ no JS change.
 ## Out of scope
 
 - The SDK rule (`client-sf` leaf under `OME-1251`).
-- `archive_matched` money (`OME-1251` D3: never published).
+- Labelling the archive-matched part. It IS published as part of the reproduction cost (D7), and
+  stored and exported separately for provenance, so a later "of which estimated" label needs no
+  data change.
 - Historical $0 rows (`OME-1384`).
+
+## Existing rows (accepted, owner 2026-10-02)
+
+The rule applies to every `complete` row, including rows from clients that predate the D7
+per-hit pricing proof (a `#1075`-era client sent `complete` with a reported saving whenever the
+spend was priced). Those rows are summed too. This reinterpretation is intended; it was raised in
+review of #1227 and confirmed.
