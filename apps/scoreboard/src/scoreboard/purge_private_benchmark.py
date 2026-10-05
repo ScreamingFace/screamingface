@@ -20,7 +20,7 @@ from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
 from .config import Settings
-from .db import close_db, init_db
+from .db import DEFAULT_CONNECTION, close_db, init_db
 from .export_private_submissions import format_jsonl_bytes
 from .scores.models import Baseline, Benchmark, Score
 from .scores.schemas import ScoreSchema
@@ -86,7 +86,7 @@ async def purge_private_benchmark(
     """Verify one private board against its export, and optionally delete it atomically."""
     expected_digest = _validated_digest(expected_export_sha256)
 
-    async with in_transaction() as connection:
+    async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
         # ScoreStore.submit() takes the same row lock before inserting. Once this lock is held,
         # the digest cannot become stale between comparison and deletion on PostgreSQL.
         await _revalidate_visibility_for_purge(connection, benchmark_id)
