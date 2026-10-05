@@ -95,7 +95,7 @@ async def test_connection_routes_treat_a_blank_selector_as_absent(
 
     assert response.status_code in {200, 201}, response.text
     ((_verb, caller, _arg),) = service.calls
-    assert caller.profile is None
+    assert not hasattr(caller, "profile")
     assert caller.identity == _IDENTITY
 
 

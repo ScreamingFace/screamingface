@@ -1,7 +1,7 @@
 """F2 — the request scope: per-caller state travels with the request, never on the handler.
 
 # WHY this file exists. Unit 1 turns a per-run `_ModelEndpoint` into a stateless handler that
-# reads its caller's identity, profile, cache policy and answer seed from a `request_scope`
+# reads its caller's identity, cache policy and answer seed from a `request_scope`
 # ContextVar (prd/01 §2 F2). The defining requirement is concurrency (AC2): two requests through
 # ONE handler must never see each other's scope. T1 below proves the old code could not do that
 # and guards the new code; T3 and T4 pin the ContextVar's two load-bearing properties (fails
@@ -50,14 +50,12 @@ MODEL = "anthropic/claude-haiku-4-5"
 _SCOPE_A = RequestScope(
     origin="run",
     identity_headers={"X-User-Email": "a@x.test"},
-    profile="profile-a",
     answer_seed=11,
     cache=CachePolicy(participate=False),
 )
 _SCOPE_B = RequestScope(
     origin="run",
     identity_headers={"X-User-Email": "b@x.test"},
-    profile="profile-b",
     answer_seed=22,
     cache=CachePolicy(participate=True),
 )
@@ -77,7 +75,7 @@ async def test_two_concurrent_requests_through_one_handler_keep_their_own_scope(
     """THE defining test (prd/01 T1, AC2).
 
     One world, one `_ModelEndpoint`, two concurrent calls bound to different scopes. With the
-    pre-F2 handler this fails: identity, profile, seed and cache live on `self`, so both calls
+    pre-F2 handler this fails: identity, seed and cache live on `self`, so both calls
     share whatever was pinned at build time (here, nothing). It is the regression guard for the
     refactor, not merely a demonstration of ContextVars.
     """
@@ -99,9 +97,9 @@ async def test_two_concurrent_requests_through_one_handler_keep_their_own_scope(
     a, b = by_context["ctx-a"], by_context["ctx-b"]
 
     assert a.headers["X-User-Email"] == "a@x.test"
-    assert a.headers["X-Profile"] == "profile-a"
     assert b.headers["X-User-Email"] == "b@x.test"
-    assert b.headers["X-Profile"] == "profile-b"
+    assert "X-Profile" not in a.headers
+    assert "X-Profile" not in b.headers
 
     body_a, body_b = json.loads(a.content), json.loads(b.content)
     assert body_a["seed"] == 11
@@ -114,7 +112,7 @@ async def test_two_concurrent_requests_through_one_handler_keep_their_own_scope(
 
 
 def test_current_scope_with_nothing_bound_raises_a_named_engine_error() -> None:
-    """A silent default would send an anonymous, unprofiled, unseeded call and bill someone.
+    """A silent default would send an anonymous, unseeded call and bill someone.
 
     Run inside a FRESH `contextvars.Context` so this test is immune to any scope the test
     harness binds around a test (see `tests/conftest.py`).
@@ -207,7 +205,6 @@ async def test_no_handler_world_or_module_object_retains_a_request_scope() -> No
     scope = RequestScope(
         origin="run",
         identity_headers={"X-User-Email": "a@x.test"},
-        profile="profile-a",
         answer_seed=44,
     )
 
@@ -247,7 +244,6 @@ def _declared() -> WorldConfig:
 def test_the_child_boot_producer_reads_the_scope_from_the_job_env() -> None:
     env = {
         **job_env.identity_to_env({"X-User-Email": "run@x.test"}),
-        job_env.AIGATEWAY_PROFILE: "prof",
         job_env.ANSWER_SEED: "7",
         job_env.CACHE_PARTICIPATE: "false",
         job_env.CACHE_MAX_AGE_S: "60",
@@ -256,7 +252,6 @@ def test_the_child_boot_producer_reads_the_scope_from_the_job_env() -> None:
     scope = request_scope_from_env(env)
 
     assert scope.identity_headers == {"X-User-Email": "run@x.test"}
-    assert scope.profile == "prof"
     assert scope.answer_seed == 7
     assert scope.cache.participate is False
     assert scope.cache.max_age == 60
@@ -287,10 +282,7 @@ async def test_a_malformed_seed_fails_the_run_not_the_scheduler() -> None:
 async def test_the_child_boots_producer_is_what_the_run_path_binds() -> None:
     """End to end: the env identity reaches aigateway through the bound scope, not the world."""
     gw = _MockAigateway((MODEL,))
-    env = {
-        **job_env.identity_to_env({"X-User-Email": "run@x.test"}),
-        job_env.AIGATEWAY_PROFILE: "prof",
-    }
+    env = job_env.identity_to_env({"X-User-Email": "run@x.test"})
 
     async with gw.client() as client:
         executor = build_executor(env, _declared(), client=client)
@@ -298,7 +290,7 @@ async def test_the_child_boots_producer_is_what_the_run_path_binds() -> None:
             pass
 
     assert gw.requests[0].headers["X-User-Email"] == "run@x.test"
-    assert gw.requests[0].headers["X-Profile"] == "prof"
+    assert "X-Profile" not in gw.requests[0].headers
 
 
 # --- FX-1 (04-review-fixes §2.1): the request deadline -------------------------------------
@@ -357,7 +349,6 @@ def test_forwarded_headers_keep_only_the_allowlist_and_the_verified_identity() -
     out = forwarded_headers(inbound, verified_identity={"X-User-Email": "real@x"})
 
     assert out == [
-        ("X-Profile", "p"),
         ("Cache-Control", "no-cache"),
         ("X-Answer-Seed", "7"),
         ("traceparent", "00-" + "a" * 32 + "-" + "b" * 16 + "-01"),

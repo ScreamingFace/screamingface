@@ -33,9 +33,7 @@ def test_ack_is_one_line() -> None:
 def test_spec_env_equals_message_env_codec() -> None:
     """WRM-2: RUN_SPEC.env is the RUN_MESSAGE body as decoded — ONE codec serves both, so the
     child reads the same keys with the same meaning as the worker did."""
-    message = encode_message(
-        "t-1", "(gpt,claude)!'hi'", 60, profile="p", identity={"X-User-Email": "a@x"}
-    )
+    message = encode_message("t-1", "(gpt,claude)!'hi'", 60, identity={"X-User-Email": "a@x"})
     decoded = decode_message(message)
     spec = cp.decode_spec(cp.encode_spec(decoded, io_concurrency=3))
     assert spec.env == decoded

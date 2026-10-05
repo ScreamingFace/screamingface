@@ -3,7 +3,7 @@
 FEATURE: answer seeds (OME-1038). A leaderboard score today is one benchmark sitting presented
 as the student's ability. Declaring an answer seed names the sitting: N runs with N seeds
 are N labelled, cache-separated samples, so a score can be published as mean ± CI and any
-sitting replayed exactly. The seed makes the same journey `profile` and the cache policy
+sitting replayed exactly. The seed makes the same journey the cache policy
 already make:
 
     GET / (X-Answer-Seed) ──► _schedule ──► JobRunner.schedule(answer_seed=…) ──► the run's
@@ -157,7 +157,7 @@ def test_this_runs_seed_replaces_any_ambient_one() -> None:
     stale = {job_env.ANSWER_SEED: "99"}
 
     env = _local_runner(stale)._env(  # noqa: SLF001
-        "t", "gpt(hi)", 60, None, None, None, None, answer_seed=7
+        "t", "gpt(hi)", 60, None, None, None, answer_seed=7
     )
 
     assert job_env.answer_seed_from_env(env) == 7
@@ -167,7 +167,7 @@ def test_a_run_with_no_seed_clears_any_ambient_one() -> None:
     stale = {job_env.ANSWER_SEED: "99"}
 
     env = _local_runner(stale)._env(  # noqa: SLF001
-        "t", "gpt(hi)", 60, None, None, None, None, answer_seed=None
+        "t", "gpt(hi)", 60, None, None, None, answer_seed=None
     )
 
     assert job_env.ANSWER_SEED not in env
@@ -195,7 +195,6 @@ class _SeedRecordingRunner(RecordingJobRunner):
         *,
         traceparent: str | None = None,
         credential: str | None = None,
-        profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
@@ -209,7 +208,6 @@ class _SeedRecordingRunner(RecordingJobRunner):
             deadline_s,
             traceparent=traceparent,
             credential=credential,
-            profile=profile,
             identity=identity,
         )
 

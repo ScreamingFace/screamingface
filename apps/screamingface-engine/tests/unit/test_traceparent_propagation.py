@@ -98,20 +98,17 @@ async def _run_in_scope(
     trace: TraceContext | None,
     *,
     identity: dict[str, str] | None = None,
-    profile: str | None = None,
 ) -> httpx.Request:
     """One model call made inside `trace`'s scope; returns the request that reached aigateway."""
     gw = _MockAigateway()
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
-        # F2: identity and profile are per-REQUEST now, so they travel in the scope, not on the
-        # world. `trace` stays in its own scope — the ensemble path's producer is url4's lifecycle.
+        # F2: identity is per-REQUEST, so it travels in the scope, not on the world. `trace` stays
+        # in its own scope — the ensemble path's producer is url4's lifecycle.
         with (
             run_trace_scope(trace),
-            request_scope(
-                RequestScope(origin="run", identity_headers=identity or {}, profile=profile)
-            ),
+            request_scope(RequestScope(origin="run", identity_headers=identity or {})),
         ):
             await url4_run(f"/{MODEL}('ctx')!'go'", world.node)
     assert len(gw.requests) == 1
@@ -184,24 +181,17 @@ async def test_a_call_outside_any_run_sends_no_traceparent_header() -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_gateway_owned_profile_still_wins_over_an_inbound_value() -> None:
-    """The INVARIANT at `connector._headers` must survive gaining a third header.
-
-    Envoy guarantees the identity header is not forged, but nothing guarantees the mapping
-    reaching the connector holds ONLY that key.
-    """
+async def test_an_identity_mapping_cannot_smuggle_a_profile_or_displace_the_trace() -> None:
     request = await _run_in_scope(
         TRACE_A,
         identity={**IDENTITY, "X-Profile": "attacker-profile", "traceparent": "00-" + "f" * 32},
-        profile="gateway-owned",
     )
 
-    assert request.headers["x-profile"] == "gateway-owned"
+    assert "x-profile" not in request.headers
     match = TRACEPARENT.match(request.headers["traceparent"])
     assert match, request.headers["traceparent"]
     assert match.group(1) == TRACE_A.trace_id, (
-        "an inbound traceparent displaced the run's own — the header is gateway-owned and must "
-        "be written last, exactly as X-Profile is"
+        "an inbound traceparent displaced the run's own — the header is gateway-owned"
     )
 
 
@@ -331,13 +321,13 @@ async def _list_as(caller: Caller) -> httpx.Request:
 
 @pytest.mark.asyncio
 async def test_the_connections_path_forwards_the_requests_traceparent() -> None:
-    """`/v1/providers` went out with identity alone — no traceparent, and no X-Profile."""
+    """`/v1/providers` used to go out with identity alone and no traceparent."""
     inbound = "00-" + "d" * 32 + "-" + "4" * 16 + "-01"
 
-    request = await _list_as(Caller(IDENTITY, traceparent=inbound, profile="p1"))
+    request = await _list_as(Caller(IDENTITY, traceparent=inbound))
 
     assert request.headers["traceparent"] == inbound
-    assert request.headers["X-Profile"] == "p1"
+    assert "X-Profile" not in request.headers
     assert request.headers["X-User-Email"] == IDENTITY["X-User-Email"]
 
 
@@ -353,11 +343,16 @@ async def test_a_connections_request_without_a_trace_sends_no_traceparent() -> N
 async def test_an_inbound_identity_mapping_cannot_displace_the_requests_own_trace() -> None:
     """Gateway-owned headers are written last here too — the same INVARIANT as the connector."""
     ours = "00-" + "e" * 32 + "-" + "5" * 16 + "-01"
-    forged = {**IDENTITY, "traceparent": "00-" + "0" * 32 + "-" + "0" * 16 + "-01"}
+    forged = {
+        **IDENTITY,
+        "traceparent": "00-" + "0" * 32 + "-" + "0" * 16 + "-01",
+        "X-Profile": "mine",
+    }
 
-    request = await _list_as(Caller(forged, traceparent=ours, profile="mine"))
+    request = await _list_as(Caller(forged, traceparent=ours))
 
     assert request.headers["traceparent"] == ours
+    assert "X-Profile" not in request.headers
 
 
 def test_the_rest_edge_drops_a_malformed_inbound_traceparent() -> None:
@@ -376,15 +371,12 @@ def test_the_rest_edge_drops_a_malformed_inbound_traceparent() -> None:
 
 
 def test_the_rest_edge_carries_a_valid_inbound_traceparent_through() -> None:
-    """OME-1381: the request no longer carries `X-Profile: prof` and the old
-    `caller.profile == "prof"` becomes `is None` — a stated selector is refused at this edge (see
-    `test_selector_refusal.py`), so the `Caller` it builds is always selector-less."""
+    """A stated selector is refused before this edge can build a `Caller`."""
     inbound = "00-" + "9" * 32 + "-" + "8" * 16 + "-01"
 
     caller = _caller(_fake_request({"traceparent": inbound}))
 
     assert caller.traceparent == inbound
-    assert caller.profile is None
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,7 @@
 """Batch 6 — the resolved cache policy travels from the REST edge onto the aigateway request.
 
 Convergence (Batch 5) ends with ONE policy per run and hands it to `_schedule`. This is the rest
-of the journey, and it is the same journey `profile` and the caller's identity already make:
+of the journey, and it is the same journey the caller's identity already makes:
 
     GET / ──► _schedule ──► JobRunner.schedule(cache=…) ──► the run's ENV ──► build_executor
                                                                                    │
@@ -183,7 +183,7 @@ def test_the_inprocess_adapter_renders_the_same_env_as_the_queue_codec() -> None
     """
     codec = _codec_env_of(OPT_OUT)
 
-    local = _local_runner()._env("t", "gpt(hi)", 60, None, None, None, OPT_OUT)  # noqa: SLF001
+    local = _local_runner()._env("t", "gpt(hi)", 60, None, None, OPT_OUT)  # noqa: SLF001
 
     assert job_env.cache_policy_to_env(OPT_OUT).items() <= local.items()
     assert job_env.cache_policy_from_env(local) == job_env.cache_policy_from_env(codec)
@@ -198,7 +198,7 @@ def test_this_runs_policy_replaces_any_ambient_one() -> None:
     """
     stale = {job_env.CACHE_PARTICIPATE: "true", job_env.CACHE_MAX_AGE_S: "900"}
 
-    env = _local_runner(stale)._env("t", "gpt(hi)", 60, None, None, None, OPT_OUT)  # noqa: SLF001
+    env = _local_runner(stale)._env("t", "gpt(hi)", 60, None, None, OPT_OUT)  # noqa: SLF001
 
     assert job_env.cache_policy_from_env(env) == OPT_OUT
 
@@ -234,7 +234,6 @@ class _CacheRecordingRunner(RecordingJobRunner):
         *,
         traceparent: str | None = None,
         credential: str | None = None,
-        profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
@@ -248,7 +247,6 @@ class _CacheRecordingRunner(RecordingJobRunner):
             deadline_s,
             traceparent=traceparent,
             credential=credential,
-            profile=profile,
             identity=identity,
         )
 

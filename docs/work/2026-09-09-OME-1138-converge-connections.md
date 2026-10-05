@@ -234,9 +234,11 @@ from 17048f5d on branch `OME-1138-converge-connections` in the shared checkout. 
   documented alpha-canary fail-closed risk without a production read or zero-count claim.
 - Gateway rejection `OME-1394` merged in PR #1114 as `3083640b`: every nonblank `X-Profile` is
   refused without echoing its value; selector-less multi-active pairs remain an explicit 409.
-- Stage D rejection is complete. Remaining Stage D scope is `OME-1398` and separately authorised
-  Engine/URL4 legacy-carrier cleanup. The umbrella remains in progress for D18 (`OME-1375`),
-  production readiness (`OME-1333`) and final Stage E retirement (`OME-1209`).
+- Guidance cleanup `OME-1398` merged in PR #1210 as `57e78d71a9582b238ac4fe7cf0f682cb012c06a2`.
+- The owner confirmed that no legacy queue messages carrying `AIGATEWAY_PROFILE` remain. Coordinated
+  leaves `OME-1449` (Engine) and `OME-1450` (URL4) remove the carrier without a compatibility reader.
+- The umbrella remains in progress for D18 (`OME-1375`), production readiness (`OME-1333`) and
+  final Stage E retirement (`OME-1209`).
 
 ## Test plan
 

@@ -10,7 +10,7 @@ bound for the duration of each test.
 
 WHY this does not weaken the contract: ``current_scope()`` still raises ``RequestScopeError``
 when nothing is bound, and that is asserted in ``tests/unit/test_request_scope.py`` against a
-fresh ``contextvars.Context``. Tests that care about identity, profile, cache or seed bind their
+fresh ``contextvars.Context``. Tests that care about identity, cache or seed bind their
 OWN scope inside the test, which shadows this one. The production producer is exercised
 end-to-end by ``test_world_golden_parity.py``, ``test_cache_policy_threading.py`` and
 ``test_answer_seed_threading.py`` through ``build_executor``, and each producer is proven

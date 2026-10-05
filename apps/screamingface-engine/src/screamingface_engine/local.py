@@ -221,7 +221,7 @@ class _LocalNodeMount:
     # here, which is also why this shape must never be deployed (C8).
 
     # INVARIANT: the caller's state is bound by the sync producer
-    # (``request_scope.bind_sync_request``), so an eval-path call reads its identity, profile,
+    # (``request_scope.bind_sync_request``), so an eval-path call reads its identity,
     # seed and cache policy from the ContextVar, and its log lines carry ``origin="sync"``
     # (+ trace id). F2's per-request binding is what lets this one node serve both the eval path
     # and every in-process run without mixing them.
@@ -246,7 +246,7 @@ class _LocalNodeMount:
         raw_headers = Headers(scope=scope)
         # INVARIANT (OME-1381): the eval path refuses a stated `X-Profile` before binding the
         # request, as the mount routes and `GET /` do — local mode must not accept a selector
-        # production refuses. A blank one still rides the allowlist; the node reads it as absence.
+        # production refuses. A blank one is absence and is not carried downstream.
         if requests_selector(raw_headers.getlist(PROFILE_HEADER)):
             await send_url4_error(send, 400, X_PROFILE_UNSUPPORTED, X_PROFILE_UNSUPPORTED_MESSAGE)
             return

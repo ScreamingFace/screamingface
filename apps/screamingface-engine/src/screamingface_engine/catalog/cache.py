@@ -18,7 +18,7 @@ Five behaviours compose here, each closing a specific failure:
 
 AIDEV-NOTE: the stale-on-error discipline is deliberate — serve what is cached, refuse when cold,
 never fail open. A refresh failure must not degrade into "this credential can address no models".
-Detailed model-parameter contracts are profile-stateful and explicitly no-store, so this service
+Detailed model-parameter contracts are caller-stateful and explicitly no-store, so this service
 only retains their source for composition; those reads never enter this cache.
 """
 

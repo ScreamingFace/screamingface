@@ -102,7 +102,8 @@ def deploy_env(environ: Mapping[str, str]) -> dict[str, str]:
     would otherwise reach a run whose spec does not override it.
     """
     per_run = job_env.WRITTEN_BY_APP | {job_env.IO_CONCURRENCY, CLIENT_VERSION_ENV}
-    return {key: value for key, value in environ.items() if key not in per_run}
+    env = job_env.without_retired_keys(environ)
+    return {key: value for key, value in env.items() if key not in per_run}
 
 
 def process_spawner(
@@ -358,7 +359,7 @@ class WarmChildPool:
     ) -> _Process:
         proc = handle.proc
         # INVARIANT: the spec goes over the private pipe and NOWHERE else — it carries the
-        # caller's identity and profile, so no log line may include it (WRM-19).
+        # caller's identity, so no log line may include it (WRM-19).
         line = child_protocol.encode_spec(dict(env), io_concurrency=io_budget())
         if len(line) > child_protocol.MAX_SPEC_BYTES:
             # Checked HERE, before any child sees it: the child would refuse it, but it reads

@@ -131,12 +131,12 @@ _HANDLER_SLOTS = frozenset({"_cfg", "_http_client", "_routes", "_tavily_api_key"
 
 # Values no world, handler or module could hold by coincidence, so a hit can only be a leak.
 _IDENTITY = "sentinel-identity-5c1f9e@x.test"
-_PROFILE = "sentinel-profile-5c1f9e"
+_LEAK_MARKER = "sentinel-leak-marker-5c1f9e"
 _SEED = 739_104_562
 _MAX_AGE = 604_871
 
 
-_STRING_SENTINELS = (_IDENTITY, _PROFILE, str(_SEED))
+_STRING_SENTINELS = (_IDENTITY, _LEAK_MARKER, str(_SEED))
 _NUMBER_SENTINELS = (_SEED, _MAX_AGE)
 # Never descended into: they lead into the stub gateway (through the mock transport's handler)
 # and the whole import graph, neither of which is caller state the world holds.
@@ -277,7 +277,6 @@ async def test_no_scope_value_survives_a_call_on_the_handler_the_world_or_module
     cfg = AigatewayConfig(models=gw.models, default_model=MODEL)
     scope = RequestScope(
         identity_headers={"X-User-Email": _IDENTITY},
-        profile=_PROFILE,
         answer_seed=_SEED,
         # `max_age` never reaches the wire (it is applied at read-back, `world/cache.py`), so the
         # opt-out is what proves the directive left; the sentinel age is what a stash would keep.
@@ -294,7 +293,7 @@ async def test_no_scope_value_survives_a_call_on_the_handler_the_world_or_module
             # The sentinels really left on the call — otherwise a clean scan proves nothing.
             (outbound,) = gw.posts_to(MODEL)
             assert outbound.headers["X-User-Email"] == _IDENTITY
-            assert outbound.headers["X-Profile"] == _PROFILE
+            assert "X-Profile" not in outbound.headers
             body = json.loads(outbound.content)
             assert body["seed"] == _SEED
             assert body["cache"] == {"use-cache": False}
@@ -321,7 +320,7 @@ def test_the_module_scan_reaches_every_engine_module_not_only_world() -> None:
     import screamingface_engine.job_env as job_env_module
 
     mutant = cast(Any, job_env_module)
-    mutant._LAST = _PROFILE
+    mutant._LAST = _LEAK_MARKER
     try:
         roots = [(f"{name}.<globals>", vars(module)) for name, module in _engine_modules()]
         assert any(path.endswith("['_LAST']") for path in _leaks(roots))
@@ -340,7 +339,7 @@ def test_the_scan_catches_a_leak_planted_as_a_class_attribute() -> None:
     foreign class's descriptors.
     """
     mutant = cast(Any, _ModelEndpoint)
-    mutant._LAST = _PROFILE
+    mutant._LAST = _LEAK_MARKER
     try:
         roots = [(f"{name}.<globals>", vars(module)) for name, module in _engine_modules()]
         assert any(path.endswith("._LAST") for path in _leaks(roots))

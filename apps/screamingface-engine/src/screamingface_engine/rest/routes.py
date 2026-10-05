@@ -278,10 +278,8 @@ async def _schedule(
     re-rendered onto the aigateway call by the Runner. It is deliberately NOT world config; a
     per-run value parked on the shared aigateway configuration would leak across runs.
 
-    INVARIANT (OME-1381, producer-off): no profile is passed, for either run shape. Both ingresses
-    that schedule — ``GET /`` (sync or ``respond-async``) and the mount routes' direct runs —
-    refuse a stated ``X-Profile`` before this hop, so every run this Engine schedules is
-    selector-less; the port keeps its ``profile`` argument only until the URL4 cleanup removes it.
+    INVARIANT (OME-1381): both scheduling ingresses refuse a stated ``X-Profile`` before this hop,
+    and the port cannot represent a selector, so every run this Engine schedules is selector-less.
     """
     try:
         await deps.job_runner.schedule(

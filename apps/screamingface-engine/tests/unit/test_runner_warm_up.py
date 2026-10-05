@@ -1,7 +1,7 @@
 """The run child's warm phase (uniform executor PRD 03).
 
 The warm phase runs BEFORE the child's run is known, so it may read per-PROCESS configuration
-only. A per-run key read there would give the run another caller's identity, profile or topic
+only. A per-run key read there would give the run another caller's identity or topic
 (risk R7) — or, in the warm pool, no value at all.
 """
 

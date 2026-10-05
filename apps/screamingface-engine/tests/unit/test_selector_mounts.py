@@ -118,9 +118,7 @@ async def test_the_refusal_wins_over_every_other_mount_refusal(
 
 @pytest.mark.parametrize("sent", _SELECTOR_LESS)
 @pytest.mark.parametrize("target", _CALLS)
-async def test_a_selector_less_mount_call_queues_a_direct_run_without_a_profile(
-    target: str, sent: Headers
-) -> None:
+async def test_a_selector_less_mount_call_queues_a_direct_run(target: str, sent: Headers) -> None:
     app, runner = _app(_ok('{"ok": true}', "application/json"))
 
     response = await _get(app, target, [*EMAIL.items(), *sent])
@@ -128,7 +126,7 @@ async def test_a_selector_less_mount_call_queues_a_direct_run_without_a_profile(
     assert response.status_code == 200, response.text
     (run,) = runner.scheduled
     assert run["shape"] == "direct"
-    assert run.get("profile") is None
+    assert "profile" not in run
 
 
 async def test_a_blank_selector_changes_nothing_else_a_direct_run_carries() -> None:
@@ -180,7 +178,7 @@ async def test_local_mode_mounts_serve_a_selector_less_call(sent: Headers) -> No
 
     assert response.status_code == 200, response.text
     (run,) = runner.scheduled
-    assert run.get("profile") is None
+    assert "profile" not in run
 
 
 # --- the published contract ---------------------------------------------------------------------
