@@ -50,7 +50,7 @@ def _decoded_result_body(outcome: _RunOutcome) -> object:
     count so the researcher learns what happened from the error alone; (4) anything else
     keeps the generic message.
     """
-    if outcome.result_path is not None and outcome.result_body is None:
+    if outcome.result_path is not None:
         from screamingface._results.cases import index_result
         from screamingface._results.store import storage_error
 

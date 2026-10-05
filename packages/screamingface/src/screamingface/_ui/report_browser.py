@@ -268,6 +268,9 @@ class ReportBrowser:
             self._updating_go_to = False
 
     def _select_candidate(self, change: Any) -> None:
+        if self._paging:
+            self.candidate.value = self.navigation.selected
+            return
         focused = (
             self._focus_id if self._focus_id is not None else self.navigation.focused_id(self.page)
         )
@@ -285,7 +288,7 @@ class ReportBrowser:
                 button.add_class("sf-candidate-active")
             else:
                 button.remove_class("sf-candidate-active")
-        self._render_page()
+        self._request_page(self.page)
 
     def _move(self, direction: int) -> None:
         last = len(self.navigation.pages) - 1

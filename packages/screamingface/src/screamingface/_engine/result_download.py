@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import codecs
+import contextlib
 import hashlib
 import os
 import re
@@ -20,6 +21,8 @@ import httpx
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
 from screamingface._results.store import SavedRun, storage_error, sync_directory
 from screamingface.errors import EngineUnavailableError, ExecutionError
+
+_ERROR_BODY_LIMIT = 65536
 
 
 class _Download:
@@ -74,6 +77,18 @@ def _response(response: httpx.Response, saved: SavedRun) -> None:
     _raise_response(response, "fetch the Run's result artifact")
 
 
+def _error_response(response: httpx.Response, body: bytes) -> httpx.Response:
+    # INVARIANT: diagnostic error bodies never bypass the bounded download contract.
+    headers = {
+        name: value
+        for name, value in response.headers.items()
+        if name not in {"content-encoding", "content-length"}
+    }
+    return httpx.Response(
+        response.status_code, headers=headers, content=body, request=response.request
+    )
+
+
 def _finish(saved: SavedRun, temporary: Path) -> _RunOutcome:
     temporary.replace(saved.path)
     sync_directory(saved.path.parent)
@@ -91,15 +106,20 @@ def _once_sync(http: httpx.Client, saved: SavedRun, token: str) -> _RunOutcome:
                 "GET", _artifact_path(artifact), headers={"URL4-Capability": token}
             ) as response:
                 if not response.is_success:
-                    response.read()
-                    _response(response, saved)
+                    if response.status_code in (404, 410):
+                        _response(response, saved)
+                    if response.headers.get("content-encoding", "identity") != "identity":
+                        _response(_error_response(response, b""), saved)
+                    body = next(response.iter_bytes(chunk_size=_ERROR_BODY_LIMIT), b"")
+                    _response(_error_response(response, body), saved)
                 for chunk in response.iter_bytes(chunk_size=65536):
                     writer.write(chunk)
             writer.finish()
             stream.close()
             return _finish(saved, temporary)
         finally:
-            temporary.unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                temporary.unlink(missing_ok=True)
 
 
 async def _once_async(http: httpx.AsyncClient, saved: SavedRun, token: str) -> _RunOutcome:
@@ -113,15 +133,20 @@ async def _once_async(http: httpx.AsyncClient, saved: SavedRun, token: str) -> _
                 "GET", _artifact_path(artifact), headers={"URL4-Capability": token}
             ) as response:
                 if not response.is_success:
-                    await response.aread()
-                    _response(response, saved)
+                    if response.status_code in (404, 410):
+                        _response(response, saved)
+                    if response.headers.get("content-encoding", "identity") != "identity":
+                        _response(_error_response(response, b""), saved)
+                    body = await anext(response.aiter_bytes(chunk_size=_ERROR_BODY_LIMIT), b"")
+                    _response(_error_response(response, body), saved)
                 async for chunk in response.aiter_bytes(chunk_size=65536):
                     writer.write(chunk)
             writer.finish()
             stream.close()
             return _finish(saved, temporary)
         finally:
-            temporary.unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                temporary.unlink(missing_ok=True)
 
 
 def download_sync(http: httpx.Client, saved: SavedRun, mint: Callable[[], str]) -> _RunOutcome:

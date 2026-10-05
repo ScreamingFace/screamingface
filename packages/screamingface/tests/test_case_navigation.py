@@ -173,5 +173,7 @@ async def test_all_navigation_keeps_accepting_rapid_clicks(tmp_path, monkeypatch
     assert browser.go_to.value == "62"
     assert not browser.candidate.disabled and not browser.go_to.disabled
     browser.candidate.value = 1
+    assert browser._page_task is not None
+    await browser._page_task
     assert browser.count.value == "51–75 of 100"
     assert "-12' checked" in browser.cases.value

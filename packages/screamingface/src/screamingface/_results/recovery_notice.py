@@ -38,8 +38,8 @@ def _owner_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except PermissionError:
-        pass
+    except (PermissionError, OverflowError):
+        pass  # WHY: invalid/inaccessible owners cannot make optional discovery block startup.
     return True
 
 

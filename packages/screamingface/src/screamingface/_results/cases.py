@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import json
 import logging
+import operator
 import os
 import sqlite3
 from collections.abc import Iterator, Sequence
@@ -47,7 +48,8 @@ class DiskCases(Sequence[CaseResult]):
     def __getitem__(self, index: int | slice) -> CaseResult | tuple[CaseResult, ...]:
         if isinstance(index, slice):
             return tuple(self[i] for i in range(*index.indices(self._count)))
-        selected = index + self._count if index < 0 else index
+        position = operator.index(index)
+        selected = position + self._count if position < 0 else position
         if not 0 <= selected < self._count:
             raise IndexError(index)
         with closing(self._connect()) as db:

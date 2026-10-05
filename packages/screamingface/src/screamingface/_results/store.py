@@ -10,9 +10,9 @@ import shutil
 import sqlite3
 from dataclasses import dataclass, replace
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Any
 
+from screamingface._atomic_file import _sync_directory, write_atomic
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import Candidate
 from screamingface._results.codec import (
@@ -24,6 +24,8 @@ from screamingface._results.codec import (
 )
 from screamingface._results.membership import membership_value
 from screamingface.errors import ExecutionError
+
+sync_directory = _sync_directory
 
 
 def default_directory() -> Path:
@@ -37,29 +39,11 @@ def atomic_json(path: Path, value: object) -> None:
 
 def atomic_bytes(path: Path, value: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with NamedTemporaryFile(dir=path.parent, prefix=".pending-", delete=False) as stream:
-        temporary = Path(stream.name)
-        try:
-            stream.write(value)
-            stream.flush()
-            os.fsync(stream.fileno())
-        except BaseException:
-            temporary.unlink(missing_ok=True)
-            raise
-    try:
-        temporary.replace(path)
-        sync_directory(path.parent)
-    finally:
-        temporary.unlink(missing_ok=True)
 
+    def write(stream):
+        stream.write(value)
 
-def sync_directory(path: Path) -> None:
-    if os.name == "posix":
-        descriptor = os.open(path, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+    write_atomic(path, write, private=True)
 
 
 def storage_error(exc: OSError | sqlite3.Error, key: str = "") -> ExecutionError:
@@ -127,18 +111,12 @@ class ResultStore:
         if run.path == saved.path or not run.path.exists():
             return saved
         try:
-            with NamedTemporaryFile(dir=saved.path.parent, prefix=".copy-", delete=False) as stream:
-                temporary = Path(stream.name)
-                try:
-                    with run.path.open("rb") as source:
-                        shutil.copyfileobj(source, stream, length=65536)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                    stream.close()
-                    temporary.replace(saved.path)
-                    sync_directory(saved.path.parent)
-                finally:
-                    temporary.unlink(missing_ok=True)
+
+            def copy(stream):
+                with run.path.open("rb") as source:
+                    shutil.copyfileobj(source, stream, length=65536)
+
+            write_atomic(saved.path, copy, private=True)
         except OSError as exc:
             raise storage_error(exc, saved.key) from exc
         return saved
