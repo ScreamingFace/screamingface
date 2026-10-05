@@ -1,12 +1,12 @@
 ---
 id: OME-1488
 linear_url: https://linear.app/openmined/issue/OME-1488/leaderboard-submissions-and-operator-commands-fail-since-the-readiness
-status: in_review
+status: done
 type: bug
 priority: urgent
 labels: [bug, scoreboard, agentic, autonomous]
 created: 2026-10-05
-closed:
+closed: 2026-10-05
 ---
 
 # Leaderboard, submissions and operator commands fail since the readiness connection was added
@@ -20,3 +20,4 @@ Ledger: `docs/work/2026-10-05-OME-1488-name-default-connection.md`.
 Spec: `docs/spec/2026-10-05-OME-1488-name-default-connection.md`.
 
 - 2026-10-05: found from the dev pod log after #1227's deploy; fixed the same day.
+- 2026-10-05: merged via #1244 (`c08ce63e`), approved by Sergey on Slack; closed in Linear with the close comment.
