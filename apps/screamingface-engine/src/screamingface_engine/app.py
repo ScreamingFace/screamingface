@@ -11,7 +11,7 @@ import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -64,7 +64,8 @@ from screamingface_engine.rest import (
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.schemas import customize_openapi
-from screamingface_engine.tracing.relay import SpanSink, otlp_configured
+from screamingface_engine.tracing.loader import load_span_sink
+from screamingface_engine.tracing.relay import SpanSink
 from screamingface_engine.unclaimed import QueuedRuns, UnclaimedRunWarner
 from screamingface_engine.world.serving import derive_mount_table, engine_route_paths
 from screamingface_engine.ws import ConnectionRegistry
@@ -185,26 +186,9 @@ def create_app(
     return app
 
 
-def control_plane_span_sink(env: Mapping[str, str]) -> SpanSink | None:
-    """The App's span sink, or ``None`` when this deployment configured no OTLP endpoint.
-
-    WHY the import is lazy: `tracing.otlp` pulls the OTel SDK, protobuf and `requests`; an App
-    with no endpoint pays none of it. INVARIANT: never raises — a broken exporter config must
-    not stop the App from serving runs; telemetry degrades alone.
-
-    AIDEV-NOTE: the run half has the same loader (`runner.main.span_sink`). It is not shared
-    yet because the control plane may not import the run half, and moving it means editing
-    `runner/main.py` (deferred, see the OME-1218 ledger).
-    """
-    if not otlp_configured(env):
-        return None
-    try:
-        from screamingface_engine.tracing.otlp import sink_from_env
-
-        return sink_from_env(env)
-    except Exception:
-        _logger.warning("span export is configured but could not be started", exc_info=True)
-        return None
+control_plane_span_sink = load_span_sink
+"""The App's span sink (OME-1218): the `tracing` leaf's loader — the same one the run uses
+(OME-1462). Lazy OTel import, never raises; see `tracing.loader`."""
 
 
 def _install_span_sink(app: FastAPI, sink: SpanSink | None) -> None:

@@ -10,7 +10,7 @@ It is not the stream sequence: in a shared stream that one has gaps inside every
 import asyncio
 import logging
 from collections import Counter
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import NoReturn
@@ -94,6 +94,11 @@ class EventsStreamConfig:
     duplicate_window_s: float = 120.0
     replicas: int = 1
     storage: StorageType = StorageType.FILE
+    # The cap on a RETAINED (failed/timed_out) run's subject, applied by `trim_retained`
+    # (OME-1462). Not broker config — `stream_config` never sends them — and not chart values:
+    # the run child builds its publisher with these defaults (ledger D1).
+    retained_max_msgs: int = 256
+    retained_max_bytes: int = 1024**2
 
     def stream_config(self) -> StreamConfig:
         return StreamConfig(
@@ -545,9 +550,82 @@ class _JetStreamConnection:
             return
         self.subject_purges += 1
 
+    async def trim_retained(self, topic: str) -> None:
+        """Cap a RETAINED run's subject: its newest `retained_max_msgs` frames, then its newest
+        `retained_max_bytes` of payload — always keeping the terminal frame (OME-1462).
+
+        FEATURE: failed-run post-mortem (OME-946) on a budget. Owner decision 2026-10-02: a
+        per-subject cap, no separate stream. Uncapped, a retained subject held up to
+        `max_msgs_per_subject` frames of up to `max_msg_size` each, and in a failure storm the
+        `discard=OLD` eviction that followed hit OTHER runs' terminal frames — the ones the
+        worker's dedupe gate and App admission read.
+
+        WHY two purges: the broker applies a message cap in one call (`keep`) but has no byte
+        form of it. The byte cap is computed from a scan of the survivors — at most
+        `retained_max_msgs` reads, on the detached reclaim task — and applied as a purge below
+        a stream sequence, filtered to this subject.
+
+        INVARIANT: no other subject is touched (every purge carries the subject filter), and
+        the subject's last frame always survives (`retained_cut`).
+        """
+        js = await self._jetstream()
+        subject = subject_for(topic)
+        cap = self._events
+        try:
+            await js.purge_stream(cap.name, subject=subject, keep=cap.retained_max_msgs)
+        except NotFoundError:
+            return
+        sizes = await self._subject_sizes(js, subject, limit=cap.retained_max_msgs)
+        cut = retained_cut(sizes, cap.retained_max_bytes)
+        if cut is not None:
+            await js.purge_stream(cap.name, subject=subject, seq=cut)
+        logger.info(
+            "capped the retained subject of %s: %d frame(s) scanned, cut below %s",
+            topic,
+            len(sizes),
+            cut,
+        )
+
+    async def _subject_sizes(
+        self, js: JetStreamContext, subject: str, *, limit: int
+    ) -> list[tuple[int, int]]:
+        """(stream sequence, payload bytes) of the subject's frames, oldest first, at most
+        `limit` of them — the subject was just trimmed to that many, so the bound is a guard."""
+        sizes: list[tuple[int, int]] = []
+        seq = 1
+        for _ in range(limit):
+            try:
+                msg = await js.get_msg(self._events.name, seq=seq, subject=subject, next=True)
+            except NotFoundError:
+                break
+            msg_seq = msg.seq or seq
+            sizes.append((msg_seq, len(msg.data or b"")))
+            seq = msg_seq + 1
+        return sizes
+
     async def close(self) -> None:
         if self._nc is not None:
             await self._nc.close()
+
+
+def retained_cut(sizes: Sequence[tuple[int, int]], max_bytes: int) -> int | None:
+    """The stream sequence a retained subject keeps from, or None when it already fits.
+
+    `sizes` is the subject's (stream sequence, payload bytes), oldest first. Walking back from
+    the tail, frames are kept while their total stays within `max_bytes`; the first frame that
+    would overflow it is where the cut goes.
+
+    INVARIANT: the last frame — the run's terminal frame — is kept even when it alone exceeds
+    the budget; dedupe and admission read it, so it is the one frame a cap may never cost.
+    """
+    if not sizes:
+        return None
+    keep_from, total = sizes[-1][0], sizes[-1][1]
+    for seq, size in reversed(sizes[:-1]):
+        if total + size > max_bytes:
+            break
+        keep_from, total = seq, total + size
+    return keep_from if keep_from != sizes[0][0] else None
 
 
 class JetStreamConsumer(_JetStreamConnection, EventConsumer):
@@ -850,4 +928,5 @@ __all__ = [
     "ensure_events_stream",
     "events_store_usage",
     "purge_legacy_streams",
+    "retained_cut",
 ]
