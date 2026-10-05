@@ -42,7 +42,7 @@ in four stacked PRs (SDK decoder and report card → Engine spine → importer �
 - **Actual files:** as planned: `docs/spec/2026-10-05-OME-1268-multi-score-benchmarks.md`,
   `docs/plan/2026-10-05-OME-1268-multi-score-benchmarks.md`, `CONTEXT.md` (two entries),
   `docs/tasks/2026-09-23-OME-1268-multi-score-benchmarks.md`, this ledger.
-- **Commits:** 9c03a7c23 — docs(screamingface-engine): spec and plan for one Benchmark with
+- **Commits:** 34502ba1d — docs(screamingface-engine): spec and plan for one Benchmark with
   several named scores
 - **Gates:** docs-only, no stack gate applies; pre-commit fast hooks green; the docs/tasks ↔
   docs/work status gate (`check_mirror_status.py`) reports no new pair; both spec mermaid
