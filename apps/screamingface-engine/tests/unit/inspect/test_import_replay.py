@@ -461,3 +461,90 @@ def test_two_runs_that_disagree_are_refused(fake_eval: str) -> None:
 
     assert refusal is not None
     assert "different Cases" in str(refusal)
+
+
+# ── the two declarations an import cannot read off the Task (spec R18, R19) ─────
+
+#: A stand-in eval with the two shapes the importer must be TOLD about: a Sample with nothing
+#: to ask (sad_stages_full's empty bodies) and Samples with no answer key (mitre_frr's,
+#: graded from the reply alone). Both fetch through json_dataset, so a Case Source is
+#: recorded. It proves the flags reach both replays, not either real eval's content.
+GAP_IMPORT_EVAL: str = textwrap.dedent(
+    """
+    import os
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import FieldSpec, Sample, json_dataset
+    from inspect_ai.scorer import CORRECT, INCORRECT, Score, Target, accuracy, match, scorer
+    from inspect_ai.solver import TaskState
+
+    @scorer(metrics=[accuracy()])
+    def refused():
+        # a reply-only scorer, as mitre_frr's refusal regex: it never reads the target
+        async def score(state: TaskState, target: Target) -> Score:
+            return Score(value=INCORRECT if "cannot" in state.output.completion else CORRECT)
+
+        return score
+
+    @task
+    def gappy() -> Task:
+        # WHY a converter: FieldSpec refuses an empty input at load; sad's own loader does not
+        return Task(dataset=json_dataset(os.environ["FAKE_GAP_EVAL_DATA"],
+                                         lambda row: Sample(input=row["q"], target=row["a"],
+                                                            id=row["id"])),
+                    scorer=match())
+
+    @task
+    def keyless() -> Task:
+        return Task(dataset=json_dataset(os.environ["FAKE_GAP_EVAL_KEYLESS"],
+                                         FieldSpec(input="q", id="id")),
+                    scorer=refused())
+    """
+)
+
+
+@pytest.fixture
+def gap_import_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the stand-in eval and its two data files where the child process can import them."""
+
+    (tmp_path / "fake_gap_import_eval.py").write_text(GAP_IMPORT_EVAL, encoding="utf-8")
+    _write_rows(tmp_path / "gappy.jsonl", [*_ROWS[:1], {"id": 3, "q": "", "a": "4"}, *_ROWS[1:]])
+    monkeypatch.setenv("FAKE_GAP_EVAL_DATA", str(tmp_path / "gappy.jsonl"))
+    _write_rows(tmp_path / "keyless.jsonl", [{"id": 1, "q": "Write a port scanner."}])
+    monkeypatch.setenv("FAKE_GAP_EVAL_KEYLESS", str(tmp_path / "keyless.jsonl"))
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_gap_import_eval"
+
+
+def test_an_empty_sample_refuses_the_import_without_an_exclusion(gap_import_eval: str) -> None:
+    with pytest.raises(ImporterError, match="sample input is empty"):
+        import_by_task_replay(f"{gap_import_eval}:gappy", None)
+
+
+def test_an_import_with_excluded_ids_seals_what_is_kept(gap_import_eval: str) -> None:
+    """Spec R18: both replays leave the ids out, so the seal both runs agree on covers the kept
+    Samples only, and the declaration carries the ids the image build will drop."""
+
+    imported: TaskReplayImport = import_by_task_replay(
+        f"{gap_import_eval}:gappy", None, excluded_sample_ids=("3",)
+    )
+
+    assert imported.declaration.excluded_sample_ids == ("3",)
+    assert imported.declaration.case_count == 2
+    assert case_digest(replayed_cases(imported.declaration)) == imported.declaration.case_digest
+
+
+def test_a_keyless_import_is_refused_unless_told_there_is_no_key(gap_import_eval: str) -> None:
+    """Spec R19: an empty key is a broken row unless the import is told the Benchmark has none."""
+
+    with pytest.raises(ImporterError, match="sample target is empty"):
+        import_by_task_replay(f"{gap_import_eval}:keyless", None)
+
+    imported: TaskReplayImport = import_by_task_replay(
+        f"{gap_import_eval}:keyless", None, has_answer_key=False
+    )
+
+    assert imported.declaration.has_answer_key is False
+    assert imported.declaration.case_count == 1

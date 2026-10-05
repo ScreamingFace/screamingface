@@ -473,3 +473,94 @@ def test_a_solver_that_builds_its_own_model_is_refused_in_the_child(own_model_ev
 
     with pytest.raises(TaskReplayError, match="case 1: the solver raised PrerequisiteError"):
         replayed_cases(spec)
+
+
+# ── a Named Deviation: Samples the declaration leaves out (spec R18) ─────────
+
+#: Three Samples, the middle one with nothing to ask: the shape of sad_stages_full, whose
+#: upstream records 15, 59 and 103 have an empty body. A stand-in for that eval's data, not its
+#: prompt; it proves which Samples become Cases, not how sad renders them.
+GAP_SAMPLES: list[Sample] = [
+    Sample(input="First question?", target="A", id="q:0"),
+    Sample(input="", target="B", id="q:1"),
+    Sample(input="Third question?", target="C", id="q:2"),
+]
+
+
+def _gap_task() -> Task:
+    """A Task over GAP_SAMPLES with inspect's default generate()."""
+
+    return Task(dataset=MemoryDataset(list(GAP_SAMPLES)))
+
+
+def test_an_empty_sample_is_refused_without_an_exclusion() -> None:
+    """Why the deviation exists: the Case boundary never prepares a Case with nothing to ask."""
+
+    with pytest.raises(PrepareError, match="case 2: sample input is empty"):
+        captured_case_records(_gap_task(), _spec())
+
+
+def test_excluded_samples_are_left_out_and_the_rest_renumbered() -> None:
+    """Spec R18: the listed ids never become Cases; the kept ones are numbered 1..N, so the
+    Case count is what is left, as on the Hugging Face path."""
+
+    prepared = captured_case_records(_gap_task(), _spec(excluded_sample_ids=("q:1",)))
+
+    assert [(case["case"]["case_id"], case["case"]["input"]) for case in prepared] == [
+        ("1", "First question?"),
+        ("2", "Third question?"),
+    ]
+    assert [case["grading_material"]["target"] for case in prepared] == ["A", "C"]
+
+
+def test_an_excluded_id_the_dataset_no_longer_holds_is_refused() -> None:
+    """INVARIANT: the exclusion was written against one dataset; an id that is gone means it
+    describes nothing we can check, so Case Preparation stops instead of serving it."""
+
+    with pytest.raises(PrepareError, match="q:9 are not in the dataset"):
+        captured_case_records(_gap_task(), _spec(excluded_sample_ids=("q:1", "q:9")))
+
+
+#: GAP_SAMPLES as a stand-in eval the image-side child can import.
+GAP_EVAL: str = textwrap.dedent(
+    """
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    @task
+    def gap() -> Task:
+        return Task(dataset=MemoryDataset([
+            Sample(input="First question?", target="A", id="q:0"),
+            Sample(input="", target="B", id="q:1"),
+            Sample(input="Third question?", target="C", id="q:2"),
+        ]))
+    """
+)
+
+
+@pytest.fixture
+def gap_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the stand-in eval where the child process can import it."""
+
+    (tmp_path / "fake_gap_eval.py").write_text(GAP_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_gap_eval"
+
+
+def test_the_image_side_child_leaves_the_excluded_samples_out(gap_eval: str) -> None:
+    """The ids cross into the child as JSON and still drop the Sample: what every image build
+    serves is what the import sealed."""
+
+    spec = TaskReplayCasesSpec(
+        task=f"{gap_eval}:gap",
+        case_count=2,
+        case_digest=_UNSEALED,
+        excluded_sample_ids=("q:1",),
+    )
+
+    prepared = replayed_cases(spec)
+
+    assert [case["case"]["input"] for case in prepared] == ["First question?", "Third question?"]

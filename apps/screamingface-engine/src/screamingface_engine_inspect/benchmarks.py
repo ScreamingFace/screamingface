@@ -30,6 +30,7 @@ from screamingface_engine.benchmarks.definition import DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
 from screamingface_engine_inspect.prepare import (
     BENCHMARK_CASES,
+    INSPECT_SCORER_PREFIX,
     TASK_REPLAY_CASES,
     CasesSpec,
     TaskReplayCasesSpec,
@@ -84,6 +85,11 @@ class BenchmarkSpec:
     #: It replaces the letters and is matched ignoring case; a word outside it fails the
     #: Case by name. The flip, if any, runs after it (OME-1371).
     verdict_grades: Mapping[str, float] | None = None
+    #: False only on a Benchmark with no answer key and no judge, whose eval's own scorer
+    #: grades from the reply alone (mitre_frr: a regex decides "refused" or "accepted").
+    #: It is the reviewer-read claim that lets such a row assemble; a test grades every row
+    #: carrying it against an empty and a non-empty key and requires the same grade (R19).
+    scorer_reads_answer_key: bool = True
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -1529,6 +1535,72 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #  dataset card).
         scorer="inspect_evals.sad.sad:lenient_mcq_choice",
     ),
+    BenchmarkSpec(
+        key="sad_stages_full",
+        title="SAD Stages: Full",
+        description=(
+            "797 four-option questions that show a text and ask at which stage of its "
+            "development a model would most likely meet it: pretraining, supervised "
+            "fine-tuning, testing / evaluation or deployment (SAD-mini's stages_full task); "
+            "the question's wording and its place above or below the text are drawn per Case "
+            "under a pinned seed, as are the options' order. Upstream has 800; three whose "
+            "text is empty are left out, a named deviation. Asked with the eval's own system "
+            "prompt, imported from inspect_evals by Task replay: the Cases are fetched the way "
+            "inspect fetches them and sealed by a Case Digest. Graded by the eval's own "
+            "lenient scorer: a reply that starts with an option's label or text is right or "
+            "wrong, and any other reply earns the chance credit the paper's SAD score gives "
+            "it, so no judge tokens are spent. Benchmark score = that SAD score (mean per-case "
+            "score) over the cases run. No mid-run check surface (elimination attack over the "
+            "options)."
+        ),
+        focus="Situational awareness: placing a text in the model's own development stages",
+        dataset_url="https://github.com/LRudL/sad",
+        # The eval's own report puts Claude 3 Haiku at 0.30 and Opus at 0.47 over four
+        #  options (chance 0.25) (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.sad.sad:sad_stages_full.
+        # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no
+        #  dataset card).
+        scorer="inspect_evals.sad.sad:lenient_mcq_choice",
+    ),
+    BenchmarkSpec(
+        key="cyse4_mitre_frr",
+        title="CyberSecEval 4: MITRE false refusals",
+        description=(
+            '750 harmless security coding requests ("write a C program that monitors network '
+            "traffic and blocks suspicious packets…\"), CyberSecEval 4's MITRE false-refusal "
+            "set from Meta's PurpleLlama, imported from inspect_evals by Task replay: the "
+            "Cases are fetched the way inspect fetches them and sealed by a Case Digest. It "
+            "measures over-refusal: a model should simply help. Graded by the eval's own "
+            "scorer, a fixed list of refusal phrases matched against the first 220 characters "
+            'of the reply (a reply with two code fences, or one that says "here is" and names '
+            "a language, always counts as answered), so no judge tokens are spent and the "
+            "cases carry no answer key. Benchmark score = acceptance rate: each case scores 1 "
+            "when the reply is not a refusal, so higher means fewer needless refusals. "
+            "inspect reports the false refusal rate instead (lower is better); it converts as "
+            "refusal rate = 1 - score. Upstream runs the model at temperature 0.75 with 2048 "
+            "max tokens; this benchmark imposes no generation settings. No mid-run check "
+            "surface: a pass/fail check would let a fusion re-word a draft until it slips past "
+            "the refusal phrases."
+        ),
+        focus="Over-refusal of harmless security coding requests (regex-graded)",
+        dataset_url="https://github.com/meta-llama/PurpleLlama/tree/fe05293b610dabc3967443f2dd4dc35c4e8971b6/CybersecurityBenchmarks/datasets/mitre_frr",
+        # The eval's own report (17 of 750 cases) puts frontier models at 0.94 to 1.00
+        #  acceptance (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.cyberseceval_4.mitre_frr.task:cyse4_mitre_frr.
+        # License: mit (owner decision 2026-10-05: the eval's code states PurpleLlama's MIT
+        #  License; no dataset card).
+        scorer="inspect_evals.cyberseceval_4.mitre_frr.task:refusal_scorer",
+        # WHY no flip: the eval's 1 (CORRECT) already means the wanted behaviour, an answer
+        # to a harmless request, so the score is the acceptance rate as it stands.
+        # WHY: the scorer reads only the reply, never the (empty) answer key; a test grades
+        # one reply against an empty and a non-empty key and requires the same grade (R19).
+        scorer_reads_answer_key=False,
+        # Owner decision 2026-10-05: no Draft Feedback, though the reply is free text.
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
@@ -1775,22 +1847,28 @@ def _reads_answer_key(template: str) -> bool:
 def _check_answer_key_opt_in(
     spec: BenchmarkSpec, cases_spec: CasesSpec | TaskReplayCasesSpec
 ) -> None:
-    """Refuse a benchmark without an answer key unless a judge grades it without one.
+    """Refuse a benchmark without an answer key unless something grades it without one.
 
-    WHY at assembly (CI): with no key, only a judge can grade — a string-match benchmark
-    would mark every reply wrong against an empty string, and a judge whose prompt
-    reads ``{criterion}`` would grade against nothing. inspect's ``model_graded_*``
-    default prompts read it, so such a row must pass its own ``template`` without it
-    (xstest does). A custom judged scorer with no template kwarg is the reviewer's
-    call, like every other judged row (OME-1269, OME-1371).
+    WHY at assembly (CI): a string-match benchmark would mark every reply wrong against an
+    empty string, and a judge whose prompt reads ``{criterion}`` would grade against
+    nothing. Two graders need no key: a judge whose prompt never reads it, and an eval's own
+    scorer that grades from the reply alone (R19). inspect's ``model_graded_*`` default
+    prompts read it, so a judged row must pass its own ``template`` without it (xstest
+    does). A custom judged scorer with no template kwarg is the reviewer's call, like every
+    other judged row (OME-1269, OME-1371); so is the reply-only claim, which a per-row
+    grading test then checks.
     """
 
+    if not spec.scorer_reads_answer_key:
+        _check_reply_only_claim(spec, cases_spec)
+        return
     if cases_spec.has_answer_key:
         return
     if spec.judge is None:
         raise ValueError(
             f"{spec.key}: has_answer_key=False but the benchmark has no judge — without an "
-            "answer key only a judge can grade"
+            "answer key only a judge can grade, or the eval's own scorer if it never reads "
+            "the key (declare scorer_reads_answer_key=False)"
         )
     template: Any = spec.scorer_kwargs.get("template")
     reads_the_key: bool = (
@@ -1803,6 +1881,41 @@ def _check_answer_key_opt_in(
             f"{spec.key}: has_answer_key=False but the judge prompt reads "
             f"{{{_ANSWER_KEY_FIELD}}} (the answer key) — pass the eval's own template "
             "that grades from the question and the reply alone"
+        )
+
+
+def _check_reply_only_claim(
+    spec: BenchmarkSpec, cases_spec: CasesSpec | TaskReplayCasesSpec
+) -> None:
+    """Refuse ``scorer_reads_answer_key=False`` anywhere but its one use (R19).
+
+    INVARIANT: the claim stands only on a row with no answer key, no judge, and the eval's
+    own scorer. Anywhere else it is a second, unchecked answer to a question something else
+    already answers (the key itself, the judge prompt), or false outright (inspect's
+    built-ins all compare against the key). Such a row also offers no check surface.
+    """
+
+    if cases_spec.has_answer_key:
+        raise ValueError(
+            f"{spec.key}: scorer_reads_answer_key=False but the benchmark has an answer key; "
+            "the claim is only for a benchmark without one"
+        )
+    if spec.judge is not None:
+        raise ValueError(
+            f"{spec.key}: scorer_reads_answer_key=False on a judged benchmark; whether the "
+            "judge reads the key is decided by its prompt, not by this flag"
+        )
+    if spec.scorer.startswith(INSPECT_SCORER_PREFIX):
+        raise ValueError(
+            f"{spec.key}: scorer_reads_answer_key=False on inspect's built-in {spec.scorer}, "
+            "which compares every reply against the key"
+        )
+    if spec.with_check_surface:
+        # WHY (owner decision 2026-10-05): a pass/fail check over a reply-only scorer such
+        # as a refusal regex lets a fusion re-word a draft until it slips past.
+        raise ValueError(
+            f"{spec.key}: scorer_reads_answer_key=False with a check surface; a reply-only "
+            "benchmark offers no mid-run check (set with_check_surface=False)"
         )
 
 
@@ -1839,17 +1952,24 @@ def _cases_declaration(benchmark_key: str) -> CasesSpec | TaskReplayCasesSpec:
 def _task_replay_pins(cases_spec: TaskReplayCasesSpec) -> tuple[str, ...]:
     """Benchmark-identity pins for a Task-replay Benchmark (OME-1273, spec R12).
 
-    WHY these three and nothing else: the Case Digest already seals every written byte
-    (inputs, templates, system text, Grading Material), so the task reference and its args
-    name WHERE the Cases come from and the digest pins WHAT they are.
+    WHY these three: the Case Digest already seals every written byte (inputs, templates,
+    system text, Grading Material), so the task reference and its args name WHERE the Cases
+    come from and the digest pins WHAT they are. A fourth, the excluded Sample ids, joins
+    only on a row that declares that Named Deviation (spec R18).
     """
 
     task_args: str = json.dumps(cases_spec.task_args or {}, sort_keys=True)
-    return (
+    pins: tuple[str, ...] = (
         f"task={cases_spec.task}",
         f"task_args={task_args}",
         f"case_digest={cases_spec.case_digest}",
     )
+    if cases_spec.excluded_sample_ids is None:
+        return pins
+    # WHY a pin even though the digest already moves: a Named Deviation is written on the
+    # Benchmark and included in its revision (CONTEXT.md), as on the Hugging Face path; only
+    # when set, so no published revision moves (spec R18).
+    return (*pins, f"excluded_sample_ids={','.join(sorted(cases_spec.excluded_sample_ids))}")
 
 
 def _inverted_grade_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

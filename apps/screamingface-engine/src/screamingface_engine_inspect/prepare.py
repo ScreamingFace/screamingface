@@ -326,6 +326,11 @@ SKIPPED_MARKER = "SKIPPED"
 type PreparedCase = dict[str, dict[str, Any]]
 
 
+#: Where inspect's own scorers live (match, choice, model_graded_qa, …). None of them reads
+#: the Sample metadata (D11), and every one that grades without a judge compares the reply
+#: against the answer key (R19). The one spelling both rules check.
+INSPECT_SCORER_PREFIX: str = "inspect_ai.scorer:"
+
 #: The license value the importer writes when it cannot read a cleared one; a test refuses
 #: a Task-replay declaration that still carries it (spec R7). The owner decides each license.
 LICENSE_TODO: str = "TODO"
@@ -351,6 +356,12 @@ class TaskReplayCasesSpec:
     task_args: dict[str, Any] | None = None
     keep_sample_metadata: bool = False
     has_answer_key: bool = True
+    #: A NAMED DEVIATION, as on :class:`CasesSpec`: upstream Sample ids (``str(Sample.id)``)
+    #: dropped after the task builds its dataset and before capture (sad_stages_full: three
+    #: Samples with an empty question). Every id must still be there, or Case Preparation
+    #: refuses; ``case_count`` is the count kept. The row says why beside the ids, and they
+    #: ride Benchmark identity when set (spec R18).
+    excluded_sample_ids: tuple[str, ...] | None = None
     #: The dataset license, from the Hugging Face card when the one Case Source has one and
     #: it is on the cleared list, otherwise the owner's decision replacing LICENSE_TODO in
     #: the diff (spec R6, R7).
@@ -1176,6 +1187,58 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # License: owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no dataset card.
         license="cc-by-4.0",
     ),
+    # sad_stages_full — imported by Task replay on 2026-10-05 from
+    #   inspect_evals.sad.sad:sad_stages_full.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/facts/human_defaults/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 fb5085dab38cecfac0a8e9fcbd663baab96c4837079fae80f9a7f4a823074650
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/facts/llms/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 c05b00d70bcf25bbccafb3cd64aadbce684a84041c36e7ac34cba533508a4f61
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/influence/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 63ed83e878320cd742f81a4c7f1d6ee413c508e68c053482453615cc48156881
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/stages/oversight/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 5b620b7bf45d04a2f79b1c7d2e825069fe774d853beeaff11b8b43c442c50ebb
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/stages/full/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 9bf272835a6b51c4b66010f8159dea3c92e62b587add54a1ec95148cf862293e
+    "sad_stages_full": TaskReplayCasesSpec(
+        task="inspect_evals.sad.sad:sad_stages_full",
+        task_args={"seed": 7},
+        case_count=797,
+        case_digest="a5d0851ddeee6f85a4ac3f911245c2b37fdb2a20f305a9259846c011c1bc0385",
+        keep_sample_metadata=True,
+        # NAMED DEVIATION (spec R18): upstream's records 15, 59 and 103 of the stages/full
+        # batch files have an empty body, so the eval asks "In what stage … the above text?"
+        # about no text at all, and the Case boundary never prepares a Case with nothing to
+        # ask. inspect keeps them; this Benchmark leaves them out, 797 of 800. The ids do not
+        # depend on the seed (the loader numbers records in file order).
+        excluded_sample_ids=(
+            "stages_full:14",
+            "stages_full:58",
+            "stages_full:102",
+        ),
+        # License: owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no dataset card.
+        license="cc-by-4.0",
+    ),
+    # cyse4_mitre_frr — imported by Task replay on 2026-10-05 from
+    #   inspect_evals.cyberseceval_4.mitre_frr.task:cyse4_mitre_frr.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/meta-llama/PurpleLlama/fe05293b610dabc3967443f2dd4dc35c4e8971b6/CybersecurityBenchmarks/datasets/mitre_frr/mitre_frr.json
+    #     pin commit fe05293b610dabc3967443f2dd4dc35c4e8971b6
+    "cyse4_mitre_frr": TaskReplayCasesSpec(
+        task="inspect_evals.cyberseceval_4.mitre_frr.task:cyse4_mitre_frr",
+        case_count=750,
+        case_digest="d62289a80a9e7cc067ed73b3cf8790009f16fcf3c9b2a0bdda3399e5d4990f3d",
+        keep_sample_metadata=True,
+        # The Samples carry no answer key: the eval's own scorer reads only the reply (a
+        # refusal regex), so the row opts out of the key and its catalogue row says who
+        # grades without one (spec R19).
+        has_answer_key=False,
+        # License: owner decision 2026-10-05: MIT, as the eval's code states for
+        # PurpleLlama ("Copyright (c) Meta Platforms, Inc. and affiliates., MIT License");
+        # no dataset card. Upstream publishes no sha256 for this file: the commit in the
+        # URL and the Case Digest are its pins.
+        license="mit",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
@@ -1367,13 +1430,13 @@ def _pinned_samples(
     if spec.question_filter_task is not None:
         samples = task_kept_samples(spec, samples)
     if spec.excluded_sample_ids is not None:
-        samples = _without_excluded_samples(spec.excluded_sample_ids, samples)
+        samples = without_excluded_samples(spec.excluded_sample_ids, samples)
     if drops_questions:
         _require_case_count(len(samples), expected_cases, "the prepare step kept", "cases")
     return samples
 
 
-def _without_excluded_samples(excluded_ids: tuple[str, ...], samples: list[Sample]) -> list[Sample]:
+def without_excluded_samples(excluded_ids: tuple[str, ...], samples: list[Sample]) -> list[Sample]:
     """The named deviation — drop the pinned ids, refusing any id that is not there.
 
     WHY refuse a missing id: the list was written against one revision's data; an
@@ -1671,8 +1734,9 @@ def _validated_answer_key(
 ) -> tuple[str, list[str] | None]:
     """The one trust boundary on eval-produced Samples — never prepare an unkeyed Case.
 
-    ``has_answer_key=False`` (a judged benchmark whose judge never reads a key) is the
-    one place an empty answer key is accepted; the question itself is still required.
+    ``has_answer_key=False`` (a judged benchmark whose judge never reads a key, or one
+    graded by the eval's own scorer from the reply alone, R19) is the one place an empty
+    answer key is accepted; the question itself is still required.
     """
 
     _require_a_question(sample, case_id)
@@ -1801,6 +1865,7 @@ __all__ = [
     "PrepareError",
     "BENCHMARK_CASES",
     "CasesSpec",
+    "INSPECT_SCORER_PREFIX",
     "LICENSE_TODO",
     "PreparedCase",
     "TASK_REPLAY_CASES",
@@ -1814,4 +1879,5 @@ __all__ = [
     "prepared_case",
     "task_kept_samples",
     "templated_prompt",
+    "without_excluded_samples",
 ]

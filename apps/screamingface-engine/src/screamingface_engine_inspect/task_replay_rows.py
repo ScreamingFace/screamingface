@@ -32,6 +32,7 @@ Example (agieval_lsat_ar, one Case Source):
 from __future__ import annotations
 
 import datetime as _datetime
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -152,7 +153,11 @@ def _refuse_injectable_import(
     """Stage 2 — refuse any string that could escape the generated rows."""
 
     declaration: TaskReplayCasesSpec = imported.declaration
-    references: list[str | None] = [declaration.task, imported.facts.scorer]
+    references: list[str | None] = [
+        declaration.task,
+        imported.facts.scorer,
+        *(declaration.excluded_sample_ids or ()),
+    ]
     # WHY a looser rule for these: they land only inside comments; only a line break or
     # another control character could end the comment and start code.
     for text in imported.facts.custom_metrics:
@@ -203,9 +208,26 @@ def _declaration_lines(
     if declaration.keep_sample_metadata:
         # WHY written: the metadata is inside the Case Digest, so the row must say so (D11).
         lines.append("        keep_sample_metadata=True,")
+    if not declaration.has_answer_key:
+        # WHY written: the empty keys are inside the Case Digest, as the metadata is (R19).
+        lines.append("        has_answer_key=False,")
+    if declaration.excluded_sample_ids:
+        lines.extend(_excluded_id_lines(declaration.excluded_sample_ids))
     lines.extend(_license_lines(license, card_license))
     lines.append("    ),")
     return lines
+
+
+def _excluded_id_lines(excluded_ids: tuple[str, ...]) -> list[str]:
+    """The Named Deviation (R18): one id per line, under a reason the reviewer still writes."""
+
+    return [
+        "        # NAMED DEVIATION — TODO(review): say why upstream's Samples",
+        "        # below are left out.",
+        "        excluded_sample_ids=(",
+        *(f"            {json.dumps(sample_id)}," for sample_id in excluded_ids),
+        "        ),",
+    ]
 
 
 def _case_source_comment_lines(sources: tuple[CaseSource, ...]) -> list[str]:

@@ -31,8 +31,11 @@ from screamingface_engine_inspect.benchmarks import (  # noqa: E402
 from screamingface_engine_inspect.prepare import BENCHMARK_CASES, TASK_REPLAY_CASES  # noqa: E402
 
 #: Every imported benchmark key and its family: "mcq" (choice scorer, draft-feedback offer
-#: refused per OME-796), "free_text" (draft-feedback offer ON, spec §4), or "judged"
-#: (LLM-judged — draft-feedback offer refused until the check-cost knob, OME-1116/OME-1240).
+#: refused per OME-796), "free_text" (draft-feedback offer ON, spec §4), "judged"
+#: (LLM-judged — draft-feedback offer refused until the check-cost knob, OME-1116/OME-1240),
+#: or "reply_only" (no answer key, graded by the eval's own scorer from the reply alone;
+#: draft-feedback offer refused, owner 2026-10-05: a pass/fail check over a refusal regex
+#: lets a fusion re-word a draft until it slips past).
 _EXPECTED_FAMILIES: dict[str, str] = {
     "gsm8k": "free_text",
     "mmlu": "mcq",
@@ -98,12 +101,15 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # the judge answers in words, graded by the row's verdict map.
     "coconot_original": "judged",
     "coconot_contrast": "judged",
-    # OME-1273: SAD-mini's four importable tasks, choice-shaped and graded by the eval's
-    # own lenient scorer (stages_full is refused: three Samples have an empty body).
+    # OME-1273: SAD-mini's five tasks, choice-shaped and graded by the eval's own lenient
+    # scorer (stages_full leaves out three Samples whose body is empty, a Named Deviation).
     "sad_facts_llms": "mcq",
     "sad_facts_human_defaults": "mcq",
     "sad_influence": "mcq",
+    "sad_stages_full": "mcq",
     "sad_stages_oversight": "mcq",
+    # OME-1273: cyberseceval_4's false-refusal set, graded by its own refusal regex (R19).
+    "cyse4_mitre_frr": "reply_only",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -193,7 +199,8 @@ def test_benchmark_row_declares_its_family_check_surface(key: str) -> None:
     if _EXPECTED_FAMILIES[key] == "free_text":
         assert benchmark.check_surface is not None
     else:
-        # "mcq" (elimination attack) and "judged" (no check-cost knob yet) alike.
+        # "mcq" (elimination attack), "judged" (no check-cost knob yet) and "reply_only"
+        # (re-wording past a refusal regex) alike.
         assert benchmark.check_surface is None
 
 

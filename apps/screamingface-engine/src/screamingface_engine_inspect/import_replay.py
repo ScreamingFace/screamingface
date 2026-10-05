@@ -47,6 +47,7 @@ from screamingface_engine_inspect.importer import (
     _solver_list,
 )
 from screamingface_engine_inspect.prepare import (
+    INSPECT_SCORER_PREFIX,
     PreparedCase,
     TaskReplayCasesSpec,
     case_digest,
@@ -62,9 +63,6 @@ from screamingface_engine_inspect.task_replay import (
 
 #: The digest the import child's spec carries: nothing compares it (replayed_cases never does).
 UNSEALED_DIGEST: str = "0" * 64
-
-#: inspect's own scorers live here; none of them reads the Sample metadata (D11).
-_INSPECT_SCORER_PREFIX: str = "inspect_ai.scorer:"
 
 
 @dataclass(frozen=True)
@@ -97,6 +95,8 @@ def replay_for_import(
     task_ref: str,
     task_args: Mapping[str, Any] | None,
     *,
+    excluded_sample_ids: tuple[str, ...] | None = None,
+    has_answer_key: bool = True,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
 ) -> ImportReplay:
     """Run the import child once and read back Cases, Case Sources and facts.
@@ -104,6 +104,9 @@ def replay_for_import(
     Args:
         task_ref: ``"module:attr"`` of the eval's task function.
         task_args: forwarded to the task function; None for none.
+        excluded_sample_ids: upstream Sample ids capture leaves out (spec R18); None for none.
+        has_answer_key: False when the Benchmark has no answer key, so an empty one is
+            accepted (spec R19).
         timeout: seconds before a stalled replay is abandoned.
 
     Returns:
@@ -123,6 +126,8 @@ def replay_for_import(
         request: dict[str, Any] = {
             "task": task_ref,
             "task_args": dict(task_args) if task_args else None,
+            "excluded_sample_ids": list(excluded_sample_ids) if excluded_sample_ids else None,
+            "has_answer_key": has_answer_key,
             "cache_root": str(cache_root),
         }
         request_path.write_text(json.dumps(request), encoding="utf-8")
@@ -192,7 +197,7 @@ def _facts_of(
         custom_metrics=_custom_metrics(task),
         # WHY (D11): an eval's own scorer may read state.metadata (chembench), and the
         # metadata sits inside the Case Digest, so it is decided here, never by a hand edit.
-        keep_sample_metadata=not scorer_ref.startswith(_INSPECT_SCORER_PREFIX),
+        keep_sample_metadata=not scorer_ref.startswith(INSPECT_SCORER_PREFIX),
     )
 
 
@@ -243,6 +248,12 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         case_digest=UNSEALED_DIGEST,
         task_args=task_args,
         keep_sample_metadata=facts.keep_sample_metadata,
+        has_answer_key=request["has_answer_key"],
+        excluded_sample_ids=(
+            None
+            if request["excluded_sample_ids"] is None
+            else tuple(request["excluded_sample_ids"])
+        ),
     )
     prepared: list[PreparedCase] = captured_case_records(task, spec)
     sources: list[CaseSource] = [
@@ -273,6 +284,8 @@ def import_by_task_replay(
     task_ref: str,
     task_args: Mapping[str, Any] | None,
     *,
+    excluded_sample_ids: tuple[str, ...] | None = None,
+    has_answer_key: bool = True,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
 ) -> TaskReplayImport:
     """Import one eval by Task replay: run 1 reads, the declaration is sealed, run 2 proves it.
@@ -283,8 +296,10 @@ def import_by_task_replay(
         Stage 1 — run 1, the import child: Cases, Sample ids, Case Sources, facts.
         Stage 2 — refuse by name (spec R4): the task raised; no Samples; Samples but no Case
                   Source; two Samples share an id (id-less Samples never collide).
-        Stage 3 — seal: the declaration carries run 1's Case count and Case Digest, plus the
-                  one fact that shapes a Case (keep_sample_metadata).
+        Stage 3 — seal: the declaration carries run 1's Case count and Case Digest, the one
+                  fact that shapes a Case (keep_sample_metadata), and the two things only
+                  the importing agent can say: which Sample ids to leave out (R18) and that
+                  the Benchmark has no answer key (R19).
         Stage 4 — run 2, the IMAGE-SIDE child (task_replay.replayed_cases) on that
                   declaration: what every build will do. A different digest is refused: an
                   unseeded shuffle would pass once and go SKIPPED at every build.
@@ -295,6 +310,8 @@ def import_by_task_replay(
     Args:
         task_ref: ``"module:attr"`` of the eval's task function.
         task_args: forwarded to the task function in both runs; None for none.
+        excluded_sample_ids: upstream Sample ids both runs leave out (R18); None for none.
+        has_answer_key: False when the Benchmark has no answer key, in both runs (R19).
         timeout: seconds before either run is abandoned.
 
     Returns:
@@ -306,7 +323,13 @@ def import_by_task_replay(
 
     # Stage 1
     try:
-        first: ImportReplay = replay_for_import(task_ref, task_args, timeout=timeout)
+        first: ImportReplay = replay_for_import(
+            task_ref,
+            task_args,
+            excluded_sample_ids=excluded_sample_ids,
+            has_answer_key=has_answer_key,
+            timeout=timeout,
+        )
     except TaskReplayError as exc:
         raise ImporterError(str(exc)) from exc
     # Stage 2
@@ -318,6 +341,8 @@ def import_by_task_replay(
         case_digest=case_digest(first.prepared),
         task_args=dict(task_args) if task_args else None,
         keep_sample_metadata=first.facts.keep_sample_metadata,
+        has_answer_key=has_answer_key,
+        excluded_sample_ids=excluded_sample_ids,
     )
     # Stage 4
     try:

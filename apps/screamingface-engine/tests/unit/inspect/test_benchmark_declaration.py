@@ -245,7 +245,11 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-sad_facts_llms": ("coverage_declare", "single_shot", "medium"),
         "inspect-sad_facts_human_defaults": ("coverage_declare", "single_shot", "easy"),
         "inspect-sad_influence": ("coverage_declare", "single_shot", "medium"),
+        "inspect-sad_stages_full": ("coverage_declare", "single_shot", "hard"),
         "inspect-sad_stages_oversight": ("coverage_declare", "single_shot", "hard"),
+        # OME-1273: over-refusal of harmless security coding requests; frontier models
+        # accept nearly all of them in the eval's own report.
+        "inspect-cyse4_mitre_frr": ("coverage_declare", "single_shot", "easy"),
     }
     actual = {
         benchmark.id: (
