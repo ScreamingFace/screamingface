@@ -1,12 +1,12 @@
 ---
 id: OME-1453
 linear_url: https://linear.app/openmined/issue/OME-1453/stop-reusing-otel-python-excluded-urls-for-route-template-matching-in
-status: in_review
+status: done
 type: improvement
 priority: 4
 labels: [aigateway, agentic, autonomous]
 created: 2026-10-01
-closed:
+closed: 2026-10-02
 ---
 
 # Stop reusing OTEL_PYTHON_EXCLUDED_URLS for route-template matching in aigateway
