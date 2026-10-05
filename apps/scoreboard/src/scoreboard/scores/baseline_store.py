@@ -9,6 +9,7 @@ from tortoise import BaseDBAsyncClient
 from tortoise.transactions import in_transaction
 
 from scoreboard.classification.openness import Openness
+from scoreboard.db import DEFAULT_CONNECTION
 
 from .models import Baseline, Benchmark
 from .schemas import BaselineImportRow, BaselineSchema
@@ -73,7 +74,7 @@ class BaselineStore:
         # INVARIANT: all-or-nothing — if any row in the batch fails (e.g. an unknown
         # benchmark_id), no row from this batch is left persisted (found in PR review:
         # a mid-batch failure used to leave earlier rows committed).
-        async with in_transaction() as connection:
+        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
             return [await self.import_baseline(row, using_db=connection) for row in rows]
 
     async def list_baselines(self, benchmark_id: str) -> list[BaselineSchema]:

@@ -21,6 +21,7 @@ from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
 from scoreboard.classification.openness import Openness
+from scoreboard.db import DEFAULT_CONNECTION
 
 from .frontier import FrontierMember, HistoryRow
 from .models import Benchmark, IdempotencyKey, Score
@@ -1091,7 +1092,7 @@ class ScoreStore:
                 raise BenchmarkVisibilityChanged(cast(str, getattr(existing, "benchmark_id")))
             return readable
 
-        async with in_transaction() as connection:
+        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
             # This is now a write path. Take the same benchmark lock as insertion so a visibility
             # flip cannot turn a public, unverified replay into a private-row mutation mid-write.
             await self._revalidate_visibility(
@@ -1122,7 +1123,7 @@ class ScoreStore:
         which build a fresh query and silently drop the lock (the trap the benchmark-lock query's
         docstring records).
         """
-        async with in_transaction() as connection:
+        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
             row = await (
                 Score.filter(id=score_id)
                 .using_db(connection)
@@ -1278,7 +1279,7 @@ class ScoreStore:
         # this exact bind — the desired end state (key bound to this score) holds
         # either way, so it's safe to ignore.
         try:
-            async with in_transaction() as connection:
+            async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
                 await (
                     IdempotencyKey.filter(key=idempotency_key, expires_at__lte=now_ts)
                     .using_db(connection)
@@ -1355,7 +1356,7 @@ class ScoreStore:
 
         expires_at = now_ts + IDEMPOTENCY_TTL
         try:
-            async with in_transaction() as connection:
+            async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
                 # Prevention, on PostgreSQL: the lock is held until this transaction commits, so a
                 # concurrent flip must wait for the insert rather than racing it. SQLite does not
                 # implement the lock, so the suite exercises the revalidation behaviourally and
@@ -1643,7 +1644,7 @@ class ScoreStore:
         default connection. Inside it, a snapshot would still see the visibility the transaction
         started with, and a board flipped private mid-request would go undetected (OME-894).
         """
-        async with in_transaction() as connection:
+        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
             if connection.capabilities.dialect == "postgres":
                 await connection.execute_script("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             yield connection
