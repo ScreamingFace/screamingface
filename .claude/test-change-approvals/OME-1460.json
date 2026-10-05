@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1460",
+  "branch": "OME-1460-one-fetch-path-enforcer",
+  "approver": "owner (in the PR A session)",
+  "date": "2026-10-05",
+  "scope": "Condition only: test_every_task_replay_row_without_an_exclusion_keeps_its_three_pins also skips rows that declare source_pins. No assertion changes; no other prior test edited.",
+  "reason": "medqa, bbq and piqa gain a Hub-commit identity pin on purpose (spec D4, owner-accepted revision moves); test_published_revisions.py now freezes the 22 Task-replay revisions that must not move.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_task_replay_assembly.py": {
+      "base_blob": "022523af9f2fc3b792001b05dadc61df3f63d8f0",
+      "approved_blob": "415f2e5dd03f9e9ea3799e18a8e8737dd5a0c268"
+    }
+  }
+}
