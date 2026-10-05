@@ -342,3 +342,25 @@ def test_contracteval_abstain_on_positive_row_is_false_negative(tmp_path: Path) 
     assert case["grade"]["metrics"]["is_positive"] is True
     # The benchmark's own verdict `abstained` (the reply said "no related clause") is kept.
     assert case["grade"]["metrics"]["abstained"] is False
+
+
+def test_an_abstained_case_stays_at_zero_on_a_refusal_rate_benchmark(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """On an ``inverted_grade`` Benchmark (OME-1400) the abstain rule still runs (OME-1289).
+
+    WHY: the inverted Benchmark's Case scores are already 1 − grade before they reach the
+    aggregate, and the flag is only a stamp on the run result. So an abstained Case whose grader
+    failed with a non-asset code is scored 0.0 with no failure, exactly as on any Benchmark, and
+    the run result still says ``inverted_grade``.
+    """
+    path = _path(_Hook(_failing_outcome()), inverted_grade=True)
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        result = _aggregate(path, [_abstained_row(4)], _selected(4))
+
+    case = result["cases"][0]
+    assert (case["status"], case["grade"]["score"], case.get("abstained")) == ("scored", 0.0, True)
+    assert case["failures"] == []
+    assert result["score"] == 0.0
+    assert result["inverted_grade"] is True
+    assert [r.args for r in _warnings(caplog)] == [(4, "incomplete_verdicts")]
