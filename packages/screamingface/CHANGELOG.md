@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+* Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
+
 ### Features
 
 * **screamingface:** render completed per-operation accounting and per-Case details across benchmarks. `CandidateResult.accounting` derives immutable stage, operation, member, model and Case summaries from retained records, preserving unknown values and authoritative root totals. Direct model members receive usage only when every Case has a unique observation. Includes an offline Jupyter review notebook (`14_report_accounting.ipynb`).

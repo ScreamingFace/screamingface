@@ -393,6 +393,13 @@ parent directories, replaces an existing selected file for deterministic reruns,
 `Path`. A Report remains one JSON document even when it contains multiple Candidates; JSONL is
 reserved for a future collection of independent Reports.
 
+JSON export serializes one Case at a time and replaces the destination only after the complete
+file is flushed and fsynced. Existing output symlinks and ordinary file permissions are
+preserved; new files honor the process umask. A failure before replacement keeps the previous
+file. On POSIX, failure during the final directory fsync means replacement happened but its
+durability is unconfirmed. `to_json()` uses the same serializer, but its returned string
+still occupies memory; use `export()` for large reports.
+
 `CandidateResult.client_version` records the caller-reported Client version retained by the
 Engine for that run. It is also present in each candidate in `report.json`; missing or ambiguous
 evidence is `null`. It is not the version of the Client later exporting the report, nor the

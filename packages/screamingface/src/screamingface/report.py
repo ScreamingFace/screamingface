@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -332,6 +331,9 @@ class CandidateResult:
         return round((self.completed_at - self.started_at).total_seconds() * 1000)
 
     def to_dict(self) -> dict[str, object]:
+        return self._export_fields(cases=[case.to_dict() for case in self.cases])
+
+    def _export_fields(self, *, cases: object) -> dict[str, object]:
         return {
             # INVARIANT: the two case_count values in a serialized Report mean different
             # things, and both are load-bearing. This candidate block carries the COMPLETE
@@ -352,7 +354,7 @@ class CandidateResult:
             "score": self.score,
             "coverage": self.coverage,
             "metrics": thaw_mapping(dict(self._metric_items)),
-            "cases": [case.to_dict() for case in self.cases],
+            "cases": cases,
             "members": [member.to_dict() for member in self.members],
             "failures": [failure.to_dict() for failure in self.failures],
             "duration_ms": self.duration_ms,
@@ -452,17 +454,26 @@ class Report:
         )
 
     def to_dict(self) -> dict[str, object]:
+        return self._export_fields(
+            candidates=[candidate.to_dict() for candidate in self.candidates]
+        )
+
+    def _export_fields(self, *, candidates: object) -> dict[str, object]:
         return {
             "schema": "screamingface.report.v1",
             "started_at": _timestamp_text(self.started_at),
             "completed_at": _timestamp_text(self.completed_at),
             "benchmark": self.benchmark._result_dict(self.case_count),
-            "candidates": [candidate.to_dict() for candidate in self.candidates],
+            "candidates": candidates,
             "usage": self.usage.to_dict(),
         }
 
     def to_json(self) -> str:
-        return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
+        from screamingface._report_export import iter_report_json
+
+        # WHY: returning a string still allocates its bytes; avoid also holding every
+        # candidate's case dictionaries at once. File export remains bounded.
+        return "".join(iter_report_json(self))
 
     def export(
         self,
@@ -529,7 +540,9 @@ class Report:
         if selected.suffix.lower() != ".json":
             raise ValueError("Report export path must be a .json file")
         selected.parent.mkdir(parents=True, exist_ok=True)
-        selected.write_text(self.to_json(), encoding="utf-8")
+        from screamingface._report_export import write_report
+
+        write_report(self, selected)
         return selected
 
     def __repr__(self) -> str:
