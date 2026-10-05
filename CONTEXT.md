@@ -288,6 +288,18 @@ the Benchmark Revision and shown in the Report; it says the score is already fli
 anyone should flip it again.
 _Avoid_: Reversed score, lower-is-better Benchmark
 
+**Headline Score**:
+The one score of a Benchmark that ranks the Leaderboard, always higher-is-better. For a
+single-scorer Benchmark it is the score; for a Benchmark with several Named Scores it is the one
+the Benchmark declares, copied into the Case Grade's and Candidate Result's `score`.
+_Avoid_: Main score, primary metric
+
+**Named Score**:
+One of the several per-Case and per-Candidate numbers a Benchmark reports under its scorer's
+name (`f1`, `exact`), shown beside the Headline Score and never ranked. It carries no direction:
+the Inverted Grade flip applies to the Headline Score only.
+_Avoid_: Sub-score, secondary metric, extra metric
+
 **Benchmark Provenance**:
 What says where a Benchmark comes from: its paper with the authors and a citation, the links to
 its website, harness, dataset and licence (with any restriction on it), and the contributors who
