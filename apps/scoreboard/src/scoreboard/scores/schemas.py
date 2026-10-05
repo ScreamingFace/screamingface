@@ -469,9 +469,8 @@ class ScoreSubmission(BaseModel):
     # separate so the board can store real data now and choose the basis later; a pre-summed
     # number would be silently low until `OME-1287` lands, with no way to tell how low.
     #
-    # INVARIANT: PROVIDER-AUTHORED money only. `cache_saved_cost_archive_usd` is measured from a
-    # DIFFERENT call of the same model and kind, so `OME-1251` D3 keeps it off the wire entirely.
-    # Never accept it here and never sum the two.
+    # INVARIANT: PROVIDER-AUTHORED money only. The archive-matched saving travels in its own field
+    # below (`OME-1251` D7), so the board keeps the provenance and can label it later.
     #
     # INVARIANT: ONE-WAY pairing only. `partial` beside a null here stays ACCEPTED: a `partial`
     # run has a saved-cost sum by definition, but `OME-1252` ships the status and NOT this field,
@@ -482,8 +481,12 @@ class ScoreSubmission(BaseModel):
     # `unavailable` means NO cost evidence, so any saving beside it is a contradiction. Older
     # clients never send this field, so nothing deployed can trip it (review of PR #1055, P2).
     cache_saved_cost_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    # FEATURE: OME-1382 / OME-1251 D7 (owner, 2026-10-02, reverses D3) — what this run's cache hits
+    # would have cost, priced from the archive (another call of the same model and kind). Summed
+    # with the spend and the reported saving at the point of use; never sent pre-summed.
+    cache_saved_cost_archive_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
 
-    @field_validator("cache_saved_cost_usd")
+    @field_validator("cache_saved_cost_usd", "cache_saved_cost_archive_usd")
     @classmethod
     def validate_cache_saved_cost(cls, value: Decimal | None) -> Decimal | None:
         # Money's domain is already defined once, by the amount this figure sits beside. A second
@@ -499,11 +502,12 @@ class ScoreSubmission(BaseModel):
         with a saving of any value. The reverse (`partial` without a saving) is deliberately
         allowed for the staged rollout; see the field comment.
         """
-        if self.run_cost_status == "unavailable" and self.cache_saved_cost_usd is not None:
-            raise ValueError(
-                "cache_saved_cost_usd must be absent when run_cost_status is 'unavailable': "
-                "a saving is cost evidence"
-            )
+        for name in ("cache_saved_cost_usd", "cache_saved_cost_archive_usd"):
+            if self.run_cost_status == "unavailable" and getattr(self, name) is not None:
+                raise ValueError(
+                    f"{name} must be absent when run_cost_status is 'unavailable': "
+                    "a saving is cost evidence"
+                )
         return self
 
     @model_validator(mode="after")
@@ -536,7 +540,10 @@ class ScoreSubmission(BaseModel):
         if self.run_cost_status is None:
             if self.run_cost_usd is not None:
                 self.run_cost_status = "complete"
-            elif self.cache_saved_cost_usd is not None:
+            elif (
+                self.cache_saved_cost_usd is not None
+                or self.cache_saved_cost_archive_usd is not None
+            ):
                 self.run_cost_status = "partial"
             return self
         priced = self.run_cost_status == "complete"
@@ -748,6 +755,12 @@ class ScoreSchema(BaseModel):
     # INVARIANT: null is NOT 0. Null means not reported; 0 means a client looked and the run
     # genuinely saved nothing.
     cache_saved_cost_usd: RunCostUsd = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    # FEATURE: OME-1382 / OME-1251 D7 — the archive-matched saving, as STORED. Excluded when absent
+    # for the same export-digest reason as `cache_saved_cost_usd` directly above.
+    cache_saved_cost_archive_usd: RunCostUsd = Field(
         default=None,
         exclude_if=lambda value: value is None,
     )
