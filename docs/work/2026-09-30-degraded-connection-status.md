@@ -141,6 +141,23 @@ and recover automatically after a later successful call.
 
 ## Outcome (fill at the end — required before COMMIT)
 
+### Publication integration
+
+- The optional `unavailable` consumer integration was reverted before publication. This change
+  preserves the existing availability family: confirmed insufficient credits project `error`,
+  confirmed credential rejection projects `needs_reauth`, and successful dispatch recovers.
+- Integrated `main` at `db6757bc56a7f6b49b38ae16e7059c06a55cda3f`, preserving its newer
+  selector-refusal and dispatch-error logging behavior in the four changed route files. Dispatch
+  observation and error-type provenance now travel through the same terminal failure boundary.
+  Integration commit: `ce03cc2fa`.
+- The combined implementation passed the complete AIGateway static and >=80% coverage checks,
+  SQLite migration suites 0012/0013 (13 cases), PostgreSQL outcome suite (4 cases), whitespace
+  checks and mirror/ledger consistency validation. The remaining provider/service-health scope
+  stays open.
+- Strict test-preservation checking reports only the two previously approved fixture-body edits.
+  The owner also approved a single publication push without its repeated local hook check, after
+  the complete checks above passed; no hook or repository configuration is changed.
+
 - **Actual files:** Added the credential outcome value types and migration 0013; extended the
   credential-blob model/store with revision reset, ordered admission and conditional completion;
   added the optional provider operational-access capability, effective-Connection projection,
