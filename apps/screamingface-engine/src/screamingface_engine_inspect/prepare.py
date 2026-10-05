@@ -39,7 +39,7 @@ import os
 import random
 import sys
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -366,6 +366,18 @@ class TaskReplayCasesSpec:
     #: it is on the cleared list, otherwise the owner's decision replacing LICENSE_TODO in
     #: the diff (spec R6, R7).
     license: str = LICENSE_TODO
+    #: Hub repo id → 40-hex commit, one per Hugging Face Case Source. Every replay forces
+    #: these onto the eval's Hub fetches and refuses a fetch with no pin, so each build
+    #: reads the same commit (OME-1460, R2, R6). They ride Benchmark identity when set (R7).
+    source_pins: dict[str, str] = field(default_factory=dict)
+    #: The seed forced onto an ``hf_dataset`` row shuffle the eval makes without one, and
+    #: the one for a bare ``shuffle_choices=True`` (D1). No identity pin: the Case Digest
+    #: seals the order they produce (R7).
+    shuffle_seed: int | None = None
+    choice_shuffle_seed: int | None = None
+    #: As on :class:`CasesSpec`: the dataset is gated, so replaying it needs a Hugging Face
+    #: token; access, not identity, so no pin (R8).
+    needs_hf_token: bool = False
 
 
 def case_digest(prepared: Sequence[PreparedCase]) -> str:
@@ -1711,25 +1723,52 @@ def prepare_cases(spec: CasesSpec, out: Path) -> dict[str, Any]:
     skips the benchmark instead, writes nothing, and says so loudly in the build log.
     """
 
-    if spec.needs_hf_token and _available_hf_token() is None:
-        if os.environ.get(SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV) != "1":
-            raise PrepareError(
-                f"{spec.dataset} is a gated Hugging Face dataset and no token is available — "
-                "in CI, check the HF_TOKEN_BENCHMARKS repo secret; locally, export HF_TOKEN "
-                "as a read-only token from an account that accepted the dataset's terms"
-            )
-        reason: str = f"gated dataset {spec.dataset}, built without a Hugging Face token"
-        print(
-            f"WARNING: skipping {reason} ({SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV}=1); "
-            "this image has NO assets for its board",
-            file=sys.stderr,
-            flush=True,
-        )
-        out.mkdir(parents=True, exist_ok=True)
-        (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
-        return {"cases": 0, "skipped": reason, "out": str(out)}
+    if spec.needs_hf_token:
+        skipped: dict[str, Any] | None = skip_without_hf_token(spec.dataset, out)
+        if skipped is not None:
+            return skipped
     rows: list[dict[str, Any]] = _load_rows(spec)
     return emit_cases(spec, rows, out, expected_cases=spec.case_count)
+
+
+def skip_without_hf_token(dataset: str, out: Path) -> dict[str, Any] | None:
+    """The gated-dataset rule both preparation paths share: go on, skip, or refuse.
+
+    With a token (``HF_TOKEN`` or a cached login) → None, and the caller prepares. Without
+    one, a PR build that sets ``SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1`` writes the
+    SKIPPED marker and returns the skip summary; INVARIANT: that summary never carries
+    ``UNCONFIRMED_CASES_KEY``, so the strict PR image job stays green (F7). Any other build
+    refuses by name, so a main or release image never ships missing a Benchmark.
+
+    Args:
+        dataset: what the reason names, e.g. ``walledai/XSTest``.
+        out: the directory the Benchmark prepares into.
+
+    Returns:
+        None to go on; the skip summary when skipped.
+
+    Raises:
+        PrepareError: no token and no skip flag.
+    """
+
+    if _available_hf_token() is not None:
+        return None
+    if os.environ.get(SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV) != "1":
+        raise PrepareError(
+            f"{dataset} is a gated Hugging Face dataset and no token is available — "
+            "in CI, check the HF_TOKEN_BENCHMARKS repo secret; locally, export HF_TOKEN "
+            "as a read-only token from an account that accepted the dataset's terms"
+        )
+    reason: str = f"gated dataset {dataset}, built without a Hugging Face token"
+    print(
+        f"WARNING: skipping {reason} ({SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV}=1); "
+        "this image has NO assets for its board",
+        file=sys.stderr,
+        flush=True,
+    )
+    out.mkdir(parents=True, exist_ok=True)
+    (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
+    return {"cases": 0, "skipped": reason, "out": str(out)}
 
 
 def _prompt(

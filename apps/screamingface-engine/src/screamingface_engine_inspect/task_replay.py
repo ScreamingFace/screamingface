@@ -15,9 +15,12 @@ Stages, in execution order:
               with its own empty inspect_evals and Hugging Face caches (a cache hit would
               skip the fetch, and a stale cache would hide a dead URL) and no model name in
               INSPECT_EVAL_MODEL, so nothing in the child can reach a model.
-    Stage 2 — child: call the task function with its args, take the Task's dataset (after
-              the eval's own filtering, shuffling and conversion), and render each Sample
-              by capture, then write it with the shared Case writer.
+    Stage 2 — child: import the task module, install the fetch-pin enforcer with the
+              declaration's Hub commits and seeds (OME-1460), call the task function with its
+              args, take the Task's dataset (after the eval's own filtering, shuffling and
+              conversion), and render each Sample by capture, then write it with the shared
+              Case writer. WHY enforce at every build, not only at import: a build that let
+              the eval fetch unforced would read whatever commit the Hub serves that day.
     Stage 3 — child: write the prepared Cases as JSON to the result file. WHY a file and
               not stdout: evals print while they load.
     Stage 4 — parent: a non-zero exit, a timeout, or a missing or unreadable result is a
@@ -44,6 +47,8 @@ from typing import Any
 
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY
 from screamingface_engine_inspect.capture import captured_case_records
+from screamingface_engine_inspect.case_sources import CaseSourceRecorder
+from screamingface_engine_inspect.fetch_pins import FetchPins
 from screamingface_engine_inspect.prepare import (
     SKIPPED_MARKER,
     PreparedCase,
@@ -52,6 +57,7 @@ from screamingface_engine_inspect.prepare import (
     _resolve,
     _write_cases,
     case_digest,
+    skip_without_hf_token,
 )
 
 #: Upper bound on one replay. A package's Cases download in minutes; this only stops a
@@ -136,12 +142,20 @@ def replayed_cases(
         root: Path = Path(scratch)
         spec_path: Path = root / "spec.json"
         result_path: Path = root / "result.json"
+        cache_root: Path = root / "cache"
         spec_path.write_text(json.dumps(asdict(spec)), encoding="utf-8")
-        command: list[str] = [sys.executable, "-m", __name__, str(spec_path), str(result_path)]
+        command: list[str] = [
+            sys.executable,
+            "-m",
+            __name__,
+            str(spec_path),
+            str(result_path),
+            str(cache_root),
+        ]
         try:
             completed: subprocess.CompletedProcess[str] = subprocess.run(  # noqa: S603 — argv is ours; no shell
                 command,
-                env=replay_environment(root / "cache", os.environ),
+                env=replay_environment(cache_root, os.environ),
                 capture_output=True,
                 # WHY lenient: this text only feeds the log and the one-line reason. Strict
                 # decoding raised UnicodeDecodeError on one Latin-1 byte, which no caller
@@ -191,9 +205,20 @@ def prepare_replayed_cases(
 
     Returns:
         The summary: ``cases`` and ``case_digest`` on success; on a skip, ``cases`` 0 plus
-        ``skipped`` and ``UNCONFIRMED_CASES_KEY`` carrying the reason.
+        ``skipped`` and ``UNCONFIRMED_CASES_KEY`` carrying the reason. A gated Benchmark
+        skipped for want of a token carries no ``UNCONFIRMED_CASES_KEY`` (OME-1460, F7).
+
+    Raises:
+        PrepareError: a gated Benchmark with no token and no skip flag (R8).
     """
 
+    if spec.needs_hf_token:
+        # WHY before the replay: without a token the gated fetch can only fail, and a PR
+        # build must say "no secret", not "replay failed" (OME-1460, R8).
+        gated: str = ", ".join(sorted(spec.source_pins)) or spec.task
+        skipped: dict[str, Any] | None = skip_without_hf_token(gated, out)
+        if skipped is not None:
+            return skipped
     try:
         prepared: list[PreparedCase] = replayed_cases(spec)
         if len(prepared) != spec.case_count:
@@ -217,13 +242,28 @@ def prepare_replayed_cases(
     return {"cases": len(prepared), "case_digest": digest, "out": str(out)}
 
 
-def _replay_in_this_process(spec_path: Path, result_path: Path) -> None:
-    """Stages 2 and 3 — the child's half: call the task function, render its Samples, write
-    the result."""
+def fetch_pins_of(spec: TaskReplayCasesSpec) -> FetchPins:
+    """What a replay of this declaration forces onto the eval's fetches (OME-1460)."""
+
+    return FetchPins(
+        source_pins=dict(spec.source_pins),
+        shuffle_seed=spec.shuffle_seed,
+        choice_shuffle_seed=spec.choice_shuffle_seed,
+    )
+
+
+def _replay_in_this_process(spec_path: Path, result_path: Path, cache_root: Path) -> None:
+    """Stages 2 and 3 — the child's half: call the task function with the fetch pins
+    enforced, render its Samples, write the result."""
 
     fields: dict[str, Any] = json.loads(spec_path.read_text(encoding="utf-8"))
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(**fields)
-    task: Any = _resolve(spec.task)(**(spec.task_args or {}))
+    # INVARIANT: the module is imported BEFORE the enforcer installs, so a fetch helper it
+    # bound by name at import (gsm8k's `hf_dataset`) is rebound too (R1, R4). The recorder
+    # also records, unread here: the import child is the one that reports Case Sources.
+    task_function: Any = _resolve(spec.task)
+    CaseSourceRecorder(cache_root).install(fetch_pins_of(spec))
+    task: Any = task_function(**(spec.task_args or {}))
     prepared: list[PreparedCase] = captured_case_records(task, spec)
     result_path.write_text(json.dumps(prepared, ensure_ascii=False), encoding="utf-8")
 
@@ -231,6 +271,7 @@ def _replay_in_this_process(spec_path: Path, result_path: Path) -> None:
 __all__ = [
     "TASK_REPLAY_TIMEOUT_SECONDS",
     "TaskReplayError",
+    "fetch_pins_of",
     "prepare_replayed_cases",
     "replay_environment",
     "replayed_cases",
@@ -238,4 +279,4 @@ __all__ = [
 
 
 if __name__ == "__main__":  # pragma: no cover - child-process entrypoint, run via replayed_cases
-    _replay_in_this_process(Path(sys.argv[1]), Path(sys.argv[2]))
+    _replay_in_this_process(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]))
