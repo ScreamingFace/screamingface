@@ -982,6 +982,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # License: owner decision 2026-10-01: MIT, jind11/MedQA LICENSE; the bigbio card says
         #  unknown.
         license="mit",
+        # Hub pin backfilled from the commit recorded at import (OME-1460, D4): every
+        # build now forces it; the eval already passes the same commit.
+        source_pins={
+            "bigbio/med_qa": "ddef95d268cdad413693d634279a9a679d468469",
+        },
     ),
     # mgsm_en — imported by Task replay on 2026-10-02 from
     #   inspect_evals.mgsm.mgsm:mgsm.
@@ -1006,6 +1011,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=58492,
         case_digest="8d7652ea42145db0b27d6ddbedfd81bc5fd4733bb4e78658218b15c0c8a5d28b",
         license="cc-by-4.0",
+        # Hub pin backfilled from the commit recorded at import (OME-1460, D4): every
+        # build now forces it; the eval already passes the same commit.
+        source_pins={
+            "heegyu/bbq": "5d6faae52070aa5eb71b46d1c0723d3ba7930209",
+        },
     ),
     # piqa — imported by Task replay on 2026-10-02 from
     #   inspect_evals.piqa.piqa:piqa.
@@ -1023,6 +1033,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # License: owner decision 2026-10-01: no license found; the ybisk/piqa card says unknown and
         #  the original repo is gone.
         license="unknown",
+        # Hub pin backfilled from the commit recorded at import (OME-1460, D4): every
+        # build now forces it; the eval already passes the same commit.
+        source_pins={
+            "ybisk/piqa": "2e8ac2dffd59bac8c3c6714948f4c551a0848bb0",
+        },
     ),
     # cybermetric_80 — imported by Task replay on 2026-10-02 from
     #   inspect_evals.cybermetric.cybermetric:cybermetric_80.
