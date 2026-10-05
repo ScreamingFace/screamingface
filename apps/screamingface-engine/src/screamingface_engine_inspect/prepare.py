@@ -1278,6 +1278,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # License: owner decision 2026-10-01: MIT, the AirsideLabs/pre-flight-06 card on
         #  Hugging Face.
         license="mit",
+        # Hub pin backfilled from the commit recorded at import (OME-1460, D4): every
+        # build now forces it; the eval already passes the same commit.
+        source_pins={
+            "AirsideLabs/pre-flight-06": "439d2d118fed7d9b009c1f87b9eb1205ab94766e",
+        },
     ),
     # bbeh — imported by Task replay on 2026-10-02 from
     #   inspect_evals.bbeh.bbeh:bbeh.
@@ -1291,6 +1296,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         keep_sample_metadata=True,
         # License: owner decision 2026-10-01: Apache-2.0, the BBEH/bbeh card on Hugging Face.
         license="apache-2.0",
+        # Hub pin backfilled from the commit recorded at import (OME-1460, D4): every
+        # build now forces it; the eval already passes the same commit.
+        source_pins={
+            "BBEH/bbeh": "08e07a803851822c04399782ece3c4a07ce419f9",
+        },
     ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }

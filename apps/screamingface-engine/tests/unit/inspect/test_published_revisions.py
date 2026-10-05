@@ -58,8 +58,8 @@ def test_published_benchmark_revision_is_byte_identical(key: str, revision: str)
 
 #: OME-1460: every Task-replay Benchmark with no Hugging Face Case Source, as served on main
 #: 0d1000d43 (2026-10-05). The fetch-pin enforcer adds an identity pin only to a row that
-#: pins a Hub commit, so none of these may move; medqa, bbq and piqa gain their pin on
-#: purpose (spec D4) and are left out.
+#: pins a Hub commit, so none of these may move; the five that read the Hub (medqa, bbq,
+#: piqa, pre_flight, bbeh) gain their pin on purpose (spec D4) and are left out.
 _URL_ONLY_TASK_REPLAY_REVISIONS: dict[str, str] = {
     "agieval_aqua_rat": "878ad44393d431a4",
     "agieval_logiqa_en": "2e1f1c960caa7a0f",

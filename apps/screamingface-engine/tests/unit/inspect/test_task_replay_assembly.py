@@ -119,8 +119,8 @@ def test_every_task_replay_row_without_an_exclusion_keeps_its_three_pins() -> No
     before R18, so the 19 Task-replay Benchmarks already on main keep their revisions."""
 
     for key, spec in TASK_REPLAY_CASES.items():
-        # WHY `not spec.source_pins` (OME-1460, owner-approved): medqa, bbq and piqa gain
-        # a Hub pin on purpose (spec D4); test_published_revisions.py freezes the rest.
+        # WHY `not spec.source_pins` (OME-1460, owner-approved): the five rows that read the
+        # Hub gain a Hub pin on purpose (spec D4); test_published_revisions.py freezes the rest.
         if spec.excluded_sample_ids is None and not spec.source_pins:
             assert len(benchmarks._task_replay_pins(spec)) == 3, key
 
