@@ -53,7 +53,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     # WHY type-only: import_replay imports this module, so a runtime import would cycle.
@@ -1533,13 +1533,27 @@ def _write_verified_python(path: Path, text: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+class TaskReplayImporter(Protocol):
+    """The seam main() imports through: the two replays, injectable for tests."""
+
+    def __call__(
+        self,
+        task_ref: str,
+        task_args: Mapping[str, Any] | None,
+        *,
+        excluded_sample_ids: tuple[str, ...] | None,
+        has_answer_key: bool,
+    ) -> TaskReplayImport:
+        """Seal the Cases by two replays, as import_replay.import_by_task_replay does."""
+        ...
+
+
 def main(
     argv: list[str] | None = None,
     *,
     dataset_info: Callable[[str, str | None], Any] | None = None,
     count_rows: Callable[[InspectTaskFacts, str], int] | None = None,
-    import_by_task_replay: Callable[[str, Mapping[str, Any] | None], TaskReplayImport]
-    | None = None,
+    import_by_task_replay: TaskReplayImporter | None = None,
 ) -> int:
     """Stage 1 → 2 → 3, then tell the dev to review the diff.
 
@@ -1580,20 +1594,11 @@ def main(
         default=Path(__file__).resolve().parent,
         help="directory holding pins.py/prepare.py/benchmarks.py (default: this package)",
     )
-    parser.add_argument(
-        "--task-replay",
-        action="store_true",
-        help="skip the Hugging Face reader and import by Task replay: call the task function "
-        "in a clean child, twice, and seal its Cases with a Case Digest (OME-1273)",
-    )
+    _add_task_replay_arguments(parser)
     args = parser.parse_args(argv)
 
     try:
-        facts: InspectTaskFacts | None = (
-            None
-            if args.task_replay
-            else _read_or_route(args.task_ref, _parse_task_args(args.task_arg))
-        )
+        facts: InspectTaskFacts | None = _hugging_face_facts(args)
         if facts is None:
             if args.shuffle_seed is not None or args.choice_shuffle_seed is not None:
                 # WHY refuse: the seeds drive the Hugging Face path's own shuffles; a
@@ -1651,6 +1656,47 @@ def main(
     return 0
 
 
+def _add_task_replay_arguments(parser: argparse.ArgumentParser) -> None:
+    """The flags that choose Task replay and say what only the importing agent knows."""
+
+    parser.add_argument(
+        "--task-replay",
+        action="store_true",
+        help="skip the Hugging Face reader and import by Task replay: call the task function "
+        "in a clean child, twice, and seal its Cases with a Case Digest (OME-1273)",
+    )
+    parser.add_argument(
+        "--excluded-sample-id",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="Task replay only: an upstream Sample id to leave out (repeatable), a Named "
+        "Deviation whose reason the row must state, e.g. stages_full:14",
+    )
+    parser.add_argument(
+        "--no-answer-key",
+        action="store_true",
+        help="Task replay only: the eval's Samples carry no answer key, so an empty one is "
+        "accepted; the Benchmark row must then say who grades without it",
+    )
+
+
+def _hugging_face_facts(args: argparse.Namespace) -> InspectTaskFacts | None:
+    """The Hugging Face reader's facts, or None when the import goes by Task replay."""
+
+    if args.task_replay:
+        return None
+    facts: InspectTaskFacts | None = _read_or_route(args.task_ref, _parse_task_args(args.task_arg))
+    if facts is not None and (args.excluded_sample_id or args.no_answer_key):
+        # WHY refuse: the Hugging Face path writes no Task-replay declaration, so the
+        # flags would be silently inert; its rows take both by hand (spec R18, R19).
+        raise ImporterError(
+            "--excluded-sample-id and --no-answer-key only apply to a Task-replay "
+            "import; on a Hugging Face row set excluded_sample_ids / has_answer_key by hand"
+        )
+    return facts
+
+
 def _read_or_route(task_ref: str, task_args: Mapping[str, Any]) -> InspectTaskFacts | None:
     """The Hugging Face reader's facts, or None when it routes the eval to Task replay (R1)."""
 
@@ -1664,7 +1710,7 @@ def _read_or_route(task_ref: str, task_args: Mapping[str, Any]) -> InspectTaskFa
 def _import_by_task_replay_cli(
     args: argparse.Namespace,
     dataset_info: Callable[[str, str | None], Any] | None,
-    import_by_task_replay: Callable[[str, Mapping[str, Any] | None], TaskReplayImport] | None,
+    import_by_task_replay: TaskReplayImporter | None,
 ) -> None:
     """The CLI's Task-replay path: two replays, the card license, the two rows (OME-1273).
 
@@ -1685,7 +1731,10 @@ def _import_by_task_replay_cli(
     )
 
     imported: TaskReplayImport = (import_by_task_replay or replay_both_times)(
-        args.task_ref, _parse_task_args(args.task_arg)
+        args.task_ref,
+        _parse_task_args(args.task_arg),
+        excluded_sample_ids=tuple(args.excluded_sample_id) or None,
+        has_answer_key=not args.no_answer_key,
     )
     card: CardLicense = card_license_of(
         imported.case_sources, dataset_info=dataset_info or _hub_dataset_info

@@ -200,13 +200,15 @@ _Avoid_: Benchmark name, eval name, key alone
 
 **Grading Material**:
 The private part of a Case that the Candidate never sees: the answer key, choices, or Rubric used
-in Grading. A Case graded only by a Judge prompt may carry no answer key.
+in Grading. A Case graded only by a Judge prompt, or by an eval's own scorer that reads only the
+reply, may carry no answer key.
 _Avoid_: Target, answer, ground truth
 
 **Answer key**:
 The correct answers a Benchmark grades against, stored per Case in its Grading Material: e.g.
 `42` for "What is 6 times 7?". A Benchmark that compares the answer to it needs no Judge; some
-give it to a Judge instead, and some have none and are graded only by a Judge prompt.
+give it to a Judge instead, and some have none: they are graded only by a Judge prompt, or by the
+eval's own scorer from the reply alone (cyse4_mitre_frr's refusal check).
 _Avoid_: Key alone ("published key", "private key" read as a Benchmark key or a credential),
 target, ground truth
 

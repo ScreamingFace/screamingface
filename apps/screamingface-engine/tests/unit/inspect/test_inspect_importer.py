@@ -2461,7 +2461,9 @@ def test_main_imports_by_task_replay_when_the_reader_routes(
     del module.hf_dataset  # type: ignore[attr-defined]
     seen: list[tuple[str, dict[str, Any] | None]] = []
 
-    def fake_import(task_ref: str, task_args: Mapping[str, Any] | None) -> TaskReplayImport:
+    def fake_import(
+        task_ref: str, task_args: Mapping[str, Any] | None, **_: Any
+    ) -> TaskReplayImport:
         """Record the call the CLI made; return a sealed import."""
 
         seen.append((task_ref, dict(task_args) if task_args else None))
@@ -2503,7 +2505,7 @@ def test_the_task_replay_flag_skips_the_hugging_face_reader(
     code: int = main(
         [f"{_FAKE_MODULE}:crashy", "--key", "crashy", "--task-replay"]
         + ["--engine-src", str(engine_src_copy)],
-        import_by_task_replay=lambda task_ref, task_args: _sealed_import(),
+        import_by_task_replay=lambda task_ref, task_args, **_: _sealed_import(),
     )
 
     assert code == 0
@@ -2516,7 +2518,9 @@ def test_main_reports_a_task_replay_refusal_and_writes_nothing(
     module = _install_fake_eval(monkeypatch, sums=_free_text_task)
     del module.hf_dataset  # type: ignore[attr-defined]
 
-    def refusing_import(task_ref: str, task_args: Mapping[str, Any] | None) -> TaskReplayImport:
+    def refusing_import(
+        task_ref: str, task_args: Mapping[str, Any] | None, **_: Any
+    ) -> TaskReplayImport:
         """Refuse the way import_by_task_replay refuses an unseeded shuffle."""
 
         raise ImporterError(f"{task_ref}: two Task replays produced different Cases")
@@ -2542,7 +2546,9 @@ def test_a_seed_flag_with_task_replay_is_refused(
     del module.hf_dataset  # type: ignore[attr-defined]
     calls: list[str] = []
 
-    def never_called(task_ref: str, task_args: Mapping[str, Any] | None) -> TaskReplayImport:
+    def never_called(
+        task_ref: str, task_args: Mapping[str, Any] | None, **_: Any
+    ) -> TaskReplayImport:
         calls.append(task_ref)
         raise AssertionError("the import must not run")
 
@@ -2577,7 +2583,7 @@ def test_main_writes_an_uncleared_card_license_as_todo(
 
     code: int = main(
         [f"{_FAKE_MODULE}:sums", "--key", "medqa_like", "--engine-src", str(engine_src_copy)],
-        import_by_task_replay=lambda task_ref, task_args: _sealed_import(source),
+        import_by_task_replay=lambda task_ref, task_args, **_: _sealed_import(source),
         dataset_info=lambda dataset, revision: types.SimpleNamespace(
             card_data={"license": "UNKNOWN"}
         ),
@@ -2635,3 +2641,82 @@ def test_the_command_reports_a_task_replay_refusal_as_an_error_line(
     assert completed.returncode == 1
     assert "ERROR: fake_cli_eval:broken: replay failed" in completed.stderr
     assert "Traceback" not in completed.stderr.split("ERROR:")[-1]
+
+
+def test_the_two_task_replay_declarations_reach_the_import(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """Spec R18, R19: only the importing agent knows which Samples to leave out and that a
+    Benchmark has no answer key; both flags reach both replays through the one seam."""
+
+    _install_fake_eval(monkeypatch, sums=_free_text_task)
+    seen: list[dict[str, Any]] = []
+
+    def fake_import(
+        task_ref: str, task_args: Mapping[str, Any] | None, **options: Any
+    ) -> TaskReplayImport:
+        """Record the options the CLI passed; return a sealed import."""
+
+        seen.append(options)
+        return _sealed_import()
+
+    code: int = main(
+        [
+            f"{_FAKE_MODULE}:sums",
+            "--key",
+            "sums_gappy",
+            "--task-replay",
+            "--excluded-sample-id",
+            "sums:14",
+            "--excluded-sample-id",
+            "sums:58",
+            "--no-answer-key",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        import_by_task_replay=fake_import,
+    )
+
+    assert code == 0
+    assert seen == [{"excluded_sample_ids": ("sums:14", "sums:58"), "has_answer_key": False}]
+
+
+def test_without_the_flags_an_import_excludes_nothing_and_keeps_its_key(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    _install_fake_eval(monkeypatch, sums=_free_text_task)
+    seen: list[dict[str, Any]] = []
+
+    def fake_import(
+        task_ref: str, task_args: Mapping[str, Any] | None, **options: Any
+    ) -> TaskReplayImport:
+        """Record the options the CLI passed; return a sealed import."""
+
+        seen.append(options)
+        return _sealed_import()
+
+    main(
+        [f"{_FAKE_MODULE}:sums", "--key", "s", "--task-replay"]
+        + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=fake_import,
+    )
+
+    assert seen == [{"excluded_sample_ids": None, "has_answer_key": True}]
+
+
+def test_the_task_replay_declarations_are_refused_on_the_hugging_face_path(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The Hugging Face path writes no Task-replay declaration, so the flags would be silently
+    inert there; its rows take their exclusion and key opt-in by hand (the import how-to)."""
+
+    _install_fake_eval(monkeypatch, sums=_free_text_task)
+
+    code: int = main(
+        [f"{_FAKE_MODULE}:sums", "--key", "x", "--no-answer-key"]
+        + ["--engine-src", str(engine_src_copy)],
+    )
+
+    assert code == 1
+    assert "only apply to a Task-replay import" in capsys.readouterr().err
+    assert (engine_src_copy / "prepare.py").read_text() == (_SRC_DIR / "prepare.py").read_text()

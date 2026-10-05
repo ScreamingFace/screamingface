@@ -394,3 +394,50 @@ def test_a_comment_string_with_a_line_break_is_refused() -> None:
 
     with pytest.raises(ImporterError, match="injection guard"):
         render_task_replay_rows("x", _imported(facts=facts), "TODO")
+
+
+# ── the two declarations the importing agent passes in (spec R18, R19) ─────────
+
+
+def test_excluded_ids_are_written_with_a_reason_left_for_review() -> None:
+    """Spec R18: the ids land in the row so every build drops them; WHY they are dropped is
+    the reviewer's to write, so the row carries a TODO(review) where the reason goes."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "sad_stages_full",
+        _imported(case_count=797, excluded_sample_ids=("stages_full:14", "stages_full:58")),
+        "TODO",
+    )
+
+    assert (
+        "        # NAMED DEVIATION — TODO(review): say why upstream's Samples\n"
+        "        # below are left out.\n"
+        "        excluded_sample_ids=(\n"
+        '            "stages_full:14",\n'
+        '            "stages_full:58",\n'
+        "        ),\n"
+    ) in rows.cases
+    assert _declared(rows)["sad_stages_full"].excluded_sample_ids == (
+        "stages_full:14",
+        "stages_full:58",
+    )
+
+
+def test_a_benchmark_without_an_answer_key_says_so_in_its_row() -> None:
+    """Spec R19: the empty keys are inside the seal, so the row must carry the opt-in."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "cyse4_mitre_frr", _imported(has_answer_key=False), "TODO"
+    )
+
+    assert "        has_answer_key=False,\n" in rows.cases
+    assert _declared(rows)["cyse4_mitre_frr"].has_answer_key is False
+
+
+def test_an_excluded_id_that_could_escape_the_generated_code_is_refused() -> None:
+    """The ids come from the eval's own Samples and land in Python, like the task reference."""
+
+    imported: TaskReplayImport = _imported(excluded_sample_ids=('x"),\nimport os  # ',))
+
+    with pytest.raises(ImporterError, match="injection guard"):
+        render_task_replay_rows("x", imported, "TODO")

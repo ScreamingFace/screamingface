@@ -60,6 +60,17 @@ check:
     refuses it on a row with no judge, or whose judge template reads `{criterion}`.
     If the template reads other Sample metadata (coconot's `{refusal}`), also set
     `keep_sample_metadata=True`.
+  - An eval with no answer key and no judge, whose own scorer grades from the reply
+    alone (cyse4_mitre_frr's refusal regex), sets `has_answer_key=False` too (by Task
+    replay, the importer's `--no-answer-key` writes it) and
+    `scorer_reads_answer_key=False` on its benchmark row. Assembly refuses the flag on
+    a row with a key, with a judge, or on an `inspect_ai.scorer` built-in; a test in
+    `test_inspect_task_replay_benchmarks.py` grades every such row against an empty
+    and a non-empty key and requires the same grade.
+  - A Task-replay row that must leave Samples out (sad_stages_full's three empty
+    questions) takes `--excluded-sample-id` (repeatable) at import; the importer
+    writes `excluded_sample_ids` with a `TODO(review)` where the reason goes, as the
+    Hugging Face path's NAMED DEVIATION (onet_m6) does.
   - A judge that answers in words rather than inspect's C/I/P/N letters (coconot's
     UNACCEPTABLE / ACCEPTABLE / NEITHER) needs `verdict_grades` on the row: each word
     → its grade, copied from the eval's own epoch reducer and pinned to it by a test.

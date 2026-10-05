@@ -94,3 +94,30 @@ def test_an_assembled_task_replay_benchmark_names_itself_in_a_skip(
     summary = bundle.prepare(tmp_path / "out")
 
     assert summary[UNCONFIRMED_CASES_KEY].startswith("gsm8k: inspect_evals.mgsm.mgsm:mgsm")
+
+
+def test_excluded_sample_ids_are_a_revision_pin() -> None:
+    """Spec R18: the Named Deviation removes questions from the Benchmark, so it is
+    Benchmark identity, written in sorted order so the row's own order never matters."""
+
+    excluded = TaskReplayCasesSpec(
+        task=_SPEC.task,
+        case_count=248,
+        case_digest=_SPEC.case_digest,
+        task_args=_SPEC.task_args,
+        excluded_sample_ids=("mgsm:9", "mgsm:10"),
+    )
+
+    assert benchmarks._task_replay_pins(excluded) == (
+        *benchmarks._task_replay_pins(_SPEC),
+        "excluded_sample_ids=mgsm:10,mgsm:9",
+    )
+
+
+def test_every_task_replay_row_without_an_exclusion_keeps_its_three_pins() -> None:
+    """No published revision moves: a row that excludes nothing pins exactly what it pinned
+    before R18, so the 19 Task-replay Benchmarks already on main keep their revisions."""
+
+    for key, spec in TASK_REPLAY_CASES.items():
+        if spec.excluded_sample_ids is None:
+            assert len(benchmarks._task_replay_pins(spec)) == 3, key
