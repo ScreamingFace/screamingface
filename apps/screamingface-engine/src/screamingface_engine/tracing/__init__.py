@@ -9,10 +9,11 @@ transport is also what lets the risky half change without re-testing the meaning
 AIDEV-NOTE — DO NOT re-export from `.otlp` here. This package is imported by
 `runner/main.py`, and `otlp` pulls the OTel SDK, protobuf and `requests` (~62 ms of a Job's
 ~227 ms import budget). Importing it from this `__init__` would re-introduce that cost on every
-run while looking like tidy-up, and would silently undo the lazy import in `main.span_sink`.
+run while looking like tidy-up, and would silently undo the lazy import in `loader.load_span_sink`.
 `tests/unit/test_span_export_wiring.py` fails if it happens.
 """
 
+from .loader import load_span_sink
 from .relay import SpanRelay, SpanSink, otlp_configured
 from .span_tree import Span, SpanTree, build_span_tree, span_from_frame
 
@@ -22,6 +23,7 @@ __all__ = [
     "SpanSink",
     "SpanTree",
     "build_span_tree",
+    "load_span_sink",
     "otlp_configured",
     "span_from_frame",
 ]
