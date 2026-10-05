@@ -1,7 +1,7 @@
 ---
 id: OME-935
 linear_url: https://linear.app/openmined/issue/OME-935/observability-phase-0-make-existing-signals-consumable
-status: backlog
+status: in_progress
 type: epic
 priority: 2
 labels: [repo, agentic, autonomous]
