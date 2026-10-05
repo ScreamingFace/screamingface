@@ -65,6 +65,10 @@ class _RunOutcome:
     # round trips the response cache served. A hit spends nothing upstream, so any hit means the
     # spend is not the run's cost, and the submission must not publish it as `complete`.
     cache_hits: int = 0
+    # FEATURE (OME-1463, D7 on OME-1251): the run summary's count of hits that carried no price at
+    # all. None when no summary arrived: the Engine may drop log events under backpressure, so
+    # absence is "unknown", never "none were unpriced". The submission needs 0 to claim `complete`.
+    cache_unpriced_hits: int | None = None
 
 
 # FEATURE: OME-1066 adds the two capacity states — a start the Engine did not admit yet

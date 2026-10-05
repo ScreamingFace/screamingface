@@ -440,25 +440,27 @@ def _cost_text(cost: Decimal | None) -> str | None:
 
 
 def _published_cost(candidate_result: CandidateResult) -> dict[str, object]:
-    """The cost the board may show for this run: its spend, unless the cache served any call.
+    """The cost the board may show for this run: its spend, plus proof that its hits are priced.
 
-    FEATURE (OME-1441, spec 2026-09-30-cached-run-not-complete): stop publishing fake $0 costs.
-    A cache hit spends nothing upstream, so a cached run's spend understates what the run costs,
-    and until the board ranks on spend plus saving (`OME-1382`) that spend would rank as exact.
+    FEATURE (OME-1441): never publish a cached run's spend as its whole cost. FEATURE (OME-1463,
+    D7 on OME-1251): the board now sums spend + reported saving + archive saving (OME-1382), so a
+    cached run whose every hit carries a price publishes `complete` with its SPEND as the amount;
+    the savings travel beside it and the board adds them.
 
-    INVARIANT (D1): ANY hit publishes `partial` with no amount, whatever the local status. The
-    status sent is then a function of the hit count alone: `partial` means "the cache served some
-    calls, so no amount is published", and `unavailable` keeps meaning "no hits, and the spend
-    itself could not be priced". Only the published pair changes; the local result keeps its
-    true spend and status.
-
-    AIDEV-NOTE: this widens `partial` beyond the board's own wording ("saving evidence exists",
-    `scores/schemas.py`). The board accepts the pair; its definition is updated by `OME-1442`.
-    Relax to "any hit without a `reported` price" once `OME-1382` ranks on spend plus saving; a
-    reported hit's saving then completes the cost instead of hiding it.
+    INVARIANT (spec 2026-10-02-OME-1463 D3): `complete` only with PROOF that no hit was unpriced:
+    the Engine run summary's `unpriced_hits` == 0. No summary (`None`), any unpriced hit, or an
+    unpriced spend -> `partial` with no amount. A missing price is never counted as $0. Only the
+    published pair changes; the local result keeps its true spend and status.
     """
-    if candidate_result.cache_hits > 0:
+    if candidate_result.cache_hits > 0 and (
+        candidate_result.cache_unpriced_hits != 0 or candidate_result.usage.cost_usd is None
+    ):
         return {"run_cost_usd": None, "run_cost_status": "partial"}
+    if candidate_result.cache_hits > 0:
+        return {
+            "run_cost_usd": _cost_text(candidate_result.usage.cost_usd),
+            "run_cost_status": "complete",
+        }
     return {
         "run_cost_usd": _cost_text(candidate_result.usage.cost_usd),
         "run_cost_status": candidate_result.run_cost_status,
@@ -508,6 +510,13 @@ def _submission(
     # run's payload is unchanged and a board that predates the field 422s only cached runs.
     if candidate_result.cache_saved_cost_usd is not None:
         payload["cache_saved_cost_usd"] = _cost_text(candidate_result.cache_saved_cost_usd)
+    # INVARIANT (OME-1463, D7): the archive saving travels the same way, its own field, never added
+    # to the spend or the reported saving. Omitted when absent, so a board that predates the field
+    # rejects only archive-priced runs. AIDEV-NOTE: needs OME-1382's board half live first.
+    if candidate_result.cache_saved_cost_archive_usd is not None:
+        payload["cache_saved_cost_archive_usd"] = _cost_text(
+            candidate_result.cache_saved_cost_archive_usd
+        )
     return payload
 
 
