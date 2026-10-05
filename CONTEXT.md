@@ -285,3 +285,34 @@ is still better and the Benchmark's score is a refusal rate, not a compliance ra
 the Benchmark Revision and shown in the Report; it says the score is already flipped, never that
 anyone should flip it again.
 _Avoid_: Reversed score, lower-is-better Benchmark
+
+**Benchmark Provenance**:
+What says where a Benchmark comes from: its paper with the authors and a citation, the links to
+its website, harness, dataset and licence (with any restriction on it), and the contributors who
+brought it to ScreamingFace (plus, for an Imported Benchmark, the people who ported it into
+Inspect). The harness link is always the original upstream code that produced the paper's
+numbers, pinned to a commit or version tag, never ScreamingFace's own translation of it. None of
+it is part of the Benchmark Revision: a link or a baseline says nothing about which Cases are
+asked or how they are graded.
+_Avoid_: Metadata, sources
+
+**Frontier Score**:
+The best published AI score on a Benchmark's headline metric, with the model, the source URL and
+the as-of date. Typed by a human from a cited source; it is the input to Benchmark Saturation.
+_Avoid_: SOTA, top score
+
+**Human Baseline**:
+The published human score on a Benchmark's headline metric, with its source. Shown beside the
+Frontier Score for context; it plays no part in the saturation verdict.
+_Avoid_: Human performance, human score
+
+**Benchmark Saturation**:
+The state in which the best published score on a Benchmark sits so close to the maximum that a
+further gain cannot show a capability difference. The research definition (Akhtar et al., "When
+AI Benchmarks Plateau", arXiv 2602.16763, 2026) requires two things: the top models score
+statistically alike, and the top score nears the ceiling. ScreamingFace measures only the second,
+as headroom: the maximum score on the headline metric minus the Frontier Score. A Benchmark is
+**saturated** when headroom ≤ 0.10, **open** otherwise, and **unknown** when no Frontier Score is
+recorded. The Engine derives the verdict; nobody types it. Human-level performance does not make
+a Benchmark saturated, and a saturated Benchmark is not a solved problem.
+_Avoid_: Solved, beaten, superhuman (that is Frontier Score ≥ Human Baseline, a separate fact)
