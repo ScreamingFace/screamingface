@@ -1,13 +1,13 @@
 ---
 id: OME-1384
 linear_url: https://linear.app/openmined/issue/OME-1384/decide-what-to-do-with-historical-rows-that-published-a-cached-run-as
-status: backlog
+status: done
 type: decision
 priority: medium
 labels: [scoreboard, human, design-session]
 parent: OME-1251
 created: 2026-09-25
-closed:
+closed: 2026-10-06
 ---
 
 # Decide what to do with historical rows that published a cached run as $0.00
@@ -21,3 +21,10 @@ Options: leave, flag and keep off the frontier, hide from cost surfaces, or ask 
 First step: count the affected rows on dev.
 
 - 2026-09-25: filed.
+- 2026-10-05: resolved for the 7 dev `draco-3pass` rows (the only affected public rows). D7 on
+  `OME-1251` made archive-priced cache money publishable, so every unpriced cache entry the
+  recipes hit was re-measured and loaded as `archive_matched` (`OME-1469`, $135.09 on the team
+  key). The 7 rows were deleted with `scoreboard.delete_scores` and resubmitted from cached
+  reruns as `complete` with their full cost ($182.82 to $500.24). Four scores are unchanged;
+  `pareto_cross`, `best_open_source` and `pareto_lean` moved by under 0.01 because cases built on
+  a 2026-08-22 synthesis are now fully judged.
