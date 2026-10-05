@@ -28,5 +28,5 @@ truncated. The field is absent on every single-scorer Benchmark, so no published
   were folded in and deleted.
 - 2026-10-05: docs PR opened (spec `docs/spec/2026-10-05-OME-1268-multi-score-benchmarks.md`,
   plan `docs/plan/2026-10-05-OME-1268-multi-score-benchmarks.md`, glossary entries Headline
-  Score and Named Score, ledger `docs/work/2026-10-02-multi-score-boards.md`). Code PRs 1–4
-  follow the plan; the last one closes this ticket.
+  Score and Named Score, ledger `docs/work/2026-10-02-multi-score-boards.md`). The docs PR is
+  #1235 (PR 1 of 5); code PRs 2–5 follow the plan, SDK first; the last one closes this ticket.

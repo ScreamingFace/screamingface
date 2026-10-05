@@ -1,4 +1,4 @@
-# One Benchmark, several Named Scores (PRs 1–4) Implementation Plan
+# One Benchmark, several Named Scores (PRs 2–5 of the OME-1268 stack) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
@@ -31,7 +31,7 @@ the same PR to match.
 - One worktree per PR, off `upstream/main`:
   `git worktree add .claude/worktrees/<slug> -b <slug> upstream/main`; rename to
   `OME-1268-<slug>` at PR-open. Every PR carries `Refs: OME-1268` and a title ending in
-  `(OME-1268)`.
+  `(OME-1268, PR k of 5)`; the docs PR (#1235) is PR 1 of 5.
 - Paths are relative to `apps/screamingface-engine/` (**E**) or `packages/screamingface/`
   (**S**) as marked; `docs/` paths are repo-relative.
 - Engine: `uv sync --extra inspect --inexact` once per worktree, then `uv run pytest <path> -q`.
@@ -39,7 +39,7 @@ the same PR to match.
 - Gates before each PR, from the repo root: `uv run .claude/scripts/run_gates.py
   screamingface-engine` or `... screamingface` (append-only test check, ruff, format, pyright,
   layering, pytest with coverage).
-- **Deploy order: PR 1's SDK releases before PR 2's Engine deploys.** The SDK decoder refuses
+- **Deploy order: PR 2's SDK releases before PR 3's Engine deploys.** The SDK decoder refuses
   unknown keys (`_keys`, S `src/screamingface/_evaluation/results.py:492`), so an Engine emitting
   `scores` to an older SDK fails every multi-score run.
 - `tests/unit/inspect/test_published_revisions.py` passes unchanged: no published Benchmark
@@ -50,7 +50,7 @@ the same PR to match.
 - Plain `test_` functions; type every argument, return and non-obvious local; one-sentence
   intuition docstring per function; `WHY:` / `INVARIANT:` anchors, no restating comments.
 - Tests are append-only. Two prior-test edits are known in advance and need the owner's
-  `--skip-append-only`, asked for by name in the PR body (Task 1.5 and Task 2.1).
+  `--skip-append-only`, asked for by name in the PR body (Task 2.5 and Task 3.1).
 - Stage explicit paths, never `git add -A`. Conventional commits, no `Co-Authored-By`.
 - Nothing in any test touches the network or a model. Paid runs are the owner's.
 
@@ -74,32 +74,32 @@ the same PR to match.
 1. **A multi-score Case Grade on the wire must round-trip the SDK unchanged.** `scores` is
    emitted by the Engine, decoded by `_case_grade` and `_candidate_payload`, written by
    `CandidateResult.to_dict`, and rebuilt by `examples/helpers.py:load_candidate_result`. Four
-   sites, one shape. Pinned in Task 1.2 (`test_scores_round_trip_through_report_json`) and the
-   Engine twin in Task 2.6.
+   sites, one shape. Pinned in Task 2.2 (`test_scores_round_trip_through_report_json`) and the
+   Engine twin in Task 3.6.
 2. **The headline column must equal `score`.** If the adapter computed `score` from one call and
    `scores[headline]` from another, a non-deterministic scorer could make them differ. One call
-   per scorer; `score` is read from the dict. Pinned in Task 2.2
+   per scorer; `score` is read from the dict. Pinned in Task 3.2
    (`test_headline_score_is_the_named_headline_column`).
 3. **A dict-valued Score with an undeclared key must fail the Case, not drop the key.** Pinned in
-   Task 2.3 (`test_an_undeclared_dict_key_fails_the_case_by_name`).
-4. **The inverted flip and the word map apply to the headline scorer only.** Pinned in Task 2.2
+   Task 3.3 (`test_an_undeclared_dict_key_fails_the_case_by_name`).
+4. **The inverted flip and the word map apply to the headline scorer only.** Pinned in Task 3.2
    (`test_inverted_grade_flips_the_headline_only`).
 5. **Single-scorer rows render and grade byte-identically.** The `render_generated_rows` tests
    in `test_inspect_importer.py` and `test_published_revisions.py` pass unchanged; a new test
-   asserts a single-scorer Case Grade has no `scores` key on the wire (Task 2.1).
+   asserts a single-scorer Case Grade has no `scores` key on the wire (Task 3.1).
 6. **The tripwire refuses `simpleqa` by name and accepts cyberseceval_4's shape.** Pinned in
-   Task 3.3 (`test_a_formula_headline_metric_is_refused_naming_it`,
+   Task 4.3 (`test_a_formula_headline_metric_is_refused_naming_it`,
    `test_a_grouped_metric_on_a_non_headline_scorer_is_a_named_deviation`).
-7. **The Revision moves when and only when a multi-score field changes.** Pinned in Task 2.5
+7. **The Revision moves when and only when a multi-score field changes.** Pinned in Task 3.5
    (`test_extra_scorers_pin_into_the_revision`, `test_a_single_scorer_row_has_no_score_pins`).
 
 ---
 
-## PR 1 — SDK: decode, report, show (branch `OME-1268-sdk-named-scores`)
+## PR 2 — SDK: decode, report, show (branch `OME-1268-sdk-named-scores`)
 
-Lands in S. Releases before PR 2 deploys.
+Lands in S. Releases before PR 3 deploys.
 
-### Task 1.0: Ledger
+### Task 2.0: Ledger
 
 **Files:**
 - Create: `docs/work/2026-10-06-ome-1268-sdk-named-scores.md` from `docs/work/TEMPLATE.md`,
@@ -110,7 +110,7 @@ Lands in S. Releases before PR 2 deploys.
   for the SDK side).
 - [ ] **Step 2: Commit** `docs(screamingface): ledger for SDK named scores`.
 
-### Task 1.1: `CaseGrade.scores` and `CandidateResult.scores` dataclass fields
+### Task 2.1: `CaseGrade.scores` and `CandidateResult.scores` dataclass fields
 
 **Files:**
 - Modify: `src/screamingface/case_result.py` (`CaseGrade`, :216; `__init__` :225; `to_dict`
@@ -131,7 +131,7 @@ Lands in S. Releases before PR 2 deploys.
 - [ ] **Step 4: Commit** `feat(screamingface): carry named scores on Case Grade and Candidate
   Result`.
 
-### Task 1.2: Decode `scores` from the wire and rebuild it from report.json
+### Task 2.2: Decode `scores` from the wire and rebuild it from report.json
 
 **Files:**
 - Modify: `src/screamingface/_evaluation/results.py` (`_case_grade` :380, `_candidate_payload`
@@ -153,7 +153,7 @@ Lands in S. Releases before PR 2 deploys.
 - [ ] **Step 3:** run the two test files.
 - [ ] **Step 4: Commit** `feat(screamingface): decode named scores from the run result`.
 
-### Task 1.3: `result.scores` is public
+### Task 2.3: `result.scores` is public
 
 **Files:**
 - Modify: `src/screamingface/report.py` (a `scores` property beside `metrics` :327)
@@ -167,7 +167,7 @@ Lands in S. Releases before PR 2 deploys.
   `.claude/test-change-approvals/`).**
 - [ ] **Step 3: Commit** `feat(screamingface): expose result.scores`.
 
-### Task 1.4: The `scores` block on the report card
+### Task 2.4: The `scores` block on the report card
 
 **Files:**
 - Modify: `src/screamingface/_ui/report_view.py` (`_card_html` :295 adds `_scores_html` after
@@ -185,7 +185,7 @@ Lands in S. Releases before PR 2 deploys.
   the stack card.
 - [ ] **Step 4: Commit** `feat(screamingface): show named scores on the report card`.
 
-### Task 1.5: Report JSON stable key and prior-test edits
+### Task 2.5: Report JSON stable key and prior-test edits
 
 **Files:**
 - Test: `tests/test_report.py`, `tests/test_answer_seed_report.py`,
@@ -199,23 +199,23 @@ Lands in S. Releases before PR 2 deploys.
   flag on the append-only lane).
 - [ ] **Step 4: Commit** `test(screamingface): report.json carries scores as a stable key`.
 
-### Task 1.6: PR-open
+### Task 2.6: PR-open
 
-- [ ] Rename branch, open the PR `feat(screamingface): decode and show named scores (OME-1268)`
+- [ ] Rename branch, open the PR `feat(screamingface): decode and show named scores (OME-1268, PR 2 of 5)`
   with the Review order and the two named prior-test edits; mark the deploy note **release
-  this SDK before any Engine from PR 2**.
+  this SDK before any Engine from PR 3**.
 
 ---
 
-## PR 2 — Engine: the spine (branch `OME-1268-engine-named-scores`)
+## PR 3 — Engine: the spine (branch `OME-1268-engine-named-scores`)
 
-Lands in E. Deploys after PR 1's SDK release.
+Lands in E. Deploys after PR 2's SDK release.
 
-### Task 2.0: Ledger
+### Task 3.0: Ledger
 
 - [ ] Create `docs/work/2026-10-07-ome-1268-engine-named-scores.md`; commit.
 
-### Task 2.1: `scores` on the wire models, absent unless set
+### Task 3.1: `scores` on the wire models, absent unless set
 
 **Files:**
 - Modify: `src/screamingface_engine/benchmarks/contract.py` (`CaseGrade` :201,
@@ -233,7 +233,7 @@ Lands in E. Deploys after PR 1's SDK release.
   `test_candidate_result_scores_is_absent_when_empty`;
   `test_an_unscored_candidate_result_has_no_scores` (mirrors the `metrics == {}` rule);
   `test_scores_key_matches_the_sdk` (the AST conformance pattern at :78, pinning
-  `SCORES_KEY` against the SDK module from PR 1).
+  `SCORES_KEY` against the SDK module from PR 2).
 - [ ] **Step 2 (GREEN):** `scores: dict[str, float | None] = Field(default_factory=dict,
   exclude_if=lambda value: not value)` on both models, a `field_validator` reusing
   `_finite_score` per value; the unscored rule in `_candidate_outcome`. `INVARIANT:` anchor:
@@ -242,7 +242,7 @@ Lands in E. Deploys after PR 1's SDK release.
 - [ ] **Step 4: Commit** `feat(screamingface-engine): carry named scores on the wire, absent
   unless set`.
 
-### Task 2.2: The adapter grades once per scorer
+### Task 3.2: The adapter grades once per scorer
 
 **Files:**
 - Modify: `src/screamingface_engine_inspect/scorer_adapter.py` (`inspect_grade_case` :83 takes
@@ -270,7 +270,7 @@ Lands in E. Deploys after PR 1's SDK release.
   `test_verdict_grades.py` unchanged.
 - [ ] **Step 4: Commit** `feat(screamingface-engine): grade a Case once per declared scorer`.
 
-### Task 2.3: A dict-valued inspect Score becomes named scores
+### Task 3.3: A dict-valued inspect Score becomes named scores
 
 **Files:**
 - Modify: `scorer_adapter.py` (`_score_as_float` :248 keeps its scalar contract; a new
@@ -287,7 +287,7 @@ Lands in E. Deploys after PR 1's SDK release.
 - [ ] **Step 3: Commit** `feat(screamingface-engine): read a dict-valued inspect Score as named
   scores`.
 
-### Task 2.4: The reducer averages every column
+### Task 3.4: The reducer averages every column
 
 **Files:**
 - Modify: `single_shot.py` (`_accuracy` :800 → also means each `grade.scores` column over the
@@ -302,7 +302,7 @@ Lands in E. Deploys after PR 1's SDK release.
 - [ ] **Step 2 (GREEN):** implement.
 - [ ] **Step 3: Commit** `feat(screamingface-engine): average every named score column`.
 
-### Task 2.5: Row fields and Revision pins
+### Task 3.5: Row fields and Revision pins
 
 **Files:**
 - Modify: `src/screamingface_engine_inspect/benchmarks.py` (`BenchmarkSpec` :50 gains
@@ -322,12 +322,12 @@ Lands in E. Deploys after PR 1's SDK release.
 - [ ] **Step 4: Commit** `feat(screamingface-engine): declare extra, named and dropped scorers
   on the row`.
 
-### Task 2.6: Tripwire helper and the Engine round-trip twin
+### Task 3.6: Tripwire helper and the Engine round-trip twin
 
 **Files:**
 - Add: `src/screamingface_engine_inspect/scorer_metrics.py` (`headline_metric_kind(scorer) ->
   Literal["mean", "other"]` reading `registry_info` metrics names; `accuracy` / `mean` are
-  plain means, `stderr` ignored, anything else "other") — the importer calls it in PR 3
+  plain means, `stderr` ignored, anything else "other") — the importer calls it in PR 4
 - Test: `tests/unit/inspect/test_scorer_metrics.py`, `tests/unit/test_candidate_result_
   contract.py` (append)
 
@@ -337,17 +337,17 @@ Lands in E. Deploys after PR 1's SDK release.
 - [ ] **Step 2 (GREEN):** implement.
 - [ ] **Step 3:** `uv run .claude/scripts/run_gates.py screamingface-engine` green.
 - [ ] **Step 4: Commit**, then PR-open `feat(screamingface-engine): carry named scores through
-  grading (OME-1268)` with the deploy note **after PR 1's SDK release**.
+  grading (OME-1268, PR 3 of 5)` with the deploy note **after PR 2's SDK release**.
 
 ---
 
-## PR 3 — Engine: the importer (branch `OME-1268-importer-named-scores`)
+## PR 4 — Engine: the importer (branch `OME-1268-importer-named-scores`)
 
-### Task 3.0: Ledger
+### Task 4.0: Ledger
 
 - [ ] Create `docs/work/2026-10-08-ome-1268-importer-named-scores.md`; commit.
 
-### Task 3.1: Keep every conservable scorer
+### Task 4.1: Keep every conservable scorer
 
 **Files:**
 - Modify: `src/screamingface_engine_inspect/importer.py` (`_scorer_reference` :590 returns the
@@ -368,7 +368,7 @@ Lands in E. Deploys after PR 1's SDK release.
 - [ ] **Step 2 (GREEN):** implement.
 - [ ] **Step 3: Commit** `feat(screamingface-engine): import every conservable scorer of a Task`.
 
-### Task 3.2: The headline-metric tripwire
+### Task 4.2: The headline-metric tripwire
 
 **Files:**
 - Modify: `importer.py` (`_scorer_lines` calls `headline_metric_kind` on the headline scorer;
@@ -383,7 +383,7 @@ Lands in E. Deploys after PR 1's SDK release.
 - [ ] **Step 2 (GREEN):** implement.
 - [ ] **Step 3: Commit** `feat(screamingface-engine): refuse a formula headline metric by name`.
 
-### Task 3.3: A list-of-strings target at Case Preparation
+### Task 4.3: A list-of-strings target at Case Preparation
 
 **Files:**
 - Modify: `src/screamingface_engine_inspect/prepare.py` (`_validated_answer_key` :1732 accepts a
@@ -400,17 +400,17 @@ Lands in E. Deploys after PR 1's SDK release.
 - [ ] **Step 3:** gates green; re-run the OME-1253 sweep rows whose sole refusal was scorer
   count (`results.jsonl` on that ticket) and list the outcome in the PR body (spec §8.7).
 - [ ] **Step 4: Commit**, then PR-open `feat(screamingface-engine): import Tasks with several
-  scorers and list targets (OME-1268)`.
+  scorers and list targets (OME-1268, PR 4 of 5)`.
 
 ---
 
-## PR 4 — Engine: MATH and SQuAD (branch `OME-1268-math-squad`)
+## PR 5 — Engine: MATH and SQuAD (branch `OME-1268-math-squad`)
 
-### Task 4.0: Ledger
+### Task 5.0: Ledger
 
 - [ ] Create `docs/work/2026-10-09-ome-1268-math-squad.md`; commit.
 
-### Task 4.1: Import the two rows
+### Task 5.1: Import the two rows
 
 - [ ] Run the importer for `squad` and `math` per
   `docs/adding-an-imported-benchmark.md`; resolve every `TODO(review)` (MATH's headline is
@@ -424,10 +424,10 @@ Lands in E. Deploys after PR 1's SDK release.
   `dropped_scorers == ("expression_equivalance",)` on the MATH row.
 - [ ] `test_published_revisions.py` gains the two new rows only.
 - [ ] Gates green; commit `feat(screamingface-engine): import MATH and SQuAD with named scores`;
-  PR-open `feat(screamingface-engine): import MATH and SQuAD with named scores (OME-1268)`.
+  PR-open `feat(screamingface-engine): import MATH and SQuAD with named scores (OME-1268, PR 5 of 5)`.
   This PR closes OME-1268: the close comment, the mirror `status: done`, the ledgers' outcomes.
 
-### Task 4.2: Owner-verify (not an agent step)
+### Task 5.2: Owner-verify (not an agent step)
 
 - [ ] A paid smoke of each row on one Candidate; the report card shows the `scores` block with
   `f1` tagged `headline` on SQuAD and `expression_exact_match` on MATH.
