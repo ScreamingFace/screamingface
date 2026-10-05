@@ -1,9 +1,9 @@
 ---
 ticket: OME-1460
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-05
-finished:
+finished: 2026-10-05
 ---
 
 # one-fetch-path-enforcer — Task replay forces the declaration's Hub revision and seeds
@@ -84,7 +84,32 @@ importer writes the pins into the generated row. Spec R1–R8, D1, D7 (function 
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, plus `.claude/test-change-approvals/OME-1460.json` (the
+  owner's blob-pinned approval of the one prior-test change) and pre_flight and bbeh pinned
+  in `prepare.py` (imported by #1225 after this branch was cut). Source +546/-57, tests
+  +902/-1.
+- **Commits:** the enforcer (`case_sources.py`, `fetch_pins.py`); the declaration fields,
+  both children and the gated skip; the row writer; medqa, bbq, piqa pinned with the 22-row
+  revision freeze; the sweep script; the narrowed prior test and its approval; pre_flight
+  and bbeh pinned. Branch `OME-1460-one-fetch-path-enforcer`, rebased on `4adfca73a`.
+- **Gates:** `run_gates.py screamingface-engine --base <merge base>` ALL GATES GREEN (append-
+  only check accepts the OME-1460 approval; 5,5xx tests; coverage 93.9%). All 27 Task-replay
+  Benchmarks on main prepared against their live sources under the enforcer, every one OK
+  with its sealed digest.
 - **Deviations:**
+  - D4 moved from PR B into this PR, and widened to five rows (medqa, bbq, piqa, pre_flight,
+    bbeh): the enforcing build refuses a Hub read with no declared pin (F1), so without
+    their pins they would go SKIPPED the day this merges. Each eval already passes the same
+    commit; digests are unchanged; only their revisions move.
+  - The row writer (`task_replay_rows.py`) writes the pins, seeds and gate here, not in
+    PR B: a row imported between the two PRs would otherwise be refused at its first build.
+  - The rules live in a new `fetch_pins.py`, not inside `case_sources.py` (plan P2): the
+    450-line file cap; the import-time commit resolver (`source_pins_of`) sits beside them.
+  - Only inspect's real `hf_dataset` is wrapped, not also the inspect_evals shim (R1): the
+    shim calls it through the module attribute the wrap rebinds; a test drives both routes.
+  - Task A6 (named exclusion on Task replay) was already on main (#1222); nothing to do.
+  - The sweep ran once, after the enforcer (no run on bare main: it needs the seed
+    parameters), over 30 rows, not 28: coconot's two rows were added by OME-1371.
+  - One prior test narrowed with the owner's approval (the three-pin check skips rows that
+    declare `source_pins`); the new 22-row freeze carries its invariant exactly.
+  - The importer CLI's seed flags under Task replay (D7) stay with R10 in PR B.
