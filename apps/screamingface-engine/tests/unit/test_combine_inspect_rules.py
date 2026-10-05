@@ -73,10 +73,14 @@ _HOSTILE_LINES = {
 def test_inspect_rules_stay_linear_on_hostile_input(op_id: str) -> None:
     # F10 and F11: the exact Inspect semantics cost O(words) but never O(n^2); the vendored boxed
     # regex alone would take tens of seconds on the last text.
+    # WHY CPU time and a 5s budget: the engine gate runs the suite under `pytest -n auto` with
+    # coverage (OME-1444). There a worker shares the machine, so a 2s wall-clock bound failed on
+    # linear code (about 1.8s of CPU per line under that load, 0.6s alone). A quadratic
+    # regression still costs tens of seconds, well past this budget.
     for name, text in _HOSTILE_LINES.items():
-        started = time.perf_counter()
+        started = time.process_time()
         stage(op_id, text)
-        assert time.perf_counter() - started < 2, f"{op_id} took too long on {name}"
+        assert time.process_time() - started < 5, f"{op_id} took too long on {name}"
 
 
 @pytest.mark.parametrize("op_id", ["inspect_number@1", "inspect_aime@1"])
