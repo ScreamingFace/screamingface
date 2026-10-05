@@ -22,20 +22,23 @@ def iter_report_json(report: Report) -> Iterator[str]:
 
 
 def _chunks(value: object) -> Iterator[str]:
-    if isinstance(value, dict):
+    # WHY: only the Report/Candidate envelopes contain our lazy array iterators.
+    # Ordinary fields (including a complete Case) already fit in memory; let the
+    # standard encoder handle them in one chunk rather than encoding every scalar.
+    if isinstance(value, dict) and any(isinstance(item, Iterator) for item in value.values()):
         yield "{"
         for index, (key, item) in enumerate(value.items()):
             yield ("," if index else "") + json.dumps(key, ensure_ascii=False) + ":"
             yield from _chunks(item)
         yield "}"
-    elif isinstance(value, list | tuple | Iterator):
+    elif isinstance(value, Iterator):
         yield "["
         for index, item in enumerate(value):
             yield "," if index else ""
             yield from _chunks(item)
         yield "]"
     else:
-        yield from json.JSONEncoder(ensure_ascii=False, separators=(",", ":")).iterencode(value)
+        yield json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def write_report(report: Report, path: Path) -> None:
