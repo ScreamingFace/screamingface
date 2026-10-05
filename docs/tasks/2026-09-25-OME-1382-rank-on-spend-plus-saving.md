@@ -1,13 +1,13 @@
 ---
 id: OME-1382
 linear_url: https://linear.app/openmined/issue/OME-1382/rank-the-pareto-frontier-on-spend-plus-cache-saving
-status: in_review
+status: done
 type: task
 priority: high
 labels: [scoreboard, agentic, deferred]
 parent: OME-1251
 created: 2026-09-25
-closed:
+closed: 2026-10-05
 ---
 
 # Rank the Pareto frontier on spend plus cache saving
@@ -28,3 +28,4 @@ Ledger: `docs/work/2026-10-02-OME-1382-rank-on-reproduction-cost.md`.
 - 2026-09-25: filed from `OME-1325` phase 2.
 - 2026-10-02: unblocked; board half built (`reproduction_cost`, five read paths).
 - 2026-10-02: extended for `OME-1251` D7: the archive-matched saving is stored (migration `0017`) and summed.
+- 2026-10-05: merged via #1227 (`8c4db51e`), approved after PostgreSQL verification; closed in Linear with the close comment. SQLite unreadable-saving follow-up to be filed under `OME-1251`.
