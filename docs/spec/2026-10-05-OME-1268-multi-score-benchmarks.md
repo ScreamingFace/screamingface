@@ -5,8 +5,8 @@
   and `packages/screamingface` (decoder and report card).
 - Ticket: OME-1268. Parent epic: OME-1299. Unblocks OME-1418 (SimpleQA).
 - Ledger: `docs/work/2026-10-02-multi-score-boards.md`.
-- Delivery: this docs PR, then four stacked code PRs (§7). The SDK PR releases before the Engine
-  PRs deploy, the OME-1400 order.
+- Delivery: five stacked PRs, this docs PR first, then four code PRs (§7): the SDK slice
+  (`packages/screamingface`) releases before the three Engine slices deploy, the OME-1400 order.
 
 ## TLDR
 
@@ -247,7 +247,7 @@ rests, ⏱ when it runs, 🌐 a network hop, 🔐 what never crosses).
 | F3 | A non-headline scorer declares a grouped or custom metric (cyberseceval_4) | the importer | imported; the breakdown is a Named Deviation dropped by name, the column mean kept |
 | F4 | A row's `named_scores` do not cover its scorers, a dropped scorer is also declared, or a Case Grade's keys differ from `named_scores` | assembly, then the aggregation | registration fails before any Case is served; a mismatched Case Grade fails the aggregate's own test |
 | F5 | One scorer fails on a Case (unreadable value, undeclared dict key) | the scorer adapter | the Case fails as `invalid_score_value` naming the key; no half-graded Case |
-| F6 | An SDK older than PR 1 reads a multi-score report | the SDK decoder | "unsupported field" on `scores`, as with `inverted_grade` before OME-1400's PR 2; single-score reports unaffected |
+| F6 | A researcher's SDK installed before the SDK slice is released reads a multi-score report | the SDK decoder | "unsupported field" on `scores`, as with `inverted_grade` before OME-1400's PR 2; single-score reports unaffected |
 | F7 | A published Benchmark's scorer list or headline is edited | the Revision pins | the Revision changes; the old one is never silently overwritten |
 
 ## 5. Known limitations of this design
@@ -262,8 +262,11 @@ rests, ⏱ when it runs, 🌐 a network hop, 🔐 what never crosses).
   the overall means are.
 - **Named scores are shown only in the report and the report card.** The Leaderboard and the
   Scoreboard store and rank one float; a second column there is a later product decision.
-- **An SDK older than PR 1 cannot read a multi-score report** (F6). Accepted: the SDK releases
-  first, and single-score reports are untouched.
+- **A researcher's SDK installed before the SDK slice (§7, PR 2) is released cannot read a
+  multi-score report** (F6): its decoder refuses any key it does not know, and we cannot patch
+  a package already installed. Accepted: the SDK slice releases before any Engine emits the
+  key, and single-scorer reports stay byte-identical, so an older SDK keeps working on every
+  Benchmark that exists today.
 
 ## 6. Out of scope
 
@@ -274,15 +277,17 @@ rests, ⏱ when it runs, 🌐 a network hop, 🔐 what never crosses).
 
 ## 7. Delivery — four stacked code PRs after this one
 
+PR numbers below are the stack positions after this docs PR (which is PR 1 of 5).
+
 | PR | Lands in | Carries | Why its own PR |
 |---|---|---|---|
-| 1 | `packages/screamingface` | decoder accepts the optional `scores` key on Case Grade and Candidate Result; `result.scores`; report.json `scores`; the report-card block | the decoder refuses unknown keys, so the SDK releases before any Engine emits the field |
-| 2 | `apps/screamingface-engine` | wire-model `scores` field and validators; adapter grading once per scorer and reading dict Scores; per-column reducer; the headline-metric tripwire; Revision pins | the spine change, testable with fixtures alone |
-| 3 | `apps/screamingface-engine` | importer: several scorers, declared headline with the review TODO, dropped scorers as Named Deviations, list-of-strings target at Case Preparation | the biggest diff, rides on PR 2 |
-| 4 | `apps/screamingface-engine` | MATH and SQuAD rows, offline Case Preparation verified, licence lines | generated rows only; the reviewer checks conservation, not mechanism |
+| 2 | `packages/screamingface` | decoder accepts the optional `scores` key on Case Grade and Candidate Result; `result.scores`; report.json `scores`; the report-card block | the decoder refuses unknown keys, so the SDK releases before any Engine emits the field |
+| 3 | `apps/screamingface-engine` | wire-model `scores` field and validators; adapter grading once per scorer and reading dict Scores; per-column reducer; the headline-metric tripwire; Revision pins | the spine change, testable with fixtures alone |
+| 4 | `apps/screamingface-engine` | importer: several scorers, declared headline with the review TODO, dropped scorers as Named Deviations, list-of-strings target at Case Preparation | the biggest diff, rides on PR 3 |
+| 5 | `apps/screamingface-engine` | MATH and SQuAD rows, offline Case Preparation verified, licence lines | generated rows only; the reviewer checks conservation, not mechanism |
 
-Deploy order: release PR 1's SDK before deploying PR 2's Engine. Each PR carries `Refs: OME-1268`
-and a title ending in `(OME-1268)`.
+Deploy order: release PR 2's SDK before deploying PR 3's Engine. Each PR carries `Refs: OME-1268`
+and a title ending in `(OME-1268, PR k of 5)`.
 
 ## 8. Acceptance
 
@@ -299,7 +304,7 @@ and a title ending in `(OME-1268)`.
    single-scorer report.json differs only by the stable `"scores": {}` key.
 6. Prior importer, adapter, decoder and report-view tests untouched and green (append-only).
 7. Any other OME-1253 sweep row whose sole refusal reason was scorer count is re-tested and
-   reported in PR 3's body.
+   reported in PR 4's body.
 
 ## 9. Glossary
 
