@@ -196,8 +196,10 @@ def test_write_atomic_failure_cleanup_never_replaces_the_original_error(
     target = tmp_path / "report.json"
     target.write_bytes(b"previous complete content")
 
-    def full_disk_fdopen(fd: int, mode: str, buffering: int) -> io.BufferedWriter:
-        return _FullDiskWriter(io.FileIO(fd, mode), buffering)
+    def full_disk_fdopen(
+        fd: int, mode: str, buffering: int, *, closefd: bool = True
+    ) -> io.BufferedWriter:
+        return _FullDiskWriter(io.FileIO(fd, mode, closefd=closefd), buffering)
 
     monkeypatch.setattr(os, "fdopen", full_disk_fdopen)
 
