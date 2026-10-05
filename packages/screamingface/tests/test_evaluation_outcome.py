@@ -112,7 +112,9 @@ class _SyncRecorded(_Recorder):
     def run(self, candidate: Candidate, on_event: Any) -> _RunOutcome:
         self.enter(candidate)
         try:
-            return replace(self.real.run(candidate, on_event), result_body=valid_body())
+            return replace(
+                self.real.run(candidate, on_event), result_body=valid_body(), result_path=None
+            )
         except BaseException:
             self.failed()
             raise
@@ -139,7 +141,7 @@ class _AsyncRecorded(_Recorder):
         except BaseException:
             self.failed()
             raise
-        return replace(outcome, result_body=valid_body())
+        return replace(outcome, result_body=valid_body(), result_path=None)
 
     async def cancel_active(self) -> None:
         self.cancel_calls += 1

@@ -4,6 +4,10 @@
 
 ### Features
 
+* **screamingface:** Report exports fsync before atomic replacement, preserve existing permissions and symlinks, and share case-level serialization with `to_json()`. Incorporates atomic-export improvements from Ionésio’s PR #1211.
+
+* **screamingface:** automatically retain completed candidate results on disk and load cases incrementally. `sf.reports.list()` lists one entry per evaluation; `get()` / `get_async()` and explicit report-wide `delete()` support recovery after notebook crashes without rerunning models. `SCREAMINGFACE_RESULTS_DIR` configures storage; `Client(save_results=False)` opts out. Notebook reports paginate cases; full JSON exports stream without changing report.v1 values. On reopening a notebook, the shared informational notice can identify interrupted report construction/rendering/export and show its exact recovery call; healthy and active evaluations stay quiet.
+
 * **screamingface:** render completed per-operation accounting and per-Case details across benchmarks. `CandidateResult.accounting` derives immutable stage, operation, member, model and Case summaries from retained records, preserving unknown values and authoritative root totals. Direct model members receive usage only when every Case has a unique observation. Includes an offline Jupyter review notebook (`14_report_accounting.ipynb`).
 
 * **screamingface:** mark Benchmarks scored by refusal rate. `BenchmarkInfo.inverted_grade` is `True` when every Case score is **already** 1 − the eval's grade (a should-refuse safety Benchmark such as `xstest_unsafe`), and report.json states it in the `benchmark` block — `false` for every other Benchmark. It is read from the Benchmark resource on a normal run (cross-checked against the run result) and from the run result on a replay. It is a mark, not an instruction: never flip a score with it. An Engine that predates the mark omits it, which reads as `false` — so deploy the Engine that ships `xstest_unsafe` and the Engine that sends the mark together.

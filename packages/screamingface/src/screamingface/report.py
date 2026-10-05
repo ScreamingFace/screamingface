@@ -125,6 +125,14 @@ class _CaseResults(Sequence[CaseResult]):
     def __init__(self, values: Sequence[CaseResult]) -> None:
         if isinstance(values, str | bytes) or not isinstance(values, Sequence):
             raise TypeError("Candidate cases must be an ordered sequence")
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(values, DiskCases):
+            if not values:
+                raise ValueError("a Candidate Result requires at least one Case Result")
+            self._items = values
+            self._by_id = None
+            return
         items = tuple(values)
         if any(not isinstance(value, CaseResult) for value in items):
             raise TypeError("Candidate cases must contain sf.CaseResult values")
@@ -154,19 +162,62 @@ class _CaseResults(Sequence[CaseResult]):
         return iter(self._items)
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, _CaseResults):
-            return self._items == other._items
         if isinstance(other, Sequence):
-            return self._items == tuple(other)
+            return len(self) == len(other) and all(a == b for a, b in zip(self, other))
         return NotImplemented
 
     def __repr__(self) -> str:
         return repr(self._items)
 
+    def _matching_indices(self, query: str) -> Iterator[int]:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            yield from self._items.matching_indices(query)
+        else:
+            for index, case in enumerate(self._items):
+                if query in json.dumps(case.to_dict(), ensure_ascii=False).casefold():
+                    yield index
+
+    def _identities(self) -> Iterator[CaseId]:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            yield from self._items.identities()
+        else:
+            yield from (case.case_id for case in self._items)
+
+    @property
+    def _disk_path(self) -> Path | None:
+        from screamingface._results.cases import DiskCases
+
+        return self._items.path if isinstance(self._items, DiskCases) else None
+
+    def _gradeable_count(self) -> int:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases) and self._items.gradeable is not None:
+            return self._items.gradeable
+        return sum(case.grade is not None and case.grade.score is not None for case in self._items)
+
+    def _failures(self) -> Iterator[Failure]:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            yield from self._items.failures()
+        else:
+            for case in self._items:
+                yield from case.failures
+
     def by_id(self, case_id: CaseId) -> CaseResult:
         """Return the Case with this domain ID without treating integers as positions."""
 
         selected = _case_id(case_id)
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            return self._items.by_id(selected)
+        assert self._by_id is not None
         try:
             return self._by_id[selected]
         except KeyError:
@@ -332,6 +383,9 @@ class CandidateResult:
         return round((self.completed_at - self.started_at).total_seconds() * 1000)
 
     def to_dict(self) -> dict[str, object]:
+        return self._export_fields(cases=[case.to_dict() for case in self.cases])
+
+    def _export_fields(self, *, cases: object) -> dict[str, object]:
         return {
             # INVARIANT: the two case_count values in a serialized Report mean different
             # things, and both are load-bearing. This candidate block carries the COMPLETE
@@ -352,7 +406,7 @@ class CandidateResult:
             "score": self.score,
             "coverage": self.coverage,
             "metrics": thaw_mapping(dict(self._metric_items)),
-            "cases": [case.to_dict() for case in self.cases],
+            "cases": cases,
             "members": [member.to_dict() for member in self.members],
             "failures": [failure.to_dict() for failure in self.failures],
             "duration_ms": self.duration_ms,
@@ -447,22 +501,32 @@ class Report:
 
     @property
     def ok(self) -> bool:
-        return not self.failures and all(
-            candidate.score is not None for candidate in self.candidates
+        return all(
+            candidate.score is not None and next(_candidate_failures(candidate), None) is None
+            for candidate in self.candidates
         )
 
     def to_dict(self) -> dict[str, object]:
+        return self._export_fields(
+            candidates=[candidate.to_dict() for candidate in self.candidates]
+        )
+
+    def _export_fields(self, *, candidates: object) -> dict[str, object]:
         return {
             "schema": "screamingface.report.v1",
             "started_at": _timestamp_text(self.started_at),
             "completed_at": _timestamp_text(self.completed_at),
             "benchmark": self.benchmark._result_dict(self.case_count),
-            "candidates": [candidate.to_dict() for candidate in self.candidates],
+            "candidates": candidates,
             "usage": self.usage.to_dict(),
         }
 
     def to_json(self) -> str:
-        return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
+        from screamingface._report_export import iter_report_json
+
+        # WHY: returning a string still allocates its bytes; avoid also holding every
+        # candidate's case dictionaries at once. File export remains bounded.
+        return "".join(iter_report_json(self))
 
     def export(
         self,
@@ -529,12 +593,32 @@ class Report:
         if selected.suffix.lower() != ".json":
             raise ValueError("Report export path must be a .json file")
         selected.parent.mkdir(parents=True, exist_ok=True)
-        selected.write_text(self.to_json(), encoding="utf-8")
+        from screamingface._report_export import write_report
+
+        write_report(self, selected)
         return selected
 
     def __repr__(self) -> str:
         candidates = ", ".join(repr(candidate.name) for candidate in self.candidates)
         return f"Report(benchmark={self.benchmark.id!r}, candidates=[{candidates}], ok={self.ok})"
+
+    def _ipython_display_(self) -> None:
+        from screamingface._results.lifecycle import report_operation
+
+        with report_operation(self, "rendering"):
+            self._display_notebook()
+
+    def _display_notebook(self) -> None:
+        from IPython.display import HTML, display
+
+        try:
+            from screamingface._ui.report_browser import ReportBrowser
+
+            browser = ReportBrowser(self)
+        except ImportError:
+            display(HTML(self._repr_html_()))
+            return
+        display(browser.widget)
 
     def _repr_html_(self) -> str:
         from screamingface._ui.report_view import report_html
@@ -577,8 +661,7 @@ def _candidate_failures(candidate: CandidateResult) -> Iterator[Failure]:
     for member in candidate.members:
         if member.failures is not None:
             yield from member.failures
-    for case in candidate.cases:
-        yield from case.failures
+    yield from candidate.cases._failures()
 
 
 def _failures(values: Sequence[Failure], label: str) -> tuple[Failure, ...]:
@@ -777,10 +860,12 @@ def _validate_candidate_outcome(
 ) -> None:
     """Independently enforce the Engine's Candidate Result wire invariants."""
 
-    gradeable = tuple(
-        case for case in cases if case.grade is not None and case.grade.score is not None
+    gradeable = (
+        cases._gradeable_count()
+        if isinstance(cases, _CaseResults)
+        else sum(case.grade is not None and case.grade.score is not None for case in cases)
     )
-    expected_coverage = round(len(gradeable) / len(cases), 4)
+    expected_coverage = round(gradeable / len(cases), 4)
     if coverage != expected_coverage:
         raise ValueError(
             "Candidate coverage must equal numeric Case grades / selected Cases "

@@ -6,10 +6,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from screamingface._evaluation.model import Candidate
+    from screamingface._evaluation.model import Candidate, _Evaluation
     from screamingface.events import Event
     from screamingface.report import Usage
 
@@ -34,10 +35,9 @@ class _ResultArtifact:
 class _RunOutcome:
     """Transport-neutral root result retained for strict Report decoding.
 
-    INVARIANT: exactly one of `result_body` / `artifact` is set when the contract layer
-    builds this; the transport materializes an artifact outcome into a full `result_body`
-    (artifact=None) before anything downstream decodes it — Report construction never
-    sees an unredeemed ticket.
+    The contract supplies an inline body or artifact ticket. By default the transport
+    persists a result_path before decoding; artifact tickets remain available for
+    recovery. Explicit save_results=False retains the legacy in-memory path.
     """
 
     run_id: str
@@ -61,6 +61,7 @@ class _RunOutcome:
     # including for a run whose frames never arrived.
     trace_id: str | None = None
     client_version: str | None = None
+    result_path: Path | None = None
     # FEATURE (OME-1441, spec 2026-09-30-cached-run-not-complete): how many of this run's gateway
     # round trips the response cache served. A hit spends nothing upstream, so any hit means the
     # spend is not the run's cost, and the submission must not publish it as `complete`.
@@ -129,3 +130,10 @@ class AsyncRunTransport(Protocol):
 
 
 __all__: list[str] = []
+
+
+@runtime_checkable
+class _ResultPersistence(Protocol):
+    def prepare_results(
+        self, evaluation: _Evaluation, candidates: tuple[Candidate, ...]
+    ) -> Path | None: ...

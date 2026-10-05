@@ -66,17 +66,19 @@ def test_sync_transport_materializes_an_artifact_result() -> None:
     body = '{"cases":[' + "1," * 4000 + "1]}"
     with protocol_server(mode="artifact_result", artifact_body=body) as engine:
         outcome = _run(engine.url)
-    assert outcome.result_body == body
-    # The ticket is spent — downstream decoding sees only the materialized body.
-    assert outcome.artifact is None
+    assert outcome.result_path is not None
+    assert outcome.result_path.read_text() == body
+    # The ticket survives for recovery; downstream decoding reads the verified file.
+    assert outcome.artifact is not None
 
 
 def test_async_transport_materializes_an_artifact_result() -> None:
     body = '{"cases":[' + "2," * 4000 + "2]}"
     with protocol_server(mode="artifact_result", artifact_body=body) as engine:
         outcome = asyncio.run(_arun(engine.url))
-    assert outcome.result_body == body
-    assert outcome.artifact is None
+    assert outcome.result_path is not None
+    assert outcome.result_path.read_text() == body
+    assert outcome.artifact is not None
 
 
 def test_artifact_fetch_sends_the_run_capability() -> None:
@@ -128,7 +130,8 @@ def test_a_transient_reset_during_the_fetch_is_retried_not_fatal() -> None:
         mode="artifact_result", artifact_body=body, artifact_fail_first=2
     ) as engine:
         outcome = _run(engine.url)
-    assert outcome.result_body == body
+    assert outcome.result_path is not None
+    assert outcome.result_path.read_text() == body
     # 2 failed attempts + 1 success were all observed by the server.
     assert len(engine.state.artifact_requests) == 3
 
@@ -156,7 +159,8 @@ def test_redemption_mints_a_fresh_token_because_run_tokens_expire() -> None:
         mode="artifact_result", artifact_body=body, artifact_token_expiry=True
     ) as engine:
         outcome = _run(engine.url)
-        assert outcome.result_body == body
+        assert outcome.result_path is not None
+        assert outcome.result_path.read_text() == body
         # One mint to start the run, one fresh mint to redeem the ticket.
         assert len(engine.state.minted_tokens) == 2
         _, capability = engine.state.artifact_requests[-1]
@@ -169,7 +173,8 @@ def test_async_redemption_mints_a_fresh_token_because_run_tokens_expire() -> Non
         mode="artifact_result", artifact_body=body, artifact_token_expiry=True
     ) as engine:
         outcome = asyncio.run(_arun(engine.url))
-        assert outcome.result_body == body
+        assert outcome.result_path is not None
+        assert outcome.result_path.read_text() == body
         assert len(engine.state.minted_tokens) == 2
         _, capability = engine.state.artifact_requests[-1]
         assert capability == engine.state.minted_tokens[-1]
