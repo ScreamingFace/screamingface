@@ -23,6 +23,6 @@ conformance test that grandfathers the pre-existing Benchmarks; sourced values f
 Benchmark; the pages, after product signs off the mockup.
 
 - 2026-10-02: ticket filed by the owner before work (In Progress).
-- 2026-10-05: PR 1 (spec, plan, glossary) opened from branch
+- 2026-10-05: PR 1 (spec, plan, glossary) [#1234](https://github.com/ScreamingFace/screamingface/pull/1234) opened from branch
   `OME-1455-benchmark-provenance-spec`, ledger
   `docs/work/2026-10-05-ome-1455-benchmark-provenance-spec.md`.

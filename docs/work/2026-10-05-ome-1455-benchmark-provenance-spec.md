@@ -48,7 +48,7 @@ the pages render them; the UI PR waits on product sign-off of the mockup.
 
 - **Actual files:** as planned: the spec, the plan, four `CONTEXT.md` entries, the mirror, this
   ledger. No code.
-- **Commits:** one commit on branch `OME-1455-benchmark-provenance-spec` (sha in the PR).
+- **Commits:** `9281b2ab2` — docs(engine): spec, plan and glossary for Benchmark Provenance and saturation; PR [#1234](https://github.com/ScreamingFace/screamingface/pull/1234) (draft).
 - **Gates:** `uv run .claude/scripts/run_gates.py repo` — ALL GATES GREEN (mirror-status gate
   included). The spec's mermaid block rendered through `mmdc` and read: two stacked lanes.
   Every symbol and path the spec and plan name was grepped on this branch.
