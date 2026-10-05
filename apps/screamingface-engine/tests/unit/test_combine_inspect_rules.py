@@ -88,9 +88,12 @@ def test_inspect_rules_read_long_prose_in_a_few_milliseconds(op_id: str) -> None
     prose = ("The quick brown fox jumps over the lazy dog. " * 1500)[: 64 * 1024]
     text = prose + " The answer is 42."
     assert stage(op_id, text).value is not None
+    # WHY CPU time and a 50ms budget: under the engine gate's `pytest -n auto` with coverage, a
+    # loaded machine stretched the 5ms wall-clock bound (7.1ms seen). One read costs about 1.3ms
+    # of CPU alone; an O(words^2) rule on these ~13k words would cost seconds, so it still fails.
     best = float("inf")
     for _ in range(3):
-        started = time.perf_counter()
+        started = time.process_time()
         stage(op_id, text)
-        best = min(best, time.perf_counter() - started)
-    assert best < 0.005, f"{op_id} took {best:.5f}s"
+        best = min(best, time.process_time() - started)
+    assert best < 0.05, f"{op_id} took {best:.5f}s of CPU"
