@@ -1,14 +1,14 @@
-"""MedXpertQA's exam declaration — the serving spine runs the kitchen (OME-1236).
+"""MedXpertQA's benchmark declaration — the serving spine runs the kitchen (OME-1236).
 
 If `definition.py` writes the recipe, this module now only declares what makes this
-exam different: booklet rows enriched with each Case's ready-made CoT prompt and
+benchmark different: booklet rows enriched with each Case's ready-made CoT prompt and
 trigger, the two-field check that extracts the committed letter, and the accuracy
 reducer. The routes, memoized preflight, case serving and aggregate wiring live in
-`spine/serving.py` — one kitchen for every hand-built deterministic board.
+`shared_grading/serving.py` — one kitchen for every hand-built deterministic benchmark.
 
 INVARIANT: everything here is deterministic and spends no tokens. The model calls
 live in the expression, not in these handlers — which is the whole reason this
-board's grading is free.
+benchmark's grading is free.
 """
 
 from __future__ import annotations
@@ -19,73 +19,73 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.evaluation import (
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_definition_error as _definition_error,
+)
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.grading_endpoints import (
     candidate_answer,
     compact_json,
     json_object,
     positive_case_id,
 )
-from screamingface_engine.benchmarks.failure_classes import (
-    benchmark_definition_error as _definition_error,
-)
-from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.medxpert import aggregate as reducing
 from screamingface_engine.benchmarks.medxpert.answering import (
     extract_choice_letter,
     format_trigger,
 )
-from screamingface_engine.benchmarks.medxpert.case_evaluation import (
+from screamingface_engine.benchmarks.medxpert.case_grade import (
     CHECK_SCHEMA,
-    bind_case_evaluation,
+    build_case_grade,
 )
 from screamingface_engine.benchmarks.medxpert.definition import (
     BENCHMARK_ID,
     CASE_COUNT,
     REVISION,
 )
-from screamingface_engine.benchmarks.spine.serving import (
-    ServedBoard,
-    board_preflight,
+from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.shared_grading.serving import (
+    ServedBenchmark,
+    benchmark_preflight,
     candidate_record,
-    install_board,
+    install_benchmark,
     serve_cases,
 )
-from screamingface_engine.benchmarks.stages import observe_stage
 from url4.peer.server import Request, Url4Node
 
 
 def install(node: Url4Node, root: Path) -> None:
-    """Register every route this board's expression references."""
+    """Register every route this benchmark's expression references."""
 
-    install_board(node, root, BOARD)
+    install_benchmark(node, root, BENCHMARK)
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
-    """Fail before the FIRST paid call when the baked assets cannot serve this exam."""
+    """Fail before the FIRST paid call when the prepared assets cannot serve this benchmark."""
 
-    board_preflight(
+    benchmark_preflight(
         root,
         case_ids,
         label="MedXpertQA",
         load_answer=reducing.load_answer,
-        # Per-board deviation: a broken MedXpertQA bundle is a definition error,
+        # Per-benchmark deviation: a broken MedXpertQA bundle is a definition error,
         # not an unavailable asset — the class the reducer's callers key on.
         error=_definition_error,
     )
 
 
 def _cases(root: Path):
-    """The public booklet, served by the spine with this board's declaration."""
+    """The public booklet, served by the shared grading code with this benchmark's declaration."""
 
-    return serve_cases(root, BOARD)
+    return serve_cases(root, BENCHMARK)
 
 
-def _build_rows(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
+def _build_public_cases(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
     """Enrich each row with its ready-made turn-1 prompt and turn-2 trigger.
 
-    WHY the prompt and trigger are baked rather than assembled in the expression:
-    prompt bytes are exam identity on a judge-free board, and an expression that
+    WHY the prompt and trigger are prepared rather than assembled in the expression:
+    prompt bytes are benchmark identity on a judge-free benchmark, and an expression that
     composed them would put that identity outside the revision hash.
     """
 
@@ -116,11 +116,11 @@ def _cot_prompt(question: str) -> str:
 def _check(root: Path):
     """The gate between "the Candidate said something" and "we have a committed letter"."""
 
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     def check(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
-            grading_activity(case_id, "started")
+            report_case_grading(case_id, "started")
             payload = json_object(request.context, "MedXpertQA check")
             if tuple(payload) != ("reasoning", "commit"):
                 raise ValueError("MedXpertQA check fields must be reasoning, commit")
@@ -173,7 +173,7 @@ def _reasoning_text(value: object) -> str:
     return output if isinstance(output, str) else value
 
 
-BOARD = ServedBoard(
+BENCHMARK = ServedBenchmark(
     benchmark_id=BENCHMARK_ID,
     label="MedXpertQA",
     revision=REVISION,
@@ -182,10 +182,11 @@ BOARD = ServedBoard(
     # seam (whose prepare-test assigns `runtime.preflight` directly); a direct
     # reference here would freeze the original against any such replacement.
     preflight=lambda root, case_ids: preflight(root, case_ids),
-    build_rows=_build_rows,
+    build_public_cases=_build_public_cases,
     check=_check,
-    bind_case_evaluation=bind_case_evaluation,
+    build_case_grade=build_case_grade,
     reduce=reducing.aggregate,
+    scoring=reducing.scoring,
 )
 
-__all__ = ["BOARD", "install", "preflight"]
+__all__ = ["BENCHMARK", "install", "preflight"]

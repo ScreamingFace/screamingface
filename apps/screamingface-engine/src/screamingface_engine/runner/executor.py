@@ -35,7 +35,7 @@ from screamingface_engine.observations import bridge_loss_attributes
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCostTotals
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
-from screamingface_engine.trace_scope import run_trace_scope
+from screamingface_engine.trace_scope import bind_node_span, run_trace_scope
 from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.world.factory import WorldFactory, direct_mount_paths
 from url4.core.errors import ErrorCode, ResolutionError
@@ -175,6 +175,20 @@ class _Bridge:
         accounting. Only once the backlog still exceeds the hard cap after that eviction does
         this raise `BridgeOverflowError`.
         """
+        # FEATURE (OME-1185): the calling node's span, bound for the outbound aigateway calls
+        # that node is about to make (`trace_scope.current_traceparent`). This is the ONE place
+        # the engine learns a node's span id in the context that node actually runs in: url4
+        # calls `on_event` synchronously and inline from `Executor._eval`, in the node's own
+        # `asyncio.Task`, immediately before `node.resolve` is awaited — the same per-Task
+        # isolation `url4.observe._bind_node_sinks` relies on for the usage/response sinks, so
+        # concurrent siblings never cross-talk. `_RunState.map` sees the same event later but
+        # from the CONSUMER's context, where a binding would reach no model call.
+        #
+        # INVARIANT: bound BEFORE any queueing policy below. A `NodeStarted` that the buffer
+        # refuses still describes a node that is about to call out, and a span the trace would
+        # otherwise attribute to the run's root.
+        if isinstance(event, NodeStarted):
+            bind_node_span(event.span_id)
         # INVARIANT: optional activity cannot consume the last slot needed by an
         # authoritative event, even when the hard cap is below the soft cap.
         # The buffer never exceeds the hard cap, so one eviction admits one event.
@@ -803,7 +817,7 @@ class Url4Executor(Executor):
         # run starts so a malformed value fails INSIDE the run (a Terminated frame) rather than
         # taking down the scheduling caller with nothing on the stream — the same reason the
         # world itself is resolved lazily. `None` is a direct-IO executor (tests, the local
-        # spine): it binds nothing and relies on an outer producer's scope.
+        # shared-grading): it binds nothing and relies on an outer producer's scope.
         self._request_scope_factory = request_scope_factory
         # FEATURE (OME-908): the run's downstream admission policy, injected as data.
         # `io_wrap` is the LOCAL shape — one wrapper binding this run into the process's

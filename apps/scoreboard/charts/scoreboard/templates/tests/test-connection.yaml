@@ -16,6 +16,7 @@ spec:
         - -c
         - |
           curl -fsS "http://{{ include "scoreboard.fullname" . }}:{{ .Values.service.port }}/healthz"
+          curl -fsS "http://{{ include "scoreboard.fullname" . }}:{{ .Values.service.port }}/readyz"
           curl -fsS "http://{{ include "scoreboard.fullname" . }}:{{ .Values.service.port }}/v1/benchmarks"
           curl -fsS "http://{{ include "scoreboard.fullname" . }}:{{ .Values.service.port }}/"
           curl -fsS "http://{{ include "scoreboard.fullname" . }}:{{ .Values.service.port }}/livetruth-latest.jsonl"

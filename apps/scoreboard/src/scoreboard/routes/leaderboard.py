@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
 
+from scoreboard.classification.openness import EntryVerdict
 from scoreboard.routes.dependencies import (
     PRIVATE_CACHE_HEADERS,
     ReadIdentity,
@@ -15,6 +16,7 @@ from scoreboard.routes.dependencies import (
 from scoreboard.scores.baseline_store import BaselineStore
 from scoreboard.scores.frontier import (
     FrontierReplay,
+    classify_members,
     compute_frontier_openness,
     frontier_member_ids,
     replay_frontier,
@@ -91,6 +93,21 @@ class RankedLeaderboardEntry(BaseModel):
     # zero, so an unpriced row neither qualifies nor dominates (OME-770 D8).
     on_pareto_frontier: bool
 
+    # FEATURE: OME-1282 — whether this entry is open: every model it declares has downloadable
+    # weights (OME-1179 D1, Q1). With `on_pareto_frontier` it answers "which entries win the open
+    # frontier" (B1): a row carrying both.
+    #
+    # INVARIANT: computed by `classify_members`, the function the "N% open" card counts with, so a
+    # row cannot read open while the card counted it closed. `unidentified` means the entry
+    # declared no models, which is not the same claim as closed.
+    #
+    # WHY the verdict and not `models` (B2, owner 2026-09-26): OME-1181 Q2 kept the model list
+    # internal. The verdict is the only new fact the board needs to publish.
+    #
+    # AIDEV-NOTE: this is NOT a verification claim. It says what the entry declares, not that
+    # anyone re-ran it (OME-1146, OME-1319); the portal renders it without success green.
+    openness: EntryVerdict
+
 
 class LeaderboardResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -165,10 +182,17 @@ async def _get_benchmark_or_404(benchmark_id: str) -> BenchmarkSchema:
 
 
 def _ranked_entry(
-    rank: int, entry: LeaderboardEntry, *, on_pareto_frontier: bool
+    rank: int,
+    entry: LeaderboardEntry,
+    *,
+    on_pareto_frontier: bool,
+    openness: EntryVerdict,
 ) -> RankedLeaderboardEntry:
     return RankedLeaderboardEntry(
-        rank=rank, on_pareto_frontier=on_pareto_frontier, **entry.model_dump()
+        rank=rank,
+        on_pareto_frontier=on_pareto_frontier,
+        openness=openness,
+        **entry.model_dump(),
     )
 
 
@@ -323,6 +347,11 @@ async def get_leaderboard(
             if pinned
             else []
         )
+        # The page's open/closed verdicts, bounded by the page (at most MAX_LEADERBOARD_TOP rows)
+        # and read from the same snapshot as the rows they describe.
+        members = await store.frontier_member_models(
+            [row.source_id for row in rows], connection=snapshot
+        )
     # The response describes the revision its rows were filtered by.
     benchmark = benchmark.model_copy(update={"revision": revision, "case_count": case_count})
     if await turned_private(benchmark_id):
@@ -342,6 +371,9 @@ async def get_leaderboard(
     # nothing here and leaves the function honest for any caller with legitimately mixed
     # revisions.
     frontier_ids = compute_pareto_frontier_ids(frontier_inputs) if pinned else frozenset()
+    # WHY `classify_members`: the card's own classifier, which logs the page's unknown routes as
+    # ONE warning. `classify_entry` alone is silent.
+    verdicts = classify_members(members)
 
     return LeaderboardResponse(
         benchmark=benchmark,
@@ -353,6 +385,9 @@ async def get_leaderboard(
                 # exact stored-row identity prevents a concurrent replacement for this spec
                 # from transferring its mark onto the older row rendered here.
                 on_pareto_frontier=row.source_id in frontier_ids,
+                # A row the verdict read did not return (deleted between the reads) is
+                # unidentified, never guessed, exactly as the card treats it.
+                openness=verdicts.get(row.source_id, ("unidentified", ()))[0],
             )
             for index, row in enumerate(rows, start=1)
         ],

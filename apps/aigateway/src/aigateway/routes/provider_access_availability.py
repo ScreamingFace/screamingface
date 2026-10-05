@@ -7,17 +7,17 @@
 # default, auth method, account label, locator, reauth URL, credential name or secret-derived
 # field — and the route delegates to the provider-access port: migrated API-key rows may build a
 # strategy and read blob metadata, but never credential plaintext, refresh state, or mutation.
-# Inbound `X-Profile` selects nothing here and is never read.
+# Inbound `X-Profile` selects nothing here; nonblank values are rejected at ingress.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.provider_access import AvailabilityStatus, provider_access_for
-from .provider_access_http import refusals_as_http
+from .provider_access_http import refusals_as_http, selector_from_request
 
 router = APIRouter()
 
@@ -54,11 +54,16 @@ async def list_provider_access(
     """List, for the signed-in caller, each registered provider and whether it can be used.
 
     `status` is one of `not_connected`, `pending`, `connected`, `needs_reauth` or `error`; a row
-    carries nothing else. The listing is private to the caller and never cached. The `X-Profile`
-    header is ignored: the listing is per caller, not per selection.
+    carries nothing else. The listing is private to the caller and never cached. Nonblank
+    `X-Profile` headers are rejected: the listing is per caller, not per selection.
     """
-    with refusals_as_http():
-        rows = await provider_access_for(request.app).availability(str(current.id))
+    try:
+        with refusals_as_http():
+            selector_from_request(request)
+            rows = await provider_access_for(request.app).availability(str(current.id))
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), **_PRIVATE_CACHE_HEADERS}
+        raise
     response.headers.update(_PRIVATE_CACHE_HEADERS)
     return ProviderAccessAvailability(
         providers=[

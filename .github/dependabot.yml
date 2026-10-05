@@ -107,6 +107,13 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # Held by hand, like the Engine's hold below. The SDK's inspect extra is a COPY of the
+    # Engine's inspect-ai pin (the single source of truth, hashed into every imported
+    # Benchmark's revision). Holding it only for the Engine let #1119 and #1135 move the SDK
+    # to 0.3.270 alone. tests/unit/test_inspect_pin_conformance.py in both packages fails on
+    # drift. Remove together with the Engine's hold when OME-1410 (bump verification) lands.
+    ignore:
+      - dependency-name: "inspect-ai"
     groups:
       screamingface-python:
         patterns: ["*"]

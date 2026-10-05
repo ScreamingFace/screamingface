@@ -61,9 +61,12 @@ jobs:
       # control plane free of the engine.
       - name: Check layering
         run: python3 ../../.claude/scripts/check_layering.py
+      # `-n auto --dist worksteal`: same flags and same reason as the gate line in
+      # .claude/sdlc.local.md (OME-1444) — one worker per runner core.
       - name: Run unit tests with aggregate coverage
         run: |
           uv run pytest \
+            -n auto --dist worksteal \
             --tb=short \
             --junitxml=results.xml \
             --cov=screamingface_engine \
@@ -188,6 +191,7 @@ jobs:
             BASE=screamingface-engine-ci
             SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1
             SCREAMINGFACE_HF_TOKEN_PRESENT=${{ secrets.HF_TOKEN_BENCHMARKS != '' }}
+            SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES=1
           secrets: |
             hf_token=${{ secrets.HF_TOKEN_BENCHMARKS }}
           push: false

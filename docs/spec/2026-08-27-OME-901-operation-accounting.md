@@ -250,3 +250,25 @@ coach, round, or Case by inference.
 - Exact Case wall-clock duration or critical-path analysis.
 - Avoided-cost estimates, provider rate cards, or prices for unpriced calls.
 - Retaining prompts, URL4 expressions, request keys, cache keys, or provider/Gateway identifiers.
+
+## Client model-total completeness clarification — 2026-09-29
+
+Owner-approved PR #1097 correction: a missing record must invalidate its own model's
+summary when identity is unambiguous. Use a single direct member model (or a solo model's
+single declared model) only when retained records for that operation do not contradict it.
+For grading, a producer ID may identify a missing record only when retained observations
+for that producer do not contradict that model identity. Never invent alias equivalence.
+Synthesis without a declared model mapping remains unknown.
+
+If any row still has unknown model identity, every named `by_model` summary is unavailable:
+that row could belong to any named group. The `None` bucket retains its own strict summary
+of anonymous observations; it is not a named model total. Complete records keep their
+observed request model. Other groupings, root usage and retained JSON are unchanged.
+
+## Partial token display clarification — 2026-09-29
+
+A completed Report token total requires both known input and output counts. If either
+is missing, show the existing unknown marker (`—`), including when the known count is
+zero. An input/output split preserves each known count and marks each unknown half
+explicitly (for example `10 / —`). Known zero is still displayed as zero. This applies
+at the shared renderer used by Candidate and newly populated member usage.

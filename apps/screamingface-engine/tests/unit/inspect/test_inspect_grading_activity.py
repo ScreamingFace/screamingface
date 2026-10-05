@@ -3,7 +3,7 @@
 import pytest
 
 from screamingface_engine.activity.observer import ActivityObserver
-from screamingface_engine.benchmarks.grading_activity import grading_activity
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.observations import RunObservations
 
 
@@ -11,18 +11,18 @@ from screamingface_engine.observations import RunObservations
 async def test_imported_scorer_emits_real_grading_outcome(monkeypatch):
     scorer = pytest.importorskip("inspect_ai.scorer")
 
-    from screamingface_engine.benchmarks.spine.payloads import TextPayload
-    from screamingface_engine.benchmarks.spine.scored import GradeRequest
-    from screamingface_engine_inspect.shim import inspect_grade_case
+    from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import GradeRequest
+    from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload
+    from screamingface_engine_inspect.scorer_adapter import inspect_grade_case
 
     records = []
     monkeypatch.setattr(
-        "screamingface_engine.benchmarks.grading_activity.current_log_sink",
+        "screamingface_engine.benchmarks.case_grading_report.current_log_sink",
         lambda: lambda body, attrs, **kwargs: records.append(dict(attrs)),
     )
     run = RunObservations((ActivityObserver,))
     with run.bind():
-        grading_activity(7, "completed")  # Answer recording precedes actual scoring.
+        report_case_grading(7, "completed")  # Answer recording precedes actual scoring.
         assert not records
         outcome = await inspect_grade_case(scorer.match(numeric=True))(
             GradeRequest(

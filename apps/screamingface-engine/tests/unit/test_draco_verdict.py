@@ -8,7 +8,7 @@ from screamingface_engine.benchmarks.draco import verdict as criterion_verdict
 
 
 def _bind(raw: str, *, case_id: int, criterion_id: str) -> dict[str, object]:
-    return criterion_verdict.bind(
+    return criterion_verdict.build_evidence_record(
         raw,
         case_id=case_id,
         criterion_id=criterion_id,
@@ -86,7 +86,7 @@ def test_invalid_replies_become_diagnostic_records_instead_of_command_failures()
 
 
 def test_the_internal_binding_key_preserves_colons_in_criterion_ids() -> None:
-    assert criterion_verdict.binding_key("12:3:section:criterion") == (
+    assert criterion_verdict.evidence_record_key("12:3:section:criterion") == (
         12,
         3,
         "section:criterion",

@@ -1,16 +1,16 @@
 """The grader prompt — the exact bytes one judge call sees for one rubric criterion.
 
-INVARIANT: this template participates in the board's revision hash. Editing it — even to fix a
+INVARIANT: this template participates in the benchmark's revision hash. Editing it — even to fix a
 typo — changes how every future answer is graded, so it must re-address every route.
 
 WHY one criterion per call rather than a whole rubric per call: a criterion is judged against the
 answer in isolation, so a long rubric cannot crowd out the ones near the end of the list, and a
 malformed reply costs one redraw instead of forty. The cost is call volume — a full run makes
-about 4,498 judge calls per candidate — which is the trade this board accepts.
+about 4,498 judge calls per candidate — which is the trade this benchmark accepts.
 
 AIDEV-NOTE: the judge is never told the Case id or the rubric id. The Engine stamps those onto
-the verdict itself (see ``verdict.bind``), because a model cannot be trusted to echo an
-identifier it was handed.
+the verdict itself (see ``verdict.build_evidence_record``), because a model cannot be trusted to
+echo an identifier it was handed.
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ def build_grader_prompt(request: str, submission: str, rubric_item: str) -> str:
 
     INVARIANT: the prompt is fully substituted HERE, Engine-side. Judge behaviour is
     prompt-byte-sensitive, so assembling the same information inside the expression — or in a
-    different order — would change grading without changing the board's revision.
+    different order — would change grading without changing the benchmark's revision.
     """
 
     if not isinstance(request, str) or not request.strip():

@@ -12,12 +12,13 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from ..core.provider_access import (
     CredentialStoreUnavailable,
     ProviderAccessRefusal,
     ProviderUnknown,
+    Selector,
     SelectorAmbiguous,
     SelectorUnknown,
     SelectorUnsupported,
@@ -28,9 +29,20 @@ from ..core.provider_access import (
     WriteConflict,
 )
 
-_AMBIGUOUS_MESSAGE = (
-    "Multiple active connections exist. Select one by setting X-Profile to the connection label."
-)
+
+def selector_from_request(request: Request) -> Selector:
+    """Parse every inbound selector value under the composition-root policy."""
+    # INVARIANT: a blank first field cannot hide a named later field. ``Headers.get`` exposes only
+    # one value, while Stage D requires every repeated field to be judged before route work.
+    raw = next(
+        (value for value in request.headers.getlist("X-Profile") if value.strip()),
+        None,
+    )
+    return Selector.from_header(raw, policy=request.app.state.selector_policy)
+
+
+_AMBIGUOUS_MESSAGE = "Multiple active Connections exist. Remove extra Connections, then retry."
+_UNSUPPORTED_SELECTOR_MESSAGE = "X-Profile is no longer supported; omit the header."
 _CONNECTION_CONFLICT_MESSAGE = "Connection changed during auth-type repair"
 _INDEX_CONFLICT_MESSAGE = "Profile metadata update conflicted. Try again."
 
@@ -129,7 +141,7 @@ def _management_refusal(exc: ProviderAccessRefusal) -> HTTPException | None:
     if isinstance(exc, SelectorUnsupported):
         return HTTPException(
             status_code=400,
-            detail={"code": "x_profile_unsupported", "requested_label": exc.requested},
+            detail={"code": "x_profile_unsupported", "message": _UNSUPPORTED_SELECTOR_MESSAGE},
         )
     if isinstance(exc, ProviderUnknown):
         # `routes/auth.py::upsert_api_key_profile` :1264-1266 at 248b0b6d (the PUT shape; the

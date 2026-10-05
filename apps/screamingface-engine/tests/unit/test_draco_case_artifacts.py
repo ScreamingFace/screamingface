@@ -17,7 +17,7 @@ from benchmark_support import install_benchmarks
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.draco import runtime as draco_runtime
-from screamingface_engine.benchmarks.draco.definition import CANONICAL_EXAM, DRACO, JUDGE_MODEL
+from screamingface_engine.benchmarks.draco.definition import CANONICAL_VARIANT, DRACO, JUDGE_MODEL
 from screamingface_engine.grading_accounting import capture_grading_requests
 from screamingface_engine.operation_calls import (
     capture_operation_calls,
@@ -89,13 +89,13 @@ def test_task_rows_render_each_criterion_prompt_once_across_judge_passes(
     render_intent = Mock(wraps=draco_runtime.judge_intent)
     monkeypatch.setattr(draco_runtime, "judge_context", render_context)
     monkeypatch.setattr(draco_runtime, "judge_intent", render_intent)
-    handler = draco_runtime._task_rows(root, CANONICAL_EXAM)
+    handler = draco_runtime._judge_request_rows(root, CANONICAL_VARIANT)
 
     with capture_grading_requests():
         rows = json.loads(
             handler(
                 Request(
-                    path=CANONICAL_EXAM.routes.tasks,
+                    path=CANONICAL_VARIANT.routes.judge_requests,
                     context=encode_candidate_invocation(_ANSWER, "stop", None),
                     intent="1",
                     params={},

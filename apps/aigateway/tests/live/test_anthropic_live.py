@@ -103,7 +103,6 @@ def _live_admin_password() -> str:
 def _assert_premium_model_round_trip(client: TestClient, model: str, expected: str) -> None:
     resp = client.post(
         "/v1/chat/completions",
-        headers={"X-Profile": "default"},
         json={
             "model": f"anthropic/{model}",
             "messages": [{"role": "user", "content": f"Reply with exactly: {expected}"}],
@@ -125,7 +124,6 @@ def test_anthropic_round_trip_via_default_profile() -> None:
 
         resp = client.post(
             "/v1/chat/completions",
-            headers={"X-Profile": "default"},
             json={
                 "model": "anthropic/claude-haiku-4-5",
                 "messages": [{"role": "user", "content": "Reply with the single word 'pong'."}],
@@ -165,7 +163,6 @@ def test_anthropic_streaming() -> None:
         with client.stream(
             "POST",
             "/v1/chat/completions",
-            headers={"X-Profile": "default"},
             json={
                 "model": "anthropic/claude-haiku-4-5",
                 "messages": [{"role": "user", "content": "Reply with the word stream."}],
@@ -202,7 +199,6 @@ def test_anthropic_tool_calls() -> None:
 
         resp = client.post(
             "/v1/chat/completions",
-            headers={"X-Profile": "default"},
             json={
                 "model": "anthropic/claude-haiku-4-5",
                 "messages": [

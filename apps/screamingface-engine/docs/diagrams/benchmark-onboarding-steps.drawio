@@ -11,25 +11,25 @@
         <mxCell id="s0" value="STEP 0 — pick your cell&#xa;&#xa;no files — two decisions&#xa;&#xa;interaction × failure_policy&#xa;(+ the grading method label)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="40" y="70" width="310" height="130" as="geometry" />
         </mxCell>
-        <mxCell id="s1" value="STEP 1 — the board module&#xa;&#xa;NEW dir: benchmarks/&amp;lt;board&amp;gt;/&#xa;&#xa;pins · prepare · definition ·&#xa;runtime · aggregate · helpers&#xa;— everything you own lives here" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+        <mxCell id="s1" value="STEP 1 — the benchmark module&#xa;&#xa;NEW dir: benchmarks/&amp;lt;benchmark&amp;gt;/&#xa;&#xa;pins · prepare · definition ·&#xa;runtime · aggregate · helpers&#xa;— everything you own lives here" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="400" y="70" width="310" height="130" as="geometry" />
         </mxCell>
-        <mxCell id="s2" value="STEP 2 — bake the assets&#xa;&#xa;prepare.py + pins.py&#xa;&#xa;dataset → cases.json (public)&#xa;+ private answer key / rubric,&#xa;at image build time only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+        <mxCell id="s2" value="STEP 2 — prepare the assets&#xa;&#xa;prepare.py + pins.py&#xa;&#xa;dataset → cases.json (public)&#xa;+ private answer key / rubric,&#xa;at image build time only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="760" y="70" width="310" height="130" as="geometry" />
         </mxCell>
-        <mxCell id="s3" value="STEP 3 — the row shapes&#xa;&#xa;cases.json rows + your&#xa;RowReader.decode_case_evaluation&#xa;&#xa;the envelope your grading&#xa;code will read per Case" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+        <mxCell id="s3" value="STEP 3 — the row shapes&#xa;&#xa;cases.json rows + your&#xa;CaseGradeReader.decode_case_grade&#xa;&#xa;the envelope your grading&#xa;code will read per Case" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="1120" y="70" width="310" height="130" as="geometry" />
         </mxCell>
-        <mxCell id="s4" value="STEP 4 — grade_case&#xa;&#xa;aggregate.py — the ONLY&#xa;grading code you write&#xa;&#xa;one Case in → CaseGradeOutcome;&#xa;rubric boards: 1-line factory call" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#33240a;strokeColor=#e8b339;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+        <mxCell id="s4" value="STEP 4 — grade_case&#xa;&#xa;aggregate.py — the ONLY&#xa;grading code you write&#xa;&#xa;one Case in → CaseGradeOutcome;&#xa;rubric benchmarks: 1-line factory call" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#33240a;strokeColor=#e8b339;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="40" y="290" width="310" height="130" as="geometry" />
         </mxCell>
-        <mxCell id="s5" value="STEP 5 — declare + wire&#xa;&#xa;definition.py + runtime.py&#xa;&#xa;cover sheet (declaration),&#xa;ScoredPath bundle, one route&#xa;per operation, the scorer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+        <mxCell id="s5" value="STEP 5 — declare + wire&#xa;&#xa;definition.py + runtime.py&#xa;&#xa;cover sheet (declaration),&#xa;BenchmarkAggregation bundle, one route&#xa;per operation, the scorer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="400" y="290" width="310" height="130" as="geometry" />
         </mxCell>
         <mxCell id="s6" value="STEP 6 — register&#xa;&#xa;the ONLY shared files touched:&#xa;&#xa;benchmarks/builtins.py (3 edits)&#xa;+ client CLI _BENCHMARKS&#xa;(screamingface prepare)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="760" y="290" width="310" height="130" as="geometry" />
         </mxCell>
-        <mxCell id="s7" value="STEP 7 — protect the score&#xa;&#xa;tests/unit/test_&amp;lt;board&amp;gt;_*.py&#xa;+ the e2e replay lane&#xa;&#xa;one paid recorded run, then CI&#xa;replays keyless on 5 locks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+        <mxCell id="s7" value="STEP 7 — protect the score&#xa;&#xa;tests/unit/test_&amp;lt;benchmark&amp;gt;_*.py&#xa;+ the e2e replay lane&#xa;&#xa;one paid recorded run, then CI&#xa;replays keyless on 5 locks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="1120" y="290" width="310" height="130" as="geometry" />
         </mxCell>
         <mxCell id="e01" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s0" target="s1">
@@ -58,7 +58,7 @@
         <mxCell id="e67" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s6" target="s7">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="legend" value="teal = your new board files · green = assets / score protection · amber (Step 4) = the one grading hook · gold (Step 6) = the only shared-file edits · grey = a decision, no code" style="text;html=1;align=left;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="legend" value="teal = your new benchmark files · green = assets / score protection · amber (Step 4) = the one grading hook · gold (Step 6) = the only shared-file edits · grey = a decision, no code" style="text;html=1;align=left;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="40" y="445" width="1390" height="25" as="geometry" />
         </mxCell>
       </root>

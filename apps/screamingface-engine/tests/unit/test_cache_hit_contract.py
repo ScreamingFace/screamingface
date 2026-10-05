@@ -4,7 +4,7 @@ PRODUCES the run-events fixture the SDK consumes.
 FEATURE: run-level saved cost across the stack (spec
 ``docs/spec/2026-09-28-aigateway-cache-hit-metadata.md`` §3.2).
 STORY: as an operator I trust that the money a cache hit saved, as the gateway reported it, is
-the money the Engine publishes on the run and the Client carries to the board.
+the money the Engine publishes on the run and the Client carries to the benchmark.
 
 The input is ``apps/aigateway/tests/fixtures/cache_hit_contract/openrouter_hit.json`` — produced
 by aigateway's own chat route and guarded there by ``test_cache_hit_contract_fixture.py``. It is

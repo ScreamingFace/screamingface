@@ -4,7 +4,7 @@ INVARIANT: this reads ARBITRARY text and takes the LAST match, because prose sta
 conclusion at the end ("B is tempting, but the answer is D").
 
 AIDEV-NOTE: this is NOT `answering.extract_choice_letter`, and merging them is the failure this
-board is most exposed to. That one parses a trigger completion at answer time, where the
+benchmark is most exposed to. That one parses a trigger completion at answer time, where the
 commitment comes FIRST; this one is the net for whatever text reaches grading. The prior
 implementation applied the first-match parser to letter-last essays and measured 35.5% against a
 true 70.2%. `test_medxpert_grading.py::test_the_two_parsers_disagree_on_a_letter_last_essay`

@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import importlib.util
 import json
+import logging
 import os
 import signal
 import socket
@@ -15,7 +16,12 @@ from functools import cache
 from types import FrameType
 from typing import Any, Protocol
 
-from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
+from screamingface._runtime.bootstrap import (
+    enable_local_providers,
+    neutralise_litellm_debug,
+    pin_litellm_redaction,
+    scoreboard_seed_json,
+)
 from screamingface._runtime.config import RuntimeConfig, scoreboard_assets
 from screamingface._runtime.runtime_logging import log_service
 from screamingface._runtime.source import (
@@ -76,8 +82,8 @@ def _gateway_config_summary(settings: _GatewayConfigView) -> dict[str, str]:
 
 # The modules ONLY the "runtime" extra provides AND the local boot path reaches before it
 # can serve: the gateway app (fastapi, litellm, pydantic_settings, tortoise, bcrypt,
-# cryptography), its sqlite database (aiosqlite), the Engine app (kubernetes — adapters.k8s
-# imports it at module level; prometheus_client for metrics), and the servers (uvicorn).
+# cryptography), its sqlite database (aiosqlite), the Engine app (prometheus_client for
+# metrics), and the servers (uvicorn).
 #
 # WHY probed with find_spec and not imported: the check must stay fast (importing litellm
 # alone costs seconds) and must run in CI, which installs no runtime extra.
@@ -93,7 +99,6 @@ _RUNTIME_ONLY_MODULES: tuple[str, ...] = (
     "bcrypt",
     "cryptography",
     "fastapi",
-    "kubernetes",
     "litellm",
     "prometheus_client",
     "pydantic_settings",
@@ -141,6 +146,9 @@ def require_runtime_extra() -> RuntimeSource:
     # Configure provider discovery before importing URL4 Cloud: its compiled model world may load
     # AI Gateway plugins, whose module-level instances capture provider settings at import time.
     enable_local_providers(os.environ)
+    # INVARIANT (OME-1050): before ANY app import. litellm binds its handler level when it is
+    # imported, and the gateway import pulls it in.
+    neutralise_litellm_debug(os.environ)
     try:
         import aigateway
         import scoreboard
@@ -169,6 +177,9 @@ async def run(
     publish_config: Callable[[dict[str, str]], None] | None = None,
 ) -> None:
     source = require_runtime_extra()
+    # WHY in `run` and not in `require_runtime_extra`: importing litellm costs seconds, and
+    # `up`, `status` and `doctor` also call the guard. Only this process serves model calls.
+    pin_litellm_redaction()
     # WHY logged at boot: whether a stack serves the live checkout or the installed
     # package decides what a benchmark actually tests — it must be auditable in the
     # runtime log (OME-1001).
@@ -307,9 +318,55 @@ def run_scoreboard(config: RuntimeConfig) -> None:
         portal_dir=portal_dir,
         portal_artifacts_dir=artifacts_dir,
     )
+    # WHY access_log=False here too (OME-1049): this server runs in its own interpreter and
+    # its query strings are leaderboard filters, never prompts — but its stdout is relayed
+    # into the same runtime.log by `_relay_scoreboard_output`, so it is the same file and
+    # takes the same posture as `_server`.
     uvicorn.run(
-        create_app(settings), host="127.0.0.1", port=config.scoreboard_port, log_level="info"
+        create_app(settings),
+        host="127.0.0.1",
+        port=config.scoreboard_port,
+        log_level="info",
+        access_log=False,
     )
+
+
+class _QueryStringRedactor(logging.Filter):
+    """Strip the query string from every path argument of a ``uvicorn.error`` record.
+
+    WHY (OME-1049): ``access_log=False`` closes ``uvicorn.access`` only. uvicorn's WebSocket
+    protocols log ``'%s - "WebSocket %s" [accepted]'`` (and the 403 / status twins) on
+    ``uvicorn.error`` with ``get_path_with_query_string(scope)`` — and the Engine's WS URL is
+    ``/ws?ticket=<token>``. That ticket is a capability credential, and the logger's handler
+    is the RuntimeLog, so every attach wrote a live credential to runtime.log.
+    WHY rewrite and not drop: the handshake line (client, path, outcome) is what debugging a
+    failed attach needs; only the query string is secret-bearing.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and record.args:
+            record.args = tuple(_without_query(argument) for argument in record.args)
+        return True
+
+
+def _without_query(argument: object) -> object:
+    # WHY "starts with /": uvicorn renders the path as `quote(scope["path"])`, which is
+    # always absolute — so a "?" in any other string argument is left alone.
+    if isinstance(argument, str) and argument.startswith("/"):
+        return argument.split("?", 1)[0]
+    return argument
+
+
+_QUERY_STRING_REDACTOR = _QueryStringRedactor()
+
+
+def _redact_uvicorn_error_paths() -> None:
+    # INVARIANT (OME-1049): installed on the LOGGER, not a handler. Each uvicorn Config
+    # re-runs dictConfig, which re-creates handlers but leaves a logger's filters in place;
+    # and a logger filter sees the record before it propagates to any handler.
+    logger = logging.getLogger("uvicorn.error")
+    if _QUERY_STRING_REDACTOR not in logger.filters:
+        logger.addFilter(_QUERY_STRING_REDACTOR)
 
 
 def _server(app: Any, port: int, name: str) -> Server:
@@ -329,17 +386,17 @@ def _server(app: Any, port: int, name: str) -> Server:
     # INVARIANT: EVERY uvicorn Config built in this process must pass it. uvicorn clears the
     # `uvicorn.access` handlers only for the Config being constructed at that moment, while
     # each new Config re-runs dictConfig and re-creates them.
-    return _embedded_server_type()(
-        uvicorn.Config(
-            app,
-            host="127.0.0.1",
-            port=port,
-            log_level="info",
-            lifespan="on",
-            access_log=False,
-        ),
-        name=name,
+    uvicorn_config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=port,
+        log_level="info",
+        lifespan="on",
+        access_log=False,
     )
+    # WHY after the Config: its constructor is what runs uvicorn's dictConfig (OME-1049).
+    _redact_uvicorn_error_paths()
+    return _embedded_server_type()(uvicorn_config, name=name)
 
 
 @cache

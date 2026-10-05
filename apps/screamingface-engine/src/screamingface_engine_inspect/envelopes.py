@@ -1,9 +1,9 @@
-"""Schema-validated evaluation envelopes shared by every imported board.
+"""Schema-validated evaluation envelopes shared by every imported benchmark.
 
 One check record per Candidate attempt, one case-evaluation bundle per Case — the same
-lossless per-Case artifact shape the home-grown boards use, under this plugin's own
-schema identifiers. Grading does NOT happen at check time on imported boards (the
-scorer runs engine-side in the aggregate, through the shim), so the check record
+lossless per-Case artifact shape the home-grown benchmarks use, under this plugin's own
+schema identifiers. Grading does NOT happen at check time on imported benchmarks (the
+scorer runs engine-side in the aggregate, through the scorer adapter), so the check record
 carries only the Candidate's half of the exchange.
 """
 
@@ -13,12 +13,12 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 CHECK_SCHEMA = "screamingface.inspect-check.v1"
-CASE_EVALUATION_SCHEMA = "screamingface.inspect-case-evaluation.v1"
+CASE_GRADE_SCHEMA = "screamingface.inspect-case-evaluation.v1"
 
-_CASE_EVALUATION_FIELDS = frozenset({"schema", "case_id", "attempts"})
+_CASE_GRADE_FIELDS = frozenset({"schema", "case_id", "attempts"})
 
 
-def bind_case_evaluation(
+def build_case_grade(
     case_id: int,
     attempts: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -36,10 +36,10 @@ def bind_case_evaluation(
         if attempt.get("case_id") != selected:
             raise ValueError(f"attempt {index} belongs to another Case")
         bound.append(dict(attempt))
-    return {"schema": CASE_EVALUATION_SCHEMA, "case_id": selected, "attempts": bound}
+    return {"schema": CASE_GRADE_SCHEMA, "case_id": selected, "attempts": bound}
 
 
-def decode_case_evaluation(value: object, expected_case_id: int) -> dict[str, Any]:
+def decode_case_grade(value: object, expected_case_id: int) -> dict[str, Any]:
     """Validate one exact aggregate input envelope without shape inference.
 
     INVARIANT: no inference. The aggregate reads only envelopes this accepted, so a
@@ -49,15 +49,15 @@ def decode_case_evaluation(value: object, expected_case_id: int) -> dict[str, An
     selected: int = _positive(expected_case_id, "expected_case_id")
     if not isinstance(value, Mapping):
         raise ValueError("Case evaluation must be an object")
-    _require(value, CASE_EVALUATION_SCHEMA, selected, "Case evaluation")
-    unknown: set[str] = set(value) - _CASE_EVALUATION_FIELDS
+    _require(value, CASE_GRADE_SCHEMA, selected, "Case evaluation")
+    unknown: set[str] = set(value) - _CASE_GRADE_FIELDS
     if unknown:
         raise ValueError(f"Case evaluation carries unknown fields {sorted(unknown)}")
     attempts: object = value.get("attempts")
     if not isinstance(attempts, Sequence) or isinstance(attempts, str) or not attempts:
         raise ValueError("Case evaluation needs at least one attempt")
     return {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": selected,
         "attempts": [_decoded_attempt(a, i, selected) for i, a in enumerate(attempts, start=1)],
     }
@@ -84,8 +84,8 @@ def _positive(value: object, label: str) -> int:
 
 
 __all__ = [
-    "CASE_EVALUATION_SCHEMA",
+    "CASE_GRADE_SCHEMA",
     "CHECK_SCHEMA",
-    "bind_case_evaluation",
-    "decode_case_evaluation",
+    "build_case_grade",
+    "decode_case_grade",
 ]

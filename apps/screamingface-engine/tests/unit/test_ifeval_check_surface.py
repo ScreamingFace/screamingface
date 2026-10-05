@@ -19,9 +19,9 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
+from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA
 from screamingface_engine.benchmarks.ifeval.definition import (
-    CHECK_SURFACE_ROUTE,
+    DRAFT_FEEDBACK_ROUTE,
     IFEVAL,
     install_ifeval,
 )
@@ -73,7 +73,7 @@ async def _call(node: Url4Node, payload: object, intent: str) -> str:
                     name="payload",
                     weight=0.0,
                 ),
-                RelExpr(path=CHECK_SURFACE_ROUTE, context="$payload", intent=Text(intent)),
+                RelExpr(path=DRAFT_FEEDBACK_ROUTE, context="$payload", intent=Text(intent)),
                 intent=Text(""),
             )
         )
@@ -96,7 +96,7 @@ async def test_a_fully_satisfying_answer_passes_with_unit_satisfaction(
     node = _node(tmp_path)
     record = await _check(node, _PASS)
     assert record == {
-        "schema": CHECK_SURFACE_SCHEMA,
+        "schema": DRAFT_FEEDBACK_SCHEMA,
         "passed": True,
         "satisfaction": 1.0,
         "feedback": "",
@@ -201,7 +201,7 @@ async def test_an_unknown_intent_is_rejected(tmp_path: Path) -> None:
 def test_ifeval_advertises_its_check_surface() -> None:
     surface = IFEVAL.check_surface
     assert surface is not None
-    assert surface.check_route == CHECK_SURFACE_ROUTE
+    assert surface.check_route == DRAFT_FEEDBACK_ROUTE
     assert surface.feedback_intent == "feedback"
     assert surface.expected_check_cost == "free"
 
@@ -209,7 +209,7 @@ def test_ifeval_advertises_its_check_surface() -> None:
 def test_the_resource_publishes_the_check_surface_block() -> None:
     resource = IFEVAL.resource(limit=1)
     assert resource["check_surface"] == {
-        "check_route": CHECK_SURFACE_ROUTE,
+        "check_route": DRAFT_FEEDBACK_ROUTE,
         "feedback_intent": "feedback",
         "expected_check_cost": "free",
     }

@@ -12,6 +12,11 @@ from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
 
 type BenchmarkAssetSummary = Mapping[str, Any]
+
+#: Summary key a preparer sets when it skipped its bundle because its Cases could not be
+#: confirmed as the reviewed ones: they changed, or could not be fetched (OME-1273). Its value is
+#: the reason. The prepare CLI's strict mode fails on it.
+UNCONFIRMED_CASES_KEY = "unconfirmed_cases"
 type BenchmarkAssetPreparer = Callable[[Path], BenchmarkAssetSummary]
 
 _ASSET_BUNDLE_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
@@ -118,10 +123,10 @@ class BenchmarkDeployment:
     ) -> dict[str, BenchmarkAssetSummary]:
         """Download each benchmark's dataset once and write it to disk as fixed files.
 
-        Think of it as stocking a library before it opens: every exam is fetched, rendered
+        Think of it as stocking a library before it opens: every benchmark is fetched, rendered
         into questions plus an answer key, and written under ``root/<bundle id>/``. A run
         afterwards only reads those files and never reaches the network, which is what makes
-        an exam reproducible — questions that could shift between runs would not be a
+        a benchmark reproducible — questions that could shift between runs would not be a
         benchmark. Each bundle is one directory; several Benchmarks may share one, so a
         shared bundle is prepared once. Summaries come back in stable id order.
 
@@ -131,7 +136,7 @@ class BenchmarkDeployment:
         while the I/O decision stays with the caller and out of this orchestrator.
 
         WHY `only`: preparing cannot be picked up where it stopped. Some preparers (the
-        imported boards') refuse to write into a directory that already holds files, so a
+        imported benchmarks') refuse to write into a directory that already holds files, so a
         second attempt raises on the first bundle that already finished — and an interrupted
         run could only be recovered by deleting every completed directory and downloading
         everything again. Naming just the bundles still missing is what makes a retry cheap.
@@ -159,7 +164,7 @@ class BenchmarkDeployment:
                     f"{type(observed).__name__}, not a summary mapping"
                 )
             # INVARIANT: snapshot the adapter's own top-level observations so a later mutation
-            # of the mapping it handed back cannot rewrite this bake's reported evidence.
+            # of the mapping it handed back cannot rewrite this prepare's reported evidence.
             # AIDEV-NOTE: shallow by design — a preparer must build its values fresh rather
             # than hand back a container it keeps mutating. Deep-copying arbitrary adapter
             # values would be the orchestrator guessing at their semantics.
@@ -171,6 +176,7 @@ class BenchmarkDeployment:
 
 
 __all__ = [
+    "UNCONFIRMED_CASES_KEY",
     "BenchmarkAssetBundle",
     "BenchmarkAssetPreparer",
     "BenchmarkAssetPreparationError",

@@ -1,9 +1,9 @@
-"""Golden replay for the medxpert → serving-spine migration (OME-1236).
+"""Golden contract for the serving-spine migration (OME-1236).
 
-INVARIANT: an expression addressed to the current revision must resolve to
-byte-identical protocol before and after the extraction. Every literal below was
-captured from the pre-migration board at the head of this branch's base; if any
-assertion here fails, the migration changed the exam, not just its plumbing.
+OME-932 (owner-approved) adds early graded-result transport without changing
+this scoring revision or the legacy batch routes. Request/result compatibility
+is exercised in test_early_grade_compatibility; these pins protect exam identity
+and public asset/route contracts, not a ban on additive transport changes.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import pytest
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.medxpert.definition import (
     AGGREGATE_ROUTE,
-    CASE_EVALUATION_ROUTE,
+    CASE_GRADE_ROUTE,
     CASES_ROUTE,
     CHECK_ROUTE,
     REVISION,
@@ -27,7 +27,7 @@ from screamingface_engine.benchmarks.medxpert.runtime import _cases, _check, pre
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
-# Captured 2026-09-21 from the pre-migration board (base of this branch).
+# Captured 2026-09-21 from the pre-migration benchmark (base of this branch).
 _GOLDEN_REVISION = "791a7d5b2e961f1c"
 
 _OPTIONS = {"A": "aspirin", "B": "heparin", "C": "warfarin", "D": "apixaban", "E": "alteplase"}
@@ -50,7 +50,7 @@ def _root(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_revision_is_byte_identical_to_the_pre_migration_exam() -> None:
+def test_revision_is_byte_identical_to_the_pre_migration_benchmark() -> None:
     assert REVISION == _GOLDEN_REVISION
 
 
@@ -58,7 +58,7 @@ def test_routes_resolve_at_the_recorded_addresses() -> None:
     assert ROUTE_PREFIX == f"/benchmarks/medxpert/{_GOLDEN_REVISION}"
     assert CASES_ROUTE == f"{ROUTE_PREFIX}/cases"
     assert CHECK_ROUTE == f"{ROUTE_PREFIX}/check"
-    assert CASE_EVALUATION_ROUTE == f"{ROUTE_PREFIX}/case-evaluation"
+    assert CASE_GRADE_ROUTE == f"{ROUTE_PREFIX}/case-evaluation"
     assert AGGREGATE_ROUTE == f"{ROUTE_PREFIX}/aggregate"
 
 
@@ -90,10 +90,10 @@ def test_served_rows_are_byte_identical(tmp_path: Path) -> None:
 
 
 def test_a_missing_answer_record_is_a_definition_error(tmp_path: Path) -> None:
-    """Pin medxpert's per-board deviation: a broken bundle is a DEFINITION error.
+    """Pin medxpert's per-benchmark deviation: a broken bundle is a DEFINITION error.
 
     WHY the direct `preflight` call (review of this PR): through `serve_cases`,
-    a missing answer record trips `_build_rows`' own raise before the preflight
+    a missing answer record trips `_build_public_cases`' own raise before the preflight
     ever runs, so the declaration's error class was unreachable from that path
     and its deletion survived the whole suite. This is the one test that dies
     if `preflight` stops raising `benchmark_definition_error`.

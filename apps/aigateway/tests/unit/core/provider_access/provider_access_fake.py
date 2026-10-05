@@ -134,7 +134,11 @@ class FakeProviderAccess:
             for acct, prov, c in self.connections
             if acct == account_id and prov == provider and c.status == "active"
         ]
-        chosen = next((c for c in active if c.label == selector.name), None)
+        chosen = (
+            next((c for c in active if c.label == selector.name), None)
+            if selector.explicit
+            else None
+        )
         if chosen is None and active and selector.is_default and len(active) == 1:
             chosen = active[0]
         if chosen is not None:

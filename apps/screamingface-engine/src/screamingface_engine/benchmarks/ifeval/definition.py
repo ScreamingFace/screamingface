@@ -9,12 +9,13 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
-    CheckSurface,
+    DraftFeedbackOffer,
     candidate,
 )
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
+    early_result,
     preserve_candidate_outcome,
 )
 from url4 import Node, RelExpr, Text, expr, render, src, struct
@@ -28,10 +29,8 @@ DATASET_REVISION = "966cd89545d6b6acfd7638bc708b98261ca58e84"
 # The pip-installable, bug-fixed fork that inspect_evals pins — vendored under ./vendor.
 VERIFIER_REPOSITORY = "josejg/instruction_following_eval"
 VERIFIER_REVISION = "0c495b2f95155e8b10acb919ae283bfb4d5be6e2"
-# v2: case ids ARE the official IFEval keys (join directly to the official dataset),
-# and prepare patches the pinned HF snapshot's one known divergence (key 2785's
-# prompt) to the official harness text. Both change the emitted assets, so both live
-# in the revision hash via this id.
+# OME-932: additive grade transport preserves the exam and its leaderboard identity.
+# Official case keys and the pinned prompt correction remain unchanged.
 PROTOCOL_REVISION = "ifeval-official-identity-v2"
 CANDIDATE_WEB_SEARCH = False
 
@@ -56,9 +55,10 @@ CASES_ROUTE = f"{ROUTE_PREFIX}/cases"
 CHECK_ROUTE = f"{ROUTE_PREFIX}/check"
 # The advertised check-surface port (OME-796): input-addressed because a black-box
 # $candidate only ever sees $input — the adapter resolves the case behind the route.
-CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface"
-CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
+DRAFT_FEEDBACK_ROUTE = f"{ROUTE_PREFIX}/check-surface"
+CASE_GRADE_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
+CASE_RESULT_ROUTE = f"{AGGREGATE_ROUTE}/case-result"
 
 
 def _build(case_count: int) -> Node:
@@ -84,7 +84,7 @@ def _build(case_count: int) -> Node:
         src(checked_call, name="record", weight=0.0),
         src(
             RelExpr(
-                path=CASE_EVALUATION_ROUTE,
+                path=CASE_GRADE_ROUTE,
                 context=render(struct({"attempt_1": "$record"})),
                 intent=Text("$item.case_id"),
             ),
@@ -95,14 +95,18 @@ def _build(case_count: int) -> Node:
     )
     return build_evaluation_protocol(
         cases_route=CASES_ROUTE,
-        case_evaluation=preserve_candidate_outcome(
-            candidate_invocation=candidate_invocation,
-            grading=checked,
-            case_id="$item.id",
+        case_evaluation=early_result(
+            preserve_candidate_outcome(
+                candidate_invocation=candidate_invocation,
+                grading=checked,
+                case_id="$item.id",
+            ),
+            aggregate_route=AGGREGATE_ROUTE,
+            selected_case_count=case_count,
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
-        aggregate_route=AGGREGATE_ROUTE,
+        aggregate_route=AGGREGATE_ROUTE + "/graded",
     )
 
 
@@ -130,7 +134,7 @@ IFEVAL = Benchmark(
     # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is authoritative.
     revision=REVISION,
     case_count=CASE_COUNT,
-    # INVARIANT: the declared policy matches the code — this board reduces through the
+    # INVARIANT: the declared policy matches the code — this benchmark reduces through the
     # shared finalize_candidate_result, which scores exactly the gradeable subset and
     # publishes coverage (coverage_declare). Declare `withhold` only if the aggregate
     # actually withholds (OME-1039).
@@ -145,8 +149,8 @@ IFEVAL = Benchmark(
     install=install_ifeval,
     # Free: the deterministic verifier costs no model call, so a corrective loop
     # on IFEval spends only on members and the judge.
-    check_surface=CheckSurface(
-        check_route=CHECK_SURFACE_ROUTE,
+    check_surface=DraftFeedbackOffer(
+        check_route=DRAFT_FEEDBACK_ROUTE,
         feedback_intent="feedback",
         expected_check_cost="free",
     ),

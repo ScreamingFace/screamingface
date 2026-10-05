@@ -9,6 +9,12 @@ use {
   tauri_plugin_decorum::WebviewWindowExt,
 };
 
+/// The local runtime's service addresses, or `null` while it is starting or after it exited.
+#[tauri::command]
+pub fn runtime_services(app: AppHandle) -> Option<crate::runtime_process::RuntimeServices> {
+  crate::runtime_process::services(&app)
+}
+
 #[tauri::command]
 pub fn update_theme(app: AppHandle, theme: Option<String>) {
   let native_theme = match theme.as_deref() {

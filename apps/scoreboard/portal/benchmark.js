@@ -136,6 +136,29 @@
     return td;
   }
 
+  // The SFDS `.status` recipe, a square plus a sentence-case word. Deliberately NOT
+  // `.status.on`: that state is success green, and green means verified in SFDS, which this is
+  // not. `.status--open` keeps the square neutral ink at full tone; closed takes the recipe's
+  // whisper off-state; unknown is a faint dash with the reason in its title.
+  function renderOpenness(entry) {
+    var label = L.opennessLabel(entry);
+    var line = P.el("span", "weights-line");
+    if (label.tone === "unknown") {
+      var unknown = P.el("span", "faint", label.text);
+      unknown.title = label.title;
+      line.appendChild(unknown);
+      line.appendChild(P.el("span", "sr-only", " (" + label.title + ")"));
+      return line;
+    }
+    var status = P.el("span", label.tone === "open" ? "status status--open" : "status");
+    var square = P.el("span", "sq");
+    square.setAttribute("aria-hidden", "true");
+    status.appendChild(square);
+    status.appendChild(document.createTextNode(label.text + " weights"));
+    line.appendChild(status);
+    return line;
+  }
+
   // The vendored .score-cell recipe: the number plus a proportional track. Its
   // documented markup is
   //   <span class="score-cell"><span class="num">84.3</span>
@@ -181,7 +204,14 @@
       if (isLeader) specTd.appendChild(P.el("span", "sr-only", " (highest score)"));
       tr.appendChild(specTd);
 
-      tr.appendChild(P.el("td", null, P.formatProviders(entry.ran_with_providers)));
+      // The entry's open/closed verdict rides in this cell as a second line. With the
+      // Pareto mark it answers "which entries win the open frontier". Not its own column: the
+      // table fits its container exactly, and another column would push "Run locally", the
+      // board's primary action, behind a horizontal scroll. This cell is also where a reader
+      // looks for what an entry runs on.
+      var backendsTd = P.el("td", null, P.formatProviders(entry.ran_with_providers));
+      backendsTd.appendChild(renderOpenness(entry));
+      tr.appendChild(backendsTd);
       tr.appendChild(P.el("td", null, P.formatAuthors(entry.authors)));
       tr.appendChild(renderScoreCell(entry.score, barMin, barMax));
       // WHY the title: the cell rounds to cents, but the frontier compares the full stored

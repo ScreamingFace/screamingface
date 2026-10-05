@@ -1,12 +1,12 @@
 ---
 id: OME-906
 linear_url: https://linear.app/openmined/issue/OME-906/cached-draco-evaluations-overflow-the-runner-event-bridge
-status: in_progress
+status: done
 type: bug
 priority: 1
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-08-20
-closed:
+closed: 2026-08-24
 ---
 
 # Cached DRACO evaluations overflow the runner event bridge

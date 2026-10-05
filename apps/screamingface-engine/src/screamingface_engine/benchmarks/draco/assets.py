@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine.benchmarks.draco import scoring, tasks
+from screamingface_engine.benchmarks.draco import judge_requests, scoring
 from screamingface_engine.benchmarks.draco.errors import AggregateError
 
 
@@ -44,7 +44,7 @@ def validate_protocol_assets(
     rubrics = load_rubrics(root / "rubrics")
     seen_case_ids: set[int] = set()
     for index, case in enumerate(cases):
-        case_id = tasks.positive_case_id(case.get("id"))
+        case_id = judge_requests.positive_case_id(case.get("id"))
         if case_id in seen_case_ids:
             raise ValueError(f"DRACO Case sequence repeats case_id {case_id}")
         seen_case_ids.add(case_id)
@@ -70,8 +70,10 @@ def _validate_case_assets(
         raise ValueError(f"Case {case_id} has no DRACO rubric criteria")
     if len(set(rubric_ids)) != len(rubric_ids):
         raise ValueError(f"Case {case_id} DRACO rubric repeats a criterion id")
-    criteria = tasks.load_criteria(root / "criteria", case_id)
-    validated_tasks = tasks.build_tasks(case_id, question, "asset validation", criteria)
-    criteria_ids = [task["criterion_id"] for task in validated_tasks]
+    criteria = judge_requests.load_criteria(root / "criteria", case_id)
+    validated_requests = judge_requests.build_judge_requests(
+        case_id, question, "asset validation", criteria
+    )
+    criteria_ids = [task["criterion_id"] for task in validated_requests]
     if criteria_ids != rubric_ids:
         raise ValueError(f"Case {case_id} criterion assets do not match its installed DRACO rubric")

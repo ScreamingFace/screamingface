@@ -1,19 +1,19 @@
-"""The global key is built from the caller's request — and nothing about the Profile.
+"""The global key is built from the caller's request — and nothing about the credential target.
 
 FEATURE: one globally shared exact-request cache (OME-305). "Exact" means the request that
 actually reaches the provider, which since OME-1323 (D2) is exactly what the caller sent:
 request parameters are the caller's, and system instructions arrive as system-role messages.
 
-STORY: as a caller I send every parameter I want with each request. Whichever Profile I send
-it through, an identical request shares one row with every other caller who sent it — and a
-Profile that cannot authenticate is still served from that row.
+STORY: as a caller I send every parameter I want with each request. Whichever effective target
+is configured, an identical request shares one row with every other caller who sent it — and a
+target that cannot authenticate is still served from that row.
 
-INVARIANT under test: Profile identity, the Profile NAME, the account, and anything a Profile
-still stores (its historical defaults) are absent from the key. Transport-only fields such as
+INVARIANT under test: target identity, the target name, the account, and any historical defaults
+are absent from the key. Transport-only fields such as
 ``timeout`` are dispatched but do not key.
 
 AIDEV-NOTE: the trap this file guards is pinned by
-``test_a_profile_that_cannot_authenticate_still_gets_a_hit``: the CREDENTIAL TARGET is never
+``test_a_default_target_that_cannot_authenticate_still_gets_a_hit``: the credential target is never
 resolved before the cache, because that helper raises 404/409/401 and those raises would
 preempt a cache hit — destroying the inversion OME-305 exists for. Stage C (OME-1323) removed
 the pre-cache Profile read entirely; do not add one back. The key parity itself is pinned by
@@ -181,8 +181,8 @@ def _install(client: TestClient, store: _Store) -> _Store:
     return store
 
 
-def _post(client: TestClient, body: dict[str, Any], *, profile: str):
-    return client.post(_CHAT_PATH, json=body, headers={"X-Profile": profile})
+def _post(client: TestClient, body: dict[str, Any]):
+    return client.post(_CHAT_PATH, json=body)
 
 
 def _system_contents(body: dict[str, Any]) -> list[str]:
@@ -193,45 +193,55 @@ def _system_contents(body: dict[str, Any]) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    ("profile_name", "state"),
+    "state",
     [
-        ("ghost", None),
-        ("waiting", ProfileState.PENDING),
-        ("broken", ProfileState.ERROR),
+        None,
+        ProfileState.PENDING,
+        ProfileState.ERROR,
     ],
     ids=["absent", "pending", "errored"],
 )
-def test_a_profile_that_cannot_authenticate_still_gets_a_hit(
-    credential_blobs, cache_client, profile_name: str, state: ProfileState | None
+def test_a_default_target_that_cannot_authenticate_still_gets_a_hit(
+    credential_blobs, cache_client, state: ProfileState | None
 ) -> None:
     """REGRESSION GUARD: the credential target is never resolved before the cache.
 
-    ``_credential_target_for_chat`` raises 404 for an absent profile, 409 for a PENDING
+    Credential resolution raises 404 for an absent target, 409 for a PENDING
     one and 401 for an ERRORED one. Hoisting it ahead of the cache lookup would let all
     three PREEMPT a cache hit, and a caller who is served today would start getting an
     error. Stage C (OME-1323) leaves no pre-cache Profile read at all, so nothing ahead of
     the lookup can refuse a request the cache can serve.
 
-    The three cases are served here WITHOUT any credential of their own: the row was
-    filled by a different profile entirely.
+    The same default target fills the row while authenticated, then transitions to each
+    unavailable state before the hit.
     """
     account_id = cache_client.get("/v1/auth/me").json()["id"]
-    _seed_credential(credential_blobs, account_id, name="plain")
-    _seed_profile(credential_blobs, account_id, name="plain", defaults=ProfileDefaults())
-    if state is not None:
-        _seed_profile(
-            credential_blobs,
-            account_id,
-            name=profile_name,
-            defaults=ProfileDefaults(),
-            state=state,
-        )
+    _seed_credential(credential_blobs, account_id, name="default")
+    _seed_profile(credential_blobs, account_id, name="default", defaults=ProfileDefaults())
     store = _install(cache_client, _Store())
     dispatch = _Dispatch()
 
     with patch(_PATCH_TARGET, new=dispatch):
-        filled = _post(cache_client, _bare_body(), profile="plain")
-        served = _post(cache_client, _bare_body(), profile=profile_name)
+        filled = _post(cache_client, _bare_body())
+        if state is None:
+
+            async def _remove_default() -> None:
+                await ProfileIndexStore(credential_store=credential_blobs.store).remove(
+                    profile_id_for(account_id, "anthropic", "default")
+                )
+
+            portal = cache_client.portal
+            assert portal is not None
+            portal.call(_remove_default)
+        else:
+            _seed_profile(
+                credential_blobs,
+                account_id,
+                name="default",
+                defaults=ProfileDefaults(),
+                state=state,
+            )
+        served = _post(cache_client, _bare_body())
 
     assert filled.headers["X-AIGW-Cache"] == "miss"
     assert served.status_code == 200, served.text
@@ -257,16 +267,14 @@ def test_a_caller_timeout_changes_no_key_and_causes_no_bypass(
     nothing was added to the parameter contract to make this pass.
     """
     account_id = cache_client.get("/v1/auth/me").json()["id"]
-    _seed_credential(credential_blobs, account_id, name="plain")
-    _seed_credential(credential_blobs, account_id, name="slow")
-    _seed_profile(credential_blobs, account_id, name="plain", defaults=ProfileDefaults())
-    _seed_profile(credential_blobs, account_id, name="slow", defaults=ProfileDefaults())
+    _seed_credential(credential_blobs, account_id, name="default")
+    _seed_profile(credential_blobs, account_id, name="default", defaults=ProfileDefaults())
     store = _install(cache_client, _Store())
     dispatch = _Dispatch()
 
     with patch(_PATCH_TARGET, new=dispatch):
-        first = _post(cache_client, _bare_body(), profile="plain")
-        second = _post(cache_client, _bare_body(timeout=9.0), profile="slow")
+        first = _post(cache_client, _bare_body())
+        second = _post(cache_client, _bare_body(timeout=9.0))
 
     assert first.headers["X-AIGW-Cache"] == "miss"
     assert second.headers["X-AIGW-Cache"] == "hit"
@@ -284,13 +292,13 @@ def test_a_caller_timeout_still_reaches_the_provider_on_a_miss(
     "dropped" — and the caller's timeout would stop applying.
     """
     account_id = cache_client.get("/v1/auth/me").json()["id"]
-    _seed_credential(credential_blobs, account_id, name="slow")
-    _seed_profile(credential_blobs, account_id, name="slow", defaults=ProfileDefaults())
+    _seed_credential(credential_blobs, account_id, name="default")
+    _seed_profile(credential_blobs, account_id, name="default", defaults=ProfileDefaults())
     _install(cache_client, _Store())
     dispatch = _Dispatch()
 
     with patch(_PATCH_TARGET, new=dispatch):
-        response = _post(cache_client, _bare_body(timeout=9.0), profile="slow")
+        response = _post(cache_client, _bare_body(timeout=9.0))
 
     assert response.headers["X-AIGW-Cache"] == "miss"
     assert dispatch.bodies[0]["timeout"] == 9.0

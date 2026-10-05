@@ -1,4 +1,4 @@
-"""Versioned semantics for HealthBench's mid-run check surface — `healthbench-pass.v1`.
+"""Versioned semantics for HealthBench's mid-run draft-feedback offer — `healthbench-pass.v1`.
 
 The deletion test for the `rubric_check` component lives here: this file is the WHOLE
 HealthBench check adapter. It declares where the rubric keeps its items, which judge
@@ -24,21 +24,24 @@ steer a loop, the honest fix is richer prepared rubric metadata, not leaking cri
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.healthbench.pins import (
+from screamingface_engine.benchmarks.healthbench.revision_inputs import (
     CHECK_CRITERION,
     JUDGE_MODEL,
     JUDGE_PARAMS,
 )
-from screamingface_engine.benchmarks.rubric_check import RubricCheck, RubricShape
+from screamingface_engine.benchmarks.rubric_draft_feedback import (
+    RubricDraftFeedback,
+    RubricFileLayout,
+)
 
 CHECK_THRESHOLD = 0.5
 
-HEALTHBENCH_CHECK = RubricCheck(
+HEALTHBENCH_DRAFT_FEEDBACK = RubricDraftFeedback(
     label="HealthBench",
     criterion=CHECK_CRITERION,
     threshold=CHECK_THRESHOLD,
     # Flat `items`, points-weighted, and no area vocabulary at all.
-    shape=RubricShape(
+    shape=RubricFileLayout(
         layout="flat",
         items="items",
         id_field="rubric_id",
@@ -53,4 +56,4 @@ HEALTHBENCH_CHECK = RubricCheck(
     question="chat_envelope",
 )
 
-__all__ = ["CHECK_THRESHOLD", "HEALTHBENCH_CHECK"]
+__all__ = ["CHECK_THRESHOLD", "HEALTHBENCH_DRAFT_FEEDBACK"]

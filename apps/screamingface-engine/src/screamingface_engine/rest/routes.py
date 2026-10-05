@@ -11,7 +11,8 @@ observe the run) lives elsewhere; this module only schedules work onto it via
 import asyncio
 import logging
 import math
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Any
@@ -32,6 +33,11 @@ from screamingface_engine.auth import (
 from screamingface_engine.cache_intent import parse_cache_control
 from screamingface_engine.client_provenance import parse_user_agent
 from screamingface_engine.config import Settings
+from screamingface_engine.error_text import (
+    CONTROL_PLANE_TERMINAL_CODES,
+    ENGINE_ERROR_CODES,
+    public_message,
+)
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
@@ -39,13 +45,14 @@ from screamingface_engine.rest.interest import SubscriberGate
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from screamingface_engine.rest.sessions import RunSessions
 from screamingface_engine.runner_queue import RunQueueUnavailable
+from screamingface_engine.tracing.accept import AcceptSpan
 from url4.streaming.interfaces import (
     EventConsumer,
     JobAlreadyExists,
     JobRunnerAtCapacity,
 )
-from url4.streaming.protocol import CachePolicy, ResultEvent, TerminatedEvent
-from url4.streaming.trace import valid_traceparent
+from url4.streaming.protocol import CachePolicy, ErrorInfo, ResultEvent, TerminatedEvent
+from url4.streaming.trace import parse_traceparent, valid_traceparent
 
 router = APIRouter()
 
@@ -63,6 +70,49 @@ _TERMINAL_PROBLEM: dict[str, tuple[int, str, str]] = {
     "timed_out": (504, "Gateway Timeout", "the run exceeded its deadline"),
     "stopped": (409, "Conflict", "the run was stopped"),
 }
+
+_SCRUBBED_CODE = "internal_error"
+
+
+def _sanitized_error(error: ErrorInfo | None) -> tuple[str | None, str | None, bool | None]:
+    """Reduce a terminal frame's ``ErrorInfo`` to what may cross the HTTP boundary.
+
+    Returns ``(code, message, permanent)``. ``permanent`` always survives: it is a bool, it
+    cannot carry text, and it is the one field that tells the caller whether a retry can ever
+    succeed. The other two pass TWO independent screens (OME-941, review round 2):
+
+    1. **Authorship.** ``ErrorInfo`` is built by ``url4.streaming.lifecycle._error_info``, which
+       takes ``code`` from ``getattr(exc, "code")`` and ``message`` from ``str(exc)`` of whatever
+       exception ended the run — provider text verbatim for any provider-facing adapter. Only a
+       code in :data:`ENGINE_ERROR_CODES` vouches for its message's author, and that set is
+       reserved engine-wide: ``world/connector.py::_raise_for_status`` refuses to mint one of
+       those codes from an upstream response body, so an upstream cannot borrow the vouching.
+       One shared set, not a second copy that would be free to drift.
+    2. **Content, regardless of authorship.** Even a vouched message goes through the same
+       :func:`public_message` the benchmark result contract uses: capped, flattened to one line,
+       and withheld outright if it looks like an internal path, a traceback or a credential.
+       An engine-authored message is not automatically a *bounded* one — ``malformed_source``
+       embeds ``{token!r}`` of the caller's expression with no limit of its own.
+
+    A code in :data:`CONTROL_PLANE_TERMINAL_CODES` (the supervisor's own ``cancelled``,
+    ``queue_expired``, ``deadline_exceeded``, ``spawn_failed``) is reported as itself, with its
+    message withheld.
+
+    An unvouched or withheld message yields ``None``, and the caller falls back to the fixed
+    table detail for the status. NOTE that ``_SCRUBBED_CODE`` is the genuine ``internal_error``
+    code, not a distinct sentinel: a withheld body is therefore INDISTINGUISHABLE from a real
+    internal failure. That is deliberate — telling a caller "there is a code here we are not
+    showing you" is itself a signal — but it does mean the body is not self-describing.
+    """
+    if error is None:
+        return None, None, None
+    if error.code in ENGINE_ERROR_CODES:
+        return error.code, public_message(error.message, default=""), error.permanent
+    # The control plane's own terminal reason keeps its code — a cancelled or expired run is not
+    # an engine fault — but, like every unvouched code, never its message (`spawn_failed` carries
+    # `str(exc)`). Anything else is scrubbed to `internal_error`.
+    code = error.code if error.code in CONTROL_PLANE_TERMINAL_CODES else _SCRUBBED_CODE
+    return code, None, error.permanent
 
 
 @dataclass(frozen=True)
@@ -389,7 +439,21 @@ async def _terminal_response(
         status,
         (502, "Bad Gateway", f"the run ended with an unhandled terminal status: {status}"),
     )
-    raise ProblemException(status=http_status, title=title, detail=detail)
+    # OME-941: the frame's own diagnosis, sanitized, plus the run's trace id. Without these a
+    # synchronous caller reads "the run failed" and has nothing to search a trace store with,
+    # while the stream that held the answer is purged moments later.
+    code, message, permanent = _sanitized_error(terminated.data.error)
+    raise ProblemException(
+        status=http_status,
+        title=title,
+        detail=message or detail,
+        code=code,
+        permanent=permanent,
+        # `parse_traceparent` is the validator, not just a parser: a malformed or all-zero
+        # traceparent yields None, so the member is absent rather than junk a caller would paste
+        # into a trace search. The TOPIC is never rendered here — it is a bearer capability.
+        trace_id=parse_traceparent(terminated.traceparent),
+    )
 
 
 _OVERRIDE_WARNING = (
@@ -637,51 +701,93 @@ async def start_run(
     body executes — no code path here touches the topic without an already-verified capability
     token.
     """
-    refuse_selector(request.headers)
-    deps = _deps(request)
     topic = str(claims["sub"])
-    url4 = _require_q(q)
-    pref = _parse_prefer(prefer or "")
-    if pref.respond_async:
-        # The client reads this run's frames on a WebSocket, so one must be attached first.
-        await _require_subscriber(deps.interest, topic)
-    inbound_traceparent = valid_traceparent(traceparent)
-    # WHY read identity off `request` instead of declaring another `Header(...)` param: the mesh
-    # gateway owns it, not the caller, so there is no client-facing contract for a signature to
-    # document. `or None`: absent identity is None, the same "nothing to forward" every other
-    # optional forwarded value uses — one representation rather than an empty mapping meaning it.
-    identity = job_env.identity_from_headers(request.headers) or None
-    answer_seed = _parse_answer_seed(x_answer_seed)
-    clock = getattr(request.app.state, "clock", default_clock)
-    client_version = (
-        parse_user_agent(request.headers.get("User-Agent"))
-        if len(request.headers.getlist("User-Agent")) == 1
-        else None
-    )
-    await _refuse_existing(deps, topic)
-
-    async def schedule() -> None:
-        await _schedule(
-            deps,
-            topic,
-            url4,
-            traceparent=inbound_traceparent,
-            identity=identity,
-            cache=_converge_cache(deps, topic, cache_control, clock),
-            answer_seed=answer_seed,
-            client_version=client_version,
+    # FEATURE (OME-1218): the accept span covers validate + enqueue; the run is handed ITS id.
+    accept = _open_accept(request, traceparent, topic)
+    with _accepting(accept):
+        refuse_selector(request.headers)
+        deps = _deps(request)
+        url4 = _require_q(q)
+        pref = _parse_prefer(prefer or "")
+        if pref.respond_async:
+            # The client reads this run's frames on a WebSocket, so one must be attached first.
+            await _require_subscriber(deps.interest, topic)
+        inbound_traceparent = valid_traceparent(traceparent)
+        # WHY read identity off `request` instead of declaring another `Header(...)` param: the
+        # mesh gateway owns it, not the caller, so there is no client-facing contract for a
+        # signature to document. `or None`: absent identity is None, the same "nothing to
+        # forward" every other optional forwarded value uses — one representation rather than
+        # an empty mapping meaning it.
+        identity = job_env.identity_from_headers(request.headers) or None
+        answer_seed = _parse_answer_seed(x_answer_seed)
+        clock = getattr(request.app.state, "clock", default_clock)
+        client_version = (
+            parse_user_agent(request.headers.get("User-Agent"))
+            if len(request.headers.getlist("User-Agent")) == 1
+            else None
         )
+        await _refuse_existing(deps, topic)
 
-    if pref.respond_async:
-        await schedule()
-        return _accepted(topic)
-    # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps the
-    # reaper disarmed while it waits. ONE block covers gate, schedule and wait, so every exit —
-    # a 503 from admission, the bound, a disconnect, an error — releases it.
-    async with deps.sessions.hold_sync(topic):
-        await _require_subscriber(deps.interest, topic)
-        await schedule()
-        return await _run_sync(deps, topic, pref.wait_s, request.is_disconnected)
+        async def schedule() -> None:
+            await _schedule(
+                deps,
+                topic,
+                url4,
+                # WHY the accept span's traceparent when one is open (owner decision, option
+                # 1): `url4.run` becomes its child. With no sink, the inbound one, as before.
+                traceparent=accept.traceparent if accept is not None else inbound_traceparent,
+                identity=identity,
+                cache=_converge_cache(deps, topic, cache_control, clock),
+                answer_seed=answer_seed,
+                client_version=client_version,
+            )
+            # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
+            # hold is not accept latency, and counting it would hide the queue-wait gap.
+            if accept is not None:
+                accept.scheduled()
+
+        if pref.respond_async:
+            await schedule()
+            return _accepted(topic)
+        # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps
+        # the reaper disarmed while it waits. ONE block covers gate, schedule and wait, so
+        # every exit — a 503 from admission, the bound, a disconnect, an error — releases it.
+        async with deps.sessions.hold_sync(topic):
+            await _require_subscriber(deps.interest, topic)
+            await schedule()
+            return await _run_sync(deps, topic, pref.wait_s, request.is_disconnected)
+
+
+def _open_accept(request: Request, traceparent: str | None, topic: str) -> AcceptSpan | None:
+    """The submission's accept span, or ``None`` when the App exports no spans.
+
+    INVARIANT (OME-1218 D4): no sink, no span — and then the inbound traceparent is forwarded
+    untouched. A self-minted parent that nothing exports would dangle in every backend.
+    `getattr`: an App assembled without `create_app` has no sink, which means "off".
+    """
+    sink = getattr(request.app.state, "span_sink", None)
+    if sink is None:
+        return None
+    return AcceptSpan.open(sink, traceparent, topic=topic)
+
+
+@contextmanager
+def _accepting(accept: AcceptSpan | None) -> Iterator[None]:
+    """End the accept span as REFUSED when the submission is answered with an error.
+
+    Re-raises everything: this only records the outcome. A refusal after enqueue (the sync
+    path's terminal problem) is a no-op — the span already ended as scheduled.
+    """
+    try:
+        yield
+    except ProblemException as exc:
+        if accept is not None:
+            accept.refused(exc.problem.status)
+        raise
+    except Exception:
+        if accept is not None:
+            accept.refused(500)
+        raise
 
 
 @router.delete(

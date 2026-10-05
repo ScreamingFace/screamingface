@@ -17,15 +17,15 @@ import json
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.draco import grade as agg
-from screamingface_engine.benchmarks.draco.case_evaluation import (
-    bind_case_evaluation,
-    bind_criterion_evaluation,
+from screamingface_engine.benchmarks.draco.case_grade import (
+    build_case_grade,
+    build_criterion_grade,
 )
 from screamingface_engine.benchmarks.draco.definition import REVISION as DRACO_REVISION
 from screamingface_engine.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 
 # Two sections, one negative criterion. Positive weights sum to 4 (a1=2, a2=1, b1=1).
 _RUBRIC = {
@@ -115,7 +115,7 @@ def _case_row_from_evidence(
     criteria = []
     for index, criterion_id in enumerate(("a1", "a2", "a3", "b1")):
         criteria.append(
-            bind_criterion_evaluation(
+            build_criterion_grade(
                 case,
                 case_record if index == 0 else None,
                 {
@@ -128,10 +128,10 @@ def _case_row_from_evidence(
                 evidence[criterion_id],
             )
         )
-    return case_execution_payload(
+    return graded_answer_payload(
         case,
         encode_candidate_invocation(answer, "stop", None),
-        [bind_case_evaluation(case, criteria)],
+        [build_case_grade(case, criteria)],
     )
 
 

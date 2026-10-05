@@ -363,26 +363,30 @@ def test_an_account_with_no_provider_connection_at_all_is_still_served_from_cach
     assert len(counter.calls) == 1
 
 
-def test_a_different_profile_hits_the_same_global_entry(credential_blobs, cache_client) -> None:
-    """INVERTED from ``test_different_profile_misses``.
+def test_credential_ambiguity_after_fill_still_hits_the_same_global_entry(
+    credential_blobs, cache_client
+) -> None:
+    """The cache hit still precedes credential resolution after target state changes.
 
-    v1 keyed on ``profile_name``, so ``X-Profile: work`` was a different cache entry.
-    A profile selects a CREDENTIAL, and the v2 key deliberately cannot see one — two
-    profiles pointing at the same provider and model are the same upstream call, so
-    they share the entry.
+    The first request fills with one effective Connection. A second Connection then makes
+    credential resolution ambiguous, but the identical selector-less request still hits the
+    global entry without consulting either credential.
     """
     account_id = _account_id(cache_client)
-    for label in ("default", "work"):
-        connection = cache_client.portal.call(
-            partial(_create_active_connection, account_id, label=label)
-        )
-        _seed_connection_credentials(credential_blobs, account_id, connection.id)
+    connection = cache_client.portal.call(
+        partial(_create_active_connection, account_id, label="default")
+    )
+    _seed_connection_credentials(credential_blobs, account_id, connection.id)
     counter = _DispatchCounter()
     with patch(_PATCH_TARGET, counter):
         first = cache_client.post(_CHAT_PATH, json=_chat_body())
-        second = cache_client.post(_CHAT_PATH, json=_chat_body(), headers={"X-Profile": "work"})
+        second_connection = cache_client.portal.call(
+            partial(_create_active_connection, account_id, label="work")
+        )
+        _seed_connection_credentials(credential_blobs, account_id, second_connection.id)
+        second = cache_client.post(_CHAT_PATH, json=_chat_body())
     assert first.status_code == second.status_code == 200
-    assert len(counter.calls) == 1, "a different X-Profile shares the global entry"
+    assert len(counter.calls) == 1, "credential ambiguity must not preempt a global cache hit"
     assert second.headers["X-AIGW-Cache"] == "hit"
 
 

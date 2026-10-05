@@ -5,7 +5,7 @@ wrapper is not vendored) over the vendored ``instructions_registry``.
 
 INVARIANT: the strict and loose protocols mirror the fork's ``test_instruction_following``
 EXACTLY — the loose variant list, the empty-variant skip, and the ``prompt`` rebuild are
-the exam. A different reading is a different benchmark.
+the benchmark. A different reading is a different benchmark.
 
 ONE deliberate, documented divergence: ``keywords:letter_frequency`` kwargs whose letter is
 a single non-a-z character ('#' case 1122, '!' case 1129 — the only two in the dataset) are
@@ -70,7 +70,7 @@ def describe_failures(
 
     WHY the verifier's own ``build_description`` text: the feedback a corrective
     attempt sees must describe the constraint exactly as the checker enforces it —
-    a paraphrase could drift from what the exam actually grades.
+    a paraphrase could drift from what the benchmark actually grades.
     """
 
     if not (len(instruction_id_list) == len(kwargs_list) == len(strict)):
@@ -129,7 +129,7 @@ def _pinned_nonalpha_letter(instruction_id: str, kwargs: Mapping[str, Any]) -> s
     Owner decision (2026-08-10, ledger
     ``docs/work/2026-08-10-OME-TBD-ifeval-letter-frequency-kwarg-fidelity.md``): honor the
     dataset kwarg. This is a DELIBERATE divergence from the official verifier on those 2
-    of 541 cases — grading a requirement the prompt never stated is not an exam. The
+    of 541 cases — grading a requirement the prompt never stated is not a benchmark. The
     vendored verifier stays byte-identical; the override lives here at the grading
     boundary, applied by ``_build_instruction`` after ``build_description``.
 

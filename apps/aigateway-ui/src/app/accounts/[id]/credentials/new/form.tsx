@@ -137,9 +137,9 @@ export function CredentialFields({
         label="Profile name"
         hint={
           <>
-            The name the tenant selects with the <code>X-Profile</code> header. Leave it as{" "}
-            <code>default</code> unless this account needs more than one credential for the same
-            provider.
+            This legacy name is required by the current admin API. Keep it as <code>default</code>;
+            requests resolve the effective credential for this account and provider rather than
+            selecting one by name.
           </>
         }
       >

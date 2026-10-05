@@ -202,9 +202,10 @@ class ProfileBackedProviderAccess:
         )
         if not connections:
             return None
-        for connection in connections:
-            if connection.label == selector.name:
-                return connection
+        if selector.explicit:
+            for connection in connections:
+                if connection.label == selector.name:
+                    return connection
         if selector.is_default and len(connections) == 1:
             return connections[0]
         if selector.is_default:

@@ -1,18 +1,18 @@
-"""One factory turns an imported single-shot eval into a complete Engine board.
+"""One factory turns an imported single-shot eval into a complete Engine benchmark.
 
-Think of it as the plugin's own assembly line: hand it a board's identity, its pinned
+Think of it as the plugin's own assembly line: hand it a benchmark's identity, its pinned
 dataset facts, and its scorer, and it stamps out everything the engine expects — the
-url4 protocol, the runtime routes, the ScoredPath binding, and the registration. The
-per-board modules (`gsm8k.py`, `mmlu.py`) shrink to declarations — the spec §5 "≤150
-lines per board" budget made structural.
+url4 protocol, the runtime routes, the BenchmarkAggregation binding, and the registration. The
+per-benchmark modules (`gsm8k.py`, `mmlu.py`) shrink to declarations — the spec §5 "≤150
+lines per benchmark" budget made structural.
 
-The load-bearing move (spec §4): when a board declares a check surface, the SAME
-wrapped scorer serves both the grading route (after the exam) and the mid-run check
-(during it). MCQ boards get NO check surface — pass/fail feedback over a handful of
+The load-bearing move (spec §4): when a benchmark declares a draft-feedback offer, the SAME
+wrapped scorer serves both the grading route (after the benchmark) and the mid-run check
+(during it). MCQ benchmarks get NO draft-feedback offer — pass/fail feedback over a handful of
 options is an elimination attack (OME-796), and the client preflight's refusal of a
 loop recipe there is correct behavior.
 
-FEATURE: imported inspect_evals benchmarks run in our product like any board
+FEATURE: imported inspect_evals benchmarks run in our product like any benchmark
 (OME-1115, parent OME-1111).
 """
 
@@ -24,6 +24,7 @@ import hashlib
 import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,8 +37,8 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA, Ca
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
-    CheckSurface,
     DifficultyTier,
+    DraftFeedbackOffer,
     candidate,
 )
 from screamingface_engine.benchmarks.deployment import (
@@ -45,8 +46,11 @@ from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetPreparer,
     BenchmarkRegistration,
 )
-from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
-from screamingface_engine.benchmarks.evaluation import (
+from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
+from screamingface_engine.benchmarks.grading_endpoints import (
     async_aggregate_endpoint,
     attempt_records_endpoint,
     candidate_answer,
@@ -54,27 +58,27 @@ from screamingface_engine.benchmarks.evaluation import (
     json_object,
     positive_case_id,
 )
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.failure_classes import (
-    benchmark_contract_error as _contract_error,
-)
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
-from screamingface_engine.benchmarks.spine.payloads import TextPayload
-from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
     CaseGradeOutcome,
     GradeRequest,
-    ScoredPath,
 )
-from screamingface_engine.benchmarks.stages import observe_stage
+from screamingface_engine.benchmarks.shared_grading.case_grades import (
+    CaseGradeReader,
+    read_selected_cases,
+)
+from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload
 from screamingface_engine_inspect.envelopes import (
     CHECK_SCHEMA,
-    bind_case_evaluation,
-    decode_case_evaluation,
+    build_case_grade,
+    decode_case_grade,
 )
 from screamingface_engine_inspect.pins import (
     PREPARER_REVISION,
@@ -86,11 +90,11 @@ from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Request, Url4Node
 
 # INVARIANT: imported grading is retrieval-free — their scorers compare text to a
-# pinned target; a model that searched would answer a different question.
+# pinned answer key; a model that searched would answer a different question.
 _CANDIDATE_WEB_SEARCH = False
 
 # INVARIANT: failure wording is this plugin's published voice; no rubric-flavored
-# codes may leak into an imported board's result.
+# codes may leak into an imported benchmark's result.
 _FAILURE_MESSAGES: Mapping[str, str] = {
     "scorer_error": "the inspect scorer raised while grading this Case",
     "invalid_score_value": "the inspect scorer returned a value this board cannot map to a score",
@@ -100,7 +104,7 @@ _FAILURE_MESSAGES: Mapping[str, str] = {
 }
 
 # WHY this text and nothing richer: mid-run feedback crosses into the candidate's
-# context, so it must never carry the target or the scorer's explanation (which may
+# context, so it must never carry the answer key or the scorer's explanation (which may
 # quote it). Wrong-ness is the entire message; the sealed envelope holds.
 _CHECK_FEEDBACK = (
     "The committed answer does not match the expected solution. "
@@ -109,32 +113,42 @@ _CHECK_FEEDBACK = (
 
 
 class AggregateError(ValueError):
-    """An imported board's reducer input is unusable — raised before any scoring."""
+    """An imported benchmark's reducer input is unusable — raised before any scoring."""
 
 
 @dataclass(frozen=True, slots=True)
 class JudgeSpec:
-    """A judged board's declaration: its scorer dials a gateway judge.
+    """A judged benchmark's declaration: its scorer calls a gateway judge.
 
-    The declaration is half of a two-sided contract the assembly cross-checks:
-    ``model`` must reappear as ``screamingface/<model>`` among the scorer's own
-    kwargs (the string the scorer actually dials), so the pinned judge and the
-    called judge can never drift apart.
+    The declaration is half of a two-sided contract the assembly cross-checks, and
+    the scorer reaches the judge one of two ways:
+
+    - **by name** (``model_role`` is None): ``model`` must reappear as
+      ``screamingface/<model>`` among the scorer's own kwargs (the string the
+      scorer actually calls), so the pinned judge and the called judge can never
+      drift apart.
+    - **by role** (``model_role="grader"``): the scorer names no model and asks inspect
+      for its grader role; the judged aggregate binds that role to
+      ``screamingface/<model>`` for the grading pass, and the scorer kwargs must
+      call no judge of their own (OME-1370).
 
     Attributes:
-        model: the gateway model id the judge call dials (the node route is
-            ``/<model>``) — exam identity, hashed into the board revision.
+        model: the gateway model id the judge call goes to (the node route is
+            ``/<model>``) — benchmark identity, hashed into the benchmark revision.
         params: protocol params pinned onto every judge call (e.g.
-            ``(("temperature", "0"),)``) — exam identity too.
+            ``(("temperature", "0"),)``) — benchmark identity too.
+        model_role: the inspect model role this judge fills, or None when the scorer
+            names its judge in a kwarg. Benchmark identity when set.
     """
 
     model: str
     params: tuple[tuple[str, str], ...] = ()
+    model_role: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class ImportedBoard:
-    """One assembled imported board — the benchmark plus its plugin-side bindings."""
+class ImportedBenchmark:
+    """One assembled imported benchmark — the benchmark plus its plugin-side bindings."""
 
     benchmark: Benchmark
     registration: BenchmarkRegistration
@@ -145,39 +159,49 @@ class ImportedBoard:
     check_surface_route: str
     case_evaluation_route: str
     aggregate_route: str
-    #: The board's judge declaration; None for every string-match board (OME-1240).
+    #: The benchmark's judge declaration; None for every string-match benchmark (OME-1240).
     judge: JudgeSpec | None = None
+    #: The eval's grade counts the unwanted behaviour; the scorer adapter scores 1 − grade
+    #: (OME-1400). Already hashed into the revision by the caller's pins.
+    inverted_grade: bool = False
+    #: The judge's verdict word → grade map, replacing inspect's letters (OME-1371);
+    #: None for every letter- or number-graded benchmark. Hashed by the caller's pins.
+    verdict_grades: Mapping[str, float] | None = None
 
-    def scored_path(self) -> ScoredPath:
-        """This board's spine binding — built on demand so the scorer stays lazy."""
+    def aggregation(self) -> BenchmarkAggregation:
+        """This benchmark's shared-grading binding — built on demand so the scorer stays lazy."""
 
-        # WHY lazy: the shim imports inspect_ai (which drags in a web stack and the
-        # OTel SDK). Board REGISTRATION happens at engine import in every mode; the
-        # shim is needed only when a Runner world actually grades, so the run entry
+        # WHY lazy: the scorer adapter imports inspect_ai (which drags in a web stack and the
+        # OTel SDK). Benchmark REGISTRATION happens at engine import in every mode; the
+        # adapter is needed only when a Runner world actually grades, so the run entry
         # point's cold-start import budget stays untouched (test_cli /
         # test_span_export_wiring pin this).
-        from screamingface_engine_inspect.shim import inspect_grade_case
+        from screamingface_engine_inspect.scorer_adapter import inspect_grade_case
 
-        return ScoredPath(
-            reader=RowReader(
+        return BenchmarkAggregation(
+            reader=CaseGradeReader(
                 benchmark_label=self.benchmark.title,
                 error_type=AggregateError,
-                decode_case_evaluation=_decode,
+                decode_case_grade=_decode,
             ),
             grade_case=inspect_grade_case(
-                self.scorer_factory(), multiple_correct=self.multiple_correct
+                self.scorer_factory(),
+                multiple_correct=self.multiple_correct,
+                inverted_grade=self.inverted_grade,
+                verdict_grades=self.verdict_grades,
             ),
             failure_messages=_FAILURE_MESSAGES,
             method="inspect_scorer",
             grading_failure_code="inspect_grading_failed",
             grading_failure_message="the inspect scorer pipeline could not grade this Case",
             missing_material_code="missing_target_asset",
+            inverted_grade=self.inverted_grade,
         )
 
 
-def single_shot_board(
+def single_shot_benchmark(
     *,
-    board_key: str,
+    benchmark_key: str,
     title: str,
     description: str,
     focus: str,
@@ -191,48 +215,57 @@ def single_shot_board(
     difficulty: DifficultyTier,
     multiple_correct: bool = False,
     judge: JudgeSpec | None = None,
-) -> ImportedBoard:
-    """Assemble one imported single-shot board from its declarations.
+    inverted_grade: bool = False,
+    verdict_grades: Mapping[str, float] | None = None,
+) -> ImportedBenchmark:
+    """Assemble one imported single-shot benchmark from its declarations.
 
     Stage 1 — identity: benchmark id ``inspect-<key>`` (flat, OME-836) and the §6
               revision — sha over the pinned inspect packages + the dataset pins +
               the protocol constants, 16 hex chars.
     Stage 2 — protocol: the canonical one-invocation expression (ifeval's shape) —
               candidate answers ``$item.input``, the check route records the attempt,
-              the aggregate grades everything engine-side through the shim.
+              the aggregate grades everything engine-side through the scorer adapter.
     Stage 3 — runtime: an installer registering cases/check/case-evaluation/aggregate,
               plus the check-surface port iff declared.
     Stage 4 — registration: benchmark + asset bundle, ready for the entry point.
 
     Args:
-        board_key: the flat identity tail ("gsm8k" → benchmark id "inspect-gsm8k").
+        benchmark_key: the flat identity tail ("gsm8k" → benchmark id "inspect-gsm8k").
         title, description, focus, dataset_url: leaderboard display fields (OME-904).
         difficulty: the catalogue's hand-assigned easy→hard tier, authored on the
-            BoardSpec row (OME-1257).
-        case_count: rows in the pinned split — the board's declared exam size.
-        revision_pins: every dataset fact that participates in exam identity.
+            BenchmarkSpec row (OME-1257).
+        case_count: rows in the pinned split — the benchmark's declared benchmark size.
+        revision_pins: every dataset fact that participates in benchmark identity.
         scorer_factory: zero-arg callable returning the imported eval's scorer.
-        prepare: the board's build-time asset baker (its snapshot of the dataset).
-        install: the board module's OWN installer wrapper (defined beside its
+        prepare: the benchmark's build-time asset preparer (its prepared copy of the dataset).
+        install: the benchmark module's OWN installer wrapper (defined beside its
             ``ASSET_BUNDLE_ID`` constant, per the deployment conformance rule), which
-            delegates to :func:`install_imported_board`.
-        with_check_surface: §4 dual registration; False for MCQ boards (OME-796).
-        multiple_correct: inspect's MCQ multi-answer flag, passed to the shim.
-        judge: the board's judge declaration (OME-1240) — the aggregate binds the
+            delegates to :func:`install_imported_benchmark`.
+        with_check_surface: §4 dual registration; False for MCQ benchmarks (OME-796).
+        multiple_correct: inspect's MCQ multi-answer flag, passed to the scorer adapter.
+        judge: the benchmark's judge declaration (OME-1240) — the aggregate binds the
             judge transport from it, and its model + params are hashed into the
-            revision below. None for every string-match board.
+            revision below. None for every string-match benchmark.
+        inverted_grade: the eval's grade counts the unwanted behaviour (a should-refuse
+            safety benchmark); passed to the scorer adapter, which scores 1 − grade. The
+            caller carries it into ``revision_pins`` (OME-1400).
+        verdict_grades: the judge's verdict word → grade map for a judge that answers
+            in words (coconot); passed to the scorer adapter, which then grades by it
+            instead of inspect's letters. The caller carries it into ``revision_pins``
+            (OME-1371).
 
     Returns:
-        The assembled board, its registration ready for the plugin's entry point.
+        The assembled benchmark, its registration ready for the plugin's entry point.
     """
 
-    benchmark_id: str = f"inspect-{board_key}"
+    benchmark_id: str = f"inspect-{benchmark_key}"
     if judge is not None and with_check_surface:
         # WHY: a judged mid-run check spends judge tokens per attempt, and the
         # advertised check cost is still hardcoded "free" — until the check-cost
-        # knob exists (OME-1116), a judged board must not advertise a check surface.
+        # knob exists (OME-1116), a judged benchmark must not advertise a draft-feedback offer.
         raise ValueError(
-            f"{benchmark_id}: a judged board cannot declare a check surface until "
+            f"{benchmark_id}: a judged benchmark cannot declare a check surface until "
             "the check-cost knob lands (OME-1116)"
         )
     # WHY: pins are newline-joined below; a pin containing "\n" would make two
@@ -249,21 +282,24 @@ def single_shot_board(
                 EVALUATION_PROTOCOL_REVISION,
                 CANDIDATE_RESULT_SCHEMA,
                 # WHY hashed HERE, not left to revision_pins: the factory owns
-                # identity math (§6 — the case subset rides the revision); a board
+                # identity math (§6 — the case subset rides the revision); a benchmark
                 # author forgetting a pin must not get a subset change with an
-                # unchanged exam identity.
+                # unchanged benchmark identity.
                 f"case_count={case_count}",
                 f"check_surface={with_check_surface}",
-                # WHY conditional pins (OME-1240): the judge is exam identity —
+                # WHY conditional pins (OME-1240): the judge is benchmark identity —
                 # swapping the judge model or its pinned params is a different
-                # exam — but an UNDECLARED board contributes nothing here, so the
-                # published string-match boards' revisions stay byte-identical.
+                # benchmark — but an UNDECLARED benchmark contributes nothing here, so the
+                # published string-match benchmarks' revisions stay byte-identical.
                 *(
                     ()
                     if judge is None
                     else (
                         f"judge_model={judge.model}",
                         f"judge_params={json.dumps(list(judge.params))}",
+                        # WHY conditional again: a named judge's pins must stay
+                        # byte-identical, so FrontierScience's revision holds (OME-1370).
+                        *(() if judge.model_role is None else (f"judge_role={judge.model_role}",)),
                     )
                 ),
             )
@@ -285,29 +321,32 @@ def single_shot_board(
         revision=revision,
         case_count=case_count,
         # WHY explicit: `origin` defaults to "screamingface", which is true for every
-        # board authored in this repo and wrong for every board that arrives through
+        # benchmark authored in this repo and wrong for every benchmark that arrives through
         # here. The listing groups by this field (OME-1114), so a defaulted row hides
         # the imported shelf inside our own group.
         origin="inspect_evals",
+        # FEATURE: the researcher-visible refusal-rate mark (OME-1400) — the same flag the
+        # scorer adapter flips on, published so report.json can show it.
+        inverted_grade=inverted_grade,
         build=_build(routes, case_count),
         install=install,
         focus=focus,
         dataset_url=dataset_url,
         declaration=BenchmarkDeclaration(
-            # WHY "coverage_declare": imported boards reduce through the shared
+            # WHY "coverage_declare": imported benchmarks reduce through the shared
             # finalize_candidate_result, which scores the gradeable subset and
             # publishes coverage — the declaration matches the code (OME-1039).
             failure_policy="coverage_declare",
             interaction="single_shot",
-            # The tier is authored on the BoardSpec row (the imported board's one
+            # The tier is authored on the BenchmarkSpec row (the imported benchmark's one
             # authoring site) and threaded through verbatim (OME-1257).
             difficulty=difficulty,
         ),
         check_surface=(
-            CheckSurface(
+            DraftFeedbackOffer(
                 check_route=routes["check_surface"],
                 feedback_intent="feedback",
-                # Free: both proof scorers are deterministic. No cost knob exists
+                # Free: both proof benchmarks grade deterministically. No cost knob exists
                 # yet (YAGNI) — OME-1116 adds one when the first model-graded
                 # import lands.
                 expected_check_cost="free",
@@ -316,7 +355,7 @@ def single_shot_board(
             else None
         ),
     )
-    board = ImportedBoard(
+    imported = ImportedBenchmark(
         benchmark=benchmark,
         registration=BenchmarkRegistration(
             benchmark=benchmark,
@@ -330,43 +369,45 @@ def single_shot_board(
         case_evaluation_route=routes["case_evaluation"],
         aggregate_route=routes["aggregate"],
         judge=judge,
+        inverted_grade=inverted_grade,
+        verdict_grades=verdict_grades,
     )
     # WHY revision-compared, not presence-compared: re-assembling the identical
-    # board is harmless (tests do it), but a copy-pasted board module that kept
-    # the donor's key would resolve the WRONG board's routes at install time —
+    # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept
+    # the donor's key would resolve the WRONG benchmark's routes at install time —
     # its differing pins give it a different revision, so it is refused here.
-    existing: ImportedBoard | None = _BOARDS_BY_ID.get(benchmark_id)
+    existing: ImportedBenchmark | None = _BENCHMARKS_BY_ID.get(benchmark_id)
     if existing is not None and existing.benchmark.revision != revision:
         raise ValueError(
             f"benchmark id {benchmark_id!r} is already assembled with a different "
-            f"revision — duplicate board_key?"
+            f"revision — duplicate benchmark_key?"
         )
-    _BOARDS_BY_ID[benchmark_id] = board
-    return board
+    _BENCHMARKS_BY_ID[benchmark_id] = imported
+    return imported
 
 
-#: Board-module installers resolve their board here at install time —
-#: `Benchmark.install` is a plain callable created BEFORE the ImportedBoard exists,
-#: so it looks its board up by id instead of capturing a forward reference.
-_BOARDS_BY_ID: dict[str, ImportedBoard] = {}
+#: Benchmark-module installers resolve their benchmark here at install time —
+#: `Benchmark.install` is a plain callable created BEFORE the ImportedBenchmark exists,
+#: so it looks its benchmark up by id instead of capturing a forward reference.
+_BENCHMARKS_BY_ID: dict[str, ImportedBenchmark] = {}
 
 
-def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> None:
-    """Register one imported board's routes — called by the board module's installer.
+def install_imported_benchmark(node: Url4Node, assets: Path, benchmark_id: str) -> None:
+    """Register one imported benchmark's routes — called by the benchmark module's installer.
 
-    WHY the indirection: the deployment conformance rule wants each board's installer
+    WHY the indirection: the deployment conformance rule wants each benchmark's installer
     defined in the module that exports its ``ASSET_BUNDLE_ID``; this function is the
     shared kitchen those thin wrappers delegate to.
     """
 
-    board: ImportedBoard = _BOARDS_BY_ID[benchmark_id]
+    benchmark: ImportedBenchmark = _BENCHMARKS_BY_ID[benchmark_id]
     root: Path = assets / benchmark_id
     routes: dict[str, str] = {
-        "cases": board.cases_route,
-        "check": board.check_route,
-        "check_surface": board.check_surface_route,
-        "case_evaluation": board.case_evaluation_route,
-        "aggregate": board.aggregate_route,
+        "cases": benchmark.cases_route,
+        "check": benchmark.check_route,
+        "check_surface": benchmark.check_surface_route,
+        "case_evaluation": benchmark.case_evaluation_route,
+        "aggregate": benchmark.aggregate_route,
     }
     install_cases(node, routes["cases"], _cases(root))
     installed = frozenset(node.processor_routes())
@@ -375,9 +416,9 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
         (
             routes["case_evaluation"],
             attempt_records_endpoint(
-                label=f"{board.benchmark.title} Case evaluation",
+                label=f"{benchmark.benchmark.title} Case evaluation",
                 item_name="Attempt",
-                bind=bind_case_evaluation,
+                bind=build_case_grade,
                 observe_grading=False,
             ),
         ),
@@ -385,22 +426,22 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
             routes["aggregate"],
             # WHY: both scorer families stay on the owning loop for logs and model I/O.
             async_aggregate_endpoint(
-                label=board.benchmark.title,
-                available_case_count=board.benchmark.case_count,
-                aggregate=_judged_aggregate(board, root, node),
+                label=benchmark.benchmark.title,
+                available_case_count=benchmark.benchmark.case_count,
+                aggregate=_judged_aggregate(benchmark, root, node),
             )
-            if board.judge is not None
+            if benchmark.judge is not None
             else async_aggregate_endpoint(
-                label=board.benchmark.title,
-                available_case_count=board.benchmark.case_count,
-                aggregate=_aggregate(board, root),
+                label=benchmark.benchmark.title,
+                available_case_count=benchmark.benchmark.case_count,
+                aggregate=_aggregate(benchmark, root),
             ),
         ),
     ]
-    if board.benchmark.check_surface is not None:
+    if benchmark.benchmark.check_surface is not None:
         # Spec §4 — the SAME scorer, second office hour: the advertised
         # check-surface port for the corrective loop.
-        endpoints.append((routes["check_surface"], _check_surface(board, root)))
+        endpoints.append((routes["check_surface"], _check_surface(benchmark, root)))
     for route, handler in endpoints:
         if route not in installed:
             node.endpoint(route)(handler)
@@ -454,12 +495,12 @@ def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
 
 
 def _cases(root: Path) -> Callable[[], str]:
-    @observe_stage(ActivityKind.CASE_LOADING)
+    @observe_phase(ActivityKind.CASE_LOADING)
     def cases() -> str:
         try:
             return (root / "cases.json").read_text(encoding="utf-8")
         except OSError as exc:
-            # A gated board skipped at image build (PR builds without the Hugging Face
+            # A gated benchmark skipped at image build (PR builds without the Hugging Face
             # token) leaves a marker saying so — name that instead of a bare IO error.
             skipped: Path = root / SKIPPED_MARKER
             if skipped.is_file():
@@ -475,17 +516,17 @@ def _cases(root: Path) -> Callable[[], str]:
 def _check(root: Path) -> Callable[[Request], str]:
     """Record the Candidate's attempt verbatim — grading waits for the aggregate.
 
-    WHY no grading here: the scorer is the aggregate's job (through the shim), so a
+    WHY no grading here: grading is the aggregate's job (through the scorer adapter), so a
     scorer bug can never poison the collected row — the Candidate's answer is always
     preserved for re-grading.
     """
 
-    @observe_stage(ActivityKind.ANSWERING)
+    @observe_phase(ActivityKind.ANSWERING)
     def check(request: Request) -> str:
         try:
             case_id: int = positive_case_id(request.intent)
-            if _target(root, case_id) is None:
-                # Refuse early: an attempt recorded against an unusable target
+            if _grading_material(root, case_id) is None:
+                # Refuse early: an attempt recorded against unusable Grading Material
                 # could never be graded — fail the call, not the aggregate later.
                 raise ValueError(f"the private target record for case {case_id} is unusable")
             answer = candidate_answer(request.context)
@@ -528,8 +569,8 @@ def _check(root: Path) -> Callable[[Request], str]:
     return record
 
 
-def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]:
-    @observe_stage(ActivityKind.GRADING)
+def _check_surface(benchmark: ImportedBenchmark, root: Path) -> Callable[[Request], str]:
+    @observe_phase(ActivityKind.GRADING)
     def check_surface(request: Request) -> str:
         if request.intent == "feedback":
             return _surface_feedback(request.context)
@@ -543,7 +584,7 @@ def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]
             if not isinstance(input_text, str) or not isinstance(invocation, str):
                 raise ValueError("check surface input and invocation must be text")
             verdict = check_surface_verdict(
-                board, root, input_text=input_text, invocation=invocation
+                benchmark, root, input_text=input_text, invocation=invocation
             )
         except (OSError, TypeError, ValueError) as exc:
             # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
@@ -556,9 +597,9 @@ def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]
 
 def _surface_feedback(record_json: object) -> str:
     record = json_object(record_json, "imported board check-surface feedback")
-    if record.get("schema") != CHECK_SURFACE_SCHEMA:
+    if record.get("schema") != DRAFT_FEEDBACK_SCHEMA:
         raise _contract_error(
-            f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record"
+            f"feedback input must be a {DRAFT_FEEDBACK_SCHEMA} check-surface record"
         )
     feedback = record.get("feedback")
     if not isinstance(feedback, str):
@@ -567,29 +608,29 @@ def _surface_feedback(record_json: object) -> str:
 
 
 def check_surface_verdict(
-    board: ImportedBoard, root: Path, *, input_text: str, invocation: str
+    benchmark: ImportedBenchmark, root: Path, *, input_text: str, invocation: str
 ) -> dict[str, Any]:
-    """Run the board's own scorer mid-run — the §4 dual registration, second office.
+    """Run the benchmark's own scorer mid-run — the §4 dual registration, second office.
 
     Input-addressed (the OME-796 port rule): a black-box ``$candidate`` only ever sees
     ``$input``, so the case resolves by exact prompt text. The verdict record is the
     sealed-envelope boundary — it carries pass/fail and sanitized feedback, NEVER the
-    target or the scorer's explanation (which may quote it).
+    answer key or the scorer's explanation (which may quote it).
 
     AIDEV-NOTE: each call re-reads cases.json (linear scan) and rebuilds the
-    ScoredPath + scorer + a fresh executor — fine at proof-board scale, but cache a
+    BenchmarkAggregation + scorer + a fresh executor — fine at proof-benchmark scale, but cache a
     per-root case→id index and the scored path before a bulk import lands.
     """
 
     case_id: int = _case_by_input(root, input_text)
-    material: Mapping[str, Any] | None = _target(root, case_id)
+    material: Mapping[str, Any] | None = _grading_material(root, case_id)
     if material is None:
         # INVARIANT: failure wording is this plugin's published voice — refuse
-        # here, or the shim's internal TypeError vocabulary reaches the candidate.
+        # here, or the scorer adapter's internal TypeError vocabulary reaches the candidate.
         raise ValueError(_FAILURE_MESSAGES["missing_target_asset"])
     answer: str = candidate_answer(invocation).text
     outcome: CaseGradeOutcome = _run_sync(
-        board.scored_path().grade_case(
+        benchmark.aggregation().grade_case(
             GradeRequest(
                 case_id=case_id,
                 input=TextPayload(text=input_text),
@@ -600,13 +641,13 @@ def check_surface_verdict(
         )
     )
     if outcome.failure_code is not None:
-        # .get(code, code): an unknown future shim code stays a clean refusal,
+        # .get(code, code): an unknown future scorer-adapter code stays a clean refusal,
         # never a KeyError swallowing the real cause.
         raise ValueError(_FAILURE_MESSAGES.get(outcome.failure_code, outcome.failure_code))
     assert outcome.score is not None
     passed: bool = outcome.score >= 1.0
     return {
-        "schema": CHECK_SURFACE_SCHEMA,
+        "schema": DRAFT_FEEDBACK_SCHEMA,
         "passed": passed,
         "satisfaction": outcome.score,
         "feedback": "" if passed else _CHECK_FEEDBACK,
@@ -615,62 +656,65 @@ def check_surface_verdict(
     }
 
 
-def board_aggregate(
-    board: ImportedBoard,
-    raw_rows: str,
+def benchmark_aggregate(
+    benchmark: ImportedBenchmark,
+    raw_case_grades: str,
     root: Path,
     *,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
-    """Score every selected Case on the shared spine, then mean accuracy."""
+    """Score every selected Case on the shared grading, then mean accuracy."""
 
-    return _run_sync(board_aggregate_async(board, raw_rows, root, case_ids=case_ids))
+    return _run_sync(benchmark_aggregate_async(benchmark, raw_case_grades, root, case_ids=case_ids))
 
 
-async def board_aggregate_async(
-    board: ImportedBoard,
-    raw_rows: str,
+async def benchmark_aggregate_async(
+    benchmark: ImportedBenchmark,
+    raw_case_grades: str,
     root: Path,
     *,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
     # WHY: Inspect scorers are already async; preserve their endpoint's log scope.
-    return await board.scored_path().aggregate_async(
-        raw_rows,
-        benchmark_id=board.benchmark.id,
-        benchmark_revision=board.benchmark.revision,
+    return await benchmark.aggregation().aggregate_async(
+        raw_case_grades,
+        benchmark_id=benchmark.benchmark.id,
+        benchmark_revision=benchmark.benchmark.revision,
         selected_cases=read_selected_cases(
             root,
             case_ids,
-            benchmark_label=board.benchmark.title,
+            benchmark_label=benchmark.benchmark.title,
             error_type=AggregateError,
         ),
-        grading_material=lambda case_id: _target(root, case_id),
+        grading_material=lambda case_id: _grading_material(root, case_id),
         scorer=_accuracy,
     )
 
 
-def _aggregate(board: ImportedBoard, root: Path) -> Callable[[str, int], Awaitable[dict[str, Any]]]:
+def _aggregate(
+    benchmark: ImportedBenchmark, root: Path
+) -> Callable[[str, int], Awaitable[dict[str, Any]]]:
     async def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        return await board_aggregate_async(
-            board, case_evaluations, root, case_ids=tuple(range(1, selected_case_count + 1))
+        return await benchmark_aggregate_async(
+            benchmark, case_evaluations, root, case_ids=tuple(range(1, selected_case_count + 1))
         )
 
     return aggregate_handler
 
 
 def _judged_aggregate(
-    board: ImportedBoard, root: Path, node: Url4Node
+    benchmark: ImportedBenchmark, root: Path, node: Url4Node
 ) -> Callable[[str, int], Awaitable[dict[str, Any]]]:
     """The judged face: bind the judge transport, grade on the CALLER's loop."""
 
     async def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        # WHY the lazy import: judge_provider drags in inspect_ai; board
+        # WHY the lazy import: judge_provider drags in inspect_ai; benchmark
         # registration happens at engine import in every mode, and only a judged
-        # board's GRADING needs the provider (the shim's own lazy-import rule).
+        # benchmark's GRADING needs the provider (the scorer adapter's own lazy-import rule).
         from screamingface_engine_inspect.judge_provider import (
             JudgeTransport,
             bound_judge_transport,
+            judge_filling_model_role,
         )
 
         async def fetch(target: str) -> str:
@@ -679,15 +723,22 @@ def _judged_aggregate(
             # identity-stamps every candidate call serves the judge's.
             return await node.fetch(target, relative=True)
 
-        assert board.judge is not None  # the endpoint wiring picks this face
+        assert benchmark.judge is not None  # the endpoint wiring picks this face
         transport = JudgeTransport(
             fetch=fetch,
-            params=board.judge.params,
-            benchmark_id=board.benchmark.id,
+            params=benchmark.judge.params,
+            benchmark_id=benchmark.benchmark.id,
         )
-        with bound_judge_transport(transport):
-            return await board_aggregate_async(
-                board,
+        with ExitStack() as scope:
+            scope.enter_context(bound_judge_transport(transport))
+            if benchmark.judge.model_role is not None:
+                # A role-based scorer asks inspect for "the grader" — answer
+                # with the pinned judge, for this grading pass only (OME-1370).
+                scope.enter_context(
+                    judge_filling_model_role(benchmark.judge.model_role, benchmark.judge.model)
+                )
+            return await benchmark_aggregate_async(
+                benchmark,
                 case_evaluations,
                 root,
                 case_ids=tuple(range(1, selected_case_count + 1)),
@@ -697,9 +748,9 @@ def _judged_aggregate(
 
 
 def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
-    """Validate the envelope, then hoist attempt 1 into the spine's candidate shape."""
+    """Validate the envelope, then hoist attempt 1 into the shared candidate shape."""
 
-    envelope: dict[str, Any] = decode_case_evaluation(grading, expected_case_id)
+    envelope: dict[str, Any] = decode_case_grade(grading, expected_case_id)
     attempt: Mapping[str, Any] = envelope["attempts"][0]
     return {
         "case": {
@@ -715,8 +766,8 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
     }
 
 
-def _target(root: Path, case_id: int) -> Mapping[str, Any] | None:
-    """Read one Case's private target record; ``None`` when the asset is unusable."""
+def _grading_material(root: Path, case_id: int) -> Mapping[str, Any] | None:
+    """Read one Case's private Grading Material record; ``None`` when the asset is unusable."""
 
     try:
         decoded: object = json.loads(
@@ -730,7 +781,7 @@ def _target(root: Path, case_id: int) -> Mapping[str, Any] | None:
 
 
 def _case_by_input(root: Path, prompt: str) -> int:
-    """Resolve the case whose baked prompt is exactly ``prompt`` (prompts are unique)."""
+    """Resolve the case whose prepared prompt is exactly ``prompt`` (prompts are unique)."""
 
     try:
         cases: object = json.loads((root / "cases.json").read_text(encoding="utf-8"))
@@ -766,10 +817,10 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
 
 
 def _run_sync[T](coroutine: Awaitable[T]) -> T:
-    """Drive the async shim from a sync route handler (the spine's own pattern).
+    """Drive the async scorer adapter from a sync route handler (the shared grading pattern).
 
-    WHY a verbatim copy of spine ``scored._run_sync`` instead of an import: it is
-    private there, and acceptance §8.2 demands ZERO spine edits in this ticket —
+    WHY a verbatim copy of shared-grading ``scored._run_sync`` instead of an import: it is
+    private there, and acceptance §8.2 demands ZERO shared-grading edits in this ticket —
     exporting it is a one-line core follow-up when a third caller appears.
     """
 
@@ -778,7 +829,7 @@ def _run_sync[T](coroutine: Awaitable[T]) -> T:
     except RuntimeError:
         return asyncio.run(_awaited(coroutine))
     # INVARIANT (OME-1240): a COPY of the caller's context rides into the worker
-    # thread, mirroring spine `scored._run_sync` verbatim — the twins must not
+    # thread, mirroring shared-grading `scored._run_sync` verbatim — the twins must not
     # diverge on whether a judge-calling hook can see the run's usage sink.
     context = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=1) as pool:
@@ -791,10 +842,10 @@ async def _awaited[T](coroutine: Awaitable[T]) -> T:
 
 __all__ = [
     "AggregateError",
-    "ImportedBoard",
+    "ImportedBenchmark",
     "JudgeSpec",
-    "board_aggregate",
-    "board_aggregate_async",
-    "install_imported_board",
-    "single_shot_board",
+    "benchmark_aggregate",
+    "benchmark_aggregate_async",
+    "install_imported_benchmark",
+    "single_shot_benchmark",
 ]

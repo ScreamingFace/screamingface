@@ -158,7 +158,7 @@ class _ParamSource:
         self.fetched: list[str] = []
 
     async def fetch_model_parameters(
-        self, credential: Credential, model: str
+        self, credential: Credential, model: str, *, traceparent: str | None = None
     ) -> ModelParameterResponse:
         self.fetched.append(model)
         return ModelParameterResponse(status=200, content=b"{}")
@@ -169,7 +169,9 @@ class _Admitter:
         self.answer = answer
         self.calls: list[str] = []
 
-    async def admit_model(self, credential: Credential, model: str) -> AdmissionAnswer:
+    async def admit_model(
+        self, credential: Credential, model: str, *, traceparent: str | None = None
+    ) -> AdmissionAnswer:
         self.calls.append(model)
         return self.answer
 
@@ -280,7 +282,7 @@ class _SequencedParamSource:
         self.fetched: list[str] = []
 
     async def fetch_model_parameters(
-        self, credential: Credential, model: str
+        self, credential: Credential, model: str, *, traceparent: str | None = None
     ) -> ModelParameterResponse:
         self.fetched.append(model)
         return self._responses.pop(0)

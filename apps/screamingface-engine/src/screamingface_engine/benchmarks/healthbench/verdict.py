@@ -1,7 +1,7 @@
-"""HealthBench's verdict dialect — a shape declaration over the shared spine parser.
+"""HealthBench's verdict dialect — a shape declaration over the shared grading parser.
 
 The parsing work (JSON recovery, strict-boolean gate, identity stamping, mandatory audit
-trail) lives once in ``spine.verdict`` (OME-1099); this module keeps only what is
+trail) lives once in ``shared_grading.judge_evidence`` (OME-1099); this module keeps only what is
 HealthBench's to own: its schema string, its reason vocabulary, and the strict-bool
 ``criteria_met`` dialect that mirrors the reference ``grade_sample`` loop
 (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
@@ -9,15 +9,15 @@ HealthBench's to own: its schema string, its reason vocabulary, and the strict-b
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.spine.verdict import (
-    VerdictShape,
-    parse_verdict,
+from screamingface_engine.benchmarks.shared_grading.judge_evidence import (
+    JudgeReplyFormat,
+    parse_judge_evidence,
     require_positive_int,
 )
-from screamingface_engine.benchmarks.spine.verdict import (
-    rubric_binding_key as binding_key,
+from screamingface_engine.benchmarks.shared_grading.judge_evidence import (
+    rubric_evidence_record_key as evidence_record_key,
 )
-from screamingface_engine.benchmarks.spine.verdict import (
+from screamingface_engine.benchmarks.shared_grading.judge_evidence import (
     rubric_verdict_call as call,
 )
 
@@ -26,7 +26,7 @@ SCHEMA = "screamingface.healthbench-rubric-verdict.v1"
 # INVARIANT: only a REAL JSON boolean counts (statuses=None) — a string "true" or a 1 is
 # an invalid reply, never a lenient yes; the reference loops until `label is True or
 # label is False`, so anything else must trigger a retry, not a verdict.
-SHAPE = VerdictShape(
+SHAPE = JudgeReplyFormat(
     schema=SCHEMA,
     status_field="criteria_met",
     statuses=None,
@@ -41,12 +41,14 @@ SHAPE = VerdictShape(
 )
 
 
-def bind(raw: str, *, case_id: int, rubric_id: int, producer_id: str) -> dict[str, object]:
+def build_evidence_record(
+    raw: str, *, case_id: int, rubric_id: int, producer_id: str
+) -> dict[str, object]:
     """Turn one raw judge reply into HealthBench's verdict record, or a documented failure."""
 
     require_positive_int(case_id, "case_id")
     require_positive_int(rubric_id, "rubric_id")
-    return parse_verdict(
+    return parse_judge_evidence(
         raw,
         shape=SHAPE,
         identity=(("case_id", case_id), ("rubric_id", rubric_id)),
@@ -54,4 +56,4 @@ def bind(raw: str, *, case_id: int, rubric_id: int, producer_id: str) -> dict[st
     ).record()
 
 
-__all__ = ["SCHEMA", "bind", "binding_key", "call"]
+__all__ = ["SCHEMA", "build_evidence_record", "evidence_record_key", "call"]

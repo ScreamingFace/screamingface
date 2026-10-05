@@ -1,6 +1,6 @@
-"""The frozen GDPval text-subset selection — what this board serves, and what it refuses.
+"""The frozen GDPval text-subset selection — what this benchmark serves, and what it refuses.
 
-INVARIANT under test: the selection is FROZEN. Its sha participates in the board's revision
+INVARIANT under test: the selection is FROZEN. Its sha participates in the benchmark's revision
 hash, so an edit here re-addresses every route — an expression written against the old
 revision physically cannot resolve against a changed selection.
 
@@ -20,12 +20,12 @@ from screamingface_engine.benchmarks.gdpval.subset import (
 
 # WHY: measured 2026-08-24 over the published parquet (all 220 rows). 109 tasks pass the
 # prose-only extension filter; 7 of those have references that cannot be extracted to text,
-# so this board serves 102. See docs/spec/2026-08-24-OME-971-gdpval-text-subset.md F2/F4.
+# so this benchmark serves 102. See docs/spec/2026-08-24-OME-971-gdpval-text-subset.md F2/F4.
 EXPECTED_CASE_COUNT = 102
 EXPECTED_EXCLUSIONS = 7
 
 
-def test_the_board_serves_exactly_the_measured_case_count() -> None:
+def test_the_benchmark_serves_exactly_the_measured_case_count() -> None:
     assert len(TEXT_SUBSET_TASK_IDS) == EXPECTED_CASE_COUNT
 
 

@@ -1,4 +1,4 @@
-"""Shared binding of one Candidate outcome to one selected Benchmark Case."""
+"""Shared builder for one Candidate outcome's record on one selected Benchmark Case."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ import json
 from collections.abc import Mapping
 
 from screamingface_engine.benchmarks.contract import validate_candidate_outcome
-from screamingface_engine.benchmarks.evaluation import CandidateAnswer, positive_case_id
+from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer, positive_case_id
 
 
-def bind_case_record(
+def build_case_record(
     raw_cases: str,
     *,
     case_id: int,
@@ -17,7 +17,7 @@ def bind_case_record(
     schema: str,
     benchmark: str,
 ) -> dict[str, object]:
-    """Bind generic Candidate fields without owning Benchmark-specific semantics."""
+    """Build generic Candidate fields without owning Benchmark-specific semantics."""
 
     selected_id = positive_case_id(case_id)
     validate_candidate_outcome(
@@ -81,4 +81,4 @@ def _optional_case_id(value: object) -> int | None:
         return None
 
 
-__all__ = ["bind_case_record"]
+__all__ = ["build_case_record"]

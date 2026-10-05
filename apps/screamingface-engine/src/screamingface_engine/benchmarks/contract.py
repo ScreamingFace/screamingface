@@ -64,6 +64,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "aigateway_bad_response",
         "aigateway_empty_response",
         "aigateway_transport_error",
+        # WHY declared (OME-939, owner decision 2026-10-02): the gateway family's one named
+        # code — aigateway's catch-all 500. Sits beside `aigateway_http_<status>`: gateway-
+        # attributed and retryable (permanent=False from the 5xx), never `upstream_error`.
+        "gateway_internal_error",
         "invalid_candidate_input",
         "web_tool_loop_limit",
         "web_retrieval_invalid",
@@ -90,7 +94,8 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "polarity_mismatch",
         "missing_answer_asset",
         "missing_target_asset",
-        # spine failure_messages table codes (spine/scored.py `_failure`)
+        # shared-grading failure_messages table codes (shared_grading/benchmark_aggregation.py
+        # `_failure`)
         "missing_case_row",
         "missing_rubric_asset",
         "case_error",
@@ -99,7 +104,7 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "missing_case_rubric",
         "scorer_error",
         "invalid_score_value",
-        # fallback defaults (evaluation.py upstream re-raise, aggregation.py default_code)
+        # fallback defaults (grading_endpoints.py upstream re-raise, aggregation.py default_code)
         "grading_dependency_failed",
         "grading_failed",
         # upstream pass-through codes observed in reports today (public_error keeps
@@ -222,7 +227,7 @@ class Failure(_StrictWireModel):
     @classmethod
     def _validate_code(cls, value: str) -> str:
         # INVARIANT (OME-1234): every published failure passes through this model,
-        # whichever board produced it — refusing an undeclared code HERE means it can
+        # whichever benchmark produced it — refusing an undeclared code HERE means it can
         # never reach a report, so the vocabulary cannot drift one typo at a time.
         # Unknown UPSTREAM codes never hit this: public_error maps them to
         # upstream_error before a Failure is built.
@@ -307,7 +312,7 @@ class OperationOutput(_StrictWireModel):
         return validate_finish_reason(value)
 
 
-class CorrectiveExecution(_StrictWireModel):
+class CorrectiveLoopOutcome(_StrictWireModel):
     """The final, benchmark-neutral execution outcome of one corrective Recipe."""
 
     schema_version: Literal["screamingface.corrective-execution.v1"] = Field(
@@ -327,7 +332,7 @@ class CandidateInvocation(_StrictWireModel):
     output: str
     finish_reason: str | None
     refusal: str | None
-    execution: CorrectiveExecution | None
+    execution: CorrectiveLoopOutcome | None
     # WHY: excluded when None so an unattributed Candidate envelope stays byte-identical to
     # the pre-OME-843 contract — the key exists only when the Engine attributed named operations.
     operations: list[OperationOutput] | None = Field(
@@ -367,7 +372,7 @@ def is_valid_corrective_execution(value: object) -> bool:
     return True
 
 
-def validate_corrective_execution(value: object) -> CorrectiveExecution:
+def validate_corrective_execution(value: object) -> CorrectiveLoopOutcome:
     """Decode the exact versioned envelope accepted at Engine wire boundaries."""
 
     if (
@@ -376,7 +381,7 @@ def validate_corrective_execution(value: object) -> CorrectiveExecution:
         or value.get("schema") != "screamingface.corrective-execution.v1"
     ):
         raise ValueError("corrective execution has an invalid shape or schema")
-    return CorrectiveExecution.model_validate(value)
+    return CorrectiveLoopOutcome.model_validate(value)
 
 
 def _require_scored_case(case: CaseResult) -> None:
@@ -445,6 +450,11 @@ class CandidateResult(_StrictWireModel):
     metrics: dict[str, Any]
     cases: list[CaseResult]
     failures: list[Failure]
+    # FEATURE: the Benchmark-level refusal-rate mark (OME-1400). The run result carries it so a
+    # replayed report — which reads nothing else — can show it.
+    # INVARIANT: absent unless true. The SDK refuses unknown keys here, so emitting `false`
+    # for every Benchmark would break every SDK that predates the mark.
+    inverted_grade: bool = Field(default=False, exclude_if=lambda value: not value)
 
     @field_validator("score", mode="before")
     @classmethod
@@ -595,7 +605,7 @@ def encode_candidate_invocation(
     output: str,
     finish_reason: str | None,
     refusal: str | None,
-    execution: CorrectiveExecution | None = None,
+    execution: CorrectiveLoopOutcome | None = None,
     *,
     status: CandidateInvocationStatus | None = None,
     operations: Sequence[OperationOutput] | None = None,
@@ -652,7 +662,7 @@ def decode_candidate_invocation(value: str) -> tuple[str, str | None, str | None
     return decoded.output, decoded.finish_reason, decoded.refusal
 
 
-def decode_candidate_execution(value: str) -> CorrectiveExecution | None:
+def decode_loop_outcome(value: str) -> CorrectiveLoopOutcome | None:
     """Decode the optional execution provenance carried by a Candidate Invocation."""
 
     return decode_candidate_invocation_record(value).execution
@@ -671,7 +681,7 @@ __all__ = [
     "CaseGrade",
     "CaseResult",
     "CandidateResult",
-    "CorrectiveExecution",
+    "CorrectiveLoopOutcome",
     "OperationOutput",
     "OperationAccounting",
     "OperationCache",
@@ -681,7 +691,7 @@ __all__ = [
     "EvidenceProducer",
     "Failure",
     "candidate_coverage",
-    "decode_candidate_execution",
+    "decode_loop_outcome",
     "decode_candidate_invocation",
     "decode_candidate_invocation_record",
     "encode_candidate_invocation",

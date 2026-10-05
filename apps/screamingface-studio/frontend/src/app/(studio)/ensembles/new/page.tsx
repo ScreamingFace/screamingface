@@ -51,11 +51,12 @@ import {
   useEnsembleStore,
 } from "@/lib/ensemble-store";
 import {
-  ALL_MODELS,
-  PROVIDER_COLORS,
-  type ModelProvider,
+  toSavedModel,
+  type ProviderView,
   useModelStore,
+  useProviders,
 } from "@/lib/model-store";
+import { providerPresentation } from "@/lib/provider-presentation";
 import { useOpenMinedStore } from "@/lib/openmined-store";
 import {
   type FusionNode,
@@ -152,7 +153,7 @@ function ProviderDot({ provider }: { provider: string }) {
   return (
     <span
       className="inline-block size-2 shrink-0 rounded-full"
-      style={{ background: PROVIDER_COLORS[provider] ?? "var(--primary)" }}
+      style={{ background: providerPresentation(provider).color }}
     />
   );
 }
@@ -203,7 +204,7 @@ function InlineModelPicker({
   onAdd,
   label = "Add model",
 }: {
-  providers: ModelProvider[];
+  providers: ProviderView[];
   onAdd: (model: Model) => void;
   label?: string;
 }) {
@@ -400,13 +401,14 @@ function ParamEditor({
   );
 }
 
-function parseRecipe(raw: string) {
+function parseRecipe(raw: string, catalog: Model[]) {
   const match = raw.match(/^url4:\/\/([^?]+)\?(.*)$/);
   if (!match) return null;
   const params = new URLSearchParams(match[2]);
-  const slots = (params.get("models") ?? "")
-    .split(/[+\s]+/)
-    .map((id) => ALL_MODELS.find((model) => model.id === id))
+  const ids = (params.get("models") ?? "").split(/[+\s]+/).filter(Boolean);
+  const unknown = ids.filter((id) => !catalog.some((model) => model.id === id));
+  const slots = ids
+    .map((id) => catalog.find((model) => model.id === id))
     .filter((model): model is Model => Boolean(model))
     .map((model) => ({
       id: createUuid(),
@@ -417,6 +419,7 @@ function parseRecipe(raw: string) {
   return {
     name: decodeURIComponent(match[1]).replace(/\s+/g, "-").toLowerCase(),
     slots,
+    unknown,
   };
 }
 
@@ -1853,7 +1856,7 @@ function FusionBody({
 }: {
   node: FusionNode;
   onChange: (next: RecipeNode) => void;
-  providers: ModelProvider[];
+  providers: ProviderView[];
   onUseModels: (models: Model[]) => void;
   depth: number;
 }) {
@@ -1924,7 +1927,7 @@ function PipelineBody({
 }: {
   node: PipelineNode;
   onChange: (next: RecipeNode) => void;
-  providers: ModelProvider[];
+  providers: ProviderView[];
   onUseModels: (models: Model[]) => void;
   depth: number;
 }) {
@@ -2053,7 +2056,7 @@ function RecipeNodeCard({
 }: {
   node: RecipeNode;
   onChange: (next: RecipeNode) => void;
-  providers: ModelProvider[];
+  providers: ProviderView[];
   onUseModels: (models: Model[]) => void;
   onRemove?: () => void;
   role?: NodeRole;
@@ -2222,8 +2225,18 @@ function EnsembleComposer() {
   const setActiveEnsemble = useEnsembleStore(
     (state) => state.setActiveEnsemble,
   );
-  const providers = useModelStore((state) => state.providers);
+  const providers = useProviders();
   const addLibraryModels = useModelStore((state) => state.addLibraryModels);
+  const catalogLoad = useModelStore((state) => state.load);
+  const refreshCatalog = useModelStore((state) => state.refresh);
+  // An imported recipe names models by Engine id, so it can only be resolved once the catalog
+  // has loaded. On a failed load it waits: resolving against an empty catalog would drop every
+  // model. A retry that succeeds re-runs the import.
+  const catalogReady = catalogLoad === "ready";
+  const [droppedModels, setDroppedModels] = useState<string[]>([]);
+  const [loadedEnsembleId, setLoadedEnsembleId] = useState<string | null>(null);
+  const recipeWaiting =
+    Boolean(importedRecipe) && !requestedId && loadedEnsembleId !== ensembleId;
   const [name, setName] = useState("fusion-1");
   const {
     editing: editingName,
@@ -2237,18 +2250,34 @@ function EnsembleComposer() {
   const [zoom, setZoom] = useState(1);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [autoSave, setAutoSave] = useState(true);
-  const [loadedEnsembleId, setLoadedEnsembleId] = useState<string | null>(null);
+  const loadedKeyRef = useRef<string | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
 
   useEffect(() => {
+    if (catalogLoad === "idle") void refreshCatalog();
+  }, [catalogLoad, refreshCatalog]);
+
+  useEffect(() => {
     if (!storeHasHydrated) return;
+    // WHY: loading an ensemble replaces the composer's state. Once this ensemble/recipe has
+    // loaded, a later catalog refresh must not re-run it and wipe the user's edits.
+    const loadKey = `${ensembleId}|${importedRecipe ?? ""}`;
+    if (loadedKeyRef.current === loadKey) return;
+    if (importedRecipe && !requestedId && !catalogReady) return;
     const storedEnsembles = useEnsembleStore.getState().ensembles;
     const saved = requestedId
       ? storedEnsembles.find((ensemble) => ensemble.id === requestedId) ?? null
       : null;
-    const parsed = importedRecipe ? parseRecipe(importedRecipe) : null;
+    const catalog = useModelStore
+      .getState()
+      .models.map((model) => {
+        const view = providers.find((provider) => provider.id === model.owned_by);
+        return toSavedModel(model, view?.name);
+      });
+    const parsed = importedRecipe ? parseRecipe(importedRecipe, catalog) : null;
     const frame = window.requestAnimationFrame(() => {
+      setDroppedModels(!saved && parsed ? parsed.unknown : []);
       if (saved) {
         const savedRunHistory = saved.runHistory ?? [];
         const nextRoot =
@@ -2286,12 +2315,15 @@ function EnsembleComposer() {
       }
       setActiveEnsemble(ensembleId);
       setLoadedEnsembleId(ensembleId);
+      loadedKeyRef.current = loadKey;
     });
     return () => window.cancelAnimationFrame(frame);
   }, [
     ensembleId,
     addLibraryModels,
+    catalogReady,
     importedRecipe,
+    providers,
     requestedId,
     setActiveEnsemble,
     storeHasHydrated,
@@ -2466,6 +2498,30 @@ function EnsembleComposer() {
             </Button>
           </div>
         </div>
+
+        {recipeWaiting && catalogLoad === "error" && (
+          <div
+            role="alert"
+            className="mt-3 flex flex-wrap items-center gap-3 text-xs text-destructive"
+          >
+            The model catalog hasn&apos;t loaded, so this recipe can&apos;t be
+            imported yet. Is the local ScreamingFace runtime running?
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 rounded-lg"
+              onClick={() => void refreshCatalog()}
+            >
+              Retry
+            </Button>
+          </div>
+        )}
+        {droppedModels.length > 0 && (
+          <p role="status" className="mt-3 text-xs text-destructive">
+            Left out models the catalog doesn&apos;t have:{" "}
+            <span className="font-mono">{droppedModels.join(", ")}</span>
+          </p>
+        )}
 
         <TabsList className="-mb-4 mt-4">
           <TabsTrigger value="compose">Compose</TabsTrigger>

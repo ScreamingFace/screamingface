@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -19,15 +18,16 @@ from screamingface_engine.benchmarks.contract import (
     CaseGrade,
     CaseId,
     CaseResult,
-    CorrectiveExecution,
+    CorrectiveLoopOutcome,
     Failure,
     OperationOutput,
     candidate_coverage,
     is_declared_failure_code,
     validate_case_id,
 )
-from screamingface_engine.benchmarks.evaluation import CandidateAnswer
 from screamingface_engine.benchmarks.failure_classes import UPSTREAM_FALLBACK_CODE
+from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
+from screamingface_engine.error_text import public_identifier, public_message
 from screamingface_engine.grading_accounting import reconcile_candidate_grading_accounting
 
 
@@ -81,8 +81,13 @@ def finalize_candidate_result(
     cases: Sequence[CaseResult | Mapping[str, Any]],
     scorer: Scorer,
     failures: Sequence[Failure | Mapping[str, Any]] = (),
+    inverted_grade: bool = False,
 ) -> CandidateResult:
-    """Preserve Cases and score exactly the subset carrying numeric Benchmark grades."""
+    """Preserve Cases and score exactly the subset carrying numeric Benchmark grades.
+
+    ``inverted_grade`` marks a Benchmark whose Case scores are already 1 − the eval's grade
+    (OME-1400); it rides the result so a replayed report can show it.
+    """
 
     selection = [
         case if isinstance(case, SelectedCase) else SelectedCase.model_validate(case)
@@ -145,6 +150,7 @@ def finalize_candidate_result(
         metrics=scored.metrics if scored is not None else {},
         cases=typed_cases,
         failures=typed_failures,
+        inverted_grade=inverted_grade,
     )
     reconcile_candidate_grading_accounting(result)
     return result
@@ -158,9 +164,9 @@ def public_error(
 ) -> PublicError:
     """Retain useful error fields without publishing runner internals or credentials."""
 
-    kind = _public_identifier(error.get("kind"))
-    code = _public_identifier(error.get("code")) or default_code
-    message = _public_message(error.get("message"), default=default_message)
+    kind = public_identifier(error.get("kind"))
+    code = public_identifier(error.get("code")) or default_code
+    message = public_message(error.get("message"), default=default_message)
     retryable = error.get("retryable")
     if not isinstance(retryable, bool):
         permanent = error.get("permanent")
@@ -178,54 +184,6 @@ def public_error(
     )
 
 
-def _public_identifier(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()[:80]
-    return normalized if re.fullmatch(r"[A-Za-z0-9_.:-]+", normalized) else None
-
-
-def _public_message(value: object, *, default: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        return default
-    normalized = " ".join(value.split())[:200]
-    lowered = normalized.casefold()
-    internal_markers = (
-        "traceback (most recent call last)",
-        'file "',
-        "/users/",
-        "/private/",
-        "/tmp/",
-        "/var/",
-        "/home/",
-    )
-    return (
-        default
-        if any(marker in lowered for marker in internal_markers)
-        or any(pattern.search(normalized) for pattern in _SENSITIVE_ERROR_PATTERNS)
-        else normalized
-    )
-
-
-_SENSITIVE_ERROR_PATTERNS = (
-    # Absolute/relative POSIX, drive-letter Windows, and UNC paths. Public
-    # diagnostics retain the bounded default instead of trying to redact an
-    # unbounded path grammar piecemeal.
-    re.compile(r"(?i)(?:^|[\s'\"(])(?:/|\.{1,2}/)[^\s'\")]+"),
-    re.compile(r"(?i)(?:^|[\s'\"(])[a-z]:\\[^\s'\")]+"),
-    re.compile(r"(?i)(?:^|[\s'\"(])\\\\[^\\\s]+\\[^\s'\")]+"),
-    re.compile(
-        r"(?i)(?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*"
-        r"(?:authorization|password|passwd|pwd|secret|token|cookie|api[_-]?key|"
-        r"access[_-]?key)\s*[:=]"
-    ),
-    re.compile(r"(?i)\bbearer\s+\S+"),
-    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-)
-
-
 def scored_case_result(
     *,
     selected_case: SelectedCase,
@@ -235,7 +193,7 @@ def scored_case_result(
     finish_reason: str | None,
     grade: CaseGrade | Mapping[str, Any],
     metadata: Mapping[str, Any] | None = None,
-    execution: CorrectiveExecution | Mapping[str, Any] | None = None,
+    execution: CorrectiveLoopOutcome | Mapping[str, Any] | None = None,
     operations: Sequence[OperationOutput | Mapping[str, Any]] | None = None,
 ) -> CaseResult:
     """Construct one scored Case without exposing the wire envelope to adapters."""
@@ -266,7 +224,7 @@ def failed_case_result(
     finish_reason: str | None = None,
     grade: CaseGrade | Mapping[str, Any] | None = None,
     metadata: Mapping[str, Any] | None = None,
-    execution: CorrectiveExecution | Mapping[str, Any] | None = None,
+    execution: CorrectiveLoopOutcome | Mapping[str, Any] | None = None,
     operations: Sequence[OperationOutput | Mapping[str, Any]] | None = None,
 ) -> CaseResult:
     """Construct one failed Case while retaining any safe partial grading evidence."""
@@ -303,7 +261,7 @@ def refusal_case_result(
     finish_reason: str | None = None,
     failures: Sequence[Failure | Mapping[str, Any]] = (),
     metadata: Mapping[str, Any] | None = None,
-    execution: CorrectiveExecution | Mapping[str, Any] | None = None,
+    execution: CorrectiveLoopOutcome | Mapping[str, Any] | None = None,
     operations: Sequence[OperationOutput | Mapping[str, Any]] | None = None,
 ) -> CaseResult:
     """Classify one refused Candidate Invocation into its case-level outcome.
@@ -456,14 +414,14 @@ def _case_metadata(
 
 
 def _execution_fields(
-    execution: CorrectiveExecution | Mapping[str, Any] | None,
+    execution: CorrectiveLoopOutcome | Mapping[str, Any] | None,
 ) -> tuple[Literal["passed", "max_rounds"] | None, int | None]:
     if execution is None:
         return None, None
     typed = (
         execution
-        if isinstance(execution, CorrectiveExecution)
-        else CorrectiveExecution.model_validate(execution)
+        if isinstance(execution, CorrectiveLoopOutcome)
+        else CorrectiveLoopOutcome.model_validate(execution)
     )
     return typed.stop_reason, typed.rounds_executed
 

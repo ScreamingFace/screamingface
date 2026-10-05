@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="eval-split">
+    <mxGraphModel dx="1600" dy="1100" background="#0a0f1c" grid="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ttl" value="The exam hall we never enter: each eval() step, and the ScreamingFace component that does it instead" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="hl" value="inspect's eval(), one sitting of one model: NEVER RUN&#xa;_eval/eval.py#L118 → task_run (run.py#L738) → task_run_sample (run.py#L2103)" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontColor=#8b98ab;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="520" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="hr" value="ScreamingFace: the one component that does it instead, and when" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="680" y="60" width="580" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="l1" value="① load the Samples&#xa;task.dataset, sliced and shuffled · run.py#L811&#xa;⏱ at the start of every sitting" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="520" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r1" value="① Case Preparation fetches the Samples from the pinned Case Sources, freezes them as Cases&#xa;⏱ image build, once · 🌐 the only step with network access · 🔐 the Case Digest must match at every build" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="680" y="120" width="580" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="l2" value="② build the prompt for each Sample&#xa;the solver chain up to generate · run.py#L2647&#xa;⏱ per Sample, in parallel" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="230" width="520" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" value="② Case Preparation renders the prompt into the Case&#xa;today: our rendering of the chain's facts · capture (#1219): the real chain, stand-in generate&#xa;🧩 the Case input must be the bytes inspect would send" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="680" y="230" width="580" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="st1" value="🗄️ prepared Cases&#xa;cases.json + targets/&#xa;💾 inside the Engine image" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#ede9fe;fontFamily=Courier New;fontSize=11;boundedLbl=1;" vertex="1" parent="1">
+          <mxGeometry x="1310" y="150" width="190" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="seat" value="the model's seat: everything above happens once, at image build, with no model in the room · everything below happens per Case at run time" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontColor=#e8b339;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="325" width="1460" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="seatline" value="" style="endArrow=none;dashed=1;html=1;strokeColor=#e8b339;strokeWidth=1;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="40" y="360" as="sourcePoint" />
+            <mxPoint x="1500" y="360" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l3" value="③ CALL THE MODEL&#xa;generate() bound to one model, with task.config · run.py#L1187&#xa;💰 the one paid step" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="380" width="520" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r3" value="③ THE RECIPE CALLS THE CANDIDATE: one Candidate Invocation per Case, one Model or a Fusion&#xa;⏱ run time, per Case · 💰 metered through the AI gateway · 🔐 the Candidate never sees Grading Material" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#33240a;strokeColor=#e8b339;fontColor=#fef3c7;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="680" y="380" width="580" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="l4" value="④ limits, retries, error policy, epochs&#xa;the limit scope · run.py#L2578 · fail_on_error #L2387&#xa;⏱ around every Sample" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="490" width="520" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r4" value="④ the Engine's rules of the sitting: one attempt per Case, a named failure code per Case, the Failure Policy (coverage_declare) and Coverage&#xa;🔀 a failed Case never aborts the Evaluation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dcfce7;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="680" y="490" width="580" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="l5" value="⑤ score each Sample&#xa;scorer(state, Target(sample.target)) · run.py#L2884&#xa;⏱ per Sample, after the answer" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="600" width="520" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r5" value="⑤ Grading: the scorer adapter rebuilds inspect's TaskState from the Grading Material and the answer, then awaits the eval's own scorer&#xa;⏱ per Case · 🌐 no network; a Judge only through the AI gateway" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dcfce7;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="680" y="600" width="580" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="l6" value="⑥ reduce to metrics&#xa;eval_results with task.metrics and the epochs reducer · run.py#L1791&#xa;⏱ once per task" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="710" width="520" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r6" value="⑥ Aggregation: the mean per-Case score over graded Cases, with correct and scored_cases&#xa;⏱ once per Candidate · 🧩 no stderr, no custom metrics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dcfce7;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="680" y="710" width="580" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="l7" value="⑦ write the log&#xa;log_sample #L3054, finish_task_log #L1820 → an .eval file&#xa;⏱ end of the sitting" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="820" width="520" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r7" value="⑦ the Report: every Case Result, lossless; Report.export(format=&quot;inspect&quot;) rebuilds an .eval log for inspect view (OME-1117)&#xa;⏱ end of the Evaluation; export on demand" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dcfce7;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="680" y="820" width="580" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="st2" value="🗄️ the Report&#xa;💾 the Evaluation&#39;s artefact,&#xa;kept by the SDK" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#ede9fe;fontFamily=Courier New;fontSize=11;boundedLbl=1;" vertex="1" parent="1">
+          <mxGeometry x="1310" y="805" width="190" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="done instead by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="l1" target="r1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="done instead by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="l2" target="r2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="the seat we own" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e8b339;fontColor=#e8b339;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="l3" target="r3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="replaced by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="l4" target="r4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="same scorer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="l5" target="r5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="replaced by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="l6" target="r6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="replaced by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="l7" target="r7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="es1" value="writes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#a78bfa;fontColor=#a78bfa;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="r2" target="st1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="es2" value="writes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#a78bfa;fontColor=#a78bfa;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="r7" target="st2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="key" value="HOW TO READ: left column = inspect's steps, dashed grey because none of them ever runs here; the line numbers are inspect_ai tag 0.3.263. Right column = the ScreamingFace component, coloured by WHEN: blue = image build, once · gold = the model seat, run time · green = run time, per Case or per Candidate · purple cylinder = where data rests. ① to ⑦ number the rows of the table under this diagram that have a box: the model-roles row is part of ③, epochs is part of ④, and the sandbox row has no box because it is refused at import. Tags inside a box: ⏱ when · 🌐 network · 🔐 trust · 🧩 meaning · 🔀 ordering · 💰 paid." style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="930" width="1460" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

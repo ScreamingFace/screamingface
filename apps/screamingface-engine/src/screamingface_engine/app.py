@@ -11,7 +11,7 @@ import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -39,9 +39,12 @@ if TYPE_CHECKING:  # the adapter is imported lazily at runtime; only the annotat
 
 from screamingface_engine.connections import build_connections
 from screamingface_engine.connections.port import Connections
+from screamingface_engine.cors import install_cors
+from screamingface_engine.logs import configure as configure_logging
 from screamingface_engine.metrics import (
     MetricsMiddleware,
     build_metrics,
+    register_active_runs_metrics,
     register_catalog_metrics,
     register_events_metrics,
     register_max_deliveries_metrics,
@@ -61,6 +64,7 @@ from screamingface_engine.rest import (
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.schemas import customize_openapi
+from screamingface_engine.tracing.relay import SpanSink, otlp_configured
 from screamingface_engine.unclaimed import QueuedRuns, UnclaimedRunWarner
 from screamingface_engine.world.serving import derive_mount_table, engine_route_paths
 from screamingface_engine.ws import ConnectionRegistry
@@ -108,12 +112,27 @@ def create_app(
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
+    span_sink: SpanSink | None = None,
 ) -> FastAPI:
     """Build the App instance.
 
     All keyword-only params are DI seams: production wiring supplies real adapters via
     `create_app_from_env`, tests inject fakes/mocks directly.
     """
+    # FEATURE (OME-942): every ASGI entry keeps app logging, not just `cli.main`.
+    #
+    # WHY here and not only in the CLI: `uvicorn.run()` installs handlers for the `uvicorn*`
+    # loggers ONLY, so a `screamingface_engine` record falls through to `logging.lastResort`
+    # and is discarded below WARNING — the regression `logs.py`'s docstring documents. Any
+    # other ASGI host (`uvicorn screamingface_engine.app:create_app_from_env`, an embedding
+    # process, a test harness) reproduced it in full. `create_app` is the one door they all go
+    # through.
+    #
+    # INVARIANT: `configure` is idempotent about ITS OWN handler, so the CLI's call followed by
+    # this one installs exactly one, and a process that builds two Apps does not double every
+    # line. FIRST statement in the builder, because a failure while building `Settings` below
+    # is precisely the failure whose log line the operator needs.
+    configure_logging()
     settings = settings or Settings()
     app = FastAPI(title="screamingface-engine", version="0.1.0", docs_url=None, redoc_url=None)
     app.state.settings = settings
@@ -138,15 +157,12 @@ def create_app(
     # AIDEV-NOTE: with `artifact_store=s3` the sweeper is a no-op by design — expiry is the
     # bucket's lifecycle rule. See `artifacts.s3.S3ArtifactStore.sweep`.
     _install_artifact_sweeper(app, app.state.artifact_store, settings)
-    # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
-    # every /metrics scrape rather than capturing the value built here.
-    register_catalog_metrics(app.state.metrics, lambda: app.state.catalog)
-    _register_runner_metrics(app)
+    _register_metrics(app)
     # FEATURE: the shared events stream's own signals — store use and publish conflicts
     # (uniform executor, PRD 01 §4 Observability). A stream that can refresh its own usage
     # (the JetStream adapter; not the in-memory local one) also gets a periodic poller.
     _install_events_store_monitor(app, stream)
-    app.add_middleware(MetricsMiddleware)
+    _install_middleware(app, settings)
     app.state.registry = ConnectionRegistry()
     register_sync_metrics(app.state.metrics, lambda: app.state.registry)
     app.state.interest = interest if interest is not None else app.state.registry
@@ -165,18 +181,81 @@ def create_app(
     _install_max_deliveries_advisor(app, settings)
     if clock is not None:
         app.state.clock = clock
-    _install_surfaces(app)
+    _install_surfaces(app, span_sink)
     return app
 
 
-def _install_surfaces(app: FastAPI) -> None:
+def control_plane_span_sink(env: Mapping[str, str]) -> SpanSink | None:
+    """The App's span sink, or ``None`` when this deployment configured no OTLP endpoint.
+
+    WHY the import is lazy: `tracing.otlp` pulls the OTel SDK, protobuf and `requests`; an App
+    with no endpoint pays none of it. INVARIANT: never raises — a broken exporter config must
+    not stop the App from serving runs; telemetry degrades alone.
+
+    AIDEV-NOTE: the run half has the same loader (`runner.main.span_sink`). It is not shared
+    yet because the control plane may not import the run half, and moving it means editing
+    `runner/main.py` (deferred, see the OME-1218 ledger).
+    """
+    if not otlp_configured(env):
+        return None
+    try:
+        from screamingface_engine.tracing.otlp import sink_from_env
+
+        return sink_from_env(env)
+    except Exception:
+        _logger.warning("span export is configured but could not be started", exc_info=True)
+        return None
+
+
+def _install_span_sink(app: FastAPI, sink: SpanSink | None) -> None:
+    """Publish the sink to the routes and flush it at shutdown.
+
+    WHY `to_thread`: `OtlpSpanSink.close` blocks for up to its flush bound, and the event loop
+    is still serving other shutdown hooks.
+    """
+    app.state.span_sink = sink
+    if sink is None:
+        return
+
+    async def _close() -> None:
+        try:
+            await asyncio.to_thread(sink.close)
+        except Exception:
+            _logger.warning("the span sink did not shut down cleanly", exc_info=True)
+
+    app.router.on_shutdown.append(_close)
+
+
+def _install_middleware(app: FastAPI, settings: Settings) -> None:
+    """Add the App's ASGI middleware; the last one added is the outermost."""
+    app.add_middleware(MetricsMiddleware)
+    # WHY CORS last (outermost): a preflight is answered before routing, and a handled error
+    # (the problem+json 4xx/5xx) carries the grant too, so the browser can read its body.
+    install_cors(app, settings.cors_allowed_origins)
+
+
+def _install_surfaces(app: FastAPI, span_sink: SpanSink | None = None) -> None:
     """Register every engine HTTP surface; declared mounts are registered separately, by
     `install_mounts` at startup."""
+    # FEATURE (OME-1218): the run-submission route's accept span. `None` (the default) keeps
+    # the route exactly as it was: no span, the inbound traceparent forwarded verbatim.
+    _install_span_sink(app, span_sink)
     install_problem_handlers(app)
     for api_router in _ROUTERS:
         app.include_router(api_router)
     app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
     customize_openapi(app)
+
+
+def _register_metrics(app: FastAPI) -> None:
+    """Every custom collector this App exposes, in one place.
+
+    WHY getters throughout, never the built value: each collector re-reads `app.state` at
+    SCRAPE time, so a series reflects the App as it is rather than as it was at boot, and
+    /metrics never depends on wiring order.
+    """
+    register_catalog_metrics(app.state.metrics, lambda: app.state.catalog)
+    _register_runner_metrics(app)
 
 
 def _register_runner_metrics(app: FastAPI) -> None:
@@ -197,6 +276,10 @@ def _register_runner_metrics(app: FastAPI) -> None:
         lambda: app.state.stream,
         lambda: getattr(app.state.job_runner, "publisher", None),
     )
+    # FEATURE (OME-942): runs in flight in THIS process — the admission gate's own input, and
+    # until now a number only the code enforcing it could see. Through a getter like the rest,
+    # so it is read at SCRAPE time rather than captured at boot.
+    register_active_runs_metrics(app.state.metrics, lambda: app.state.job_runner)
 
 
 # RFC 7518 §3.2: an HMAC key must be at least as long as the hash output — 32 bytes for SHA-256.
@@ -626,6 +709,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
         connections=connections,
         benchmarks=BUILTIN_BENCHMARKS,
+        span_sink=control_plane_span_sink(os.environ),
     )
     # The App owns the configured limits: declare the shared events stream (and apply a
     # changed limit) before the first request, and fail startup on a config it cannot apply.

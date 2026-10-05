@@ -38,7 +38,13 @@ screamingface logs --service engine --tail 100 --no-follow
 screamingface prepare --list
 ```
 
-Logs are timestamped, tagged by service, rotated at 10 MiB, and retain five backups. Benchmark
+Logs are timestamped, tagged by service, rotated at 10 MiB, and retain five backups. The log and
+its backups are readable only by you. Versions before `OME-990` wrote prompts into this log;
+`screamingface logs --purge` deletes the backups and empties the live log (it does not securely
+erase the disk blocks). Three structural prompt carriers are redacted before anything is
+written: url4 `q=` query values, litellm's `Messages:` exception suffix, and litellm's debug curl
+`-d` body. The runtime also forces `LITELLM_LOG=WARNING`. Prompt text that appears without one
+of those markers is not detected, so review a log before sharing it. Benchmark
 preparation records a versioned manifest, skips current assets, and supports `--force` when a
 fresh download is required.
 
@@ -446,6 +452,37 @@ errors such as invalid Python argument types retain their normal tracebacks.
 Every `CandidateResult` exposes the Engine-owned top-level `coverage` ratio. A partial score remains
 available alongside the Cases that could not be graded, and the notebook Report panel labels the
 result as partial rather than silently presenting it as a complete evaluation.
+
+### Completed accounting breakdown
+
+Each Candidate exposes derived views of the Engine's retained operation and grading records:
+
+```python
+breakdown = report.candidates[0].accounting
+breakdown.by_stage  # generation, synthesis, grading
+breakdown.by_operation  # (stage, operation/check id)
+breakdown.by_member  # direct model-member operation ids
+breakdown.by_model  # request model or reliable declared identity; None when unknown
+breakdown.by_case  # original Case ids
+breakdown.unattributed_cost_usd
+```
+
+Each group has `usage`, `calls`, `cache`, `provider_latency_ms`, and `provider_attempts`.
+These summarize retained observations; they do not replace the authoritative run total.
+Missing observations remain unknown. A missing record stays in its declared model group
+when that identity is unambiguous and agrees with retained requests. If any row's model
+cannot be identified, all named `by_model` summaries are unknown: the unidentified work
+could belong to any of them. The `None` bucket summarizes only its anonymous observations.
+Calls count consumed responses, not provider retries.
+Provider time sums attempt latencies and is not wall time. Unknown or unpriced costs prevent
+an exact remainder; inconsistent records disable the breakdown (`consistent=False`).
+Loop internals and composite-member ownership remain unattributed where the retained contract
+cannot prove their scope. Derived group views are not added to Report JSON.
+
+Each completed Report Case has **Answer & grading** and **Cost & usage** views.
+The latter shows labelled activity blocks; whole-run totals remain above the Cases.
+Try [the offline review notebook](examples/14_report_accounting.ipynb) without credentials or
+paid calls. Its synthetic figures are explicitly labelled; actual evaluations use the same UI.
 
 ## Ownership boundary
 

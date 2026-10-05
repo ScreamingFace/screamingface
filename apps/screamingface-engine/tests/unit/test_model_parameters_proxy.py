@@ -239,6 +239,8 @@ class _ParameterSource:
         self,
         credential: Credential,
         model: str,
+        *,
+        traceparent: str | None = None,
     ) -> ModelParameterResponse:
         self.seen.append((credential, model))
         return self.response
@@ -249,6 +251,8 @@ class _FailingParameterSource:
         self,
         credential: Credential,
         model: str,
+        *,
+        traceparent: str | None = None,
     ) -> ModelParameterResponse:
         raise CatalogBadResponse("upstream included a secret-shaped detail")
 
@@ -394,6 +398,8 @@ async def test_engine_maps_a_model_details_timeout_to_a_private_504_problem() ->
             self,
             credential: Credential,
             model: str,
+            *,
+            traceparent: str | None = None,
         ) -> ModelParameterResponse:
             raise CatalogUnavailable(CatalogUnavailable.detail)
 

@@ -304,6 +304,19 @@ def test_recording_a_dispatch_failure_on_a_connection_marks_it_without_rewriting
     assert harness.connection_status(connection_id) == "error"
 
 
+def test_recording_a_dispatch_failure_marks_only_the_resolved_connection(
+    harness: Harness,
+) -> None:
+    selected = harness.seed_connection(label="default")
+    target = _resolve(harness)
+    untouched = harness.seed_connection(label="backup")
+
+    _record(harness, target, {"code": "auth_required", "message": "revoked"})
+
+    assert harness.connection_status(selected) == "error"
+    assert harness.connection_status(untouched) == "active"
+
+
 def test_recording_a_dispatch_failure_on_a_credential_free_target_is_a_no_op(
     harness: Harness,
 ) -> None:

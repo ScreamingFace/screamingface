@@ -225,6 +225,19 @@ from 17048f5d on branch `OME-1138-converge-connections` in the shared checkout. 
   imports and the facade updated, every export unchanged, OpenAPI byte-identical against `837ab5b6`,
   a filename-policy test added. Ledger `docs/work/2026-09-15-OME-1204-rename-provider-access-modules.md`.
 
+## Stage D administrative close (2026-10-01)
+
+- `OME-1377` settled D12, the D4 rollout and D13; Stage D metamodel PR #25 merged as `3ba6a3d`.
+- Engine producer-off `OME-1381` merged in PR #1082 as `df6e9b92`: new Engine work is
+  selector-less and absent queue fields clear ambient `AIGATEWAY_PROFILE`.
+- The owner waived the activation census/drain proof, canceled `OME-1401`, and accepted the
+  documented alpha-canary fail-closed risk without a production read or zero-count claim.
+- Gateway rejection `OME-1394` merged in PR #1114 as `3083640b`: every nonblank `X-Profile` is
+  refused without echoing its value; selector-less multi-active pairs remain an explicit 409.
+- Stage D rejection is complete. Remaining Stage D scope is `OME-1398` and separately authorised
+  Engine/URL4 legacy-carrier cleanup. The umbrella remains in progress for D18 (`OME-1375`),
+  production readiness (`OME-1333`) and final Stage E retirement (`OME-1209`).
+
 ## Test plan
 
 - P0: record existing gate results for aigateway and the meta tool checks (baseline only,

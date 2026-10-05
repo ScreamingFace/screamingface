@@ -266,8 +266,9 @@ Helm rollback does not roll back database schema migrations. Keep migrations for
 `values-prod.yaml` sets `replicaCount: 3`, and the migration Job is a `pre-upgrade` hook — it
 finishes **before** the Deployment rolls. So during a production upgrade the old pods keep serving
 against the **new** schema until the rollout completes. A migration that renames or drops a column
-those pods still query makes them fail for that window, and `/healthz` does not touch the database,
-so readiness stays green and Kubernetes keeps them in the Service. Combined with the line above —
+those pods still query makes them fail for that window, and readiness (`/readyz`) checks database
+connectivity only (`SELECT 1`), not the schema, so it stays green and Kubernetes keeps them in the
+Service. Combined with the line above —
 rollback does not revert the schema — a breaking migration is not recoverable by `helm rollback`.
 
 **Before cutting a `scoreboard-v*` tag, check whether any unreleased migration renames or drops a
@@ -441,8 +442,8 @@ If GHCR image pulls fail, create an image pull Secret and set `imagePullSecrets[
 
 ## Operations Notes
 
-- The container listens on `0.0.0.0:9106` and exposes `/healthz`.
-- `/healthz` is a liveness endpoint and does not query the database; Helm test also calls `/v1/benchmarks` for a DB-backed check.
+- The container listens on `0.0.0.0:9106` and exposes `/healthz` and `/readyz`.
+- `/healthz` is a liveness endpoint and does not query the database; `/readyz` (the readinessProbe) answers `503` when the database is unreachable. Helm test also calls `/readyz` and `/v1/benchmarks` for DB-backed checks.
 - The migration and seed Jobs use the same image and database Secret as the app Deployment.
 - The demo DB PVC owns the database state; deleting it deletes the database.
 - Backups, HA Postgres, PodMonitor, and HPA are follow-up infrastructure work.

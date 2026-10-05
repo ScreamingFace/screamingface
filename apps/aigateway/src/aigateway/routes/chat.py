@@ -85,7 +85,7 @@ from .chat_dispatch import (
     _unknown_provider_exception,
     convert_provider_response,
 )
-from .provider_access_http import refusals_as_http
+from .provider_access_http import refusals_as_http, selector_from_request
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -198,6 +198,7 @@ async def _dispatch_and_finalize_accounting(
             profile_name=profile_name,
             target=target,
             observation=observation,
+            error_type=type(exc).__name__,
         ) from None
     except Exception as exc:
         # WHY (OME-428 third-review blocker B): the two branches above enumerate
@@ -209,13 +210,8 @@ async def _dispatch_and_finalize_accounting(
         # INVARIANT: an unclassified exception always yields a fixed sanitized
         # 502 `provider_error`; arbitrary attributes/chains are not trusted and
         # cannot trigger credential invalidation.
-        logger.error(
-            "unhandled dispatch error type=%s provider=%s account=%s profile=%s",
-            type(exc).__name__,
-            provider,
-            account_id,
-            profile_name,
-        )
+        # OME-968: the class name rides into the ONE terminal record the funnel below emits.
+        error_type = type(exc).__name__
         note_dispatch_failure(accounting, exc)
         finalize_provider_evidence(
             accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
@@ -229,10 +225,11 @@ async def _dispatch_and_finalize_accounting(
             profile_name=profile_name,
             target=target,
             observation=observation,
+            error_type=error_type,
         ) from None
 
     try:
-        result = convert_provider_response(provider_response, accounting)
+        result = convert_provider_response(provider_response, accounting, provider=provider)
     except HTTPException:
         finalize_provider_evidence(
             accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
@@ -260,6 +257,11 @@ async def _dispatch_and_finalize_accounting(
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
+    # INVARIANT: authentication has already succeeded before this route-level boundary parses every
+    # repeated header value; refusal therefore precedes body, cache, credential and dispatch work.
+    with refusals_as_http():
+        selector = selector_from_request(request)
+
     try:
         body = await request.json()
     except ValueError:
@@ -291,10 +293,6 @@ async def chat_completions(request: Request, response: Response, current: Curren
             begin_accounting(request, plugin=None, provider="unresolved", model="")
         raise
 
-    # INVARIANT (OME-1207): the header is interpreted ONCE, here, by the port's own parser.
-    # The route no longer spells the normalisation, so absent/blank/whitespace all mean the
-    # implicit default in exactly one place and the Stage D sunset policy has a single seat.
-    selector = Selector.from_header(request.headers.get("X-Profile"))
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:
@@ -495,7 +493,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # The old dispatch-side cache hardcoded ``bypass`` here with an ``or "stream"`` fallback,
         # not distinguish "streaming" from "the operator disabled the cache".
         return StreamingResponse(
-            _stream(plugin, body),
+            _stream(plugin, body, provider=provider),
             media_type="text/event-stream",
             headers=global_cache_headers(cache_outcome),
         )

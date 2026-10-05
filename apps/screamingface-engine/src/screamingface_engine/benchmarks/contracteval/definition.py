@@ -21,7 +21,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
-from screamingface_engine.benchmarks.contracteval.pins import (
+from screamingface_engine.benchmarks.contracteval.prompts import SYSTEM_PROMPT, USER_TEMPLATE
+from screamingface_engine.benchmarks.contracteval.revision_inputs import (
     DATASET,
     DATASET_REVISION,
     DATASET_SPLIT,
@@ -29,7 +30,6 @@ from screamingface_engine.benchmarks.contracteval.pins import (
     PREPARER_REVISION,
     PROTOCOL_REVISION,
 )
-from screamingface_engine.benchmarks.contracteval.prompts import SYSTEM_PROMPT, USER_TEMPLATE
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
@@ -38,9 +38,13 @@ from screamingface_engine.benchmarks.definition import (
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
+    early_result,
     preserve_candidate_outcome,
 )
-from screamingface_engine.benchmarks.spine.serving import board_routes, compute_board_revision
+from screamingface_engine.benchmarks.shared_grading.serving import (
+    benchmark_routes,
+    compute_benchmark_revision,
+)
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Url4Node
 
@@ -48,7 +52,7 @@ BENCHMARK_ID = "contracteval"
 ASSET_BUNDLE_ID = BENCHMARK_ID
 # WHY sourced from pins and not a second literal (review of PR #984): this value feeds the
 # expression's `available_case_count`, and a copy here could drift from the count `prepare`
-# actually bakes.
+# actually prepares.
 CASE_COUNT = EXPECTED_CASES
 DATASET_URL = "https://huggingface.co/datasets/theatticusproject/cuad-qa"
 # INVARIANT: grading is retrieval-free — the answer must be quoted FROM the supplied contract,
@@ -62,15 +66,15 @@ def compute_revision(
     system_prompt: str = SYSTEM_PROMPT,
     user_template: str = USER_TEMPLATE,
 ) -> str:
-    """Fingerprint this exam into the 16 hex characters its routes carry.
+    """Fingerprint this benchmark into the 16 hex characters its routes carry.
 
-    WHY the prompts are hashed: this board has no judge, so the prompt is the only thing between
+    WHY the prompts are hashed: this benchmark has no judge, so the prompt is the only thing between
     a model and its score — and here it is unusually load-bearing, because "Do not rephrase or
     summarize" is what makes verbatim containment a fair test at all. A changed prompt is a
-    changed exam and must re-address every route.
+    changed benchmark and must re-address every route.
     """
 
-    return compute_board_revision(
+    return compute_benchmark_revision(
         DATASET,
         DATASET_SPLIT,
         dataset_revision,
@@ -85,18 +89,18 @@ def compute_revision(
 
 REVISION = compute_revision()
 
-_ROUTES = board_routes(BENCHMARK_ID, REVISION)
+_ROUTES = benchmark_routes(BENCHMARK_ID, REVISION)
 ROUTE_PREFIX = _ROUTES.prefix
 CASES_ROUTE = _ROUTES.cases
 CHECK_ROUTE = _ROUTES.check
-CASE_EVALUATION_ROUTE = _ROUTES.case_evaluation
+CASE_GRADE_ROUTE = _ROUTES.case_evaluation
 AGGREGATE_ROUTE = _ROUTES.aggregate
 
 
 def _build(case_count: int) -> Node:
     """Build the single-shot ContractEval expression.
 
-    One Candidate answer per Case, checked once. The whole instruction set is baked into
+    One Candidate answer per Case, checked once. The whole instruction set is written into
     `$item.input` by `prepare`, so there is nothing to assemble here.
     """
 
@@ -119,7 +123,7 @@ def _build(case_count: int) -> Node:
         ),
         src(
             RelExpr(
-                path=CASE_EVALUATION_ROUTE,
+                path=CASE_GRADE_ROUTE,
                 # WHY a struct and not the bare record: the case-evaluation route is the
                 # object-shaped `attempt_records_endpoint`. The array-shaped sibling exists for
                 # rubric `iterate` fan-outs and rejects this payload (OME-1126 live failure).
@@ -133,14 +137,18 @@ def _build(case_count: int) -> Node:
     )
     return build_evaluation_protocol(
         cases_route=CASES_ROUTE,
-        case_evaluation=preserve_candidate_outcome(
-            candidate_invocation=candidate_invocation,
-            grading=checked,
-            case_id="$item.id",
+        case_evaluation=early_result(
+            preserve_candidate_outcome(
+                candidate_invocation=candidate_invocation,
+                grading=checked,
+                case_id="$item.id",
+            ),
+            aggregate_route=AGGREGATE_ROUTE,
+            selected_case_count=case_count,
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
-        aggregate_route=AGGREGATE_ROUTE,
+        aggregate_route=AGGREGATE_ROUTE + "/graded",
     )
 
 
@@ -202,7 +210,7 @@ __all__ = [
     "BENCHMARK_ID",
     "CASES_ROUTE",
     "CASE_COUNT",
-    "CASE_EVALUATION_ROUTE",
+    "CASE_GRADE_ROUTE",
     "CHECK_ROUTE",
     "CONTRACTEVAL",
     "DATASET_URL",

@@ -151,7 +151,13 @@ def _anthropic_connections(client) -> list[dict]:
     return [row for row in listing.json()["connections"] if row["provider"] == "anthropic"]
 
 
-# --- 1. a Profile named `default` beats an active Connection --------------------------------
+_UNSUPPORTED_DETAIL = {
+    "code": "x_profile_unsupported",
+    "message": "X-Profile is no longer supported; omit the header.",
+}
+
+
+# --- 1. a selector-less Profile `default` beats an active Connection ------------------------
 
 
 def test_profile_named_default_wins_over_an_active_connection(
@@ -180,10 +186,10 @@ def test_profile_named_default_wins_over_an_active_connection(
     assert captured["api_key"] == _PROFILE_TOKEN
 
 
-def test_profile_named_default_wins_even_when_the_header_names_it_explicitly(
+def test_literal_default_x_profile_is_rejected_without_dispatch(
     credential_blobs, authenticated_client
 ) -> None:
-    """`X-Profile: default` is the same selector as an absent header — the Profile still wins."""
+    """Literal ``default`` is an explicit selector and is rejected before target resolution."""
     account_id = _account_id(authenticated_client)
     authenticated_client.portal.call(partial(_seed_default_profile, credential_blobs, account_id))
     _active_connection(
@@ -194,15 +200,17 @@ def test_profile_named_default_wins_even_when_the_header_names_it_explicitly(
         token="connection-tok",
     )
 
-    captured: dict = {}
-    with patch(_ANTHROPIC_CHAT, _capturing(captured)):
+    dispatched = AsyncMock()
+    with patch(_ANTHROPIC_CHAT, dispatched):
         resp = authenticated_client.post(_CHAT, headers={"X-Profile": "default"}, json=_body())
 
-    assert resp.status_code == 200
-    assert captured["api_key"] == _PROFILE_TOKEN
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == _UNSUPPORTED_DETAIL
+    assert "default" not in resp.text
+    dispatched.assert_not_called()
 
 
-# --- 2. a whitespace-only `X-Profile` header is an ABSENT header -----------------------------
+# --- 2. blank `X-Profile` is absent; every named selector is rejected ------------------------
 
 
 @pytest.mark.parametrize("blank", ["   ", "\t", " \t "])
@@ -232,10 +240,10 @@ def test_whitespace_only_x_profile_header_behaves_as_absent(
     assert blank_header.json()["detail"] == absent.json()["detail"]
 
 
-def test_a_named_x_profile_header_still_selects_by_label(
+def test_a_named_x_profile_header_is_rejected_without_dispatch(
     credential_blobs, authenticated_client
 ) -> None:
-    """Control for the blank-header pin: the header IS read — a label selects that Connection."""
+    """Control for the blank-header pin: a nonblank value is rejected at ingress."""
     account_id = _account_id(authenticated_client)
     _active_connection(
         authenticated_client, credential_blobs, account_id, label="work-anthropic", token="w"
@@ -248,14 +256,16 @@ def test_a_named_x_profile_header_still_selects_by_label(
         token="personal-tok",
     )
 
-    captured: dict = {}
-    with patch(_ANTHROPIC_CHAT, _capturing(captured)):
+    dispatched = AsyncMock()
+    with patch(_ANTHROPIC_CHAT, dispatched):
         resp = authenticated_client.post(
             _CHAT, headers={"X-Profile": "personal-anthropic"}, json=_body()
         )
 
-    assert resp.status_code == 200
-    assert captured["api_key"] == "personal-tok"
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == _UNSUPPORTED_DETAIL
+    assert "personal-anthropic" not in resp.text
+    dispatched.assert_not_called()
 
 
 # --- 3. the shadow Connection outlives the Profile that created it ---------------------------
@@ -357,4 +367,5 @@ def test_a_persistent_index_fault_at_the_resolver_read_renders_a_bare_500(
         resp = authenticated_client.post(_CHAT, json=_body())
 
     assert resp.status_code == 500
-    assert resp.text == "Internal Server Error"
+    assert resp.json()["detail"]["code"] == "gateway_internal_error"
+    assert resp.json()["detail"]["gateway_call_id"].startswith("call_")

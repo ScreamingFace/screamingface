@@ -25,6 +25,11 @@ from aigateway.plugins.codex_provider.auth import (
     credential_service_for as codex_credential_service_for,
 )
 
+_UNSUPPORTED_DETAIL = {
+    "code": "x_profile_unsupported",
+    "message": "X-Profile is no longer supported; omit the header.",
+}
+
 
 def _account_id(client) -> str:
     return client.get("/v1/auth/me").json()["id"]
@@ -103,7 +108,7 @@ def _seed_authenticated_codex_profile(credential_blobs, account_id: str) -> None
     "model",
     ["anthropic/claude-haiku-4-5", "codex/gpt-5.4-mini"],
 )
-async def test_chat_404_when_oauth_profile_missing(authenticated_client, model: str) -> None:
+async def test_chat_rejects_explicit_x_profile_value_free(authenticated_client, model: str) -> None:
     resp = authenticated_client.post(
         "/v1/chat/completions",
         headers={"X-Profile": "missing"},
@@ -112,12 +117,13 @@ async def test_chat_404_when_oauth_profile_missing(authenticated_client, model: 
             "messages": [{"role": "user", "content": "hi"}],
         },
     )
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["code"] == "profile_not_found"
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == _UNSUPPORTED_DETAIL
+    assert "missing" not in resp.text
 
 
 @pytest.mark.asyncio
-async def test_chat_404_when_codex_profile_missing(authenticated_client) -> None:
+async def test_chat_rejects_explicit_x_profile_for_codex_value_free(authenticated_client) -> None:
     resp = authenticated_client.post(
         "/v1/chat/completions",
         headers={"X-Profile": "missing"},
@@ -127,8 +133,9 @@ async def test_chat_404_when_codex_profile_missing(authenticated_client) -> None
         },
     )
 
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["code"] == "profile_not_found"
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == _UNSUPPORTED_DETAIL
+    assert "missing" not in resp.text
 
 
 def test_chat_uses_single_active_oauth_connection_when_profile_missing(
@@ -171,7 +178,7 @@ def test_chat_uses_single_active_oauth_connection_when_profile_missing(
     assert refreshed.last_used_at is not None
 
 
-def test_chat_requires_profile_label_when_multiple_oauth_connections_exist(
+def test_chat_keeps_ambiguity_and_rejects_selector_with_multiple_connections(
     credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
@@ -196,22 +203,11 @@ def test_chat_requires_profile_label_when_multiple_oauth_connections_exist(
     assert ambiguous.status_code == 409
     assert ambiguous.json()["detail"]["code"] == "connection_ambiguous"
 
-    captured: dict = {}
-
-    async def fake_chat_completion(_self, body):
-        captured.update(body)
-        from types import SimpleNamespace
-
-        return SimpleNamespace(
-            model_dump=lambda: {
-                "id": "x",
-                "choices": [{"message": {"content": "ok"}}],
-            }
-        )
+    dispatched = AsyncMock()
 
     with patch(
         "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
-        fake_chat_completion,
+        dispatched,
     ):
         resp = authenticated_client.post(
             "/v1/chat/completions",
@@ -222,11 +218,13 @@ def test_chat_requires_profile_label_when_multiple_oauth_connections_exist(
             },
         )
 
-    assert resp.status_code == 200
-    assert captured["api_key"] == "personal-tok"
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == _UNSUPPORTED_DETAIL
+    assert "personal-anthropic" not in resp.text
+    dispatched.assert_not_called()
 
 
-def test_chat_wrong_connection_label_returns_valid_labels(authenticated_client) -> None:
+def test_chat_wrong_connection_label_is_rejected_value_free(authenticated_client) -> None:
     account_id = _account_id(authenticated_client)
     authenticated_client.portal.call(
         partial(_create_active_connection, account_id, label="work-anthropic")
@@ -244,13 +242,10 @@ def test_chat_wrong_connection_label_returns_valid_labels(authenticated_client) 
         },
     )
 
-    assert resp.status_code == 404
-    assert resp.json()["detail"] == {
-        "code": "connection_not_found",
-        "provider": "anthropic",
-        "requested_label": "missing-anthropic",
-        "valid_labels": ["personal-anthropic", "work-anthropic"],
-    }
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == _UNSUPPORTED_DETAIL
+    for value in ("missing-anthropic", "personal-anthropic", "work-anthropic"):
+        assert value not in resp.text
 
 
 def test_chat_empty_x_profile_header_uses_default_ambiguity(
@@ -408,7 +403,7 @@ async def test_chat_removes_anthropic_reasoning_none(
 
 
 @pytest.mark.asyncio
-async def test_chat_cannot_use_other_accounts_profile(
+async def test_chat_rejects_other_accounts_profile_selector_before_lookup(
     credential_blobs, authenticated_client, provisioned_user_factory
 ) -> None:
     admin_account_id = _account_id(authenticated_client)
@@ -439,7 +434,9 @@ async def test_chat_cannot_use_other_accounts_profile(
             "messages": [{"role": "user", "content": "hi"}],
         },
     )
-    assert resp.status_code == 404
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == _UNSUPPORTED_DETAIL
+    assert "shared" not in resp.text
 
 
 def test_chat_requires_auth(client) -> None:
@@ -1147,7 +1144,7 @@ def test_chat_api_key_connection_missing_blob_reauth_url_is_connection_native(
 
 
 def test_chat_multiple_active_api_key_connections_is_ambiguous(authenticated_client) -> None:
-    """Two active api-key connections + X-Profile=default -> 409 connection_ambiguous.
+    """Two active api-key connections + no selector -> 409 connection_ambiguous.
     The ambiguity guard is auth-type-agnostic (mirrors the OAuth case)."""
     account_id = _account_id(authenticated_client)
 

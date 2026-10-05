@@ -1,7 +1,7 @@
 """ContractEval's reference grading logic, transcribed verbatim — TEST MATERIAL ONLY.
 
 DO NOT EDIT to make a test pass. This file exists so that our grading can be proved equal to
-the paper's, and it is only evidence while it stays a faithful copy. If our board must diverge,
+the paper's, and it is only evidence while it stays a faithful copy. If our benchmark must diverge,
 the divergence belongs in the spec as a named deviation and in a test that asserts it — never
 in a quiet edit here.
 
@@ -21,7 +21,7 @@ these are the four pure functions the metric path actually depends on, copied fr
     ``Evaluation.py``        lines 73-77   → ``confusion_scores``(P/R/F1/F2 and accuracy)
 
 AIDEV-NOTE: ``confusion_scores`` reproduces the reference INCLUDING its missing zero guard, so
-it raises ZeroDivisionError exactly where the original does. Our board deviates there on
+it raises ZeroDivisionError exactly where the original does. Our benchmark deviates there on
 purpose (spec §3) and ``test_contracteval_parity`` asserts the deviation rather than hiding it.
 """
 

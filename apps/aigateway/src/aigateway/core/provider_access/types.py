@@ -209,9 +209,10 @@ class WriteConflict(ProviderAccessRefusal):
 class SelectorUnsupported(ProviderAccessRefusal):
     """A present `X-Profile` under the REJECT_EXPLICIT policy (Stage D sunset)."""
 
-    def __init__(self, requested: str) -> None:
-        super().__init__(f"X-Profile {requested!r} is no longer supported")
-        self.requested = requested
+    def __init__(self) -> None:
+        # INVARIANT: the obsolete selector value never survives the boundary in an exception that
+        # a future logger could render through ``__cause__``.
+        super().__init__("X-Profile is no longer supported")
 
 
 class ProviderUnknown(ProviderAccessRefusal):

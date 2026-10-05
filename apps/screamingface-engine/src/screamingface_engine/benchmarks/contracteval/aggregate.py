@@ -1,19 +1,19 @@
-"""ContractEval's grading hooks — everything this board still writes to be graded.
+"""ContractEval's grading hooks — everything this benchmark still writes to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the board's
-contribution: its containment ``grade_case`` (every gold sentence quoted verbatim, or a
-correct abstention), its confusion-matrix scorer, and its own failure wording.
+The shared grading code owns the marking room (``shared_grading/benchmark_aggregation.py``); this
+module is the benchmark's contribution: its containment ``grade_case`` (every gold sentence quoted
+verbatim, or a correct abstention), its confusion-matrix scorer, and its own failure wording.
 
 INVARIANT — the headline score is F1 from a DATASET-level confusion matrix, not a mean of
-case scores. Every other board binds ``exam_scorer(mean)``; this one cannot, because a mean
+case scores. Every other benchmark binds ``mean_scorer(mean)``; this one cannot, because a mean
 destroys the fact that distinguishes the two ways of being wrong:
 
     positive row (a clause exists)  → TP if the reply contains every gold span, else FN
     negative row (no clause exists) → TN if the reply abstains,                  else FP
 
 A case score of 0.0 is a false negative on a positive row and a false positive on a negative
-one. ``ScoredPath.aggregate`` takes the board's whole ``CandidateScore`` builder, which is
-exactly the generality this needs.
+one. ``BenchmarkAggregation.aggregate`` takes the benchmark's whole ``CandidateScore`` builder,
+which is exactly the generality this needs.
 
 AIDEV-NOTE: read that table before changing anything here. Positive rows can never be TN/FP
 and negative rows can never be TP/FN, so ``precision`` mixes positive-row successes against
@@ -37,15 +37,19 @@ from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.contract import CaseResult
-from screamingface_engine.benchmarks.contracteval.case_evaluation import decode_case_evaluation
-from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.contracteval.case_grade import decode_case_grade
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
     CaseGradeOutcome,
     GradeRequest,
-    ScoredPath,
 )
+from screamingface_engine.benchmarks.shared_grading.case_grades import (
+    CaseGradeReader,
+    read_selected_cases,
+)
+from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
 
-# INVARIANT: failure wording is this board's published voice — no rubric-flavored code
+# INVARIANT: failure wording is this benchmark's published voice — no rubric-flavored code
 # ("missing_rubric_asset") may leak into a result whose grading material is an answer key.
 _FAILURE_MESSAGES = {
     "missing_answer_asset": "the baked answer record for this Case is missing or invalid",
@@ -75,7 +79,7 @@ def load_answer(root: Path, case_id: int) -> dict[str, Any] | None:
 
 
 def selected_cases(root: Path, case_ids: tuple[int, ...]) -> list[SelectedCase]:
-    """The roll call from the baked ``cases.json``, in selected order."""
+    """The roll call from the prepared ``cases.json``, in selected order."""
 
     return read_selected_cases(
         root, case_ids, benchmark_label="ContractEval", error_type=AggregateError
@@ -83,38 +87,51 @@ def selected_cases(root: Path, case_ids: tuple[int, ...]) -> list[SelectedCase]:
 
 
 def aggregate(
-    raw_rows: str,
+    raw_case_grades: str,
     root: Path,
     *,
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
+    return scoring(
+        root, benchmark_id=benchmark_id, benchmark_revision=benchmark_revision, case_ids=case_ids
+    ).aggregate(raw_case_grades)
+
+
+def scoring(
+    root: Path,
+    *,
+    benchmark_id: str,
+    benchmark_revision: str,
+    case_ids: tuple[int, ...],
+) -> Scoring:
     """Score every selected Case on the shared scored path, then the paper's F1."""
 
     answers: dict[int, dict[str, Any] | None] = {
         case_id: load_answer(root, case_id) for case_id in case_ids
     }
-    return _PATH.aggregate(
-        raw_rows,
+    return Scoring(
+        path=_PATH,
         benchmark_id=benchmark_id,
-        benchmark_revision=benchmark_revision,
-        selected_cases=selected_cases(root, case_ids),
-        grading_material=lambda case_id: answers.get(case_id),
+        revision=benchmark_revision,
+        selected=selected_cases(root, case_ids),
+        material=lambda case_id: answers.get(case_id),
         scorer=_confusion_matrix_score,
     )
 
 
 def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
-    """Validate the envelope, then hoist attempt 1 into the spine's candidate shape."""
+    """Validate the envelope, then hoist attempt 1 into the shared candidate shape."""
 
-    envelope = decode_case_evaluation(grading, expected_case_id)
+    envelope = decode_case_grade(grading, expected_case_id)
     attempt: Mapping[str, Any] = envelope["attempts"][0]
     # AIDEV-NOTE (review, PR #984): this used to read `attempt.get("metadata")`, which `_check`
     # never emits — dead on arrival, ported verbatim from medxpert where it is equally dead. The
     # empty dict is now explicit. If a future check record carries per-Case report metadata,
-    # THIS is the seam it joins; `ScoredPath.aggregate`'s `case_metadata=` is the other option,
-    # and the right one for anything read from the private answer asset rather than the reply.
+    # THIS is the seam it joins; `BenchmarkAggregation.aggregate`'s `case_metadata=` is the other
+    # option, and the right one for anything read from the private answer asset rather than the
+    # reply.
     fields: dict[str, Any] = {}
     return {
         "case": {
@@ -141,7 +158,7 @@ async def _grade_case(request: GradeRequest) -> CaseGradeOutcome:
     material = request.material
     assert isinstance(material, Mapping)  # the ladder already rejected unusable assets
     is_positive = bool(material.get("is_positive"))
-    # INVARIANT: the baked key is the authority on polarity; the check record carries its own
+    # INVARIANT: the prepared key is the authority on polarity; the check record carries its own
     # copy. Disagreement means the assets and the run are out of step, and silently trusting
     # either one files the Case in the WRONG confusion-matrix cell.
     if bool(attempt.get("is_positive")) != is_positive:
@@ -259,13 +276,13 @@ def _confusion_matrix_score(cases: Sequence[CaseResult]) -> CandidateScore:
     )
 
 
-# WHY bound at module bottom: the scored path lives in the spine; the hooks and the failure
-# wording stay board-owned, so per-Case output keeps this board's voice.
-_PATH = ScoredPath(
-    reader=RowReader(
+# WHY bound at module bottom: the scored path lives in the shared grading code; the hooks and the
+# failure wording stay benchmark-owned, so per-Case output keeps this benchmark's voice.
+_PATH = BenchmarkAggregation(
+    reader=CaseGradeReader(
         benchmark_label="ContractEval",
         error_type=AggregateError,
-        decode_case_evaluation=_decode,
+        decode_case_grade=_decode,
     ),
     grade_case=_grade_case,
     failure_messages=_FAILURE_MESSAGES,

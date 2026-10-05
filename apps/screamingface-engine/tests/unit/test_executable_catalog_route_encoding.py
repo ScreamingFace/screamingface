@@ -72,7 +72,7 @@ class _GatewayDetails:
         self.seen: list[str] = []
 
     async def fetch_model_parameters(
-        self, credential: Credential, model: str
+        self, credential: Credential, model: str, *, traceparent: str | None = None
     ) -> ModelParameterResponse:
         self.seen.append(model)
         return ModelParameterResponse(status=200, content=b'{"model":{}}')

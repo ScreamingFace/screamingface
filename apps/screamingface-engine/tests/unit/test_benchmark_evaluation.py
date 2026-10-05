@@ -7,10 +7,10 @@ import json
 import pytest
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.evaluation import (
+from screamingface_engine.benchmarks.grading_endpoints import (
     aggregate_endpoint,
     candidate_answer,
-    case_evaluation_endpoint,
+    case_grade_endpoint,
 )
 from url4 import RelExpr, Text, render
 from url4.core.errors import ResolutionError
@@ -29,7 +29,7 @@ def _call(path: str, context: str, intent: str) -> str:
         ("/healthbench/case", "Rubric evaluation", "rubric"),
     ),
 )
-async def test_case_evaluation_endpoint_adapts_two_benchmark_binders(
+async def test_case_grade_endpoint_adapts_two_benchmark_builders(
     route: str,
     item_name: str,
     marker: str,
@@ -40,7 +40,7 @@ async def test_case_evaluation_endpoint_adapts_two_benchmark_binders(
         return {"case_id": case_id, "kind": marker, "items": items}
 
     node.endpoint(route)(
-        case_evaluation_endpoint(
+        case_grade_endpoint(
             label=f"{marker} Case evaluation",
             item_name=item_name,
             bind=bind,
@@ -85,7 +85,7 @@ async def test_aggregate_endpoint_validates_selection_and_passes_case_evaluation
         with pytest.raises(ResolutionError) as caught:
             await node.evaluate(_call("/benchmark/aggregate", "[]", intent))
         # WHY benchmark_definition_error (OME-1234): a selection the benchmark author
-        # baked into the aggregate intent that cannot be satisfied is an authoring
+        # embedded in the aggregate intent that cannot be satisfied is an authoring
         # mistake, not an unavailable asset.
         assert caught.value.code == "benchmark_definition_error"
 
@@ -122,7 +122,7 @@ async def test_a_collected_error_item_reraises_the_original_failure() -> None:
         return {"case_id": case_id}
 
     node.endpoint("/draco/case")(
-        case_evaluation_endpoint(
+        case_grade_endpoint(
             label="DRACO Case evaluation",
             item_name="Criterion evaluation",
             bind=bind,
@@ -159,7 +159,7 @@ async def test_a_lean_error_item_still_propagates_message_with_a_default_code() 
     # propagates the message and stays retryable (the upstream cause is unknown).
     node = Url4Node("case-evaluation")
     node.endpoint("/hb/case")(
-        case_evaluation_endpoint(
+        case_grade_endpoint(
             label="HealthBench Case evaluation",
             item_name="Rubric evaluation",
             bind=lambda case_id, items: {"case_id": case_id},
@@ -182,7 +182,7 @@ async def test_an_item_merely_containing_an_error_key_is_not_an_error_row() -> N
     # evaluator record for the binder to judge.
     node = Url4Node("case-evaluation")
     node.endpoint("/draco/case")(
-        case_evaluation_endpoint(
+        case_grade_endpoint(
             label="DRACO Case evaluation",
             item_name="Criterion evaluation",
             bind=lambda case_id, items: {"case_id": case_id, "items": items},

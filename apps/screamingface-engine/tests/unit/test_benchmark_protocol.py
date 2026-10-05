@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# OME-932 (owner-approved): early graded-results transport is additive; grading
+# and semantic revision pins remain unchanged to preserve ranked submissions.
 import asyncio
 import hashlib
 import json
@@ -11,14 +13,14 @@ import pytest
 
 from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_DEPLOYMENT
-from screamingface_engine.benchmarks.case_execution import (
-    CASE_EXECUTION_SCHEMA,
-    install_case_execution,
-)
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine.benchmarks.draco.definition import DRACO, JUDGE_MODEL
+from screamingface_engine.benchmarks.graded_answer import (
+    GRADED_ANSWER_SCHEMA,
+    install_graded_answer_endpoint,
+)
 from screamingface_engine.benchmarks.healthbench.definition import HEALTHBENCH_WORST30
 from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 from screamingface_engine.benchmarks.protocol import (
@@ -38,19 +40,19 @@ def _protocol_node(name: str) -> Url4Node:
 
 
 @pytest.mark.asyncio
-async def test_the_public_catalogue_publishes_exactly_the_registered_boards() -> None:
-    """Every board this deployment registers is discoverable on the wire, and nothing else is.
+async def test_the_public_catalogue_publishes_exactly_the_registered_benchmarks() -> None:
+    """Every benchmark this deployment registers is discoverable on the wire, and nothing else is.
 
     WHY derived rather than a hand-typed tuple of ids (OME-1095): the deployment is the ONE
-    place a board is declared, and a second list here had to be edited by hand for every new
-    board — the exact cost this epic removes. What is load bearing is the relationship: what
+    place a benchmark is declared, and a second list here had to be edited by hand for every new
+    benchmark — the exact cost this epic removes. What is load bearing is the relationship: what
     an operator registered is what a client can discover, under the ids it was registered
     with.
 
     WHAT THIS DOES NOT COVER: membership. Both sides derive from the same registrations, so
-    deleting a board from `builtins.py` makes it vanish from both and passes here. That a
-    given board is public is pinned in the board's own definition test — see
-    `test_both_draco_boards_are_registered_under_their_own_ids` and its siblings.
+    deleting a benchmark from `builtins.py` makes it vanish from both and passes here. That a
+    given benchmark is public is pinned in the benchmark's own definition test — see
+    `test_both_draco_benchmarks_are_registered_under_their_own_ids` and its siblings.
     """
 
     registered = sorted(
@@ -240,7 +242,7 @@ async def test_case_execution_preserves_candidate_invocation_when_grading_fails(
     def grade(_request: Request) -> str:
         raise ResolutionError("checker unavailable", code="checker_failed", permanent=True)
 
-    install_case_execution(node)
+    install_graded_answer_endpoint(node)
 
     protected = preserve_candidate_outcome(
         candidate_invocation=RelExpr(path="/candidate", context="question", intent=Text("")),
@@ -255,7 +257,7 @@ async def test_case_execution_preserves_candidate_invocation_when_grading_fails(
     result = json.loads((await node.evaluate(render(protected))).text)
 
     assert result == {
-        "schema": CASE_EXECUTION_SCHEMA,
+        "schema": GRADED_ANSWER_SCHEMA,
         "case_id": "case-1",
         "candidate_invocation": encode_candidate_invocation("", "content_filter", "exact refusal"),
         "grading": [
@@ -288,11 +290,11 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
         # OME-1228: repin the explicit Case envelope; model input equivalence is tested separately.
         # OME-993 (atop OME-924's fail-fast re-pin): judge gains reasoning_effort=low
         # (max_tokens stays the paper's 4096) and a bounded ;retry=2 per verdict source.
-        (DRACO, "8e2889308b182192ad4164733a0fd993a0726cf0be08a86fee0c14da1f6537ff"),
-        (IFEVAL, "a7ec445b2f12c5dfeb3639bc6e3aef99a599e781e759b2edeef4638b47036f9e"),
+        (DRACO, "6e3eecc4c504dd1d0bcf0b788c312e6ad8c7ba0eaf4335d34b54e0450e16d02c"),
+        (IFEVAL, "ffc22c70f6f9bdc9b036ad884f4aa67c8d0df880c070e624748a81b7944bd3e7"),
         (
             HEALTHBENCH_WORST30,
-            "61001f00042bd9320a0b83f6d7826467505640d6e5c75a95ae594fc36e175939",
+            "e180999b91c3c2f8b62583056d1310f62f3e06b396ef571837ce7b1aadd4a359",
         ),
     ),
 )

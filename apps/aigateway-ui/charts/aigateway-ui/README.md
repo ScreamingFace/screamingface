@@ -79,6 +79,7 @@ Route the console through the same mesh gateway that injects identity.
 |---|---|---|
 | `aigateway.serviceName` | `aigw-aigateway` | The gateway's Service. Assumes release name `aigw`. |
 | `aigateway.baseUrl` | `""` | Explicit URL; wins over the parts above. |
+| `config.logLevel` | `info` | `LOG_LEVEL` for the BFF's JSON log lines. `error` drops the per-call `warn` refusals. |
 | `networkPolicy.clientPodNames` | `[]` | Who may reach the console. **Empty fails the render.** |
 | `networkPolicy.egress.gatewayPodName` | `aigateway` | The label the gateway's Pods carry. |
 | `ingress.enabled` | `false` | `true` fails the render. See above. |

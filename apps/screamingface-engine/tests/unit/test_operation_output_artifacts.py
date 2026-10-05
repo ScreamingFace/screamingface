@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 
 from screamingface_engine.benchmarks.aggregation import SelectedCase, scored_case_result
-from screamingface_engine.benchmarks.case_records import bind_case_record
+from screamingface_engine.benchmarks.case_records import build_case_record
 from screamingface_engine.benchmarks.contract import OperationOutput
-from screamingface_engine.benchmarks.evaluation import CandidateAnswer
+from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
 
 
 def test_case_record_carries_operations_only_when_attributed() -> None:
@@ -20,7 +20,7 @@ def test_case_record_carries_operations_only_when_attributed() -> None:
         "refusal": None,
         "execution": None,
     }
-    attributed = bind_case_record(
+    attributed = build_case_record(
         cases,
         case_id=1,
         candidate=CandidateAnswer(
@@ -37,7 +37,7 @@ def test_case_record_carries_operations_only_when_attributed() -> None:
         schema="example.case.v1",
         benchmark="EXAMPLE",
     )
-    solo = bind_case_record(
+    solo = build_case_record(
         cases,
         case_id=1,
         candidate=CandidateAnswer(**base, operations=None),

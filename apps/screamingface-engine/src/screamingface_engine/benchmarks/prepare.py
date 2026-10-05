@@ -4,16 +4,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT
 from screamingface_engine.benchmarks.deployment import (
+    UNCONFIRMED_CASES_KEY,
     BenchmarkAssetPreparationError,
     BenchmarkAssetSummary,
 )
 from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
+
+#: Set to "1" only by the PR image job: after every bundle is prepared, fail the Benchmark build
+#: if any was skipped because its Cases could not be confirmed (they changed, or could not be
+#: fetched), so the PR can't merge (OME-1273, spec R11).
+FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES_ENV = (
+    "SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES"
+)
 
 
 def prepare_builtin_assets(
@@ -59,17 +68,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if only is not None:
         # WHY validated HERE and not by catching the orchestrator's ValueError: a preparer
         # decoding a dataset row raises ValueError too (json.JSONDecodeError subclasses it),
-        # so an except around the bake would relabel a malformed HF row as an operator typo
+        # so an except around the prepare step would relabel a malformed HF row as an operator typo
         # and discard its traceback — the exact laundering BenchmarkAssetPreparerContractError
         # exists to prevent. A typo is knowable before any download starts; check it there.
         unknown = sorted(set(only) - set(BUILTIN_DEPLOYMENT.asset_bundle_ids))
         if unknown:
             print(f"no such asset bundle(s): {', '.join(unknown)}", file=sys.stderr)
             return 1
-    return _bake(args.root, only)
+    return _prepare(args.root, only)
 
 
-def _bake(root: Path, only: tuple[str, ...] | None) -> int:
+def _prepare(root: Path, only: tuple[str, ...] | None) -> int:
     """Download and write out the selected benchmarks' datasets.
 
     Prints one JSON audit record per bundle as it lands, so a failure partway still leaves
@@ -99,11 +108,37 @@ def _bake(root: Path, only: tuple[str, ...] | None) -> int:
         print(line, flush=True)
 
     try:
-        prepare_builtin_assets(root, emit, only=only)
+        prepared: dict[str, BenchmarkAssetSummary] = prepare_builtin_assets(root, emit, only=only)
     except BenchmarkAssetPreparationError as exc:
         print(f"benchmark asset preparation failed: {exc}", file=sys.stderr)
         return 1
+    if os.environ.get(FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES_ENV) == "1":
+        return _fail_benchmark_build_on_unconfirmed_cases(prepared)
     return 0
+
+
+def _fail_benchmark_build_on_unconfirmed_cases(prepared: dict[str, BenchmarkAssetSummary]) -> int:
+    """Strict mode: list every bundle skipped for unconfirmed Cases, and fail if there is any.
+
+    WHY after the loop, not inside the preparer: one run reports every unconfirmed bundle, so a
+    dependency bump that moves three Benchmarks shows all three in one CI log.
+    """
+
+    unconfirmed: dict[str, str] = {
+        bundle: str(summary[UNCONFIRMED_CASES_KEY])
+        for bundle, summary in prepared.items()
+        if UNCONFIRMED_CASES_KEY in summary
+    }
+    for bundle, reason in unconfirmed.items():
+        print(f"{bundle}: {reason}", file=sys.stderr)
+    if not unconfirmed:
+        return 0
+    print(
+        f"benchmark asset preparation failed: {len(unconfirmed)} bundle(s) have unconfirmed Cases "
+        f"({FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES_ENV}=1)",
+        file=sys.stderr,
+    )
+    return 1
 
 
 if __name__ == "__main__":  # pragma: no cover - process entrypoint

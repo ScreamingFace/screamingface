@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 
-from screamingface_engine.benchmarks.candidate_execution import (
-    capture_candidate_executions,
-    terminal_candidate_execution,
-)
 from screamingface_engine.benchmarks.contract import (
     CandidateInvocationStatus,
-    CorrectiveExecution,
+    CorrectiveLoopOutcome,
     OperationOutput,
     encode_candidate_invocation,
+)
+from screamingface_engine.benchmarks.loop_outcomes import (
+    capture_loop_outcomes,
+    terminal_loop_outcome,
 )
 from screamingface_engine.benchmarks.operation_outputs import attribute_operation_outputs
 from screamingface_engine.model_outcomes import (
@@ -40,7 +40,7 @@ async def evaluate_candidate_recipe(
 ) -> str:
     """Evaluate a Recipe while preserving its exact terminal outcome."""
 
-    with capture_candidate_executions(isolated=isolated) as executions:
+    with capture_loop_outcomes(isolated=isolated) as executions:
         with capture_model_outcomes(isolated=isolated) as outcomes:
             with capture_operation_calls(isolated=isolated or isolate_operation_calls) as calls:
                 accounting_scope = (
@@ -64,7 +64,7 @@ async def evaluate_candidate_recipe(
                         return _encode(
                             "",
                             outcome,
-                            terminal_candidate_execution(executions),
+                            terminal_loop_outcome(executions),
                             status="refused",
                             operations=attribute_operation_outputs(expression, calls),
                         )
@@ -72,7 +72,7 @@ async def evaluate_candidate_recipe(
     return _encode(
         result.text,
         terminal_model_outcome(outcomes),
-        terminal_candidate_execution(executions),
+        terminal_loop_outcome(executions),
         operations=attribute_operation_outputs(expression, calls),
     )
 
@@ -80,7 +80,7 @@ async def evaluate_candidate_recipe(
 def _encode(
     output: str,
     outcome: ModelOutcome,
-    execution: CorrectiveExecution | None,
+    execution: CorrectiveLoopOutcome | None,
     *,
     status: CandidateInvocationStatus | None = None,
     operations: list[OperationOutput] | None = None,

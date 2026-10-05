@@ -121,3 +121,13 @@ ignores:
     ticket: OME-1410
     note: >-
       NOT upstream-blocked; see the inspect-ai entry. Held and lifted together with it.
+
+  - directory: /packages/screamingface
+    dependency: inspect-ai
+    versions: ""
+    ticket: OME-1410
+    note: >-
+      NOT upstream-blocked; see the Engine's inspect-ai entry. The SDK's inspect extra is a copy
+      of the Engine's pin (the single source of truth), and test_inspect_pin_conformance.py in
+      both packages fails on drift. Held only for the Engine, the SDK moved alone to 0.3.270
+      (#1119, #1135). Held and lifted together with the Engine's entries.
