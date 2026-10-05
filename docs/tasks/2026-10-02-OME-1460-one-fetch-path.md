@@ -18,8 +18,8 @@ forces the declaration's Hub revision and seeds onto the eval's own fetches, and
 Hugging Face-path rows get a new Benchmark Revision under their existing keys. The Hugging
 Face reader, registry, writer and lockfile are deleted. Design:
 `docs/spec/2026-10-02-ome-1460-one-fetch-path.md`; delivery:
-`docs/plan/2026-10-02-OME-1460-one-fetch-path.md` (task 0 refusal sweep, then four stacked
-PRs: the enforcer, two fold halves, the deletion). Sequenced after OME-1273's step 7.
+`docs/plan/2026-10-02-OME-1460-one-fetch-path.md` (task 0 refusal sweep, then two PRs:
+the enforcer; the fold and the deletion). Sequenced after OME-1273's step 7.
 
 ## Progress
 

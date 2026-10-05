@@ -40,9 +40,9 @@ path. `prepare.py` loses the Hugging Face writer and `BENCHMARK_CASES`; `pins.py
   the exit code; never pipe the runner into `tail` inside a `&&` chain.
 - **Sequencing against OME-1273 step 7** (sad, bbeh, cyberseceval_4, pre_flight, chembench;
   worktree `task-replay-benchmarks-3`, at `main` with no commits on 2026-10-02): PR A may
-  merge before it. PRs B1, B2 and C rebase onto step 7's merged rows and merge after, because
-  all three write at the `TASK_REPLAY_CASES` and `BENCHMARKS` anchors step 7 writes to, and C's
-  R15 lane and acceptance counts include step 7's Benchmarks. If step 7 stalls, the owner
+  merge before it. PR B rebases onto step 7's merged rows and merges after, because it writes
+  at the `TASK_REPLAY_CASES` and `BENCHMARKS` anchors step 7 writes to, and its R15 lane and
+  acceptance counts include step 7's Benchmarks. If step 7 stalls, the owner
   decides which goes first; the plan does not.
 - Glossary words only (`CONTEXT.md`): Case, Case Preparation, Case Source, Case Digest, Grading
   Material, Benchmark key, Answer key, Imported Benchmark, Named Deviation, Task replay. Never
@@ -50,8 +50,7 @@ path. `prepare.py` loses the Hugging Face writer and `BENCHMARK_CASES`; `pins.py
 - Plain `test_` functions. Type every argument, return value and non-obvious local. Every
   function gets a one-sentence intuition docstring; the enforcer gets the Feynman treatment.
 - Tests are append-only across commits. A prior test is edited or deleted only with the
-  owner's `--skip-append-only`, asked for by name: PRs B1, B2 and C each need one (see Owner
-  presses).
+  owner's `--skip-append-only`, asked for by name: PR B needs one (see Owner presses).
 - Commits: conventional, `feat(screamingface-engine): …` / `refactor(…)` / `docs(…)`, no
   `Co-Authored-By`. Stage explicit paths, never `git add -A`.
 - Files that import `inspect_ai` or `inspect_evals` carry the file-level
@@ -72,7 +71,7 @@ The spec's D1–D8 are design decisions. These are delivery decisions.
 | P2 | **The enforcer lives in `case_sources.py`** as part of `CaseSourceRecorder` (`install(pins=…)`), not a new module | one customs officer at every door; the wrap list and the rebind-by-identity logic already live there | `fetch_pins.py` with its own install |
 | P3 | **Pins reach the child through the declaration file** (`spec.json` / `request.json` already carry the declaration's fields) | no new protocol; the image-side child already reads the whole declaration | a separate pins file |
 | P4 | **The what-changed note is a comment line on the row**, `# Fold (OME-1460): …`, written by the dev from the sweep's output | the row is where the reviewer reads provenance today | a table in the PR body only |
-| P5 | **PR B1 before B2** | B1 carries gsm8k and the inverted-grade literal, so the earliest owner press (licences, append-only) lands on the simpler half | B2 first |
+| P5 | **PR B lands the 28 rows in two commits (unseeded half, then seeded half) and the deletion in a third**, one PR | owner's call 2026-10-05 (spec D5): one review, one `--skip-append-only` press, one step-7 rebase; the commit split keeps the diff readable by half | four stacked PRs |
 | P6 | **Seed values are today's** (`COMMONSENSE_QA_SHUFFLE_SEED` etc. become the row's `shuffle_seed=`) | the diff reads "same seed, inspect's algorithm" | fresh seeds |
 
 ## Review Focus
@@ -100,10 +99,10 @@ The spec's D1–D8 are design decisions. These are delivery decisions.
    keep their revisions byte for byte; `test_published_revisions.py` does not pin them, so
    Task A7 adds a test that reads each of the 19 current declarations and asserts the
    revision is unchanged for the URL-only ones.
-10. **lab_bench's answer position.** After B2, no lab_bench row has its target at one letter
-    for every Case. Pinned in Task B2.3.
+10. **lab_bench's answer position.** After PR B, no lab_bench row has its target at one letter
+    for every Case. Pinned in Task B4.
 11. **The question filter keeps the same ids.** Task 0's sweep output for onet_m6, pubmedqa,
-    xstest ×2 is the evidence; Task B1.2 and B2.2 record it in the ledger (R13).
+    xstest ×2 is the evidence; Task B2 records it in the ledger (R13).
 
 ## Task 0: The refusal sweep (before any code)
 
@@ -256,90 +255,63 @@ is byte-identical after this PR (Review Focus 9).
 
 ---
 
-## PR B1 — the 14 rows that need no forced seed, plus D4 (branch `one-fetch-path-fold-1`)
+## PR B — the fold and the deletion (branch `one-fetch-path-fold`)
 
-Spec R10 (the declaration half), R12 rows 1, 2, 3, 7, 8, R13, R14, R16, D2, D3, D4.
-**After step 7 merges** (Global Constraints).
+Spec R10, R12–R19, D1–D4, D6–D8. **After step 7 merges** (Global Constraints). Three
+commits in this order: the 14 rows that need no forced seed, the 14 with forced seeds, the
+deletion and the docs (P5). The reviewer reads the diff by commit.
 
-### Task B1.1: Ledger, and the `--skip-append-only` ask
+### Task B1: Ledger, and the `--skip-append-only` ask
 
-- [ ] Ledger as in A1; Owner-verify: "`--skip-append-only` for the 12 literal moves in
-  `test_published_revisions.py` (arc ×2, wmdp ×3, gsm8k, winogrande, mmlu, aime ×2,
-  hellaswag, xstest_safe) and the one in `test_inverted_grade.py`; licence decisions for
-  gsm8k, mmlu, winogrande, hellaswag."
+- [ ] Ledger as in A1; Owner-verify: "`--skip-append-only` for the 18 literal moves in
+  `test_published_revisions.py` and the one in `test_inverted_grade.py`, and for the
+  deletion of `test_inspect_cases.py` and the reader half of `test_inspect_importer.py`
+  (tests of code that no longer exists); licence decisions for gsm8k, mmlu, winogrande,
+  hellaswag, paws, race_h."
 
-### Task B1.2: Re-import the 14 rows
+### Task B2: Re-import the 28 rows (two commits)
 
 **Files:**
-- Modify: `src/screamingface_engine_inspect/prepare.py` (14 rows out of `BENCHMARK_CASES`,
-  14 into `TASK_REPLAY_CASES` with `source_pins`, `task_args` (`fewshot=0` ×2, `subset=` ×2),
-  `needs_hf_token` ×2, `has_answer_key=False` ×2, the licence, the fold note (P4)),
-  `src/screamingface_engine_inspect/benchmarks.py` (the 14 `BenchmarkSpec` rows keep their
-  key, title, description, scorer and judge; only the provenance comment changes),
-  `src/screamingface_engine_inspect/pins.py` (the 14 rows' constants go)
-- Test: `tests/unit/inspect/test_published_revisions.py` (12 literals move),
-  `test_inverted_grade.py` (1 literal), `tests/unit/inspect/test_inspect_gsm8k_benchmark.py`
-  and `test_inspect_mmlu_benchmark.py` (re-pointed at the Task-replay declaration: the
-  prepared-Case assertions stay, the `emit_cases` calls become `captured_case_records` on
-  the stand-in Samples)
+- Modify: `src/screamingface_engine_inspect/prepare.py` (28 rows out of `BENCHMARK_CASES`,
+  28 into `TASK_REPLAY_CASES` with `source_pins`, the licence and the fold note (P4);
+  `task_args` (`fewshot=0` ×2, `subset=` ×2), `needs_hf_token` ×2, `has_answer_key=False`
+  ×2 on the unseeded half; `shuffle_seed=` on all of the seeded half, `choice_shuffle_seed=`
+  on lab_bench ×6, `excluded_sample_ids=` and `task_args` on onet_m6,
+  `keep_sample_metadata=True` on frontierscience (parent D11 decides it; assert it came out
+  True)), `src/screamingface_engine_inspect/benchmarks.py` (the 28 `BenchmarkSpec` rows keep
+  their key, title, description, scorer and judge; only the provenance comment changes),
+  `src/screamingface_engine_inspect/pins.py` (the 28 rows' constants go)
+- Test: `tests/unit/inspect/test_published_revisions.py` (18 literals move),
+  `test_inverted_grade.py` (1 literal), `tests/unit/inspect/test_inspect_gsm8k_benchmark.py`,
+  `test_inspect_mmlu_benchmark.py` and `test_inspect_frontierscience_benchmark.py`
+  (re-pointed at the Task-replay declaration: the prepared-Case assertions stay, the
+  `emit_cases` calls become `captured_case_records` on the stand-in Samples)
 
-- [ ] **Step 1: Run the importer, one row at a time**, with the command the how-to shows
-  and the task args above; keep the sweep's per-row line as the fold note.
-- [ ] **Step 2: Write the failing test first for each re-pointed benchmark test**, then the
-  literal moves (each is RED until the row lands).
-- [ ] **Step 3: R13 evidence** — the sweep's id-set verdict for pubmedqa, xstest_safe (250)
-  and xstest_unsafe (200) goes in the ledger.
-- [ ] **Step 4: Lane green, gates with `--skip-append-only` (owner-pressed), commit.**
+- [ ] **Commit 1, the unseeded half** (R12 rows 1, 2, 3, 7, 8: arc ×2, wmdp ×3, pubmedqa,
+  gsm8k, winogrande, mmlu, aime ×2, hellaswag, xstest ×2). Step 1: run the importer, one row
+  at a time, with the command the how-to shows and the task args above; keep the sweep's
+  per-row line as the fold note. Step 2: write the failing test first for each re-pointed
+  benchmark test, then the literal moves (each is RED until the row lands). Step 3: R13
+  evidence, the sweep's id-set verdict for pubmedqa, xstest_safe (250) and xstest_unsafe
+  (200), goes in the ledger. Lane green, commit.
+- [ ] **Commit 2, the seeded half** (R12 rows 4, 5, 6: commonsense_qa, paws, boolq,
+  mmlu_pro, race_h, frontierscience, onet_m6, musr, lab_bench ×6), the same steps; R13
+  evidence for onet_m6 (kept ids equal today's, six excluded). Lane green, commit.
 
-### Task B1.3: Backfill the Hub pins on the Task-replay rows that fetch unpinned (D4)
+### Task B3: Backfill the Hub pins on the Task-replay rows that fetch unpinned (D4)
 
 - [ ] Re-import medqa, bbq and piqa (and any other the sweep lists) with their Hub revision
   resolved; their digests must be unchanged (same content); their revisions move (a new
-  literal each in A7's test, moved under the same ask). Commit.
-- [ ] **Gates, wisdom review, ledger outcome, PR.** Title:
-  `feat(screamingface-engine): move the first 14 Hugging Face-path Benchmarks to Task replay (OME-1460)`.
+  literal each in A7's test, moved under the same ask). Part of commit 1.
 
----
-
-## PR B2 — the 14 rows with forced seeds (branch `one-fetch-path-fold-2`)
-
-Spec R12 rows 4, 5, 6, R13 (onet_m6), R14, R16, D1, D3, D6. **After B1 merges.**
-
-### Task B2.1: Ledger, and the `--skip-append-only` ask
-
-- [ ] Owner-verify: "`--skip-append-only` for the 6 literal moves (commonsense_qa, paws,
-  boolq, mmlu_pro, race_h, musr); licence decisions for paws, race_h."
-
-### Task B2.2: Re-import the 14 rows
-
-**Files:** as B1.2, with `shuffle_seed=` on all 14, `choice_shuffle_seed=` on lab_bench ×6,
-`excluded_sample_ids=` and `task_args` on onet_m6, `keep_sample_metadata=True` on
-frontierscience (parent D11 decides it; assert it came out True), and
-`tests/unit/inspect/test_inspect_frontierscience_benchmark.py` re-pointed.
-
-- [ ] **Steps as B1.2.** R13 evidence for onet_m6 (kept ids equal today's, six excluded).
-
-### Task B2.3: lab_bench's answer stays shuffled (Review Focus 10)
+### Task B4: lab_bench's answer stays shuffled (Review Focus 10)
 
 - [ ] **Write the failing test first** in `tests/unit/inspect/test_inspect_task_replay_benchmarks.py`:
   for each lab_bench key, read the prepared Grading Material of a small prepared slice (the
   test fixture pattern that file already uses) and assert the target letters are not all one
-  letter. Then land the rows. Commit.
-- [ ] **Gates, wisdom review, ledger outcome, PR.** Title:
-  `feat(screamingface-engine): move the 14 seeded Hugging Face-path Benchmarks to Task replay (OME-1460)`.
+  letter. Then land the rows. Part of commit 2.
 
----
-
-## PR C — the deletion and the docs (branch `one-fetch-path-delete`)
-
-Spec R10, R15, R17, R18, R19, D7, D8. **After B2 merges.**
-
-### Task C1: Ledger, and the `--skip-append-only` ask
-
-- [ ] Owner-verify: "`--skip-append-only` for the deletion of `test_inspect_cases.py` and
-  the reader half of `test_inspect_importer.py` (the tests of code that no longer exists)."
-
-### Task C2: The R15 lane first (RED before the deletion)
+### Task B5: The R15 lane first (RED before the deletion)
 
 **Files:**
 - Test: `tests/unit/inspect/test_inspect_imported_benchmarks.py` (append one parametrised
@@ -349,7 +321,7 @@ Spec R10, R15, R17, R18, R19, D7, D8. **After B2 merges.**
 - [ ] **Step 1: Write it; it must pass on every key already** (nothing downloads in
   Grading). A key that fails names a scorer that reaches the network: STOP and ask.
 
-### Task C3: Delete the Hugging Face path (R10, R17)
+### Task B6: Delete the Hugging Face path (R10, R17)
 
 **Files:**
 - Modify: `prepare.py` (R17's list), `benchmarks.py` (`_revision_pins`,
@@ -364,9 +336,9 @@ Spec R10, R15, R17, R18, R19, D7, D8. **After B2 merges.**
 
 - [ ] **Step 1: Write the failing CLI test. Step 2: Delete. Step 3: Lane green;
   `check_layering.py` green; pyright green in an extra-less venv** (CI's pyright has no
-  inspect extra). Commit.
+  inspect extra). Commit 3 starts here.
 
-### Task C4: Glossary and the architecture page (R18, R19)
+### Task B7: Glossary and the architecture page (R18, R19)
 
 **Files:**
 - Modify: `CONTEXT.md` (the Task replay entry), `docs/importing-an-inspect-eval.md` (the
@@ -374,9 +346,9 @@ Spec R10, R15, R17, R18, R19, D7, D8. **After B2 merges.**
   `docs/adding-an-imported-benchmark.md` (one command, one declaration shape)
 
 - [ ] **Step 1: Flip each R19 sentence; grep the page for "Hugging Face path", "OME-1460",
-  "🔧", "⏳" and "28" afterwards and justify every survivor.** Commit.
-- [ ] **Gates, wisdom review, ledger outcome, PR.** Title:
-  `refactor(screamingface-engine): delete the Hugging Face preparation path (OME-1460)`.
+  "🔧", "⏳" and "28" afterwards and justify every survivor.** Part of commit 3.
+- [ ] **Gates with `--skip-append-only` (owner-pressed), wisdom review, ledger outcome, PR.**
+  Title: `feat(screamingface-engine): move the 28 Hugging Face-path Benchmarks to Task replay and delete the path (OME-1460)`.
   This PR closes the ticket: its ledger carries the close, the mirror
   `docs/tasks/2026-10-02-OME-1460-one-fetch-path.md` ships `status: done`.
 
@@ -388,11 +360,9 @@ Spec R10, R15, R17, R18, R19, D7, D8. **After B2 merges.**
 | -- | -- | -- |
 | before Task 0 | approve the spec (acceptance 9) | spec before plan before code |
 | Task 0 | run the sweep on a machine with `HF_TOKEN` (or hand the agent one, read-only) | xstest ×2 are gated |
-| PR B1 | `--skip-append-only` (12 + 1 literals); licence decisions: gsm8k, mmlu, winogrande, hellaswag | prior tests; the gate refuses `TODO` |
-| PR B2 | `--skip-append-only` (6 literals); licence decisions: paws, race_h | same |
-| PR C | `--skip-append-only` (deleted test files) | same |
-| after PR C merges | re-press the paid inspect smoke lane (`screamingface-paid-inspect-smoke.yml`) | its asset cache is keyed on the plugin source and it prepares every `inspect-*` bundle; the only paid lane that touches an Imported Benchmark. Not a golden: the ifeval e2e golden is a hand-built Engine Benchmark and does not move |
-| D1–D8 | confirm or flip each before PR A (D1, D6, D8), before B1 (D2, D3, D4, D5, D7) | the spec's Decisions table |
+| PR B | `--skip-append-only` (18 + 1 literals, the deleted test files); licence decisions: gsm8k, mmlu, winogrande, hellaswag, paws, race_h | prior tests; the gate refuses `TODO` |
+| after PR B merges | re-press the paid inspect smoke lane (`screamingface-paid-inspect-smoke.yml`) | its asset cache is keyed on the plugin source and it prepares every `inspect-*` bundle; the only paid lane that touches an Imported Benchmark. Not a golden: the ifeval e2e golden is a hand-built Engine Benchmark and does not move |
+| D1–D8 | confirm or flip each before PR A (D1, D6, D8), before PR B (D2, D3, D4, D5, D7) | the spec's Decisions table |
 
 No licence re-check is needed for the 22 rows whose `pins.py` note carries a cleared value:
 the dataset and revision are the same, the value moves from a comment to `license=`.

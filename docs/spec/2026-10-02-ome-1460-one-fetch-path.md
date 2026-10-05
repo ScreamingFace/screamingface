@@ -105,7 +105,7 @@ concurrently, see Delivery.)
 
 - The Case Digest is taken twice at import and checked at every image build, exactly as for
   the 19 Task-replay Benchmarks today (parent R5, R9, R10).
-- `test_published_revisions.py` keeps its job: its 18 literals move in the fold PRs on
+- `test_published_revisions.py` keeps its job: its 18 literals move in the fold PR on
   purpose, one diff line each, and freeze again. `test_inverted_grade.py` pins gsm8k's
   revision a second time and moves with it.
 - Every grading test keeps running with outbound network blocked; the fold gives the 28
@@ -280,7 +280,7 @@ flowchart TB
 | D2 | **gsm8k and winogrande are imported with `fewshot=0`** (a declared task arg, as today's rows were) | today's rows carry no few-shot system message; this ticket changes the fetch path, not the sitting; the ticket's table says their text is identical | the defaults (10 and 5 worked examples as a system message): a second text change on the same PR, and a different paper comparison |
 | D3 | **Capture's rendering wins over today's omissions**: musr's and xstest's system messages become leading text | the rule is "what inspect sends"; capture runs the real chain and a per-row exemption is a second writer | keep the omission: a solver-level exemption on the declaration, which is the knob this ticket deletes |
 | D4 | **Task-replay rows that fetch from the Hub with no pin are re-imported with one in the fold**, so F1 has no exemption | otherwise "one path" is false for them and their builds fetch HEAD; their revisions are not frozen and no user runs them | leave them unpinned and exempt them from F1 by name |
-| D5 | **Four stacked PRs, not three**: the 28-row re-import splits by whether a row needs a forced seed (14 and 14) | the ~500-line cap: a row is ~15 lines plus its pins' deletion, and each half carries half the literal moves | one 28-row PR of ~1,000 lines |
+| D5 | **Two PRs, not three or four**: the enforcer alone, then the fold and the deletion together (owner's call, 2026-10-05) | the mechanism/data seam is where review attention differs; the fold is mechanical (28 declarations plus a red diff) and needs one owner press and one rebase on step 7, so the ~500-line cap is waived for it | four stacked PRs (28 rows split 14/14 by forced seed, the deletion on its own) |
 | D6 | **`excluded_sample_ids` and `needs_hf_token` move to `TaskReplayCasesSpec` with their spelling and semantics unchanged** | onet_m6 and xstest need them on day one; the refusal rules exist and are tested | drop onet_m6's deviation (six ungradable Cases return and the import refuses by name) |
 | D7 | **The seed flags keep their names** (`--shuffle-seed`, `--choice-shuffle-seed`) and mean "the seed the enforcer forces"; the Task-replay refusal of them goes | the dev's command stays the one the how-to shows | new flag names |
 | D8 | **`pins.py` is deleted** with the Hugging Face path; the moved rows carry their facts inline like the 19 do | one home per fact; the Task-replay row shape already proved it | keep `pins.py` for the source pins only |
@@ -385,11 +385,11 @@ flowchart TB
 ### Revisions and tests
 
 - **R16. Literal moves.** The 18 literals in `test_published_revisions.py` and the one in
-  `test_inverted_grade.py` move in the fold PRs, one diff line each, and freeze again. Both
-  are prior tests, so each fold PR carries the owner's `--skip-append-only`, asked for by
+  `test_inverted_grade.py` move in the fold PR, one diff line each, and freeze again. Both
+  are prior tests, so the fold PR carries the owner's `--skip-append-only`, asked for by
   name. Whether the 10 unfrozen rows (lab_bench ×6, frontierscience, onet_m6, pubmedqa,
   xstest_unsafe) and the 19 Task-replay rows get frozen is the ticket's open question.
-- **R17. Deletion.** With the last fold PR: `BENCHMARK_CASES`, `CasesSpec`, `prepare_cases`,
+- **R17. Deletion.** In the fold PR, after the 28 rows land: `BENCHMARK_CASES`, `CasesSpec`, `prepare_cases`,
   `emit_cases`, `case_records`, `_pinned_samples`, `task_kept_samples`, `count_kept_cases`,
   `_shuffle_choices`, `_resolved_system_text`, `_prompt`, `templated_prompt`, `mcq_prompt`,
   `_load_rows`, `_available_hf_token` (moved, not deleted, to the gated check of R8),
@@ -407,7 +407,7 @@ flowchart TB
   checking the Case Digest." **Case Source** and **Case Preparation** keep their wording
   (both already say "pinned"). No new term: the enforcer is a mechanism inside the recorder,
   not a glossary concept.
-- **R19. `apps/screamingface-engine/docs/importing-an-inspect-eval.md`** flips, in the last
+- **R19. `apps/screamingface-engine/docs/importing-an-inspect-eval.md`** flips, in the
   fold PR: the status key (lines 14–19: the 🔧 stack is ✅ on main); §1a `dataset` and
   `solver` status cells (✅ Task replay, capture on main; the Hugging Face path gone); §1b
   `sandbox` (refusal by name ✅); §2 the "load the Samples" and "build the prompt" rows and
@@ -444,27 +444,26 @@ flowchart TB
 - The step-7 packages of OME-1273 (sad, bbeh, cyberseceval_4, pre_flight, chembench): they
   land by their own PRs and are not re-imported here; see Delivery for the ordering.
 
-## Delivery — stacked PRs, each under about 500 lines
+## Delivery — two PRs
 
 Blocked by nothing on `main` (capture rendering, the import side and the 19 Benchmarks are
 merged). **Sequenced after OME-1273's step 7:** that work is being imported concurrently
 (worktree `task-replay-benchmarks-3`, at `main` with no commits yet on 2026-10-02) and adds
 rows at the same `TASK_REPLAY_CASES` and `BENCHMARKS` anchors this fold writes to, and its
 Benchmarks join the R15 lane and the revision count. PR A touches none of those anchors and
-may merge before step 7; PRs B1, B2 and C rebase onto step 7's merged rows and merge after.
+may merge before step 7; PR B rebases onto step 7's merged rows and merges after.
 
 1. **PR A, the enforcer and the declaration** (R1–R9): the `hf_dataset` wrap, forced
    revision and seeds, both children, the five declaration fields, the identity pin, the
    gated skip and the named exclusion on Task replay. Tested with the stand-in eval in
    `tests/unit/inspect/test_task_replay.py`'s pattern; no real Benchmark moves.
-2. **PR B1, the 14 rows that need no forced seed** (R12 rows 1, 2, 3, 7, 8 of the table:
-   arc ×2, wmdp ×3, pubmedqa, gsm8k, winogrande, mmlu, aime ×2, hellaswag, xstest ×2),
-   plus the three Task-replay rows that gain a Hub pin (D4), with their literals moved and a
-   what-changed note each.
-3. **PR B2, the 14 rows with forced seeds** (R12 rows 4, 5, 6: commonsense_qa, paws,
-   boolq, mmlu_pro, race_h, frontierscience, onet_m6, musr, lab_bench ×6), the same way.
-4. **PR C, the deletion and the docs** (R10, R17–R19): the Hugging Face reader, registry,
-   writer and lockfile, their tests, the R15 lane, `CONTEXT.md` and the architecture page.
+2. **PR B, the fold and the deletion** (R10, R12–R19): all 28 rows re-imported as
+   Task-replay declarations with their literals moved and a what-changed note each (the 14
+   that need no forced seed first, then the 14 with forced seeds, so the diff reads in two
+   halves), the three Task-replay rows that gain a Hub pin (D4), then the Hugging Face
+   reader, registry, writer and lockfile with their tests, the R15 lane, `CONTEXT.md` and
+   the architecture page. One `--skip-append-only` press covers the 19 literal moves and the
+   deleted test files. Large by line count, mostly deletions; D5 says why that is accepted.
 
 Each PR's file list and RED-first tests are in the plan.
 
@@ -498,12 +497,11 @@ Each PR's file list and RED-first tests are in the plan.
   (ticket). Decides whether the move is visible to visitors on day one.
 - **Freeze the 10 unfrozen rows and the 19 Task-replay rows in
   `test_published_revisions.py`?** They are served on main but not frozen (ticket). The
-  fold PRs are the natural moment: one line per row.
+  fold PR is the natural moment: one line per row.
 - **D1 vs the parent plan's D6.** D6 said "a declared task arg, never a seed we add in
   code"; lab_bench makes that impossible. Confirm the forced seed through inspect's own
   shuffle, or the flip (13 rows at `shuffle=False`, lab_bench refused).
 - **D2 (few-shot off)** and **D3 (system text in)** change what a paper comparison means for
-  gsm8k, winogrande, musr and xstest; confirm before PR B1.
+  gsm8k, winogrande, musr and xstest; confirm before PR B.
 - **Licences for the six rows without a cleared one** (gsm8k, mmlu, winogrande, hellaswag,
-  paws, race_h): the owner's decision lands in PR B1 (gsm8k, mmlu, winogrande, hellaswag)
-  and B2 (paws, race_h).
+  paws, race_h): the owner's decision lands in PR B, all six.
