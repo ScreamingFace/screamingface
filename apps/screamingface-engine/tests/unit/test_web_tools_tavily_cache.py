@@ -242,3 +242,105 @@ async def test_the_tavily_key_is_sent_to_tavily_and_never_into_a_description() -
 
     assert tavily.requests[0].headers["authorization"] == f"Bearer {_KEY}"
     assert _KEY not in json.dumps([cache.lookups, cache.fills])
+
+
+# --- through the connector: the world wires the cache from its own aigateway client -----------
+
+_MODEL = "anthropic/claude-haiku-4-5"
+_LOOKUP = "/v1/retrieval/tavily/cache/lookup"
+_FILL = "/v1/retrieval/tavily/cache/entries"
+
+
+class _Gateway:
+    """An aigateway that asks for one web_search, then answers; it serves the cache routes too."""
+
+    def __init__(self, lookup: httpx.Response) -> None:
+        self.lookup = lookup
+        self.requests: list[httpx.Request] = []
+        self._turn = 0
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if request.url.path == _LOOKUP:
+            return self.lookup
+        if request.url.path == _FILL:
+            return httpx.Response(200, json={"outcome": "stored"})
+        assert request.url.path == "/v1/chat/completions"
+        self._turn += 1
+        if self._turn % 2 == 1:
+            call = {
+                "id": "c1",
+                "type": "function",
+                "function": {"name": "web_search", "arguments": json.dumps({"query": "q"})},
+            }
+            message = {"role": "assistant", "content": None, "tool_calls": [call]}
+        else:
+            message = {"role": "assistant", "content": "done"}
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": message}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    def client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(self._handle), base_url="http://aigateway.test"
+        )
+
+    def on(self, path: str) -> list[httpx.Request]:
+        return [r for r in self.requests if r.url.path == path]
+
+
+async def _answer(gateway: _Gateway, tavily: _Tavily) -> str:
+    from screamingface_engine.world.config import ModelSpec
+    from screamingface_engine.world.connector import build_aigateway_world
+    from url4.dag import run as url4_run
+
+    cfg = AigatewayConfig(models=(ModelSpec(id=_MODEL, web_search=True),), default_model=_MODEL)
+    async with gateway.client() as client, tavily.client() as tclient:
+        world = await build_aigateway_world(
+            cfg, client=client, tavily_api_key=_KEY, tavily_client=tclient
+        )
+        return await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
+
+
+def _tool_message(gateway: _Gateway) -> str:
+    chats = gateway.on("/v1/chat/completions")
+    return json.loads(chats[1].content)["messages"][-1]["content"]
+
+
+async def test_the_world_fills_the_gateway_after_a_miss_and_never_sends_it_the_key() -> None:
+    gateway = _Gateway(httpx.Response(200, json={"status": "miss", "result": None}))
+    tavily = _Tavily(search={"results": [_ROW]})
+
+    await _answer(gateway, tavily)
+
+    assert len(tavily.requests) == 1
+    assert json.loads(gateway.on(_FILL)[0].content)["result"] == _ROW_TEXT
+    for request in gateway.requests:
+        assert "authorization" not in request.headers
+        assert _KEY not in str(request.headers) + request.content.decode("utf-8", errors="ignore")
+
+
+async def test_the_world_serves_a_gateway_hit_with_no_tavily_request() -> None:
+    gateway = _Gateway(httpx.Response(200, json={"status": "hit", "result": "cached text"}))
+    tavily = _Tavily(search={"results": [_ROW]})
+
+    await _answer(gateway, tavily)
+
+    assert tavily.requests == []
+    assert gateway.on(_FILL) == []
+    assert _tool_message(gateway) == "cached text"
+
+
+async def test_a_failing_gateway_cache_still_completes_the_run_through_tavily() -> None:
+    gateway = _Gateway(httpx.Response(500, json={"detail": "boom"}))
+    tavily = _Tavily(search={"results": [_ROW]})
+
+    await _answer(gateway, tavily)
+
+    assert len(tavily.requests) == 1
+    assert gateway.on(_FILL) == []
+    assert _tool_message(gateway) == _ROW_TEXT
