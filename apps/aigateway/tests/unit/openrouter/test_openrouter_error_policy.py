@@ -220,7 +220,7 @@ def test_dispatch_401_marks_effective_connection(
                 Timeout(message="timed out", model=_MODEL, llm_provider="openrouter"),
                 wire_status=None,
             ),
-            408,
+            504,
         ),
         (
             _as_transport(
@@ -261,6 +261,8 @@ def test_non_401_failures_never_invalidate_the_key(
         resp = _post_chat(authenticated_client)
 
     assert resp.status_code == expected_status
+    if isinstance(exc, Timeout):
+        assert resp.json()["detail"]["code"] == "provider_execution_timeout"
     assert _active_labels(authenticated_client, account_id) == ["work-or"]
 
 
