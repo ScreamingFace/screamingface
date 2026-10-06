@@ -155,16 +155,70 @@ same thing everywhere in this chart.
 {{- end -}}
 
 {{/*
-Whether the pool should attach a tracing Secret at all. Distinct from `tracing.enabled`:
+Whether the App and the pool should attach a tracing Secret at all. Distinct from `tracing.enabled`:
 headers are OPTIONAL (an in-cluster collector needs no credential), so enabling tracing must
 not by itself reference a Secret that will never be created — an unresolvable `envFrom` stops
-the pool from starting, turning "I forgot the credential I did not need" into an outage.
+the App or the pool from starting, turning "I forgot the credential I did not need" into an outage.
 */}}
 {{- define "screamingface-engine.tracingHasSecret" -}}
 {{- if and .Values.tracing.enabled (or .Values.tracing.existingSecret .Values.tracing.headers) -}}
 true
 {{- end -}}
 {{- end -}}
+
+{{/*
+The OTLP span-export keys (OME-1131), rendered into BOTH ConfigMaps: the runner pool's
+(`url4.run` and the run's waterfall) and the App's (the control-plane `url4.accept` span,
+OME-1218). Emits nothing when `tracing.enabled` is false.
+
+INVARIANT: one source, two renderings. `url4.run` names the App's `url4.accept` span as its
+parent, so the two halves must export to the same collector under the same Resource — a key
+that reached only one half would leave the other's spans dangling or absent. That is exactly
+how the App ran without an exporter on dev: these keys lived in the runner ConfigMap alone, so
+`load_span_sink(os.environ)` returned None in the App, no accept span existed, and `url4.run`
+adopted the caller's never-exported span as its parent.
+
+WHY a helper and not `envFrom` of the runner ConfigMap on the App: that ConfigMap is the
+pool's whole deploy-time env (AIGATEWAY_*, the Runner's own URL4_CLOUD_* names); the App must
+receive the tracing keys only.
+
+The credential (OTEL_EXPORTER_OTLP_HEADERS) is NOT here — it travels by Secret; each
+Deployment attaches it under `screamingface-engine.tracingHasSecret`.
+*/}}
+{{- define "screamingface-engine.tracingEnv" }}
+  {{- if .Values.tracing.enabled }}
+  {{- if not .Values.tracing.endpoint }}
+  {{- fail "tracing.enabled requires tracing.endpoint — an enabled exporter with no endpoint starts an App and a pool that silently export nothing, and that state has no runtime symptom" }}
+  {{- end }}
+  # OTLP span export (OME-1131). These are OpenTelemetry's OWN specified variable names, read
+  # by the SDK rather than by our code, which is why they are not `URL4_CLOUD_*`: an operator's
+  # existing OTel knowledge transfers, and no vocabulary was invented here.
+  #
+  # The ENDPOINT is not a credential and belongs in the ConfigMap; the HEADERS are nothing but
+  # a credential and travel by Secret (`secret-tracing.yaml`): a ConfigMap is readable with `get`.
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.tracing.endpoint | quote }}
+  {{- with .Values.tracing.serviceName }}
+  # WHY gated on a non-empty value, like URL4_CLOUD_ARTIFACTS_DIR above: rendering "" would
+  # OVERRIDE the code's default with an empty service name, and a blank `service.name` in a
+  # tracing backend is indistinguishable from an unconfigured service. Omitting the key lets
+  # the documented default apply.
+  OTEL_SERVICE_NAME: {{ . | quote }}
+  {{- end }}
+  # FEATURE (OME-1190): defaults to the release NAMESPACE, so a preview environment's spans are
+  # distinguishable from dev's. They would otherwise be identical — a direct OTLP export carries
+  # the app's OWN Resource, and the k8s collector's namespace enrichment applies to the LOGS it
+  # scrapes, not to spans an app posts itself.
+  #
+  # WHY here and not in `values.yaml`: Helm does not template values files, so
+  # `{{ `{{ .Release.Namespace }}` }}` written there renders as that literal string and every
+  # service reports the template source as its environment.
+  #
+  # Unlike OTEL_SERVICE_NAME above, this is NOT gated on a non-empty value: the chart knows
+  # something the code cannot — which namespace it is being installed into — so it has a
+  # meaningful default to supply rather than an empty one to avoid.
+  OTEL_RESOURCE_ATTRIBUTES: {{ .Values.tracing.resourceAttributes | default (printf "deployment.environment=%s" .Release.Namespace) | quote }}
+  {{- end }}
+{{- end }}
 
 {{- define "screamingface-engine.artifactSecretName" -}}
 {{- if .Values.artifactStorage.s3.existingSecret -}}
