@@ -33,7 +33,7 @@ def _cache(handler) -> tuple[TavilyRetrievalCache, list[httpx.Request]]:
     return TavilyRetrievalCache(client, _HEADERS), seen
 
 
-def test_search_description_carries_exactly_the_arguments_that_shape_the_request() -> None:
+async def test_search_description_carries_exactly_the_arguments_that_shape_the_request() -> None:
     assert search_description(
         query="q", search_depth="advanced", max_results=5, excluded_domains=("a.test", "b.test")
     ) == {
@@ -46,7 +46,7 @@ def test_search_description_carries_exactly_the_arguments_that_shape_the_request
     }
 
 
-def test_fetch_description_carries_the_url_and_no_search_knobs() -> None:
+async def test_fetch_description_carries_the_url_and_no_search_knobs() -> None:
     assert fetch_description(url="https://x.test/p", excluded_domains=()) == {
         "provider": "tavily",
         "tool": "web_fetch",
