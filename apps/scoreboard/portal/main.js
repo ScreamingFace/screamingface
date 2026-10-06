@@ -117,6 +117,17 @@ window.ScorePortal = (function () {
     }
   }
 
+  // The link to the paper behind a score, or null when there is nothing safe
+  // to link. `paper_url` is submitter-supplied, so it goes through `httpUrlOrNull` like every
+  // other external URL; the API refuses non-http(s) on write, but this must not depend on that.
+  function paperLink(value) {
+    var href = httpUrlOrNull(value);
+    if (href === null) return null;
+    var a = link(null, href, href);
+    a.setAttribute("rel", "noopener noreferrer nofollow");
+    return a;
+  }
+
   /* ---- status / loading / error / empty -------------------------------- */
   // A status region is a single element that toggles between loading/error/
   // empty states. Passing kind === null hides it (data is ready to show).
@@ -476,6 +487,7 @@ window.ScorePortal = (function () {
     el: el,
     link: link,
     httpUrlOrNull: httpUrlOrNull,
+    paperLink: paperLink,
     setStatus: setStatus,
     showLoading: showLoading,
     showError: showError,
