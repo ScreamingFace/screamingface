@@ -100,6 +100,8 @@ class ImportReplay:
     facts: TaskReplayFacts
     #: Every top-level Hub fetch as (repo id, revision it read), in call order (OME-1460).
     hub_fetches: tuple[tuple[str, str | None], ...] = ()
+    #: The declared seeds some hf_dataset call needed ("shuffle_seed", "choice_shuffle_seed").
+    seeds_applied: frozenset[str] = frozenset()
 
 
 def replay_for_import(
@@ -189,6 +191,7 @@ def _import_replay_from_result(result: Mapping[str, Any]) -> ImportReplay:
         case_sources=tuple(CaseSource(**source) for source in result["case_sources"]),
         facts=facts,
         hub_fetches=tuple((str(repo), revision) for repo, revision in result["hub_fetches"]),
+        seeds_applied=frozenset(result["seeds_applied"]),
     )
 
 
@@ -293,6 +296,7 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         "sample_ids": [None if sample.id is None else str(sample.id) for sample in samples],
         "case_sources": [asdict(source) for source in sources],
         "hub_fetches": recorder.hub_fetches,
+        "seeds_applied": sorted(recorder.seeds_applied),
         "facts": asdict(facts),
     }
     result_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
@@ -374,6 +378,7 @@ def import_by_task_replay(
         raise ImporterError(str(exc)) from exc
     # Stage 2
     _refuse_unsealable(task_ref, first)
+    _refuse_inert_seeds(task_ref, first, shuffle_seed, choice_shuffle_seed)
     # Stage 3
     try:
         hub: HubPins = source_pins_of(
@@ -411,6 +416,24 @@ def import_by_task_replay(
     return TaskReplayImport(
         declaration=declaration, case_sources=first.case_sources, facts=first.facts
     )
+
+
+def _refuse_inert_seeds(
+    task_ref: str, first: ImportReplay, shuffle_seed: int | None, choice_shuffle_seed: int | None
+) -> None:
+    """Stage 2 — refuse a declared seed no hf_dataset call needed (OME-1460, R10): written on
+    the row, it would promise an order nothing pins."""
+
+    declared: dict[str, int | None] = {
+        "shuffle_seed": shuffle_seed,
+        "choice_shuffle_seed": choice_shuffle_seed,
+    }
+    for name, seed in declared.items():
+        if seed is not None and name not in first.seeds_applied:
+            raise ImporterError(
+                f"{task_ref}: {name}={seed} was never applied — the eval makes no unseeded "
+                "hf_dataset shuffle it would pin; leave it out"
+            )
 
 
 def _refuse_unsealable(task_ref: str, first: ImportReplay) -> None:

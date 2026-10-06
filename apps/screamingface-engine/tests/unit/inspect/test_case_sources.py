@@ -554,3 +554,24 @@ def test_uninstall_puts_hf_dataset_back(
 
     assert inspect_ai.dataset.hf_dataset is original
     assert inspect_hf.hf_dataset is original
+
+
+def test_the_recorder_says_which_declared_seeds_it_applied(
+    tmp_path: Path,
+    fake_hub: list[dict[str, Any]],
+    install_enforcer: Callable[[Path, FetchPins | None], CaseSourceRecorder],
+) -> None:
+    """OME-1460 R10: the import refuses a seed nothing applied, so it must know which were."""
+
+    recorder: CaseSourceRecorder = install_enforcer(
+        tmp_path / "cache", FetchPins(source_pins=None, shuffle_seed=1, choice_shuffle_seed=2)
+    )
+    from inspect_ai.dataset import FieldSpec, hf_dataset
+
+    hf_dataset("x/y", split="v", sample_fields=FieldSpec(input="q", target="a", id="id"))
+    assert recorder.seeds_applied == set()
+
+    hf_dataset(
+        "x/y", split="v", sample_fields=FieldSpec(input="q", target="a", id="id"), shuffle=True
+    )
+    assert recorder.seeds_applied == {"shuffle_seed"}

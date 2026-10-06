@@ -237,6 +237,9 @@ class CaseSourceRecorder:
         #: Every top-level Hub fetch as (repo id, revision it read), in call order: the
         #: importer resolves these to the declaration's source pins (OME-1460).
         self.hub_fetches: list[tuple[str, str | None]] = []
+        #: Which declared seeds a call actually needed ("shuffle_seed", "choice_shuffle_seed"):
+        #: the importer refuses a seed nothing applied (OME-1460, R10).
+        self.seeds_applied: set[str] = set()
         self._pins: FetchPins | None = None
         self._cache_root: Path = cache_root.resolve()
         self._depth: int = 0
@@ -358,7 +361,12 @@ class CaseSourceRecorder:
             bound: inspect.BoundArguments = signature.bind_partial(*args, **kwargs)
             # WHY assert: install() wraps hf_dataset only when pins are given.
             assert self._pins is not None
-            bound.arguments.update(forced_hf_dataset_arguments(self._pins, bound.arguments))
+            forced: dict[str, Any] = forced_hf_dataset_arguments(self._pins, bound.arguments)
+            if forced.get("seed") != bound.arguments.get("seed"):
+                self.seeds_applied.add("shuffle_seed")
+            if forced.get("shuffle_choices") is not bound.arguments.get("shuffle_choices"):
+                self.seeds_applied.add("choice_shuffle_seed")
+            bound.arguments.update(forced)
             return original(*bound.args, **bound.kwargs)
 
         return enforced

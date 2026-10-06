@@ -666,3 +666,22 @@ def test_the_import_names_the_eval_when_the_hub_cannot_be_asked(hub_eval: str) -
 
     with pytest.raises(ImporterError, match=f"{hub_eval}:unpinned_fetch: cannot resolve"):
         import_by_task_replay(f"{hub_eval}:unpinned_fetch", None, dataset_info=unreachable)
+
+
+def test_a_seed_the_eval_never_needs_is_refused_by_name(fake_eval: str) -> None:
+    """R10: a row must never promise an order nothing pins; the stand-in loads a JSONL file
+    with no hf_dataset shuffle, so a shuffle seed would be written and never applied."""
+
+    with pytest.raises(ImporterError, match="shuffle_seed.*never applied"):
+        import_by_task_replay(f"{fake_eval}:arithmetic", None, shuffle_seed=7)
+
+
+def test_a_choice_seed_the_eval_never_needs_is_refused_by_name(hub_eval: str) -> None:
+    with pytest.raises(ImporterError, match="choice_shuffle_seed.*never applied"):
+        import_by_task_replay(
+            f"{hub_eval}:unseeded_shuffle",
+            None,
+            shuffle_seed=7,
+            choice_shuffle_seed=3,
+            dataset_info=_hub_info(),
+        )
