@@ -1,12 +1,12 @@
 ---
 id: OME-1495
 linear_url: https://linear.app/openmined/issue/OME-1495/engine-app-deployment-has-no-otlp-env-so-the-url4accept-span-never
-status: in_review
+status: done
 type: bug
 priority: 2
 labels: [bug, screamingface-engine, agentic, autonomous]
 created: 2026-10-06
-closed:
+closed: 2026-10-06
 ---
 
 # Engine App Deployment has no OTLP env, so the url4.accept span never exports
