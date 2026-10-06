@@ -74,7 +74,7 @@ def summarize_board(
     `missing_case_row` with the real code in `metadata.source_error`).
 
     Args:
-        board: the imported benchmark id.
+        board: the Benchmark id.
         problems: the referee's verdict for this board (empty = healthy).
         seconds: the board's wall time.
         report_path: where `_smoke_one_board` kept the board's Report export.

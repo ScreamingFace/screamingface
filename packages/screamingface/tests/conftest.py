@@ -15,7 +15,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     """Drop every paid-lane test unless the paid button opened the fence.
 
     INVARIANT (OME-1275, owner rule): `tests/paid/` runs ONLY when someone presses the
-    paid button — the `workflow_dispatch` workflow or the `test-paid-inspect` just
+    paid button — the `workflow_dispatch` workflow or the `test-paid-benchmarks` just
     recipe, both of which set SCREAMINGFACE_TEST_PAID=1. Merge CI runs plain `pytest`.
     WHY deselect instead of `collect_ignore`: the ignore list does not apply to a path
     named on the command line, so `pytest tests/paid` would slip through; deselection

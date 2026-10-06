@@ -1,11 +1,13 @@
-"""The paid smoke: every imported board runs once for real (OME-1275).
+"""The paid smoke: every Benchmark the Engine serves runs once for real (OME-1275).
 
-FEATURE: a cheap owner-pressed button that re-proves the whole imported shelf's
-product pipe — SDK → gateway → OpenRouter → engine grading — after any refactor.
+FEATURE: a cheap owner-pressed button that re-proves the whole shelf's product pipe —
+SDK → gateway → OpenRouter → engine grading — after any refactor. The shelf is every
+Benchmark the live Engine lists, Imported and hand-built, narrowed by the button's
+`scope` choice (`_scope.py`).
 
-STORY: as the owner, before citing "every imported board runs", I run
-`just screamingface test-paid-inspect` and get, for a small bounded spend, either a
-green run or the exact board + failure code that broke.
+STORY: as the owner, before citing "every Benchmark runs", I run
+`just screamingface test-paid-benchmarks` and get, for a small bounded spend, either a
+green run or the exact Benchmark + failure code that broke.
 
 WHY shape-only assertions: scores are nondeterministic and protected elsewhere (the
 golden replay lane). This lane fails ONLY on infrastructure failure codes; a wrong,
@@ -14,6 +16,7 @@ refused, or truncated model answer still passes, because model quality is not wi
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
@@ -31,6 +34,7 @@ from _board_summary import (
     summarize_board,
 )
 from _panel import BOARD_CONCURRENCY, CASE_LIMIT, fusion_panel
+from _scope import SCOPE_ENV, pick_shelf, resolve_scope
 from conftest import PaidStack
 
 if TYPE_CHECKING:
@@ -59,10 +63,10 @@ TOLERATED_MODEL_SIDE_CODES: frozenset[str] = frozenset(
 )
 
 
-def test_every_imported_board_runs_end_to_end(
+def test_every_benchmark_runs_end_to_end(
     paid_stack: PaidStack, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """INVARIANT: each imported board's full product pipe can execute a real run.
+    """INVARIANT: each picked Benchmark's full product pipe can execute a real run.
 
     One loop, not per-board parametrize: the board list lives on the live engine,
     which does not exist at collection time (the SDK venv cannot import the engine).
@@ -71,18 +75,16 @@ def test_every_imported_board_runs_end_to_end(
     """
     import screamingface as sf
 
+    # The paid_stack fixture already refused an unknown scope before booting.
+    scope: str = resolve_scope(os.environ.get(SCOPE_ENV))
     with sf.Client(engine_url=paid_stack.engine_url) as client:
-        boards: list[str] = [
-            benchmark.id
-            for benchmark in client.benchmarks.list()
-            if benchmark.origin == "inspect_evals"
+        listed: list[tuple[str, str]] = [
+            (benchmark.id, benchmark.origin) for benchmark in client.benchmarks.list()
         ]
-        # An empty shelf means the engine booted without the inspect extra — a lane
-        # bug, not a board bug; fail here before spending anything.
-        assert boards, (
-            "the live engine lists no origin='inspect_evals' benchmarks — "
-            "was its venv synced with --extra benchmarks?"
-        )
+    boards, shelf_problems = pick_shelf(listed, scope)
+    # A picked kind with nothing listed (e.g. an engine booted without the inspect
+    # extra) is a lane bug, not a Benchmark bug; fail here before spending anything.
+    assert not shelf_problems, "\n".join(shelf_problems)
 
     # WHY print past pytest's capture: this is one test looping over the whole
     # shelf, so `-v` shows a single line until every board is done. The owner
@@ -90,7 +92,7 @@ def test_every_imported_board_runs_end_to_end(
     # moment it finishes, not after the whole paid run.
     with capsys.disabled():
         print(
-            f"\n[paid smoke] {len(boards)} imported boards, {CASE_LIMIT} Cases each, "
+            f"\n[paid smoke] scope {scope}: {len(boards)} Benchmarks, {CASE_LIMIT} Cases each, "
             f"{BOARD_CONCURRENCY} at a time",
             flush=True,
         )
@@ -112,7 +114,7 @@ def test_every_imported_board_runs_end_to_end(
 
     problems: list[str] = [problem for summary in summaries for problem in summary.problems]
     assert not problems, (
-        "imported boards failed the paid smoke (board: stage/code — message):\n"
+        "Benchmarks failed the paid smoke (Benchmark: stage/code — message):\n"
         + "\n".join(problems)
     )
 
@@ -135,7 +137,7 @@ def _run_shelf(
 
     Args:
         open_client: builds a fresh client context manager per worker.
-        boards: the imported benchmark ids, from the live engine.
+        boards: the picked Benchmark ids, from the live engine (see `_scope.pick_shelf`).
         reports_dir: where each board's Report is kept as ``<board>.json``.
         capsys: pytest's capture fixture, used to print past the capture.
 
@@ -198,7 +200,7 @@ def _progress_line(
         position: how many boards have finished, this one included (boards run in
             parallel, so this is completion order, not shelf order).
         total: how many boards this press runs.
-        board: the imported benchmark id.
+        board: the Benchmark id.
         problems: the board's infrastructure problems; empty means healthy.
         seconds: wall time the board took, rounded to whole seconds for display.
 
@@ -224,7 +226,7 @@ def _smoke_board_timed(
 
     Args:
         open_client: builds a fresh client context manager (one per worker thread).
-        board: the imported benchmark id.
+        board: the Benchmark id.
         reports_dir: where the board's Report is kept (see `_smoke_one_board`).
 
     Returns:
@@ -245,7 +247,7 @@ def _smoke_one_board(client: _sf.Client, board: str, reports_dir: Path) -> list[
 
     Args:
         client: the SDK client connected to the paid stack's engine.
-        board: the imported benchmark id (``inspect-<key>``).
+        board: the Benchmark id (e.g. ``inspect-gsm8k`` or ``draco``).
         reports_dir: where this board's full Report lands as ``<board>.json`` — the
             per-case evidence (member + synthesizer answers, grade, judge reasoning,
             run and trace ids) that the failure strings below only summarize.
