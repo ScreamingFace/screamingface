@@ -1,7 +1,7 @@
 """The plugin's benchmark table — every imported benchmark is a ROW here, never a file.
 
-A benchmark is two data rows: its :class:`~screamingface_engine_inspect.prepare.CasesSpec`
-(dataset pins, in ``prepare.BENCHMARK_CASES``) and its :class:`BenchmarkSpec` below (catalogue
+A benchmark is two data rows: its :class:`~screamingface_engine_inspect.prepare.TaskReplayCasesSpec`
+(in ``prepare.TASK_REPLAY_CASES``) and its :class:`BenchmarkSpec` below (catalogue
 metadata + a dotted reference to the eval's own scorer). One generic assembler turns
 the pair into a registered benchmark, so importing benchmark #13 adds two rows and zero
 functions (owner decision 2026-09-16; OME-1115's per-file benchmarks #955/#956 were closed
@@ -29,13 +29,9 @@ from typing import Any
 from screamingface_engine.benchmarks.definition import DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
 from screamingface_engine_inspect.prepare import (
-    BENCHMARK_CASES,
     INSPECT_SCORER_PREFIX,
     TASK_REPLAY_CASES,
-    CasesSpec,
     TaskReplayCasesSpec,
-    prepare_cases,
-    require_commit_sha,
 )
 from screamingface_engine_inspect.single_shot import (
     ImportedBenchmark,
@@ -49,10 +45,11 @@ from url4.peer.server import Url4Node
 
 @dataclass(frozen=True)
 class BenchmarkSpec:
-    """One imported benchmark's catalogue row — pure data, paired with its CasesSpec.
+    """One imported benchmark's catalogue row — pure data, paired with its
+    TaskReplayCasesSpec.
 
     ``scorer`` is a dotted ``"module:attr"`` reference to the eval's own scorer
-    constructor (the same convention CasesSpec uses for ``record_to_sample``),
+    constructor (the same convention TaskReplayCasesSpec uses for ``task``),
     called with ``scorer_kwargs`` — provenance lives in the row, resolution is lazy.
     """
 
@@ -176,7 +173,7 @@ _COCONOT_JUDGE = JudgeSpec(
 
 
 #: Every imported benchmark, in catalogue order. Importing another eval = one row here
-#: plus its CasesSpec row — never a new module.
+#: plus its TaskReplayCasesSpec declaration — never a new module.
 BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     BenchmarkSpec(
         key="gsm8k",
@@ -575,7 +572,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.hellaswag.hellaswag:hellaswag.
         # License: UNKNOWN on the HF card; MIT per the upstream source repo
-        # (owner-approved 2026-09-22 — see pins.py).
+        # (owner-approved 2026-09-22 — see its declaration in prepare.py).
         scorer="inspect_ai.scorer:choice",
     ),
     BenchmarkSpec(
@@ -1699,16 +1696,12 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
 
     _check_judge_declaration(spec)
     _check_verdict_grades(spec)
-    cases_spec: CasesSpec | TaskReplayCasesSpec = _cases_declaration(spec.key)
+    cases_spec: TaskReplayCasesSpec = _cases_declaration(spec.key)
     _check_answer_key_opt_in(spec, cases_spec)
-    identity_pins: tuple[str, ...]
-    prepare: Callable[[Path], dict[str, Any]]
-    if isinstance(cases_spec, TaskReplayCasesSpec):
-        identity_pins = _task_replay_pins(cases_spec)
-        prepare = partial(prepare_replayed_cases, cases_spec, benchmark_key=spec.key)
-    else:
-        identity_pins = _revision_pins(cases_spec)
-        prepare = partial(prepare_cases, cases_spec)
+    identity_pins: tuple[str, ...] = _task_replay_pins(cases_spec)
+    prepare: Callable[[Path], dict[str, Any]] = partial(
+        prepare_replayed_cases, cases_spec, benchmark_key=spec.key
+    )
     return single_shot_benchmark(
         benchmark_key=spec.key,
         title=spec.title,
@@ -1916,9 +1909,7 @@ def _reads_answer_key(template: str) -> bool:
     )
 
 
-def _check_answer_key_opt_in(
-    spec: BenchmarkSpec, cases_spec: CasesSpec | TaskReplayCasesSpec
-) -> None:
+def _check_answer_key_opt_in(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec) -> None:
     """Refuse a benchmark without an answer key unless something grades it without one.
 
     WHY at assembly (CI): a string-match benchmark would mark every reply wrong against an
@@ -1956,9 +1947,7 @@ def _check_answer_key_opt_in(
         )
 
 
-def _check_reply_only_claim(
-    spec: BenchmarkSpec, cases_spec: CasesSpec | TaskReplayCasesSpec
-) -> None:
+def _check_reply_only_claim(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec) -> None:
     """Refuse ``scorer_reads_answer_key=False`` anywhere but its one use (R19).
 
     INVARIANT: the claim stands only on a row with no answer key, no judge, and the eval's
@@ -2009,16 +1998,10 @@ def _judge_prompt_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     return (f"judge_scorer={spec.scorer}", f"judge_kwargs={canonical_kwargs}")
 
 
-def _cases_declaration(benchmark_key: str) -> CasesSpec | TaskReplayCasesSpec:
-    """The one Case Preparation declaration for a Benchmark key, from the registry holding it."""
+def _cases_declaration(benchmark_key: str) -> TaskReplayCasesSpec:
+    """The one Case Preparation declaration for a Benchmark key (OME-1460: one registry)."""
 
-    # INVARIANT: a Benchmark key lives in exactly one registry — never silently pick one of two
-    # (OME-1273).
-    if benchmark_key in BENCHMARK_CASES and benchmark_key in TASK_REPLAY_CASES:
-        raise ValueError(f"{benchmark_key}: declared in both BENCHMARK_CASES and TASK_REPLAY_CASES")
-    if benchmark_key in TASK_REPLAY_CASES:
-        return TASK_REPLAY_CASES[benchmark_key]
-    return BENCHMARK_CASES[benchmark_key]
+    return TASK_REPLAY_CASES[benchmark_key]
 
 
 def _task_replay_pins(cases_spec: TaskReplayCasesSpec) -> tuple[str, ...]:
@@ -2069,63 +2052,6 @@ def _verdict_grades_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     if spec.verdict_grades is None:
         return ()
     return (f"verdict_grades={json.dumps(dict(spec.verdict_grades), sort_keys=True)}",)
-
-
-def _revision_pins(cases_spec: CasesSpec) -> tuple[str, ...]:
-    """Benchmark-identity pins derived from the benchmark's cases row — never duplicated."""
-
-    pins: list[str] = [
-        cases_spec.dataset,
-        cases_spec.config,
-        cases_spec.split,
-        # Assembly-time backstop: a mutable ref must never become benchmark identity.
-        require_commit_sha(cases_spec.dataset_revision),
-    ]
-    if cases_spec.shuffle_seed is not None:
-        pins.append(f"shuffle_seed={cases_spec.shuffle_seed}")
-    if cases_spec.choice_shuffle_seed is not None:
-        # WHY: the pinned per-case choice order changes the benchmark a candidate
-        # sits (and the letter that grades correct), so the seed rides benchmark
-        # identity exactly like the row-shuffle seed (OME-1264).
-        pins.append(f"choice_shuffle_seed={cases_spec.choice_shuffle_seed}")
-    if cases_spec.keep_sample_metadata:
-        # Flipping the opt-in changes what the prepare step ships — benchmark identity moves.
-        pins.append("keep_sample_metadata=1")
-    if cases_spec.system_message is not None:
-        # WHY: adding or dropping the leading instruction changes the benchmark a
-        # candidate sits, so the pointer rides benchmark identity. (The template
-        # pointers predate revision-pin coverage and cannot join without
-        # moving every published benchmark's revision.)
-        pins.append(f"system_message={cases_spec.system_message}")
-    if cases_spec.data_files is not None:
-        # WHY: data_files selects WHICH files of the pinned revision load —
-        # a different selection is a different benchmark (OME-1264 extension 2).
-        # json.dumps(sort_keys=True) keeps the pin deterministic across prepares.
-        pins.append(f"data_files={json.dumps(cases_spec.data_files, sort_keys=True)}")
-    if cases_spec.features is not None:
-        # WHY: the schema fixes how the selected files parse into rows, so the
-        # pointer rides benchmark identity like system_message's does.
-        pins.append(f"features={cases_spec.features}")
-    pins.extend(_dropped_question_pins(cases_spec))
-    return tuple(pins)
-
-
-def _dropped_question_pins(cases_spec: CasesSpec) -> list[str]:
-    """Pins for the two ways a row drops questions after loading (OME-1269) — none
-    for a row that drops nothing, so published revisions stay put."""
-
-    pins: list[str] = []
-    if cases_spec.question_filter_task is not None:
-        # WHY: a question-filter benchmark's questions are whatever the eval's task keeps,
-        # and its args can change that (xstest's subset) — both are benchmark identity.
-        # json.dumps(sort_keys=True) keeps the args pin deterministic.
-        pins.append(f"question_filter_task={cases_spec.question_filter_task}")
-        task_args: str = json.dumps(cases_spec.question_filter_task_args or {}, sort_keys=True)
-        pins.append(f"question_filter_task_args={task_args}")
-    if cases_spec.excluded_sample_ids is not None:
-        # WHY: the named deviation removes questions from the benchmark.
-        pins.append(f"excluded_sample_ids={','.join(sorted(cases_spec.excluded_sample_ids))}")
-    return pins
 
 
 def _scorer_factory(spec: BenchmarkSpec) -> Callable[[], Any]:

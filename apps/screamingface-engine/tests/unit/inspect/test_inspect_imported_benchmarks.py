@@ -28,7 +28,7 @@ from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     benchmark_registrations,
     imported_benchmark,
 )
-from screamingface_engine_inspect.prepare import BENCHMARK_CASES, TASK_REPLAY_CASES  # noqa: E402
+from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES  # noqa: E402
 
 #: Every imported benchmark key and its family: "mcq" (choice scorer, draft-feedback offer
 #: refused per OME-796), "free_text" (draft-feedback offer ON, spec §4), "judged"
@@ -117,19 +117,14 @@ _EXPECTED_FAMILIES: dict[str, str] = {
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
-#: The new keys prepared from a pinned Hugging Face revision; the Task-replay keys have no
-#: dataset revision or row rule to pin, and their own twins sit at the end of this file.
-_HF_KEYS: tuple[str, ...] = tuple(k for k in _NEW_KEYS if k not in TASK_REPLAY_CASES)
 
 
 def test_catalogue_holds_every_imported_benchmark() -> None:
     """OME-1116 acceptance: ≥10 imported benchmarks; the row table IS the catalogue."""
 
     assert {spec.key for spec in BENCHMARKS} == set(_EXPECTED_FAMILIES)
-    # OME-1273: a second registry joins the catalogue; the owner granted the edit of this
-    # prior assertion (--skip-append-only, first on #1194).
-    assert set(BENCHMARK_CASES) | set(TASK_REPLAY_CASES) == set(_EXPECTED_FAMILIES)
-    assert not set(BENCHMARK_CASES) & set(TASK_REPLAY_CASES)
+    # OME-1460: one registry; every Imported Benchmark is a Task-replay declaration.
+    assert set(TASK_REPLAY_CASES) == set(_EXPECTED_FAMILIES)
     ids = [registration.benchmark.id for registration in benchmark_registrations()]
     assert len(ids) == len(set(ids)) == len(_EXPECTED_FAMILIES)
     assert all(benchmark_id.startswith("inspect-") for benchmark_id in ids)
@@ -162,36 +157,6 @@ def test_benchmark_revisions_are_distinct() -> None:
 
     revisions = {imported_benchmark(key).benchmark.revision for key in _EXPECTED_FAMILIES}
     assert len(revisions) == len(_EXPECTED_FAMILIES)
-
-
-@pytest.mark.parametrize("key", sorted(_HF_KEYS))
-def test_cases_row_pins_benchmark_identity(key: str) -> None:
-    cases_spec = BENCHMARK_CASES[key]
-    assert len(cases_spec.dataset_revision) == 40
-    int(cases_spec.dataset_revision, 16)
-    assert cases_spec.case_count > 0
-    assert cases_spec.dataset and cases_spec.split
-
-
-@pytest.mark.parametrize("key", sorted(_HF_KEYS))
-def test_cases_row_references_resolve_inside_the_pinned_eval(key: str) -> None:
-    """The rows POINT at the eval's own code; a dangling reference must fail CI,
-    not the image build."""
-
-    cases_spec = BENCHMARK_CASES[key]
-    references: list[str] = [cases_spec.record_to_sample]
-    if cases_spec.prompt_template is not None:
-        references.append(cases_spec.prompt_template)
-    if cases_spec.choice_template is not None:
-        references.append(cases_spec.choice_template)
-    if cases_spec.system_message is not None:
-        references.append(cases_spec.system_message)
-    if cases_spec.question_filter_task is not None:
-        # The question-filter pointer (OME-1269): the prepare step CALLS it at image build.
-        references.append(cases_spec.question_filter_task)
-    for reference in references:
-        module_name, _, attribute = reference.partition(":")
-        assert hasattr(import_module(module_name), attribute), reference
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
@@ -433,7 +398,7 @@ def test_xstest_safe_names_upstreams_own_metric_and_generate_config(
 
 # ── OME-1273: Task-replay declarations (spec R7) ────────────────────────────────
 
-from screamingface_engine_inspect.prepare import LICENSE_TODO, TASK_REPLAY_CASES  # noqa: E402
+from screamingface_engine_inspect.prepare import LICENSE_TODO  # noqa: E402
 
 
 def test_task_replay_declarations_carry_an_owner_license_decision() -> None:

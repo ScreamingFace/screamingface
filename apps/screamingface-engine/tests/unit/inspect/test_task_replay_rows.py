@@ -105,7 +105,8 @@ def _benchmark(rows: TaskReplayRows) -> BenchmarkSpec:
 def engine_src_copy(tmp_path: Path) -> Path:
     """A working copy of the real three generated-into files."""
 
-    for name in ("pins.py", "prepare.py", "benchmarks.py"):
+    # OME-1460: pins.py is gone; an import writes into these two files only.
+    for name in ("prepare.py", "benchmarks.py"):
         shutil.copy(_SRC_DIR / name, tmp_path / name)
     return tmp_path
 
@@ -284,7 +285,11 @@ def test_write_task_replay_rows_lands_in_prepare_and_benchmarks_only(
         "TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {"
     )
     assert 'key="stand_in_replay"' in benchmarks_text
-    assert (engine_src_copy / "pins.py").read_text() == (_SRC_DIR / "pins.py").read_text()
+    # OME-1460: pins.py is gone; the import still writes no third file.
+    assert sorted(path.name for path in engine_src_copy.iterdir()) == [
+        "benchmarks.py",
+        "prepare.py",
+    ]
     for name in ("prepare.py", "benchmarks.py"):
         ast.parse((engine_src_copy / name).read_text())
 

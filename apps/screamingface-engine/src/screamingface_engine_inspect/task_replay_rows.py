@@ -1,9 +1,8 @@
 """The generated code of a Task-replay import: its declaration and its BenchmarkSpec row.
 
-FEATURE: Task-replay Imported Benchmarks (OME-1273, spec R6). The Hugging Face importer
-writes three rows (pins, CasesSpec, BenchmarkSpec); a Task-replay import writes two, because
-it has no dataset pin: a ``TaskReplayCasesSpec`` entry in ``prepare.py`` and the usual
-``BenchmarkSpec`` row in ``benchmarks.py``.
+FEATURE: Imported Benchmarks (OME-1273, spec R6; the only import path since OME-1460). An
+import writes two rows: a ``TaskReplayCasesSpec`` entry in ``prepare.py`` (its Hub commits,
+seeds and seal) and the usual ``BenchmarkSpec`` row in ``benchmarks.py``.
 
 Think of it as filing the sealed booklet: the label on the envelope (Case count, Case Digest)
 is CAPTURED, so code enforces it; the note clipped to it (the Case Sources) is COPIED, so a

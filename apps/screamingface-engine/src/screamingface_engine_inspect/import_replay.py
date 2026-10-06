@@ -206,15 +206,15 @@ def _facts_of(
     task_args: dict[str, Any] | None,
     samples_carry_choices: bool,
 ) -> TaskReplayFacts:
-    """Stage 3a — read the built Task with the Hugging Face reader's own scorer readers."""
+    """Stage 3a — read the built Task with the importer's scorer readers."""
 
     scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
     return TaskReplayFacts(
         task_ref=task_ref,
         task_args=task_args,
-        # INVARIANT: the Hugging Face reader's two MCQ witnesses — the multiple_choice solver,
-        # OR the choice scorer (mmlu hides its solver inside its own @solver) — plus a third
-        # only a replay can see: Samples that carry choices (worldsense asks for "1"/"2"/"3"
+        # INVARIANT: three MCQ witnesses — the multiple_choice solver,
+        # OR the choice scorer (mmlu hides its solver inside its own @solver), OR Samples
+        # that carry choices (worldsense asks for "1"/"2"/"3"
         # with generate() and a pattern scorer). Any of them refuses mid-run feedback (OME-796).
         mcq=_uses_multiple_choice(task) or scorer_name == "choice" or samples_carry_choices,
         scorer=scorer_ref,
@@ -229,9 +229,8 @@ def _facts_of(
 def _uses_multiple_choice(task: Any) -> bool:
     """Whether the Task's setup or solver chain holds inspect's multiple_choice solver.
 
-    WHY a walk of our own and not the Hugging Face reader's: that reader also binds template
-    references and refuses chains it cannot imitate (two prompt templates, a rewritten system
-    message); capture renders those fine, so only the MCQ witness is read here.
+    WHY only this witness: capture renders the prompt from the real chain, so nothing else
+    about the solvers needs reading.
     """
 
     from inspect_ai._util.registry import registry_info

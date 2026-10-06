@@ -80,12 +80,12 @@ from screamingface_engine_inspect.envelopes import (
     build_case_grade,
     decode_case_grade,
 )
-from screamingface_engine_inspect.pins import (
+from screamingface_engine_inspect.prepare import SKIPPED_MARKER
+from screamingface_engine_inspect.revision_inputs import (
     PREPARER_REVISION,
     PROTOCOL_REVISION,
     pinned_inspect_packages,
 )
-from screamingface_engine_inspect.prepare import SKIPPED_MARKER
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Request, Url4Node
 

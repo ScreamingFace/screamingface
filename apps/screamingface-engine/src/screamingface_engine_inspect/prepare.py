@@ -6,8 +6,9 @@
 """Prepare the imported benchmarks' assets: public prompts and private Grading Material.
 
 Run at IMAGE BUILD time, never at run time (OME-925): a Job's rootfs is read-only and
-holds no HuggingFace credential, so every artifact exists before a run starts. HF
-downloads happen here once; upstream gating or drift cannot change a published benchmark.
+holds no HuggingFace credential, so every artifact exists before a run starts. Every
+fetch happens here, at the declaration's pinned commits, and the Case Digest seals what it
+produced; upstream gating or drift cannot change a published benchmark.
 
 Emits, per benchmark::
 
@@ -16,12 +17,12 @@ Emits, per benchmark::
                              aggregate (the scorer adapter's grading material) and the
                              draft-feedback offer
 
-ONE generic pipeline serves every imported single-shot benchmark; a benchmark is a
-:class:`CasesSpec` DATA entry in :data:`BENCHMARK_CASES` — dataset pins plus two dotted
-references into the eval's own code (its ``record_to_sample`` row rule, its prompt
-template). Row conversion and prompt formatting are inspect's own functions, CALLED,
-never reimplemented, so an imported benchmark's content is exactly what the eval publishes.
-Importing eval #3 means adding one spec entry, zero new functions.
+ONE path serves every Imported Benchmark since OME-1460: a benchmark is a
+:class:`TaskReplayCasesSpec` DATA entry in :data:`TASK_REPLAY_CASES`, and Case Preparation
+calls the eval's own task function (task_replay.py) with the declaration's Hub commits and
+seeds forced; capture renders each Sample through the Task's own solvers. Nothing here
+reimplements inspect, so an Imported Benchmark's content is exactly what the eval sends.
+Importing another eval means adding one declaration, zero new functions.
 
 INVARIANT — the Sample coming back from the eval's ``record_to_sample`` crosses ONE
 validated boundary (:func:`_validated_answer_key`): a malformed row fails the whole prepare
@@ -36,7 +37,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import random
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -52,89 +52,6 @@ if TYPE_CHECKING:
 
 class PrepareError(BenchmarkAssetPreparationError):
     """The build refuses to prepare these assets. Always says which row and why."""
-
-
-@dataclass(frozen=True)
-class CasesSpec:
-    """One imported benchmark's prepare, as pure data — pins plus pointers into the eval.
-
-    ``record_to_sample`` and ``prompt_template`` are dotted ``"module:attr"``
-    references into the eval's own package, resolved lazily at prepare time (the
-    ``inspect`` extra is a build-environment dependency).
-    """
-
-    dataset: str
-    config: str
-    split: str
-    dataset_revision: str
-    case_count: int
-    record_to_sample: str
-    prompt_template: str | None = None
-    #: The eval's own multiple_choice template, when it overrides inspect's default
-    #: SINGLE_ANSWER render (mmlu_pro, winogrande, race_h) — same dotted-reference
-    #: convention as ``prompt_template``, resolved lazily at prepare time.
-    choice_template: str | None = None
-    #: The eval's system instruction, delivered as the LEADING TEXT of the
-    #: candidate input at prepare time — a benchmark cannot address a candidate's
-    #: system role (the contracteval named-deviation pattern), so the
-    #: instruction rides ahead of the render. Same dotted-reference convention
-    #: as ``prompt_template``.
-    system_message: str | None = None
-    shuffle_seed: int | None = None
-    #: Pins one per-case CHOICE order for an eval whose hf_dataset call shuffles
-    #: choices (shuffle_choices) — applied via inspect's own
-    #: ``MemoryDataset.shuffle_choices`` over THIS PREPARATION'S pinned row order. The
-    #: pinned order is benchmark identity (it rides the benchmark's revision pins); it is
-    #: NOT the order inspect would produce for the same seeds when a row shuffle
-    #: is also active, because the prepare step's row shuffle is not HF's algorithm —
-    #: the importer refuses that combination whenever upstream seeded either
-    #: shuffle (review blocker on PR #1031). OME-1264.
-    choice_shuffle_seed: int | None = None
-    #: hf_dataset's data_files selection (a dict of str to str, infinite_bench's
-    #: {"passkey": "passkey.jsonl"}), forwarded verbatim to
-    #: ``datasets.load_dataset`` — it selects WHICH files load, so it rides the
-    #: benchmark's revision pins. OME-1264 extension 2.
-    data_files: dict[str, str] | None = None
-    #: The eval's Features schema as a dotted POINTER at its own module constant
-    #: (infinite_bench's ``constants:ft``) — same convention as
-    #: ``record_to_sample``; resolved at prepare time and required to be a
-    #: ``datasets.Features``. Rides the benchmark's revision pins too.
-    features: str | None = None
-    #: OME-1240 opt-in: prepare each Sample's metadata into its private Grading
-    #: Material record — needed by metadata-dispatching scorers (frontierscience's
-    #: format field).
-    #: Default False keeps every published benchmark's prepared assets byte-identical
-    #: (prepared cases are immutable at their revision); flipping it moves the revision.
-    keep_sample_metadata: bool = False
-    #: OME-1269 question filter: the eval's own task function (same dotted-reference
-    #: convention), for an eval that DROPS questions after loading — a
-    #: ``.filter()`` inside the task (pubmedqa keeps its 500 test ids of 1,000
-    #: rows). The prepare step hands that function this benchmark's pinned Samples in place
-    #: of its hf_dataset load and keeps exactly what its Task holds, so the
-    #: eval's filter runs and is never copied. ``case_count`` is then the KEPT
-    #: count. None (every benchmark before OME-1269) skips the step entirely.
-    question_filter_task: str | None = None
-    #: Arguments forwarded to ``task`` (xstest's {"subset": "safe"}) — they can
-    #: change which questions the filter keeps, so they ride benchmark identity too.
-    question_filter_task_args: dict[str, Any] | None = None
-    #: A NAMED DEVIATION from inspect: sample ids (``str(Sample.id)``) the prepare step
-    #: leaves out even though inspect keeps them — for questions that cannot be
-    #: graded as published (onet_m6: an answer letter past the last choice).
-    #: Every id must be present, or the prepare step refuses (upstream moved under the
-    #: deviation); ``case_count`` is the count left after the exclusion. The row
-    #: says why beside the ids, and the ids ride benchmark identity (OME-1269).
-    excluded_sample_ids: tuple[str, ...] | None = None
-    #: False for a judged benchmark whose judge grades from the question and the reply
-    #: alone (xstest: complied / refused), so the dataset has no answer key to store.
-    #: The prepare step then accepts an empty answer key; every other benchmark keeps
-    #: refusing one, because there an empty key is a broken row. Assembly refuses the opt-in on a
-    #: benchmark without a judge, or whose judge prompt reads the key (OME-1269, OME-1371).
-    has_answer_key: bool = True
-    #: The dataset sits behind a Hugging Face gate, so downloading it needs a token
-    #: from an account that accepted its terms (xstest). Without one the prepare step stops by
-    #: name, unless SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1 (PR builds, which get no
-    #: secret) skips the benchmark with a warning. Access, not benchmark identity: no pin.
-    needs_hf_token: bool = False
 
 
 #: The build-time switch that lets a PR build skip gated benchmarks instead of failing.
@@ -179,7 +96,7 @@ class TaskReplayCasesSpec:
     task_args: dict[str, Any] | None = None
     keep_sample_metadata: bool = False
     has_answer_key: bool = True
-    #: A NAMED DEVIATION, as on :class:`CasesSpec`: upstream Sample ids (``str(Sample.id)``)
+    #: A NAMED DEVIATION: upstream Sample ids (``str(Sample.id)``)
     #: dropped after the task builds its dataset and before capture (sad_stages_full: three
     #: Samples with an empty question). Every id must still be there, or Case Preparation
     #: refuses; ``case_count`` is the count kept. The row says why beside the ids, and they
@@ -198,8 +115,8 @@ class TaskReplayCasesSpec:
     #: seals the order they produce (R7).
     shuffle_seed: int | None = None
     choice_shuffle_seed: int | None = None
-    #: As on :class:`CasesSpec`: the dataset is gated, so replaying it needs a Hugging Face
-    #: token; access, not identity, so no pin (R8).
+    #: The dataset is gated, so replaying it needs a Hugging Face token from an account that
+    #: accepted its terms (xstest); access, not identity, so no pin (R8).
     needs_hf_token: bool = False
 
 
@@ -230,15 +147,8 @@ def case_digest(prepared: Sequence[PreparedCase]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-#: Every imported benchmark's prepare. Importing another eval = one more entry here
-#: (plus its pins) — never a new function.
-BENCHMARK_CASES: dict[str, CasesSpec] = {
-    # --- importer: generated CasesSpec rows land above this line ---
-}
-
-
-#: Every Task-replay Imported Benchmark's Case Preparation, keyed like BENCHMARK_CASES.
-#: Empty until OME-1273's import PRs add agieval, medqa and mgsm.
+#: Every Imported Benchmark's Case Preparation, keyed by Benchmark key. Importing another
+#: eval = one more entry, written by the importer above the anchor at the end.
 TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # agieval_lsat_ar — imported by Task replay on 2026-10-02 from
     #   inspect_evals.agieval.agieval:agie_lsat_ar.
@@ -1216,138 +1126,11 @@ def require_commit_sha(revision: str) -> str:
     return revision
 
 
-def templated_prompt(question: str, template: str) -> str:
-    """The ``prompt_template(TEMPLATE), generate()`` eval family's render, prepared.
-
-    One function for every free-text eval whose solver chain is
-    ``[prompt_template(SOME_TEMPLATE), generate()]`` (16 of the 131 inspect_evals
-    packages — gsm8k, math, aime, drop, paws, …): the spec points at the eval's own
-    template constant, this applies that solver's one substitution.
-    """
-
-    return template.format(prompt=question)
-
-
-def mcq_prompt(question: str, choices: Sequence[str], template: str | None = None) -> str:
-    """The ``multiple_choice()`` eval family's 0-shot render — inspect's formatter, prepared.
-
-    One function for every MCQ eval graded via the ``multiple_choice`` solver +
-    ``choice()`` scorer (36 of the 131 inspect_evals packages). ``template`` is the
-    eval's own override when it passes one to ``multiple_choice`` (the benchmark's
-    ``choice_template`` reference, resolved by the caller); None renders inspect's
-    default SINGLE_ANSWER template — a custom template must render VERBATIM, or the
-    prepared benchmark would silently differ from the eval's (OME-1116 milestone C).
-    """
-
-    # AIDEV-NOTE: private-module import (inspect_ai.solver._multiple_choice) — safe
-    # under the exact == pin; re-verify on any pin bump (the SINGLE_ANSWER prepared cases
-    # test breaks loudly if the formatter moves or changes).
-    from inspect_ai.solver import Choices, MultipleChoiceTemplate
-    from inspect_ai.solver._multiple_choice import prompt as choice_prompt
-
-    return choice_prompt(
-        question=question,
-        choices=Choices(list(choices)),
-        template=str(MultipleChoiceTemplate.SINGLE_ANSWER.value) if template is None else template,
-    )
-
-
-def emit_cases(
-    spec: CasesSpec,
-    rows: list[dict[str, Any]],
-    out: Path,
-    *,
-    expected_cases: int | None = None,
-) -> dict[str, Any]:
-    """Prepare any imported single-shot benchmark from the eval's own conversion functions.
-
-    Think of it as one print shop for every imported benchmark: the spec points at the
-    eval's own row-to-Sample rule and prompt template, and the shop prints the public
-    booklet plus the sealed answer keys. Stages, in execution order:
-
-        Stage 1 — refuse a mutable revision ref (only a 40-hex sha is benchmark identity)
-                  and a wrong-sized dataset (the pinned case count is, too). A
-                  question-filter benchmark checks its count after Stage 3b instead.
-        Stage 2 — shuffle when the spec pins a seed (the prepared order is benchmark identity).
-        Stage 3 — per row: the eval's ``record_to_sample`` builds the Sample; any raise
-                  fails the prepare step by case number.
-        Stage 3b — question-filter benchmarks only: the eval's own task function drops the
-                  questions it would drop in inspect (:func:`task_kept_samples`); the
-                  pinned case count is enforced on what it keeps.
-        Stage 4 — shuffle each Sample's CHOICE order when the spec pins a choice seed,
-                  via inspect's own ``MemoryDataset.shuffle_choices`` over the WHOLE
-                  dataset at once — upstream draws every case's permutation from one
-                  random stream, so a per-case shuffle would pin a different benchmark.
-        Stage 5 — per Sample, via :func:`case_records`: cross the one validated boundary
-                  (non-empty input/target,
-                  target letter within the choices for MCQ benchmarks), then render the
-                  prompt from the Sample's own shape: choices → the MCQ formatter; a
-                  template reference → its substitution; neither → the raw input.
-        Stage 6 — write the booklet (prompts only) and the private Grading Material records
-                  (:func:`_write_cases`).
-
-    Args:
-        spec: the benchmark's prepare declaration.
-        rows: raw dataset rows, one per Case.
-        out: the empty directory to prepare into.
-        expected_cases: the pinned case count to enforce; None skips the check (unit
-            tests prepare tiny row lists; :func:`prepare_cases` always enforces).
-
-    Returns:
-        The prepare step summary: case count, dataset revision, output directory.
-    """
-
-    require_commit_sha(spec.dataset_revision)
-    samples: list[Sample] = _pinned_samples(spec, rows, expected_cases)
-    if spec.choice_shuffle_seed is not None:
-        _shuffle_choices(samples, spec.choice_shuffle_seed)
-    prepared: list[PreparedCase] = case_records(samples, spec)
-    _write_cases(prepared, out)
-    return {"cases": len(prepared), "dataset_revision": spec.dataset_revision, "out": str(out)}
-
-
-def case_records(samples: Sequence[Sample], spec: CasesSpec) -> list[PreparedCase]:
-    """Stage 5 — turn Samples into prepared Cases: the rendered input plus its Grading Material.
-
-    The Hugging Face path's writer: it imitates the eval's render from the declaration's
-    prompt fields. A Task-replay Benchmark never comes through here; its render is captured
-    from the eval's own solvers (``capture.captured_case_records``), and the two share
-    :func:`prepared_case` so a Case is written one way. Per Sample: render the prompt from
-    the Sample's own shape, prepend the system text, and build the record.
-
-    Args:
-        samples: the Benchmark's Samples, in the order they are served.
-        spec: the declaration whose prompt fields and writer options apply.
-
-    Returns:
-        One prepared Case per Sample, numbered from 1.
-    """
-
-    template: str | None = None if spec.prompt_template is None else _resolve(spec.prompt_template)
-    choice_template: str | None = (
-        None if spec.choice_template is None else _resolve(spec.choice_template)
-    )
-    system_text: str | None = _resolved_system_text(spec)
-    prepared: list[PreparedCase] = []
-    for case_id, sample in enumerate(samples, start=1):
-        _, choices = _validated_answer_key(sample, case_id, spec.has_answer_key)
-        input_text: str = _prompt(sample, choices, template, choice_template)
-        if system_text is not None:
-            # Named deviation (contracteval pattern): the eval's SYSTEM
-            # instruction becomes the input's leading text, render untouched.
-            input_text = f"{system_text}\n\n{input_text}"
-        prepared.append(prepared_case(sample, case_id, input_text, spec))
-    return prepared
-
-
 def prepared_case(
-    sample: Sample, case_id: int, input_text: str, spec: CasesSpec | TaskReplayCasesSpec
+    sample: Sample, case_id: int, input_text: str, spec: TaskReplayCasesSpec
 ) -> PreparedCase:
     """One prepared Case from a Sample and its rendered input: the public row plus the
     private Grading Material, after the one validated boundary on eval-produced Samples.
-
-    Shared by both preparation paths (OME-1273), so a Hugging Face Benchmark and a
-    Task-replay Benchmark can never drift on how a Case is written.
     """
 
     target, choices = _validated_answer_key(sample, case_id, spec.has_answer_key)
@@ -1363,31 +1146,6 @@ def prepared_case(
         "case": {"id": case_id, "case_id": str(case_id), "input": input_text},
         "grading_material": record,
     }
-
-
-def _pinned_samples(
-    spec: CasesSpec, rows: list[dict[str, Any]], expected_cases: int | None
-) -> list[Sample]:
-    """Stages 1 (size), 2, 3 and 3b — the raw rows become the benchmark's Samples, in the
-    pinned order. A benchmark that drops questions (a question filter, or a named exclusion)
-    checks its size on what is left instead of on the raw rows."""
-
-    drops_questions: bool = (
-        spec.question_filter_task is not None or spec.excluded_sample_ids is not None
-    )
-    if not drops_questions:
-        _require_case_count(len(rows), expected_cases, "dataset yielded", "rows")
-    ordered: list[dict[str, Any]] = list(rows)
-    if spec.shuffle_seed is not None:
-        random.Random(spec.shuffle_seed).shuffle(ordered)
-    samples: list[Sample] = _converted_samples(ordered, _resolve(spec.record_to_sample))
-    if spec.question_filter_task is not None:
-        samples = task_kept_samples(spec, samples)
-    if spec.excluded_sample_ids is not None:
-        samples = without_excluded_samples(spec.excluded_sample_ids, samples)
-    if drops_questions:
-        _require_case_count(len(samples), expected_cases, "the prepare step kept", "cases")
-    return samples
 
 
 def without_excluded_samples(excluded_ids: tuple[str, ...], samples: list[Sample]) -> list[Sample]:
@@ -1406,245 +1164,6 @@ def without_excluded_samples(excluded_ids: tuple[str, ...], samples: list[Sample
             "deviation no longer matches the pinned Samples"
         )
     return [sample for sample in samples if str(sample.id) not in excluded_ids]
-
-
-def _converted_samples(ordered: list[dict[str, Any]], record_to_sample: Any) -> list[Sample]:
-    """Stage 3 — every row through the eval's own conversion, failing by case number."""
-
-    samples: list[Sample] = []
-    for case_id, row in enumerate(ordered, start=1):
-        try:
-            samples.append(record_to_sample(row))
-        except Exception as exc:  # noqa: BLE001 — WHY broad: the conversion is eval
-            # code over an untrusted row; ANY raise must fail the prepare step by case number.
-            raise PrepareError(
-                f"case {case_id}: record_to_sample refused the row ({type(exc).__name__}: {exc})"
-            ) from exc
-    return samples
-
-
-def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
-    """Stage 3b — let the eval's own task pick which pinned Samples stay (OME-1269).
-
-    Think of it as handing the eval's examiner our printed question stack instead
-    of letting them fetch their own: they throw out the questions their rules
-    exclude, and we freeze whatever they hand back. Worked example: pubmedqa's
-    task loads 1,000 rows and keeps the 500 whose ids are on its bundled test
-    list — we give it our 1,000 pinned Samples, it hands back 500, and the benchmark
-    holds exactly those 500, in our pinned order.
-
-    Stages, in execution order:
-
-        Stage 1 — resolve the task function and its module's ``hf_dataset``
-                  binding (the one load the eval makes; no binding → refuse).
-        Stage 2 — swap that binding for a loader that returns a FRESH dataset of
-                  our pinned Samples (no download, and the eval's own shuffle kwargs are
-                  ignored: the order is already pinned), then call the task with
-                  ``spec.question_filter_task_args``. A raise refuses by name — e.g. inspect's
-                  "dataset is empty" when the filter kept nothing.
-        Stage 3 — refuse unless the loader ran exactly once (a second load, a
-                  fewshot pool, would have been handed the benchmark's Samples too), and
-                  asked for the dataset, config and split this row pins (the swap
-                  ignores them, so a mismatched row would prepare another load's benchmark).
-        Stage 4 — refuse unless the Samples the Task holds are an in-order subset of ours,
-                  compared by identity: the question filter may only DROP questions. An
-                  added, duplicated or reordered Sample is a benchmark we never pinned.
-
-    Args:
-        spec: the benchmark's prepare declaration; ``spec.question_filter_task`` must be set.
-        samples: our pinned Samples — converted by the eval's ``record_to_sample``
-            and already in the benchmark's seeded order.
-
-    Returns:
-        The Samples the eval keeps, in our pinned order.
-    """
-
-    # Stage 1 — the task function and the load it makes.
-    task_ref: str = str(spec.question_filter_task)
-    module_name, _, attribute = task_ref.partition(":")
-    module: Any = import_module(module_name)
-    task_fn: Any = getattr(module, attribute)
-    if not hasattr(module, "hf_dataset"):
-        raise PrepareError(
-            f"task {task_ref}: its module has no hf_dataset binding — the question-filter step "
-            "can only hand the pinned Samples to an eval that loads through it"
-        )
-
-    # Stage 2 — swap the load for our pinned Samples, then build the eval's Task.
-    from inspect_ai.dataset import MemoryDataset
-
-    loads: list[dict[str, Any]] = []
-
-    def pinned_loader(*args: Any, **kwargs: Any) -> Any:
-        loads.append(_load_arguments(args, kwargs))
-        return MemoryDataset(list(samples))
-
-    original_loader: Any = module.hf_dataset
-    module.hf_dataset = pinned_loader
-    try:
-        task: Any = task_fn(**dict(spec.question_filter_task_args or {}))
-    except Exception as exc:  # noqa: BLE001 — WHY broad: this is eval code over our
-        # pinned Samples; ANY raise must refuse the prepare step by name, never crash raw.
-        raise PrepareError(
-            f"task {task_ref}: the eval's task refused the pinned Samples "
-            f"({type(exc).__name__}: {exc})"
-        ) from exc
-    finally:
-        module.hf_dataset = original_loader
-
-    # Stage 3 — exactly one load, of the dataset this row pins.
-    if len(loads) != 1:
-        paths: str = ", ".join(str(load.get("path", "?")) for load in loads) or "none"
-        raise PrepareError(
-            f"task {task_ref}: loaded {len(loads)} datasets ({paths}) — "
-            "the question-filter step hands the pinned questions to exactly one load"
-        )
-    _require_the_pinned_load(task_ref, spec, loads[0])
-
-    # Stage 4 — the kept Samples become our Cases, each once, in our order.
-    kept: list[Sample] = list(task.dataset)
-    _require_in_order_subset(task_ref, samples, kept)
-    return kept
-
-
-def _load_arguments(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
-    """One swapped-out hf_dataset call as ``{parameter: value}``, bound like the real one.
-
-    WHY bind: evals pass ``path`` (and sometimes ``split``) positionally; reading only
-    kwargs would miss them. An unbindable call records nothing checkable, so the
-    pinned-load check below refuses it.
-    """
-
-    import inspect as _inspect
-
-    from inspect_ai.dataset import hf_dataset
-
-    try:
-        return dict(_inspect.signature(hf_dataset).bind_partial(*args, **kwargs).arguments)
-    except TypeError:
-        return {}
-
-
-def _require_the_pinned_load(task_ref: str, spec: CasesSpec, arguments: dict[str, Any]) -> None:
-    """Stage 3 of the question-filter step — the eval must ask for the load this row pins.
-
-    WHY: the swap hands the task our pinned Samples whatever it asks for, so a row
-    whose dataset/config/split drifted from the task's own call would prepare one
-    load's questions through another load's filter, with every count agreeing.
-    Worked example: onet_m6 asks ``path="matichon/thai-onet-m6-exam",
-    name="default", split="test"`` and its row pins exactly those.
-    """
-
-    asked: dict[str, Any] = {
-        "dataset": arguments.get("path"),
-        "config": arguments.get("name") or "",
-        "split": arguments.get("split"),
-    }
-    pinned: dict[str, str] = {"dataset": spec.dataset, "config": spec.config, "split": spec.split}
-    mismatched: list[str] = [
-        f"{field} {asked[field]!r} (the row pins {pinned[field]!r})"
-        for field in pinned
-        if asked[field] != pinned[field]
-    ]
-    if mismatched:
-        raise PrepareError(
-            f"task {task_ref}: the eval asks for a different load than its row — "
-            + "; ".join(mismatched)
-        )
-
-
-def _require_in_order_subset(task_ref: str, samples: list[Sample], kept: list[Sample]) -> None:
-    """Stage 4 of the question-filter step — refuse unless ``kept`` only DROPS from ``samples``.
-
-    Compared by object identity (inspect's filter keeps the very Sample objects),
-    so a look-alike question the task built itself is caught too. Worked example:
-    pinned [s1, s2, s3, s4] → kept [s2, s4] passes; [s4, s2] (reordered), [s2, s2]
-    (duplicated) or [s2, x] (added) refuse.
-    """
-
-    position_of: dict[int, int] = {id(sample): index for index, sample in enumerate(samples)}
-    last_position: int = -1
-    for sample in kept:
-        position: int | None = position_of.get(id(sample))
-        if position is None or position <= last_position:
-            raise PrepareError(
-                f"task {task_ref}: the Task's dataset is not an in-order subset of the "
-                "pinned Samples — the task added, duplicated or reordered a sample"
-            )
-        last_position = position
-
-
-def count_kept_cases(spec: CasesSpec) -> int:
-    """How many questions a question-filter benchmark keeps at its pinned revision.
-
-    The importer's case count for a question-filter row (import time only; this
-    downloads the pinned split). Order cannot change the count, so no shuffle.
-    """
-
-    rows: list[dict[str, Any]] = _load_rows(spec)
-    samples: list[Sample] = _converted_samples(rows, _resolve(spec.record_to_sample))
-    return len(task_kept_samples(spec, samples))
-
-
-def _shuffle_choices(samples: list[Sample], seed: int) -> None:
-    """Stage 4 — pin each case's choice order with inspect's OWN shuffle, in place.
-
-    WHY the whole dataset at once: ``MemoryDataset.shuffle_choices`` draws every
-    sample's permutation (and target-letter remap) from ONE ``random.Random(seed)``
-    stream, so each case's order depends on its position — shuffling per case
-    would prepare a different benchmark than the eval family produces for this seed.
-    """
-
-    from inspect_ai.dataset import MemoryDataset
-
-    try:
-        MemoryDataset(samples).shuffle_choices(seed=seed)
-    except Exception as exc:  # noqa: BLE001 — WHY broad: the shuffle runs inspect's
-        # letter remap over eval-produced Samples; ANY raise (a non-letter target
-        # hitting ord(), an out-of-range letter) must surface as the prepare step's own
-        # named refusal, never a raw TypeError/KeyError (review finding on PR #1031).
-        raise PrepareError(
-            f"choice shuffle refused the dataset ({type(exc).__name__}: {exc}) — "
-            "a sample's target/choices do not fit inspect's letter remap"
-        ) from exc
-
-
-def _resolved_system_text(spec: CasesSpec) -> str | None:
-    """The eval's system instruction as leading input text, or None without one.
-
-    WHY stripped once here: eval constants often carry framing newlines
-    (hellaswag's SYSTEM_MESSAGE); the leading text must join the render with
-    exactly one blank line. A non-string resolution (a mispointed reference
-    landing on a function) refuses the prepare step — str() would silently prepare its
-    repr into every case of the benchmark (review finding on PR #1018).
-    """
-
-    if spec.system_message is None:
-        return None
-    resolved_message: Any = _resolve(spec.system_message)
-    if not isinstance(resolved_message, str):
-        raise PrepareError(
-            f"system_message {spec.system_message} must resolve to text, "
-            f"got {type(resolved_message).__name__}"
-        )
-    return resolved_message.strip()
-
-
-def prepare_cases(spec: CasesSpec, out: Path) -> dict[str, Any]:
-    """Snapshot one benchmark's pinned HF split and prepare its assets (build time only).
-
-    A gated dataset needs a Hugging Face token (``HF_TOKEN``, or a cached login).
-    Without one the prepare step refuses by name, so a main or release image can never ship
-    missing a benchmark; a PR build that sets ``SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1``
-    skips the benchmark instead, writes nothing, and says so loudly in the build log.
-    """
-
-    if spec.needs_hf_token:
-        skipped: dict[str, Any] | None = skip_without_hf_token(spec.dataset, out)
-        if skipped is not None:
-            return skipped
-    rows: list[dict[str, Any]] = _load_rows(spec)
-    return emit_cases(spec, rows, out, expected_cases=spec.case_count)
 
 
 def skip_without_hf_token(dataset: str, out: Path) -> dict[str, Any] | None:
@@ -1685,22 +1204,6 @@ def skip_without_hf_token(dataset: str, out: Path) -> dict[str, Any] | None:
     out.mkdir(parents=True, exist_ok=True)
     (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
     return {"cases": 0, "skipped": reason, "out": str(out)}
-
-
-def _prompt(
-    sample: Sample,
-    choices: list[str] | None,
-    template: str | None,
-    choice_template: str | None,
-) -> str:
-    """Stage 4 — the render is derived from the Sample's own shape, never per benchmark."""
-
-    question: str = str(sample.input)
-    if choices is not None:
-        return mcq_prompt(question, choices, choice_template)
-    if template is not None:
-        return templated_prompt(question, template)
-    return question
 
 
 def _resolve(reference: str) -> Any:
@@ -1768,19 +1271,6 @@ def _validated_metadata(metadata: dict[str, Any], case_id: int) -> dict[str, Any
     return metadata
 
 
-def _require_case_count(count: int, expected: int | None, source: str, unit: str) -> None:
-    """Refuse a wrong-sized prepare — a config/revision typo must never ship a smaller benchmark.
-
-    WHY: the row count is part of the benchmark's identity (the pinned CASE_COUNT rides the
-    revision hash); an upstream change or a wrong split silently yielding 0 or N±k rows
-    would prepare a DIFFERENT benchmark with a green build. ``source``/``unit`` name what was
-    counted: raw rows ("dataset yielded … rows") or a question filter's kept cases.
-    """
-
-    if expected is not None and count != expected:
-        raise PrepareError(f"{source} {count} {unit}, pinned case count is {expected}")
-
-
 def _write_cases(prepared: Sequence[PreparedCase], out: Path) -> None:
     """Stage 6 — write the public booklet and the private Grading Material records."""
 
@@ -1812,53 +1302,14 @@ def _available_hf_token() -> str | None:
     return get_token()
 
 
-def _load_rows(spec: CasesSpec) -> list[dict[str, Any]]:
-    """Load one pinned HF split — ``datasets`` is a build-environment dependency only."""
-
-    try:
-        import datasets  # noqa: PLC0415 — build-time-only dependency, by design
-    except ModuleNotFoundError as exc:
-        raise PrepareError(
-            "the `datasets` package is required to prepare a benchmark — "
-            "`uv pip install datasets` in the build environment"
-        ) from exc
-    selection: dict[str, Any] = {}
-    if spec.data_files is not None:
-        selection["data_files"] = spec.data_files
-    if spec.features is not None:
-        resolved_schema: Any = _resolve(spec.features)
-        # WHY the type check: a mispointed reference landing on a string or a
-        # function would corrupt every row silently or crash deep inside
-        # `datasets` — refuse the prepare step by name instead (OME-1264 extension 2).
-        if not isinstance(resolved_schema, datasets.Features):
-            raise PrepareError(
-                f"features {spec.features} must resolve to a datasets.Features "
-                f"schema, got {type(resolved_schema).__name__}"
-            )
-        selection["features"] = resolved_schema
-    loaded = datasets.load_dataset(
-        spec.dataset, spec.config, revision=spec.dataset_revision, split=spec.split, **selection
-    )
-    return [dict(row) for row in loaded]
-
-
 __all__ = [
     "PrepareError",
-    "BENCHMARK_CASES",
-    "CasesSpec",
     "INSPECT_SCORER_PREFIX",
     "LICENSE_TODO",
     "PreparedCase",
     "TASK_REPLAY_CASES",
     "TaskReplayCasesSpec",
     "case_digest",
-    "case_records",
-    "count_kept_cases",
-    "emit_cases",
-    "mcq_prompt",
-    "prepare_cases",
     "prepared_case",
-    "task_kept_samples",
-    "templated_prompt",
     "without_excluded_samples",
 ]
