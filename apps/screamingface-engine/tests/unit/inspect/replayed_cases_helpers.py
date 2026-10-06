@@ -67,3 +67,49 @@ def prepare_with_stand_in_hub(
             prepared: list[PreparedCase] = pool.submit(captured_case_records, task, spec).result()
     _write_cases(prepared, out)
     return prepared
+
+
+def replay_in_process_over_rows(
+    benchmark_key: str, rows: list[dict[str, Any]], cache_root: Path
+) -> list[PreparedCase]:
+    """Replay the Benchmark's real task in this process, with the real enforcer installed,
+    over ``rows`` served as the Hub dataset; return the prepared Cases.
+
+    Unlike :func:`prepare_with_stand_in_hub`, inspect's own ``hf_dataset`` runs, so the
+    declaration's forced seeds reach inspect's shuffles; only ``datasets.load_dataset`` is a
+    stand-in. Use it to test what the enforcer does to a real eval's Cases.
+    """
+
+    import functools
+
+    import datasets
+
+    from screamingface_engine_inspect.case_sources import CaseSourceRecorder
+    from screamingface_engine_inspect.task_replay import fetch_pins_of
+
+    spec: TaskReplayCasesSpec = TASK_REPLAY_CASES[benchmark_key]
+    module_name, _, attribute = spec.task.partition(":")
+    module: Any = importlib.import_module(module_name)
+    real_load_dataset: Any = datasets.load_dataset
+
+    @functools.wraps(real_load_dataset)  # WHY: the recorder binds arguments to this signature
+    def stand_in_load_dataset(*_: Any, **__: Any) -> Any:
+        """The rows, whatever was asked for."""
+
+        return datasets.Dataset.from_list(rows)
+
+    with (
+        mock.patch.object(datasets, "load_dataset", stand_in_load_dataset),
+        mock.patch.dict(
+            os.environ,
+            {"XDG_CACHE_HOME": str(cache_root / "xdg"), "INSPECT_EVAL_MODEL": "none/none"},
+        ),
+    ):
+        recorder: CaseSourceRecorder = CaseSourceRecorder(cache_root)
+        recorder.install(fetch_pins_of(spec))
+        try:
+            task: Any = getattr(module, attribute)(**(spec.task_args or {}))
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(captured_case_records, task, spec).result()
+        finally:
+            recorder.uninstall()
