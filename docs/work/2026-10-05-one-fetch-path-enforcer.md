@@ -92,10 +92,15 @@ Face-path rows, not the spec's 28: coconot's two rows came with OME-1371.
 - **10 identical, 9 order only, 10 differ in text, and mmlu is a subset.** The text changes the spec predicted
   hold: musr and xstest ×2 gain the system message (D3); lab_bench ×6 differ in their
   answer options (D1).
-- **Three findings the spec did not predict, for PR 2 (spec amendment before the fold):**
-  mmlu serves 105 fewer Cases (14,042 → 13,937; inspect drops them); every hellaswag Case
-  differs, first by a leading newline from the eval's system message; frontierscience's
-  Sample ids differ wholesale while the text matches.
+- **Three results the spec did not predict, each explained; PR 2 amends the spec's R12 table:**
+  - mmlu serves 105 fewer Cases (14,042 → 13,937): inspect's own `get_mmlu_dataset` runs
+    `filter_duplicate_ids` over content-hash Sample ids, so Task replay sends exactly what
+    inspect sends and today's row serves 105 duplicate questions.
+  - every hellaswag Case differs, first by a leading newline: the eval's `SYSTEM_MESSAGE`
+    itself starts with one; capture keeps it, today's row strips it (`.strip()`).
+  - frontierscience's "ids differ" is a sweep artifact: the eval numbers repeated ids with a
+    process-wide counter, and the sweep built today's Samples twice in one process; every
+    replay child is fresh, so builds are unaffected.
 
 | Key | Import | Cases | Text | Hub commit | Note |
 | -- | -- | -- | -- | -- | -- |
@@ -107,16 +112,16 @@ Face-path rows, not the spec's 28: coconot's two rows came with OME-1371.
 | coconot_contrast | ✅ | 379 → 379 | identical | 2cbe16aabf90 |  |
 | coconot_original | ✅ | 1001 → 1001 | identical | 2cbe16aabf90 |  |
 | commonsense_qa | ✅ | 1221 → 1221 | order only | 94630fe30dad |  |
-| frontierscience | ✅ | 160 → 160 | order only | 25ed67db7da8 | **Sample ids differ wholesale** though the text matches — PR 2 checks the id scheme |
+| frontierscience | ✅ | 160 → 160 | order only | 25ed67db7da8 | ids differ only in the sweep: the eval numbers repeated ids with a process-wide counter and the sweep ran it twice in one process |
 | gsm8k | ✅ | 1319 → 1319 | identical | cc7b047b6e5b |  |
-| hellaswag | ✅ | 10042 → 10042 | 10042 Cases differ | 218ec52e09a7 | all Cases differ; first difference is a leading newline from the eval's system message (capture keeps it, today's row strips it) — PR 2 must explain or match it |
+| hellaswag | ✅ | 10042 → 10042 | 10042 Cases differ | 218ec52e09a7 | all Cases differ; first difference is the leading newline the eval's own system message starts with (capture keeps it, today's row strips it) |
 | lab_bench_cloning_scenarios | ✅ | 33 → 33 | 33 Cases differ | 5c77cec64843 | differs in the answer options, expected from the forced choice seed (D1); PR 2 confirms order is the only change |
 | lab_bench_dbqa | ✅ | 520 → 520 | 513 Cases differ | 5c77cec64843 | as above (D1) |
 | lab_bench_litqa | ✅ | 199 → 199 | 192 Cases differ | 5c77cec64843 | as above (D1) |
 | lab_bench_protocolqa | ✅ | 108 → 108 | 107 Cases differ | 5c77cec64843 | as above (D1) |
 | lab_bench_seqqa | ✅ | 600 → 600 | 589 Cases differ | 5c77cec64843 | as above (D1) |
 | lab_bench_suppqa | ✅ | 82 → 82 | 79 Cases differ | 5c77cec64843 | as above (D1) |
-| mmlu | ✅ | 14042 → 13937 | a subset of today's | c30699e8356d | **105 fewer Cases** (14,042 → 13,937); every replayed Case exists today, so inspect drops 105 — not in the spec; PR 2 must explain |
+| mmlu | ✅ | 14042 → 13937 | a subset of today's | c30699e8356d | 105 fewer Cases: inspect's own duplicate filter drops 105 repeated questions today's row serves |
 | mmlu_pro | ✅ | 12032 → 12032 | order only | 527feea0afed |  |
 | musr | ✅ | 250 → 250 | 250 Cases differ | 7c365b439a22 | gains the eval's system message (D3) |
 | onet_m6 | ✅ | 391 → 391 | order only | 93ffb5e3f3ec | the +6 ids are the six named exclusions (the sweep lists ids before exclusion); same 391 Cases |
