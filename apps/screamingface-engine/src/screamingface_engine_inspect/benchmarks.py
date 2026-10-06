@@ -2021,7 +2021,8 @@ def _task_replay_pins(cases_spec: TaskReplayCasesSpec) -> tuple[str, ...]:
     WHY these three: the Case Digest already seals every written byte (inputs, templates,
     system text, Grading Material), so the task reference and its args name WHERE the Cases
     come from and the digest pins WHAT they are. A fourth, the excluded Sample ids, joins
-    only on a row that declares that Named Deviation (spec R18).
+    only on a row that declares that Named Deviation (spec R18); another, the Hub commits
+    the replay is forced to read, only on a row that fetches from the Hub (OME-1460, R7).
     """
 
     task_args: str = json.dumps(cases_spec.task_args or {}, sort_keys=True)
@@ -2030,12 +2031,18 @@ def _task_replay_pins(cases_spec: TaskReplayCasesSpec) -> tuple[str, ...]:
         f"task_args={task_args}",
         f"case_digest={cases_spec.case_digest}",
     )
-    if cases_spec.excluded_sample_ids is None:
-        return pins
-    # WHY a pin even though the digest already moves: a Named Deviation is written on the
-    # Benchmark and included in its revision (CONTEXT.md), as on the Hugging Face path; only
-    # when set, so no published revision moves (spec R18).
-    return (*pins, f"excluded_sample_ids={','.join(sorted(cases_spec.excluded_sample_ids))}")
+    if cases_spec.excluded_sample_ids is not None:
+        # WHY a pin even though the digest already moves: a Named Deviation is written on the
+        # Benchmark and included in its revision (CONTEXT.md), as on the Hugging Face path;
+        # only when set, so no published revision moves (spec R18).
+        excluded: str = ",".join(sorted(cases_spec.excluded_sample_ids))
+        pins = (*pins, f"excluded_sample_ids={excluded}")
+    if cases_spec.source_pins:
+        # WHY (OME-1460, R7): the same task and digest read from two different Hub commits
+        # are two Benchmarks. Only when set, so no URL-only row's revision moves; sorted, so
+        # dict order never does.
+        pins = (*pins, f"source_pins={json.dumps(cases_spec.source_pins, sort_keys=True)}")
+    return pins
 
 
 def _inverted_grade_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

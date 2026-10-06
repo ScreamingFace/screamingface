@@ -119,5 +119,64 @@ def test_every_task_replay_row_without_an_exclusion_keeps_its_three_pins() -> No
     before R18, so the 19 Task-replay Benchmarks already on main keep their revisions."""
 
     for key, spec in TASK_REPLAY_CASES.items():
-        if spec.excluded_sample_ids is None:
+        # WHY `not spec.source_pins` (OME-1460, owner-approved): the five rows that read the
+        # Hub gain a Hub pin on purpose (spec D4); test_published_revisions.py freezes the rest.
+        if spec.excluded_sample_ids is None and not spec.source_pins:
             assert len(benchmarks._task_replay_pins(spec)) == 3, key
+
+
+# --- OME-1460: the source pins join identity (spec R7) -------------------------------------
+
+_MEDQA_SHA: str = "ddef95d268cdad413693d634279a9a679d468469"
+
+
+def test_source_pins_join_identity_as_a_fourth_pin() -> None:
+    """Two declarations with the same task and digest but different Hub commits are two
+    Benchmarks, so the commit rides the revision (spec R7)."""
+
+    pinned = TaskReplayCasesSpec(
+        task=_SPEC.task,
+        case_count=250,
+        case_digest="a" * 64,
+        task_args={"languages": ["en"]},
+        source_pins={"bigbio/med_qa": _MEDQA_SHA},
+    )
+
+    assert benchmarks._task_replay_pins(pinned) == (
+        *benchmarks._task_replay_pins(_SPEC),
+        f'source_pins={{"bigbio/med_qa": "{_MEDQA_SHA}"}}',
+    )
+
+
+def test_source_pins_are_written_sorted_so_dict_order_never_moves_a_revision() -> None:
+    first = TaskReplayCasesSpec(
+        task=_SPEC.task,
+        case_count=1,
+        case_digest="a" * 64,
+        source_pins={"b/b": "1" * 40, "a/a": "2" * 40},
+    )
+    second = TaskReplayCasesSpec(
+        task=_SPEC.task,
+        case_count=1,
+        case_digest="a" * 64,
+        source_pins={"a/a": "2" * 40, "b/b": "1" * 40},
+    )
+
+    assert benchmarks._task_replay_pins(first) == benchmarks._task_replay_pins(second)
+
+
+def test_seeds_and_the_gate_add_no_identity_pin() -> None:
+    """INVARIANT: no published revision moves for a field the digest already seals (the
+    seeds fix the order, which the digest seals) or that is access, not identity (the gate)."""
+
+    seeded = TaskReplayCasesSpec(
+        task=_SPEC.task,
+        case_count=250,
+        case_digest="a" * 64,
+        task_args={"languages": ["en"]},
+        shuffle_seed=1234,
+        choice_shuffle_seed=7,
+        needs_hf_token=True,
+    )
+
+    assert benchmarks._task_replay_pins(seeded) == benchmarks._task_replay_pins(_SPEC)

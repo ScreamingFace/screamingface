@@ -441,3 +441,54 @@ def test_an_excluded_id_that_could_escape_the_generated_code_is_refused() -> Non
 
     with pytest.raises(ImporterError, match="injection guard"):
         render_task_replay_rows("x", imported, "TODO")
+
+
+# --- OME-1460: the generated row carries the Hub pins, the seeds and the gate --------------
+
+_MEDQA_SHA: str = "ddef95d268cdad413693d634279a9a679d468469"
+
+
+def test_the_hub_pins_seeds_and_gate_are_written_and_evaluate_back() -> None:
+    """Every image build reads these off the row, so a row that dropped one would replay
+    unpinned (or be refused) at the first build after import."""
+
+    imported: TaskReplayImport = _imported(
+        source_pins={"bigbio/med_qa": _MEDQA_SHA},
+        shuffle_seed=1234,
+        choice_shuffle_seed=7,
+        needs_hf_token=True,
+    )
+
+    rows: TaskReplayRows = render_task_replay_rows("medqa", imported, "TODO")
+
+    assert f'            "bigbio/med_qa": "{_MEDQA_SHA}",\n' in rows.cases
+    assert "        shuffle_seed=1234,\n" in rows.cases
+    assert "        choice_shuffle_seed=7,\n" in rows.cases
+    assert "        needs_hf_token=True,\n" in rows.cases
+    assert _declared(rows)["medqa"] == imported.declaration
+
+
+def test_several_hub_pins_are_written_sorted() -> None:
+    imported: TaskReplayImport = _imported(source_pins={"b/b": "1" * 40, "a/a": "2" * 40})
+
+    rows: TaskReplayRows = render_task_replay_rows("k", imported, "TODO")
+
+    assert rows.cases.index('"a/a"') < rows.cases.index('"b/b"')
+    assert _declared(rows)["k"] == imported.declaration
+
+
+@pytest.mark.parametrize(
+    "source_pins",
+    [
+        {'x/y"\nimport os': "1" * 40},
+        {"x/y": 'abc"\nimport os'},
+    ],
+    ids=["repo id", "commit"],
+)
+def test_a_hub_pin_that_could_escape_the_generated_code_is_refused(
+    source_pins: dict[str, str],
+) -> None:
+    """Review Focus 5: a repo id comes from the eval's own call, a commit from the Hub."""
+
+    with pytest.raises(ImporterError, match="injection guard"):
+        render_task_replay_rows("x", _imported(source_pins=source_pins), "TODO")

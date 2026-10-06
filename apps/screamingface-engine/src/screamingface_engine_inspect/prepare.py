@@ -39,7 +39,7 @@ import os
 import random
 import sys
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -366,6 +366,18 @@ class TaskReplayCasesSpec:
     #: it is on the cleared list, otherwise the owner's decision replacing LICENSE_TODO in
     #: the diff (spec R6, R7).
     license: str = LICENSE_TODO
+    #: Hub repo id → 40-hex commit, one per Hugging Face Case Source. Every replay forces
+    #: these onto the eval's Hub fetches and refuses a fetch with no pin, so each build
+    #: reads the same commit (OME-1460, R2, R6). They ride Benchmark identity when set (R7).
+    source_pins: dict[str, str] = field(default_factory=dict)
+    #: The seed forced onto an ``hf_dataset`` row shuffle the eval makes without one, and
+    #: the one for a bare ``shuffle_choices=True`` (D1). No identity pin: the Case Digest
+    #: seals the order they produce (R7).
+    shuffle_seed: int | None = None
+    choice_shuffle_seed: int | None = None
+    #: As on :class:`CasesSpec`: the dataset is gated, so replaying it needs a Hugging Face
+    #: token; access, not identity, so no pin (R8).
+    needs_hf_token: bool = False
 
 
 def case_digest(prepared: Sequence[PreparedCase]) -> str:
@@ -970,6 +982,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # License: owner decision 2026-10-01: MIT, jind11/MedQA LICENSE; the bigbio card says
         #  unknown.
         license="mit",
+        # Hub pin backfilled from the commit recorded at import (OME-1460, D4): every
+        # build now forces it; the eval already passes the same commit.
+        source_pins={
+            "bigbio/med_qa": "ddef95d268cdad413693d634279a9a679d468469",
+        },
     ),
     # mgsm_en — imported by Task replay on 2026-10-02 from
     #   inspect_evals.mgsm.mgsm:mgsm.
@@ -994,6 +1011,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=58492,
         case_digest="8d7652ea42145db0b27d6ddbedfd81bc5fd4733bb4e78658218b15c0c8a5d28b",
         license="cc-by-4.0",
+        # Hub pin backfilled from the commit recorded at import (OME-1460, D4): every
+        # build now forces it; the eval already passes the same commit.
+        source_pins={
+            "heegyu/bbq": "5d6faae52070aa5eb71b46d1c0723d3ba7930209",
+        },
     ),
     # piqa — imported by Task replay on 2026-10-02 from
     #   inspect_evals.piqa.piqa:piqa.
@@ -1011,6 +1033,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # License: owner decision 2026-10-01: no license found; the ybisk/piqa card says unknown and
         #  the original repo is gone.
         license="unknown",
+        # Hub pin backfilled from the commit recorded at import (OME-1460, D4): every
+        # build now forces it; the eval already passes the same commit.
+        source_pins={
+            "ybisk/piqa": "2e8ac2dffd59bac8c3c6714948f4c551a0848bb0",
+        },
     ),
     # cybermetric_80 — imported by Task replay on 2026-10-02 from
     #   inspect_evals.cybermetric.cybermetric:cybermetric_80.
@@ -1251,6 +1278,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # License: owner decision 2026-10-01: MIT, the AirsideLabs/pre-flight-06 card on
         #  Hugging Face.
         license="mit",
+        # Hub pin backfilled from the commit recorded at import (OME-1460, D4): every
+        # build now forces it; the eval already passes the same commit.
+        source_pins={
+            "AirsideLabs/pre-flight-06": "439d2d118fed7d9b009c1f87b9eb1205ab94766e",
+        },
     ),
     # bbeh — imported by Task replay on 2026-10-02 from
     #   inspect_evals.bbeh.bbeh:bbeh.
@@ -1264,6 +1296,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         keep_sample_metadata=True,
         # License: owner decision 2026-10-01: Apache-2.0, the BBEH/bbeh card on Hugging Face.
         license="apache-2.0",
+        # Hub pin backfilled from the commit recorded at import (OME-1460, D4): every
+        # build now forces it; the eval already passes the same commit.
+        source_pins={
+            "BBEH/bbeh": "08e07a803851822c04399782ece3c4a07ce419f9",
+        },
     ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
@@ -1711,25 +1748,52 @@ def prepare_cases(spec: CasesSpec, out: Path) -> dict[str, Any]:
     skips the benchmark instead, writes nothing, and says so loudly in the build log.
     """
 
-    if spec.needs_hf_token and _available_hf_token() is None:
-        if os.environ.get(SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV) != "1":
-            raise PrepareError(
-                f"{spec.dataset} is a gated Hugging Face dataset and no token is available — "
-                "in CI, check the HF_TOKEN_BENCHMARKS repo secret; locally, export HF_TOKEN "
-                "as a read-only token from an account that accepted the dataset's terms"
-            )
-        reason: str = f"gated dataset {spec.dataset}, built without a Hugging Face token"
-        print(
-            f"WARNING: skipping {reason} ({SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV}=1); "
-            "this image has NO assets for its board",
-            file=sys.stderr,
-            flush=True,
-        )
-        out.mkdir(parents=True, exist_ok=True)
-        (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
-        return {"cases": 0, "skipped": reason, "out": str(out)}
+    if spec.needs_hf_token:
+        skipped: dict[str, Any] | None = skip_without_hf_token(spec.dataset, out)
+        if skipped is not None:
+            return skipped
     rows: list[dict[str, Any]] = _load_rows(spec)
     return emit_cases(spec, rows, out, expected_cases=spec.case_count)
+
+
+def skip_without_hf_token(dataset: str, out: Path) -> dict[str, Any] | None:
+    """The gated-dataset rule both preparation paths share: go on, skip, or refuse.
+
+    With a token (``HF_TOKEN`` or a cached login) → None, and the caller prepares. Without
+    one, a PR build that sets ``SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1`` writes the
+    SKIPPED marker and returns the skip summary; INVARIANT: that summary never carries
+    ``UNCONFIRMED_CASES_KEY``, so the strict PR image job stays green (F7). Any other build
+    refuses by name, so a main or release image never ships missing a Benchmark.
+
+    Args:
+        dataset: what the reason names, e.g. ``walledai/XSTest``.
+        out: the directory the Benchmark prepares into.
+
+    Returns:
+        None to go on; the skip summary when skipped.
+
+    Raises:
+        PrepareError: no token and no skip flag.
+    """
+
+    if _available_hf_token() is not None:
+        return None
+    if os.environ.get(SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV) != "1":
+        raise PrepareError(
+            f"{dataset} is a gated Hugging Face dataset and no token is available — "
+            "in CI, check the HF_TOKEN_BENCHMARKS repo secret; locally, export HF_TOKEN "
+            "as a read-only token from an account that accepted the dataset's terms"
+        )
+    reason: str = f"gated dataset {dataset}, built without a Hugging Face token"
+    print(
+        f"WARNING: skipping {reason} ({SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV}=1); "
+        "this image has NO assets for its board",
+        file=sys.stderr,
+        flush=True,
+    )
+    out.mkdir(parents=True, exist_ok=True)
+    (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
+    return {"cases": 0, "skipped": reason, "out": str(out)}
 
 
 def _prompt(

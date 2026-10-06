@@ -54,3 +54,40 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
 @pytest.mark.parametrize(("key", "revision"), sorted(_PUBLISHED_REVISIONS.items()))
 def test_published_benchmark_revision_is_byte_identical(key: str, revision: str) -> None:
     assert imported_benchmark(key).benchmark.revision == revision
+
+
+#: OME-1460: every Task-replay Benchmark with no Hugging Face Case Source, as served on main
+#: 0d1000d43 (2026-10-05). The fetch-pin enforcer adds an identity pin only to a row that
+#: pins a Hub commit, so none of these may move; the five that read the Hub (medqa, bbq,
+#: piqa, pre_flight, bbeh) gain their pin on purpose (spec D4) and are left out.
+_URL_ONLY_TASK_REPLAY_REVISIONS: dict[str, str] = {
+    "agieval_aqua_rat": "878ad44393d431a4",
+    "agieval_logiqa_en": "2e1f1c960caa7a0f",
+    "agieval_lsat_ar": "017a3493849e9bf3",
+    "agieval_lsat_lr": "633ce0a2c3f1e4fa",
+    "agieval_lsat_rc": "d15fdabe16971db5",
+    "agieval_sat_en": "0dd4b206f7f3787b",
+    "agieval_sat_en_without_passage": "05d42ff073975ee3",
+    "agieval_sat_math": "71f3e7b2ddfa58e9",
+    "cybermetric_10000": "1174c252ffaebfab",
+    "cybermetric_2000": "4d53683a812ef2c5",
+    "cybermetric_500": "9ff30cf33ee155e4",
+    "cybermetric_80": "6cfebaf54236f398",
+    "cyse4_mitre_frr": "0d6a53f259f81eff",
+    "mgsm_en": "773b5e835820032d",
+    "sad_facts_human_defaults": "0a90cd743e4e33a7",
+    "sad_facts_llms": "6e0763d561439f9a",
+    "sad_influence": "c6124a6e15dcdef7",
+    "sad_stages_full": "a548998184f8fe54",
+    "sad_stages_oversight": "ad42c0f4e66ad0cf",
+    "sevenllm_mcq_en": "c8ef9b7c8db97e9a",
+    "sevenllm_mcq_zh": "a8177911cb41f07e",
+    "worldsense": "e30c575f1b740fae",
+}
+
+
+@pytest.mark.parametrize(("key", "revision"), sorted(_URL_ONLY_TASK_REPLAY_REVISIONS.items()))
+def test_a_task_replay_benchmark_without_a_hub_source_keeps_its_revision(
+    key: str, revision: str
+) -> None:
+    assert imported_benchmark(key).benchmark.revision == revision

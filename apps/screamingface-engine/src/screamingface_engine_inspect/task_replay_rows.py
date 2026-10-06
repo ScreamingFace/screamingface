@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine_inspect.case_sources import HUGGING_FACE, CaseSource
+from screamingface_engine_inspect.fetch_pins import is_commit_sha
 from screamingface_engine_inspect.import_replay import TaskReplayFacts, TaskReplayImport
 from screamingface_engine_inspect.importer import (
     _BENCHMARKS_ANCHOR,
@@ -65,6 +66,8 @@ _TASK_REPLAY_CASES_ANCHOR: str = (
 #: What a Case Source may hold to land in a generated comment. URLs carry ? = & % (sad's
 #: `structs.zip?ref=…`); a quote, a backslash or a newline could escape, and stays refused.
 _CASE_SOURCE_CHARSET: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._:/\-?=&%+#~@ ]*\Z")
+#: What a Hub repo id may hold to land as a source_pins key (OME-1460).
+_HUB_REPO_CHARSET: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._\-/]+\Z")
 
 
 @dataclass(frozen=True)
@@ -179,6 +182,13 @@ def _refuse_injectable_import(
             raise ImporterError(
                 f"{text!r} cannot be written into generated code — refusing (injection guard)"
             )
+    for repo_id, commit in declaration.source_pins.items():
+        # WHY: a repo id comes from the eval's own call, a commit from the Hub's answer.
+        if not _HUB_REPO_CHARSET.match(repo_id) or not is_commit_sha(commit):
+            raise ImporterError(
+                f"source pin {repo_id!r}: {commit!r} cannot be written into generated code "
+                "— refusing (injection guard)"
+            )
     if declaration.task_args is not None and not _is_literal(declaration.task_args):
         raise ImporterError(
             f"task args {declaration.task_args!r} are not plain literals — refusing "
@@ -213,8 +223,31 @@ def _declaration_lines(
         lines.append("        has_answer_key=False,")
     if declaration.excluded_sample_ids:
         lines.extend(_excluded_id_lines(declaration.excluded_sample_ids))
+    lines.extend(_fetch_pin_lines(declaration))
     lines.extend(_license_lines(license, card_license))
     lines.append("    ),")
+    return lines
+
+
+def _fetch_pin_lines(declaration: TaskReplayCasesSpec) -> list[str]:
+    """What every build forces onto the eval's fetches (OME-1460): the Hub commits, the
+    seeds, and the gate. Written only when set, so a URL-only row reads as before."""
+
+    lines: list[str] = []
+    if declaration.source_pins:
+        # WHY written: every image build forces these commits; they ride identity (R7).
+        lines.append("        source_pins={")
+        lines.extend(
+            f"            {json.dumps(repo_id)}: {json.dumps(commit)},"
+            for repo_id, commit in sorted(declaration.source_pins.items())
+        )
+        lines.append("        },")
+    if declaration.shuffle_seed is not None:
+        lines.append(f"        shuffle_seed={declaration.shuffle_seed},")
+    if declaration.choice_shuffle_seed is not None:
+        lines.append(f"        choice_shuffle_seed={declaration.choice_shuffle_seed},")
+    if declaration.needs_hf_token:
+        lines.append("        needs_hf_token=True,")
     return lines
 
 

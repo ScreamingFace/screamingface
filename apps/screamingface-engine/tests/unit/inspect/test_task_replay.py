@@ -24,7 +24,9 @@ pytest.importorskip("inspect_ai")
 
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY  # noqa: E402
 from screamingface_engine_inspect.prepare import (  # noqa: E402
+    SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV,
     SKIPPED_MARKER,
+    PrepareError,
     TaskReplayCasesSpec,
     case_digest,
 )
@@ -374,3 +376,269 @@ def test_a_skipped_reason_names_the_benchmark_first(fake_eval: str, tmp_path: Pa
     summary = prepare_replayed_cases(spec, tmp_path / "out", benchmark_key="arithmetic_demo")
 
     assert summary[UNCONFIRMED_CASES_KEY].startswith("arithmetic_demo: ")
+
+
+# ── OME-1460: gated datasets on Task replay (spec R8, F7) ─────────────────────────────────
+
+
+def _gated(fake_eval: str) -> TaskReplayCasesSpec:
+    """A declaration of a gated Benchmark; the stand-in task itself fetches nothing gated."""
+
+    return TaskReplayCasesSpec(
+        task=f"{fake_eval}:arithmetic",
+        case_count=2,
+        case_digest=_UNPINNED,
+        # A stand-in commit: the gate check runs before any fetch, so no Hub is asked.
+        source_pins={"walledai/XSTest": "1" * 40},
+        needs_hf_token=True,
+    )
+
+
+def test_a_gated_declaration_with_no_token_is_refused_by_name(
+    fake_eval: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A main or release image can never ship missing a gated Benchmark: no token, no flag
+    → the build stops, naming the dataset."""
+
+    monkeypatch.setattr("screamingface_engine_inspect.prepare._available_hf_token", lambda: None)
+    monkeypatch.delenv(SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV, raising=False)
+
+    with pytest.raises(PrepareError, match="walledai/XSTest.*gated"):
+        prepare_replayed_cases(_gated(fake_eval), tmp_path / "out")
+
+
+def test_a_gated_declaration_skips_under_the_flag_without_unconfirmed_cases(
+    fake_eval: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F7: a PR build gets no secret; the skip is loud in the log but carries no
+    unconfirmed_cases key, so the strict PR image job stays green."""
+
+    monkeypatch.setattr("screamingface_engine_inspect.prepare._available_hf_token", lambda: None)
+    monkeypatch.setenv(SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV, "1")
+    out: Path = tmp_path / "out"
+
+    summary: dict[str, object] = prepare_replayed_cases(_gated(fake_eval), out)
+
+    assert summary["cases"] == 0
+    assert "gated dataset walledai/XSTest" in str(summary["skipped"])
+    assert UNCONFIRMED_CASES_KEY not in summary
+    assert (out / SKIPPED_MARKER).read_text(encoding="utf-8").startswith("gated dataset")
+    assert not (out / "cases.json").exists()
+
+
+def test_a_gated_declaration_with_a_token_replays(
+    fake_eval: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "screamingface_engine_inspect.prepare._available_hf_token", lambda: "hf_stand_in"
+    )
+    pinned: TaskReplayCasesSpec = _pinned(fake_eval)
+    gated: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task=pinned.task, case_count=2, case_digest=pinned.case_digest, needs_hf_token=True
+    )
+
+    summary: dict[str, object] = prepare_replayed_cases(gated, tmp_path / "out")
+
+    assert summary["cases"] == 2
+
+
+# ── OME-1460: the image-side child enforces the declaration's fetch pins (spec R4, F1, F6) ──
+
+#: Two commits of the stand-in Hub repo. HEAD is `_HEAD_SHA`; `_OLD_SHA` holds other rows,
+#: so a Case's text says which commit was read.
+_HEAD_SHA: str = "a" * 40
+_OLD_SHA: str = "b" * 40
+
+#: A stand-in eval whose dataset comes from a fake Hub: at import it replaces
+#: datasets.load_dataset (the recorder installs later and wraps the fake, as it would wrap
+#: the real one). It proves which commit and which shuffle seed the child's fetch used; it
+#: does not prove the real Hub serves a given commit.
+FAKE_HUB_EVAL: str = textwrap.dedent(
+    f"""
+    import datasets
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import FieldSpec, hf_dataset
+    from inspect_ai.scorer import match
+
+    HEAD = "{_HEAD_SHA}"
+    OLD = "{_OLD_SHA}"
+    FIELDS = FieldSpec(input="q", target="a", id="id")
+
+    def fake_load_dataset(path, name=None, data_dir=None, split=None, revision=None, **kwargs):
+        commit = HEAD if revision in (None, "main") else revision
+        if commit not in (HEAD, OLD):
+            raise FileNotFoundError(f"no commit {{revision}} in {{path}}")
+        label = "head" if commit == HEAD else "old"
+        return datasets.Dataset.from_list(
+            [{{"id": str(i), "q": f"{{label}} question {{i}}", "a": str(i)}} for i in range(1, 5)]
+        )
+
+    datasets.load_dataset = fake_load_dataset
+
+    @task
+    def unpinned_fetch() -> Task:
+        # fetches with no revision: HEAD's rows, unless the enforcer pins another commit
+        return Task(dataset=hf_dataset("stand-in/hub", split="test", sample_fields=FIELDS),
+                    scorer=match())
+
+    @task
+    def unseeded_shuffle() -> Task:
+        return Task(dataset=hf_dataset("stand-in/hub", split="test", sample_fields=FIELDS,
+                                       revision=HEAD, shuffle=True),
+                    scorer=match())
+    """
+)
+
+
+@pytest.fixture
+def fake_hub_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the fake-Hub stand-in eval where the child process can import it."""
+
+    (tmp_path / "fake_hub_eval.py").write_text(FAKE_HUB_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_hub_eval"
+
+
+def _inputs(prepared: list[dict[str, dict[str, object]]]) -> list[str]:
+    """The Case inputs, in served order."""
+
+    return [str(case["case"]["input"]) for case in prepared]
+
+
+def test_the_image_side_child_fetches_at_the_pinned_commit(fake_hub_eval: str) -> None:
+    """F3: the eval names no revision, yet every build reads the declared commit, not HEAD."""
+
+    spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task=f"{fake_hub_eval}:unpinned_fetch",
+        case_count=4,
+        case_digest=_UNPINNED,
+        source_pins={"stand-in/hub": _OLD_SHA},
+    )
+
+    inputs: list[str] = _inputs(replayed_cases(spec))
+
+    assert inputs and all(text.startswith("old question") for text in inputs)
+
+
+def test_a_hub_fetch_with_no_pin_is_skipped_at_build_with_the_f1_reason(
+    fake_hub_eval: str, tmp_path: Path
+) -> None:
+    spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task=f"{fake_hub_eval}:unpinned_fetch", case_count=4, case_digest=_UNPINNED
+    )
+
+    summary: dict[str, object] = prepare_replayed_cases(spec, tmp_path / "out")
+
+    assert summary["cases"] == 0
+    assert "stand-in/hub" in str(summary[UNCONFIRMED_CASES_KEY])
+    assert "pins no revision" in str(summary[UNCONFIRMED_CASES_KEY])
+
+
+def test_the_image_side_child_forces_the_declared_shuffle_seed(fake_hub_eval: str) -> None:
+    """R3: an unseeded upstream shuffle replays in one order at every build."""
+
+    spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task=f"{fake_hub_eval}:unseeded_shuffle",
+        case_count=4,
+        case_digest=_UNPINNED,
+        source_pins={"stand-in/hub": _HEAD_SHA},
+        shuffle_seed=7,
+    )
+
+    first: list[dict[str, dict[str, object]]] = replayed_cases(spec)
+    second: list[dict[str, dict[str, object]]] = replayed_cases(spec)
+
+    assert case_digest(first) == case_digest(second)
+    assert sorted(_inputs(first)) == [f"head question {index}" for index in range(1, 5)]
+
+
+def test_an_unseeded_shuffle_with_no_declared_seed_is_skipped_at_build(
+    fake_hub_eval: str, tmp_path: Path
+) -> None:
+    spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task=f"{fake_hub_eval}:unseeded_shuffle",
+        case_count=4,
+        case_digest=_UNPINNED,
+        source_pins={"stand-in/hub": _HEAD_SHA},
+    )
+
+    summary: dict[str, object] = prepare_replayed_cases(spec, tmp_path / "out")
+
+    assert "shuffle_seed" in str(summary[UNCONFIRMED_CASES_KEY])
+
+
+# ── OME-1460: a cached Hugging Face login reaches the replay child (spec R8) ──────────────
+
+
+def test_the_child_keeps_the_builders_token_path_when_xdg_moves(tmp_path: Path) -> None:
+    """huggingface_hub reads its login from HF_HOME/token, and HF_HOME defaults to
+    XDG_CACHE_HOME/huggingface; the replay moves XDG_CACHE_HOME, so without this the child
+    looks for the token in its own empty cache and a gated dataset fails to load."""
+
+    env: dict[str, str] = replay_environment(
+        tmp_path / "cache", {"XDG_CACHE_HOME": "/builder/cache", "HOME": "/home/builder"}
+    )
+
+    assert env["HF_TOKEN_PATH"] == "/builder/cache/huggingface/token"
+    assert env["XDG_CACHE_HOME"] == str(tmp_path / "cache" / "xdg")
+
+
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    [
+        ({"HOME": "/home/builder"}, "/home/builder/.cache/huggingface/token"),
+        ({"HF_HOME": "/hf", "XDG_CACHE_HOME": "/x"}, "/hf/token"),
+        ({"HF_TOKEN_PATH": "/secrets/hf", "HF_HOME": "/hf"}, "/secrets/hf"),
+    ],
+    ids=["home default", "HF_HOME wins over XDG", "an explicit token path is kept"],
+)
+def test_the_token_path_follows_huggingface_hubs_own_rule(
+    tmp_path: Path, base: dict[str, str], expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY HOME: the home default expands "~", which reads HOME on every platform here.
+    monkeypatch.setenv("HOME", base.get("HOME", "/home/builder"))
+
+    assert replay_environment(tmp_path / "cache", base)["HF_TOKEN_PATH"] == expected
+
+
+#: A stand-in eval reporting, as its one Case, the token the child would send to the Hub.
+#: It proves the child can read a cached login; the token is a stand-in, never a real one.
+FAKE_TOKEN_EVAL: str = textwrap.dedent(
+    """
+    from huggingface_hub import get_token
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    @task
+    def token_probe() -> Task:
+        return Task(dataset=MemoryDataset([Sample(input=f"token={get_token()}", target="x")]))
+    """
+)
+
+
+def test_a_cached_login_reaches_the_replay_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dev who ran `hf auth login` (no HF_TOKEN exported) can replay a gated dataset."""
+
+    (tmp_path / "fake_token_eval.py").write_text(FAKE_TOKEN_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    builder_cache: Path = tmp_path / "builder-cache"
+    (builder_cache / "huggingface").mkdir(parents=True)
+    (builder_cache / "huggingface" / "token").write_text("hf_stand_in_login", encoding="utf-8")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(builder_cache))
+    for variable in ("HF_HOME", "HF_TOKEN", "HF_TOKEN_PATH", "HUGGING_FACE_HUB_TOKEN"):
+        monkeypatch.delenv(variable, raising=False)
+    spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task="fake_token_eval:token_probe", case_count=1, case_digest=_UNPINNED
+    )
+
+    prepared: list[dict[str, dict[str, object]]] = replayed_cases(spec)
+
+    assert prepared[0]["case"]["input"] == "token=hf_stand_in_login"
