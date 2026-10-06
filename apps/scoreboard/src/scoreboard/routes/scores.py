@@ -45,6 +45,8 @@ from scoreboard.scores.schemas import (
     FieldErrorDetail,
     FieldErrorResponse,
     MessageErrorResponse,
+    ReproductionSchema,
+    ReproductionSubmission,
     ScoreMetadataEventSchema,
     ScoreMetadataPatch,
     ScoreRankingNotice,
@@ -182,6 +184,32 @@ PATCH_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
         "model": ScoreSchema,
         "description": "The score after the edit (unchanged values write no event).",
     },
+}
+RECORD_REPRODUCTION_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_200_OK: {
+        "model": ReproductionSchema,
+        "description": "This run_id was already recorded for the score; returns that row.",
+    },
+    status.HTTP_401_UNAUTHORIZED: OWNER_ONLY_RESPONSES[status.HTTP_401_UNAUTHORIZED],
+    status.HTTP_403_FORBIDDEN: {
+        "model": MessageErrorResponse,
+        "description": "Caller's peer network is not trusted to present identity headers.",
+    },
+    status.HTTP_404_NOT_FOUND: OWNER_ONLY_RESPONSES[status.HTTP_404_NOT_FOUND],
+    status.HTTP_409_CONFLICT: {
+        "model": CodedErrorResponse,
+        "description": "The score is not `complete` (`not_reproducible`): nothing to replay.",
+    },
+    422: {
+        "model": CodedErrorResponse,
+        "description": (
+            "`not_exact`: the score, total_questions or cache_revision differs from the stored "
+            "score. A body that fails validation is the usual list-shaped 422 instead."
+        ),
+    },
+    status.HTTP_503_SERVICE_UNAVAILABLE: SUBMIT_SCORE_RESPONSES[
+        status.HTTP_503_SERVICE_UNAVAILABLE
+    ],
 }
 GET_METADATA_EVENTS_RESPONSES: dict[int | str, dict[str, Any]] = {
     **OWNER_ONLY_RESPONSES,
@@ -331,7 +359,9 @@ async def submit_score(
 
 
 @router.get("/scores/{score_id}", response_model=ScoreSchema, responses=GET_SCORE_RESPONSES)
-async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) -> ScoreSchema:
+async def get_score(
+    score_id: UUID, request: Request, response: Response, identity: ReadIdentity
+) -> ScoreSchema:
     """Return a public score by id.
 
     ``verified_by_screamingface`` carries no verification claim yet: nothing re-runs
@@ -354,6 +384,16 @@ async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) 
             None
             if score is None
             else await Benchmark.get_or_none(id=cast(str, getattr(score, "benchmark_id")))
+        )
+        # FEATURE: OME-1307 — one aggregate (COUNT, MAX) over the recorded reproductions, read with
+        # the other two so the store-unavailable boundary covers it. Fetched before the access
+        # decision below and used only if the score is served; the refusals never carry it.
+        reproductions = (
+            (0, None)
+            if score is None
+            else await cast(ScoreStore, request.app.state.score_store).reproduction_aggregate(
+                score_id
+            )
         )
     except OperationalError as exc:
         raise HTTPException(
@@ -384,7 +424,10 @@ async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) 
     if not private and await turned_private(cast(str, getattr(score, "benchmark_id"))):
         raise _score_not_found()
 
-    return ScoreSchema.model_validate(score, from_attributes=True)
+    count, last_reproduced_at = reproductions
+    return ScoreSchema.model_validate(score, from_attributes=True).model_copy(
+        update={"reproduction_count": count, "last_reproduced_at": last_reproduced_at}
+    )
 
 
 async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> tuple[Score, bool]:
@@ -512,3 +555,101 @@ async def get_metadata_events(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=STORE_UNAVAILABLE_DETAIL,
         ) from exc
+
+
+async def _load_score_to_reproduce(request: Request, score_id: UUID, identity: str) -> Score:
+    """The score ``identity`` may record a reproduction of, or the refusal.
+
+    A missing score and a private-board score the caller may not see are the SAME 404, so holding a
+    real id is not confirmable (OME-894).
+
+    INVARIANT: on a private board only its VERIFIED owner may record. In `disabled` mode
+    `X-User-Email` is an unverified claim, so the owner match counts only when the identity is
+    verified (the rule `_load_owned_score` applies). A board row that cannot be found counts as
+    private, so this fails closed. Unlike `_load_owned_score`, a visible score that is not the
+    caller's is fine: any verified identity may reproduce a public score.
+    """
+    try:
+        score = await Score.get_or_none(id=score_id)
+        if score is None:
+            private = False
+        else:
+            board_id = cast(str, getattr(score, "benchmark_id"))
+            private = not await Benchmark.exists(id=board_id) or await turned_private(board_id)
+    except OperationalError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=STORE_UNAVAILABLE_DETAIL,
+        ) from exc
+    if score is None:
+        raise _score_not_found()
+    settings = cast(Settings, request.app.state.settings)
+    owner = score.submitted_by == identity
+    if private and not (owner and identity_is_verified(settings.auth_mode)):
+        raise _score_not_found()
+    return score
+
+
+def _refuse_unless_exact(score: Score, body: ReproductionSubmission) -> None:
+    """409 when the score is not `complete`, then 422 when the body is not the stored result."""
+    if score.reproducible != "complete":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "not_reproducible",
+                "message": "only a score whose run is fully in the cache can be reproduced",
+            },
+        )
+    # INVARIANT: exact equality, the same value the board stores. A replay that differs by one ulp
+    # is a different result, and the board never rounds it into agreement.
+    if (
+        body.score != score.score
+        or body.total_questions != score.total_questions
+        or body.cache_revision != score.cache_revision
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "not_exact",
+                "message": "score, total_questions and cache_revision must equal the stored score",
+            },
+        )
+
+
+@router.post(
+    "/scores/{score_id}/reproductions",
+    response_model=ReproductionSchema,
+    status_code=status.HTTP_201_CREATED,
+    responses=RECORD_REPRODUCTION_RESPONSES,
+)
+async def record_reproduction(
+    score_id: UUID,
+    body: ReproductionSubmission,
+    request: Request,
+    response: Response,
+    identity: VerifiedIdentity,
+) -> ReproductionSchema:
+    """Record one exact replay of a `complete` score (E14 B4); any verified identity may.
+
+    The checks run in a fixed order: identity (401/403), the score exists (404), a private board
+    that is not the caller's (the same 404), `reproducible` is not `complete` (409
+    `not_reproducible`), then the score, total_questions or cache_revision differ from the stored
+    row (422 `not_exact`). A run_id that is already recorded answers 200 with that row.
+    """
+    score = await _load_score_to_reproduce(request, score_id, identity)
+    _refuse_unless_exact(score, body)
+    store = cast(ScoreStore, request.app.state.score_store)
+    try:
+        outcome = await store.record_reproduction(score_id, reproduced_by=identity, submission=body)
+    except OperationalError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=STORE_UNAVAILABLE_DETAIL,
+        ) from exc
+    if outcome is None:
+        # Deleted between the read above and the insert.
+        raise _score_not_found()
+    reproduction, created = outcome
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return reproduction

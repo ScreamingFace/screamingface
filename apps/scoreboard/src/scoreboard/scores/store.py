@@ -16,6 +16,7 @@ from pypika_tortoise.queries import Query, QueryBuilder
 from tortoise import BaseDBAsyncClient, Tortoise
 from tortoise.exceptions import FieldError, IntegrityError
 from tortoise.expressions import Q
+from tortoise.functions import Count, Max
 from tortoise.query_api import execute_pypika
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
@@ -24,7 +25,7 @@ from scoreboard.classification.openness import Openness
 from scoreboard.db import DEFAULT_CONNECTION
 
 from .frontier import FrontierMember, HistoryRow
-from .models import Benchmark, IdempotencyKey, Score, ScoreMetadataEvent
+from .models import Benchmark, IdempotencyKey, Score, ScoreMetadataEvent, ScoreReproduction
 from .pareto import ParetoEntry
 from .reproduction_cost import reproduction_cost
 from .schemas import (
@@ -34,6 +35,8 @@ from .schemas import (
     LeaderboardStoreEntry,
     ProvenanceSchema,
     ReproducibleStatus,
+    ReproductionSchema,
+    ReproductionSubmission,
     RunCostStatus,
     ScoreMetadataEventSchema,
     ScoreSchema,
@@ -1531,6 +1534,67 @@ class ScoreStore:
         """
         rows = await ScoreMetadataEvent.filter(score_id=score_id).order_by("-edited_at", "-id")
         return [ScoreMetadataEventSchema.model_validate(row, from_attributes=True) for row in rows]
+
+    async def record_reproduction(
+        self,
+        score_id: UUID,
+        *,
+        reproduced_by: str,
+        submission: ReproductionSubmission,
+    ) -> tuple[ReproductionSchema, bool] | None:
+        """Store one reproduction; return it and whether it is NEW, or None if the score is gone.
+
+        The CALLER has already established that the score is `complete`, that the body matches it
+        exactly, and that ``reproduced_by`` may see it; none of that is re-proved here.
+
+        INVARIANT: insert first, and on a unique `(score_id, run_id)` clash re-read the row that is
+        there. A pre-check followed by an insert would lose a race to a second request carrying the
+        same run, and the loser would answer 5xx for a record that did succeed (R18, R22).
+
+        WHY None: the score was deleted between the route's read and this insert, and the foreign
+        key refuses the row. That is the same 404 as a score that never existed, not a store that is
+        unavailable (`IntegrityError` subclasses `OperationalError`, which the route maps to 503).
+        """
+        try:
+            async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
+                row = await ScoreReproduction.create(
+                    using_db=connection,
+                    score_id=score_id,
+                    reproduced_by=reproduced_by,
+                    run_id=submission.run_id,
+                    cache_revision=submission.cache_revision,
+                    client_version=submission.client.version,
+                )
+            created = True
+        except IntegrityError:
+            existing = await ScoreReproduction.get_or_none(
+                score_id=score_id, run_id=submission.run_id
+            )
+            if existing is None:
+                if not await Score.exists(id=score_id):
+                    return None
+                raise
+            row, created = existing, False
+        # The score id and the outcome only: the identity is an email.
+        logger.info(
+            "score reproduction score_id=%s status=%s",
+            score_id,
+            "created" if created else "existing",
+        )
+        return ReproductionSchema.model_validate(row, from_attributes=True), created
+
+    async def reproduction_aggregate(self, score_id: UUID) -> tuple[int, datetime | None]:
+        """How many reproductions a score has and when the latest was recorded, in ONE query.
+
+        INVARIANT: derived on read, never stored on `scores`, so two records at the same moment
+        cannot lose an update and a deleted score takes its count with it.
+        """
+        (row,) = await (
+            ScoreReproduction.filter(score_id=score_id)
+            .annotate(total=Count("id"), latest=Max("reproduced_at"))
+            .values("total", "latest")
+        )
+        return row["total"], row["latest"]
 
     def visibility_query(
         self,
