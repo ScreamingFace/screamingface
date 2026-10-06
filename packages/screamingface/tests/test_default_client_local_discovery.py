@@ -18,8 +18,8 @@ import pytest
 from screamingface import _default_client
 from screamingface._runtime import detect
 
-_HOSTED_ENGINE = "https://fusion.dev.screamingface.ai"
-_HOSTED_SCOREBOARD = "https://leaderboard.dev.screamingface.ai"
+_HOSTED_ENGINE = "https://fusion.screamingface.ai"
+_HOSTED_SCOREBOARD = "https://leaderboard.screamingface.ai"
 
 
 @pytest.fixture
