@@ -39,10 +39,12 @@ engine. Replay of web search needs this, so B3 can count the lookup and fill out
 
 Mock routing only, no assertion changed; orchestrator-approved under the owner's E14 authorization,
 to be confirmed by the owner. Each mock gateway now answers `/v1/retrieval/tavily/cache/lookup`
-(`miss`) and `/entries` (`stored`), and does not count those calls as chat calls.
+(`miss`) and `/entries` (`stored`), and does not count those calls as chat calls. The remaining
+routing edits are exactly these:
 
 - `apps/screamingface-engine/tests/unit/test_aigateway_connector.py`: the `_MockAigateway` helper
-  (9 tests: `test_web_search_loop_executes_tavily_search_then_answers`,
+  answers the cache routes and keeps those requests in a separate `cache_requests` list. This serves
+  10 tests: `test_web_search_loop_executes_tavily_search_then_answers`,
   `test_web_fetch_loop_executes_tavily_extract_then_answers`,
   `test_parallel_tool_calls_both_executed_in_one_turn`,
   `test_usage_accumulates_across_round_trips_on_same_span`,
@@ -50,16 +52,16 @@ to be confirmed by the owner. Each mock gateway now answers `/v1/retrieval/tavil
   `test_max_iterations_exceeded_raises_resolution_error`,
   `test_extract_content_tolerates_content_none_with_tool_calls`,
   `test_tavily_search_formats_results_as_title_url_content_blocks`,
-  `test_tavily_extract_reports_failed_urls_in_tool_result`). Also
-  `test_tavily_key_never_sent_to_aigateway`: the mock answers the cache routes, and the loop now
-  also checks every cache request for the Tavily key (a stronger check, nothing weakened).
-- `apps/screamingface-engine/tests/unit/test_benchmark_foundation.py`:
-  `test_retrieval_policy_protects_search_results_and_direct_fetches` (local `model_response`).
-- `apps/screamingface-engine/tests/unit/test_cache_policy_threading.py`:
-  `test_the_tool_calling_loop_applies_the_policy_on_every_round_trip` (`_MockAigateway._handle`).
+  `test_tavily_extract_reports_failed_urls_in_tool_result`,
+  `test_tavily_key_never_sent_to_aigateway`. No test body is edited.
+- `apps/screamingface-engine/tests/unit/test_benchmark_foundation.py`: the local `model_response`
+  in `test_retrieval_policy_protects_search_results_and_direct_fetches` answers the cache routes.
+- `apps/screamingface-engine/tests/unit/test_cache_policy_threading.py`: `_MockAigateway._handle`
+  answers the cache routes (`test_the_tool_calling_loop_applies_the_policy_on_every_round_trip`).
 - `apps/screamingface-engine/tests/unit/test_operation_accounting_failure_boundaries.py`:
-  `test_one_unavailable_tool_round_poisons_the_complete_operation_accounting`
-  (`_evaluate_rounds` transport).
+  `_evaluate_rounds` uses a small function instead of a one-line lambda as the transport, so it can
+  tell the cache routes from chat calls
+  (`test_one_unavailable_tool_round_poisons_the_complete_operation_accounting`).
 
 ## Outcome (fill at the end — required before COMMIT)
 
