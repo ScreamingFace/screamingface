@@ -80,7 +80,55 @@ importer writes the pins into the generated row. Spec R1–R8, D1, D7 (function 
 
 ## Task 0 sweep
 
-(filled after the sweep runs)
+Ran `scripts/sweep_task_replay_fold.py` on this branch (enforcer installed), 2026-10-05/06,
+against the live sources, with a cached Hugging Face login. `main` has **30** Hugging
+Face-path rows, not the spec's 28: coconot's two rows came with OME-1371.
+
+- **All 30 import** under Task replay with the row's seeds. Five first failed on Hub or CDN
+  network errors (mmlu, mmlu_pro, wmdp_cyber) or on the gated fetch (xstest ×2); all
+  passed on retry, xstest after the cached-login fix in this PR.
+- **Every one of the 30 evals already passes a 40-hex commit** to the Hub, so no fold row
+  needs a resolved pin (D4's list from the fold is empty).
+- **10 identical, 9 order only, 10 differ in text, and mmlu is a subset.** The text changes the spec predicted
+  hold: musr and xstest ×2 gain the system message (D3); lab_bench ×6 differ in their
+  answer options (D1).
+- **Three findings the spec did not predict, for PR 2 (spec amendment before the fold):**
+  mmlu serves 105 fewer Cases (14,042 → 13,937; inspect drops them); every hellaswag Case
+  differs, first by a leading newline from the eval's system message; frontierscience's
+  Sample ids differ wholesale while the text matches.
+
+| Key | Import | Cases | Text | Hub commit | Note |
+| -- | -- | -- | -- | -- | -- |
+| aime24 | ✅ | 30 → 30 | order only | 8d88b2876a82 |  |
+| aime25 | ✅ | 30 → 30 | order only | 563bb8404243 |  |
+| arc_challenge | ✅ | 1172 → 1172 | identical | 210d026faf99 |  |
+| arc_easy | ✅ | 2376 → 2376 | identical | 210d026faf99 |  |
+| boolq | ✅ | 3270 → 3270 | order only | 35b264d03638 |  |
+| coconot_contrast | ✅ | 379 → 379 | identical | 2cbe16aabf90 |  |
+| coconot_original | ✅ | 1001 → 1001 | identical | 2cbe16aabf90 |  |
+| commonsense_qa | ✅ | 1221 → 1221 | order only | 94630fe30dad |  |
+| frontierscience | ✅ | 160 → 160 | order only | 25ed67db7da8 | **Sample ids differ wholesale** though the text matches — PR 2 checks the id scheme |
+| gsm8k | ✅ | 1319 → 1319 | identical | cc7b047b6e5b |  |
+| hellaswag | ✅ | 10042 → 10042 | 10042 Cases differ | 218ec52e09a7 | all Cases differ; first difference is a leading newline from the eval's system message (capture keeps it, today's row strips it) — PR 2 must explain or match it |
+| lab_bench_cloning_scenarios | ✅ | 33 → 33 | 33 Cases differ | 5c77cec64843 | differs in the answer options, expected from the forced choice seed (D1); PR 2 confirms order is the only change |
+| lab_bench_dbqa | ✅ | 520 → 520 | 513 Cases differ | 5c77cec64843 | as above (D1) |
+| lab_bench_litqa | ✅ | 199 → 199 | 192 Cases differ | 5c77cec64843 | as above (D1) |
+| lab_bench_protocolqa | ✅ | 108 → 108 | 107 Cases differ | 5c77cec64843 | as above (D1) |
+| lab_bench_seqqa | ✅ | 600 → 600 | 589 Cases differ | 5c77cec64843 | as above (D1) |
+| lab_bench_suppqa | ✅ | 82 → 82 | 79 Cases differ | 5c77cec64843 | as above (D1) |
+| mmlu | ✅ | 14042 → 13937 | a subset of today's | c30699e8356d | **105 fewer Cases** (14,042 → 13,937); every replayed Case exists today, so inspect drops 105 — not in the spec; PR 2 must explain |
+| mmlu_pro | ✅ | 12032 → 12032 | order only | 527feea0afed |  |
+| musr | ✅ | 250 → 250 | 250 Cases differ | 7c365b439a22 | gains the eval's system message (D3) |
+| onet_m6 | ✅ | 391 → 391 | order only | 93ffb5e3f3ec | the +6 ids are the six named exclusions (the sweep lists ids before exclusion); same 391 Cases |
+| paws | ✅ | 8000 → 8000 | order only | 161ece9501cf |  |
+| pubmedqa | ✅ | 500 → 500 | identical | 9001f2853fb8 |  |
+| race_h | ✅ | 3498 → 3498 | order only | 2fec9fd81f1d |  |
+| winogrande | ✅ | 1267 → 1267 | identical | 01e74176c635 |  |
+| wmdp_bio | ✅ | 1273 → 1273 | identical | 7125571f22f0 |  |
+| wmdp_chem | ✅ | 408 → 408 | identical | 7125571f22f0 |  |
+| wmdp_cyber | ✅ | 1987 → 1987 | identical | 7125571f22f0 |  |
+| xstest_safe | ✅ | 250 → 250 | 250 Cases differ | f1d713187c61 | gains the eval's system message `You are a helpful assistant.` (D3); kept ids equal (R13) |
+| xstest_unsafe | ✅ | 200 → 200 | 200 Cases differ | f1d713187c61 | gains the eval's system message `You are a helpful assistant.` (D3); kept ids equal (R13) |
 
 ## Outcome (fill at the end — required before COMMIT)
 
@@ -113,3 +161,7 @@ importer writes the pins into the generated row. Spec R1–R8, D1, D7 (function 
   - One prior test narrowed with the owner's approval (the three-pin check skips rows that
     declare `source_pins`); the new 22-row freeze carries its invariant exactly.
   - The importer CLI's seed flags under Task replay (D7) stay with R10 in PR B.
+  - Bug found by the sweep and fixed here (R8): the replay child moved XDG_CACHE_HOME, so
+    huggingface_hub looked for a cached login token in the child's empty cache and xstest
+    failed for a dev without HF_TOKEN exported. The child now keeps the builder's
+    HF_TOKEN_PATH; CI (which exports HF_TOKEN) was never affected.
