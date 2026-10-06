@@ -79,7 +79,7 @@ def test_an_uninverted_row_assembles_to_the_revision_it_always_had(
 
     spec: BenchmarkSpec = next(row for row in benchmarks.BENCHMARKS if row.key == "gsm8k")
 
-    assert str(_assembled(spec, monkeypatch).benchmark.revision) == "df52a7b257fe8701"
+    assert str(_assembled(spec, monkeypatch).benchmark.revision) == "39331c3bab42c313"
 
 
 @pytest.mark.asyncio
@@ -119,12 +119,13 @@ def test_xstest_unsafe_keeps_the_200_unsafe_prompts_and_its_siblings_judge() -> 
     from inspect_evals.xstest.xstest import XSTEST_DATASET_REVISION as UPSTREAM
     from inspect_evals.xstest.xstest import scorer_instructions, scorer_template
 
-    from screamingface_engine_inspect.prepare import BENCHMARK_CASES
+    from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES
 
-    cases = BENCHMARK_CASES["xstest_unsafe"]
-    assert cases.dataset_revision == UPSTREAM
-    assert cases.question_filter_task == "inspect_evals.xstest.xstest:xstest"
-    assert cases.question_filter_task_args == {"subset": "unsafe"}
+    # OME-1460: a Task-replay declaration now; the eval's own task picks the subset.
+    cases = TASK_REPLAY_CASES["xstest_unsafe"]
+    assert cases.source_pins == {"walledai/XSTest": UPSTREAM}
+    assert cases.task == "inspect_evals.xstest.xstest:xstest"
+    assert cases.task_args == {"subset": "unsafe"}
     assert cases.case_count == 200
     assert cases.has_answer_key is False
     assert cases.needs_hf_token is True

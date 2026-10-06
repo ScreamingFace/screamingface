@@ -1,9 +1,8 @@
 """The generated code of a Task-replay import: its declaration and its BenchmarkSpec row.
 
-FEATURE: Task-replay Imported Benchmarks (OME-1273, spec R6). The Hugging Face importer
-writes three rows (pins, CasesSpec, BenchmarkSpec); a Task-replay import writes two, because
-it has no dataset pin: a ``TaskReplayCasesSpec`` entry in ``prepare.py`` and the usual
-``BenchmarkSpec`` row in ``benchmarks.py``.
+FEATURE: Imported Benchmarks (OME-1273, spec R6; the only import path since OME-1460). An
+import writes two rows: a ``TaskReplayCasesSpec`` entry in ``prepare.py`` (its Hub commits,
+seeds and seal) and the usual ``BenchmarkSpec`` row in ``benchmarks.py``.
 
 Think of it as filing the sealed booklet: the label on the envelope (Case count, Case Digest)
 is CAPTURED, so code enforces it; the note clipped to it (the Case Sources) is COPIED, so a
@@ -50,7 +49,6 @@ from screamingface_engine_inspect.importer import (
     ImporterError,
     _is_judged_by,
     _is_literal,
-    _pin_prefix,
     _python_literal_source,
     _refuse_existing_rows,
     _scorer_lines,
@@ -130,9 +128,11 @@ def write_task_replay_rows(
 
     prepare_path: Path = engine_src / "prepare.py"
     benchmarks_path: Path = engine_src / "benchmarks.py"
-    texts: dict[Path, str] = {path: path.read_text() for path in (prepare_path, benchmarks_path)}
+    texts: dict[Path, str] = {
+        path: path.read_text(encoding="utf-8") for path in (prepare_path, benchmarks_path)
+    }
     # Stage 1
-    _refuse_existing_rows(key, _pin_prefix(key), texts)
+    _refuse_existing_rows(key, texts)
     rows: TaskReplayRows = render_task_replay_rows(
         key, imported, license, card_license=card_license
     )
@@ -156,17 +156,15 @@ def _refuse_injectable_import(
     """Stage 2 — refuse any string that could escape the generated rows."""
 
     declaration: TaskReplayCasesSpec = imported.declaration
-    references: list[str | None] = [
-        declaration.task,
-        imported.facts.scorer,
-        *(declaration.excluded_sample_ids or ()),
-    ]
+    references: list[str | None] = [declaration.task, imported.facts.scorer]
     # WHY a looser rule for these: they land only inside comments; only a line break or
     # another control character could end the comment and start code.
-    for text in imported.facts.custom_metrics:
+    # WHY printable only for the excluded ids: each lands inside a JSON string literal, which
+    # escapes every quote, backslash and line break; onet_m6's ids are Thai (OME-1460).
+    for text in (*imported.facts.custom_metrics, *(declaration.excluded_sample_ids or ())):
         if not text.isprintable():
             raise ImporterError(
-                f"{text!r} cannot be written into a generated comment — refusing (injection guard)"
+                f"{text!r} cannot be written into generated code — refusing (injection guard)"
             )
     texts: list[tuple[str, re.Pattern[str]]] = [
         *((value, _REFERENCE_CHARSET) for value in references if value is not None),
@@ -258,7 +256,10 @@ def _excluded_id_lines(excluded_ids: tuple[str, ...]) -> list[str]:
         "        # NAMED DEVIATION — TODO(review): say why upstream's Samples",
         "        # below are left out.",
         "        excluded_sample_ids=(",
-        *(f"            {json.dumps(sample_id)}," for sample_id in excluded_ids),
+        *(
+            f"            {json.dumps(sample_id, ensure_ascii=False)},"
+            for sample_id in excluded_ids
+        ),
         "        ),",
     ]
 
@@ -381,7 +382,7 @@ def _card_license_text(
 ) -> str | None:
     """The card's license at the source's revision, lowercased; None when the card has none.
 
-    Read the way read_hub_dataset_facts reads it: a list of licenses is joined.
+    A list of licenses is joined.
     """
 
     revision: str | None = (

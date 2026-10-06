@@ -21,6 +21,8 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
+from replayed_cases_helpers import replay_in_process_over_rows  # noqa: E402
+
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
 from screamingface_engine_inspect.benchmarks import (  # noqa: E402
@@ -547,3 +549,79 @@ def test_bbeh_keeps_the_task_metadata_its_metric_groups_by() -> None:
     inside the Case Digest and a full run can be regrouped the paper's way."""
 
     assert TASK_REPLAY_CASES["bbeh"].keep_sample_metadata is True
+
+
+# ── OME-1460: one no-network grading lane for every Imported Benchmark (spec R15) ──────────
+
+#: Every Imported Benchmark graded without a Judge. WHY judged ones are out: their Judge is
+#: called through the gateway, a network hop by design; each has its own fake-judge test.
+_JUDGE_LESS_KEYS: tuple[str, ...] = tuple(
+    sorted(spec.key for spec in BENCHMARKS if spec.judge is None and spec.key in TASK_REPLAY_CASES)
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", _JUDGE_LESS_KEYS)
+async def test_every_judge_less_benchmark_grades_with_no_network(
+    key: str, tmp_path: Path, no_network: None
+) -> None:
+    """R15: since OME-1460 every Imported Benchmark is a Task-replay declaration, so one lane
+    proves each one's scorer grades from the prepared Cases alone. Stand-in Cases of the
+    family's shape; the scores' values are not the point, reaching none of the network is."""
+
+    spec = next(row for row in BENCHMARKS if row.key == key)
+    # WHY the check surface decides the shape: OME-796 refuses it to every choice-shaped
+    # Benchmark (an elimination attack), whatever its scorer is called (SAD's is its own).
+    choice: bool = not spec.with_check_surface
+    benchmark: ImportedBenchmark = imported_benchmark(key)
+    node: Url4Node = _node(benchmark, _MCQ_CASES if choice else _FREE_TEXT_CASES, tmp_path)
+    answers: list[str] = ["ANSWER: B", "(B)"] if choice else ["ANSWER: 42", "ANSWER: 5"]
+
+    scores: list[object] = await _scores(node, benchmark, answers)
+
+    assert len(scores) == 2
+    assert all(isinstance(score, (int, float)) and 0.0 <= score <= 1.0 for score in scores), scores
+
+
+# ── OME-1460: lab_bench's answer stays shuffled under Task replay (D1, Review Focus 10) ────
+
+#: Eight stand-in LAB-Bench rows. WHY these fields: lab_bench's row rules read the question,
+#: the ideal answer (always placed FIRST among the choices) and the distractors; suppqa also
+#: reads the paper's title and source, protocolqa the protocol.
+_LAB_BENCH_ROWS: list[dict[str, object]] = [
+    {
+        "id": f"row-{index}",
+        "question": f"Stand-in question {index}?",
+        "ideal": f"right {index}",
+        "distractors": [f"wrong {index}a", f"wrong {index}b", f"wrong {index}c"],
+        "paper-title": "A stand-in paper",
+        "source": "https://example.invalid/paper",
+        "protocol": "Step 1: stand-in protocol.",
+    }
+    for index in range(1, 9)
+]
+
+
+@pytest.mark.parametrize("key", sorted(k for k in TASK_REPLAY_CASES if k.startswith("lab_bench_")))
+def test_lab_bench_never_keys_every_case_to_one_letter(key: str, tmp_path: Path) -> None:
+    """lab_bench's row rule puts the ideal answer first and its task asks for an unseeded
+    shuffle_choices=True; under Task replay the enforcer forces the declaration's choice seed
+    through inspect's own shuffle (D1). Without it every Case would be keyed "A".
+
+    Stand-in: datasets.load_dataset returns the eight rows above; the real lab_bench task, the
+    real hf_dataset and the real enforcer run. It proves the forced choice shuffle reaches the
+    prepared Grading Material; it does not prove which letters the real dataset gets."""
+
+    prepared: list[PreparedCase] = replay_in_process_over_rows(key, _LAB_BENCH_ROWS, tmp_path)
+
+    targets: set[object] = {case["grading_material"]["target"] for case in prepared}
+    assert len(prepared) == len(_LAB_BENCH_ROWS)
+    assert len(targets) > 1, targets
+
+
+def test_the_no_network_lane_is_not_silently_empty() -> None:
+    """The lane above parametrizes over a computed set; this pins that the set still holds
+    both families (a fold row and an original Task-replay row), so a broken filter cannot
+    turn the lane into zero tests that pass."""
+
+    assert {"gsm8k", "mmlu", "worldsense", "cyse4_mitre_frr"} <= set(_JUDGE_LESS_KEYS)

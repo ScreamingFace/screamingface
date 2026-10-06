@@ -231,9 +231,8 @@ _Avoid_: Snapshot hash, checksum
 Calling an eval's own task function in a child process with empty caches, so it fetches its
 Cases the way inspect would, then running the Task's own solvers on each Sample up to their
 first model call, where a stand-in records the prompt instead (capture). It never calls
-inspect's `eval()`: no model, scorer or Judge runs. The importer uses it when it cannot read
-the Case Sources off the task file, and Case Preparation uses it again at every image build,
-checking the Case Digest.
+inspect's `eval()`: no model, scorer or Judge runs. The importer uses it for every Imported
+Benchmark, and Case Preparation uses it again at every image build, checking the Case Digest.
 _Avoid_: Running the eval, replaying the evaluation, replay alone
 
 **Coverage**:
@@ -249,7 +248,7 @@ _Avoid_: Error handling
 The external evaluation framework (`inspect_ai`, with its eval catalogue `inspect_evals`) that
 Imported Benchmarks come from. A name that starts with `inspect` means it touches that framework:
 the `screamingface_engine_inspect` plugin, `inspect-<key>` Benchmark ids, the `inspect` install
-extra, `InspectTaskFacts`, `read_inspect_task`, `inspect_grade_case`.
+extra, `inspect_grade_case`.
 Inspect's own words name only inspect's own objects, in the plugin code that calls inspect.
 Everywhere else, including our own concepts inside the plugin, use our word:
 - inspect Task (`@task`): one eval definition (dataset, solver, scorer) → the eval an Imported

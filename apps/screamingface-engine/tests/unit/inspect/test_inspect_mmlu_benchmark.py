@@ -21,6 +21,8 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
+from replayed_cases_helpers import prepare_with_stand_in_hub  # noqa: E402
+
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
 from screamingface_engine_inspect.benchmarks import (
@@ -31,7 +33,6 @@ from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     build_case_grade,
 )
-from screamingface_engine_inspect.prepare import BENCHMARK_CASES, emit_cases  # noqa: E402
 
 GSM8K_BENCHMARK = imported_benchmark("gsm8k")
 MMLU_BENCHMARK = imported_benchmark("mmlu")
@@ -91,7 +92,8 @@ def test_benchmark_identity_and_mcq_declaration() -> None:
         # OME-1257: broad knowledge with headroom, no expert-frontier stakes.
         "difficulty": "medium",
     }
-    assert benchmark.case_count == 14042
+    # OME-1460: inspect's own filter_duplicate_ids drops 105 repeated questions.
+    assert benchmark.case_count == 13937
 
 
 def test_mcq_benchmark_is_refused_a_check_surface() -> None:
@@ -108,7 +110,7 @@ def _prepare(root: Path) -> tuple[Path, dict[int, str]]:
     """Prepare the prepared cases; return the root and each case's correct letter."""
 
     out = root / MMLU_BENCHMARK.benchmark.id
-    emit_cases(BENCHMARK_CASES["mmlu"], _ROWS, out)
+    prepare_with_stand_in_hub("mmlu", _ROWS, out)
     cases = json.loads((out / "cases.json").read_text(encoding="utf-8"))
     letters = {
         case["id"]: json.loads(

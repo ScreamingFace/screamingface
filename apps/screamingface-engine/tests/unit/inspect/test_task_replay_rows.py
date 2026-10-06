@@ -105,7 +105,8 @@ def _benchmark(rows: TaskReplayRows) -> BenchmarkSpec:
 def engine_src_copy(tmp_path: Path) -> Path:
     """A working copy of the real three generated-into files."""
 
-    for name in ("pins.py", "prepare.py", "benchmarks.py"):
+    # OME-1460: pins.py is gone; an import writes into these two files only.
+    for name in ("prepare.py", "benchmarks.py"):
         shutil.copy(_SRC_DIR / name, tmp_path / name)
     return tmp_path
 
@@ -284,7 +285,11 @@ def test_write_task_replay_rows_lands_in_prepare_and_benchmarks_only(
         "TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {"
     )
     assert 'key="stand_in_replay"' in benchmarks_text
-    assert (engine_src_copy / "pins.py").read_text() == (_SRC_DIR / "pins.py").read_text()
+    # OME-1460: pins.py is gone; the import still writes no third file.
+    assert sorted(path.name for path in engine_src_copy.iterdir()) == [
+        "benchmarks.py",
+        "prepare.py",
+    ]
     for name in ("prepare.py", "benchmarks.py"):
         ast.parse((engine_src_copy / name).read_text())
 
@@ -492,3 +497,22 @@ def test_a_hub_pin_that_could_escape_the_generated_code_is_refused(
 
     with pytest.raises(ImporterError, match="injection guard"):
         render_task_replay_rows("x", _imported(source_pins=source_pins), "TODO")
+
+
+def test_a_non_ascii_excluded_sample_id_is_written_and_evaluates_back() -> None:
+    """onet_m6's Named Deviation names Thai ids (2019_10ข_6985). The id lands inside a JSON
+    string literal, which escapes every quote, backslash and line break, so the guard need
+    only refuse what a reviewer cannot read (OME-1460)."""
+
+    imported: TaskReplayImport = _imported(excluded_sample_ids=("2019_10ข_6985", "2021_4_b447"))
+
+    rows: TaskReplayRows = render_task_replay_rows("onet_m6", imported, "TODO")
+
+    assert '            "2019_10ข_6985",\n' in rows.cases
+    assert _declared(rows)["onet_m6"] == imported.declaration
+
+
+@pytest.mark.parametrize("sample_id", ['a"\nimport os', "a‮b"], ids=["line break", "bidi"])
+def test_an_excluded_sample_id_a_reviewer_cannot_read_is_refused(sample_id: str) -> None:
+    with pytest.raises(ImporterError, match="injection guard"):
+        render_task_replay_rows("x", _imported(excluded_sample_ids=(sample_id,)), "TODO")

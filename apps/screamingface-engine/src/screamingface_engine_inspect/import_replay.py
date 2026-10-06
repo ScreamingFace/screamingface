@@ -100,6 +100,8 @@ class ImportReplay:
     facts: TaskReplayFacts
     #: Every top-level Hub fetch as (repo id, revision it read), in call order (OME-1460).
     hub_fetches: tuple[tuple[str, str | None], ...] = ()
+    #: The declared seeds some hf_dataset call needed ("shuffle_seed", "choice_shuffle_seed").
+    seeds_applied: frozenset[str] = frozenset()
 
 
 def replay_for_import(
@@ -110,6 +112,7 @@ def replay_for_import(
     has_answer_key: bool = True,
     shuffle_seed: int | None = None,
     choice_shuffle_seed: int | None = None,
+    keep_sample_metadata: bool = False,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
 ) -> ImportReplay:
     """Run the import child once and read back Cases, Case Sources and facts.
@@ -122,6 +125,8 @@ def replay_for_import(
             accepted (spec R19).
         shuffle_seed: forced onto an ``hf_dataset`` row shuffle the eval makes without one.
         choice_shuffle_seed: forced onto a bare ``shuffle_choices=True``.
+        keep_sample_metadata: keep the Sample metadata even under one of inspect's own
+            scorers, because a Judge template reads it (coconot's rubric).
         timeout: seconds before a stalled replay is abandoned.
 
     Returns:
@@ -145,6 +150,7 @@ def replay_for_import(
             "has_answer_key": has_answer_key,
             "shuffle_seed": shuffle_seed,
             "choice_shuffle_seed": choice_shuffle_seed,
+            "keep_sample_metadata": keep_sample_metadata,
             "cache_root": str(cache_root),
         }
         request_path.write_text(json.dumps(request), encoding="utf-8")
@@ -189,6 +195,7 @@ def _import_replay_from_result(result: Mapping[str, Any]) -> ImportReplay:
         case_sources=tuple(CaseSource(**source) for source in result["case_sources"]),
         facts=facts,
         hub_fetches=tuple((str(repo), revision) for repo, revision in result["hub_fetches"]),
+        seeds_applied=frozenset(result["seeds_applied"]),
     )
 
 
@@ -199,15 +206,15 @@ def _facts_of(
     task_args: dict[str, Any] | None,
     samples_carry_choices: bool,
 ) -> TaskReplayFacts:
-    """Stage 3a — read the built Task with the Hugging Face reader's own scorer readers."""
+    """Stage 3a — read the built Task with the importer's scorer readers."""
 
     scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
     return TaskReplayFacts(
         task_ref=task_ref,
         task_args=task_args,
-        # INVARIANT: the Hugging Face reader's two MCQ witnesses — the multiple_choice solver,
-        # OR the choice scorer (mmlu hides its solver inside its own @solver) — plus a third
-        # only a replay can see: Samples that carry choices (worldsense asks for "1"/"2"/"3"
+        # INVARIANT: three MCQ witnesses — the multiple_choice solver,
+        # OR the choice scorer (mmlu hides its solver inside its own @solver), OR Samples
+        # that carry choices (worldsense asks for "1"/"2"/"3"
         # with generate() and a pattern scorer). Any of them refuses mid-run feedback (OME-796).
         mcq=_uses_multiple_choice(task) or scorer_name == "choice" or samples_carry_choices,
         scorer=scorer_ref,
@@ -222,9 +229,8 @@ def _facts_of(
 def _uses_multiple_choice(task: Any) -> bool:
     """Whether the Task's setup or solver chain holds inspect's multiple_choice solver.
 
-    WHY a walk of our own and not the Hugging Face reader's: that reader also binds template
-    references and refuses chains it cannot imitate (two prompt templates, a rewritten system
-    message); capture renders those fine, so only the MCQ witness is read here.
+    WHY only this witness: capture renders the prompt from the real chain, so nothing else
+    about the solvers needs reading.
     """
 
     from inspect_ai._util.registry import registry_info
@@ -268,6 +274,8 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     facts: TaskReplayFacts = _facts_of(
         task, module, task_ref, task_args, any(sample.choices for sample in samples)
     )
+    if request["keep_sample_metadata"]:
+        facts = replace(facts, keep_sample_metadata=True)
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
         task=task_ref,
         case_count=0,
@@ -293,6 +301,7 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         "sample_ids": [None if sample.id is None else str(sample.id) for sample in samples],
         "case_sources": [asdict(source) for source in sources],
         "hub_fetches": recorder.hub_fetches,
+        "seeds_applied": sorted(recorder.seeds_applied),
         "facts": asdict(facts),
     }
     result_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
@@ -315,6 +324,7 @@ def import_by_task_replay(
     has_answer_key: bool = True,
     shuffle_seed: int | None = None,
     choice_shuffle_seed: int | None = None,
+    keep_sample_metadata: bool = False,
     dataset_info: Callable[[str, str | None], Any] | None = None,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
 ) -> TaskReplayImport:
@@ -348,6 +358,8 @@ def import_by_task_replay(
         has_answer_key: False when the Benchmark has no answer key, in both runs (R19).
         shuffle_seed: the seed both runs force onto an unseeded ``hf_dataset`` row shuffle.
         choice_shuffle_seed: the seed both runs force onto a bare ``shuffle_choices=True``.
+        keep_sample_metadata: keep the Sample metadata although the scorer is inspect's own,
+            because a Judge template reads it; False lets the scorer decide (D11).
         dataset_info: ``(repo id, revision) → Hub dataset info`` (HfApi().dataset_info by
             default); injectable for tests.
         timeout: seconds before either run is abandoned.
@@ -368,12 +380,14 @@ def import_by_task_replay(
             has_answer_key=has_answer_key,
             shuffle_seed=shuffle_seed,
             choice_shuffle_seed=choice_shuffle_seed,
+            keep_sample_metadata=keep_sample_metadata,
             timeout=timeout,
         )
     except TaskReplayError as exc:
         raise ImporterError(str(exc)) from exc
     # Stage 2
     _refuse_unsealable(task_ref, first)
+    _refuse_inert_seeds(task_ref, first, shuffle_seed, choice_shuffle_seed)
     # Stage 3
     try:
         hub: HubPins = source_pins_of(
@@ -411,6 +425,24 @@ def import_by_task_replay(
     return TaskReplayImport(
         declaration=declaration, case_sources=first.case_sources, facts=first.facts
     )
+
+
+def _refuse_inert_seeds(
+    task_ref: str, first: ImportReplay, shuffle_seed: int | None, choice_shuffle_seed: int | None
+) -> None:
+    """Stage 2 — refuse a declared seed no hf_dataset call needed (OME-1460, R10): written on
+    the row, it would promise an order nothing pins."""
+
+    declared: dict[str, int | None] = {
+        "shuffle_seed": shuffle_seed,
+        "choice_shuffle_seed": choice_shuffle_seed,
+    }
+    for name, seed in declared.items():
+        if seed is not None and name not in first.seeds_applied:
+            raise ImporterError(
+                f"{task_ref}: {name}={seed} was never applied — the eval makes no unseeded "
+                "hf_dataset shuffle it would pin; leave it out"
+            )
 
 
 def _refuse_unsealable(task_ref: str, first: ImportReplay) -> None:
