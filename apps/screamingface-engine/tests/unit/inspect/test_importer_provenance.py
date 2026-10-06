@@ -248,7 +248,7 @@ def test_the_harness_link_is_the_inspect_evals_tree_at_the_installed_tag() -> No
 # --- the generated row -----------------------------------------------------------------------
 
 _MMLU_TASK: str = "inspect_evals.mmlu.mmlu:mmlu_0_shot"
-_MMLU_SOURCE: str = "https://huggingface.co/datasets/cais/mmlu/resolve/" + "c" * 40 + "/all/test"
+_MMLU_SOURCE: str = "https://huggingface.co/datasets/cais/mmlu"
 
 
 def _imported(task_ref: str = _MMLU_TASK) -> TaskReplayImport:
@@ -393,6 +393,23 @@ def test_a_hub_licence_outside_the_cleared_list_is_the_owners_todo_not_a_served_
     assert 'license="TODO",' in row
     assert "not on the" in row and "cleared list" in row
     assert f'license="{card_says}"' not in row
+
+
+def test_a_long_bibtex_line_is_split_so_every_generated_line_passes_the_lint_gate() -> None:
+    # WHY: the first real import (OME-1455 PR 3) hit E501 on seven-author `author={...}` lines;
+    # adjacent literals concatenate, so the citation the row carries is byte-identical.
+    long_author_line = (
+        "      author={" + " and ".join(f"Author Number{n}" for n in range(12)) + "},"
+    )
+    arxiv = ArxivEntry(
+        authors="Number0 et al., 2026", citation=f"@misc{{x,\n{long_author_line}\n}}"
+    )
+    row = _row("mit", _provenance(None, arxiv))
+
+    assert all(len(line) <= 100 for line in row.splitlines())
+    citation_start = row.index("citation=(")
+    citation_src = row[citation_start + len("citation=") : row.index("),", citation_start) + 1]
+    assert eval(citation_src) == arxiv.citation  # noqa: S307 — generated text, parsed as the row is
 
 
 def test_generated_text_from_arxiv_cannot_escape_the_string_literal() -> None:

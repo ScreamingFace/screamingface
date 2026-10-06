@@ -397,15 +397,27 @@ def _size_lines(metadata: EvalMetadata | None) -> list[str]:
     return [f"        upstream_case_count={metadata.upstream_case_count},"]
 
 
+#: The longest string literal one generated citation line may hold, so the rendered line
+#: (12 columns of indent plus quotes and escapes) stays under the 100-column lint gate.
+_CITATION_LINE_WIDTH: int = 76
+
+
 def _citation_lines(citation: str) -> list[str]:
-    """A multi-line BibTeX as a parenthesised run of string literals."""
+    """A multi-line BibTeX as a parenthesised run of string literals.
+
+    WHY the width split: a BibTeX ``author={...}`` line for a seven-author paper is 150
+    characters, and one literal per BibTeX line put it past the lint gate on the first real
+    import (OME-1455 PR 3). Adjacent literals concatenate, so the value is unchanged.
+    """
 
     pieces: list[str] = citation.splitlines()
-    if len(pieces) == 1:
+    if len(pieces) == 1 and len(citation) <= _CITATION_LINE_WIDTH:
         return [f"        citation={json.dumps(citation)},"]
     rendered: list[str] = ["        citation=("]
-    rendered.extend(f"            {json.dumps(piece + chr(10))}" for piece in pieces[:-1])
-    rendered.append(f"            {json.dumps(pieces[-1])}")
+    for index, piece in enumerate(pieces):
+        text: str = piece + chr(10) if index < len(pieces) - 1 else piece
+        for start in range(0, max(len(text), 1), _CITATION_LINE_WIDTH):
+            rendered.append(f"            {json.dumps(text[start : start + _CITATION_LINE_WIDTH])}")
     rendered.append("        ),")
     return rendered
 

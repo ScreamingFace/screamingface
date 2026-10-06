@@ -41,6 +41,7 @@ from screamingface_engine.benchmarks.protocol import (
     early_result,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.provenance import FrontierScore, NotPublished
 from screamingface_engine.benchmarks.shared_grading.serving import (
     benchmark_routes,
     compute_benchmark_revision,
@@ -202,6 +203,36 @@ CONTRACTEVAL = Benchmark(
     # promise the SDK trusts BEFORE spend: declaring one without serving the route lets a
     # corrective-loop run pass the pre-spend gate, burn paid turns, then die. Declare it only
     # together with the handler; `grading.verdict` is the parser it would use.
+    # Benchmark Provenance (OME-1455); sources in the PR 3 table.
+    paper_url="https://arxiv.org/abs/2508.03080",
+    authors="Liu et al., 2025",
+    citation=(
+        "@misc{liu2025contractevalbenchmarkingllmsclauselevel,\n"
+        "      title={ContractEval: Benchmarking LLMs for Clause-Level Legal Risk Ide"
+        "ntification in Commercial Contracts}, \n"
+        "      author={Shuang Liu and Zelong Li and Ruoyun Ma and Haiyan Zhao and Men"
+        "gnan Du},\n"
+        "      year={2025},\n"
+        "      eprint={2508.03080},\n"
+        "      archivePrefix={arXiv},\n"
+        "      primaryClass={cs.AI},\n"
+        "      url={https://arxiv.org/abs/2508.03080}, \n"
+        "}"
+    ),
+    harness_url=(
+        "https://github.com/olivialiu121/ContractEval/tree/f2de74479bb067a13da2fd034972eec6905563b2"
+    ),
+    license="CC-BY-4.0",
+    license_note="CUAD (theatticusproject/cuad-qa) is CC-BY-4.0; the reference harness is MIT.",
+    human_baseline=NotPublished(reason="the ContractEval paper reports no human study"),
+    # Frontier score: F1 (clause-level extraction correctness on CUAD-derived tasks), Paper T….
+    frontier_score=FrontierScore(
+        score=0.644,
+        model="GPT 4.1 mini",
+        source_url="https://arxiv.org/html/2508.03080",
+        as_of="2025-08",
+    ),
+    notebook="13_contracteval",
 )
 
 __all__ = [

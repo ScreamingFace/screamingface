@@ -19,7 +19,20 @@
         "feedback_intent": "feedback",
         "expected_check_cost": "paid"
       },
-      "saturation": "unknown",
+      "paper_url": "https://arxiv.org/abs/2602.11685",
+      "authors": "Zhong et al., 2026",
+      "citation": "@misc{zhong2026dracocrossdomainbenchmarkdeep,\n      title={DRACO: a Cross-Domain Benchmark for Deep Research Accuracy, Completeness, and Objectivity}, \n      author={Joey Zhong and Hao Zhang and Clare Southern and Jeremy Yang and Thomas Wang and Kate Jung and Shu Zhang and Denis Yarats and Johnny Ho and Jerry Ma},\n      year={2026},\n      eprint={2602.11685},\n      archivePrefix={arXiv},\n      primaryClass={cs.LG},\n      url={https://arxiv.org/abs/2602.11685}, \n}",
+      "harness_url": "https://huggingface.co/datasets/perplexity-ai/draco/tree/ce076749809027649ebd331bcb70f42bf720d387",
+      "license": "MIT",
+      "license_note": "perplexity-ai/draco dataset card. The GitHub repo the docstring cites as protocol authority is not public, so the harness link is the dataset repo (rubrics and tasks) at the pinned revision.",
+      "notebook": "06_draco",
+      "frontier_score": {
+        "score": 0.705,
+        "model": "Perplexity Deep Research (Claude Opus 4.6)",
+        "source_url": "https://arxiv.org/abs/2602.11685",
+        "as_of": "2026-02"
+      },
+      "saturation": "open",
       "href": "/v1/benchmarks/draco"
     },
     {
@@ -40,7 +53,20 @@
         "feedback_intent": "feedback",
         "expected_check_cost": "paid"
       },
-      "saturation": "unknown",
+      "paper_url": "https://arxiv.org/abs/2602.11685",
+      "authors": "Zhong et al., 2026",
+      "citation": "@misc{zhong2026dracocrossdomainbenchmarkdeep,\n      title={DRACO: a Cross-Domain Benchmark for Deep Research Accuracy, Completeness, and Objectivity}, \n      author={Joey Zhong and Hao Zhang and Clare Southern and Jeremy Yang and Thomas Wang and Kate Jung and Shu Zhang and Denis Yarats and Johnny Ho and Jerry Ma},\n      year={2026},\n      eprint={2602.11685},\n      archivePrefix={arXiv},\n      primaryClass={cs.LG},\n      url={https://arxiv.org/abs/2602.11685}, \n}",
+      "harness_url": "https://huggingface.co/datasets/perplexity-ai/draco/tree/ce076749809027649ebd331bcb70f42bf720d387",
+      "license": "MIT",
+      "license_note": "perplexity-ai/draco dataset card. The GitHub repo the docstring cites as protocol authority is not public, so the harness link is the dataset repo (rubrics and tasks) at the pinned revision.",
+      "notebook": "06_draco",
+      "frontier_score": {
+        "score": 0.705,
+        "model": "Perplexity Deep Research (Claude Opus 4.6)",
+        "source_url": "https://arxiv.org/abs/2602.11685",
+        "as_of": "2026-02"
+      },
+      "saturation": "open",
       "href": "/v1/benchmarks/draco-3pass"
     },
     {
@@ -61,7 +87,25 @@
         "feedback_intent": "feedback",
         "expected_check_cost": "paid"
       },
-      "saturation": "unknown",
+      "paper_url": "https://arxiv.org/abs/2604.27470",
+      "authors": "Hicks et al., 2026",
+      "citation": "@misc{hicks2026healthbenchprofessionalevaluatinglarge,\n      title={HealthBench Professional: Evaluating Large Language Models on Real Clinician Chats}, \n      author={Rebecca Soskin Hicks and Mikhail Trofimov and Dominick Lim and Rahul K. Arora and Foivos Tsimpourlas and Preston Bowman and Michael Sharman and Chi Tong and Kavin Karthik and Arnav Dugar and Akshay Jagadeesh and Khaled Saab and Johannes Heidecke and Ashley Alexander and Nate Gross and Karan Singhal},\n      year={2026},\n      eprint={2604.27470},\n      archivePrefix={arXiv},\n      primaryClass={cs.CL},\n      url={https://arxiv.org/abs/2604.27470}, \n}",
+      "harness_url": "https://github.com/openai/simple-evals/blob/652c89d0ca9df547706735883097e9537d40dc47/healthbench_eval.py",
+      "license": "MIT",
+      "license_note": "openai/healthbench-professional dataset card; the simple-evals harness is MIT.",
+      "content_warning": "Clinical conversations, including emergencies and self-harm scenarios, graded on safety.",
+      "notebook": "08_healthbench",
+      "human_baseline": {
+        "score": 0.437,
+        "source_url": "https://arxiv.org/abs/2604.27470"
+      },
+      "frontier_score": {
+        "score": 0.647,
+        "model": "GPT-6 Astra",
+        "source_url": "https://deploymentsafety.openai.com/gpt-6-astra",
+        "as_of": "2026-09"
+      },
+      "saturation": "open",
       "href": "/v1/benchmarks/healthbench-professional"
     },
     {
@@ -82,6 +126,14 @@
         "feedback_intent": "feedback",
         "expected_check_cost": "paid"
       },
+      "paper_url": "https://arxiv.org/abs/2604.27470",
+      "authors": "Hicks et al., 2026",
+      "citation": "@misc{hicks2026healthbenchprofessionalevaluatinglarge,\n      title={HealthBench Professional: Evaluating Large Language Models on Real Clinician Chats}, \n      author={Rebecca Soskin Hicks and Mikhail Trofimov and Dominick Lim and Rahul K. Arora and Foivos Tsimpourlas and Preston Bowman and Michael Sharman and Chi Tong and Kavin Karthik and Arnav Dugar and Akshay Jagadeesh and Khaled Saab and Johannes Heidecke and Ashley Alexander and Nate Gross and Karan Singhal},\n      year={2026},\n      eprint={2604.27470},\n      archivePrefix={arXiv},\n      primaryClass={cs.CL},\n      url={https://arxiv.org/abs/2604.27470}, \n}",
+      "harness_url": "https://github.com/openai/simple-evals/blob/652c89d0ca9df547706735883097e9537d40dc47/healthbench_eval.py",
+      "license": "MIT",
+      "license_note": "openai/healthbench-professional dataset card; the simple-evals harness is MIT. The worst-30% selection is ours, frozen (subset.py).",
+      "content_warning": "Clinical conversations, including emergencies and self-harm scenarios, graded on safety.",
+      "notebook": "08_healthbench",
       "saturation": "unknown",
       "href": "/v1/benchmarks/healthbench-worst30"
     },
@@ -102,7 +154,20 @@
         "feedback_intent": "feedback",
         "expected_check_cost": "free"
       },
-      "saturation": "unknown",
+      "paper_url": "https://arxiv.org/abs/2311.07911",
+      "authors": "Zhou et al., 2023",
+      "citation": "@misc{zhou2023instructionfollowingevaluationlargelanguage,\n      title={Instruction-Following Evaluation for Large Language Models}, \n      author={Jeffrey Zhou and Tianjian Lu and Swaroop Mishra and Siddhartha Brahma and Sujoy Basu and Yi Luan and Denny Zhou and Le Hou},\n      year={2023},\n      eprint={2311.07911},\n      archivePrefix={arXiv},\n      primaryClass={cs.CL},\n      url={https://arxiv.org/abs/2311.07911}, \n}",
+      "harness_url": "https://github.com/josejg/instruction_following_eval/tree/0c495b2f95155e8b10acb919ae283bfb4d5be6e2",
+      "license": "Apache-2.0",
+      "license_note": "google/IFEval dataset card; the vendored verifier (the bug-fixed fork inspect_evals pins) is Apache-2.0.",
+      "notebook": "07_ifeval",
+      "frontier_score": {
+        "score": 0.948,
+        "model": "GPT-5.2",
+        "source_url": "https://huggingface.co/Qwen/Qwen3.5-397B-A17B",
+        "as_of": "2026-02"
+      },
+      "saturation": "saturated",
       "href": "/v1/benchmarks/ifeval"
     }
   ]

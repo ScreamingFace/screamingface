@@ -31,77 +31,9 @@ from screamingface_engine.benchmarks import Benchmark  # noqa: E402
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS  # noqa: E402
 from screamingface_engine.benchmarks.provenance import provenance_gaps  # noqa: E402
 
-#: The Benchmarks registered on 2026-10-05, grandfathered until their values land.
-#: INVARIANT: removal-only. Never add an id here; a new Benchmark carries its fields.
-GRANDFATHERED: frozenset[str] = frozenset(
-    {
-        "contracteval",
-        "draco",
-        "draco-3pass",
-        "gdpval-text",
-        "healthbench-professional",
-        "healthbench-worst30",
-        "ifeval",
-        "inspect-agieval_aqua_rat",
-        "inspect-agieval_logiqa_en",
-        "inspect-agieval_lsat_ar",
-        "inspect-agieval_lsat_lr",
-        "inspect-agieval_lsat_rc",
-        "inspect-agieval_sat_en",
-        "inspect-agieval_sat_en_without_passage",
-        "inspect-agieval_sat_math",
-        "inspect-aime24",
-        "inspect-aime25",
-        "inspect-arc_challenge",
-        "inspect-arc_easy",
-        "inspect-bbeh",
-        "inspect-bbq",
-        "inspect-boolq",
-        "inspect-coconot_contrast",
-        "inspect-coconot_original",
-        "inspect-commonsense_qa",
-        "inspect-cybermetric_10000",
-        "inspect-cybermetric_2000",
-        "inspect-cybermetric_500",
-        "inspect-cybermetric_80",
-        "inspect-cyse4_mitre_frr",
-        "inspect-frontierscience",
-        "inspect-gsm8k",
-        "inspect-hellaswag",
-        "inspect-lab_bench_cloning_scenarios",
-        "inspect-lab_bench_dbqa",
-        "inspect-lab_bench_litqa",
-        "inspect-lab_bench_protocolqa",
-        "inspect-lab_bench_seqqa",
-        "inspect-lab_bench_suppqa",
-        "inspect-medqa",
-        "inspect-mgsm_en",
-        "inspect-mmlu",
-        "inspect-mmlu_pro",
-        "inspect-musr",
-        "inspect-onet_m6",
-        "inspect-paws",
-        "inspect-piqa",
-        "inspect-pre_flight",
-        "inspect-pubmedqa",
-        "inspect-race_h",
-        "inspect-sad_facts_human_defaults",
-        "inspect-sad_facts_llms",
-        "inspect-sad_influence",
-        "inspect-sad_stages_full",
-        "inspect-sad_stages_oversight",
-        "inspect-sevenllm_mcq_en",
-        "inspect-sevenllm_mcq_zh",
-        "inspect-winogrande",
-        "inspect-wmdp_bio",
-        "inspect-wmdp_chem",
-        "inspect-wmdp_cyber",
-        "inspect-worldsense",
-        "inspect-xstest_safe",
-        "inspect-xstest_unsafe",
-        "medxpert",
-    }
-)
+#: Emptied by the values PR (OME-1455 PR 3, 2026-10-06): every registered Benchmark now carries
+#: its provenance. INVARIANT: stays empty. A new Benchmark declares its fields or says why not.
+GRANDFATHERED: frozenset[str] = frozenset()
 
 # parents[4] = apps/, so its parent is the monorepo root (the vocabulary twin's idiom).
 _REPO_ROOT = Path(__file__).resolve().parents[4].parent

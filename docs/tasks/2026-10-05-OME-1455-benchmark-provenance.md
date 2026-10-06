@@ -29,3 +29,11 @@ Benchmark; the pages, after product signs off the mockup.
 - 2026-10-05: PR 2 (backend: Engine fields + importer + served verdict, Scoreboard copy, SDK
   discovery) [#1236](https://github.com/ScreamingFace/screamingface/pull/1236) opened from branch `OME-1455-benchmark-provenance-backend`, ledger
   `docs/work/2026-10-05-ome-1455-benchmark-provenance-backend.md`.
+- 2026-10-06: product reply on the pages (PR 4): the provenance strip goes in a right-hand sidebar,
+  not above the leaderboard, so results stay above the fold; collapsed-by-default is open until
+  product sees the mockup; it lands post-launch, after product's own page changes (leaderboard
+  copy, a more compact benchmark table). PR 3 (values for all 65, allowlist emptied) started on
+  branch `OME-1455-pr3-benchmark-provenance-values`, stacked on PR 2; ledger
+  `docs/work/2026-10-06-ome-1455-benchmark-provenance-values.md`; opened as draft
+  [#1252](https://github.com/ScreamingFace/screamingface/pull/1252), base = PR 2's branch
+  (retarget to main once #1236 merges). Verdicts over the 65: 23 saturated / 30 open / 12 unknown.
