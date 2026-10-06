@@ -4,6 +4,10 @@
 
 ### Features
 
+* Retain completed evaluation results on disk before decoding and reopen them with `sf.reports.list()`, `get()`, `get_async()`, and explicit `delete()`. Public Clients save results by default; `save_results=False` retains in-memory collection. Verified incremental indexing preserves full Case data and provenance, while fusion-member totals retain nullable values with bounded auxiliary memory.
+
+### Features
+
 * **screamingface:** carry each Benchmark's provenance and saturation verdict from the Engine catalogue. `Benchmark.provenance` is a `BenchmarkProvenance` (paper, authors, citation, inspect porters as GitHub handles, website, harness pinned to a commit or tag, licence with any note, content warning, a `PublishedScore` human baseline and frontier score, the SDK notebook that runs it) and `Benchmark.saturation` is the Engine's derived verdict (`saturated` / `open` / `unknown`). An Engine that predates them serves neither: `provenance` reads `None` and `saturation` reads `unknown`. The local Scoreboard seed emits the same keys, so a local board shows what a deployed one shows.
 
 * **screamingface:** publish a cached run's full cost when every cache hit is priced (`OME-1463`, decision D7 on `OME-1251`). `CandidateResult.cache_saved_cost_archive_usd` carries what the hits served from archive-matched cache entries would have cost, and `CandidateResult.cache_unpriced_hits` the Engine's count of hits with no price at all (`None` when the Engine sent no run summary). Both serialize into report.json. A leaderboard submission now sends the archive saving as `cache_saved_cost_archive_usd`, beside `run_cost_usd` and `cache_saved_cost_usd` and never added to either; the Scoreboard sums the three. **Behavior change:** a run with cache hits is sent as `complete`, with its spend as `run_cost_usd`, when the Engine's summary shows no unpriced hit and the spend is priced. Any unpriced hit, a missing summary, or an unpriced spend still sends `partial` with no amount. **Requires a Scoreboard that accepts the field** (`OME-1382`); against an older one, an archive-priced run's submission rejects with HTTP 422.

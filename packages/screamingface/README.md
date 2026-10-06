@@ -614,3 +614,42 @@ uv run --extra notebook python scripts/check_notebooks.py
 uv build
 uv run python scripts/check_distribution.py
 ```
+
+
+## Reopen completed results
+
+Public `Client` and `AsyncClient` instances save completed-run metadata before downloading
+results. Artifact downloads are streamed and checked against the Engine ticket's size and
+SHA-256. Cases are validated incrementally into a disk index and loaded on demand, preserving
+prompts, answers, grading, operations, accounting, and the SDK's run provenance.
+
+```python
+import screamingface as sf
+
+entries = sf.reports.list()
+report = sf.reports.get(entries[0].id)
+# In async code: report = await sf.reports.get_async(entries[0].id)
+# Explicit removal: sf.reports.delete(entries[0].id)
+```
+
+The default location is `~/.screamingface/results`; `SCREAMINGFACE_RESULTS_DIR` overrides it,
+or use `SCREAMINGFACE_DATA_DIR` to choose the containing data directory. `list()` reads
+lightweight metadata and groups Candidates from the same Evaluation. `get()` and
+`get_async()` use local copies when available and obtain fresh authentication when a missing
+artifact needs downloading. They never start model runs. `destination='/another/disk'`
+lets recovery copy retained results to another location. Incomplete recovery raises the
+existing `candidates_failed` error with a `partial_report` and named Candidate failures.
+
+Local copies remain until explicit deletion. Deleting a report also makes existing
+Reports backed by its files unreadable. Recovery requires a saved completion record and
+either a valid local raw result or an unexpired Engine artifact. An unavailable artifact
+reports `result_expired` with its age. Death before completion is recorded cannot be recovered.
+Disk failures report `result_storage_failed`; collection never silently falls back to RAM.
+Only completion/result metadata is saved, never authentication credentials.
+
+Set `Client(save_results=False)` or `AsyncClient(save_results=False)` for the previous
+in-memory collection path. These options do not change a custom supplied `run_transport`.
+Calling `to_dict()`, `to_json()`, converting Cases to a list, or requesting a Case slice
+still materializes the requested data. Streamed atomic JSON export is the separate #1241
+slice; this recovery draft should land after it. Notebook pagination, compact accounting
+caches, and automatic lifecycle discovery remain separate follow-ups.
