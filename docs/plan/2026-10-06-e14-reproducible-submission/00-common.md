@@ -22,7 +22,7 @@ Read `00-overview.md` §6 for the PR map, and the PRD that your PR names.
    `feat(scoreboard): …`). Several small commits are good. **No `Co-Authored-By` trailer.**
    End the message body with `Refs: OME-1307`.
 6. Gates: from the worktree root run
-   `python3 .claude/scripts/run_gates.py <stack> --base e14-reproducible-submission-spec`
+   `uv run .claude/scripts/run_gates.py <stack> --base e14-reproducible-submission-spec` (plain `python3` lacks PyYAML)
    (for a stacked PR, `--base` is the parent branch named in your plan). The stack names are
    `scoreboard`, `aigateway`, `screamingface-engine`, `screamingface`. Run `uv sync` in the app
    directory first. For `screamingface`, run `uv sync --extra runtime --extra notebook`.
