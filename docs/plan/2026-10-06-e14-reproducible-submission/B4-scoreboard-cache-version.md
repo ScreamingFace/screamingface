@@ -17,7 +17,9 @@
 | `src/scoreboard/scores/store.py` | fill-only rule in `_replay_updates` for the three fields (+ `_REPLAY_FIELDS`, not enriching); `ScoreStore.record_reproduction(...)`; reproduction aggregate for the score read |
 | `src/scoreboard/routes/scores.py` | `POST /v1/scores/{score_id}/reproductions`; `GET` adds the aggregate |
 | `portal/spec.js` | "Reproduced N times · last <date>" when `reproduction_count > 0` |
-| tests | new files only; a new portal test file must be added by name to the `node --test` gate line in `.claude/sdlc.local.md` |
+| tests | new files only; a new portal test file must be added by name to the `node --test` line in BOTH `.claude/sdlc.local.md` and `.github/workflows/scoreboard-tests.yml` (`test_portal_ci_wiring.py` checks both) |
+
+Notes from A1: served portal files may not contain `OME-` or `FEATURE:` (`test_portal_static.py`); read DTO fields are omitted when null (`exclude_if`), so legacy rows gain no `null` keys; use `turned_private` for any visibility check (`test_visibility_exit_guard.py`).
 
 Exemplars: A1's `ScoreMetadataEvent` model + migration + `VerifiedIdentity` routes;
 `_replay_updates` fill-only blocks for `models` and cost (`store.py`).
@@ -31,8 +33,8 @@ Exemplars: A1's `ScoreMetadataEvent` model + migration + `VerifiedIdentity` rout
 - Fill-only: a resubmit sets a field only when the stored value is NULL; a different non-NULL value
   is kept, not replaced (C12). `cache_revision` and `reproducible` move together: fill both only
   when `reproducible` is NULL on the row.
-- `ScoreReproduction`: `id` UUID pk; `score` FK → `models.Score` (`related_name="reproductions"`,
-  `on_delete=CASCADE`); `reproduced_by CharField(255)`; `reproduced_at DatetimeField(auto_now_add=True)`;
+- `ScoreReproduction`: `id` UUID pk; `score` FK → `models.Score` (`related_name=False`, because a reverse relation
+  trips `test_every_score_field_reaches_at_least_one_read_dto`; `on_delete=CASCADE`); `reproduced_by CharField(255)`; `reproduced_at DatetimeField(auto_now_add=True)`;
   `run_id CharField(128)`; `cache_revision CharField(32, null=True)`; `client_version CharField(64, null=True)`.
   `unique_together = (("score", "run_id"),)`. Table `score_reproductions`.
 - `ReproductionSubmission` (`extra="forbid"`): `run_id: str` (1–128), `score: float`,
