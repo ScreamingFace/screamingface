@@ -56,7 +56,8 @@ Plan steps 1 to 12, in order. Files:
 - **Actual files:** as planned, plus a new Engine module `benchmarks/provenance.py` (shapes,
   rules, verdict, served block; keeps `definition.py` under the 450-line ceiling) and a new
   plugin module `screamingface_engine_inspect/provenance_facts.py` (eval.yaml + arXiv readers,
-  generated lines); the Task-replay row renderer got the same lines as the Hugging Face path.
+  generated lines); the Task-replay row renderer writes them (the Hugging Face path, which
+  also wrote them until the OME-1460 fold deleted it on main, is gone).
   Scoreboard: `ProvenanceSchema.from_stored` (the one key-by-key reader, used by the seed's
   `_block_of` and by `benchmark_to_schema`), migration
   `0018_benchmark_provenance.py` (two nullable AddFields, no backfill), `ProvenanceSchema` +
@@ -66,10 +67,9 @@ Plan steps 1 to 12, in order. Files:
   from the top-level package), decoder split into three helpers, seed twin reads
   `catalog_entry()` and emits the board's seed-row shape, snapshot + CHANGELOG, verdict
   vocabulary twins on all three sides (Engine, SDK, Scoreboard seed).
-- **Commits:** `1482b9592` shapes + verdict · `c34c85c77` factory/row pass-through ·
-  `c086889e1` importer · `1beb3823a` conformance + Scoreboard · `74902e647` SDK ·
-  `7daf49760` docs · `529d788d7` allowlist · `2309043c3` golden (shas after the rebase onto
-  #1225) · PR [#1236](https://github.com/ScreamingFace/screamingface/pull/1236) (draft).
+- **Commits:** one squashed commit after the rebase onto main past the OME-1460 fold
+  (2026-10-06; the twelve originals are kept on `backup/OME-1455-pr2-pre-rebase`, local) ·
+  PR [#1236](https://github.com/ScreamingFace/screamingface/pull/1236).
 - **Gates (after the review round, 2026-10-06):** `run_gates.py screamingface-engine --base
   upstream/main --skip-append-only` ALL GREEN · `run_gates.py scoreboard --base upstream/main
   --skip-append-only` ALL GREEN · `run_gates.py screamingface --skip-append-only` ALL GREEN. CI lane 1 reproduced in
@@ -123,6 +123,13 @@ Plan steps 1 to 12, in order. Files:
   reader catches `http.client.HTTPException`; migration renumbered to `0018` on top of main's
   `0017_score_cache_saved_cost_archive`. Deferred to PR 3: baseline-without-source as a TODO
   line, the F2 cross-check fixture rows, a catalogue fixture row carrying provenance.
+- **Deviation (12), 2026-10-06:** main merged the OME-1460 fold (#1254), which deleted the
+  Hugging Face preparation path this branch had also edited (`render_generated_rows`,
+  `_benchmark_lines`, the HF branch of `main()`). Resolved toward main: those functions stay
+  deleted; the provenance hook lives only on the Task-replay path (`arxiv_fetch` →
+  `read_provenance_facts` → `write_task_replay_rows`); the seven row tests moved from the
+  deleted renderer to `render_task_replay_rows`. The branch was squashed to one commit so
+  the conflict was resolved once, not per commit.
 - **Owner-verify:** the `--skip-append-only` press for the SDK snapshot, the Engine catalogue golden
   and the regenerated Scoreboard `tests/fixtures/engine_catalog.json` (flagged only against
   upstream/main), plus the deletion of the seed's name-only twin test in the second review

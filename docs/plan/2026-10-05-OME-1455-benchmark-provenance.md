@@ -39,7 +39,7 @@ skill: `tortoise-dev` for step 8. Owner press: `--skip-append-only` for step 11.
    (like `focus=`/`dataset_url=`). `I/benchmarks.py::BenchmarkSpec`: the new fields plus
    `upstream_case_count`. Verify: an assembled inspect row round-trips a full provenance set.
 4. **③ Importer, eval.yaml** → `I/importer.py`: `read_eval_metadata(package, task_name)` via
-   `importlib.resources`; `_benchmark_lines` emits `paper_url`, `inspect_contributors`,
+   `importlib.resources`; the Task-replay row renderer emits `paper_url`, `inspect_contributors`,
    `human_baseline`, `upstream_case_count`, `license=` (from the Hub facts, SPDX-normalised),
    `harness_url` at the pinned tag, `notebook`,
    `frontier_score=NotPublished(reason="TODO")`, and `content_warning="TODO"` for the
