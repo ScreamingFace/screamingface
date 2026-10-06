@@ -246,3 +246,42 @@ async def test_resubmit_with_paper_url_replaces_it_without_dating_the_frontier(
 
 def test_paper_url_does_not_change_recipe_identity() -> None:
     assert _content_hash(_submission(paper_url=PAPER)) == _content_hash(_submission())
+
+
+# --- design-review round: no whitespace anywhere, and no user info -------------------------
+
+MORE_BAD_PAPER_URLS = [
+    pytest.param("https://example.org/a b", id="space-in-path"),
+    pytest.param("https://example.org/a\tb", id="tab"),
+    pytest.param("https://example.org/a\u00a0b", id="no-break-space"),
+    pytest.param("https://example.org/a\u2003b", id="em-space"),
+    pytest.param(" https://example.org/p", id="leading-space"),
+    pytest.param("https://example.org/p ", id="trailing-space"),
+    pytest.param("https://user@example.org/p", id="username"),
+    pytest.param("https://user:secret@example.org/p", id="username-and-password"),
+    pytest.param("https://@example.org/p", id="empty-user-info"),
+    pytest.param("https://example.org@evil.test/p", id="host-lookalike-before-at"),
+]
+
+
+@pytest.mark.parametrize("value", MORE_BAD_PAPER_URLS)
+async def test_post_rejects_whitespace_and_user_info_in_a_paper_url(
+    disabled_client: AsyncClient, value: str
+) -> None:
+    response = await disabled_client.post("/v1/scores", json=_payload(paper_url=value))
+
+    assert response.status_code == 422, value
+    errors = response.json()["detail"]
+    assert errors[0]["loc"] == ["body", "paper_url"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("https://example.org/a@b", id="at-sign-in-path"),
+        pytest.param("https://example.org/p?mail=a@b.test", id="at-sign-in-query"),
+        pytest.param("https://example.org/p#@frag", id="at-sign-in-fragment"),
+    ],
+)
+def test_an_at_sign_outside_the_authority_is_fine(value: str) -> None:
+    assert _submission(paper_url=value).paper_url == value

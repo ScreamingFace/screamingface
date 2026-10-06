@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, NamedTuple, cast
+from typing import Any, Literal, NamedTuple, cast
 from uuid import UUID
 
 from pypika_tortoise.analytics import RowNumber
@@ -286,18 +286,23 @@ async def _log_metadata_event(
     locked: Score,
     changes: Mapping[str, object],
     *,
-    source: str,
+    source: Literal["patch", "resubmit"],
     edited_by: str,
+    edited_at: datetime,
 ) -> None:
     """Insert the one event for a change, in the caller's transaction and against its locked row.
 
     A field the request did not change carries equal old and new values. The old values are read
     off ``locked``, so call this BEFORE the new ones are copied onto it.
+
+    INVARIANT: ``edited_at`` is the SAME instant the row's `metadata_updated_at` was set to, so the
+    newest event and the row's own stamp never disagree.
     """
     await ScoreMetadataEvent.create(
         using_db=connection,
         score=locked,
         edited_by=edited_by,
+        edited_at=edited_at,
         source=source,
         old_authors=locked.authors,
         new_authors=changes.get("authors", locked.authors),
@@ -1336,10 +1341,11 @@ class ScoreStore:
             # None over None. Nothing the frontier reads changed, so nothing is dated.
             touched = _ENRICHING_FIELDS & updates.keys()
             enriched = any(updates[field] != getattr(locked, field) for field in touched)
+            now = datetime.now(UTC)
             if enriched:
-                stamp["enriched_at"] = datetime.now(UTC)
+                stamp["enriched_at"] = now
             if metadata_changes:
-                stamp["metadata_updated_at"] = datetime.now(UTC)
+                stamp["metadata_updated_at"] = now
             updated = await (
                 Score.filter(id=locked.id).using_db(connection).update(**updates, **stamp)
             )
@@ -1352,6 +1358,7 @@ class ScoreStore:
                     metadata_changes,
                     source="resubmit",
                     edited_by=cast(str, locked.submitted_by),
+                    edited_at=now,
                 )
 
         settled: dict[str, object] = {
@@ -1410,6 +1417,8 @@ class ScoreStore:
         *,
         edited_by: str,
         changes: Mapping[str, object],
+        benchmark_id: str,
+        expect_private: bool,
     ) -> ScoreSchema | None:
         """Apply a submitter's edit of `authors` / `paper_url`, and return the score as it now is.
 
@@ -1423,8 +1432,18 @@ class ScoreStore:
 
         INVARIANT: only `authors` and `paper_url` can be written here, and neither one touches
         `enriched_at`, the ranking inputs or `content_hash`: both are display-only.
+
+        INVARIANT: the board is re-checked INSIDE the transaction, first and under its lock, the way
+        the resubmit path does. The route decided who may edit from a read taken before this
+        transaction, and a flip to private in between would otherwise let a caller that was never
+        verified mutate a private row. ``expect_private`` is what that decision assumed; a mismatch
+        refuses with `BenchmarkVisibilityChanged` and the caller retries on a consistent view.
+        The board is locked BEFORE the score row, the same order the resubmit path takes.
         """
         async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
+            await self._revalidate_visibility(
+                benchmark_id, expect_private, connection=connection, lock=True
+            )
             locked = await self.metadata_row_query(score_id, connection=connection).first()
             if locked is None:
                 return None
@@ -1437,7 +1456,12 @@ class ScoreStore:
                     .update(**applied, metadata_updated_at=stamp)
                 )
                 await _log_metadata_event(
-                    connection, locked, applied, source="patch", edited_by=edited_by
+                    connection,
+                    locked,
+                    applied,
+                    source="patch",
+                    edited_by=edited_by,
+                    edited_at=stamp,
                 )
                 for name, value in {**applied, "metadata_updated_at": stamp}.items():
                     setattr(locked, name, value)
@@ -1451,8 +1475,12 @@ class ScoreStore:
         return _score_to_schema(locked)
 
     async def metadata_events(self, score_id: UUID) -> list[ScoreMetadataEventSchema]:
-        """A score's edit log, newest first. Empty for a score that was never edited."""
-        rows = await ScoreMetadataEvent.filter(score_id=score_id).order_by("-edited_at")
+        """A score's edit log, newest first. Empty for a score that was never edited.
+
+        The id is the tiebreaker, so two events with the same timestamp always come back in the
+        same order (the order itself is arbitrary, since ids are random, but it is stable).
+        """
+        rows = await ScoreMetadataEvent.filter(score_id=score_id).order_by("-edited_at", "-id")
         return [ScoreMetadataEventSchema.model_validate(row, from_attributes=True) for row in rows]
 
     def visibility_query(

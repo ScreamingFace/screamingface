@@ -365,11 +365,20 @@ def _validate_paper_url(value: str) -> str:
     """
     if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
         raise ValueError("paper_url must not contain control characters")
+    # WHY any whitespace, anywhere: `urlsplit` quietly strips leading and trailing blanks, so a
+    # link with one would validate, be stored as sent, and then not be the URL it looks like.
+    if any(char.isspace() for char in value):
+        raise ValueError("paper_url must not contain whitespace")
     parts = urlsplit(value)
     if parts.scheme.lower() not in _PAPER_URL_SCHEMES:
         raise ValueError("paper_url must use the http or https scheme")
     if not parts.hostname:
         raise ValueError("paper_url must name a host")
+    # WHY refuse user info: a paper link is shown and followed by readers, and
+    # `https://trusted.example@evil.test/` reads as the first host while going to the second.
+    # `username` is "" (not None) for a bare `@`, so test for None.
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("paper_url must not contain user info")
     return value
 
 
@@ -413,6 +422,23 @@ class MessageErrorResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     detail: str
+
+
+class CodedErrorDetail(BaseModel):
+    """A machine-readable refusal: a stable `code` plus a human `message`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+
+
+class CodedErrorResponse(BaseModel):
+    """HTTP error response whose detail carries a stable code (for example `not_score_owner`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    detail: CodedErrorDetail
 
 
 class ScoreSubmission(BaseModel):
@@ -949,6 +975,15 @@ class ScoreMetadataPatch(BaseModel):
     authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
     paper_url: PaperUrl | None = None
 
+    @field_validator("authors", mode="before")
+    @classmethod
+    def refuse_null_authors(cls, value: object) -> object:
+        # A FIELD validator (not the model one below) so the 422 points at `body.authors`. It runs
+        # only when the key is present, which is exactly the case to refuse.
+        if value is None:
+            raise ValueError("authors cannot be null; send a list, or omit the key")
+        return value
+
     @field_validator("authors")
     @classmethod
     def validate_distinct_authors(cls, value: list[str] | None) -> list[str] | None:
@@ -958,8 +993,6 @@ class ScoreMetadataPatch(BaseModel):
     def validate_one_known_key(self) -> ScoreMetadataPatch:
         if not self.model_fields_set:
             raise ValueError("send at least one of: authors, paper_url")
-        if "authors" in self.model_fields_set and self.authors is None:
-            raise ValueError("authors cannot be null; send a list, or omit the key")
         return self
 
 
