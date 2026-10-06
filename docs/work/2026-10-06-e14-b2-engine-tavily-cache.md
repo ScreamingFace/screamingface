@@ -1,7 +1,7 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: blocked   # planned | in_progress | done | blocked
 started: 2026-10-06
 finished:
 ---
@@ -37,7 +37,7 @@ engine. Replay of web search needs this, so B3 can count the lookup and fill out
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** the cache client, the web_tools wiring and their tests are committed. The connector wiring is written but not committed.
+- **Commits:** see `git log`
+- **Gates:** not run. The connector wiring breaks 13 existing tests whose mock gateways do not know the cache routes. Append-only rule: waiting for an owner decision.
+- **Deviations:** none yet
