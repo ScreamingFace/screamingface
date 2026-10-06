@@ -320,6 +320,9 @@ class TaskReplayImporter(Protocol):
         *,
         excluded_sample_ids: tuple[str, ...] | None,
         has_answer_key: bool,
+        shuffle_seed: int | None,
+        choice_shuffle_seed: int | None,
+        keep_sample_metadata: bool,
     ) -> TaskReplayImport:
         """Seal the Cases by two replays, as import_replay.import_by_task_replay does."""
         ...
