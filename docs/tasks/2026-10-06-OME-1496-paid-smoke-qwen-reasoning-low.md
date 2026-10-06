@@ -1,12 +1,12 @@
 ---
 id: OME-1496
 linear_url: https://linear.app/openmined/issue/OME-1496/paid-smoke-cap-the-qwen-members-reasoning-at-reasoning-effortlow
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [client-sf, agentic, autonomous]
 created: 2026-10-06
-closed:
+closed: 2026-10-06
 ---
 
 # Paid smoke: cap the qwen member's reasoning at reasoning_effort=low
