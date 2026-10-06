@@ -22,12 +22,14 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 from test_client_run import REPLAY_URL4, _engine, _ReplayTransport
 
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
 from screamingface._engine.contract import _RunState
 from screamingface._scoreboard.leaderboards import _submission
+from screamingface.errors import ExecutionError
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 RUN_EVENTS = (
@@ -91,6 +93,14 @@ def test_the_stream_is_the_run_the_engine_fixture_names() -> None:
     started = next(event for event in _events() if event["type"] == "ai.url4.started")
 
     assert started["data"]["url4"] == _URL4
+
+
+def test_mismatched_root_url4_raises_instead_of_leaving_the_stream_without_an_outcome() -> None:
+    state = _RunState("/openrouter/anthropic/claude-fable-5(ctx);retry=2!go")
+
+    with pytest.raises(ExecutionError, match="run root was never identified.*URL4 mismatch"):
+        for event in _events():
+            state.accept(json.dumps(event))
 
 
 def test_the_decoder_recovers_the_gateways_saving_from_the_stream() -> None:
