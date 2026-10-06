@@ -41,7 +41,7 @@ from .connection_oauth import (
 )
 from .defaults import apply_defaults
 from .pair_authority import PairAuthority, PairAuthorityConflict, PairAuthorityStore
-from .ports import ProviderAccess, ProviderCredentialAdmin
+from .ports import ProviderAccess, ProviderCredentialAdmin, ProviderOperationalAccess
 from .profile_admin import (
     ProfileBackedCredentialAdmin,
     provider_credential_admin_for,
@@ -58,6 +58,7 @@ from .profile_backed import (
     ProfileBackedProviderAccess,
     context_stamp,
     legacy_target_parts,
+    operational_access_for,
     provider_access_for,
     target_from_legacy,
 )
@@ -111,6 +112,7 @@ __all__ = [
     "ProviderAccess",
     "ProviderAccessRefusal",
     "ProviderCredentialAdmin",
+    "ProviderOperationalAccess",
     "ProviderUnknown",
     "RequestDefaults",
     "ResolvePolicy",
@@ -146,6 +148,7 @@ __all__ = [
     "legacy_target_parts",
     "mark_profile_error_fresh",
     "oauth_connection_store",
+    "operational_access_for",
     "patch_facade",
     "profileless_auth_mode",
     "provider_access_for",

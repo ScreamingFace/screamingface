@@ -118,6 +118,11 @@ class CredentialBlobProbe:
                 on conflict(service, account) do update set
                     value = excluded.value,
                     ciphertext_version = excluded.ciphertext_version,
+                    credential_revision = credential_blobs.credential_revision + 1,
+                    next_dispatch_sequence = 0,
+                    last_outcome_sequence = 0,
+                    last_operational_outcome = null,
+                    last_outcome_at = null,
                     updated_at = datetime('now')
                 """,
                 (str(uuid.uuid4()), service, account, value, ciphertext_version),

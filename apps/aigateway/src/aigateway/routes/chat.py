@@ -39,6 +39,7 @@ from litellm.exceptions import (
 )
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.credential_blob import DispatchObservation
 from ..core.parameter_projection import (
     IncompatibleParametersError,
     UnsupportedParametersError,
@@ -50,6 +51,7 @@ from ..core.provider_access import (
     ProviderAccess,
     Selector,
     apply_authorization,
+    operational_access_for,
     provider_access_for,
 )
 from ..core.registry import ProviderRegistry
@@ -76,8 +78,10 @@ from .chat_cache_stage import (
 from .chat_dispatch import (
     _dispatch_with_backpressure,
     _litellm_http_exception,
+    _record_dispatch_success,
     _safe_dispatch_failure_response,
     _stream,
+    _supports_operational_outcome_classification,
     _unknown_provider_exception,
     convert_provider_response,
 )
@@ -134,6 +138,7 @@ async def _dispatch_and_finalize_accounting(
     account_id: str,
     profile_name: str,
     target: CredentialTarget,
+    observation: DispatchObservation | None = None,
 ) -> Any:
     """Dispatch once through the provider and finalize any observed accounting evidence."""
     accounting_request_view = safe_request_view(body)
@@ -164,6 +169,7 @@ async def _dispatch_and_finalize_accounting(
             account_id=account_id,
             profile_name=profile_name,
             target=target,
+            observation=observation,
         ) from None
     except (
         RateLimitError,
@@ -191,6 +197,7 @@ async def _dispatch_and_finalize_accounting(
             account_id=account_id,
             profile_name=profile_name,
             target=target,
+            observation=observation,
             error_type=type(exc).__name__,
         ) from None
     except Exception as exc:
@@ -217,6 +224,7 @@ async def _dispatch_and_finalize_accounting(
             account_id=account_id,
             profile_name=profile_name,
             target=target,
+            observation=observation,
             error_type=error_type,
         ) from None
 
@@ -227,6 +235,16 @@ async def _dispatch_and_finalize_accounting(
             accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
         )
         raise
+
+    await _record_dispatch_success(
+        request,
+        plugin=plugin,
+        provider=provider,
+        account_id=account_id,
+        profile_name=profile_name,
+        target=target,
+        observation=observation,
+    )
 
     finalize_provider_evidence(
         accounting,
@@ -454,6 +472,15 @@ async def chat_completions(request: Request, response: Response, current: Curren
             },
         )
 
+    observation: DispatchObservation | None = None
+    if not streaming and _supports_operational_outcome_classification(plugin):
+        operational_access = operational_access_for(request.app)
+        if operational_access is not None:
+            with refusals_as_http():
+                observation = await operational_access.begin_dispatch(
+                    target, plugin=plugin, provider=provider
+                )
+
     await _authorize_and_seal(access, target, plugin=plugin, provider=provider, body=body)
 
     # NOTE: overload retry covers the non-streaming path only; streaming responses
@@ -483,6 +510,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
         account_id=account_id,
         profile_name=selector.name,
         target=target,
+        observation=observation,
     )
     result = request.app.state.taxonomy_plugin.sanitize_provider_response(result)
 
