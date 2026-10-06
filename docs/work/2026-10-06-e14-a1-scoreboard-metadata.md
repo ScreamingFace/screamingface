@@ -1,7 +1,7 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: scoreboard
-status: in_progress   # planned | in_progress | done | blocked
+status: blocked   # planned | in_progress | done | blocked — one open question, see Outcome
 started: 2026-10-06
 finished:
 ---
@@ -37,7 +37,17 @@ TDD table #1-#18 of the PRD, in order. #1 and #2 are CHAR (pass on today's code)
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus `.github/workflows/scoreboard-tests.yml` (one word added to
+  the `node --test` line; the existing `test_portal_ci_wiring.py` requires every portal test file
+  at both call sites). `routes/dependencies.py` also gained `verified_identity` and now owns the
+  two identity detail strings (re-exported from `routes/scores.py`).
+- **Commits:** see `git log --oneline e14-reproducible-submission-spec..HEAD`.
+- **Gates:** ruff check, ruff format --check, pyright and the append-only check pass. pytest:
+  `1 failed, 989 passed, 9 skipped`, coverage 90.23%. The one failure is the existing guard
+  `test_every_score_field_reaches_at_least_one_read_dto`: the pinned `related_name="metadata_events"`
+  adds a reverse relation to `Score._meta.fields_map` that the guard's `internal` set does not list.
+  Fixing it needs an edit to an existing test (forbidden) or a change to the pinned related_name.
+  Waiting for the orchestrator's decision. The node gate was not reached (the runner stops at the
+  first red gate); run by hand it passes (66 tests).
+- **Deviations:** the workflow file edit above; `uv run` for run_gates.py (PyYAML is not in the
+  system python); `ScoreStore.metadata_row_query` added so a test can render the lock SQL.
