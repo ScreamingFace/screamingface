@@ -1,4 +1,10 @@
+import functools
+from json import dumps, loads
+from uuid import uuid4
+
 from tortoise import fields, migrations
+from tortoise.fields.base import OnDelete
+from tortoise.indexes import Index
 from tortoise.migrations import operations as ops
 
 
@@ -30,5 +36,53 @@ class Migration(migrations.Migration):
             model_name="Score",
             name="metadata_updated_at",
             field=fields.DatetimeField(null=True, auto_now=False, auto_now_add=False),
+        ),
+        ops.CreateModel(
+            name="ScoreMetadataEvent",
+            fields=[
+                (
+                    "id",
+                    fields.UUIDField(primary_key=True, default=uuid4, unique=True, db_index=True),
+                ),
+                ("edited_by", fields.CharField(max_length=255)),
+                ("edited_at", fields.DatetimeField(auto_now=False, auto_now_add=True)),
+                ("source", fields.CharField(max_length=16)),
+                (
+                    "old_authors",
+                    fields.JSONField(
+                        null=True,
+                        encoder=functools.partial(dumps, separators=(",", ":")),
+                        decoder=loads,
+                    ),
+                ),
+                (
+                    "new_authors",
+                    fields.JSONField(
+                        null=True,
+                        encoder=functools.partial(dumps, separators=(",", ":")),
+                        decoder=loads,
+                    ),
+                ),
+                ("old_paper_url", fields.TextField(null=True, unique=False)),
+                ("new_paper_url", fields.TextField(null=True, unique=False)),
+                (
+                    "score",
+                    fields.ForeignKeyField(
+                        "models.Score",
+                        source_field="score_id",
+                        db_constraint=True,
+                        to_field="id",
+                        related_name="metadata_events",
+                        on_delete=OnDelete.CASCADE,
+                    ),
+                ),
+            ],
+            options={
+                "table": "score_metadata_events",
+                "app": "models",
+                "indexes": [Index(fields=["score_id", "edited_at"])],
+                "pk_attr": "id",
+            },
+            bases=["BaseScoreMetadataEvent"],
         ),
     ]
