@@ -45,8 +45,17 @@ append-only: no existing test is edited.
   would add a `Score` field that `test_every_score_field_reaches_at_least_one_read_dto` flags.
 - The label and the status fill together, gated on the STATUS: a row that already holds
   `partial` with no label is not given a label by a later replay. `answer_seed` fills alone.
-- `reproduction_count: int = 0` has no `exclude_if`, as pinned. It is filled only by
-  `GET /v1/scores/{id}`; PATCH, POST and the private export carry the default `0`.
+- `reproduction_count` is `exclude_if` zero and `last_reproduced_at` is excluded when null
+  (coordinator, 2026-10-06; it replaces the plan's plain `int = 0`). An absent count reads as 0
+  (K8). It is filled only by `GET /v1/scores/{id}`, so a row with no reproductions serializes
+  byte-identically in the private export and in PATCH and resubmit responses.
+- A repeated `(score_id, run_id)`: the SAME verified identity gets 200 with the existing row; a
+  DIFFERENT identity gets 409 `run_id_conflict` with nothing about the first row
+  (`ReproductionRunIdConflict` in the store).
+- The board is re-checked inside the insert transaction, under its lock, as `patch_metadata` does
+  (`BenchmarkVisibilityChanged` -> 409 retry). The insert lives in `_insert_reproduction` so the
+  re-check dominates it for `test_visibility_exit_guard`, which cannot see through the unique-clash
+  `try`.
 
 ## Outcome
 
@@ -61,7 +70,10 @@ append-only: no existing test is edited.
   e14-a1-scoreboard-metadata`): append-only check, ruff check, ruff format, pyright, pytest with
   coverage, and the `node --test` gate including `reproduced-count.test.js`. 9 PostgreSQL tests
   skip (none of them new).
-- **Deviations:** the three private helpers above; "Reproduced 1 time" for a count of one;
-  `uv run` for run_gates.py. Open for the coordinator: `reproduction_count: 0` appears in every
-  private JSONL export row (it changes the export bytes a purge digest certifies), and a PATCH or
-  resubmit response shows `0` even for a score that has reproductions.
+- **Coordinator round (2026-10-06):** the three answers above, each with new tests. One of my OWN
+  earlier tests (added in this PR, not on the base) changed:
+  `test_a_score_never_reproduced_reads_zero_and_no_last_time` is now
+  `..._reads_without_either_key`, because the answer reverses what it asserted. Added helper
+  `_insert_reproduction` in `store.py`.
+- **Deviations:** the private helpers above (accepted); "Reproduced 1 time" for a count of one;
+  `uv run` for run_gates.py. The open questions of the first report are answered and applied.

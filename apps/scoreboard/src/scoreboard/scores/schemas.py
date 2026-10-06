@@ -996,7 +996,12 @@ class ScoreSchema(BaseModel):
     answer_seed: int | None = Field(default=None, exclude_if=lambda value: value is None)
     # FEATURE: OME-1307 — recorded reproductions, DERIVED on read (never stored on `scores`). Only
     # `GET /v1/scores/{id}` fills them; every other path that builds this DTO leaves the default.
-    reproduction_count: int = 0
+    #
+    # INVARIANT: EXCLUDED WHEN ZERO or null, for the reason `paper_url` records. An absent count
+    # reads as 0 (K8), so a row with no reproductions serializes as it did before the field: the
+    # private JSONL export (whose bytes authorise a purge) and the PATCH and resubmit responses,
+    # which never compute the count, do not change.
+    reproduction_count: int = Field(default=0, exclude_if=lambda value: value == 0)
     last_reproduced_at: datetime | None = Field(
         default=None, exclude_if=lambda value: value is None
     )

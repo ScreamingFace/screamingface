@@ -751,6 +751,10 @@ def _mapping_is_ours(stored_key: str, linked: IdempotencyKey) -> bool:
     return linked.scheme == KEY_SCHEME
 
 
+class ReproductionRunIdConflict(Exception):
+    """A `run_id` that another identity already recorded for the same score."""
+
+
 class BenchmarkVisibilityChanged(Exception):
     """A benchmark's visibility changed while a submission to it was in flight.
 
@@ -1535,12 +1539,44 @@ class ScoreStore:
         rows = await ScoreMetadataEvent.filter(score_id=score_id).order_by("-edited_at", "-id")
         return [ScoreMetadataEventSchema.model_validate(row, from_attributes=True) for row in rows]
 
+    async def _insert_reproduction(
+        self,
+        score_id: UUID,
+        *,
+        reproduced_by: str,
+        submission: ReproductionSubmission,
+        benchmark_id: str,
+        expect_private: bool,
+    ) -> ScoreReproduction:
+        """The insert of `record_reproduction`, with the board re-checked first, under its lock.
+
+        WHY a method of its own: the re-check dominates the insert and every exit after it, which
+        `test_visibility_exit_guard` can see only when the transaction is not wrapped in the unique
+        clash handling of the caller. The board is locked BEFORE any score-side write, the order
+        `patch_metadata` takes.
+        """
+        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
+            await self._revalidate_visibility(
+                benchmark_id, expect_private, connection=connection, lock=True
+            )
+            row = await ScoreReproduction.create(
+                using_db=connection,
+                score_id=score_id,
+                reproduced_by=reproduced_by,
+                run_id=submission.run_id,
+                cache_revision=submission.cache_revision,
+                client_version=submission.client.version,
+            )
+        return row
+
     async def record_reproduction(
         self,
         score_id: UUID,
         *,
         reproduced_by: str,
         submission: ReproductionSubmission,
+        benchmark_id: str,
+        expect_private: bool,
     ) -> tuple[ReproductionSchema, bool] | None:
         """Store one reproduction; return it and whether it is NEW, or None if the score is gone.
 
@@ -1549,22 +1585,28 @@ class ScoreStore:
 
         INVARIANT: insert first, and on a unique `(score_id, run_id)` clash re-read the row that is
         there. A pre-check followed by an insert would lose a race to a second request carrying the
-        same run, and the loser would answer 5xx for a record that did succeed (R18, R22).
+        same run, and the loser would answer 5xx for a record that did succeed (R18, R22). The row
+        is returned only to the identity that recorded it; any other identity gets
+        `ReproductionRunIdConflict`, which carries nothing about the first row.
+
+        INVARIANT: the board is re-checked INSIDE the transaction, first and under its lock, the way
+        `patch_metadata` does. The route decided who may record from a read taken before this
+        transaction, and a flip to private in between would otherwise give a non-owner a row on a
+        private score. ``expect_private`` is what that decision assumed; a mismatch refuses with
+        `BenchmarkVisibilityChanged` and the caller retries on a consistent view.
 
         WHY None: the score was deleted between the route's read and this insert, and the foreign
         key refuses the row. That is the same 404 as a score that never existed, not a store that is
         unavailable (`IntegrityError` subclasses `OperationalError`, which the route maps to 503).
         """
         try:
-            async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
-                row = await ScoreReproduction.create(
-                    using_db=connection,
-                    score_id=score_id,
-                    reproduced_by=reproduced_by,
-                    run_id=submission.run_id,
-                    cache_revision=submission.cache_revision,
-                    client_version=submission.client.version,
-                )
+            row = await self._insert_reproduction(
+                score_id,
+                reproduced_by=reproduced_by,
+                submission=submission,
+                benchmark_id=benchmark_id,
+                expect_private=expect_private,
+            )
             created = True
         except IntegrityError:
             existing = await ScoreReproduction.get_or_none(
@@ -1574,6 +1616,8 @@ class ScoreStore:
                 if not await Score.exists(id=score_id):
                     return None
                 raise
+            if existing.reproduced_by != reproduced_by:
+                raise ReproductionRunIdConflict(submission.run_id) from None
             row, created = existing, False
         # The score id and the outcome only: the identity is an email.
         logger.info(
