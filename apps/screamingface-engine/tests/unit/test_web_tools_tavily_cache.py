@@ -344,3 +344,16 @@ async def test_a_failing_gateway_cache_still_completes_the_run_through_tavily() 
     assert len(tavily.requests) == 1
     assert gateway.on(_FILL) == []
     assert _tool_message(gateway) == _ROW_TEXT
+
+
+async def test_the_fill_helper_returns_the_gateway_outcome_only_after_a_miss() -> None:
+    from screamingface_engine.world.web_tools import _cache_fill
+
+    description = {"provider": "tavily", "tool": "web_fetch", "url": "u", "excluded_domains": []}
+    async with _Tavily().client() as client:
+        runtime = WebToolRuntime(client, AigatewayConfig(), _KEY, (), _FakeCache())  # type: ignore[arg-type]
+        miss = TavilyLookup("miss", None, {})
+        bypass = TavilyLookup("bypass", None, {})
+
+        assert await _cache_fill(runtime, miss, description, "r") == "stored"
+        assert await _cache_fill(runtime, bypass, description, "r") is None

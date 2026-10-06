@@ -327,14 +327,16 @@ async def _cache_fill(
     lookup: TavilyLookup,
     description: Mapping[str, object],
     result: str,
-) -> None:
-    """Store a result just paid for.
+) -> str | None:
+    """Store a result just paid for. Returns the gateway outcome, or `None` when no fill was made
+    or it failed.
 
     INVARIANT: only a `miss` is followed by a fill. A `bypass` means the gateway store failed to
     read (or the lookup itself failed), and a write would go to the store that just failed.
     """
     if runtime.cache is not None and lookup.status == "miss":
-        await runtime.cache.fill(description, result)
+        return await runtime.cache.fill(description, result)
+    return None
 
 
 def _search_result_allowed(result: Mapping[str, object], exclusions: Sequence[str]) -> bool:
