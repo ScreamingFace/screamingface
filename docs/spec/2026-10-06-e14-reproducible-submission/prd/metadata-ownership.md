@@ -2,7 +2,7 @@
 
 **Source:** prompt / ans:Q5, ans:Q7, ans:Q10 · **Priority:** P0 (Stack A, low risk, ships first)
 **Lifecycle:** existing (characterize + delta)
-**Owner:** unassigned · **Landing:** `apps/scoreboard`, `packages/screamingface` · **PRs:** A1, A2, A3
+**Owner:** unassigned · **Landing:** `apps/scoreboard`, `packages/screamingface` · **PRs:** A1, A2
 
 ## 1. Summary and user story
 
@@ -55,14 +55,13 @@ the author list later, so that the score can be cited with the correct paper and
 
 - **A1 (scoreboard):** add `paper_url` to `Score`, to `ScoreSubmission` and to `ScoreSchema`. Add
   `paper_url` to `_REPLAY_FIELDS` with "replace when given" semantics, like `authors`. Show the link
-  in the portal.
-- **A2 (scoreboard):**
+  in the portal. In the same PR:
   - Extract a `VerifiedIdentity` dependency from `_resolve_submitter`. It runs the peer check and
     reads the header in `cloudflare_headers` mode. In `disabled` mode it trusts `X-User-Email`.
   - Add `PATCH /v1/scores/{id}`, the `score_metadata_events` table, an event on each change (from
     PATCH and from resubmit), `metadata_updated_at`, and `GET /v1/scores/{id}/metadata-events`
     (owner only).
-- **A3 (SDK):** add `submit(..., paper_url=)`, `leaderboards.edit(...)`,
+- **A2 (SDK):** add `submit(..., paper_url=)`, `leaderboards.edit(...)`,
   `leaderboards.metadata_events(...)`, and the new fields on `LeaderboardScore`.
 
 ## 3. Scenarios and acceptance criteria
@@ -168,7 +167,7 @@ SDK. Risk order inside each PR.
 | 4 | `post_rejects_non_http_paper_url` (table: `javascript:`, `ftp:`, 2049 chars, control char) | unit | M10 | H×M | validator in `schemas.py` |
 | 5 | `resubmit_without_paper_url_keeps_it` | integration | M16 | H×M | `paper_url` in `_REPLAY_FIELDS`, `None` = not given |
 | 6 | portal: `paper link renders only for http(s)` | unit (JS) | M21 | H×L | `link(…, httpUrlOrNull(paper_url), …)` |
-| 7 | `patch_by_non_owner_is_403_and_writes_nothing` | integration | M6 | H×M | `VerifiedIdentity` + owner check (A2) |
+| 7 | `patch_by_non_owner_is_403_and_writes_nothing` | integration | M6 | H×M | `VerifiedIdentity` + owner check (A1) |
 | 8 | `patch_without_identity_is_401_untrusted_peer_403` | integration | M7 | H×M | shared dependency |
 | 9 | `patch_private_score_by_non_owner_is_404` | integration | M8 | H×M | reuse the private rule |
 | 10 | `patch_paper_url_updates_row_sets_metadata_updated_at_and_logs_one_event` | integration | M2 | H×M | one transaction, `FOR UPDATE` |
@@ -180,7 +179,7 @@ SDK. Risk order inside each PR.
 | 16 | `resubmit_change_logs_event_with_source_resubmit` | integration | M15 | M×M | event write in `_apply_replay_updates` |
 | 17 | `patch_does_not_touch_enriched_at_or_ranking` | integration | M19 | H×L | display-only fields |
 | 18 | `events_read_owner_only_newest_first` | integration | M4, M9 | H×M | new route |
-| 19 | SDK `submit_sends_paper_url_only_when_given` | unit | M1 | M×M | `_submission` (A3) |
+| 19 | SDK `submit_sends_paper_url_only_when_given` | unit | M1 | M×M | `_submission` (A2) |
 | 20 | SDK `edit_sends_patch_and_decodes_score` (MockTransport) | unit | M5 | M×M | new method, sync and async |
 | 21 | SDK `edit_maps_403_404_422_to_typed_errors` | unit | M6, M8, M10 | M×M | reuse `_response_json` error mapping |
 | 22 | SDK `metadata_events_decodes_list` | unit | M4 | L×M | new method |

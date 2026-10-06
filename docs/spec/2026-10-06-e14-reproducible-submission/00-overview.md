@@ -25,10 +25,10 @@ publishing, clustering and system naming. The first build was 24 PRs (#1158–#1
 
 | Subsystem | What E14 changes | PRs | Linear leaf |
 |---|---|---|---|
-| `apps/scoreboard` | `paper_url`, PATCH + edit log, cache-version columns, reproductions | A1, A2, B5 | OME-1433 |
-| `apps/aigateway` | cache revision label, registry, `only-if-cached` / `cache-revision`, revisions read | B1, B2 | OME-1434 |
-| `apps/screamingface-engine` | Tavily cache wiring (OME-1045), capture of revision + status, replay mode | B3, B4 | OME-1045 (B3), OME-1435 (B4) |
-| `packages/screamingface` | `paper_url`, `edit`, `metadata_events`, cache-version fields, `reproduce` | A3, B6 | OME-1436 |
+| `apps/scoreboard` | `paper_url`, PATCH + edit log, cache-version columns, reproductions | A1, B4 | OME-1433 |
+| `apps/aigateway` | cache revision label, registry, `only-if-cached` / `cache-revision`, revisions read | B1 | OME-1434 |
+| `apps/screamingface-engine` | Tavily cache wiring (OME-1045), capture of revision + status, replay mode | B2, B3 | OME-1045 (B2), OME-1435 (B3) |
+| `packages/screamingface` | `paper_url`, `edit`, `metadata_events`, cache-version fields, `reproduce` | A2, B5 | OME-1436 |
 | `public-docs`, `CONTEXT.md` | the user guide and the glossary | C1 | filed at PR-open |
 | `packages/url4` | nothing (the first build's fingerprint is not needed) | — | OME-1437 → cancel |
 
@@ -52,7 +52,7 @@ consequence), or `[proposed]` (an engineering choice that needs sign-off with th
 
 Related existing specs: `docs/spec/2026-08-05-url4-cache-policy-spec.md` (E14 replaces its §8.3
 `only-if-cached` rejection, for replay only), `docs/spec/2026-08-31-OME-1043-tavily-retrieval-cache.md`
-(the Tavily cache that B3 wires).
+(the Tavily cache that B2 wires).
 
 ## 5. Interview ledger
 
@@ -71,41 +71,34 @@ Related existing specs: `docs/spec/2026-08-05-url4-cache-policy-spec.md` (E14 re
 
 ## 6. PR plan — what each PR contributes and how
 
-Two stacks that run in parallel. Each PR touches one component. The test numbers are in the PRDs.
+Eight PRs in two stacks that run in parallel. Each PR touches one component. The test numbers are in the PRDs.
 
 ```
-Stack A:  A1 ──► A2 ──► A3
-Stack B:  B1 ──► B2 ──┐
-          B3 ─────────┴─► B4 ──► B5* ──► B6
-          (* B5 stacks on A2: the scoreboard migrations are numbered in order)
-Last:     C1 (after A3 and B6)
+Stack A:  A1 ──► A2
+Stack B:  B1 ──┐
+          B2 ──┴─► B3 ──► B4* ──► B5
+          (* B4 stacks on A1: the scoreboard migrations are numbered in order)
+Last:     C1 (after A2 and B5)
 ```
 
 ### Stack A — metadata you own
 
-**A1 · scoreboard · paper link** (OME-1433)
-- *Contributes:* the "link to a paper" field at submit time, which the epic asks for.
+**A1 · scoreboard · paper link, edit + edit log** (OME-1433)
+- *Contributes:* the "link to a paper" field at submit time, and "edit those fields later", for the
+  verified submitter only, with an edit log that only the owner can read.
 - *How:*
-  - Migration `0019` adds `paper_url` and `metadata_updated_at`.
+  - Migration `0019` adds `paper_url`, `metadata_updated_at` and `score_metadata_events`.
   - `ScoreSubmission` and `ScoreSchema` gain `paper_url` (`http` or `https`, at most 2048
-    characters).
-  - `paper_url` joins `_REPLAY_FIELDS` with "replace when given" semantics, so the existing
-    same-owner resubmit can also correct it.
-  - The portal shows the link through `httpUrlOrNull`.
-- *Tests:* md #1, #3–#6.
-
-**A2 · scoreboard · edit + edit log** (OME-1433)
-- *Contributes:* "edit those fields later", for the verified submitter only, with an edit log that
-  only the owner can read.
-- *How:*
+    characters). `paper_url` joins `_REPLAY_FIELDS` with "replace when given" semantics, so the
+    existing same-owner resubmit can also correct it.
   - Extract `VerifiedIdentity` from `_resolve_submitter`, as the AIDEV-NOTE asks.
-  - Migration `0020` adds `score_metadata_events`.
-  - `PATCH /v1/scores/{id}` locks the row, updates it and writes one event, in one transaction.
-  - The resubmit path also writes events.
+  - `PATCH /v1/scores/{id}` locks the row, updates it and writes one event, in one transaction. The
+    resubmit path also writes events.
   - `GET /v1/scores/{id}/metadata-events` is owner-only.
-- *Tests:* md #2, #7–#18.
+  - The portal shows the link through `httpUrlOrNull`.
+- *Tests:* md #1–#18.
 
-**A3 · SDK · metadata** (OME-1436)
+**A2 · SDK · metadata** (OME-1436)
 - *Contributes:* the user surface for Stack A.
 - *How:* `submit(..., paper_url=)`, `leaderboards.edit(score_id, authors=, paper_url=)`,
   `leaderboards.metadata_events(score_id)` (sync and async), and the new fields on
@@ -114,35 +107,30 @@ Last:     C1 (after A3 and B6)
 
 ### Stack B — a cache version for each submission
 
-**B1 · gateway · cache revision label + registry** (OME-1434)
-- *Contributes:* a name for "which key function produced this row", and the guarantee that every
-  old name stays computable.
+**B1 · gateway · cache revision label, registry + replay controls** (OME-1434)
+- *Contributes:* a name for "which key function produced this row", the guarantee that every old
+  name stays computable, and a replay that can never pay a provider.
 - *How:*
   - All four providers register their adapter revisions.
   - The label is `cr-` + 12 hex over all the revision constants, computed at startup.
-  - `revision_registry.py` holds the entries, and each entry has golden vectors.
+  - `revision_registry.py` holds the entries, and each entry has golden vectors. CI fails when the
+    current label is not registered.
   - `cache_key_for(label, …)` keys with any entry.
   - The header `X-AIGW-Cache-Revision` is on chat and Tavily lookup responses.
-  - CI fails when the current label is not registered.
-- *Tests:* gw #1–#8, #17.
+  - `only-if-cached` and `cache-revision` in the `cache` object. They fail closed: a miss or bypass
+    returns `504`, and a bad control returns `400`. An old label is read-only.
+  - The Tavily lookup takes `cache_revision`. New route: `GET /v1/cache/revisions`.
+  - Commit order inside the PR: the label and registry first (pure, no behaviour change), then the
+    controls. A reviewer can read them one at a time.
+- *Tests:* gw #1–#21.
 
-**B2 · gateway · replay controls** (OME-1434)
-- *Contributes:* a replay that can never pay a provider, and that can name an old revision.
-- *How:*
-  - `only-if-cached` and `cache-revision` in the `cache` object. They fail closed: a miss or
-    bypass returns `504`, and a bad control returns `400`.
-  - An old label is read-only.
-  - The Tavily lookup takes `cache_revision`.
-  - `GET /v1/cache/revisions`.
-- *Tests:* gw #9–#16, #18–#21.
-
-**B3 · engine · Tavily through the gateway cache** (OME-1045, a prerequisite; see §7 item 1)
+**B2 · engine · Tavily through the gateway cache** (OME-1045, a prerequisite; see §7 item 1)
 - *Contributes:* web-search runs become cacheable, and therefore replayable.
 - *How:* build OME-1045 as it is specified. Lookup before each Tavily call, fill after a success,
   and reuse the gateway HTTP client. The Tavily credential stays in the engine.
 - *Tests:* the OME-1045 list.
 
-**B4 · engine · capture + replay mode** (OME-1435)
+**B3 · engine · capture + replay mode** (OME-1435)
 - *Contributes:* each run knows its cache revision and whether it can be replayed. A replay run
   sends the controls on every call.
 - *How:*
@@ -155,18 +143,18 @@ Last:     C1 (after A3 and B6)
   - A replay miss fails the case with `replay_cache_miss`.
 - *Tests:* cv #1, #2, #4–#13; rp #2–#6, #23.
 
-**B5 · scoreboard · cache version + reproductions** (OME-1433)
+**B4 · scoreboard · cache version + reproductions** (OME-1433)
 - *Contributes:* "a submission records the cache version that belongs to it", and the record of
   exact reproductions.
 - *How:*
-  - Migration `0021` adds `cache_revision`, `reproducible` and `answer_seed` (fill-only on
+  - Migration `0020` adds `cache_revision`, `reproducible` and `answer_seed` (fill-only on
     resubmit), and the `score_reproductions` table.
   - `POST /v1/scores/{id}/reproductions` (verified identity, no cap, exact numbers only).
   - `reproduction_count` and `last_reproduced_at` on `ScoreSchema`.
   - The portal count.
 - *Tests:* cv #16–#18; rp #7–#14.
 
-**B6 · SDK · capture + reproduce** (OME-1436)
+**B5 · SDK · capture + reproduce** (OME-1436)
 - *Contributes:* the user-facing replay.
 - *How:*
   - `CandidateResult` gains `cache_revision` and `reproducible`.
@@ -185,16 +173,16 @@ Last:     C1 (after A3 and B6)
   - `CONTEXT.md` gains the terms Cache Revision, Reproducible, and Reproduction.
 - *Tests:* docs build.
 
-**Size:** Stack A is about 3 days. Stack B is about 7 days, including B3. In total, about 10 working
-days, which matches the owner's L estimate on the epic. The edit log, the reproductions and B3 were
+**Size:** Stack A is about 3 days. Stack B is about 7 days, including B2. In total, about 10 working
+days, which matches the owner's L estimate on the epic. The edit log, the reproductions and B2 were
 added after the first M estimate.
 
 ## 7. Deferred questions (each with a recommended default)
 
-1. **B3 (OME-1045) in E14.** The owner expected the Tavily cache to be complete (`ans:Q4`). Only the
+1. **B2 (OME-1045) in E14.** The owner expected the Tavily cache to be complete (`ans:Q4`). Only the
    gateway half is merged (PR #782). The engine half, OME-1045, is in Backlog and unassigned, and no
-   code calls the lookup route (checked on `4d81004e1`). **Default:** build OME-1045 as B3, under
-   its own ticket, as a blocker of B4. Without it, every run that uses the engine's web search is
+   code calls the lookup route (checked on `4d81004e1`). **Default:** build OME-1045 as B2, under
+   its own ticket, as a blocker of B3. Without it, every run that uses the engine's web search is
    `partial`.
 
 ## 8. Global assumptions

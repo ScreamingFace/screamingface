@@ -33,13 +33,13 @@ Test numbers point at the TDD tables in the PRDs (`gw` = `prd/gateway-cache-revi
 - Failure behaviour:
   - The engine maps `cache_miss`, `cache_bypass` and `unknown_cache_revision` to the case failure
     `replay_cache_miss` (or the code itself for the `400`s), and the case fails (rp R8, R11).
-  - An older gateway (before B2) turns an unknown `cache` field into a **bypass**
+  - An older gateway (before B1) turns an unknown `cache` field into a **bypass**
     (`global_controls.py:72`), and a bypass calls the provider. A replay must never reach such a
     gateway. So at replay start the engine calls K10 once. If K10 is missing, or the label is not
     listed, the engine fails the run before the first chat call (rp R11, R17). `[proposed]`
 - Contract tests: gw #9–#17, #20; rp #2, #3, #5, #6.
 
-## K2 — Engine → AI Gateway, sync, Tavily `POST /v1/retrieval/tavily/cache/lookup` and `/entries` (B3 new caller, B2 changed)
+## K2 — Engine → AI Gateway, sync, Tavily `POST /v1/retrieval/tavily/cache/lookup` and `/entries` (B2 new caller, B1 changed)
 
 - Shape: as OME-1044 defines (`apps/aigateway/src/aigateway/routes/tavily_retrieval_cache.py:189`,
   `:215`). The lookup body gains the optional `cache_revision: "cr-…"`. The response gains the
@@ -61,13 +61,13 @@ Test numbers point at the TDD tables in the PRDs (`gw` = `prd/gateway-cache-revi
 - Failure behaviour: an older engine ignores the header, so the replay would run as a normal run
   and could pay providers. To stop this, the engine acknowledges replay mode in the run-start
   response (the header `X-Cache-Replay` echoed back). The SDK cancels the run when the ack is
-  missing. B4 checks that no case starts before the start response is sent. `[proposed]`
+  missing. B3 checks that no case starts before the start response is sent. `[proposed]`
 - Contract tests: rp #2, #16; cv #14.
 
 ## K4 — SDK → Scoreboard, sync, `POST /v1/scores` (changed)
 
-- Shape: new optional fields `paper_url` (A3), `cache_revision`, `reproducible` and `answer_seed`
-  (B6). Each is omitted when NULL. `[stated prompt]` `[stated ans:Q3]`
+- Shape: new optional fields `paper_url` (A2), `cache_revision`, `reproducible` and `answer_seed`
+  (B5). Each is omitted when NULL. `[stated prompt]` `[stated ans:Q3]`
 - Policies: idempotent by `Idempotency-Key = run_id` (unchanged). On a same-owner resubmit,
   `paper_url` replaces when given, and the cache-version fields only fill (`erd.md` I2).
 - Failure behaviour: `422` for a bad URL, label or status pairing (md M10, cv C10). An old board
@@ -130,13 +130,13 @@ Test numbers point at the TDD tables in the PRDs (`gw` = `prd/gateway-cache-revi
   absent as NULL (or 0).
 - Contract tests: md #3, #20; cv #16; rp #13.
 
-## K10 — Engine → AI Gateway, sync, `GET /v1/cache/revisions` (new, B2)
+## K10 — Engine → AI Gateway, sync, `GET /v1/cache/revisions` (new, B1)
 
 - Response: `200` `{"current": "cr-…", "known": ["cr-…", …]}`, the registry labels, oldest first.
   `[proposed]`
 - Policies: the same account auth as the other gateway routes. The result is static for one
   deployment, so the engine calls it once for each replay run.
-- Failure behaviour: `404` (a gateway before B2), or a label that is not in `known`, makes the
+- Failure behaviour: `404` (a gateway before B1), or a label that is not in `known`, makes the
   engine fail the replay run with `unknown_cache_revision` before any chat call.
 - Contract tests: gw #21; rp #6.
 

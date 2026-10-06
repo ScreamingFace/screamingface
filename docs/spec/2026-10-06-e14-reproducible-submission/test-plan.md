@@ -36,15 +36,13 @@ Scales: Impact H/M/L × Likelihood H/M/L (qa-tester rubric).
 
 | PR | Unit | Integration | E2E |
 |---|---|---|---|
-| A1 scoreboard paper link | md #4, #6 | md #1, #3, #5 | — |
-| A2 scoreboard edit + log | md #13, #14 | md #2, #7–#12, #15–#18 | — |
-| A3 SDK metadata | md #19–#22 | — | — |
-| B1 gateway label + registry | gw #1–#8 | — | — |
-| B2 gateway controls | gw #12–#15 | gw #9–#11, #16–#21 | — |
-| B3 engine Tavily (OME-1045) | the OME-1045 list | the OME-1045 list | — |
-| B4 engine capture + replay | cv #1, #2, #4–#13; rp #2–#6, #23 | — | — |
-| B5 scoreboard cache version + reproductions | cv #17; rp #14 | cv #16, #18; rp #7–#13 | — |
-| B6 SDK capture + reproduce | cv #14, #15; rp #15–#21 | — | rp #22 |
+| A1 scoreboard paper link, edit + log | md #4, #6, #13, #14 | md #1–#3, #5, #7–#12, #15–#18 | — |
+| A2 SDK metadata | md #19–#22 | — | — |
+| B1 gateway label, registry + replay controls | gw #1–#8, #12–#15 | gw #9–#11, #16–#21 | — |
+| B2 engine Tavily (OME-1045) | the OME-1045 list | the OME-1045 list | — |
+| B3 engine capture + replay | cv #1, #2, #4–#13; rp #2–#6, #23 | — | — |
+| B4 scoreboard cache version + reproductions | cv #17; rp #14 | cv #16, #18; rp #7–#13 | — |
+| B5 SDK capture + reproduce | cv #14, #15; rp #15–#21 | — | rp #22 |
 | C1 public docs | — | — | — |
 
 There is one E2E test for the whole epic: rp #22, submit then reproduce on the local stack. The
@@ -63,6 +61,6 @@ local stack runs an embedded gateway
 ## 5. What this plan does not cover
 
 - Load tests. The new hot-path work is O(1) for each call (gateway PRD §4).
-- Hosted deploy order. B2 must be deployed before B4 is used for replay. Until then, K10 and the
+- Hosted deploy order. B1 must be deployed before B3 is used for replay. Until then, K10 and the
   ack stop a replay safely, so a wrong order is a refusal, not a cost.
 - Manual portal checks beyond the JS unit tests.

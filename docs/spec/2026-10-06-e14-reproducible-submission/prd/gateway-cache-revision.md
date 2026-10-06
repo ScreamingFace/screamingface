@@ -2,7 +2,7 @@
 
 **Source:** prompt / ans:Q1, ans:Q2, ans:Q3 · **Priority:** P0 (Stack B base; highest risk)
 **Lifecycle:** existing (characterize + delta)
-**Owner:** unassigned · **Landing:** `apps/aigateway` · **PRs:** B1, B2
+**Owner:** unassigned · **Landing:** `apps/aigateway` · **PRs:** B1
 
 ## 1. Summary and the flows it serves
 
@@ -80,15 +80,15 @@ No single flow owns the label rules or the registry, so they live here.
    `provider_adapter_revision`, `parameter_contract` and `key_revision` with the entry's constants
    and hashes. For the current label the result is byte-equal to `build_global_cache_key`.
    `[proposed]`
-5. **Controls (B2).** The `cache` object accepts two new fields:
+5. **Controls (B1).** The `cache` object accepts two new fields:
    - `only-if-cached: true` — serve a hit or return an error. Never call the provider. Never bypass.
    - `cache-revision: "<label>"` — compute the key with that label's key function.
    `[stated ans:Q2]` `[stated ans:Q1]`
-6. **Read-only old revisions (B2).** A label that is not the current one is allowed only with
+6. **Read-only old revisions (B1).** A label that is not the current one is allowed only with
    `only-if-cached: true`. So a request with an old label never writes. `[proposed]`
-7. **Tavily lookup (B2).** The lookup body accepts an optional `cache_revision`. The key then uses
+7. **Tavily lookup (B1).** The lookup body accepts an optional `cache_revision`. The key then uses
    that entry's `tavily_retrieval` constant. A fill always uses the current constant. `[proposed]`
-8. **Revisions read (B2).** `GET /v1/cache/revisions` returns `{current, known}`. A replay engine
+8. **Revisions read (B1).** `GET /v1/cache/revisions` returns `{current, known}`. A replay engine
    calls it once before the first chat call, so it never sends replay controls to a gateway that
    would bypass them (`contracts.md` K10). `[proposed]`
 
@@ -152,7 +152,7 @@ No single flow owns the label rules or the registry, so they live here.
   Given pods on L1 and L2, when a run's calls go to both, then the responses carry different labels.
   The engine marks the run `partial` (`prd/cache-version-capture.md` C7). The gateway does nothing
   special.
-- **G21. Revisions read** `[proposed]` — H×M. Given any gateway with B2, when a caller reads
+- **G21. Revisions read** `[proposed]` — H×M. Given any gateway with B1, when a caller reads
   `GET /v1/cache/revisions`, then `current` equals the computed label and `known` lists every
   registry label, oldest first.
 - **G19. Concurrency.** N/A for the registry: it is read-only at runtime. The controls do not

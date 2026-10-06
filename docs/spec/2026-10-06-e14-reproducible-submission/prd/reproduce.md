@@ -4,7 +4,7 @@
 **Lifecycle:** planned (new flow on existing seams)
 **Owner:** unassigned
 **Landing:** `apps/screamingface-engine`, `apps/scoreboard`, `packages/screamingface`
-**PRs:** B4 (replay half), B5 (reproductions), B6 (`sf.reproduce`)
+**PRs:** B3 (replay half), B4 (reproductions), B5 (`sf.reproduce`)
 
 Uses: `prd/gateway-cache-revision.md` (the controls), `prd/cache-version-capture.md` (the stored
 cache version).
@@ -48,19 +48,19 @@ version, at no provider cost, and record that it reproduced, so that I can trust
 
 ### 2.2 Delta
 
-- **B4 (engine, replay half):**
+- **B3 (engine, replay half):**
   - A new inbound header `X-Cache-Replay: <label>` sets `RequestScope.replay_revision`.
   - In replay mode, each chat body gets `cache: {"only-if-cached": true, "cache-revision": <label>}`
     in place of the policy field, and the connector never re-issues.
   - Each Tavily lookup sends `cache_revision`. A lookup miss or bypass never calls Tavily.
   - A gateway `504` with `cache_miss` or `cache_bypass`, or a Tavily replay miss, fails the case
     with the failure code `replay_cache_miss`.
-- **B5 (scoreboard):**
+- **B4 (scoreboard):**
   - The `score_reproductions` table (`erd.md` §3).
   - `POST /v1/scores/{id}/reproductions`.
   - `reproduction_count` and `last_reproduced_at` on `ScoreSchema`, and a count on the portal spec
     page.
-- **B6 (SDK):** `Client.reproduce(score, *, record=True) -> Reproduction`, the same on
+- **B5 (SDK):** `Client.reproduce(score, *, record=True) -> Reproduction`, the same on
   `AsyncClient`, and the module-level `sf.reproduce`.
 
 ## 3. Scenarios and acceptance criteria
@@ -173,12 +173,12 @@ endpoint are pinned by their own integration tests first, because R17 is the top
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
 | 1 | CHAR two runs of one complete url4 load the same case ids | integration | R20 | M×L | passes today, by design |
-| 2 | engine `replay_header_sets_only_if_cached_and_revision_on_every_chat_body` | unit | R1, R17 | H×M | `request_scope_from_headers` + connector (B4) |
+| 2 | engine `replay_header_sets_only_if_cached_and_revision_on_every_chat_body` | unit | R1, R17 | H×M | `request_scope_from_headers` + connector (B3) |
 | 3 | engine `replay_mode_never_reissues_on_max_age` | unit | R17 | H×M | skip `requires_revalidation` in replay mode |
 | 4 | engine `replay_tavily_miss_or_bypass_never_calls_tavily_and_fails_case` | unit | R17, R8 | H×M | raise `replay_cache_miss` before the Tavily POST |
 | 5 | engine `gateway_504_cache_miss_fails_case_with_replay_cache_miss` | unit | R8 | H×M | map in `_raise_for_status` |
 | 6 | engine `replay_checks_revisions_read_and_fails_run_before_first_call` (404, or label not known) | unit | R11, R17 | H×M | call K10 once at replay start |
-| 7 | board `record_without_identity_401_untrusted_403` | integration | R12 | H×M | `VerifiedIdentity` (B5) |
+| 7 | board `record_without_identity_401_untrusted_403` | integration | R12 | H×M | `VerifiedIdentity` (B4) |
 | 8 | board `record_on_partial_or_null_score_is_409` | integration | R13 | H×M | |
 | 9 | board `record_with_mismatched_numbers_or_revision_is_422` | integration | R14 | H×M | |
 | 10 | board `record_private_score_by_non_owner_is_404` | integration | R15 | H×M | |
@@ -186,7 +186,7 @@ endpoint are pinned by their own integration tests first, because R17 is the top
 | 12 | board `same_identity_new_run_adds_row_no_cap` | integration | R6 | M×M | no per-identity limit |
 | 13 | board `score_read_shows_count_and_last_time` | integration | R4 | M×M | aggregate on read |
 | 14 | portal `spec page shows reproduced count` | unit (JS) | R4 | L×M | |
-| 15 | SDK `partial_or_null_score_is_not_reproducible_without_running` | unit | R7 | H×M | check before any transport call (B6) |
+| 15 | SDK `partial_or_null_score_is_not_reproducible_without_running` | unit | R7 | H×M | check before any transport call (B5) |
 | 16 | SDK `reproduce_sends_url4_seed_and_replay_header_and_no_benchmark_or_limit` | unit | R1 | H×M | transport header like `_answer_seed_header` |
 | 17 | SDK `outcome_table` (exact / cache_miss / benchmark_revision_changed / score_differs / unknown_cache_revision / replay_unsupported) | unit | R2, R8–R11 | H×M | one pure function over the result |
 | 18 | SDK `exact_replay_records_once_and_sets_recorded` | unit | R3 | M×M | POST via MockTransport |

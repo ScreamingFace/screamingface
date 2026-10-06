@@ -161,9 +161,8 @@ backfill. `[proposed]`
 
 | Migration | Change | PR |
 |---|---|---|
-| `0019_score_paper_url` | `paper_url`, `metadata_updated_at` | A1 |
-| `0020_score_metadata_events` | the new table | A2 |
-| `0021_score_cache_version` | `cache_revision`, `reproducible`, `answer_seed`, and the `score_reproductions` table | B5 |
+| `0019_score_metadata` | `paper_url`, `metadata_updated_at`, and the `score_metadata_events` table | A1 |
+| `0020_score_cache_version` | `cache_revision`, `reproducible`, `answer_seed`, and the `score_reproductions` table | B4 |
 
 The example to copy is `0017_score_cache_saved_cost_archive.py` (a nullable column, no backfill)
 `[existing apps/scoreboard/src/scoreboard/scores/migrations/0017_score_cache_saved_cost_archive.py]`.

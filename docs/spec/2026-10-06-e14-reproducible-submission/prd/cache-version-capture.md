@@ -4,7 +4,7 @@
 **Lifecycle:** existing (characterize + delta)
 **Owner:** unassigned
 **Landing:** `apps/screamingface-engine`, `apps/scoreboard`, `packages/screamingface`
-**PRs:** B3 (OME-1045, a prerequisite), B4 (capture half), B5 (columns), B6 (submit half)
+**PRs:** B2 (OME-1045, a prerequisite), B3 (capture half), B4 (columns), B5 (submit half)
 
 Uses: `prd/gateway-cache-revision.md` (the label and the header).
 
@@ -24,7 +24,7 @@ later. `[stated prompt]`
 - Web search must be replayable. "There`s a tavily caching mechanism already developed in the
   aigatewya … so this shouldn`t be a problem." `[stated ans:Q4]` The check showed that only the
   gateway half (OME-1044) is merged. The engine half (OME-1045) is in Backlog, so this PRD adds it
-  as prerequisite PR B3. `[proposed]` (see `00-overview.md` §7, item 1)
+  as prerequisite PR B2. `[proposed]` (see `00-overview.md` §7, item 1)
 
 ### 2.1 Current behavior
 
@@ -56,16 +56,16 @@ later. `[stated prompt]`
 
 ### 2.2 Delta
 
-- **B3 (engine, OME-1045):** build OME-1045 as specified. Lookup before each Tavily call, fill
+- **B2 (engine, OME-1045):** build OME-1045 as specified. Lookup before each Tavily call, fill
   after a success, and keep the Tavily credential in the engine.
-- **B4 (engine):**
+- **B3 (engine):**
   - `CacheOutcome` gains `write` (`stored` | `race_lost` | `not_stored` | `None`) and `revision`
     (`str | None`). The Tavily lookup and fill outcomes feed the same counters.
   - `RunCacheCounters` adds two attributes, `cache.revision` and `cache.reproducible`, with the
     rule in §3.1 C2.
-- **B5 (scoreboard):** `cache_revision`, `reproducible` and `answer_seed` on `Score` (`erd.md`
+- **B4 (scoreboard):** `cache_revision`, `reproducible` and `answer_seed` on `Score` (`erd.md`
   §1), accepted on POST, fill-only on resubmit, and returned on GET.
-- **B6 (SDK):** `CandidateResult` gains `cache_revision` and `reproducible` from the run summary.
+- **B5 (SDK):** `CandidateResult` gains `cache_revision` and `reproducible` from the run summary.
   `_submission` sends `cache_revision`, `reproducible` and `answer_seed`.
 
 ## 3. Scenarios and acceptance criteria
@@ -82,7 +82,7 @@ later. `[stated prompt]`
      `stored`.
   3. All calls carry the same revision label.
   4. No model or tool call failed. A failed call has no stored row, so a replay cannot answer it.
-- **C3.** Given a run with web search through Tavily (after B3), when every search was a hit or was
+- **C3.** Given a run with web search through Tavily (after B2), when every search was a hit or was
   filled with `stored`, then the run can be `complete`. `[stated ans:Q4]`
 - **C4.** Given a finished run, when the user submits it, then the payload has `cache_revision`,
   `reproducible` and `answer_seed` (when they are not NULL). The scoreboard stores them, and `GET`
@@ -120,7 +120,7 @@ later. `[stated prompt]`
 - **C14. An older engine without the new attributes** `[implied]` — M×M. Given a run summary with no
   `cache.reproducible`, then `CandidateResult.reproducible` is `None` and the SDK sends neither
   field.
-- **C15. The B3 Tavily rules** `[existing docs/tasks/2026-08-31-OME-1045-tavily-cache-runner.md]` —
+- **C15. The B2 Tavily rules** `[existing docs/tasks/2026-08-31-OME-1045-tavily-cache-runner.md]` —
   M×M. These hold unchanged: cache the string before truncation and after the exclusion filter;
   fill only on success; reuse the gateway HTTP client.
 - **C16. Concurrency.** Two runs fill the same key at the same time. One gets `stored`, and the
@@ -131,7 +131,7 @@ later. `[stated prompt]`
 
 ## 4. Non-functional requirements
 
-- **Latency** `[proposed]`: header parsing is O(1) per call. B3 adds one lookup round trip before
+- **Latency** `[proposed]`: header parsing is O(1) per call. B2 adds one lookup round trip before
   each Tavily call, and one fill after each paid Tavily call. OME-1045 accepts this cost.
 - **Payload** `[proposed]`: two short strings and one integer for each submission.
 - **Observability** `[proposed]`: the run summary attributes show why a run is `partial`, with
@@ -146,7 +146,7 @@ later. `[stated prompt]`
 
 ## 6. Open questions
 
-None. (Whether B3 belongs to E14 is in `00-overview.md` §7, item 1.)
+None. (Whether B2 belongs to E14 is in `00-overview.md` §7, item 1.)
 
 ## 7. TDD plan
 
@@ -157,7 +157,7 @@ decode, then the scoreboard columns.
 |---|---|---|---|---|---|
 | 1 | CHAR `read_cache_outcome` parses today's headers into today's `CacheOutcome` | unit | `[existing cache_readback.py:123]` | H×L | passes today |
 | 2 | CHAR `RunCacheCounters.attributes()` today's keys | unit | `[existing cache_counters.py:277]` | H×L | passes today |
-| 3 | B3: the OME-1045 TDD list, unchanged | unit+integration | C15 | M×M | as in the OME-1045 task |
+| 3 | B2: the OME-1045 TDD list, unchanged | unit+integration | C15 | M×M | as in the OME-1045 task |
 | 4 | `readback_parses_write_and_revision_headers` | unit | C2, C8 | H×M | two new optional fields |
 | 5 | `run_is_complete_when_all_hits_or_stored_under_one_label` | unit | C1 | H×M | counters track the label set and the non-replayable counts |
 | 6 | `run_is_partial_on_any_bypass` (table: each bypass reason) | unit | C6 | H×H | |
@@ -170,6 +170,6 @@ decode, then the scoreboard columns.
 | 13 | `empty_run_is_complete_without_revision` | unit | C5 | L×L | |
 | 14 | SDK `contract_decodes_revision_and_reproducible_into_candidate_result` | unit | C1, C14 | H×M | `_RunOutcome` + `CandidateResult` fields |
 | 15 | SDK `submit_sends_cache_version_and_answer_seed_when_present_else_omits` | unit | C4, C13 | M×M | `_submission` |
-| 16 | scoreboard `post_stores_and_get_returns_cache_version_fields` | integration | C4 | M×M | migration `0021` (columns) |
+| 16 | scoreboard `post_stores_and_get_returns_cache_version_fields` | integration | C4 | M×M | migration `0020` (columns) |
 | 17 | scoreboard `post_rejects_bad_label_or_status_pairing` | unit | C10 | M×M | validator |
 | 18 | scoreboard `resubmit_fills_null_cache_version_but_never_replaces` | integration | C12 | H×L | add to `_replay_updates` as fill-only |
