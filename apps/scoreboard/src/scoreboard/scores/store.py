@@ -161,6 +161,8 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         url4_expression=model.url4_expression,
         submitted_by=model.submitted_by,
         authors=_resolved_authors(model.authors, model.submitted_by),
+        paper_url=model.paper_url,
+        metadata_updated_at=model.metadata_updated_at,
         # INVARIANT: no fallback, unlike `authors` above. A NULL here means the routes were
         # never declared, and deriving them from `ran_with_providers` is impossible — the
         # Client's truncation is lossy. Inventing a value would turn "we do not know" into a
@@ -242,6 +244,7 @@ def _derived_providers(submission: ScoreSubmission) -> list[str]:
 # be written but is missing here would be answered from a pre-lock read instead.
 _REPLAY_FIELDS: tuple[str, ...] = (
     "authors",
+    "paper_url",
     "metadata",
     "models",
     "ran_with_providers",
@@ -252,8 +255,9 @@ _REPLAY_FIELDS: tuple[str, ...] = (
 )
 
 # INVARIANT (OME-1145, review round 3): filling any of these changes what the frontier reads, so
-# it stamps `enriched_at`. Authors and metadata are display-only and never move a row in time.
-_ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {"authors", "metadata"}
+# it stamps `enriched_at`. Authors, paper link and metadata are display-only and never move a row
+# in time.
+_ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {"authors", "paper_url", "metadata"}
 
 
 def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
@@ -277,6 +281,10 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
     updates: dict[str, object] = {}
     if submission.authors is not None:
         updates["authors"] = submission.authors
+    # FEATURE: OME-1307 — REPLACE when given, like `authors`; `None` is "not given", so an older SDK
+    # replaying without it cannot erase the stored link.
+    if submission.paper_url is not None:
+        updates["paper_url"] = submission.paper_url
     if submission.metadata is not None:
         updates["metadata"] = submission.metadata
     # FEATURE: OME-1181 — how a row submitted before OME-1180 ever becomes classifiable.
@@ -365,6 +373,8 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "url4_expression": submission.url4_expression,
         "submitted_by": submission.submitted_by,
         "authors": submission.authors,
+        # Deliberately absent from _content_hash: display-only, like `authors`.
+        "paper_url": submission.paper_url,
         "models": submission.models,
         "score": submission.score,
         "total_questions": submission.total_questions,

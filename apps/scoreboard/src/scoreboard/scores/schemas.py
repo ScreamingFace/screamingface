@@ -5,9 +5,11 @@ from collections.abc import Mapping
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -330,6 +332,37 @@ AuthorEmail = Annotated[
 ]
 
 
+_PAPER_URL_MAX_CHARS = 2048
+_PAPER_URL_SCHEMES = frozenset({"http", "https"})
+
+
+def _validate_paper_url(value: str) -> str:
+    """Accept an absolute `http(s)` link with a host, and return it UNCHANGED.
+
+    FEATURE: OME-1307 — this checks the SHAPE of the link, never that the paper exists or that the
+    named authors wrote it (out of scope for E14).
+
+    INVARIANT: the string is stored exactly as sent. That is why this is not pydantic's `HttpUrl`,
+    which lower-cases the host and appends a slash: a link a researcher pasted must come back as
+    they pasted it. The portal still runs every link through `httpUrlOrNull` on read (M21).
+    """
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+        raise ValueError("paper_url must not contain control characters")
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in _PAPER_URL_SCHEMES:
+        raise ValueError("paper_url must use the http or https scheme")
+    if not parts.hostname:
+        raise ValueError("paper_url must name a host")
+    return value
+
+
+PaperUrl = Annotated[
+    str,
+    Field(min_length=1, max_length=_PAPER_URL_MAX_CHARS),
+    AfterValidator(_validate_paper_url),
+]
+
+
 class ClientInfo(BaseModel):
     """Optional client metadata for a score submission."""
 
@@ -382,6 +415,10 @@ class ScoreSubmission(BaseModel):
     # None means the client did not specify a credit line; reads then derive [submitted_by].
     # An explicit list is exact — the submitter is not auto-added (OME-1051 D1).
     authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    # FEATURE: OME-1307 — a link to the paper behind this result. None means "not given", so a
+    # same-owner resubmit without it keeps the stored link (an older SDK never sends it).
+    # AIDEV-NOTE: deliberately absent from `_content_hash`, like `authors`: it is display-only.
+    paper_url: PaperUrl | None = None
     # FEATURE: OME-1181 — the candidate's DECLARED model routes, as composed in the recipe.
     #
     # WHY optional: this field deploys BEFORE the Client that populates it (OME-1179
@@ -799,6 +836,17 @@ class ScoreSchema(BaseModel):
     url4_expression: str
     submitted_by: SubmittedBy
     authors: Authors = None
+    # FEATURE: OME-1307 — the paper link and the time `authors` or `paper_url` last changed.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, for exactly the reason `models` below records. This schema
+    # feeds the private JSONL export whose bytes authorize a purge; `"paper_url": null` on every
+    # legacy row would change every export saved before these fields existed.
+    #
+    # INVARIANT: null `metadata_updated_at` means "never edited". Only a CHANGE sets it.
+    paper_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    metadata_updated_at: datetime | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     # FEATURE: OME-1181 — the declared candidate model routes, for classification.
     #
     # INVARIANT: EXCLUDED WHEN ABSENT, like `ranking_notice` below and for the same reason.
