@@ -21,8 +21,10 @@ Stages, in execution order:
               conversion), and render each Sample by capture, then write it with the shared
               Case writer. WHY enforce at every build, not only at import: a build that let
               the eval fetch unforced would read whatever commit the Hub serves that day.
-    Stage 3 — child: write the prepared Cases as JSON to the result file. WHY a file and
-              not stdout: evals print while they load.
+    Stage 3 — child: write the prepared Cases AND the provenance block (the recorder's
+              fetches and forced seeds, the Sample counts, the inspect pins;
+              :mod:`screamingface_engine_inspect.replay_provenance`) as JSON to the result
+              file. WHY a file and not stdout: evals print while they load.
     Stage 4 — parent: a non-zero exit, a timeout, or a missing or unreadable result is a
               TaskReplayError carrying the child's final error line, so the SKIPPED reason
               names the cause; the stderr tail goes to the build log. The child's output is
@@ -30,7 +32,8 @@ Stages, in execution order:
               not UTF-8 must not crash the whole image build.
     Stage 5 — Case Preparation (:func:`prepare_replayed_cases`): refuse a different Case
               count, then a different Case Digest; write the Cases only when both match,
-              otherwise write the SKIPPED marker with the reason.
+              otherwise write the SKIPPED marker with the reason. Either way the bundle gets
+              ``provenance.json`` (before ``cases.json``) and the summary carries the block.
 """
 
 from __future__ import annotations
@@ -40,10 +43,11 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY
 from screamingface_engine_inspect.capture import captured_case_records
@@ -59,6 +63,11 @@ from screamingface_engine_inspect.prepare import (
     case_digest,
     skip_without_hf_token,
 )
+from screamingface_engine_inspect.replay_provenance import (
+    PROVENANCE_KEY,
+    replay_provenance,
+    write_provenance,
+)
 
 #: Upper bound on one replay. A package's Cases download in minutes; this only stops a
 #: stalled fetch from hanging the image build forever.
@@ -70,6 +79,13 @@ _STDERR_TAIL_LINES: int = 20
 
 class TaskReplayError(PrepareError):
     """The replay produced no usable Cases. The message says why, in the child's own words."""
+
+
+class TaskReplay(NamedTuple):
+    """What one replay returns: the prepared Cases and where they came from."""
+
+    cases: list[PreparedCase]
+    provenance: dict[str, Any]
 
 
 def replay_environment(cache_root: Path, base: Mapping[str, str]) -> dict[str, str]:
@@ -146,18 +162,36 @@ def replayed_cases(
 ) -> list[PreparedCase]:
     """Call the eval's own task function in a fresh child process; return its prepared Cases.
 
+    The import path's entry point (``import_replay``); Case Preparation calls
+    :func:`replay_with_provenance` to keep the provenance too.
+
+    Raises:
+        TaskReplayError: the child failed, timed out, or wrote no result.
+    """
+
+    return replay_with_provenance(spec, timeout=timeout).cases
+
+
+def replay_with_provenance(
+    spec: TaskReplayCasesSpec, *, timeout: float = TASK_REPLAY_TIMEOUT_SECONDS
+) -> TaskReplay:
+    """Call the eval's own task function in a fresh child process; return its prepared
+    Cases and the provenance block, with the replay's wall time added as ``seconds``.
+
     Args:
         spec: the Benchmark's Task-replay declaration; ``case_count`` and ``case_digest``
             are NOT checked here, the caller compares them.
         timeout: seconds before a stalled replay is abandoned.
 
     Returns:
-        The prepared Cases, in the order the Task holds its Samples.
+        The prepared Cases, in the order the Task holds its Samples, and their provenance.
 
     Raises:
         TaskReplayError: the child failed, timed out, or wrote no result.
     """
 
+    # WHY the parent times it: the child can't see its own interpreter start-up.
+    started: float = time.monotonic()
     # Stage 1 — declaration file + clean-room environment.
     with tempfile.TemporaryDirectory(prefix="task-replay-") as scratch:
         root: Path = Path(scratch)
@@ -197,12 +231,22 @@ def replayed_cases(
                 f"{_failure_reason(completed.stderr)}"
             )
         try:
-            loaded: list[PreparedCase] = json.loads(result_path.read_text(encoding="utf-8"))
+            loaded: Any = json.loads(result_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             # WHY: a child killed mid-write can exit 0 and leave a cut-off file; that is
             # this Benchmark's failure, not the image build's (spec R10).
             raise TaskReplayError(f"{spec.task}: replay wrote an unreadable result: {exc}") from exc
-        return loaded
+        if not (
+            isinstance(loaded, dict)
+            and isinstance(loaded.get("prepared"), list)
+            and isinstance(loaded.get(PROVENANCE_KEY), dict)
+        ):
+            raise TaskReplayError(f"{spec.task}: replay wrote a result of the wrong shape")
+        provenance: dict[str, Any] = {
+            **loaded[PROVENANCE_KEY],
+            "seconds": round(time.monotonic() - started, 3),
+        }
+        return TaskReplay(cases=loaded["prepared"], provenance=provenance)
 
 
 def prepare_replayed_cases(
@@ -228,6 +272,8 @@ def prepare_replayed_cases(
         The summary: ``cases`` and ``case_digest`` on success; on a skip, ``cases`` 0 plus
         ``skipped`` and ``UNCONFIRMED_CASES_KEY`` carrying the reason. A gated Benchmark
         skipped for want of a token carries no ``UNCONFIRMED_CASES_KEY`` (OME-1460, F7).
+        Whenever the replay itself finished (success, or a count or digest mismatch), the
+        summary also carries ``provenance`` and the bundle holds ``provenance.json``.
 
     Raises:
         PrepareError: a gated Benchmark with no token and no skip flag (R8).
@@ -240,8 +286,11 @@ def prepare_replayed_cases(
         skipped: dict[str, Any] | None = skip_without_hf_token(gated, out)
         if skipped is not None:
             return skipped
+    provenance: dict[str, Any] | None = None
     try:
-        prepared: list[PreparedCase] = replayed_cases(spec)
+        replay: TaskReplay = replay_with_provenance(spec)
+        prepared: list[PreparedCase] = replay.cases
+        provenance = replay.provenance
         if len(prepared) != spec.case_count:
             raise TaskReplayError(
                 f"{spec.task}: the task yielded {len(prepared)} Cases, "
@@ -258,9 +307,26 @@ def prepare_replayed_cases(
         print(f"WARNING: skipping {reason}", file=sys.stderr, flush=True)
         out.mkdir(parents=True, exist_ok=True)
         (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
-        return {"cases": 0, "skipped": reason, UNCONFIRMED_CASES_KEY: reason, "out": str(out)}
+        skipped_summary: dict[str, Any] = {
+            "cases": 0,
+            "skipped": reason,
+            UNCONFIRMED_CASES_KEY: reason,
+            "out": str(out),
+        }
+        # WHY keep the block on a mismatch: that's exactly when on-call needs the commit
+        # and the seed. A child that crashed returned none, so there is nothing to add.
+        if provenance is not None:
+            write_provenance(out, provenance)
+            skipped_summary[PROVENANCE_KEY] = provenance
+        return skipped_summary
+    write_provenance(out, provenance)
     _write_cases(prepared, out)
-    return {"cases": len(prepared), "case_digest": digest, "out": str(out)}
+    return {
+        "cases": len(prepared),
+        "case_digest": digest,
+        "out": str(out),
+        PROVENANCE_KEY: provenance,
+    }
 
 
 def fetch_pins_of(spec: TaskReplayCasesSpec) -> FetchPins:
@@ -281,20 +347,32 @@ def _replay_in_this_process(spec_path: Path, result_path: Path, cache_root: Path
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(**fields)
     # INVARIANT: the module is imported BEFORE the enforcer installs, so a fetch helper it
     # bound by name at import (gsm8k's `hf_dataset`) is rebound too (R1, R4). The recorder
-    # also records, unread here: the import child is the one that reports Case Sources.
+    # also records every fetch and forced seed; that record becomes the provenance block (OME-1492).
     task_function: Any = _resolve(spec.task)
-    CaseSourceRecorder(cache_root).install(fetch_pins_of(spec))
+    recorder: CaseSourceRecorder = CaseSourceRecorder(cache_root)
+    recorder.install(fetch_pins_of(spec))
     task: Any = task_function(**(spec.task_args or {}))
+    # WHY count before capture: capture drops the declaration's excluded Samples, and the
+    # block reports both sides of that cut.
+    yielded: int = len(task.dataset)
     prepared: list[PreparedCase] = captured_case_records(task, spec)
-    result_path.write_text(json.dumps(prepared, ensure_ascii=False), encoding="utf-8")
+    # WHY built after capture: a solver can fetch a file while rendering a Sample, and that
+    # fetch belongs in the record too.
+    block: dict[str, Any] = replay_provenance(recorder, spec, yielded=yielded, kept=len(prepared))
+    result_path.write_text(
+        json.dumps({"prepared": prepared, PROVENANCE_KEY: block}, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 __all__ = [
     "TASK_REPLAY_TIMEOUT_SECONDS",
+    "TaskReplay",
     "TaskReplayError",
     "fetch_pins_of",
     "prepare_replayed_cases",
     "replay_environment",
+    "replay_with_provenance",
     "replayed_cases",
 ]
 

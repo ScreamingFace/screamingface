@@ -17,6 +17,7 @@ import os
 import sys
 import textwrap
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -642,3 +643,111 @@ def test_a_cached_login_reaches_the_replay_child(
     prepared: list[dict[str, dict[str, object]]] = replayed_cases(spec)
 
     assert prepared[0]["case"]["input"] == "token=hf_stand_in_login"
+
+
+# ── OME-1492: every prepared bundle says where its Cases came from ─────────────────────────
+
+#: The provenance file Case Preparation writes beside cases.json.
+_PROVENANCE: str = "provenance.json"
+
+
+def _block(out: Path) -> dict[str, Any]:
+    """The provenance block a prepared bundle carries on disk."""
+
+    return json.loads((out / _PROVENANCE).read_text(encoding="utf-8"))
+
+
+def test_a_prepared_bundle_records_where_its_cases_came_from(
+    fake_eval: str, tmp_path: Path
+) -> None:
+    """The child's facts land in the bundle AND the summary line, so a cache hit (no summary
+    printed) and a red build (no bundle served) can each still say where the Cases came from."""
+
+    out: Path = tmp_path / "out"
+
+    summary: dict[str, object] = prepare_replayed_cases(_pinned(fake_eval), out)
+
+    block: dict[str, Any] = _block(out)
+    assert block["samples"] == {"yielded": 2, "excluded": 0, "kept": 2}
+    assert set(block["pins"]) == {"inspect-ai", "inspect-evals"}
+    assert isinstance(block["seconds"], float) and block["seconds"] > 0
+    assert block["seeds_applied"] == {}
+    assert summary["provenance"] == block
+
+
+def test_the_block_names_the_pinned_commit_and_the_forced_seed(
+    fake_hub_eval: str, tmp_path: Path
+) -> None:
+    """The seed's VALUE travels, not only its name: two builds forced to different seeds
+    must read differently in the log."""
+
+    probe: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task=f"{fake_hub_eval}:unseeded_shuffle",
+        case_count=4,
+        case_digest=_UNPINNED,
+        source_pins={"stand-in/hub": _HEAD_SHA},
+        shuffle_seed=7,
+    )
+    spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        **{**probe.__dict__, "case_digest": case_digest(replayed_cases(probe))}
+    )
+    out: Path = tmp_path / "out"
+
+    prepare_replayed_cases(spec, out)
+
+    block: dict[str, Any] = _block(out)
+    assert block["seeds_applied"] == {"shuffle_seed": 7}
+    sources: list[dict[str, str]] = block["sources"]
+    assert any(_HEAD_SHA in source["pin"] for source in sources)
+    assert all(source["location"].startswith("stand-in/hub") for source in sources)
+
+
+def test_excluded_samples_are_counted(fake_hub_eval: str, tmp_path: Path) -> None:
+    """A declaration that drops Samples (sad_stages_full 800 → 797) shows both counts, so
+    an upstream row change reads as a count change, not only as a digest change."""
+
+    probe: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task=f"{fake_hub_eval}:unpinned_fetch",
+        case_count=3,
+        case_digest=_UNPINNED,
+        source_pins={"stand-in/hub": _HEAD_SHA},
+        excluded_sample_ids=("2",),
+    )
+    spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        **{**probe.__dict__, "case_digest": case_digest(replayed_cases(probe))}
+    )
+    out: Path = tmp_path / "out"
+
+    prepare_replayed_cases(spec, out)
+
+    assert _block(out)["samples"] == {"yielded": 4, "excluded": 1, "kept": 3}
+
+
+def test_a_mismatch_skip_still_carries_the_block(fake_eval: str, tmp_path: Path) -> None:
+    """A sealed mismatch is exactly when on-call needs the commit and the seed."""
+
+    pinned: TaskReplayCasesSpec = _pinned(fake_eval)
+    spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task=pinned.task, case_count=2, case_digest="f" * 64
+    )
+    out: Path = tmp_path / "out"
+
+    summary: dict[str, object] = prepare_replayed_cases(spec, out)
+
+    assert summary[UNCONFIRMED_CASES_KEY]
+    assert (out / SKIPPED_MARKER).is_file()
+    assert not (out / "cases.json").exists()
+    assert summary["provenance"] == _block(out)
+
+
+def test_no_case_text_reaches_the_block_or_the_summary_line(fake_eval: str, tmp_path: Path) -> None:
+    """INVARIANT: the Actions log is public and some datasets are gated or non-commercial, so
+    the block carries commits, seeds, counts and versions, never a Case's input or target."""
+
+    out: Path = tmp_path / "out"
+
+    summary: dict[str, object] = prepare_replayed_cases(_pinned(fake_eval), out)
+
+    printed: str = json.dumps(summary) + (out / _PROVENANCE).read_text(encoding="utf-8")
+    for text in ("What is 6 times 7?", "What is 2 plus 2?", '"42"', '"4"'):
+        assert text not in printed
