@@ -57,6 +57,21 @@ class BaseScore(BaseScoreboardModel):
     # same-owner resubmit). NULL means "never edited". Only a change sets it; a request that
     # changes nothing leaves it alone.
     metadata_updated_at = fields.DatetimeField(null=True)
+    # FEATURE: OME-1307 — which cache version produced this run, and whether a replay can answer
+    # every call of it. The gateway label (`cr-<12 hex>`) plus url4, benchmark revision and answer
+    # seed name the cache version; no key list or digest is stored.
+    #
+    # INVARIANT: `cache_revision` is set only when `reproducible` is set (the request validator),
+    # and the two are FILL-ONLY and move TOGETHER on a same-owner resubmit: they describe ONE
+    # execution.
+    # NULL `reproducible` means "unknown" (a row that predates the field), never "partial". A
+    # `complete` or `partial` row may have no label (a run with no cacheable call, or two labels).
+    # None of the three is in `_content_hash` or `_ENRICHING_FIELDS`.
+    cache_revision = fields.CharField(max_length=32, null=True)
+    reproducible = fields.CharField(max_length=16, null=True)
+    # INVARIANT: a replay must send the same seed or its requests differ. `0` is a real seed, so
+    # "unfilled" is NULL, never falsy.
+    answer_seed = fields.IntField(null=True)
     score = fields.FloatField()  # the exact primary score the Engine Benchmark produced
     total_questions = fields.IntField()
     correct_questions = fields.IntField(null=True)
