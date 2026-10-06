@@ -49,7 +49,9 @@
     var count = score && score.reproduction_count;
     if (typeof count !== "number" || !isFinite(count) || count < 1 || Math.floor(count) !== count) return;
     var text = "Reproduced " + count + (count === 1 ? " time" : " times");
-    if (score.last_reproduced_at) text += " \u00b7 last " + P.formatDate(score.last_reproduced_at);
+    // `formatDate` answers the dash for a value it cannot parse; a dash after "last" says nothing.
+    var when = score.last_reproduced_at ? P.formatDate(score.last_reproduced_at) : P.EM_DASH;
+    if (when !== P.EM_DASH) text += " \u00b7 last " + when;
     contentNode.insertBefore(P.el("p", "meta mono", text), contentNode.querySelector("h2"));
   }
 

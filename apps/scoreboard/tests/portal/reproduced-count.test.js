@@ -183,3 +183,11 @@ test("the line renders beside the paper link", async () => {
   assert.ok(texts.some((text) => text.startsWith("Paper:")), "paper line still renders");
   assert.ok(texts.some((text) => text.startsWith("Reproduced 4 times")));
 });
+
+test("an unparseable last date leaves the count without the last suffix", async () => {
+  for (const last of ["not-a-date", "", null]) {
+    const { content } = await renderSpecPage(scoreDetail({ reproduction_count: 2, last_reproduced_at: last }));
+
+    assert.equal(reproducedLines(content)[0].textContent, "Reproduced 2 times", String(last));
+  }
+});

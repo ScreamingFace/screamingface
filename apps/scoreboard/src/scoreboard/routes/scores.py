@@ -52,6 +52,7 @@ from scoreboard.scores.schemas import (
     ScoreRankingNotice,
     ScoreSchema,
     ScoreSubmission,
+    ValidationErrorResponse,
 )
 from scoreboard.scores.store import (
     BenchmarkVisibilityChanged,
@@ -192,10 +193,7 @@ RECORD_REPRODUCTION_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": "You already recorded this run_id for the score; returns that row.",
     },
     status.HTTP_401_UNAUTHORIZED: OWNER_ONLY_RESPONSES[status.HTTP_401_UNAUTHORIZED],
-    status.HTTP_403_FORBIDDEN: {
-        "model": MessageErrorResponse,
-        "description": "Caller's peer network is not trusted to present identity headers.",
-    },
+    status.HTTP_403_FORBIDDEN: SUBMIT_SCORE_RESPONSES[status.HTTP_403_FORBIDDEN],
     status.HTTP_404_NOT_FOUND: OWNER_ONLY_RESPONSES[status.HTTP_404_NOT_FOUND],
     status.HTTP_409_CONFLICT: {
         "model": CodedErrorResponse | MessageErrorResponse,
@@ -207,10 +205,11 @@ RECORD_REPRODUCTION_RESPONSES: dict[int | str, dict[str, Any]] = {
         ),
     },
     422: {
-        "model": CodedErrorResponse,
+        "model": CodedErrorResponse | ValidationErrorResponse,
         "description": (
-            "`not_exact`: the score, total_questions or cache_revision differs from the stored "
-            "score. A body that fails validation is the usual list-shaped 422 instead."
+            "Two shapes. `{code: not_exact}` (`CodedErrorResponse`): the score, total_questions or "
+            "cache_revision differs from the stored score. A list `detail` "
+            "(`ValidationErrorResponse`): the body failed validation."
         ),
     },
     status.HTTP_503_SERVICE_UNAVAILABLE: SUBMIT_SCORE_RESPONSES[
@@ -436,15 +435,16 @@ async def get_score(
     )
 
 
-async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> tuple[Score, bool]:
-    """The score ``identity`` submitted and whether its board is private, or the refusal.
+async def _load_visible_score(
+    request: Request, score_id: UUID, identity: str
+) -> tuple[Score, bool]:
+    """The score ``identity`` may see and whether its board is private, or the 503 / 404 refusal.
 
-    Shared by the two owner-only routes. The flag is what this decision ASSUMED about the board;
-    the write path re-proves it inside its transaction.
+    Shared by the owner-only routes and the reproduction record. The flag is what this decision
+    ASSUMED about the board; a write path re-proves it inside its transaction.
 
-    INVARIANT: the checks run in a fixed order, so a refusal says no more than it must. A missing
-    score and a private-board score the caller may not see are the SAME 404; only after that does
-    a visible score that is not the caller's answer 403 `not_score_owner`.
+    INVARIANT: a missing score and a private-board score the caller may not see are the SAME 404,
+    so holding a real id is not confirmable (OME-894).
 
     INVARIANT: on a private board the owner match counts only when the identity is VERIFIED. In
     `disabled` mode `X-User-Email` is an unverified claim, and honouring it would let anyone read
@@ -456,7 +456,7 @@ async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> 
 
     WHY the privacy decision ends in `turned_private`: it reads the board's state fresh,
     immediately before the answer that depends on it, so there is no earlier copy to go stale
-    between the read and the 403 that would otherwise confirm the id exists.
+    between the read and any answer that would otherwise confirm the id exists.
     """
     try:
         score = await Score.get_or_none(id=score_id)
@@ -477,7 +477,17 @@ async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> 
     owner = score.submitted_by == identity
     if private and not (owner and identity_is_verified(settings.auth_mode)):
         raise _score_not_found()
-    if owner:
+    return score, private
+
+
+async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> tuple[Score, bool]:
+    """The score ``identity`` submitted and whether its board is private, or the refusal.
+
+    The shared checks run first (`_load_visible_score`), so a score the caller may see but did not
+    submit is the only thing left to answer 403 `not_score_owner`.
+    """
+    score, private = await _load_visible_score(request, score_id, identity)
+    if score.submitted_by == identity:
         return score, private
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -563,42 +573,6 @@ async def get_metadata_events(
         ) from exc
 
 
-async def _load_score_to_reproduce(
-    request: Request, score_id: UUID, identity: str
-) -> tuple[Score, bool]:
-    """The score ``identity`` may record a reproduction of and whether its board is private, or the
-    refusal. The flag is what this decision ASSUMED; the insert re-proves it inside its transaction.
-
-    A missing score and a private-board score the caller may not see are the SAME 404, so holding a
-    real id is not confirmable (OME-894).
-
-    INVARIANT: on a private board only its VERIFIED owner may record. In `disabled` mode
-    `X-User-Email` is an unverified claim, so the owner match counts only when the identity is
-    verified (the rule `_load_owned_score` applies). A board row that cannot be found counts as
-    private, so this fails closed. Unlike `_load_owned_score`, a visible score that is not the
-    caller's is fine: any verified identity may reproduce a public score.
-    """
-    try:
-        score = await Score.get_or_none(id=score_id)
-        if score is None:
-            private = False
-        else:
-            board_id = cast(str, getattr(score, "benchmark_id"))
-            private = not await Benchmark.exists(id=board_id) or await turned_private(board_id)
-    except OperationalError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=STORE_UNAVAILABLE_DETAIL,
-        ) from exc
-    if score is None:
-        raise _score_not_found()
-    settings = cast(Settings, request.app.state.settings)
-    owner = score.submitted_by == identity
-    if private and not (owner and identity_is_verified(settings.auth_mode)):
-        raise _score_not_found()
-    return score, private
-
-
 def _refuse_unless_exact(score: Score, body: ReproductionSubmission) -> None:
     """409 when the score is not `complete`, then 422 when the body is not the stored result."""
     if score.reproducible != "complete":
@@ -608,6 +582,7 @@ def _refuse_unless_exact(score: Score, body: ReproductionSubmission) -> None:
                 "code": "not_reproducible",
                 "message": "only a score whose run is fully in the cache can be reproduced",
             },
+            headers=PRIVATE_CACHE_HEADERS,
         )
     # INVARIANT: exact equality, the same value the board stores. A replay that differs by one ulp
     # is a different result, and the board never rounds it into agreement.
@@ -622,6 +597,7 @@ def _refuse_unless_exact(score: Score, body: ReproductionSubmission) -> None:
                 "code": "not_exact",
                 "message": "score, total_questions and cache_revision must equal the stored score",
             },
+            headers=PRIVATE_CACHE_HEADERS,
         )
 
 
@@ -646,7 +622,10 @@ async def record_reproduction(
     row (422 `not_exact`). A run_id this identity already recorded answers 200 with that row; one
     another identity recorded answers 409 `run_id_conflict`.
     """
-    score, private = await _load_score_to_reproduce(request, score_id, identity)
+    # INVARIANT: identity-scoped on every answer: the body names the caller's email, and each
+    # refusal depends on who asked. No shared cache may keep any of them.
+    response.headers.update(PRIVATE_CACHE_HEADERS)
+    score, private = await _load_visible_score(request, score_id, identity)
     _refuse_unless_exact(score, body)
     store = cast(ScoreStore, request.app.state.score_store)
     try:
@@ -663,6 +642,7 @@ async def record_reproduction(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=VISIBILITY_CHANGED_DETAIL,
+            headers=PRIVATE_CACHE_HEADERS,
         ) from exc
     except ReproductionRunIdConflict as exc:
         raise HTTPException(
@@ -671,6 +651,7 @@ async def record_reproduction(
                 "code": "run_id_conflict",
                 "message": "this run_id was already recorded for the score; send a new run_id",
             },
+            headers=PRIVATE_CACHE_HEADERS,
         ) from exc
     except OperationalError as exc:
         raise HTTPException(
