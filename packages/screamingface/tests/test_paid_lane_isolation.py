@@ -2,7 +2,7 @@
 
 INVARIANT (owner rule): nothing under `tests/paid/` — not the paid smoke, not its free
 gate tests — is collected unless the paid button sets `SCREAMINGFACE_TEST_PAID=1`.
-The button is the `workflow_dispatch` workflow or the `test-paid-inspect` just recipe;
+The button is the `workflow_dispatch` workflow or the `test-paid-benchmarks` just recipe;
 merge CI runs plain `pytest`, so collection itself is the fence, not a per-test skip.
 """
 
@@ -48,5 +48,5 @@ def test_paid_lane_is_collected_when_the_button_sets_the_flag() -> None:
     result = _collect_paid_lane(flag="1")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "test_every_imported_board_runs_end_to_end" in result.stdout
+    assert "test_every_benchmark_runs_end_to_end" in result.stdout
     assert "test_gate_fails_instead_of_skipping_when_required" in result.stdout

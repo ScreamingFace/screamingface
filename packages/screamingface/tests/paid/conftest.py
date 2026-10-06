@@ -5,12 +5,13 @@ Mental model: this is the e2e replay harness's paid sibling. The replay harness
 environments, zero provider keys — and must stay that way. This lane is the one
 place that does the opposite ON PURPOSE: it boots the same real stack (Postgres +
 aigateway + engine) and then hands the gateway a real OpenRouter key, so every
-imported board can prove its full product pipe with actual model calls.
+Benchmark can prove its full product pipe with actual model calls.
 
 Stages of the session boot, in execution order:
 
 1. **Gate** — `SCREAMINGFACE_TEST_PAID=1` + `OPENROUTER_API_KEY` + a live Docker
    daemon, or every test here SKIPS loudly with the exact reason. Spend stays opt-in.
+   An unknown `scope` word (`_scope.py`) FAILS before this, whatever the flags.
 2. **Postgres + migrations** — the gateway's own Tortoise migrate, same invocation as
    the replay harness and the Helm migrate job.
 3. **Gateway** — the REAL app (`aigateway.main:app`, not the replay lane's test-only
@@ -38,6 +39,7 @@ from typing import Any, Final
 from urllib.parse import quote
 
 import pytest
+from _scope import SCOPE_ENV, UnknownScopeError, resolve_scope
 
 # The replay harness's subprocess plumbing is deliberately reused (venv-per-app boot,
 # health-checked children, scrubbed base env); only the ENV CONTENTS differ here.
@@ -118,17 +120,34 @@ def assets_root() -> Path:
     return default_data_dir() / "benchmark-assets"
 
 
-def _require_imported_assets() -> Path:
-    """The assets root with at least one prepared imported bundle — or a loud skip."""
+def _require_prepared_assets() -> Path:
+    """The assets root with at least one prepared bundle — or a loud skip.
+
+    WHY "at least one", not every bundle: the SDK venv cannot import the engine, so it
+    cannot know the bundle list. This only catches an unprepared root fast; a single
+    missing bundle still fails its own Benchmark loudly in the smoke.
+    """
     root: Path = assets_root()
-    has_imported: bool = root.is_dir() and any(root.glob("inspect-*/cases.json"))
-    if not has_imported:
+    has_prepared: bool = root.is_dir() and any(root.glob("*/cases.json"))
+    if not has_prepared:
         _refuse(
-            f"no prepared imported-board assets under {root} — run "
-            f"`just screamingface test-paid-inspect` (it prepares them), or point "
+            f"no prepared benchmark assets under {root} — run "
+            f"`just screamingface test-paid-benchmarks` (it prepares them), or point "
             f"{_ASSETS_ENV} at a prepared root"
         )
     return root
+
+
+def _require_known_scope() -> str:
+    """The button's scope word, checked before anything boots.
+
+    WHY always fail, even without REQUIRED: a typo is not an unavailable stack. A skip
+    here would end green having run nothing.
+    """
+    try:
+        return resolve_scope(os.environ.get(SCOPE_ENV))
+    except UnknownScopeError as exc:
+        pytest.fail(str(exc), pytrace=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,8 +347,9 @@ def _sync(project_dir: Path, *, extra: str | None = None) -> None:
 @pytest.fixture(scope="session")
 def paid_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PaidStack]:
     """One real-key stack for the whole paid session — boot is minutes, spend is real."""
+    _require_known_scope()
     require_paid_stack()
-    assets: Path = _require_imported_assets()
+    assets: Path = _require_prepared_assets()
     boot = _PaidStackBoot(work_dir=work_dir(tmp_path_factory), assets_dir=assets)
     stack: PaidStack = boot.start()
     try:
