@@ -46,6 +46,7 @@ erDiagram
         varchar label PK "cr-<12 hex>"
         json constants "every revision constant in the key"
         map frozen_projections "optional, per provider"
+        map frozen_rules "optional, per provider"
     }
     REQUEST_CACHE_ENTRY {
         uuid id PK
@@ -134,8 +135,10 @@ replay can name an old revision `[stated ans:Q1]`. Specified in `prd/cache-revis
   `parameter_contract` (`:117`), `tavily_retrieval`
   (`[existing apps/aigateway/src/aigateway/core/request_cache/tavily_retrieval.py:64]`), and one
   entry for each provider adapter revision.
-- `frozen_projections`: optional. When a revision bump changes projection **code** (not only a
-  constant), the old projection is kept here under the old label. `[stated ans:Q1]`
+- `frozen_projections` and `frozen_rules`: optional, per provider. When a revision bump changes
+  projection or parameter-rule **code** (not only a constant), the old projection or rule set is
+  kept here under the old label. A change to the key-building code itself needs a frozen copy of
+  the old builder (procedure in `revision_registry.py`; not built in E14). `[stated ans:Q1]`
 - Storage: a Python module plus one golden-vector JSON file for each entry under
   `apps/aigateway/tests/fixtures/cache_revisions/`. `[proposed]`
 
