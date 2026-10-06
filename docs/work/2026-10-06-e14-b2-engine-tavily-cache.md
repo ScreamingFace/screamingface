@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface-engine
-status: blocked   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-06
-finished:
+finished: 2026-10-06
 ---
 
 # e14-b2-engine-tavily-cache — route engine Tavily calls through the gateway retrieval cache
@@ -35,9 +35,36 @@ engine. Replay of web search needs this, so B3 can count the lookup and fill out
 
 - The OME-1045 definition of done holds; screamingface-engine gates are green.
 
+## Approved test changes (append-only exception)
+
+Mock routing only, no assertion changed; orchestrator-approved under the owner's E14 authorization,
+to be confirmed by the owner. Each mock gateway now answers `/v1/retrieval/tavily/cache/lookup`
+(`miss`) and `/entries` (`stored`), and does not count those calls as chat calls.
+
+- `apps/screamingface-engine/tests/unit/test_aigateway_connector.py`: the `_MockAigateway` helper
+  (9 tests: `test_web_search_loop_executes_tavily_search_then_answers`,
+  `test_web_fetch_loop_executes_tavily_extract_then_answers`,
+  `test_parallel_tool_calls_both_executed_in_one_turn`,
+  `test_usage_accumulates_across_round_trips_on_same_span`,
+  `test_tavily_http_failure_fed_back_to_model_not_raised`,
+  `test_max_iterations_exceeded_raises_resolution_error`,
+  `test_extract_content_tolerates_content_none_with_tool_calls`,
+  `test_tavily_search_formats_results_as_title_url_content_blocks`,
+  `test_tavily_extract_reports_failed_urls_in_tool_result`). Also
+  `test_tavily_key_never_sent_to_aigateway`: the mock answers the cache routes, and the loop now
+  also checks every cache request for the Tavily key (a stronger check, nothing weakened).
+- `apps/screamingface-engine/tests/unit/test_benchmark_foundation.py`:
+  `test_retrieval_policy_protects_search_results_and_direct_fetches` (local `model_response`).
+- `apps/screamingface-engine/tests/unit/test_cache_policy_threading.py`:
+  `test_the_tool_calling_loop_applies_the_policy_on_every_round_trip` (`_MockAigateway._handle`).
+- `apps/screamingface-engine/tests/unit/test_operation_accounting_failure_boundaries.py`:
+  `test_one_unavailable_tool_round_poisons_the_complete_operation_accounting`
+  (`_evaluate_rounds` transport).
+
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** the cache client, the web_tools wiring and their tests are committed. The connector wiring is written but not committed.
-- **Commits:** see `git log`
-- **Gates:** not run. The connector wiring breaks 13 existing tests whose mock gateways do not know the cache routes. Append-only rule: waiting for an owner decision.
-- **Deviations:** none yet
+- **Actual files:** the 5 planned files, plus the 4 existing test files above (approved).
+- **Commits:** `git log --oneline e14-reproducible-submission-spec..HEAD`
+- **Gates:** see the PR report (run without and with `--skip-append-only`).
+- **Deviations:** helper names `search_description` / `fetch_description` and the private
+  `_extraction` helper (accepted); the approved mock edits above.
