@@ -68,6 +68,7 @@ from screamingface_engine.world.request_parameters import (
     model_params,
     wants_web_search,
 )
+from screamingface_engine.world.tavily_retrieval_cache import TavilyRetrievalCache
 from screamingface_engine.world.web_tools import (
     WEB_TOOLS,
     WebToolRuntime,
@@ -952,6 +953,11 @@ async def _chat_completion_loop(
     # line that reaches aigateway or reports what aigateway actually billed uses `real_model_id`;
     # error messages below keep `spec.id` (the route form), since that's what the caller wrote.
     real_model_id = decode_route_id(spec.id)
+    headers = {
+        **_headers(scope),
+        "x-aigw-execution-timeout-s": str(cfg.timeout_s),
+        "x-aigw-queue-timeout-s": str(cfg.admission_timeout_s),
+    }
     tools, extra = _retrieval_request(
         cfg=cfg,
         spec=spec,
@@ -959,13 +965,11 @@ async def _chat_completion_loop(
         tavily_http=tavily_http,
         tavily_api_key=tavily_api_key,
         retrieval_policy=retrieval_policy,
+        # FEATURE (OME-1045): the retrieval cache rides the SAME aigateway client and headers as
+        # the chat calls — no new pool, base URL or setting.
+        cache=TavilyRetrievalCache(http_client, headers),
     )
     sampling = model_params(params)
-    headers = {
-        **_headers(scope),
-        "x-aigw-execution-timeout-s": str(cfg.timeout_s),
-        "x-aigw-queue-timeout-s": str(cfg.admission_timeout_s),
-    }
     operation_accounting: list[OperationAccounting | None] = []
     for _ in range(cfg.web_tool_max_iterations):
         # FEATURE (OME-1458): Attempt 2+ names itself to the gateway's cache on every round
@@ -1062,6 +1066,7 @@ def _retrieval_request(
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
     retrieval_policy: RetrievalPolicy | None,
+    cache: TavilyRetrievalCache,
 ) -> tuple[WebToolRuntime | None, dict[str, object]]:
     if (
         retrieval_policy is not None
@@ -1082,6 +1087,7 @@ def _retrieval_request(
         config=cfg,
         policy=retrieval_policy,
         params=params,
+        cache=cache,
     )
     if wants_search and spec.uses_native_web_search:
         extra: dict[str, object] = {"web_search": True}
