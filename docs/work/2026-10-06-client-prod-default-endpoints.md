@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1502   # filed at PR-open under epic OME-1304
 stack: screamingface
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-06
@@ -57,15 +57,16 @@ notebooks, e2e default, and explicit test-fixture literals are intentionally lef
   `tests/test_public_surface.py`, `tests/test_default_client_local_discovery.py`,
   `tests/public_surface_snapshot.json` (regenerated). No `_ui/cards.py`, docs, examples,
   README, or e2e change (minimal scope held). No schema change → no migration (S1 N/A).
-- **Commits:** not yet committed — paused at the append-only Confidence Gate (see below).
+- **Commits:** `1d5724e32` — fix(screamingface): point the default hosted engine and leaderboard at prod (impl + ledger + spec + plan). Follow-up commit: OME-1502 mirror + ledger backfill + test-change approval manifest.
 - **Gates:** `run_gates.py screamingface --skip-append-only` → **ALL GATES GREEN** (ruff,
   format, pyright, pytest `-n auto` 2239 passed / 26 skipped / 96.23% cov ≥95%, notebooks,
   build, distribution). Env note: a fresh worktree needs `uv sync --extra notebook` before
   pyright (CI's install step), else `ipywidgets` import-resolution fails — unrelated to this
   change. One xdist flake (`test_client_run.py::test_concurrent_interrupt_deletes_every_active_engine_capability`,
   passes 3/3 in isolation, uses an explicit engine_url — not this change) cleared on re-run.
-- **Deviations:** the append-only gate (sdlc rule 5) flags the 4 modified prior-test
-  artifacts. These are the deliberate, user-approved contract change (default endpoints
-  dev→prod). PAUSED here per the Confidence Gate: needs owner approval recorded via
-  `.claude/test-change-approvals/OME-N.json` (byte-exact blob transitions, keyed to the
-  Linear issue + branch), which is created at PR-open once OME-N is filed under an epic.
+- **Deviations:** the append-only gate (sdlc rule 5) flagged the 4 modified prior-test
+  artifacts — the deliberate contract change (default endpoints dev→prod). Resolved per the
+  Confidence Gate: owner (project lead) approved the edits in-session, recorded via
+  `.claude/test-change-approvals/OME-1502.json` (byte-exact blob transitions, keyed to
+  OME-1502 + branch `OME-1502-client-prod-default-endpoints`). Also: a fresh worktree needs
+  `uv sync --extra notebook` before the pyright gate (CI's install step).
