@@ -22,15 +22,20 @@ from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 from tortoise.exceptions import OperationalError
 
 from scoreboard.config import AuthMode, Settings
-from scoreboard.core.auth.cloudflare_identity import (
-    HEADER_USER_EMAIL,
-    identity_from_headers,
-    peer_in_networks,
+
+# The two identity details moved to `routes/dependencies.py` with the shared check. They are
+# re-exported here because callers and tests import them from this module.
+from scoreboard.routes.dependencies import (
+    MISSING_IDENTITY_DETAIL as MISSING_IDENTITY_DETAIL,
 )
 from scoreboard.routes.dependencies import (
     PRIVATE_CACHE_HEADERS,
     ReadIdentity,
     turned_private,
+    verified_identity,
+)
+from scoreboard.routes.dependencies import (
+    UNTRUSTED_PEER_DETAIL as UNTRUSTED_PEER_DETAIL,
 )
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
@@ -54,13 +59,6 @@ STORE_UNAVAILABLE_DETAIL = "score store unavailable"
 # INVARIANT (OME-894): one detail for a missing score AND for a private score the caller
 # may not read, so the two are indistinguishable.
 SCORE_NOT_FOUND_DETAIL = "score not found"
-UNTRUSTED_PEER_DETAIL = (
-    "This service accepts header identity only from the networks it was configured to trust."
-)
-MISSING_IDENTITY_DETAIL = (
-    f"Missing {HEADER_USER_EMAIL} — this service resolves the submitter from the identity "
-    "header the mesh gateway injects after verifying Cloudflare Access."
-)
 
 
 CONCURRENT_UPDATE_DETAIL = (
@@ -96,26 +94,15 @@ async def _resolve_submitter(request: Request, submission: ScoreSubmission) -> s
     is refused without its identity claim ever being consulted.
 
     AIDEV-NOTE: deliberately a plain call at the top of `submit_score`, not a `Depends()` —
-    it needs the already-parsed `submission` body for the disabled-mode fallback. This means
-    a second authenticated route does NOT get this check for free the way aigateway's
-    `CurrentAccount` dependency generalizes; either extract the header/peer logic into a
-    proper `Depends()` at that point, or copy this call verbatim — don't add a route with a
-    write path and skip it silently.
+    it needs the already-parsed `submission` body for the disabled-mode fallback. The header and
+    peer decision itself is `verified_identity` in `routes/dependencies.py`; every other
+    authenticated write route takes `VerifiedIdentity` and gets that check for free. Don't add a
+    route with a write path and skip it silently.
     """
     settings = cast(Settings, request.app.state.settings)
     if settings.auth_mode == "disabled":
         return submission.submitted_by
-    if not peer_in_networks(
-        request.client.host if request.client is not None else None,
-        settings.allowed_networks,
-    ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=UNTRUSTED_PEER_DETAIL)
-    email = identity_from_headers(request.headers)
-    if email is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=MISSING_IDENTITY_DETAIL
-        )
-    return email
+    return await verified_identity(request)
 
 
 SUBMIT_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {

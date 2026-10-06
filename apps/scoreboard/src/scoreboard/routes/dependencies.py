@@ -10,20 +10,35 @@ that module is the port and stays free of FastAPI and of Settings, so the whole 
 testable without constructing a request. This file is only the adapter that pulls the four inputs
 off the request.
 
-AIDEV-NOTE: this is the READ dependency. It returns None instead of raising. Do NOT reuse it on a
-write path — `_resolve_submitter` must keep 401-ing there, because a write with no verified
-identity is a misconfigured mesh, not an anonymous visitor.
+AIDEV-NOTE: `read_identity` is the READ dependency. It returns None instead of raising. Do NOT
+reuse it on a write path — `_resolve_submitter` must keep 401-ing there, because a write with no
+verified identity is a misconfigured mesh, not an anonymous visitor. `verified_identity` below is
+the WRITE counterpart, and it is what that note asked for: every authenticated write route depends
+on it, so the peer check cannot be skipped by forgetting a call (OME-1307).
 """
 
 from __future__ import annotations
 
 from typing import Annotated, cast
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request, status
 
 from scoreboard.config import Settings
-from scoreboard.core.auth.cloudflare_identity import HEADER_USER_EMAIL, optional_identity
+from scoreboard.core.auth.cloudflare_identity import (
+    HEADER_USER_EMAIL,
+    identity_from_headers,
+    optional_identity,
+    peer_in_networks,
+)
 from scoreboard.scores.models import Benchmark
+
+UNTRUSTED_PEER_DETAIL = (
+    "This service accepts header identity only from the networks it was configured to trust."
+)
+MISSING_IDENTITY_DETAIL = (
+    f"Missing {HEADER_USER_EMAIL} — this service resolves the submitter from the identity "
+    "header the mesh gateway injects after verifying Cloudflare Access."
+)
 
 
 async def read_identity(request: Request) -> str | None:
@@ -38,6 +53,41 @@ async def read_identity(request: Request) -> str | None:
 
 
 ReadIdentity = Annotated[str | None, Depends(read_identity)]
+
+
+async def verified_identity(request: Request) -> str:
+    """The caller's identity on a WRITE path, or a 401/403. Never None.
+
+    FEATURE: OME-1307 — extracted from `_resolve_submitter`, which `routes/scores.py` still calls
+    for `POST /v1/scores`. Every other authenticated write route (PATCH, the metadata-events read)
+    takes `VerifiedIdentity`, so this one function owns the peer and header decision.
+
+    INVARIANT: no-identity is a 401, never a silent fallback to anonymous or to the caller's own
+    claim — a misconfigured mesh (Envoy bypassed, or not injecting) must not turn into a service
+    that lets a caller name themselves.
+
+    INVARIANT: in `cloudflare_headers` mode the peer network is checked BEFORE the header is read,
+    so an untrusted peer is refused without its identity claim ever being consulted.
+
+    In `disabled` mode (dev and test) there is no mesh to check a peer against, so the header is
+    read as sent. That is an unverified claim; the callers that guard something private treat it
+    as such (see `identity_is_verified` in `routes/scores.py`).
+    """
+    settings = cast(Settings, request.app.state.settings)
+    if settings.auth_mode != "disabled" and not peer_in_networks(
+        request.client.host if request.client is not None else None,
+        settings.allowed_networks,
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=UNTRUSTED_PEER_DETAIL)
+    email = identity_from_headers(request.headers)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=MISSING_IDENTITY_DETAIL
+        )
+    return email
+
+
+VerifiedIdentity = Annotated[str, Depends(verified_identity)]
 
 
 # INVARIANT (OME-894): a response scoped to one caller must never be reused for another. Private
