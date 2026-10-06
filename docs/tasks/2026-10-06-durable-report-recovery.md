@@ -16,3 +16,5 @@ Child of OME-1294; related to OME-1448 and OME-1486. Second approved SDK split f
 Acceptance and boundaries: docs/spec/2026-10-06-durable-report-recovery.md.
 Validation: docs/work/2026-10-06-durable-report-recovery.md.
 Recommended merge order: #1241, then this draft. Retain umbrella issues for subsequent splits.
+
+Draft PR: https://github.com/ScreamingFace/screamingface/pull/1269.
