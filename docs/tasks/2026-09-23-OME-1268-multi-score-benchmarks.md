@@ -30,3 +30,7 @@ truncated. The field is absent on every single-scorer Benchmark, so no published
   plan `docs/plan/2026-10-05-OME-1268-multi-score-benchmarks.md`, glossary entries Headline
   Score and Named Score, ledger `docs/work/2026-10-02-multi-score-boards.md`). The docs PR is
   #1235 (PR 1 of 5); code PRs 2–5 follow the plan, SDK first; the last one closes this ticket.
+- 2026-10-06: PR 2 of 5 opened, #1248 (branch `OME-1268-sdk-named-scores`, ledger
+  `docs/work/2026-10-06-ome-1268-sdk-named-scores.md`): the SDK decodes, exports and shows
+  Named Scores. Needs the owner's `--skip-append-only` for the regenerated public-surface
+  snapshot. Release this SDK before deploying PR 3's Engine.
