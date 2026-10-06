@@ -33,6 +33,7 @@ from .schemas import (
     LeaderboardEntry,
     LeaderboardStoreEntry,
     ProvenanceSchema,
+    ReproducibleStatus,
     RunCostStatus,
     ScoreMetadataEventSchema,
     ScoreSchema,
@@ -195,6 +196,11 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         # export would have omitted data the purge deletes (review of PR #1055, P1).
         cache_saved_cost_usd=model.cache_saved_cost_usd,
         cache_saved_cost_archive_usd=model.cache_saved_cost_archive_usd,
+        # FEATURE: OME-1307 — same CharField narrowing as `run_cost_status`. Null `reproducible`
+        # means "unknown" (a row that predates the field), not `partial`.
+        cache_revision=model.cache_revision,
+        reproducible=cast("ReproducibleStatus | None", model.reproducible),
+        answer_seed=model.answer_seed,
     )
 
 
@@ -253,12 +259,22 @@ _REPLAY_FIELDS: tuple[str, ...] = (
     "run_cost_status",
     "cache_saved_cost_usd",
     "cache_saved_cost_archive_usd",
+    "cache_revision",
+    "reproducible",
+    "answer_seed",
 )
 
 # INVARIANT (OME-1145, review round 3): filling any of these changes what the frontier reads, so
 # it stamps `enriched_at`. Authors, paper link and metadata are display-only and never move a row
-# in time.
-_ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {"authors", "paper_url", "metadata"}
+# in time, and neither does the cache version (OME-1307): the frontier reads none of its fields.
+_ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {
+    "authors",
+    "paper_url",
+    "metadata",
+    "cache_revision",
+    "reproducible",
+    "answer_seed",
+}
 
 
 # FEATURE: OME-1307 — the two display-only fields a submitter may correct after the fact, and the
@@ -309,6 +325,32 @@ async def _log_metadata_event(
         old_paper_url=locked.paper_url,
         new_paper_url=changes.get("paper_url", locked.paper_url),
     )
+
+
+def _cache_version_fills(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
+    """The cache-version fields a same-owner replay may FILL on ``existing``, and nothing else.
+
+    FEATURE: OME-1307 — the cache version of the run, for a row stored before the SDK sent it.
+
+    INVARIANT: FILL ONLY, never replace, for the reason `models` and the cost fields record. A
+    published `complete` is a claim others replay against, and a replay of the same recipe must
+    not be able to turn it into `partial` or point it at another cache version (C12).
+
+    INVARIANT: the label and the status move TOGETHER or not at all, gated on the STATUS. They
+    describe ONE execution: a row that already holds a status (even `partial`, with no label) is
+    not given a label from a different run. `answer_seed` is a separate fact and fills alone.
+    The sentinel is NULL, not falsy: `0` is a real seed.
+
+    WHY a function of its own: `_replay_updates` is at the repo's complexity and branch limits, and
+    this rule is the one part of it that has nothing to do with the others.
+    """
+    fills: dict[str, object] = {}
+    if submission.reproducible is not None and existing.reproducible is None:
+        fills["reproducible"] = submission.reproducible
+        fills["cache_revision"] = submission.cache_revision
+    if submission.answer_seed is not None and existing.answer_seed is None:
+        fills["answer_seed"] = submission.answer_seed
+    return fills
 
 
 def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
@@ -399,6 +441,8 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
         # recoverable without asking the client, because an amount IS the claim `complete` makes.
         # Healing it here means the population `OME-1258` inherits is already correct.
         updates["run_cost_status"] = "complete"
+    # FEATURE: OME-1307 — the cache version of the run, fill-only (see the helper's invariants).
+    updates.update(_cache_version_fills(submission, existing))
     return updates
 
 
@@ -454,6 +498,11 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "cache_saved_cost_usd": submission.cache_saved_cost_usd,
         # OME-1251 D7: stored apart from the reported saving; summed only at the point of use.
         "cache_saved_cost_archive_usd": submission.cache_saved_cost_archive_usd,
+        # FEATURE: OME-1307 — the cache version of the run. Deliberately absent from _content_hash:
+        # it describes one execution of a recipe, like the cost fields above.
+        "cache_revision": submission.cache_revision,
+        "reproducible": submission.reproducible,
+        "answer_seed": submission.answer_seed,
         "content_hash": content_hash,
     }
 
