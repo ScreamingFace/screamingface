@@ -53,6 +53,20 @@ _RAW_ROW_FIELDS = (
 _NULLABLE_RAW_FIELDS = frozenset(
     {"authors", "run_cost_usd", "cache_saved_cost_usd", "cache_saved_cost_archive_usd"}
 )
+# The two savings `reproduction_cost` adds to a `complete` spend (OME-1382, D7).
+_SAVING_RAW_FIELDS = frozenset({"cache_saved_cost_usd", "cache_saved_cost_archive_usd"})
+
+
+class _UnreadableSaving:
+    """Marks a saving that is stored but cannot be decoded (OME-1487).
+
+    WHY a sentinel and not None: for a saving, None means "no saving" and adds nothing, so an
+    unreadable one degraded to None served a `complete` row at its bare spend. The marker keeps
+    "present but unreadable" structurally apart from "absent" until `_serve_reproduction_cost`.
+    """
+
+
+_UNREADABLE_SAVING = _UnreadableSaving()
 
 logger = logging.getLogger(__name__)
 
@@ -82,12 +96,20 @@ def _serve_reproduction_cost(row: dict[str, Any]) -> Decimal | None:
     Pops the three columns only the rule reads, so the row still matches its read DTO, which has no
     status or saving field. Returns the served cost for callers that build the DTO themselves.
     """
-    served = reproduction_cost(
-        cast("Decimal | None", row["run_cost_usd"]),
-        cast("RunCostStatus | None", row.pop("run_cost_status")),
-        cast("Decimal | None", row.pop("cache_saved_cost_usd")),
-        cast("Decimal | None", row.pop("cache_saved_cost_archive_usd")),
-    )
+    status = cast("RunCostStatus | None", row.pop("run_cost_status"))
+    saving = row.pop("cache_saved_cost_usd")
+    archive_saving = row.pop("cache_saved_cost_archive_usd")
+    # INVARIANT (OME-1487): a saving that is stored but unreadable makes the cost unknown, so the
+    # row leaves the frontier like any other unpriced row. It must never read as "no saving".
+    if saving is _UNREADABLE_SAVING or archive_saving is _UNREADABLE_SAVING:
+        served: Decimal | None = None
+    else:
+        served = reproduction_cost(
+            cast("Decimal | None", row["run_cost_usd"]),
+            status,
+            cast("Decimal | None", saving),
+            cast("Decimal | None", archive_saving),
+        )
     row["run_cost_usd"] = served
     return served
 
@@ -481,7 +503,10 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         row[name],
                         exc_info=exc,
                     )
-                    row[name] = None
+                    # AIDEV-NOTE: a saving gets the marker, not None; see _UnreadableSaving.
+                    # Every caller of this function must pass the row through
+                    # `_serve_reproduction_cost`, which is what consumes the marker.
+                    row[name] = _UNREADABLE_SAVING if name in _SAVING_RAW_FIELDS else None
                 else:
                     # INVARIANT: a non-nullable column cannot degrade. LeaderboardEntry
                     # types ran_with_providers as list[str], so None would fail
