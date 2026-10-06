@@ -685,3 +685,17 @@ def test_a_choice_seed_the_eval_never_needs_is_refused_by_name(hub_eval: str) ->
             choice_shuffle_seed=3,
             dataset_info=_hub_info(),
         )
+
+
+def test_a_judge_that_reads_sample_metadata_can_keep_it(fake_eval: str) -> None:
+    """coconot's Judge template reads the category rubric from the Sample metadata, though
+    its scorer is inspect's own (which alone would drop the metadata, D11): the importing
+    agent says so, and the metadata then sits inside the Case Digest (OME-1460)."""
+
+    kept: TaskReplayImport = import_by_task_replay(
+        f"{fake_eval}:arithmetic", None, keep_sample_metadata=True
+    )
+    default: TaskReplayImport = import_by_task_replay(f"{fake_eval}:arithmetic", None)
+
+    assert kept.declaration.keep_sample_metadata is True
+    assert default.declaration.keep_sample_metadata is False

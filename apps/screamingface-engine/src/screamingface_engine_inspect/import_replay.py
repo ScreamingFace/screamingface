@@ -112,6 +112,7 @@ def replay_for_import(
     has_answer_key: bool = True,
     shuffle_seed: int | None = None,
     choice_shuffle_seed: int | None = None,
+    keep_sample_metadata: bool = False,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
 ) -> ImportReplay:
     """Run the import child once and read back Cases, Case Sources and facts.
@@ -124,6 +125,8 @@ def replay_for_import(
             accepted (spec R19).
         shuffle_seed: forced onto an ``hf_dataset`` row shuffle the eval makes without one.
         choice_shuffle_seed: forced onto a bare ``shuffle_choices=True``.
+        keep_sample_metadata: keep the Sample metadata even under one of inspect's own
+            scorers, because a Judge template reads it (coconot's rubric).
         timeout: seconds before a stalled replay is abandoned.
 
     Returns:
@@ -147,6 +150,7 @@ def replay_for_import(
             "has_answer_key": has_answer_key,
             "shuffle_seed": shuffle_seed,
             "choice_shuffle_seed": choice_shuffle_seed,
+            "keep_sample_metadata": keep_sample_metadata,
             "cache_root": str(cache_root),
         }
         request_path.write_text(json.dumps(request), encoding="utf-8")
@@ -271,6 +275,8 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     facts: TaskReplayFacts = _facts_of(
         task, module, task_ref, task_args, any(sample.choices for sample in samples)
     )
+    if request["keep_sample_metadata"]:
+        facts = replace(facts, keep_sample_metadata=True)
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
         task=task_ref,
         case_count=0,
@@ -319,6 +325,7 @@ def import_by_task_replay(
     has_answer_key: bool = True,
     shuffle_seed: int | None = None,
     choice_shuffle_seed: int | None = None,
+    keep_sample_metadata: bool = False,
     dataset_info: Callable[[str, str | None], Any] | None = None,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
 ) -> TaskReplayImport:
@@ -352,6 +359,8 @@ def import_by_task_replay(
         has_answer_key: False when the Benchmark has no answer key, in both runs (R19).
         shuffle_seed: the seed both runs force onto an unseeded ``hf_dataset`` row shuffle.
         choice_shuffle_seed: the seed both runs force onto a bare ``shuffle_choices=True``.
+        keep_sample_metadata: keep the Sample metadata although the scorer is inspect's own,
+            because a Judge template reads it; False lets the scorer decide (D11).
         dataset_info: ``(repo id, revision) → Hub dataset info`` (HfApi().dataset_info by
             default); injectable for tests.
         timeout: seconds before either run is abandoned.
@@ -372,6 +381,7 @@ def import_by_task_replay(
             has_answer_key=has_answer_key,
             shuffle_seed=shuffle_seed,
             choice_shuffle_seed=choice_shuffle_seed,
+            keep_sample_metadata=keep_sample_metadata,
             timeout=timeout,
         )
     except TaskReplayError as exc:
