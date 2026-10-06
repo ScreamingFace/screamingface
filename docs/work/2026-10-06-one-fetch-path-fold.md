@@ -1,9 +1,9 @@
 ---
 ticket: OME-1460
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-06
-finished:
+finished: 2026-10-06
 ---
 
 # one-fetch-path-fold — every Imported Benchmark prepared by Task replay; the Hugging Face path deleted
@@ -64,7 +64,43 @@ importer command. Closes the ticket.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, plus `revision_inputs.py` (pins.py's three plugin-wide
+  revision inputs, moved verbatim), `tests/unit/inspect/test_importer_command.py` (the
+  one-path command), `tests/unit/inspect/replayed_cases_helpers.py` (Benchmark tests prepare
+  their Cases by Task replay's own rendering), the deleted `scripts/sweep_task_replay_fold.py`
+  and `docs/diagrams/importer-pipeline.*`, and the approval in
+  `.claude/test-change-approvals/OME-1460.json`. Diff against PR 1 of 2: 36 files changed, 1565 insertions(+), 7833 deletions(-).
+- **Commits:** the spec amendment; the inert-seed refusal; `--keep-sample-metadata`; the
+  non-ASCII excluded id fix; the 30-row fold with re-pointed tests and 20 literal moves; the
+  deletion; the R15 no-network lane and the lab_bench answer test; the docs; the approval; the
+  importer Protocol fix.
+- **Gates:** `run_gates.py screamingface-engine --skip-append-only` ALL GATES GREEN (ruff,
+  format, pyright, layering, pytest with coverage); without the skip, the append-only check
+  approves all ten changed prior test files (OME-1460.json) and flags only the two deleted
+  files, which no blob approval can cover. Pyright without the `inspect` extra (CI's shape)
+  clean. `run_gates.py repo` green. Every one of the 30 rows was sealed by the real two-run
+  import against its live sources (run 2 is the image-side child every build runs).
 - **Deviations:**
+  - 30 rows, not 28: coconot's two arrived with OME-1371 (spec amended).
+  - The 30 rows landed in one commit, not two halves (P5): both halves were imported in one
+    pass; the fold notes still name each row's change.
+  - Two importer additions the plan did not name: a declared seed nothing applies is refused
+    (R10's promise needed the import child to report which seeds it used), and
+    `--keep-sample-metadata` (coconot's Judge reads Sample metadata while its scorer is
+    inspect's own, which alone drops it; without the flag coconot would grade blind).
+  - onet_m6's Thai excluded ids exposed an ASCII-only guard in the row writer; the ids land
+    inside a JSON string literal, so only an unreadable id is refused now.
+  - `pins.py` also held three plugin-wide revision inputs; they moved verbatim to
+    `revision_inputs.py` (house pattern), so no Benchmark Revision moved for them.
+  - 20 frozen literals moved, not 19: frontierscience freezes its own revision in its own test.
+  - Ten prior test files changed, not three: generic tests used the gsm8k Hugging Face row as a
+    fixture through a shared helper; all re-pointed with the owner's approval (2026-10-06).
+  - One prior scorer test passed only by test order (the judge provider registers on import);
+    it now imports the provider itself.
+  - `import_replay.py` is 480 lines, over the 450 guideline; its two new helpers belong with the
+    import's run, and splitting it would move public names other modules import.
+  - boolq's licence `cc-by-sa-3.0` is carried over from its Hugging Face-path row; it is not
+    on the cleared list, so the owner confirms it in review.
+  - The review agent's config (`.claude/agents/sf-code-review.md`) still names
+    `screamingface_engine_inspect/pins.py`; it is owner territory and left for a review-agent
+    PR.
