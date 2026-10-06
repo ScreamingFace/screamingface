@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1496",
+  "branch": "OME-1496-paid-smoke-qwen-reasoning-low",
+  "approver": "Sergey Bershadsky (owner), in the dispatch of this unit",
+  "date": "2026-10-06",
+  "scope": "tests/paid/_panel.py only: the members line of fusion_panel() reads per-member params (new MEMBER_PARAMS) instead of PANEL_PARAMS. No assertion changed; test_panel_models.py is append-only.",
+  "reason": "Owner decision after paid run 37442602029: limit the qwen member's reasoning with reasoning_effort=low, on qwen only. The owner named this line (members built at ~line 66) as the place to change.",
+  "files": {
+    "packages/screamingface/tests/paid/_panel.py": {
+      "base_blob": "2f405915ac418f633f5425312e62950be716a17f",
+      "approved_blob": "48dfab1b46e5699ec100e4eb011631623770bd6c"
+    }
+  }
+}

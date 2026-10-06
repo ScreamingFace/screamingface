@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import screamingface as _sf
 
 # INVARIANT: every model here must be a gateway seed (aigateway's openrouter plugin
@@ -39,6 +41,20 @@ SYNTHESIZER_MODEL: Final[str] = "openrouter/google/gemini-3-flash-preview"
 # for all of them costs nothing, and there is no list of reasoning boards to maintain.
 PANEL_PARAMS: Final[dict[str, int | float]] = {"max_tokens": 32768, "temperature": 0.0}
 
+# WHY qwen alone reasons at "low" (run 37442602029, 2026-10-06): after #1254's Task replay
+# changed inspect's shuffle, `slice=0:2` on lab_bench cloning_scenarios picks two longer DNA
+# Cases. qwen spent the whole 32768-token cap on reasoning on both (65536 reasoning tokens)
+# and wrote no answer, so both Fusion Cases died with `model_token_cap`; on 2026-10-02 the
+# old pair passed at ~15k output tokens. `reasoning_effort="low"` bounds the thinking while
+# keeping qwen a live reasoning member. Only qwen gets it: haiku and the synthesizer keep
+# PANEL_PARAMS, so only qwen's calls re-key the cache. The gateway's OpenRouter plugin
+# forwards the field verbatim (OME-993, enum low/medium/high).
+# INVARIANT: the cap stays panel-wide at 32768 — `test_panel_models.py` pins both facts.
+MEMBER_PARAMS: Final[dict[str, Mapping[str, int | float | str]]] = {
+    "openrouter/qwen/qwen3.7-flash": {**PANEL_PARAMS, "reasoning_effort": "low"},
+    "openrouter/anthropic/claude-haiku-4.5": PANEL_PARAMS,
+}
+
 # WHY board-agnostic wording: one panel serves every imported board (math, MCQ,
 # yes/no, free-text science), so the prompt asks for reconciliation and one committed final answer
 # without assuming any answer format.
@@ -63,6 +79,6 @@ def fusion_panel() -> _sf.Fusion:
 
     import screamingface as sf
 
-    members = [sf.Model(model=model, params=PANEL_PARAMS) for model in MEMBER_MODELS]
+    members = [sf.Model(model=model, params=MEMBER_PARAMS[model]) for model in MEMBER_MODELS]
     synthesizer = sf.Model(model=SYNTHESIZER_MODEL, params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT)
     return sf.Fusion(name="paid_smoke_panel", members=members, synthesizer=synthesizer)
