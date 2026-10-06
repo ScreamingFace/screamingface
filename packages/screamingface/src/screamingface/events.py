@@ -120,11 +120,17 @@ class Span(Event):
     would have cost had they not been served from cache. They are **not** money spent — a hit
     costs nothing upstream, and ``usage`` reports the real spend.
 
-    Do not add them together. ``cache_saved_cost_usd`` is money the provider itself priced for
-    the call that filled the entry. ``cache_saved_cost_archive_usd`` is a real measured amount
-    from a *different* call of the same model and kind, so it says nothing provable about this
-    span. They are two fields rather than one amount plus a label precisely so the difference
-    cannot be collapsed; summing them produces a figure that describes neither.
+    They are two separate measurements, kept apart by provenance. ``cache_saved_cost_usd`` is
+    money the provider itself priced for the call that filled the entry.
+    ``cache_saved_cost_archive_usd`` is a real measured amount from a *different* call of the
+    same model and kind, so it says nothing provable about this span's own call. This event never
+    combines them, and neither should a reader of a single span: two fields rather than one amount
+    plus a label keep that difference visible.
+
+    The Scoreboard does combine them, as a policy, not a measurement: once a whole run's pricing
+    coverage is complete (every cache hit priced, reported or archive), it publishes the run's
+    reproduction cost as spend plus both savings. That sum is the board's derived figure; the two
+    raw amounts are still sent and stored separately.
 
     ``None`` means nothing priceable was observed, which is not the same as zero.
     """
@@ -155,7 +161,9 @@ class Span(Event):
     # `archive_matched` is a real amount measured from a DIFFERENT call of the same model and
     # kind. url4 keeps them apart "precisely so the two can never be summed — a single amount
     # plus a label invites a consumer to add the labels away" (PRD S5). Adding them here would
-    # do server-side what both the engine and url4 refuse to do.
+    # do server-side what both the engine and url4 refuse to do. The ONE place they are added is
+    # the Scoreboard's reproduction cost (OME-1382, OME-1251 D7), a policy over a whole run whose
+    # every hit is priced; see the class docstring.
     cache_saved_cost_usd: Decimal | None = None
     cache_saved_cost_archive_usd: Decimal | None = None
     kind: ClassVar[str] = "span"

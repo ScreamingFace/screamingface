@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first revision; D2 REMOVE retained; execution approval remains separate
 created: 2026-09-09
-updated: 2026-09-29
+updated: 2026-10-05
 base: 17048f5d9794dc39401352cc049dc1b17a54f7c0
 catalog: screamingface-design 679aa8f (branch OME-1178-add-the-aigateway-metamodel, PR #18); generator inputs 802bed9a
 revises: 2026-09-10 revision (Connection-first ordering; its verified content is retained below)
@@ -215,12 +215,12 @@ Successors (each an owner decision, published only when the consumer that needs 
   listing). Published at A4 together with the Engine switch, not earlier. The 2026-09-10
   alternative `GET /v1/oauth/connections?effective=true` is rejected: it presupposes the Connection
   backing and exposes labels, ids and locators.
-- Admin successor (D18): a pair-addressed, API-key-only, masked resource without a name segment and
-  without defaults (`409` when a pair holds more than the single compatible record; the legacy
-  routes remain the way to act on named records). Its final shape depends on D11/D12; the in-process
-  admin interface lands first so the HTTP shape changes once. The Admin UI's attach/replace call
-  has sent only the key since the UI half of the D2 cutover (`OME-1322`); it moves to this successor
-  with D18.
+- Admin successor (D18, decided 2026-10-05): a pair-addressed, API-key-only, masked `Connection`
+  resource without a name segment and without defaults; ambiguous or unresolved pairs answer `409`
+  and the legacy routes remain the way to act on named records in the window. The normative contract
+  is `docs/spec/2026-10-02-provider-credential-admin-contract.md`; it is not repeated here. The
+  Admin UI's attach/replace call has sent only the key since the UI half of the D2 cutover
+  (`OME-1322`); it moves to this successor with the D18 UI landing.
 - Legacy Profile routes: unchanged behaviour in the window, except the five writers' `defaults`
   refusal from stage C (above); OpenAPI deprecation flags and any `schema.d.ts` regeneration are
   coordinated changes recorded with the gateway revision.
@@ -388,9 +388,10 @@ invariant suites.
   accepted-work disposition approved; retirement returns a code, never an empty list.
 - Selectors (D4): the provenance census is **waived 2026-09-25 (owner, recorded on
   `OME-1381`)** — dev evidence and the absence of first-party callers that send `X-Profile` are
-  accepted as sufficient; queued and in-flight work carrying `AIGATEWAY_PROFILE` drained or
-  dispositioned, worker ambient env audited, Engine emission and URL4 argument retired, then the
-  gateway rejects present selectors with 400.
+  accepted as sufficient. Gateway rejection merged before final carrier cleanup under the accepted
+  alpha-canary risk. On 2026-10-01 the owner confirmed no legacy queue messages remain; `OME-1449`
+  and `OME-1450` therefore remove the Engine queue/env/request carrier and URL4 argument together,
+  without a compatibility reader. Every ingress keeps rejecting present selectors with 400.
 - Storage: after the backing switch, no unresolved quarantine, D6 retention fulfilled, the named
   rollback build no longer needs the legacy index.
 - History: separately authorised cleanup; reference validation and deletion share one atomic
@@ -431,7 +432,7 @@ mechanism for option (a) and as the semantic requirements for option (b):
 
 ## 8. Decision register
 
-D1–D10 are preserved as decided; D11–D20 are new (D11, D12, D13, D14, D15, D16, D17, D19 and D20 decided — D12 and D13 for Stage D on 2026-09-25; D18 open).
+D1–D10 are preserved as decided; D11–D20 are new (all decided — D12 and D13 for Stage D on 2026-09-25; D18 on 2026-10-05).
 Conflicts are presented, not resolved.
 
 | ID | Decision | Contract | Status |
@@ -449,11 +450,11 @@ Conflicts are presented, not resolved.
 | D11 | Backing model | (a) transfer to Connections + slot, remove Profiles; (b) rework the current Profile mechanisms into an internal aggregate that still publishes Connections as the credential resource | **decided 2026-09-22 (owner; design PR #23): (a), conservatively** — one deterministic effective credential per `(account, provider)` pair, no selectable accounts or credentials per provider; Stage B moves credential authority to Connections through the `provider_credential_slots` pair marker and locator-authoritative reads without secret re-entry (`OME-1208`); Profile storage, routes and schemas are retained until Stage E (`OME-1209`); D17/D18 shapes follow from it; whether `Selector` survives is D12 (Stage D) |
 | D12 | Selector after cutover | (a) selector-less pair → one target, multi-Connection pairs dispositioned (D3); (b) label disambiguation stays supported (today's 409) | **decided for Stage D 2026-09-25 (owner, `OME-1377`): (a)** — selector-less `(account, provider)` resolves one effective target; every nonblank `X-Profile` gets non-retryable 400 `x_profile_unsupported` without the requested value; scope: gateway chat, model parameters, admission and provider-access availability, Engine execution, catalog, model parameters and connections (not health or unrelated admin); a pair with several active Connections keeps its 409 with a message that no longer suggests `X-Profile`; no replacement selector; existing codes are not renamed in Stage D. **Stage B window rule decided 2026-09-22 (owner; design PR #23):** a Connection-only pair with several active Connections is not migrated (`none`), so label resolution and its 409 remain during the compatibility window. **Stage D clarification 2026-09-28 (owner, `OME-1394`):** label resolution ends at sunset; selector-less `[default, backup]` is also ambiguous and returns 409 rather than auto-selecting `default`. |
 | D13 | Approved protocol surface | removing `X-Profile` from solution `completions` v7 / `model-catalog` v5: successor protocols vs prose bump | **decided 2026-09-25 (owner, `OME-1377`): version bump** of the existing cards with an explicit "Stage D target, not live" section; `supersedes`/`deprecated` only when an entity is actually replaced (Stage E); landing `OME-1380` merged 2026-09-25 (design PR #25, `3ba6a3d`) before any census instrumentation or runtime code |
-| D14 | Dual OAuth write owner | (a) gate the Profile flip and stop shadow Connections; (b) shadow Connection canonical, Profile a view; (c) both until B with a reconciliation rule | **decided 2026-09-22 (owner; design PR #23): per-pair authority marker** — for a `migrated` pair the Connection backing owns every write, including the OAuth callback publication (the Profile routes are facades over it); an unmigrated or `quarantined` pair keeps today's legacy behaviour, shadow Connection write included; never two independent write owners for one owned pair; applied by `OME-1208`; the census stays a Q02 item for the apply run |
+| D14 | Dual OAuth write owner | (a) gate the Profile flip and stop shadow Connections; (b) shadow Connection canonical, Profile a view; (c) both until B with a reconciliation rule | **decided 2026-09-22 (owner; design PR #23): per-pair authority marker** — for a `migrated` pair the Connection backing owns every write, including the OAuth callback publication (the Profile routes are facades over it); an unmigrated or `quarantined` pair keeps today's legacy behaviour, shadow Connection write included; never two independent write owners for one owned pair; applied by `OME-1208`; the census stays a Q02 item for the apply run. **Refined 2026-10-05 (`OME-1375`, D18 writer floor):** `none` and `quarantined` writers are fenced on the pair generation; their legacy owner and the shadow Connection write stay as decided here |
 | D15 | Hosted read-only rule | (a) explicit mutability flag; (b) gateway-side policy | **decided 2026-09-14: (a)** explicit flag on the Engine connections adapter, Hosted `mutable=False`, Local `mutable=True`; any Hosted mutation refused before network or storage I/O; applied at A4 |
 | D16 | Defaults during transition | (a) legacy index read-only for defaults until cutover; (b) cutover precedes the switch | **decided 2026-09-22 (owner; design PR #23): (a)** — a migrated pair's legacy index entry remains a defaults-only compatibility document during the transition; Stage B creates no Connection defaults, presets or hidden saved defaults; the full REMOVE at Stage C (D2) is unchanged |
 | D17 | Availability successor | (a) neutral `GET /v1/provider-access` (recommended); (b) `?effective=true`; plus whether Connection-only accounts fold into the window listing | **decided 2026-09-14: (a)** caller-scoped read-only `GET /v1/provider-access` returning only `provider` and `status` ∈ {not_connected, pending, connected, needs_reauth, error}; the Profile-backed implementation never emits `needs_reauth` in the window; no ids, labels, defaults, `auth_method`, `account_label` or secrets; `private, no-store`; `X-Profile` non-selecting; A3 reproduces the Engine aggregation with golden-equivalence tests; the Hosted Engine switch is A4, separately |
-| D18 | Admin HTTP successor | pair-addressed neutral resource: publish after D11, or now beside the legacy routes | **open**; the UI defaults fieldset dropped at C (`OME-1322`, PR #1043), so the key-only attach/replace call now waits only on this successor; conflict codes on the successor to confirm — the legacy contract has two (503 retry-exhausted, 409 superseded-by-delete) |
+| D18 | Admin HTTP successor | pair-addressed neutral resource: publish after D11, or now beside the legacy routes | **decided 2026-10-05 (owner, `OME-1375`)**: normative contract in `docs/spec/2026-10-02-provider-credential-admin-contract.md` — `GET /v1/admin/accounts/{account_id}/connections`, `PUT …/connections/{provider}/api-key`, `DELETE …/connections/{provider}`; ordered pair disposition with a mutation-time bridge for single-candidate `none` pairs; a G0 writer floor before the G1 successor; dedicated successor codes. Correction: the legacy contract has three concurrency outcomes, not two (503 `profile_index_conflict`, 409 `profile_conflict`, 409 `connection_conflict`) and keeps all three. The UI defaults fieldset dropped at C (`OME-1322`, PR #1043), so the key-only attach/replace call moves with the UI landing of this successor |
 | D19 | Module naming | no file introduced by the provider-access unit has a name beginning with `_`; `__init__.py` is the required Python exception; underscores between words in `snake_case` names are allowed | **decided 2026-09-15**; applied by `OME-1204` (A1 follow-up: five package modules and two test helpers renamed, rename-only); binds A3's `profile_admin.py` and every later module of the package |
 | D20 | Provider identity naming | final product/API/domain noun is `Connection`; `provider access` is the boundary/successor family; `Profile` is legacy compatibility/current backing only; `Provider Account` is not a resource/API/UI noun | **decided 2026-09-16** by `OME-1210`; binds OME-1207 wording and every successor API/doc/UI change; it settles naming only — the backing mechanics are D11, decided separately on 2026-09-22 |
 
@@ -473,7 +474,7 @@ mechanism survives in §7. No owner decision is contradicted.
 | S3 admin Connection API + `effective=true` | reshaped (D17/D18); `connection_id` addressing redundant as a consumer boundary | it hard-codes the backing; in-process admin interface lands at A3 instead |
 | S4 backfill | necessary for D11(a), unchanged in content; after D14 | option (b) needs the same discipline for its own migration |
 | S5 Hosted Engine | reordered to A4 (after D17), before any storage work | one switch only |
-| S6/S9 carrier retirement | unchanged; Stage D | disposition-gated |
+| S6/S9 carrier retirement | coordinated `OME-1449` Engine and `OME-1450` URL4 landing; Stage D | owner confirmed no legacy queue messages on 2026-10-01; no compatibility reader |
 | S7 Admin UI | later than before: the defaults fieldset dropped at C (`OME-1322`); list/delete and the key-only attach/replace move with D18 | the attach call carried defaults until C |
 | S8 SDK | no work in the window; mapping edit only at D | codes unchanged |
 | S11 cutover, S12 cleanup, S13 catalog | unchanged in content; S13 gains additive text at A1 | as before |
@@ -486,8 +487,8 @@ mechanism survives in §7. No owner decision is contradicted.
   delete-leaves-shadow reachability; security-relevant; census not run.
 - Hosted availability semantics for Connection-only accounts and `needs_reauth` change at the
   backing switch unless deliberately reproduced (D17).
-- Post-sunset 400 on queued runs with `AIGATEWAY_PROFILE` and on workers with an ambient value
-  (out-of-band injection unverified; chart supplies none).
+- The no-legacy-message disposition is an owner-provided assertion, not a production census claim;
+  the retired carrier has no compatibility reader after `OME-1449`/`OME-1450`.
 - After the sunset a pair with several active Connections has no selection escape: its 409 stands
   and only removing the extra Connections recovers it; how many such pairs exist is unmeasured.
 - Re-pointing the 4 storage-invariant, 2 facade or 1 bootstrap suites to a shared seed fixture would
@@ -517,8 +518,8 @@ mechanism survives in §7. No owner decision is contradicted.
 - Hosted Engine: per-fixture aggregation equality; mutation refusal before I/O; DTO field-set pin.
 - Backing (B): slots/authority crossing/mapping/bridge/backfill/rollback matrices of the previous
   revision, on SQLite and PostgreSQL.
-- Cutover (C) and sunset (D): REMOVE matrix; cache agreement; 400 tests; carrier compatibility
-  matrix; SDK mapping with retryable pending; e2e replay pin updated in the same PR.
+- Cutover (C) and sunset (D): REMOVE matrix; cache agreement; 400 tests; carrier-absence contracts;
+  SDK mapping with retryable pending; e2e replay pin updated in the same PR.
 - Cleanup (E): reference fencing; tooling retirement list; disappearance guard still fails on an
   unlisted disappearance.
 

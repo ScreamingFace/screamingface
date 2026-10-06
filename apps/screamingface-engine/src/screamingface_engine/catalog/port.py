@@ -8,7 +8,7 @@ STORY: as a client composing a url4 expression, I ask screamingface-engine which
 model paths exist before I reference one, instead of guessing and failing at run
 time.
 
-Defines the shared identity, the cached model-list contract, the uncached profile-bound parameter
+Defines the shared identity, the cached model-list contract, the uncached model-parameter
 contract, and the RFC 9457-style error hierarchy. ``CatalogSource`` and
 ``ModelParameterSource`` stay separate so a catalog-only adapter is not forced to pretend it can
 serve details.
@@ -49,17 +49,15 @@ class Credential:
     responses must never be served to an identified caller, or vice versa.
     """
 
-    profile: str | None
     key: str
     identity: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def derive(
         cls,
-        profile: str | None = None,
         identity: Mapping[str, str] | None = None,
     ) -> Credential:
-        """Build a credential and its cache key from the caller's profile and verified identity.
+        """Build a credential and its cache key from the caller's verified identity.
 
         INVARIANT: the key is a *digest*, and it is fixed-length — so per-entry memory cannot be
         chosen by whoever sends the headers (spec §7).
@@ -75,9 +73,10 @@ class Credential:
         identity_material = _KEY_SEPARATOR.join(
             f"{name}={identity[name]}" for name in sorted(identity)
         )
-        material = f"{profile or ''}{_KEY_SEPARATOR}{identity_material}".encode()
+        # Preserve the former selector-less key material so an in-process deployment does not
+        # invalidate every catalog entry merely because the retired field disappeared.
+        material = f"{_KEY_SEPARATOR}{identity_material}".encode()
         return cls(
-            profile=profile,
             key=hashlib.sha256(material).hexdigest()[:_KEY_LENGTH],
             identity=identity,
         )
@@ -184,7 +183,7 @@ class CatalogSource(Protocol):
 
 @runtime_checkable
 class ModelParameterSource(Protocol):
-    """Anything that can fetch one profile-bound model-parameter contract."""
+    """Anything that can fetch one model-parameter contract."""
 
     async def fetch_model_parameters(
         self,

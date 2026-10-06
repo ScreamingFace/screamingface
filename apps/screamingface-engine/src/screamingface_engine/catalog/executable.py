@@ -44,7 +44,7 @@ class ExecutableCatalog:
 
     The wrapped cache remains caller-scoped and stores AI Gateway's authoritative response.
     Projection happens after that fetch so one deployment-level route set cannot leak into the
-    Gateway adapter's provider/profile contract. Retained model documents and unknown top-level
+    Gateway adapter's provider/model contract. Retained model documents and unknown top-level
     fields pass through unchanged.
 
     OME-880: beside the frozen declared set there is a mutable ``AdmittedModels`` overlay —

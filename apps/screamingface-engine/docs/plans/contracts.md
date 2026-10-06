@@ -132,7 +132,7 @@ Unchanged in shape; changed in who calls it and with what state.
 | Field | Value |
 |---|---|
 | Endpoint | `POST {aigateway_base_url}/v1/chat/completions` |
-| Headers | `X-User-Email` from `REQUEST_SCOPE`, `traceparent`, and `X-Profile` only for a legacy queued run — one whose queue message was accepted before OME-1381 and still carries `AIGATEWAY_PROFILE`, honoured until the drain. A run scheduled since then never carries it: every ingress refuses a nonblank value, and a blank one is read as absent. **No `Authorization`** — aigateway runs `cloudflare_headers` mode and reads identity, not a bearer token. |
+| Headers | `X-User-Email` from `REQUEST_SCOPE` and `traceparent`; never `X-Profile`. Every ingress refuses a nonblank selector before scheduling. **No `Authorization`** — aigateway runs `cloudflare_headers` mode and reads identity, not a bearer token. |
 | Body | `{"model": <decoded id>, "messages": [...], ...}` plus cache directives |
 | Timeout | 28 s on this tier (see ladder) |
 | Retry | Existing connector policy: 1 retry, exponential backoff with jitter. **Must be bounded by the remaining request budget** — a retry that cannot finish inside 30 s should not be attempted. [proposed] |

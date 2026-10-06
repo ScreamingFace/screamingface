@@ -9,6 +9,12 @@
   fields on the declaration. R2, R6, R9, the Runs / Taken / Never-runs table and two Known
   limitations changed; the declaration lost its three template fields. Plan:
   `docs/plan/2026-10-02-OME-1273-capture-rendering.md`.
+- Amended 2026-10-05 (owner direction, on #1222): two refusals of plan step 7 become
+  Benchmarks. R18 adds excluded Sample ids to a Task-replay declaration (sad_stages_full's
+  three empty Samples), and R19 lets a Benchmark with no answer key and no Judge assemble
+  when its own scorer grades from the reply alone (cyberseceval_4 mitre_frr). The "Named
+  Deviations on Task-replay Benchmarks" line left Out of scope. Plan: the step-7 ledger,
+  `docs/work/2026-10-02-ome-1273-task-replay-benchmarks-3.md`.
 - Component: `apps/screamingface-engine` (`screamingface_engine_inspect`).
 - Ticket: [OME-1273](https://linear.app/openmined/issue/OME-1273/import-the-single-turn-benchmarks-the-importer-still-refuses). Parent epic: OME-1299.
 - Ledger: `docs/work/2026-09-30-ome-1273-task-replay-spec.md`.
@@ -282,6 +288,25 @@ fetch happen.
   named reason, the same way sevenllm's QA tasks did. Judge-graded Benchmarks (later tickets)
   need their own version of this test, with the Judge stubbed or only the gateway allowed.
 
+### Named Deviations and key-less grading (amended 2026-10-05)
+
+- **R18. Excluded Sample ids.** A Task-replay declaration may name upstream Sample ids
+  (`str(Sample.id)`) that Case Preparation leaves out, with the reason written beside them, as
+  the Hugging Face path's `excluded_sample_ids` already does (onet_m6). They are dropped after
+  the task builds its dataset and before capture, so the Cases are numbered 1..N over what is
+  kept and `case_count` is that count. An id that is no longer in the dataset refuses, by name.
+  The ids join the Benchmark Revision only when set, so no published revision moves. The
+  importer takes them as a repeatable `--excluded-sample-id` and writes them into the row.
+  sad_stages_full needs it: three of its 800 Samples have an empty question.
+- **R19. No answer key, no Judge.** A Benchmark whose Samples carry no answer key may assemble
+  without a Judge only when its row declares that its own scorer never reads the key
+  (`scorer_reads_answer_key=False`) and that scorer is the eval's own, not one of inspect's
+  built-ins, which all compare against the key. A test grades each such row's reply against an
+  empty key and a non-empty one and requires the same grade. The importer takes
+  `--no-answer-key` so the replay accepts the empty keys; the scorer claim stays a hand edit
+  the reviewer reads. mitre_frr needs it: a regex over the reply decides "refused" or
+  "accepted".
+
 ### Benchmarks and glossary
 
 - **R13. The 14 Benchmarks.** Each is imported with its Case Digest agreeing across two Case
@@ -326,8 +351,6 @@ fetch happen.
   OME-1400.
 - DROP's worked examples (OME-1419), stereoset's two scorers (OME-1268), mind2web's images
   (OME-1271), bold's torch classifiers (no ticket).
-- Named Deviations on Task-replay Benchmarks (excluded ids and the like). None of the 14 needs
-  one; add it when a Benchmark does.
 - Checking Case Sources at build (see Known limitations).
 
 ## Delivery — stacked PRs, each under about 500 lines

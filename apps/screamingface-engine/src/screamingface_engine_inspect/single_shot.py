@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Unpack
 
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.aggregation import CandidateScore
@@ -65,6 +65,7 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.provenance import ProvenanceFields
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
     CaseGradeOutcome,
@@ -80,12 +81,12 @@ from screamingface_engine_inspect.envelopes import (
     build_case_grade,
     decode_case_grade,
 )
-from screamingface_engine_inspect.pins import (
+from screamingface_engine_inspect.prepare import SKIPPED_MARKER
+from screamingface_engine_inspect.revision_inputs import (
     PREPARER_REVISION,
     PROTOCOL_REVISION,
     pinned_inspect_packages,
 )
-from screamingface_engine_inspect.prepare import SKIPPED_MARKER
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Request, Url4Node
 
@@ -217,6 +218,7 @@ def single_shot_benchmark(
     judge: JudgeSpec | None = None,
     inverted_grade: bool = False,
     verdict_grades: Mapping[str, float] | None = None,
+    **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
 
@@ -332,6 +334,9 @@ def single_shot_benchmark(
         install=install,
         focus=focus,
         dataset_url=dataset_url,
+        # Benchmark Provenance, baselines, notebook (OME-1455): authored on the BenchmarkSpec
+        # row like `difficulty`, threaded through verbatim; shapes checked by `Benchmark`.
+        **provenance,
         declaration=BenchmarkDeclaration(
             # WHY "coverage_declare": imported benchmarks reduce through the shared
             # finalize_candidate_result, which scores the gradeable subset and

@@ -1,12 +1,12 @@
 ---
 id: OME-1130
 linear_url: https://linear.app/openmined/issue/OME-1130
-status: in_review
+status: done
 type: null
 priority: 2
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-10
-closed: null
+closed: 2026-09-29
 ---
 
 # Export a run's span frames to OTLP

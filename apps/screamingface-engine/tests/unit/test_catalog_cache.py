@@ -16,8 +16,13 @@ from screamingface_engine.catalog.port import (
 
 pytestmark = pytest.mark.asyncio
 
-CRED_A = Credential.derive("token-a")
-CRED_B = Credential.derive("token-b")
+
+def _credential(name: str) -> Credential:
+    return Credential.derive({"X-User-Email": f"{name}@example.com"})
+
+
+CRED_A = _credential("caller-a")
+CRED_B = _credential("caller-b")
 
 
 class FakeClock:
@@ -142,7 +147,7 @@ async def test_twenty_concurrent_misses_on_one_key_cause_exactly_one_fetch() -> 
 async def test_distinct_keys_are_not_serialised_behind_each_other() -> None:
     source = FakeSource(delay=0.05)
     cache = build(source, FakeClock())
-    creds = [Credential.derive(f"token-{index}") for index in range(5)]
+    creds = [_credential(f"caller-{index}") for index in range(5)]
     await asyncio.gather(*(cache.fetch(cred) for cred in creds))
     assert len(source.calls) == 5
     assert source.max_concurrent > 1
@@ -250,7 +255,7 @@ async def test_the_entry_count_is_capped_and_the_oldest_key_is_evicted() -> None
     source = FakeSource()
     clock = FakeClock()
     cache = build(source, clock, max_entries=3)
-    creds = [Credential.derive(f"token-{index}") for index in range(4)]
+    creds = [_credential(f"caller-{index}") for index in range(4)]
     for cred in creds:
         await cache.fetch(cred)
     assert cache.entry_count == 3
@@ -263,7 +268,7 @@ async def test_reading_a_key_makes_it_recently_used() -> None:
     source = FakeSource()
     clock = FakeClock()
     cache = build(source, clock, max_entries=2)
-    first, second, third = (Credential.derive(f"token-{index}") for index in range(3))
+    first, second, third = (_credential(f"caller-{index}") for index in range(3))
     await cache.fetch(first)
     await cache.fetch(second)
     await cache.fetch(first)
@@ -276,7 +281,7 @@ async def test_reading_a_key_makes_it_recently_used() -> None:
 async def test_concurrent_upstream_fetches_never_exceed_the_bulkhead() -> None:
     source = FakeSource(delay=0.02)
     cache = build(source, FakeClock(), upstream_concurrency=2)
-    creds = [Credential.derive(f"token-{index}") for index in range(10)]
+    creds = [_credential(f"caller-{index}") for index in range(10)]
     await asyncio.gather(*(cache.fetch(cred) for cred in creds))
     assert len(source.calls) == 10
     assert source.max_concurrent <= 2
@@ -285,8 +290,8 @@ async def test_concurrent_upstream_fetches_never_exceed_the_bulkhead() -> None:
 async def test_a_saturated_bulkhead_fails_fast_instead_of_queueing_forever() -> None:
     """The bulkhead protects aigateway; the wait bound protects THIS process.
 
-    Cache keys derive from credentials screamingface-engine does not verify, so
-    distinct bogus tokens bypass single-flight entirely and every request takes the
+    Cache keys derive from verified caller identities, so distinct callers bypass single-flight
+    and every request takes the
     cold-miss path. Without a bound on the wait, those queue behind the upstream
     call with no ceiling — indistinguishable, from the
     caller's side, from a hang.
@@ -300,11 +305,11 @@ async def test_a_saturated_bulkhead_fails_fast_instead_of_queueing_forever() -> 
             raise AssertionError("unreachable")
 
     cache = CachedCatalog(_Blocking(), upstream_concurrency=1, bulkhead_wait_s=0.05)
-    holder = asyncio.ensure_future(cache.fetch(Credential.derive("first")))
+    holder = asyncio.ensure_future(cache.fetch(_credential("first")))
     await asyncio.wait_for(started.wait(), timeout=1)
 
     with pytest.raises(CatalogError, match="saturated"):
-        await cache.fetch(Credential.derive("second"))
+        await cache.fetch(_credential("second"))
 
     holder.cancel()
 
@@ -320,8 +325,8 @@ async def test_the_bulkhead_slot_is_released_when_upstream_fails() -> None:
     cache = CachedCatalog(_Failing(), upstream_concurrency=1, bulkhead_wait_s=0.05)
     for i in range(5):
         with pytest.raises(CatalogError):
-            await cache.fetch(Credential.derive(f"cred-{i}"))
+            await cache.fetch(_credential(f"caller-{i}"))
 
     # If slots leaked, this raises "saturated" rather than the upstream's own error.
     with pytest.raises(CatalogError, match="upstream down"):
-        await cache.fetch(Credential.derive("final"))
+        await cache.fetch(_credential("final"))

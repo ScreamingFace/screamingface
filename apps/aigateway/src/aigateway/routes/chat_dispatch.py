@@ -12,15 +12,18 @@ helpers cannot participate in its key or storage lifecycle.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
 from collections.abc import Callable
 from typing import Any, cast
 
+import httpx
 from fastapi import HTTPException, Request
+from litellm.exceptions import Timeout
 
-from ..core.concurrency import effective_provider_limit, provider_slot
+from ..core.admission import ProviderExecutionTimeout, dispatch_with_budgets
 from ..core.credential_blob import DispatchObservation, OperationalOutcome
 from ..core.http_status import valid_http_error_status
 from ..core.provider_access import CredentialTarget, operational_access_for, provider_access_for
@@ -245,10 +248,13 @@ async def _dispatch_with_backpressure(
     """
     settings = request.app.state.settings
 
-    def _attempt() -> Any:
+    async def _attempt() -> Any:
         if on_dispatch is not None:
             on_dispatch()
-        return plugin.chat_completion(body)
+        try:
+            return await plugin.chat_completion(body)
+        except (Timeout, httpx.TimeoutException):
+            raise ProviderExecutionTimeout() from None
 
     # FEATURE (OME-1132): the provider call as a CHILD span — "which provider was slow",
     # answerable at last. Deliberately wraps the WHOLE block, slot wait and retries included,
@@ -261,13 +267,27 @@ async def _dispatch_with_backpressure(
     # `middleware/call_id.py` was written to undo for the correlation ids. One extra clock read
     # is the cheaper of the two costs.
     with provider_span(provider):
-        async with provider_slot(
-            request.app, provider, effective_provider_limit(settings, provider)
-        ):
-            return await with_overload_retry(
-                _attempt,
-                policy=RetryPolicy.from_settings(settings),
+        try:
+            return await dispatch_with_budgets(
+                request,
+                provider,
+                lambda: with_overload_retry(_attempt, policy=RetryPolicy.from_settings(settings)),
             )
+        except asyncio.CancelledError:
+            if not getattr(request.state, "provider_disconnect_cancelled", False):
+                raise
+            work = asyncio.current_task()
+            assert work is not None
+            # INVARIANT: consume only the watcher's cancellation. Concurrent server
+            # shutdown or caller cancellation must still propagate to the ASGI server.
+            if work.uncancel():
+                raise
+            # WHY: a normal HTTP response lets middleware unwind without an ASGI
+            # ERROR traceback; the client has gone and cannot receive this response.
+            raise HTTPException(
+                status_code=499,
+                detail={"code": "client_disconnected", "message": "The client disconnected."},
+            ) from None
 
 
 # WHY (FINDING B): the client-facing message is gateway-authored per machine

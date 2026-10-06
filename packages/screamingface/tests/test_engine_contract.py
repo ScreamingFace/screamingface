@@ -67,6 +67,26 @@ def test_state_decodes_public_events_and_root_lifecycle() -> None:
     assert terminated.outcome.started_at.isoformat() == "2026-07-25T16:00:00+00:00"
 
 
+@pytest.mark.parametrize("status", ["succeeded", "failed", "stopped", "timed_out"])
+def test_termination_without_an_identified_root_raises(status: str) -> None:
+    state = _RunState(URL4)
+    state.accept(frame("ai.url4.started", {"url4": "(@)!'different'"}, sequence=1))
+
+    with pytest.raises(ExecutionError, match="run root was never identified.*URL4 mismatch"):
+        state.accept(frame("ai.url4.terminated", {"status": status, "error": None}, sequence=2))
+
+
+def test_out_of_order_termination_replays_the_missing_root_start_before_decoding() -> None:
+    state = _RunState(URL4)
+    terminal = frame("ai.url4.terminated", {"status": "succeeded", "error": None}, sequence=3)
+
+    assert state.accept(terminal).replay_from == 1
+    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
+    state.accept(frame("ai.url4.result", {"body": "hello"}, sequence=2))
+
+    assert state.accept(terminal).outcome is not None
+
+
 def test_unpriced_usage_does_not_fabricate_zero_accounting() -> None:
     accepted = _RunState(URL4).accept(
         frame(

@@ -166,5 +166,5 @@ async def test_no_metric_line_ever_carries_a_credential_or_cache_key() -> None:
         await client.get("/v1/models", headers={"Authorization": f"Bearer {TOKEN}"})
         scrape = await client.get("/metrics")
     assert TOKEN not in scrape.text
-    assert Credential.derive(TOKEN).key not in scrape.text
+    assert Credential.derive().key not in scrape.text
     await catalog.aclose()

@@ -1,26 +1,51 @@
 # Adding an imported benchmark (inspect_evals)
 
 **TLDR: an imported benchmark is someone else's benchmark, and onboarding it is a customs
-operation, not an authoring project. A benchmark is two data rows — a `CasesSpec` (how to
-prepare the frozen dataset) and a `BenchmarkSpec` (the catalogue entry) — and one command
-generates both by reading the eval's own code. You never write grading code, prompt
-code, or a module: the eval's own `record_to_sample`, prompt template, and scorer are
-CALLED, never reimplemented.** If you find yourself writing a `grade_case` or a new
+operation, not an authoring project. A benchmark is two data rows — a `TaskReplayCasesSpec`
+(how Case Preparation replays the eval's own task function, sealed by a Case Digest) and a
+`BenchmarkSpec` (the catalogue entry) — and one command generates both by calling the eval's
+own task function, twice. You never write grading code, prompt code, or a module: the
+eval's own loader, solvers and scorer are CALLED, never reimplemented.** If you find yourself writing a `grade_case` or a new
 file under `benchmarks/`, you are on the wrong page — that is
 [`adding-a-benchmark-manually.md`](adding-a-benchmark-manually.md).
 
 Before the steps, read [`importing-an-inspect-eval.md`](importing-an-inspect-eval.md): for
 every field of an inspect `Task` it says whether we take it, read it as a gate, or replace it
 with our own rule, and for every step of inspect's `eval()` which ScreamingFace component does
-it instead. It also marks what is built today (the Hugging Face path below) against what is
-decided (Task replay, capture rendering, one fetch path), which this how-to does not yet cover.
+it instead. Since OME-1460 there is one path, Task replay, for every eval.
 
 Onboarding is **AI-first** (owner decision 2026-09-16): an agent runs the command and
 writes everything; a human's whole job is verifying the resulting diff. The journey:
 
-<img src="diagrams/importer-pipeline.png" width="1500">
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
+flowchart TB
+  subgraph KEY["HOW TO READ — colours mean who acts"]
+    direction LR
+    k1["🤖 automated"]
+    k2["👤 human-only"]
+    k3[("written to git")]
+    k1 ~~~ k2 ~~~ k3
+  end
+  KEY ~~~ s1
+  s1["🤖 the importing agent runs the command<br/>e.g. commonsense_qa with --shuffle-seed 20260917"]
+  s2["🤖 run 1: the eval's own task function in a clean child<br/>seeds forced, Hub reads learned, Cases captured"]
+  s3["🤖 the Hub names each read's commit and whether it is gated"]
+  s4["🤖 run 2: the image-side child with every pin forced<br/>a different Case Digest is refused"]
+  s5[("the declaration in prepare.py and the row in benchmarks.py")]
+  s6["🤖 the agent writes the prose and resolves every TODO(review)"]
+  s7["👤 a human reviews the diff, decides the licence, merges"]
+  s1 --> s2 --> s3 --> s4 --> s5 --> s6 --> s7
+  classDef auto fill:#1e3a8a,stroke:#4a7fd4,color:#dbeafe
+  classDef human fill:#78350f,stroke:#f5a524,color:#fef3c7
+  classDef data fill:#4c1d95,stroke:#a06ed4,color:#ede9fe
+  class k1,s1,s2,s3,s4,s6 auto
+  class k2,s7 human
+  class k3,s5 data
+  style KEY fill:#111827,stroke:#4b5563,color:#e5e7eb
+```
 
-All three touched files live in the inspect plugin,
+Both touched files live in the inspect plugin,
 `src/screamingface_engine_inspect/` — the engine core is never edited (zero shared-grading
 edits is an acceptance criterion, not an aspiration).
 
@@ -31,14 +56,16 @@ scorer). Before running anything, open the eval's task module in the *installed*
 `inspect_evals` (the exact `==`-pinned version — what you read is what prepares) and
 check:
 
-- The benchmark loads via `hf_dataset(...)` from the HuggingFace Hub. Local/JSON datasets
-  are not importable; the tool refuses them.
+- The eval loads its Cases through a fetch the Case Source recorder can see:
+  `hf_dataset`/`datasets.load_dataset`, `huggingface_hub`'s downloads, inspect's
+  `download`/`file`, or inspect_evals' `_download_remote`. An eval that fetches some other
+  way is refused ("no Case Source was recorded").
 - The scorer is constructed with literal arguments (`match(numeric=True)`,
   `choice()`, `includes()`, …). Non-literal scorer args (callables, model objects)
   make the eval a manual-import candidate, not a row.
-- The dataset's license permits public redistribution — the tool *warns* on an
-  uncleared license and still emits (the diff review is the gate), so check early,
-  not after the work is done.
+- The dataset's license permits public redistribution — a licence off the cleared list is
+  written as `license="TODO"` with the card's value in the note, and assembly refuses
+  `TODO`, so the owner decides before merge. Check early, not after the work is done.
 - Agentic and multi-turn evals are out of scope for this pipeline.
 - **Model-graded (LLM-judged) evals are importable since OME-1240**, with three extra
   conditions:
@@ -55,11 +82,21 @@ check:
     grades only at specific sampling settings either isn't imported, or ships
     without them as a NAMED DEVIATION (below).
   - A judged eval with no answer key (xstest, coconot — the target is empty and the
-    judge grades from the question, the reply and its own prompt) sets
-    `has_answer_key=False` on its cases row; the importer does not add it. Assembly
-    refuses it on a row with no judge, or whose judge template reads `{criterion}`.
-    If the template reads other Sample metadata (coconot's `{refusal}`), also set
-    `keep_sample_metadata=True`.
+    judge grades from the question, the reply and its own prompt) is imported with
+    `--no-answer-key`. Assembly refuses it on a row with no judge, or whose judge template
+    reads `{criterion}`. If the template reads other Sample metadata (coconot's
+    `{refusal}`), also pass `--keep-sample-metadata`: the metadata is then sealed inside the
+    Case Digest.
+  - An eval with no answer key and no judge, whose own scorer grades from the reply
+    alone (cyse4_mitre_frr's refusal regex), is imported with `--no-answer-key` too and sets
+    `scorer_reads_answer_key=False` on its benchmark row. Assembly refuses the flag on
+    a row with a key, with a judge, or on an `inspect_ai.scorer` built-in; a test in
+    `test_inspect_task_replay_benchmarks.py` grades every such row against an empty
+    and a non-empty key and requires the same grade.
+  - A row that must leave Samples out (sad_stages_full's three empty questions, onet_m6's
+    six ungradable ones) takes `--excluded-sample-id` (repeatable) at import; the importer
+    writes `excluded_sample_ids` with a `TODO(review)` where the NAMED DEVIATION's reason
+    goes.
   - A judge that answers in words rather than inspect's C/I/P/N letters (coconot's
     UNACCEPTABLE / ACCEPTABLE / NEITHER) needs `verdict_grades` on the row: each word
     → its grade, copied from the eval's own epoch reducer and pinned to it by a test.
@@ -70,35 +107,30 @@ check:
 From `apps/screamingface-engine` (needs the build-side deps):
 
 ```sh
-uv sync --extra inspect
+uv sync --extra inspect --inexact
 uv run python -m screamingface_engine_inspect.importer \
-    inspect_evals.gsm8k.gsm8k:gsm8k --key gsm8k --task-arg fewshot=0
+    inspect_evals.commonsense_qa.commonsense_qa:commonsense_qa --key commonsense_qa \
+    --shuffle-seed 20260917
 ```
 
-- The task reference is dotted `module:attr` to the **task function** — the same
-  convention the generated rows use for `record_to_sample`.
-- `--key` becomes the catalogue id (`inspect-<key>`) and the pin-constant stem
-  (`GSM8K_*`) — it must start with a letter and derive a distinct stem.
-- `--task-arg name=value` (repeatable) is forwarded to the task function — use it to
-  switch off fewshot examples and similar knobs so the imported benchmark is the plain
-  form.
-- `--shuffle-seed N` pins a serving order. Required when the eval shuffles without
-  its own seed, and useful for grouped splits (mmlu's subjects) — the seed becomes
-  benchmark identity and rides the revision hash.
-- `--choice-shuffle-seed N` pins one per-case **choice order**. Required when the
-  eval passes `shuffle_choices=True` (unseeded — lab_bench, truthfulqa); refused
-  when the eval doesn't shuffle choices at all, and refused when the eval seeds
-  its own choice shuffle (upstream already defines ONE order). The prepare step applies
-  inspect's own `MemoryDataset.shuffle_choices`, and the seed rides the revision
-  hash too.
-- `data_files` + `features` (infinite_bench) need no flag — both are reproduced
-  automatically: `data_files` as a literal pin (dict of str to str only), and
-  `features` as a dotted pointer at the eval's own `Features` constant, resolved
-  and type-checked at prepare. Both ride the revision hash.
+- The task reference is dotted `module:attr` to the **task function**.
+- `--key` becomes the catalogue id (`inspect-<key>`).
+- `--task-arg name=value` (repeatable) is forwarded to the task function in both runs and at
+  every build — use it to switch off fewshot examples and similar knobs so the imported
+  benchmark is the plain form (gsm8k and winogrande: `--task-arg fewshot=0`).
+- `--shuffle-seed N` is the seed forced through inspect's own shuffle when the eval calls
+  `hf_dataset(..., shuffle=True)` with no seed; the import refuses such an eval without it,
+  and refuses the flag when the eval makes no such shuffle (a seed nothing applies).
+- `--choice-shuffle-seed N` is the same for a bare `shuffle_choices=True` (lab_bench).
+- `--excluded-sample-id`, `--no-answer-key`, `--keep-sample-metadata`: see Step 0.
+- The Hub commits need no flag: run 1 records every Hub read, the importer asks the Hub which
+  commit each names (and whether it is gated, which writes `needs_hf_token=True`), and the
+  declaration's `source_pins` force them at every build. A gated dataset needs `HF_TOKEN` or
+  a cached `hf auth login` on the importing machine.
 
-The command edits `pins.py`, `prepare.py`, and `benchmarks.py` in place at their anchor
-comments, all-or-nothing, and `git diff` is the artifact everything downstream
-reviews. It **refuses loudly** rather than guessing — see the refusal table below.
+The command edits `prepare.py` and `benchmarks.py` in place at their anchor comments,
+all-or-nothing, and `git diff` is the artifact everything downstream reviews. It **refuses
+loudly** rather than guessing — see the refusal table below.
 
 ## Step 2 — fill what the tool cannot know
 
@@ -111,11 +143,11 @@ flags. The importing agent (not a human) resolves all of them:
   grading works, and how the score is computed — string-match benchmarks say that no judge
   tokens are spent, judged benchmarks say judge calls are routed and metered through our
   gateway).
-- **`TODO(review)` flags** — each names a setting the prepare step does not reproduce (a
-  custom solver, a system message, an unreproduced dataset option). For each one:
-  either confirm it does not change the benchmark (and say why in the comment), or stop —
-  the eval is not row-importable and silently shipping a different benchmark is the one
-  unforgivable outcome.
+- **`TODO(review)` flags** — the licence the owner must decide, the reason for a Named
+  Deviation, a judge to pin. Resolve each with a reason in the comment, or stop: silently
+  shipping a different benchmark is the one unforgivable outcome.
+- **The Case Sources comment** above the declaration lists every fetch run 1 recorded, with
+  what pins it. Check each against the eval's loader.
 
 ## Step 3 — decide the draft-feedback offer
 
@@ -170,14 +202,16 @@ parity; a direct-scorer test alone misses async/context boundaries.
 
 ## Step 5 — open the PR; a human verifies the diff
 
-Import time is the **only trust window**: builds fetch by the recorded sha and
-runtime never fetches, so nothing after this diff can change the benchmark. The reviewer's
-checklist (minutes, not hours):
+Import time is the **only trust window**: every build replays at the declaration's pinned
+commits and checks the Case Digest, and runtime never fetches, so nothing after this diff
+can change the benchmark without the build refusing it. The reviewer's checklist (minutes,
+not hours):
 
-- The revision is a 40-hex commit sha and its HF permalink
-  (`https://huggingface.co/datasets/<dataset>/tree/<sha>`) resolves.
-- The case count is plausible for the named split.
-- The license in the pins comment is genuinely cleared for a public catalogue.
+- Each `source_pins` entry is a 40-hex commit and its permalink
+  (`https://huggingface.co/datasets/<repo>/tree/<sha>`) resolves; every Hub Case Source in
+  the comment has one.
+- The case count is plausible for the eval's split.
+- The declaration's `license=` is genuinely cleared for a public catalogue.
 - Every `TODO(review)` is resolved with a reason, and the prose honestly describes
   the benchmark.
 - The check-surface flag matches the grading family (string-match free text ⇔ surface
@@ -193,7 +227,12 @@ checklist (minutes, not hours):
   - The judge model, its params, and the judge prompt (template/instructions kwargs)
     are benchmark identity — expect the revision to move if any of them changes.
   - If the scorer dispatches on Sample metadata (frontierscience's `format`), the
-    cases row sets `keep_sample_metadata=True` — otherwise the scorer grades blind.
+    declaration has `keep_sample_metadata=True` (automatic for an eval's own scorer;
+    `--keep-sample-metadata` for a judge template that reads it) — otherwise the scorer
+    grades blind. The automatic rule is a policy, not a read of the scorer's code: an eval's
+    own scorer keeps ALL Sample metadata, even when it reads none (aime's worked solutions).
+    The metadata stays private Grading Material, never shown to a Candidate, but it is
+    inside the Case Digest, so a change to it moves the Benchmark Revision.
   - The importer auto-flags inspect's builtin `model_graded_*` scorers with a
     `judge=JudgeSpec(model="TODO")` placeholder; an eval-module custom scorer that
     calls `get_model()` internally is NOT auto-flagged — the reviewer catches it here.
@@ -220,19 +259,20 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 
 | Refusal | Meaning | What to do |
 |---|---|---|
-| not a 40-hex commit sha | the revision resolved to a mutable ref | let the tool resolve it; never hand-write a branch/tag (the prepare step and benchmark assembly refuse it too) |
-| hf_dataset kwarg(s) … not reproduced | the eval uses a dataset option the prepare step doesn't carry (`limit`, `trust`, …) | decide per kwarg: neutralize via `--task-arg`, or the eval isn't row-importable |
-| shuffles with no seed | upstream order is random per run; an import must pin ONE order | pass `--shuffle-seed` |
-| shuffles each case's choice order with no seed | `shuffle_choices=True` randomizes the answer options per run; an import must pin ONE choice order | pass `--choice-shuffle-seed` |
-| upstream seeds its shuffle, and a row shuffle combined with a choice shuffle cannot reproduce that benchmark | the prepare step's row shuffle is not HF's algorithm, and each case's choice order depends on its row position — upstream's seeded benchmark would silently differ | import by hand, or extend the prepare step to replay HF's row permutation |
-| eval pins its own choice-shuffle seed | upstream already defines ONE choice order; a policy seed would prepare a benchmark upstream never produces | drop `--choice-shuffle-seed` |
-| data_files has a shape the importer does not reproduce | only a dict of str to str round-trips through the generated literal | extend the importer for this family |
-| features does not resolve to one module attribute | an inline `Features(...)` has nothing the row can point at | extend the importer or add the row by hand |
-| fewshot/extra load is not the benchmark | the Task's dataset isn't the HF load the tool saw | pass task args that disable the extras |
-| key already exists / colliding stem | benchmark imported, or two keys derive the same `PREFIX_*` | pick a distinct key |
-| stem is not a valid identifier | e.g. a leading digit | rename the key (`wiki2` not `2wiki`) |
-| characters that cannot be written | a Hub-sourced string would break the generated Python | inspect the dataset card — this is a red flag, not an inconvenience |
+| the task raised / yielded no Samples | the eval failed in the clean child, or built an empty dataset | read the child's error line; fix the task args |
+| no Case Source was recorded | the eval fetched through something the recorder does not wrap | extend the recorder for that primitive (it is a reviewable fetch), or import by hand |
+| two Samples share the id | the eval's ids collide, so Cases cannot be addressed | report upstream; import by hand |
+| calls hf_dataset(…, shuffle=True) with no seed | inspect's own order is random per run | pass `--shuffle-seed` (or `--choice-shuffle-seed` for `shuffle_choices=True`) |
+| …seed was never applied | the eval makes no unseeded hf_dataset shuffle the seed would pin | drop the flag |
+| two Task replays produced different Cases | a shuffle the enforcer cannot reach (the eval's own `MemoryDataset.shuffle()`), generated Cases, a per-run value in metadata, or HEAD moving between the runs | pass task args that fix the order, or re-run |
+| reads … at two revisions / cannot resolve … | the eval reads one repo at two commits, or the Hub could not be asked | report upstream / retry with the Hub reachable |
+| key already exists | the benchmark is already imported | pick a distinct key |
+| characters that cannot be written | a string from the eval or the Hub would break the generated Python | inspect it — this is a red flag, not an inconvenience |
 | anchor line missing | someone edited the anchor comments | restore them; nothing was written |
+
+At build, the same declaration is replayed with every pin forced: a Hub read with no pin, a
+different commit than the eval's own, or a different Case Digest makes the Benchmark SKIPPED
+with the reason, and the strict PR image job fails.
 
 ## What the tool will never do
 
@@ -247,11 +287,10 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 - [`adding-a-benchmark-manually.md`](adding-a-benchmark-manually.md) — authoring a
   benchmark from scratch (novel dataset or grading); also the deep dive on the shared grading code
   seam that imported benchmarks ride for free.
-- `src/screamingface_engine_inspect/pins.py` — the lockfile docstring: the three row
-  kinds and WHY frozen data is the security property.
+- `src/screamingface_engine_inspect/fetch_pins.py` — what every replay forces onto the
+  eval's fetches, and why a forced commit (not only a digest) is the security property.
 - `docs/spec/2026-09-09-OME-1113-inspect-evals-import.md` — the import spec (§4 dual
   registration, §5 prepared cases, §6 revision identity).
-- Diagram source: `diagrams/importer-pipeline.drawio` (draw.io, `sf-dark` palette).
 
 ### Running notebook scores
 

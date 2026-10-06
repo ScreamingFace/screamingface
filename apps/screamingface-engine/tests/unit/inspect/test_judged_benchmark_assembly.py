@@ -423,10 +423,11 @@ def test_the_run_sync_twins_stay_verbatim_identical() -> None:
 
 
 def _no_key_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
-    from screamingface_engine_inspect.prepare import BENCHMARK_CASES
+    from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES
 
+    # OME-1460: gsm8k is a Task-replay declaration now; the flip it stands in for is the same.
     monkeypatch.setitem(
-        BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], has_answer_key=False)
+        TASK_REPLAY_CASES, "gsm8k", replace(TASK_REPLAY_CASES["gsm8k"], has_answer_key=False)
     )
 
 
@@ -491,3 +492,92 @@ def test_every_spelling_of_the_answer_key_field_is_caught(
 
     with pytest.raises(ValueError, match="criterion"):
         _assembled(spec, monkeypatch)
+
+
+# ── no answer key and no judge: only an eval's own scorer that never reads one (R19) ──
+
+#: The eval's own scorer of a key-less, judge-less Benchmark: cyberseceval_4 mitre_frr's
+#: refusal regex. Named here only as a reference; assembly never imports it.
+_REPLY_ONLY_SCORER: str = "inspect_evals.cyberseceval_4.mitre_frr.scorers:refusal_scorer"
+
+
+def _reply_only_spec(**overrides: Any) -> BenchmarkSpec:
+    """A key-less row graded by the eval's own scorer, with no judge, declaring that the
+    scorer never reads the answer key."""
+
+    values: dict[str, Any] = {
+        "scorer": _REPLY_ONLY_SCORER,
+        "scorer_kwargs": {},
+        "judge": None,
+        "scorer_reads_answer_key": False,
+    }
+    values.update(overrides)
+    return _judged_spec(**values)
+
+
+def test_an_eval_scorer_that_never_reads_the_key_assembles_without_a_judge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Spec R19: a reply-only scorer (mitre_frr's refusal regex) grades the same with or
+    without a key, so the row needs no judge once it says so."""
+
+    _no_key_snapshot(monkeypatch)
+
+    assert _assembled(_reply_only_spec(), monkeypatch).benchmark.revision
+
+
+def test_a_judge_less_row_without_a_key_names_the_declaration_it_lacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal tells the importing agent the one way out besides a judge."""
+
+    _no_key_snapshot(monkeypatch)
+
+    with pytest.raises(ValueError, match="scorer_reads_answer_key=False"):
+        _assembled(_reply_only_spec(scorer_reads_answer_key=True), monkeypatch)
+
+
+def test_an_inspect_built_in_scorer_cannot_claim_it_ignores_the_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """inspect's own scorers (match, choice, includes, …) all compare the reply against the
+    key; against an empty one they mark every reply wrong, silently. The claim is refused."""
+
+    _no_key_snapshot(monkeypatch)
+
+    with pytest.raises(ValueError, match="built-in"):
+        _assembled(_reply_only_spec(scorer="inspect_ai.scorer:match"), monkeypatch)
+
+
+def test_the_claim_is_refused_on_a_row_that_has_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """INVARIANT: the flag has one use. On a row with a key it would claim something no
+    Case needs, and a reader could not tell which of the two to trust."""
+
+    with pytest.raises(ValueError, match="has an answer key"):
+        _assembled(_reply_only_spec(), monkeypatch)
+
+
+def test_the_claim_is_refused_on_a_judged_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A judged row's key question is the judge prompt's (checked above); the flag would be
+    a second, unchecked answer to it."""
+
+    _no_key_snapshot(monkeypatch)
+    spec = _judged_spec(
+        scorer_kwargs={"model": "screamingface/judge-4", "template": "{question} {answer}"},
+        scorer_reads_answer_key=False,
+    )
+
+    with pytest.raises(ValueError, match="judge"):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_reply_only_row_is_refused_the_check_surface(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Owner decision 2026-10-05: a pass/fail check over a reply-only scorer (a refusal
+    regex) lets a fusion re-word a draft until it slips past, so the offer is refused at
+    assembly, not left to the importing agent to remember (review finding on #1222: the
+    importer's generated row turns it on for any free-text key-less task)."""
+
+    _no_key_snapshot(monkeypatch)
+
+    with pytest.raises(ValueError, match="check surface"):
+        _assembled(_reply_only_spec(with_check_surface=True), monkeypatch)

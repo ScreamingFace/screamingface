@@ -105,7 +105,8 @@ def _benchmark(rows: TaskReplayRows) -> BenchmarkSpec:
 def engine_src_copy(tmp_path: Path) -> Path:
     """A working copy of the real three generated-into files."""
 
-    for name in ("pins.py", "prepare.py", "benchmarks.py"):
+    # OME-1460: pins.py is gone; an import writes into these two files only.
+    for name in ("prepare.py", "benchmarks.py"):
         shutil.copy(_SRC_DIR / name, tmp_path / name)
     return tmp_path
 
@@ -284,7 +285,11 @@ def test_write_task_replay_rows_lands_in_prepare_and_benchmarks_only(
         "TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {"
     )
     assert 'key="stand_in_replay"' in benchmarks_text
-    assert (engine_src_copy / "pins.py").read_text() == (_SRC_DIR / "pins.py").read_text()
+    # OME-1460: pins.py is gone; the import still writes no third file.
+    assert sorted(path.name for path in engine_src_copy.iterdir()) == [
+        "benchmarks.py",
+        "prepare.py",
+    ]
     for name in ("prepare.py", "benchmarks.py"):
         ast.parse((engine_src_copy / name).read_text())
 
@@ -394,3 +399,120 @@ def test_a_comment_string_with_a_line_break_is_refused() -> None:
 
     with pytest.raises(ImporterError, match="injection guard"):
         render_task_replay_rows("x", _imported(facts=facts), "TODO")
+
+
+# ── the two declarations the importing agent passes in (spec R18, R19) ─────────
+
+
+def test_excluded_ids_are_written_with_a_reason_left_for_review() -> None:
+    """Spec R18: the ids land in the row so every build drops them; WHY they are dropped is
+    the reviewer's to write, so the row carries a TODO(review) where the reason goes."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "sad_stages_full",
+        _imported(case_count=797, excluded_sample_ids=("stages_full:14", "stages_full:58")),
+        "TODO",
+    )
+
+    assert (
+        "        # NAMED DEVIATION — TODO(review): say why upstream's Samples\n"
+        "        # below are left out.\n"
+        "        excluded_sample_ids=(\n"
+        '            "stages_full:14",\n'
+        '            "stages_full:58",\n'
+        "        ),\n"
+    ) in rows.cases
+    assert _declared(rows)["sad_stages_full"].excluded_sample_ids == (
+        "stages_full:14",
+        "stages_full:58",
+    )
+
+
+def test_a_benchmark_without_an_answer_key_says_so_in_its_row() -> None:
+    """Spec R19: the empty keys are inside the seal, so the row must carry the opt-in."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "cyse4_mitre_frr", _imported(has_answer_key=False), "TODO"
+    )
+
+    assert "        has_answer_key=False,\n" in rows.cases
+    assert _declared(rows)["cyse4_mitre_frr"].has_answer_key is False
+
+
+def test_an_excluded_id_that_could_escape_the_generated_code_is_refused() -> None:
+    """The ids come from the eval's own Samples and land in Python, like the task reference."""
+
+    imported: TaskReplayImport = _imported(excluded_sample_ids=('x"),\nimport os  # ',))
+
+    with pytest.raises(ImporterError, match="injection guard"):
+        render_task_replay_rows("x", imported, "TODO")
+
+
+# --- OME-1460: the generated row carries the Hub pins, the seeds and the gate --------------
+
+_MEDQA_SHA: str = "ddef95d268cdad413693d634279a9a679d468469"
+
+
+def test_the_hub_pins_seeds_and_gate_are_written_and_evaluate_back() -> None:
+    """Every image build reads these off the row, so a row that dropped one would replay
+    unpinned (or be refused) at the first build after import."""
+
+    imported: TaskReplayImport = _imported(
+        source_pins={"bigbio/med_qa": _MEDQA_SHA},
+        shuffle_seed=1234,
+        choice_shuffle_seed=7,
+        needs_hf_token=True,
+    )
+
+    rows: TaskReplayRows = render_task_replay_rows("medqa", imported, "TODO")
+
+    assert f'            "bigbio/med_qa": "{_MEDQA_SHA}",\n' in rows.cases
+    assert "        shuffle_seed=1234,\n" in rows.cases
+    assert "        choice_shuffle_seed=7,\n" in rows.cases
+    assert "        needs_hf_token=True,\n" in rows.cases
+    assert _declared(rows)["medqa"] == imported.declaration
+
+
+def test_several_hub_pins_are_written_sorted() -> None:
+    imported: TaskReplayImport = _imported(source_pins={"b/b": "1" * 40, "a/a": "2" * 40})
+
+    rows: TaskReplayRows = render_task_replay_rows("k", imported, "TODO")
+
+    assert rows.cases.index('"a/a"') < rows.cases.index('"b/b"')
+    assert _declared(rows)["k"] == imported.declaration
+
+
+@pytest.mark.parametrize(
+    "source_pins",
+    [
+        {'x/y"\nimport os': "1" * 40},
+        {"x/y": 'abc"\nimport os'},
+    ],
+    ids=["repo id", "commit"],
+)
+def test_a_hub_pin_that_could_escape_the_generated_code_is_refused(
+    source_pins: dict[str, str],
+) -> None:
+    """Review Focus 5: a repo id comes from the eval's own call, a commit from the Hub."""
+
+    with pytest.raises(ImporterError, match="injection guard"):
+        render_task_replay_rows("x", _imported(source_pins=source_pins), "TODO")
+
+
+def test_a_non_ascii_excluded_sample_id_is_written_and_evaluates_back() -> None:
+    """onet_m6's Named Deviation names Thai ids (2019_10ข_6985). The id lands inside a JSON
+    string literal, which escapes every quote, backslash and line break, so the guard need
+    only refuse what a reviewer cannot read (OME-1460)."""
+
+    imported: TaskReplayImport = _imported(excluded_sample_ids=("2019_10ข_6985", "2021_4_b447"))
+
+    rows: TaskReplayRows = render_task_replay_rows("onet_m6", imported, "TODO")
+
+    assert '            "2019_10ข_6985",\n' in rows.cases
+    assert _declared(rows)["onet_m6"] == imported.declaration
+
+
+@pytest.mark.parametrize("sample_id", ['a"\nimport os', "a‮b"], ids=["line break", "bidi"])
+def test_an_excluded_sample_id_a_reviewer_cannot_read_is_refused(sample_id: str) -> None:
+    with pytest.raises(ImporterError, match="injection guard"):
+        render_task_replay_rows("x", _imported(excluded_sample_ids=(sample_id,)), "TODO")

@@ -97,7 +97,8 @@ def _find_forwarded_allow_ips_overlap(
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    await init_db(app.state.settings.database_url)
+    settings = app.state.settings
+    await init_db(settings.database_url, pool=settings.db_pool)
     try:
         yield
     finally:

@@ -241,6 +241,19 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # look-alike harmless requests; both LLM-judged from a per-category rubric.
         "inspect-coconot_original": ("coverage_declare", "single_shot", "medium"),
         "inspect-coconot_contrast": ("coverage_declare", "single_shot", "easy"),
+        # OME-1273: SAD-mini; tiers as their rows argue them from the eval's own report.
+        "inspect-sad_facts_llms": ("coverage_declare", "single_shot", "medium"),
+        "inspect-sad_facts_human_defaults": ("coverage_declare", "single_shot", "easy"),
+        "inspect-sad_influence": ("coverage_declare", "single_shot", "medium"),
+        "inspect-sad_stages_full": ("coverage_declare", "single_shot", "hard"),
+        "inspect-sad_stages_oversight": ("coverage_declare", "single_shot", "hard"),
+        # OME-1273: over-refusal of harmless security coding requests; frontier models
+        # accept nearly all of them in the eval's own report.
+        "inspect-cyse4_mitre_frr": ("coverage_declare", "single_shot", "easy"),
+        # OME-1273: pre_flight and bbeh; tiers as their rows argue them from the evals' own
+        # reports.
+        "inspect-pre_flight": ("coverage_declare", "single_shot", "medium"),
+        "inspect-bbeh": ("coverage_declare", "single_shot", "hard"),
     }
     actual = {
         benchmark.id: (

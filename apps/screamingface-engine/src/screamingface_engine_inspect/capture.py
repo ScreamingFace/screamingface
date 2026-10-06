@@ -14,7 +14,8 @@ What runs: the Task's ``setup`` and ``solver`` chain, per Sample, up to the firs
 ``generate``. What never runs: inspect's ``eval()``, a model, a scorer, a Judge, a sandbox,
 a tool. Stages, in execution order:
 
-    Stage 1 — refuse a Task that declares a sandbox: its solvers expect a container.
+    Stage 1 — refuse a Task that declares a sandbox: its solvers expect a container; then
+              drop the Samples the declaration excludes by id, a Named Deviation (R18).
     Stage 2 — per Sample: build the TaskState inspect would build (a deep copy of the
               Sample's input as messages, its choices, target and metadata), give it its own
               store and register it as the active sample state, as inspect's sample runner
@@ -46,6 +47,7 @@ from screamingface_engine_inspect.prepare import (
     PrepareError,
     TaskReplayCasesSpec,
     prepared_case,
+    without_excluded_samples,
 )
 
 if TYPE_CHECKING:
@@ -109,10 +111,11 @@ def captured_case_records(task: Task, spec: TaskReplayCasesSpec) -> list[Prepare
     Args:
         task: the built Task, as the eval's task function returned it.
         spec: the declaration whose writer options apply (``has_answer_key``,
-            ``keep_sample_metadata``); its seal is not read here.
+            ``keep_sample_metadata``) and whose ``excluded_sample_ids`` are left out; its
+            seal is not read here.
 
     Returns:
-        One prepared Case per Sample, numbered from 1, in the order the Task holds them.
+        One prepared Case per kept Sample, numbered from 1, in the order the Task holds them.
 
     Raises:
         CaptureError: the Task or one Sample's chain cannot be a single-answer Case; the
@@ -127,6 +130,10 @@ def captured_case_records(task: Task, spec: TaskReplayCasesSpec) -> list[Prepare
             "container, which Case Preparation never starts"
         )
     samples: list[Sample] = list(task.dataset)
+    # WHY before capture: an excluded Sample may be one capture cannot render (sad's empty
+    # questions), and the Cases are numbered over what is kept (spec R18).
+    if spec.excluded_sample_ids is not None:
+        samples = without_excluded_samples(spec.excluded_sample_ids, samples)
     inputs: list[tuple[str, list[str] | None]] = asyncio.run(_captured_inputs(task, samples))
     prepared: list[PreparedCase] = []
     for case_id, (sample, (input_text, shown_choices)) in enumerate(

@@ -40,7 +40,8 @@ from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.runner.summary import RunSummary
-from screamingface_engine.tracing.relay import SpanRelay, SpanSink, otlp_configured
+from screamingface_engine.tracing.loader import load_span_sink
+from screamingface_engine.tracing.relay import SpanRelay
 from screamingface_engine.world.config import AigatewaySection, WorldConfig, load_config
 from screamingface_engine.world.factory import (
     SharedWorld,
@@ -77,9 +78,8 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
 
     One run has exactly one caller, so every value the connector used to pin on the handler is
     here instead, resolved once before the world is built and bound around the run by
-    `Url4Executor`. The identity and profile are optional (absent means anonymous / the
-    gateway's default); the cache policy is total; the seed is the one value that REFUSES the
-    run when malformed.
+    `Url4Executor`. The identity is optional (absent means anonymous); the cache policy is total;
+    the seed is the one value that REFUSES the run when malformed.
 
     Raises:
         RunnerConfigError: ``ANSWER_SEED`` is present but not an integer. This is the same
@@ -101,7 +101,6 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
     job_deadline = _deadline_from_env(env) if direct else None
     return RequestScope(
         identity_headers=job_env.identity_from_env(env),
-        profile=env.get(job_env.AIGATEWAY_PROFILE),
         answer_seed=answer_seed,
         cache=job_env.cache_policy_from_env(env),
         origin="sync" if direct else "run",
@@ -173,6 +172,7 @@ async def run_and_reclaim(
     grace_s: float = job_env.DEFAULT_STREAM_GRACE_S,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     retain: Callable[[str], Awaitable[bool]] | None = None,
+    trim: Callable[[str], Awaitable[None]] | None = None,
 ) -> None:
     """Drive one run, then reclaim its subject on the shared events stream.
 
@@ -187,7 +187,8 @@ async def run_and_reclaim(
 
     `retain` (OME-946) is consulted after the grace: True skips the purge, leaving a failed
     run's frames to `max_age` for post-mortem (`evidence_retention.subject_retained`). None
-    keeps the unconditional purge.
+    keeps the unconditional purge. `trim` (OME-1462) caps what a retained run keeps
+    (`JetStreamPublisher.trim_retained`); None keeps it whole.
     """
     try:
         await run_once()
@@ -205,6 +206,8 @@ async def run_and_reclaim(
             # DISCARDS the exception propagating from a raised run.
             if retain is not None and await retain(topic):
                 logger.info("kept the stream of failed run %s for post-mortem", topic)
+                if trim is not None:
+                    await trim(topic)
             else:
                 await publisher.delete_stream(topic)
         except Exception:
@@ -491,29 +494,9 @@ def build_executor(
     )
 
 
-def span_sink(env: Mapping[str, str]) -> SpanSink | None:
-    """The run's span sink, or ``None`` when this deployment configured no OTLP endpoint.
-
-    WHY the import is LAZY. `tracing.otlp` pulls the OTel SDK, protobuf and `requests` —
-    measured at ~62 ms of this module's ~227 ms import time, which every Job would otherwise
-    pay whether or not it exports anything. `check_layering.py` protects a Job's cold start
-    from the engine's OWN modules; nothing protects it from a third-party dependency, so this
-    is the same discipline applied by hand. `cli.py` and `worker_composition` import their
-    heavy halves the same way, for the same reason.
-
-    INVARIANT: never raises. A broken exporter config must not stop a run from happening — the
-    whole point of the relay is that telemetry degrades alone. An unreachable collector is
-    already handled downstream (the exporter drops); this covers the boot-time half.
-    """
-    if not otlp_configured(env):
-        return None
-    try:
-        from screamingface_engine.tracing.otlp import sink_from_env
-
-        return sink_from_env(env)
-    except Exception:
-        logger.warning("span export is configured but could not be started", exc_info=True)
-        return None
+span_sink = load_span_sink
+"""The run's span sink (OME-1130): the shared leaf's loader, kept under this name as the
+module's seam. The lazy OTel import that keeps it off a Job's cold path lives there."""
 
 
 def _nats_host(url: str) -> str:
@@ -661,8 +644,8 @@ async def warm_up(
     the declared world from its config file — the per-run world build was the largest share of
     a simple call's latency (kind B4: ~600 ms of ~800 ms). A broken config is reported in READY.
 
-    INVARIANT (WRM-4): no per-run key is read here — not the topic, the identity, the profile,
-    the io budget. The world holds no caller state: the request scope (identity, profile, seed)
+    INVARIANT (WRM-4): no per-run key is read here — not the topic, the identity, or the io budget.
+    The world holds no caller state: the request scope (identity and seed)
     is bound per run and read at call time. A run whose admitted overlay (`EXTRA_MODELS`) this
     world does not route builds its own world instead (`shared_world_serves`), as before.
     """
@@ -740,6 +723,7 @@ async def _run_process(
                 run_once,
                 grace_s=stream_grace_s(os.environ),
                 retain=functools.partial(subject_retained, publisher.last_frame),
+                trim=publisher.trim_retained,
             )
 
 

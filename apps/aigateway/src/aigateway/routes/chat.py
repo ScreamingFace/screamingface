@@ -138,7 +138,7 @@ async def _dispatch_and_finalize_accounting(
     account_id: str,
     profile_name: str,
     target: CredentialTarget,
-    observation: DispatchObservation | None,
+    observation: DispatchObservation | None = None,
 ) -> Any:
     """Dispatch once through the provider and finalize any observed accounting evidence."""
     accounting_request_view = safe_request_view(body)

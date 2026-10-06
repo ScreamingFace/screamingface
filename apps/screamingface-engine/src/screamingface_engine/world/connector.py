@@ -18,6 +18,7 @@ from typing import NoReturn
 
 import httpx
 
+from screamingface_engine import job_env
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.error_text import ENGINE_RESERVED_CODES
@@ -29,12 +30,7 @@ from screamingface_engine.operation_accounting import (
     combine_operation_accounting,
 )
 from screamingface_engine.operation_calls import operation_call_identity, record_operation_call
-from screamingface_engine.request_scope import (
-    PROFILE_HEADER,
-    RequestScope,
-    RequestScopeError,
-    current_scope,
-)
+from screamingface_engine.request_scope import RequestScope, RequestScopeError, current_scope
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
@@ -299,7 +295,7 @@ class _ModelEndpoint:
     `__call__` never touches them, but this class holds only the fields it actually needs.
 
     FEATURE (F2, prd/01): the handler is STATELESS with respect to the caller. Identity,
-    profile, cache policy and answer seed are read from `current_scope()` per call, so one world
+    identity, cache policy and answer seed are read from `current_scope()` per call, so one world
     can serve many callers without letting one request's values reach another's (AC2). Anything
     added here must be world-level (a route, an HTTP client), never per-request.
     """
@@ -392,7 +388,7 @@ async def build_aigateway_world(
 ) -> AigatewayWorld:
     """Build the `Url4Node` world: one endpoint per declared model, routed to aigateway.
 
-    The world carries NO caller state (F2). Identity, profile, cache policy and answer seed are
+    The world carries NO caller state (F2). Identity, cache policy and answer seed are
     per-request values read from the `request_scope` ContextVar by `_ModelEndpoint.__call__`, so
     the same world can be shared by every caller in the process without one request's values
     reaching another's. A producer binds the scope before any handler runs — the child run path
@@ -1047,34 +1043,25 @@ def _invalid_candidate_input(detail: str) -> NoReturn:
 
 
 def _headers(scope: RequestScope) -> dict[str, str]:
-    """The outgoing aigateway headers: the caller's identity, then the values this world owns.
-
-    INVARIANT: the gateway-owned header is written LAST. `scope.identity_headers` reaches here
-    from an inbound request, and although Envoy guarantees a client cannot forge the identity
-    header itself, nothing guarantees the mapping holds ONLY that key — so `X-Profile` is applied
-    over it rather than under it, and no inbound value can displace this run's routing choice.
-    Same ordering rule the aigateway provider plugins apply to their own gateway-owned headers.
+    """The outgoing aigateway headers: verified identity plus the trace this world owns.
 
     WHY no `Authorization`: aigateway runs `cloudflare_headers` when deployed and `disabled`
     locally. Neither mode reads a bearer token, and a deployed caller cannot obtain one, so the
     run carries none at all.
 
-    FEATURE (OME-1119): `traceparent` is gateway-owned for the same reason `X-Profile` is, and is
-    written under the same rule — the run's own trace must win over anything that arrived in the
-    identity mapping. Absent (no bound run) the key is OMITTED rather than sent empty: a
-    well-formed header carrying a zero or invented id would parse everywhere, join nothing, and
-    look correct in every log it reached.
+    FEATURE (OME-1119): `traceparent` is gateway-owned: the run's own trace must win over anything
+    that arrived in the identity mapping. Absent (no bound run) the key is OMITTED rather than sent
+    empty: a well-formed header carrying a zero or invented id would parse everywhere, join nothing,
+    and look correct in every log it reached.
 
-    INVARIANT (F2): identity, profile and seed come from the REQUEST SCOPE, never from `self`, so
+    INVARIANT (F2): identity and seed come from the REQUEST SCOPE, never from `self`, so
     a shared world renders each caller's own values (AC2).
 
     INVARIANT (FX-64): the trace comes ONLY from `trace_scope`. The run path binds it inside the
     driving task (`Url4Executor`); a sync producer binds it from the validated inbound header
     (`request_scope.trace_from_headers`). One carrier, so no path can prefer a second copy.
     """
-    headers = dict(scope.identity_headers)
-    if scope.profile is not None:
-        headers[PROFILE_HEADER] = scope.profile
+    headers = job_env.identity_for_forwarding(scope.identity_headers)
     traceparent = current_traceparent()
     if traceparent is not None:
         headers["traceparent"] = traceparent

@@ -36,7 +36,7 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
 from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BenchmarkSpec  # noqa: E402
-from screamingface_engine_inspect.prepare import BENCHMARK_CASES  # noqa: E402
+from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES  # noqa: E402
 from screamingface_engine_inspect.scorer_adapter import inspect_grade_case  # noqa: E402
 
 #: coconot's original-half words, as its judge spells them (the row's map keys).
@@ -242,8 +242,9 @@ def test_coconot_rows_copy_upstreams_judge_prompt_and_have_no_answer_key() -> No
         ("coconot_original", 1001, upstream.original_scorer_template, original_grade_pattern),
         ("coconot_contrast", 379, upstream.contrast_scorer_template, contrast_grade_pattern),
     ]:
-        cases = BENCHMARK_CASES[key]
-        assert cases.dataset_revision == upstream.COCONOT_DATASET_REVISION
+        # OME-1460: a Task-replay declaration now; its Hub pin is the eval's own revision.
+        cases = TASK_REPLAY_CASES[key]
+        assert cases.source_pins == {"allenai/coconot": upstream.COCONOT_DATASET_REVISION}
         assert cases.case_count == count
         assert cases.has_answer_key is False
         assert cases.keep_sample_metadata is True
