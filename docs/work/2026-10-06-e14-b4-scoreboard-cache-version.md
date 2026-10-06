@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: scoreboard
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-06
-finished:
+finished: 2026-10-06
 ---
 
 # e14-b4-scoreboard-cache-version — cache version columns and recorded reproductions on the scoreboard
@@ -39,9 +39,29 @@ append-only: no existing test is edited.
 - `uv run .claude/scripts/run_gates.py scoreboard --base e14-a1-scoreboard-metadata` is green.
 - Local only: nothing pushed, no PR, no Linear change.
 
-## Outcome (fill at the end — required before COMMIT)
+## Pinned-decision notes
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- `ScoreReproduction.score` uses `related_name=False` (as A1's event model): a reverse relation
+  would add a `Score` field that `test_every_score_field_reaches_at_least_one_read_dto` flags.
+- The label and the status fill together, gated on the STATUS: a row that already holds
+  `partial` with no label is not given a label by a later replay. `answer_seed` fills alone.
+- `reproduction_count: int = 0` has no `exclude_if`, as pinned. It is filled only by
+  `GET /v1/scores/{id}`; PATCH, POST and the private export carry the default `0`.
+
+## Outcome
+
+- **Actual files:** as planned, plus a private helper in `store.py` (`_cache_version_fills`) and two
+  in `routes/scores.py` (`_load_score_to_reproduce`, `_refuse_unless_exact`), because ruff's
+  C901 / PLR0912 / PLR0915 limits refused the rule and the route inline. Also
+  `.github/workflows/scoreboard-tests.yml` and `.claude/sdlc.local.md` (the new portal test, by
+  name). Tests: `tests/unit/test_score_cache_version.py`, `tests/unit/test_score_reproductions.py`,
+  `tests/portal/reproduced-count.test.js` (all new, no existing test edited).
+- **Commits:** see `git log --oneline e14-a1-scoreboard-metadata..HEAD`.
+- **Gates:** `ALL GATES GREEN` (`uv run .claude/scripts/run_gates.py scoreboard --base
+  e14-a1-scoreboard-metadata`): append-only check, ruff check, ruff format, pyright, pytest with
+  coverage, and the `node --test` gate including `reproduced-count.test.js`. 9 PostgreSQL tests
+  skip (none of them new).
+- **Deviations:** the three private helpers above; "Reproduced 1 time" for a count of one;
+  `uv run` for run_gates.py. Open for the coordinator: `reproduction_count: 0` appears in every
+  private JSONL export row (it changes the export bytes a purge digest certifies), and a PATCH or
+  resubmit response shows `0` even for a score that has reproductions.
