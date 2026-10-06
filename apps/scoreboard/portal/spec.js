@@ -33,9 +33,20 @@
     );
   }
 
-  function renderRunLink(regionNode, specId, latestId) {
+  // The history rows carry no paper link, so it comes from the same score
+  // detail the run link uses (the newest submission). Nothing is added when there is no safe link.
+  function renderPaperLink(contentNode, score) {
+    var anchor = P.paperLink(score && score.paper_url);
+    if (anchor === null) return;
+    var line = P.el("p", "meta mono", "Paper: ");
+    line.appendChild(anchor);
+    contentNode.insertBefore(line, contentNode.querySelector("h2"));
+  }
+
+  function renderRunLink(contentNode, regionNode, specId, latestId) {
     P.fetchJson("/v1/scores/" + encodeURIComponent(latestId)).then(
       function (score) {
+        renderPaperLink(contentNode, score);
         if (score && score.url4_expression) {
           P.clear(regionNode);
           regionNode.appendChild(P.createCopyButton(specId, score.url4_expression));
@@ -109,7 +120,7 @@
         contentNode.hidden = false;
 
         // Newest submission is submissions[0] (backend orders newest-first).
-        renderRunLink(document.getElementById("run-region"), specId, submissions[0].id);
+        renderRunLink(contentNode, document.getElementById("run-region"), specId, submissions[0].id);
       },
       function (err) {
         P.showError(statusNode, P.describeError(err, {
