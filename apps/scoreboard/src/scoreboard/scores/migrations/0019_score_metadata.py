@@ -72,7 +72,7 @@ class Migration(migrations.Migration):
                         source_field="score_id",
                         db_constraint=True,
                         to_field="id",
-                        related_name="metadata_events",
+                        related_name=False,
                         on_delete=OnDelete.CASCADE,
                     ),
                 ),

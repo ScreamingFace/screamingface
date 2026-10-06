@@ -36,6 +36,9 @@ class ScoreMetadataEvent(BaseScoreMetadataEvent):
     # may have removed on purpose), and operators read them through the database.
     score = fields.ForeignKeyField(
         "models.Score",
-        related_name="metadata_events",
+        # WHY no reverse relation: nothing reads `score.metadata_events` (the store queries the
+        # event table by `score_id`), and a reverse relation would be one more `Score` field that
+        # every read-DTO guard has to know about.
+        related_name=False,
         on_delete=fields.OnDelete.CASCADE,
     )
