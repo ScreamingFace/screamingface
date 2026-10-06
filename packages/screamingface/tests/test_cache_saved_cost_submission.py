@@ -9,9 +9,12 @@ submission.
 
 from __future__ import annotations
 
+import contextlib
 import json
+from collections.abc import Iterator
 from dataclasses import replace
-from decimal import Decimal
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 
 import httpx
 import pytest
@@ -95,7 +98,7 @@ def test_spend_and_saving_travel_separately_and_are_never_summed() -> None:
 
     assert payload["run_cost_usd"] == "0.250000"
     assert payload["cache_saved_cost_usd"] == "1.750000"
-    assert "2.000000" not in json.dumps(payload)
+    _assert_no_money(payload, "2.000000")
 
 
 # --- The result ----------------------------------------------------------------------------------
@@ -172,10 +175,20 @@ class _CachedReplayTransport(_ReplayTransport):
     The two sums differ so a pass-through reading the wrong one fails loudly.
     """
 
-    def __init__(self, *, reported: str | None, archive: str | None) -> None:
+    def __init__(
+        self,
+        *,
+        reported: str | None,
+        archive: str | None,
+        finished: datetime | None = None,
+    ) -> None:
         super().__init__()
         self._reported = reported
         self._archive = archive
+        # WHY (OME-1445): the run's completion time becomes the submission's `ran_at_local`, so a
+        # test that must not depend on the clock pins it here. The start is pinned one second
+        # earlier, because a result refuses a completion that precedes its start.
+        self._finished = finished
 
     def run(self, candidate: object, on_event: object) -> _RunOutcome:
         outcome = super().run(candidate, on_event)  # type: ignore[arg-type]
@@ -184,6 +197,14 @@ class _CachedReplayTransport(_ReplayTransport):
             root_usage=sf.Usage(),
             cache_saved_cost_usd=None if self._reported is None else Decimal(self._reported),
             cache_saved_cost_archive_usd=None if self._archive is None else Decimal(self._archive),
+            **(
+                {}
+                if self._finished is None
+                else {
+                    "started_at": self._finished.replace(microsecond=0) - timedelta(seconds=1),
+                    "completed_at": self._finished,
+                }
+            ),
         )
 
 
@@ -206,23 +227,23 @@ def test_an_evaluated_run_carries_the_reported_saving_onto_the_submission() -> N
     assert payload["run_cost_usd"] is None
 
 
-def test_archive_money_never_reaches_the_result_or_the_board() -> None:
-    """INVARIANT (OME-1251 D3): `archive_matched` is measured from a different call.
+def test_archive_money_reaches_the_result_and_the_board() -> None:
+    """INVARIANT (OME-1463, D7 on OME-1251, reverses D3): archive-matched money is published.
 
-    It is not provably this run's, so it is never published, alone or added to the reported sum.
+    It travels in its own field, never folded into the reported sum or the spend. With an unpriced
+    spend it is saving evidence, so the run is `partial`, never `unavailable` (the board refuses
+    `unavailable` beside any saving). Rewritten from the D3 test with owner approval, 2026-10-02.
     """
     result = _evaluate(_CachedReplayTransport(reported=None, archive="0.500"))
 
     assert result.cache_saved_cost_usd is None
-    assert result.run_cost_status == "unavailable"
+    assert result.cache_saved_cost_archive_usd == Decimal("0.500")
+    assert result.run_cost_status == "partial"
     payload = _submission(result)
     assert "cache_saved_cost_usd" not in payload
-    # WHY: whole-JSON substring checks also match timestamps such as 22:00:00.565488Z.
-    assert payload["run_cost_usd"] is None
-    assert payload["run_cost_status"] == "unavailable"
-    exported = result.to_dict()
-    assert exported["cache_saved_cost_usd"] is None
-    assert exported["usage"] == sf.Usage().to_dict()
+    assert payload["cache_saved_cost_archive_usd"] == "0.500"
+    assert payload["run_cost_status"] != "unavailable"
+    assert result.to_dict()["cache_saved_cost_archive_usd"] == "0.500"
 
 
 def test_no_evaluated_run_pairs_unavailable_with_a_saving() -> None:
@@ -235,5 +256,89 @@ def test_no_evaluated_run_pairs_unavailable_with_a_saving() -> None:
             result = _evaluate(_CachedReplayTransport(reported=reported, archive=archive))
             if result.run_cost_status == "unavailable":
                 assert result.cache_saved_cost_usd is None
+                assert result.cache_saved_cost_archive_usd is None
             else:
-                assert result.cache_saved_cost_usd is not None
+                # OME-1463 (D7): either saving backs `partial` (was: the reported one only).
+                assert (
+                    result.cache_saved_cost_usd is not None
+                    or result.cache_saved_cost_archive_usd is not None
+                )
+
+
+def test_no_evaluated_run_pairs_unavailable_with_an_archive_saving() -> None:
+    """OME-1463 (D7): the archive saving is published, so the board refuses `unavailable` beside it
+    exactly as beside the reported one. No submitted pair may combine the two."""
+    for reported in (None, "0", "0.031"):
+        for archive in (None, "0", "0.500"):
+            result = _evaluate(_CachedReplayTransport(reported=reported, archive=archive))
+            payload = _submission(result)
+            if payload["run_cost_status"] == "unavailable":
+                assert "cache_saved_cost_usd" not in payload
+                assert "cache_saved_cost_archive_usd" not in payload
+
+
+# --- OME-1445: money rules are checked on values, never on serialized text ------------------------
+
+
+def _leaves(obj: object) -> Iterator[object]:
+    """Every scalar inside ``obj``, however deeply nested in dicts, lists and tuples."""
+    if isinstance(obj, dict):
+        for item in obj.values():
+            yield from _leaves(item)
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            yield from _leaves(item)
+    else:
+        yield obj
+
+
+def _as_money(leaf: object) -> Decimal | None:
+    """``leaf`` as an amount, or None when it cannot be one.
+
+    A ``Decimal``, a ``float``, or a string ``Decimal()`` parses as a finite number: the forms money
+    takes on the wire and in an export. Integers and booleans are counts and flags, never money. A
+    timestamp is a string ``Decimal()`` refuses, so it can never match: the failure mode of the
+    text search this replaces (OME-1445).
+    """
+    value: Decimal | None = None
+    if isinstance(leaf, Decimal):
+        value = leaf
+    elif isinstance(leaf, float):
+        value = Decimal(repr(leaf))
+    elif isinstance(leaf, str):
+        with contextlib.suppress(InvalidOperation):
+            value = Decimal(leaf)
+    return value if value is not None and value.is_finite() else None
+
+
+def _money_values(obj: object) -> list[Decimal]:
+    """Every money-shaped value anywhere in ``obj``: what a leak of an amount would look like."""
+    return [money for leaf in _leaves(obj) if (money := _as_money(leaf)) is not None]
+
+
+def _assert_no_money(obj: object, amount: str) -> None:
+    """INVARIANT: ``amount`` appears under NO key of ``obj``, including one added later.
+
+    Compared as numbers, so `0.5` matches `0.500` and `0.50`, and a timestamp never matches.
+    """
+    forbidden = Decimal(amount)
+    assert forbidden not in _money_values(obj), f"{amount} reached the object"
+
+
+def test_the_archive_rule_holds_when_the_clock_reads_zero_point_five() -> None:
+    """INVARIANT (OME-1445): the archive rule is checked on values, never confused by the clock.
+
+    CI on #1149 failed this rule's test with `ran_at_local` `2026-10-01T08:40:30.507912Z`: the
+    text `0.5` sits inside `30.507`, and the old assertion searched the whole serialized payload.
+    The clock is pinned here to exactly that time, so the check runs against it every time.
+    Under D7 (OME-1463) the archive amount must appear in EXACTLY its own field: compared as
+    numbers across every leaf, so a timestamp can never count as an occurrence.
+    """
+    pinned = datetime(2026, 10, 1, 8, 40, 30, 507912, tzinfo=UTC)
+    result = _evaluate(_CachedReplayTransport(reported=None, archive="0.500", finished=pinned))
+    payload = _submission(result)
+
+    assert payload["ran_at_local"] == "2026-10-01T08:40:30.507912Z"
+    assert payload["cache_saved_cost_archive_usd"] == "0.500"
+    assert _money_values(payload).count(Decimal("0.500")) == 1
+    assert _money_values(result.to_dict()).count(Decimal("0.500")) == 1

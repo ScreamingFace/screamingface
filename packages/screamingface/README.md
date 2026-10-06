@@ -47,7 +47,10 @@ screamingface prepare --list
 Logs are timestamped, tagged by service, rotated at 10 MiB, and retain five backups. The log and
 its backups are readable only by you. Versions before `OME-990` wrote prompts into this log;
 `screamingface logs --purge` deletes the backups and empties the live log (it does not securely
-erase the disk blocks). Benchmark
+erase the disk blocks). Three structural prompt carriers are redacted before anything is
+written: url4 `q=` query values, litellm's `Messages:` exception suffix, and litellm's debug curl
+`-d` body. The runtime also forces `LITELLM_LOG=WARNING`. Prompt text that appears without one
+of those markers is not detected, so review a log before sharing it. Benchmark
 preparation records a versioned manifest, skips current assets, and supports `--force` when a
 fresh download is required.
 

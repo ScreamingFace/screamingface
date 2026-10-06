@@ -73,7 +73,7 @@ def _adapter() -> tuple[AigatewayCatalogSource, list[httpx.Request]]:
 async def test_model_parameters_forward_the_given_traceparent() -> None:
     adapter, seen = _adapter()
     await adapter.fetch_model_parameters(
-        Credential.derive(None, _IDENTITY), _MODEL, traceparent=_TRACEPARENT
+        Credential.derive(_IDENTITY), _MODEL, traceparent=_TRACEPARENT
     )
     assert seen[0].headers["traceparent"] == _TRACEPARENT
     # The identity still leaves beside it — the trace is added, nothing is displaced.
@@ -83,7 +83,7 @@ async def test_model_parameters_forward_the_given_traceparent() -> None:
 async def test_admit_model_forwards_the_given_traceparent() -> None:
     adapter, seen = _adapter()
     answer = await adapter.admit_model(
-        Credential.derive(None, _IDENTITY), _DYNAMIC, traceparent=_TRACEPARENT
+        Credential.derive(_IDENTITY), _DYNAMIC, traceparent=_TRACEPARENT
     )
     assert answer.outcome == "admitted"
     assert seen[0].url.path == "/v1/models/admit"
@@ -92,7 +92,7 @@ async def test_admit_model_forwards_the_given_traceparent() -> None:
 
 async def test_no_traceparent_given_means_no_header_sent() -> None:
     adapter, seen = _adapter()
-    credential = Credential.derive(None, _IDENTITY)
+    credential = Credential.derive(_IDENTITY)
     await adapter.fetch_model_parameters(credential, _MODEL)
     await adapter.admit_model(credential, _DYNAMIC)
     assert [request.headers.get("traceparent") for request in seen] == [None, None]
@@ -102,16 +102,18 @@ async def test_fetch_never_sends_a_traceparent() -> None:
     """INVARIANT: the coalesced call carries no trace. Its result serves N callers, so any one
     caller's trace on it would be a plausible, wrong attribution (see `_headers`' AIDEV-NOTE)."""
     adapter, seen = _adapter()
-    await adapter.fetch(Credential.derive(None, _IDENTITY))
+    await adapter.fetch(Credential.derive(_IDENTITY))
     assert "traceparent" not in seen[0].headers
 
 
-async def test_the_traceparent_cannot_displace_the_profile_header() -> None:
+async def test_identity_cannot_smuggle_a_profile_or_displace_the_traceparent() -> None:
     adapter, seen = _adapter()
     await adapter.fetch_model_parameters(
-        Credential.derive("research", _IDENTITY), _MODEL, traceparent=_TRACEPARENT
+        Credential.derive({**_IDENTITY, "X-Profile": "research"}),
+        _MODEL,
+        traceparent=_TRACEPARENT,
     )
-    assert seen[0].headers["X-Profile"] == "research"
+    assert "X-Profile" not in seen[0].headers
     assert seen[0].headers["traceparent"] == _TRACEPARENT
 
 
@@ -147,7 +149,7 @@ async def test_a_declared_model_lookup_threads_the_traceparent() -> None:
     details = _RecordingDetails()
     source = ExecutableModelParameterSource(details, frozenset({_MODEL}))
     await source.fetch_model_parameters(
-        Credential.derive(None, _IDENTITY), _MODEL, traceparent=_TRACEPARENT
+        Credential.derive(_IDENTITY), _MODEL, traceparent=_TRACEPARENT
     )
     assert details.traceparents == [_TRACEPARENT]
 
@@ -159,7 +161,7 @@ async def test_an_admission_threads_the_traceparent_to_admit_and_to_the_fetch() 
         details, frozenset(), admitted=AdmittedModels(), admission_source=admitter
     )
     await source.fetch_model_parameters(
-        Credential.derive(None, _IDENTITY), _DYNAMIC, traceparent=_TRACEPARENT
+        Credential.derive(_IDENTITY), _DYNAMIC, traceparent=_TRACEPARENT
     )
     assert admitter.traceparents == [_TRACEPARENT]
     assert details.traceparents == [_TRACEPARENT]
@@ -180,7 +182,7 @@ async def test_the_overlay_heal_path_threads_the_traceparent_to_every_call() -> 
         details, frozenset(), admitted=admitted, admission_source=admitter
     )
     await source.fetch_model_parameters(
-        Credential.derive(None, _IDENTITY), _DYNAMIC, traceparent=_TRACEPARENT
+        Credential.derive(_IDENTITY), _DYNAMIC, traceparent=_TRACEPARENT
     )
     assert details.traceparents == [_TRACEPARENT, _TRACEPARENT]
     assert admitter.traceparents == [_TRACEPARENT]

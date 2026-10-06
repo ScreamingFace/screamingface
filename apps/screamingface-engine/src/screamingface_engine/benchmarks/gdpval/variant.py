@@ -26,6 +26,7 @@ import hashlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Unpack
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import (
@@ -52,6 +53,7 @@ from screamingface_engine.benchmarks.protocol import (
     early_result,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.provenance import ProvenanceFields
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
 
@@ -260,6 +262,7 @@ def gdpval_benchmark(
     difficulty: DifficultyTier,
     focus: str | None = None,
     dataset_url: str | None = None,
+    **provenance: Unpack[ProvenanceFields],
 ) -> tuple[GdpvalVariant, Benchmark]:
     """Wire one GDPval benchmark: identity → addresses → expression → private routes."""
 
@@ -305,6 +308,9 @@ def gdpval_benchmark(
         install=install,
         focus=focus,
         dataset_url=dataset_url,
+        # Benchmark Provenance, baselines, notebook (OME-1455): threaded through verbatim,
+        # the same pass-through as focus/dataset_url; shapes checked by `Benchmark` itself.
+        **provenance,
         # Every check is a judge call over the Case's rubric, so the loop's cost is real.
         check_surface=DraftFeedbackOffer(
             check_route=variant.routes.check_surface,

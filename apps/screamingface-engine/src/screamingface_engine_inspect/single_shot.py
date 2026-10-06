@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Unpack
 
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.aggregation import CandidateScore
@@ -65,6 +65,7 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.provenance import ProvenanceFields
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
     CaseGradeOutcome,
@@ -80,12 +81,12 @@ from screamingface_engine_inspect.envelopes import (
     build_case_grade,
     decode_case_grade,
 )
-from screamingface_engine_inspect.pins import (
+from screamingface_engine_inspect.prepare import SKIPPED_MARKER
+from screamingface_engine_inspect.revision_inputs import (
     PREPARER_REVISION,
     PROTOCOL_REVISION,
     pinned_inspect_packages,
 )
-from screamingface_engine_inspect.prepare import SKIPPED_MARKER
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Request, Url4Node
 
@@ -164,6 +165,9 @@ class ImportedBenchmark:
     #: The eval's grade counts the unwanted behaviour; the scorer adapter scores 1 − grade
     #: (OME-1400). Already hashed into the revision by the caller's pins.
     inverted_grade: bool = False
+    #: The judge's verdict word → grade map, replacing inspect's letters (OME-1371);
+    #: None for every letter- or number-graded benchmark. Hashed by the caller's pins.
+    verdict_grades: Mapping[str, float] | None = None
 
     def aggregation(self) -> BenchmarkAggregation:
         """This benchmark's shared-grading binding — built on demand so the scorer stays lazy."""
@@ -185,6 +189,7 @@ class ImportedBenchmark:
                 self.scorer_factory(),
                 multiple_correct=self.multiple_correct,
                 inverted_grade=self.inverted_grade,
+                verdict_grades=self.verdict_grades,
             ),
             failure_messages=_FAILURE_MESSAGES,
             method="inspect_scorer",
@@ -212,6 +217,8 @@ def single_shot_benchmark(
     multiple_correct: bool = False,
     judge: JudgeSpec | None = None,
     inverted_grade: bool = False,
+    verdict_grades: Mapping[str, float] | None = None,
+    **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
 
@@ -245,6 +252,10 @@ def single_shot_benchmark(
         inverted_grade: the eval's grade counts the unwanted behaviour (a should-refuse
             safety benchmark); passed to the scorer adapter, which scores 1 − grade. The
             caller carries it into ``revision_pins`` (OME-1400).
+        verdict_grades: the judge's verdict word → grade map for a judge that answers
+            in words (coconot); passed to the scorer adapter, which then grades by it
+            instead of inspect's letters. The caller carries it into ``revision_pins``
+            (OME-1371).
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -323,6 +334,9 @@ def single_shot_benchmark(
         install=install,
         focus=focus,
         dataset_url=dataset_url,
+        # Benchmark Provenance, baselines, notebook (OME-1455): authored on the BenchmarkSpec
+        # row like `difficulty`, threaded through verbatim; shapes checked by `Benchmark`.
+        **provenance,
         declaration=BenchmarkDeclaration(
             # WHY "coverage_declare": imported benchmarks reduce through the shared
             # finalize_candidate_result, which scores the gradeable subset and
@@ -361,6 +375,7 @@ def single_shot_benchmark(
         aggregate_route=routes["aggregate"],
         judge=judge,
         inverted_grade=inverted_grade,
+        verdict_grades=verdict_grades,
     )
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept

@@ -77,7 +77,6 @@ async def test_publish_pull_ack_round_trip() -> None:
             "'hi'!'go'",
             60,
             traceparent="00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-            profile="p1",
             identity={"X-User-Email": "a@b.c"},
             cache=CachePolicy(participate=True, max_age=300),
             io_concurrency=7,

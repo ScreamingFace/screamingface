@@ -110,7 +110,7 @@ async def test_a_blank_identity_header_is_dropped_not_forwarded_empty() -> None:
 
 
 async def test_no_identity_header_forwards_nothing() -> None:
-    """Absent identity is ``None`` — the same "nothing to forward" credential and profile use."""
+    """Absent identity is ``None`` — the explicit "nothing to forward" representation."""
     runner = RecordingJobRunner()
 
     await _start(runner, "identity-none")
@@ -132,11 +132,7 @@ async def test_the_dropped_headers_are_not_forwarded() -> None:
 
 
 async def test_identity_is_forwarded_without_a_credential() -> None:
-    """Unlike the routing profile, identity does not depend on a credential to forward.
-
-    A profile selects WHICH credential aigateway routes, so it is meaningless alone. Identity says
-    WHO called, which is true regardless — and dropping it here would silently unattribute a run.
-    """
+    """Identity says WHO called; dropping it would silently unattribute a run."""
     runner = RecordingJobRunner()
 
     await _start(runner, "identity-no-cred", **IDENTITY)
@@ -166,7 +162,7 @@ def test_the_inprocess_adapter_renders_the_same_env_as_the_queue_codec() -> None
         executor_factory=lambda env: _CapturingExecutor(env),
     )
 
-    env = runner._env("t", "gpt(hi)", 60, None, None, IDENTITY)  # noqa: SLF001
+    env = runner._env("t", "gpt(hi)", 60, None, IDENTITY)  # noqa: SLF001
 
     assert job_env.identity_from_env(env) == IDENTITY
     assert job_env.identity_from_env(env) == job_env.identity_from_env(_codec_env_of(IDENTITY))
@@ -185,7 +181,7 @@ async def test_this_requests_identity_replaces_any_ambient_one() -> None:
         base_env=stale,
     )
 
-    env = runner._env("t", "gpt(hi)", 60, None, None, IDENTITY)  # noqa: SLF001
+    env = runner._env("t", "gpt(hi)", 60, None, IDENTITY)  # noqa: SLF001
 
     assert job_env.identity_from_env(env) == IDENTITY
 
@@ -268,12 +264,7 @@ async def test_a_run_with_no_identity_sends_no_identity_headers() -> None:
         assert header not in request.headers
 
 
-async def test_an_inbound_header_cannot_displace_the_runs_own_profile() -> None:
-    """Gateway-owned headers are written LAST.
-
-    Envoy guarantees the identity header itself is not forged, but nothing guarantees the mapping
-    reaching the connector holds ONLY that key — so `X-Profile` must win regardless.
-    """
+async def test_an_inbound_identity_mapping_cannot_smuggle_a_profile() -> None:
     gw = _MockAigateway()
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
     async with gw.client() as client:
@@ -281,13 +272,12 @@ async def test_an_inbound_header_cannot_displace_the_runs_own_profile() -> None:
         with request_scope(
             RequestScope(
                 origin="run",
-                profile="gateway-owned",
                 identity_headers={**IDENTITY, "X-Profile": "attacker-profile"},
             )
         ):
             await url4_run(f"/{MODEL}('ctx')!'go'", world.node)
 
-    assert gw.requests[0].headers["x-profile"] == "gateway-owned"
+    assert "x-profile" not in gw.requests[0].headers
 
 
 # --- the contract sets ----------------------------------------------------------------------

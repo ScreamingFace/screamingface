@@ -200,13 +200,15 @@ _Avoid_: Benchmark name, eval name, key alone
 
 **Grading Material**:
 The private part of a Case that the Candidate never sees: the answer key, choices, or Rubric used
-in Grading. A Case graded only by a Judge prompt may carry no answer key.
+in Grading. A Case graded only by a Judge prompt, or by an eval's own scorer that reads only the
+reply, may carry no answer key.
 _Avoid_: Target, answer, ground truth
 
 **Answer key**:
 The correct answers a Benchmark grades against, stored per Case in its Grading Material: e.g.
 `42` for "What is 6 times 7?". A Benchmark that compares the answer to it needs no Judge; some
-give it to a Judge instead, and some have none and are graded only by a Judge prompt.
+give it to a Judge instead, and some have none: they are graded only by a Judge prompt, or by the
+eval's own scorer from the reply alone (cyse4_mitre_frr's refusal check).
 _Avoid_: Key alone ("published key", "private key" read as a Benchmark key or a credential),
 target, ground truth
 
@@ -225,6 +227,14 @@ The sha256 of an Imported Benchmark's prepared Cases, fixed at import and checke
 Preparation. A different digest means different Cases, so none are served.
 _Avoid_: Snapshot hash, checksum
 
+**Task replay**:
+Calling an eval's own task function in a child process with empty caches, so it fetches its
+Cases the way inspect would, then running the Task's own solvers on each Sample up to their
+first model call, where a stand-in records the prompt instead (capture). It never calls
+inspect's `eval()`: no model, scorer or Judge runs. The importer uses it for every Imported
+Benchmark, and Case Preparation uses it again at every image build, checking the Case Digest.
+_Avoid_: Running the eval, replaying the evaluation, replay alone
+
 **Coverage**:
 The share of a Benchmark's Cases that received a valid Case Grade, reported beside the score.
 _Avoid_: Completion rate
@@ -238,7 +248,7 @@ _Avoid_: Error handling
 The external evaluation framework (`inspect_ai`, with its eval catalogue `inspect_evals`) that
 Imported Benchmarks come from. A name that starts with `inspect` means it touches that framework:
 the `screamingface_engine_inspect` plugin, `inspect-<key>` Benchmark ids, the `inspect` install
-extra, `InspectTaskFacts`, `read_inspect_task`, `inspect_grade_case`.
+extra, `inspect_grade_case`.
 Inspect's own words name only inspect's own objects, in the plugin code that calls inspect.
 Everywhere else, including our own concepts inside the plugin, use our word:
 - inspect Task (`@task`): one eval definition (dataset, solver, scorer) → the eval an Imported
@@ -276,3 +286,46 @@ is still better and the Benchmark's score is a refusal rate, not a compliance ra
 the Benchmark Revision and shown in the Report; it says the score is already flipped, never that
 anyone should flip it again.
 _Avoid_: Reversed score, lower-is-better Benchmark
+
+**Headline Score**:
+The one score of a Benchmark that ranks the Leaderboard, always higher-is-better. For a
+single-scorer Benchmark it is the score; for a Benchmark with several Named Scores it is the one
+the Benchmark declares, copied into the Case Grade's and Candidate Result's `score`.
+_Avoid_: Main score, primary metric
+
+**Named Score**:
+One of the several per-Case and per-Candidate numbers a Benchmark reports under its scorer's
+name (`f1`, `exact`), shown beside the Headline Score and never ranked. It carries no direction:
+the Inverted Grade flip applies to the Headline Score only.
+_Avoid_: Sub-score, secondary metric, extra metric
+
+**Benchmark Provenance**:
+What says where a Benchmark comes from: its paper with the authors and a citation, the links to
+its website, harness, dataset and licence (with any restriction on it) and, for an Imported
+Benchmark, the people who ported it into Inspect. Who typed the row into ScreamingFace is not
+part of it: git holds that. The harness link is always the original upstream code that produced the paper's
+numbers, pinned to a commit or version tag, never ScreamingFace's own translation of it. None of
+it is part of the Benchmark Revision: a link or a baseline says nothing about which Cases are
+asked or how they are graded.
+_Avoid_: Metadata, sources
+
+**Frontier Score**:
+The best published AI score on a Benchmark's headline metric, with the model, the source URL and
+the as-of date. Typed by a human from a cited source; it is the input to Benchmark Saturation.
+_Avoid_: SOTA, top score
+
+**Human Baseline**:
+The published human score on a Benchmark's headline metric, with its source. Shown beside the
+Frontier Score for context; it plays no part in the saturation verdict.
+_Avoid_: Human performance, human score
+
+**Benchmark Saturation**:
+The state in which the best published score on a Benchmark sits so close to the maximum that a
+further gain cannot show a capability difference. The research definition (Akhtar et al., "When
+AI Benchmarks Plateau", arXiv 2602.16763, 2026) requires two things: the top models score
+statistically alike, and the top score nears the ceiling. ScreamingFace measures only the second,
+as headroom: the maximum score on the headline metric minus the Frontier Score. A Benchmark is
+**saturated** when headroom ≤ 0.10, **open** otherwise, and **unknown** when no Frontier Score is
+recorded. The Engine derives the verdict; nobody types it. Human-level performance does not make
+a Benchmark saturated, and a saturated Benchmark is not a solved problem.
+_Avoid_: Solved, beaten, superhuman (that is Frontier Score ≥ Human Baseline, a separate fact)

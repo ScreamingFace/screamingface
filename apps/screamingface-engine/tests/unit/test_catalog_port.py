@@ -45,41 +45,36 @@ _ALICE = {"X-User-Email": "alice@example.com"}
 _BOB = {"X-User-Email": "bob@example.com"}
 
 
-def test_same_identity_and_profile_derive_the_same_key() -> None:
-    assert Credential.derive("prof", _ALICE).key == Credential.derive("prof", _ALICE).key
+def test_same_identity_derives_the_same_key() -> None:
+    assert Credential.derive(_ALICE).key == Credential.derive(_ALICE).key
 
 
 def test_distinct_identities_derive_distinct_keys() -> None:
-    assert Credential.derive(None, _ALICE).key != Credential.derive(None, _BOB).key
+    assert Credential.derive(_ALICE).key != Credential.derive(_BOB).key
 
 
-def test_distinct_profiles_derive_distinct_keys() -> None:
-    assert Credential.derive("a", _ALICE).key != Credential.derive("b", _ALICE).key
-
-
-def test_absent_profile_is_not_confusable_with_an_empty_one() -> None:
-    assert Credential.derive(None, _ALICE).key == Credential.derive(identity=_ALICE).key
+def test_identity_components_are_not_confusable() -> None:
     assert (
-        Credential.derive("c", {"X-User-Email": "ab"}).key
-        != Credential.derive("bc", {"X-User-Email": "a"}).key
+        Credential.derive({"X-User-Email": "ab", "X-Other": "c"}).key
+        != Credential.derive({"X-User-Email": "a", "X-Other": "bc"}).key
     )
 
 
 # INVARIANT: an anonymous caller (local mode, aigateway auth disabled) must not share a cache
 # entry with an identified one, or a local dev response could be served to a real principal.
 def test_an_absent_identity_gets_its_own_key() -> None:
-    assert Credential.derive().key != Credential.derive(None, _ALICE).key
+    assert Credential.derive().key != Credential.derive(_ALICE).key
 
 
 def test_identity_key_material_is_order_independent() -> None:
     pair = {"X-User-Email": "a@b.c", "X-Other": "z"}
     reversed_pair = dict(reversed(list(pair.items())))
-    assert Credential.derive(None, pair).key == Credential.derive(None, reversed_pair).key
+    assert Credential.derive(pair).key == Credential.derive(reversed_pair).key
 
 
 def test_key_is_fixed_length_regardless_of_identity_length() -> None:
-    short = Credential.derive(None, {"X-User-Email": "x"})
-    long = Credential.derive(None, {"X-User-Email": "y" * 10_000})
+    short = Credential.derive({"X-User-Email": "x"})
+    long = Credential.derive({"X-User-Email": "y" * 10_000})
     assert len(short.key) == len(long.key) == 32
 
 

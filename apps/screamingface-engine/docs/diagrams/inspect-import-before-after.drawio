@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="before-after">
+    <mxGraphModel dx="1400" dy="900" background="#0a0f1c" grid="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ttl" value="Importing an inspect eval: where the architecture lives, before and after OME-1459" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1200" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="today" value="TODAY: the architecture is spread over two specs, a stale how-to and a chat transcript" style="swimlane;startSize=36;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#ffe8ea;fontFamily=Courier New;fontSize=13;fontStyle=1;swimlaneFillColor=#0f1522;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="1380" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" value="👤 a newcomer asks:&#xa;what do we take from&#xa;an inspect eval?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="today">
+          <mxGeometry x="30" y="60" width="250" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="⚠️ reads the OME-1113 spec&#xa;(2026-09-09): static components&#xa;only; predates Task replay,&#xa;the Case Digest, capture" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#ffe8ea;fontFamily=Courier New;fontSize=12;" vertex="1" parent="today">
+          <mxGeometry x="350" y="60" width="270" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="⚠️ reads the OME-1273 spec:&#xa;one fetch path covered,&#xa;the other a later decision;&#xa;the how-to never says Task replay" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#ffe8ea;fontFamily=Courier New;fontSize=12;" vertex="1" parent="today">
+          <mxGeometry x="690" y="60" width="270" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="no page answers: which Task&#xa;fields we take, which eval()&#xa;steps we skip, and which&#xa;component does each instead" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="today">
+          <mxGeometry x="1110" y="60" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="ae1" value="opens" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0f1522;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="today" source="a1" target="a2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ae2" value="then" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0f1522;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="today" source="a2" target="a3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ae3" value="then" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0f1522;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="today" source="a3" target="a4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="after" value="AFTER: one page holds the Task table, the eval() split and the component per step" style="swimlane;startSize=36;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dcfce7;fontFamily=Courier New;fontSize=13;fontStyle=1;swimlaneFillColor=#0f1522;" vertex="1" parent="1">
+          <mxGeometry x="40" y="300" width="1380" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="b1" value="👤 the newcomer opens&#xa;importing-an-inspect-eval.md&#xa;(the how-to and both&#xa;specs link to it)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="after">
+          <mxGeometry x="30" y="60" width="250" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" value="§1 Task field table:&#xa;take / read as a gate / replace,&#xa;one verdict per field, each&#xa;pinned to a line at tag 0.3.263" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="after">
+          <mxGeometry x="350" y="60" width="270" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" value="§2 eval() step table:&#xa;inspect step → the ScreamingFace&#xa;component, and when (image&#xa;build or run time)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="after">
+          <mxGeometry x="690" y="60" width="270" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="b4" value="✅ the reader knows what is&#xa;built today, what is decided,&#xa;and every deviation from&#xa;&quot;the same score as the paper&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dcfce7;fontFamily=Courier New;fontSize=12;" vertex="1" parent="after">
+          <mxGeometry x="1110" y="60" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="be1" value="reads" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0f1522;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="after" source="b1" target="b2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="be2" value="then" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0f1522;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="after" source="b2" target="b3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="be3" value="then" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0f1522;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="after" source="b3" target="b4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="key" value="HOW TO READ: top lane = today, bottom lane = after this doc. Red box = where the newcomer is misled; blue = a table in this page; green = the outcome; grey = neutral. Arrows are the newcomer's reading order." style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="500" width="1380" height="40" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

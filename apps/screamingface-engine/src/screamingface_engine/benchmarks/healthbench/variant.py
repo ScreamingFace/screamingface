@@ -24,6 +24,7 @@ import hashlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Unpack
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import (
@@ -50,6 +51,7 @@ from screamingface_engine.benchmarks.protocol import (
     early_result,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.provenance import ProvenanceFields
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
 
@@ -289,6 +291,7 @@ def healthbench_benchmark(
     difficulty: DifficultyTier,
     focus: str | None = None,
     dataset_url: str | None = None,
+    **provenance: Unpack[ProvenanceFields],
 ) -> tuple[HealthbenchVariant, Benchmark]:
     """Wire one HealthBench benchmark: identity → addresses → expression → private routes.
 
@@ -358,6 +361,9 @@ def healthbench_benchmark(
         # only place the benchmark's text is written; it is seeded from the catalogue at deploy.
         focus=focus,
         dataset_url=dataset_url,
+        # Benchmark Provenance, baselines, notebook (OME-1455): threaded through verbatim,
+        # the same pass-through as focus/dataset_url; shapes checked by `Benchmark` itself.
+        **provenance,
         # Every check is a Judge call over the case rubric, so the loop's cost is real.
         check_surface=DraftFeedbackOffer(
             check_route=variant.routes.check_surface,

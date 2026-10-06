@@ -49,6 +49,16 @@ class BaseBenchmark(BaseScoreboardModel):
     # value on every write, and a NULL from a pre-migration row reads as public, which is exactly
     # what the backfill asserts. Readers coerce via benchmark_to_schema.
     visibility = fields.CharField(max_length=16, default="public", null=True)
+    # OME-1455: the Benchmark Provenance block, copied whole from the Engine catalogue at seed
+    # time (paper, authors, citation, inspect porters, links, licence, baseline, frontier score,
+    # notebook). WHY one JSON column and not one per key (spec §4.1): this board is a copy, not
+    # an authority; nothing queries a paper link; and a field the Engine adds later needs no
+    # migration here. WHY nullable: NULL means the Engine published no block, and the API
+    # serves null so a page omits the strip rather than printing dashes.
+    provenance = fields.JSONField(null=True)
+    # OME-1455: the derived saturation verdict (saturated / open / unknown), its own column
+    # because it is the one provenance value a catalogue page will sort and filter on.
+    saturation = fields.CharField(max_length=16, null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
 
 

@@ -12,15 +12,18 @@ helpers cannot participate in its key or storage lifecycle.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
 from collections.abc import Callable
 from typing import Any, cast
 
+import httpx
 from fastapi import HTTPException, Request
+from litellm.exceptions import Timeout
 
-from ..core.concurrency import effective_provider_limit, provider_slot
+from ..core.admission import ProviderExecutionTimeout, dispatch_with_budgets
 from ..core.http_status import valid_http_error_status
 from ..core.provider_access import CredentialTarget, provider_access_for
 from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
@@ -76,10 +79,17 @@ async def _safe_dispatch_failure_response(
     account_id: str,
     profile_name: str,
     target: CredentialTarget,
+    error_type: str | None = None,
 ) -> HTTPException:
-    """Contain secondary failures while rendering/persisting dispatch errors."""
+    """Contain secondary failures while rendering/persisting dispatch errors.
+
+    FEATURE (OME-968): also the ONE place a mapped dispatch failure is recorded. Every
+    non-streaming dispatch failure branch in `routes/chat.py` already funnels through here
+    with the final, sanitized exception in hand — so recording here gives exactly one
+    terminal record per failing request without each branch having to remember to log.
+    """
     try:
-        return await _dispatch_failure_response(request, exc, plugin=plugin, target=target)
+        final = await _dispatch_failure_response(request, exc, plugin=plugin, target=target)
     except Exception as failure:
         logger.error(
             "dispatch failure handling error type=%s provider=%s account=%s profile=%s",
@@ -88,7 +98,57 @@ async def _safe_dispatch_failure_response(
             account_id,
             profile_name,
         )
-        return _unknown_provider_exception()
+        final = _unknown_provider_exception()
+    log_dispatch_failure(
+        final,
+        provider=provider,
+        error_type=error_type,
+        account_id=account_id,
+        profile_name=profile_name,
+    )
+    return final
+
+
+def failure_classification(detail: Any) -> str:
+    """The gateway-authored machine code of a failure, never its free text.
+
+    INVARIANT: only a `code` the gateway or a plugin put in a structured detail is echoed. A
+    string detail may carry provider-influenced text, so it is reduced to `unclassified`.
+    """
+    if isinstance(detail, dict):
+        code = detail.get("code")
+        if isinstance(code, str):
+            return code
+    return "unclassified"
+
+
+def log_dispatch_failure(
+    exc: HTTPException,
+    *,
+    provider: str,
+    error_type: str | None,
+    account_id: str,
+    profile_name: str,
+) -> None:
+    """Emit the terminal record of a failed non-streaming dispatch (OME-968).
+
+    WHY ERROR for 5xx and WARNING for 4xx: an operator alerting on WARNING+ must see every
+    failing call (the defect was ZERO records), while a caller's own bad request should not
+    page anyone the way a provider outage does.
+    `gateway_call_id`/`trace_id` are NOT arguments: the OME-938 record factory stamps them
+    from the request scope, as on every other line.
+    INVARIANT: class-name-only — `error_type` is `type(exc).__name__`, never `str(exc)`.
+    """
+    logger.log(
+        logging.ERROR if exc.status_code >= 500 else logging.WARNING,
+        "dispatch failed provider=%s classification=%s status=%d type=%s account=%s profile=%s",
+        provider,
+        failure_classification(exc.detail),
+        exc.status_code,
+        error_type or "HTTPException",
+        account_id,
+        profile_name,
+    )
 
 
 def _retry_after_headers(exc: Exception) -> dict[str, str]:
@@ -123,10 +183,13 @@ async def _dispatch_with_backpressure(
     """
     settings = request.app.state.settings
 
-    def _attempt() -> Any:
+    async def _attempt() -> Any:
         if on_dispatch is not None:
             on_dispatch()
-        return plugin.chat_completion(body)
+        try:
+            return await plugin.chat_completion(body)
+        except (Timeout, httpx.TimeoutException):
+            raise ProviderExecutionTimeout() from None
 
     # FEATURE (OME-1132): the provider call as a CHILD span — "which provider was slow",
     # answerable at last. Deliberately wraps the WHOLE block, slot wait and retries included,
@@ -139,13 +202,27 @@ async def _dispatch_with_backpressure(
     # `middleware/call_id.py` was written to undo for the correlation ids. One extra clock read
     # is the cheaper of the two costs.
     with provider_span(provider):
-        async with provider_slot(
-            request.app, provider, effective_provider_limit(settings, provider)
-        ):
-            return await with_overload_retry(
-                _attempt,
-                policy=RetryPolicy.from_settings(settings),
+        try:
+            return await dispatch_with_budgets(
+                request,
+                provider,
+                lambda: with_overload_retry(_attempt, policy=RetryPolicy.from_settings(settings)),
             )
+        except asyncio.CancelledError:
+            if not getattr(request.state, "provider_disconnect_cancelled", False):
+                raise
+            work = asyncio.current_task()
+            assert work is not None
+            # INVARIANT: consume only the watcher's cancellation. Concurrent server
+            # shutdown or caller cancellation must still propagate to the ASGI server.
+            if work.uncancel():
+                raise
+            # WHY: a normal HTTP response lets middleware unwind without an ASGI
+            # ERROR traceback; the client has gone and cannot receive this response.
+            raise HTTPException(
+                status_code=499,
+                detail={"code": "client_disconnected", "message": "The client disconnected."},
+            ) from None
 
 
 # WHY (FINDING B): the client-facing message is gateway-authored per machine
@@ -211,7 +288,9 @@ def _litellm_http_exception(exc: Exception) -> HTTPException:
     )
 
 
-def convert_provider_response(provider_response: Any, session: Any = None) -> Any:
+def convert_provider_response(
+    provider_response: Any, session: Any = None, *, provider: str | None = None
+) -> Any:
     """Render the provider's response object to a plain JSON-able body.
 
     OME-303 §9.20: when this fails the provider ANSWERED — and very likely billed — but
@@ -231,14 +310,25 @@ def convert_provider_response(provider_response: Any, session: Any = None) -> An
         result = dumpable.model_dump() if hasattr(dumpable, "model_dump") else provider_response
     except Exception as failure:
         # INVARIANT: type only. The exception text is provider-influenced.
-        logger.error("provider response conversion failed type=%s", type(failure).__name__)
+        _log_conversion_failure(provider, type(failure).__name__)
         note_conversion_failure(session)
         raise _unknown_provider_exception() from None
     if not isinstance(result, dict):
-        logger.error("provider response conversion failed type=non_object")
+        _log_conversion_failure(provider, "non_object")
         note_conversion_failure(session)
         raise _unknown_provider_exception() from None
     return result
+
+
+def _log_conversion_failure(provider: str | None, error_type: str) -> None:
+    # FEATURE (OME-968): the terminal record of this path, same fields as `dispatch failed`.
+    # The status/classification are what `_unknown_provider_exception` renders.
+    logger.error(
+        "provider response conversion failed type=%s provider=%s classification=provider_error "
+        "status=502",
+        error_type,
+        provider,
+    )
 
 
 def _unknown_provider_exception() -> HTTPException:
@@ -248,7 +338,7 @@ def _unknown_provider_exception() -> HTTPException:
     )
 
 
-async def _stream(plugin: Any, body: dict[str, Any]):
+async def _stream(plugin: Any, body: dict[str, Any], *, provider: str | None = None):
     try:
         async for chunk in plugin.chat_completion_stream(body):
             payload = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
@@ -256,10 +346,16 @@ async def _stream(plugin: Any, body: dict[str, Any]):
         yield "data: [DONE]\n\n"
     except Exception as exc:
         # INVARIANT: provider-controlled exception text and traceback data stay out of logs.
+        # FEATURE (OME-968): the terminal record of a failed stream. `status=200` is the
+        # truth, not a typo: the status line was committed before the first chunk, so the
+        # failure travels in the SSE error frame and this record is the only place it is
+        # attributable (the call id is stamped from the request scope, which the pure-ASGI
+        # `CallIdMiddleware` keeps bound for the whole stream).
         logger.error(
-            "stream failed type=%s plugin=%s",
+            "stream failed type=%s plugin=%s provider=%s classification=provider_error status=200",
             type(exc).__name__,
             type(plugin).__name__,
+            provider,
         )
         err = {
             "error": {

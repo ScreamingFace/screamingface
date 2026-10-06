@@ -1,7 +1,7 @@
 ---
 id: OME-968
 linear_url: https://linear.app/openmined/issue/OME-968/a-mapped-provider-failure-returns-500-and-logs-nothing-at-all
-status: backlog
+status: in_review
 type: improvement
 priority: 2
 labels: [aigateway, agentic, autonomous]

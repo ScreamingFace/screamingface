@@ -113,6 +113,14 @@ spec:
             - secretRef:
                 name: {{ include "screamingface-engine.artifactSigningSecretName" . }}
             {{- end }}
+            {{- if include "screamingface-engine.tracingHasSecret" . }}
+            # The OTLP collector credential (OME-1131) for the App's `url4.accept` span (OME-1218),
+            # under the SAME condition as the pool. Referenced only when one EXISTS — naming a
+            # Secret that is never created would stop the App from starting on an unresolvable
+            # envFrom.
+            - secretRef:
+                name: {{ include "screamingface-engine.tracingSecretName" . }}
+            {{- end }}
           env:
             # HS256 topic-capability signing secret (spec §4). Never logged.
             - name: URL4_CLOUD_JWT_SECRET

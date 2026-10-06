@@ -172,14 +172,13 @@ async def test_execution_authenticates_before_it_refuses() -> None:
 
 
 @pytest.mark.parametrize("sent", _SELECTOR_LESS)
-async def test_a_selector_less_run_is_scheduled_without_a_profile(sent: Headers) -> None:
+async def test_a_selector_less_run_is_scheduled(sent: Headers) -> None:
     runner = RecordingJobRunner()
 
     response = await _start(_run_app(runner), "sel-less", sent)
 
     assert response.status_code == 202, response.text
-    (run,) = runner.scheduled
-    assert run.profile is None
+    assert len(runner.scheduled) == 1
 
 
 class _KwargsRunner(RecordingJobRunner):
@@ -212,7 +211,7 @@ async def test_a_blank_selector_changes_nothing_else_the_run_carries() -> None:
 
     assert blank.kwargs == without.kwargs
     (call,) = blank.kwargs
-    assert call.get("profile") is None
+    assert "profile" not in call
     assert call["identity"] == _IDENTITY
     assert call["traceparent"] == _TRACE
     assert call["cache"] == CachePolicy(participate=False)
@@ -255,8 +254,7 @@ async def test_the_model_listing_keys_a_blank_selector_as_absent(sent: Headers) 
 
     assert response.status_code == 200
     (credential,) = catalog.seen
-    assert credential.profile is None
-    assert credential.key == Credential.derive(None, auth(EMAIL_A)).key
+    assert credential.key == Credential.derive(auth(EMAIL_A)).key
 
 
 def _parameters_app(source: _ParameterSource) -> FastAPI:
@@ -298,7 +296,6 @@ async def test_model_parameters_treat_a_blank_selector_as_absent(sent: Headers) 
 
     assert response.status_code == 200
     ((credential, _model),) = source.seen
-    assert credential.profile is None
     assert credential.identity == _IDENTITY
 
 
@@ -330,4 +327,3 @@ async def test_the_local_sync_mount_binds_a_selector_less_scope(sent: Headers) -
     assert recorder.scope is not None
     # `origin` proves the MOUNT bound this scope: the harness's default scope is selector-less too.
     assert recorder.scope.origin == "sync"
-    assert recorder.scope.profile is None

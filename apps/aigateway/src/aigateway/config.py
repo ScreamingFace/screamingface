@@ -108,6 +108,19 @@ class Settings(BaseSettings):
         default=30.0, validation_alias="AIGW_RETRY_MAX_WAIT"
     )
     retry_jitter_seconds: float = Field(default=0.25, validation_alias="AIGW_RETRY_JITTER")
+    provider_execution_timeout_s: float = Field(
+        default=600.0,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="AIGW_PROVIDER_EXECUTION_TIMEOUT_S",
+    )
+    provider_queue_timeout_s: float | None = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="AIGW_PROVIDER_QUEUE_TIMEOUT_S",
+    )
+
     provider_max_concurrency: int = Field(
         default=4, validation_alias="AIGW_PROVIDER_MAX_CONCURRENCY"
     )
@@ -231,6 +244,16 @@ class Settings(BaseSettings):
     )
     discovery_max_bytes: int = Field(
         default=1_000_000, gt=0, validation_alias="AIGW_DISCOVERY_MAX_BYTES"
+    )
+
+    # FEATURE (OME-1217, OME-1453): routes whose server span is never exported — health-check
+    # probes by default. Raw comma-separated, anchored regexes over ROUTE TEMPLATES; `None` (unset)
+    # means the probe default `^/healthz$`, blank means exclude nothing. Parsed, never raising, by
+    # `span_exclusion.SpanExclusion.from_setting`.
+    # WHY not `OTEL_PYTHON_EXCLUDED_URLS`: operators set it cluster-wide with unanchored values for
+    # the stock instrumentors, which against route templates would drop real routes (`/v1/models`).
+    trace_excluded_routes: str | None = Field(
+        default=None, validation_alias="AIGW_TRACE_EXCLUDED_ROUTES"
     )
 
     @model_validator(mode="after")

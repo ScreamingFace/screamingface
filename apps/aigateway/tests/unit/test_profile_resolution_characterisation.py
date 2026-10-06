@@ -367,4 +367,5 @@ def test_a_persistent_index_fault_at_the_resolver_read_renders_a_bare_500(
         resp = authenticated_client.post(_CHAT, json=_body())
 
     assert resp.status_code == 500
-    assert resp.text == "Internal Server Error"
+    assert resp.json()["detail"]["code"] == "gateway_internal_error"
+    assert resp.json()["detail"]["gateway_call_id"].startswith("call_")

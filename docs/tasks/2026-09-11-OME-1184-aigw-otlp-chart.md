@@ -1,12 +1,12 @@
 ---
 id: OME-1184
 linear_url: https://linear.app/openmined/issue/OME-1184
-status: in_review
+status: done
 type: null
 priority: 3
 labels: [aigateway, agentic, autonomous]
 created: 2026-09-11
-closed: null
+closed: 2026-09-29
 ---
 
 # Ship the OTLP endpoint to aigateway through its chart

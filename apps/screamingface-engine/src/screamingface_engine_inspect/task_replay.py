@@ -6,15 +6,21 @@ see come from the eval's own loading code, pinned by a Case Digest.
 Think of it as asking the eval to print its question booklet in a clean room, not to run the
 test: the eval's task function is called in a fresh child process with empty caches, which
 makes it load its dataset exactly as inspect would, and the prepared Cases come back through
-a file. It never calls inspect's ``eval()``: no solver, scorer, model or Judge runs.
+a file. Each Sample's prompt is captured from the Task's own solvers, run up to their first
+``generate`` (:mod:`screamingface_engine_inspect.capture`). It never calls inspect's
+``eval()``: no model, scorer or Judge runs, and nothing is paid for.
 Stages, in execution order:
 
     Stage 1 — parent: write the declaration to a temp file; build the child's environment
               with its own empty inspect_evals and Hugging Face caches (a cache hit would
-              skip the fetch, and a stale cache would hide a dead URL).
-    Stage 2 — child: call the task function with its args, take the Task's dataset (after
-              the eval's own filtering, shuffling and conversion), and render each Sample
-              with the shared Case writer.
+              skip the fetch, and a stale cache would hide a dead URL) and no model name in
+              INSPECT_EVAL_MODEL, so nothing in the child can reach a model.
+    Stage 2 — child: import the task module, install the fetch-pin enforcer with the
+              declaration's Hub commits and seeds (OME-1460), call the task function with its
+              args, take the Task's dataset (after the eval's own filtering, shuffling and
+              conversion), and render each Sample by capture, then write it with the shared
+              Case writer. WHY enforce at every build, not only at import: a build that let
+              the eval fetch unforced would read whatever commit the Hub serves that day.
     Stage 3 — child: write the prepared Cases as JSON to the result file. WHY a file and
               not stdout: evals print while they load.
     Stage 4 — parent: a non-zero exit, a timeout, or a missing or unreadable result is a
@@ -40,6 +46,9 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY
+from screamingface_engine_inspect.capture import captured_case_records
+from screamingface_engine_inspect.case_sources import CaseSourceRecorder
+from screamingface_engine_inspect.fetch_pins import FetchPins
 from screamingface_engine_inspect.prepare import (
     SKIPPED_MARKER,
     PreparedCase,
@@ -48,7 +57,7 @@ from screamingface_engine_inspect.prepare import (
     _resolve,
     _write_cases,
     case_digest,
-    case_records,
+    skip_without_hf_token,
 )
 
 #: Upper bound on one replay. A package's Cases download in minutes; this only stops a
@@ -68,13 +77,25 @@ def replay_environment(cache_root: Path, base: Mapping[str, str]) -> dict[str, s
     empty directory under ``cache_root``."""
 
     env: dict[str, str] = dict(base)
+    # INVARIANT: the builder's cached Hugging Face login stays readable (OME-1460, R8).
+    # WHY pinned before XDG moves: huggingface_hub reads its token from HF_HOME/token and
+    # derives HF_HOME from XDG_CACHE_HOME when HF_HOME is unset, so redirecting XDG below
+    # would send it looking in the child's own empty cache, and a gated dataset (xstest)
+    # would fail to load for a dev logged in with `hf auth login`. Only the token is kept.
+    env["HF_TOKEN_PATH"] = _hf_token_path(base)
     # INVARIANT: on Linux, where images are built, every cache a Case Source fetch reads is
     # redirected, so each replay really fetches. XDG_CACHE_HOME moves inspect_ai's own cache
     # (platformdirs), which its hf_dataset reads back when called without a revision.
-    # AIDEV-NOTE: macOS ignores XDG_CACHE_HOME, so on a dev Mac inspect_ai's cache stays
-    # shared; it only matters for hf_dataset calls with no revision, and none of OME-1273's
-    # packages make one. HF_HOME is left alone on purpose: it also holds a cached login token.
+    # AIDEV-NOTE: platformdirs honours XDG_CACHE_HOME on macOS too at this pin (4.11), so a
+    # dev Mac redirects inspect_ai's cache as Linux does; an earlier note here said otherwise.
+    # HF_HOME is left alone on purpose: it also holds a cached login token (kept reachable
+    # by HF_TOKEN_PATH above even when HF_HOME is only XDG's default).
     env["XDG_CACHE_HOME"] = str(cache_root / "xdg")
+    # INVARIANT: no model is reachable from the child. Capture hands the solvers a stand-in
+    # generate, but a solver that calls get_model() itself reads INSPECT_EVAL_MODEL, and the
+    # builder's shell may carry one; "none/none" makes that call raise, so capture refuses
+    # the Sample by name instead of a real model's words landing inside a Case.
+    env["INSPECT_EVAL_MODEL"] = "none/none"
     env["INSPECT_EVALS_CACHE_DIR"] = str(cache_root / "inspect_evals")
     env["HF_DATASETS_CACHE"] = str(cache_root / "hf_datasets")
     env["HF_HUB_CACHE"] = str(cache_root / "hf_hub")
@@ -82,6 +103,20 @@ def replay_environment(cache_root: Path, base: Mapping[str, str]) -> dict[str, s
     env["HF_XET_CACHE"] = str(cache_root / "hf_xet")
     env["HF_ASSETS_CACHE"] = str(cache_root / "hf_assets")
     return env
+
+
+def _hf_token_path(base: Mapping[str, str]) -> str:
+    """Where huggingface_hub would read the builder's login token, by its own rule.
+
+    HF_TOKEN_PATH if set; else HF_HOME/token; else XDG_CACHE_HOME/huggingface/token; else
+    ~/.cache/huggingface/token (huggingface_hub.constants, 1.x).
+    """
+
+    if base.get("HF_TOKEN_PATH"):
+        return base["HF_TOKEN_PATH"]
+    cache_home: str = base.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    hf_home: str = base.get("HF_HOME") or os.path.join(cache_home, "huggingface")
+    return os.path.join(os.path.expanduser(hf_home), "token")
 
 
 def _failure_reason(stderr: str | bytes | None) -> str:
@@ -128,12 +163,20 @@ def replayed_cases(
         root: Path = Path(scratch)
         spec_path: Path = root / "spec.json"
         result_path: Path = root / "result.json"
+        cache_root: Path = root / "cache"
         spec_path.write_text(json.dumps(asdict(spec)), encoding="utf-8")
-        command: list[str] = [sys.executable, "-m", __name__, str(spec_path), str(result_path)]
+        command: list[str] = [
+            sys.executable,
+            "-m",
+            __name__,
+            str(spec_path),
+            str(result_path),
+            str(cache_root),
+        ]
         try:
             completed: subprocess.CompletedProcess[str] = subprocess.run(  # noqa: S603 — argv is ours; no shell
                 command,
-                env=replay_environment(root / "cache", os.environ),
+                env=replay_environment(cache_root, os.environ),
                 capture_output=True,
                 # WHY lenient: this text only feeds the log and the one-line reason. Strict
                 # decoding raised UnicodeDecodeError on one Latin-1 byte, which no caller
@@ -183,9 +226,20 @@ def prepare_replayed_cases(
 
     Returns:
         The summary: ``cases`` and ``case_digest`` on success; on a skip, ``cases`` 0 plus
-        ``skipped`` and ``UNCONFIRMED_CASES_KEY`` carrying the reason.
+        ``skipped`` and ``UNCONFIRMED_CASES_KEY`` carrying the reason. A gated Benchmark
+        skipped for want of a token carries no ``UNCONFIRMED_CASES_KEY`` (OME-1460, F7).
+
+    Raises:
+        PrepareError: a gated Benchmark with no token and no skip flag (R8).
     """
 
+    if spec.needs_hf_token:
+        # WHY before the replay: without a token the gated fetch can only fail, and a PR
+        # build must say "no secret", not "replay failed" (OME-1460, R8).
+        gated: str = ", ".join(sorted(spec.source_pins)) or spec.task
+        skipped: dict[str, Any] | None = skip_without_hf_token(gated, out)
+        if skipped is not None:
+            return skipped
     try:
         prepared: list[PreparedCase] = replayed_cases(spec)
         if len(prepared) != spec.case_count:
@@ -209,20 +263,36 @@ def prepare_replayed_cases(
     return {"cases": len(prepared), "case_digest": digest, "out": str(out)}
 
 
-def _replay_in_this_process(spec_path: Path, result_path: Path) -> None:
-    """Stages 2 and 3 — the child's half: call the task function, render its Samples, write
-    the result."""
+def fetch_pins_of(spec: TaskReplayCasesSpec) -> FetchPins:
+    """What a replay of this declaration forces onto the eval's fetches (OME-1460)."""
+
+    return FetchPins(
+        source_pins=dict(spec.source_pins),
+        shuffle_seed=spec.shuffle_seed,
+        choice_shuffle_seed=spec.choice_shuffle_seed,
+    )
+
+
+def _replay_in_this_process(spec_path: Path, result_path: Path, cache_root: Path) -> None:
+    """Stages 2 and 3 — the child's half: call the task function with the fetch pins
+    enforced, render its Samples, write the result."""
 
     fields: dict[str, Any] = json.loads(spec_path.read_text(encoding="utf-8"))
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(**fields)
-    task: Any = _resolve(spec.task)(**(spec.task_args or {}))
-    prepared: list[PreparedCase] = case_records(list(task.dataset), spec)
+    # INVARIANT: the module is imported BEFORE the enforcer installs, so a fetch helper it
+    # bound by name at import (gsm8k's `hf_dataset`) is rebound too (R1, R4). The recorder
+    # also records, unread here: the import child is the one that reports Case Sources.
+    task_function: Any = _resolve(spec.task)
+    CaseSourceRecorder(cache_root).install(fetch_pins_of(spec))
+    task: Any = task_function(**(spec.task_args or {}))
+    prepared: list[PreparedCase] = captured_case_records(task, spec)
     result_path.write_text(json.dumps(prepared, ensure_ascii=False), encoding="utf-8")
 
 
 __all__ = [
     "TASK_REPLAY_TIMEOUT_SECONDS",
     "TaskReplayError",
+    "fetch_pins_of",
     "prepare_replayed_cases",
     "replay_environment",
     "replayed_cases",
@@ -230,4 +300,4 @@ __all__ = [
 
 
 if __name__ == "__main__":  # pragma: no cover - child-process entrypoint, run via replayed_cases
-    _replay_in_this_process(Path(sys.argv[1]), Path(sys.argv[2]))
+    _replay_in_this_process(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]))

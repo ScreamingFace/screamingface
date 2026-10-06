@@ -101,6 +101,7 @@ def test_the_declared_vocabulary_is_exactly_the_agreed_set() -> None:
             "aigateway_bad_response",
             "aigateway_empty_response",
             "aigateway_transport_error",
+            "gateway_internal_error",
             "invalid_candidate_input",
             "web_tool_loop_limit",
             "web_retrieval_invalid",

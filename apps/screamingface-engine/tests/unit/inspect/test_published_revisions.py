@@ -28,29 +28,66 @@ from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: 
 
 #: key → the exact published revision, as served on main (verified 2026-09-24).
 _PUBLISHED_REVISIONS: dict[str, str] = {
-    "gsm8k": "df52a7b257fe8701",
-    "mmlu": "49ee9af05fb6e15f",
-    "arc_easy": "b65db0c432a718aa",
-    "arc_challenge": "a08708c1ab765cff",
-    "commonsense_qa": "4a4e8e12ff7a112d",
-    "paws": "82d6b39c271cbdd1",
-    "boolq": "e1d1ca4f97ea32f0",
-    "mmlu_pro": "41ebb1f731886df8",
-    "winogrande": "22fd4c35111f2d7d",
-    "race_h": "619493b3ea10bbb0",
-    "aime24": "fe26f860bc661efe",
-    "aime25": "94a6b9ead168a622",
-    "musr": "6cfb64a1c68595cb",
-    "wmdp_bio": "d2c264d42b33ce58",
-    "wmdp_chem": "c1052f7956dd9bb6",
-    "wmdp_cyber": "dbb68d47d68f4e09",
-    "hellaswag": "b3f504a886222b6a",
+    "gsm8k": "39331c3bab42c313",
+    "mmlu": "1e42325597dee3d6",
+    "arc_easy": "5f063684bf708ca1",
+    "arc_challenge": "b54aa46de0840b60",
+    "commonsense_qa": "c133584254776a5e",
+    "paws": "d7b8de71b6396e78",
+    "boolq": "994061e3c4a36f79",
+    "mmlu_pro": "05aaa663ac69d943",
+    "winogrande": "07e46e0177ff0cb9",
+    "race_h": "5ca6b26990c19643",
+    "aime24": "62ceb43424c5f530",
+    "aime25": "7dd86b3850735f03",
+    "musr": "335aca22d85fd610",
+    "wmdp_bio": "8b36af2e74e0c6d5",
+    "wmdp_chem": "297614ecae016baa",
+    "wmdp_cyber": "64c7e14444d0a4b5",
+    "hellaswag": "c98211d79bcab080",
     # Verified against main 2026-09-30: the inverted-grade pin (OME-1400) exists only
     # when a row sets the flag, so its uninverted sibling keeps this revision.
-    "xstest_safe": "97047574a6efa53a",
+    "xstest_safe": "1044036b2049e623",
 }
 
 
 @pytest.mark.parametrize(("key", "revision"), sorted(_PUBLISHED_REVISIONS.items()))
 def test_published_benchmark_revision_is_byte_identical(key: str, revision: str) -> None:
+    assert imported_benchmark(key).benchmark.revision == revision
+
+
+#: OME-1460: every Task-replay Benchmark with no Hugging Face Case Source, as served on main
+#: 0d1000d43 (2026-10-05). The fetch-pin enforcer adds an identity pin only to a row that
+#: pins a Hub commit, so none of these may move; the five that read the Hub (medqa, bbq,
+#: piqa, pre_flight, bbeh) gain their pin on purpose (spec D4) and are left out.
+_URL_ONLY_TASK_REPLAY_REVISIONS: dict[str, str] = {
+    "agieval_aqua_rat": "878ad44393d431a4",
+    "agieval_logiqa_en": "2e1f1c960caa7a0f",
+    "agieval_lsat_ar": "017a3493849e9bf3",
+    "agieval_lsat_lr": "633ce0a2c3f1e4fa",
+    "agieval_lsat_rc": "d15fdabe16971db5",
+    "agieval_sat_en": "0dd4b206f7f3787b",
+    "agieval_sat_en_without_passage": "05d42ff073975ee3",
+    "agieval_sat_math": "71f3e7b2ddfa58e9",
+    "cybermetric_10000": "1174c252ffaebfab",
+    "cybermetric_2000": "4d53683a812ef2c5",
+    "cybermetric_500": "9ff30cf33ee155e4",
+    "cybermetric_80": "6cfebaf54236f398",
+    "cyse4_mitre_frr": "0d6a53f259f81eff",
+    "mgsm_en": "773b5e835820032d",
+    "sad_facts_human_defaults": "0a90cd743e4e33a7",
+    "sad_facts_llms": "6e0763d561439f9a",
+    "sad_influence": "c6124a6e15dcdef7",
+    "sad_stages_full": "a548998184f8fe54",
+    "sad_stages_oversight": "ad42c0f4e66ad0cf",
+    "sevenllm_mcq_en": "c8ef9b7c8db97e9a",
+    "sevenllm_mcq_zh": "a8177911cb41f07e",
+    "worldsense": "e30c575f1b740fae",
+}
+
+
+@pytest.mark.parametrize(("key", "revision"), sorted(_URL_ONLY_TASK_REPLAY_REVISIONS.items()))
+def test_a_task_replay_benchmark_without_a_hub_source_keeps_its_revision(
+    key: str, revision: str
+) -> None:
     assert imported_benchmark(key).benchmark.revision == revision

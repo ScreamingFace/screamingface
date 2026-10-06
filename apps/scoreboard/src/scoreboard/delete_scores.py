@@ -48,7 +48,7 @@ from tortoise import BaseDBAsyncClient
 from tortoise.transactions import in_transaction
 
 from .config import Settings
-from .db import close_db, init_db
+from .db import DEFAULT_CONNECTION, close_db, init_db
 from .export_private_submissions import format_jsonl_bytes
 from .scores.models import Score
 from .scores.schemas import ScoreSchema
@@ -181,7 +181,7 @@ async def delete_scores(
     _validate_selection(score_ids, submitted_before, expected)
     reviewed = _validated_digest(expected_sha256, confirmed=confirmed)
 
-    async with in_transaction() as connection:
+    async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
         await _revalidate_visibility_for_delete(connection, benchmark_id)
 
         query = Score.filter(benchmark_id=benchmark_id).using_db(connection)

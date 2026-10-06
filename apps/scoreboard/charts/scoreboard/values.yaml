@@ -40,6 +40,11 @@ config:
   # exclusively through that mesh (OME-404).
   authMode: disabled
   allowedNetworks: ""
+  # Request-pool bounds per pod for a PostgreSQL database (OME-1452). 1 / 5 are Tortoise 1.1.8's
+  # own defaults, made explicit — not a capacity change. Each pod holds ONE more connection,
+  # reserved for /readyz, so the budget is replicas x (dbPoolMaxsize + 1). Ignored for SQLite.
+  dbPoolMinsize: 1
+  dbPoolMaxsize: 5
 
 cors:
   origins:

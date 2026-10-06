@@ -215,6 +215,45 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-xstest_safe": ("coverage_declare", "single_shot", "easy"),
         # OME-1400: refusal of mild unsafe prompts, LLM-judged, scored by refusal rate.
         "inspect-xstest_unsafe": ("coverage_declare", "single_shot", "easy"),
+        # OME-1273: the first Task-replay Benchmarks — AGIEval's English MCQ exams, MedQA
+        # and MGSM's English set; tiers as their rows argue them.
+        "inspect-agieval_lsat_ar": ("coverage_declare", "single_shot", "hard"),
+        "inspect-agieval_lsat_lr": ("coverage_declare", "single_shot", "medium"),
+        "inspect-agieval_lsat_rc": ("coverage_declare", "single_shot", "medium"),
+        "inspect-agieval_sat_math": ("coverage_declare", "single_shot", "easy"),
+        "inspect-agieval_sat_en": ("coverage_declare", "single_shot", "easy"),
+        "inspect-agieval_sat_en_without_passage": ("coverage_declare", "single_shot", "hard"),
+        "inspect-agieval_aqua_rat": ("coverage_declare", "single_shot", "medium"),
+        "inspect-agieval_logiqa_en": ("coverage_declare", "single_shot", "hard"),
+        "inspect-medqa": ("coverage_declare", "single_shot", "medium"),
+        "inspect-mgsm_en": ("coverage_declare", "single_shot", "easy"),
+        # OME-1273: the plain Task-replay packages.
+        "inspect-bbq": ("coverage_declare", "single_shot", "medium"),
+        "inspect-piqa": ("coverage_declare", "single_shot", "easy"),
+        "inspect-cybermetric_80": ("coverage_declare", "single_shot", "easy"),
+        "inspect-cybermetric_500": ("coverage_declare", "single_shot", "easy"),
+        "inspect-cybermetric_2000": ("coverage_declare", "single_shot", "easy"),
+        "inspect-cybermetric_10000": ("coverage_declare", "single_shot", "easy"),
+        "inspect-worldsense": ("coverage_declare", "single_shot", "hard"),
+        "inspect-sevenllm_mcq_zh": ("coverage_declare", "single_shot", "medium"),
+        "inspect-sevenllm_mcq_en": ("coverage_declare", "single_shot", "medium"),
+        # OME-1371: CoCoNot — declining what it should (noncompliance rate), and answering
+        # look-alike harmless requests; both LLM-judged from a per-category rubric.
+        "inspect-coconot_original": ("coverage_declare", "single_shot", "medium"),
+        "inspect-coconot_contrast": ("coverage_declare", "single_shot", "easy"),
+        # OME-1273: SAD-mini; tiers as their rows argue them from the eval's own report.
+        "inspect-sad_facts_llms": ("coverage_declare", "single_shot", "medium"),
+        "inspect-sad_facts_human_defaults": ("coverage_declare", "single_shot", "easy"),
+        "inspect-sad_influence": ("coverage_declare", "single_shot", "medium"),
+        "inspect-sad_stages_full": ("coverage_declare", "single_shot", "hard"),
+        "inspect-sad_stages_oversight": ("coverage_declare", "single_shot", "hard"),
+        # OME-1273: over-refusal of harmless security coding requests; frontier models
+        # accept nearly all of them in the eval's own report.
+        "inspect-cyse4_mitre_frr": ("coverage_declare", "single_shot", "easy"),
+        # OME-1273: pre_flight and bbeh; tiers as their rows argue them from the evals' own
+        # reports.
+        "inspect-pre_flight": ("coverage_declare", "single_shot", "medium"),
+        "inspect-bbeh": ("coverage_declare", "single_shot", "hard"),
     }
     actual = {
         benchmark.id: (

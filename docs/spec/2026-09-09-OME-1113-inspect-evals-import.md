@@ -5,6 +5,11 @@
 `OME-1103`) as one buildable contract. It **consumes** the merged `grade_case` seam and
 the envelope decisions — it never redefines them.*
 
+> **This spec is history (2026-10-02).** It predates Task replay, the Case Digest and capture
+> rendering. The current picture of what we take from an inspect `Task` and which component
+> runs each `eval()` step is `apps/screamingface-engine/docs/importing-an-inspect-eval.md`
+> (OME-1459).
+
 **The whole idea in one sentence: inspect_evals (https://ukgovernmentbeis.github.io/inspect_evals/) benchmarks (171 benchmarks as of 9 Sep, 2026) become rows in our catalogue —
 our engine conducts every run; from inspect we import only the data / static components (question banks + grader functions), never its dynamic ones (runner, CLI, or logs) - since we will own this.**
 

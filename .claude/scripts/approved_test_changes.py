@@ -1,8 +1,14 @@
-"""Fail-closed, byte-exact approvals for owner-directed TS test contract changes.
+"""Fail-closed, byte-exact approvals for owner-directed test contract changes.
 
-The append-only checker has Python ranges but no TS/TSX parser. Rather than exempt an
-entire branch or test directory, an owner-approved contract change pins the before
-and after Git blob identities of each affected file. A different edit fails again.
+The append-only checker has Python ranges but no TS/TSX or JSON parser. Rather than
+exempt an entire branch or test directory, an owner-approved contract change pins the
+before and after Git blob identities of each affected file. Any other edit fails again.
+
+Two entry points, one matcher (OME-1468):
+- `approved_unsupported_change` — files the range parser cannot read: TS/TSX tests, and
+  JSON fixtures under a `tests/` directory.
+- `approved_python_test_change` — `.py` files under a `tests/` directory whose edit the
+  Python AST range check has already rejected.
 """
 
 from __future__ import annotations
@@ -45,14 +51,39 @@ def _approved_file(
     )
 
 
+def _under_tests(path: str) -> bool:
+    # WHY: scoped to a `tests` directory component, never a whole stack: approvals
+    # cover Python tests and JSON fixtures under tests/**, nothing wider (OME-1468).
+    return "tests" in pathlib.PurePosixPath(path).parts[:-1]
+
+
 def approved_unsupported_change(root: pathlib.Path, base: str, path: str) -> str | None:
-    """Return an issue ID only for the *exact* owner-approved TS/TSX test edit.
+    """Return an issue ID only for the *exact* owner-approved TS/TSX test edit or JSON
+    fixture edit under `tests/`.
 
     Unlisted files, other branches, changed baseline and subsequent edits fail
     closed. This never exempts Python tests, deletes, renames or type changes.
     """
-    if pathlib.PurePosixPath(path).suffix not in {".ts", ".tsx"}:
+    suffix = pathlib.PurePosixPath(path).suffix
+    if suffix not in {".ts", ".tsx"} and not (suffix == ".json" and _under_tests(path)):
         return None
+    return _approved_blob_transition(root, base, path)
+
+
+def approved_python_test_change(root: pathlib.Path, base: str, path: str) -> str | None:
+    """Return an issue ID only for the *exact* owner-approved `.py` edit under `tests/`.
+
+    Same fail-closed, byte-exact rules as `approved_unsupported_change`; called only
+    after the AST range check has found a violation in a modified file.
+    """
+    if pathlib.PurePosixPath(path).suffix != ".py" or not _under_tests(path):
+        return None
+    return _approved_blob_transition(root, base, path)
+
+
+def _approved_blob_transition(root: pathlib.Path, base: str, path: str) -> str | None:
+    # INVARIANT: every failure to establish branch, both blobs, or a matching manifest
+    # returns None — the caller then reports the file as an offender (fail closed).
     repo_text = _git(root, "rev-parse", "--show-toplevel")
     if not repo_text:
         return None

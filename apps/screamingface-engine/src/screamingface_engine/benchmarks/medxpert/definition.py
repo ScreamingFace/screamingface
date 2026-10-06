@@ -52,6 +52,7 @@ from screamingface_engine.benchmarks.protocol import (
     early_result,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.provenance import FrontierScore, HumanBaseline
 from screamingface_engine.benchmarks.shared_grading.serving import (
     benchmark_routes,
     compute_benchmark_revision,
@@ -234,6 +235,39 @@ MEDXPERT = Benchmark(
     # candidate turns, then dies on a route `runtime.install` never serves. With none, the SDK
     # refuses the loop up front (check_surface_missing). Declare it only together with the
     # handler — `grading.extract_letter`/`grade` are the parsers it should use.
+    # Benchmark Provenance (OME-1455); sources in the PR 3 table.
+    paper_url="https://arxiv.org/abs/2501.18362",
+    authors="Zuo et al., 2025",
+    citation=(
+        "@misc{zuo2025medxpertqabenchmarkingexpertlevelmedical,\n"
+        "      title={MedXpertQA: Benchmarking Expert-Level Medical Reasoning and Und"
+        "erstanding}, \n"
+        "      author={Yuxin Zuo and Shang Qu and Yifei Li and Zhangren Chen and Xuek"
+        "ai Zhu and Ermo Hua and Kaiyan Zhang and Ning Ding and Bowen Zhou},\n"
+        "      year={2025},\n"
+        "      eprint={2501.18362},\n"
+        "      archivePrefix={arXiv},\n"
+        "      primaryClass={cs.AI},\n"
+        "      url={https://arxiv.org/abs/2501.18362}, \n"
+        "}"
+    ),
+    harness_url=(
+        "https://github.com/TsinghuaC3I/MedXpertQA/tree/5f1db162d0d2b03d62da2d4fe086076a36105e18/eval"
+    ),
+    license="MIT",
+    license_note="TsinghuaC3I/MedXpertQA dataset card.",
+    content_warning="Expert medical questions, including graphic clinical detail.",
+    # Human baseline: "Expert (Pre-Licensed)", Text overall, paper Table 4 — an estimate from
+    # exam-taker score distributions, not a sitting of this set
+    human_baseline=HumanBaseline(score=0.426, source_url="https://arxiv.org/abs/2501.18362"),
+    # Frontier score: MedXpertQA Text accuracy (10-option MCQ, 2,450 questions), Comparison r….
+    frontier_score=FrontierScore(
+        score=0.715,
+        model="Gemini 3.1 Pro",
+        source_url="https://benchlm.ai/benchmarks/medxpertqatext",
+        as_of="2026-04",
+    ),
+    notebook="11_medxpert",
 )
 
 __all__ = [

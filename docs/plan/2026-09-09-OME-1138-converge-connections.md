@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first re-plan; no execution, task or publication approval is inferred
 created: 2026-09-09
-updated: 2026-10-01
+updated: 2026-10-06
 spec: ../spec/2026-09-09-OME-1138-converge-connections.md
 ---
 
@@ -38,7 +38,7 @@ and A1–A3 (spec §9); D7 was re-approved and the matching issues were filed be
 | A4 Hosted Engine on the availability successor | G3 | **merged** in two units (D15 and D17 decided 2026-09-14): U4 (`OME-1244`, PR #1006, `2da45896`, 2026-09-21) publishes the caller-scoped `GET /v1/provider-access` listing; U4e (`OME-1245`, PR #1007, `54fa8673`, 2026-09-22) moves the Hosted Engine listing onto it |
 | B backing transition | G4 | **merged** as `OME-1208` (PR #1029, `7cff8a56`, 2026-09-23) under D11 (a), D14 and D16, decided 2026-09-22 (design PR #23): the `provider_credential_slots` pair marker, the Connection-backed implementations and the backfill tooling (S1/S2'/S4); Profile storage, routes and schemas stay until Stage E (`OME-1209`) |
 | C defaults cutover (D2) | G5a | **UI done** as `OME-1322` (PR #1043, `21832443`): the console sends only `{ "api_key" }`. **Gateway merged** as `OME-1323` (PR #1061, `e8c7d262`, 2026-09-25): chat no longer reads or merges stored defaults, the five writers answer a present `defaults` (even `null`) with 422 `defaults_not_accepted`, cache keys byte-identical (no revision bump, no reset). The running console must use the key-only payload before the gateway refusal reaches dev |
-| D selector sunset and carriers (D4) | G5b | **reject path merged**: contract/metamodel `OME-1377`/`OME-1380` (design PR #25, `3ba6a3d`); Engine producer-off `OME-1381` (PR #1082, `df6e9b92`); activation census waived with accepted alpha-canary risk and `OME-1401` canceled; Gateway rejection `OME-1394` (PR #1114, `3083640b`, 2026-09-30). Remaining Stage D work is `OME-1398` plus separately authorised Engine/URL4 legacy-carrier cleanup (S6/S9). |
+| D selector sunset and carriers (D4) | G5b | **reject path and guidance merged**: contract/metamodel `OME-1377`/`OME-1380` (design PR #25, `3ba6a3d`); Engine producer-off `OME-1381` (PR #1082, `df6e9b92`); activation census waived with accepted alpha-canary risk and `OME-1401` canceled; Gateway rejection `OME-1394` (PR #1114, `3083640b`); guidance cleanup `OME-1398` (PR #1210, `57e78d71`). Final carrier removal is in progress as coordinated leaves `OME-1449` (Engine) and `OME-1450` (URL4). |
 | E retirement and cleanup | G6 | not started; needs D6 |
 | S13 catalog | M0 | additive text possible after M0; Stage D resolved by D13 (version bump, `OME-1380`, merged `3ba6a3d`); successors at E |
 
@@ -65,9 +65,9 @@ Linear needs explicit permission; this table is not evidence that issues exist.
 | S7a | `OME-1322` — Drop the Admin UI defaults fieldset at the cutover (done, PR #1043) | `aigateway` (UI stack gates) | C | D2 |
 | S7 | Move the Admin UI list/delete and its key-only attach/replace call onto the admin successor | `aigateway` (UI stack gates) | D18 | U3, D18, S7a |
 | S11 | Activate the defaults REMOVE and the selector rejection policy | `aigateway` | C / D | B, D16, D4 date |
-| S6 | Retire the Engine selector carrier with old/new worker and accepted-job compatibility tests | `screamingface-engine` | D | S11 disposition |
+| S6 | `OME-1449` — Remove the retired Profile selector carrier from Engine runtime | `screamingface-engine` | D | S11 disposition, S9 |
 | S8 | Map any new gateway codes in the SDK with unchanged retry semantics | `py-screamingface` | D | S11 |
-| S9 | Retire URL4 `JobRunner.schedule(profile=...)` after compatible Engine changes | `url4-python-sdk` | D | S6 |
+| S9 | `OME-1450` — Remove the retired Profile selector from the URL4 `JobRunner` port | `url4-python-sdk` | D | coordinated with S6 |
 | S12 | Remove the Profile runtime domain, routes, bootstrap path and index writes; guarded legacy blob cleanup | `aigateway` | E | S11, D6 |
 | S13 | Catalog text, successors and tooling retirement list | design repository, not this repo | A1–E | M0 |
 
@@ -179,10 +179,11 @@ rejects legacy writes carrying defaults; it lands UI first (`OME-1322`), then ga
 (`OME-1323`), and keeps `defaults_for`, `apply_defaults`, `should_apply_profile_default` and
 `CredentialTarget.defaults` declared without a production caller until E. D's Engine producer-off
 and Gateway rejection are merged (`OME-1381`, `OME-1394`); the owner waived the activation census
-and accepted the residual alpha-canary risk without a production-read or zero-count claim. S6/S9
-still remove the retained Engine/URL4 compatibility carriers under separate authorisation. No SDK
-landing was required for the rejection contract. E follows D6 with reference-safe cleanup and the
-tooling retirement list.
+and accepted the residual alpha-canary risk without a production-read or zero-count claim. The owner
+confirmed on 2026-10-01 that no legacy queue messages remain; S6/S9 therefore remove the Engine and
+URL4 carrier in one coordinated landing without a compatibility reader (`OME-1449`, `OME-1450`). No
+SDK landing was required for the rejection contract. E follows D6 with reference-safe cleanup and
+the tooling retirement list.
 
 ### Current-source preservation checks (unchanged obligations)
 
@@ -218,10 +219,10 @@ tooling retirement list.
 | D15, D17 → G3 | successor route shape and hosted mutability rule decided; U4/U4e filed |
 | D11, D14, Q01–Q04 → G4 | backing chosen; dual-write owner decided and tested; versions, census and key access authorised; writer fencing in place; fixture swap of the 18 feature suites, the facade-suite split and the bootstrap re-target planned; public wording follows D20 even if backing mechanics choose an internal aggregate |
 | D16 → G5a | defaults source during the transition decided; impact plan approved; rehearsed rollback includes the defaults mode |
-| D4 date, D12 → G5b | **closed for reject activation:** selector contract and rollback floor decided; Engine producer-off merged as PR #1082 (`df6e9b92`); census/drain precondition waived with accepted alpha-canary risk and no zero-count claim; Gateway rejection merged as PR #1114 (`3083640b`). S6/S9 compatibility-carrier deletion remains separate follow-up work. |
+| D4 date, D12 → G5b | **closed for reject activation:** selector contract and rollback floor decided; Engine producer-off merged as PR #1082 (`df6e9b92`); census/drain precondition waived with accepted alpha-canary risk and no zero-count claim; Gateway rejection merged as PR #1114 (`3083640b`). Guidance cleanup merged as PR #1210 (`57e78d71`); S6/S9 carrier deletion is the coordinated `OME-1449`/`OME-1450` follow-up. |
 | D6 → G6 | retention fulfilled; reference-safe cleanup proven; deletion approved |
 | D13, M0 | catalog write/version handling resolved; successor protocols decided for `X-Profile` removal; only then `--write` — **D13/M0 closed 2026-09-25:** version bump of the existing cards, no successor protocols (`OME-1380`, merged `3ba6a3d`) |
-| D18 | admin successor timing and shape (may wait for D11) |
+| D18 | **contract decided 2026-10-05 (`OME-1375`):** `docs/spec/2026-10-02-provider-credential-admin-contract.md` and its plan; landings filed 2026-10-06 under `OME-1138`: Gateway `OME-1497` (G0 writer floor, then G1 successor) and Admin UI `OME-1498` (S7, blocked by `OME-1497`); `OME-1209` is blocked by `OME-1498` |
 
 Implementation details inside an approved contract belong to the agent. Escalate material new
 blockers as one grouped report with recommendations and continue independent authorised work.

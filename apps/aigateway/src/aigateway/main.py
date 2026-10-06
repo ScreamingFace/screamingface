@@ -72,7 +72,9 @@ from .routes import (
     tavily_retrieval_cache,
 )
 from .routes.chat_accounting import accounting_error_response
+from .span_exclusion import SpanExclusion
 from .tracing import install as install_tracing
+from .unhandled_errors import unhandled_exception_handler
 
 logger = logging.getLogger(__name__)
 
@@ -379,6 +381,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(RequestValidationError, _redact_validation_errors)
     app.add_exception_handler(CredentialBlobMutationConflict, _profile_index_conflict)
     app.add_exception_handler(StarletteHTTPException, _accounted_http_exception)
+    # OME-939: the last resort for anything no route handled — one class-name-only record with
+    # the call id, and a structured 500. See `unhandled_errors` for why it re-binds the ids.
+    app.add_exception_handler(Exception, unhandled_exception_handler)
     app.state.settings = settings
     app.state.taxonomy_plugin = TaxonomyPlugin()
     app.state.usage_accounting_handler = None
@@ -405,7 +410,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # so the last registration ends up outermost — the opposite of the intuitive reading. Being
     # outermost is the point: the auth guard above rejects requests and logs while doing it, and
     # those lines are exactly the ones an operator needs attributed.
-    app.add_middleware(CallIdMiddleware)
+    # WHY the exclusion is passed in: it is read through `Settings` like every `AIGW_*` value
+    # (OME-1453), not by the middleware from `os.environ`.
+    app.add_middleware(
+        CallIdMiddleware,
+        exclusion=SpanExclusion.from_setting(settings.trace_excluded_routes),
+    )
 
     registry = ProviderRegistry()
     load_plugins(registry)

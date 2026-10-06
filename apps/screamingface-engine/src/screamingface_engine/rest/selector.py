@@ -1,9 +1,8 @@
 """The REST surfaces' refusal of a stated `X-Profile` (OME-1381, Stage D of OME-1138).
 
 FEATURE: selector-less provider access. The Engine is the producer of every run and every
-catalog, model-parameter and connection request it sends the gateway; producer-off means none of
-them names a stored credential by label any more. The gateway keeps honouring a legacy selector
-until the drain proof, so a run accepted before this build still routes as it was asked to.
+catalog, model-parameter and connection request it sends the gateway; none of them names a stored
+credential by label any more.
 
 INVARIANT: raised BEFORE any schedule, queue publication, catalog or gateway I/O, or connection
 mutation — each caller refuses first, then does its work. After authentication, where a route

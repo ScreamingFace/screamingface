@@ -191,6 +191,7 @@ async def _dispatch_and_finalize_accounting(
             account_id=account_id,
             profile_name=profile_name,
             target=target,
+            error_type=type(exc).__name__,
         ) from None
     except Exception as exc:
         # WHY (OME-428 third-review blocker B): the two branches above enumerate
@@ -202,13 +203,8 @@ async def _dispatch_and_finalize_accounting(
         # INVARIANT: an unclassified exception always yields a fixed sanitized
         # 502 `provider_error`; arbitrary attributes/chains are not trusted and
         # cannot trigger credential invalidation.
-        logger.error(
-            "unhandled dispatch error type=%s provider=%s account=%s profile=%s",
-            type(exc).__name__,
-            provider,
-            account_id,
-            profile_name,
-        )
+        # OME-968: the class name rides into the ONE terminal record the funnel below emits.
+        error_type = type(exc).__name__
         note_dispatch_failure(accounting, exc)
         finalize_provider_evidence(
             accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
@@ -221,10 +217,11 @@ async def _dispatch_and_finalize_accounting(
             account_id=account_id,
             profile_name=profile_name,
             target=target,
+            error_type=error_type,
         ) from None
 
     try:
-        result = convert_provider_response(provider_response, accounting)
+        result = convert_provider_response(provider_response, accounting, provider=provider)
     except HTTPException:
         finalize_provider_evidence(
             accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
@@ -469,7 +466,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # The old dispatch-side cache hardcoded ``bypass`` here with an ``or "stream"`` fallback,
         # not distinguish "streaming" from "the operator disabled the cache".
         return StreamingResponse(
-            _stream(plugin, body),
+            _stream(plugin, body, provider=provider),
             media_type="text/event-stream",
             headers=global_cache_headers(cache_outcome),
         )

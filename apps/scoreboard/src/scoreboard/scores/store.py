@@ -21,14 +21,18 @@ from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
 from scoreboard.classification.openness import Openness
+from scoreboard.db import DEFAULT_CONNECTION
 
 from .frontier import FrontierMember, HistoryRow
 from .models import Benchmark, IdempotencyKey, Score
 from .pareto import ParetoEntry
+from .reproduction_cost import reproduction_cost
 from .schemas import (
+    SATURATION_VERDICTS,
     BenchmarkSchema,
     LeaderboardEntry,
     LeaderboardStoreEntry,
+    ProvenanceSchema,
     RunCostStatus,
     ScoreSchema,
     ScoreSubmission,
@@ -37,10 +41,18 @@ from .schemas import (
 
 # INVARIANT: columns the raw leaderboard projection must convert itself. The
 # projection bypasses the ORM, so nothing else will do it.
-_RAW_ROW_FIELDS = ("ran_with_providers", "authors", "run_cost_usd")
+_RAW_ROW_FIELDS = (
+    "ran_with_providers",
+    "authors",
+    "run_cost_usd",
+    "cache_saved_cost_usd",
+    "cache_saved_cost_archive_usd",
+)
 # Columns whose DTO type admits None, so an unreadable value can degrade in place.
 # Anything not listed here forces the row to be dropped instead — see _to_python_rows.
-_NULLABLE_RAW_FIELDS = frozenset({"authors", "run_cost_usd"})
+_NULLABLE_RAW_FIELDS = frozenset(
+    {"authors", "run_cost_usd", "cache_saved_cost_usd", "cache_saved_cost_archive_usd"}
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +74,22 @@ async def _chunked_values(
         chunk = list(score_ids[start : start + _MODELS_READ_CHUNK])
         rows.extend(await Score.filter(id__in=chunk).using_db(connection).values(*fields))
     return rows
+
+
+def _serve_reproduction_cost(row: dict[str, Any]) -> Decimal | None:
+    """Replace a raw row's stored spend with what reproducing it costs, in place (OME-1382).
+
+    Pops the three columns only the rule reads, so the row still matches its read DTO, which has no
+    status or saving field. Returns the served cost for callers that build the DTO themselves.
+    """
+    served = reproduction_cost(
+        cast("Decimal | None", row["run_cost_usd"]),
+        cast("RunCostStatus | None", row.pop("run_cost_status")),
+        cast("Decimal | None", row.pop("cache_saved_cost_usd")),
+        cast("Decimal | None", row.pop("cache_saved_cost_archive_usd")),
+    )
+    row["run_cost_usd"] = served
+    return served
 
 
 class _Unset:
@@ -86,6 +114,14 @@ def benchmark_to_schema(model: Benchmark) -> BenchmarkSchema:
         dataset_url=model.dataset_url,
         revision=model.revision,
         case_count=model.case_count,
+        # OME-1455: key by key, never whole-block — a stored key this build cannot read costs
+        # that key, not the row, and this mapper runs over every row of the listing.
+        provenance=(
+            ProvenanceSchema.from_stored(model.provenance)
+            if isinstance(model.provenance, dict)
+            else None
+        ),
+        saturation=model.saturation,
         # A pre-migration row can carry NULL; it was world-readable before the column existed,
         # so it reads as public. The column stays nullable so 0008 need not rebuild the table.
         visibility=cast(Visibility, model.visibility or "public"),
@@ -133,6 +169,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         # this field, so it was stored and never left the database, and a purge-certifying
         # export would have omitted data the purge deletes (review of PR #1055, P1).
         cache_saved_cost_usd=model.cache_saved_cost_usd,
+        cache_saved_cost_archive_usd=model.cache_saved_cost_archive_usd,
     )
 
 
@@ -189,6 +226,7 @@ _REPLAY_FIELDS: tuple[str, ...] = (
     "run_cost_usd",
     "run_cost_status",
     "cache_saved_cost_usd",
+    "cache_saved_cost_archive_usd",
 )
 
 # INVARIANT (OME-1145, review round 3): filling any of these changes what the frontier reads, so
@@ -268,10 +306,13 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
         existing.run_cost_usd is None
         and existing.run_cost_status is None
         and existing.cache_saved_cost_usd is None
+        and existing.cache_saved_cost_archive_usd is None
     ):
         updates["run_cost_status"] = submission.run_cost_status
         updates["run_cost_usd"] = submission.run_cost_usd
         updates["cache_saved_cost_usd"] = submission.cache_saved_cost_usd
+        # OME-1251 D7: the archive saving belongs to the same execution, so it joins the snapshot.
+        updates["cache_saved_cost_archive_usd"] = submission.cache_saved_cost_archive_usd
     elif existing.run_cost_status is None and existing.run_cost_usd is not None:
         # A migrated priced row. The money is published and stays untouched; the missing label is
         # recoverable without asking the client, because an amount IS the claim `complete` makes.
@@ -328,6 +369,8 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         # submitter's real bill and leave a figure nothing could recompute.
         # Deliberately absent from _content_hash for the same reason as the amount.
         "cache_saved_cost_usd": submission.cache_saved_cost_usd,
+        # OME-1251 D7: stored apart from the reported saving; summed only at the point of use.
+        "cache_saved_cost_archive_usd": submission.cache_saved_cost_archive_usd,
         "content_hash": content_hash,
     }
 
@@ -636,6 +679,9 @@ def _build_leaderboard_query(
             scores.verified_by_screamingface,
             scores.url4_expression,
             scores.run_cost_usd,
+            scores.run_cost_status,
+            scores.cache_saved_cost_usd,
+            scores.cache_saved_cost_archive_usd,
             row_number,
         )
         .where(scores.benchmark_id == benchmark_id)
@@ -677,6 +723,9 @@ def _build_leaderboard_query(
             ranked.verified_by_screamingface,
             ranked.url4_expression,
             ranked.run_cost_usd,
+            ranked.run_cost_status,
+            ranked.cache_saved_cost_usd,
+            ranked.cache_saved_cost_archive_usd,
         )
         .where(ranked.rn == 1)
         .orderby(ranked.score, order=Order.desc)
@@ -719,6 +768,9 @@ def _build_pareto_inputs_query(
             scores.benchmark_revision,
             scores.score,
             scores.run_cost_usd,
+            scores.run_cost_status,
+            scores.cache_saved_cost_usd,
+            scores.cache_saved_cost_archive_usd,
             row_number,
         )
         .where(scores.benchmark_id == benchmark_id)
@@ -736,6 +788,9 @@ def _build_pareto_inputs_query(
             ranked.benchmark_revision,
             ranked.score,
             ranked.run_cost_usd,
+            ranked.run_cost_status,
+            ranked.cache_saved_cost_usd,
+            ranked.cache_saved_cost_archive_usd,
         )
         .where(ranked.rn == 1)
     )
@@ -752,6 +807,8 @@ class ScoreStore:
         focus: str | None = None,
         visibility: Visibility | None = None,
         case_count: int | None | _Unset = _UNSET,
+        provenance: dict[str, object] | None | _Unset = _UNSET,
+        saturation: str | None | _Unset = _UNSET,
     ) -> BenchmarkSchema:
         defaults: dict[str, object] = {
             "display_name": display_name,
@@ -767,6 +824,19 @@ class ScoreStore:
             # the old count beside a newly seeded revision would compare runs against a scope the
             # Engine no longer claims. A plain None default cannot express both states (OME-1056).
             defaults["case_count"] = case_count
+        # OME-1455: the same sentinel as `case_count`, for the same reason — the Engine seed
+        # passes explicit None to CLEAR a block the Engine no longer publishes.
+        if not isinstance(provenance, _Unset):
+            defaults["provenance"] = provenance
+        if not isinstance(saturation, _Unset):
+            # WHY refuse here while the catalogue reader nulls: that reader faces another
+            # service's data; this is a code boundary, and a direct caller passing "Saturated"
+            # is a bug to surface, not a value to serve — the page groups on this column.
+            if saturation is not None and saturation not in SATURATION_VERDICTS:
+                raise ValueError(
+                    f"saturation must be one of {SATURATION_VERDICTS}, got {saturation!r}"
+                )
+            defaults["saturation"] = saturation
         if visibility is not None:
             # WHY conditional (OME-894): seeding runs on every deploy, and an omitted visibility
             # must mean "leave it alone" rather than "reset to public" — otherwise a routine
@@ -1047,7 +1117,7 @@ class ScoreStore:
                 raise BenchmarkVisibilityChanged(cast(str, getattr(existing, "benchmark_id")))
             return readable
 
-        async with in_transaction() as connection:
+        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
             # This is now a write path. Take the same benchmark lock as insertion so a visibility
             # flip cannot turn a public, unverified replay into a private-row mutation mid-write.
             await self._revalidate_visibility(
@@ -1078,7 +1148,7 @@ class ScoreStore:
         which build a fresh query and silently drop the lock (the trap the benchmark-lock query's
         docstring records).
         """
-        async with in_transaction() as connection:
+        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
             row = await (
                 Score.filter(id=score_id)
                 .using_db(connection)
@@ -1234,7 +1304,7 @@ class ScoreStore:
         # this exact bind — the desired end state (key bound to this score) holds
         # either way, so it's safe to ignore.
         try:
-            async with in_transaction() as connection:
+            async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
                 await (
                     IdempotencyKey.filter(key=idempotency_key, expires_at__lte=now_ts)
                     .using_db(connection)
@@ -1311,7 +1381,7 @@ class ScoreStore:
 
         expires_at = now_ts + IDEMPOTENCY_TTL
         try:
-            async with in_transaction() as connection:
+            async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
                 # Prevention, on PostgreSQL: the lock is held until this transaction commits, so a
                 # concurrent flip must wait for the insert rather than racing it. SQLite does not
                 # implement the lock, so the suite exercises the revalidation behaviourally and
@@ -1435,6 +1505,7 @@ class ScoreStore:
         rows = _to_python_rows(result.rows)
         for row in rows:
             row["source_id"] = str(row.pop("id"))
+            _serve_reproduction_cost(row)
         return [LeaderboardStoreEntry(**row) for row in rows]
 
     async def benchmark_scope(
@@ -1479,7 +1550,7 @@ class ScoreStore:
                 spec_id=cast(str, row["spec_id"]),
                 benchmark_revision=cast(str | None, row["benchmark_revision"]),
                 score=cast(float, row["score"]),
-                run_cost_usd=cast(Decimal | None, row["run_cost_usd"]),
+                run_cost_usd=_serve_reproduction_cost(row),
             )
             for row in rows
         ]
@@ -1532,7 +1603,12 @@ class ScoreStore:
                 authors=_resolved_authors(row.authors, row.submitted_by),
                 verified_by_screamingface=row.verified_by_screamingface,
                 url4_expression=row.url4_expression,
-                run_cost_usd=row.run_cost_usd,
+                run_cost_usd=reproduction_cost(
+                    row.run_cost_usd,
+                    cast("RunCostStatus | None", row.run_cost_status),
+                    row.cache_saved_cost_usd,
+                    row.cache_saved_cost_archive_usd,
+                ),
             )
             for row in rows
         ]
@@ -1593,7 +1669,7 @@ class ScoreStore:
         default connection. Inside it, a snapshot would still see the visibility the transaction
         started with, and a board flipped private mid-request would go undetected (OME-894).
         """
-        async with in_transaction() as connection:
+        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
             if connection.capabilities.dialect == "postgres":
                 await connection.execute_script("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             yield connection
@@ -1645,14 +1721,27 @@ class ScoreStore:
         if registered_case_count is not None:
             query = query.filter(total_questions__gte=registered_case_count)
         rows = await query.order_by("submitted_at", "id").values(
-            "id", "spec_id", "score", "run_cost_usd", "submitted_at", "enriched_at"
+            "id",
+            "spec_id",
+            "score",
+            "run_cost_usd",
+            "run_cost_status",
+            "cache_saved_cost_usd",
+            "cache_saved_cost_archive_usd",
+            "submitted_at",
+            "enriched_at",
         )
         return [
             HistoryRow(
                 source_id=str(row["id"]),
                 spec_id=cast(str, row["spec_id"]),
                 score=cast(float, row["score"]),
-                run_cost_usd=cast("Decimal | None", row["run_cost_usd"]),
+                run_cost_usd=reproduction_cost(
+                    cast("Decimal | None", row["run_cost_usd"]),
+                    cast("RunCostStatus | None", row["run_cost_status"]),
+                    cast("Decimal | None", row["cache_saved_cost_usd"]),
+                    cast("Decimal | None", row["cache_saved_cost_archive_usd"]),
+                ),
                 submitted_at=cast(datetime, row["submitted_at"]),
                 enriched_at=cast("datetime | None", row["enriched_at"]),
             )

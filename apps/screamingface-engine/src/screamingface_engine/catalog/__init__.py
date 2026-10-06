@@ -3,7 +3,7 @@
 Re-exports the hexagonal port (``catalog/port.py``), the aigateway adapter
 (``catalog/aigateway.py``), and the caching layer (``catalog/cache.py``), and
 provides composition builders that retain one Gateway client while projecting model discovery
-and profile-bound details onto the Engine's declared executable routes.
+and identity-bound details onto the Engine's declared executable routes.
 """
 
 from __future__ import annotations

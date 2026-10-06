@@ -1,0 +1,51 @@
+{
+  "issue": "OME-1460",
+  "branch": "OME-1460-one-fetch-path-fold",
+  "approver": "owner (in the PR B session)",
+  "date": "2026-10-06",
+  "scope": "Re-point prior tests from the deleted Hugging Face path (BENCHMARK_CASES, CasesSpec, emit_cases, _revision_pins, pins.py) to the Task-replay declarations: the same facts read from source_pins/task/task_args; 20 frozen revision literals moved (18 published + gsm8k in test_inverted_grade + frontierscience's own); mmlu's case count 14042 -> 13937; tests of deleted code deleted (3 _revision_pins identity tests, 2 Hugging Face-row tests, 2 two-registry tests); one judge_provider import that made a scorer test order-independent; the row-writer fixture no longer copies pins.py.",
+  "reason": "OME-1460 moves every Imported Benchmark to Task replay and deletes the Hugging Face path (spec R16, R17); the moved revisions are owner-accepted.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_frontierscience_benchmark.py": {
+      "base_blob": "df306b8f4fa980f4a60a392f9da9823b8de71c0b",
+      "approved_blob": "2e06c7eac2a1e5c1eee606ceb9a4f286a94b7422"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_gsm8k_benchmark.py": {
+      "base_blob": "91575aa43ff00a3fb2fd85f23d2f5b122315f212",
+      "approved_blob": "f74aefbb9e0b6a69fefe545afda6af0da8b739e3"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "0ac2f08a8196e0f3c8e263c336d568dcb33afc7b",
+      "approved_blob": "dbb7c11853a5c860cba2a708c2382d0ec163b991"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_mmlu_benchmark.py": {
+      "base_blob": "b98b9954f9aa6b46b31ed90054ea3ab316fc35f9",
+      "approved_blob": "0d1c39d6caaf026d0ccf5cd7faad420ce1231050"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inverted_grade.py": {
+      "base_blob": "1afe0fb928aca5d20b50dd9f2901b664fe1c2a65",
+      "approved_blob": "f8b925e8912f6fbbde44d665af372714f25c87ff"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_judged_benchmark_assembly.py": {
+      "base_blob": "40f58337d5255faf85b575e37a736c68867a22cb",
+      "approved_blob": "a36661986a77e4747cbcce0d448b3a2de2c6f89c"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "a18ed05c3008ae30ef4c53307752e3fa5d7eb9fc",
+      "approved_blob": "4d468069b4a002521b8aab42670b51c8028badab"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_task_replay_assembly.py": {
+      "base_blob": "022523af9f2fc3b792001b05dadc61df3f63d8f0",
+      "approved_blob": "a391b3b391956d0d6608dc2fc404fd24edf67631"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_task_replay_rows.py": {
+      "base_blob": "657e65ac915001d379ef764985613e9d5432e63a",
+      "approved_blob": "215ec12e257e0110adc0232dd5723581f83937c5"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_verdict_grades.py": {
+      "base_blob": "49f4b9c62eac81b24f1392d8b585d5bd9d181273",
+      "approved_blob": "5e76d77f222035a51e21474aa01fb8a2bc92c248"
+    }
+  },
+  "note": "Supersedes PR A's approval (#1237, branch OME-1460-one-fetch-path-enforcer): one manifest per issue, keyed by branch, so PR B carries the cumulative transition from main for every prior test file both PRs change. The two deleted files (test_inspect_cases.py, test_inspect_importer.py) cannot be blob-approved and ride the owner's --skip-append-only press."
+}

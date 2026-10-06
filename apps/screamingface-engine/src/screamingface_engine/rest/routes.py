@@ -11,7 +11,8 @@ observe the run) lives elsewhere; this module only schedules work onto it via
 import asyncio
 import logging
 import math
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Any
@@ -44,6 +45,7 @@ from screamingface_engine.rest.interest import SubscriberGate
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from screamingface_engine.rest.sessions import RunSessions
 from screamingface_engine.runner_queue import RunQueueUnavailable
+from screamingface_engine.tracing.accept import AcceptSpan
 from url4.streaming.interfaces import (
     EventConsumer,
     JobAlreadyExists,
@@ -276,10 +278,8 @@ async def _schedule(
     re-rendered onto the aigateway call by the Runner. It is deliberately NOT world config; a
     per-run value parked on the shared aigateway configuration would leak across runs.
 
-    INVARIANT (OME-1381, producer-off): no profile is passed, for either run shape. Both ingresses
-    that schedule — ``GET /`` (sync or ``respond-async``) and the mount routes' direct runs —
-    refuse a stated ``X-Profile`` before this hop, so every run this Engine schedules is
-    selector-less; the port keeps its ``profile`` argument only until the URL4 cleanup removes it.
+    INVARIANT (OME-1381): both scheduling ingresses refuse a stated ``X-Profile`` before this hop,
+    and the port cannot represent a selector, so every run this Engine schedules is selector-less.
     """
     try:
         await deps.job_runner.schedule(
@@ -699,51 +699,93 @@ async def start_run(
     body executes — no code path here touches the topic without an already-verified capability
     token.
     """
-    refuse_selector(request.headers)
-    deps = _deps(request)
     topic = str(claims["sub"])
-    url4 = _require_q(q)
-    pref = _parse_prefer(prefer or "")
-    if pref.respond_async:
-        # The client reads this run's frames on a WebSocket, so one must be attached first.
-        await _require_subscriber(deps.interest, topic)
-    inbound_traceparent = valid_traceparent(traceparent)
-    # WHY read identity off `request` instead of declaring another `Header(...)` param: the mesh
-    # gateway owns it, not the caller, so there is no client-facing contract for a signature to
-    # document. `or None`: absent identity is None, the same "nothing to forward" every other
-    # optional forwarded value uses — one representation rather than an empty mapping meaning it.
-    identity = job_env.identity_from_headers(request.headers) or None
-    answer_seed = _parse_answer_seed(x_answer_seed)
-    clock = getattr(request.app.state, "clock", default_clock)
-    client_version = (
-        parse_user_agent(request.headers.get("User-Agent"))
-        if len(request.headers.getlist("User-Agent")) == 1
-        else None
-    )
-    await _refuse_existing(deps, topic)
-
-    async def schedule() -> None:
-        await _schedule(
-            deps,
-            topic,
-            url4,
-            traceparent=inbound_traceparent,
-            identity=identity,
-            cache=_converge_cache(deps, topic, cache_control, clock),
-            answer_seed=answer_seed,
-            client_version=client_version,
+    # FEATURE (OME-1218): the accept span covers validate + enqueue; the run is handed ITS id.
+    accept = _open_accept(request, traceparent, topic)
+    with _accepting(accept):
+        refuse_selector(request.headers)
+        deps = _deps(request)
+        url4 = _require_q(q)
+        pref = _parse_prefer(prefer or "")
+        if pref.respond_async:
+            # The client reads this run's frames on a WebSocket, so one must be attached first.
+            await _require_subscriber(deps.interest, topic)
+        inbound_traceparent = valid_traceparent(traceparent)
+        # WHY read identity off `request` instead of declaring another `Header(...)` param: the
+        # mesh gateway owns it, not the caller, so there is no client-facing contract for a
+        # signature to document. `or None`: absent identity is None, the same "nothing to
+        # forward" every other optional forwarded value uses — one representation rather than
+        # an empty mapping meaning it.
+        identity = job_env.identity_from_headers(request.headers) or None
+        answer_seed = _parse_answer_seed(x_answer_seed)
+        clock = getattr(request.app.state, "clock", default_clock)
+        client_version = (
+            parse_user_agent(request.headers.get("User-Agent"))
+            if len(request.headers.getlist("User-Agent")) == 1
+            else None
         )
+        await _refuse_existing(deps, topic)
 
-    if pref.respond_async:
-        await schedule()
-        return _accepted(topic)
-    # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps the
-    # reaper disarmed while it waits. ONE block covers gate, schedule and wait, so every exit —
-    # a 503 from admission, the bound, a disconnect, an error — releases it.
-    async with deps.sessions.hold_sync(topic):
-        await _require_subscriber(deps.interest, topic)
-        await schedule()
-        return await _run_sync(deps, topic, pref.wait_s, request.is_disconnected)
+        async def schedule() -> None:
+            await _schedule(
+                deps,
+                topic,
+                url4,
+                # WHY the accept span's traceparent when one is open (owner decision, option
+                # 1): `url4.run` becomes its child. With no sink, the inbound one, as before.
+                traceparent=accept.traceparent if accept is not None else inbound_traceparent,
+                identity=identity,
+                cache=_converge_cache(deps, topic, cache_control, clock),
+                answer_seed=answer_seed,
+                client_version=client_version,
+            )
+            # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
+            # hold is not accept latency, and counting it would hide the queue-wait gap.
+            if accept is not None:
+                accept.scheduled()
+
+        if pref.respond_async:
+            await schedule()
+            return _accepted(topic)
+        # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps
+        # the reaper disarmed while it waits. ONE block covers gate, schedule and wait, so
+        # every exit — a 503 from admission, the bound, a disconnect, an error — releases it.
+        async with deps.sessions.hold_sync(topic):
+            await _require_subscriber(deps.interest, topic)
+            await schedule()
+            return await _run_sync(deps, topic, pref.wait_s, request.is_disconnected)
+
+
+def _open_accept(request: Request, traceparent: str | None, topic: str) -> AcceptSpan | None:
+    """The submission's accept span, or ``None`` when the App exports no spans.
+
+    INVARIANT (OME-1218 D4): no sink, no span — and then the inbound traceparent is forwarded
+    untouched. A self-minted parent that nothing exports would dangle in every backend.
+    `getattr`: an App assembled without `create_app` has no sink, which means "off".
+    """
+    sink = getattr(request.app.state, "span_sink", None)
+    if sink is None:
+        return None
+    return AcceptSpan.open(sink, traceparent, topic=topic)
+
+
+@contextmanager
+def _accepting(accept: AcceptSpan | None) -> Iterator[None]:
+    """End the accept span as REFUSED when the submission is answered with an error.
+
+    Re-raises everything: this only records the outcome. A refusal after enqueue (the sync
+    path's terminal problem) is a no-op — the span already ended as scheduled.
+    """
+    try:
+        yield
+    except ProblemException as exc:
+        if accept is not None:
+            accept.refused(exc.problem.status)
+        raise
+    except Exception:
+        if accept is not None:
+            accept.refused(500)
+        raise
 
 
 @router.delete(
