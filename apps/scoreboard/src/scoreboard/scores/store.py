@@ -821,6 +821,39 @@ def _build_pareto_inputs_query(
     )
 
 
+def _build_history_inputs_query(
+    benchmark_id: str,
+    registered_revision: str,
+    registered_case_count: int | None,
+) -> QueryBuilder:
+    """Every comparable submission's ranking fields, oldest first, for the frontier replay.
+
+    WHY raw pypika and not `Score.values()` (OME-1487): the ORM decodes every column itself and
+    RAISES on an undecodable money value, which 500'd the frontier card for the whole board. Raw
+    rows go through `_to_python_rows`, which degrades one bad row instead, like the other reads.
+    """
+    scores = Score.get_table()
+    query = (
+        Query.from_(scores)
+        .select(
+            scores.id,
+            scores.spec_id,
+            scores.score,
+            scores.run_cost_usd,
+            scores.run_cost_status,
+            scores.cache_saved_cost_usd,
+            scores.cache_saved_cost_archive_usd,
+            scores.submitted_at,
+            scores.enriched_at,
+        )
+        .where(scores.benchmark_id == benchmark_id)
+        .where(scores.benchmark_revision == registered_revision)
+    )
+    if registered_case_count is not None:
+        query = query.where(scores.total_questions >= registered_case_count)
+    return query.orderby(scores.submitted_at).orderby(scores.id)
+
+
 class ScoreStore:
     async def register_benchmark(
         self,
@@ -1740,37 +1773,27 @@ class ScoreStore:
         INVARIANT: the ranking fields only. Like `leaderboard_pareto_inputs`, this is a whole-board
         read, so recipes and display metadata are never materialised.
         """
-        query = Score.filter(
-            benchmark_id=benchmark_id, benchmark_revision=registered_revision
-        ).using_db(connection)
-        if registered_case_count is not None:
-            query = query.filter(total_questions__gte=registered_case_count)
-        rows = await query.order_by("submitted_at", "id").values(
-            "id",
-            "spec_id",
-            "score",
-            "run_cost_usd",
-            "run_cost_status",
-            "cache_saved_cost_usd",
-            "cache_saved_cost_archive_usd",
-            "submitted_at",
-            "enriched_at",
+        conn = connection or Tortoise.get_connection("default")
+        result = await execute_pypika(
+            _build_history_inputs_query(benchmark_id, registered_revision, registered_case_count),
+            using_db=conn,
         )
+        datetimes = Score._meta.fields_map
         return [
             HistoryRow(
                 source_id=str(row["id"]),
                 spec_id=cast(str, row["spec_id"]),
                 score=cast(float, row["score"]),
-                run_cost_usd=reproduction_cost(
-                    cast("Decimal | None", row["run_cost_usd"]),
-                    cast("RunCostStatus | None", row["run_cost_status"]),
-                    cast("Decimal | None", row["cache_saved_cost_usd"]),
-                    cast("Decimal | None", row["cache_saved_cost_archive_usd"]),
+                # INVARIANT (OME-1487): the same served cost as the table and the Pareto input.
+                run_cost_usd=_serve_reproduction_cost(row),
+                submitted_at=cast(
+                    datetime, datetimes["submitted_at"].to_python_value(row["submitted_at"])
                 ),
-                submitted_at=cast(datetime, row["submitted_at"]),
-                enriched_at=cast("datetime | None", row["enriched_at"]),
+                enriched_at=cast(
+                    "datetime | None", datetimes["enriched_at"].to_python_value(row["enriched_at"])
+                ),
             )
-            for row in rows
+            for row in _to_python_rows(result.rows)
         ]
 
     async def mark_verified(self, score_id: UUID | str) -> None:

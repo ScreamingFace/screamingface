@@ -150,3 +150,52 @@ async def test_the_pareto_input_carries_the_bare_spend_when_no_saving_is_stored(
     await _board(unreadable_column=None)
 
     assert await _pareto_costs() == {CACHED: Decimal("0.010000"), HONEST: Decimal("2.000000")}
+
+
+# --- The frontier card and its trend replay ------------------------------------------------------
+#
+# FEATURE: OME-1487, owner decision 2026-10-06: the card route reads the replay through its own
+# query, which used to raise on an undecodable money column and 500 the card for the whole board.
+# INVARIANT: the replay serves the same cost per row as the table: an unreadable spend is unknown,
+# and an unreadable saving makes the reproduction cost unknown.
+
+MONEY_COLUMNS = ["run_cost_usd", *SAVING_COLUMNS]
+
+
+async def _replay_costs() -> dict[str, Decimal | None]:
+    replay = await ScoreStore().frontier_history_inputs(
+        BOARD, registered_revision=REV, registered_case_count=100
+    )
+    return {row.spec_id: row.run_cost_usd for row in replay}
+
+
+@pytest.mark.parametrize("column", MONEY_COLUMNS)
+async def test_the_card_counts_only_the_priced_row(client: httpx.AsyncClient, column: str) -> None:
+    await _board(unreadable_column=column)
+
+    response = await client.get(f"/v1/leaderboard/{BOARD}/frontier")
+
+    assert response.status_code == 200
+    assert response.json()["frontier_size"] == 1
+
+
+@pytest.mark.parametrize("column", MONEY_COLUMNS)
+async def test_the_replay_carries_no_cost_for_a_row_with_an_unreadable_money_column(
+    tortoise_db: None, column: str
+) -> None:
+    await _board(unreadable_column=column)
+
+    assert await _replay_costs() == {CACHED: None, HONEST: Decimal("2.000000")}
+
+
+async def test_the_card_counts_the_cheap_row_when_no_saving_is_stored(
+    client: httpx.AsyncClient,
+) -> None:
+    """Absent is not unreadable: the cheap row dominates, exactly as before this change."""
+    await _board(unreadable_column=None)
+
+    response = await client.get(f"/v1/leaderboard/{BOARD}/frontier")
+
+    assert response.status_code == 200
+    assert response.json()["frontier_size"] == 1
+    assert await _replay_costs() == {CACHED: Decimal("0.010000"), HONEST: Decimal("2.000000")}

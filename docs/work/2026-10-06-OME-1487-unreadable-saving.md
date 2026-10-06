@@ -43,19 +43,24 @@ other unpriced row. Absent savings are unaffected.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned: `apps/scoreboard/src/scoreboard/scores/store.py`,
-  `apps/scoreboard/tests/unit/test_unreadable_saving.py` (6 tests), plus this ledger and the
+- **Actual files:** `apps/scoreboard/src/scoreboard/scores/store.py`,
+  `apps/scoreboard/tests/unit/test_unreadable_saving.py` (13 tests), plus this ledger and the
   `docs/tasks/2026-10-05-OME-1487-unreadable-saving.md` mirror. No schema change, no migration.
-- **Commits:** `fix(scoreboard): keep the reproduction cost unknown when a saving cannot be read`
-  (the single commit on branch `OME-1487-unreadable-saving`).
+- **Commits:**
+  - `74f5f6f3c fix(scoreboard): keep the reproduction cost unknown when a saving cannot be read`
+    (table and Pareto input).
+  - `fix(scoreboard): serve the frontier card when a money column cannot be read` (frontier
+    replay; the second commit on the branch).
 - **Gates:** `run_gates.py scoreboard` ALL GATES GREEN: append-only check, ruff check, ruff format,
-  pyright, pytest 935 passed / 9 skipped (coverage 90% total, store.py 98%), node portal 62/62.
+  pyright, pytest 942 passed / 9 skipped (coverage 90% total, store.py 98%), node portal 62/62.
 - **Deviations:**
-  - The planned direct `_serve_reproduction_cost` unit test was dropped: the six route/store tests
+  - Scope widened by owner decision (2026-10-06): `GET /v1/leaderboard/{board}/frontier` returned
+    500 on any unreadable money column, because `frontier_history_inputs` read through the ORM
+    `.values()` path, which raises `InvalidOperation`. It now reads a raw pypika projection
+    (`_build_history_inputs_query`) through `_to_python_rows` and `_serve_reproduction_cost`, like
+    the table and the Pareto input. Tests cover all three money columns plus an absent saving.
+  - The planned direct `_serve_reproduction_cost` unit test was dropped: the route and store tests
     already cover the sentinel and the NULL branch end to end.
   - The rule is unconditional as the ticket states: any unreadable saving nulls the served cost,
     whatever the status. Only `complete` rows add savings, and `partial`/`unavailable` carry no
     spend by contract, so the difference is limited to a corrupt legacy row.
-  - Discovery, out of scope: `GET /v1/leaderboard/{board}/frontier` still returns 500 on an
-    unreadable money column (spend or saving), because `frontier_history_inputs` reads through the
-    ORM `.values()` path, which raises `InvalidOperation` instead of degrading. Needs its own item.
