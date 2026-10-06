@@ -65,8 +65,15 @@ _STATUS_CODES: dict[str, dict[int, str]] = {
         409: "score_submission_conflict",
         422: "invalid_score_submission",
     },
-    _EDIT_OPERATION: {403: "score_edit_forbidden", 422: "invalid_score_edit"},
-    _EVENTS_OPERATION: {403: "score_events_forbidden"},
+    _EDIT_OPERATION: {
+        401: "scoreboard_authentication_required",
+        403: "score_edit_forbidden",
+        422: "invalid_score_edit",
+    },
+    _EVENTS_OPERATION: {
+        401: "scoreboard_authentication_required",
+        403: "score_events_forbidden",
+    },
 }
 
 
@@ -713,11 +720,15 @@ def _submission_authors(authors: Sequence[str] | None) -> tuple[str, ...] | None
 
 
 def _paper_url(value: object) -> str:
-    """The paper link as the board will accept it: a string, http(s), 1 to 2048 characters."""
-    if (
-        not isinstance(value, str)
-        or not 1 <= len(value) <= _MAX_PAPER_URL_LENGTH
-        or urlsplit(value).scheme not in ("http", "https")
+    """The paper link as the board will accept it: a string, http(s), 1 to 2048 characters.
+
+    A wrong type is a TypeError, like the author checks; a bad value is a ValueError.
+    """
+    if not isinstance(value, str):
+        raise TypeError("paper_url must be a string")
+    if not 1 <= len(value) <= _MAX_PAPER_URL_LENGTH or urlsplit(value).scheme not in (
+        "http",
+        "https",
     ):
         raise ValueError(
             f"paper_url must be an http or https URL of 1 to {_MAX_PAPER_URL_LENGTH} characters"
