@@ -54,6 +54,17 @@
 - The `LeaderboardScore` must expose `benchmark_revision` for step 5. If it does not today, add
   `benchmark_revision: str | None = None` and decode it from the board's `ScoreSchema`.
 
+## Notes from B3 (engine, built)
+
+- The engine emits `cache.revision`, `cache.reproducible` and `cache.partial.*` on the cache summary
+  log line, which it emits **only when the run touched the cache**. So an absent
+  `cache.reproducible` means "unknown" (older engine, or a run with no cache traffic): decode it as
+  `None`. An empty run is therefore `not_reproducible/unknown` (accepted limit against C5/R23; drop
+  the empty-run special case of step 3).
+- The engine echoes `X-Cache-Replay: <label>` on the run-start response (202, and a finished sync
+  result) when it accepted the header. Missing echo → cancel the run (step 4).
+- Engine failure codes: `replay_cache_miss`, `unknown_cache_revision` (B3 `error_text.py`).
+
 ## Do not
 
 - Do not add a public `evaluate(..., cache_replay=...)` parameter.
