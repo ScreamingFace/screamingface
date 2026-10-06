@@ -568,3 +568,77 @@ def test_an_unseeded_shuffle_with_no_declared_seed_is_skipped_at_build(
     summary: dict[str, object] = prepare_replayed_cases(spec, tmp_path / "out")
 
     assert "shuffle_seed" in str(summary[UNCONFIRMED_CASES_KEY])
+
+
+# ── OME-1460: a cached Hugging Face login reaches the replay child (spec R8) ──────────────
+
+
+def test_the_child_keeps_the_builders_token_path_when_xdg_moves(tmp_path: Path) -> None:
+    """huggingface_hub reads its login from HF_HOME/token, and HF_HOME defaults to
+    XDG_CACHE_HOME/huggingface; the replay moves XDG_CACHE_HOME, so without this the child
+    looks for the token in its own empty cache and a gated dataset fails to load."""
+
+    env: dict[str, str] = replay_environment(
+        tmp_path / "cache", {"XDG_CACHE_HOME": "/builder/cache", "HOME": "/home/builder"}
+    )
+
+    assert env["HF_TOKEN_PATH"] == "/builder/cache/huggingface/token"
+    assert env["XDG_CACHE_HOME"] == str(tmp_path / "cache" / "xdg")
+
+
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    [
+        ({"HOME": "/home/builder"}, "/home/builder/.cache/huggingface/token"),
+        ({"HF_HOME": "/hf", "XDG_CACHE_HOME": "/x"}, "/hf/token"),
+        ({"HF_TOKEN_PATH": "/secrets/hf", "HF_HOME": "/hf"}, "/secrets/hf"),
+    ],
+    ids=["home default", "HF_HOME wins over XDG", "an explicit token path is kept"],
+)
+def test_the_token_path_follows_huggingface_hubs_own_rule(
+    tmp_path: Path, base: dict[str, str], expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY HOME: the home default expands "~", which reads HOME on every platform here.
+    monkeypatch.setenv("HOME", base.get("HOME", "/home/builder"))
+
+    assert replay_environment(tmp_path / "cache", base)["HF_TOKEN_PATH"] == expected
+
+
+#: A stand-in eval reporting, as its one Case, the token the child would send to the Hub.
+#: It proves the child can read a cached login; the token is a stand-in, never a real one.
+FAKE_TOKEN_EVAL: str = textwrap.dedent(
+    """
+    from huggingface_hub import get_token
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    @task
+    def token_probe() -> Task:
+        return Task(dataset=MemoryDataset([Sample(input=f"token={get_token()}", target="x")]))
+    """
+)
+
+
+def test_a_cached_login_reaches_the_replay_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dev who ran `hf auth login` (no HF_TOKEN exported) can replay a gated dataset."""
+
+    (tmp_path / "fake_token_eval.py").write_text(FAKE_TOKEN_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    builder_cache: Path = tmp_path / "builder-cache"
+    (builder_cache / "huggingface").mkdir(parents=True)
+    (builder_cache / "huggingface" / "token").write_text("hf_stand_in_login", encoding="utf-8")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(builder_cache))
+    for variable in ("HF_HOME", "HF_TOKEN", "HF_TOKEN_PATH", "HUGGING_FACE_HUB_TOKEN"):
+        monkeypatch.delenv(variable, raising=False)
+    spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task="fake_token_eval:token_probe", case_count=1, case_digest=_UNPINNED
+    )
+
+    prepared: list[dict[str, dict[str, object]]] = replayed_cases(spec)
+
+    assert prepared[0]["case"]["input"] == "token=hf_stand_in_login"

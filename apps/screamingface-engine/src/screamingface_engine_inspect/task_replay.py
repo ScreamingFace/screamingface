@@ -77,12 +77,19 @@ def replay_environment(cache_root: Path, base: Mapping[str, str]) -> dict[str, s
     empty directory under ``cache_root``."""
 
     env: dict[str, str] = dict(base)
+    # INVARIANT: the builder's cached Hugging Face login stays readable (OME-1460, R8).
+    # WHY pinned before XDG moves: huggingface_hub reads its token from HF_HOME/token and
+    # derives HF_HOME from XDG_CACHE_HOME when HF_HOME is unset, so redirecting XDG below
+    # would send it looking in the child's own empty cache, and a gated dataset (xstest)
+    # would fail to load for a dev logged in with `hf auth login`. Only the token is kept.
+    env["HF_TOKEN_PATH"] = _hf_token_path(base)
     # INVARIANT: on Linux, where images are built, every cache a Case Source fetch reads is
     # redirected, so each replay really fetches. XDG_CACHE_HOME moves inspect_ai's own cache
     # (platformdirs), which its hf_dataset reads back when called without a revision.
     # AIDEV-NOTE: platformdirs honours XDG_CACHE_HOME on macOS too at this pin (4.11), so a
     # dev Mac redirects inspect_ai's cache as Linux does; an earlier note here said otherwise.
-    # HF_HOME is left alone on purpose: it also holds a cached login token.
+    # HF_HOME is left alone on purpose: it also holds a cached login token (kept reachable
+    # by HF_TOKEN_PATH above even when HF_HOME is only XDG's default).
     env["XDG_CACHE_HOME"] = str(cache_root / "xdg")
     # INVARIANT: no model is reachable from the child. Capture hands the solvers a stand-in
     # generate, but a solver that calls get_model() itself reads INSPECT_EVAL_MODEL, and the
@@ -96,6 +103,20 @@ def replay_environment(cache_root: Path, base: Mapping[str, str]) -> dict[str, s
     env["HF_XET_CACHE"] = str(cache_root / "hf_xet")
     env["HF_ASSETS_CACHE"] = str(cache_root / "hf_assets")
     return env
+
+
+def _hf_token_path(base: Mapping[str, str]) -> str:
+    """Where huggingface_hub would read the builder's login token, by its own rule.
+
+    HF_TOKEN_PATH if set; else HF_HOME/token; else XDG_CACHE_HOME/huggingface/token; else
+    ~/.cache/huggingface/token (huggingface_hub.constants, 1.x).
+    """
+
+    if base.get("HF_TOKEN_PATH"):
+        return base["HF_TOKEN_PATH"]
+    cache_home: str = base.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    hf_home: str = base.get("HF_HOME") or os.path.join(cache_home, "huggingface")
+    return os.path.join(os.path.expanduser(hf_home), "token")
 
 
 def _failure_reason(stderr: str | bytes | None) -> str:
