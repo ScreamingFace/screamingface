@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1492",
+  "branch": "OME-1492-pr1-bundle-provenance",
+  "approver": "owner (in the OME-1492 PR 1 session)",
+  "date": "2026-10-06",
+  "scope": "Case Preparation now calls replay_with_provenance instead of replayed_cases, so the assembly skip test monkeypatches the new name (same stub body, return annotation TaskReplay). The paid smoke's _publish_overview appends the new 'Where the Cases came from' section under its table (docstring sentence + the write call).",
+  "reason": "OME-1492 PR 1 keeps where each Imported bundle's Cases came from; the owner approved these prior-test edits with the plan (docs/plan/2026-10-06-OME-1492-bundle-provenance.md).",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_task_replay_assembly.py": {
+      "base_blob": "a391b3b391956d0d6608dc2fc404fd24edf67631",
+      "approved_blob": "aa2d2a03cd888a597c01c4b266e2196a165a5cf7"
+    },
+    "packages/screamingface/tests/paid/test_imported_board_smoke.py": {
+      "base_blob": "5a4b175da98034b024ca1b7629b8fd38d08aad94",
+      "approved_blob": "0714c88f280735efd655f82a90b78780462926ea"
+    }
+  }
+}
