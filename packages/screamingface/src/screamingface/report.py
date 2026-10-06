@@ -35,6 +35,7 @@ from screamingface.case_result import (
     Check,
     Evidence,
     EvidenceProducer,
+    named_scores,
 )
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
@@ -227,6 +228,10 @@ class CandidateResult:
     # summary arrived. Only 0 lets a cached run be published as `complete`.
     cache_unpriced_hits: int | None
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
+    # FEATURE (OME-1268): the Benchmark's Named Scores for this Candidate, each the mean of
+    # its column over the graded Cases, headline first; `score` IS the headline. Empty on a
+    # single-scorer Benchmark. Shown in the report; never submitted, never ranked.
+    _scores: Mapping[str, float | None] = field(repr=False)
 
     def __init__(
         self,
@@ -255,6 +260,7 @@ class CandidateResult:
         cache_hits: int = 0,
         cache_saved_cost_archive_usd: Decimal | str | None = None,
         cache_unpriced_hits: int | None = None,
+        scores: Mapping[str, float | None] | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
@@ -271,6 +277,11 @@ class CandidateResult:
         metric_items = _metrics(metrics)
         if selected_score is None and metric_items:
             raise ValueError("a failed or unscored Candidate cannot contain metrics")
+        selected_scores = named_scores(scores, "Candidate")
+        # INVARIANT: like metrics — an unscored Candidate carries no Named Scores, so an
+        # infrastructure failure never becomes a plausible number in any column.
+        if selected_score is None and selected_scores:
+            raise ValueError("a failed or unscored Candidate cannot contain scores")
         selected_kind, selected_models, selected_members, selected_failures = _candidate_shape(
             kind,
             models,
@@ -342,6 +353,7 @@ class CandidateResult:
             "cache_saved_cost_archive_usd": selected_archive,
             "cache_unpriced_hits": cache_unpriced_hits,
             "_metric_items": metric_items,
+            "_scores": selected_scores,
         }
         for attribute, value in values.items():
             object.__setattr__(self, attribute, value)
@@ -354,6 +366,11 @@ class CandidateResult:
     @property
     def metrics(self) -> Mapping[str, object]:
         return MappingProxyType(dict(self._metric_items))
+
+    @property
+    def scores(self) -> Mapping[str, float | None]:
+        """The Benchmark's Named Scores, headline first; empty on a single-scorer Benchmark."""
+        return self._scores
 
     @property
     def duration_ms(self) -> int:
@@ -380,6 +397,9 @@ class CandidateResult:
             "score": self.score,
             "coverage": self.coverage,
             "metrics": thaw_mapping(dict(self._metric_items)),
+            # Always emitted (`{}` when absent): the report's stable-key convention, so a
+            # reader never has to guess whether a Benchmark had one scorer or several.
+            "scores": dict(self._scores),
             "cases": [case.to_dict() for case in self.cases],
             "members": [member.to_dict() for member in self.members],
             "failures": [failure.to_dict() for failure in self.failures],

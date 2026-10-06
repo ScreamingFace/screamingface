@@ -100,6 +100,8 @@ def load_candidate_result(
             score=value["score"],
             metrics=value.get("metrics") or {},
             checks=(),
+            # Reports written before Named Scores existed have no key: a single-scorer run.
+            scores=value.get("scores") or {},
         )
 
     def _failure(value):
@@ -169,6 +171,7 @@ def load_candidate_result(
         "score": raw["score"],
         "coverage": raw["coverage"],
         "metrics": raw.get("metrics") or {},
+        "scores": raw.get("scores") or {},
         "cases": tuple(_case(c) for c in raw["cases"]),
         "members": tuple(_member(m) for m in raw["members"]),
         "failures": (),

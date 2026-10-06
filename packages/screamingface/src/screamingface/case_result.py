@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Literal
 
 from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json, thaw_mapping
@@ -215,12 +216,19 @@ class Check:
 
 @dataclass(frozen=True, slots=True, init=False)
 class CaseGrade:
-    """One Benchmark-owned grade for a Case."""
+    """One Benchmark-owned grade for a Case.
+
+    FEATURE (OME-1268): `scores` carries the Benchmark's Named Scores for this Case, keyed by
+    the scorer's name (SQuAD: `f1`, `exact`), the Headline Score first. `score` IS the
+    headline. A single-scorer Benchmark has none, and every existing caller builds a grade
+    without the keyword.
+    """
 
     method: str
     score: float | None
     checks: tuple[Check, ...]
     _metrics: Mapping[str, object] = field(repr=False)
+    _scores: Mapping[str, float | None] = field(repr=False)
 
     def __init__(
         self,
@@ -229,6 +237,7 @@ class CaseGrade:
         score: float | None,
         metrics: Mapping[str, object],
         checks: Sequence[Check],
+        scores: Mapping[str, float | None] | None = None,
     ) -> None:
         selected_checks = tuple(checks)
         if any(not isinstance(item, Check) for item in selected_checks):
@@ -241,6 +250,7 @@ class CaseGrade:
             "score": _optional_case_score(score),
             "checks": selected_checks,
             "_metrics": freeze_mapping(metrics, "Case Grade metrics"),
+            "_scores": named_scores(scores, "Case Grade"),
         }
         for name, value in values.items():
             object.__setattr__(self, name, value)
@@ -249,13 +259,25 @@ class CaseGrade:
     def metrics(self) -> Mapping[str, object]:
         return self._metrics
 
+    @property
+    def scores(self) -> Mapping[str, float | None]:
+        """The Named Scores for this Case, headline first; empty on a single-scorer Benchmark."""
+        return self._scores
+
     def to_dict(self) -> dict[str, object]:
-        return {
+        value: dict[str, object] = {
             "method": self.method,
             "score": self.score,
             "metrics": thaw_mapping(self._metrics),
             "checks": [item.to_dict() for item in self.checks],
         }
+        # WHY only when set: a Case Grade's dict mirrors the Engine's wire one-to-one (the
+        # exact-contract round-trip tests pin it), and the wire omits the key on a
+        # single-scorer Benchmark. The Candidate Result carries the stable `scores` key
+        # (`{}` when absent), so a reader of report.json never has to guess.
+        if self._scores:
+            value["scores"] = dict(self._scores)
+        return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -520,6 +542,26 @@ def _optional_check_score(value: object) -> float | None:
     if selected is not None and not 0.0 <= selected <= 1.0:
         raise ValueError("Check score must be between 0 and 1")
     return selected
+
+
+def named_scores(values: object, label: str) -> Mapping[str, float | None]:
+    """Freeze a Benchmark's Named Scores: non-blank names, each value finite or None.
+
+    None means that scorer could not grade this Case (or Candidate); it is not a zero.
+    Shared by the Case Grade and the Candidate Result so both validate one way.
+    """
+
+    if values is None:
+        return MappingProxyType({})
+    if not isinstance(values, Mapping):
+        raise TypeError(f"{label} scores must be a mapping")
+    selected: dict[str, float | None] = {}
+    for name, value in values.items():
+        normalized_name = _nonempty_text(name, f"{label} score name")
+        selected[normalized_name] = _optional_number(value, f"{label} score {normalized_name!r}")
+    # WHY a proxy, not freeze_mapping: every value is already a validated scalar, and the
+    # proxy keeps the typed `Mapping[str, float | None]` the properties promise.
+    return MappingProxyType(selected)
 
 
 def _optional_case_score(value: object) -> float | None:

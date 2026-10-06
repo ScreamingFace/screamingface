@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
-from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY
+from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY, SCORES_KEY
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import Candidate, _compiled_evaluation, _Evaluation
 from screamingface._evaluation.operation_accounting import decode_operation_accounting
@@ -126,7 +126,7 @@ def _candidate_result(
 ) -> CandidateResult:
     value = _candidate_payload(evaluation, outcome)
     try:
-        score, coverage, metrics, cases, failures = _candidate_components(
+        score, coverage, metrics, cases, failures, scores = _candidate_components(
             value,
             evaluation,
             candidate,
@@ -134,6 +134,7 @@ def _candidate_result(
         return CandidateResult(
             benchmark=evaluation.benchmark,
             run_id=outcome.run_id,
+            scores=scores,
             # OME-1121: carried across the boundary verbatim. The transport stamped the id
             # the CLIENT minted (OME-967) rather than reading one back off a frame, so a
             # user quoting it is quoting what actually travelled — including for a run whose
@@ -231,7 +232,9 @@ def _candidate_payload(
             "failures",
         },
         label="Candidate result",
-        optional={INVERTED_GRADE_KEY},
+        # WHY optional: the Engine omits both unless set, so every Engine before the
+        # mark (OME-1400) or the Named Scores (OME-1268) decodes exactly as before.
+        optional={INVERTED_GRADE_KEY, SCORES_KEY},
     )
     if value.get("schema") != "screamingface.candidate-result.v1":
         raise ExecutionError("SF Engine Candidate result schema is unsupported")
@@ -269,6 +272,7 @@ def _candidate_components(
     dict[str, object],
     tuple[CaseResult, ...],
     tuple[Failure, ...],
+    dict[str, float | None],
 ]:
     score_value = value.get("score")
     score = None if score_value is None else _number(score_value, "Candidate score")
@@ -278,7 +282,22 @@ def _candidate_components(
     if len(cases) != evaluation.case_count:
         raise ExecutionError("SF Engine Candidate result has the wrong number of Cases")
     failures = _failures(_required(value, "failures", "Candidate result"), "Candidate failures")
-    return score, coverage, metrics, cases, failures
+    scores = _wire_scores(value.get(SCORES_KEY), "Candidate")
+    return score, coverage, metrics, cases, failures, scores
+
+
+def _wire_scores(value: object, label: str) -> dict[str, float | None]:
+    """The Named Scores as sent, or `{}` when the key is absent (a single-scorer Benchmark)."""
+
+    if value is None:
+        return {}
+    raw = _mapping(value, f"{label} scores")
+    selected: dict[str, float | None] = {}
+    for name, item in raw.items():
+        if not isinstance(name, str):
+            raise ExecutionError(f"{label} score names must be strings")
+        selected[name] = None if item is None else _number(item, f"{label} score {name!r}")
+    return selected
 
 
 def _mapping(value: object, label: str) -> Mapping[str, object]:
@@ -384,7 +403,12 @@ def _case_operation(value: object) -> CaseOperation:
 
 def _case_grade(value: object) -> CaseGrade:
     raw = _mapping(value, "Case Grade")
-    _keys(raw, required={"method", "score", "metrics", "checks"}, label="Case Grade")
+    _keys(
+        raw,
+        required={"method", "score", "metrics", "checks"},
+        optional={SCORES_KEY},
+        label="Case Grade",
+    )
     score_value = raw.get("score")
     try:
         return CaseGrade(
@@ -394,6 +418,7 @@ def _case_grade(value: object) -> CaseGrade:
             checks=tuple(
                 _check(item) for item in _sequence(raw.get("checks"), "Case Grade checks")
             ),
+            scores=_wire_scores(raw.get(SCORES_KEY), "Case Grade"),
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Case Grade is invalid: {exc}") from exc

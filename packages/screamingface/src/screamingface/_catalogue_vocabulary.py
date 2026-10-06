@@ -24,5 +24,9 @@ INVERTED_GRADE_KEY: str = "inverted_grade"
 #: `benchmarks/provenance.py` word for word; pinned by the conformance twins on BOTH sides.
 #: Decoding stays tolerant of a word outside this tuple; it orders the KNOWN groups.
 SATURATION_VERDICTS: tuple[str, ...] = ("saturated", "open", "unknown")
+#: The wire key of the Named Scores (OME-1268) on a Case Grade and a Candidate Result —
+#: the engine's SCORES_KEY, letter for letter. The Engine omits it unless the Benchmark
+#: declares several scorers; report.json always writes it (`{}` when absent).
+SCORES_KEY: str = "scores"
 
 __all__: list[str] = []
