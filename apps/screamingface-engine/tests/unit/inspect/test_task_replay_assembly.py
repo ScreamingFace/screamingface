@@ -19,7 +19,6 @@ pytest.importorskip("inspect_ai")
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY  # noqa: E402
 from screamingface_engine_inspect import benchmarks  # noqa: E402
 from screamingface_engine_inspect.prepare import (  # noqa: E402
-    BENCHMARK_CASES,
     TASK_REPLAY_CASES,
     PreparedCase,
     TaskReplayCasesSpec,
@@ -53,19 +52,6 @@ def test_a_different_digest_is_a_different_revision_pin() -> None:
     assert benchmarks._task_replay_pins(other) != benchmarks._task_replay_pins(_SPEC)
 
 
-def test_a_key_in_both_registries_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Review Focus 5: assembly never silently picks one of two declarations."""
-
-    monkeypatch.setitem(TASK_REPLAY_CASES, "gsm8k", _SPEC)
-
-    with pytest.raises(ValueError, match="gsm8k.*both"):
-        benchmarks._cases_declaration("gsm8k")
-
-
-def test_hugging_face_declarations_still_resolve() -> None:
-    assert benchmarks._cases_declaration("gsm8k") is BENCHMARK_CASES["gsm8k"]
-
-
 def test_a_task_replay_key_resolves_to_its_declaration(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(TASK_REPLAY_CASES, "mgsm_en", _SPEC)
 
@@ -85,7 +71,6 @@ def test_an_assembled_task_replay_benchmark_names_itself_in_a_skip(
     # WHY an empty registry: the real gsm8k is assembled elsewhere with another revision,
     # and this replay copy must not leak into later tests.
     monkeypatch.setattr("screamingface_engine_inspect.single_shot._BENCHMARKS_BY_ID", {})
-    monkeypatch.delitem(BENCHMARK_CASES, "gsm8k")
     monkeypatch.setitem(TASK_REPLAY_CASES, "gsm8k", _SPEC)
     monkeypatch.setattr("screamingface_engine_inspect.task_replay.replayed_cases", failed_fetch)
 

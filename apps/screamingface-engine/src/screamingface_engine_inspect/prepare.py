@@ -45,183 +45,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
-from screamingface_engine_inspect.pins import (
-    AIME24_CASE_COUNT,
-    AIME24_CONFIG,
-    AIME24_DATASET,
-    AIME24_DATASET_REVISION,
-    AIME24_SHUFFLE_SEED,
-    AIME24_SPLIT,
-    AIME25_CASE_COUNT,
-    AIME25_CONFIG,
-    AIME25_DATASET,
-    AIME25_DATASET_REVISION,
-    AIME25_SHUFFLE_SEED,
-    AIME25_SPLIT,
-    ARC_CHALLENGE_CASE_COUNT,
-    ARC_CHALLENGE_CONFIG,
-    ARC_CHALLENGE_DATASET,
-    ARC_CHALLENGE_DATASET_REVISION,
-    ARC_CHALLENGE_SPLIT,
-    ARC_EASY_CASE_COUNT,
-    ARC_EASY_CONFIG,
-    ARC_EASY_DATASET,
-    ARC_EASY_DATASET_REVISION,
-    ARC_EASY_SPLIT,
-    BOOLQ_CASE_COUNT,
-    BOOLQ_CONFIG,
-    BOOLQ_DATASET,
-    BOOLQ_DATASET_REVISION,
-    BOOLQ_SHUFFLE_SEED,
-    BOOLQ_SPLIT,
-    COCONOT_CONTRAST_CASE_COUNT,
-    COCONOT_CONTRAST_CONFIG,
-    COCONOT_CONTRAST_DATASET,
-    COCONOT_CONTRAST_DATASET_REVISION,
-    COCONOT_CONTRAST_SPLIT,
-    COCONOT_ORIGINAL_CASE_COUNT,
-    COCONOT_ORIGINAL_CONFIG,
-    COCONOT_ORIGINAL_DATASET,
-    COCONOT_ORIGINAL_DATASET_REVISION,
-    COCONOT_ORIGINAL_SPLIT,
-    COMMONSENSE_QA_CASE_COUNT,
-    COMMONSENSE_QA_CONFIG,
-    COMMONSENSE_QA_DATASET,
-    COMMONSENSE_QA_DATASET_REVISION,
-    COMMONSENSE_QA_SHUFFLE_SEED,
-    COMMONSENSE_QA_SPLIT,
-    FRONTIERSCIENCE_CASE_COUNT,
-    FRONTIERSCIENCE_CONFIG,
-    FRONTIERSCIENCE_DATASET,
-    FRONTIERSCIENCE_DATASET_REVISION,
-    FRONTIERSCIENCE_SHUFFLE_SEED,
-    FRONTIERSCIENCE_SPLIT,
-    GSM8K_CASE_COUNT,
-    GSM8K_DATA_DIR,
-    GSM8K_DATASET,
-    GSM8K_DATASET_REVISION,
-    GSM8K_SPLIT,
-    HELLASWAG_CASE_COUNT,
-    HELLASWAG_CONFIG,
-    HELLASWAG_DATASET,
-    HELLASWAG_DATASET_REVISION,
-    HELLASWAG_SHUFFLE_SEED,
-    HELLASWAG_SPLIT,
-    LAB_BENCH_CLONING_SCENARIOS_CASE_COUNT,
-    LAB_BENCH_CLONING_SCENARIOS_CHOICE_SHUFFLE_SEED,
-    LAB_BENCH_CLONING_SCENARIOS_CONFIG,
-    LAB_BENCH_CLONING_SCENARIOS_DATASET,
-    LAB_BENCH_CLONING_SCENARIOS_DATASET_REVISION,
-    LAB_BENCH_CLONING_SCENARIOS_SHUFFLE_SEED,
-    LAB_BENCH_CLONING_SCENARIOS_SPLIT,
-    LAB_BENCH_DBQA_CASE_COUNT,
-    LAB_BENCH_DBQA_CHOICE_SHUFFLE_SEED,
-    LAB_BENCH_DBQA_CONFIG,
-    LAB_BENCH_DBQA_DATASET,
-    LAB_BENCH_DBQA_DATASET_REVISION,
-    LAB_BENCH_DBQA_SHUFFLE_SEED,
-    LAB_BENCH_DBQA_SPLIT,
-    LAB_BENCH_LITQA_CASE_COUNT,
-    LAB_BENCH_LITQA_CHOICE_SHUFFLE_SEED,
-    LAB_BENCH_LITQA_CONFIG,
-    LAB_BENCH_LITQA_DATASET,
-    LAB_BENCH_LITQA_DATASET_REVISION,
-    LAB_BENCH_LITQA_SHUFFLE_SEED,
-    LAB_BENCH_LITQA_SPLIT,
-    LAB_BENCH_PROTOCOLQA_CASE_COUNT,
-    LAB_BENCH_PROTOCOLQA_CHOICE_SHUFFLE_SEED,
-    LAB_BENCH_PROTOCOLQA_CONFIG,
-    LAB_BENCH_PROTOCOLQA_DATASET,
-    LAB_BENCH_PROTOCOLQA_DATASET_REVISION,
-    LAB_BENCH_PROTOCOLQA_SHUFFLE_SEED,
-    LAB_BENCH_PROTOCOLQA_SPLIT,
-    LAB_BENCH_SEQQA_CASE_COUNT,
-    LAB_BENCH_SEQQA_CHOICE_SHUFFLE_SEED,
-    LAB_BENCH_SEQQA_CONFIG,
-    LAB_BENCH_SEQQA_DATASET,
-    LAB_BENCH_SEQQA_DATASET_REVISION,
-    LAB_BENCH_SEQQA_SHUFFLE_SEED,
-    LAB_BENCH_SEQQA_SPLIT,
-    LAB_BENCH_SUPPQA_CASE_COUNT,
-    LAB_BENCH_SUPPQA_CHOICE_SHUFFLE_SEED,
-    LAB_BENCH_SUPPQA_CONFIG,
-    LAB_BENCH_SUPPQA_DATASET,
-    LAB_BENCH_SUPPQA_DATASET_REVISION,
-    LAB_BENCH_SUPPQA_SHUFFLE_SEED,
-    LAB_BENCH_SUPPQA_SPLIT,
-    MMLU_CASE_COUNT,
-    MMLU_CONFIG,
-    MMLU_DATASET,
-    MMLU_DATASET_REVISION,
-    MMLU_PRO_CASE_COUNT,
-    MMLU_PRO_CONFIG,
-    MMLU_PRO_DATASET,
-    MMLU_PRO_DATASET_REVISION,
-    MMLU_PRO_SHUFFLE_SEED,
-    MMLU_PRO_SPLIT,
-    MMLU_SHUFFLE_SEED,
-    MMLU_SPLIT,
-    MUSR_CASE_COUNT,
-    MUSR_CONFIG,
-    MUSR_DATASET,
-    MUSR_DATASET_REVISION,
-    MUSR_SHUFFLE_SEED,
-    MUSR_SPLIT,
-    ONET_M6_CASE_COUNT,
-    ONET_M6_CONFIG,
-    ONET_M6_DATASET,
-    ONET_M6_DATASET_REVISION,
-    ONET_M6_EXCLUDED_SAMPLE_IDS,
-    ONET_M6_SHUFFLE_SEED,
-    ONET_M6_SPLIT,
-    PAWS_CASE_COUNT,
-    PAWS_CONFIG,
-    PAWS_DATASET,
-    PAWS_DATASET_REVISION,
-    PAWS_SHUFFLE_SEED,
-    PAWS_SPLIT,
-    PUBMEDQA_CASE_COUNT,
-    PUBMEDQA_CONFIG,
-    PUBMEDQA_DATASET,
-    PUBMEDQA_DATASET_REVISION,
-    PUBMEDQA_SPLIT,
-    RACE_H_CASE_COUNT,
-    RACE_H_CONFIG,
-    RACE_H_DATASET,
-    RACE_H_DATASET_REVISION,
-    RACE_H_SHUFFLE_SEED,
-    RACE_H_SPLIT,
-    WINOGRANDE_CASE_COUNT,
-    WINOGRANDE_CONFIG,
-    WINOGRANDE_DATASET,
-    WINOGRANDE_DATASET_REVISION,
-    WINOGRANDE_SPLIT,
-    WMDP_BIO_CASE_COUNT,
-    WMDP_BIO_CONFIG,
-    WMDP_BIO_DATASET,
-    WMDP_BIO_DATASET_REVISION,
-    WMDP_BIO_SPLIT,
-    WMDP_CHEM_CASE_COUNT,
-    WMDP_CHEM_CONFIG,
-    WMDP_CHEM_DATASET,
-    WMDP_CHEM_DATASET_REVISION,
-    WMDP_CHEM_SPLIT,
-    WMDP_CYBER_CASE_COUNT,
-    WMDP_CYBER_CONFIG,
-    WMDP_CYBER_DATASET,
-    WMDP_CYBER_DATASET_REVISION,
-    WMDP_CYBER_SPLIT,
-    XSTEST_SAFE_CASE_COUNT,
-    XSTEST_SAFE_CONFIG,
-    XSTEST_SAFE_DATASET,
-    XSTEST_SAFE_DATASET_REVISION,
-    XSTEST_SAFE_SPLIT,
-    XSTEST_UNSAFE_CASE_COUNT,
-    XSTEST_UNSAFE_CONFIG,
-    XSTEST_UNSAFE_DATASET,
-    XSTEST_UNSAFE_DATASET_REVISION,
-    XSTEST_UNSAFE_SPLIT,
-)
 
 if TYPE_CHECKING:
     from inspect_ai.dataset import Sample
@@ -410,463 +233,6 @@ def case_digest(prepared: Sequence[PreparedCase]) -> str:
 #: Every imported benchmark's prepare. Importing another eval = one more entry here
 #: (plus its pins) — never a new function.
 BENCHMARK_CASES: dict[str, CasesSpec] = {
-    "gsm8k": CasesSpec(
-        dataset=GSM8K_DATASET,
-        config=GSM8K_DATA_DIR,
-        split=GSM8K_SPLIT,
-        dataset_revision=GSM8K_DATASET_REVISION,
-        case_count=GSM8K_CASE_COUNT,
-        # The eval's task: solver=[prompt_template(MATH_PROMPT_TEMPLATE), generate()],
-        # dataset sample_fields=record_to_sample (target = the "####" tail).
-        record_to_sample="inspect_evals.gsm8k.gsm8k:record_to_sample",
-        prompt_template="inspect_evals.gsm8k.gsm8k:MATH_PROMPT_TEMPLATE",
-    ),
-    "mmlu": CasesSpec(
-        dataset=MMLU_DATASET,
-        config=MMLU_CONFIG,
-        split=MMLU_SPLIT,
-        dataset_revision=MMLU_DATASET_REVISION,
-        case_count=MMLU_CASE_COUNT,
-        # mmlu_0_shot's dataset: sample_fields=record_to_sample_mmlu (choices +
-        # letter target); the prompt is the multiple_choice solver's default render.
-        record_to_sample="inspect_evals.mmlu.mmlu:record_to_sample_mmlu",
-        # WHY the shuffle: the HF split is subject-grouped, so a limit=N run over
-        # raw order would examine one subject; the seed rides the revision hash.
-        shuffle_seed=MMLU_SHUFFLE_SEED,
-    ),
-    "arc_easy": CasesSpec(
-        dataset=ARC_EASY_DATASET,
-        config=ARC_EASY_CONFIG,
-        split=ARC_EASY_SPLIT,
-        dataset_revision=ARC_EASY_DATASET_REVISION,
-        case_count=ARC_EASY_CASE_COUNT,
-        # arc_easy's dataset: sample_fields=record_to_sample (letters or numbered
-        # answerKeys normalized to letters); prompt = the default MCQ render.
-        # Verified by a full offline prepare, 2026-09-17.
-        record_to_sample="inspect_evals.arc.arc:record_to_sample",
-    ),
-    "arc_challenge": CasesSpec(
-        dataset=ARC_CHALLENGE_DATASET,
-        config=ARC_CHALLENGE_CONFIG,
-        split=ARC_CHALLENGE_SPLIT,
-        dataset_revision=ARC_CHALLENGE_DATASET_REVISION,
-        case_count=ARC_CHALLENGE_CASE_COUNT,
-        # Same eval module as arc_easy — only the HF config differs.
-        # Verified by a full offline prepare, 2026-09-17.
-        record_to_sample="inspect_evals.arc.arc:record_to_sample",
-    ),
-    "commonsense_qa": CasesSpec(
-        dataset=COMMONSENSE_QA_DATASET,
-        config=COMMONSENSE_QA_CONFIG,
-        split=COMMONSENSE_QA_SPLIT,
-        dataset_revision=COMMONSENSE_QA_DATASET_REVISION,
-        case_count=COMMONSENSE_QA_CASE_COUNT,
-        # commonsense_qa's dataset: sample_fields=record_to_sample (5 choices,
-        # letter target); prompt = the default MCQ render. Verified by a full
-        # offline prepare, 2026-09-17.
-        record_to_sample="inspect_evals.commonsense_qa.commonsense_qa:record_to_sample",
-        # WHY the seed: the upstream eval shuffles this benchmark's order per run
-        # (hf_dataset shuffle=True, no seed) — the import pins one order as
-        # benchmark identity (review round 2026-09-17).
-        shuffle_seed=COMMONSENSE_QA_SHUFFLE_SEED,
-    ),
-    "paws": CasesSpec(
-        dataset=PAWS_DATASET,
-        config=PAWS_CONFIG,
-        split=PAWS_SPLIT,
-        dataset_revision=PAWS_DATASET_REVISION,
-        case_count=PAWS_CASE_COUNT,
-        # paws' task: solver=[prompt_template(TEMPLATE), generate()]; target is
-        # Yes/No from the label. Verified by a full offline prepare, 2026-09-17.
-        record_to_sample="inspect_evals.paws.paws:record_to_sample",
-        prompt_template="inspect_evals.paws.paws:TEMPLATE",
-        # WHY the seed: the upstream eval shuffles this benchmark's order per run
-        # (hf_dataset shuffle=True, no seed) — the import pins one order as
-        # benchmark identity (review round 2026-09-17).
-        shuffle_seed=PAWS_SHUFFLE_SEED,
-    ),
-    "boolq": CasesSpec(
-        dataset=BOOLQ_DATASET,
-        config=BOOLQ_CONFIG,
-        split=BOOLQ_SPLIT,
-        dataset_revision=BOOLQ_DATASET_REVISION,
-        case_count=BOOLQ_CASE_COUNT,
-        # boolq's dataset: sample_fields=record_to_sample (passage folded into
-        # the question, Yes/No target); raw-input render (no template).
-        # Verified by a full offline prepare, 2026-09-17.
-        record_to_sample="inspect_evals.boolq.boolq:record_to_sample",
-        # WHY the seed: the upstream eval shuffles this benchmark's order per run
-        # (hf_dataset shuffle=True, no seed) — the import pins one order as
-        # benchmark identity (review round 2026-09-17).
-        shuffle_seed=BOOLQ_SHUFFLE_SEED,
-    ),
-    "mmlu_pro": CasesSpec(
-        dataset=MMLU_PRO_DATASET,
-        config=MMLU_PRO_CONFIG,
-        split=MMLU_PRO_SPLIT,
-        dataset_revision=MMLU_PRO_DATASET_REVISION,
-        case_count=MMLU_PRO_CASE_COUNT,
-        # mmlu_pro's dataset: sample_fields=record_to_sample (10 options); the
-        # prompt renders through the eval's own CoT template below. Verified by
-        # a full offline prepare, 2026-09-17.
-        record_to_sample="inspect_evals.mmlu_pro.mmlu_pro:record_to_sample",
-        choice_template="inspect_evals.mmlu_pro.mmlu_pro:USER_PROMPT_TEMPLATE",
-        # WHY the shuffle: the HF split is category-grouped (first 100 rows are
-        # one discipline), so a limit=N run over raw order would examine one
-        # discipline; the seed rides the revision hash.
-        shuffle_seed=MMLU_PRO_SHUFFLE_SEED,
-    ),
-    "winogrande": CasesSpec(
-        dataset=WINOGRANDE_DATASET,
-        config=WINOGRANDE_CONFIG,
-        split=WINOGRANDE_SPLIT,
-        dataset_revision=WINOGRANDE_DATASET_REVISION,
-        case_count=WINOGRANDE_CASE_COUNT,
-        # winogrande's dataset (fewshot=0): sample_fields=record_to_sample
-        # ([BLANK] sentence, two options); renders through the eval's own
-        # template below. Verified by a full offline prepare, 2026-09-17.
-        record_to_sample="inspect_evals.winogrande.winogrande:record_to_sample",
-        choice_template="inspect_evals.winogrande.winogrande:USER_PROMPT_TEMPLATE",
-    ),
-    "race_h": CasesSpec(
-        dataset=RACE_H_DATASET,
-        config=RACE_H_CONFIG,
-        split=RACE_H_SPLIT,
-        dataset_revision=RACE_H_DATASET_REVISION,
-        case_count=RACE_H_CASE_COUNT,
-        # race_h's dataset: sample_fields=record_to_sample (passage + question
-        # folded into input); renders through the eval's own template below.
-        # Verified by a full offline prepare, 2026-09-17.
-        record_to_sample="inspect_evals.race_h.race_h:record_to_sample",
-        choice_template="inspect_evals.race_h.race_h:TEMPLATE",
-        # WHY the shuffle: questions arrive in per-passage runs, so a small
-        # limit=N run would see few passages; the seed rides the revision hash.
-        shuffle_seed=RACE_H_SHUFFLE_SEED,
-    ),
-    "aime24": CasesSpec(
-        dataset=AIME24_DATASET,
-        config=AIME24_CONFIG,
-        split=AIME24_SPLIT,
-        dataset_revision=AIME24_DATASET_REVISION,
-        case_count=AIME24_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.aime2024.aime2024:aime2024;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.aime2024.aime2024:record_to_sample",
-        prompt_template="inspect_evals.utils.aime_common:USER_PROMPT_TEMPLATE",
-        shuffle_seed=AIME24_SHUFFLE_SEED,
-    ),
-    "aime25": CasesSpec(
-        dataset=AIME25_DATASET,
-        config=AIME25_CONFIG,
-        split=AIME25_SPLIT,
-        dataset_revision=AIME25_DATASET_REVISION,
-        case_count=AIME25_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.aime2025.aime2025:aime2025;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.aime2025.aime2025:record_to_sample",
-        prompt_template="inspect_evals.utils.aime_common:USER_PROMPT_TEMPLATE",
-        shuffle_seed=AIME25_SHUFFLE_SEED,
-    ),
-    "musr": CasesSpec(
-        dataset=MUSR_DATASET,
-        config=MUSR_CONFIG,
-        split=MUSR_SPLIT,
-        dataset_revision=MUSR_DATASET_REVISION,
-        case_count=MUSR_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.musr.musr:musr;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.musr.musr:record_to_sample",
-        choice_template="inspect_evals.musr.musr:REGULAR_PROMPT",
-        shuffle_seed=MUSR_SHUFFLE_SEED,
-        # WHY the unbaked system_message is benign (review flag resolved): the
-        # eval's SYSTEM_PROMPT is the generic "You are a helpful assistant that
-        # will answer the questions given by the user." — boilerplate with no
-        # benchmark content. Every format instruction rides REGULAR_PROMPT, which IS
-        # the prepared choice_template, so the prepared prompt matches the eval's
-        # rendered user turn.
-    ),
-    "wmdp_bio": CasesSpec(
-        dataset=WMDP_BIO_DATASET,
-        config=WMDP_BIO_CONFIG,
-        split=WMDP_BIO_SPLIT,
-        dataset_revision=WMDP_BIO_DATASET_REVISION,
-        case_count=WMDP_BIO_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.wmdp.wmdp:wmdp_bio;
-        # verify against the eval's task.
-        # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
-        # this pinned revision (verified 1273/1273 unique stable ids), so the
-        # prepare's unfiltered rows are the same benchmark.
-        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
-    ),
-    "wmdp_chem": CasesSpec(
-        dataset=WMDP_CHEM_DATASET,
-        config=WMDP_CHEM_CONFIG,
-        split=WMDP_CHEM_SPLIT,
-        dataset_revision=WMDP_CHEM_DATASET_REVISION,
-        case_count=WMDP_CHEM_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.wmdp.wmdp:wmdp_chem;
-        # verify against the eval's task.
-        # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
-        # this pinned revision (verified 408/408 unique stable ids), so the
-        # prepare's unfiltered rows are the same benchmark.
-        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
-    ),
-    "wmdp_cyber": CasesSpec(
-        dataset=WMDP_CYBER_DATASET,
-        config=WMDP_CYBER_CONFIG,
-        split=WMDP_CYBER_SPLIT,
-        dataset_revision=WMDP_CYBER_DATASET_REVISION,
-        case_count=WMDP_CYBER_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.wmdp.wmdp:wmdp_cyber;
-        # verify against the eval's task.
-        # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
-        # this pinned revision (verified 1987/1987 unique stable ids), so the
-        # prepare's unfiltered rows are the same benchmark.
-        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
-    ),
-    "hellaswag": CasesSpec(
-        dataset=HELLASWAG_DATASET,
-        config=HELLASWAG_CONFIG,
-        split=HELLASWAG_SPLIT,
-        dataset_revision=HELLASWAG_DATASET_REVISION,
-        case_count=HELLASWAG_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.hellaswag.hellaswag:hellaswag;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.hellaswag.hellaswag:record_to_sample",
-        # Named deviation: the eval sends this as a SYSTEM message; the
-        # prepare delivers it as leading input text (a benchmark cannot
-        # address a candidate's system role).
-        system_message="inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE",
-        # WHY the seed: the split is domain-grouped (ActivityNet then
-        # WikiHow) — see the pin's comment; OURS by policy.
-        shuffle_seed=HELLASWAG_SHUFFLE_SEED,
-    ),
-    "lab_bench_litqa": CasesSpec(
-        dataset=LAB_BENCH_LITQA_DATASET,
-        config=LAB_BENCH_LITQA_CONFIG,
-        split=LAB_BENCH_LITQA_SPLIT,
-        dataset_revision=LAB_BENCH_LITQA_DATASET_REVISION,
-        case_count=LAB_BENCH_LITQA_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.lab_bench.lab_bench:lab_bench_litqa;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
-        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
-        shuffle_seed=LAB_BENCH_LITQA_SHUFFLE_SEED,
-        choice_shuffle_seed=LAB_BENCH_LITQA_CHOICE_SHUFFLE_SEED,
-    ),
-    "lab_bench_suppqa": CasesSpec(
-        dataset=LAB_BENCH_SUPPQA_DATASET,
-        config=LAB_BENCH_SUPPQA_CONFIG,
-        split=LAB_BENCH_SUPPQA_SPLIT,
-        dataset_revision=LAB_BENCH_SUPPQA_DATASET_REVISION,
-        case_count=LAB_BENCH_SUPPQA_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.lab_bench.lab_bench:lab_bench_suppqa;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_suppqa",
-        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
-        shuffle_seed=LAB_BENCH_SUPPQA_SHUFFLE_SEED,
-        choice_shuffle_seed=LAB_BENCH_SUPPQA_CHOICE_SHUFFLE_SEED,
-    ),
-    "lab_bench_dbqa": CasesSpec(
-        dataset=LAB_BENCH_DBQA_DATASET,
-        config=LAB_BENCH_DBQA_CONFIG,
-        split=LAB_BENCH_DBQA_SPLIT,
-        dataset_revision=LAB_BENCH_DBQA_DATASET_REVISION,
-        case_count=LAB_BENCH_DBQA_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.lab_bench.lab_bench:lab_bench_dbqa;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
-        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
-        shuffle_seed=LAB_BENCH_DBQA_SHUFFLE_SEED,
-        choice_shuffle_seed=LAB_BENCH_DBQA_CHOICE_SHUFFLE_SEED,
-    ),
-    "lab_bench_protocolqa": CasesSpec(
-        dataset=LAB_BENCH_PROTOCOLQA_DATASET,
-        config=LAB_BENCH_PROTOCOLQA_CONFIG,
-        split=LAB_BENCH_PROTOCOLQA_SPLIT,
-        dataset_revision=LAB_BENCH_PROTOCOLQA_DATASET_REVISION,
-        case_count=LAB_BENCH_PROTOCOLQA_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.lab_bench.lab_bench:lab_bench_protocolqa;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_protocolqa",
-        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
-        shuffle_seed=LAB_BENCH_PROTOCOLQA_SHUFFLE_SEED,
-        choice_shuffle_seed=LAB_BENCH_PROTOCOLQA_CHOICE_SHUFFLE_SEED,
-    ),
-    "lab_bench_seqqa": CasesSpec(
-        dataset=LAB_BENCH_SEQQA_DATASET,
-        config=LAB_BENCH_SEQQA_CONFIG,
-        split=LAB_BENCH_SEQQA_SPLIT,
-        dataset_revision=LAB_BENCH_SEQQA_DATASET_REVISION,
-        case_count=LAB_BENCH_SEQQA_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.lab_bench.lab_bench:lab_bench_seqqa;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
-        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
-        shuffle_seed=LAB_BENCH_SEQQA_SHUFFLE_SEED,
-        choice_shuffle_seed=LAB_BENCH_SEQQA_CHOICE_SHUFFLE_SEED,
-    ),
-    "lab_bench_cloning_scenarios": CasesSpec(
-        dataset=LAB_BENCH_CLONING_SCENARIOS_DATASET,
-        config=LAB_BENCH_CLONING_SCENARIOS_CONFIG,
-        split=LAB_BENCH_CLONING_SCENARIOS_SPLIT,
-        dataset_revision=LAB_BENCH_CLONING_SCENARIOS_DATASET_REVISION,
-        case_count=LAB_BENCH_CLONING_SCENARIOS_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.lab_bench.lab_bench:lab_bench_cloning_scenarios;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
-        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
-        shuffle_seed=LAB_BENCH_CLONING_SCENARIOS_SHUFFLE_SEED,
-        choice_shuffle_seed=LAB_BENCH_CLONING_SCENARIOS_CHOICE_SHUFFLE_SEED,
-    ),
-    "frontierscience": CasesSpec(
-        dataset=FRONTIERSCIENCE_DATASET,
-        config=FRONTIERSCIENCE_CONFIG,
-        split=FRONTIERSCIENCE_SPLIT,
-        dataset_revision=FRONTIERSCIENCE_DATASET_REVISION,
-        case_count=FRONTIERSCIENCE_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.frontierscience.frontierscience:frontierscience;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.frontierscience.frontierscience:record_to_sample",
-        # The scorer dispatches each case to its format's judge prompt via the
-        # Sample's metadata (format/subject) — prepare it into the private Grading
-        # Material record.
-        keep_sample_metadata=True,
-        shuffle_seed=FRONTIERSCIENCE_SHUFFLE_SEED,
-    ),
-    "onet_m6": CasesSpec(
-        dataset=ONET_M6_DATASET,
-        config=ONET_M6_CONFIG,
-        split=ONET_M6_SPLIT,
-        dataset_revision=ONET_M6_DATASET_REVISION,
-        case_count=ONET_M6_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.onet.onet:onet_m6;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.onet.onet:record_to_sample",
-        choice_template="inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT",
-        # Named deviation: the eval sends this as a SYSTEM message; the
-        # prepare delivers it as leading input text (a benchmark cannot
-        # address a candidate's system role).
-        system_message="inspect_evals.onet.onet:SYSTEM_MESSAGE",
-        shuffle_seed=ONET_M6_SHUFFLE_SEED,
-        # The eval drops questions after loading; the prepare step runs its task over
-        # the pinned Samples and keeps exactly what it keeps (OME-1269).
-        question_filter_task="inspect_evals.onet.onet:onet_m6",
-        # Named deviation: six malformed questions inspect keeps (see the pin).
-        excluded_sample_ids=ONET_M6_EXCLUDED_SAMPLE_IDS,
-    ),
-    "pubmedqa": CasesSpec(
-        dataset=PUBMEDQA_DATASET,
-        config=PUBMEDQA_CONFIG,
-        split=PUBMEDQA_SPLIT,
-        dataset_revision=PUBMEDQA_DATASET_REVISION,
-        case_count=PUBMEDQA_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.pubmedqa.pubmedqa:pubmedqa;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.pubmedqa.pubmedqa:record_to_sample",
-        choice_template="inspect_evals.pubmedqa.pubmedqa:TEMPLATE",
-        # The eval drops questions after loading; the prepare step runs its task over
-        # the pinned Samples and keeps exactly what it keeps (OME-1269).
-        question_filter_task="inspect_evals.pubmedqa.pubmedqa:pubmedqa",
-    ),
-    "xstest_safe": CasesSpec(
-        dataset=XSTEST_SAFE_DATASET,
-        config=XSTEST_SAFE_CONFIG,
-        split=XSTEST_SAFE_SPLIT,
-        dataset_revision=XSTEST_SAFE_DATASET_REVISION,
-        case_count=XSTEST_SAFE_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.xstest.xstest:xstest;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.xstest.xstest:record_to_sample",
-        # The eval drops questions after loading; the prepare step runs its task over
-        # the pinned Samples and keeps exactly what it keeps (OME-1269).
-        question_filter_task="inspect_evals.xstest.xstest:xstest",
-        question_filter_task_args={"subset": "safe"},
-        # Gated on the Hub: the prepare step needs HF_TOKEN from an account that
-        # accepted the dataset's terms (OME-1269).
-        needs_hf_token=True,
-        # The judge grades complied / refused from the question and the reply;
-        # the dataset has no answer key (xstest's row rule sets no target).
-        has_answer_key=False,
-        # WHY the unbaked system_message is benign (musr precedent): the eval's
-        # system message is the generic "You are a helpful assistant." — no benchmark
-        # content, and the grading prompt never sees it.
-    ),
-    "xstest_unsafe": CasesSpec(
-        dataset=XSTEST_UNSAFE_DATASET,
-        config=XSTEST_UNSAFE_CONFIG,
-        split=XSTEST_UNSAFE_SPLIT,
-        dataset_revision=XSTEST_UNSAFE_DATASET_REVISION,
-        case_count=XSTEST_UNSAFE_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.xstest.xstest:xstest;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.xstest.xstest:record_to_sample",
-        # The eval drops questions after loading; the prepare step runs its task over
-        # the pinned questions and keeps exactly what it keeps (OME-1269).
-        question_filter_task="inspect_evals.xstest.xstest:xstest",
-        question_filter_task_args={"subset": "unsafe"},
-        # Gated on the Hub: the prepare step needs HF_TOKEN from an account that
-        # accepted the dataset's terms (OME-1269).
-        needs_hf_token=True,
-        # The judge grades complied / refused from the question and the reply;
-        # the dataset has no answer key (xstest's row rule sets no target).
-        has_answer_key=False,
-        # WHY the unbaked system_message is benign (musr precedent): the eval's
-        # system message is the generic "You are a helpful assistant." — no benchmark
-        # content, and the grading prompt never sees it.
-    ),
-    "coconot_original": CasesSpec(
-        dataset=COCONOT_ORIGINAL_DATASET,
-        config=COCONOT_ORIGINAL_CONFIG,
-        split=COCONOT_ORIGINAL_SPLIT,
-        dataset_revision=COCONOT_ORIGINAL_DATASET_REVISION,
-        case_count=COCONOT_ORIGINAL_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.coconot.coconot:coconot;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.coconot.coconot:record_to_sample",
-        # The judge template reads the category rubric's {refusal}/{compliance} text,
-        # which the eval's row rule puts in the Sample's metadata (OME-1371).
-        keep_sample_metadata=True,
-        # The judge grades from the question, the reply and that rubric; the dataset
-        # has no answer key (coconot's row rule sets no target).
-        has_answer_key=False,
-    ),
-    "coconot_contrast": CasesSpec(
-        dataset=COCONOT_CONTRAST_DATASET,
-        config=COCONOT_CONTRAST_CONFIG,
-        split=COCONOT_CONTRAST_SPLIT,
-        dataset_revision=COCONOT_CONTRAST_DATASET_REVISION,
-        case_count=COCONOT_CONTRAST_CASE_COUNT,
-        # Generated from
-        #   inspect_evals.coconot.coconot:coconot;
-        # verify against the eval's task.
-        record_to_sample="inspect_evals.coconot.coconot:record_to_sample",
-        # The judge template reads the category rubric's {refusal}/{compliance} text,
-        # which the eval's row rule puts in the Sample's metadata (OME-1371).
-        keep_sample_metadata=True,
-        # The judge grades from the question, the reply and that rubric; the dataset
-        # has no answer key (coconot's row rule sets no target).
-        has_answer_key=False,
-    ),
     # --- importer: generated CasesSpec rows land above this line ---
 }
 
@@ -1301,6 +667,531 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         source_pins={
             "BBEH/bbeh": "08e07a803851822c04399782ece3c4a07ce419f9",
         },
+    ),
+    # arc_easy — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.arc.arc:arc_easy.
+    # Fold: Cases identical to the Hugging Face path's.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face allenai/ai2_arc/ARC-Easy
+    #     pin revision 210d026faf9955653af8916fad021475a3f00453
+    "arc_easy": TaskReplayCasesSpec(
+        task="inspect_evals.arc.arc:arc_easy",
+        case_count=2376,
+        case_digest="51b8598a4db653d7c60ec0a43487d4c5a3ea0daf505316c3b6f9a5d6fd656346",
+        source_pins={
+            "allenai/ai2_arc": "210d026faf9955653af8916fad021475a3f00453",
+        },
+        license="cc-by-sa-4.0",
+    ),
+    # arc_challenge — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.arc.arc:arc_challenge.
+    # Fold: Cases identical to the Hugging Face path's.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face allenai/ai2_arc/ARC-Challenge
+    #     pin revision 210d026faf9955653af8916fad021475a3f00453
+    "arc_challenge": TaskReplayCasesSpec(
+        task="inspect_evals.arc.arc:arc_challenge",
+        case_count=1172,
+        case_digest="71c66b3e10dcccf112dc4951676c83d62bb50d8055bad6e0494d6e5181880cfe",
+        source_pins={
+            "allenai/ai2_arc": "210d026faf9955653af8916fad021475a3f00453",
+        },
+        license="cc-by-sa-4.0",
+    ),
+    # wmdp_bio — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.wmdp.wmdp:wmdp_bio.
+    # Fold: Cases identical to the Hugging Face path's.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face cais/wmdp/wmdp-bio
+    #     pin revision 7125571f22f032c56415e7980f48d877dd830ff8
+    "wmdp_bio": TaskReplayCasesSpec(
+        task="inspect_evals.wmdp.wmdp:wmdp_bio",
+        case_count=1273,
+        case_digest="f36e89dd2551294dd4abdcb223262644ff9a4bb04ca69b8b07e993a673ad02aa",
+        source_pins={
+            "cais/wmdp": "7125571f22f032c56415e7980f48d877dd830ff8",
+        },
+        license="mit",
+    ),
+    # wmdp_chem — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.wmdp.wmdp:wmdp_chem.
+    # Fold: Cases identical to the Hugging Face path's.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face cais/wmdp/wmdp-chem
+    #     pin revision 7125571f22f032c56415e7980f48d877dd830ff8
+    "wmdp_chem": TaskReplayCasesSpec(
+        task="inspect_evals.wmdp.wmdp:wmdp_chem",
+        case_count=408,
+        case_digest="78fd64d8416db768091c674f665dbdd7c964dabbbeb30658690959620174103d",
+        source_pins={
+            "cais/wmdp": "7125571f22f032c56415e7980f48d877dd830ff8",
+        },
+        license="mit",
+    ),
+    # wmdp_cyber — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.wmdp.wmdp:wmdp_cyber.
+    # Fold: Cases identical to the Hugging Face path's.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face cais/wmdp/wmdp-cyber
+    #     pin revision 7125571f22f032c56415e7980f48d877dd830ff8
+    "wmdp_cyber": TaskReplayCasesSpec(
+        task="inspect_evals.wmdp.wmdp:wmdp_cyber",
+        case_count=1987,
+        case_digest="fcb59e16ad49985fa62beb40d8b82d50ee777855d82ca6a25bc5455b2bb1981f",
+        source_pins={
+            "cais/wmdp": "7125571f22f032c56415e7980f48d877dd830ff8",
+        },
+        license="mit",
+    ),
+    # pubmedqa — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.pubmedqa.pubmedqa:pubmedqa.
+    # Fold: Cases identical to the Hugging Face path's.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face qiaojin/PubMedQA/pqa_labeled
+    #     pin revision 9001f2853fb87cab8d220904e0de81ac6973b318
+    "pubmedqa": TaskReplayCasesSpec(
+        task="inspect_evals.pubmedqa.pubmedqa:pubmedqa",
+        case_count=500,
+        case_digest="482998340464f3bf8e35502be4f83dc8fcefa64f6d2eb35d101bac84e1e48f77",
+        source_pins={
+            "qiaojin/PubMedQA": "9001f2853fb87cab8d220904e0de81ac6973b318",
+        },
+        license="mit",
+    ),
+    # gsm8k — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.gsm8k.gsm8k:gsm8k.
+    # Fold: Cases identical to the Hugging Face path's at fewshot=0 (D2).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face openai/gsm8k
+    #     pin revision cc7b047b6e5bb11b4f1af84efc572db110a51b3c
+    "gsm8k": TaskReplayCasesSpec(
+        task="inspect_evals.gsm8k.gsm8k:gsm8k",
+        task_args={"fewshot": 0},
+        case_count=1319,
+        case_digest="11e0dccbf379586a9618b98200c02ef98fc9a30d426e6f36423f420982637e8f",
+        source_pins={
+            "openai/gsm8k": "cc7b047b6e5bb11b4f1af84efc572db110a51b3c",
+        },
+        license="mit",
+    ),
+    # winogrande — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.winogrande.winogrande:winogrande.
+    # Fold: Cases identical to the Hugging Face path's at fewshot=0 (D2).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face allenai/winogrande/winogrande_xl
+    #     pin revision 01e74176c63542e6b0bcb004dcdea22d94fb67b5
+    "winogrande": TaskReplayCasesSpec(
+        task="inspect_evals.winogrande.winogrande:winogrande",
+        task_args={"fewshot": 0},
+        case_count=1267,
+        case_digest="437ab435a55b3959660977aef0a0ed17eb45919a475dfd43ffd94362c2b71f67",
+        source_pins={
+            "allenai/winogrande": "01e74176c63542e6b0bcb004dcdea22d94fb67b5",
+        },
+        # License: owner decision 2026-10-06: CC-BY per the
+        #  github.com/allenai/winogrande README (no version stated, read as 4.0).
+        license="cc-by-4.0",
+    ),
+    # mmlu — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.mmlu.mmlu:mmlu_0_shot.
+    # Fold: inspect's own seeded order (seed=42), and 105 duplicate questions dropped as
+    #   inspect drops them.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face cais/mmlu/all
+    #     pin revision c30699e8356da336a370243923dbaf21066bb9fe
+    "mmlu": TaskReplayCasesSpec(
+        task="inspect_evals.mmlu.mmlu:mmlu_0_shot",
+        case_count=13937,
+        case_digest="ea69cb0179c201b4e138eed2f2c21f653f9d0f11e6a2f88812de0143b8930a34",
+        source_pins={
+            "cais/mmlu": "c30699e8356da336a370243923dbaf21066bb9fe",
+        },
+        license="mit",
+    ),
+    # aime24 — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.aime2024.aime2024:aime2024.
+    # Fold: same Cases, in the Hub's order: the eval never shuffles; ours was policy.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face Maxwell-Jia/AIME_2024
+    #     pin revision 8d88b2876a82a080e2f172cc9b25d0d9d2cb4792
+    "aime24": TaskReplayCasesSpec(
+        task="inspect_evals.aime2024.aime2024:aime2024",
+        case_count=30,
+        case_digest="2f8cbd5ab7aa8d31f8ffd8e7a10e27a6ea08de6d552e7b6b95d9720ca83a0321",
+        keep_sample_metadata=True,
+        source_pins={
+            "Maxwell-Jia/AIME_2024": "8d88b2876a82a080e2f172cc9b25d0d9d2cb4792",
+        },
+        license="mit",
+    ),
+    # aime25 — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.aime2025.aime2025:aime2025.
+    # Fold: same Cases, in the Hub's order: the eval never shuffles; ours was policy.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face math-ai/aime25
+    #     pin revision 563bb8404243c5f09de6ec262f2db674fe5bce9b
+    "aime25": TaskReplayCasesSpec(
+        task="inspect_evals.aime2025.aime2025:aime2025",
+        case_count=30,
+        case_digest="200b95b0f1b1542b280795e6143c0aa066784788cb5056239def5b89c1c5eabe",
+        keep_sample_metadata=True,
+        source_pins={
+            "math-ai/aime25": "563bb8404243c5f09de6ec262f2db674fe5bce9b",
+        },
+        license="apache-2.0",
+    ),
+    # hellaswag — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.hellaswag.hellaswag:hellaswag.
+    # Fold: the Hub's order (ours was policy); each input keeps the leading newline its
+    #   system message starts with.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face Rowan/hellaswag
+    #     pin revision 218ec52e09a7e7462a5400043bb9a69a41d06b76
+    "hellaswag": TaskReplayCasesSpec(
+        task="inspect_evals.hellaswag.hellaswag:hellaswag",
+        case_count=10042,
+        case_digest="13d0a551dc717a7b6aad29674a9b875a47b09a6d869ea36cce7da34900632827",
+        source_pins={
+            "Rowan/hellaswag": "218ec52e09a7e7462a5400043bb9a69a41d06b76",
+        },
+        # License: owner decision 2026-09-22: MIT per github.com/rowanz/hellaswag;
+        #  the Hub card carries no licence tag.
+        license="mit",
+    ),
+    # xstest_safe — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.xstest.xstest:xstest.
+    # Fold: same Cases and ids; inputs gain the eval's system message (D3).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face walledai/XSTest
+    #     pin revision f1d713187c61b6ae64e602d74f0b3d812cc2e8e8
+    "xstest_safe": TaskReplayCasesSpec(
+        task="inspect_evals.xstest.xstest:xstest",
+        task_args={"subset": "safe"},
+        case_count=250,
+        case_digest="6800b16845a272bd27552f57ebc3798f3f3567ea67907e6132e69c9a4e1c13b7",
+        has_answer_key=False,
+        source_pins={
+            "walledai/XSTest": "f1d713187c61b6ae64e602d74f0b3d812cc2e8e8",
+        },
+        needs_hf_token=True,
+        license="cc-by-4.0",
+    ),
+    # xstest_unsafe — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.xstest.xstest:xstest.
+    # Fold: same Cases and ids; inputs gain the eval's system message (D3).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face walledai/XSTest
+    #     pin revision f1d713187c61b6ae64e602d74f0b3d812cc2e8e8
+    "xstest_unsafe": TaskReplayCasesSpec(
+        task="inspect_evals.xstest.xstest:xstest",
+        task_args={"subset": "unsafe"},
+        case_count=200,
+        case_digest="ecdd47957876ff2e5354b76c45eedbfece6c7ea875f3c8d3c43a7b01f056ec86",
+        has_answer_key=False,
+        source_pins={
+            "walledai/XSTest": "f1d713187c61b6ae64e602d74f0b3d812cc2e8e8",
+        },
+        needs_hf_token=True,
+        license="cc-by-4.0",
+    ),
+    # coconot_original — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.coconot.coconot:coconot.
+    # Fold: Cases identical to the Hugging Face path's.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face allenai/coconot/original
+    #     pin revision 2cbe16aabf9069f17e48c8daad8aeabc29469eb7
+    "coconot_original": TaskReplayCasesSpec(
+        task="inspect_evals.coconot.coconot:coconot",
+        task_args={"subset": "original"},
+        case_count=1001,
+        case_digest="64ec2519afb9052a577a81ef4fbe365d58d02de47298ed7746a76dc636e82ec3",
+        # WHY kept although the scorer is inspect's: the Judge template reads the category
+        # rubric from the metadata (OME-1371); imported with --keep-sample-metadata.
+        keep_sample_metadata=True,
+        has_answer_key=False,
+        source_pins={
+            "allenai/coconot": "2cbe16aabf9069f17e48c8daad8aeabc29469eb7",
+        },
+        # License: owner decision 2026-10-01 (OME-1371): ODC-BY, the dataset
+        #  card's Licensing Information.
+        license="odc-by",
+    ),
+    # coconot_contrast — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.coconot.coconot:coconot.
+    # Fold: Cases identical to the Hugging Face path's.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face allenai/coconot/contrast
+    #     pin revision 2cbe16aabf9069f17e48c8daad8aeabc29469eb7
+    "coconot_contrast": TaskReplayCasesSpec(
+        task="inspect_evals.coconot.coconot:coconot",
+        task_args={"subset": "contrast"},
+        case_count=379,
+        case_digest="1e8579eabe4c113b285e55ff09fd643a4fff424dda067068175a853aa5a39d23",
+        # WHY kept although the scorer is inspect's: the Judge template reads the category
+        # rubric from the metadata (OME-1371); imported with --keep-sample-metadata.
+        keep_sample_metadata=True,
+        has_answer_key=False,
+        source_pins={
+            "allenai/coconot": "2cbe16aabf9069f17e48c8daad8aeabc29469eb7",
+        },
+        # License: odc-by, as coconot_original (owner decision 2026-10-01).
+        license="odc-by",
+    ),
+    # commonsense_qa — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.commonsense_qa.commonsense_qa:commonsense_qa.
+    # Fold: same Cases; order forced by shuffle_seed through inspect's shuffle (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face tau/commonsense_qa
+    #     pin revision 94630fe30dad47192a8546eb75f094926d47e155
+    "commonsense_qa": TaskReplayCasesSpec(
+        task="inspect_evals.commonsense_qa.commonsense_qa:commonsense_qa",
+        case_count=1221,
+        case_digest="0a4789cbd8e63a06f9d3d75a361538276bca39d4c45789715b9d9350bb3c1053",
+        source_pins={
+            "tau/commonsense_qa": "94630fe30dad47192a8546eb75f094926d47e155",
+        },
+        shuffle_seed=20260917,
+        license="mit",
+    ),
+    # paws — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.paws.paws:paws.
+    # Fold: same Cases; order forced by shuffle_seed through inspect's shuffle (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face google-research-datasets/paws/labeled_final
+    #     pin revision 161ece9501cf0a11f3e48bd356eaa82de46d6a09
+    "paws": TaskReplayCasesSpec(
+        task="inspect_evals.paws.paws:paws",
+        case_count=8000,
+        case_digest="b0e17f7d59264fda8c48a489c8f990936ac97def157dc680713cc7d78d1381f8",
+        source_pins={
+            "google-research-datasets/paws": "161ece9501cf0a11f3e48bd356eaa82de46d6a09",
+        },
+        shuffle_seed=20260917,
+        # License: owner decision 2026-10-06: Google's PAWS licence, "may be freely
+        #  used for any purpose"; credit Google LLC as the data source (description).
+        license="other",
+    ),
+    # boolq — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.boolq.boolq:boolq.
+    # Fold: same Cases; order forced by shuffle_seed through inspect's shuffle (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face google/boolq
+    #     pin revision 35b264d03638db9f4ce671b711558bf7ff0f80d5
+    "boolq": TaskReplayCasesSpec(
+        task="inspect_evals.boolq.boolq:boolq",
+        case_count=3270,
+        case_digest="71ee1e88969337159eedfe47c6c3af66816b01eb984d338f36deed56685fd3e2",
+        source_pins={
+            "google/boolq": "35b264d03638db9f4ce671b711558bf7ff0f80d5",
+        },
+        shuffle_seed=20260917,
+        # License: CC-BY-SA-3.0 per the Hub card, carried over from the Hugging
+        #  Face-path row (OME-1460); not on the cleared list, owner to confirm.
+        license="cc-by-sa-3.0",
+    ),
+    # mmlu_pro — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.mmlu_pro.mmlu_pro:mmlu_pro.
+    # Fold: same Cases; order forced by shuffle_seed through inspect's shuffle (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face TIGER-Lab/MMLU-Pro
+    #     pin revision 527feea0afed1de15a8c115abf7be4c912123315
+    "mmlu_pro": TaskReplayCasesSpec(
+        task="inspect_evals.mmlu_pro.mmlu_pro:mmlu_pro",
+        case_count=12032,
+        case_digest="b765c667c3ad277a8bd49c388fcf26dc4abc2dcaacd34ac43f05e94cad611426",
+        source_pins={
+            "TIGER-Lab/MMLU-Pro": "527feea0afed1de15a8c115abf7be4c912123315",
+        },
+        shuffle_seed=20260917,
+        license="mit",
+    ),
+    # race_h — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.race_h.race_h:race_h.
+    # Fold: same Cases; order forced by shuffle_seed through inspect's shuffle (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face ehovy/race/high
+    #     pin revision 2fec9fd81f1dc971569a9b729c43f2f0e6436637
+    "race_h": TaskReplayCasesSpec(
+        task="inspect_evals.race_h.race_h:race_h",
+        case_count=3498,
+        case_digest="49e1ebc1ebbefe9569375bf666659f1a1d3ae1f309880fcf350875550c330441",
+        source_pins={
+            "ehovy/race": "2fec9fd81f1dc971569a9b729c43f2f0e6436637",
+        },
+        shuffle_seed=20260917,
+        # License: owner decision 2026-10-06: CMU's RACE terms, non-commercial
+        #  research only; credit and link www.cs.cmu.edu/~glai1/data/race/ (description).
+        license="non-commercial-research-only",
+    ),
+    # frontierscience — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.frontierscience.frontierscience:frontierscience.
+    # Fold: same Cases; order forced by shuffle_seed through inspect's shuffle (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face openai/frontierscience
+    #     pin revision 25ed67db7da8f4591484e764008ff585544f5a30
+    "frontierscience": TaskReplayCasesSpec(
+        task="inspect_evals.frontierscience.frontierscience:frontierscience",
+        case_count=160,
+        case_digest="7f0ef5c2834d2c980458f67fbba3b2576a18f8c08ee669f355b922afedecc3ad",
+        keep_sample_metadata=True,
+        source_pins={
+            "openai/frontierscience": "25ed67db7da8f4591484e764008ff585544f5a30",
+        },
+        shuffle_seed=20260923,
+        license="apache-2.0",
+    ),
+    # onet_m6 — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.onet.onet:onet_m6.
+    # Fold: same Cases; order forced by shuffle_seed through inspect's shuffle (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face matichon/thai-onet-m6-exam/default
+    #     pin revision 93ffb5e3f3ec630b73e501937805984dd24f2365
+    "onet_m6": TaskReplayCasesSpec(
+        task="inspect_evals.onet.onet:onet_m6",
+        case_count=391,
+        case_digest="92d013fe6efd85165221d02958efaf13df3f31ee25ce4e8868112b92c30e613b",
+        # NAMED DEVIATION (owner decision 2026-09-29, OME-1269): inspect keeps 397
+        # questions, the Benchmark serves 391. Six cannot be graded as published: upstream
+        # split their numbered choices wrongly, so the answer letter points past the last
+        # choice (2021_4_b447: answer E, 4 choices).
+        excluded_sample_ids=(
+            "2019_10ข_6985",
+            "2020_28_177b",
+            "2020_43_b673",
+            "2021_10_0325",
+            "2021_13_1922",
+            "2021_4_b447",
+        ),
+        source_pins={
+            "matichon/thai-onet-m6-exam": "93ffb5e3f3ec630b73e501937805984dd24f2365",
+        },
+        shuffle_seed=7,
+        license="apache-2.0",
+    ),
+    # musr — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.musr.musr:musr.
+    # Fold: order forced by shuffle_seed through inspect's shuffle (D1); inputs gain the
+    #   eval's system message (D3).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face TAUR-Lab/MuSR
+    #     pin revision 7c365b439a222150f317764d4f16ae6c96d7d94a
+    "musr": TaskReplayCasesSpec(
+        task="inspect_evals.musr.musr:musr",
+        case_count=250,
+        case_digest="fa7e1c77159eda64b06ec32238afe23ac0be8497bfcd500db46cd435e846204c",
+        source_pins={
+            "TAUR-Lab/MuSR": "7c365b439a222150f317764d4f16ae6c96d7d94a",
+        },
+        shuffle_seed=20260922,
+        license="cc-by-4.0",
+    ),
+    # lab_bench_litqa — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.lab_bench.lab_bench:lab_bench_litqa.
+    # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurehouse/lab-bench/LitQA2
+    #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
+    "lab_bench_litqa": TaskReplayCasesSpec(
+        task="inspect_evals.lab_bench.lab_bench:lab_bench_litqa",
+        case_count=199,
+        case_digest="53c9f8077dcf1c9edfa52b1e426be95549dd3b8d9b72cffb9a21001c27417dfe",
+        keep_sample_metadata=True,
+        source_pins={
+            "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
+        },
+        shuffle_seed=7,
+        choice_shuffle_seed=7,
+        license="cc-by-sa-4.0",
+    ),
+    # lab_bench_suppqa — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.lab_bench.lab_bench:lab_bench_suppqa.
+    # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurehouse/lab-bench/SuppQA
+    #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
+    "lab_bench_suppqa": TaskReplayCasesSpec(
+        task="inspect_evals.lab_bench.lab_bench:lab_bench_suppqa",
+        case_count=82,
+        case_digest="5233348a35d4e988fd71f1741ded483b9d8ffae3a0e8979203fb6ab0e7aa90f9",
+        keep_sample_metadata=True,
+        source_pins={
+            "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
+        },
+        shuffle_seed=7,
+        choice_shuffle_seed=7,
+        license="cc-by-sa-4.0",
+    ),
+    # lab_bench_dbqa — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.lab_bench.lab_bench:lab_bench_dbqa.
+    # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurehouse/lab-bench/DbQA
+    #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
+    "lab_bench_dbqa": TaskReplayCasesSpec(
+        task="inspect_evals.lab_bench.lab_bench:lab_bench_dbqa",
+        case_count=520,
+        case_digest="8584a3df081501f949f28a03ff5b058208985ef653a98b88d9946b24e08be17b",
+        keep_sample_metadata=True,
+        source_pins={
+            "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
+        },
+        shuffle_seed=7,
+        choice_shuffle_seed=7,
+        license="cc-by-sa-4.0",
+    ),
+    # lab_bench_protocolqa — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.lab_bench.lab_bench:lab_bench_protocolqa.
+    # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurehouse/lab-bench/ProtocolQA
+    #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
+    "lab_bench_protocolqa": TaskReplayCasesSpec(
+        task="inspect_evals.lab_bench.lab_bench:lab_bench_protocolqa",
+        case_count=108,
+        case_digest="06f94fdd1c65c0872d6c6cde6afe35019a97e3ac40240771cebfa7fa022fc76f",
+        keep_sample_metadata=True,
+        source_pins={
+            "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
+        },
+        shuffle_seed=7,
+        choice_shuffle_seed=7,
+        license="cc-by-sa-4.0",
+    ),
+    # lab_bench_seqqa — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.lab_bench.lab_bench:lab_bench_seqqa.
+    # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurehouse/lab-bench/SeqQA
+    #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
+    "lab_bench_seqqa": TaskReplayCasesSpec(
+        task="inspect_evals.lab_bench.lab_bench:lab_bench_seqqa",
+        case_count=600,
+        case_digest="b11b60d26139ccf4d937cb48ddcaa84c5d931cb838e857c1cab0b4ff8ce89c0d",
+        keep_sample_metadata=True,
+        source_pins={
+            "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
+        },
+        shuffle_seed=7,
+        choice_shuffle_seed=7,
+        license="cc-by-sa-4.0",
+    ),
+    # lab_bench_cloning_scenarios — re-imported by Task replay (OME-1460) on 2026-10-06 from
+    #   inspect_evals.lab_bench.lab_bench:lab_bench_cloning_scenarios.
+    # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurehouse/lab-bench/CloningScenarios
+    #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
+    "lab_bench_cloning_scenarios": TaskReplayCasesSpec(
+        task="inspect_evals.lab_bench.lab_bench:lab_bench_cloning_scenarios",
+        case_count=33,
+        case_digest="0e21d7411577ba5b2b946ffd81f89d7b63269e47303228992a1066a531ddf2c7",
+        keep_sample_metadata=True,
+        source_pins={
+            "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
+        },
+        shuffle_seed=7,
+        choice_shuffle_seed=7,
+        license="cc-by-sa-4.0",
     ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }

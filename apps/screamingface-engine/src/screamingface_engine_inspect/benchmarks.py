@@ -203,11 +203,13 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         key="mmlu",
         title="MMLU",
         description=(
-            "14,042 multiple-choice questions across 57 subjects (the MMLU test "
-            "split, 0-shot), imported from inspect_evals. The model answers with one "
+            "13,937 multiple-choice questions across 57 subjects (the MMLU test "
+            "split, 0-shot, after inspect's own removal of 105 duplicate "
+            "questions), imported from inspect_evals. The model answers with one "
             "lettered choice; grading is inspect's own choice scorer against the "
             "published key, so no judge tokens are spent. Cases are served in a "
-            "fixed seeded shuffle so a limited run spans subjects. Benchmark score = "
+            "fixed seeded shuffle (inspect's own seed) so a limited run spans "
+            "subjects. Benchmark score = "
             "plain accuracy over the cases run. No mid-run check surface: pass/fail "
             "feedback over four options would let a loop eliminate choices rather "
             "than improve answers."
@@ -293,7 +295,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "served in a fixed seeded shuffle (the upstream eval randomizes "
             "order per run); benchmark score = plain accuracy over the cases "
             "run. Free-form replies make the mid-run check surface legitimate "
-            "(corrective loop)."
+            "(corrective loop). Dataset: PAWS by Google LLC, used under its own "
+            "licence."
         ),
         focus="Paraphrase adjudication (yes/no)",
         dataset_url="https://huggingface.co/datasets/google-research-datasets/paws",
@@ -384,7 +387,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "inspect's own choice scorer against the published key, so no judge "
             "tokens are spent. Cases are served in a fixed seeded shuffle so a "
             "limited run spans passages. Benchmark score = plain accuracy over "
-            "the cases run. No mid-run check surface (elimination attack)."
+            "the cases run. No mid-run check surface (elimination attack). "
+            "Dataset: RACE by Lai et al. (Carnegie Mellon University), for "
+            "non-commercial research only; source: "
+            "https://www.cs.cmu.edu/~glai1/data/race/."
         ),
         focus="Long-passage reading comprehension (multiple choice)",
         dataset_url="https://huggingface.co/datasets/ehovy/race",
@@ -404,8 +410,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "and commits its final answer on a closing 'ANSWER:' line. Grading "
             "is the eval's own scorer — a numeric match of the reply's final "
             "line against the answer key — so no judge tokens are spent. Cases "
-            "are served in a fixed seeded shuffle so a limited run spans both "
-            "exams and the difficulty range. Benchmark score = plain accuracy "
+            "are served in the dataset's own order, as the eval serves them. "
+            "Benchmark score = plain accuracy "
             "over the cases run. Free-form replies make the mid-run check "
             "surface legitimate (corrective loop)."
         ),
@@ -433,8 +439,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "and commits its final answer on a closing 'ANSWER:' line. Grading "
             "is the eval's own scorer — a numeric match of the reply's final "
             "line against the answer key — so no judge tokens are spent. Cases "
-            "are served in a fixed seeded shuffle so a limited run spans both "
-            "exams and the difficulty range. Benchmark score = plain accuracy "
+            "are served in the dataset's own order, as the eval serves them. "
+            "Benchmark score = plain accuracy "
             "over the cases run. Free-form replies make the mid-run check "
             "surface legitimate (corrective loop)."
         ),
@@ -556,9 +562,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "leading text of the candidate input, because a benchmark cannot "
             "address a candidate's system role. Grading is inspect's own "
             "choice scorer against the published key, so no judge tokens are "
-            "spent; cases are served in a fixed seeded shuffle (the pinned "
-            "split is domain-grouped, so a limited run over raw order would "
-            "examine one domain); benchmark score = plain accuracy over the "
+            "spent; cases are served in the split's own order, as the eval "
+            "serves them (the split is domain-grouped, so a limited run "
+            "examines few domains); benchmark score = plain accuracy over the "
             "cases run. No mid-run check surface (elimination attack over few "
             "options)."
         ),

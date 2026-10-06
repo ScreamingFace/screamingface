@@ -423,10 +423,11 @@ def test_the_run_sync_twins_stay_verbatim_identical() -> None:
 
 
 def _no_key_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
-    from screamingface_engine_inspect.prepare import BENCHMARK_CASES
+    from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES
 
+    # OME-1460: gsm8k is a Task-replay declaration now; the flip it stands in for is the same.
     monkeypatch.setitem(
-        BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], has_answer_key=False)
+        TASK_REPLAY_CASES, "gsm8k", replace(TASK_REPLAY_CASES["gsm8k"], has_answer_key=False)
     )
 
 

@@ -20,6 +20,8 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
+from replayed_cases_helpers import prepare_with_stand_in_hub  # noqa: E402
+
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
@@ -28,7 +30,6 @@ from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     build_case_grade,
 )
-from screamingface_engine_inspect.prepare import BENCHMARK_CASES, emit_cases  # noqa: E402
 
 GSM8K_BENCHMARK = imported_benchmark("gsm8k")
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
@@ -41,9 +42,10 @@ _ROWS: list[dict[str, Any]] = [
 
 
 def _prepare(root: Path) -> Path:
-    """Write two prepared Cases in the benchmark's asset layout (assets/<benchmark id>/)."""
+    """Write two prepared Cases in the benchmark's asset layout (assets/<benchmark id>/), by
+    Task replay's own rendering over the two stand-in rows (OME-1460)."""
 
-    emit_cases(BENCHMARK_CASES["gsm8k"], _ROWS, root / GSM8K_BENCHMARK.benchmark.id)
+    prepare_with_stand_in_hub("gsm8k", _ROWS, root / GSM8K_BENCHMARK.benchmark.id)
     return root
 
 
