@@ -280,6 +280,86 @@ class BenchmarkInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class PublishedScore:
+    """One published score on a Benchmark's headline metric, with its source (OME-1455).
+
+    A Human Baseline carries ``score`` and ``source_url``; a Frontier Score adds the
+    ``model`` and the ``as_of`` month. Copied from the Engine, never computed here.
+    """
+
+    score: float
+    source_url: str
+    model: str | None = None
+    as_of: str | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.score, bool)
+            or not isinstance(self.score, int | float)
+            or not 0.0 <= self.score <= 1.0
+        ):
+            raise ValueError("PublishedScore score must be a number between 0 and 1")
+        object.__setattr__(
+            self, "source_url", _nonblank(self.source_url, "PublishedScore source_url")
+        )
+        for name in ("model", "as_of"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _nonblank(value, f"PublishedScore {name}"))
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkProvenance:
+    """Where a Benchmark comes from, as the Engine declared it (OME-1455).
+
+    The exam's cover sheet: the paper with its authors and a citation, for an Imported
+    Benchmark who ported it into inspect (GitHub handles), the website, the original harness
+    pinned to a commit or tag, the dataset licence with any restriction, a content warning,
+    how humans and the best published model scored, and the SDK notebook that runs it. Every
+    field is optional: the Engine serves a key only when the Benchmark declares a value, and
+    declares none-published facts with no key at all.
+    """
+
+    paper_url: str | None = None
+    authors: str | None = None
+    citation: str | None = None
+    inspect_contributors: tuple[str, ...] | None = None
+    homepage_url: str | None = None
+    harness_url: str | None = None
+    license: str | None = None
+    license_note: str | None = None
+    content_warning: str | None = None
+    human_baseline: PublishedScore | None = None
+    frontier_score: PublishedScore | None = None
+    notebook: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "paper_url",
+            "authors",
+            "citation",
+            "homepage_url",
+            "harness_url",
+            "license",
+            "license_note",
+            "content_warning",
+            "notebook",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _nonblank(value, f"BenchmarkProvenance {name}"))
+        handles = self.inspect_contributors
+        if handles is not None and (
+            not isinstance(handles, tuple) or not all(isinstance(h, str) for h in handles)
+        ):
+            raise TypeError("BenchmarkProvenance inspect_contributors must be a tuple of strings")
+        for name in ("human_baseline", "frontier_score"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, PublishedScore):
+                raise TypeError(f"BenchmarkProvenance {name} must be a PublishedScore")
+
+
+@dataclass(frozen=True, slots=True)
 class Benchmark:
     """Discoverable identity and provenance for one Engine-owned Benchmark."""
 
@@ -298,12 +378,19 @@ class Benchmark:
     # FEATURE: the refusal-rate mark (OME-1400) — True when every Case score is ALREADY
     # 1 − the eval's grade. Shown to the researcher; never an instruction to flip again.
     inverted_grade: bool = False
+    # FEATURE: Benchmark Provenance and the saturation verdict (OME-1455) — the cover sheet
+    # verbatim (None = an Engine that predates it or a Benchmark that declared nothing) and
+    # the verdict as an open-set word, "unknown" when the Engine served none.
+    provenance: BenchmarkProvenance | None = None
+    saturation: str = "unknown"
 
     def __post_init__(self) -> None:
         if not isinstance(self.inverted_grade, bool):
             raise TypeError("Benchmark inverted_grade must be a boolean")
+        if self.provenance is not None and not isinstance(self.provenance, BenchmarkProvenance):
+            raise TypeError("Benchmark provenance must be a BenchmarkProvenance")
         object.__setattr__(self, "id", _benchmark_id(self.id))
-        for name in ("title", "description", "revision", "origin"):
+        for name in ("title", "description", "revision", "origin", "saturation"):
             object.__setattr__(self, name, _nonblank(getattr(self, name), f"Benchmark {name}"))
         for name in ("interaction", "difficulty"):
             value = getattr(self, name)
@@ -471,9 +558,11 @@ def _validate_value_items(value: object, items: str | None) -> None:
 __all__ = [
     "Benchmark",
     "BenchmarkInfo",
+    "BenchmarkProvenance",
     "ModelCapability",
     "ModelDetails",
     "ModelInfo",
     "ModelParameter",
     "ModelParameterSchema",
+    "PublishedScore",
 ]

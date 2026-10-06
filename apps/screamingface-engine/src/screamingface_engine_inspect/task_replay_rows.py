@@ -56,6 +56,7 @@ from screamingface_engine_inspect.importer import (
     _write_verified_python,
 )
 from screamingface_engine_inspect.prepare import LICENSE_TODO, TaskReplayCasesSpec
+from screamingface_engine_inspect.provenance_facts import ProvenanceFacts, provenance_row_lines
 
 #: The anchor generated TaskReplayCasesSpec entries land above, inside TASK_REPLAY_CASES.
 _TASK_REPLAY_CASES_ANCHOR: str = (
@@ -77,7 +78,12 @@ class TaskReplayRows:
 
 
 def render_task_replay_rows(
-    key: str, imported: TaskReplayImport, license: str, *, card_license: str | None = None
+    key: str,
+    imported: TaskReplayImport,
+    license: str,
+    *,
+    card_license: str | None = None,
+    provenance: ProvenanceFacts | None = None,
 ) -> TaskReplayRows:
     """Stages 2 to 4 — render a Task-replay declaration and its BenchmarkSpec row (spec R6).
 
@@ -97,7 +103,7 @@ def render_task_replay_rows(
 
     _refuse_injectable_import(imported, license, card_license)
     cases: str = "\n".join(_declaration_lines(key, imported, license, card_license)) + "\n"
-    benchmark: str = "\n".join(_benchmark_row_lines(key, imported, license)) + "\n"
+    benchmark: str = "\n".join(_benchmark_row_lines(key, imported, license, provenance)) + "\n"
     return TaskReplayRows(cases=cases, benchmark=benchmark)
 
 
@@ -108,6 +114,7 @@ def write_task_replay_rows(
     engine_src: Path,
     license: str,
     card_license: str | None = None,
+    provenance: ProvenanceFacts | None = None,
 ) -> TaskReplayRows:
     """Stages 1 to 5 — insert a Task-replay import's two rows into prepare.py and benchmarks.py.
 
@@ -134,7 +141,7 @@ def write_task_replay_rows(
     # Stage 1
     _refuse_existing_rows(key, texts)
     rows: TaskReplayRows = render_task_replay_rows(
-        key, imported, license, card_license=card_license
+        key, imported, license, card_license=card_license, provenance=provenance
     )
     # Stage 5 — compose both files before writing either.
     new_texts: dict[Path, str] = {
@@ -289,7 +296,12 @@ def _license_lines(license: str, card_license: str | None) -> list[str]:
     return lines
 
 
-def _benchmark_row_lines(key: str, imported: TaskReplayImport, license: str) -> list[str]:
+def _benchmark_row_lines(
+    key: str,
+    imported: TaskReplayImport,
+    license: str,
+    provenance: ProvenanceFacts | None = None,
+) -> list[str]:
     """Stage 4 — the BenchmarkSpec row: prose as TODOs, the first browsable source as URL."""
 
     facts: TaskReplayFacts = imported.facts
@@ -322,6 +334,10 @@ def _benchmark_row_lines(key: str, imported: TaskReplayImport, license: str) -> 
             f"        # License: {license}.",
         ]
     )
+    if provenance is not None:
+        # Benchmark Provenance (OME-1455): the licence is the one decided above (a cleared
+        # value or TODO), not re-read from a card.
+        lines.extend(provenance_row_lines(provenance, license, CLEARED_DATASET_LICENSES))
     lines.extend(
         _scorer_lines(
             facts.scorer,

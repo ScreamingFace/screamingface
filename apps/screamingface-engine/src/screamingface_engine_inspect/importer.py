@@ -44,6 +44,10 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
+# WHY a runtime import is safe here: provenance_facts imports only the stdlib and yaml,
+# never this module, so no cycle (OME-1455).
+from screamingface_engine_inspect.provenance_facts import read_provenance_facts
+
 if TYPE_CHECKING:
     # WHY type-only: import_replay imports this module, so a runtime import would cycle.
     from screamingface_engine_inspect.import_replay import TaskReplayImport
@@ -332,13 +336,15 @@ def main(
     *,
     dataset_info: Callable[[str, str | None], Any] | None = None,
     import_by_task_replay: TaskReplayImporter | None = None,
+    arxiv_fetch: Callable[[str], str] | None = None,
 ) -> int:
     """Import one inspect eval as an Imported Benchmark, by Task replay (OME-1460, R10).
 
     There is one path: the eval's own task function is called in a clean child, twice, and
     its Cases are sealed with a Case Digest; the declaration and the BenchmarkSpec row are
-    written for the dev to review. ``dataset_info`` and ``import_by_task_replay`` are
-    injectable for tests.
+    written for the dev to review. ``dataset_info``, ``import_by_task_replay`` and
+    ``arxiv_fetch`` (the paper lookup behind Benchmark Provenance, OME-1455) are injectable
+    for tests, so none opens a socket.
 
     Returns:
         0 when the rows are written; 1 when the import is refused (one ERROR line, no write).
@@ -381,7 +387,7 @@ def main(
     args = parser.parse_args(argv)
 
     try:
-        _import_by_task_replay_cli(args, dataset_info, import_by_task_replay)
+        _import_by_task_replay_cli(args, dataset_info, import_by_task_replay, arxiv_fetch)
     except ImporterError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
@@ -417,6 +423,7 @@ def _import_by_task_replay_cli(
     args: argparse.Namespace,
     dataset_info: Callable[[str, str | None], Any] | None,
     import_by_task_replay: TaskReplayImporter | None,
+    arxiv_fetch: Callable[[str], str] | None = None,
 ) -> None:
     """The command's one path: two replays, the card license, the two rows (OME-1273/1460).
 
@@ -454,6 +461,7 @@ def _import_by_task_replay_cli(
         engine_src=args.engine_src,
         license=card.value,
         card_license=card.card_says,
+        provenance=read_provenance_facts(args.task_ref, fetch=arxiv_fetch),
     )
     sources: str = "\n".join(f"  {source.as_comment()}" for source in imported.case_sources)
     print(

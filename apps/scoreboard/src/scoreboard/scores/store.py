@@ -28,9 +28,11 @@ from .models import Benchmark, IdempotencyKey, Score
 from .pareto import ParetoEntry
 from .reproduction_cost import reproduction_cost
 from .schemas import (
+    SATURATION_VERDICTS,
     BenchmarkSchema,
     LeaderboardEntry,
     LeaderboardStoreEntry,
+    ProvenanceSchema,
     RunCostStatus,
     ScoreSchema,
     ScoreSubmission,
@@ -112,6 +114,14 @@ def benchmark_to_schema(model: Benchmark) -> BenchmarkSchema:
         dataset_url=model.dataset_url,
         revision=model.revision,
         case_count=model.case_count,
+        # OME-1455: key by key, never whole-block — a stored key this build cannot read costs
+        # that key, not the row, and this mapper runs over every row of the listing.
+        provenance=(
+            ProvenanceSchema.from_stored(model.provenance)
+            if isinstance(model.provenance, dict)
+            else None
+        ),
+        saturation=model.saturation,
         # A pre-migration row can carry NULL; it was world-readable before the column existed,
         # so it reads as public. The column stays nullable so 0008 need not rebuild the table.
         visibility=cast(Visibility, model.visibility or "public"),
@@ -797,6 +807,8 @@ class ScoreStore:
         focus: str | None = None,
         visibility: Visibility | None = None,
         case_count: int | None | _Unset = _UNSET,
+        provenance: dict[str, object] | None | _Unset = _UNSET,
+        saturation: str | None | _Unset = _UNSET,
     ) -> BenchmarkSchema:
         defaults: dict[str, object] = {
             "display_name": display_name,
@@ -812,6 +824,19 @@ class ScoreStore:
             # the old count beside a newly seeded revision would compare runs against a scope the
             # Engine no longer claims. A plain None default cannot express both states (OME-1056).
             defaults["case_count"] = case_count
+        # OME-1455: the same sentinel as `case_count`, for the same reason — the Engine seed
+        # passes explicit None to CLEAR a block the Engine no longer publishes.
+        if not isinstance(provenance, _Unset):
+            defaults["provenance"] = provenance
+        if not isinstance(saturation, _Unset):
+            # WHY refuse here while the catalogue reader nulls: that reader faces another
+            # service's data; this is a code boundary, and a direct caller passing "Saturated"
+            # is a bug to surface, not a value to serve — the page groups on this column.
+            if saturation is not None and saturation not in SATURATION_VERDICTS:
+                raise ValueError(
+                    f"saturation must be one of {SATURATION_VERDICTS}, got {saturation!r}"
+                )
+            defaults["saturation"] = saturation
         if visibility is not None:
             # WHY conditional (OME-894): seeding runs on every deploy, and an omitted visibility
             # must mean "leave it alone" rather than "reset to public" — otherwise a routine

@@ -107,7 +107,7 @@
       "Benchmark": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'str', title: 'str', description: 'str', revision: 'str', case_count: 'int', origin: 'str' = 'screamingface', interaction: 'str | None' = None, difficulty: 'str | None' = None, inverted_grade: 'bool' = False) -> None",
+          "__init__": "method (self, id: 'str', title: 'str', description: 'str', revision: 'str', case_count: 'int', origin: 'str' = 'screamingface', interaction: 'str | None' = None, difficulty: 'str | None' = None, inverted_grade: 'bool' = False, provenance: 'BenchmarkProvenance | None' = None, saturation: 'str' = 'unknown') -> None",
           "case_count": "field",
           "description": "field",
           "difficulty": "field",
@@ -115,7 +115,9 @@
           "interaction": "field",
           "inverted_grade": "field",
           "origin": "field",
+          "provenance": "field",
           "revision": "field",
+          "saturation": "field",
           "title": "field"
         }
       },

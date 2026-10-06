@@ -11,7 +11,7 @@ from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
 from screamingface._ui.catalog import _ModelCatalog
-from screamingface.discovery import ModelInfo
+from screamingface.discovery import BenchmarkProvenance, ModelInfo, PublishedScore
 from screamingface.errors import PlanningError
 
 
@@ -26,6 +26,8 @@ class _BenchmarkEntry:
     interaction: str | None
     difficulty: str | None
     inverted_grade: bool
+    provenance: BenchmarkProvenance | None
+    saturation: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +137,107 @@ def _benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
         interaction=_optional_axis(item, "interaction"),
         difficulty=_optional_axis(item, "difficulty"),
         inverted_grade=_inverted_grade(item),
+        provenance=_provenance(item),
+        saturation=_saturation(item),
     )
+
+
+_PROVENANCE_TEXT_KEYS: tuple[str, ...] = (
+    "paper_url",
+    "authors",
+    "citation",
+    "homepage_url",
+    "harness_url",
+    "license",
+    "license_note",
+    "content_warning",
+    "notebook",
+)
+_PROVENANCE_HANDLE_KEYS: tuple[str, ...] = ("inspect_contributors",)
+_PROVENANCE_SCORE_KEYS: tuple[str, ...] = ("human_baseline", "frontier_score")
+#: Every provenance key the Engine serves flat on a catalogue entry — the SDK's ONE copy of
+#: the list. The local seed twin (`_runtime/bootstrap.py`) reads it from here.
+#: INVARIANT: key-for-key the Engine's `PROVENANCE_FIELD_NAMES`; the Engine's conformance
+#: test parses the three tuples above and asserts it.
+PROVENANCE_KEYS: tuple[str, ...] = (
+    _PROVENANCE_TEXT_KEYS + _PROVENANCE_HANDLE_KEYS + _PROVENANCE_SCORE_KEYS
+)
+
+
+def _provenance(item: Mapping[str, object]) -> BenchmarkProvenance | None:
+    """The Benchmark Provenance block, cut from the flat keys the Engine serves (OME-1455).
+
+    INVARIANT (the two-axis doctrine): an ABSENT key means "never declared"; a PRESENT key
+    must have its shape, or it is a catalogue defect surfaced by name. None, never an empty
+    block, when the Engine sent no provenance key at all.
+    """
+
+    fields: dict[str, object] = {
+        **_provenance_texts(item),
+        **_provenance_handles(item),
+        **_provenance_scores(item),
+    }
+    if not fields:
+        return None
+    try:
+        return BenchmarkProvenance(**fields)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        _catalog_invalid(str(exc))
+
+
+def _provenance_texts(item: Mapping[str, object]) -> dict[str, object]:
+    return {
+        key: _wire_text(item.get(key), f"Benchmark {key}", _catalog_invalid)
+        for key in _PROVENANCE_TEXT_KEYS
+        if key in item
+    }
+
+
+def _provenance_handles(item: Mapping[str, object]) -> dict[str, object]:
+    fields: dict[str, object] = {}
+    for key in _PROVENANCE_HANDLE_KEYS:
+        if key not in item:
+            continue
+        handles = item.get(key)
+        if not isinstance(handles, list):
+            _catalog_invalid(f"Benchmark {key} must be an array of GitHub usernames")
+        fields[key] = tuple(
+            _wire_text(handle, f"Benchmark {key} entry", _catalog_invalid) for handle in handles
+        )
+    return fields
+
+
+def _provenance_scores(item: Mapping[str, object]) -> dict[str, object]:
+    return {
+        key: _published_score(item.get(key), f"Benchmark {key}")
+        for key in _PROVENANCE_SCORE_KEYS
+        if key in item
+    }
+
+
+def _published_score(value: object, label: str) -> PublishedScore:
+    block = _wire_mapping(value, label, _catalog_invalid)
+    score = block.get("score")
+    if isinstance(score, bool) or not isinstance(score, int | float):
+        _catalog_invalid(f"{label} score must be a number")
+    try:
+        return PublishedScore(
+            score=float(score),
+            source_url=_wire_text(block.get("source_url"), f"{label} source_url", _catalog_invalid),
+            model=_optional_axis(block, "model"),
+            as_of=_optional_axis(block, "as_of"),
+        )
+    except ValueError as exc:
+        _catalog_invalid(f"{label}: {exc}")
+
+
+def _saturation(item: Mapping[str, object]) -> str:
+    """The saturation verdict verbatim; an Engine predating it means no frontier score is
+    recorded, which is exactly what "unknown" says. Open set: a new word decodes."""
+
+    if "saturation" not in item:
+        return "unknown"
+    return _wire_text(item.get("saturation"), "Benchmark saturation", _catalog_invalid)
 
 
 def _inverted_grade(item: Mapping[str, object]) -> bool:

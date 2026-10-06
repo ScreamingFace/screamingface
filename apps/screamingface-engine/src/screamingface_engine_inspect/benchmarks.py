@@ -24,10 +24,17 @@ from dataclasses import dataclass, field
 from functools import partial
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from screamingface_engine.benchmarks.definition import DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
+from screamingface_engine.benchmarks.provenance import (
+    PROVENANCE_FIELD_NAMES,
+    FrontierScore,
+    HumanBaseline,
+    NotPublished,
+    ProvenanceFields,
+)
 from screamingface_engine_inspect.prepare import (
     INSPECT_SCORER_PREFIX,
     TASK_REPLAY_CASES,
@@ -87,6 +94,27 @@ class BenchmarkSpec:
     #: It is the reviewer-read claim that lets such a row assemble; a test grades every row
     #: carrying it against an empty and a non-empty key and requires the same grade (R19).
     scorer_reads_answer_key: bool = True
+    #: Benchmark Provenance, baselines and the notebook (OME-1455): authored here because this
+    #: row IS the Imported Benchmark's authoring site. The importer fills what inspect's
+    #: `eval.yaml` and the paper's arXiv entry know; the importing agent fills the rest, each
+    #: with a source; a `NotPublished(reason=...)` says none exists. Shapes are checked by
+    #: `Benchmark`; presence by the conformance test (grandfathered until the values PR).
+    paper_url: str | NotPublished | None = None
+    authors: str | None = None
+    citation: str | NotPublished | None = None
+    inspect_contributors: tuple[str, ...] | None = None
+    homepage_url: str | None = None
+    harness_url: str | None = None
+    license: str | NotPublished | None = None
+    license_note: str | None = None
+    content_warning: str | None = None
+    human_baseline: HumanBaseline | NotPublished | None = None
+    frontier_score: FrontierScore | NotPublished | None = None
+    notebook: str | None = None
+    #: inspect's own declared size for the task (`eval.yaml` `dataset_samples`), written by
+    #: the importer. Never served: the conformance test compares it to `case_count` and
+    #: refuses a silent mismatch unless the row declares a Named Deviation (spec §3.1).
+    upstream_case_count: int | None = None
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -1724,7 +1752,15 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         judge=spec.judge,
         inverted_grade=spec.inverted_grade,
         verdict_grades=spec.verdict_grades,
+        **_provenance_of(spec),
     )
+
+
+def _provenance_of(spec: BenchmarkSpec) -> ProvenanceFields:
+    """The row's provenance fields as the keyword block every factory accepts."""
+
+    fields: dict[str, object] = {name: getattr(spec, name) for name in PROVENANCE_FIELD_NAMES}
+    return cast(ProvenanceFields, fields)
 
 
 def _check_verdict_grades(spec: BenchmarkSpec) -> None:
