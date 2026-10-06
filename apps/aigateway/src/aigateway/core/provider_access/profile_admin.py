@@ -13,6 +13,9 @@ admin Profile routes. Behaviour unchanged; those routes are now shells over this
 # COMPATIBILITY (window-only, removed at Stage E / OME-1209 with the shells): `legacy_name` and
 # `CredentialSummary.legacy_projection` exist so the shells keep today's JSON byte-identical.
 # Op 8 lost its `defaults` keyword at the D2 cutover (OME-1323): no writer stores defaults.
+# FEATURE: OME-1497 (G0 writer floor, D18 contract §5.3) — op 8 and op 9 claim the pair generation
+# their caller observed as the FIRST write of the transaction, so a writer that read the pair
+# before another ownership change loses (superseded `profile`) instead of overwriting it.
 """
 
 from __future__ import annotations
@@ -25,9 +28,12 @@ from tortoise.transactions import in_transaction
 
 from ..credential_blob.store import CredentialBlobMutationConflict
 from ..credential_strategy_cache import credential_strategy_cache
-from ..plugin_base import credential_strategy_from
+from ..oauth.models import OAuthConnection
+from ..oauth.store import credential_locator_for
+from ..plugin_base import credential_service_provider_for, credential_strategy_from
 from ..profile_index import ProfileIndexStore, ProfileTransitionConflict
 from ..profile_models import AuthType, Profile, ProfileState, credential_name_for, profile_id_for
+from .pair_authority import PairAuthority, PairAuthorityConflict, PairAuthorityStore
 from .ports import ProviderCredentialAdmin
 from .profile_authorize import invalidate_session
 from .types import (
@@ -38,6 +44,7 @@ from .types import (
     UnsupportedAuthMode,
     WriteConflict,
 )
+from .writer_floor import claim_pair, fences_writer
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +87,27 @@ async def persist_credentials_or_refuse(
             type(exc).__name__,
         )
         raise CredentialStoreUnavailable(description) from exc
+
+
+async def addressed_by_a_live_connection(
+    plugin: Any, provider: str, account_id: str, legacy_name: str
+) -> bool:
+    """Does a non-revoked Connection still serve the legacy Profile's blob address?
+
+    # WHY: an R1 rollback hands the pair back to the legacy Profile while the Connection that was
+    # effective keeps addressing the Profile's blob (D5). Deleting that blob from the legacy side
+    # would leave a live Connection with no credential (§5.3: owner checks address the actual
+    # service/account address, not only the provider label).
+    # AIDEV-NOTE: runs after the pair claim, so every writer that could add a Connection at this
+    # address (the migrated authority, the backfill, the G1 bridge) is serialized on the marker.
+    """
+    locator = credential_locator_for(
+        credential_service_provider_for(plugin, provider), account_id, legacy_name
+    )
+    rows = await OAuthConnection.filter(account_id=account_id, provider=provider).exclude(
+        status="revoked"
+    )
+    return any(row.credential_locator == locator for row in rows)
 
 
 class ProfileBackedCredentialAdmin:
@@ -134,6 +162,7 @@ class ProfileBackedCredentialAdmin:
         *,
         raw_api_key: str,
         legacy_name: str | None,
+        observed_pair: PairAuthority | None = None,
     ) -> CredentialSummary:
         """Op 8 — publish an API key as an AUTHENTICATED legacy Profile plus its credential blob.
 
@@ -142,6 +171,8 @@ class ProfileBackedCredentialAdmin:
         delete removes it). The RAW key never appears in a summary, projection or log; the Profile
         carries only the masked last-4 label (``"API key ····WXYZ"``), the Stripe/AWS/GitHub
         convention. `raw_api_key` arrives normalised (stripped, length-checked) by the shell.
+        `observed_pair` is the pair a subclass's branch read already captured; absent, this body
+        captures it here — after the shell's key validation either way (§5.3).
         """
         name = legacy_name or DEFAULT_LEGACY_NAME
         plugin = self._plugin(provider)
@@ -149,6 +180,7 @@ class ProfileBackedCredentialAdmin:
         strategy = self._strategy(plugin, provider, credential_name, auth_type="api_key")
         if strategy is None:
             raise UnsupportedAuthMode("api_key", provider=provider)
+        pair = observed_pair or await PairAuthorityStore().read(account_id, provider)
 
         profile = await self._index.get(account_id, provider, name)
         # INVARIANT (OME-307 Unit 3): if we observed an existing profile, publication must not
@@ -189,6 +221,9 @@ class ProfileBackedCredentialAdmin:
         # rolls back and re-raises.
         try:
             async with in_transaction():
+                # INVARIANT (G0, §5.3): the pair claim is the FIRST write — marker → index → blob.
+                if fences_writer(pair):
+                    await claim_pair(pair)
                 # INVARIANT (OME-307 Unit 3): an observed-existing profile publishes conditionally
                 # so a concurrent delete WINS (no resurrection); a first-time key stays an
                 # unconditional create. Splitting the call keeps `upsert(profile)` — the create
@@ -202,9 +237,10 @@ class ProfileBackedCredentialAdmin:
                     {"auth_type": "api_key", "api_key": raw_api_key},
                     description="API-key credentials",
                 )
-        except ProfileTransitionConflict as exc:
-            # A concurrent delete removed the profile we were updating: delete wins, so the
-            # rolled-back publication surfaces as the superseded conflict (409 at the edge).
+        except (PairAuthorityConflict, ProfileTransitionConflict) as exc:
+            # A concurrent delete removed the profile we were updating (delete wins), or another
+            # ownership change moved the pair after our read: the rolled-back publication
+            # surfaces as the superseded conflict (409 `profile_conflict` at the edge).
             raise WriteConflict(
                 "superseded", subject="profile", provider=provider, requested=name
             ) from exc
@@ -216,9 +252,17 @@ class ProfileBackedCredentialAdmin:
         self._invalidate(plugin, credential_name)
         return summary_of(profile)
 
-    async def delete(self, account_id: str, provider: str, *, legacy_name: str) -> None:
-        """Op 9 — remove one legacy Profile and its credential."""
+    async def delete(
+        self,
+        account_id: str,
+        provider: str,
+        *,
+        legacy_name: str,
+        observed_pair: PairAuthority | None = None,
+    ) -> None:
+        """Op 9 — remove one legacy Profile and its credential (`observed_pair` as in op 8)."""
         plugin = self._plugin(provider)
+        pair = observed_pair or await PairAuthorityStore().read(account_id, provider)
         profile = await self._index.get(account_id, provider, legacy_name)
         if profile is None:
             raise TargetMissing(provider, legacy_name)
@@ -231,11 +275,20 @@ class ProfileBackedCredentialAdmin:
         # credential row may be ABSENT (e.g. a pending/errored OAuth profile), and a missing-row
         # DELETE takes NO lock under READ COMMITTED — so serializing on it would let a racing set
         # slip an INSERT past this delete and orphan a credential. Rollback keeps blob + index
-        # coherent on any failure.
-        async with in_transaction():
-            await self._index.remove(profile.id)
-            if strategy is not None:
-                await strategy.delete_credentials()
+        # coherent on any failure. The pair claim (G0) precedes both, as in op 8.
+        try:
+            async with in_transaction():
+                if fences_writer(pair):
+                    await claim_pair(pair)
+                await self._index.remove(profile.id)
+                if strategy is not None and not await addressed_by_a_live_connection(
+                    plugin, provider, account_id, legacy_name
+                ):
+                    await strategy.delete_credentials()
+        except PairAuthorityConflict as exc:
+            raise WriteConflict(
+                "superseded", subject="profile", provider=provider, requested=legacy_name
+            ) from exc
         self._invalidate(plugin, credential_name)
 
 

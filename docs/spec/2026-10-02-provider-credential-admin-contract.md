@@ -234,13 +234,14 @@ transitions. A metadata PATCH changes no ownership; the existing index CAS and m
 stay.
 
 A branch read is not a permission to commit later. An operation captures the observed owner,
-generation and target before validation or network I/O. In a short transaction it first claims the
+generation and target before network I/O; legacy PUT and native key replacement capture after
+provider key validation (owner decision 2026-10-06, below). In a short transaction it first claims the
 same generation through `PairAuthorityStore.advance`, then checks the current candidates and
 owner, then writes index → row → blob. The guard sits at the existing publication point: migrated
 paths already advance the marker and are not wrapped in a second advance; the guard is added where
 `none`/native publication bypassed the fence. On `none` a legacy operation keeps legacy authority
-(`none`, null reference) and its `migration_note`, which never reaches the wire. The bridge and a
-new create publish `migrated`. The first marker is also a CAS: the INSERT uniqueness loser rolls
+(`none`, null reference) and its `migration_note`, which never reaches the wire. The G1 bridge and
+the G1 successor create publish `migrated`. The first marker is also a CAS: the INSERT uniqueness loser rolls
 back and answers superseded 409. A stale mutation is never retried on a freshly read generation.
 
 An OAuth entry records its captured owner and generation separately from the earlier migrated-only
@@ -275,6 +276,18 @@ table, lock store or job.
 
 The G0 inventory includes authorize-triggered refresh, the token service and bootstrap where they
 write a credential. A missed persistence path fails acceptance; "routes guarded" is not enough.
+
+**Advance or check (owner decision 2026-10-06, after the G0 inventory).** Only an ownership change
+advances the generation: key PUT/DELETE, OAuth callback/re-auth completion and native
+create/OAuth start/key-replace/delete. OAuth begin records the pair it observed and its callback
+claims that generation; OAuth failure, error marks and refresh publication only check the observed
+generation where a lockable row exists and never advance it. Migrated paths keep the advances they
+already make. On `none` and `quarantined` every claim keeps the state, the null reference and the
+note; a native create or OAuth start on `none` keeps `none` (no auto-promotion). Non-effective native
+rows of a `migrated` pair keep their existing fences. Legacy PUT and native key replacement capture
+the pair after provider key validation, as the migrated paths do: a change during validation is
+last-writer-wins, a change after the capture loses. G0 ships as three PRs (ownership writers,
+refresh publication, failure and error checks), all merged before the G0 deployment.
 
 **D14 refinement.** G0 fences `none` and `quarantined` writers with the pair generation; the legacy
 owner, the absence of auto-promotion and the shadow Connection write of a legacy OAuth callback all
@@ -426,6 +439,7 @@ over pre-G0 guards.
 | D14 (§5.3) | G0 fences `none`/`quarantined` writers; legacy owner and shadow write unchanged | refinement of D14, not a reversal |
 | Stop new shadow writes | deferred: reverses D14's decided "shadow Connection write included", and the Local Engine reads `/v1/oauth/connections*`; needs a D14 amendment and a consumer check | open follow-up, not in G0 |
 | Legacy concurrency baseline | three wire outcomes, not two; the umbrella D18 row and the OME-1375 description are corrected | correction of existing behaviour, not a new API |
+| Advance or check, native create, capture point (§5.3) | only ownership changes advance; begin/fail/error marks/refresh check; native create on `none` keeps `none`; key validation precedes the capture | owner decision 2026-10-06 |
 
 ## 10. Landing issues
 

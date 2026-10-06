@@ -203,7 +203,7 @@ def test_a_connection_only_pair_reauthenticates_at_its_own_locator(migrated) -> 
 # --- unmigrated pairs: today's flow, byte for byte ---------------------------------------------
 
 
-def test_an_unmigrated_pair_keeps_the_legacy_flow_and_never_writes_a_marker(legacy) -> None:
+def test_an_unmigrated_pair_keeps_the_legacy_flow_and_stays_legacy_owned(legacy) -> None:
     h = legacy
     use_tokens(h, "legacy-tok")
 
@@ -215,8 +215,9 @@ def test_an_unmigrated_pair_keeps_the_legacy_flow_and_never_writes_a_marker(lega
 
     assert callback(h, state).status_code == 200
 
-    unmarked = marker(h)
-    assert (unmarked.migration_state, unmarked.generation) == ("none", 0)
+    # WHY 1 (OME-1497, G0 §5.3): the callback claims the pair its begin observed; still `none`.
+    claimed = marker(h)
+    assert (claimed.migration_state, claimed.generation) == ("none", 1)
     assert access_token_of(blob_at_profile_address(h, "work")) == "legacy-tok"
     doc = document(h, "work")
     assert doc is not None and doc.state is ProfileState.AUTHENTICATED
@@ -244,9 +245,10 @@ def test_a_quarantined_pair_keeps_the_legacy_flow_and_its_marker(legacy) -> None
     assert callback(h, started.json()["state"]).status_code == 200
 
     held = marker(h)
+    # WHY 2 (OME-1497, G0 §5.3): the callback claims the pair, keeping its state and note.
     assert (held.migration_state, held.generation, held.migration_note) == (
         "quarantined",
-        1,
+        2,
         "conflict",
     )
     assert access_token_of(blob_at_profile_address(h)) == "held-tok"

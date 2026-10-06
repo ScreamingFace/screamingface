@@ -10,6 +10,9 @@
 # AIDEV-NOTE: a row that is not a migrated pair's effective row is a plain Connection — every
 # function here is a no-op for it and the route behaves exactly as before S2'b4. Nothing here
 # reads for a response; the routes keep their own HTTP vocabulary.
+# FEATURE (OME-1497, G0 writer floor §5.3): on a `none`/`quarantined` pair a native create, OAuth
+# start, key replacement or delete is an ownership change — `claim_native_write` claims the pair
+# it observed, keeping the state (no auto-promotion, D14), as the FIRST write of its transaction.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from .connection_admin import api_key_mirror
 from .connection_locator import credential_name_from_locator
 from .pair_authority import PairAuthority, PairAuthorityConflict, PairAuthorityStore
 from .types import WriteConflict
+from .writer_floor import claim_observed
 
 
 def credential_name_of(plugin: Any, connection: OAuthConnection, *, account_id: str) -> str:
@@ -37,6 +41,29 @@ def credential_name_of(plugin: Any, connection: OAuthConnection, *, account_id: 
         account_id=account_id,
         connection_id=connection.id,
     )
+
+
+async def claim_native_write(observed: PairAuthority, *, requested: str) -> PairAuthority | None:
+    """Claim the legacy-owned pair a native writer observed; the published pair, else None.
+
+    Runs inside the caller's transaction as its FIRST write (marker → row → blob). A `migrated`
+    pair is a no-op: its effective row is fenced by `retire_effective` and
+    `republish_effective_api_key`, and its other rows keep their fences (owner decision
+    2026-10-06). A lost claim is the native superseded conflict (409 `connection_conflict`).
+    """
+    try:
+        return await claim_observed(observed)
+    except PairAuthorityConflict as exc:
+        raise WriteConflict(
+            "superseded", subject="connection", provider=observed.provider, requested=requested
+        ) from exc
+
+
+async def claim_for_connection(connection: OAuthConnection) -> None:
+    """Key replacement and delete: capture this row's pair now — after any key validation — and
+    claim it (§5.3: replacement captures after validation; delete has no network I/O)."""
+    observed = await PairAuthorityStore().read(str(connection.account_id), connection.provider)
+    await claim_native_write(observed, requested=str(connection.id))
 
 
 async def effective_pair_of(connection: OAuthConnection) -> PairAuthority | None:
@@ -168,6 +195,8 @@ def _superseded(connection: OAuthConnection) -> WriteConflict:
 
 
 __all__ = [
+    "claim_for_connection",
+    "claim_native_write",
     "credential_has_other_owner",
     "credential_name_of",
     "effective_pair_of",
