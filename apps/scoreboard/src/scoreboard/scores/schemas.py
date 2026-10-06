@@ -332,6 +332,23 @@ AuthorEmail = Annotated[
 ]
 
 
+def _validate_bounded_authors(value: list[str] | None) -> list[str] | None:
+    """The author-list bounds, shared by `ScoreSubmission` and `ScoreMetadataPatch`.
+
+    INVARIANT: the cap protects credit cardinality, not raw audit history. The serializer uses this
+    exact key when it collapses repeated identities. A PATCH must apply the SAME bounds as a POST,
+    so both call this one function.
+    """
+    if value is None:
+        return value
+    if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
+        raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
+    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+    if len(encoded) > _AUTHORS_MAX_BYTES:
+        raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
+    return value
+
+
 _PAPER_URL_MAX_CHARS = 2048
 _PAPER_URL_SCHEMES = frozenset({"http", "https"})
 
@@ -597,16 +614,7 @@ class ScoreSubmission(BaseModel):
     @field_validator("authors")
     @classmethod
     def validate_distinct_authors(cls, value: list[str] | None) -> list[str] | None:
-        # INVARIANT: the cap protects credit cardinality, not raw audit history. The
-        # serializer uses this exact key when it collapses repeated identities.
-        if value is None:
-            return value
-        if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
-            raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
-        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
-        if len(encoded) > _AUTHORS_MAX_BYTES:
-            raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
-        return value
+        return _validate_bounded_authors(value)
 
     @field_validator("models")
     @classmethod
@@ -925,6 +933,54 @@ class ScoreSchema(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+
+
+class ScoreMetadataPatch(BaseModel):
+    """Body of `PATCH /v1/scores/{id}`: the two fields a submitter may edit after the fact.
+
+    FEATURE: OME-1307 — an ABSENT key means "unchanged" and `paper_url: null` means "clear the
+    link"; `model_fields_set` is what tells them apart, so the route must not dump the model with
+    defaults. `authors: null` is refused: to go back to the derived credit line, send
+    `authors: [submitted_by]`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    paper_url: PaperUrl | None = None
+
+    @field_validator("authors")
+    @classmethod
+    def validate_distinct_authors(cls, value: list[str] | None) -> list[str] | None:
+        return _validate_bounded_authors(value)
+
+    @model_validator(mode="after")
+    def validate_one_known_key(self) -> ScoreMetadataPatch:
+        if not self.model_fields_set:
+            raise ValueError("send at least one of: authors, paper_url")
+        if "authors" in self.model_fields_set and self.authors is None:
+            raise ValueError("authors cannot be null; send a list, or omit the key")
+        return self
+
+
+class ScoreMetadataEventSchema(BaseModel):
+    """One row of a score's edit log, for its owner only (`GET /v1/scores/{id}/metadata-events`).
+
+    INVARIANT: `authors` here is a plain list, NOT the `Authors` type. That type publishes local
+    parts only, which is right for a public read and wrong here: the owner reads the full addresses
+    they added or removed. The route is owner-only and `no-store` for that reason.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    edited_by: str
+    edited_at: datetime
+    source: Literal["patch", "resubmit"]
+    old_authors: list[str] | None
+    new_authors: list[str] | None
+    old_paper_url: str | None
+    new_paper_url: str | None
 
 
 class LeaderboardEntry(BaseModel):

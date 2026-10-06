@@ -15,6 +15,7 @@ distinguish rows. OME-821 replaces it with a real distinction.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any, cast
 from uuid import UUID
 
@@ -31,6 +32,7 @@ from scoreboard.routes.dependencies import (
 from scoreboard.routes.dependencies import (
     PRIVATE_CACHE_HEADERS,
     ReadIdentity,
+    VerifiedIdentity,
     turned_private,
     verified_identity,
 )
@@ -42,6 +44,8 @@ from scoreboard.scores.schemas import (
     FieldErrorDetail,
     FieldErrorResponse,
     MessageErrorResponse,
+    ScoreMetadataEventSchema,
+    ScoreMetadataPatch,
     ScoreRankingNotice,
     ScoreSchema,
     ScoreSubmission,
@@ -54,6 +58,7 @@ from scoreboard.scores.store import (
 )
 
 router = APIRouter(prefix="/v1", tags=["scores"])
+logger = logging.getLogger(__name__)
 
 STORE_UNAVAILABLE_DETAIL = "score store unavailable"
 # INVARIANT (OME-894): one detail for a missing score AND for a private score the caller
@@ -139,6 +144,38 @@ GET_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_503_SERVICE_UNAVAILABLE: SUBMIT_SCORE_RESPONSES[
         status.HTTP_503_SERVICE_UNAVAILABLE
     ],
+}
+
+
+OWNER_ONLY_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_401_UNAUTHORIZED: SUBMIT_SCORE_RESPONSES[status.HTTP_401_UNAUTHORIZED],
+    status.HTTP_403_FORBIDDEN: {
+        "description": (
+            "Caller's peer network is not trusted to present identity headers, or the caller is "
+            "not the score's submitter (`detail.code` is `not_score_owner`)."
+        ),
+    },
+    status.HTTP_404_NOT_FOUND: {
+        "model": MessageErrorResponse,
+        "description": "Score not found, or a private-board score that is not the caller's.",
+    },
+    status.HTTP_503_SERVICE_UNAVAILABLE: SUBMIT_SCORE_RESPONSES[
+        status.HTTP_503_SERVICE_UNAVAILABLE
+    ],
+}
+PATCH_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **OWNER_ONLY_RESPONSES,
+    status.HTTP_200_OK: {
+        "model": ScoreSchema,
+        "description": "The score after the edit (unchanged values write no event).",
+    },
+}
+GET_METADATA_EVENTS_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **OWNER_ONLY_RESPONSES,
+    status.HTTP_200_OK: {
+        "model": list[ScoreMetadataEventSchema],
+        "description": "The score's edit log, newest first.",
+    },
 }
 
 
@@ -338,3 +375,117 @@ async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) 
         )
 
     return ScoreSchema.model_validate(score, from_attributes=True)
+
+
+def _score_not_found() -> HTTPException:
+    # Identity-scoped, so the refusal carries the private cache policy (see `get_score`).
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=SCORE_NOT_FOUND_DETAIL,
+        headers=PRIVATE_CACHE_HEADERS,
+    )
+
+
+async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> Score:
+    """The score ``identity`` submitted, or the refusal. Shared by the two owner-only routes.
+
+    INVARIANT: the checks run in a fixed order, so a refusal says no more than it must. A missing
+    score and a private-board score the caller may not see are the SAME 404; only after that does
+    a visible score that is not the caller's answer 403 `not_score_owner`.
+
+    INVARIANT: on a private board the owner match counts only when the identity is VERIFIED. In
+    `disabled` mode `X-User-Email` is an unverified claim, and honouring it would let anyone read
+    or edit a private row by naming its owner — `read_identity` ignores it for the same reason.
+
+    WHY the privacy decision is `turned_private` and not a read of the benchmark row: it reads the
+    board's state fresh, immediately before the answer that depends on it, so there is no earlier
+    copy to go stale between the read and the 403 that would otherwise confirm the id exists.
+    """
+    try:
+        score = await Score.get_or_none(id=score_id)
+        private = score is not None and await turned_private(
+            cast(str, getattr(score, "benchmark_id"))
+        )
+    except OperationalError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=STORE_UNAVAILABLE_DETAIL,
+        ) from exc
+    if score is None:
+        raise _score_not_found()
+
+    settings = cast(Settings, request.app.state.settings)
+    owner = score.submitted_by == identity
+    if private and not (owner and identity_is_verified(settings.auth_mode)):
+        raise _score_not_found()
+    if owner:
+        return score
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": "not_score_owner",
+            "message": "only the verified submitter of a score can edit it or read its edit log",
+        },
+        headers=PRIVATE_CACHE_HEADERS,
+    )
+
+
+@router.patch(
+    "/scores/{score_id}",
+    response_model=ScoreSchema,
+    responses=PATCH_SCORE_RESPONSES,
+)
+async def patch_score(
+    score_id: UUID,
+    patch: ScoreMetadataPatch,
+    request: Request,
+    identity: VerifiedIdentity,
+) -> ScoreSchema:
+    """Edit the authors and paper link of a score you submitted (E14 A1).
+
+    An absent key leaves the field unchanged; `paper_url: null` clears the link. Every change is
+    logged (`GET /v1/scores/{id}/metadata-events`); a request that changes nothing is a no-op.
+    """
+    await _load_owned_score(request, score_id, identity)
+    store = cast(ScoreStore, request.app.state.score_store)
+    try:
+        updated = await store.patch_metadata(
+            score_id,
+            edited_by=identity,
+            # `model_fields_set`, not a default dump: it is what tells an absent key from null.
+            changes=patch.model_dump(include=patch.model_fields_set),
+        )
+    except OperationalError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=STORE_UNAVAILABLE_DETAIL,
+        ) from exc
+    if updated is None:
+        # Deleted between the ownership check and the lock.
+        raise _score_not_found()
+    return updated
+
+
+@router.get(
+    "/scores/{score_id}/metadata-events",
+    response_model=list[ScoreMetadataEventSchema],
+    responses=GET_METADATA_EVENTS_RESPONSES,
+)
+async def get_metadata_events(
+    score_id: UUID,
+    request: Request,
+    response: Response,
+    identity: VerifiedIdentity,
+) -> list[ScoreMetadataEventSchema]:
+    """The edit log of a score you submitted, newest first. Never public: it holds author emails."""
+    await _load_owned_score(request, score_id, identity)
+    # INVARIANT: identity-scoped and sensitive, so no shared cache may keep it.
+    response.headers.update(PRIVATE_CACHE_HEADERS)
+    store = cast(ScoreStore, request.app.state.score_store)
+    try:
+        return await store.metadata_events(score_id)
+    except OperationalError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=STORE_UNAVAILABLE_DETAIL,
+        ) from exc
