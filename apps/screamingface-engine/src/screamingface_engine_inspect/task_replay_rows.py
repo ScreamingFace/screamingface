@@ -50,7 +50,6 @@ from screamingface_engine_inspect.importer import (
     ImporterError,
     _is_judged_by,
     _is_literal,
-    _pin_prefix,
     _python_literal_source,
     _refuse_existing_rows,
     _scorer_lines,
@@ -132,7 +131,7 @@ def write_task_replay_rows(
     benchmarks_path: Path = engine_src / "benchmarks.py"
     texts: dict[Path, str] = {path: path.read_text() for path in (prepare_path, benchmarks_path)}
     # Stage 1
-    _refuse_existing_rows(key, _pin_prefix(key), texts)
+    _refuse_existing_rows(key, texts)
     rows: TaskReplayRows = render_task_replay_rows(
         key, imported, license, card_license=card_license
     )
@@ -156,17 +155,15 @@ def _refuse_injectable_import(
     """Stage 2 — refuse any string that could escape the generated rows."""
 
     declaration: TaskReplayCasesSpec = imported.declaration
-    references: list[str | None] = [
-        declaration.task,
-        imported.facts.scorer,
-        *(declaration.excluded_sample_ids or ()),
-    ]
+    references: list[str | None] = [declaration.task, imported.facts.scorer]
     # WHY a looser rule for these: they land only inside comments; only a line break or
     # another control character could end the comment and start code.
-    for text in imported.facts.custom_metrics:
+    # WHY printable only for the excluded ids: each lands inside a JSON string literal, which
+    # escapes every quote, backslash and line break; onet_m6's ids are Thai (OME-1460).
+    for text in (*imported.facts.custom_metrics, *(declaration.excluded_sample_ids or ())):
         if not text.isprintable():
             raise ImporterError(
-                f"{text!r} cannot be written into a generated comment — refusing (injection guard)"
+                f"{text!r} cannot be written into generated code — refusing (injection guard)"
             )
     texts: list[tuple[str, re.Pattern[str]]] = [
         *((value, _REFERENCE_CHARSET) for value in references if value is not None),
@@ -258,7 +255,10 @@ def _excluded_id_lines(excluded_ids: tuple[str, ...]) -> list[str]:
         "        # NAMED DEVIATION — TODO(review): say why upstream's Samples",
         "        # below are left out.",
         "        excluded_sample_ids=(",
-        *(f"            {json.dumps(sample_id)}," for sample_id in excluded_ids),
+        *(
+            f"            {json.dumps(sample_id, ensure_ascii=False)},"
+            for sample_id in excluded_ids
+        ),
         "        ),",
     ]
 
