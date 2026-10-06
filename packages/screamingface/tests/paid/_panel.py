@@ -49,9 +49,17 @@ PANEL_PARAMS: Final[dict[str, int | float]] = {"max_tokens": 32768, "temperature
 # keeping qwen a live reasoning member. Only qwen gets it: haiku and the synthesizer keep
 # PANEL_PARAMS, so only qwen's calls re-key the cache. The gateway's OpenRouter plugin
 # forwards the field verbatim (OME-993, enum low/medium/high).
-# INVARIANT: the cap stays panel-wide at 32768 — `test_panel_models.py` pins both facts.
+# WHY qwen alone also gets 65536 (paid run 37453343696): "low" did not stop it — one of the
+# two cloning Cases still spent all 32768 tokens on reasoning (57.8k reasoning over the pair),
+# so the board passed on 1/2 graded, one capped Case from red. 65536 is qwen3.7-flash's own
+# max_completion_tokens on OpenRouter, so there is no higher cap to fall back on.
+# INVARIANT: every other call keeps PANEL_PARAMS (32768) — `test_panel_models.py` pins it.
 MEMBER_PARAMS: Final[dict[str, Mapping[str, int | float | str]]] = {
-    "openrouter/qwen/qwen3.7-flash": {**PANEL_PARAMS, "reasoning_effort": "low"},
+    "openrouter/qwen/qwen3.7-flash": {
+        **PANEL_PARAMS,
+        "max_tokens": 65536,
+        "reasoning_effort": "low",
+    },
     "openrouter/anthropic/claude-haiku-4.5": PANEL_PARAMS,
 }
 

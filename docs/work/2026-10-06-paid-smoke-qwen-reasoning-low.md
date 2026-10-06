@@ -54,4 +54,8 @@ params, so only qwen's cache keys churn. `max_tokens` stays 32768.
   owner-directed edit of `fusion_panel()`'s members line; recorded as a blob-pinned approval
   manifest rather than skipping the check. (2) The new pin tests live in the fenced paid lane
   beside the existing free seed pin, so merge CI does not run them; every paid press does.
-  (3) Live verification pending: one paid dispatch on this branch (owner).
+  (3) Paid run 37453343696 on this branch (effort=low only): 57/57 boards ok, 111/114 Cases
+  graded, $0.7042, but lab_bench_cloning_scenarios graded only 1/2 (`model_token_cap` x1,
+  57.8k reasoning tokens over the pair) — "low" barely bounded qwen. (4) Owner then added
+  max_tokens=65536 for qwen only (its OpenRouter max_completion_tokens); re-verification by
+  one more paid dispatch on this branch.

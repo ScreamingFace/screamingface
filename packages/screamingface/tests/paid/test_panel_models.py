@@ -45,11 +45,12 @@ _SHARED_PARAMS: dict[str, object] = {"max_tokens": 32768, "temperature": 0.0}
 
 
 def test_only_the_qwen_member_caps_its_reasoning() -> None:
-    """INVARIANT: qwen alone carries reasoning_effort="low"; every other call is unchanged.
+    """INVARIANT: qwen alone carries reasoning_effort="low" and a 65536 cap; others unchanged.
 
     WHY (run 37442602029, 2026-10-06): qwen spent the whole 32768-token cap on reasoning on
     both lab_bench cloning Cases and wrote no answer, so the Fusion Cases died with
-    model_token_cap. Capping only qwen keeps haiku's and the synthesizer's cache keys intact.
+    model_token_cap. Paid run 37453343696 showed "low" alone still capped 1 of 2 Cases, so qwen
+    also gets the model's own 65536 completion maximum. Only qwen re-keys its cache.
     """
     from _panel import fusion_panel
 
@@ -62,7 +63,11 @@ def test_only_the_qwen_member_caps_its_reasoning() -> None:
     assert len(calls) == 3, "the panel must stay two Model members plus a Model synthesizer"
     params_by_model = {call.model: dict(call.params) for call in calls}
 
-    assert params_by_model.pop(_QWEN) == {**_SHARED_PARAMS, "reasoning_effort": "low"}
+    assert params_by_model.pop(_QWEN) == {
+        **_SHARED_PARAMS,
+        "max_tokens": 65536,
+        "reasoning_effort": "low",
+    }
     assert params_by_model == {
         "openrouter/anthropic/claude-haiku-4.5": _SHARED_PARAMS,
         "openrouter/google/gemini-3-flash-preview": _SHARED_PARAMS,
@@ -91,3 +96,6 @@ def test_compiled_panel_forwards_reasoning_effort_on_the_qwen_call_only() -> Non
     ]
     assert compiled.url4 is not None
     assert compiled.url4.count("reasoning_effort=low") == 1
+    assert assignments[_QWEN]["max_tokens"] == 65536
+    raised_cap = [model for model, params in assignments.items() if params["max_tokens"] == 65536]
+    assert raised_cap == [_QWEN]
