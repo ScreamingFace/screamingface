@@ -57,6 +57,7 @@ from scoreboard.scores.store import (
     BenchmarkVisibilityChanged,
     ConcurrentScoreUpdate,
     PrivateBoardRequiresIdentity,
+    ReproductionRunIdConflict,
     ScoreStore,
 )
 
@@ -188,7 +189,7 @@ PATCH_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
 RECORD_REPRODUCTION_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_200_OK: {
         "model": ReproductionSchema,
-        "description": "This run_id was already recorded for the score; returns that row.",
+        "description": "You already recorded this run_id for the score; returns that row.",
     },
     status.HTTP_401_UNAUTHORIZED: OWNER_ONLY_RESPONSES[status.HTTP_401_UNAUTHORIZED],
     status.HTTP_403_FORBIDDEN: {
@@ -197,8 +198,13 @@ RECORD_REPRODUCTION_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     status.HTTP_404_NOT_FOUND: OWNER_ONLY_RESPONSES[status.HTTP_404_NOT_FOUND],
     status.HTTP_409_CONFLICT: {
-        "model": CodedErrorResponse,
-        "description": "The score is not `complete` (`not_reproducible`): nothing to replay.",
+        "model": CodedErrorResponse | MessageErrorResponse,
+        "description": (
+            "Two shapes. `{code: not_reproducible}`: the score is not `complete`, so there is "
+            "nothing to replay. `{code: run_id_conflict}`: another identity already recorded this "
+            "run_id for the score (nothing about that row is returned; use a new run_id). A string "
+            "`detail` (`MessageErrorResponse`): the board's visibility changed mid-request; retry."
+        ),
     },
     422: {
         "model": CodedErrorResponse,
@@ -557,8 +563,11 @@ async def get_metadata_events(
         ) from exc
 
 
-async def _load_score_to_reproduce(request: Request, score_id: UUID, identity: str) -> Score:
-    """The score ``identity`` may record a reproduction of, or the refusal.
+async def _load_score_to_reproduce(
+    request: Request, score_id: UUID, identity: str
+) -> tuple[Score, bool]:
+    """The score ``identity`` may record a reproduction of and whether its board is private, or the
+    refusal. The flag is what this decision ASSUMED; the insert re-proves it inside its transaction.
 
     A missing score and a private-board score the caller may not see are the SAME 404, so holding a
     real id is not confirmable (OME-894).
@@ -587,7 +596,7 @@ async def _load_score_to_reproduce(request: Request, score_id: UUID, identity: s
     owner = score.submitted_by == identity
     if private and not (owner and identity_is_verified(settings.auth_mode)):
         raise _score_not_found()
-    return score
+    return score, private
 
 
 def _refuse_unless_exact(score: Score, body: ReproductionSubmission) -> None:
@@ -634,13 +643,35 @@ async def record_reproduction(
     The checks run in a fixed order: identity (401/403), the score exists (404), a private board
     that is not the caller's (the same 404), `reproducible` is not `complete` (409
     `not_reproducible`), then the score, total_questions or cache_revision differ from the stored
-    row (422 `not_exact`). A run_id that is already recorded answers 200 with that row.
+    row (422 `not_exact`). A run_id this identity already recorded answers 200 with that row; one
+    another identity recorded answers 409 `run_id_conflict`.
     """
-    score = await _load_score_to_reproduce(request, score_id, identity)
+    score, private = await _load_score_to_reproduce(request, score_id, identity)
     _refuse_unless_exact(score, body)
     store = cast(ScoreStore, request.app.state.score_store)
     try:
-        outcome = await store.record_reproduction(score_id, reproduced_by=identity, submission=body)
+        outcome = await store.record_reproduction(
+            score_id,
+            reproduced_by=identity,
+            submission=body,
+            benchmark_id=cast(str, getattr(score, "benchmark_id")),
+            expect_private=private,
+        )
+    except BenchmarkVisibilityChanged as exc:
+        # The board changed between the check above and the locked insert. Nothing is wrong with the
+        # request, and a retry sees one consistent view (the same answer as the resubmit path).
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=VISIBILITY_CHANGED_DETAIL,
+        ) from exc
+    except ReproductionRunIdConflict as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "run_id_conflict",
+                "message": "this run_id was already recorded for the score; send a new run_id",
+            },
+        ) from exc
     except OperationalError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -24,7 +24,12 @@ from scoreboard.main import create_app
 from scoreboard.routes.dependencies import MISSING_IDENTITY_DETAIL, UNTRUSTED_PEER_DETAIL
 from scoreboard.scores.models import Benchmark, Score, ScoreReproduction
 from scoreboard.scores.schemas import ReproductionSubmission
-from scoreboard.scores.store import ScoreStore
+from scoreboard.scores.store import (
+    BenchmarkVisibilityChanged,
+    ReproductionRunIdConflict,
+    ScoreStore,
+    _score_to_schema,
+)
 
 ALICE = "alice@example.test"
 BOB = "bob@example.test"
@@ -506,7 +511,11 @@ async def test_a_record_for_a_score_deleted_meanwhile_reports_it_gone(client: As
     # The route found the score, then it vanished before the insert: the store reports it as gone
     # (the route answers 404), rather than a foreign-key failure that reads as an unavailable store.
     outcome = await ScoreStore().record_reproduction(
-        UUID(score_id), reproduced_by=BOB, submission=ReproductionSubmission(**_record())
+        UUID(score_id),
+        reproduced_by=BOB,
+        submission=ReproductionSubmission(**_record()),
+        benchmark_id="hle",
+        expect_private=False,
     )
 
     assert outcome is None
@@ -561,13 +570,48 @@ async def test_score_read_shows_the_count_and_the_last_time(client: AsyncClient)
 
 
 @pytest.mark.asyncio
-async def test_a_score_never_reproduced_reads_zero_and_no_last_time(client: AsyncClient) -> None:
+async def test_a_score_never_reproduced_reads_without_either_key(client: AsyncClient) -> None:
+    # INVARIANT: an absent count reads as 0 (K8). Excluding the zero keeps the private JSONL export
+    # and every PATCH or resubmit response byte-identical for a row with no reproductions.
     score_id = await _submit(client)
 
     body = (await client.get(f"/v1/scores/{score_id}")).json()
 
-    assert body["reproduction_count"] == 0
+    assert "reproduction_count" not in body
     assert "last_reproduced_at" not in body
+
+
+@pytest.mark.asyncio
+async def test_a_row_with_no_reproductions_serializes_without_either_key(
+    client: AsyncClient,
+) -> None:
+    score_id = await _submit(client)
+    row = await Score.get(id=score_id)
+
+    schema = _score_to_schema(row)
+
+    assert schema.reproduction_count == 0
+    assert "reproduction_count" not in schema.model_dump(mode="python")
+    assert "last_reproduced_at" not in schema.model_dump(mode="python")
+    assert "reproduction_count" not in schema.model_dump(mode="json")
+    patched = await client.patch(
+        f"/v1/scores/{score_id}",
+        json={"paper_url": "https://arxiv.org/abs/2610.01234"},
+        headers=_as(ALICE),
+    )
+    assert patched.status_code == 200
+    assert "reproduction_count" not in patched.json()
+
+
+@pytest.mark.asyncio
+async def test_a_reproduced_score_serializes_both_keys(client: AsyncClient) -> None:
+    score_id = await _submit(client)
+    await client.post(f"/v1/scores/{score_id}/reproductions", json=_record(), headers=_as(BOB))
+
+    body = (await client.get(f"/v1/scores/{score_id}")).json()
+
+    assert body["reproduction_count"] == 1
+    assert "last_reproduced_at" in body
 
 
 @pytest.mark.asyncio
@@ -674,3 +718,120 @@ async def test_score_read_store_unavailable_on_the_aggregate_is_503(
 
     assert response.status_code == 503
     assert response.json() == {"detail": "score store unavailable"}
+
+
+# --- a run_id belongs to the identity that recorded it (R18) -----------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_same_run_id_from_a_different_identity_is_a_409_that_reveals_nothing(
+    client: AsyncClient,
+) -> None:
+    score_id = await _submit(client)
+    body = _record(run_id="run-1")
+    first = await client.post(f"/v1/scores/{score_id}/reproductions", json=body, headers=_as(BOB))
+
+    other = await client.post(f"/v1/scores/{score_id}/reproductions", json=body, headers=_as(CAROL))
+
+    assert first.status_code == 201
+    assert other.status_code == 409
+    detail = other.json()["detail"]
+    assert detail["code"] == "run_id_conflict"
+    assert isinstance(detail["message"], str)
+    # Nothing about the first row: not its id, its identity, or its time.
+    for secret in (BOB, first.json()["id"], first.json()["reproduced_at"]):
+        assert secret not in other.text
+    assert [row.reproduced_by for row in await _rows(score_id)] == [BOB]
+
+
+@pytest.mark.asyncio
+async def test_the_same_run_id_from_the_same_identity_still_answers_200(
+    client: AsyncClient,
+) -> None:
+    score_id = await _submit(client)
+    body = _record(run_id="run-1")
+    await client.post(f"/v1/scores/{score_id}/reproductions", json=body, headers=_as(BOB))
+
+    again = await client.post(f"/v1/scores/{score_id}/reproductions", json=body, headers=_as(BOB))
+
+    assert again.status_code == 200
+    assert again.json()["reproduced_by"] == BOB
+
+
+@pytest.mark.asyncio
+async def test_the_store_refuses_a_run_id_another_identity_recorded(tortoise_db: None) -> None:
+    await Benchmark.create(id="hle", display_name="HLE")
+    score = await Score.create(
+        spec_id="s",
+        url4_expression="url4://x",
+        submitted_by=ALICE,
+        score=0.75,
+        total_questions=4,
+        ran_with_providers=["openai"],
+        benchmark_id="hle",
+    )
+    store = ScoreStore()
+    submission = ReproductionSubmission(**_record(run_id="run-1"))
+    await store.record_reproduction(
+        score.id, reproduced_by=BOB, submission=submission, benchmark_id="hle", expect_private=False
+    )
+
+    with pytest.raises(ReproductionRunIdConflict):
+        await store.record_reproduction(
+            score.id,
+            reproduced_by=CAROL,
+            submission=submission,
+            benchmark_id="hle",
+            expect_private=False,
+        )
+
+
+# --- the board is re-checked INSIDE the insert (as A1's patch_metadata does) ------------
+
+
+@pytest.mark.asyncio
+async def test_record_refuses_a_board_that_turned_private_after_the_pre_check(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The route's own check ran against a public board and let a non-owner through; the flip lands
+    # before the write. The re-check under the lock turns that into a retryable 409, with no row.
+    score_id = await _submit(client)
+    await Benchmark.filter(id="hle").update(visibility="private")
+
+    async def stale(_benchmark_id: str) -> bool:
+        return False
+
+    monkeypatch.setattr("scoreboard.routes.scores.turned_private", stale)
+    response = await client.post(
+        f"/v1/scores/{score_id}/reproductions", json=_record(), headers=_as(BOB)
+    )
+
+    assert response.status_code == 409
+    assert "visibility changed" in response.json()["detail"]
+    assert await _rows(score_id) == []
+
+
+@pytest.mark.asyncio
+async def test_store_record_revalidates_the_board_under_the_lock(tortoise_db: None) -> None:
+    await Benchmark.create(id="hle", display_name="HLE")
+    score = await Score.create(
+        spec_id="s",
+        url4_expression="url4://x",
+        submitted_by=ALICE,
+        score=0.75,
+        total_questions=4,
+        ran_with_providers=["openai"],
+        benchmark_id="hle",
+    )
+    await Benchmark.filter(id="hle").update(visibility="private")
+
+    with pytest.raises(BenchmarkVisibilityChanged):
+        await ScoreStore().record_reproduction(
+            score.id,
+            reproduced_by=BOB,
+            submission=ReproductionSubmission(**_record()),
+            benchmark_id="hle",
+            expect_private=False,
+        )
+
+    assert await _rows(str(score.id)) == []
