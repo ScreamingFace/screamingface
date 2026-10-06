@@ -223,6 +223,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Free-form answers make mid-run feedback legitimate: the same scorer serves
         # the corrective loop (spec §4; owner decision on OME-1115, 2026-09-15).
         with_check_surface=True,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2110.14168",
+        authors="Cobbe et al., 2021",
+        citation=(
+            "@misc{cobbe2021trainingverifierssolvemath,\n"
+            "      title={Training Verifiers to Solve Math Word Problems}, \n"
+            "      author={Karl Cobbe and Vineet Kosaraju and Mohammad Bavarian and Mark "
+            "Chen and Heewoo Jun and Lukasz Kaiser and Matthias Plappert and Jerry Tworek"
+            " and Jacob Hilton and Reiichiro Nakano and Christopher Hesse and John Schulm"
+            "an},\n"
+            "      year={2021},\n"
+            "      eprint={2110.14168},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      url={https://arxiv.org/abs/2110.14168}, \n"
+            "}"
+        ),
+        inspect_contributors=("jjallaire",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/gsm8k",
+        license="MIT",
+        human_baseline=NotPublished(
+            reason=(
+                "the GSM8K paper reports no human solve rate; it says only that a bright "
+                "middle-school student should solve every problem"
+            ),
+        ),
+        # Frontier score: exact match (em_maj1@1), 8-shot CoT
+        frontier_score=FrontierScore(
+            score=0.968,
+            model="Llama 3.1 405B Instruct",
+            source_url="https://github.com/meta-llama/llama-models/blob/main/models/llama3_1/MODEL_CARD.md",
+            as_of="2024-07",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=1319,
     ),
     BenchmarkSpec(
         key="mmlu",
@@ -245,6 +281,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         difficulty="medium",
         # Provenance: inspect_evals.mmlu.mmlu's Task declares scorer=choice().
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2009.03300",
+        authors="Hendrycks et al., 2020",
+        citation=(
+            "@misc{hendrycks2021measuringmassivemultitasklanguage,\n"
+            "      title={Measuring Massive Multitask Language Understanding}, \n"
+            "      author={Dan Hendrycks and Collin Burns and Steven Basart and Andy Zou "
+            "and Mantas Mazeika and Dawn Song and Jacob Steinhardt},\n"
+            "      year={2021},\n"
+            "      eprint={2009.03300},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CY},\n"
+            "      url={https://arxiv.org/abs/2009.03300}, \n"
+            "}"
+        ),
+        inspect_contributors=("jjallaire", "domdomegg"),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/mmlu",
+        license="MIT",
+        license_note="cais/mmlu dataset card",
+        # Human baseline: An estimate, not a measurement: the 95th-percentile human test-taker o…
+        human_baseline=HumanBaseline(
+            score=0.898, source_url="https://ar5iv.labs.arxiv.org/html/2009.03300"
+        ),
+        # Frontier score: accuracy, 0-shot CoT (simple-evals)
+        # (as_of is the model's release month; the source gives no date)
+        frontier_score=FrontierScore(
+            score=0.933,
+            model="o3-high",
+            source_url="https://github.com/openai/simple-evals",
+            as_of="2025-04",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # No upstream count: eval.yaml says 14,042 (under mmlu_0_shot / mmlu_5_shot); the Task
+        # replay at the pinned cais/mmlu commit seals 13,937 Cases (OME-1460), and this row
+        # declares no filter that explains the gap, so the cross-check would only mislead.
     ),
     BenchmarkSpec(
         key="arc_easy",
@@ -265,6 +337,37 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.arc.arc:arc_easy. License: cc-by-sa-4.0.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/1803.05457",
+        authors="Clark et al., 2018",
+        citation=(
+            "@misc{clark2018thinksolvedquestionanswering,\n"
+            "      title={Think you have Solved Question Answering? Try ARC, the AI2 Reas"
+            "oning Challenge}, \n"
+            "      author={Peter Clark and Isaac Cowhey and Oren Etzioni and Tushar Khot "
+            "and Ashish Sabharwal and Carissa Schoenick and Oyvind Tafjord},\n"
+            "      year={2018},\n"
+            "      eprint={1803.05457},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/1803.05457}, \n"
+            "}"
+        ),
+        inspect_contributors=("jjallaire",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/arc",
+        license="CC-BY-SA-4.0",
+        license_note="allenai/ai2_arc dataset card",
+        human_baseline=NotPublished(reason="the ARC paper reports no human baseline"),
+        # Frontier score: exact match (accuracy), 25-shot, base model (Table 3)
+        frontier_score=FrontierScore(
+            score=0.989,
+            model="DeepSeek-V3-Base",
+            source_url="https://arxiv.org/abs/2412.19437",
+            as_of="2024-12",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=2376,
     ),
     BenchmarkSpec(
         key="arc_challenge",
@@ -286,6 +389,37 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.arc.arc:arc_challenge. License: cc-by-sa-4.0.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/1803.05457",
+        authors="Clark et al., 2018",
+        citation=(
+            "@misc{clark2018thinksolvedquestionanswering,\n"
+            "      title={Think you have Solved Question Answering? Try ARC, the AI2 Reas"
+            "oning Challenge}, \n"
+            "      author={Peter Clark and Isaac Cowhey and Oren Etzioni and Tushar Khot "
+            "and Ashish Sabharwal and Carissa Schoenick and Oyvind Tafjord},\n"
+            "      year={2018},\n"
+            "      eprint={1803.05457},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/1803.05457}, \n"
+            "}"
+        ),
+        inspect_contributors=("jjallaire",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/arc",
+        license="CC-BY-SA-4.0",
+        license_note="allenai/ai2_arc dataset card",
+        human_baseline=NotPublished(reason="the ARC paper reports no human baseline"),
+        # Frontier score: accuracy, 0-shot (instruct model)
+        frontier_score=FrontierScore(
+            score=0.969,
+            model="Llama 3.1 405B Instruct",
+            source_url="https://huggingface.co/meta-llama/Llama-3.1-405B-Instruct",
+            as_of="2024-07",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=1172,
     ),
     BenchmarkSpec(
         key="commonsense_qa",
@@ -307,6 +441,40 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.commonsense_qa.commonsense_qa:commonsense_qa. License: mit.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/1811.00937",
+        authors="Talmor et al., 2018",
+        citation=(
+            "@misc{talmor2019commonsenseqaquestionansweringchallenge,\n"
+            "      title={CommonsenseQA: A Question Answering Challenge Targeting Commons"
+            "ense Knowledge}, \n"
+            "      author={Alon Talmor and Jonathan Herzig and Nicholas Lourie and Jonath"
+            "an Berant},\n"
+            "      year={2019},\n"
+            "      eprint={1811.00937},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/1811.00937}, \n"
+            "}"
+        ),
+        inspect_contributors=("lauritowal",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/commonsense_qa",
+        license="MIT",
+        license_note="tau/commonsense_qa dataset card",
+        # Human baseline: Amazon Mechanical Turk workers (no qualification test, not masters, no…
+        human_baseline=HumanBaseline(
+            score=0.889, source_url="https://ar5iv.labs.arxiv.org/html/1811.00937"
+        ),
+        # Frontier score: accuracy (acc_char), 7-shot
+        frontier_score=FrontierScore(
+            score=0.858,
+            model="Llama 3.1 405B (pretrained)",
+            source_url="https://github.com/meta-llama/llama-models/blob/main/models/llama3_1/MODEL_CARD.md",
+            as_of="2024-07",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=1221,
     ),
     BenchmarkSpec(
         key="paws",
@@ -333,6 +501,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Free-form answers make mid-run feedback legitimate (spec §4);
         # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/1904.01130",
+        authors="Yuan Zhang, Jason Baldridge and Luheng He, 2019",
+        citation=(
+            "@misc{zhang2019pawsparaphraseadversariesword,\n"
+            "      title={PAWS: Paraphrase Adversaries from Word Scrambling}, \n"
+            "      author={Yuan Zhang and Jason Baldridge and Luheng He},\n"
+            "      year={2019},\n"
+            "      eprint={1904.01130},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/1904.01130}, \n"
+            "}"
+        ),
+        inspect_contributors=("meltemkenis",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/paws",
+        license="LicenseRef-PAWS",
+        license_note=(
+            "google-research-datasets/paws LICENSE: free use for any purpose, acknowledgement of "
+            "Google appreciated; no SPDX id"
+        ),
+        human_baseline=NotPublished(
+            reason=(
+                "the PAWS paper reports 5-rater agreement with the majority label (0.947), "
+                "not human accuracy on the task"
+            ),
+        ),
+        frontier_score=NotPublished(
+            reason=(
+                "no score by a named frontier model is published; the paper's best is a "
+                "fine-tuned BERT at 0.919"
+            ),
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=8000,
     ),
     BenchmarkSpec(
         key="boolq",
@@ -358,6 +562,38 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Free-form answers make mid-run feedback legitimate (spec §4);
         # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/1905.10044",
+        authors="Clark et al., 2019",
+        citation=(
+            "@misc{clark2019boolqexploringsurprisingdifficulty,\n"
+            "      title={BoolQ: Exploring the Surprising Difficulty of Natural Yes/No Qu"
+            "estions}, \n"
+            "      author={Christopher Clark and Kenton Lee and Ming-Wei Chang and Tom Kw"
+            "iatkowski and Michael Collins and Kristina Toutanova},\n"
+            "      year={2019},\n"
+            "      eprint={1905.10044},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/1905.10044}, \n"
+            "}"
+        ),
+        inspect_contributors=("seddy-aisi",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/boolq",
+        license="CC-BY-SA-3.0",
+        license_note="google/boolq dataset card",
+        # Human baseline: Human annotators (paper abstract: '80.4% accuracy compared to 90% accu…
+        human_baseline=HumanBaseline(score=0.9, source_url="https://arxiv.org/abs/1905.10044"),
+        # Frontier score: accuracy, 1-shot, prompted (Table 2)
+        frontier_score=FrontierScore(
+            score=0.909,
+            model="PaLM 2-L",
+            source_url="https://arxiv.org/abs/2305.10403",
+            as_of="2023-05",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=3270,
     ),
     BenchmarkSpec(
         key="mmlu_pro",
@@ -379,6 +615,40 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.mmlu_pro.mmlu_pro:mmlu_pro. License: mit.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2406.01574",
+        authors="Wang et al., 2024",
+        citation=(
+            "@misc{wang2024mmluprorobustchallengingmultitask,\n"
+            "      title={MMLU-Pro: A More Robust and Challenging Multi-Task Language Und"
+            "erstanding Benchmark}, \n"
+            "      author={Yubo Wang and Xueguang Ma and Ge Zhang and Yuansheng Ni and Ab"
+            "hranil Chandra and Shiguang Guo and Weiming Ren and Aaran Arulraj and Xuan H"
+            "e and Ziyan Jiang and Tianle Li and Max Ku and Kai Wang and Alex Zhuang and "
+            "Rongqi Fan and Xiang Yue and Wenhu Chen},\n"
+            "      year={2024},\n"
+            "      eprint={2406.01574},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2406.01574}, \n"
+            "}"
+        ),
+        inspect_contributors=("xeon27",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/mmlu_pro",
+        license="MIT",
+        license_note="TIGER-Lab/MMLU-Pro dataset card",
+        human_baseline=NotPublished(reason="the MMLU-Pro paper reports no human study"),
+        # Frontier score: accuracy (overall), official TIGER-Lab MMLU-Pro leaderboard, entry eva…
+        # (as_of is the model's release month; the source gives no date)
+        frontier_score=FrontierScore(
+            score=0.9116,
+            model="Gemini-3.1-Pro",
+            source_url="https://huggingface.co/datasets/TIGER-Lab/mmlu_pro_leaderboard_submission/raw/main/results.csv",
+            as_of="2026-02",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=12032,
     ),
     BenchmarkSpec(
         key="winogrande",
@@ -400,6 +670,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.winogrande.winogrande:winogrande. License: UNKNOWN.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/1907.10641",
+        authors="Sakaguchi et al., 2019",
+        citation=(
+            "@misc{sakaguchi2019winograndeadversarialwinogradschema,\n"
+            "      title={WinoGrande: An Adversarial Winograd Schema Challenge at Scale},"
+            " \n"
+            "      author={Keisuke Sakaguchi and Ronan Le Bras and Chandra Bhagavatula an"
+            "d Yejin Choi},\n"
+            "      year={2019},\n"
+            "      eprint={1907.10641},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/1907.10641}, \n"
+            "}"
+        ),
+        inspect_contributors=("xeon27",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/winogrande",
+        license="CC-BY",
+        license_note=(
+            "allenai/winogrande README: the dataset is CC-BY, version not stated; the codebase is "
+            "Apache-2.0"
+        ),
+        # Human baseline: Crowdworker human performance reported in the WinoGrande paper abstrac…
+        human_baseline=HumanBaseline(score=0.94, source_url="https://arxiv.org/abs/1907.10641"),
+        # Frontier score: accuracy, 5-shot (Table 1 of the model card)
+        # (as_of is the model's release month; the source gives no date)
+        frontier_score=FrontierScore(
+            score=0.885,
+            model="Claude 3 Opus",
+            source_url="https://www-cdn.anthropic.com/de8ba9b01c9ab7cbabf5c33b80b7bbc618857627/Model_Card_Claude_3.pdf",
+            as_of="2024-03",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=1267,
     ),
     BenchmarkSpec(
         key="race_h",
@@ -424,6 +730,39 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.race_h.race_h:race_h. License: other.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/1704.04683",
+        authors="Lai et al., 2017",
+        citation=(
+            "@misc{lai2017racelargescalereadingcomprehension,\n"
+            "      title={RACE: Large-scale ReAding Comprehension Dataset From Examinatio"
+            "ns}, \n"
+            "      author={Guokun Lai and Qizhe Xie and Hanxiao Liu and Yiming Yang and E"
+            "duard Hovy},\n"
+            "      year={2017},\n"
+            "      eprint={1704.04683},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/1704.04683}, \n"
+            "}"
+        ),
+        inspect_contributors=("mdrpanwar",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/race_h",
+        license="LicenseRef-RACE-non-commercial",
+        license_note="cs.cmu.edu/~glai1/data/race: non-commercial research use only; no SPDX id",
+        # Human baseline: Amazon Mechanical Turk workers on a sampled RACE-H test subset; the
+        # paper's human ceiling (the authors' own reading) is 0.942
+        human_baseline=HumanBaseline(score=0.694, source_url="https://arxiv.org/abs/1704.04683"),
+        # Frontier score: accuracy, 5-shot (Table 1 of the model card)
+        frontier_score=FrontierScore(
+            score=0.929,
+            model="Claude 3 Opus",
+            source_url="https://www-cdn.anthropic.com/de8ba9b01c9ab7cbabf5c33b80b7bbc618857627/Model_Card_Claude_3.pdf",
+            as_of="2024-03",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=3498,
     ),
     BenchmarkSpec(
         key="aime24",
@@ -453,6 +792,31 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Free-form answers make mid-run feedback legitimate (spec §4);
         # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
+        authors="Mathematical Association of America, 2024",
+        citation=NotPublished(
+            reason="competition problems (AIME 2024 I and II); there is no paper to cite",
+        ),
+        inspect_contributors=("tamazgadaev",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/aime2024",
+        license="MIT",
+        license_note="Maxwell-Jia/AIME_2024 dataset card",
+        # Human baseline: AIME qualifiers (top AMC 10/12 students)
+        human_baseline=HumanBaseline(
+            score=0.378,
+            source_url="https://en.wikipedia.org/wiki/American_Invitational_Mathematics_Examination",
+        ),
+        # Frontier score: pass@1 accuracy, no tools
+        frontier_score=FrontierScore(
+            score=0.934,
+            model="o4-mini",
+            source_url="https://openai.com/index/introducing-o3-and-o4-mini/",
+            as_of="2025-04",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=30,
     ),
     BenchmarkSpec(
         key="aime25",
@@ -480,6 +844,30 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Free-form answers make mid-run feedback legitimate (spec §4);
         # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://huggingface.co/datasets/math-ai/aime25",
+        authors="Mathematical Association of America, 2025",
+        citation=NotPublished(
+            reason="competition problems (AIME 2025 I and II); there is no paper to cite",
+        ),
+        inspect_contributors=("jannalulu",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/aime2025",
+        license="Apache-2.0",
+        # Human baseline: AIME qualifiers (top AMC 10/12 students)
+        human_baseline=HumanBaseline(
+            score=0.413,
+            source_url="https://en.wikipedia.org/wiki/American_Invitational_Mathematics_Examination",
+        ),
+        # Frontier score: pass@1 accuracy, no tools
+        frontier_score=FrontierScore(
+            score=1.0,
+            model="GPT-5.2 Thinking",
+            source_url="https://openai.com/index/introducing-gpt-5-2/",
+            as_of="2025-12",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=30,
     ),
     BenchmarkSpec(
         key="musr",
@@ -505,6 +893,37 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.musr.musr:musr.
         # License: cc-by-4.0.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2310.16049",
+        authors="Sprague et al., 2023",
+        citation=(
+            "@misc{sprague2024musrtestinglimitschainofthought,\n"
+            "      title={MuSR: Testing the Limits of Chain-of-thought with Multistep Sof"
+            "t Reasoning}, \n"
+            "      author={Zayne Sprague and Xi Ye and Kaj Bostrom and Swarat Chaudhuri a"
+            "nd Greg Durrett},\n"
+            "      year={2024},\n"
+            "      eprint={2310.16049},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2310.16049}, \n"
+            "}"
+        ),
+        inspect_contributors=("farrelmahaztra",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/musr",
+        license="CC-BY-4.0",
+        # Human baseline: majority vote of the paper's annotators on the murder_mysteries domain
+        human_baseline=HumanBaseline(score=0.941, source_url="https://arxiv.org/abs/2310.16049"),
+        # Frontier score: accuracy on the murder_mysteries domain this Benchmark runs, zero-shot…
+        frontier_score=FrontierScore(
+            score=0.876,
+            model="GPT-4o",
+            source_url="https://arxiv.org/abs/2409.12183",
+            as_of="2024-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=250,
     ),
     BenchmarkSpec(
         key="wmdp_bio",
@@ -528,6 +947,52 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.wmdp.wmdp:wmdp_bio.
         # License: mit.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2403.03218",
+        authors="Li et al., 2024",
+        citation=(
+            "@misc{li2024wmdpbenchmarkmeasuringreducing,\n"
+            "      title={The WMDP Benchmark: Measuring and Reducing Malicious Use With U"
+            "nlearning}, \n"
+            "      author={Nathaniel Li and Alexander Pan and Anjali Gopal and Summer Yue"
+            " and Daniel Berrios and Alice Gatti and Justin D. Li and Ann-Kathrin Dombrow"
+            "ski and Shashwat Goel and Long Phan and Gabriel Mukobi and Nathan Helm-Burge"
+            "r and Rassin Lababidi and Lennart Justen and Andrew B. Liu and Michael Chen "
+            "and Isabelle Barrass and Oliver Zhang and Xiaoyuan Zhu and Rishub Tamirisa a"
+            "nd Bhrugu Bharathi and Adam Khoja and Zhenqi Zhao and Ariel Herbert-Voss and"
+            " Cort B. Breuer and Samuel Marks and Oam Patel and Andy Zou and Mantas Mazei"
+            "ka and Zifan Wang and Palash Oswal and Weiran Lin and Adam A. Hunt and Justi"
+            "n Tienken-Harder and Kevin Y. Shih and Kemper Talley and John Guan and Russe"
+            "ll Kaplan and Ian Steneker and David Campbell and Brad Jokubaitis and Alex L"
+            "evinson and Jean Wang and William Qian and Kallol Krishna Karmakar and Steve"
+            "n Basart and Stephen Fitz and Mindy Levine and Ponnurangam Kumaraguru and Ud"
+            "ay Tupakula and Vijay Varadharajan and Ruoyu Wang and Yan Shoshitaishvili an"
+            "d Jimmy Ba and Kevin M. Esvelt and Alexandr Wang and Dan Hendrycks},\n"
+            "      year={2024},\n"
+            "      eprint={2403.03218},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      url={https://arxiv.org/abs/2403.03218}, \n"
+            "}"
+        ),
+        inspect_contributors=("alexandraabbas",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/wmdp",
+        license="MIT",
+        human_baseline=NotPublished(reason="the WMDP paper reports no human study"),
+        # Frontier score: accuracy on WMDP-Bio MCQs (share answered correctly
+        frontier_score=FrontierScore(
+            score=0.909,
+            model="Grok 4.5 (high)",
+            source_url="https://media.x.ai/v1/website/card4p7-3a96f40b.pdf",
+            as_of="2026-09",
+        ),
+        content_warning=(
+            "Multiple-choice questions on hazardous biology (biosecurity proxy knowledge); "
+            "inspect files it under Safeguards."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=1273,
     ),
     BenchmarkSpec(
         key="wmdp_chem",
@@ -550,6 +1015,52 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.wmdp.wmdp:wmdp_chem.
         # License: mit.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2403.03218",
+        authors="Li et al., 2024",
+        citation=(
+            "@misc{li2024wmdpbenchmarkmeasuringreducing,\n"
+            "      title={The WMDP Benchmark: Measuring and Reducing Malicious Use With U"
+            "nlearning}, \n"
+            "      author={Nathaniel Li and Alexander Pan and Anjali Gopal and Summer Yue"
+            " and Daniel Berrios and Alice Gatti and Justin D. Li and Ann-Kathrin Dombrow"
+            "ski and Shashwat Goel and Long Phan and Gabriel Mukobi and Nathan Helm-Burge"
+            "r and Rassin Lababidi and Lennart Justen and Andrew B. Liu and Michael Chen "
+            "and Isabelle Barrass and Oliver Zhang and Xiaoyuan Zhu and Rishub Tamirisa a"
+            "nd Bhrugu Bharathi and Adam Khoja and Zhenqi Zhao and Ariel Herbert-Voss and"
+            " Cort B. Breuer and Samuel Marks and Oam Patel and Andy Zou and Mantas Mazei"
+            "ka and Zifan Wang and Palash Oswal and Weiran Lin and Adam A. Hunt and Justi"
+            "n Tienken-Harder and Kevin Y. Shih and Kemper Talley and John Guan and Russe"
+            "ll Kaplan and Ian Steneker and David Campbell and Brad Jokubaitis and Alex L"
+            "evinson and Jean Wang and William Qian and Kallol Krishna Karmakar and Steve"
+            "n Basart and Stephen Fitz and Mindy Levine and Ponnurangam Kumaraguru and Ud"
+            "ay Tupakula and Vijay Varadharajan and Ruoyu Wang and Yan Shoshitaishvili an"
+            "d Jimmy Ba and Kevin M. Esvelt and Alexandr Wang and Dan Hendrycks},\n"
+            "      year={2024},\n"
+            "      eprint={2403.03218},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      url={https://arxiv.org/abs/2403.03218}, \n"
+            "}"
+        ),
+        inspect_contributors=("alexandraabbas",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/wmdp",
+        license="MIT",
+        human_baseline=NotPublished(reason="the WMDP paper reports no human study"),
+        # Frontier score: accuracy on WMDP-Chem MCQs
+        frontier_score=FrontierScore(
+            score=0.873,
+            model="Grok 4.5 (high)",
+            source_url="https://media.x.ai/v1/website/card4p7-3a96f40b.pdf",
+            as_of="2026-09",
+        ),
+        content_warning=(
+            "Multiple-choice questions on hazardous chemistry (chemical-weapons proxy knowledge); "
+            "inspect files it under Safeguards."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=408,
     ),
     BenchmarkSpec(
         key="wmdp_cyber",
@@ -572,6 +1083,52 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.wmdp.wmdp:wmdp_cyber.
         # License: mit.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2403.03218",
+        authors="Li et al., 2024",
+        citation=(
+            "@misc{li2024wmdpbenchmarkmeasuringreducing,\n"
+            "      title={The WMDP Benchmark: Measuring and Reducing Malicious Use With U"
+            "nlearning}, \n"
+            "      author={Nathaniel Li and Alexander Pan and Anjali Gopal and Summer Yue"
+            " and Daniel Berrios and Alice Gatti and Justin D. Li and Ann-Kathrin Dombrow"
+            "ski and Shashwat Goel and Long Phan and Gabriel Mukobi and Nathan Helm-Burge"
+            "r and Rassin Lababidi and Lennart Justen and Andrew B. Liu and Michael Chen "
+            "and Isabelle Barrass and Oliver Zhang and Xiaoyuan Zhu and Rishub Tamirisa a"
+            "nd Bhrugu Bharathi and Adam Khoja and Zhenqi Zhao and Ariel Herbert-Voss and"
+            " Cort B. Breuer and Samuel Marks and Oam Patel and Andy Zou and Mantas Mazei"
+            "ka and Zifan Wang and Palash Oswal and Weiran Lin and Adam A. Hunt and Justi"
+            "n Tienken-Harder and Kevin Y. Shih and Kemper Talley and John Guan and Russe"
+            "ll Kaplan and Ian Steneker and David Campbell and Brad Jokubaitis and Alex L"
+            "evinson and Jean Wang and William Qian and Kallol Krishna Karmakar and Steve"
+            "n Basart and Stephen Fitz and Mindy Levine and Ponnurangam Kumaraguru and Ud"
+            "ay Tupakula and Vijay Varadharajan and Ruoyu Wang and Yan Shoshitaishvili an"
+            "d Jimmy Ba and Kevin M. Esvelt and Alexandr Wang and Dan Hendrycks},\n"
+            "      year={2024},\n"
+            "      eprint={2403.03218},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      url={https://arxiv.org/abs/2403.03218}, \n"
+            "}"
+        ),
+        inspect_contributors=("alexandraabbas",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/wmdp",
+        license="MIT",
+        human_baseline=NotPublished(reason="the WMDP paper reports no human study"),
+        # Frontier score: accuracy on WMDP-Cyber MCQs
+        frontier_score=FrontierScore(
+            score=0.901,
+            model="Grok 4.6 (high)",
+            source_url="https://media.x.ai/v1/website/card4p7-3a96f40b.pdf",
+            as_of="2026-09",
+        ),
+        content_warning=(
+            "Multiple-choice questions on offensive cyber techniques (proxy knowledge); inspect "
+            "files it under Safeguards."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=1987,
     ),
     BenchmarkSpec(
         key="hellaswag",
@@ -602,6 +1159,39 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: UNKNOWN on the HF card; MIT per the upstream source repo
         # (owner-approved 2026-09-22 — see its declaration in prepare.py).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/1905.07830",
+        authors="Zellers et al., 2019",
+        citation=(
+            "@misc{zellers2019hellaswagmachinereallyfinish,\n"
+            "      title={HellaSwag: Can a Machine Really Finish Your Sentence?}, \n"
+            "      author={Rowan Zellers and Ari Holtzman and Yonatan Bisk and Ali Farhad"
+            "i and Yejin Choi},\n"
+            "      year={2019},\n"
+            "      eprint={1905.07830},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/1905.07830}, \n"
+            "}"
+        ),
+        inspect_contributors=("jjallaire",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/hellaswag",
+        license="MIT",
+        license_note="rowanz/hellaswag LICENSE; the Rowan/hellaswag card says unknown",
+        # Human baseline: Crowd workers, 5 per item, majority vote (paper Table 1: 95.6 test ove…
+        human_baseline=HumanBaseline(
+            score=0.956, source_url="https://ar5iv.labs.arxiv.org/html/1905.07830"
+        ),
+        # Frontier score: accuracy (overall, test), 10-shot
+        frontier_score=FrontierScore(
+            score=0.953,
+            model="GPT4 base 10-shot",
+            source_url="https://rowanzellers.com/hellaswag/",
+            as_of="2023-03",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=10042,
     ),
     BenchmarkSpec(
         key="lab_bench_litqa",
@@ -627,6 +1217,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: cc-by-sa-4.0.
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.10362",
+        authors="Laurent et al., 2024",
+        citation=(
+            "@misc{laurent2024labbenchmeasuringcapabilitieslanguage,\n"
+            "      title={LAB-Bench: Measuring Capabilities of Language Models for Biolog"
+            "y Research}, \n"
+            "      author={Jon M. Laurent and Joseph D. Janizek and Michael Ruzo and Mich"
+            "aela M. Hinks and Michael J. Hammerling and Siddharth Narayanan and Manvitha"
+            " Ponnapati and Andrew D. White and Samuel G. Rodriques},\n"
+            "      year={2024},\n"
+            "      eprint={2407.10362},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2407.10362}, \n"
+            "}"
+        ),
+        inspect_contributors=("matthewreed26",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/lab_bench",
+        license="CC-BY-SA-4.0",
+        # Human baseline: PhD-level biology experts with internet/tool access (no AI assistants)…
+        human_baseline=HumanBaseline(score=0.7, source_url="https://arxiv.org/abs/2407.10362"),
+        # Frontier score: accuracy (mean of 10 runs, +/- 2.3), 0-shot multiple choice via Inspec…
+        frontier_score=FrontierScore(
+            score=0.423,
+            model="DeepSeek-V3",
+            source_url="https://arxiv.org/pdf/2505.06108",
+            as_of="2025-05",
+        ),
+        content_warning=(
+            "Wet-lab biology research questions; inspect files LAB-Bench under Safeguards as "
+            "dual-use capability."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=199,
     ),
     BenchmarkSpec(
         key="lab_bench_suppqa",
@@ -652,6 +1278,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: cc-by-sa-4.0.
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.10362",
+        authors="Laurent et al., 2024",
+        citation=(
+            "@misc{laurent2024labbenchmeasuringcapabilitieslanguage,\n"
+            "      title={LAB-Bench: Measuring Capabilities of Language Models for Biolog"
+            "y Research}, \n"
+            "      author={Jon M. Laurent and Joseph D. Janizek and Michael Ruzo and Mich"
+            "aela M. Hinks and Michael J. Hammerling and Siddharth Narayanan and Manvitha"
+            " Ponnapati and Andrew D. White and Samuel G. Rodriques},\n"
+            "      year={2024},\n"
+            "      eprint={2407.10362},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2407.10362}, \n"
+            "}"
+        ),
+        inspect_contributors=("matthewreed26",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/lab_bench",
+        license="CC-BY-SA-4.0",
+        # Human baseline: PhD-level biology experts with internet/tool access, 100% coverage
+        human_baseline=HumanBaseline(score=0.85, source_url="https://arxiv.org/abs/2407.10362"),
+        # Frontier score: accuracy (correct / all questions), mean of 3 runs, 0-shot CoT, no too…
+        frontier_score=FrontierScore(
+            score=0.2,
+            model="Meta-Llama-3-70B-Instruct",
+            source_url="https://arxiv.org/abs/2407.10362",
+            as_of="2024-07",
+        ),
+        content_warning=(
+            "Wet-lab biology research questions; inspect files LAB-Bench under Safeguards as "
+            "dual-use capability."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=82,
     ),
     BenchmarkSpec(
         key="lab_bench_dbqa",
@@ -677,6 +1339,43 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: cc-by-sa-4.0.
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.10362",
+        authors="Laurent et al., 2024",
+        citation=(
+            "@misc{laurent2024labbenchmeasuringcapabilitieslanguage,\n"
+            "      title={LAB-Bench: Measuring Capabilities of Language Models for Biolog"
+            "y Research}, \n"
+            "      author={Jon M. Laurent and Joseph D. Janizek and Michael Ruzo and Mich"
+            "aela M. Hinks and Michael J. Hammerling and Siddharth Narayanan and Manvitha"
+            " Ponnapati and Andrew D. White and Samuel G. Rodriques},\n"
+            "      year={2024},\n"
+            "      eprint={2407.10362},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2407.10362}, \n"
+            "}"
+        ),
+        inspect_contributors=("matthewreed26",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/lab_bench",
+        license="CC-BY-SA-4.0",
+        # Human baseline: PhD-level biology experts; LAB-Bench prints only per-subtask human
+        # rows, the per-dataset figure is Table 4 of the EMBL AI Librarian paper
+        human_baseline=HumanBaseline(score=0.748, source_url="https://arxiv.org/abs/2607.28229"),
+        # Frontier score: accuracy, base model without the paper's Librarian knowledge layer (wi…
+        frontier_score=FrontierScore(
+            score=0.375,
+            model="GPT-5.4",
+            source_url="https://arxiv.org/abs/2607.28229",
+            as_of="2026-07",
+        ),
+        content_warning=(
+            "Wet-lab biology research questions; inspect files LAB-Bench under Safeguards as "
+            "dual-use capability."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=520,
     ),
     BenchmarkSpec(
         key="lab_bench_protocolqa",
@@ -702,6 +1401,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: cc-by-sa-4.0.
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.10362",
+        authors="Laurent et al., 2024",
+        citation=(
+            "@misc{laurent2024labbenchmeasuringcapabilitieslanguage,\n"
+            "      title={LAB-Bench: Measuring Capabilities of Language Models for Biolog"
+            "y Research}, \n"
+            "      author={Jon M. Laurent and Joseph D. Janizek and Michael Ruzo and Mich"
+            "aela M. Hinks and Michael J. Hammerling and Siddharth Narayanan and Manvitha"
+            " Ponnapati and Andrew D. White and Samuel G. Rodriques},\n"
+            "      year={2024},\n"
+            "      eprint={2407.10362},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2407.10362}, \n"
+            "}"
+        ),
+        inspect_contributors=("matthewreed26",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/lab_bench",
+        license="CC-BY-SA-4.0",
+        # Human baseline: PhD-level biology experts with internet access, 100% coverage
+        human_baseline=HumanBaseline(score=0.79, source_url="https://arxiv.org/abs/2407.10362"),
+        # Frontier score: accuracy over all questions (not precision over attempted), zero-shot,…
+        frontier_score=FrontierScore(
+            score=0.718,
+            model="o1",
+            source_url="https://arxiv.org/abs/2505.06108",
+            as_of="2025-05",
+        ),
+        content_warning=(
+            "Wet-lab protocol troubleshooting questions; inspect files LAB-Bench under Safeguards "
+            "as dual-use capability."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=108,
     ),
     BenchmarkSpec(
         key="lab_bench_seqqa",
@@ -728,6 +1463,43 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: cc-by-sa-4.0.
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.10362",
+        authors="Laurent et al., 2024",
+        citation=(
+            "@misc{laurent2024labbenchmeasuringcapabilitieslanguage,\n"
+            "      title={LAB-Bench: Measuring Capabilities of Language Models for Biolog"
+            "y Research}, \n"
+            "      author={Jon M. Laurent and Joseph D. Janizek and Michael Ruzo and Mich"
+            "aela M. Hinks and Michael J. Hammerling and Siddharth Narayanan and Manvitha"
+            " Ponnapati and Andrew D. White and Samuel G. Rodriques},\n"
+            "      year={2024},\n"
+            "      eprint={2407.10362},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2407.10362}, \n"
+            "}"
+        ),
+        inspect_contributors=("matthewreed26",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/lab_bench",
+        license="CC-BY-SA-4.0",
+        # Human baseline: PhD-level biology experts; LAB-Bench prints only per-subtask human
+        # rows, the per-dataset figure is Table 4 of the EMBL AI Librarian paper
+        human_baseline=HumanBaseline(score=0.789, source_url="https://arxiv.org/abs/2607.28229"),
+        # Frontier score: accuracy, no tools (tool-augmented runs score higher), the system card…
+        frontier_score=FrontierScore(
+            score=0.71,
+            model="Claude Opus 4.1",
+            source_url="https://www-cdn.anthropic.com/9fa30625273bafdf5af82c93719d7ca606485a16/Claude%204.1%20System%20Card.pdf",
+            as_of="2025-08",
+        ),
+        content_warning=(
+            "DNA and protein sequence questions; inspect files LAB-Bench under Safeguards as "
+            "dual-use capability."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=600,
     ),
     BenchmarkSpec(
         key="lab_bench_cloning_scenarios",
@@ -754,6 +1526,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: cc-by-sa-4.0.
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.10362",
+        authors="Laurent et al., 2024",
+        citation=(
+            "@misc{laurent2024labbenchmeasuringcapabilitieslanguage,\n"
+            "      title={LAB-Bench: Measuring Capabilities of Language Models for Biolog"
+            "y Research}, \n"
+            "      author={Jon M. Laurent and Joseph D. Janizek and Michael Ruzo and Mich"
+            "aela M. Hinks and Michael J. Hammerling and Siddharth Narayanan and Manvitha"
+            " Ponnapati and Andrew D. White and Samuel G. Rodriques},\n"
+            "      year={2024},\n"
+            "      eprint={2407.10362},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2407.10362}, \n"
+            "}"
+        ),
+        inspect_contributors=("matthewreed26",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/lab_bench",
+        license="CC-BY-SA-4.0",
+        # Human baseline: PhD-level biology experts with internet + DNA software, 100% coverage
+        human_baseline=HumanBaseline(score=0.6, source_url="https://arxiv.org/abs/2407.10362"),
+        # Frontier score: accuracy (mean of 10 runs, +/- 4.5), 0-shot multiple choice, no tools,…
+        frontier_score=FrontierScore(
+            score=0.612,
+            model="o3",
+            source_url="https://arxiv.org/pdf/2505.06108",
+            as_of="2025-05",
+        ),
+        content_warning=(
+            "Molecular cloning scenario questions; inspect files LAB-Bench under Safeguards as "
+            "dual-use capability."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=33,
     ),
     BenchmarkSpec(
         key="frontierscience",
@@ -797,6 +1605,35 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116) —
         # a judged mid-run check would spend judge tokens while advertising free.
         with_check_surface=False,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://openai.com/index/frontierscience/",
+        authors="Wang et al., 2026",
+        citation=(
+            "@misc{wang2026frontierscienceevaluatingaisability,\n"
+            "      title={FrontierScience: Evaluating AI's Ability to Perform Expert-Leve"
+            "l Scientific Tasks}, \n"
+            "      author={Miles Wang and Robi Lin and Kat Hu and Joy Jiao and Neil Chowd"
+            "hury and Ethan Chang and Tejal Patwardhan},\n"
+            "      year={2026},\n"
+            "      eprint={2601.21165},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2601.21165}, \n"
+            "}"
+        ),
+        inspect_contributors=("tommyly201", "mnarayan"),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/frontierscience",
+        license="Apache-2.0",
+        human_baseline=NotPublished(reason="the paper states that no human baseline was collected"),
+        frontier_score=NotPublished(
+            reason=(
+                "the paper reports GPT-5.2 at 0.771 on the Olympiad set and 0.252 on the Research "
+                "set; this Benchmark runs both, and no combined score is published"
+            ),
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=160,
     ),
     BenchmarkSpec(
         key="onet_m6",
@@ -824,6 +1661,39 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.onet.onet:onet_m6.
         # License: apache-2.0.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        # Paper: the exam has none; the OpenThaiGPT 1.5 model paper documents the O-NET M6 set
+        # it evaluates on (exam by NIETS Thailand; Hub copy by matichon).
+        paper_url="https://arxiv.org/abs/2411.07238",
+        authors="Yuenyong et al., 2024",
+        citation=(
+            "@misc{yuenyong2025openthaigpt15thaicentricopen,\n"
+            "      title={OpenThaiGPT 1.5: A Thai-Centric Open Source Large Language Mode"
+            "l}, \n"
+            "      author={Sumeth Yuenyong and Kobkrit Viriyayudhakorn and Apivadee Piyat"
+            "umrong and Jillaphat Jaroenkantasima},\n"
+            "      year={2025},\n"
+            "      eprint={2411.07238},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2411.07238}, \n"
+            "}"
+        ),
+        inspect_contributors=("bact",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/onet",
+        license="Apache-2.0",
+        human_baseline=NotPublished(
+            reason="no human score on the O-NET M6 question set is published",
+        ),
+        frontier_score=NotPublished(
+            reason=(
+                "no score by a named frontier model is published; a hobbyist dashboard reports "
+                "Gemini 3 Pro at 0.945 on a differently filtered question set"
+            ),
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=397,
     ),
     BenchmarkSpec(
         key="pubmedqa",
@@ -848,6 +1718,37 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.pubmedqa.pubmedqa:pubmedqa.
         # License: mit.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/1909.06146",
+        authors="Jin et al., 2019",
+        citation=(
+            "@misc{jin2019pubmedqadatasetbiomedicalresearch,\n"
+            "      title={PubMedQA: A Dataset for Biomedical Research Question Answering}"
+            ", \n"
+            "      author={Qiao Jin and Bhuwan Dhingra and Zhengping Liu and William W. C"
+            "ohen and Xinghua Lu},\n"
+            "      year={2019},\n"
+            "      eprint={1909.06146},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/1909.06146}, \n"
+            "}"
+        ),
+        inspect_contributors=("MattFisher",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/pubmedqa",
+        license="MIT",
+        # Human baseline: Single expert annotator, reasoning-required setting (sees question + a…
+        human_baseline=HumanBaseline(score=0.78, source_url="https://pubmedqa.github.io/"),
+        # Frontier score: accuracy on the 500-question expert-annotated (PQA-L) test set, reason…
+        frontier_score=FrontierScore(
+            score=0.82,
+            model="GPT-4 (Medprompt)",
+            source_url="https://pubmedqa.github.io/",
+            as_of="2023-11",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=500,
     ),
     BenchmarkSpec(
         key="xstest_safe",
@@ -885,6 +1786,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         judge=_XSTEST_JUDGE,
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2308.01263",
+        authors="R\u00f6ttger et al., 2023",
+        citation=(
+            "@misc{r\u00f6ttger2024xstesttestsuiteidentifying,\n"
+            "      title={XSTest: A Test Suite for Identifying Exaggerated Safety Behavio"
+            "urs in Large Language Models}, \n"
+            "      author={Paul R\u00f6ttger and Hannah Rose Kirk and Bertie Vidgen and Giusep"
+            "pe Attanasio and Federico Bianchi and Dirk Hovy},\n"
+            "      year={2024},\n"
+            "      eprint={2308.01263},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2308.01263}, \n"
+            "}"
+        ),
+        inspect_contributors=("NelsonG-C",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/xstest",
+        license="CC-BY-4.0",
+        human_baseline=NotPublished(
+            reason="XSTest's labels are the authors' own; no human respondent score is published",
+        ),
+        # Frontier score: XSTest 'not_overrefuse' = share of benign (safe) XSTest prompts the mo…
+        frontier_score=FrontierScore(
+            score=0.976,
+            model="o1-preview",
+            source_url="https://arxiv.org/abs/2412.16720",
+            as_of="2024-12",
+        ),
+        content_warning=(
+            "Safe prompts worded to look unsafe (e.g. 'how do I kill a Python process'); no "
+            "harmful content, but the wording is deliberately alarming."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=250,
     ),
     BenchmarkSpec(
         key="xstest_unsafe",
@@ -924,6 +1861,43 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         inverted_grade=True,
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2308.01263",
+        authors="R\u00f6ttger et al., 2023",
+        citation=(
+            "@misc{r\u00f6ttger2024xstesttestsuiteidentifying,\n"
+            "      title={XSTest: A Test Suite for Identifying Exaggerated Safety Behavio"
+            "urs in Large Language Models}, \n"
+            "      author={Paul R\u00f6ttger and Hannah Rose Kirk and Bertie Vidgen and Giusep"
+            "pe Attanasio and Federico Bianchi and Dirk Hovy},\n"
+            "      year={2024},\n"
+            "      eprint={2308.01263},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2308.01263}, \n"
+            "}"
+        ),
+        inspect_contributors=("NelsonG-C",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/xstest",
+        license="CC-BY-4.0",
+        human_baseline=NotPublished(
+            reason="XSTest's labels are the authors' own; no human respondent score is published",
+        ),
+        # Frontier score: refusal rate on the unsafe set (full or partial refusal), the paper's…
+        frontier_score=FrontierScore(
+            score=0.995,
+            model="GPT-4",
+            source_url="https://arxiv.org/abs/2308.01263",
+            as_of="2023-08",
+        ),
+        content_warning=(
+            "200 clearly unsafe requests (violence, drugs, self-harm, discrimination); the graded "
+            "reply is the refusal."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # No upstream count: eval.yaml's 250 is the whole XSTest; this Benchmark replays the
+        # unsafe subset (task_args subset=unsafe), 200 Cases.
     ),
     BenchmarkSpec(
         key="agieval_lsat_ar",
@@ -947,6 +1921,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
         #  card).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2304.06364",
+        authors="Zhong et al., 2023",
+        citation=(
+            "@misc{zhong2023agievalhumancentricbenchmarkevaluating,\n"
+            "      title={AGIEval: A Human-Centric Benchmark for Evaluating Foundation Mo"
+            "dels}, \n"
+            "      author={Wanjun Zhong and Ruixiang Cui and Yiduo Guo and Yaobo Liang an"
+            "d Shuai Lu and Yanlin Wang and Amin Saied and Weizhu Chen and Nan Duan},\n"
+            "      year={2023},\n"
+            "      eprint={2304.06364},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2304.06364}, \n"
+            "}"
+        ),
+        inspect_contributors=("bouromain",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/agieval",
+        license="MIT",
+        license_note=(
+            "ruixiangcui/AGIEval LICENSE; the dataset card names none (owner decision on OME-1273)"
+        ),
+        # Human baseline: LSAT test-takers, estimated by scaling the average (50th pct) and top…
+        # (served: the paper's Avg column, not Top)
+        human_baseline=HumanBaseline(score=0.56, source_url="https://arxiv.org/abs/2304.06364"),
+        # Frontier score: accuracy, zero-shot (Table 2)
+        # (the best of the paper's four prompt settings for this subset)
+        frontier_score=FrontierScore(
+            score=0.352,
+            model="GPT-4",
+            source_url="https://arxiv.org/abs/2304.06364",
+            as_of="2023-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=230,
     ),
     BenchmarkSpec(
         key="agieval_lsat_lr",
@@ -969,6 +1979,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
         #  card).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2304.06364",
+        authors="Zhong et al., 2023",
+        citation=(
+            "@misc{zhong2023agievalhumancentricbenchmarkevaluating,\n"
+            "      title={AGIEval: A Human-Centric Benchmark for Evaluating Foundation Mo"
+            "dels}, \n"
+            "      author={Wanjun Zhong and Ruixiang Cui and Yiduo Guo and Yaobo Liang an"
+            "d Shuai Lu and Yanlin Wang and Amin Saied and Weizhu Chen and Nan Duan},\n"
+            "      year={2023},\n"
+            "      eprint={2304.06364},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2304.06364}, \n"
+            "}"
+        ),
+        inspect_contributors=("bouromain",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/agieval",
+        license="MIT",
+        license_note=(
+            "ruixiangcui/AGIEval LICENSE; the dataset card names none (owner decision on OME-1273)"
+        ),
+        # Human baseline: LSAT test-takers, scaled average (50th pct) and top (1%) scores (AGIEv…
+        # (served: the paper's Avg column, not Top)
+        human_baseline=HumanBaseline(score=0.56, source_url="https://arxiv.org/abs/2304.06364"),
+        # Frontier score: accuracy, few-shot (5-shot, no CoT) (Table 3)
+        # (the best of the paper's four prompt settings for this subset)
+        frontier_score=FrontierScore(
+            score=0.859,
+            model="GPT-4",
+            source_url="https://arxiv.org/abs/2304.06364",
+            as_of="2023-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=510,
     ),
     BenchmarkSpec(
         key="agieval_lsat_rc",
@@ -991,6 +2037,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
         #  card).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2304.06364",
+        authors="Zhong et al., 2023",
+        citation=(
+            "@misc{zhong2023agievalhumancentricbenchmarkevaluating,\n"
+            "      title={AGIEval: A Human-Centric Benchmark for Evaluating Foundation Mo"
+            "dels}, \n"
+            "      author={Wanjun Zhong and Ruixiang Cui and Yiduo Guo and Yaobo Liang an"
+            "d Shuai Lu and Yanlin Wang and Amin Saied and Weizhu Chen and Nan Duan},\n"
+            "      year={2023},\n"
+            "      eprint={2304.06364},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2304.06364}, \n"
+            "}"
+        ),
+        inspect_contributors=("bouromain",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/agieval",
+        license="MIT",
+        license_note=(
+            "ruixiangcui/AGIEval LICENSE; the dataset card names none (owner decision on OME-1273)"
+        ),
+        # Human baseline: LSAT test-takers, scaled average (50th pct) and top (1%) scores (AGIEv…
+        # (served: the paper's Avg column, not Top)
+        human_baseline=HumanBaseline(score=0.56, source_url="https://arxiv.org/abs/2304.06364"),
+        # Frontier score: accuracy, few-shot (5-shot) and few-shot CoT tie (Table 3)
+        # (the best of the paper's four prompt settings for this subset)
+        frontier_score=FrontierScore(
+            score=0.877,
+            model="GPT-4",
+            source_url="https://arxiv.org/abs/2304.06364",
+            as_of="2023-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=269,
     ),
     BenchmarkSpec(
         key="agieval_sat_math",
@@ -1012,6 +2094,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
         #  card).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2304.06364",
+        authors="Zhong et al., 2023",
+        citation=(
+            "@misc{zhong2023agievalhumancentricbenchmarkevaluating,\n"
+            "      title={AGIEval: A Human-Centric Benchmark for Evaluating Foundation Mo"
+            "dels}, \n"
+            "      author={Wanjun Zhong and Ruixiang Cui and Yiduo Guo and Yaobo Liang an"
+            "d Shuai Lu and Yanlin Wang and Amin Saied and Weizhu Chen and Nan Duan},\n"
+            "      year={2023},\n"
+            "      eprint={2304.06364},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2304.06364}, \n"
+            "}"
+        ),
+        inspect_contributors=("bouromain",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/agieval",
+        license="MIT",
+        license_note=(
+            "ruixiangcui/AGIEval LICENSE; the dataset card names none (owner decision on OME-1273)"
+        ),
+        # Human baseline: SAT test-takers, scaled average (50th pct) and top (1%) scores (AGIEva…
+        # (served: the paper's Avg column, not Top)
+        human_baseline=HumanBaseline(score=0.66, source_url="https://arxiv.org/abs/2304.06364"),
+        # Frontier score: accuracy, zero-shot CoT (Table 2)
+        # (the best of the paper's four prompt settings for this subset)
+        frontier_score=FrontierScore(
+            score=0.95,
+            model="GPT-4",
+            source_url="https://arxiv.org/abs/2304.06364",
+            as_of="2023-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=220,
     ),
     BenchmarkSpec(
         key="agieval_sat_en",
@@ -1034,6 +2152,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
         #  card).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2304.06364",
+        authors="Zhong et al., 2023",
+        citation=(
+            "@misc{zhong2023agievalhumancentricbenchmarkevaluating,\n"
+            "      title={AGIEval: A Human-Centric Benchmark for Evaluating Foundation Mo"
+            "dels}, \n"
+            "      author={Wanjun Zhong and Ruixiang Cui and Yiduo Guo and Yaobo Liang an"
+            "d Shuai Lu and Yanlin Wang and Amin Saied and Weizhu Chen and Nan Duan},\n"
+            "      year={2023},\n"
+            "      eprint={2304.06364},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2304.06364}, \n"
+            "}"
+        ),
+        inspect_contributors=("bouromain",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/agieval",
+        license="MIT",
+        license_note=(
+            "ruixiangcui/AGIEval LICENSE; the dataset card names none (owner decision on OME-1273)"
+        ),
+        # Human baseline: SAT test-takers, scaled average (50th pct) and top (1%) scores (AGIEva…
+        # (served: the paper's Avg column, not Top)
+        human_baseline=HumanBaseline(score=0.66, source_url="https://arxiv.org/abs/2304.06364"),
+        # Frontier score: accuracy, zero-shot and few-shot tie (Tables 2 and 3)
+        # (the best of the paper's four prompt settings for this subset)
+        frontier_score=FrontierScore(
+            score=0.888,
+            model="GPT-4",
+            source_url="https://arxiv.org/abs/2304.06364",
+            as_of="2023-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=206,
     ),
     BenchmarkSpec(
         key="agieval_sat_en_without_passage",
@@ -1057,6 +2211,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
         #  card).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2304.06364",
+        authors="Zhong et al., 2023",
+        citation=(
+            "@misc{zhong2023agievalhumancentricbenchmarkevaluating,\n"
+            "      title={AGIEval: A Human-Centric Benchmark for Evaluating Foundation Mo"
+            "dels}, \n"
+            "      author={Wanjun Zhong and Ruixiang Cui and Yiduo Guo and Yaobo Liang an"
+            "d Shuai Lu and Yanlin Wang and Amin Saied and Weizhu Chen and Nan Duan},\n"
+            "      year={2023},\n"
+            "      eprint={2304.06364},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2304.06364}, \n"
+            "}"
+        ),
+        inspect_contributors=("bouromain",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/agieval",
+        license="MIT",
+        license_note=(
+            "ruixiangcui/AGIEval LICENSE; the dataset card names none (owner decision on OME-1273)"
+        ),
+        # Human baseline: SAT test-takers
+        # (served: the paper's Avg column, not Top)
+        human_baseline=HumanBaseline(score=0.66, source_url="https://arxiv.org/abs/2304.06364"),
+        # Frontier score: accuracy, few-shot (5-shot, no CoT) (Table 3, row 'SAT-English (w/o Ps…
+        # (the best of the paper's four prompt settings for this subset)
+        frontier_score=FrontierScore(
+            score=0.636,
+            model="GPT-4",
+            source_url="https://arxiv.org/abs/2304.06364",
+            as_of="2023-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=206,
     ),
     BenchmarkSpec(
         key="agieval_aqua_rat",
@@ -1079,6 +2269,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
         #  card).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2304.06364",
+        authors="Zhong et al., 2023",
+        citation=(
+            "@misc{zhong2023agievalhumancentricbenchmarkevaluating,\n"
+            "      title={AGIEval: A Human-Centric Benchmark for Evaluating Foundation Mo"
+            "dels}, \n"
+            "      author={Wanjun Zhong and Ruixiang Cui and Yiduo Guo and Yaobo Liang an"
+            "d Shuai Lu and Yanlin Wang and Amin Saied and Weizhu Chen and Nan Duan},\n"
+            "      year={2023},\n"
+            "      eprint={2304.06364},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2304.06364}, \n"
+            "}"
+        ),
+        inspect_contributors=("bouromain",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/agieval",
+        license="MIT",
+        license_note=(
+            "ruixiangcui/AGIEval LICENSE; the dataset card names none (owner decision on OME-1273)"
+        ),
+        # Human baseline: GRE/GMAT test-takers, estimated by scaling the average (50th pct) and…
+        # (served: the paper's Avg column, not Top)
+        human_baseline=HumanBaseline(score=0.85, source_url="https://arxiv.org/abs/2304.06364"),
+        # Frontier score: accuracy, few-shot CoT (Table 3)
+        # (the best of the paper's four prompt settings for this subset)
+        frontier_score=FrontierScore(
+            score=0.74,
+            model="GPT-4",
+            source_url="https://arxiv.org/abs/2304.06364",
+            as_of="2023-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=254,
     ),
     BenchmarkSpec(
         key="agieval_logiqa_en",
@@ -1102,6 +2328,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
         #  card).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2304.06364",
+        authors="Zhong et al., 2023",
+        citation=(
+            "@misc{zhong2023agievalhumancentricbenchmarkevaluating,\n"
+            "      title={AGIEval: A Human-Centric Benchmark for Evaluating Foundation Mo"
+            "dels}, \n"
+            "      author={Wanjun Zhong and Ruixiang Cui and Yiduo Guo and Yaobo Liang an"
+            "d Shuai Lu and Yanlin Wang and Amin Saied and Weizhu Chen and Nan Duan},\n"
+            "      year={2023},\n"
+            "      eprint={2304.06364},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2304.06364}, \n"
+            "}"
+        ),
+        inspect_contributors=("bouromain",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/agieval",
+        license="MIT",
+        license_note=(
+            "ruixiangcui/AGIEval LICENSE; the dataset card names none (owner decision on OME-1273)"
+        ),
+        # Human baseline: Chinese National Civil Servants Exam takers, figures taken from the Lo…
+        # (served: the paper's Avg column, not Top)
+        human_baseline=HumanBaseline(score=0.86, source_url="https://arxiv.org/abs/2304.06364"),
+        # Frontier score: accuracy, few-shot (5-shot, no CoT) (Table 3)
+        # (the best of the paper's four prompt settings for this subset)
+        frontier_score=FrontierScore(
+            score=0.639,
+            model="GPT-4",
+            source_url="https://arxiv.org/abs/2304.06364",
+            as_of="2023-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=651,
     ),
     BenchmarkSpec(
         key="medqa",
@@ -1125,6 +2387,39 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: mit (owner decision 2026-10-01: MIT, jind11/MedQA LICENSE; the bigbio card says
         #  unknown).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2009.13081",
+        authors="Jin et al., 2020",
+        citation=(
+            "@misc{jin2020diseasedoespatienthave,\n"
+            "      title={What Disease does this Patient Have? A Large-scale Open Domain "
+            "Question Answering Dataset from Medical Exams}, \n"
+            "      author={Di Jin and Eileen Pan and Nassim Oufattole and Wei-Hung Weng a"
+            "nd Hanyi Fang and Peter Szolovits},\n"
+            "      year={2020},\n"
+            "      eprint={2009.13081},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2009.13081}, \n"
+            "}"
+        ),
+        inspect_contributors=("bunny-baxter", "JasonBenn"),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/medqa",
+        license="MIT",
+        license_note=(
+            "jind11/MedQA LICENSE; the bigbio card says unknown (owner decision on OME-1273)"
+        ),
+        human_baseline=HumanBaseline(score=0.87, source_url="https://arxiv.org/abs/2306.10070v2"),
+        # Frontier score: accuracy, MedQA US 4-option test set, 0-shot, no prompt engineering
+        frontier_score=FrontierScore(
+            score=0.96,
+            model="o1-preview",
+            source_url="https://arxiv.org/html/2411.03590v1",
+            as_of="2024-11",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=1273,
     ),
     BenchmarkSpec(
         key="mgsm_en",
@@ -1153,6 +2448,40 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Free-form answers make mid-run feedback legitimate (spec §4);
         # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2210.03057",
+        authors="Shi et al., 2022",
+        citation=(
+            "@misc{shi2022languagemodelsmultilingualchainofthought,\n"
+            "      title={Language Models are Multilingual Chain-of-Thought Reasoners}, \n"
+            "      author={Freda Shi and Mirac Suzgun and Markus Freitag and Xuezhi Wang "
+            "and Suraj Srivats and Soroush Vosoughi and Hyung Won Chung and Yi Tay and Se"
+            "bastian Ruder and Denny Zhou and Dipanjan Das and Jason Wei},\n"
+            "      year={2022},\n"
+            "      eprint={2210.03057},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2210.03057}, \n"
+            "}"
+        ),
+        inspect_contributors=("manifoldhiker",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/mgsm",
+        license="CC-BY-4.0",
+        license_note=(
+            "google-research/url-nlp mgsm/LICENSE (owner decision on OME-1273); the "
+            "juletxara/mgsm card inspect loads says cc-by-sa-4.0"
+        ),
+        human_baseline=NotPublished(reason="the MGSM paper reports no human study"),
+        frontier_score=NotPublished(
+            reason=(
+                "published MGSM numbers are 11-language averages; no English-only score by a "
+                "named frontier model was found"
+            ),
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # eval.yaml: 2,750 Samples over 11 languages; the English subset replayed here is 250.
+        upstream_case_count=250,
     ),
     BenchmarkSpec(
         key="bbq",
@@ -1176,6 +2505,44 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.bbq.bbq:bbq.
         # License: cc-by-4.0.
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2110.08193",
+        authors="Parrish et al., 2021",
+        citation=(
+            "@misc{parrish2022bbqhandbuiltbiasbenchmark,\n"
+            "      title={BBQ: A Hand-Built Bias Benchmark for Question Answering}, \n"
+            "      author={Alicia Parrish and Angelica Chen and Nikita Nangia and Vishakh"
+            " Padmakumar and Jason Phang and Jana Thompson and Phu Mon Htut and Samuel R."
+            " Bowman},\n"
+            "      year={2022},\n"
+            "      eprint={2110.08193},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2110.08193}, \n"
+            "}"
+        ),
+        inspect_contributors=("harshraj172", "shubhobm"),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/bbq",
+        license="CC-BY-4.0",
+        # Human baseline: Amazon Mechanical Turk crowdworkers, raw per-annotator accuracy on a r…
+        human_baseline=HumanBaseline(
+            score=0.957, source_url="https://aclanthology.org/2022.findings-acl.165.pdf"
+        ),
+        # Frontier score: BBQ accuracy over ambiguous + disambiguated contexts (HELM 'BBQ accura…
+        # (HELM Safety v1.9.0, released 2025-06-11, on the 2025-05-14 Opus 4)
+        frontier_score=FrontierScore(
+            score=0.993,
+            model="Claude 4 Opus (20250514)",
+            source_url="https://storage.googleapis.com/crfm-helm-public/safety/benchmark_output/releases/v1.9.0/groups/bbq.json",
+            as_of="2025-06",
+        ),
+        content_warning=(
+            "Questions built around social stereotypes (age, disability, gender, race, religion "
+            "and more) to measure bias."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=58492,
     ),
     BenchmarkSpec(
         key="piqa",
@@ -1198,6 +2565,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: unknown (owner decision 2026-10-01: no license found; the ybisk/piqa card says
         #  unknown and the original repo is gone).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/1911.11641",
+        authors="Bisk et al., 2019",
+        citation=(
+            "@misc{bisk2019piqareasoningphysicalcommonsense,\n"
+            "      title={PIQA: Reasoning about Physical Commonsense in Natural Language}"
+            ", \n"
+            "      author={Yonatan Bisk and Rowan Zellers and Ronan Le Bras and Jianfeng "
+            "Gao and Yejin Choi},\n"
+            "      year={2019},\n"
+            "      eprint={1911.11641},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/1911.11641}, \n"
+            "}"
+        ),
+        inspect_contributors=("seddy-aisi",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/piqa",
+        license=NotPublished(
+            reason=(
+                "no licence file in ybisk/piqa or on the dataset card (owner decision on "
+                "OME-1273, 2026-10-01)"
+            ),
+        ),
+        # Human baseline: Human annotators as reported in the PIQA paper (abstract rounds to 95%)
+        human_baseline=HumanBaseline(score=0.949, source_url="https://arxiv.org/abs/1911.11641"),
+        # Frontier score: accuracy, zero-shot CoT (zero-shot direct answer 0.955)
+        frontier_score=FrontierScore(
+            score=0.959,
+            model="Gpt-4o",
+            source_url="https://arxiv.org/abs/2409.12183",
+            as_of="2024-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=1838,
     ),
     BenchmarkSpec(
         key="cybermetric_80",
@@ -1219,6 +2622,45 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
         #  file).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2402.07688",
+        authors="Tihanyi et al., 2024",
+        citation=(
+            "@misc{tihanyi2024cybermetricbenchmarkdatasetbased,\n"
+            "      title={CyberMetric: A Benchmark Dataset based on Retrieval-Augmented G"
+            "eneration for Evaluating LLMs in Cybersecurity Knowledge}, \n"
+            "      author={Norbert Tihanyi and Mohamed Amine Ferrag and Ridhi Jain and Ta"
+            "mas Bisztray and Merouane Debbah},\n"
+            "      year={2024},\n"
+            "      eprint={2402.07688},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2402.07688}, \n"
+            "}"
+        ),
+        inspect_contributors=("neilshaabi",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/cybermetric",
+        license=NotPublished(
+            reason=(
+                "cybermetric/CyberMetric carries no licence file (owner decision on OME-1273, "
+                "2026-10-01)"
+            ),
+        ),
+        # Human baseline: best single human of 28 volunteers (30 recruited, 2 excluded); the
+        # volunteers' mean is lower and the paper reports it too
+        human_baseline=HumanBaseline(
+            score=0.8875, source_url="https://arxiv.org/html/2402.07688v2"
+        ),
+        # Frontier score: accuracy (multiple choice), 0-shot, paper Table III
+        frontier_score=FrontierScore(
+            score=0.9625,
+            model="GPT-4o",
+            source_url="https://arxiv.org/html/2402.07688v2",
+            as_of="2024-06",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=80,
     ),
     BenchmarkSpec(
         key="cybermetric_500",
@@ -1240,6 +2682,43 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
         #  file).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2402.07688",
+        authors="Tihanyi et al., 2024",
+        citation=(
+            "@misc{tihanyi2024cybermetricbenchmarkdatasetbased,\n"
+            "      title={CyberMetric: A Benchmark Dataset based on Retrieval-Augmented G"
+            "eneration for Evaluating LLMs in Cybersecurity Knowledge}, \n"
+            "      author={Norbert Tihanyi and Mohamed Amine Ferrag and Ridhi Jain and Ta"
+            "mas Bisztray and Merouane Debbah},\n"
+            "      year={2024},\n"
+            "      eprint={2402.07688},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2402.07688}, \n"
+            "}"
+        ),
+        inspect_contributors=("neilshaabi",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/cybermetric",
+        license=NotPublished(
+            reason=(
+                "cybermetric/CyberMetric carries no licence file (owner decision on OME-1273, "
+                "2026-10-01)"
+            ),
+        ),
+        human_baseline=NotPublished(
+            reason="the CyberMetric paper measured humans on the 80-question set only",
+        ),
+        # Frontier score: accuracy (multiple choice), 0-shot, paper Table III
+        frontier_score=FrontierScore(
+            score=0.934,
+            model="GPT-4o",
+            source_url="https://arxiv.org/html/2402.07688v2",
+            as_of="2024-06",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=500,
     ),
     BenchmarkSpec(
         key="cybermetric_2000",
@@ -1261,6 +2740,43 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
         #  file).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2402.07688",
+        authors="Tihanyi et al., 2024",
+        citation=(
+            "@misc{tihanyi2024cybermetricbenchmarkdatasetbased,\n"
+            "      title={CyberMetric: A Benchmark Dataset based on Retrieval-Augmented G"
+            "eneration for Evaluating LLMs in Cybersecurity Knowledge}, \n"
+            "      author={Norbert Tihanyi and Mohamed Amine Ferrag and Ridhi Jain and Ta"
+            "mas Bisztray and Merouane Debbah},\n"
+            "      year={2024},\n"
+            "      eprint={2402.07688},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2402.07688}, \n"
+            "}"
+        ),
+        inspect_contributors=("neilshaabi",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/cybermetric",
+        license=NotPublished(
+            reason=(
+                "cybermetric/CyberMetric carries no licence file (owner decision on OME-1273, "
+                "2026-10-01)"
+            ),
+        ),
+        human_baseline=NotPublished(
+            reason="the CyberMetric paper measured humans on the 80-question set only",
+        ),
+        # Frontier score: accuracy (multiple choice), 0-shot, paper Table III
+        frontier_score=FrontierScore(
+            score=0.9125,
+            model="GPT-4o",
+            source_url="https://arxiv.org/html/2402.07688v2",
+            as_of="2024-06",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=2000,
     ),
     BenchmarkSpec(
         key="cybermetric_10000",
@@ -1282,6 +2798,43 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
         #  file).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2402.07688",
+        authors="Tihanyi et al., 2024",
+        citation=(
+            "@misc{tihanyi2024cybermetricbenchmarkdatasetbased,\n"
+            "      title={CyberMetric: A Benchmark Dataset based on Retrieval-Augmented G"
+            "eneration for Evaluating LLMs in Cybersecurity Knowledge}, \n"
+            "      author={Norbert Tihanyi and Mohamed Amine Ferrag and Ridhi Jain and Ta"
+            "mas Bisztray and Merouane Debbah},\n"
+            "      year={2024},\n"
+            "      eprint={2402.07688},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2402.07688}, \n"
+            "}"
+        ),
+        inspect_contributors=("neilshaabi",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/cybermetric",
+        license=NotPublished(
+            reason=(
+                "cybermetric/CyberMetric carries no licence file (owner decision on OME-1273, "
+                "2026-10-01)"
+            ),
+        ),
+        human_baseline=NotPublished(
+            reason="the CyberMetric paper measured humans on the 80-question set only",
+        ),
+        # Frontier score: accuracy (multiple choice), 0-shot, paper Table III
+        frontier_score=FrontierScore(
+            score=0.8889,
+            model="GPT-4o",
+            source_url="https://arxiv.org/html/2402.07688v2",
+            as_of="2024-06",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # eval.yaml says 10,000; the task yields 10,180 Samples at the pinned revision.
     ),
     BenchmarkSpec(
         key="sevenllm_mcq_zh",
@@ -1304,6 +2857,44 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: apache-2.0 (owner decision 2026-10-01: Apache-2.0, the SEVENLLM-Dataset card on
         #  Hugging Face).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2405.03446",
+        authors="Ji et al., 2024",
+        citation=(
+            "@misc{ji2024sevenllmbenchmarkingelicitingenhancing,\n"
+            "      title={SEvenLLM: Benchmarking, Eliciting, and Enhancing Abilities of L"
+            "arge Language Models in Cyber Threat Intelligence}, \n"
+            "      author={Hangyuan Ji and Jian Yang and Linzheng Chai and Chaoren Wei an"
+            "d Liqun Yang and Yunlong Duan and Yunli Wang and Tianzhen Sun and Hongcheng "
+            "Guo and Tongliang Li and Changyu Ren and Zhoujun Li},\n"
+            "      year={2024},\n"
+            "      eprint={2405.03446},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CR},\n"
+            "      url={https://arxiv.org/abs/2405.03446}, \n"
+            "}"
+        ),
+        inspect_contributors=("kingroryg",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/sevenllm",
+        license="Apache-2.0",
+        human_baseline=NotPublished(
+            reason=(
+                "the SEvenLLM paper has a five-volunteer rating of generated answers, no "
+                "human accuracy on the multiple-choice set"
+            ),
+        ),
+        frontier_score=NotPublished(
+            reason=(
+                "the SEvenLLM paper evaluates 7B to 14B open models and its own fine-tunes only; "
+                "no frontier model is reported"
+            ),
+        ),
+        content_warning=(
+            "Cyber threat-intelligence questions drawn from security incident reports, in Chinese."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=50,
     ),
     BenchmarkSpec(
         key="sevenllm_mcq_en",
@@ -1326,6 +2917,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: apache-2.0 (owner decision 2026-10-01: Apache-2.0, the SEVENLLM-Dataset card on
         #  Hugging Face).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2405.03446",
+        authors="Ji et al., 2024",
+        citation=(
+            "@misc{ji2024sevenllmbenchmarkingelicitingenhancing,\n"
+            "      title={SEvenLLM: Benchmarking, Eliciting, and Enhancing Abilities of L"
+            "arge Language Models in Cyber Threat Intelligence}, \n"
+            "      author={Hangyuan Ji and Jian Yang and Linzheng Chai and Chaoren Wei an"
+            "d Liqun Yang and Yunlong Duan and Yunli Wang and Tianzhen Sun and Hongcheng "
+            "Guo and Tongliang Li and Changyu Ren and Zhoujun Li},\n"
+            "      year={2024},\n"
+            "      eprint={2405.03446},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CR},\n"
+            "      url={https://arxiv.org/abs/2405.03446}, \n"
+            "}"
+        ),
+        inspect_contributors=("kingroryg",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/sevenllm",
+        license="Apache-2.0",
+        human_baseline=NotPublished(
+            reason=(
+                "the SEvenLLM paper has a five-volunteer rating of generated answers, no "
+                "human accuracy on the multiple-choice set"
+            ),
+        ),
+        frontier_score=NotPublished(
+            reason=(
+                "the SEvenLLM paper evaluates 7B to 14B open models and its own fine-tunes only; "
+                "no frontier model is reported"
+            ),
+        ),
+        content_warning="Cyber threat-intelligence questions drawn from security incident reports.",
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=50,
     ),
     BenchmarkSpec(
         key="worldsense",
@@ -1355,6 +2982,41 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Its own metric inspect_ai/stderr is not reported; the description names that.
         # Its own metric inspect_evals/ws_accuracy is not reported; the description names that.
         # Its own metric inspect_evals/ws_bias is not reported; the description names that.
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/pdf/2311.15930",
+        authors="Benchekroun et al., 2023",
+        citation=(
+            "@misc{benchekroun2023worldsensesyntheticbenchmarkgrounded,\n"
+            "      title={WorldSense: A Synthetic Benchmark for Grounded Reasoning in Lar"
+            "ge Language Models}, \n"
+            "      author={Youssef Benchekroun and Megi Dervishi and Mark Ibrahim and Jea"
+            "n-Baptiste Gaya and Xavier Martinet and Gr\u00e9goire Mialon and Thomas Scialom a"
+            "nd Emmanuel Dupoux and Dieuwke Hupkes and Pascal Vincent},\n"
+            "      year={2023},\n"
+            "      eprint={2311.15930},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2311.15930}, \n"
+            "}"
+        ),
+        inspect_contributors=("mjbroerman",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/worldsense",
+        license="CC-BY-NC-4.0",
+        license_note=(
+            "non-commercial use only (facebookresearch/worldsense LICENSE; owner decision on "
+            "OME-1273, 2026-10-01)"
+        ),
+        human_baseline=NotPublished(reason="the WorldSense paper reports no human study"),
+        # Frontier score: accuracy (tuple-balanced
+        frontier_score=FrontierScore(
+            score=0.756,
+            model="GPT4",
+            source_url="https://arxiv.org/abs/2311.15930",
+            as_of="2023-11",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # eval.yaml says 87,048; the task yields 40,176 Samples at the pinned revision.
     ),
     BenchmarkSpec(
         key="coconot_original",
@@ -1410,6 +3072,41 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         inverted_grade=True,
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.12043",
+        authors="Brahman et al., 2024",
+        citation=(
+            "@misc{brahman2024artsayingnocontextual,\n"
+            "      title={The Art of Saying No: Contextual Noncompliance in Language Mode"
+            "ls}, \n"
+            "      author={Faeze Brahman and Sachin Kumar and Vidhisha Balachandran and P"
+            "radeep Dasigi and Valentina Pyatkin and Abhilasha Ravichander and Sarah Wieg"
+            "reffe and Nouha Dziri and Khyathi Chandu and Jack Hessel and Yulia Tsvetkov "
+            "and Noah A. Smith and Yejin Choi and Hannaneh Hajishirzi},\n"
+            "      year={2024},\n"
+            "      eprint={2407.12043},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2407.12043}, \n"
+            "}"
+        ),
+        inspect_contributors=("ransomr",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/coconot",
+        license="ODC-By-1.0",
+        human_baseline=NotPublished(reason="the CoCoNot paper reports no human study"),
+        frontier_score=NotPublished(
+            reason=(
+                "the CoCoNot paper reports compliance per category, never one number over the "
+                "original set"
+            ),
+        ),
+        content_warning=(
+            "Prompts a model should decline, including harmful, dangerous and offensive requests; "
+            "the graded reply is the refusal."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=1001,
     ),
     BenchmarkSpec(
         key="coconot_contrast",
@@ -1460,6 +3157,42 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         verdict_grades={"COMPLIANCE": 1.0, "NONCOMPLIANCE": 0.0, "NEITHER": 0.0},
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.12043",
+        authors="Brahman et al., 2024",
+        citation=(
+            "@misc{brahman2024artsayingnocontextual,\n"
+            "      title={The Art of Saying No: Contextual Noncompliance in Language Mode"
+            "ls}, \n"
+            "      author={Faeze Brahman and Sachin Kumar and Vidhisha Balachandran and P"
+            "radeep Dasigi and Valentina Pyatkin and Abhilasha Ravichander and Sarah Wieg"
+            "reffe and Nouha Dziri and Khyathi Chandu and Jack Hessel and Yulia Tsvetkov "
+            "and Noah A. Smith and Yejin Choi and Hannaneh Hajishirzi},\n"
+            "      year={2024},\n"
+            "      eprint={2407.12043},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2407.12043}, \n"
+            "}"
+        ),
+        inspect_contributors=("ransomr",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/coconot",
+        license="ODC-By-1.0",
+        human_baseline=NotPublished(reason="the CoCoNot paper reports no human study"),
+        # Frontier score: compliance rate on the contrast set (benign look-alike prompts the mod…
+        frontier_score=FrontierScore(
+            score=0.984,
+            model="GPT-4o",
+            source_url="https://arxiv.org/html/2407.12043v2",
+            as_of="2024-11",
+        ),
+        content_warning=(
+            "Prompts that resemble harmful requests but should be answered; some touch sensitive "
+            "topics."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # eval.yaml sizes only the original set (1,001); it names no size for the contrast subset.
     ),
     BenchmarkSpec(
         key="sad_facts_llms",
@@ -1485,6 +3218,40 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no
         #  dataset card).
         scorer="inspect_evals.sad.sad:lenient_mcq_choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.04694",
+        authors="Laine et al., 2024",
+        citation=(
+            "@misc{laine2024memyselfaisituational,\n"
+            "      title={Me, Myself, and AI: The Situational Awareness Dataset (SAD) for"
+            " LLMs}, \n"
+            "      author={Rudolf Laine and Bilal Chughtai and Jan Betley and Kaivalya Ha"
+            "riharan and Jeremy Scheurer and Mikita Balesni and Marius Hobbhahn and Alexa"
+            "nder Meinke and Owain Evans},\n"
+            "      year={2024},\n"
+            "      eprint={2407.04694},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2407.04694}, \n"
+            "}"
+        ),
+        inspect_contributors=("HugoSave",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/sad",
+        license="CC-BY-4.0",
+        license_note="LRudL/sad LICENSE (owner decision on OME-1273)",
+        human_baseline=NotPublished(
+            reason="the SAD paper assumes a 1.0 ceiling for this task and measured no human",
+        ),
+        # Frontier score: accuracy (binary MCQ, 249 questions
+        frontier_score=FrontierScore(
+            score=0.851,
+            model="Claude 3 Sonnet (claude-3-sonnet)",
+            source_url="https://arxiv.org/pdf/2407.04694",
+            as_of="2024-07",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=249,
     ),
     BenchmarkSpec(
         key="sad_facts_human_defaults",
@@ -1511,6 +3278,39 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no
         #  dataset card).
         scorer="inspect_evals.sad.sad:lenient_mcq_choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.04694",
+        authors="Laine et al., 2024",
+        citation=(
+            "@misc{laine2024memyselfaisituational,\n"
+            "      title={Me, Myself, and AI: The Situational Awareness Dataset (SAD) for"
+            " LLMs}, \n"
+            "      author={Rudolf Laine and Bilal Chughtai and Jan Betley and Kaivalya Ha"
+            "riharan and Jeremy Scheurer and Mikita Balesni and Marius Hobbhahn and Alexa"
+            "nder Meinke and Owain Evans},\n"
+            "      year={2024},\n"
+            "      eprint={2407.04694},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2407.04694}, \n"
+            "}"
+        ),
+        inspect_contributors=("HugoSave",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/sad",
+        license="CC-BY-4.0",
+        license_note="LRudL/sad LICENSE (owner decision on OME-1273)",
+        # Human baseline: Human ROLEPLAY baseline (Table 5, Appendix C.3.2): ~10 ML researchers…
+        human_baseline=HumanBaseline(score=0.97, source_url="https://arxiv.org/pdf/2407.04694"),
+        # Frontier score: accuracy (binary MCQ, 1200 questions
+        frontier_score=FrontierScore(
+            score=0.888,
+            model="Claude 3 Opus (claude-3-opus)",
+            source_url="https://arxiv.org/pdf/2407.04694",
+            as_of="2024-07",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=1200,
     ),
     BenchmarkSpec(
         key="sad_influence",
@@ -1538,6 +3338,40 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no
         #  dataset card).
         scorer="inspect_evals.sad.sad:lenient_mcq_choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.04694",
+        authors="Laine et al., 2024",
+        citation=(
+            "@misc{laine2024memyselfaisituational,\n"
+            "      title={Me, Myself, and AI: The Situational Awareness Dataset (SAD) for"
+            " LLMs}, \n"
+            "      author={Rudolf Laine and Bilal Chughtai and Jan Betley and Kaivalya Ha"
+            "riharan and Jeremy Scheurer and Mikita Balesni and Marius Hobbhahn and Alexa"
+            "nder Meinke and Owain Evans},\n"
+            "      year={2024},\n"
+            "      eprint={2407.04694},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2407.04694}, \n"
+            "}"
+        ),
+        inspect_contributors=("HugoSave",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/sad",
+        license="CC-BY-4.0",
+        license_note="LRudL/sad LICENSE (owner decision on OME-1273)",
+        # Human baseline: Human ROLEPLAY baseline: expert humans (ML researchers) answering as a…
+        human_baseline=HumanBaseline(score=0.867, source_url="https://arxiv.org/pdf/2407.04694"),
+        # Frontier score: accuracy (binary MCQ, 320 questions
+        # (as_of is the model's release month; the source gives no date)
+        frontier_score=FrontierScore(
+            score=0.844,
+            model="o1-preview-2024-09-12",
+            source_url="https://situational-awareness-dataset.org/assets/data.csv",
+            as_of="2024-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=255,
     ),
     BenchmarkSpec(
         key="sad_stages_oversight",
@@ -1565,6 +3399,38 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no
         #  dataset card).
         scorer="inspect_evals.sad.sad:lenient_mcq_choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.04694",
+        authors="Laine et al., 2024",
+        citation=(
+            "@misc{laine2024memyselfaisituational,\n"
+            "      title={Me, Myself, and AI: The Situational Awareness Dataset (SAD) for"
+            " LLMs}, \n"
+            "      author={Rudolf Laine and Bilal Chughtai and Jan Betley and Kaivalya Ha"
+            "riharan and Jeremy Scheurer and Mikita Balesni and Marius Hobbhahn and Alexa"
+            "nder Meinke and Owain Evans},\n"
+            "      year={2024},\n"
+            "      eprint={2407.04694},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2407.04694}, \n"
+            "}"
+        ),
+        inspect_contributors=("HugoSave",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/sad",
+        license="CC-BY-4.0",
+        license_note="LRudL/sad LICENSE (owner decision on OME-1273)",
+        # Human baseline: Human ROLEPLAY baseline (Table 5): ML researchers answering as an LLM…
+        human_baseline=HumanBaseline(score=0.71, source_url="https://arxiv.org/pdf/2407.04694"),
+        frontier_score=NotPublished(
+            reason=(
+                "the SAD paper prints per-task scores only as figures; no number for this task is "
+                "stated in text"
+            ),
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=400,
     ),
     BenchmarkSpec(
         key="sad_stages_full",
@@ -1594,6 +3460,38 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no
         #  dataset card).
         scorer="inspect_evals.sad.sad:lenient_mcq_choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2407.04694",
+        authors="Laine et al., 2024",
+        citation=(
+            "@misc{laine2024memyselfaisituational,\n"
+            "      title={Me, Myself, and AI: The Situational Awareness Dataset (SAD) for"
+            " LLMs}, \n"
+            "      author={Rudolf Laine and Bilal Chughtai and Jan Betley and Kaivalya Ha"
+            "riharan and Jeremy Scheurer and Mikita Balesni and Marius Hobbhahn and Alexa"
+            "nder Meinke and Owain Evans},\n"
+            "      year={2024},\n"
+            "      eprint={2407.04694},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2407.04694}, \n"
+            "}"
+        ),
+        inspect_contributors=("HugoSave",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/sad",
+        license="CC-BY-4.0",
+        license_note="LRudL/sad LICENSE (owner decision on OME-1273)",
+        # Human baseline: Human ROLEPLAY baseline (Table 5): ML researchers each answering <=15…
+        human_baseline=HumanBaseline(score=0.69, source_url="https://arxiv.org/pdf/2407.04694"),
+        frontier_score=NotPublished(
+            reason=(
+                "the SAD paper prints per-task scores only as figures; no number for this task is "
+                "stated in text"
+            ),
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=800,
     ),
     BenchmarkSpec(
         key="cyse4_mitre_frr",
@@ -1631,6 +3529,46 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # one reply against an empty and a non-empty key and requires the same grade (R19).
         scorer_reads_answer_key=False,
         # Owner decision 2026-10-05: no Draft Feedback, though the reply is free text.
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        # Paper: the CyberSecEval 2 paper, which introduced the FRR set; CSE4 has no paper.
+        paper_url="https://arxiv.org/abs/2404.13161",
+        authors="Bhatt et al., 2024",
+        citation=(
+            "@misc{bhatt2024cyberseceval2widerangingcybersecurity,\n"
+            "      title={CyberSecEval 2: A Wide-Ranging Cybersecurity Evaluation Suite f"
+            "or Large Language Models}, \n"
+            "      author={Manish Bhatt and Sahana Chennabasappa and Yue Li and Cyrus Nik"
+            "olaidis and Daniel Song and Shengye Wan and Faizan Ahmad and Cornelius Asche"
+            "rmann and Yaohui Chen and Dhaval Kapil and David Molnar and Spencer Whitman "
+            "and Joshua Saxe},\n"
+            "      year={2024},\n"
+            "      eprint={2404.13161},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CR},\n"
+            "      url={https://arxiv.org/abs/2404.13161}, \n"
+            "}"
+        ),
+        inspect_contributors=("ckane",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/cyberseceval_4",
+        license="MIT",
+        license_note="PurpleLlama CybersecurityBenchmarks LICENSE (owner decision on OME-1273)",
+        human_baseline=NotPublished(
+            reason="CyberSecEval 4 reports no human study for the false-refusal task",
+        ),
+        frontier_score=NotPublished(
+            reason=(
+                "the CyberSecEval 2 paper plots per-model FRR (Fig. 2) but prints no table; "
+                "the only public run on CSE4 (inspect_evals, 2026-04) covered 17 of 750 "
+                "Samples and the upstream scorer counts an empty reply as answered"
+            ),
+        ),
+        content_warning=(
+            "Prompts resembling cyberattack planning requests, written to be borderline; the "
+            "graded outcome is a false refusal."
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=750,
     ),
     BenchmarkSpec(
         key="pre_flight",
@@ -1656,6 +3594,37 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: mit (owner decision 2026-10-01: MIT, the AirsideLabs/pre-flight-06 card on
         #  Hugging Face).
         scorer="inspect_ai.scorer:choice",
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/abs/2607.01829",
+        authors="Alex Brooker and Tim Hughes, 2026",
+        citation=(
+            "@misc{brooker2026preflightbenchmarkevaluatinglarge,\n"
+            "      title={Pre-Flight: A Benchmark for Evaluating Large Language Models on"
+            " Aviation Operational Knowledge}, \n"
+            "      author={Alex Brooker and Tim Hughes},\n"
+            "      year={2026},\n"
+            "      eprint={2607.01829},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2607.01829}, \n"
+            "}"
+        ),
+        inspect_contributors=("alexbrooker",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/pre_flight",
+        license="MIT",
+        human_baseline=NotPublished(
+            reason="the paper gives only an informal ~0.95 expert reference, not a measured study",
+        ),
+        # Frontier score: Accuracy (300 multiple-choice questions), Paper results table (multipl…
+        frontier_score=FrontierScore(
+            score=0.827,
+            model="GPT-5.5",
+            source_url="https://www.alphaxiv.org/abs/2607.01829",
+            as_of="2026-07",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=300,
     ),
     BenchmarkSpec(
         key="bbeh",
@@ -1697,6 +3666,39 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Free-form answers make mid-run feedback legitimate (spec §4);
         # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
+        # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
+        # importer; the rest by hand, sources in the PR 3 table.
+        paper_url="https://arxiv.org/pdf/2502.19187",
+        authors="Kazemi et al., 2025",
+        citation=(
+            "@misc{kazemi2025bigbenchextrahard,\n"
+            "      title={BIG-Bench Extra Hard}, \n"
+            "      author={Mehran Kazemi and Bahare Fatemi and Hritik Bansal and John Pal"
+            "owitch and Chrysovalantis Anastasiou and Sanket Vaibhav Mehta and Lalit K. J"
+            "ain and Virginia Aglietti and Disha Jindal and Peter Chen and Nishanth Dikka"
+            "la and Gladys Tyen and Xin Liu and Uri Shalit and Silvia Chiappa and Kate Ol"
+            "szewska and Yi Tay and Vinh Q. Tran and Quoc V. Le and Orhan Firat},\n"
+            "      year={2025},\n"
+            "      eprint={2502.19187},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2502.19187}, \n"
+            "}"
+        ),
+        inspect_contributors=("jeqcho",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/bbeh",
+        license="Apache-2.0",
+        human_baseline=NotPublished(reason="the BBEH paper reports no human study"),
+        # Frontier score: micro-average accuracy, the paper's protocol; the headline harmonic
+        # mean is 0.448
+        frontier_score=FrontierScore(
+            score=0.542,
+            model="o3-mini (high)",
+            source_url="https://arxiv.org/abs/2502.19187",
+            as_of="2025-02",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # eval.yaml says 4,520; the task yields 4,519 Samples at the pinned revision.
     ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )

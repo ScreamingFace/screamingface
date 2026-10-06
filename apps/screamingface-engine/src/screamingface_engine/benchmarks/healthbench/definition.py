@@ -33,6 +33,7 @@ from __future__ import annotations
 from screamingface_engine.benchmarks.healthbench.scoring import clipped_mean, unclipped_mean
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS, subset_sha
 from screamingface_engine.benchmarks.healthbench.variant import case_ids_sha, healthbench_benchmark
+from screamingface_engine.benchmarks.provenance import FrontierScore, HumanBaseline, NotPublished
 
 # Both benchmarks grade the same physician-written rubrics over the same public dataset; they
 # differ in which conversations they serve and how they average the per-case scores.
@@ -62,6 +63,45 @@ WORST30_VARIANT, HEALTHBENCH_WORST30 = healthbench_benchmark(
     difficulty="hard",
     focus="Clinical safety, hardest cases",
     dataset_url=HEALTHBENCH_DATASET_URL,
+    # Benchmark Provenance (OME-1455); sources in the PR 3 table.
+    paper_url="https://arxiv.org/abs/2604.27470",
+    authors="Hicks et al., 2026",
+    citation=(
+        "@misc{hicks2026healthbenchprofessionalevaluatinglarge,\n"
+        "      title={HealthBench Professional: Evaluating Large Language Models on R"
+        "eal Clinician Chats}, \n"
+        "      author={Rebecca Soskin Hicks and Mikhail Trofimov and Dominick Lim and"
+        " Rahul K. Arora and Foivos Tsimpourlas and Preston Bowman and Michael Sharma"
+        "n and Chi Tong and Kavin Karthik and Arnav Dugar and Akshay Jagadeesh and Kh"
+        "aled Saab and Johannes Heidecke and Ashley Alexander and Nate Gross and Kara"
+        "n Singhal},\n"
+        "      year={2026},\n"
+        "      eprint={2604.27470},\n"
+        "      archivePrefix={arXiv},\n"
+        "      primaryClass={cs.CL},\n"
+        "      url={https://arxiv.org/abs/2604.27470}, \n"
+        "}"
+    ),
+    harness_url=(
+        "https://github.com/openai/simple-evals/blob/652c89d0ca9df547706735883097e9537d40dc47/healthbench_eval.py"
+    ),
+    license="MIT",
+    license_note=(
+        "openai/healthbench-professional dataset card; the simple-evals harness is MIT. The "
+        "worst-30% selection is ours, frozen (subset.py)."
+    ),
+    content_warning=(
+        "Clinical conversations, including emergencies and self-harm scenarios, graded on safety."
+    ),
+    human_baseline=NotPublished(
+        reason=("the worst-30% selection is ours; no human was measured on it"),
+    ),
+    frontier_score=NotPublished(
+        reason=(
+            "the worst-30% selection is ours (frozen in subset.py); nothing is published on it"
+        ),
+    ),
+    notebook="08_healthbench",
 )
 
 # ── Benchmark 2 — the full professional variant ─────────────────────────────────────────────
@@ -95,6 +135,43 @@ PROFESSIONAL_VARIANT, HEALTHBENCH_PROFESSIONAL = healthbench_benchmark(
     difficulty="hard",
     focus="Clinical safety, full official exam",
     dataset_url=HEALTHBENCH_DATASET_URL,
+    # Benchmark Provenance (OME-1455); sources in the PR 3 table.
+    paper_url="https://arxiv.org/abs/2604.27470",
+    authors="Hicks et al., 2026",
+    citation=(
+        "@misc{hicks2026healthbenchprofessionalevaluatinglarge,\n"
+        "      title={HealthBench Professional: Evaluating Large Language Models on R"
+        "eal Clinician Chats}, \n"
+        "      author={Rebecca Soskin Hicks and Mikhail Trofimov and Dominick Lim and"
+        " Rahul K. Arora and Foivos Tsimpourlas and Preston Bowman and Michael Sharma"
+        "n and Chi Tong and Kavin Karthik and Arnav Dugar and Akshay Jagadeesh and Kh"
+        "aled Saab and Johannes Heidecke and Ashley Alexander and Nate Gross and Kara"
+        "n Singhal},\n"
+        "      year={2026},\n"
+        "      eprint={2604.27470},\n"
+        "      archivePrefix={arXiv},\n"
+        "      primaryClass={cs.CL},\n"
+        "      url={https://arxiv.org/abs/2604.27470}, \n"
+        "}"
+    ),
+    harness_url=(
+        "https://github.com/openai/simple-evals/blob/652c89d0ca9df547706735883097e9537d40dc47/healthbench_eval.py"
+    ),
+    license="MIT",
+    license_note="openai/healthbench-professional dataset card; the simple-evals harness is MIT.",
+    content_warning=(
+        "Clinical conversations, including emergencies and self-harm scenarios, graded on safety."
+    ),
+    # Human baseline: Specialty-matched physicians writing responses with unbounded time and….
+    human_baseline=HumanBaseline(score=0.437, source_url="https://arxiv.org/abs/2604.27470"),
+    # Frontier score: HealthBench Professional rubric score, length-adjusted (primary metric….
+    frontier_score=FrontierScore(
+        score=0.647,
+        model="GPT-6 Astra",
+        source_url="https://deploymentsafety.openai.com/gpt-6-astra",
+        as_of="2026-09",
+    ),
+    notebook="08_healthbench",
 )
 
 # AIDEV-NOTE: a benchmark exposes exactly two names — the `Benchmark` (what the runtime installs:
