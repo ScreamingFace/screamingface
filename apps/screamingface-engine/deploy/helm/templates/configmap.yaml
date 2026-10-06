@@ -106,3 +106,8 @@ data:
   # stable across upgrades — which means living in the Secret the chart can `lookup`. Both
   # halves of the pair therefore arrive by `envFrom.secretRef`, from one source.
   {{- end }}
+  # OTLP span export for the control-plane `url4.accept` span (OME-1218). The SAME keys the pool
+  # gets, from one helper — see `screamingface-engine.tracingEnv` for why they must match. These
+  # are OpenTelemetry's own variable names, read by `tracing.loader` / the OTel SDK, not by
+  # `Settings` (which only reads the URL4_CLOUD_* prefix, so they cannot collide with it).
+  {{- include "screamingface-engine.tracingEnv" . }}
