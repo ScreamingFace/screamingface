@@ -55,10 +55,14 @@ _MAX_MODEL_LENGTH = 255
 _MAX_MODELS_BYTES = 4096
 # FEATURE: OME-1307 — mirrors the Scoreboard's `paper_url` bound (http(s), 1 to 2048 characters).
 _MAX_PAPER_URL_LENGTH = 2048
+_SUBMIT_OPERATION = "submit a score to"
 _EDIT_OPERATION = "edit a score on"
 _EVENTS_OPERATION = "read score metadata events from"
+# WHY a 409 is retryable on these two and not elsewhere: the board answers it when it changed under
+# the request (a resubmit race, or its visibility flipping), and a retry sees one consistent view.
+_CONFLICT_HINTS = {_SUBMIT_OPERATION: "Retry the submission.", _EDIT_OPERATION: "Retry the edit."}
 _STATUS_CODES: dict[str, dict[int, str]] = {
-    "submit a score to": {
+    _SUBMIT_OPERATION: {
         400: "invalid_score_submission",
         401: "scoreboard_authentication_required",
         403: "score_submission_forbidden",
@@ -68,6 +72,7 @@ _STATUS_CODES: dict[str, dict[int, str]] = {
     _EDIT_OPERATION: {
         401: "scoreboard_authentication_required",
         403: "score_edit_forbidden",
+        409: "score_edit_conflict",
         422: "invalid_score_edit",
     },
     _EVENTS_OPERATION: {
@@ -143,7 +148,7 @@ class Leaderboards:
                 json=payload,
                 headers={"Idempotency-Key": candidate_result.run_id},
                 replay_safe=True,
-                operation="submit a score to",
+                operation=_SUBMIT_OPERATION,
             ),
         )
         display_submission_notice(notebook_notice)
@@ -257,7 +262,7 @@ class AsyncLeaderboards:
                 json=payload,
                 headers={"Idempotency-Key": candidate_result.run_id},
                 replay_safe=True,
-                operation="submit a score to",
+                operation=_SUBMIT_OPERATION,
             ),
         )
         display_submission_notice(notebook_notice)
@@ -387,19 +392,17 @@ def _response_json(
     if not response.is_success:
         details = _error_details(response)
         suffix = f" ({details})" if isinstance(details, str) and details else ""
-        submission_conflict = response.status_code == 409 and operation == "submit a score to"
+        conflict_hint = _CONFLICT_HINTS.get(operation) if response.status_code == 409 else None
         raise LeaderboardError(
             f"Could not {operation} the Scoreboard: HTTP {response.status_code}{suffix}",
             scoreboard_url=scoreboard_url,
             code=_status_code(response.status_code, operation),
             status=response.status_code,
             permanent=(
-                response.status_code < 500
-                and response.status_code != 429
-                and not submission_conflict
+                response.status_code < 500 and response.status_code != 429 and conflict_hint is None
             ),
             details=details,
-            hint="Retry the submission." if submission_conflict else None,
+            hint=conflict_hint,
         )
     try:
         return response.json()
@@ -412,9 +415,25 @@ def _error_details(response: httpx.Response) -> object:
         payload = response.json()
     except ValueError:
         return None
-    if isinstance(payload, Mapping) and isinstance(payload.get("detail"), str):
-        return payload["detail"]
+    if isinstance(payload, Mapping):
+        text = _detail_text(payload.get("detail"))
+        if text is not None:
+            return text
     return payload
+
+
+def _detail_text(detail: object) -> str | None:
+    """A flat `detail` string as it came; the board's coded refusals as `code: message`."""
+    if isinstance(detail, str):
+        return detail
+    # `{code, message}` is how the board refuses (`not_score_owner`, ...); surface both.
+    if (
+        isinstance(detail, Mapping)
+        and isinstance(detail.get("code"), str)
+        and isinstance(detail.get("message"), str)
+    ):
+        return f"{detail['code']}: {detail['message']}"
+    return None
 
 
 def _status_code(status: int, operation: str) -> str:
@@ -523,6 +542,8 @@ def _decode_metadata_event(value: object) -> ScoreMetadataEvent:
             edited_by=_text(root.get("edited_by"), "Score metadata event edited_by"),
             edited_at=_timestamp(root.get("edited_at"), "Score metadata event edited_at"),
             source=source,
+            # NOTE: events carry full addresses (an owner-only read), so the domain-stripping WHY on
+            # `_decode_authors` does not apply; it only checks shape.
             old_authors=_decode_authors(
                 root.get("old_authors"), "Score metadata event old_authors"
             ),
@@ -720,19 +741,28 @@ def _submission_authors(authors: Sequence[str] | None) -> tuple[str, ...] | None
 
 
 def _paper_url(value: object) -> str:
-    """The paper link as the board will accept it: a string, http(s), 1 to 2048 characters.
+    """The paper link as the board will accept it, checked the way the board checks it.
 
-    A wrong type is a TypeError, like the author checks; a bad value is a ValueError.
+    INVARIANT (OME-1307): mirrors the Scoreboard's `_validate_paper_url` so a link it would 422 is
+    refused here. A wrong type is a TypeError, like the author checks; a bad value is a ValueError.
+    The link is returned UNCHANGED.
     """
     if not isinstance(value, str):
         raise TypeError("paper_url must be a string")
-    if not 1 <= len(value) <= _MAX_PAPER_URL_LENGTH or urlsplit(value).scheme not in (
-        "http",
-        "https",
-    ):
-        raise ValueError(
-            f"paper_url must be an http or https URL of 1 to {_MAX_PAPER_URL_LENGTH} characters"
-        )
+    if not 1 <= len(value) <= _MAX_PAPER_URL_LENGTH:
+        raise ValueError(f"paper_url must be 1 to {_MAX_PAPER_URL_LENGTH} characters")
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+        raise ValueError("paper_url must not contain control characters")
+    if any(char.isspace() for char in value):
+        raise ValueError("paper_url must not contain whitespace")
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in ("http", "https"):
+        raise ValueError("paper_url must use the http or https scheme")
+    if not parts.hostname:
+        raise ValueError("paper_url must name a host")
+    # WHY `is not None`: `username` is "" (not None) for a bare `@`.
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("paper_url must not contain user info")
     return value
 
 
