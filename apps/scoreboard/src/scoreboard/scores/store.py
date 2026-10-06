@@ -1580,24 +1580,19 @@ class ScoreStore:
     ) -> tuple[ReproductionSchema, bool] | None:
         """Store one reproduction; return it and whether it is NEW, or None if the score is gone.
 
-        The CALLER has already established that the score is `complete`, that the body matches it
-        exactly, and that ``reproduced_by`` may see it; none of that is re-proved here.
+        The CALLER has checked that the score is `complete`, that the body matches it, and that
+        ``reproduced_by`` may see it. The board is the one thing re-proved here, under its lock.
 
-        INVARIANT: insert first, and on a unique `(score_id, run_id)` clash re-read the row that is
-        there. A pre-check followed by an insert would lose a race to a second request carrying the
-        same run, and the loser would answer 5xx for a record that did succeed (R18, R22). The row
-        is returned only to the identity that recorded it; any other identity gets
-        `ReproductionRunIdConflict`, which carries nothing about the first row.
+        INVARIANT: insert first, and on a unique `(score_id, run_id)` clash re-read the row. A
+        pre-check would lose a race to a second request with the same run (R18, R22). Only the
+        identity that recorded the row gets it back; any other gets `ReproductionRunIdConflict`,
+        which carries nothing about it.
 
-        INVARIANT: the board is re-checked INSIDE the transaction, first and under its lock, the way
-        `patch_metadata` does. The route decided who may record from a read taken before this
-        transaction, and a flip to private in between would otherwise give a non-owner a row on a
-        private score. ``expect_private`` is what that decision assumed; a mismatch refuses with
-        `BenchmarkVisibilityChanged` and the caller retries on a consistent view.
+        INVARIANT: ``expect_private`` is what the route's access decision assumed. A mismatch under
+        the lock refuses with `BenchmarkVisibilityChanged`, as `patch_metadata` does.
 
-        WHY None: the score was deleted between the route's read and this insert, and the foreign
-        key refuses the row. That is the same 404 as a score that never existed, not a store that is
-        unavailable (`IntegrityError` subclasses `OperationalError`, which the route maps to 503).
+        WHY None: the score was deleted before the insert. That is a 404, not an unavailable store
+        (`IntegrityError` subclasses `OperationalError`, which the route maps to 503).
         """
         try:
             row = await self._insert_reproduction(

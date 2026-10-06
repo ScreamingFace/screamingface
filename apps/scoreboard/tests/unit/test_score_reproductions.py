@@ -835,3 +835,113 @@ async def test_store_record_revalidates_the_board_under_the_lock(tortoise_db: No
         )
 
     assert await _rows(str(score.id)) == []
+
+
+# --- design-review round ---------------------------------------------------------------
+
+PRIVATE_POLICY = "private, no-store"
+
+
+@pytest.mark.asyncio
+async def test_every_answer_of_the_record_route_carries_the_private_cache_policy(
+    client: AsyncClient,
+) -> None:
+    # The 201/200 body carries the caller's email, and the refusals are identity-dependent too.
+    score_id = await _submit(client)
+    partial = await _submit(client, spec_id="spec-2", reproducible="partial", cache_revision=None)
+    url = f"/v1/scores/{score_id}/reproductions"
+    body = _record(run_id="run-1")
+
+    created = await client.post(url, json=body, headers=_as(BOB))
+    again = await client.post(url, json=body, headers=_as(BOB))
+    conflict = await client.post(url, json=body, headers=_as(CAROL))
+    inexact = await client.post(url, json=_record(score=0.1), headers=_as(BOB))
+    not_complete = await client.post(
+        f"/v1/scores/{partial}/reproductions", json=_record(), headers=_as(BOB)
+    )
+    missing = await client.post(
+        f"/v1/scores/{uuid4()}/reproductions", json=_record(), headers=_as(BOB)
+    )
+
+    statuses = [r.status_code for r in (created, again, conflict, inexact, not_complete, missing)]
+    assert statuses == [201, 200, 409, 422, 409, 404]
+    for response in (created, again, conflict, inexact, not_complete, missing):
+        assert response.headers["cache-control"] == PRIVATE_POLICY
+        assert "X-User-Email" in response.headers["vary"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "score",
+    [
+        pytest.param("0.75", id="string"),
+        pytest.param(True, id="bool"),
+        pytest.param([0.75], id="list"),
+    ],
+)
+async def test_the_replayed_score_is_a_strict_float_like_the_submitted_one(
+    client: AsyncClient, score: object
+) -> None:
+    score_id = await _submit(client)
+
+    response = await client.post(
+        f"/v1/scores/{score_id}/reproductions", json=_record(score=score), headers=_as(BOB)
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "score"]
+    assert await _rows(score_id) == []
+
+
+@pytest.mark.asyncio
+async def test_a_client_version_is_bounded_to_its_column(client: AsyncClient) -> None:
+    # 65 characters would be a PostgreSQL DataError (a 503) for what is a client error.
+    score_id = await _submit(client)
+
+    too_long = await client.post(
+        f"/v1/scores/{score_id}/reproductions",
+        json=_record(client={"version": "v" * 65}),
+        headers=_as(BOB),
+    )
+    longest = await client.post(
+        f"/v1/scores/{score_id}/reproductions",
+        json=_record(client={"version": "v" * 64}),
+        headers=_as(BOB),
+    )
+
+    assert too_long.status_code == 422
+    assert too_long.json()["detail"][0]["loc"] == ["body", "client", "version"]
+    assert longest.status_code == 201, longest.text
+    assert longest.json()["client_version"] == "v" * 64
+
+
+def test_the_shared_client_info_is_unchanged_so_submit_behaves_as_before() -> None:
+    from scoreboard.scores.schemas import ClientInfo
+
+    assert ClientInfo(version="v" * 65).version == "v" * 65
+
+
+def test_the_count_and_the_last_time_say_which_route_carries_them() -> None:
+    from scoreboard.scores.schemas import ScoreSchema
+
+    for name in ("reproduction_count", "last_reproduced_at"):
+        description = ScoreSchema.model_fields[name].description or ""
+        assert "GET /v1/scores/{id}" in description, name
+        assert "only" in description.lower(), name
+
+
+def test_the_openapi_document_lists_both_422_shapes_and_reuses_the_403(
+    tortoise_db: None,
+) -> None:
+    app = create_app(
+        Settings.model_validate({"database_url": "sqlite://:memory:", "cors_origins": []})
+    )
+    responses = app.openapi()["paths"]["/v1/scores/{score_id}/reproductions"]["post"]["responses"]
+    submit = app.openapi()["paths"]["/v1/scores"]["post"]["responses"]
+
+    shapes = {
+        option["$ref"].rsplit("/", 1)[-1]
+        for option in responses["422"]["content"]["application/json"]["schema"]["anyOf"]
+    }
+    assert shapes == {"CodedErrorResponse", "ValidationErrorResponse"}
+    assert responses["403"] == submit["403"]

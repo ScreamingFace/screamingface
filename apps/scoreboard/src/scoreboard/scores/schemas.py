@@ -401,6 +401,11 @@ ReproducibleStatus = Literal["complete", "partial"]
 AnswerSeed = Annotated[int, Field(ge=-(2**31), le=2**31 - 1)]
 
 
+# The exact primary score the Engine Benchmark produced: any finite number, higher is better. One
+# annotation for the submitted score and the replayed one, so the two are compared as the same type.
+ExactScore = Annotated[float, Field(strict=True, allow_inf_nan=False)]
+
+
 class ClientInfo(BaseModel):
     """Optional client metadata for a score submission."""
 
@@ -490,9 +495,7 @@ class ScoreSubmission(BaseModel):
     # projection of what `url4_expression` already carries, and that IS hashed — see the
     # invariant on `_content_hash` in store.py before changing this.
     models: Annotated[list[ModelRoute], Field(min_length=1)] | None = None
-    # the exact primary score the Engine Benchmark produced — any
-    # finite number, higher is better
-    score: Annotated[float, Field(strict=True, allow_inf_nan=False)]
+    score: ExactScore
     total_questions: int
     correct_questions: int | None = None
     ran_with_providers: list[str]
@@ -1001,9 +1004,15 @@ class ScoreSchema(BaseModel):
     # reads as 0 (K8), so a row with no reproductions serializes as it did before the field: the
     # private JSONL export (whose bytes authorise a purge) and the PATCH and resubmit responses,
     # which never compute the count, do not change.
-    reproduction_count: int = Field(default=0, exclude_if=lambda value: value == 0)
+    reproduction_count: int = Field(
+        default=0,
+        exclude_if=lambda value: value == 0,
+        description="Recorded reproductions; only `GET /v1/scores/{id}` carries it. Absent: 0.",
+    )
     last_reproduced_at: datetime | None = Field(
-        default=None, exclude_if=lambda value: value is None
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Latest reproduction time; only `GET /v1/scores/{id}` carries it.",
     )
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a
@@ -1069,6 +1078,31 @@ class ScoreMetadataEventSchema(BaseModel):
     new_paper_url: str | None
 
 
+class ReproductionClientInfo(ClientInfo):
+    """`ClientInfo` with the one field this table stores bounded to its column.
+
+    WHY not bounded on `ClientInfo`: that model is shared with `POST /v1/scores`, whose behaviour
+    this change does not alter. `client_version` is `VARCHAR(64)`, and an unbounded value would
+    reach PostgreSQL as a DataError and answer 503 for a client error.
+    """
+
+    version: Annotated[str, Field(max_length=64)] | None = None
+
+
+class ValidationErrorItem(BaseModel):
+    """One entry of the framework's list-shaped 422 `detail`, for the OpenAPI document."""
+
+    loc: list[str | int]
+    msg: str
+    type: str
+
+
+class ValidationErrorResponse(BaseModel):
+    """The framework's 422 for a body that fails validation (as opposed to a coded refusal)."""
+
+    detail: list[ValidationErrorItem]
+
+
 class ReproductionSubmission(BaseModel):
     """Body of `POST /v1/scores/{id}/reproductions`: one exact replay a verified identity records.
 
@@ -1079,10 +1113,10 @@ class ReproductionSubmission(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     run_id: Annotated[str, Field(min_length=1, max_length=128)]
-    score: float
+    score: ExactScore
     total_questions: int
     cache_revision: CacheRevision | None = None
-    client: ClientInfo
+    client: ReproductionClientInfo
 
 
 class ReproductionSchema(BaseModel):

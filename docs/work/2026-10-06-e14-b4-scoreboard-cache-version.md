@@ -75,5 +75,15 @@ append-only: no existing test is edited.
   `test_a_score_never_reproduced_reads_zero_and_no_last_time` is now
   `..._reads_without_either_key`, because the answer reverses what it asserted. Added helper
   `_insert_reproduction` in `store.py`.
+- **Design-review round (coordinator, 2026-10-06):** fixes 1-7 and 11 in one round, each behaviour
+  change with a new test (the new tests are in my own B4 files). `_load_visible_score` is the one
+  shared helper of `_load_owned_score` and the reproduction record (`_load_score_to_reproduce` is
+  gone); every answer of the record route carries `PRIVATE_CACHE_HEADERS`; `ReproductionSubmission`
+  reuses `ExactScore` (the annotation `ScoreSubmission.score` now also uses, no behaviour change) and
+  a `ReproductionClientInfo` that bounds `version` to 64 (the shared `ClientInfo` is untouched);
+  the store docstring is corrected and shortened; the 403 is `SUBMIT_SCORE_RESPONSES[403]` and the
+  422 documents `CodedErrorResponse | ValidationErrorResponse` (two small doc-only models in
+  `schemas.py`); the count fields carry a `description`; the portal drops "· last" for an
+  unparseable date. Left as the coordinator said: 8, 9, 10, 12, 13.
 - **Deviations:** the private helpers above (accepted); "Reproduced 1 time" for a count of one;
   `uv run` for run_gates.py. The open questions of the first report are answered and applied.
