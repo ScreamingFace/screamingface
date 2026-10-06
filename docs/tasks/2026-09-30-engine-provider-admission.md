@@ -1,7 +1,7 @@
 ---
 id: OME-1163
 linear_url: https://linear.app/openmined/issue/OME-1163
-status: Backlog
+status: In Review
 priority: High
 labels: [screamingface-engine, agentic, design-session]
 created: 2026-09-09

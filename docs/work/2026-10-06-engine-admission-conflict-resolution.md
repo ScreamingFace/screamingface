@@ -56,3 +56,10 @@ results plus any required client follow-up are reported to the user.
   resolved rebased PR head, retaining the original documented test contract approvals.
   Final range-diff against the two original commits shows only main context changes and
   the preserved gateway_internal_error code. No paid calls or external review comments.
+
+## CI status reconciliation
+
+- The mirror-status check rejected the stale `Backlog` task mirror against this completed
+  work ledger. Linear OME-1163 was verified as `In Review` on 2026-10-06.
+- Updated only the task mirror's status to match Linear; the issue remains open for review.
+- Validation: `python3 .claude/scripts/check_mirror_status.py` passed.
