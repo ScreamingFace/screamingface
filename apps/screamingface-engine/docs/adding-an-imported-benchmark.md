@@ -229,7 +229,10 @@ not hours):
   - If the scorer dispatches on Sample metadata (frontierscience's `format`), the
     declaration has `keep_sample_metadata=True` (automatic for an eval's own scorer;
     `--keep-sample-metadata` for a judge template that reads it) — otherwise the scorer
-    grades blind.
+    grades blind. The automatic rule is a policy, not a read of the scorer's code: an eval's
+    own scorer keeps ALL Sample metadata, even when it reads none (aime's worked solutions).
+    The metadata stays private Grading Material, never shown to a Candidate, but it is
+    inside the Case Digest, so a change to it moves the Benchmark Revision.
   - The importer auto-flags inspect's builtin `model_graded_*` scorers with a
     `judge=JudgeSpec(model="TODO")` placeholder; an eval-module custom scorer that
     calls `get_model()` internally is NOT auto-flagged — the reviewer catches it here.

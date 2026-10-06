@@ -248,7 +248,7 @@ _Avoid_: Error handling
 The external evaluation framework (`inspect_ai`, with its eval catalogue `inspect_evals`) that
 Imported Benchmarks come from. A name that starts with `inspect` means it touches that framework:
 the `screamingface_engine_inspect` plugin, `inspect-<key>` Benchmark ids, the `inspect` install
-extra, `InspectTaskFacts`, `read_inspect_task`, `inspect_grade_case`.
+extra, `inspect_grade_case`.
 Inspect's own words name only inspect's own objects, in the plugin code that calls inspect.
 Everywhere else, including our own concepts inside the plugin, use our word:
 - inspect Task (`@task`): one eval definition (dataset, solver, scorer) → the eval an Imported

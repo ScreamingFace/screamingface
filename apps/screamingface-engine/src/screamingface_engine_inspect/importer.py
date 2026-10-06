@@ -159,8 +159,7 @@ def _scorer_lines(
 ) -> list[str]:
     """The scorer, metric, judge and check-surface lines of a BenchmarkSpec row.
 
-    Shared by the Hugging Face rows and the Task-replay rows (OME-1273), so the two importers
-    can never drift on how a scorer is declared.
+    Written once here, so every Task-replay row declares its scorer the same way.
     """
 
     benchmark_lines: list[str] = [f'        scorer="{scorer}",']
@@ -302,7 +301,7 @@ def _write_verified_python(path: Path, text: str) -> None:
             f"{path.name}: the composed file does not parse ({exc.msg}, line {exc.lineno}) — "
             "refusing to write; the generated row is malformed"
         ) from exc
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

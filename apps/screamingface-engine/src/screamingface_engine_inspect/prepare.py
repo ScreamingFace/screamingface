@@ -721,6 +721,8 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # aime24 — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.aime2024.aime2024:aime2024.
     # Fold: same Cases, in the Hub's order: the eval never shuffles; ours was policy.
+    #   Grading Material now also keeps each Sample's metadata, as for every eval-own scorer
+    #   (D11); the scorer reads none of it, so grading is unchanged.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face Maxwell-Jia/AIME_2024
     #     pin revision 8d88b2876a82a080e2f172cc9b25d0d9d2cb4792
@@ -737,6 +739,8 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # aime25 — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.aime2025.aime2025:aime2025.
     # Fold: same Cases, in the Hub's order: the eval never shuffles; ours was policy.
+    #   Grading Material now also keeps each Sample's metadata, as for every eval-own scorer
+    #   (D11); the scorer reads none of it, so grading is unchanged.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face math-ai/aime25
     #     pin revision 563bb8404243c5f09de6ec262f2db674fe5bce9b
@@ -998,6 +1002,8 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # lab_bench_litqa — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.lab_bench.lab_bench:lab_bench_litqa.
     # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    #   Grading Material now also keeps each Sample's metadata, as for every eval-own scorer
+    #   (D11); the scorer reads none of it, so grading is unchanged.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face futurehouse/lab-bench/LitQA2
     #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
@@ -1016,6 +1022,8 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # lab_bench_suppqa — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.lab_bench.lab_bench:lab_bench_suppqa.
     # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    #   Grading Material now also keeps each Sample's metadata, as for every eval-own scorer
+    #   (D11); the scorer reads none of it, so grading is unchanged.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face futurehouse/lab-bench/SuppQA
     #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
@@ -1034,6 +1042,8 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # lab_bench_dbqa — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.lab_bench.lab_bench:lab_bench_dbqa.
     # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    #   Grading Material now also keeps each Sample's metadata, as for every eval-own scorer
+    #   (D11); the scorer reads none of it, so grading is unchanged.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face futurehouse/lab-bench/DbQA
     #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
@@ -1052,6 +1062,8 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # lab_bench_protocolqa — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.lab_bench.lab_bench:lab_bench_protocolqa.
     # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    #   Grading Material now also keeps each Sample's metadata, as for every eval-own scorer
+    #   (D11); the scorer reads none of it, so grading is unchanged.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face futurehouse/lab-bench/ProtocolQA
     #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
@@ -1070,6 +1082,8 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # lab_bench_seqqa — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.lab_bench.lab_bench:lab_bench_seqqa.
     # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    #   Grading Material now also keeps each Sample's metadata, as for every eval-own scorer
+    #   (D11); the scorer reads none of it, so grading is unchanged.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face futurehouse/lab-bench/SeqQA
     #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
@@ -1088,6 +1102,8 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # lab_bench_cloning_scenarios — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.lab_bench.lab_bench:lab_bench_cloning_scenarios.
     # Fold: row and answer-option order forced by both seeds through inspect's shuffles (D1).
+    #   Grading Material now also keeps each Sample's metadata, as for every eval-own scorer
+    #   (D11); the scorer reads none of it, so grading is unchanged.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face futurehouse/lab-bench/CloningScenarios
     #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa

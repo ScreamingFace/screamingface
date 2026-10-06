@@ -128,7 +128,9 @@ def write_task_replay_rows(
 
     prepare_path: Path = engine_src / "prepare.py"
     benchmarks_path: Path = engine_src / "benchmarks.py"
-    texts: dict[Path, str] = {path: path.read_text() for path in (prepare_path, benchmarks_path)}
+    texts: dict[Path, str] = {
+        path: path.read_text(encoding="utf-8") for path in (prepare_path, benchmarks_path)
+    }
     # Stage 1
     _refuse_existing_rows(key, texts)
     rows: TaskReplayRows = render_task_replay_rows(
@@ -380,7 +382,7 @@ def _card_license_text(
 ) -> str | None:
     """The card's license at the source's revision, lowercased; None when the card has none.
 
-    Read the way read_hub_dataset_facts reads it: a list of licenses is joined.
+    A list of licenses is joined.
     """
 
     revision: str | None = (

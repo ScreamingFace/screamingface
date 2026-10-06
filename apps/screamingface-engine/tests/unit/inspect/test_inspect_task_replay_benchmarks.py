@@ -617,3 +617,11 @@ def test_lab_bench_never_keys_every_case_to_one_letter(key: str, tmp_path: Path)
     targets: set[object] = {case["grading_material"]["target"] for case in prepared}
     assert len(prepared) == len(_LAB_BENCH_ROWS)
     assert len(targets) > 1, targets
+
+
+def test_the_no_network_lane_is_not_silently_empty() -> None:
+    """The lane above parametrizes over a computed set; this pins that the set still holds
+    both families (a fold row and an original Task-replay row), so a broken filter cannot
+    turn the lane into zero tests that pass."""
+
+    assert {"gsm8k", "mmlu", "worldsense", "cyse4_mitre_frr"} <= set(_JUDGE_LESS_KEYS)

@@ -104,3 +104,7 @@ importer command. Closes the ticket.
   - The review agent's config (`.claude/agents/sf-code-review.md`) still names
     `screamingface_engine_inspect/pins.py`; it is owner territory and left for a review-agent
     PR.
+  - Review round: the eight fold rows whose eval's own scorer keeps Sample metadata (aime ×2,
+    lab_bench ×6) now say so in their fold notes, and the how-to states the rule once; an
+    eval-seeded shuffle is pinned as not counting as an applied seed; the no-network lane is
+    pinned non-empty; prepare.py is read and written as UTF-8 (onet_m6's Thai ids).
