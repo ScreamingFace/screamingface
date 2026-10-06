@@ -555,6 +555,14 @@ async def test_retrieval_policy_protects_search_results_and_direct_fetches() -> 
     model_requests: list[dict] = []
 
     def model_response(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v1/retrieval/tavily/cache/"):
+            # OME-1045: the retrieval-cache routes are answered, and never counted as chat calls.
+            return httpx.Response(
+                200,
+                json={"outcome": "stored"}
+                if request.url.path.endswith("/entries")
+                else {"status": "miss", "reason": None, "result": None},
+            )
         body = json.loads(request.content)
         model_requests.append(body)
         if len(model_requests) == 1:
