@@ -345,7 +345,7 @@ def test_default_client_lazily_selects_the_hosted_engine_without_an_override(
 
     client = _default_client.default_client()
 
-    assert client.engine_url == "https://fusion.dev.screamingface.ai"
+    assert client.engine_url == "https://fusion.screamingface.ai"
     client.close()
     monkeypatch.setattr(_default_client, "_client", None)
 

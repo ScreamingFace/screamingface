@@ -10,8 +10,8 @@ import screamingface as sf
 def test_client_uses_the_hosted_engine_by_default_without_opening_network_resources() -> None:
     client = sf.Client()
 
-    assert client.engine_url == "https://fusion.dev.screamingface.ai"
-    assert client.scoreboard_url == "https://leaderboard.dev.screamingface.ai"
+    assert client.engine_url == "https://fusion.screamingface.ai"
+    assert client.scoreboard_url == "https://leaderboard.screamingface.ai"
     assert client.closed is False
 
 

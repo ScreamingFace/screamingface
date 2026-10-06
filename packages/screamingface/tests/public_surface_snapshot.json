@@ -65,7 +65,7 @@
       "AsyncClient": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.dev.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.dev.screamingface.ai', http_transport: 'httpx.AsyncBaseTransport | None' = None, scoreboard_transport: 'httpx.AsyncBaseTransport | None' = None, run_transport: 'AsyncRunTransport | None' = None) -> 'None'",
+          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai', http_transport: 'httpx.AsyncBaseTransport | None' = None, scoreboard_transport: 'httpx.AsyncBaseTransport | None' = None, run_transport: 'AsyncRunTransport | None' = None) -> 'None'",
           "aclose": "method (self) -> 'None'",
           "authenticated": "property",
           "authenticating": "property",
@@ -217,7 +217,7 @@
         "members": {
           "__enter__": "method (self) -> 'Client'",
           "__exit__": "method (self, exc_type: 'type[BaseException] | None', exc: 'BaseException | None', traceback: 'TracebackType | None') -> 'None'",
-          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.dev.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.dev.screamingface.ai', http_transport: 'httpx.BaseTransport | None' = None, scoreboard_transport: 'httpx.BaseTransport | None' = None, run_transport: 'SyncRunTransport | None' = None) -> 'None'",
+          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai', http_transport: 'httpx.BaseTransport | None' = None, scoreboard_transport: 'httpx.BaseTransport | None' = None, run_transport: 'SyncRunTransport | None' = None) -> 'None'",
           "authenticated": "property",
           "authenticating": "property",
           "close": "method (self) -> 'None'",
@@ -716,7 +716,7 @@
       },
       "configure": {
         "kind": "function",
-        "signature": "(*, engine_url: 'str' = 'https://fusion.dev.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.dev.screamingface.ai') -> 'Client'"
+        "signature": "(*, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai') -> 'Client'"
       },
       "connect": {
         "kind": "function",
