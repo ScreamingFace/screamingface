@@ -99,6 +99,14 @@ the same PR to match.
 
 Lands in S. Releases before PR 3 deploys.
 
+> **As built (2026-10-06).** Two places differ from the tasks below. (1) `CaseGrade.to_dict`
+> writes `scores` only when set: the Case Grade dict is pinned one-to-one to the Engine's wire
+> by the exact-contract round-trip tests (`test_case_outcome_decoding`, `test_case_results`,
+> `test_candidate_result_coverage`), so the stable `{}` key lives on the Candidate Result only
+> (D7 narrowed). (2) Task 2.5 was not needed: no prior test asserts a full Candidate dict, so
+> the only prior-test change is the public-surface snapshot (Task 2.3). All new tests live in
+> one file, `tests/test_named_scores.py`, instead of appended to four.
+
 ### Task 2.0: Ledger
 
 **Files:**
