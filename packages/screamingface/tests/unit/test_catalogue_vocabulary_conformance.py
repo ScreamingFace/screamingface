@@ -99,3 +99,19 @@ def test_the_inverted_grade_key_is_spelled_the_same_on_both_sides() -> None:
     contract = ast.parse(_ENGINE_CONTRACT.read_text(encoding="utf-8"))
     assert _engine_text(definition, "INVERTED_GRADE_KEY") == INVERTED_GRADE_KEY
     assert INVERTED_GRADE_KEY in _engine_class_fields(contract, "CandidateResult")
+
+
+_ENGINE_PROVENANCE = _ENGINE_APP / "src" / "screamingface_engine" / "benchmarks" / "provenance.py"
+
+
+@pytest.mark.skipif(not _ENGINE_APP.exists(), reason="engine app not present (installed run)")
+def test_the_saturation_verdicts_match_the_engine_verdicts() -> None:
+    # OME-1455: the listing will group on these words; whichever side adds or reorders one,
+    # the lane running that side's tests fails loudly (the difficulty-tier bind's reason).
+    from screamingface._catalogue_vocabulary import SATURATION_VERDICTS
+
+    assert _ENGINE_PROVENANCE.exists(), "engine provenance.py moved — update the bind"
+    tree = ast.parse(_ENGINE_PROVENANCE.read_text(encoding="utf-8"))
+    engine_verdicts = _engine_tuple(tree, "SATURATION_VERDICTS")
+    assert engine_verdicts is not None, "engine SATURATION_VERDICTS not found"
+    assert engine_verdicts == SATURATION_VERDICTS

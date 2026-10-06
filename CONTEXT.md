@@ -301,9 +301,9 @@ _Avoid_: Sub-score, secondary metric, extra metric
 
 **Benchmark Provenance**:
 What says where a Benchmark comes from: its paper with the authors and a citation, the links to
-its website, harness, dataset and licence (with any restriction on it), and the contributors who
-brought it to ScreamingFace (plus, for an Imported Benchmark, the people who ported it into
-Inspect). The harness link is always the original upstream code that produced the paper's
+its website, harness, dataset and licence (with any restriction on it) and, for an Imported
+Benchmark, the people who ported it into Inspect. Who typed the row into ScreamingFace is not
+part of it: git holds that. The harness link is always the original upstream code that produced the paper's
 numbers, pinned to a commit or version tag, never ScreamingFace's own translation of it. None of
 it is part of the Benchmark Revision: a link or a baseline says nothing about which Cases are
 asked or how they are graded.

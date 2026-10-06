@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Unpack
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import (
@@ -48,6 +49,7 @@ from screamingface_engine.benchmarks.protocol import (
     early_result,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.provenance import ProvenanceFields
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
 
@@ -313,6 +315,7 @@ def draco_benchmark(
     difficulty: DifficultyTier,
     focus: str | None = None,
     dataset_url: str | None = None,
+    **provenance: Unpack[ProvenanceFields],
 ) -> tuple[DracoVariant, Benchmark]:
     """Wire one DRACO benchmark: identity → addresses → expression → private routes.
 
@@ -380,6 +383,9 @@ def draco_benchmark(
         # only place the benchmark's text is written; it is seeded from the catalogue at deploy.
         focus=focus,
         dataset_url=dataset_url,
+        # Benchmark Provenance, baselines, notebook (OME-1455): threaded through verbatim,
+        # the same pass-through as focus/dataset_url; shapes checked by `Benchmark` itself.
+        **provenance,
         # The mid-run check is a real Judge call over the case rubric, so a corrective
         # loop's check budget is paid (same surface as canonical).
         check_surface=DraftFeedbackOffer(

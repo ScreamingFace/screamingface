@@ -74,6 +74,9 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("store.py::_content_hash", "Return"): 1,
     ("store.py::_scoped_idempotency_key", "Return"): 3,
     ("store.py::register_benchmark", "Return"): 1,
+    # OME-1455: refuses a saturation word outside the vocabulary BEFORE any write; visibility is
+    # still only an input here, and nothing stale has been read when the raise fires.
+    ("store.py::register_benchmark", "Raise"): 1,
     ("store.py::set_visibility", "Return"): 1,
     ("store.py::_resolve_owned", "Return"): 3,
     ("store.py::_readable_by", "Return"): 3,

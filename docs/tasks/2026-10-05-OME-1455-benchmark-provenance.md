@@ -12,17 +12,20 @@ closed:
 
 # Show where each Benchmark comes from and how much room frontier models have left on it
 
-Every Benchmark declares its Benchmark Provenance (paper, authors, citation, contributors,
+Every Benchmark declares its Benchmark Provenance (paper, authors, citation,
 website, harness, dataset, licence with any restriction), its size, a content warning when its
 prompts are harmful, a Human Baseline, a Frontier Score and the SDK notebook that runs it. The
 Engine derives one Benchmark Saturation verdict from the frontier headroom and every surface
 (Leaderboard page, catalogue, SDK list and card) shows the same strip. Delivered as four PRs
 (owner, 2026-10-05: backend first, so new Benchmarks carry the fields before any page renders
 them): spec + plan + glossary; backend across Engine, Scoreboard and SDK with a strict
-conformance test that grandfathers the pre-existing Benchmarks; sourced values for every
+conformance test that grandfathers the 65 pre-existing Benchmarks; sourced values for every
 Benchmark; the pages, after product signs off the mockup.
 
 - 2026-10-02: ticket filed by the owner before work (In Progress).
 - 2026-10-05: PR 1 (spec, plan, glossary) [#1234](https://github.com/ScreamingFace/screamingface/pull/1234) opened from branch
   `OME-1455-benchmark-provenance-spec`, ledger
   `docs/work/2026-10-05-ome-1455-benchmark-provenance-spec.md`.
+- 2026-10-05: PR 2 (backend: Engine fields + importer + served verdict, Scoreboard copy, SDK
+  discovery) [#1236](https://github.com/ScreamingFace/screamingface/pull/1236) opened from branch `OME-1455-benchmark-provenance-backend`, ledger
+  `docs/work/2026-10-05-ome-1455-benchmark-provenance-backend.md`.
