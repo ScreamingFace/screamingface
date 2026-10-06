@@ -45,6 +45,7 @@
       "ProviderConnectionError",
       "Recipe",
       "Report",
+      "ScoreMetadataEvent",
       "ScreamingFaceError",
       "SelfCorrective",
       "Url4",
@@ -437,7 +438,7 @@
       "LeaderboardScore": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None) -> None",
+          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None, paper_url: 'str | None' = None, metadata_updated_at: 'datetime | None' = None) -> None",
           "authors": "field",
           "benchmark_id": "field",
           "client_name": "field",
@@ -446,6 +447,8 @@
           "correct_questions": "field",
           "id": "field",
           "metadata": "field",
+          "metadata_updated_at": "field",
+          "paper_url": "field",
           "ran_at_local": "field",
           "ran_with_providers": "field",
           "ranking_notice": "field",
@@ -662,6 +665,20 @@
           "to_dict": "method (self) -> 'dict[str, object]'",
           "to_json": "method (self) -> 'str'",
           "usage": "property"
+        }
+      },
+      "ScoreMetadataEvent": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'UUID', edited_by: 'str', edited_at: 'datetime', source: \"Literal['patch', 'resubmit']\", old_authors: 'tuple[str, ...] | None', new_authors: 'tuple[str, ...] | None', old_paper_url: 'str | None', new_paper_url: 'str | None') -> None",
+          "edited_at": "field",
+          "edited_by": "field",
+          "id": "field",
+          "new_authors": "field",
+          "new_paper_url": "field",
+          "old_authors": "field",
+          "old_paper_url": "field",
+          "source": "field"
         }
       },
       "ScreamingFaceError": {
@@ -965,12 +982,18 @@
   },
   "screamingface.leaderboards": {
     "__all__": [
+      "edit",
       "get",
       "get_score",
       "list",
+      "metadata_events",
       "submit"
     ],
     "exports": {
+      "edit": {
+        "kind": "function",
+        "signature": "(score_id: 'UUID | str', *, authors: 'Sequence[str] | None | _Unset' = UNSET, paper_url: 'str | None | _Unset' = UNSET) -> 'LeaderboardScore'"
+      },
       "get": {
         "kind": "function",
         "signature": "(benchmark_id: 'str', *, top: 'int' = 50) -> 'Leaderboard'"
@@ -983,9 +1006,13 @@
         "kind": "function",
         "signature": "() -> 'Sequence[LeaderboardInfo]'"
       },
+      "metadata_events": {
+        "kind": "function",
+        "signature": "(score_id: 'UUID | str') -> 'tuple[ScoreMetadataEvent, ...]'"
+      },
       "submit": {
         "kind": "function",
-        "signature": "(candidate_result: 'CandidateResult', *, authors: 'Sequence[str] | None' = None) -> 'LeaderboardScore'"
+        "signature": "(candidate_result: 'CandidateResult', *, authors: 'Sequence[str] | None' = None, paper_url: 'str | None' = None) -> 'LeaderboardScore'"
       }
     }
   },
