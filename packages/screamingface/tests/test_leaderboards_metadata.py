@@ -91,7 +91,7 @@ def test_submit_rejects_a_bad_paper_url_before_http(paper_url: str) -> None:
 def test_submit_rejects_a_non_string_paper_url() -> None:
     client = _sync_client(lambda _: pytest.fail("a bad paper_url reached the Scoreboard"))
 
-    with client, pytest.raises(ValueError, match="paper_url"):
+    with client, pytest.raises(TypeError, match="paper_url"):
         client.leaderboards.submit(_candidate_result(), paper_url=42)  # type: ignore[arg-type]
 
 
@@ -220,6 +220,13 @@ def test_edit_refuses_bad_arguments_before_http(kwargs: dict[str, Any], message:
         client.leaderboards.edit(SCORE_ID, **kwargs)
 
 
+def test_edit_refuses_a_non_string_paper_url_before_http() -> None:
+    client = _sync_client(lambda _: pytest.fail("a bad edit reached the Scoreboard"))
+
+    with client, pytest.raises(TypeError, match="paper_url"):
+        client.leaderboards.edit(SCORE_ID, paper_url=42)  # type: ignore[arg-type]
+
+
 def test_edit_refuses_a_bad_score_id_before_http() -> None:
     client = _sync_client(lambda _: pytest.fail("a bad edit reached the Scoreboard"))
 
@@ -279,6 +286,26 @@ def test_edit_maps_403_404_422_to_typed_errors(status: int, code: str, detail: s
     assert exc_info.value.permanent is True
     if status != 404:
         assert exc_info.value.details == detail
+
+
+def test_edit_maps_401_to_the_authentication_code() -> None:
+    client = _sync_client(lambda _: httpx.Response(401, json={"detail": "authentication required"}))
+
+    with client, pytest.raises(sf.LeaderboardError) as exc_info:
+        client.leaderboards.edit(SCORE_ID, paper_url=PAPER)
+
+    assert exc_info.value.code == "scoreboard_authentication_required"
+    assert exc_info.value.status == 401
+
+
+def test_metadata_events_maps_401_to_the_authentication_code() -> None:
+    client = _sync_client(lambda _: httpx.Response(401, json={"detail": "authentication required"}))
+
+    with client, pytest.raises(sf.LeaderboardError) as exc_info:
+        client.leaderboards.metadata_events(SCORE_ID)
+
+    assert exc_info.value.code == "scoreboard_authentication_required"
+    assert exc_info.value.status == 401
 
 
 def test_edit_404_names_the_score() -> None:

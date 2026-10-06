@@ -40,6 +40,21 @@ and `leaderboards.metadata_events(...)`, and `LeaderboardScore` reads `paper_url
 - Sentinel: `_Unset` class with a stable `UNSET` repr in `_scoreboard/leaderboards.py`, imported by
   the public wrapper.
 
+## Approved test changes (append-only exception)
+
+- `tests/public_surface_snapshot.json` regenerated with `UPDATE_SURFACE_SNAPSHOT=1` for the new
+  public names (`edit`, `metadata_events`, `ScoreMetadataEvent`, `paper_url`,
+  `metadata_updated_at`). Orchestrator-approved under the owner's E14 authorization, to be
+  confirmed by the owner.
+
+## Further coordinator answers (2026-10-06)
+
+- 401 on `edit` and `metadata_events` maps to `scoreboard_authentication_required`, as `submit`
+  does, through `_status_code`.
+- A `paper_url` that is not a `str` raises `TypeError`; a bad value (scheme, length) raises
+  `ValueError`. Deviations on `replay_safe=True`, the `_optional_aware_datetime` helper and the
+  `_Unset` signature repr are accepted.
+
 ## Test plan
 
 - PRD TDD #19: `submit` sends `paper_url` only when given; client-side check (http/https, 1-2048).
@@ -57,13 +72,7 @@ and `leaderboards.metadata_events(...)`, and `LeaderboardScore` reads `paper_url
 - **Actual files:** as planned (six files: the three `src/screamingface/` modules, `__init__.py`,
   the regenerated snapshot, the new test file), plus this ledger.
 - **Commits:** `feat(screamingface): add paper link, score edit and edit log to the SDK`; this ledger.
-- **Gates:** `run_gates.py screamingface --base e14-reproducible-submission-spec` FAILS the
-  append-only check on `tests/public_surface_snapshot.json` (a regenerated snapshot, the plan's
-  documented update path). With `--skip-append-only`, every other gate is green (ruff, format,
-  pyright, pytest with the 95% floor, notebooks, build, distribution). The owner decides on the
-  snapshot (open question in the PR report).
-- **Deviations:** (1) `edit` and `metadata_events` map no 401 code (the plan lists only 403, 404, 422
-  and 403), so a 401 reports `scoreboard_contract_error`. (2) PATCH is sent with `replay_safe=True`
-  (K5: idempotent by value). (3) Non-string `paper_url` raises `ValueError` (plan: "else
-  ValueError"). (4) `LeaderboardScore.__post_init__` uses a new private `_optional_aware_datetime`
-  helper because the extra branch broke the complexity lint.
+- **Gates:** see the final run recorded in the report; the append-only exception above is approved.
+- **Deviations:** `replay_safe=True` on PATCH; private `_optional_aware_datetime` helper (the extra
+  branch broke the complexity lint); `_Unset` and `UNSET` appear in the public signatures. All
+  accepted by the coordinator.
