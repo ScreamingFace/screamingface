@@ -55,6 +55,21 @@ and `leaderboards.metadata_events(...)`, and `LeaderboardScore` reads `paper_url
   `ValueError`. Deviations on `replay_safe=True`, the `_optional_aware_datetime` helper and the
   `_Unset` signature repr are accepted.
 
+## Design-review fixes (coordinator, 2026-10-06; one round, new tests only)
+
+- `_paper_url` mirrors the board's `_validate_paper_url`: also control characters, any whitespace,
+  no host, user info (including a bare `@`); the scheme check is case-insensitive.
+- `_error_details` unwraps a `{code, message}` detail to `code: message` (new private
+  `_detail_text`); a flat string and any other shape are unchanged, so submit errors keep their
+  shape (regression test).
+- PATCH 409 maps to `score_edit_conflict`, `permanent=False`, hint "Retry the edit." through the
+  new `_CONFLICT_HINTS` table, which also holds the submit hint.
+- `_SUBMIT_OPERATION` replaces the repeated submit operation string.
+- Note at the `_decode_authors` call in `_decode_metadata_event` (events carry full addresses).
+- README "Discovery": `paper_url`, `edit`, `metadata_events`. README is not in the plan's file list;
+  the coordinator asked for it.
+- Left as instructed: review items 6, 7 and 9.
+
 ## Test plan
 
 - PRD TDD #19: `submit` sends `paper_url` only when given; client-side check (http/https, 1-2048).
@@ -69,10 +84,11 @@ and `leaderboards.metadata_events(...)`, and `LeaderboardScore` reads `paper_url
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned (six files: the three `src/screamingface/` modules, `__init__.py`,
-  the regenerated snapshot, the new test file), plus this ledger.
-- **Commits:** `feat(screamingface): add paper link, score edit and edit log to the SDK`; this ledger.
-- **Gates:** see the final run recorded in the report; the append-only exception above is approved.
+- **Actual files:** as planned, plus this ledger and `packages/screamingface/README.md` (asked for
+  by the coordinator in the design review).
+- **Commits:** see `git log --oneline e14-reproducible-submission-spec..HEAD`.
+- **Gates:** see the final run in the PR report. Without `--skip-append-only` the run stops at the
+  approved snapshot exception above; with it, all other gates are green.
 - **Deviations:** `replay_safe=True` on PATCH; private `_optional_aware_datetime` helper (the extra
   branch broke the complexity lint); `_Unset` and `UNSET` appear in the public signatures. All
   accepted by the coordinator.

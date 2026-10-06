@@ -88,6 +88,67 @@ def test_submit_rejects_a_bad_paper_url_before_http(paper_url: str) -> None:
         client.leaderboards.submit(_candidate_result(), paper_url=paper_url)
 
 
+# WHY these cases: they mirror the Scoreboard's `_validate_paper_url` exactly, so a link the board
+# would 422 is refused here before any HTTP.
+_REFUSED_LINKS = [
+    "https://x.org/a\x00b",
+    "https://x.org/a\x1fb",
+    "https://x.org/a\x7fb",
+    "https://x.org/a\nb",
+    "https://x.org/a\tb",
+    " https://x.org/",
+    "https://x.org/ ",
+    "https://x.org/a b",
+    "https://x.org/a\u00a0b",
+    "https:///path",
+    "https://",
+    "https://:8080/",
+    "http:",
+    "https://user:pw@x.org/",
+    "https://user@x.org/",
+    "https://trusted.example@evil.test/",
+    "https://@x.org/",
+]
+
+
+@pytest.mark.parametrize("paper_url", _REFUSED_LINKS)
+def test_submit_refuses_a_link_the_board_would_refuse(paper_url: str) -> None:
+    client = _sync_client(lambda _: pytest.fail("a bad paper_url reached the Scoreboard"))
+
+    with client, pytest.raises(ValueError, match="paper_url"):
+        client.leaderboards.submit(_candidate_result(), paper_url=paper_url)
+
+
+@pytest.mark.parametrize("paper_url", _REFUSED_LINKS)
+def test_edit_refuses_a_link_the_board_would_refuse(paper_url: str) -> None:
+    client = _sync_client(lambda _: pytest.fail("a bad paper_url reached the Scoreboard"))
+
+    with client, pytest.raises(ValueError, match="paper_url"):
+        client.leaderboards.edit(SCORE_ID, paper_url=paper_url)
+
+
+@pytest.mark.parametrize(
+    "paper_url",
+    [
+        "HTTPS://Arxiv.org/abs/2610.01234",
+        "http://x.org:8080/p?q=1#top",
+        "https://x.org/a%20b",
+        "https://[::1]/p",
+    ],
+)
+def test_submit_sends_an_accepted_link_exactly_as_given(paper_url: str) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=_edited_response())
+
+    with _sync_client(handler) as client:
+        client.leaderboards.submit(_candidate_result(), paper_url=paper_url)
+
+    assert _body(seen[0])["paper_url"] == paper_url
+
+
 def test_submit_rejects_a_non_string_paper_url() -> None:
     client = _sync_client(lambda _: pytest.fail("a bad paper_url reached the Scoreboard"))
 
@@ -286,6 +347,121 @@ def test_edit_maps_403_404_422_to_typed_errors(status: int, code: str, detail: s
     assert exc_info.value.permanent is True
     if status != 404:
         assert exc_info.value.details == detail
+
+
+def _coded(code: str, message: str) -> dict[str, object]:
+    return {"detail": {"code": code, "message": message}}
+
+
+def test_edit_403_with_the_real_coded_body_surfaces_the_server_message() -> None:
+    body = _coded("not_score_owner", "only the submitter can edit this score")
+    client = _sync_client(lambda _: httpx.Response(403, json=body))
+
+    with client, pytest.raises(sf.LeaderboardError) as exc_info:
+        client.leaderboards.edit(SCORE_ID, paper_url=PAPER)
+
+    error = exc_info.value
+    assert error.code == "score_edit_forbidden"
+    assert error.status == 403
+    assert error.details == "not_score_owner: only the submitter can edit this score"
+    assert "not_score_owner: only the submitter can edit this score" in str(error)
+
+
+def test_metadata_events_403_with_the_real_coded_body_surfaces_the_server_message() -> None:
+    body = _coded("not_score_owner", "only the submitter can read this log")
+    client = _sync_client(lambda _: httpx.Response(403, json=body))
+
+    with client, pytest.raises(sf.LeaderboardError) as exc_info:
+        client.leaderboards.metadata_events(SCORE_ID)
+
+    assert exc_info.value.code == "score_events_forbidden"
+    assert "not_score_owner: only the submitter can read this log" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        {"code": "not_score_owner"},
+        {"message": "no code"},
+        {"code": 7, "message": "bad code type"},
+        {"code": "x", "message": 7},
+        {"field": "paper_url", "message": "bad"},
+    ],
+)
+def test_an_error_detail_that_is_not_a_coded_pair_is_left_as_it_came(
+    detail: dict[str, object],
+) -> None:
+    client = _sync_client(lambda _: httpx.Response(422, json={"detail": detail}))
+
+    with client, pytest.raises(sf.LeaderboardError) as exc_info:
+        client.leaderboards.edit(SCORE_ID, paper_url=PAPER)
+
+    assert exc_info.value.details == {"detail": detail}
+    assert "(" not in str(exc_info.value)
+
+
+def test_edit_409_is_a_retryable_conflict() -> None:
+    client = _sync_client(
+        lambda _: httpx.Response(409, json={"detail": "the benchmark's visibility changed; retry"})
+    )
+
+    with client, pytest.raises(sf.LeaderboardError) as exc_info:
+        client.leaderboards.edit(SCORE_ID, paper_url=PAPER)
+
+    error = exc_info.value
+    assert error.code == "score_edit_conflict"
+    assert error.status == 409
+    assert error.permanent is False
+    assert error.hint == "Retry the edit."
+    assert "the benchmark's visibility changed; retry" in str(error)
+
+
+@pytest.mark.asyncio
+async def test_async_edit_409_is_a_retryable_conflict() -> None:
+    async with _async_client(lambda _: httpx.Response(409, json={"detail": "retry"})) as client:
+        with pytest.raises(sf.LeaderboardError) as exc_info:
+            await client.leaderboards.edit(SCORE_ID, paper_url=PAPER)
+
+    assert exc_info.value.code == "score_edit_conflict"
+    assert exc_info.value.permanent is False
+    assert exc_info.value.hint == "Retry the edit."
+
+
+def test_metadata_events_409_is_not_treated_as_a_retryable_edit_conflict() -> None:
+    client = _sync_client(lambda _: httpx.Response(409, json={"detail": "x"}))
+
+    with client, pytest.raises(sf.LeaderboardError) as exc_info:
+        client.leaderboards.metadata_events(SCORE_ID)
+
+    assert exc_info.value.code == "scoreboard_contract_error"
+    assert exc_info.value.permanent is True
+    assert exc_info.value.hint is None
+
+
+def test_submit_errors_keep_their_shape_after_the_detail_unwrap() -> None:
+    string_detail = _sync_client(
+        lambda _: httpx.Response(403, json={"detail": "score submission is not open yet"})
+    )
+    with string_detail, pytest.raises(sf.LeaderboardError) as exc_info:
+        string_detail.leaderboards.submit(_candidate_result())
+    assert exc_info.value.code == "score_submission_forbidden"
+    assert exc_info.value.details == "score submission is not open yet"
+    assert str(exc_info.value).endswith("HTTP 403 (score submission is not open yet)")
+
+    field_detail = {"detail": {"field": "paper_url", "message": "must name a host"}}
+    mapping_detail = _sync_client(lambda _: httpx.Response(422, json=field_detail))
+    with mapping_detail, pytest.raises(sf.LeaderboardError) as exc_info:
+        mapping_detail.leaderboards.submit(_candidate_result())
+    assert exc_info.value.code == "invalid_score_submission"
+    assert exc_info.value.details == field_detail
+    assert str(exc_info.value).endswith("HTTP 422")
+
+    conflict = _sync_client(lambda _: httpx.Response(409, json={"detail": "busy"}))
+    with conflict, pytest.raises(sf.LeaderboardError) as exc_info:
+        conflict.leaderboards.submit(_candidate_result())
+    assert exc_info.value.code == "score_submission_conflict"
+    assert exc_info.value.permanent is False
+    assert exc_info.value.hint == "Retry the submission."
 
 
 def test_edit_maps_401_to_the_authentication_code() -> None:
