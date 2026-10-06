@@ -46,6 +46,20 @@ TDD table #1-#18 of the PRD, in order. #1 and #2 are CHAR (pass on today's code)
   `authors` that gets `authors: [submitted_by]` therefore counts as a change and writes an event,
   although a read shows `[submitted_by]` both before and after. Accepted by the coordinator.
 
+## Design-review round (coordinator, 2026-10-06)
+
+Fixes 1-8, 10, 11 and 14 applied in one round, each behaviour change with a new test (no existing
+test edited): README auth statement and node line; `patch_metadata` re-checks the board inside the
+transaction (`_revalidate_visibility(..., lock=True)`, board locked before the score row; a mismatch
+is a 409, new params `benchmark_id` and `expect_private`); `_load_owned_score` treats a missing
+board row as private and returns `(score, private)`; owner-only `responses=` document the 401 (both
+modes) and both 403 shapes (`CodedErrorResponse` added); one clock read for `metadata_updated_at`
+and the event's `edited_at` on both write paths; events ordered by `-edited_at, -id`; `PaperUrl`
+rejects any whitespace and any user info; `authors: null` 422 points at `body.authors`;
+`_log_metadata_event(source: Literal["patch","resubmit"])`; `get_score` uses `_score_not_found()`;
+PATCH 200 on a private board carries `PRIVATE_CACHE_HEADERS`. Items 9, 12, 13, 15, 16, 17 left
+as they are.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned, plus `.github/workflows/scoreboard-tests.yml` (one word added to

@@ -319,3 +319,40 @@ async def test_deleting_a_score_deletes_its_events(client: AsyncClient) -> None:
     await Score.filter(id=score_id).delete()
 
     assert await ScoreMetadataEvent.all().count() == 0
+
+
+# --- design-review round -------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_resubmit_writes_one_stamp_for_the_row_and_the_event(client: AsyncClient) -> None:
+    score_id, _ = await _submit(client)
+
+    await _submit(client, paper_url=PAPER)
+
+    (event,) = await _events(score_id)
+    assert event.edited_at == (await Score.get(id=score_id)).metadata_updated_at
+
+
+@pytest.mark.asyncio
+async def test_events_with_the_same_timestamp_have_a_stable_newest_first_order(
+    client: AsyncClient,
+) -> None:
+    score_id, _ = await _submit(client)
+    row = await Score.get(id=score_id)
+    stamp = row.submitted_at
+    for index in range(5):
+        await ScoreMetadataEvent.create(
+            score=row,
+            edited_by=ALICE,
+            edited_at=stamp,
+            source="patch",
+            new_paper_url=f"https://example.org/{index}",
+        )
+
+    first = await client.get(f"/v1/scores/{score_id}/metadata-events", headers=_as(ALICE))
+    second = await client.get(f"/v1/scores/{score_id}/metadata-events", headers=_as(ALICE))
+
+    ids = [event["id"] for event in first.json()]
+    assert ids == sorted(ids, reverse=True)
+    assert first.json() == second.json()

@@ -41,6 +41,7 @@ from scoreboard.routes.dependencies import (
 )
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
+    CodedErrorResponse,
     FieldErrorDetail,
     FieldErrorResponse,
     MessageErrorResponse,
@@ -148,16 +149,28 @@ GET_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 OWNER_ONLY_RESPONSES: dict[int | str, dict[str, Any]] = {
-    status.HTTP_401_UNAUTHORIZED: SUBMIT_SCORE_RESPONSES[status.HTTP_401_UNAUTHORIZED],
-    status.HTTP_403_FORBIDDEN: {
+    status.HTTP_401_UNAUTHORIZED: {
+        "model": MessageErrorResponse,
         "description": (
-            "Caller's peer network is not trusted to present identity headers, or the caller is "
-            "not the score's submitter (`detail.code` is `not_score_owner`)."
+            "Missing X-User-Email identity header. Returned in BOTH auth modes: these routes read "
+            "the header even when SCOREBOARD_AUTH_MODE is `disabled`."
+        ),
+    },
+    status.HTTP_403_FORBIDDEN: {
+        "model": MessageErrorResponse | CodedErrorResponse,
+        "description": (
+            "Two shapes. An untrusted peer network (cloudflare_headers mode) is a string `detail` "
+            "(`MessageErrorResponse`). A visible score that is not the caller's is "
+            "`{code: not_score_owner, message}` (`CodedErrorResponse`)."
         ),
     },
     status.HTTP_404_NOT_FOUND: {
         "model": MessageErrorResponse,
         "description": "Score not found, or a private-board score that is not the caller's.",
+    },
+    status.HTTP_409_CONFLICT: {
+        "model": MessageErrorResponse,
+        "description": "The board's visibility changed while the request was in flight; retry.",
     },
     status.HTTP_503_SERVICE_UNAVAILABLE: SUBMIT_SCORE_RESPONSES[
         status.HTTP_503_SERVICE_UNAVAILABLE
@@ -177,6 +190,15 @@ GET_METADATA_EVENTS_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": "The score's edit log, newest first.",
     },
 }
+
+
+def _score_not_found() -> HTTPException:
+    # Identity-scoped, so the refusal carries the private cache policy (see `get_score`).
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=SCORE_NOT_FOUND_DETAIL,
+        headers=PRIVATE_CACHE_HEADERS,
+    )
 
 
 def _field_error_detail(field: str, message: str) -> dict[str, str]:
@@ -343,11 +365,7 @@ async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) 
         # INVARIANT: carries the private policy even though nothing private is involved. The
         # refusal below is byte-identical BY DESIGN, and a header only one of the two emits is
         # itself the discriminator — it confirms a real private score id exists (review of #719).
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=SCORE_NOT_FOUND_DETAIL,
-            headers=PRIVATE_CACHE_HEADERS,
-        )
+        raise _score_not_found()
 
     # INVARIANT: the SAME 404 an unknown id gets, so holding a real id is not confirmable.
     private = benchmark is None or benchmark.visibility == "private"
@@ -358,36 +376,22 @@ async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) 
     if private and (identity is None or score.submitted_by != identity):
         # `benchmark is None` cannot happen behind the RESTRICT foreign key; it fails closed
         # rather than serving a score whose visibility could not be established.
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=SCORE_NOT_FOUND_DETAIL,
-            headers=PRIVATE_CACHE_HEADERS,
-        )
+        raise _score_not_found()
 
     # The window here is read -> serialise rather than read -> query, since nothing else is fetched
     # after the visibility read. Closed anyway, so every score-bearing read answers from one view
     # of `visibility` rather than three of them agreeing by luck (review of PR #719).
     if not private and await turned_private(cast(str, getattr(score, "benchmark_id"))):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=SCORE_NOT_FOUND_DETAIL,
-            headers=PRIVATE_CACHE_HEADERS,
-        )
+        raise _score_not_found()
 
     return ScoreSchema.model_validate(score, from_attributes=True)
 
 
-def _score_not_found() -> HTTPException:
-    # Identity-scoped, so the refusal carries the private cache policy (see `get_score`).
-    return HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=SCORE_NOT_FOUND_DETAIL,
-        headers=PRIVATE_CACHE_HEADERS,
-    )
+async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> tuple[Score, bool]:
+    """The score ``identity`` submitted and whether its board is private, or the refusal.
 
-
-async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> Score:
-    """The score ``identity`` submitted, or the refusal. Shared by the two owner-only routes.
+    Shared by the two owner-only routes. The flag is what this decision ASSUMED about the board;
+    the write path re-proves it inside its transaction.
 
     INVARIANT: the checks run in a fixed order, so a refusal says no more than it must. A missing
     score and a private-board score the caller may not see are the SAME 404; only after that does
@@ -397,15 +401,21 @@ async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> 
     `disabled` mode `X-User-Email` is an unverified claim, and honouring it would let anyone read
     or edit a private row by naming its owner — `read_identity` ignores it for the same reason.
 
-    WHY the privacy decision is `turned_private` and not a read of the benchmark row: it reads the
-    board's state fresh, immediately before the answer that depends on it, so there is no earlier
-    copy to go stale between the read and the 403 that would otherwise confirm the id exists.
+    INVARIANT: a board row that cannot be found counts as private, as in `get_score`. That cannot
+    happen behind the RESTRICT foreign key, so this fails closed rather than answering from a
+    state nobody established.
+
+    WHY the privacy decision ends in `turned_private`: it reads the board's state fresh,
+    immediately before the answer that depends on it, so there is no earlier copy to go stale
+    between the read and the 403 that would otherwise confirm the id exists.
     """
     try:
         score = await Score.get_or_none(id=score_id)
-        private = score is not None and await turned_private(
-            cast(str, getattr(score, "benchmark_id"))
-        )
+        if score is None:
+            private = False
+        else:
+            board_id = cast(str, getattr(score, "benchmark_id"))
+            private = not await Benchmark.exists(id=board_id) or await turned_private(board_id)
     except OperationalError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -419,7 +429,7 @@ async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> 
     if private and not (owner and identity_is_verified(settings.auth_mode)):
         raise _score_not_found()
     if owner:
-        return score
+        return score, private
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail={
@@ -439,6 +449,7 @@ async def patch_score(
     score_id: UUID,
     patch: ScoreMetadataPatch,
     request: Request,
+    response: Response,
     identity: VerifiedIdentity,
 ) -> ScoreSchema:
     """Edit the authors and paper link of a score you submitted (E14 A1).
@@ -446,7 +457,10 @@ async def patch_score(
     An absent key leaves the field unchanged; `paper_url: null` clears the link. Every change is
     logged (`GET /v1/scores/{id}/metadata-events`); a request that changes nothing is a no-op.
     """
-    await _load_owned_score(request, score_id, identity)
+    score, private = await _load_owned_score(request, score_id, identity)
+    if private:
+        # Identity-scoped, so it must not be shared-cacheable (as `get_score` does for the board).
+        response.headers.update(PRIVATE_CACHE_HEADERS)
     store = cast(ScoreStore, request.app.state.score_store)
     try:
         updated = await store.patch_metadata(
@@ -454,7 +468,16 @@ async def patch_score(
             edited_by=identity,
             # `model_fields_set`, not a default dump: it is what tells an absent key from null.
             changes=patch.model_dump(include=patch.model_fields_set),
+            benchmark_id=cast(str, getattr(score, "benchmark_id")),
+            expect_private=private,
         )
+    except BenchmarkVisibilityChanged as exc:
+        # The board changed between the check above and the locked write. Same answer as the
+        # resubmit path: nothing is wrong with the request, and a retry sees one consistent view.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=VISIBILITY_CHANGED_DETAIL,
+        ) from exc
     except OperationalError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -478,7 +501,7 @@ async def get_metadata_events(
     identity: VerifiedIdentity,
 ) -> list[ScoreMetadataEventSchema]:
     """The edit log of a score you submitted, newest first. Never public: it holds author emails."""
-    await _load_owned_score(request, score_id, identity)
+    await _load_owned_score(request, score_id, identity)  # the refusal; the flag is not needed
     # INVARIANT: identity-scoped and sensitive, so no shared cache may keep it.
     response.headers.update(PRIVATE_CACHE_HEADERS)
     store = cast(ScoreStore, request.app.state.score_store)

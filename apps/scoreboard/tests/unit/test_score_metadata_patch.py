@@ -26,7 +26,7 @@ from scoreboard.main import create_app
 from scoreboard.routes.dependencies import MISSING_IDENTITY_DETAIL, UNTRUSTED_PEER_DETAIL
 from scoreboard.scores.models import Benchmark, Score, ScoreMetadataEvent
 from scoreboard.scores.schemas import ScoreMetadataPatch
-from scoreboard.scores.store import ScoreStore
+from scoreboard.scores.store import BenchmarkVisibilityChanged, ScoreStore
 
 pytestmark = pytest.mark.asyncio
 
@@ -556,3 +556,127 @@ async def test_patch_store_unavailable_is_503(
 
     assert response.status_code == 503
     assert response.json() == {"detail": "score store unavailable"}
+
+
+# --- design-review round: the board is re-checked INSIDE the write -------------------------------
+
+
+async def test_patch_refuses_a_board_that_turned_private_after_the_pre_check(
+    disabled_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # In `disabled` mode the caller is NOT verified, so it must never mutate a private board. The
+    # route's own check ran against a public board; the flip lands before the write.
+    created = await disabled_client.post("/v1/scores", json=_payload(submitted_by="tester"))
+    score_id = created.json()["id"]
+    await Benchmark.filter(id="hle").update(visibility="private")
+
+    async def stale(_benchmark_id: str) -> bool:
+        return False
+
+    monkeypatch.setattr("scoreboard.routes.scores.turned_private", stale)
+    response = await disabled_client.patch(
+        f"/v1/scores/{score_id}", json={"paper_url": PAPER}, headers=_as("tester")
+    )
+
+    assert response.status_code == 409
+    assert (await Score.get(id=score_id)).paper_url is None
+    assert await _events(score_id) == []
+
+
+async def test_store_patch_revalidates_the_board_under_the_lock(tortoise_db: None) -> None:
+    await Benchmark.create(id="hle", display_name="HLE")
+    row = await Score.create(
+        spec_id="s",
+        url4_expression="url4://x",
+        submitted_by=ALICE,
+        score=0.5,
+        total_questions=4,
+        ran_with_providers=["openai"],
+        benchmark_id="hle",
+    )
+    await Benchmark.filter(id="hle").update(visibility="private")
+
+    with pytest.raises(BenchmarkVisibilityChanged):
+        await ScoreStore().patch_metadata(
+            row.id,
+            edited_by=ALICE,
+            changes={"paper_url": PAPER},
+            benchmark_id="hle",
+            expect_private=False,
+        )
+
+    assert (await Score.get(id=row.id)).paper_url is None
+    assert await ScoreMetadataEvent.all().count() == 0
+
+
+async def test_patch_treats_a_missing_benchmark_row_as_private(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `get_score` fails closed on `benchmark is None`; so must the owner-only routes: a non-owner
+    # gets the same 404 as an unknown id, not a 403 that confirms the id exists.
+    score_id = await _submit(client)
+
+    async def missing(*_args: object, **_kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(Benchmark, "exists", missing)
+    stranger = await client.patch(
+        f"/v1/scores/{score_id}", json={"paper_url": PAPER}, headers=_as(BOB)
+    )
+
+    assert stranger.status_code == 404
+    assert stranger.json() == {"detail": "score not found"}
+
+
+async def test_patch_200_on_a_private_board_carries_the_private_cache_headers(
+    client: AsyncClient,
+) -> None:
+    await Benchmark.create(id="private-x", display_name="Private", visibility="private")
+    private_id = await _submit(client, benchmark_id="private-x")
+    public_id = await _submit(client, spec_id="other", url4_expression="url4://other")
+
+    private = await client.patch(
+        f"/v1/scores/{private_id}", json={"paper_url": PAPER}, headers=_as(ALICE)
+    )
+    public = await client.patch(
+        f"/v1/scores/{public_id}", json={"paper_url": PAPER}, headers=_as(ALICE)
+    )
+
+    assert private.status_code == public.status_code == 200
+    assert private.headers["cache-control"] == "private, no-store"
+    assert "cache-control" not in public.headers
+
+
+async def test_patch_writes_one_stamp_for_the_row_and_the_event(client: AsyncClient) -> None:
+    score_id = await _submit(client)
+
+    await client.patch(f"/v1/scores/{score_id}", json={"paper_url": PAPER}, headers=_as(ALICE))
+
+    (event,) = await _events(score_id)
+    assert event.edited_at == (await Score.get(id=score_id)).metadata_updated_at
+
+
+async def test_patch_null_authors_error_points_at_the_authors_field(client: AsyncClient) -> None:
+    score_id = await _submit(client, authors=[ALICE])
+
+    response = await client.patch(
+        f"/v1/scores/{score_id}", json={"authors": None}, headers=_as(ALICE)
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "authors"]
+
+
+async def test_owner_only_routes_document_both_403_shapes_and_the_401(client: AsyncClient) -> None:
+    spec = (await client.get("/openapi.json")).json()
+
+    for operation in (
+        spec["paths"]["/v1/scores/{score_id}"]["patch"],
+        spec["paths"]["/v1/scores/{score_id}/metadata-events"]["get"],
+    ):
+        forbidden = operation["responses"]["403"]
+        assert "untrusted" in forbidden["description"].lower()
+        assert "not_score_owner" in forbidden["description"]
+        schemas = str(forbidden["content"]["application/json"]["schema"])
+        assert "MessageErrorResponse" in schemas and "CodedErrorResponse" in schemas
+        assert "disabled" in operation["responses"]["401"]["description"].lower()

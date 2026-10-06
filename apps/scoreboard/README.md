@@ -70,7 +70,7 @@ Settings are read from environment variables with the `SCOREBOARD_` prefix.
 
 ## Portal And Public Artifacts
 
-The scoreboard service serves the demo portal at `/`. The portal UI, GET routes, and public JSONL artifacts are always unauthenticated. `POST /v1/scores` is unauthenticated while `SCOREBOARD_AUTH_MODE` stays at its default (`disabled`).
+The scoreboard service serves the demo portal at `/`. The portal UI, the public JSONL artifacts, and the score and leaderboard GET routes are unauthenticated. The one exception is `GET /v1/scores/{id}/metadata-events` (a submitter's edit log, which holds author emails): it needs an `X-User-Email` identity and answers only the submitter. `PATCH /v1/scores/{id}` needs one too. A private board's GET routes also scope to the caller. `POST /v1/scores` is unauthenticated while `SCOREBOARD_AUTH_MODE` stays at its default (`disabled`).
 
 Public artifact routes are exact-file allowlisted and served as inline `text/plain`:
 
@@ -88,7 +88,7 @@ uv run pytest tests/unit/ -v
 
 # The portal's pure logic runs under Node's built-in test runner. No package.json
 # or lockfile — Node is the whole harness. Requires a local Node (CI pins 24).
-node --test tests/portal/leaderboard-logic.test.js tests/portal/pareto-chart.test.js tests/portal/pareto-chart-review.test.js
+node --test tests/portal/leaderboard-logic.test.js tests/portal/pareto-chart.test.js tests/portal/pareto-chart-review.test.js tests/portal/paper-link.test.js
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright
