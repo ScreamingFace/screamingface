@@ -55,6 +55,25 @@
         document.documentElement.classList.add('dark');
       }
     </script>
+
+    <!-- Privacy-friendly analytics by Plausible. Cookieless; the script ignores localhost and
+         file://, so dev and preview builds send nothing. Pageviews follow the router's
+         history.pushState. Outbound links, file downloads and form submissions are captured by
+         the script; '404' and 'Code Copy' are sent from src/lib/analytics.ts callers. -->
+    <script async src="https://plausible.io/js/pa-dO3dK2BaMjDATf0c8Jznh.js"></script>
+    <script>
+      window.plausible =
+        window.plausible ||
+        function () {
+          ;(plausible.q = plausible.q || []).push(arguments)
+        }
+      plausible.init =
+        plausible.init ||
+        function (i) {
+          plausible.o = i || {}
+        }
+      plausible.init()
+    </script>
   </head>
   <body>
     <div id="app"></div>

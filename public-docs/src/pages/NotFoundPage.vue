@@ -1,5 +1,9 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import { trackNotFound } from '@/lib/analytics'
+
+onMounted(trackNotFound)
 </script>
 
 <template>

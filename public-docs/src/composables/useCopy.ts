@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { trackCodeCopy } from '@/lib/analytics'
 
 // Copy text to the clipboard and expose a transient `copied` flag for
 // "Copied!" button feedback. Overlapping copies reset the timer rather than
@@ -9,6 +10,7 @@ export function useCopy(resetDelay = 2000) {
 
   const copy = async (text: string) => {
     await navigator.clipboard.writeText(text)
+    trackCodeCopy()
     copied.value = true
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => {
