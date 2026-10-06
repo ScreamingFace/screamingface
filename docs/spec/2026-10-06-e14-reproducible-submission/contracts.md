@@ -57,7 +57,10 @@ Test numbers point at the TDD tables in the PRDs (`gw` = `prd/gateway-cache-revi
   (`packages/screamingface/src/screamingface/_engine/transport.py:1197`). It is sent only by
   `reproduce`. `[proposed]`
 - Run summary (engine → SDK): two new attributes, `cache.revision` (a string or absent) and
-  `cache.reproducible` (`complete` | `partial`), plus the `cache.partial.*` counts. `[proposed]`
+  `cache.reproducible` (`complete` | `partial`), plus the `cache.partial.*` counts. A replay run
+  also carries `cache.replay = <label>`; the SDK treats a replay summary without it as
+  `failed/replay_unsupported` (a worker older than its App ignored the replay env). Deploy rule:
+  workers before the App. `[proposed]`
 - Failure behaviour: an older engine ignores the header, so the replay would run as a normal run
   and could pay providers. To stop this, the engine acknowledges replay mode in the run-start
   response (the header `X-Cache-Replay` echoed back). The SDK cancels the run when the ack is

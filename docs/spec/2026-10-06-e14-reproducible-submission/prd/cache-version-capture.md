@@ -82,6 +82,9 @@ later. `[stated prompt]`
      `stored`.
   3. All calls carry the same revision label.
   4. No model or tool call failed. A failed call has no stored row, so a replay cannot answer it.
+     A cancelled call counts as failed. A failed attempt is forgiven when a later attempt with the
+     same request digest (sha256 of the canonical request body) succeeds in the same run, so a
+     retried 429 or 5xx does not make the run partial. (Decided in the B3 review.)
 - **C3.** Given a run with web search through Tavily (after B2), when every search was a hit or was
   filled with `stored`, then the run can be `complete`. `[stated ans:Q4]`
 - **C4.** Given a finished run, when the user submits it, then the payload has `cache_revision`,
