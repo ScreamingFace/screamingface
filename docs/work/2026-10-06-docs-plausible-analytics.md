@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1505
 stack: repo
 status: in_progress
 started: 2026-10-06
@@ -42,6 +42,6 @@ OpenMined Plausible account, configured like the screamingface.ai site.
 - **Commits:** see PR.
 - **Gates:** `npm run build` (type-check + vite build) pass; `oxlint` and `eslint` clean;
   `prettier --check` clean on the touched `src/` files.
-- **Deviations:** no spec or plan artifact and no Linear issue yet — opened as a draft for the
-  team to place under an epic. The `Code Copy` goal still has to be added on the Plausible site
+- **Deviations:** no spec or plan artifact (small, urgent change; scope and acceptance live in
+  OME-1505 under E12 / OME-1305). The `Code Copy` goal still has to be added on the Plausible site
   for that event to show in the dashboard; `404` and the automatic goals already exist.
