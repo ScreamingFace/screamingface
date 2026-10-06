@@ -34,6 +34,7 @@ from screamingface.leaderboard import (
     LeaderboardInfo,
     LeaderboardRankingNotice,
     LeaderboardScore,
+    ScoreMetadataEvent,
 )
 from screamingface.model import Model
 from screamingface.operation import OperationInfo
@@ -110,6 +111,7 @@ __all__ = [
     "ProviderConnectionError",
     "Recipe",
     "Report",
+    "ScoreMetadataEvent",
     "ScreamingFaceError",
     "SelfCorrective",
     "OperationAccounting",

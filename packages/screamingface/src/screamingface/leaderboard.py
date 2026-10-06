@@ -141,6 +141,9 @@ class LeaderboardScore:
     # Public Scoreboard JSON strips domains; full author emails never enter this read model.
     authors: tuple[str, ...] | None = None
     ranking_notice: LeaderboardRankingNotice | None = None
+    # FEATURE: OME-1307 — absent on a board that predates the field; decoded as None.
+    paper_url: str | None = None
+    metadata_updated_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
@@ -163,6 +166,7 @@ class LeaderboardScore:
             "client_version",
             "client_platform",
             "scoreboard_url",
+            "paper_url",
         )
         for name in optional_fields:
             object.__setattr__(
@@ -179,8 +183,8 @@ class LeaderboardScore:
             "ran_with_providers",
             _names(self.ran_with_providers, "Leaderboard score ran_with_providers"),
         )
-        if self.ran_at_local is not None:
-            _aware_datetime(self.ran_at_local, "Leaderboard score ran_at_local")
+        _optional_aware_datetime(self.ran_at_local, "Leaderboard score ran_at_local")
+        _optional_aware_datetime(self.metadata_updated_at, "Leaderboard score metadata_updated_at")
         if not isinstance(self.verified_by_screamingface, bool):
             raise TypeError("Leaderboard score verified_by_screamingface must be a boolean")
         if self.metadata is not None:
@@ -216,6 +220,40 @@ class LeaderboardScore:
         from screamingface._ui.score_view import leaderboard_score_html
 
         return leaderboard_score_html(self)
+
+
+@dataclass(frozen=True, slots=True)
+class ScoreMetadataEvent:
+    """One edit-log row for a score's authors or paper link (OME-1307)."""
+
+    id: UUID
+    edited_by: str
+    edited_at: datetime
+    source: Literal["patch", "resubmit"]
+    old_authors: tuple[str, ...] | None
+    new_authors: tuple[str, ...] | None
+    old_paper_url: str | None
+    new_paper_url: str | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, UUID):
+            raise TypeError("Score metadata event id must be a UUID")
+        object.__setattr__(
+            self, "edited_by", _text(self.edited_by, "Score metadata event edited_by")
+        )
+        _aware_datetime(self.edited_at, "Score metadata event edited_at")
+        if self.source not in ("patch", "resubmit"):
+            raise ValueError("Score metadata event source must be 'patch' or 'resubmit'")
+        for name in ("old_authors", "new_authors"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _authors(value, f"Score metadata event {name}"))
+        for name in ("old_paper_url", "new_paper_url"):
+            object.__setattr__(
+                self,
+                name,
+                _optional_text(getattr(self, name), f"Score metadata event {name}"),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,6 +369,11 @@ def _aware_datetime(value: object, label: str) -> None:
         raise ValueError(f"{label} must be timezone-aware")
 
 
+def _optional_aware_datetime(value: object, label: str) -> None:
+    if value is not None:
+        _aware_datetime(value, label)
+
+
 def _names(values: object, label: str) -> tuple[str, ...]:
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
         raise TypeError(f"{label} must be a sequence")
@@ -382,4 +425,5 @@ __all__ = [
     "LeaderboardInfo",
     "LeaderboardRankingNotice",
     "LeaderboardScore",
+    "ScoreMetadataEvent",
 ]
