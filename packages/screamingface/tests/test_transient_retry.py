@@ -265,11 +265,22 @@ def test_a_problem_json_detail_is_still_preferred() -> None:
 # ── Retry-After: the HTTP-date wire form ─────────────────────────────────────────────────
 
 
+def _retry_at_in_whole_seconds() -> datetime:
+    """A server's "retry at" time that lands 5 to 6 seconds out, never under 5.
+
+    WHY whole seconds: an HTTP-date has no fractions, so "now + 5s" written as one lost up
+    to 0.999s and the parsed delay could fall to 3.9996s, under the tests' 4-second floor
+    (it failed CI twice, 2026-10-06). Starting from now rounded DOWN plus 6s puts the delay
+    in (5, 6] before the client's own run time, inside the 5 ± 1 window.
+    """
+    return datetime.now(UTC).replace(microsecond=0) + timedelta(seconds=6)
+
+
 def test_retry_after_http_date_is_honoured() -> None:
     """A server may send `Retry-After` as an HTTP-date instead of delta-seconds (RFC 9110
     §10.2.3) — both forms are the same server-named number, just spelled differently, and
     second-guessing either is how a thundering herd starts."""
-    target = format_datetime(datetime.now(UTC) + timedelta(seconds=5), usegmt=True)
+    target = format_datetime(_retry_at_in_whole_seconds(), usegmt=True)
     handler = _Recorder((503, {"Retry-After": target}), 200)
     rig = _rig(handler)
     with rig.client as client:
@@ -281,7 +292,7 @@ def test_retry_after_http_date_is_honoured() -> None:
 def test_retry_after_naive_http_date_is_treated_as_utc() -> None:
     """`_http_date` documents that it normalises to UTC — an HTTP-date with no zone info is
     the case that promise exists for, not merely a parse detail."""
-    naive = (datetime.now(UTC) + timedelta(seconds=5)).strftime("%a, %d %b %Y %H:%M:%S")
+    naive = _retry_at_in_whole_seconds().strftime("%a, %d %b %Y %H:%M:%S")
     handler = _Recorder((503, {"Retry-After": naive}), 200)
     rig = _rig(handler)
     with rig.client as client:
