@@ -3806,18 +3806,19 @@ def _check_named_scores(spec: BenchmarkSpec) -> None:
             f"{spec.key}: dropped_scorers {sorted(declared_and_dropped)} are also declared "
             "in named_scores; a scorer is kept or dropped, never both"
         )
-    if spec.extra_scorers:
-        _check_names_are_the_scorers(spec)
 
 
-def _check_names_are_the_scorers(spec: BenchmarkSpec) -> None:
+def check_named_scores_are_the_scorers(spec: BenchmarkSpec) -> None:
     """Refuse a multi-scorer row whose names are not its scorers' registry names, in order.
 
     WHY (review finding on #1249): the adapter pairs names with scorers by POSITION, so a
     row declaring ``("exact", "f1")`` over f1 and exact would publish f1's mark under
-    ``exact`` — the wrong number under the right label, and no Case would fail. Resolving
-    each constructor here imports the eval's module at assembly, once, for multi-scorer
-    rows only; a single-scorer row stays lazy and extra-free.
+    ``exact`` — the wrong number under the right label, and no Case would fail.
+    WHY NOT at assembly: resolving a constructor imports inspect_ai (starlette, the OTel
+    SDK) and assembly runs at engine import in every mode, including the run entry point
+    whose cold start test_cli pins. So this runs in two places that already pay for
+    inspect: the registry conformance test, over every row (CI), and the adapter when it
+    builds the scorers for a run (``inspect_grade_case``), before any Case is graded.
     """
 
     from screamingface_engine_inspect.scorer_metrics import scorer_registry_name

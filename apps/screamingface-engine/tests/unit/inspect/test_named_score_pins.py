@@ -152,22 +152,33 @@ async def test_the_declared_scorers_reach_the_adapter_through_the_real_assembly(
     assert assembled.aggregation().named_scores == ("f1", "exact")
 
 
-def test_assembly_refuses_names_that_are_not_the_scorers_in_order(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_registry_check_refuses_names_that_are_not_the_scorers_in_order() -> None:
     # Keelan's review finding #1 on #1249: the adapter pairs names with scorers by position,
-    # so reversed names would publish f1's mark under "exact" with no Case failing.
+    # so reversed names would publish f1's mark under "exact" with no Case failing. The
+    # check resolves each constructor, which imports inspect_ai — so it runs here and in
+    # the adapter, never at assembly (test_cli pins the run entry point's cold start).
     with pytest.raises(ValueError, match=r"registry names in order, \['f1', 'exact'\]"):
-        _assembled(
-            _spec(extra_scorers=("inspect_ai.scorer:exact",), named_scores=("exact", "f1")),
-            monkeypatch,
+        benchmarks.check_named_scores_are_the_scorers(
+            _spec(extra_scorers=("inspect_ai.scorer:exact",), named_scores=("exact", "f1"))
+        )
+    benchmarks.check_named_scores_are_the_scorers(
+        _spec(extra_scorers=("inspect_ai.scorer:exact",), named_scores=("f1", "exact"))
+    )
+
+
+def test_the_registry_check_refuses_an_extra_scorer_the_registry_does_not_know() -> None:
+    # `json.dumps` imports fine but is no inspect scorer: the row names something that
+    # could never grade, and the check says so by reference instead of failing every Case.
+    with pytest.raises(ValueError, match="json:dumps is not a registered scorer"):
+        benchmarks.check_named_scores_are_the_scorers(
+            _spec(extra_scorers=("json:dumps",), named_scores=("f1", "dumps"))
         )
 
 
-def test_assembly_refuses_an_extra_scorer_the_registry_does_not_know(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # `json.dumps` imports fine but is no inspect scorer: the row names something that
-    # could never grade, and assembly says so by reference instead of failing every Case.
-    with pytest.raises(ValueError, match="json:dumps is not a registered scorer"):
-        _assembled(_spec(extra_scorers=("json:dumps",), named_scores=("f1", "dumps")), monkeypatch)
+def test_every_registered_multi_scorer_row_names_its_scorers_in_order() -> None:
+    """The registry conformance half of the check: every row with extra scorers resolves
+    each constructor and its names match, so a swapped row cannot reach main."""
+
+    for spec in benchmarks.BENCHMARKS:
+        if spec.extra_scorers:
+            benchmarks.check_named_scores_are_the_scorers(spec)

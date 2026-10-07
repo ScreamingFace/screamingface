@@ -244,3 +244,11 @@ async def test_named_scores_are_rejected_on_a_scorer_that_returns_a_scalar() -> 
     outcome = await hook(_request())
 
     assert outcome.failure_code == "invalid_score_value"
+
+
+def test_the_adapter_refuses_reversed_names_over_registered_scorers() -> None:
+    # Keelan's review finding #1 on #1249, the run-time half: f1 and exact under the names
+    # ("exact", "f1") would publish f1's mark as exact. Refused when the room is built,
+    # before any Case is graded.
+    with pytest.raises(ValueError, match=r"named_scores\[0\] is 'exact' but .* 'f1'"):
+        inspect_grade_case(f1(), extra_scorers=[exact()], named_scores=("exact", "f1"))

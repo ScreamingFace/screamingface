@@ -81,9 +81,11 @@ Benchmark. Deploys only after PR 2's SDK (#1248) is released.
   word map (`verdict_grades`) is the headline scorer's vocabulary only; the other scorers speak
   inspect's letters, so a word there fails the Case by name (spec §2.1 made explicit).
 - **Review round (2026-10-07, Keelan's request-changes on #1249 + the stack review):**
-  (a) assembly now resolves each scorer of a multi-scorer row and refuses names that are not
-  the scorers' registry names in order (reversed `("exact", "f1")` was accepted and published
-  f1's mark under `exact`); (b) `headline_metric_kind` approves by QUALIFIED registry identity
+  (a) a multi-scorer row's names must be its scorers' registry names in order (reversed
+  `("exact", "f1")` was accepted and published f1's mark under `exact`): checked by a
+  registry conformance test over every row and by the adapter when it builds the scorers —
+  not at assembly, where resolving a constructor imports inspect_ai into the run entry
+  point's cold start (`test_cli` and `test_span_export_wiring` caught that on #1251); (b) `headline_metric_kind` approves by QUALIFIED registry identity
   (`inspect_ai/accuracy`, `inspect_ai/mean`) with no creation arguments — an eval's own
   `accuracy` and `accuracy(to_float=...)` are "other"; (c) a test through the real reducer
   (`_accuracy`): 2 graded + 1 failed Case, column means, coverage, `scores[headline] == score`

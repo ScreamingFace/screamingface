@@ -127,8 +127,16 @@ def inspect_grade_case(
 
     Returns:
         The async hook the shared grading code calls once per gradeable Case.
+
+    Raises:
+        ValueError: with several scorers, when a registered scorer's name is not the
+            Named Score at its position (``("exact", "f1")`` over f1 and exact) — the
+            pairing is by position, so a swap would publish the wrong number under the
+            right label with no Case failing. Checked once, here, before any Case is
+            graded; the registry conformance test checks every row the same way in CI.
     """
 
+    _check_scorer_names((scorer, *extra_scorers), tuple(named_scores))
     names: tuple[str, ...] = tuple(named_scores)
     extras: tuple[Scorer, ...] = tuple(extra_scorers)
     if extras and len(names) != 1 + len(extras):
@@ -208,6 +216,30 @@ def _outcome(
     return CaseGradeOutcome(
         score=case_score, metrics={}, checks=[_check(score, grade, case_score, completion)]
     )
+
+
+def _check_scorer_names(scorers: Sequence[Scorer], names: tuple[str, ...]) -> None:
+    """Refuse a multi-scorer room whose examiners are not seated under their own names.
+
+    Only a REGISTERED scorer (one carrying inspect's registry info) can be compared; a
+    plain callable stand-in has no name of its own and is left to the position it was
+    given. The rows the Engine serves hold registered scorers only, and CI resolves every
+    one of them (``check_named_scores_are_the_scorers``).
+    """
+
+    from inspect_ai._util.registry import is_registry_object, registry_unqualified_name
+
+    if len(scorers) < 2:
+        return
+    for position, (examiner, name) in enumerate(zip(scorers, names, strict=True)):
+        if not is_registry_object(examiner):
+            continue
+        actual: str = str(registry_unqualified_name(examiner))
+        if actual != name:
+            raise ValueError(
+                f"named_scores[{position}] is {name!r} but the scorer at that position is "
+                f"{actual!r}; names must be the scorers' registry names in order"
+            )
 
 
 async def _named_outcome(
