@@ -53,10 +53,9 @@ gdpval-text) to that bundle on the run page. No Benchmark Revision moves, never 
 - **Commits:** the feature commit (record where each hand-built bundle's Cases came from), the
   docs commit (spec, ledger, mirror line), the approval commit (pins the SDK helper edit in
   `.claude/test-change-approvals/OME-1492.json`), and one review-fix commit.
-- **Gates:** `run_gates.py screamingface-engine --base OME-1492-pr1-bundle-provenance` and
-  `run_gates.py screamingface --base OME-1492-pr1-bundle-provenance` ALL GREEN, no skip flag; the
-  approvals file carries the SDK helper's blob against PR 1's tip (regenerated after each rebase
-  onto PR 1). Free paid-lane tests: `SCREAMINGFACE_TEST_PAID=1 uv run pytest tests/paid -m "not paid"` green.
+- **Gates:** `run_gates.py screamingface-engine --base <merge-base with main>` and
+  `run_gates.py screamingface --base <merge-base with main>` ALL GREEN, no skip flag; the
+  approvals file carries the SDK helper's blob against main (regenerated after each rebase). Free paid-lane tests: `SCREAMINGFACE_TEST_PAID=1 uv run pytest tests/paid -m "not paid"` green.
 - **Deviations:**
   - `excluded` stays `yielded − kept` (PR 1's rule), so gdpval reads 220 / 118 / 102, not the
     summary's 7 unreadable tasks; the summary keeps `excluded_tasks: 7` unchanged.
@@ -70,6 +69,10 @@ gdpval-text) to that bundle on the run page. No Benchmark Revision moves, never 
     (`url`, `unpinned` included) now live only in core, and the plugin imports them; the plan
     `docs/plan/2026-10-07-OME-1492-pr3-hand-built-provenance.md` is committed (recorded at review
     time) and the approvals reason points at it.
+  - #1268 and #1284 merged before their review fixes were pushed, so this PR carries both fix
+    commits (rebased onto main): the used-folder refusal and NaN-time row from #1268's review,
+    the repeated-Case test and docs from #1284's. Their ledgers record them. The OME-1492 mirror
+    closes here, since this is the last PR of the ticket.
   - Not done: a check that the SDK's shared-bundle map matches the Engine's registrations. It
     would make an Engine test read an SDK test helper by path; today all four entries are right,
     and a new shared bundle shows as a visible "not recorded" row on the press page.

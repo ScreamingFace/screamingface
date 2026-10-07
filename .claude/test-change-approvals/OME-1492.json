@@ -7,7 +7,7 @@
   "reason": "OME-1492 PR 3 records where each hand-built bundle's Cases came from; the owner approved this change to the PR 1 helper (docs/plan/2026-10-07-OME-1492-pr3-hand-built-provenance.md, Owner calls).",
   "files": {
     "packages/screamingface/tests/paid/_case_provenance.py": {
-      "base_blob": "ec387e9733e6ee15ac1caca81247c24dc776082d",
+      "base_blob": "ecc461d40ab5dfd63b74503288de6115c3cb8172",
       "approved_blob": "e82a58f6cdec9b80ef32f06b7b2cdc7efba46c35"
     }
   }
