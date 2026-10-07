@@ -33,6 +33,10 @@ def assets(registration, root, monkeypatch):
         contracteval_assets(root)
     elif name == "medxpert":
         medxpert_assets(root, 1)
+    elif name == "musique":
+        from test_musique_resolution import _assets as musique_assets
+
+        musique_assets(root)
     else:
         import test_gdpval_runtime as fixture
 

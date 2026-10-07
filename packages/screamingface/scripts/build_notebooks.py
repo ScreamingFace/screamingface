@@ -61,6 +61,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "12_inspect_evals_benchmarks.ipynb": _inspect_evals_boards(),
         "13_contracteval.ipynb": _contracteval_e2e(),
         "14_report_accounting.ipynb": _notebook(*accounting_cells()),
+        "15_musique.ipynb": _musique_e2e(),
     }
 
 
@@ -1733,6 +1734,159 @@ about 5,400 input tokens, so one pass over all 4,182 rows is roughly **23M input
 panel member** — multiply by your members, and again by the synthesiser if it sees their
 answers. There is no spend cap in this stack, so `limit` is the only brake. Raise it in steps
 and read the cost in `report.usage` as you go."""),
+    )
+
+
+def _musique_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# MuSiQue-Ans — multi-hop reading, scored by the paper's own code
+
+[MuSiQue](https://aclanthology.org/2022.tacl-1.31/) is a reading test built like a detective
+puzzle: each question needs 2 to 4 facts chained together, each fact sits in a different
+paragraph, and the model gets 17 to 20 numbered paragraphs of which only 2 to 4 matter — the
+rest are decoys chosen to look relevant. This board serves the 2,417 answerable questions of
+the dev split (the test split's answers are withheld).
+
+The model may reason first, then must end its reply with two lines:
+
+```text
+Supporting paragraphs: <the numbers of the paragraphs it used>
+Answer: <the answer, in as few words as possible>
+```
+
+Grading is the paper's own scoring code, copied verbatim: no judge, no grading tokens. What you
+pay for is answer generation.
+
+**Three numbers per run, not one.**
+
+- **`f1`** (the headline) — SQuAD-style token F1 of the answer against the gold answer and its
+  accepted aliases. `Giraudy` against `Miquette Giraudy` earns 0.67.
+- **`exact`** — exact match after normalisation (lowercase, no punctuation, no articles).
+- **`support_f1`** — F1 of the cited paragraph numbers against the gold supporting ones. It
+  shows whether the model found the chain or guessed the end of it.
+
+For scale: humans score 0.78 answer F1 in the paper; the best published system, a fine-tuned
+retrieval pipeline, scores 0.692 on the test split. The dev set has been public since 2022."""),
+        nbformat.v4.new_markdown_cell("""\
+## 0. Before running
+
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
+
+```bash
+screamingface prepare musique  # first run only: download the pinned, sha256-checked dev file
+screamingface up               # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
+```
+
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
+Stack management stays outside the notebook so **Run All** never starts or stops local
+services."""),
+        nbformat.v4.new_code_cell("""\
+import screamingface as sf
+
+sf.connect()"""),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Run a few cases with one model
+
+Each case carries every paragraph — about 10,000 characters at the median, 21,000 at most — and
+the reply is short. The token budget is for the model's reasoning before the two closing lines:
+a reasoning model that runs out of budget before them scores as if it never answered."""),
+        nbformat.v4.new_code_cell("""\
+PARAMS = {"max_tokens": 4096}
+
+solo = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+report = sf.evaluate(solo, benchmark="musique-ans", limit=10)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+### Reading the three scores
+
+`score` is `f1`. `scores` holds all three, each averaged over the same graded cases. The
+metrics say how often the model actually wrote each closing line: a reply that dropped one is
+still graded (the whole reply stands in for a missing answer line; a missing support line
+cites nothing), so a low line rate explains a low score."""),
+        nbformat.v4.new_code_cell("""\
+candidate = report.candidates.only
+print("score (f1):", candidate.score)
+for name, value in candidate.scores.items():
+    print(f"  {name:12s} {value}")
+for key, value in candidate.metrics.items():
+    print(f"  {key:26s} {value}")"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Compare a Fusion against the same model
+
+Two members read the same paragraphs; the synthesiser sees their replies and writes one. The
+synthesiser has no custom prompt here: the SDK's default synthesis prompt carries the case's
+format instructions through, so the fused reply still ends with the two lines."""),
+        nbformat.v4.new_code_cell("""\
+member1 = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+member2 = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARAMS)
+synth = sf.Model(model="openrouter/anthropic/claude-opus-4.8", params=PARAMS)
+panel = sf.Fusion(name="reading_panel", members=[member1, member2], synthesizer=synth)
+
+fusion_report = sf.evaluate(panel, benchmark="musique-ans", limit=10)
+print("solo  ", report.candidates.only.scores)
+print("fusion", fusion_report.candidates.only.scores)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Answer F1 by hop count
+
+Every case result carries the dataset's own id and its composition shape in `metadata`
+(`2hop`, `3hop1`, `3hop2`, `4hop1`, `4hop2`, `4hop3`). Grouping by it shows where each system
+loses the chain. The board's report averages over every case; this split is a view you build
+from the cases.
+
+**A small `limit` is all 2-hop.** `limit=N` takes the first N cases, and the dev file lists its
+1,252 two-hop questions first, so the 3- and 4-hop rows fill in only on a run past case 1,252 —
+in practice, the full set."""),
+        nbformat.v4.new_code_cell("""\
+from collections import defaultdict
+
+
+def f1_by_hop(report):
+    by_hop = defaultdict(list)
+    for case in report.candidates.only.cases:
+        grade = case.grade
+        if grade is None or grade.score is None:
+            continue  # not graded: outside every mean, as in the report
+        by_hop[case.metadata.get("hop_type", "unknown")].append(grade.scores["f1"])
+    return {hop: (len(values), sum(values) / len(values)) for hop, values in by_hop.items()}
+
+
+solo_hops = f1_by_hop(report)
+fusion_hops = f1_by_hop(fusion_report)
+print(f"{'hop type':9s} {'cases':>5s} {'solo f1':>8s} {'fusion f1':>9s}")
+for hop in sorted(solo_hops.keys() | fusion_hops.keys()):
+    cases, solo_f1 = solo_hops.get(hop, (0, float("nan")))
+    _, fusion_f1 = fusion_hops.get(hop, (0, float("nan")))
+    print(f"{hop:9s} {cases:5d} {solo_f1:8.3f} {fusion_f1:9.3f}")"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Read one case
+
+Each case grade has two checks, one per closing line, and its metrics say whether each line
+was found. The report never publishes the gold answer — only how many accepted spellings and
+supporting paragraphs there were."""),
+        nbformat.v4.new_code_cell("""\
+for case in fusion_report.candidates.only.cases[:3]:
+    grade = case.grade
+    print(case.case_id, case.metadata.get("musique_id"), case.status)
+    if grade is None:
+        continue
+    print("   scores :", dict(grade.scores))
+    print("   lines  :", dict(grade.metrics))
+    for check in grade.checks:
+        print("   check  :", check.id, check.outcome, check.evidence[0].metadata)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. Before you scale up
+
+A `limit=N` run is a smoke test, not a ranking. Run the full set before quoting a comparison:
+it is the only run that covers the 3- and 4-hop questions.
+
+**Know what the full set costs before you start it.** At roughly 4 characters per token, the
+paragraphs come to about 6.3M input tokens per member for all 2,417 cases — multiply by your
+members, and again by the synthesiser, which also reads their replies. There is no spend cap in
+this stack, so `limit` is the only brake. Raise it in steps and read the cost in
+`report.usage` as you go."""),
     )
 
 

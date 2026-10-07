@@ -25,7 +25,7 @@ from screamingface._runtime.config import RuntimeConfig, default_data_dir
 
 _STATE_VERSION = 1
 _PORT_DEFAULTS = {"gateway": 9105, "scoreboard": 9106, "engine": 9108}
-_BENCHMARKS = ("draco", "ifeval", "healthbench", "gdpval", "medxpert", "contracteval")
+_BENCHMARKS = ("draco", "ifeval", "healthbench", "gdpval", "medxpert", "contracteval", "musique")
 # WHY 15: enough to carry the failing import plus its traceback into the `up` error;
 # short enough that the message stays readable where it lands (OME-1036).
 _STARTUP_LOG_TAIL_LINES = 15
@@ -766,6 +766,9 @@ def _validate_benchmark_output(name: str, destination: Path) -> list[str]:
         # WHY "answers" like MedXpertQA and not "rubrics": ContractEval is graded by string
         # containment, so its private asset is the list of gold clause sentences per case.
         "contracteval": ("cases.json", "answers"),
+        # WHY "answers" like ContractEval: MuSiQue is graded by the paper's own scorer, so its
+        # private asset is the gold answer, aliases and supporting paragraph numbers per case.
+        "musique": ("cases.json", "answers"),
     }[name]
     missing = [relative for relative in required if not (destination / relative).exists()]
     if missing:

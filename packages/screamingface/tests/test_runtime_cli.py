@@ -288,7 +288,7 @@ def test_benchmark_manifest_distinguishes_prepared_stale_and_incomplete(
 
 
 @pytest.mark.parametrize(
-    "name", ("draco", "ifeval", "healthbench", "gdpval", "medxpert", "contracteval")
+    "name", ("draco", "ifeval", "healthbench", "gdpval", "medxpert", "contracteval", "musique")
 )
 def test_benchmark_fingerprint_uses_engine_preparation_revision(
     name: str, monkeypatch: pytest.MonkeyPatch

@@ -37,6 +37,10 @@ from screamingface_engine.benchmarks.medxpert.definition import (
     ASSET_BUNDLE_ID as MEDXPERT_ASSET_BUNDLE_ID,
 )
 from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
+from screamingface_engine.benchmarks.musique.definition import (
+    ASSET_BUNDLE_ID as MUSIQUE_ASSET_BUNDLE_ID,
+)
+from screamingface_engine.benchmarks.musique.definition import MUSIQUE_ANS
 
 
 def _prepare_draco(out: Path) -> Mapping[str, Any]:
@@ -77,6 +81,12 @@ def _prepare_healthbench(out: Path) -> Mapping[str, Any]:
     return prepare(out)
 
 
+def _prepare_musique(out: Path) -> Mapping[str, Any]:
+    from screamingface_engine.benchmarks.musique.prepare import prepare
+
+    return prepare(out)
+
+
 DRACO_ASSETS = BenchmarkAssetBundle(id=DRACO_ASSET_BUNDLE_ID, prepare=_prepare_draco)
 IFEVAL_ASSETS = BenchmarkAssetBundle(id=IFEVAL_ASSET_BUNDLE_ID, prepare=_prepare_ifeval)
 GDPVAL_ASSETS = BenchmarkAssetBundle(id=GDPVAL_ASSET_BUNDLE_ID, prepare=_prepare_gdpval)
@@ -89,6 +99,7 @@ HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
     id=HEALTHBENCH_ASSET_BUNDLE_ID,
     prepare=_prepare_healthbench,
 )
+MUSIQUE_ASSETS = BenchmarkAssetBundle(id=MUSIQUE_ASSET_BUNDLE_ID, prepare=_prepare_musique)
 
 # WHY: this composition is the single source for both runtime discovery and image construction.
 # Benchmarks that read one physical asset set intentionally share a bundle and the deployment
@@ -110,6 +121,7 @@ BUILTIN_REGISTRATIONS = (
     BenchmarkRegistration(benchmark=GDPVAL_TEXT, asset_bundle=GDPVAL_ASSETS),
     BenchmarkRegistration(benchmark=MEDXPERT, asset_bundle=MEDXPERT_ASSETS),
     BenchmarkRegistration(benchmark=CONTRACTEVAL, asset_bundle=CONTRACTEVAL_ASSETS),
+    BenchmarkRegistration(benchmark=MUSIQUE_ANS, asset_bundle=MUSIQUE_ASSETS),
 )
 # FEATURE: plugin-contributed benchmarks (OME-1115). The built-in tuple comes first and the
 # discovered extensions after, so with the entry-point group empty (no plugin, or the

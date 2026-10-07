@@ -121,6 +121,7 @@ def test_the_declared_vocabulary_is_exactly_the_agreed_set() -> None:
             "healthbench_grading_failed",
             "medxpert_grading_failed",
             "inspect_grading_failed",
+            "musique_grading_failed",
             # contracteval codes declared by OME-1246 (landed in flight with the
             # OME-1233 close, so they missed the original agreed set)
             "contracteval_grading_failed",

@@ -171,6 +171,9 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # a bare trigger. Its ungradeable Cases still go to the shared finalizer, hence
         # coverage_declare.
         "medxpert": ("coverage_declare", "multi_turn", "hard"),
+        # MuSiQue-Ans (OME-1475) answers each Case once; a reply missing its two committed
+        # lines is still graded and flagged, so only never-graded Cases reach the finalizer.
+        "musique-ans": ("coverage_declare", "single_shot", "hard"),
     }
     # Plugin-contributed benchmarks (OME-1115) are present only when their extra is
     # installed; their rows are still explicit, so a new imported benchmark — or a changed
