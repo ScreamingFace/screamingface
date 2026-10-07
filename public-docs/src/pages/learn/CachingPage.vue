@@ -59,6 +59,126 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       up the community's hits, and that is the real trade against the local path's independence.
     </p>
 
+    <h2>Reproducing a submission</h2>
+
+    <p>
+      A leaderboard submission can name the cache it ran against. The cache keys its entries with
+      rules, and those rules can change between releases. A <strong>cache revision</strong> is a
+      short label, such as <code>cr-1a2b3c4d5e6f</code>, for the version of the rules that stored a
+      run's answers. The submission keeps that label. It keeps no list of keys. The
+      <RouterLink to="/learn/url4">url4</RouterLink>, the benchmark revision, the answer seed and
+      the cache revision together name the cache version of the run.
+    </p>
+
+    <p>
+      <code>sf.reproduce(score)</code> runs the score again from that cache version. The replay asks
+      for <code>only-if-cached</code>. The cache then returns a stored answer or fails the call, and
+      it never reaches a provider. So a replay costs no provider spend, and a missing answer fails
+      its case instead of being bought. The
+      <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
+      calls and the three outcomes.
+    </p>
+
+    <h3>Complete and partial</h3>
+
+    <p>
+      Each submission also stores a <code>reproducible</code> status. It is
+      <code>complete</code> when the cache holds an answer for every model call and every web search
+      of the run, all under one cache revision. It is <code>partial</code> when it cannot promise
+      that. A partial score is not replayed: <code>sf.reproduce</code> returns
+      <code>not_reproducible</code> and starts no run.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Why it is partial</th>
+          <th>What happened</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Bypass</td>
+          <td>
+            A call skipped the cache. The url4 turned caching off, the provider is not cached (see
+            the Providers table), a parameter was not supported, the store was down, or a
+            <code>max-age</code> limit forced a new call.
+          </td>
+        </tr>
+        <tr>
+          <td>Race</td>
+          <td>
+            Another run stored the same call first. This run got an answer, but the cache holds the
+            other one.
+          </td>
+        </tr>
+        <tr>
+          <td>Web tool</td>
+          <td>
+            A web search was not served from the cache and was not stored after it ran. A search
+            that is a hit, or is stored, keeps the run complete.
+          </td>
+        </tr>
+        <tr>
+          <td>Error</td>
+          <td>
+            A model or tool call failed, and no later attempt of the same request succeeded. A
+            failed call stores nothing to replay. A retry that succeeds does not count.
+          </td>
+        </tr>
+        <tr>
+          <td>Mixed revisions</td>
+          <td>
+            The calls of one run carried two cache revisions, for example during a deploy. No single
+            label names the run.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      A run with no model call and no web search is <code>complete</code> and has no cache revision.
+      A score from a leaderboard that predates this feature has no status. That counts as unknown,
+      and it is not replayed either.
+    </p>
+
+    <h3>Older revisions, newer software</h3>
+
+    <p>
+      When the cache rules change, the cache gets a new revision label. Every earlier label stays
+      readable. A score stored under an older revision still replays with that revision, and the
+      replay is read-only: it can never write under an old label.
+    </p>
+
+    <p>
+      Software can still move away from a score. A replay can fail when you use a different SDK or
+      engine version from the one that made the run:
+    </p>
+
+    <ul>
+      <li>
+        <strong>An older engine</strong> may not know replay at all. The replay stops before any
+        case runs and reports <code>replay_unsupported</code>. It is never run as a normal call.
+      </li>
+      <li>
+        <strong>An older cache service</strong> may not know the score's revision. The run fails at
+        the start with <code>unknown_cache_revision</code>.
+      </li>
+      <li>
+        <strong>A changed engine</strong> may build a request in another way. It then asks for an
+        answer that the cache never stored, and the case fails with a <code>cache_miss</code>.
+      </li>
+      <li>
+        <strong>A changed benchmark</strong> grades a different exam. The replay reports
+        <code>benchmark_revision_changed</code>, because the numbers cannot be compared.
+      </li>
+    </ul>
+
+    <p>
+      A failed replay is not recorded, and it says nothing against the score. It says that this
+      software cannot rebuild the run.
+    </p>
+
     <h2>Where the compute comes from</h2>
 
     <p>
