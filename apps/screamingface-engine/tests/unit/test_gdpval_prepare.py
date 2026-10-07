@@ -338,3 +338,39 @@ def test_an_explicit_reference_cache_location_is_respected(tmp_path, monkeypatch
     monkeypatch.setattr(module, "_build_reader", capture)
     module.prepare(tmp_path / "out", assets_root=tmp_path / "refs")
     assert seen["cache"] == tmp_path / "refs"
+
+
+def test_a_prepared_bundle_records_where_its_cases_came_from(tmp_path, monkeypatch) -> None:
+    """The block counts every row loaded and every row the frozen selection leaves out.
+
+    WHY excluded is loaded minus kept, not only the 7 unreadable tasks: the frozen selection
+    drops every task outside the text subset on purpose, and "102 of 220 (7 excluded)" would
+    leave 111 rows unaccounted for.
+    """
+    from _bundle_provenance_checks import (
+        assert_hand_built_block,
+        hugging_face_source,
+        watch_provenance_writes,
+    )
+
+    from screamingface_engine.benchmarks.gdpval import prepare as module
+    from screamingface_engine.benchmarks.gdpval.revision_inputs import DATASET_REVISION
+
+    # One upstream task outside the frozen selection: loaded, never served.
+    rows: list[dict] = [*_all_rows(), _row("not-in-the-text-subset")]
+    monkeypatch.setattr(module, "load_rows", lambda: rows)
+    # WHY a fake reader: the real one downloads reference files; these rows list none anyway.
+    monkeypatch.setattr(module, "_build_reader", lambda _cache, _urls: _reader)
+    writes: list[bool] = watch_provenance_writes(monkeypatch, module)
+
+    summary: dict = module.prepare(tmp_path / "out", assets_root=tmp_path / "refs")
+
+    assert_hand_built_block(
+        tmp_path / "out",
+        summary,
+        writes,
+        sources=[hugging_face_source("openai/gdpval", DATASET_REVISION)],
+        yielded=len(TEXT_SUBSET_TASK_IDS) + 1,
+        kept=len(TEXT_SUBSET_TASK_IDS),
+        case_texts=[_CONTENT, f"Do the work for {TEXT_SUBSET_TASK_IDS[0]}."],
+    )

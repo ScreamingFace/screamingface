@@ -24,20 +24,19 @@ Case's input or target. The Actions log is public and some datasets are gated or
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict
-from pathlib import Path
-from typing import Any, Final
+from typing import Any
 
+# WHY from core: the six hand-built preparers write the same file, and core never imports a
+# plugin, so the file name, the summary key and the writer live in core (OME-1492 PR 3).
+from screamingface_engine.benchmarks.bundle_provenance import (
+    PROVENANCE_FILE,
+    PROVENANCE_KEY,
+    write_provenance,
+)
 from screamingface_engine_inspect.case_sources import CaseSourceRecorder
 from screamingface_engine_inspect.prepare import TaskReplayCasesSpec
 from screamingface_engine_inspect.revision_inputs import pinned_inspect_packages
-
-#: The file Case Preparation writes into a bundle, beside ``cases.json``.
-PROVENANCE_FILE: Final = "provenance.json"
-
-#: The summary-line key that carries the same block.
-PROVENANCE_KEY: Final = "provenance"
 
 
 def replay_provenance(
@@ -73,20 +72,6 @@ def replay_provenance(
     # Stage 4 — the inspect packages, as {"inspect-ai": "0.3.263", ...}.
     pins: dict[str, str] = dict(pin.split("==", 1) for pin in pinned_inspect_packages())
     return {"sources": sources, "seeds_applied": seeds_applied, "samples": samples, "pins": pins}
-
-
-def write_provenance(out: Path, block: dict[str, Any]) -> None:
-    """Write the block into the bundle.
-
-    WHY callers write it BEFORE ``cases.json``: the workflow, the just recipe and the paid
-    conftest treat a parseable ``cases.json`` as "bundle finished", so an interrupted bundle
-    must never look finished without its provenance.
-    """
-
-    out.mkdir(parents=True, exist_ok=True)
-    (out / PROVENANCE_FILE).write_text(
-        json.dumps(block, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
 
 
 __all__ = ["PROVENANCE_FILE", "PROVENANCE_KEY", "replay_provenance", "write_provenance"]

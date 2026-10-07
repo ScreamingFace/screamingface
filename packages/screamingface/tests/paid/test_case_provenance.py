@@ -132,3 +132,64 @@ def test_a_non_finite_time_never_breaks_the_overview(tmp_path: Path) -> None:
 
     assert "unreadable" in _row(markdown, "inspect-race_h")
     assert "unreadable" in _row(markdown, "inspect-gsm8k")
+
+
+#: A hand-built preparer's block (OME-1492 PR 3): no seed forced, inspect never ran, and the
+#: frozen selection drops rows. It simulates one prepared GDPval bundle; the Engine's own
+#: prepare tests pin that the preparer writes this shape.
+_GDPVAL: dict[str, Any] = {
+    "sources": [
+        {
+            "kind": "hugging-face",
+            "location": "openai/gdpval",
+            "pin": "revision 11e7900cdcac61bc4daf59e65feb238acda98fbf",
+            "phase": "load",
+        }
+    ],
+    "seeds_applied": {},
+    "samples": {"yielded": 220, "excluded": 118, "kept": 102},
+    "pins": {},
+    "seconds": 95.4,
+}
+
+
+def test_a_benchmark_on_a_shared_bundle_reads_that_bundle(tmp_path: Path) -> None:
+    """draco-3pass, both HealthBench Benchmarks and gdpval-text have no folder of their own.
+
+    WHY it matters: without the map their rows read "not recorded" while the bundle they
+    actually ran on holds a block, which would send on-call looking for a missing file.
+    """
+    _bundle(tmp_path, "gdpval", _GDPVAL)
+    _bundle(
+        tmp_path,
+        "healthbench",
+        {**_GDPVAL, "samples": {"yielded": 525, "excluded": 0, "kept": 525}},
+    )
+    _bundle(tmp_path, "draco", {**_GDPVAL, "samples": {"yielded": 100, "excluded": 0, "kept": 100}})
+    benchmarks: list[str] = [
+        "gdpval-text",
+        "healthbench-worst30",
+        "healthbench-professional",
+        "draco-3pass",
+        "draco",
+    ]
+
+    markdown: str = provenance_markdown(benchmarks, tmp_path)
+
+    assert "102 of 220 (118 excluded)" in _row(markdown, "gdpval-text")
+    assert "525 of 525" in _row(markdown, "healthbench-worst30")
+    assert "525 of 525" in _row(markdown, "healthbench-professional")
+    assert "100 of 100" in _row(markdown, "draco-3pass")
+    # A Benchmark whose bundle shares its id still reads its own folder.
+    assert "100 of 100" in _row(markdown, "draco")
+
+
+def test_a_hand_built_block_with_empty_pins_renders(tmp_path: Path) -> None:
+    """A hand-built preparer never runs inspect, so its block has no inspect-evals pin."""
+    _bundle(tmp_path, "medxpert", {**_GDPVAL, "samples": {"yielded": 3, "excluded": 0, "kept": 3}})
+
+    row: str = _row(provenance_markdown(["medxpert"], tmp_path), "medxpert")
+
+    assert "unreadable" not in row
+    assert "openai/gdpval @ 11e7900c" in row
+    assert row.endswith("| 3 of 3 | — | 95s |")

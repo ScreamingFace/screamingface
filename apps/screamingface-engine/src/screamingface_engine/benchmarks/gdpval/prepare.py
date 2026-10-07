@@ -37,6 +37,13 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.bundle_provenance import (
+    PROVENANCE_KEY,
+    hand_built_provenance,
+    hugging_face_source,
+    read_provenance,
+    write_provenance,
+)
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine.benchmarks.gdpval.ingestion import (
@@ -156,9 +163,20 @@ def case_input(row: Mapping[str, Any], *, reader: ReferenceReader) -> str:
     )
 
 
-def emit(rows: list[dict[str, Any]], out: Path, *, reader: ReferenceReader) -> int:
-    """Write the public cases file and the private rubric assets. Returns the Case count."""
+def emit(
+    rows: list[dict[str, Any]],
+    out: Path,
+    *,
+    reader: ReferenceReader,
+    started: float | None = None,
+) -> int:
+    """Write the public cases file and the private rubric assets. Returns the Case count.
 
+    ``started`` is ``time.monotonic()`` when the preparer began, so the provenance block's
+    ``seconds`` covers the download too; left out, it counts from this call.
+    """
+
+    began: float = time.monotonic() if started is None else started
     selected = select_rows(rows)
     rubric_dir = out / "rubrics"
     rubric_dir.mkdir(parents=True, exist_ok=True)
@@ -173,6 +191,18 @@ def emit(rows: list[dict[str, Any]], out: Path, *, reader: ReferenceReader) -> i
             ),
             encoding="utf-8",
         )
+    # WHY before cases.json: a parseable cases.json marks the bundle finished (OME-1492).
+    # `yielded` is every row loaded, so the frozen selection's drops show as excluded.
+    # The reference files are not listed: they come from URLs the pinned rows name, unhashed.
+    write_provenance(
+        out,
+        hand_built_provenance(
+            [hugging_face_source(DATASET, DATASET_REVISION)],
+            yielded=len(rows),
+            kept=len(cases),
+            started=began,
+        ),
+    )
     (out / "cases.json").write_text(
         json.dumps(cases, ensure_ascii=False, separators=(",", ":")),
         encoding="utf-8",
@@ -302,10 +332,11 @@ def _default_reference_cache() -> Path:
 def prepare(out: Path, *, assets_root: Path | None = None) -> dict[str, Any]:
     """Prepare the GDPval text-subset assets into ``out``, returning its audit summary."""
 
+    started: float = time.monotonic()
     rows = load_rows()
     cache = assets_root or _default_reference_cache()
     try:
-        cases = emit(rows, out, reader=_build_reader(cache, reference_urls(rows)))
+        cases = emit(rows, out, reader=_build_reader(cache, reference_urls(rows)), started=started)
     except IngestionError as exc:
         # WHY translate: `BenchmarkAssetPreparationError` is the deployment orchestrator's
         # exit-1 channel (OME-925). An IngestionError escaping raw would turn one flaky CDN
@@ -319,6 +350,8 @@ def prepare(out: Path, *, assets_root: Path | None = None) -> dict[str, Any]:
         "excluded_tasks": len(EXCLUDED_TASK_IDS),
         "dataset_revision": DATASET_REVISION,
         "out": str(out),
+        # The summary line reports the block that landed in the bundle (OME-1492).
+        PROVENANCE_KEY: read_provenance(out),
     }
 
 

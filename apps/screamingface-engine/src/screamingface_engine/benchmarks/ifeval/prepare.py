@@ -44,16 +44,28 @@ import argparse
 import importlib
 import json
 import sys
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.bundle_provenance import (
+    FILE,
+    LOAD_PHASE,
+    PROVENANCE_KEY,
+    hand_built_provenance,
+    hugging_face_source,
+    read_provenance,
+    write_provenance,
+)
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine.benchmarks.ifeval.definition import (
     ASSET_BUNDLE_ID,
     CASE_COUNT,
     DATASET,
     DATASET_REVISION,
+    VERIFIER_REPOSITORY,
+    VERIFIER_REVISION,
 )
 from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
 
@@ -168,8 +180,15 @@ def build(
     out: Path,
     *,
     expected_count: int | None = None,
+    started: float | None = None,
 ) -> dict[str, Any]:
-    """Write the public cases and private instruction specs read by IFEval's runtime."""
+    """Write the public cases and private instruction specs read by IFEval's runtime.
+
+    ``started`` is ``time.monotonic()`` when the preparer began, so the provenance block's
+    ``seconds`` covers the download too; left out, it counts from this call.
+    """
+
+    began: float = time.monotonic() if started is None else started
 
     if expected_count is not None and len(rows) != expected_count:
         raise PrepareError(
@@ -202,8 +221,33 @@ def build(
         (instructions_dir / f"{case_id}.json").write_text(json.dumps(spec), encoding="utf-8")
         cases.append({"id": case_id, "input": prompt})
 
+    # WHY before cases.json: a parseable cases.json marks the bundle finished (OME-1492).
+    write_provenance(
+        out,
+        hand_built_provenance(case_sources(), yielded=len(rows), kept=len(cases), started=began),
+    )
     (out / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
     return {"cases": len(cases), "patched_keys": sorted(patched_keys), "out": str(out)}
+
+
+def case_sources() -> list[dict[str, str]]:
+    """Where IFEval's Case text comes from: the pinned Hub rows and the official file.
+
+    WHY the vendored official file is a source: ``verify_against_official`` lets its text win
+    over the Hub's on key 2785, so that Case's prompt comes from it. It is pinned by the
+    verifier commit it was copied from. The nltk corpus is NOT a source: it feeds the
+    verifier, never a Case.
+    """
+
+    return [
+        hugging_face_source(DATASET, DATASET_REVISION),
+        {
+            "kind": FILE,
+            "location": f"{VERIFIER_REPOSITORY}/data/input_data.jsonl",
+            "pin": f"commit {VERIFIER_REVISION}",
+            "phase": LOAD_PHASE,
+        },
+    ]
 
 
 def prepare_nltk(out: Path) -> dict[str, Any]:
@@ -235,13 +279,16 @@ def _prepare(out: Path, limit: int | None) -> dict[str, Any]:
     # so downloading the corpus afterwards left a window where an interrupted run looked
     # complete while `nltk_data/` was missing, and grading then failed at run time with
     # manual deletion as the only recovery. Every preparer must leave `cases.json` last.
+    started: float = time.monotonic()
     nltk_summary = prepare_nltk(out)
     summary = build(
         load_rows(limit),
         out,
         expected_count=CASE_COUNT if limit is None else limit,
+        started=started,
     )
-    return summary | nltk_summary
+    # The summary line reports the block that landed in the bundle (OME-1492).
+    return summary | nltk_summary | {PROVENANCE_KEY: read_provenance(out)}
 
 
 def prepare(out: Path) -> dict[str, Any]:

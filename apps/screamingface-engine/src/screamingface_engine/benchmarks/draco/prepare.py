@@ -35,10 +35,18 @@ import argparse
 import importlib
 import json
 import sys
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.bundle_provenance import (
+    PROVENANCE_KEY,
+    hand_built_provenance,
+    hugging_face_source,
+    read_provenance,
+    write_provenance,
+)
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine.benchmarks.draco.definition import (
     ASSET_BUNDLE_ID,
@@ -155,8 +163,14 @@ def build(
     out: Path,
     *,
     expected_count: int | None = None,
+    started: float | None = None,
 ) -> dict[str, Any]:
-    """Write the cases and private criterion/rubric files read by DRACO's runtime."""
+    """Write the cases and private criterion/rubric files read by DRACO's runtime.
+
+    ``started`` is ``time.monotonic()`` when the preparer began, so the provenance block's
+    ``seconds`` covers the download too; left out, it counts from this call.
+    """
+    began: float = time.monotonic() if started is None else started
     if expected_count is not None and len(rows) != expected_count:
         raise PrepareError(
             f"expected {expected_count} DRACO cases, but the pinned dataset produced {len(rows)}"
@@ -182,6 +196,16 @@ def build(
         )
 
     write_policy(out)
+    # WHY before cases.json: a parseable cases.json marks the bundle finished (OME-1492).
+    write_provenance(
+        out,
+        hand_built_provenance(
+            [hugging_face_source(DATASET, DATASET_REVISION)],
+            yielded=len(rows),
+            kept=len(cases),
+            started=began,
+        ),
+    )
     (out / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
     return {"cases": len(cases), "out": str(out)}
 
@@ -231,11 +255,15 @@ def write_policy(out: Path) -> Path:
 
 
 def _prepare(out: Path, limit: int | None) -> dict[str, Any]:
-    return build(
+    started: float = time.monotonic()
+    summary: dict[str, Any] = build(
         load_rows(limit),
         out,
         expected_count=CASE_COUNT if limit is None else limit,
+        started=started,
     )
+    # The summary line reports the block that landed in the bundle (OME-1492).
+    return summary | {PROVENANCE_KEY: read_provenance(out)}
 
 
 def prepare(out: Path) -> dict[str, Any]:

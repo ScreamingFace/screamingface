@@ -112,3 +112,32 @@ def test_the_summary_names_the_pinned_revision(tmp_path) -> None:
     summary = emit(_rows(2), tmp_path)
     assert summary["dataset_revision"]
     assert summary["out"] == str(tmp_path)
+
+
+def test_a_prepared_bundle_records_where_its_cases_came_from(tmp_path, monkeypatch) -> None:
+    """The block names the Hub repo with its config, at the pinned revision."""
+    from _bundle_provenance_checks import (
+        assert_hand_built_block,
+        hugging_face_source,
+        watch_provenance_writes,
+    )
+
+    from screamingface_engine.benchmarks.medxpert import prepare as module
+    from screamingface_engine.benchmarks.medxpert.revision_inputs import DATASET_REVISION
+
+    monkeypatch.setattr(module, "load_rows", lambda: _rows(3))
+    writes: list[bool] = watch_provenance_writes(monkeypatch, module)
+
+    summary: dict = module.prepare(tmp_path)
+
+    assert_hand_built_block(
+        tmp_path,
+        summary,
+        writes,
+        # WHY "/Text": the same `<repo>/<config>` form the inspect plugin records for a load
+        # with a config name, so both kinds of bundle read alike on the run page.
+        sources=[hugging_face_source("TsinghuaC3I/MedXpertQA/Text", DATASET_REVISION)],
+        yielded=3,
+        kept=3,
+        case_texts=[_QUESTION, "choice E"],
+    )
