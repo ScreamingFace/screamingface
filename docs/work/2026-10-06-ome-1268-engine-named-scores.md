@@ -73,10 +73,21 @@ Benchmark. Deploys only after PR 2's SDK (#1248) is released.
   format, pyright (0 errors with the inspect extra), layering, pytest `-n auto` with coverage
   (5520 passed / 6 skipped on the unit lane; floor 80 met). `test_published_revisions.py`
   untouched and green.
-- **Deviations:** (1) the branch is stacked on `OME-1268-sdk-named-scores` (#1248), not on
-  `main`: the SDK key twin test reads the SDK's `SCORES_KEY`, which exists only there; retarget
-  to `main` after #1248 merges. (2) A dict-valued scorer keeps one Check (id `"1"`) carrying the
+- **Deviations:** (1) the branch was stacked on `OME-1268-sdk-named-scores` (#1248) until that
+  merged (2026-10-06); it is based on `main` since the 2026-10-07 rebase. (2) A dict-valued scorer keeps one Check (id `"1"`) carrying the
   headline key's grade, not one Check per key. (3) An extra scorer is constructed without kwargs.
-  (4) `_column_means` returns `None` for a column no graded Case filled, never zero. (5) The
+  (4) `_column_means` returns `None` for a column any graded Case could not fill, never a mean
+  over fewer Cases and never zero. (5) The
   word map (`verdict_grades`) is the headline scorer's vocabulary only; the other scorers speak
   inspect's letters, so a word there fails the Case by name (spec §2.1 made explicit).
+- **Review round (2026-10-07, Keelan's request-changes on #1249 + the stack review):**
+  (a) assembly now resolves each scorer of a multi-scorer row and refuses names that are not
+  the scorers' registry names in order (reversed `("exact", "f1")` was accepted and published
+  f1's mark under `exact`); (b) `headline_metric_kind` approves by QUALIFIED registry identity
+  (`inspect_ai/accuracy`, `inspect_ai/mean`) with no creation arguments — an eval's own
+  `accuracy` and `accuracy(to_float=...)` are "other"; (c) a test through the real reducer
+  (`_accuracy`): 2 graded + 1 failed Case, column means, coverage, `scores[headline] == score`
+  — replacing the column means with `{}` now fails it; (d) a column one graded Case could not
+  fill is `None`, not a mean over fewer Cases; (e) a hook returning Named Scores on a row
+  declaring none is refused; (f) `_dict_outcome` keeps the headline grade from its loop instead
+  of re-reading it. Gates ALL GREEN again (pytest `-n auto` with coverage; 7 new tests).

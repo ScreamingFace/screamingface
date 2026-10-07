@@ -81,6 +81,45 @@ def test_a_custom_headline_metric_is_other() -> None:
     assert headline_metric_kind(formula_scorer()) == "other"
 
 
+def test_an_evals_own_metric_named_accuracy_is_other() -> None:
+    # Keelan's review finding #2 on #1249: approval by unqualified name let a custom
+    # `accuracy` through (hle's own, in inspect_evals 0.20.0, converts each value first).
+    # Identity is the QUALIFIED registry name — inspect_ai's own — so a metric registered
+    # under the bare name `accuracy` by anyone else is "other".
+    from inspect_ai._util.registry import registry_info
+
+    @metric(name="accuracy")
+    def another_evals_accuracy() -> Metric:
+        def compute(scores: list[SampleScore]) -> float:
+            return 0.0
+
+        return compute
+
+    @scorer(metrics=[another_evals_accuracy()])
+    def shadowed():
+        async def score(state: TaskState, target: Target) -> Score:
+            return Score(value="C")
+
+        return score
+
+    assert registry_info(another_evals_accuracy()).name == "accuracy"
+    assert headline_metric_kind(shadowed()) == "other"
+
+
+def test_inspects_accuracy_with_a_conversion_argument_is_other() -> None:
+    # Keelan's review finding #2 on #1249: `accuracy(to_float=lambda v: 1 - float(v))` keeps
+    # the name inspect_ai/accuracy but averages a transformed column — inspect would publish
+    # 1.0 where our column mean says 0.0. Identity is name AND no arguments.
+    @scorer(metrics=[accuracy(to_float=lambda value: 1 - float(str(value)))])
+    def flipped():
+        async def score(state: TaskState, target: Target) -> Score:
+            return Score(value=0.0)
+
+        return score
+
+    assert headline_metric_kind(flipped()) == "other"
+
+
 def test_a_plain_mean_beside_an_extra_metric_is_still_a_mean() -> None:
     # cyberseceval_4's shape: accuracy first, grouped breakdowns beside it. The headline
     # is the first declared metric; the extras are PR 4's Named Deviation, not a refusal.

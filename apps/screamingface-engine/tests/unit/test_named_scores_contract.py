@@ -297,3 +297,71 @@ def test_scored_result_refuses_a_headline_column_that_differs_from_score() -> No
             grading_material=lambda case_id: {"target": "1889"},
             scorer=_mean,
         )
+
+
+def test_a_hook_returning_scores_on_a_row_declaring_none_is_refused() -> None:
+    # Review finding on #1249: without a declaration there is no key set to check against,
+    # so a hook's columns must never reach the wire under nobody's name.
+    outcome = CaseGradeOutcome(score=0.667, metrics={}, checks=[], scores=_SQUAD)
+    with pytest.raises(ValueError, match="declares none"):
+        _aggregation(outcome, ()).aggregate(
+            _rows(),
+            benchmark_id="inspect-squad",
+            benchmark_revision="rev",
+            selected_cases=_selected(1),
+            grading_material=lambda case_id: {"target": "1889"},
+            scorer=_mean,
+        )
+
+
+# --- the real reducer -----------------------------------------------------------------------
+
+
+def _selected_cases(count: int) -> list[SelectedCase]:
+    return [SelectedCase(case_id=n, input=f"q{n}", metadata={}) for n in range(1, count + 1)]
+
+
+def test_the_real_reducer_averages_every_column_over_the_graded_cases_only() -> None:
+    """Keelan's review finding #3 on #1249: the finalizer test above supplies precomputed
+    columns, so an empty reducer passed. This runs the imported single-shot reducer itself:
+    2 graded Cases (f1 1.0 / exact 1.0, f1 0.334 / exact 0.0) and 1 failed Case → the
+    headline is mean(f1) = 0.667, exact 0.5, coverage 2/3, scores[headline] == score."""
+
+    from screamingface_engine_inspect.single_shot import _accuracy
+
+    result = finalize_candidate_result(
+        benchmark_id="inspect-squad",
+        benchmark_revision="rev",
+        selected_cases=_selected_cases(3),
+        cases=[
+            _case(1, _grade(score=1.0, scores={"f1": 1.0, "exact": 1.0})),
+            _case(2, _grade(score=0.334, scores={"f1": 0.334, "exact": 0.0})),
+            _case(3, None),
+        ],
+        scorer=_accuracy,
+    )
+    assert result.score == 0.667
+    assert result.scores == {"f1": 0.667, "exact": 0.5}
+    assert result.scores["f1"] == result.score
+    assert result.coverage == 0.6667  # 2 of 3 selected Cases carry a grade, rounded as published
+    assert result.metrics["scored_cases"] == 2
+
+
+def test_the_real_reducer_publishes_a_column_one_graded_case_could_not_fill_as_unknown() -> None:
+    # Review finding on #1249: {f1 .5, exact None}, {f1 1, exact 1} must not publish exact
+    # as 1.0 over ONE Case while f1 averages over two — every column shares the headline's
+    # denominator, so the half-filled column is unknown.
+    from screamingface_engine_inspect.single_shot import _accuracy
+
+    result = finalize_candidate_result(
+        benchmark_id="inspect-squad",
+        benchmark_revision="rev",
+        selected_cases=_selected_cases(2),
+        cases=[
+            _case(1, _grade(score=0.5, scores={"f1": 0.5, "exact": None})),
+            _case(2, _grade(score=1.0, scores={"f1": 1.0, "exact": 1.0})),
+        ],
+        scorer=_accuracy,
+    )
+    assert result.score == 0.75
+    assert result.scores == {"f1": 0.75, "exact": None}

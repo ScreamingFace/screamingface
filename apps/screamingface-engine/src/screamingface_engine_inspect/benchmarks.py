@@ -3806,6 +3806,34 @@ def _check_named_scores(spec: BenchmarkSpec) -> None:
             f"{spec.key}: dropped_scorers {sorted(declared_and_dropped)} are also declared "
             "in named_scores; a scorer is kept or dropped, never both"
         )
+    if spec.extra_scorers:
+        _check_names_are_the_scorers(spec)
+
+
+def _check_names_are_the_scorers(spec: BenchmarkSpec) -> None:
+    """Refuse a multi-scorer row whose names are not its scorers' registry names, in order.
+
+    WHY (review finding on #1249): the adapter pairs names with scorers by POSITION, so a
+    row declaring ``("exact", "f1")`` over f1 and exact would publish f1's mark under
+    ``exact`` — the wrong number under the right label, and no Case would fail. Resolving
+    each constructor here imports the eval's module at assembly, once, for multi-scorer
+    rows only; a single-scorer row stays lazy and extra-free.
+    """
+
+    from screamingface_engine_inspect.scorer_metrics import scorer_registry_name
+
+    references: tuple[str, ...] = (spec.scorer, *spec.extra_scorers)
+    actual: list[str] = []
+    for reference in references:
+        try:
+            actual.append(scorer_registry_name(_constructor(reference)))
+        except ValueError as exc:
+            raise ValueError(f"{spec.key}: {reference} is not a registered scorer: {exc}") from None
+    if list(spec.named_scores) != actual:
+        raise ValueError(
+            f"{spec.key}: named_scores {list(spec.named_scores)} must be the scorers' registry "
+            f"names in order, {actual}"
+        )
 
 
 def _check_verdict_grades(spec: BenchmarkSpec) -> None:
@@ -4158,11 +4186,16 @@ def _scorer_factory(spec: BenchmarkSpec) -> Callable[[], Any]:
     """Resolve the eval's own scorer from the row's dotted reference, lazily."""
 
     def factory() -> Any:
-        module_name, _, attribute = spec.scorer.partition(":")
-        constructor: Any = getattr(import_module(module_name), attribute)
-        return constructor(**dict(spec.scorer_kwargs))
+        return _constructor(spec.scorer)(**dict(spec.scorer_kwargs))
 
     return factory
+
+
+def _constructor(reference: str) -> Any:
+    """The scorer constructor a dotted ``module:attribute`` reference names, imported now."""
+
+    module_name, _, attribute = reference.partition(":")
+    return getattr(import_module(module_name), attribute)
 
 
 def _extra_scorer_factories(spec: BenchmarkSpec) -> tuple[Callable[[], Any], ...]:
@@ -4175,9 +4208,7 @@ def _extra_scorer_factories(spec: BenchmarkSpec) -> tuple[Callable[[], Any], ...
 
     def factory_for(reference: str) -> Callable[[], Any]:
         def factory() -> Any:
-            module_name, _, attribute = reference.partition(":")
-            constructor: Any = getattr(import_module(module_name), attribute)
-            return constructor()
+            return _constructor(reference)()
 
         return factory
 

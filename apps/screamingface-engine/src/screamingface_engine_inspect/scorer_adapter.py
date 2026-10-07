@@ -299,6 +299,7 @@ def _dict_outcome(
     raw: Mapping[str, Any] = score.value if isinstance(score.value, Mapping) else {}
     problem: str | None = _dict_shape_problem(score.value, names)
     values: dict[str, float | None] = {}
+    headline_grade: float = 0.0
     for index, name in enumerate(names):
         if problem is not None:
             break
@@ -315,12 +316,13 @@ def _dict_outcome(
         )
         if grade is None or value is None:
             problem = f"{name}: {raw[name]!r}"
+        elif is_headline:
+            headline_grade = grade
         values[name] = value
     if problem is not None:
         return _failure("invalid_score_value", problem, score)
     headline_value: float | None = values[names[0]]
     assert headline_value is not None
-    headline_grade: float = _score_as_float(raw[names[0]], word_grades, case_insensitive) or 0.0
     return CaseGradeOutcome(
         score=headline_value,
         metrics={},

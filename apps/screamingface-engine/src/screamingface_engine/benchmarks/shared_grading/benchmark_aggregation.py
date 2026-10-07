@@ -518,8 +518,15 @@ class BenchmarkAggregation:
             "metrics": dict(outcome.metrics),
             "checks": list(outcome.checks),
         }
-        if self.named_scores or outcome.scores:
+        if self.named_scores:
             grade["scores"] = self._named_scores(outcome)
+        elif outcome.scores:
+            # WHY refuse, not publish: a column nobody declared would reach the wire under
+            # no row's name; the Benchmark, not the hook, says which columns exist.
+            raise ValueError(
+                f"the grading hook returned Named Scores {list(outcome.scores)} but the "
+                "Benchmark declares none"
+            )
         common: dict[str, Any] = {
             "selected_case": selected,
             "finish_reason": fields.finish_reason,
@@ -544,7 +551,7 @@ class BenchmarkAggregation:
 
         declared: tuple[str, ...] = tuple(self.named_scores)
         observed: tuple[str, ...] = tuple(outcome.scores)
-        if declared and observed != declared:
+        if observed != declared:
             raise ValueError(
                 f"Case Grade scores {list(observed)} differ from the declared named_scores "
                 f"{list(declared)}"
@@ -553,7 +560,7 @@ class BenchmarkAggregation:
             name: None if value is None else round(value, 4)
             for name, value in outcome.scores.items()
         }
-        if declared and rounded[declared[0]] != round(outcome.score or 0.0, 4):
+        if rounded[declared[0]] != round(outcome.score or 0.0, 4):
             raise ValueError(
                 f"Case Grade headline column {declared[0]!r} ({rounded[declared[0]]}) differs "
                 f"from the Case score ({round(outcome.score or 0.0, 4)})"

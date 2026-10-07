@@ -150,3 +150,24 @@ async def test_the_declared_scorers_reach_the_adapter_through_the_real_assembly(
     )
     assert outcome.scores == {"f1": 1.0, "exact": 1.0}
     assert assembled.aggregation().named_scores == ("f1", "exact")
+
+
+def test_assembly_refuses_names_that_are_not_the_scorers_in_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Keelan's review finding #1 on #1249: the adapter pairs names with scorers by position,
+    # so reversed names would publish f1's mark under "exact" with no Case failing.
+    with pytest.raises(ValueError, match=r"registry names in order, \['f1', 'exact'\]"):
+        _assembled(
+            _spec(extra_scorers=("inspect_ai.scorer:exact",), named_scores=("exact", "f1")),
+            monkeypatch,
+        )
+
+
+def test_assembly_refuses_an_extra_scorer_the_registry_does_not_know(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `json.dumps` imports fine but is no inspect scorer: the row names something that
+    # could never grade, and assembly says so by reference instead of failing every Case.
+    with pytest.raises(ValueError, match="json:dumps is not a registered scorer"):
+        _assembled(_spec(extra_scorers=("json:dumps",), named_scores=("f1", "dumps")), monkeypatch)

@@ -829,8 +829,9 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
 
     With Named Scores (OME-1268) every column is averaged over the SAME graded Cases as the
     headline, so all columns share Coverage's denominator (the adapter never half-grades a
-    Case). Worked example, 2 graded Cases: f1 1.0 and 0.334, exact 1.0 and 0.0 → score
-    0.667, scores f1 0.667, exact 0.5.
+    Case; a column one graded Case could not fill is published as unknown, never over
+    fewer Cases). Worked example, 2 graded Cases: f1 1.0 and 0.334, exact 1.0 and 0.0 →
+    score 0.667, scores f1 0.667, exact 0.5.
     """
 
     graded: list[CaseGrade] = [
@@ -856,11 +857,12 @@ def _column_means(graded: Sequence[CaseGrade]) -> dict[str, float | None]:
     names: tuple[str, ...] = tuple(graded[0].scores) if graded else ()
     means: dict[str, float | None] = {}
     for name in names:
-        column: list[float] = [
-            float(value) for grade in graded if (value := grade.scores.get(name)) is not None
-        ]
-        # WHY None, not 0.0: a column no graded Case could fill is unknown, not zero.
-        means[name] = round(sum(column) / len(column), 4) if column else None
+        column: list[float | None] = [grade.scores.get(name) for grade in graded]
+        # INVARIANT: every column shares the headline's denominator. A column one graded
+        # Case could not fill (a None value) has no honest mean over those Cases, so it is
+        # published as unknown — never as a mean over fewer Cases, never as 0.0.
+        filled: list[float] = [float(value) for value in column if value is not None]
+        means[name] = round(sum(filled) / len(filled), 4) if len(filled) == len(column) else None
     return means
 
 
