@@ -169,6 +169,7 @@ def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
             scorer_name=headline_name,
             dropped_metrics=extra_metric_names(headline_scorer),
         )
+    _check_kept_scorers(declared, resolved, kept)
     dropped_metrics: list[str] = []
     for index in kept:
         dropped_metrics.extend(extra_metric_names(declared[index]))
@@ -184,6 +185,38 @@ def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
         headline_differs=kept[0] != 0,
         dropped_metrics=tuple(dropped_metrics),
     )
+
+
+def _check_kept_scorers(
+    declared: list[Any], resolved: list[tuple[str, dict[str, Any], str]], kept: list[int]
+) -> None:
+    """Refuse a multi-scorer Task whose kept scorers the row cannot write faithfully.
+
+    WHY here, not at the next benchmarks.py import: the row would be written first and die
+    on the registry's own check ("named_scores must be unique"), after the files exist.
+    WHY refuse arguments on an extra scorer: it is constructed bare at grading time
+    (benchmarks.py keeps kwargs for the headline scorer only), so `match(numeric=True)`
+    written as `match()` would pin the wrong configuration into the Revision as faithful —
+    "1,889" grades C upstream and I here. Never truncated, never silent.
+    """
+
+    from inspect_ai._util.registry import registry_params
+
+    names: list[str] = [resolved[index][2] for index in kept]
+    if len(set(names)) != len(names):
+        raise ImporterError(
+            f"the task declares two conservable scorers with one registry name ({names}); a "
+            "Named Score column needs a name of its own — add the row by hand"
+        )
+    for index in kept[1:]:
+        extra_ref, _, extra_name = resolved[index]
+        params: dict[str, Any] = dict(registry_params(declared[index]))
+        if params:
+            raise ImporterError(
+                f"extra scorer {extra_name} ({extra_ref}) is created with arguments {params}, "
+                "which the Benchmark row cannot carry for a non-headline scorer; add the row "
+                "by hand or drop it by name"
+            )
 
 
 def _resolve_scorer(scorer: Any, module: Any) -> tuple[str, dict[str, Any], str]:
@@ -339,9 +372,9 @@ def _named_score_lines(
             "        # Named Deviation (OME-1268): the Task also declares "
             f"{', '.join(dropped_scorers)}, left out"
         )
-        lines.append("        # because it grades with a judge model (none pinned: it would grade")
-        lines.append("        # with the model under test). Name the drop and its effect in the")
-        lines.append("        # description; the dropped name is part of the Benchmark Revision.")
+        lines.append("        # because it grades with a judge model, and a multi-scorer row pins")
+        lines.append("        # no judge. Name the drop and its effect in the description; the")
+        lines.append("        # dropped name is part of the Benchmark Revision.")
         lines.append(f"        dropped_scorers={_tuple_literal(dropped_scorers)},")
     if headline_differs and named_scores:
         lines.append(

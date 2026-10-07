@@ -9,9 +9,13 @@ first conservable scorer becomes the row's `scorer` (the Headline Score), the re
 (one that grades with a judge, in a multi-scorer Task) is written as `dropped_scorers`
 with a review TODO, never cut silently.
 
-INVARIANT: a single-scorer Task renders byte-identically; a Task whose Headline Score's
-metric is not a plain mean (SimpleQA's `simpleqa_metric`) is refused naming the metric
-(the tripwire); a non-mean metric on a non-headline scorer is a note, not a refusal.
+INVARIANT: a single-scorer Task with no extra metric renders without any Named Score
+line (a registered Benchmark whose scorer declares an extra metric gains a "not
+reproduced" comment on re-import, nothing else); a Task whose Headline Score's metric is
+not a plain mean (SimpleQA's `simpleqa_metric`) is refused naming the metric (the
+tripwire); a non-mean metric on a non-headline scorer is a note, not a refusal; an extra
+scorer created with arguments, or two scorers sharing one registry name, is refused —
+never written truncated.
 
 Two halves. The reader half runs the import child on a stand-in eval written to tmp_path
 (the test_import_replay pattern): it proves the child's wiring, not any real eval's fetch.
@@ -80,6 +84,12 @@ FAKE_EVAL: str = textwrap.dedent(
             return Score(value={"correct": 1.0})
         return score
 
+    @scorer(metrics=[accuracy(), stderr(), {"by_topic": [accuracy()]}])
+    def mean_with_a_grouped_block():
+        async def score(state: TaskState, target: Target) -> Score:
+            return Score(value="C")
+        return score
+
     @scorer(metrics=[accuracy(), stderr(), harmonic_headline()])
     def mean_with_a_grouped_extra():
         async def score(state: TaskState, target: Target) -> Score:
@@ -125,6 +135,18 @@ FAKE_EVAL: str = textwrap.dedent(
     @task
     def grouped_headline() -> Task:
         return _task(mean_with_a_grouped_extra())
+
+    @task
+    def grouped_block_after_headline() -> Task:
+        return _task(mean_with_a_grouped_block())
+
+    @task
+    def extra_with_kwargs() -> Task:
+        return _task([f1(), match(numeric=True)])
+
+    @task
+    def duplicate_names() -> Task:
+        return _task([match(), match()])
     """
 )
 
@@ -247,6 +269,27 @@ def test_a_grouped_extra_on_the_headline_scorer_is_still_a_plain_mean(fake_eval:
     assert replay.facts.dropped_metrics == ("harmonic_headline",)
 
 
+def test_a_grouped_metric_block_after_the_headline_is_noted_in_words(fake_eval: str) -> None:
+    # Stack review on #1250: the `<unnamed metric>` sentinel hit the renderer's charset guard
+    # and refused the whole import under the wrong label. The note is now plain words.
+    replay: ImportReplay = replay_for_import(f"{fake_eval}:grouped_block_after_headline", None)
+
+    assert replay.facts.dropped_metrics == ("a grouped metric block",)
+    assert "a grouped metric block" in _rows(replay.facts).benchmark
+
+
+def test_an_extra_scorer_created_with_arguments_is_refused(fake_eval: str) -> None:
+    # Stack review on #1250: `match(numeric=True)` beside f1 was written as `match()` — the
+    # row would pin the wrong configuration as faithful ("1,889" grades C upstream, I here).
+    with pytest.raises(TaskReplayError, match=r"extra scorer match .*numeric.*True"):
+        replay_for_import(f"{fake_eval}:extra_with_kwargs", None)
+
+
+def test_two_scorers_sharing_a_registry_name_are_refused_before_any_file(fake_eval: str) -> None:
+    with pytest.raises(TaskReplayError, match="one registry name"):
+        replay_for_import(f"{fake_eval}:duplicate_names", None)
+
+
 # --- the renderer: what the generated row says ----------------------------------------------
 
 
@@ -317,10 +360,17 @@ def test_a_dropped_metric_renders_as_a_not_reproduced_note() -> None:
     assert "not reproduced" in rows.benchmark
 
 
-def test_a_single_scorer_row_renders_byte_identically() -> None:
-    plain = _rows(_facts())
-    explicit = _rows(_facts(extra_scorers=(), named_scores=(), dropped_scorers=()))
+def test_a_single_scorer_row_carries_no_named_score_line() -> None:
+    # Narrowed from "renders byte-identically" (stack review on #1250): comparing the
+    # default facts with explicitly empty ones compared a value with itself. The claim
+    # that holds: a single-scorer Task with no extra metric gets none of this PR's lines.
+    plain = _rows(_facts()).benchmark
 
-    assert plain.benchmark == explicit.benchmark
-    assert "extra_scorers" not in plain.benchmark
-    assert "named_scores" not in plain.benchmark
+    for marker in (
+        "extra_scorers",
+        "named_scores",
+        "dropped_scorers",
+        "TODO(review): the Headline Score",
+        "not reproduced",
+    ):
+        assert marker not in plain
