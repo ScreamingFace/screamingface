@@ -92,6 +92,12 @@ async def hold_pair(observed: PairAuthority) -> None:
         raise PairAuthorityConflict(observed.provider, observed.generation)
 
 
+async def hold_observed(observed: PairAuthority | None) -> None:
+    """Hold the pair a flow observed when the floor fences it; pass through as `claim_observed`."""
+    if observed is not None and fences_writer(observed):
+        await hold_pair(observed)
+
+
 async def bootstrap_under_the_floor(
     plugin: Any, *, account_id: str, credential_store: Any, index_store: Any
 ) -> None:
@@ -129,5 +135,6 @@ __all__ = [
     "claim_observed",
     "claim_pair",
     "fences_writer",
+    "hold_observed",
     "hold_pair",
 ]

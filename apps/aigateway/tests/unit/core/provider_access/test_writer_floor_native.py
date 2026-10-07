@@ -384,3 +384,37 @@ def test_a_native_callback_that_lost_the_pair_before_activation_activates_nothin
     connection_id = started.json()["connection_id"]
     assert _row(legacy, connection_id).status != "active"
     assert blob_at_connection_address(legacy, connection_id) is None
+
+
+async def _store_down(*_args: Any, **_kwargs: Any) -> None:
+    raise RuntimeError("store down")
+
+
+@pytest.mark.parametrize(
+    ("broken", "code"),
+    [
+        ("credential_write", "credential_store_unavailable"),
+        ("activation", "connection_activation_failed"),
+    ],
+)
+def test_a_native_callback_that_fails_to_publish_keeps_the_pair_generation(
+    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch, broken: str, code: str
+) -> None:
+    # WHY (§5.3): check and publication are atomic, and a failed callback is not an ownership
+    # change — the claim commits only together with the activated row and its blob.
+    use_tokens(legacy, "failed-tok")
+    started = _start(legacy)
+    before = marker(legacy)
+    if broken == "credential_write":
+        monkeypatch.setattr(legacy.client.app.state.credential_store, "write", _store_down)
+    else:
+        monkeypatch.setattr(OAuthConnectionStore, "complete_pending", _store_down)
+
+    failed = callback(legacy, started.json()["state"])
+
+    assert failed.status_code == 503, failed.text
+    assert failed.json()["detail"]["code"] == code
+    assert marker(legacy) == before
+    connection_id = started.json()["connection_id"]
+    assert _row(legacy, connection_id).status != "active"
+    assert blob_at_connection_address(legacy, connection_id) is None

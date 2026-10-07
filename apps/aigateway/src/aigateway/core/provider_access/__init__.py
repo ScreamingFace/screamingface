@@ -92,6 +92,7 @@ from .writer_floor import (
     claim_observed,
     claim_pair,
     fences_writer,
+    hold_observed,
     hold_pair,
 )
 
@@ -159,6 +160,7 @@ __all__ = [
     "facade_target",
     "fail_connection_oauth",
     "fences_writer",
+    "hold_observed",
     "hold_pair",
     "invalidate_session",
     "legacy_target_parts",

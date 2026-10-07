@@ -55,6 +55,7 @@ from ..core.provider_access import (
     complete_connection_oauth,
     facade_target,
     fail_connection_oauth,
+    hold_observed,
     hold_pair,
     patch_facade,
     provider_credential_admin_for,
@@ -873,10 +874,11 @@ async def _complete_oauth_for_app(
             _invalidate_profile_session(app, plugin, pending.account_id, pending.profile_name)
         else:
             try:
-                # INVARIANT (OME-1497, G0): a native callback claims the pair its start published
-                # before the compat document or the Connection row moves.
+                # INVARIANT (OME-1497, G0): a native callback holds the pair its start published
+                # while the compat document moves; it claims the pair only in the transaction that
+                # activates the Connection, so a failed activation advances nothing (§5.3).
                 async with in_transaction():
-                    published = await claim_observed(pending.observed_pair)
+                    await hold_observed(pending.observed_pair)
                     await _mark_profile_authenticated(app, pending, plugin, creds)
             except PairAuthorityConflict as exc:
                 await _close_loopback_callback(app, state)
@@ -1108,7 +1110,11 @@ async def _record_oauth_connection_completion(
         # optional credential row. The pending-only CAS and credential write commit together, so
         # a concurrent DELETE wins without credential orphaning or stale-row resurrection.
         async with in_transaction():
-            if published is not None:
+            if pending.connection_id is not None:
+                # INVARIANT (OME-1497, G0 §5.3): check and publication are atomic — the native
+                # claim commits with the activated row and its blob, or not at all.
+                await claim_observed(pending.observed_pair)
+            elif published is not None:
                 # INVARIANT (OME-1497, G0 D14 refinement): the shadow records the credential this
                 # callback published only while the pair still stands where it was published.
                 await hold_pair(published)

@@ -100,7 +100,7 @@ Prior assertions that change are listed and approved byte-exactly before they ar
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** new `core/provider_access/writer_floor.py` (`fences_writer`, `claim_pair`,
-  `claim_observed`, `hold_pair`, `bootstrap_under_the_floor`); changed `core/oauth/store.py`
+  `claim_observed`, `hold_pair`, `hold_observed`, `bootstrap_under_the_floor`); changed `core/oauth/store.py`
   (`ensure_anonymous_account` public), `core/pending_auth.py` (`observed_pair`),
   `core/provider_access/{__init__,connection_admin,connection_native,connection_oauth,profile_admin}.py`
   (`claim_native_write`, `claim_for_connection`, `addressed_by_a_live_connection`, the
@@ -119,7 +119,8 @@ Prior assertions that change are listed and approved byte-exactly before they ar
   errors, no-enterprise, pytest with coverage ≥ 80%); full suite 5219 passed, 97 skipped. PostgreSQL
   lane (`AIGW_TEST_PG=1 uv run pytest -m needs_postgres`): 55 passed, including the four new floor
   races; 5 failed in `test_cache_snapshot_upload_postgres.py` only because the local `pg_dump` 15
-  refuses the 16-alpine test server — `request_cache` is untouched here.
+  refuses the 16-alpine test server — `request_cache` is untouched here. Re-run after the
+  post-PR fix: ALL GATES GREEN; PostgreSQL lane 55 passed with the same 5 `pg_dump` failures.
 - **Independent review (four lenses, each finding challenged by a separate skeptic):** 7 findings,
   3 survived.
   - Fixed: a native OAuth start claimed the pair before binding its loopback redirect, so a start
@@ -132,8 +133,17 @@ Prior assertions that change are listed and approved byte-exactly before they ar
     Connection row before it advances the marker, while native writers now claim the marker
     first; on PostgreSQL a backfill and a native create/start with the same label on the same pair
     can deadlock, and PostgreSQL aborts one of the two transactions whole (no partial write).
-  - Refuted (by design): the native callback's claim commits before the Connection activation, as
-    the legacy flow does; the 409 body text is the existing `connection_conflict` message.
+  - Refuted: the 409 body text is the existing `connection_conflict` message.
+- **Post-PR review (2026-10-07), fixed:** the native OAuth callback committed its claim in its own
+  transaction, before the Connection activation and the blob write. A callback whose activation or
+  credential write failed (503 `connection_activation_failed` / `credential_store_unavailable`)
+  therefore still advanced the generation, against §5.3 ("check and publication are atomic";
+  failures never advance). The first review had wrongly refuted this as matching the legacy flow —
+  the legacy callback claims inside its publication transaction. The native callback now only holds
+  the pair (`hold_observed`, check-only) while its compat document moves, and claims it inside the
+  activation transaction (marker → row → blob); a duplicate-identity completion that activates
+  nothing no longer advances either. Test: a native callback that fails to publish keeps the pair
+  generation (credential write and activation failures).
 - **Deviations:**
   - The startup bootstrap claims `quarantined` as well as `none` (one `fences_writer` rule for every
     legacy writer) instead of skipping `quarantined`; it skips `migrated` and rolls back when the
