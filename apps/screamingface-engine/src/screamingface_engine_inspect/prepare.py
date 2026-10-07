@@ -118,6 +118,10 @@ class TaskReplayCasesSpec:
     #: The dataset is gated, so replaying it needs a Hugging Face token from an account that
     #: accepted its terms (xstest); access, not identity, so no pin (R8).
     needs_hf_token: bool = False
+    #: The Cases' digest with order ignored (OME-1492): sealed beside ``case_digest`` so a
+    #: broken seal can say "same Cases in another order" vs "text changed". Diagnosis, not
+    #: identity, so no pin and no Revision moves; None on rows sealed before it existed.
+    case_set_digest: str | None = None
 
 
 def case_digest(prepared: Sequence[PreparedCase]) -> str:
@@ -159,6 +163,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.agieval.agieval:agie_lsat_ar",
         case_count=230,
         case_digest="5f77e982829b4ce7a4fbb72abfd54d6cdf84e27fd73c470a7950e59abf599233",
+        case_set_digest="e6c83fea1dbe4532f946b6aa06750c5d9acf223c0faff3a1bb46d9b345593521",
         # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
         license="mit",
     ),
@@ -171,6 +176,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.agieval.agieval:agie_lsat_lr",
         case_count=510,
         case_digest="104db4473e5e86e7addb6f683f7c50cb279094ad2091ff270da1618d7cd6a42d",
+        case_set_digest="fa958459f19bfb807163a0be5485c3dac5e63092f6a36ac3689436dc05fa205e",
         # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
         license="mit",
     ),
@@ -183,6 +189,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.agieval.agieval:agie_lsat_rc",
         case_count=269,
         case_digest="984f6070d532200fd9e92d1e0b91ce42c7dec1f6b72ab5316ec1cfe9ab2e8ddb",
+        case_set_digest="984c74accff87417ec2023bc8afd0a0aa42f4fd7e6d0c810a6dba277e3e6a042",
         # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
         license="mit",
     ),
@@ -195,6 +202,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.agieval.agieval:agie_sat_math",
         case_count=220,
         case_digest="54ac8e2293cf2ac8e62d62383bfe8a9f8fa5dfdb4249f6eb603c5b4aef88b84d",
+        case_set_digest="93313cd81b290cd8672d5e4ce1b13ed423348e8c081589818f84043145bb43fd",
         # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
         license="mit",
     ),
@@ -207,6 +215,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.agieval.agieval:agie_sat_en",
         case_count=206,
         case_digest="02045f612ebb038734920b2007dbd49d200b801ec36c8b811d3c84ca773444ce",
+        case_set_digest="6b331ca80a0a48a744ccf0dc6fd5aa6a313e9732b96775b88d43ab93cdd69aeb",
         # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
         license="mit",
     ),
@@ -219,6 +228,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.agieval.agieval:agie_sat_en_without_passage",
         case_count=206,
         case_digest="fe8910e4238399ac39b277bc3beaaee5d89328f91e0dd375b94bf7ee091e218d",
+        case_set_digest="44257296e57430320752d9343618768d8659a6aed0d885645b733967fbb619bd",
         # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
         license="mit",
     ),
@@ -231,6 +241,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.agieval.agieval:agie_aqua_rat",
         case_count=254,
         case_digest="64dce3527cc1ef47977165c9f042992180d301352ec9d33e78cb1be18a612b6b",
+        case_set_digest="d884477ee39a9cabd25af5186f0371011d13718a1a73ca239dd37af3903d15d5",
         # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
         license="mit",
     ),
@@ -243,6 +254,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.agieval.agieval:agie_logiqa_en",
         case_count=651,
         case_digest="7c80ae3ee57808416fbfb3a5e7d78e8c99f4c5afbc46367bad967c1b9f90d781",
+        case_set_digest="e143841ea7b2e8ce8dfbe05877312a4eacabfa3cad69cc595ec688664b6de36c",
         # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
         license="mit",
     ),
@@ -255,6 +267,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.medqa.medqa:medqa",
         case_count=1273,
         case_digest="ea4634b0825292d91881c0e76dd571a023ad9e8fd037116b5ce908100b2b7944",
+        case_set_digest="86742f5f3b50380f21c3ae62a498ef3de0df91d15b513a48ee8897b51e00398c",
         # License: owner decision 2026-10-01: MIT, jind11/MedQA LICENSE; the bigbio card says
         #  unknown.
         license="mit",
@@ -274,6 +287,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"languages": ["en"]},
         case_count=250,
         case_digest="3f34b5110fc11408e435c1b6113c7f698e3c3b5d14ce604592644d4059e9320e",
+        case_set_digest="85d0e0f3286183b6a78e16bee6b09d4deb2e5906c316d53dd6e1d371050d488a",
         # License: owner decision 2026-10-01: CC-BY-4.0, google-research/url-nlp mgsm/LICENSE.
         license="cc-by-4.0",
     ),
@@ -286,6 +300,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.bbq.bbq:bbq",
         case_count=58492,
         case_digest="8d7652ea42145db0b27d6ddbedfd81bc5fd4733bb4e78658218b15c0c8a5d28b",
+        case_set_digest="2029703c12653abdb7f896baefe116566bca23c407aafe231c9cca0dbf40cc22",
         license="cc-by-4.0",
         # Hub pin backfilled from the commit recorded at import (OME-1460, D4): every
         # build now forces it; the eval already passes the same commit.
@@ -306,6 +321,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.piqa.piqa:piqa",
         case_count=1838,
         case_digest="bc3ae6040b20a2eabe8976f96d58ac8ffae08bc821c73021c2d5b4289eca8958",
+        case_set_digest="eaed0df565e7e1b45d859baaeb4995601167120bb1c485dff95fc37abc887eb1",
         # License: owner decision 2026-10-01: no license found; the ybisk/piqa card says unknown and
         #  the original repo is gone.
         license="unknown",
@@ -324,6 +340,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.cybermetric.cybermetric:cybermetric_80",
         case_count=80,
         case_digest="25fa5f98d03ae8aef3e381589b0fc2e6d0130d900c6d14e67766ec9816f73e56",
+        case_set_digest="a83baea19369fbfa7738b052f0191144928d0e770ad858b98c14ec134bf55f8c",
         # License: owner decision 2026-10-01: cybermetric/CyberMetric carries no license file.
         license="unknown",
     ),
@@ -336,6 +353,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.cybermetric.cybermetric:cybermetric_500",
         case_count=500,
         case_digest="df8bfe73bc077e26d148a85200c4598dcd93e837cc1aec0459c6f27702b81fa8",
+        case_set_digest="a27fa0dbaec1dbe9b024aaa669e53e3591257fafd64508941c48da79d3e8747b",
         # License: owner decision 2026-10-01: cybermetric/CyberMetric carries no license file.
         license="unknown",
     ),
@@ -348,6 +366,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.cybermetric.cybermetric:cybermetric_2000",
         case_count=2000,
         case_digest="f5f42a83a438a7cdadd29e35b92b233ecdbd6f8c57ce016d8115f0300fb967c1",
+        case_set_digest="413fff6fd27a96d943efcb4b96603152c4311b5f3a0a5c3d98a28b1da74fccbe",
         # License: owner decision 2026-10-01: cybermetric/CyberMetric carries no license file.
         license="unknown",
     ),
@@ -360,6 +379,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.cybermetric.cybermetric:cybermetric_10000",
         case_count=10180,
         case_digest="058be2a68b92708a1e1a99c504fcbbfcd6b8b6c561eb92be0d4124d343fdbe58",
+        case_set_digest="899e75cc4112e5dfe62ba52e4f89bb4e7bcfbcb111e983678467bcf469b70f95",
         # License: owner decision 2026-10-01: cybermetric/CyberMetric carries no license file.
         license="unknown",
     ),
@@ -372,6 +392,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.sevenllm.sevenllm:sevenllm_mcq_zh",
         case_count=50,
         case_digest="8c703ae7baf275cec15551ef2fd7c624547b05c64d50be6f907c28220bd5a823",
+        case_set_digest="fcbef0e997070d1120eb171acf338dd0a8d5203bb15bc7c7ad060bdcb263ac58",
         # License: owner decision 2026-10-01: Apache-2.0, the SEVENLLM-Dataset card on Hugging Face.
         license="apache-2.0",
     ),
@@ -384,6 +405,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.sevenllm.sevenllm:sevenllm_mcq_en",
         case_count=50,
         case_digest="dae1e9538a498a9cbb98ae8ec428db155258fd5a5660fab9d53f41874cf51578",
+        case_set_digest="7541fedff06597b62abf6344b6a99699fadeaf0dbf626de1ccf27e980f056596",
         # License: owner decision 2026-10-01: Apache-2.0, the SEVENLLM-Dataset card on Hugging Face.
         license="apache-2.0",
     ),
@@ -397,6 +419,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"shuffle": False},
         case_count=40176,
         case_digest="426b5a4e50aa171acc180de1e5836eb1f25b605a960ae8c6e08b1f414a3b079c",
+        case_set_digest="dc359e888daa42d4fa6df4c0af21dc2dfba374f2a745b23e9fcc427bfb941963",
         keep_sample_metadata=True,
         # License: owner decision 2026-10-01: CC-BY-NC-4.0, facebookresearch/worldsense LICENSE;
         #  non-commercial use only.
@@ -420,6 +443,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"seed": 7},
         case_count=249,
         case_digest="a84c6535db4e44841640423c96ab9030291eba2821896141494a9dfe0e8b9137",
+        case_set_digest="a4d8f4cccf16469af91443aa240a05b0923bdf30cdec497638c5b4ca266eb442",
         keep_sample_metadata=True,
         # License: owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no dataset card.
         license="cc-by-4.0",
@@ -442,6 +466,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"seed": 7},
         case_count=1200,
         case_digest="faa75981e823a803b89f5aa3d47e2eddf58bf78075c2951b6db17a9347120980",
+        case_set_digest="2e1da31123a7eecc1954f0155dc46c2e3e15d780d7229f2043e17c31bbda5269",
         keep_sample_metadata=True,
         # License: owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no dataset card.
         license="cc-by-4.0",
@@ -464,6 +489,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"seed": 7},
         case_count=255,
         case_digest="cf1ebc85a3cb5b09f59bfc941fe5c162ad80f0b97a90f118fdc37eed39dd1c0b",
+        case_set_digest="88a5a1f9556d41dbddaa20fa1bfb488e0b4581205e84babcadf6edf20a307355",
         keep_sample_metadata=True,
         # License: owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no dataset card.
         license="cc-by-4.0",
@@ -486,6 +512,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"seed": 7},
         case_count=400,
         case_digest="da1c29f15006c59da2807cca60390829efb2ad69c27552d63c265d091da13911",
+        case_set_digest="0123ec1646f585210f715b03dc7cadcef819931cdf6924c11b187b66bd9d6e91",
         keep_sample_metadata=True,
         # License: owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no dataset card.
         license="cc-by-4.0",
@@ -508,6 +535,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"seed": 7},
         case_count=797,
         case_digest="a5d0851ddeee6f85a4ac3f911245c2b37fdb2a20f305a9259846c011c1bc0385",
+        case_set_digest="6c2f142289357c7033b4f93f637c6d6b4e7cd1c27b8281d31b20a0dee9268bc1",
         keep_sample_metadata=True,
         # NAMED DEVIATION (spec R18): upstream's records 15, 59 and 103 of the stages/full
         # batch files have an empty body, so the eval asks "In what stage … the above text?"
@@ -531,6 +559,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.cyberseceval_4.mitre_frr.task:cyse4_mitre_frr",
         case_count=750,
         case_digest="d62289a80a9e7cc067ed73b3cf8790009f16fcf3c9b2a0bdda3399e5d4990f3d",
+        case_set_digest="9e6f0b0389e55e323c08149afd3ac61c675178cc62b682852c32bcf3d53c56fe",
         keep_sample_metadata=True,
         # The Samples carry no answer key: the eval's own scorer reads only the reply (a
         # refusal regex), so the row opts out of the key and its catalogue row says who
@@ -551,6 +580,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.pre_flight.pre_flight:pre_flight",
         case_count=300,
         case_digest="eda28835a8b5c4dd45f2531315d6fcc2d2301d5ca59b1854346ff0e3c32ffd3f",
+        case_set_digest="98df6f673d26f0b4049685eeaf87fb45a47fdaf3628fbddc28bea69f6e594156",
         # License: owner decision 2026-10-01: MIT, the AirsideLabs/pre-flight-06 card on
         #  Hugging Face.
         license="mit",
@@ -569,6 +599,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.bbeh.bbeh:bbeh",
         case_count=4519,
         case_digest="94e806ce381463c0f748ac90cbe5b4ba4b9d5b0ae88dec3f4350d34d11fd239b",
+        case_set_digest="61484343edcf3c0de1ccc13437d5407c21660897c4cdc6d52362d4fd7084564b",
         keep_sample_metadata=True,
         # License: owner decision 2026-10-01: Apache-2.0, the BBEH/bbeh card on Hugging Face.
         license="apache-2.0",
@@ -588,6 +619,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.arc.arc:arc_easy",
         case_count=2376,
         case_digest="51b8598a4db653d7c60ec0a43487d4c5a3ea0daf505316c3b6f9a5d6fd656346",
+        case_set_digest="31de52cbd17385e26b5c89f266d3bf9f6113d0f5f3af1a182aecda5ae6a70b1b",
         source_pins={
             "allenai/ai2_arc": "210d026faf9955653af8916fad021475a3f00453",
         },
@@ -603,6 +635,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.arc.arc:arc_challenge",
         case_count=1172,
         case_digest="71c66b3e10dcccf112dc4951676c83d62bb50d8055bad6e0494d6e5181880cfe",
+        case_set_digest="75a45db9b1ce9263dfd6ccaaed229b52632ca055edefd2410fd77a8de7e4c05c",
         source_pins={
             "allenai/ai2_arc": "210d026faf9955653af8916fad021475a3f00453",
         },
@@ -618,6 +651,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.wmdp.wmdp:wmdp_bio",
         case_count=1273,
         case_digest="f36e89dd2551294dd4abdcb223262644ff9a4bb04ca69b8b07e993a673ad02aa",
+        case_set_digest="79607ab0fc63360e934b801c4861d72796b4f916c1952656b63ec419d46911e8",
         source_pins={
             "cais/wmdp": "7125571f22f032c56415e7980f48d877dd830ff8",
         },
@@ -633,6 +667,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.wmdp.wmdp:wmdp_chem",
         case_count=408,
         case_digest="78fd64d8416db768091c674f665dbdd7c964dabbbeb30658690959620174103d",
+        case_set_digest="adfadd42dee6ef070444413fecee5fc8d91dd0f69cd4203c1c08dc4b7eb556df",
         source_pins={
             "cais/wmdp": "7125571f22f032c56415e7980f48d877dd830ff8",
         },
@@ -648,6 +683,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.wmdp.wmdp:wmdp_cyber",
         case_count=1987,
         case_digest="fcb59e16ad49985fa62beb40d8b82d50ee777855d82ca6a25bc5455b2bb1981f",
+        case_set_digest="efdcfa50d253e75f73e545b32c8b4cbb789268b0e929c2466a330a153141b59f",
         source_pins={
             "cais/wmdp": "7125571f22f032c56415e7980f48d877dd830ff8",
         },
@@ -663,6 +699,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.pubmedqa.pubmedqa:pubmedqa",
         case_count=500,
         case_digest="482998340464f3bf8e35502be4f83dc8fcefa64f6d2eb35d101bac84e1e48f77",
+        case_set_digest="c3eb0da4407b2e6d7e8c5199019f28bb7f214f5e602cb732dd3358404a653ee4",
         source_pins={
             "qiaojin/PubMedQA": "9001f2853fb87cab8d220904e0de81ac6973b318",
         },
@@ -679,6 +716,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"fewshot": 0},
         case_count=1319,
         case_digest="11e0dccbf379586a9618b98200c02ef98fc9a30d426e6f36423f420982637e8f",
+        case_set_digest="f094ba81f0b2119a423aa9bdd3f37162a128931c2f51d4ee4bb7900706dd9501",
         source_pins={
             "openai/gsm8k": "cc7b047b6e5bb11b4f1af84efc572db110a51b3c",
         },
@@ -695,6 +733,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"fewshot": 0},
         case_count=1267,
         case_digest="437ab435a55b3959660977aef0a0ed17eb45919a475dfd43ffd94362c2b71f67",
+        case_set_digest="4ae4d9d1da187b1e6c2d4e20ee9b344a0e13a9f42f23d76f1b5179a4d6ffa6c0",
         source_pins={
             "allenai/winogrande": "01e74176c63542e6b0bcb004dcdea22d94fb67b5",
         },
@@ -713,6 +752,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.mmlu.mmlu:mmlu_0_shot",
         case_count=13937,
         case_digest="ea69cb0179c201b4e138eed2f2c21f653f9d0f11e6a2f88812de0143b8930a34",
+        case_set_digest="23979456c2bf4d45c38eb28cc8c7fbbfcac1aca133e9f8b352063adf1a12b322",
         source_pins={
             "cais/mmlu": "c30699e8356da336a370243923dbaf21066bb9fe",
         },
@@ -730,6 +770,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.aime2024.aime2024:aime2024",
         case_count=30,
         case_digest="2f8cbd5ab7aa8d31f8ffd8e7a10e27a6ea08de6d552e7b6b95d9720ca83a0321",
+        case_set_digest="2b14c9a009c228433d581261aaacbc4573c2ede77e6f15f373e31f52b6af0b9b",
         keep_sample_metadata=True,
         source_pins={
             "Maxwell-Jia/AIME_2024": "8d88b2876a82a080e2f172cc9b25d0d9d2cb4792",
@@ -748,6 +789,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.aime2025.aime2025:aime2025",
         case_count=30,
         case_digest="200b95b0f1b1542b280795e6143c0aa066784788cb5056239def5b89c1c5eabe",
+        case_set_digest="341c5741c1f55f95246f216b41b11fcbbc75a6b7daf730b210eca7cf8e3ceeb9",
         keep_sample_metadata=True,
         source_pins={
             "math-ai/aime25": "563bb8404243c5f09de6ec262f2db674fe5bce9b",
@@ -765,6 +807,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.hellaswag.hellaswag:hellaswag",
         case_count=10042,
         case_digest="13d0a551dc717a7b6aad29674a9b875a47b09a6d869ea36cce7da34900632827",
+        case_set_digest="5c2a44c49121545cb6cf9f4f3e98ac6d1dca87d8d145d2852283b815d3ae62f5",
         source_pins={
             "Rowan/hellaswag": "218ec52e09a7e7462a5400043bb9a69a41d06b76",
         },
@@ -783,6 +826,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"subset": "safe"},
         case_count=250,
         case_digest="6800b16845a272bd27552f57ebc3798f3f3567ea67907e6132e69c9a4e1c13b7",
+        case_set_digest="2a420a26c20717e7547f249e12e1c6e20e5cd1645bbb2cf4b8e18fcb85bcb4a0",
         has_answer_key=False,
         source_pins={
             "walledai/XSTest": "f1d713187c61b6ae64e602d74f0b3d812cc2e8e8",
@@ -801,6 +845,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"subset": "unsafe"},
         case_count=200,
         case_digest="ecdd47957876ff2e5354b76c45eedbfece6c7ea875f3c8d3c43a7b01f056ec86",
+        case_set_digest="8f8179f4bc7c1b863c6b64d99f7cc587017f1b42ec7d2cee78bbb429ae0e3bff",
         has_answer_key=False,
         source_pins={
             "walledai/XSTest": "f1d713187c61b6ae64e602d74f0b3d812cc2e8e8",
@@ -819,6 +864,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"subset": "original"},
         case_count=1001,
         case_digest="64ec2519afb9052a577a81ef4fbe365d58d02de47298ed7746a76dc636e82ec3",
+        case_set_digest="212ca8c024e834bd948d7b954a7b30dc8fe7cd94a7b54a695b2bd6492fe5f28b",
         # WHY kept although the scorer is inspect's: the Judge template reads the category
         # rubric from the metadata (OME-1371); imported with --keep-sample-metadata.
         keep_sample_metadata=True,
@@ -841,6 +887,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task_args={"subset": "contrast"},
         case_count=379,
         case_digest="1e8579eabe4c113b285e55ff09fd643a4fff424dda067068175a853aa5a39d23",
+        case_set_digest="3a5101d4dd61b0b91e899f230b68bc1d7d33460fa8f26a947884d4082b94cae8",
         # WHY kept although the scorer is inspect's: the Judge template reads the category
         # rubric from the metadata (OME-1371); imported with --keep-sample-metadata.
         keep_sample_metadata=True,
@@ -861,6 +908,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.commonsense_qa.commonsense_qa:commonsense_qa",
         case_count=1221,
         case_digest="0a4789cbd8e63a06f9d3d75a361538276bca39d4c45789715b9d9350bb3c1053",
+        case_set_digest="e3b2d5b64edbeacda7614fcb13fe0b8924f3f759a738a7c09a3a530c40558b40",
         source_pins={
             "tau/commonsense_qa": "94630fe30dad47192a8546eb75f094926d47e155",
         },
@@ -877,6 +925,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.paws.paws:paws",
         case_count=8000,
         case_digest="b0e17f7d59264fda8c48a489c8f990936ac97def157dc680713cc7d78d1381f8",
+        case_set_digest="2d5e93995d973e353d44f26d17425426d240035deff51cb117356e00c6c07558",
         source_pins={
             "google-research-datasets/paws": "161ece9501cf0a11f3e48bd356eaa82de46d6a09",
         },
@@ -895,6 +944,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.boolq.boolq:boolq",
         case_count=3270,
         case_digest="71ee1e88969337159eedfe47c6c3af66816b01eb984d338f36deed56685fd3e2",
+        case_set_digest="beee67f432638c7d351df603c1c47e3551fb2ea69fdb81674d2d4ce8f02d8620",
         source_pins={
             "google/boolq": "35b264d03638db9f4ce671b711558bf7ff0f80d5",
         },
@@ -913,6 +963,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.mmlu_pro.mmlu_pro:mmlu_pro",
         case_count=12032,
         case_digest="b765c667c3ad277a8bd49c388fcf26dc4abc2dcaacd34ac43f05e94cad611426",
+        case_set_digest="d9b4c58b133419eafac89a2c70e2280c8a4a865d399b487a2ecc326b57e01e26",
         source_pins={
             "TIGER-Lab/MMLU-Pro": "527feea0afed1de15a8c115abf7be4c912123315",
         },
@@ -929,6 +980,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.race_h.race_h:race_h",
         case_count=3498,
         case_digest="49e1ebc1ebbefe9569375bf666659f1a1d3ae1f309880fcf350875550c330441",
+        case_set_digest="3541121e157a7b98aaa8f64f50fc04779486663b6018327efc78c3fa0962b9a6",
         source_pins={
             "ehovy/race": "2fec9fd81f1dc971569a9b729c43f2f0e6436637",
         },
@@ -947,6 +999,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.frontierscience.frontierscience:frontierscience",
         case_count=160,
         case_digest="7f0ef5c2834d2c980458f67fbba3b2576a18f8c08ee669f355b922afedecc3ad",
+        case_set_digest="4716f6aae3444cb70be9a208571eb858ce3118ce435b3c0ba46b082f3bc09214",
         keep_sample_metadata=True,
         source_pins={
             "openai/frontierscience": "25ed67db7da8f4591484e764008ff585544f5a30",
@@ -964,6 +1017,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.onet.onet:onet_m6",
         case_count=391,
         case_digest="92d013fe6efd85165221d02958efaf13df3f31ee25ce4e8868112b92c30e613b",
+        case_set_digest="7a6f28e40396cd9c450e0d4f7948368e22f522cb784636105072b95eb9fc96d9",
         # NAMED DEVIATION (owner decision 2026-09-29, OME-1269): inspect keeps 397
         # questions, the Benchmark serves 391. Six cannot be graded as published: upstream
         # split their numbered choices wrongly, so the answer letter points past the last
@@ -993,6 +1047,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.musr.musr:musr",
         case_count=250,
         case_digest="fa7e1c77159eda64b06ec32238afe23ac0be8497bfcd500db46cd435e846204c",
+        case_set_digest="ff8947fbe15024f01a03c3c1b5b7d81ed4868a27063afdc16adfd50f912aa2db",
         source_pins={
             "TAUR-Lab/MuSR": "7c365b439a222150f317764d4f16ae6c96d7d94a",
         },
@@ -1011,6 +1066,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.lab_bench.lab_bench:lab_bench_litqa",
         case_count=199,
         case_digest="53c9f8077dcf1c9edfa52b1e426be95549dd3b8d9b72cffb9a21001c27417dfe",
+        case_set_digest="a841562822590f822b415b111ae9832ef4893f284244d76131fd411b77e921aa",
         keep_sample_metadata=True,
         source_pins={
             "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
@@ -1031,6 +1087,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.lab_bench.lab_bench:lab_bench_suppqa",
         case_count=82,
         case_digest="5233348a35d4e988fd71f1741ded483b9d8ffae3a0e8979203fb6ab0e7aa90f9",
+        case_set_digest="dd525b44d963a724781c127f9e0d34769f595c0abce98070ad9c36980fc7eb93",
         keep_sample_metadata=True,
         source_pins={
             "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
@@ -1051,6 +1108,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.lab_bench.lab_bench:lab_bench_dbqa",
         case_count=520,
         case_digest="8584a3df081501f949f28a03ff5b058208985ef653a98b88d9946b24e08be17b",
+        case_set_digest="f0b1e6238617c3ac7297eea0515533a2a4412f01f23556bb307f39a0c28db0da",
         keep_sample_metadata=True,
         source_pins={
             "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
@@ -1071,6 +1129,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.lab_bench.lab_bench:lab_bench_protocolqa",
         case_count=108,
         case_digest="06f94fdd1c65c0872d6c6cde6afe35019a97e3ac40240771cebfa7fa022fc76f",
+        case_set_digest="58b9723bb178c201a06e5cf88445546bde001585ebf445e93adb65d9d1f0e5ba",
         keep_sample_metadata=True,
         source_pins={
             "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
@@ -1091,6 +1150,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.lab_bench.lab_bench:lab_bench_seqqa",
         case_count=600,
         case_digest="b11b60d26139ccf4d937cb48ddcaa84c5d931cb838e857c1cab0b4ff8ce89c0d",
+        case_set_digest="3e3242b1e0c5a10618cc92f720c7870fbcd5eaa25553246ad6d168a0355981e4",
         keep_sample_metadata=True,
         source_pins={
             "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
@@ -1111,6 +1171,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.lab_bench.lab_bench:lab_bench_cloning_scenarios",
         case_count=33,
         case_digest="0e21d7411577ba5b2b946ffd81f89d7b63269e47303228992a1066a531ddf2c7",
+        case_set_digest="585c7feb8f8a4ec6bdb1b3ad909bdcd1d4d622fd140994f2e9c9f6d125236ffa",
         keep_sample_metadata=True,
         source_pins={
             "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",

@@ -220,6 +220,9 @@ def _declaration_lines(
         lines.append(f"        task_args={_python_literal_source(declaration.task_args)},")
     lines.append(f"        case_count={declaration.case_count},")
     lines.append(f'        case_digest="{declaration.case_digest}",')
+    if declaration.case_set_digest is not None:
+        # OME-1492: the order-blind seal, so a later broken seal can say "order only".
+        lines.append(f'        case_set_digest="{declaration.case_set_digest}",')
     if declaration.keep_sample_metadata:
         # WHY written: the metadata is inside the Case Digest, so the row must say so (D11).
         lines.append("        keep_sample_metadata=True,")

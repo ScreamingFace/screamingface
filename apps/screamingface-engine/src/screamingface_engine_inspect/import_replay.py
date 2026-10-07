@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine_inspect.capture import captured_case_records
+from screamingface_engine_inspect.case_set import case_set_digest
 from screamingface_engine_inspect.case_sources import RENDER_PHASE, CaseSource, CaseSourceRecorder
 from screamingface_engine_inspect.fetch_pins import (
     FetchPinError,
@@ -399,6 +400,9 @@ def import_by_task_replay(
         task=task_ref,
         case_count=len(first.prepared),
         case_digest=case_digest(first.prepared),
+        # OME-1492: the order-blind seal, so a later reorder reads as "order only". Sealed
+        # from run 1 like the Case Digest; run 2's matching digest proves it too.
+        case_set_digest=case_set_digest(first.prepared),
         task_args=dict(task_args) if task_args else None,
         keep_sample_metadata=first.facts.keep_sample_metadata,
         has_answer_key=has_answer_key,

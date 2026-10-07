@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import datetime
 import shutil
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -516,3 +517,18 @@ def test_a_non_ascii_excluded_sample_id_is_written_and_evaluates_back() -> None:
 def test_an_excluded_sample_id_a_reviewer_cannot_read_is_refused(sample_id: str) -> None:
     with pytest.raises(ImporterError, match="injection guard"):
         render_task_replay_rows("x", _imported(excluded_sample_ids=(sample_id,)), "TODO")
+
+
+def test_an_import_with_a_case_set_digest_writes_it_on_the_row(engine_src_copy: Path) -> None:
+    """OME-1492: the order-blind seal sits beside the Case Digest on the declaration, so a
+    later broken seal can say "order only"."""
+
+    imported: TaskReplayImport = _imported()
+    sealed: TaskReplayImport = replace(
+        imported, declaration=replace(imported.declaration, case_set_digest="d" * 64)
+    )
+
+    write_task_replay_rows("stand_in_replay", sealed, engine_src=engine_src_copy, license="TODO")
+
+    prepare_text: str = (engine_src_copy / "prepare.py").read_text()
+    assert f'case_set_digest="{"d" * 64}",' in prepare_text
