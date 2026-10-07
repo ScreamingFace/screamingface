@@ -52,6 +52,13 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.bundle_provenance import (
+    FILE,
+    HUGGING_FACE,
+    LOAD_PHASE,
+    UNPINNED,
+    URL,
+)
 from screamingface_engine_inspect.fetch_pins import (
     FetchPins,
     forced_hf_dataset_arguments,
@@ -61,15 +68,11 @@ from screamingface_engine_inspect.fetch_pins import (
 _COMMIT_IN_URL: re.Pattern[str] = re.compile(r"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])")
 _URL_SCHEMES: tuple[str, ...] = ("http://", "https://", "s3://", "gs://", "hf://")
 
-#: Kinds a Case Source can be. The comment the importer writes starts with the kind.
-HUGGING_FACE: str = "hugging-face"
-URL: str = "url"
-FILE: str = "file"
-#: The pin of a Case Source nothing upstream pins: the Case Digest is then the only pin.
-UNPINNED: str = "unpinned"
-#: When a Case Source was fetched: while the task function loaded its dataset, or while
-#: capture rendered a Sample (see CaseSource.phase).
-LOAD_PHASE: str = "load"
+# The Case Source kind words (hugging-face, url, file), "unpinned" and the load phase live in
+# core, so the hand-built preparers' labels and this recorder's read alike; the comment the
+# importer writes starts with the kind.
+#: When capture rendered a Sample, as opposed to while the task function loaded its dataset
+#: (see CaseSource.phase).
 RENDER_PHASE: str = "render"
 
 #: What a describe step returns: the Case Sources one call fetched (often one, maybe none).

@@ -243,7 +243,9 @@ def case_sources() -> list[dict[str, str]]:
         hugging_face_source(DATASET, DATASET_REVISION),
         {
             "kind": FILE,
-            "location": f"{VERIFIER_REPOSITORY}/data/input_data.jsonl",
+            # The vendored data/ folder sits one level deeper upstream, beside the copied
+            # checker files: instruction_following_eval/data/input_data.jsonl.
+            "location": f"{VERIFIER_REPOSITORY}/instruction_following_eval/data/input_data.jsonl",
             "pin": f"commit {VERIFIER_REVISION}",
             "phase": LOAD_PHASE,
         },

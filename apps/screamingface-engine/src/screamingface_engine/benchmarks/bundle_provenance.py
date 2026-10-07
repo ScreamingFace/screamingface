@@ -39,12 +39,17 @@ PROVENANCE_FILE: Final = "provenance.json"
 #: The summary-line key that carries the same block.
 PROVENANCE_KEY: Final = "provenance"
 
-# The Case Source words, the same ones the inspect plugin's fetch recorder uses, so both kinds
-# of bundle read alike on the paid smoke's run page.
+# The Case Source words, the one home for them: the inspect plugin's fetch recorder imports
+# them from here, so both kinds of bundle read alike on the paid smoke's run page.
 #: A Hugging Face dataset, pinned by a revision.
 HUGGING_FACE: Final = "hugging-face"
+#: A download from a URL, pinned only when the URL itself names a commit or a hash.
+URL: Final = "url"
 #: A file shipped inside the package that prepares the bundle.
 FILE: Final = "file"
+#: The pin of a Case Source nothing upstream pins: for an Imported Benchmark the Case Digest is
+#: then the only pin; for a hand-built one, nothing is.
+UNPINNED: Final = "unpinned"
 #: Read while the dataset loads (the plugin also has "render": read while building a prompt).
 LOAD_PHASE: Final = "load"
 
@@ -130,6 +135,8 @@ __all__ = [
     "LOAD_PHASE",
     "PROVENANCE_FILE",
     "PROVENANCE_KEY",
+    "UNPINNED",
+    "URL",
     "hand_built_provenance",
     "hugging_face_source",
     "read_provenance",

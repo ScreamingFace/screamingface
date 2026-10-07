@@ -25,14 +25,14 @@ gdpval-text) to that bundle on the run page. No Benchmark Revision moves, never 
   source shape, and the hand-built block builder.
 - `.../screamingface_engine_inspect/replay_provenance.py`: import the file name, key and writer
   from core (same public names).
-- The six `benchmarks/<family>/prepare.py`: write the block right before `cases.json`; the
+- The six `benchmarks/<benchmark>/prepare.py`: write the block right before `cases.json`; the
   public `prepare` adds it to the summary.
 - `packages/screamingface/tests/paid/_case_provenance.py`: the Benchmark-to-bundle map; an
   empty `pins` renders "—".
 
 ## Test plan
 
-- One appended test per family's prepare test: `provenance.json` exists and was written before
+- One appended test per preparer's test file: `provenance.json` exists and was written before
   `cases.json`; the source pin is the declared revision; `samples.kept` = Cases written; the
   summary carries the same block; no fixture Case text in the file.
 - SDK: a shared-bundle Benchmark reads its bundle's file; a hand-built block with empty `pins`
@@ -48,22 +48,31 @@ gdpval-text) to that bundle on the run page. No Benchmark Revision moves, never 
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned, plus `apps/screamingface-engine/tests/unit/_bundle_provenance_checks.py`
-  (the checks the six appended family tests share) and the spec
-  `docs/spec/2026-10-07-OME-1492-pr3-hand-built-provenance.md` (per-family table).
-- **Commits:** `a155eeba7` feat(screamingface-engine): record where each hand-built bundle's Cases came from,
-  plus this docs commit.
-- **Gates:** `run_gates.py screamingface-engine --base upstream/OME-1492-pr1-bundle-provenance`
-  ALL GATES GREEN (layering OK). `run_gates.py screamingface` red only on the append-only check,
-  for `tests/paid/_case_provenance.py`: it is the press page's renderer, which this unit changes on
-  purpose, and it sits under `tests/`; every other SDK gate green (run with the check skipped
-  only to confirm that). The approvals file needs this file's new blob before the PR goes green.
-  Free paid-lane tests: `SCREAMINGFACE_TEST_PAID=1 uv run pytest tests/paid -m "not paid"` green.
+  (the checks the six appended preparer tests share) and the spec
+  `docs/spec/2026-10-07-OME-1492-pr3-hand-built-provenance.md` (per-preparer table).
+- **Commits:** the feature commit (record where each hand-built bundle's Cases came from), the
+  docs commit (spec, ledger, mirror line), the approval commit (pins the SDK helper edit in
+  `.claude/test-change-approvals/OME-1492.json`), and one review-fix commit.
+- **Gates:** `run_gates.py screamingface-engine --base OME-1492-pr1-bundle-provenance` and
+  `run_gates.py screamingface --base OME-1492-pr1-bundle-provenance` ALL GREEN, no skip flag; the
+  approvals file carries the SDK helper's blob against PR 1's tip (regenerated after each rebase
+  onto PR 1). Free paid-lane tests: `SCREAMINGFACE_TEST_PAID=1 uv run pytest tests/paid -m "not paid"` green.
 - **Deviations:**
   - `excluded` stays `yielded − kept` (PR 1's rule), so gdpval reads 220 / 118 / 102, not the
     summary's 7 unreadable tasks; the summary keeps `excluded_tasks: 7` unchanged.
   - ifeval lists a second source, the vendored official file at the verifier commit, because its
-    text wins on key 2785. gdpval's reference-file URLs and ifeval's nltk data are left out (see
-    the spec's Known limitations).
+    text wins on key 2785. ifeval's nltk data is left out: it feeds the verifier, never a Case.
+  - Review fixes (2026-10-07): the ifeval file's location gains its missing
+    `instruction_following_eval/` folder (GitHub returns 404 for the shorter path), and the test
+    now derives it from the vendored files' upstream banner instead of copying the string;
+    gdpval lists its reference files as one `unpinned` url source (58 files behind 36 of the 102
+    Cases on the current pins), so the label no longer reads fully pinned; the Case Source words
+    (`url`, `unpinned` included) now live only in core, and the plugin imports them; the plan
+    `docs/plan/2026-10-07-OME-1492-pr3-hand-built-provenance.md` is committed (recorded at review
+    time) and the approvals reason points at it.
+  - Not done: a check that the SDK's shared-bundle map matches the Engine's registrations. It
+    would make an Engine test read an SDK test helper by path; today all four entries are right,
+    and a new shared bundle shows as a visible "not recorded" row on the press page.
   - Each preparer writes the block where it writes `cases.json` (the only place the kept count
     exists), and its public `prepare` reads the block back into the summary, so `emit`/`build`
     keep their return shapes and no existing test changed.

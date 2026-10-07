@@ -38,7 +38,10 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.bundle_provenance import (
+    LOAD_PHASE,
     PROVENANCE_KEY,
+    UNPINNED,
+    URL,
     hand_built_provenance,
     hugging_face_source,
     read_provenance,
@@ -193,11 +196,10 @@ def emit(
         )
     # WHY before cases.json: a parseable cases.json marks the bundle finished (OME-1492).
     # `yielded` is every row loaded, so the frozen selection's drops show as excluded.
-    # The reference files are not listed: they come from URLs the pinned rows name, unhashed.
     write_provenance(
         out,
         hand_built_provenance(
-            [hugging_face_source(DATASET, DATASET_REVISION)],
+            _case_sources(selected),
             yielded=len(rows),
             kept=len(cases),
             started=began,
@@ -208,6 +210,29 @@ def emit(
         encoding="utf-8",
     )
     return len(cases)
+
+
+def _case_sources(selected: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Every Case Source behind the served Cases: the pinned rows, plus their reference files.
+
+    WHY the reference files get their own entry: 36 of the 102 Cases carry text extracted from
+    PDFs and DOCX files that the rows name by a URL on the dataset's moving branch, unhashed. A
+    label reading only "pinned at the dataset commit" would let on-call rule out a server-side
+    swap of those bytes; ``unpinned`` keeps that suspect on the list.
+    """
+
+    sources: list[dict[str, str]] = [hugging_face_source(DATASET, DATASET_REVISION)]
+    references: int = sum(len(row.get("reference_files") or []) for row in selected)
+    if references:
+        sources.append(
+            {
+                "kind": URL,
+                "location": f"{DATASET}/reference_files ({references} files)",
+                "pin": UNPINNED,
+                "phase": LOAD_PHASE,
+            }
+        )
+    return sources
 
 
 def load_rows() -> list[dict[str, Any]]:

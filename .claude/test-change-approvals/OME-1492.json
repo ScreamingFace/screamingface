@@ -4,11 +4,11 @@
   "approver": "owner (in the OME-1492 session)",
   "date": "2026-10-07",
   "scope": "The paid smoke press page's provenance helper (tests/paid/_case_provenance.py, new in OME-1492 PR 1) gains the Benchmark-to-bundle map for the four hand-built Benchmarks that share a bundle, and shows a dash when a block has no inspect-evals pin.",
-  "reason": "OME-1492 PR 3 records where each hand-built bundle's Cases came from; the owner approved this change to the PR 1 helper with the PR 3 plan.",
+  "reason": "OME-1492 PR 3 records where each hand-built bundle's Cases came from; the owner approved this change to the PR 1 helper (docs/plan/2026-10-07-OME-1492-pr3-hand-built-provenance.md, Owner calls).",
   "files": {
     "packages/screamingface/tests/paid/_case_provenance.py": {
-      "base_blob": "ecc461d40ab5dfd63b74503288de6115c3cb8172",
-      "approved_blob": "eef1314eaccecec45cebe78e92c69498222e647f"
+      "base_blob": "ec387e9733e6ee15ac1caca81247c24dc776082d",
+      "approved_blob": "e82a58f6cdec9b80ef32f06b7b2cdc7efba46c35"
     }
   }
 }

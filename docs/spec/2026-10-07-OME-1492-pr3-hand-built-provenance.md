@@ -65,9 +65,9 @@ flowchart TB
 | Bundle | Sources | yielded | kept | excluded on purpose |
 | -- | -- | -- | -- | -- |
 | draco | `perplexity-ai/draco` @ revision `ce076749…` | rows loaded (100) | Cases written (100) | none |
-| ifeval | `google/IFEval` @ revision `966cd895…`; the vendored official file `josejg/instruction_following_eval/data/input_data.jsonl` @ commit `0c495b2f…` | rows loaded (541) | Cases written (541) | none |
+| ifeval | `google/IFEval` @ revision `966cd895…`; the vendored official file `josejg/instruction_following_eval/instruction_following_eval/data/input_data.jsonl` @ commit `0c495b2f…` | rows loaded (541) | Cases written (541) | none |
 | healthbench | `openai/healthbench-professional` @ revision `349962fd…` | rows loaded (525) | Cases written (525) | none: worst-30% is a selection at serve time |
-| gdpval | `openai/gdpval` @ revision `11e7900c…` | rows loaded (220) | Cases written (102) | 118: every task outside the frozen text subset, the 7 unreadable ones included |
+| gdpval | `openai/gdpval` @ revision `11e7900c…`; its reference files as one `url` source, `openai/gdpval/reference_files (58 files)` @ `unpinned` | rows loaded (220) | Cases written (102) | 118: every task outside the frozen text subset, the 7 unreadable ones included |
 | medxpert | `TsinghuaC3I/MedXpertQA/Text` @ revision `7e7c465a…` | rows loaded (2450) | Cases written (2450) | none |
 | contracteval | `theatticusproject/cuad-qa` @ revision `d9c4ee02…` | rows loaded (4182) | Cases written (4182) | none |
 
@@ -79,10 +79,12 @@ writes the block.
 
 ## Known limitations of this design
 
-- **Two fetched inputs are left out.** gdpval's ~85 reference files come from URLs the pinned rows
-  name, with no hash, so listing them would add 85 unpinned lines for one bundle; ifeval's nltk
-  tokenizer data is downloaded unpinned but feeds the verifier, never a Case. Both stay out until
-  someone needs them on the run page.
+- **gdpval's reference files are listed as one line, not pinned.** 58 files behind 36 of the 102
+  Cases come from URLs on the dataset's moving branch, with no hash. They show as one `unpinned`
+  url source with the file count, so the label never reads fully pinned; pinning their bytes
+  would need a per-file hash in the declaration, which waits until a swap actually happens.
+- **ifeval's nltk data is left out.** The tokenizer data is downloaded unpinned, but it feeds the
+  verifier, never a Case.
 - **The shared-bundle map is a copy.** The run page's four-entry map repeats the Engine's
   `builtins.py` pairs, because the SDK test venv can't import the Engine. A new Benchmark on a
   shared bundle reads "not recorded" until the map gains its line.
@@ -95,7 +97,7 @@ writes the block.
 
 1. Each of the six hand-built bundles holds `provenance.json` written before `cases.json`, with
    the declared revision as its pin and `samples.kept` equal to the Cases written; the summary
-   carries the same block (one test per family).
+   carries the same block (one test per preparer).
 2. No fixture Case text appears in the file (same tests).
 3. The run page shows the shared bundle's block for draco-3pass, both HealthBench Benchmarks and
    gdpval-text, and a block with empty `pins` renders.

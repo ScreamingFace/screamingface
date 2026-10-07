@@ -7,6 +7,8 @@ REAL official rows (via `official_rows`) — synthetic rows would be rejected as
 from __future__ import annotations
 
 import json
+from importlib import resources
+from importlib.resources.abc import Traversable
 from pathlib import Path
 
 import pytest
@@ -142,6 +144,11 @@ def test_a_prepared_bundle_records_where_its_cases_came_from(
     monkeypatch.setattr(module, "load_rows", lambda _limit=None: rows)
     monkeypatch.setattr(module, "prepare_nltk", lambda out: {"nltk_data": str(out / "nltk_data")})
     writes: list[bool] = watch_provenance_writes(monkeypatch, module)
+    # WHY derived, not typed: each vendored file's banner cites its real upstream path, so a
+    # location that drifts from it (a 404 for on-call) fails here instead of matching a copy.
+    vendor: Traversable = resources.files("screamingface_engine.benchmarks.ifeval.vendor")
+    banner: str = vendor.joinpath("instructions.py").read_text(encoding="utf-8").splitlines()[1]
+    upstream_folder: str = banner.split(f"{definition.VERIFIER_REVISION}/", 1)[1].rsplit("/", 1)[0]
 
     summary: dict = module.prepare(tmp_path)
 
@@ -153,7 +160,9 @@ def test_a_prepared_bundle_records_where_its_cases_came_from(
             hugging_face_source("google/IFEval", definition.DATASET_REVISION),
             {
                 "kind": "file",
-                "location": "josejg/instruction_following_eval/data/input_data.jsonl",
+                "location": (
+                    f"{definition.VERIFIER_REPOSITORY}/{upstream_folder}/data/input_data.jsonl"
+                ),
                 "pin": f"commit {definition.VERIFIER_REVISION}",
                 "phase": "load",
             },
