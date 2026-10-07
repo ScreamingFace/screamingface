@@ -215,8 +215,31 @@ table .btn { white-space: nowrap; }
 .card-best-val { font-size: var(--text-body); color: var(--ink); }
 .cards-more { display: flex; justify-content: center; margin: 0 0 var(--space-6); }
 
+/* ---- landing hero ---------------------------------------------------- */
+/* The leaderboard front page reads as a landing page: a Parastoo display hero (marketing register
+   only), a value-prop lead, a primary (gold accent) + secondary CTA, then an honest stats band.
+   Everything below is tokens-only — square, hairline, no shadow, gold reserved for the CTA accent
+   and the one "win" metric. */
+.hero { margin-bottom: var(--space-8); }
+.hero-title { font-size: var(--text-hero); line-height: var(--leading-tight); }
+.hero-lead { max-width: 54ch; margin-top: var(--space-5); color: var(--ink-2); }
+.hero-cta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-6); }
+/* The stats band reuses the .stats recipe (hairline 3-up, mono, tabular). The win metric takes
+   the rationed gold via .v.gain; the other two stay neutral ink. */
+.hero-stats { margin-bottom: var(--space-10); }
+.benchmarks-section { margin-top: var(--space-6); scroll-margin-top: var(--space-8); }
+.legend-section {
+  margin-top: var(--space-10);
+  padding-top: var(--space-7);
+  border-top: var(--border-hairline) solid var(--line);
+}
+.legend-title { font-size: var(--text-title); }
+.legend-lead { margin-bottom: var(--space-6); }
+
 /* ---- responsive ------------------------------------------------------ */
 @media (max-width: 639px) {
+  /* The hero display clamp already shrinks; keep the CTAs stacking cleanly. */
+  .hero-cta { gap: var(--space-2); }
   /* sf:// deep-links are not useful on narrow screens; collapse the column. */
   .col-run { display: none; }
 }
