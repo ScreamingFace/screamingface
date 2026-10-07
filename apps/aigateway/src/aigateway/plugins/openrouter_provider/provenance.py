@@ -134,3 +134,16 @@ def converter_error_status(exc: BaseException) -> int | None:
     if status == _NO_STATUS_SENTINEL:
         return None
     return status
+
+
+def converter_error_message(exc: BaseException) -> str | None:
+    """The provider `error.message` litellm copied onto a converter-origin context, else ``None``.
+
+    OME-1136: litellm 1.87's converter keeps ONLY `str(error["message"])` (default "Error in
+    response object") on the chained bare Exception — `metadata.raw` does not survive it. The
+    text is un-sanitized; the caller renders it only through `core.provider_error_text`.
+    """
+    if classify_provenance(exc) is not ErrorProvenance.BODY:
+        return None
+    message = vars(_cause_chain(exc)[0]).get("message")
+    return message if isinstance(message, str) else None

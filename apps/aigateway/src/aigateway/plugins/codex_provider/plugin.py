@@ -14,6 +14,7 @@ from aigateway.core.plugin_base import (
     OAuthStrategy,
     ProviderPluginBase,
 )
+from aigateway.core.provider_error_text import credential_values, plugin_error_message
 
 from .auth import CodexOAuth, account_label_from_credentials, exchange_authorization_code
 from .chat_handler import (
@@ -151,7 +152,10 @@ class CodexProviderPlugin(ProviderPluginBase):
         except CustomLLMError as exc:
             raise HTTPException(
                 status_code=exc.status_code,
-                detail={"code": "provider_error", "message": exc.message},
+                detail={
+                    "code": "provider_error",
+                    "message": plugin_error_message(exc.message, forbidden=credential_values(body)),
+                },
             ) from exc
 
 
