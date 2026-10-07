@@ -238,7 +238,10 @@ window.ScorePortal = (function () {
   function renderTabStrip(container, benchmarks, activeId) {
     if (!container) return;
     clear(container);
-    var split = window.SFLeaderboardLogic.partitionFeatured(benchmarks || []);
+    // Drop private boards first, exactly as the index catalogue does, so the strip and the index
+    // show the same set — a private challenge board never appears as a tab or in the "More" list.
+    var listed = window.SFLeaderboardLogic.listedBenchmarks(benchmarks || []);
+    var split = window.SFLeaderboardLogic.partitionFeatured(listed);
     split.featured.forEach(function (b) {
       var a = link(null, "benchmark.html?id=" + encodeURIComponent(b.id), b.display_name || b.id);
       if (b.id === activeId) a.setAttribute("aria-current", "page");
@@ -249,17 +252,18 @@ window.ScorePortal = (function () {
     }
   }
 
-  // The non-featured boards as a "More benchmarks" disclosure. The button sits at the end of the
-  // tab strip; opening it drops an inline, full-width panel onto its own row BELOW the tabs (not a
-  // floating box) — a search field over a single vertical, scrollable column of every rest board.
+  // The non-featured boards as a "More benchmarks" disclosure. The button sits at the end of the tab
+  // strip; opening it drops an absolutely-positioned overlay (anchored under the button, lifted
+  // above the page) — a search field over a single vertical, scrollable column of every rest board.
   // Each entry is a plain link, so navigation, middle-click and focus handling come for free.
   //
   // WHY the button names the active board when it is non-featured: landing on e.g. ?id=mmlu leaves
   // no featured tab marked, so the control itself must read "MMLU" rather than a bare
   // "More benchmarks", or the reader has no on-screen cue for where they are.
   //
-  // Returns a fragment of [button, panel]: both are flex children of the tab strip, and the panel's
-  // flex-basis:100% is what makes it wrap to the full-width row beneath the tabs.
+  // Returns a fragment of [button, panel]; the panel is positioned relative to the .tabstrip
+  // (see portal.css .tabstrip-more-panel). It is a disclosure, not a menu: the button carries
+  // aria-expanded + aria-controls, and Escape / a click or tab away from the control closes it.
   function buildMoreMenu(rest, activeId) {
     var activeBoard = null;
     rest.forEach(function (b) { if (b.id === activeId) activeBoard = b; });
@@ -268,10 +272,11 @@ window.ScorePortal = (function () {
     var button = el("button", "tabstrip-more-btn",
       (activeBoard ? (activeBoard.display_name || activeBoard.id) : "More benchmarks") + " ▾");
     button.type = "button";
-    button.setAttribute("aria-haspopup", "true");
     button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-controls", "tabstrip-more-panel");
 
     var panel = el("div", "tabstrip-more-panel");
+    panel.id = "tabstrip-more-panel";
     panel.hidden = true;
     var search = el("input", "tabstrip-more-search");
     search.type = "search";
@@ -310,10 +315,19 @@ window.ScorePortal = (function () {
 
     button.addEventListener("click", function () { if (panel.hidden) open(); else close(); });
     search.addEventListener("input", function () { renderList(search.value); });
-    search.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") { close(); button.focus(); }
-    });
-    // A click outside the button and the panel dismisses an open panel.
+    // Escape closes from anywhere in the control and returns focus to the button.
+    function onKeydown(e) { if (e.key === "Escape" && !panel.hidden) { close(); button.focus(); } }
+    button.addEventListener("keydown", onKeydown);
+    search.addEventListener("keydown", onKeydown);
+    // Close when focus leaves the control entirely — e.g. tabbing past the last link — so the overlay
+    // never lingers over the page.
+    function onFocusOut(e) {
+      var to = e.relatedTarget;
+      if (!panel.hidden && (!to || (!button.contains(to) && !panel.contains(to)))) close();
+    }
+    button.addEventListener("focusout", onFocusOut);
+    panel.addEventListener("focusout", onFocusOut);
+    // A click outside the button and the panel also dismisses an open panel.
     document.addEventListener("click", function (e) {
       if (!panel.hidden && !button.contains(e.target) && !panel.contains(e.target)) close();
     });
@@ -370,27 +384,18 @@ window.ScorePortal = (function () {
     return card;
   }
 
-  // No aggregate submission-count endpoint exists, so this makes one leaderboard request per
-  // benchmark. `/v1/leaderboard` returns best-per-spec entries (not every raw submission), so this
-  // reads
-  // as a fusion/spec count, the closest honest proxy for "# submissions" without a
-  // dedicated endpoint.
-  // top=200 is the route's own MAX_LEADERBOARD_TOP — the true ceiling, not a
-  // number picked here.
+  // One leaderboard request per benchmark, for the card's "Best reproducible" figure only. Entries
+  // arrive ranked by score descending, so `top=1` is enough to read the best — the card no longer
+  // shows a fusion count, so there is nothing to scan the full board for.
   //
-  // This response already carries the ranked entries, so the catalogue's "Best reproducible"
-  // figure is read from the payload we were fetching anyway — no second request.
+  // The entries-not-baselines decision lives in leaderboard-logic.js so it stays assertable without
+  // a browser — see bestEntryScore there.
   function fetchBoard(benchmarkId) {
-    return fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "?top=200").then(
+    return fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "?top=1").then(
       function (data) {
-        // The entries-not-baselines decision lives in leaderboard-logic.js so it stays
-        // assertable without a browser — see bestEntryScore there.
-        return {
-          count: ((data && data.entries) || []).length,
-          best: window.SFLeaderboardLogic.bestEntryScore(data)
-        };
+        return { best: window.SFLeaderboardLogic.bestEntryScore(data) };
       },
-      function () { return null; } // board unknown, not empty — row still renders
+      function () { return null; } // board unknown, not empty — card still renders
     );
   }
 

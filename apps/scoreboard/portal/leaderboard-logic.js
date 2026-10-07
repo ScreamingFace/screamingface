@@ -233,7 +233,7 @@
   function truncate(text, max) {
     if (typeof text !== "string") return "";
     if (text.length <= max) return text;
-    return text.slice(0, max).replace(/\s+$/, "") + "…";
+    return text.slice(0, max).trimEnd() + "…";
   }
 
   // Case-insensitive substring filter over a benchmark list, for the tab strip's "More benchmarks"

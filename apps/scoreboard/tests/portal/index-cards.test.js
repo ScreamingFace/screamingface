@@ -35,7 +35,8 @@ test("truncate does not leave a space stranded before the ellipsis", () => {
   // Clip lands on a space; trim it so the result reads "…word…" not "word …".
   const text = "word ".repeat(40); // "word word word ..."
   const out = L.truncate(text, 100);
-  assert.equal(/\s…$/.test(out), false, "no whitespace immediately before the ellipsis");
+  const body = out.slice(0, -1); // everything before the ellipsis
+  assert.equal(body, body.trimEnd(), "no whitespace immediately before the ellipsis");
   assert.equal(out.endsWith("d…"), true);
 });
 

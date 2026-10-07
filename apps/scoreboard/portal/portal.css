@@ -113,10 +113,9 @@ table .btn { white-space: nowrap; }
 .tabstrip:empty { display: none; }
 
 /* The long tail of non-featured boards, folded into a "More benchmarks" disclosure. The button sits
-   at the strip's end; opening it drops an INLINE, full-width panel onto its own row below the tabs
-   (flex-basis:100% makes it wrap there) — a search over a single vertical, scrollable column. No
-   floating box, no z-index. Styled as the portal's other inputs: square, hairline, mono, neutral
-   ink — accent only on focus/open. */
+   at the strip's end; opening it drops a floating overlay (see .tabstrip-more-panel below) — a
+   search over a single vertical, scrollable column. Styled as the portal's other inputs: square,
+   hairline, mono, neutral ink — accent only on focus/open. */
 .tabstrip-more-btn {
   margin-left: auto;
   align-self: center;
@@ -198,7 +197,9 @@ table .btn { white-space: nowrap; }
   text-decoration: none;
   transition: border-color .12s;
 }
-.card:hover { border-color: var(--info-border-strong); }
+/* Only the edge (blue) and the arrow (gold) react to hover. `color: var(--ink)` keeps the title from
+   inheriting the global link-hover blue (a:hover at 0,1,1 would otherwise beat .card at 0,1,0). */
+.card:hover { border-color: var(--info-border-strong); color: var(--ink); }
 .card:hover .card-go { color: var(--gain-text-high); }
 .card:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: 2px; }
 /* Title row: the board name + a gold open-arrow pinned to the right edge. */
@@ -256,13 +257,15 @@ table .btn { white-space: nowrap; }
    landing so the per-board leaderboard table keeps the full width. */
 .wrap.wide.landing { max-width: 920px; }
 
-/* Accents: gold and blue, leaned into but rationed. Gold (brand) carries the mono eyebrows, the
-   card open-arrow and the best-reproducible figure; blue (the always-blue --info role, since
-   --accent is gold in the marketing register) carries interaction — links and the card hover edge.
-   The "about" window's traffic lights stay monochrome (SFDS default — the owner reverted the candy). */
-.eyebrow { color: var(--gain-text-low); }
-a { color: var(--info-text-low); }
-a:hover { color: var(--info-text-high); }
+/* Accents: gold and blue, rationed and SCOPED TO THE LANDING (`.landing`) so the benchmark, spec and
+   data pages keep their neutral styling. Gold (brand) carries the landing's mono eyebrows, the card
+   open-arrow and the best-reproducible figure; blue (the always-blue --info role, since --accent is
+   gold in the marketing register) carries interaction — plain content links (`:not([class])`, so the
+   card and button links are untouched) and the card hover edge. The card accents and hover live in
+   the card rules above (card-only, landing-only already). */
+.landing .eyebrow { color: var(--gain-text-low); }
+.landing a:not([class]) { color: var(--info-text-low); }
+.landing a:not([class]):hover { color: var(--info-text-high); }
 
 /* The catalogue is led by ONE small, subtle label — the same treatment as the hero eyebrow
    ("SCREAMINGFACE · OPEN LEADERBOARD"), not a big heading. It stays a semantic <h2> for

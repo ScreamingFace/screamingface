@@ -30,4 +30,4 @@ session:
 
 Spec: docs/spec/2026-10-07-leaderboard-visual-refresh.md
 Plan: docs/plan/2026-10-07-leaderboard-visual-refresh.md
-Ledger: docs/work/2026-10-07-leaderboard-visual-refresh.md
+Ledger: docs/work/2026-10-07-OME-1512-leaderboard-visual-refresh.md
