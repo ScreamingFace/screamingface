@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from inspect_ai.model import ChatMessageUser, ModelOutput
@@ -83,15 +83,39 @@ _CANDIDATE_MODEL = "screamingface/candidate"
 def inspect_grade_case(
     scorer: Scorer,
     *,
+    extra_scorers: Sequence[Scorer] = (),
+    named_scores: Sequence[str] = (),
     multiple_correct: bool = False,
     inverted_grade: bool = False,
     verdict_grades: Mapping[str, float] | None = None,
 ) -> GradeCase:
-    """Wrap one inspect scorer as this benchmark's ``grade_case`` hook.
+    """Wrap one inspect scorer — or several — as this benchmark's ``grade_case`` hook.
+
+    Think of it as one marking room where every examiner the Task declared marks the SAME
+    answer sheet, and the room writes every mark on the Case by the examiner's name.
+    Stages, in execution order:
+
+    Stage 1-2 — unpack our envelope, build their TaskState/Target once (the same forms go
+                to every examiner).
+    Stage 3 — each examiner marks, in declaration order, under the Case's grading scope;
+                ANY raise fails the whole Case by name (``scorer_error``, naming the
+                examiner), never a half-graded Case.
+    Stage 4 — copy their marks back onto our form: one named value per examiner (or one
+                per key of a dict-valued Score), the Headline Score first; ``score`` IS
+                the headline. The Benchmark's word map and the Inverted Grade flip apply
+                to the headline only (a Named Score carries no direction); inspect's own
+                C/I/P/N letters map everywhere. A row that declares no names grades
+                exactly as before (OME-1268).
 
     Args:
         scorer: the imported eval's scorer — any standalone async callable obeying
-            inspect's ``(state, target) -> Score`` protocol.
+            inspect's ``(state, target) -> Score`` protocol. With ``named_scores`` set it
+            is the HEADLINE scorer.
+        extra_scorers: the Task's other scorers, in upstream order; each writes the
+            Named Score at the matching position of ``named_scores`` (OME-1268).
+        named_scores: the keys of the Case's Named Scores, headline first. Empty on a
+            single-scorer Benchmark. With ONE scorer and several names, the scorer must
+            return a dict carrying exactly those keys (SimpleQA, cyberseceval_4).
         multiple_correct: whether an MCQ benchmark admits multiple correct letters
             (inspect's ``parse_answers`` flag); single-answer benchmarks leave the default.
         inverted_grade: whether the eval's grade counts the behaviour we don't want
@@ -103,7 +127,23 @@ def inspect_grade_case(
 
     Returns:
         The async hook the shared grading code calls once per gradeable Case.
+
+    Raises:
+        ValueError: with several scorers, when a registered scorer's name is not the
+            Named Score at its position (``("exact", "f1")`` over f1 and exact) — the
+            pairing is by position, so a swap would publish the wrong number under the
+            right label with no Case failing. Checked once, here, before any Case is
+            graded; the registry conformance test checks every row the same way in CI.
     """
+
+    _check_scorer_names((scorer, *extra_scorers), tuple(named_scores))
+    names: tuple[str, ...] = tuple(named_scores)
+    extras: tuple[Scorer, ...] = tuple(extra_scorers)
+    if extras and len(names) != 1 + len(extras):
+        raise ValueError(
+            f"named_scores must name the headline scorer and each of the {len(extras)} "
+            f"extra scorers, got {list(names)}"
+        )
 
     # WHY casefold once here: the eval's own reducer compares lowercased words, and
     # coconot's grade pattern captures the judge's spelling as written.
@@ -128,8 +168,20 @@ def inspect_grade_case(
             # named failure, not an aborted aggregate for the other 49 Cases.
             return _failure("scorer_error", f"{type(exc).__name__}: {exc}")
         # Stage 4 — copy their mark back onto our form.
-        return _outcome(
-            score, state.output.completion, inverted_grade, word_grades, case_insensitive
+        if not names:
+            return _outcome(
+                score, state.output.completion, inverted_grade, word_grades, case_insensitive
+            )
+        return await _named_outcome(
+            request.case_id,
+            score,
+            state,
+            target,
+            names,
+            extras,
+            inverted_grade,
+            word_grades,
+            case_insensitive,
         )
 
     async def observed(request: GradeRequest) -> CaseGradeOutcome:
@@ -164,6 +216,163 @@ def _outcome(
     return CaseGradeOutcome(
         score=case_score, metrics={}, checks=[_check(score, grade, case_score, completion)]
     )
+
+
+def _check_scorer_names(scorers: Sequence[Scorer], names: tuple[str, ...]) -> None:
+    """Refuse a multi-scorer room whose examiners are not seated under their own names.
+
+    Only a REGISTERED scorer (one carrying inspect's registry info) can be compared; a
+    plain callable stand-in has no name of its own and is left to the position it was
+    given. The rows the Engine serves hold registered scorers only, and CI resolves every
+    one of them (``check_named_scores_are_the_scorers``).
+    """
+
+    from inspect_ai._util.registry import is_registry_object, registry_unqualified_name
+
+    if len(scorers) < 2:
+        return
+    for position, (examiner, name) in enumerate(zip(scorers, names, strict=True)):
+        if not is_registry_object(examiner):
+            continue
+        actual: str = str(registry_unqualified_name(examiner))
+        if actual != name:
+            raise ValueError(
+                f"named_scores[{position}] is {name!r} but the scorer at that position is "
+                f"{actual!r}; names must be the scorers' registry names in order"
+            )
+
+
+async def _named_outcome(
+    case_id: Any,
+    headline: Score | None,
+    state: TaskState,
+    target: Target,
+    names: tuple[str, ...],
+    extras: Sequence[Scorer],
+    inverted_grade: bool,
+    word_grades: Mapping[str, float],
+    case_insensitive: bool,
+) -> CaseGradeOutcome:
+    """Stage 3-4 for a row with Named Scores: the other examiners mark the same forms,
+    then every mark is copied back by name — or, with one examiner, its dict is."""
+
+    completion: str = state.output.completion
+    if not extras:
+        return _dict_outcome(
+            headline, names, completion, inverted_grade, word_grades, case_insensitive
+        )
+    # Several examiners: each marks the same forms; one raise fails the whole Case.
+    marks: list[Score | None] = [headline]
+    for name, extra in zip(names[1:], extras, strict=True):
+        try:
+            with grading_call_scope(case_id):
+                marks.append(await extra(state, target))
+        except Exception as exc:  # noqa: BLE001 — stranger code; a raise is a named failure
+            return _failure("scorer_error", f"{name}: {type(exc).__name__}: {exc}")
+    return _multi_outcome(marks, names, completion, inverted_grade, word_grades, case_insensitive)
+
+
+def _multi_outcome(
+    marks: Sequence[Score | None],
+    names: tuple[str, ...],
+    completion: str,
+    inverted_grade: bool,
+    word_grades: Mapping[str, float],
+    case_insensitive: bool,
+) -> CaseGradeOutcome:
+    """Stage 4, several scorers — one named value and one Check per scorer, headline first.
+
+    INVARIANT: the headline scorer alone speaks the Benchmark's word map and takes the
+    Inverted Grade flip; every other scorer speaks inspect's letters and keeps its raw
+    grade (a Named Score carries no direction). Any unmappable value fails the Case by the
+    scorer's name — never a half-graded Case, so every column shares one denominator.
+    """
+
+    values: dict[str, float | None] = {}
+    checks: list[dict[str, Any]] = []
+    for index, (name, mark) in enumerate(zip(names, marks, strict=True)):
+        if mark is None:
+            return _failure("invalid_score_value", f"{name}: scorer returned no Score")
+        headline: bool = index == 0
+        grade: float | None = _score_as_float(
+            mark.value,
+            word_grades if headline else _INSPECT_LETTER_SCORE_VALUES,
+            case_insensitive if headline else False,
+        )
+        value: float | None = (
+            None if grade is None else (_case_score(grade, inverted_grade) if headline else grade)
+        )
+        if grade is None or value is None:
+            return _failure("invalid_score_value", f"{name}: {mark.value!r}", mark)
+        values[name] = value
+        checks.append(_check(mark, grade, value, completion, check_id=name))
+    headline_value: float | None = values[names[0]]
+    assert headline_value is not None
+    return CaseGradeOutcome(score=headline_value, metrics={}, checks=checks, scores=values)
+
+
+def _dict_outcome(
+    score: Score | None,
+    names: tuple[str, ...],
+    completion: str,
+    inverted_grade: bool,
+    word_grades: Mapping[str, float],
+    case_insensitive: bool,
+) -> CaseGradeOutcome:
+    """Stage 4, one scorer returning a dict — each declared key becomes a named value.
+
+    INVARIANT: the dict carries exactly the declared keys: an undeclared key is never
+    dropped silently and a missing one is never defaulted — either fails the Case naming
+    the key. The headline key alone takes the word map and the flip.
+    """
+
+    if score is None:
+        return _failure("invalid_score_value", "scorer returned no Score")
+    raw: Mapping[str, Any] = score.value if isinstance(score.value, Mapping) else {}
+    problem: str | None = _dict_shape_problem(score.value, names)
+    values: dict[str, float | None] = {}
+    headline_grade: float = 0.0
+    for index, name in enumerate(names):
+        if problem is not None:
+            break
+        is_headline: bool = index == 0
+        grade: float | None = _score_as_float(
+            raw[name],
+            word_grades if is_headline else _INSPECT_LETTER_SCORE_VALUES,
+            case_insensitive if is_headline else False,
+        )
+        value: float | None = (
+            None
+            if grade is None
+            else (_case_score(grade, inverted_grade) if is_headline else grade)
+        )
+        if grade is None or value is None:
+            problem = f"{name}: {raw[name]!r}"
+        elif is_headline:
+            headline_grade = grade
+        values[name] = value
+    if problem is not None:
+        return _failure("invalid_score_value", problem, score)
+    headline_value: float | None = values[names[0]]
+    assert headline_value is not None
+    return CaseGradeOutcome(
+        score=headline_value,
+        metrics={},
+        checks=[_check(score, headline_grade, headline_value, completion)],
+        scores=values,
+    )
+
+
+def _dict_shape_problem(raw: object, names: tuple[str, ...]) -> str | None:
+    """Why a dict-valued Score cannot fill the declared names, or ``None`` when it can."""
+
+    if not isinstance(raw, Mapping):
+        return f"declared named scores {list(names)} but the scorer returned {raw!r}"
+    undeclared: list[str] = [str(key) for key in raw if key not in names]
+    if undeclared:
+        return f"undeclared score key {undeclared[0]!r}"
+    missing: list[str] = [name for name in names if name not in raw]
+    return f"missing declared score key {missing[0]!r}" if missing else None
 
 
 def _case_score(grade: float, inverted_grade: bool) -> float | None:
@@ -271,18 +480,22 @@ def _score_as_float(
     return mapped
 
 
-def _check(score: Score, grade: float, case_score: float, completion: str) -> dict[str, Any]:
+def _check(
+    score: Score, grade: float, case_score: float, completion: str, *, check_id: str = "1"
+) -> dict[str, Any]:
     """One check entry preserving the judge's own words as evidence.
 
     ``grade`` is the eval's own number and ``case_score`` ours — equal unless the
     Benchmark inverts its grade. The verdict (MET/PASS) follows the Case score; the
     evidence keeps the eval's grade, so an auditor reads the judge's call, not our flip.
+    ``check_id`` is the scorer's Named Score key on a multi-scorer Benchmark (one Check
+    per scorer); the single-scorer Check keeps its historical id ``"1"``.
     """
 
     reasoning: str | None = _judge_reasoning(score, completion)
     return {
         "type": "inspect_scorer",
-        "id": "1",
+        "id": check_id,
         "label": "inspect scorer verdict",
         "outcome": "MET" if case_score >= 1.0 else "UNMET",
         "evidence": [

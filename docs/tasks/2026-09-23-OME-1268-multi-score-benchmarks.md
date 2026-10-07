@@ -34,3 +34,6 @@ truncated. The field is absent on every single-scorer Benchmark, so no published
   `docs/work/2026-10-06-ome-1268-sdk-named-scores.md`): the SDK decodes, exports and shows
   Named Scores. Needs the owner's `--skip-append-only` for the regenerated public-surface
   snapshot. Release this SDK before deploying PR 3's Engine.
+- 2026-10-06: PR 3 of 5 opened, #1249 (branch `OME-1268-engine-named-scores`, stacked on
+  #1248; ledger `docs/work/2026-10-06-ome-1268-engine-named-scores.md`): the Engine spine
+  carries Named Scores; no importer change, no new Benchmark, every published Revision unchanged.

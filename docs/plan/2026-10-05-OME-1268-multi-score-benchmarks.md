@@ -219,6 +219,14 @@ Lands in S. Releases before PR 3 deploys.
 
 Lands in E. Deploys after PR 2's SDK release.
 
+> **As built (2026-10-06).** Five places differ from the tasks below; the ledger records why.
+> (1) The branch is stacked on PR 2's branch so the SDK key twin test can pass; retarget to
+> `main` after #1248 merges. (2) A dict-valued scorer writes one Check (id `"1"`) with the
+> headline key's grade, not a Check per key. (3) `extra_scorers` are default-constructed (no
+> kwargs twin yet). (4) The word map applies to the headline scorer only; other scorers speak
+> inspect's letters. (5) All new tests live in four new files instead of being appended to
+> three existing ones.
+
 ### Task 3.0: Ledger
 
 - [ ] Create `docs/work/2026-10-07-ome-1268-engine-named-scores.md`; commit.

@@ -115,6 +115,19 @@ class BenchmarkSpec:
     #: the importer. Never served: the conformance test compares it to `case_count` and
     #: refuses a silent mismatch unless the row declares a Named Deviation (spec §3.1).
     upstream_case_count: int | None = None
+    #: The Task's other scorers (OME-1268), dotted references like ``scorer``, in upstream
+    #: order. ``scorer`` stays the scorer that produces the Headline Score. Benchmark
+    #: identity: pinned into the revision when set.
+    extra_scorers: tuple[str, ...] = ()
+    #: The keys of each Case's Named Scores (OME-1268): inspect registry names (``f1``,
+    #: ``exact``), the headline FIRST. The importer fills it for a multi-scorer row; a
+    #: hand-written row fills it for a scorer that returns a dict (SimpleQA,
+    #: cyberseceval_4). Empty on a single-scorer row. Benchmark identity when set.
+    named_scores: tuple[str, ...] = ()
+    #: A scorer the Task declares that this row leaves out BY NAME (MATH's self-grading
+    #: ``expression_equivalance``): a Named Deviation, visible on the row and pinned into
+    #: the revision, never a silent cut (OME-1268).
+    dropped_scorers: tuple[str, ...] = ()
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -3726,6 +3739,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
 
     _check_judge_declaration(spec)
     _check_verdict_grades(spec)
+    _check_named_scores(spec)
     cases_spec: TaskReplayCasesSpec = _cases_declaration(spec.key)
     _check_answer_key_opt_in(spec, cases_spec)
     identity_pins: tuple[str, ...] = _task_replay_pins(cases_spec)
@@ -3745,8 +3759,11 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             + _judge_prompt_pins(spec)
             + _inverted_grade_pins(spec)
             + _verdict_grades_pins(spec)
+            + _named_score_pins(spec)
         ),
         scorer_factory=_scorer_factory(spec),
+        extra_scorer_factories=_extra_scorer_factories(spec),
+        named_scores=spec.named_scores,
         prepare=prepare,
         install=_installer(f"inspect-{spec.key}"),
         with_check_surface=spec.with_check_surface,
@@ -3763,6 +3780,61 @@ def _provenance_of(spec: BenchmarkSpec) -> ProvenanceFields:
 
     fields: dict[str, object] = {name: getattr(spec, name) for name in PROVENANCE_FIELD_NAMES}
     return cast(ProvenanceFields, fields)
+
+
+def _check_named_scores(spec: BenchmarkSpec) -> None:
+    """Refuse a row whose Named Score declaration cannot be honoured at grading time.
+
+    INVARIANT: with extra scorers, ``named_scores`` names the headline scorer and each
+    extra, in order; names are non-blank and unique; a dropped scorer is never also
+    declared. Checked at assembly, before any Case is served (spec §2.2, plan D1-D3).
+    """
+
+    names: tuple[str, ...] = spec.named_scores
+    if any(not isinstance(name, str) or not name.strip() for name in names):
+        raise ValueError(f"{spec.key}: named_scores must be non-blank score names")
+    if len(set(names)) != len(names):
+        raise ValueError(f"{spec.key}: named_scores must be unique, got {list(names)}")
+    if spec.extra_scorers and len(names) != 1 + len(spec.extra_scorers):
+        raise ValueError(
+            f"{spec.key}: named_scores must name the headline scorer and each of the "
+            f"{len(spec.extra_scorers)} extra scorers, got {list(names)}"
+        )
+    declared_and_dropped: set[str] = set(names) & set(spec.dropped_scorers)
+    if declared_and_dropped:
+        raise ValueError(
+            f"{spec.key}: dropped_scorers {sorted(declared_and_dropped)} are also declared "
+            "in named_scores; a scorer is kept or dropped, never both"
+        )
+
+
+def check_named_scores_are_the_scorers(spec: BenchmarkSpec) -> None:
+    """Refuse a multi-scorer row whose names are not its scorers' registry names, in order.
+
+    WHY (review finding on #1249): the adapter pairs names with scorers by POSITION, so a
+    row declaring ``("exact", "f1")`` over f1 and exact would publish f1's mark under
+    ``exact`` — the wrong number under the right label, and no Case would fail.
+    WHY NOT at assembly: resolving a constructor imports inspect_ai (starlette, the OTel
+    SDK) and assembly runs at engine import in every mode, including the run entry point
+    whose cold start test_cli pins. So this runs in two places that already pay for
+    inspect: the registry conformance test, over every row (CI), and the adapter when it
+    builds the scorers for a run (``inspect_grade_case``), before any Case is graded.
+    """
+
+    from screamingface_engine_inspect.scorer_metrics import scorer_registry_name
+
+    references: tuple[str, ...] = (spec.scorer, *spec.extra_scorers)
+    actual: list[str] = []
+    for reference in references:
+        try:
+            actual.append(scorer_registry_name(_constructor(reference)))
+        except ValueError as exc:
+            raise ValueError(f"{spec.key}: {reference} is not a registered scorer: {exc}") from None
+    if list(spec.named_scores) != actual:
+        raise ValueError(
+            f"{spec.key}: named_scores {list(spec.named_scores)} must be the scorers' registry "
+            f"names in order, {actual}"
+        )
 
 
 def _check_verdict_grades(spec: BenchmarkSpec) -> None:
@@ -4081,6 +4153,25 @@ def _inverted_grade_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     return ("inverted_grade=1",) if spec.inverted_grade else ()
 
 
+def _named_score_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """The extra, named and dropped scorers as Benchmark identity — each a pin only when
+    set, so no published single-scorer revision moves (OME-1268).
+
+    WHY: the scorer list decides which columns exist and which one ranks; a dropped
+    scorer is a declared difference from upstream. Changing any of them on a published
+    Benchmark must never keep a revision its members' published scores hang off.
+    """
+
+    pins: list[str] = []
+    if spec.extra_scorers:
+        pins.append(f"extra_scorers={json.dumps(list(spec.extra_scorers))}")
+    if spec.named_scores:
+        pins.append(f"named_scores={json.dumps(list(spec.named_scores))}")
+    if spec.dropped_scorers:
+        pins.append(f"dropped_scorers={json.dumps(list(spec.dropped_scorers))}")
+    return tuple(pins)
+
+
 def _verdict_grades_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     """The verdict map as Benchmark identity — a pin only when set, so no published
     revision moves (OME-1371)."""
@@ -4096,11 +4187,33 @@ def _scorer_factory(spec: BenchmarkSpec) -> Callable[[], Any]:
     """Resolve the eval's own scorer from the row's dotted reference, lazily."""
 
     def factory() -> Any:
-        module_name, _, attribute = spec.scorer.partition(":")
-        constructor: Any = getattr(import_module(module_name), attribute)
-        return constructor(**dict(spec.scorer_kwargs))
+        return _constructor(spec.scorer)(**dict(spec.scorer_kwargs))
 
     return factory
+
+
+def _constructor(reference: str) -> Any:
+    """The scorer constructor a dotted ``module:attribute`` reference names, imported now."""
+
+    module_name, _, attribute = reference.partition(":")
+    return getattr(import_module(module_name), attribute)
+
+
+def _extra_scorer_factories(spec: BenchmarkSpec) -> tuple[Callable[[], Any], ...]:
+    """One lazy factory per extra scorer, resolved from its dotted reference like ``scorer``.
+
+    WHY no kwargs: an extra scorer is always one of the Task's own default-constructed
+    scorers (SQuAD's ``exact()``); a scorer that needs arguments is the headline scorer or
+    its own row.
+    """
+
+    def factory_for(reference: str) -> Callable[[], Any]:
+        def factory() -> Any:
+            return _constructor(reference)()
+
+        return factory
+
+    return tuple(factory_for(reference) for reference in spec.extra_scorers)
 
 
 def _installer(benchmark_id: str) -> Callable[[Url4Node, Path], None]:
