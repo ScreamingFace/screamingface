@@ -11,8 +11,8 @@
       "approved_blob": "bd444d6743fad6a608a284cc99be534d2cea1339"
     },
     "apps/aigateway/tests/unit/openrouter/test_openrouter_error_policy.py": {
-      "base_blob": "85dffb0c67a7b0d969f20846ae4325e3044b5321",
-      "approved_blob": "d7b36874f16b3cb8c85194847c7dad8150cec4e8"
+      "base_blob": "0ca24ca9bca6493250e2638acbb1c0ce911f7e1a",
+      "approved_blob": "f6f570264af476bdc029d4134cad261b8c9023e5"
     },
     "apps/aigateway/tests/unit/openrouter/test_openrouter_no_eligible_endpoint.py": {
       "base_blob": "c4760533de1b4d5b3f672dc36b0e689a2da111d3",
