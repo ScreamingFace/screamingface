@@ -77,25 +77,53 @@ validation of the new fields, the board field decode, both clients, `sf.reproduc
   the two codes were already declared there.
 - **Commits:** see `git log --oneline e14-a2-sdk-metadata..HEAD`.
 - **Gates:** without `--skip-append-only`, only the append-only check fails, and it lists exactly
-  `tests/public_surface_snapshot.json` (the approved regeneration). With `--skip-append-only`: ruff,
-  format, pyright, pytest (2442 passed, 26 skipped, coverage gate 95% met), notebooks, build and
-  distribution checks all pass.
+  `tests/public_surface_snapshot.json` (the approved regeneration) and `tests/_isolation_engine.py`
+  (the approved helper extension, see below). With `--skip-append-only`: ruff, format, pyright,
+  pytest (2466 passed, 26 skipped, coverage gate 95% met), notebooks, build and distribution checks
+  all pass.
 - **Skipped tests:** 26, none Postgres. 7 `tests/e2e/test_boards.py` (no recorded fixtures or
   prepared assets), 16 e2e replay lane (`SCREAMINGFACE_TEST_E2E` not set), 1
   `test_inspect_log_live.py` (`inspect_ai` not installed), 1 `test_url4_cloud_integration.py`
-  (needs a real runner). The e2e spine test (rp #22) was not run and not written here.
+  (needs a real runner). The e2e lane spine test (rp #22) was not run; the in-process spine test
+  `test_reproduce_review.py::test_submit_then_get_score_then_reproduce_is_exact_and_recorded` covers
+  the same path against a stub Engine and a stub board.
+- **Design-review round (coordinator, 2026-10-06; one round):**
+  - Replay failure codes in the result prove replay mode: `_classify` and the url4 check classify by
+    `replay_cache_miss` / `unknown_cache_revision` before `cache.replay` is required. Only a result
+    with no replay code and no matching `cache.replay` is `failed/replay_unsupported`. Tests use
+    realistic outputs (all-miss with no summary, K10 with no summary, neither).
+  - The record POST sends the replay's `result.score` and `len(result.cases)`.
+  - A stored score with no `benchmark_revision` is `not_reproducible/unknown` before any run. This
+    replaces the earlier note that it classified as `benchmark_revision_changed`; `_classify` still
+    compares literally, but `reproduce` never reaches it with such a score.
+  - `_stamped(candidate, **changes)` iterates `fields(Candidate)`; the two stamps use it.
+  - `reproducible_status` in `_report_primitives.py` is the one narrowing, used by `contract.py`,
+    `leaderboards.py`, `leaderboard.py` and `report.py`; the `# type: ignore` is gone.
+  - `reproduce` raises `TypeError` for anything but a `LeaderboardScore`, `UUID` or `str`.
+  - `_unsupported`, `_judged` and `_recorded` are inlined.
+  - The record path drops `client.version` when longer than 64 characters; submit is unchanged.
+  - `ReproductionOutcome` is exported; the snapshot is regenerated again.
+  - A failed stop after a missing echo: `_stop_own_run` now returns whether it stopped, and the
+    transport raises `ExecutionError(code="replay_unsupported")` with the text "the run may still be
+    running on the Engine" and a hint. `reproduce` returns `failed/replay_unsupported` and emits an
+    `EvaluationWarning` with that text (`Reproduction` has no message field, so a warning tells the
+    user).
+  - Tests added: client-level async missing echo, the spine, and the review cases above.
+  - Approved test-helper change (append-only exception): `tests/_isolation_engine.py` gained a
+    `honour_replay`, `summary` and `result_body` set on `RunPlan` (all defaulted, so every existing
+    plan behaves as before), a `replay_labels` record, the echo header, and `plan` and `replay`
+    parameters on `_frame_for`. The gate lists it because three existing lines changed (the `_frame_for`
+    signature, its call, and one comprehension-free dict literal split into locals).
 - **Deviations:**
   - `_RunOutcome.cache_replay` (the summary's `cache.replay`) is an extra field, for the coordinator's
     "replay summary lacks the label" check (Q1). The check lives in `evaluate_url4_*`.
   - The ack check requires the echo to equal the label sent, not only to be present (Q3).
   - The transports start a run through a new `_start_run` method (sync and async) so the stop on an
     unacknowledged replay does not exceed the repo's complexity limits in `_run_reconnecting`.
-  - `Reproduction` fields after `outcome` have defaults. `_record_reproduction` posts the stored
-    `score` and `total_questions` (equal to the replay's, by the exact outcome).
+  - `Reproduction` fields after `outcome` have defaults. `_record_reproduction` takes `result.score`
+    through `typing.cast(float, ...)`: an exact outcome means it equals a stored float.
   - `LeaderboardScore` validates the new fields in a module helper `_reproduction_fields`, and
     `_submission` builds the cache fields in `_cache_version_fields` (both for ruff limits).
-  - A stored score with no `benchmark_revision` (an older board) classifies as
-    `benchmark_revision_changed`, because the plan compares the two revisions literally.
   - `CandidateResult` refuses a `cache_revision` without `reproducible` and a malformed label,
     mirroring the board (cv C10).
   - The submission tests (cv #15) were written before the code, but their RED run was not recorded
