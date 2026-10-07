@@ -225,8 +225,9 @@ table .btn { white-space: nowrap; }
 /* The subtitle: one line naming what the board is. Quiet, constrained measure, not a sales pitch. */
 .hero-lead { max-width: 60ch; margin-top: var(--space-4); color: var(--ink-2); }
 /* The three terms sit directly under the title as the key to reading any board. */
-.hero-defs { margin-bottom: var(--space-5); }
-.hero-fusion { margin-bottom: var(--space-10); }
+.hero-defs { margin-bottom: var(--space-6); }
+/* One visible, classic button (ink, not the gold accent) — a clear call to start, no sales band. */
+.hero-cta { margin-bottom: var(--space-10); }
 .benchmarks-section { margin-top: var(--space-6); scroll-margin-top: var(--space-8); }
 
 /* ---- responsive ------------------------------------------------------ */
