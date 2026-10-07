@@ -254,6 +254,10 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # reports.
         "inspect-pre_flight": ("coverage_declare", "single_shot", "medium"),
         "inspect-bbeh": ("coverage_declare", "single_shot", "hard"),
+        # OME-1268: SQuAD 2.0 is saturated material (frontier models above 90 F1); MATH still
+        # separates reasoning from non-reasoning models (70s vs above 90 on exact match).
+        "inspect-squad": ("coverage_declare", "single_shot", "medium"),
+        "inspect-math": ("coverage_declare", "single_shot", "medium"),
     }
     actual = {
         benchmark.id: (

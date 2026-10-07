@@ -438,9 +438,24 @@ Lands in E. Deploys after PR 2's SDK release.
 
 ## PR 5 — Engine: MATH and SQuAD (branch `OME-1268-math-squad`)
 
+> **As built (2026-10-06, rebuilt 2026-10-07).** Three facts the plan did not know. (1) MATH's
+> `expression_exact_match_sympy` imports `sympy` at grading time and the Engine's `inspect`
+> extra did not install it; the owner chose to add `sympy==1.14.0` and
+> `antlr4-python3-runtime==4.11.1` to that extra (the deployed image grows by roughly
+> sympy's size) rather than drop the scorer. (2) OME-1460 removed the Hugging Face import
+> path while the stack was open, so both rows were re-imported by Task replay: the Case
+> Digest is the seal and the importer's second run is the offline Case Preparation; no
+> `pins.py` exists. Both rows are served in upstream order (`--task-arg shuffle=False`).
+> (3) OME-1455 landed Benchmark Provenance on every row: the importer filled paper, porters
+> and licence from eval.yaml and arXiv; the human baselines and frontier scores were typed
+> from cited sources for the reviewer to verify; MATH's `upstream_case_count` is the 5,000
+> test split the Task serves, not eval.yaml's 12,500 whole-dataset figure. The OME-1253
+> sweep re-check (spec §8.7) is trivial: MATH and SQuAD were the only rows whose sole
+> refusal was scorer count, and both now import.
+
 ### Task 5.0: Ledger
 
-- [ ] Create `docs/work/2026-10-09-ome-1268-math-squad.md`; commit.
+- [ ] Create `docs/work/2026-10-06-ome-1268-math-squad.md`; commit.
 
 ### Task 5.1: Import the two rows
 

@@ -71,6 +71,12 @@ inspect = [
     # version a reviewable decision instead of a resolution accident. Keep in step with
     # `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
     "datasets==5.0.1",
+    # WHY here, not in `benchmarks`: MATH's second scorer (expression_exact_match_sympy, the
+    # Minerva-style symbolic equivalence) imports sympy at GRADING time, which runs in the
+    # deployed Engine, not in the build stage. inspect-evals keeps both behind its own `math`
+    # extra, so they are declared here by name (owner decision on OME-1268, 2026-10-06).
+    "sympy==1.14.0",
+    "antlr4-python3-runtime==4.11.1",
 ]
 
 # Everything needed to BUILD benchmark assets, on top of what serving needs. Separate from
