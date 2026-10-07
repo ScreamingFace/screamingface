@@ -353,11 +353,15 @@ window.ScorePortal = (function () {
     if (desc) card.appendChild(el("div", "card-desc", SFLeaderboardLogic.truncate(desc, 100)));
 
     // Best reproducible: formatScore, not formatPercent — scores are benchmark-native and can be
-    // fractional or negative. Em dash when the board is empty or the fetch failed.
+    // fractional or negative. Em dash when the board is empty or the fetch failed. A gold "→" on
+    // the right marks the card as a link to open (the one bit of accent on each card).
     var best = board && typeof board.best === "number" ? board.best : null;
     var bestRow = el("div", "card-best");
     bestRow.appendChild(el("span", "card-best-label", "Best reproducible"));
     bestRow.appendChild(el("span", "card-best-val mono", best === null ? EM_DASH : formatScore(best)));
+    var go = el("span", "card-go", "→");
+    go.setAttribute("aria-hidden", "true");
+    bestRow.appendChild(go);
     card.appendChild(bestRow);
     return card;
   }

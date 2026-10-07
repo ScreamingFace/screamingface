@@ -164,42 +164,42 @@ table .btn { white-space: nowrap; }
 .tabstrip-more-empty { padding: var(--space-3); color: var(--ink-3); font-size: var(--text-sm); }
 
 /* ---- benchmark catalogue cards --------------------------------------- */
-/* A grid of clickable cards replaced the catalogue table. Square, hairline-sealed,
-   no shadow — depth reads from the seam (SFDS). Neutral ink throughout: gold stays
-   rationed to the win, and a catalogue of boards has no single win. The whole card
-   is the link. Cards are revealed ~10 at a time; a hidden card uses [hidden]. */
+/* A grid of clickable cards (echoing the docs' card grid). Square, hairline-sealed, no shadow —
+   depth reads from the seam (SFDS). Neutral ink body with one gold "→" accent, like the docs.
+   The whole card is the link. Cards are revealed a page at a time; a hidden card uses [hidden]. */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: var(--space-4);
-  margin: 0 0 var(--space-5);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-5);
+  margin: 0 0 var(--space-6);
 }
 .cards:empty { display: none; }
 .card {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-4);
+  padding: var(--space-5);
   background: var(--surface);
   border: var(--border-hairline) solid var(--line);
   border-radius: var(--radius-none);
   color: var(--ink);
   text-decoration: none;
+  transition: border-color .12s;
 }
-.card:hover { border-color: var(--ink-3); }
+.card:hover { border-color: var(--info-border-strong); }
+.card:hover .card-go { color: var(--gain-text-high); }
 .card:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: 2px; }
 .card-title { font-family: var(--f-sans); font-weight: var(--weight-semibold); }
 .card-focus { font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2); }
 .card-desc { font-size: var(--text-sm); color: var(--ink-2); }
-/* Best reproducible sits on its own footer rule, pushed to the card's base so cards
-   of differing text length keep their metric on one plane. */
+/* Footer rule, pushed to the card's base so cards of differing text length keep their metric on
+   one plane: the Best-reproducible label + value at the left, the gold open-arrow at the right. */
 .card-best {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2);
   margin-top: auto;
-  padding-top: var(--space-3);
+  padding-top: var(--space-4);
   border-top: var(--border-hairline) solid var(--line);
 }
 .card-best-label {
@@ -209,36 +209,36 @@ table .btn { white-space: nowrap; }
   letter-spacing: var(--tracking-label);
   color: var(--ink-3);
 }
-.card-best-val { font-size: var(--text-body); color: var(--ink); }
-.cards-more { display: flex; justify-content: center; margin: 0 0 var(--space-6); }
+.card-best-val { font-size: var(--text-body); color: var(--gain-text-low); }
+.card-go { margin-left: auto; color: var(--gain-text-low); font-weight: var(--weight-medium); }
+.cards-more { display: flex; justify-content: center; margin: 0 0 var(--space-8); }
 
 /* ---- landing hero ---------------------------------------------------- */
-/* The front page reads as a classic, research-register landing — not a startup splash. A Parastoo
-   display title (marketing register only), a single quiet subtitle stating the contribution, then
-   the board's key terms directly under it. No CTA chrome, no metric band: tokens-only, square,
-   hairline, gold rationed to nothing here. */
-.hero { margin-bottom: var(--space-6); }
+/* The front page reads as a classic, research-register landing in the docs' own language: gold
+   mono eyebrow, a Parastoo serif title, a quiet subtitle, the board's key terms, and one gold
+   button. Generous whitespace; gold is the single accent, used sparingly (eyebrows, button, the
+   card arrows) rather than a sales band. */
+.hero { margin-bottom: var(--space-7); }
 .hero-title { font-size: var(--text-hero); line-height: var(--leading-tight); }
 /* The subtitle: one line naming what the board is. Quiet, constrained measure, not a sales pitch. */
-.hero-lead { max-width: 60ch; margin-top: var(--space-4); color: var(--ink-2); }
+.hero-lead { max-width: 60ch; margin-top: var(--space-5); color: var(--ink-2); }
 /* The three terms sit directly under the title as the key to reading any board. */
-.hero-defs { margin-bottom: var(--space-6); }
-/* One visible, classic button (ink, not the gold accent) — a clear call to start, no sales band. */
-.hero-cta { margin-bottom: var(--space-10); }
-.benchmarks-section { margin-top: var(--space-6); scroll-margin-top: var(--space-8); }
+.hero-defs { margin-bottom: var(--space-8); }
+/* One monochrome, bold button — softer than a gold fill, still a clear call to start. */
+.hero-cta { margin-bottom: var(--space-12); }
+.benchmarks-section { margin-top: var(--space-10); scroll-margin-top: var(--space-8); }
 
-/* The "Read this first" window's traffic lights. SFDS draws them monochrome ("without the candy");
-   the owner wants the literal macOS red / amber / green here. Override ONLY the two colour
-   properties (position and size stay in style.css), using the brand's own danger / warning /
-   success solids — the on-brand way to say red/amber/green without a raw macOS hex. */
-.note > .kicker::before {
-  background: var(--danger-solid);
-  box-shadow: 17px 0 0 var(--warning-solid), 34px 0 0 var(--success-solid);
-}
+/* Accents: gold and blue, leaned into but rationed. Gold (brand) carries the mono eyebrows, the
+   card open-arrow and the best-reproducible figure; blue (the always-blue --info role, since
+   --accent is gold in the marketing register) carries interaction — links and the card hover edge.
+   The "about" window's traffic lights stay monochrome (SFDS default — the owner reverted the candy). */
+.eyebrow { color: var(--gain-text-low); }
+a { color: var(--info-text-low); }
+a:hover { color: var(--info-text-high); }
 
-/* Benchmarks section header: an editorial header — mono eyebrow, title, and a hairline rule —
-   so the catalogue opens with structure you can see rather than a bare <h2>. */
-.section-head { margin: 0 0 var(--space-6); padding-bottom: var(--space-4); border-bottom: var(--border-hairline) solid var(--line); }
+/* Benchmarks section header: a mono eyebrow over the title — no rule, so it doesn't read as a
+   stray line stacked above the "about" window below it. */
+.section-head { margin: 0 0 var(--space-6); }
 .section-head .eyebrow { display: block; margin-bottom: var(--space-3); }
 .section-head h2 { margin: 0; }
 .section-head .section-sub { margin: var(--space-3) 0 0; }
