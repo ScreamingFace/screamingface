@@ -33,7 +33,11 @@ from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.aggregation import CandidateScore
 from screamingface_engine.benchmarks.case_context import case_scope
 from screamingface_engine.benchmarks.case_selection import install_cases
-from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA, CaseResult
+from screamingface_engine.benchmarks.contract import (
+    CANDIDATE_RESULT_SCHEMA,
+    CaseGrade,
+    CaseResult,
+)
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
@@ -168,6 +172,12 @@ class ImportedBenchmark:
     #: The judge's verdict word → grade map, replacing inspect's letters (OME-1371);
     #: None for every letter- or number-graded benchmark. Hashed by the caller's pins.
     verdict_grades: Mapping[str, float] | None = None
+    #: The Task's other scorers (OME-1268), each a lazy factory like ``scorer_factory``;
+    #: empty for every single-scorer benchmark. Hashed by the caller's pins.
+    extra_scorer_factories: tuple[Callable[[], Any], ...] = ()
+    #: The keys of the Case's Named Scores, headline first (OME-1268); empty for every
+    #: single-scorer benchmark. Hashed by the caller's pins.
+    named_scores: tuple[str, ...] = ()
 
     def aggregation(self) -> BenchmarkAggregation:
         """This benchmark's shared-grading binding — built on demand so the scorer stays lazy."""
@@ -187,6 +197,8 @@ class ImportedBenchmark:
             ),
             grade_case=inspect_grade_case(
                 self.scorer_factory(),
+                extra_scorers=[factory() for factory in self.extra_scorer_factories],
+                named_scores=self.named_scores,
                 multiple_correct=self.multiple_correct,
                 inverted_grade=self.inverted_grade,
                 verdict_grades=self.verdict_grades,
@@ -197,6 +209,7 @@ class ImportedBenchmark:
             grading_failure_message="the inspect scorer pipeline could not grade this Case",
             missing_material_code="missing_target_asset",
             inverted_grade=self.inverted_grade,
+            named_scores=self.named_scores,
         )
 
 
@@ -218,6 +231,8 @@ def single_shot_benchmark(
     judge: JudgeSpec | None = None,
     inverted_grade: bool = False,
     verdict_grades: Mapping[str, float] | None = None,
+    extra_scorer_factories: Sequence[Callable[[], Any]] = (),
+    named_scores: Sequence[str] = (),
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -256,6 +271,11 @@ def single_shot_benchmark(
             in words (coconot); passed to the scorer adapter, which then grades by it
             instead of inspect's letters. The caller carries it into ``revision_pins``
             (OME-1371).
+        extra_scorer_factories: the Task's other scorers as lazy factories, in upstream
+            order; the adapter grades each Case once per scorer (OME-1268). The caller
+            carries them into ``revision_pins``.
+        named_scores: the keys of the Case's Named Scores, headline first (OME-1268);
+            empty on a single-scorer benchmark. The caller carries it into ``revision_pins``.
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -376,6 +396,8 @@ def single_shot_benchmark(
         judge=judge,
         inverted_grade=inverted_grade,
         verdict_grades=verdict_grades,
+        extra_scorer_factories=tuple(extra_scorer_factories),
+        named_scores=tuple(named_scores),
     )
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept
@@ -803,13 +825,18 @@ def _case_by_input(root: Path, prompt: str) -> int:
 
 
 def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
-    """Mean score over the graded Cases — the imported single-shot reduction."""
+    """Mean score over the graded Cases — the imported single-shot reduction.
 
-    values: list[float] = [
-        float(case.grade.score)
-        for case in cases
-        if case.grade is not None and case.grade.score is not None
+    With Named Scores (OME-1268) every column is averaged over the SAME graded Cases as the
+    headline, so all columns share Coverage's denominator (the adapter never half-grades a
+    Case). Worked example, 2 graded Cases: f1 1.0 and 0.334, exact 1.0 and 0.0 → score
+    0.667, scores f1 0.667, exact 0.5.
+    """
+
+    graded: list[CaseGrade] = [
+        case.grade for case in cases if case.grade is not None and case.grade.score is not None
     ]
+    values: list[float] = [float(grade.score) for grade in graded if grade.score is not None]
     if not values:  # pragma: no cover - a Benchmark always selects one Case
         raise AssertionError("an imported board's scorer requires at least one scored Case")
     return CandidateScore(
@@ -818,7 +845,23 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
             "correct": sum(1 for value in values if value >= 1.0),
             "scored_cases": len(values),
         },
+        scores=_column_means(graded),
     )
+
+
+def _column_means(graded: Sequence[CaseGrade]) -> dict[str, float | None]:
+    """Each Named Score column's mean over the graded Cases, in the headline-first order
+    the first Case declares; empty when the Benchmark has no Named Scores."""
+
+    names: tuple[str, ...] = tuple(graded[0].scores) if graded else ()
+    means: dict[str, float | None] = {}
+    for name in names:
+        column: list[float] = [
+            float(value) for grade in graded if (value := grade.scores.get(name)) is not None
+        ]
+        # WHY None, not 0.0: a column no graded Case could fill is unknown, not zero.
+        means[name] = round(sum(column) / len(column), 4) if column else None
+    return means
 
 
 def _run_sync[T](coroutine: Awaitable[T]) -> T:

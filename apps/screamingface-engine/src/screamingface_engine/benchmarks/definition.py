@@ -76,6 +76,12 @@ _DIFFICULTY_TIERS: tuple[DifficultyTier, ...] = ("easy", "medium", "hard")
 #: INVARIANT: spelled exactly as the SDK's copy in `_catalogue_vocabulary.py`; pinned
 #: by test_catalogue_vocabulary_conformance on BOTH sides.
 INVERTED_GRADE_KEY: str = "inverted_grade"
+#: The wire key of a Benchmark's Named Scores (OME-1268) — on a Case Grade and (as
+#: `CandidateResult`'s field name) the run result. Absent unless the Benchmark declares
+#: several scorers. INVARIANT: spelled exactly as the SDK's copy in
+#: `_catalogue_vocabulary.py`; pinned by test_named_scores_contract on the Engine side
+#: (the SDK decodes the key by this spelling before any Engine emits it).
+SCORES_KEY: str = "scores"
 _BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_evals")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
