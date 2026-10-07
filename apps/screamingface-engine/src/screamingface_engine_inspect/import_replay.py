@@ -54,6 +54,7 @@ from screamingface_engine_inspect.importer import (
     ScorerFacts,
     _custom_metrics,
     _hub_dataset_info,
+    _refuse_several_epochs,
     _scorer_facts,
     _solver_list,
 )
@@ -225,6 +226,9 @@ def _facts_of(
 ) -> TaskReplayFacts:
     """Stage 3a — read the built Task with the importer's scorer readers."""
 
+    # WHY first: a Task that asks each Sample several times is refused before any of its
+    # scorer facts are read (OME-1458).
+    _refuse_several_epochs(task)
     scorers: ScorerFacts = _scorer_facts(task, module)
     return TaskReplayFacts(
         task_ref=task_ref,
