@@ -14,7 +14,7 @@ from importlib.metadata import PackageNotFoundError, version
 # parameter named `json`, so the module name is shadowed inside exactly the functions most
 # likely to want it. Importing the one callable under its own name removes the trap.
 from json import dumps as _json_dumps
-from typing import NoReturn
+from typing import Literal, NoReturn
 from urllib.parse import quote, urlsplit
 from uuid import UUID
 
@@ -522,9 +522,34 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             metadata_updated_at=_optional_timestamp(
                 root.get("metadata_updated_at"), "Leaderboard score metadata_updated_at"
             ),
+            cache_revision=_optional_text(
+                root.get("cache_revision"), "Leaderboard score cache_revision"
+            ),
+            reproducible=_decode_reproducible(root.get("reproducible")),
+            answer_seed=_optional_integer(root.get("answer_seed"), "Leaderboard score answer_seed"),
+            # K8: an older board omits the count, and an omitted count reads as 0.
+            reproduction_count=_integer(
+                root.get("reproduction_count", 0), "Leaderboard score reproduction_count"
+            ),
+            last_reproduced_at=_optional_timestamp(
+                root.get("last_reproduced_at"), "Leaderboard score last_reproduced_at"
+            ),
+            benchmark_revision=_optional_text(
+                root.get("benchmark_revision"), "Leaderboard score benchmark_revision"
+            ),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
+
+
+def _decode_reproducible(value: object) -> Literal["complete", "partial"] | None:
+    if value is None:
+        return None
+    if value == "complete":
+        return "complete"
+    if value == "partial":
+        return "partial"
+    _invalid("Leaderboard score reproducible must be 'complete', 'partial' or null")
 
 
 def _decode_metadata_events(payload: object) -> tuple[ScoreMetadataEvent, ...]:
@@ -685,7 +710,22 @@ def _submission(
         payload["cache_saved_cost_archive_usd"] = _cost_text(
             candidate_result.cache_saved_cost_archive_usd
         )
+    payload.update(_cache_version_fields(candidate_result))
     return payload
+
+
+def _cache_version_fields(candidate_result: CandidateResult) -> dict[str, object]:
+    """The cache version and the sitting, only the parts the run has.
+
+    INVARIANT (OME-1307, K4, cv C13): omitted rather than null, so a board that predates the
+    fields 422s nothing a run without cache data submits. A zero seed is a sitting and is sent.
+    """
+    known = {
+        "cache_revision": candidate_result.cache_revision,
+        "reproducible": candidate_result.reproducible,
+        "answer_seed": candidate_result.answer_seed,
+    }
+    return {name: value for name, value in known.items() if value is not None}
 
 
 def _submission_models(models: Sequence[str]) -> list[str]:

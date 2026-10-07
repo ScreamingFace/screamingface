@@ -144,6 +144,15 @@ class LeaderboardScore:
     # FEATURE: OME-1307 — absent on a board that predates the field; decoded as None.
     paper_url: str | None = None
     metadata_updated_at: datetime | None = None
+    # FEATURE: OME-1307 (K8) — the cache version of the run and its reproductions. An older board
+    # leaves them absent: None, and a count of 0. A null `reproducible` means "unknown".
+    cache_revision: str | None = None
+    reproducible: Literal["complete", "partial"] | None = None
+    answer_seed: int | None = None
+    reproduction_count: int = 0
+    last_reproduced_at: datetime | None = None
+    # The revision of the benchmark the score ran on, which a reproduction must match.
+    benchmark_revision: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
@@ -167,6 +176,8 @@ class LeaderboardScore:
             "client_platform",
             "scoreboard_url",
             "paper_url",
+            "cache_revision",
+            "benchmark_revision",
         )
         for name in optional_fields:
             object.__setattr__(
@@ -185,6 +196,7 @@ class LeaderboardScore:
         )
         _optional_aware_datetime(self.ran_at_local, "Leaderboard score ran_at_local")
         _optional_aware_datetime(self.metadata_updated_at, "Leaderboard score metadata_updated_at")
+        _reproduction_fields(self)
         if not isinstance(self.verified_by_screamingface, bool):
             raise TypeError("Leaderboard score verified_by_screamingface must be a boolean")
         if self.metadata is not None:
@@ -372,6 +384,18 @@ def _aware_datetime(value: object, label: str) -> None:
 def _optional_aware_datetime(value: object, label: str) -> None:
     if value is not None:
         _aware_datetime(value, label)
+
+
+def _reproduction_fields(score: LeaderboardScore) -> None:
+    """Validate the OME-1307 cache version fields (K8); the text ones go through the loop above."""
+    _optional_aware_datetime(score.last_reproduced_at, "Leaderboard score last_reproduced_at")
+    if score.reproducible not in (None, "complete", "partial"):
+        raise ValueError("Leaderboard score reproducible must be 'complete', 'partial' or None")
+    if score.answer_seed is not None and (
+        isinstance(score.answer_seed, bool) or not isinstance(score.answer_seed, int)
+    ):
+        raise TypeError("Leaderboard score answer_seed must be an integer or None")
+    _nonnegative_int(score.reproduction_count, "Leaderboard score reproduction_count")
 
 
 def _names(values: object, label: str) -> tuple[str, ...]:
