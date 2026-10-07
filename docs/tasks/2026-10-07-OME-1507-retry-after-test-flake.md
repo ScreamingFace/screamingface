@@ -12,7 +12,9 @@ closed: 2026-10-07
 # SDK tests fail at random when a server's retry time lands just under four seconds
 
 Two Retry-After tests built "now + 5s" as an HTTP-date, which drops fractions of a second, so the
-parsed wait could be 3.9996s and miss the 5 ± 1 window (failed CI on #1258 and #1268). Fixed in
-the tests by starting from now rounded down plus 6s. No SDK behaviour changes.
+parsed wait could be 3.9996s and miss the 5 ± 1 window (failed CI on #1258 and #1268). Fixed by
+giving the SDK's Retry-After parser a clock seam (`now=`, default real UTC time) so the test's
+fake server and the parser read one clock and the wait is asserted exactly; the same seam fixes
+the third test of this shape in `test_admission_retry.py`. Production defaults are unchanged.
 
 Ledger: `docs/work/2026-10-07-retry-after-test-flake.md`.

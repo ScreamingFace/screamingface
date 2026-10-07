@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from screamingface._core.retry import _retry_after_seconds
+from screamingface._core.retry import _Clock, _retry_after_seconds, _utc_now
 
 # WHY 15 minutes: a queued Run may legitimately wait behind a whole Evaluation (a run can
 # take many minutes), but an unbounded wait is indistinguishable from a hang. The default is
@@ -38,6 +38,10 @@ class _AdmissionWait:
     floor_s: float
     # The fallback when the Engine names no usable `Retry-After` (attempt number → seconds).
     backoff: Callable[[int], float]
+    # The clock an HTTP-date `Retry-After` is measured against. Distinct from `next_delay`'s
+    # monotonic `now`, which times the budget; this one names an instant on the calendar.
+    # WHY injectable (OME-1507): see `_retry_after_seconds`. Production never sets it.
+    wall_clock: _Clock = _utc_now
     attempts: int = 0
     _first_refusal: float | None = field(default=None, init=False)
 
@@ -50,7 +54,7 @@ class _AdmissionWait:
             return None
         # WHY obey the Engine verbatim: its value is a drain estimate (OME-1091); retrying
         # sooner only spends a request against a queue that said it is still full.
-        requested = _retry_after_seconds(response)
+        requested = _retry_after_seconds(response, now=self.wall_clock)
         delay = self.backoff(self.attempts) if requested is None else requested
         self.attempts += 1
         return min(max(delay, self.floor_s), remaining)
