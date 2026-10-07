@@ -59,6 +59,7 @@ from screamingface_engine_inspect.prepare import (
     PreparedCase,
     PrepareError,
     TaskReplayCasesSpec,
+    _refuse_used_bundle,
     _resolve,
     _write_cases,
     case_digest,
@@ -277,7 +278,8 @@ def prepare_replayed_cases(
         summary also carries ``provenance`` and the bundle holds ``provenance.json``.
 
     Raises:
-        PrepareError: a gated Benchmark with no token and no skip flag (R8).
+        PrepareError: a gated Benchmark with no token and no skip flag (R8), or an ``out``
+            that already holds a prepared bundle.
     """
 
     if spec.needs_hf_token:
@@ -287,6 +289,9 @@ def prepare_replayed_cases(
         skipped: dict[str, Any] | None = skip_without_hf_token(gated, out)
         if skipped is not None:
             return skipped
+    # WHY refuse before the replay: a used directory keeps its earlier bundle's provenance.json,
+    # which a later write would pair with this replay's commits before cases.json refuses.
+    _refuse_used_bundle(out)
     provenance: dict[str, Any] | None = None
     try:
         replay: TaskReplay = replay_with_provenance(spec)
@@ -307,21 +312,7 @@ def prepare_replayed_cases(
     except TaskReplayError as exc:
         # WHY SKIPPED, not a raise: deployed images keep every other Benchmark (spec R10).
         reason: str = f"{benchmark_key}: {exc}" if benchmark_key else str(exc)
-        print(f"WARNING: skipping {reason}", file=sys.stderr, flush=True)
-        out.mkdir(parents=True, exist_ok=True)
-        (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
-        skipped_summary: dict[str, Any] = {
-            "cases": 0,
-            "skipped": reason,
-            UNCONFIRMED_CASES_KEY: reason,
-            "out": str(out),
-        }
-        # WHY keep the block on a mismatch: that's exactly when on-call needs the commit
-        # and the seed. A child that crashed returned none, so there is nothing to add.
-        if provenance is not None:
-            write_provenance(out, provenance)
-            skipped_summary[PROVENANCE_KEY] = provenance
-        return skipped_summary
+        return _skip_with_provenance(reason, out, provenance)
     write_provenance(out, provenance)
     _write_cases(prepared, out)
     return {
@@ -330,6 +321,32 @@ def prepare_replayed_cases(
         "out": str(out),
         PROVENANCE_KEY: provenance,
     }
+
+
+def _skip_with_provenance(
+    reason: str, out: Path, provenance: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Write the SKIPPED marker, plus the label when the replay got far enough to make one.
+
+    Returns the skip summary: ``cases`` 0, ``skipped`` and ``UNCONFIRMED_CASES_KEY`` carrying
+    the reason, and ``provenance`` when there is a block.
+    """
+
+    print(f"WARNING: skipping {reason}", file=sys.stderr, flush=True)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
+    skipped_summary: dict[str, Any] = {
+        "cases": 0,
+        "skipped": reason,
+        UNCONFIRMED_CASES_KEY: reason,
+        "out": str(out),
+    }
+    # WHY keep the block on a mismatch: that's exactly when on-call needs the commit
+    # and the seed. A child that crashed returned none, so there is nothing to add.
+    if provenance is not None:
+        write_provenance(out, provenance)
+        skipped_summary[PROVENANCE_KEY] = provenance
+    return skipped_summary
 
 
 def fetch_pins_of(spec: TaskReplayCasesSpec) -> FetchPins:

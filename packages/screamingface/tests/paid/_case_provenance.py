@@ -1,8 +1,9 @@
 """The press page's "Where the Cases came from" section (OME-1492).
 
 Mental model: the label on each sample jar. Case Preparation writes a small
-``provenance.json`` into every Imported Benchmark's bundle (which Hub commit or URL it
-read, which seed it forced, how many Samples it kept, which inspect version prepared it).
+``provenance.json`` into every bundle (which Hub commit or URL it read, which seed it
+forced, how many Samples it kept, which inspect version prepared it; a hand-built
+preparer forces no seed and runs no inspect, so those cells read "—").
 This module reads those labels back from the assets root and lays them out as one table,
 so a red press can be traced to a moved commit or a changed count without re-running the
 import. The file sits in the cached bundle, so the section appears on every press, not
@@ -39,14 +40,24 @@ _MIN_HASH_CHARS: Final = 12
 _HEX_DIGITS: Final = frozenset("0123456789abcdef")
 _NONE: Final = "—"
 
+#: The Benchmarks that read another Benchmark's bundle (the Engine's ``builtins.py`` pairs
+#: them). Every other Benchmark's bundle folder has the Benchmark's own id. Repeated here
+#: for the same reason as ``PROVENANCE_FILE``: the SDK venv cannot import the Engine.
+_SHARED_BUNDLE: Final[dict[str, str]] = {
+    "draco-3pass": "draco",
+    "healthbench-worst30": "healthbench",
+    "healthbench-professional": "healthbench",
+    "gdpval-text": "gdpval",
+}
+
 
 def provenance_markdown(benchmarks: list[str], assets_root: Path) -> str:
     """One Markdown table row per Benchmark, sorted by name, read from its bundle.
 
     Args:
-        benchmarks: the Benchmark ids this press ran. For every Imported Benchmark the
-            bundle folder has the same name; the hand-built shared bundles are mapped in
-            OME-1492 PR 3, so until then those rows read "not recorded".
+        benchmarks: the Benchmark ids this press ran. A Benchmark on a shared bundle
+            (``_SHARED_BUNDLE``) reads that bundle's file; every other one reads the
+            folder with its own id.
         assets_root: the prepared assets root the stack served from.
 
     Returns:
@@ -59,7 +70,7 @@ def provenance_markdown(benchmarks: list[str], assets_root: Path) -> str:
         "|---|---|---|---|---|---|",
     ]
     rows += [
-        _row(benchmark, assets_root / benchmark / PROVENANCE_FILE)
+        _row(benchmark, assets_root / _SHARED_BUNDLE.get(benchmark, benchmark) / PROVENANCE_FILE)
         for benchmark in sorted(benchmarks)
     ]
     return "\n".join(rows) + "\n"
@@ -79,9 +90,12 @@ def _row(benchmark: str, path: Path) -> str:
         TypeError,
         KeyError,
         AttributeError,
+        ValueError,
+        OverflowError,
     ):
         # WHY this wide: the file is data from a build, not code we control; any shape it
-        # takes must end as one row, never as a crash under the press overview.
+        # takes must end as one row, never as a crash under the press overview. json.loads
+        # accepts NaN and Infinity, and rounding them raises ValueError or OverflowError.
         unreadable: str = f"unreadable {PROVENANCE_FILE}"
         return f"| {benchmark} | {unreadable} | {_NONE} | {_NONE} | {_NONE} | {_NONE} |"
     return "| " + " | ".join([benchmark, *cells]) + " |"
@@ -97,11 +111,13 @@ def _cells(block: dict[str, Any]) -> list[str]:
     kept: str = f"{samples['kept']} of {samples['yielded']}"
     if samples["excluded"]:
         kept += f" ({samples['excluded']} excluded)"
+    # A hand-built preparer never runs inspect, so its `pins` is empty.
+    inspect_evals: str | None = block["pins"].get("inspect-evals")
     return [
         sources or _NONE,
         seeds or _NONE,
         kept,
-        f"inspect-evals {block['pins']['inspect-evals']}",
+        f"inspect-evals {inspect_evals}" if inspect_evals else _NONE,
         f"{round(block['seconds'])}s",
     ]
 

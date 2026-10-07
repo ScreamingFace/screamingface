@@ -1409,8 +1409,8 @@ def _validated_metadata(metadata: dict[str, Any], case_id: int) -> dict[str, Any
     return metadata
 
 
-def _write_cases(prepared: Sequence[PreparedCase], out: Path) -> None:
-    """Stage 6 — write the public booklet and the private Grading Material records."""
+def _refuse_used_bundle(out: Path) -> None:
+    """Refuse a bundle directory that already holds a prepared bundle."""
 
     grading_material_dir: Path = out / "targets"
     # WHY refuse a dirty out: a re-prepare into a used directory would leave orphan
@@ -1420,6 +1420,13 @@ def _write_cases(prepared: Sequence[PreparedCase], out: Path) -> None:
         grading_material_dir.is_dir() and any(grading_material_dir.iterdir())
     ):
         raise PrepareError(f"refusing to prepare into non-empty directory {out}")
+
+
+def _write_cases(prepared: Sequence[PreparedCase], out: Path) -> None:
+    """Stage 6 — write the public booklet and the private Grading Material records."""
+
+    _refuse_used_bundle(out)
+    grading_material_dir: Path = out / "targets"
     grading_material_dir.mkdir(parents=True, exist_ok=True)
     for item in prepared:
         (grading_material_dir / f"{item['case']['id']}.json").write_text(

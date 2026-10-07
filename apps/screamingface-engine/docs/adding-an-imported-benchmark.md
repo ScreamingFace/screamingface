@@ -274,6 +274,19 @@ At build, the same declaration is replayed with every pin forced: a Hub read wit
 different commit than the eval's own, or a different Case Digest makes the Benchmark SKIPPED
 with the reason, and the strict PR image job fails.
 
+A different Case Digest ends with one of two explanations when the declaration carries a
+`case_set_digest`:
+
+- **"same N Cases in another order"**: the rows are unchanged but served in a new order, usually
+  a shuffle the pins no longer reach. Check the seed and commit in the bundle's
+  `provenance.json`; re-importing re-seals the new order once you accept it.
+- **"same count, different Cases: text changed"**: at least one Case's prompt or Grading Material
+  differs. Usually an upstream data or prompt change; treat it as a new Benchmark Revision and
+  re-import. For lab_bench, a moved `choice_shuffle_seed` also lands here, because the options
+  sit inside each Case's text.
+
+A count change already names both counts, so it gets no extra explanation.
+
 ## What the tool will never do
 
 - Invent catalogue prose or a license verdict — those are the agent's writing and the

@@ -811,3 +811,22 @@ def test_a_row_without_a_case_set_digest_keeps_todays_reason(
     summary: dict[str, object] = prepare_replayed_cases(resealed, tmp_path / "out")
 
     assert str(summary[UNCONFIRMED_CASES_KEY]).endswith(f"does not match the pinned {'f' * 64}")
+
+
+def test_a_used_bundle_directory_is_refused_before_its_label_is_touched(
+    fake_eval: str, tmp_path: Path
+) -> None:
+    """INVARIANT: a refused re-prepare leaves the earlier bundle's provenance.json as it was.
+    Writing the label first would pair the old cases.json with a new replay's commits."""
+
+    out: Path = tmp_path / "out"
+    out.mkdir()
+    (out / "cases.json").write_text("[]", encoding="utf-8")
+    # Stand-in for a finished bundle's label; only its bytes surviving matters here.
+    earlier: str = '{"from": "the earlier bundle"}\n'
+    (out / _PROVENANCE).write_text(earlier, encoding="utf-8")
+
+    with pytest.raises(PrepareError, match="non-empty directory"):
+        prepare_replayed_cases(_pinned(fake_eval), out)
+
+    assert (out / _PROVENANCE).read_text(encoding="utf-8") == earlier
