@@ -400,21 +400,6 @@ window.ScorePortal = (function () {
     revealNext();
   }
 
-  // Fill the landing hero's stats band from the catalogue data already in hand: how many boards,
-  // and the total ranked fusions across them. Absent on benchmark.html / spec.html (no #stat-*
-  // nodes), so each write is guarded.
-  function setStatText(id, value) {
-    var node = document.getElementById(id);
-    if (node) node.textContent = value.toLocaleString(PORTAL_LOCALE);
-  }
-  function fillHeroStats(benchmarkCount, boards) {
-    var totalFusions = (boards || []).reduce(function (sum, board) {
-      return sum + (board && typeof board.count === "number" ? board.count : 0);
-    }, 0);
-    setStatText("stat-benchmarks", benchmarkCount);
-    setStatText("stat-fusions", totalFusions);
-  }
-
   function initIndex() {
     var statusNode = document.getElementById("benchmark-status");
     var cardsNode = document.getElementById("benchmark-cards");
@@ -449,9 +434,6 @@ window.ScorePortal = (function () {
             // Show 9 at first; "Show more" reveals the next 9 per click (a 9 fills a 3-column grid
             // evenly, and the long tail stays folded so the catalogue reads tight).
             revealCardsInBatches(cardsNode, moreNode, 9);
-            // The hero stats band reads from the data already fetched: how many boards, and the
-            // total ranked fusions across them (a board whose fetch failed counts as 0, never NaN).
-            fillHeroStats(benchmarks.length, boards);
           }
         );
       },

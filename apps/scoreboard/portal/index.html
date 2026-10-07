@@ -36,22 +36,27 @@
     <header class="masthead hero">
       <div class="eyebrow">ScreamingFace · open leaderboard</div>
       <h1 class="hero-title">Fusi<img class="o-mark" src="assets/mark/sf-mark-128.png" alt="o">ns, ranked and reproducible.</h1>
-      <p class="lead hero-lead">An open ensemble of Claude, Gemini, Codex and Ollama that beats single-model SOTA — and every score keeps the <code>url4</code> to rerun it, ranked in public.</p>
-      <div class="hero-cta">
-        <a class="btn--primary lg" href="https://docs.screamingface.ai/" target="_blank" rel="noopener">Get started →</a>
-        <a class="btn--sec lg" href="#benchmarks">Browse benchmarks</a>
-      </div>
+      <p class="lead hero-lead">The first verified map of the quality–cost frontier for ensembles and routers.</p>
     </header>
 
-    <dl class="stats hero-stats" aria-label="Leaderboard at a glance">
-      <div class="s"><span class="k">Benchmarks</span><div class="v" id="stat-benchmarks">—</div></div>
-      <div class="s"><span class="k">Fusions ranked</span><div class="v" id="stat-fusions">—</div></div>
-      <div class="s"><span class="k">Scores rerunnable</span><div class="v gain">100%</div></div>
+    <dl class="kv defs hero-defs" aria-label="How to read the board">
+      <dt class="dt-repro">Reproducible</dt>
+      <dd>Ran on shared compute and stored on the global cache. Anyone can re-run it and get the same
+      score.</dd>
+      <dt>Unverified</dt>
+      <dd>Self-reported, or imported from a third-party board. Not yet reproduced on the global cache.</dd>
+      <dt>Solo model</dt>
+      <dd>A single model, shown as a reference baseline (no submitter).</dd>
     </dl>
+
+    <p class="faint hero-fusion">A <em>fusion</em> is one or more models scored on a public benchmark. <a class="btn--link" href="https://docs.screamingface.ai/" target="_blank" rel="noopener">Get started with ScreamingFace →</a></p>
 
     <section id="benchmarks" class="benchmarks-section">
       <h2>Benchmarks</h2>
       <p class="faint">Pick a benchmark to open its leaderboard. Inside, you can tab across all benchmarks.</p>
+
+      <div class="note">
+        <span class="kicker">Read this first</span> The top of each leaderboard is the best submitted result: the current SOTA. Every row keeps its URL4 expression, so you can rerun any claim before trusting it.</div>
 
       <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
 
@@ -59,24 +64,6 @@
       <div class="cards-more">
         <button type="button" id="benchmark-more" class="btn ghost" hidden>Show more benchmarks</button>
       </div>
-    </section>
-
-    <section class="legend-section">
-      <h2 class="legend-title">What the labels mean</h2>
-      <p class="lead legend-lead">A <em>fusion</em> is one or more models scored on a public benchmark.</p>
-
-      <dl class="kv defs">
-        <dt class="dt-repro">Reproducible</dt>
-        <dd>Ran on shared compute and stored on the global cache. Anyone can re-run it and get the same
-        score.</dd>
-        <dt>Unverified</dt>
-        <dd>Self-reported, or imported from a third-party board. Not yet reproduced on the global cache.</dd>
-        <dt>Solo model</dt>
-        <dd>A single model, shown as a reference baseline (no submitter).</dd>
-      </dl>
-
-      <div class="note">
-        <span class="kicker">Read this first</span> The top of each leaderboard is the best submitted result: the current SOTA. Every row keeps its URL4 expression, so you can rerun any claim before trusting it.</div>
     </section>
 
     <div class="foot">
