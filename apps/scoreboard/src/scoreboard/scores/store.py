@@ -53,6 +53,20 @@ _RAW_ROW_FIELDS = (
 _NULLABLE_RAW_FIELDS = frozenset(
     {"authors", "run_cost_usd", "cache_saved_cost_usd", "cache_saved_cost_archive_usd"}
 )
+# The two savings `reproduction_cost` adds to a `complete` spend (OME-1382, D7).
+_SAVING_RAW_FIELDS = frozenset({"cache_saved_cost_usd", "cache_saved_cost_archive_usd"})
+
+
+class _UnreadableSaving:
+    """Marks a saving that is stored but cannot be decoded (OME-1487).
+
+    WHY a sentinel and not None: for a saving, None means "no saving" and adds nothing, so an
+    unreadable one degraded to None served a `complete` row at its bare spend. The marker keeps
+    "present but unreadable" structurally apart from "absent" until `_serve_reproduction_cost`.
+    """
+
+
+_UNREADABLE_SAVING = _UnreadableSaving()
 
 logger = logging.getLogger(__name__)
 
@@ -82,12 +96,20 @@ def _serve_reproduction_cost(row: dict[str, Any]) -> Decimal | None:
     Pops the three columns only the rule reads, so the row still matches its read DTO, which has no
     status or saving field. Returns the served cost for callers that build the DTO themselves.
     """
-    served = reproduction_cost(
-        cast("Decimal | None", row["run_cost_usd"]),
-        cast("RunCostStatus | None", row.pop("run_cost_status")),
-        cast("Decimal | None", row.pop("cache_saved_cost_usd")),
-        cast("Decimal | None", row.pop("cache_saved_cost_archive_usd")),
-    )
+    status = cast("RunCostStatus | None", row.pop("run_cost_status"))
+    saving = row.pop("cache_saved_cost_usd")
+    archive_saving = row.pop("cache_saved_cost_archive_usd")
+    # INVARIANT (OME-1487): a saving that is stored but unreadable makes the cost unknown, so the
+    # row leaves the frontier like any other unpriced row. It must never read as "no saving".
+    if saving is _UNREADABLE_SAVING or archive_saving is _UNREADABLE_SAVING:
+        served: Decimal | None = None
+    else:
+        served = reproduction_cost(
+            cast("Decimal | None", row["run_cost_usd"]),
+            status,
+            cast("Decimal | None", saving),
+            cast("Decimal | None", archive_saving),
+        )
     row["run_cost_usd"] = served
     return served
 
@@ -433,6 +455,19 @@ def _content_hash(submission: ScoreSubmission, *, per_submitter: bool = False) -
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _decode_raw_column(name: str, raw: object) -> object:
+    """One raw column as its Python value; raises on a value the column cannot hold.
+
+    INVARIANT (OME-1487, PR #1259 review round 1): "NaN" decodes cleanly to Decimal("NaN"), and
+    ranking it raises. A non-finite amount is unreadable money, so it raises here and takes the
+    same degrade path in `_to_python_rows` as a value that failed to decode.
+    """
+    value = Score._meta.fields_map[name].to_python_value(raw)
+    if isinstance(value, Decimal) and not value.is_finite():
+        raise InvalidOperation(f"non-finite stored amount {value}")
+    return value
+
+
 def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert raw projection rows to Python types, column by column.
 
@@ -456,7 +491,7 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             try:
                 # to_python_value maps None -> None for a nullable field, keeping
                 # the absent-is-not-zero distinction (D5) intact.
-                row[name] = Score._meta.fields_map[name].to_python_value(row[name])
+                row[name] = _decode_raw_column(name, row[name])
             except (InvalidOperation, ValueError, FieldError) as exc:
                 # INVARIANT: one corrupt row must never fail the whole read path.
                 # DecimalField.to_python_value quantizes, and quantize RAISES on a
@@ -481,7 +516,10 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         row[name],
                         exc_info=exc,
                     )
-                    row[name] = None
+                    # AIDEV-NOTE: a saving gets the marker, not None; see _UnreadableSaving.
+                    # Every caller of this function must pass the row through
+                    # `_serve_reproduction_cost`, which is what consumes the marker.
+                    row[name] = _UNREADABLE_SAVING if name in _SAVING_RAW_FIELDS else None
                 else:
                     # INVARIANT: a non-nullable column cannot degrade. LeaderboardEntry
                     # types ran_with_providers as list[str], so None would fail
@@ -794,6 +832,39 @@ def _build_pareto_inputs_query(
         )
         .where(ranked.rn == 1)
     )
+
+
+def _build_history_inputs_query(
+    benchmark_id: str,
+    registered_revision: str,
+    registered_case_count: int | None,
+) -> QueryBuilder:
+    """Every comparable submission's ranking fields, oldest first, for the frontier replay.
+
+    WHY raw pypika and not `Score.values()` (OME-1487): the ORM decodes every column itself and
+    RAISES on an undecodable money value, which 500'd the frontier card for the whole board. Raw
+    rows go through `_to_python_rows`, which degrades one bad row instead, like the other reads.
+    """
+    scores = Score.get_table()
+    query = (
+        Query.from_(scores)
+        .select(
+            scores.id,
+            scores.spec_id,
+            scores.score,
+            scores.run_cost_usd,
+            scores.run_cost_status,
+            scores.cache_saved_cost_usd,
+            scores.cache_saved_cost_archive_usd,
+            scores.submitted_at,
+            scores.enriched_at,
+        )
+        .where(scores.benchmark_id == benchmark_id)
+        .where(scores.benchmark_revision == registered_revision)
+    )
+    if registered_case_count is not None:
+        query = query.where(scores.total_questions >= registered_case_count)
+    return query.orderby(scores.submitted_at).orderby(scores.id)
 
 
 class ScoreStore:
@@ -1715,37 +1786,27 @@ class ScoreStore:
         INVARIANT: the ranking fields only. Like `leaderboard_pareto_inputs`, this is a whole-board
         read, so recipes and display metadata are never materialised.
         """
-        query = Score.filter(
-            benchmark_id=benchmark_id, benchmark_revision=registered_revision
-        ).using_db(connection)
-        if registered_case_count is not None:
-            query = query.filter(total_questions__gte=registered_case_count)
-        rows = await query.order_by("submitted_at", "id").values(
-            "id",
-            "spec_id",
-            "score",
-            "run_cost_usd",
-            "run_cost_status",
-            "cache_saved_cost_usd",
-            "cache_saved_cost_archive_usd",
-            "submitted_at",
-            "enriched_at",
+        conn = connection or Tortoise.get_connection("default")
+        result = await execute_pypika(
+            _build_history_inputs_query(benchmark_id, registered_revision, registered_case_count),
+            using_db=conn,
         )
+        datetimes = Score._meta.fields_map
         return [
             HistoryRow(
                 source_id=str(row["id"]),
                 spec_id=cast(str, row["spec_id"]),
                 score=cast(float, row["score"]),
-                run_cost_usd=reproduction_cost(
-                    cast("Decimal | None", row["run_cost_usd"]),
-                    cast("RunCostStatus | None", row["run_cost_status"]),
-                    cast("Decimal | None", row["cache_saved_cost_usd"]),
-                    cast("Decimal | None", row["cache_saved_cost_archive_usd"]),
+                # INVARIANT (OME-1487): the same served cost as the table and the Pareto input.
+                run_cost_usd=_serve_reproduction_cost(row),
+                submitted_at=cast(
+                    datetime, datetimes["submitted_at"].to_python_value(row["submitted_at"])
                 ),
-                submitted_at=cast(datetime, row["submitted_at"]),
-                enriched_at=cast("datetime | None", row["enriched_at"]),
+                enriched_at=cast(
+                    "datetime | None", datetimes["enriched_at"].to_python_value(row["enriched_at"])
+                ),
             )
-            for row in rows
+            for row in _to_python_rows(result.rows)
         ]
 
     async def mark_verified(self, score_id: UUID | str) -> None:
