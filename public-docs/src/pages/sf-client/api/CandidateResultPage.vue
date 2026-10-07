@@ -157,6 +157,25 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>datetime</code> / <code>int</code></td>
           <td>When it ran and for how long.</td>
         </tr>
+        <tr>
+          <td><code>cache_revision</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            The label of the cache rules that served this run, read from the engine's run summary.
+            <code>None</code> when the summary has none, for example with an older engine or a run
+            that made no cacheable call. <code>submit</code> sends it with the score.
+          </td>
+        </tr>
+        <tr>
+          <td><code>reproducible</code></td>
+          <td><code>"complete"&nbsp;|&nbsp;"partial"&nbsp;|&nbsp;None</code></td>
+          <td>
+            Whether a replay can answer every call of this run, read from the engine's run summary.
+            <code>None</code> means unknown, not partial. <code>submit</code> sends it with the
+            score, and <code>sf.reproduce</code> reads it back from the stored score. See
+            <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
+          </td>
+        </tr>
       </tbody>
     </table>
 
