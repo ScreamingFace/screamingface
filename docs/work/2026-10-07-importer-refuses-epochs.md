@@ -1,9 +1,9 @@
 ---
 ticket: OME-1458
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-07
-finished:
+finished: 2026-10-07
 ---
 
 # importer-refuses-epochs — the inspect importer refuses a Task that asks each Case several times (PR 2 of 2)
@@ -47,7 +47,7 @@ declares more than one epoch, so nothing already imported changes.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus the OME-1458 mirror and the spec ledger closed.
+- **Commits:** 9507eaa75 feat(screamingface-engine): refuse an inspect Task that declares more than one epoch; the docs-close commit after it.
+- **Gates:** `run_gates.py screamingface-engine` ALL GATES GREEN (append-only check, ruff check, ruff format, pyright, layering, full pytest with coverage ≥ 80%); the 4 new tests green through the real import child.
+- **Deviations:** none. Owner-verify: none.

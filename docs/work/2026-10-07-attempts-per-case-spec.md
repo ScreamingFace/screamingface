@@ -1,9 +1,9 @@
 ---
 ticket: OME-1458
 stack: repo
-status: in_progress
+status: done
 started: 2026-10-07
-finished:
+finished: 2026-10-07
 ---
 
 # attempts-per-case-spec — decide how a Benchmark with several Attempts per Case is scored (PR 1 of 7)
@@ -39,7 +39,7 @@ is PRs 3 to 7 on the same ticket.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned.
-- **Commits:** <sha — message>
+- **Commits:** 379749d08 docs(screamingface-engine): spec several Attempts per Case, any-match per Check · 893995cc6 docs(screamingface-engine): explain the cache trap and the per-Check fold with examples · d1a235710 docs(screamingface-engine): name the build tickets OME-1515 and OME-1516 in the spec (PR #1294)
 - **Gates:** docs only; three mermaid diagrams rendered and read.
 - **Deviations:** two owner-approved decisions were revised after reading the code, both marked
   in the spec's §1. D5: "one seed per Attempt" would refuse every Anthropic model, so an unseeded
