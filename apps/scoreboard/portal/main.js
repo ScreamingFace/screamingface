@@ -346,22 +346,26 @@ window.ScorePortal = (function () {
     card.className = "card";
     card.setAttribute("href", "benchmark.html?id=" + encodeURIComponent(b.id));
 
-    card.appendChild(el("div", "card-title", b.display_name || b.id));
+    // Title row: the board name with a gold open-arrow at the right — the one accent plus the
+    // "open me" affordance, the way the docs cards carry their arrow.
+    var head = el("div", "card-head");
+    head.appendChild(el("div", "card-title", b.display_name || b.id));
+    var go = el("span", "card-go", "→");
+    go.setAttribute("aria-hidden", "true");
+    head.appendChild(go);
+    card.appendChild(head);
+
     // Focus: short editorial line; omitted (not em-dashed) on a card so an absent one leaves no gap.
     if (b.focus) card.appendChild(el("div", "card-focus", b.focus));
     var desc = benchmarkSubtitle(b);
     if (desc) card.appendChild(el("div", "card-desc", SFLeaderboardLogic.truncate(desc, 100)));
 
-    // Best reproducible: formatScore, not formatPercent — scores are benchmark-native and can be
-    // fractional or negative. Em dash when the board is empty or the fetch failed. A gold "→" on
-    // the right marks the card as a link to open (the one bit of accent on each card).
+    // Best reproducible footer: formatScore, not formatPercent — scores are benchmark-native and
+    // can be fractional or negative. Em dash when the board is empty or the fetch failed.
     var best = board && typeof board.best === "number" ? board.best : null;
     var bestRow = el("div", "card-best");
     bestRow.appendChild(el("span", "card-best-label", "Best reproducible"));
     bestRow.appendChild(el("span", "card-best-val mono", best === null ? EM_DASH : formatScore(best)));
-    var go = el("span", "card-go", "→");
-    go.setAttribute("aria-hidden", "true");
-    bestRow.appendChild(go);
     card.appendChild(bestRow);
     return card;
   }
