@@ -33,7 +33,6 @@ from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
     DifficultyTier,
-    DraftFeedbackOffer,
     candidate,
 )
 from screamingface_engine.benchmarks.gdpval import verdict
@@ -311,12 +310,11 @@ def gdpval_benchmark(
         # Benchmark Provenance, baselines, notebook (OME-1455): threaded through verbatim,
         # the same pass-through as focus/dataset_url; shapes checked by `Benchmark` itself.
         **provenance,
-        # Every check is a judge call over the Case's rubric, so the loop's cost is real.
-        check_surface=DraftFeedbackOffer(
-            check_route=variant.routes.check_surface,
-            feedback_intent="feedback",
-            expected_check_cost="paid",
-        ),
+        # WHY no Draft Feedback offer (owner decision 2026-10-07, OME-1513): the offer is a
+        # per-Benchmark owner call, and today only IFEval carries one. The check-surface route
+        # is still served (a paid Judge call over the Case's rubric) but is not advertised, so
+        # the SDK refuses a Corrective Loop on this Benchmark before any money is spent.
+        check_surface=None,
     )
     return variant, benchmark
 

@@ -236,7 +236,8 @@ def test_the_row_is_our_own_benchmark_with_three_named_scores_and_no_porter_list
         "musique_support_f1",
     )
     assert spec.scorer.endswith(":musique_answer_f1")
-    assert spec.with_check_surface is True
+    # OME-1475 spec D14: no Draft Feedback; the importer's free-text default was overridden.
+    assert spec.with_check_surface is False
     assert TASK_REPLAY_CASES["musique"].keep_sample_metadata is True
     assert TASK_REPLAY_CASES["musique"].case_count == 2417
 

@@ -22,6 +22,7 @@ pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
 from replayed_cases_helpers import replay_in_process_over_rows  # noqa: E402
+from test_inspect_imported_benchmarks import _EXPECTED_FAMILIES  # noqa: E402
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
@@ -168,10 +169,11 @@ async def test_mgsm_en_grades_the_number_with_no_network(tmp_path: Path, no_netw
     assert await _scores(node, benchmark, ["6 * 7 = 42\nAnswer: 42", "Answer: 5"]) == [1.0, 0.0]
 
 
+# AIDEV-NOTE (OME-1513): the name is frozen by the test-change rule; mgsm_en no longer offers
+# mid-run feedback — Draft Feedback is a per-Benchmark owner decision, never a family default
+# (owner rule 2026-10-07), and today only IFEval carries one. The MCQ half still holds (OME-796).
 def test_mgsm_en_offers_mid_run_feedback_and_the_mcq_rows_do_not() -> None:
-    """OME-796: pass/fail feedback over a handful of options is an elimination attack."""
-
-    assert imported_benchmark("mgsm_en").benchmark.check_surface is not None
+    assert imported_benchmark("mgsm_en").benchmark.check_surface is None
     for key in _MCQ_KEYS:
         assert imported_benchmark(key).benchmark.check_surface is None
 
@@ -498,12 +500,12 @@ def test_pre_flight_and_bbeh_declarations_are_sealed_licensed_and_registered(key
     assert benchmark.benchmark.case_count == spec.case_count > 0
 
 
+# AIDEV-NOTE (OME-1513): the name is frozen by the test-change rule; bbeh's free-text answers
+# no longer carry the offer either — Draft Feedback is a per-Benchmark owner decision, never a
+# family default (owner rule 2026-10-07). Both halves now read "off".
 def test_pre_flight_is_choice_shaped_and_bbeh_is_free_text() -> None:
-    """OME-796: pre_flight's four or five options refuse Draft Feedback; bbeh's bare free-text
-    answers offer it, as the other free-text rows do."""
-
     assert imported_benchmark("pre_flight").benchmark.check_surface is None
-    assert imported_benchmark("bbeh").benchmark.check_surface is not None
+    assert imported_benchmark("bbeh").benchmark.check_surface is None
 
 
 @pytest.mark.asyncio
@@ -569,10 +571,10 @@ async def test_every_judge_less_benchmark_grades_with_no_network(
     proves each one's scorer grades from the prepared Cases alone. Stand-in Cases of the
     family's shape; the scores' values are not the point, reaching none of the network is."""
 
-    spec = next(row for row in BENCHMARKS if row.key == key)
-    # WHY the check surface decides the shape: OME-796 refuses it to every choice-shaped
-    # Benchmark (an elimination attack), whatever its scorer is called (SAD's is its own).
-    choice: bool = not spec.with_check_surface
+    # WHY the family table decides the shape (OME-1513): the check surface used to be the
+    # proxy for "choice-shaped", but the offer is now off on every imported row, so the
+    # stand-in Cases follow the family the catalogue test declares for the key.
+    choice: bool = _EXPECTED_FAMILIES[key] == "mcq"
     benchmark: ImportedBenchmark = imported_benchmark(key)
     node: Url4Node = _node(benchmark, _MCQ_CASES if choice else _FREE_TEXT_CASES, tmp_path)
     answers: list[str] = ["ANSWER: B", "(B)"] if choice else ["ANSWER: 42", "ANSWER: 5"]

@@ -12,6 +12,7 @@ the plain gate run skips it, which is exactly the extra-less contract.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -25,13 +26,31 @@ from replayed_cases_helpers import prepare_with_stand_in_hub  # noqa: E402
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
-from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: E402
+from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
+from screamingface_engine_inspect.benchmarks import BENCHMARKS, imported_benchmark  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     build_case_grade,
 )
 
 GSM8K_BENCHMARK = imported_benchmark("gsm8k")
+
+
+def _surface_probe(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """gsm8k's own row re-assembled WITH the Draft Feedback offer, on fresh caches.
+
+    WHY (OME-1513): the offer is a per-Benchmark owner decision and no imported row carries it
+    today, so the surface tests below prove the plugin's surface CODE on a stand-in — the same
+    scorer and Cases as gsm8k, the one flag flipped — not gsm8k's catalogue entry.
+    """
+
+    spec = replace(next(row for row in BENCHMARKS if row.key == "gsm8k"), with_check_surface=True)
+    monkeypatch.setattr(benchmarks, "BENCHMARKS", (spec,))
+    monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
+    monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
+    return imported_benchmark("gsm8k")
+
+
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
 from url4.peer.server import Url4Node  # noqa: E402
 
@@ -66,13 +85,16 @@ def test_benchmark_identity_and_declaration() -> None:
     assert benchmark.dataset_url is not None and "gsm8k" in benchmark.dataset_url
 
 
-def test_check_surface_is_declared_and_free() -> None:
-    """§4 — the wrapped scorer is ALSO the advertised mid-run check, at zero cost."""
+def test_check_surface_is_declared_and_free(monkeypatch: pytest.MonkeyPatch) -> None:
+    """§4 — the wrapped scorer is ALSO the advertised mid-run check, at zero cost — WHEN a row
+    turns the offer on. gsm8k's own row has it off (OME-1513), so this runs on the probe."""
 
-    surface = GSM8K_BENCHMARK.benchmark.check_surface
+    assert GSM8K_BENCHMARK.benchmark.check_surface is None
+    probe = _surface_probe(monkeypatch)
+    surface = probe.benchmark.check_surface
     assert surface is not None
     assert surface.expected_check_cost == "free"
-    assert GSM8K_BENCHMARK.benchmark.revision in surface.check_route
+    assert probe.benchmark.revision in surface.check_route
 
 
 def test_registration_carries_the_benchmark_and_its_bundle() -> None:
@@ -194,21 +216,34 @@ def _prompt(tmp_path: Path) -> str:
     return json.loads(booklet.read_text(encoding="utf-8"))[0]["input"]
 
 
-async def _surface_check(node: Url4Node, tmp_path: Path, answer: str) -> dict[str, object]:
+async def _surface_check(
+    node: Url4Node, tmp_path: Path, answer: str, probe: Any
+) -> dict[str, object]:
     payload = json.dumps(
         {
             "input": _prompt(tmp_path),
             "invocation": encode_candidate_invocation(answer, "stop", None),
         }
     )
-    reply = await _call(node, GSM8K_BENCHMARK.check_surface_route, payload, "check")
+    reply = await _call(node, probe.check_surface_route, payload, "check")
     return json.loads(reply)
 
 
+def _surface_node(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Url4Node, Any]:
+    """A node serving the probe (gsm8k's row WITH the offer) over the two stand-in Cases."""
+
+    probe = _surface_probe(monkeypatch)
+    node = Url4Node("test")
+    probe.benchmark.install(node, _prepare(tmp_path))
+    return node, probe
+
+
 @pytest.mark.asyncio
-async def test_check_surface_passes_a_correct_answer(tmp_path: Path) -> None:
-    node = _node(tmp_path)
-    record = await _surface_check(node, tmp_path, "ANSWER: 42")
+async def test_check_surface_passes_a_correct_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    node, probe = _surface_node(tmp_path, monkeypatch)
+    record = await _surface_check(node, tmp_path, "ANSWER: 42", probe)
     assert record["schema"] == DRAFT_FEEDBACK_SCHEMA
     assert record["passed"] is True
     assert record["satisfaction"] == 1.0
@@ -216,11 +251,13 @@ async def test_check_surface_passes_a_correct_answer(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_check_surface_fails_without_leaking_the_target(tmp_path: Path) -> None:
+async def test_check_surface_fails_without_leaking_the_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Sealed envelope: mid-run feedback may say wrong, never WHAT the answer is."""
 
-    node = _node(tmp_path)
-    record = await _surface_check(node, tmp_path, "ANSWER: 59")
+    node, probe = _surface_node(tmp_path, monkeypatch)
+    record = await _surface_check(node, tmp_path, "ANSWER: 59", probe)
     assert record["passed"] is False
     assert record["satisfaction"] == 0.0
     feedback = str(record["feedback"])
@@ -230,26 +267,26 @@ async def test_check_surface_fails_without_leaking_the_target(tmp_path: Path) ->
 
 @pytest.mark.asyncio
 async def test_check_surface_feedback_intent_extracts_the_feedback(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    node = _node(tmp_path)
-    record = await _surface_check(node, tmp_path, "ANSWER: 59")
-    reply = await _call(node, GSM8K_BENCHMARK.check_surface_route, json.dumps(record), "feedback")
+    node, probe = _surface_node(tmp_path, monkeypatch)
+    record = await _surface_check(node, tmp_path, "ANSWER: 59", probe)
+    reply = await _call(node, probe.check_surface_route, json.dumps(record), "feedback")
     assert reply == record["feedback"]
 
 
 @pytest.mark.asyncio
 async def test_check_surface_refuses_an_unusable_target_in_the_plugins_voice(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """INVARIANT: failure wording is this plugin's published voice — a missing key
     refuses with the named missing_target_asset message, never the scorer adapter's internal
     TypeError vocabulary reaching the candidate mid-run."""
 
-    node = _node(tmp_path)
-    (tmp_path / GSM8K_BENCHMARK.benchmark.id / "targets" / "1.json").unlink()
+    node, probe = _surface_node(tmp_path, monkeypatch)
+    (tmp_path / probe.benchmark.id / "targets" / "1.json").unlink()
     with pytest.raises(Exception, match="baked target record"):
-        await _surface_check(node, tmp_path, "ANSWER: 42")
+        await _surface_check(node, tmp_path, "ANSWER: 42", probe)
 
 
 @pytest.mark.asyncio

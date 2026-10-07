@@ -76,6 +76,13 @@ list, and a scorer that tolerates absent Sample metadata.
   headline Score's metadata into the Report; an AIDEV-NOTE above the frozen-name test says
   what it checks now. The continuous `satisfaction` on Draft Feedback is lane-wide (squad
   exposes F1 the same way) and is left for the owner on the ticket.
+- **Owner rule folded in (2026-10-07): Draft Feedback is opt-in per Benchmark, never a default.**
+  The importer now emits `with_check_surface=False`; the nine imported rows that carried the
+  offer by family rule (gsm8k, paws, boolq, aime24, aime25, mgsm_en, bbeh, squad, math) and the
+  three hand-built rubric Benchmarks (gdpval, draco, healthbench: `check_surface=None`, route
+  still served) turn it off; IFEval is the one Benchmark with the offer, and says why. Nine
+  imported revisions moved once (no external users); hand-built revisions unchanged. Twelve
+  prior test files amended in the OFF direction, pinned in the approval manifest.
 - **Deviations:** the prior assertion "every plugin benchmark came from inspect_evals" is
   amended to "origin matches where the task code lives, both ways" — a Confidence-Gate edit,
   pinned in the approval file and flagged in the PR for the owner to confirm. The importer was

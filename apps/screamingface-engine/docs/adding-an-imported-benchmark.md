@@ -149,17 +149,16 @@ flags. The importing agent (not a human) resolves all of them:
 - **The Case Sources comment** above the declaration lists every fetch run 1 recorded, with
   what pins it. Check each against the eval's loader.
 
-## Step 3 — decide the draft-feedback offer
+## Step 3 — leave the draft-feedback offer off
 
-`with_check_surface=True` **only for string-match free-text benchmarks** (spec §4): the
-eval's own scorer then also answers the corrective loop's mid-run checks with sealed
-pass/fail-only feedback. **MCQ benchmarks never get one** — pass/fail feedback over a
-handful of options is an elimination attack (OME-796). **Judged benchmarks never get one
-either (yet)** — a judged mid-run check spends judge tokens per attempt while the
-surface still advertises `free`; assembly refuses the combination until the check-cost
-knob lands (OME-1116). The generated row defaults correctly from the grading family —
-judged rows are generated with NO surface; treat changing any of it as an owner
-decision.
+The generated row says `with_check_surface=False`, and it stays that way. Draft Feedback (the
+Corrective Loop's mid-run check) is a **per-Benchmark owner decision, never a default** (owner
+rule 2026-10-07, OME-1513): what a loop may learn mid-run is a product call, and the lane's
+`satisfaction` is the headline score, so an F1-graded Benchmark would tell a loop how close a
+partial answer is. Today only IFEval carries the offer. MCQ rows can never carry it (pass/fail
+over a handful of options is an elimination attack, OME-796); judged rows are refused it at
+assembly until the check-cost knob lands (OME-1116). To turn it on for a free-text row, the
+owner says so, and the row carries a comment naming that decision.
 
 ### Live activity comes from the shared adapter
 

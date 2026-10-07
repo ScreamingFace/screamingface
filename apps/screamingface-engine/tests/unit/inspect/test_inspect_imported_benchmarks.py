@@ -38,7 +38,7 @@ from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES  # noqa: E402
 #: lets a fusion re-word a draft until it slips past).
 _EXPECTED_FAMILIES: dict[str, str] = {
     "gsm8k": "free_text",
-    "musique": "free_text",  # OME-1513: a local Task, served like any free-text import
+    "musique": "free_text",  # OME-1513: a local Task, served like a free-text import
     "mmlu": "mcq",
     "arc_easy": "mcq",
     "arc_challenge": "mcq",
@@ -186,12 +186,12 @@ def test_benchmark_row_declares_its_family_check_surface(key: str) -> None:
     attack — MCQ benchmarks are refused the surface, free-text benchmarks carry it."""
 
     benchmark = imported_benchmark(key).benchmark
-    if _EXPECTED_FAMILIES[key] == "free_text":
-        assert benchmark.check_surface is not None
-    else:
-        # "mcq" (elimination attack), "judged" (no check-cost knob yet) and "reply_only"
-        # (re-wording past a refusal regex) alike.
-        assert benchmark.check_surface is None
+    # OME-1513 (owner rule 2026-10-07): Draft Feedback is a per-Benchmark owner decision, never
+    # a family default. No imported row carries the offer today — "free_text" included, which
+    # used to imply it; "mcq" (elimination attack), "judged" (no check-cost knob yet) and
+    # "reply_only" (re-wording past a refusal regex) could never. A row the owner turns on
+    # by name is the exception this test will then have to list.
+    assert benchmark.check_surface is None, _EXPECTED_FAMILIES[key]
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))

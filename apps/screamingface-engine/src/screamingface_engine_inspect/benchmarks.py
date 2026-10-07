@@ -247,7 +247,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer_kwargs={"numeric": True},
         # Free-form answers make mid-run feedback legitimate: the same scorer serves
         # the corrective loop (spec §4; owner decision on OME-1115, 2026-09-15).
-        with_check_surface=True,
+        # Draft Feedback off (owner rule 2026-10-07, OME-1513); only IFEval carries the offer.
+        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/2110.14168",
@@ -523,9 +524,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.paws.paws:paws. License: other.
         scorer="inspect_ai.scorer:includes",
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
+        # Draft Feedback off: a per-Benchmark owner decision, never a family default
+        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
+        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1904.01130",
@@ -584,9 +585,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.boolq.boolq:boolq. License: cc-by-sa-3.0.
         scorer="inspect_ai.scorer:pattern",
         scorer_kwargs={"pattern": "(Yes|No).?\\Z"},
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
+        # Draft Feedback off: a per-Benchmark owner decision, never a family default
+        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
+        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1905.10044",
@@ -814,9 +815,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.aime2024.aime2024:aime2024.
         # License: mit.
         scorer="inspect_evals.aime2024.aime2024:aime_scorer",
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
+        # Draft Feedback off: a per-Benchmark owner decision, never a family default
+        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
+        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
@@ -866,9 +867,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.aime2025.aime2025:aime2025.
         # License: apache-2.0.
         scorer="inspect_evals.aime2025.aime2025:aime_scorer",
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
+        # Draft Feedback off: a per-Benchmark owner decision, never a family default
+        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
+        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/math-ai/aime25",
@@ -2470,9 +2471,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer_kwargs={"numeric": True},
         # The eval's own accuracy metric IS the board's mean per-case score.
         # Its clustered stderr is not reported; the description names that.
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
+        # Draft Feedback off: a per-Benchmark owner decision, never a family default
+        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
+        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/2210.03057",
@@ -3671,8 +3672,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "the cases run, the figure the paper reports for BBEH Mini; the paper's headline "
             "BBEH score is the harmonic mean of the 23 per-task accuracies (each plus 0.01), "
             "which the board does not compute; each Case keeps its task name, so the per-task "
-            "accuracies can be regrouped from a full run. Offers mid-run Draft Feedback "
-            "(free-form answers)."
+            "accuracies can be regrouped from a full run."
         ),
         focus="Hard multi-step reasoning across 23 BIG-Bench task families (free text)",
         dataset_url="https://huggingface.co/datasets/BBEH/bbeh",
@@ -3688,9 +3688,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Its per-task accuracies (inspect_ai/grouped) and their harmonic mean
         # (inspect_evals/harmonic_mean_across_tasks) are not reported; the description names
         # that and how to regroup them from the kept task metadata.
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
+        # Draft Feedback off: a per-Benchmark owner decision, never a family default
+        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
+        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/pdf/2502.19187",
@@ -3740,7 +3740,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "is reported beside it as a Named Score, shown but not ranked — the EM / F1 "
             "pair papers report from one run. Named deviation: the eval sends its "
             "instruction as a system message; the Benchmark delivers it as leading input "
-            "text. Offers mid-run Draft Feedback (free-form answers)."
+            "text."
         ),
         focus="Reading comprehension over a passage, with unanswerable questions",
         dataset_url="https://huggingface.co/datasets/rajpurkar/squad_v2",
@@ -3793,9 +3793,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The eval's own Task(metrics=[mean(), stderr(cluster="context_hash")]) IS the mean
         # per-case score the Benchmark reports; the clustered standard error is a
         # confidence figure, not a score, and is not reproduced.
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
+        # Draft Feedback off: a per-Benchmark owner decision, never a family default
+        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
+        with_check_surface=False,
     ),
     BenchmarkSpec(
         key="math",
@@ -3814,7 +3814,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "grades with a judge model that, unpinned, is the model under test, so its "
             "number would measure the grader, not the answer; and the eval's sampling "
             "temperature of 0.5 is not applied — the Candidate answers with its own "
-            "settings. Offers mid-run Draft Feedback (free-form answers)."
+            "settings."
         ),
         focus="Competition mathematics across five difficulty levels and seven subjects",
         dataset_url="https://huggingface.co/datasets/DigitalLearningGmbH/MATH-lighteval",
@@ -3876,9 +3876,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Named Deviation: the Task's config=GenerateConfig(temperature=0.5) is not applied;
         # the importer never reads task.config and the Candidate answers with its own settings
         # (plan D10). The description names it.
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
+        # Draft Feedback off: a per-Benchmark owner decision, never a family default
+        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
+        with_check_surface=False,
     ),
     BenchmarkSpec(
         key="musique",
@@ -3897,7 +3897,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "Score, 0.692 answer F1, is a fine-tuned retrieval pipeline's result on the test "
             "split, not a prompted model on dev, so our runs sit beside it rather than on the "
             "same scale. The dev set has been public since 2022 and may be in a model's training "
-            "data. Offers mid-run Draft Feedback (free-form answers)."
+            "data."
         ),
         focus="Multi-hop reading over decoy-filled paragraphs",
         dataset_url="https://huggingface.co/datasets/dgslibisey/MuSiQue",
@@ -3954,9 +3954,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "screamingface_engine_inspect.local_tasks.musique.musique:musique_support_f1",
         ),
         named_scores=("musique_answer_f1", "musique_answer_em", "musique_support_f1"),
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
+        # WHY off (OME-1475 spec D14, kept for the local Task): no Draft Feedback for launch. The
+        # importer's free-text default would expose the headline token F1 as `satisfaction`,
+        # which tells a Corrective Loop how close a partial span is; answers here are spans
+        # copied from the 20 paragraphs, so that is a narrower search than free text looks.
+        with_check_surface=False,
     ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )

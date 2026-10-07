@@ -52,6 +52,12 @@ as a whole (answer = the whole reply, support = empty) rather than dropping it.
 - Best published answer F1 0.692 — Beam Retrieval, a fine-tuned retrieval pipeline on the test
   split (NAACL 2024), not a prompted model on dev. Our runs sit beside it, not on the same scale.
 
+## Draft Feedback
+
+Off (`with_check_surface=False`), per the MuSiQue spec's decision D14: not needed for launch,
+and the import lane's feedback would expose token F1 as a closeness signal over a small pool
+of candidate spans.
+
 ## Identity
 
 The Benchmark revision hashes the Case Digest, the Task reference, the Hub pin **and the

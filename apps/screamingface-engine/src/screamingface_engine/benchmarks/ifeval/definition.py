@@ -148,8 +148,11 @@ IFEVAL = Benchmark(
     ),
     build=_build,
     install=install_ifeval,
-    # Free: the deterministic verifier costs no model call, so a corrective loop
-    # on IFEval spends only on members and the judge.
+    # WHY IFEval is the ONE Benchmark that offers Draft Feedback (owner decision 2026-10-07,
+    # OME-1513): the published Corrective-Loop work targets IFEval, and its verifier is
+    # deterministic checker code, so a mid-run check is free and leaks only pass/fail per
+    # instruction. Every other Benchmark, imported or hand-built, has the offer off until the
+    # owner turns it on by name — never by grading family.
     check_surface=DraftFeedbackOffer(
         check_route=DRAFT_FEEDBACK_ROUTE,
         feedback_intent="feedback",

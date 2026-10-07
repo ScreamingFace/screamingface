@@ -123,9 +123,13 @@ def test_the_catalogue_serves_both_benchmarks() -> None:
     entry = DRACO_3PASS.catalog_entry()
     assert entry["id"] == "draco-3pass"
     assert entry["case_count"] == 100
-    check = entry["check_surface"]
-    assert isinstance(check, dict)
-    assert check["check_route"].startswith(f"/benchmarks/draco-3pass/{THREE_PASS_VARIANT.revision}")
+    # OME-1513: no Draft Feedback offer on either draco Benchmark (owner rule 2026-10-07), so
+    # the catalogue entry carries no check_surface block; the route still sits under the
+    # three-pass prefix (asserted on the registered routes below).
+    assert "check_surface" not in entry
+    assert THREE_PASS_VARIANT.routes.check_surface.startswith(
+        f"/benchmarks/draco-3pass/{THREE_PASS_VARIANT.revision}"
+    )
 
 
 # ── protocol shape ------------------------------------------------------------------

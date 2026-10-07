@@ -21,5 +21,9 @@ remaining hand-built Benchmark needs before it moves. Replaces OME-1509, OME-151
 PR 1 — MuSiQue-Ans as the first local Task: ledger
 `../work/2026-10-07-OME-1513-pr1-musique-local-task.md`.
 
+PR 1 also carries the owner rule of 2026-10-07: Draft Feedback (`with_check_surface`) is a
+per-Benchmark owner decision, never a family default — importer default off, nine imported rows
+and the three rubric Benchmarks turned off, IFEval the only one with the offer.
+
 Open after PR 1: the per-Benchmark investigation comments (medxpert, draco, healthbench,
 gdpval, ifeval, contracteval) and one migration PR per Benchmark that fits.
