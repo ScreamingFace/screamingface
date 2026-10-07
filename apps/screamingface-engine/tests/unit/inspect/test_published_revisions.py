@@ -31,7 +31,7 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "gsm8k": "39331c3bab42c313",
     # OME-1268: the first two Benchmarks with Named Scores (served in upstream order).
     "squad": "5b8e883be27f795b",
-    "math": "e846a50b67840c30",
+    "math": "cf9663373de8bae4",
     "mmlu": "1e42325597dee3d6",
     "arc_easy": "5f063684bf708ca1",
     "arc_challenge": "b54aa46de0840b60",

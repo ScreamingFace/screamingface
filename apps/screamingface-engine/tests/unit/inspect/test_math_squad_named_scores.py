@@ -139,3 +139,24 @@ def test_the_rows_assemble_with_their_declared_named_scores() -> None:
     )
     assert imported_benchmark("squad").benchmark.case_count == 11873
     assert imported_benchmark("math").benchmark.case_count == 5000
+
+
+# --- sympy is MATH's Benchmark identity (review finding on #1251) --------------------------
+
+
+def test_math_pins_the_installed_sympy_into_its_revision() -> None:
+    """A sympy bump changes what expression_exact_match_sympy says per Case; the Revision
+    must move with it, never keep published scores hanging off a different grader."""
+
+    from dataclasses import replace
+    from importlib.metadata import version
+
+    from screamingface_engine_inspect.benchmarks import _scorer_dependency_pins
+
+    math_spec = next(spec for spec in BENCHMARKS if spec.key == "math")
+    squad_spec = next(spec for spec in BENCHMARKS if spec.key == "squad")
+
+    assert _scorer_dependency_pins(math_spec) == (f"sympy=={version('sympy')}",)
+    assert _scorer_dependency_pins(squad_spec) == ()  # no other row's revision moves
+    with pytest.raises(ValueError, match="no-such-grader-package.*not installed"):
+        _scorer_dependency_pins(replace(math_spec, scorer_dependencies=("no-such-grader-package",)))

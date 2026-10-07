@@ -23,6 +23,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from functools import partial
 from importlib import import_module
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, cast
 
@@ -128,6 +129,11 @@ class BenchmarkSpec:
     #: ``expression_equivalance``): a Named Deviation, visible on the row and pinned into
     #: the revision, never a silent cut (OME-1268).
     dropped_scorers: tuple[str, ...] = ()
+    #: Installed packages a scorer of this row grades WITH (MATH's symbolic scorer calls
+    #: sympy): their installed versions pin into the revision, so a dependency bump that
+    #: changes per-Case values cannot keep a published Revision (OME-1268). Empty on every
+    #: other row, so no published revision moves.
+    scorer_dependencies: tuple[str, ...] = ()
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -3732,27 +3738,30 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         focus="Reading comprehension over a passage, with unanswerable questions",
         dataset_url="https://huggingface.co/datasets/rajpurkar/squad_v2",
-        # Frontier models sit above 90 F1 on SQuAD 2.0 (the human baseline is 89.5):
-        #  saturated material, a quick and cheap signal (OME-1257).
-        difficulty="easy",
+        # The 90+ F1 on the SQuAD 2.0 leaderboard is a fine-tuned extractive ensemble's,
+        # not a generative zero-shot Candidate's; a Candidate answering in its own words
+        # against span keys has real headroom ("specialized extraction", OME-1257), so
+        # medium, not easy (review finding on #1251).
+        difficulty="medium",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.squad.squad:squad.
         # License: cc-by-sa-4.0.
-        # Benchmark Provenance (OME-1455): paper, inspect porters, baseline and size
-        # read from the eval's eval.yaml; authors and citation from arXiv. Every TODO
+        # Benchmark Provenance (OME-1455): inspect porters, baseline and size read from
+        # the eval's eval.yaml; paper, authors and citation corrected by hand: eval.yaml
+        # cites the 2016 SQuAD 1.1 paper, but the Task serves squad_v2, whose unanswerable
+        # questions are the 2018 paper's contribution (review finding on #1251). Every TODO
         # below is refused by name at registration, so an unreviewed row cannot ship.
-        paper_url="https://arxiv.org/abs/1606.05250",
-        authors="Rajpurkar et al., 2016",
+        paper_url="https://arxiv.org/abs/1806.03822",
+        authors="Rajpurkar et al., 2018",
         citation=(
-            "@misc{rajpurkar2016squad100000questionsmachine,\n"
-            "      title={SQuAD: 100,000+ Questions for Machine Comprehension of Text}, \n"
-            "      author={Pranav Rajpurkar and Jian Zhang and Konstantin Lopyrev and Per"
-            "cy Liang},\n"
-            "      year={2016},\n"
-            "      eprint={1606.05250},\n"
+            "@misc{rajpurkar2018knowdontknowunanswerable,\n"
+            "      title={Know What You Don't Know: Unanswerable Questions for SQuAD}, \n"
+            "      author={Pranav Rajpurkar and Robin Jia and Percy Liang},\n"
+            "      year={2018},\n"
+            "      eprint={1806.03822},\n"
             "      archivePrefix={arXiv},\n"
             "      primaryClass={cs.CL},\n"
-            "      url={https://arxiv.org/abs/1606.05250}, \n"
+            "      url={https://arxiv.org/abs/1806.03822}, \n"
             "}"
         ),
         inspect_contributors=("tknasir",),
@@ -3847,10 +3856,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer="inspect_evals.math.math:expression_exact_match",
         extra_scorers=("inspect_evals.math.math:expression_exact_match_sympy",),
         named_scores=("expression_exact_match", "expression_exact_match_sympy"),
+        # The symbolic scorer grades WITH sympy: its installed version is Benchmark identity
+        # (review finding on #1251), so a sympy bump moves this revision instead of moving
+        # per-Case values under an unchanged one.
+        scorer_dependencies=("sympy",),
         # Named Deviation (OME-1268): the Task also declares expression_equivalance, left out
-        # because it grades with a judge model (none pinned: it would grade
-        # with the model under test). The description names the drop and its effect;
-        # the dropped name is part of the Benchmark Revision.
+        # because it grades with a judge model, and a multi-scorer row pins no judge
+        # (unpinned, it would grade with the model under test). The description names the
+        # drop and its effect; the dropped name is part of the Benchmark Revision.
         dropped_scorers=("expression_equivalance",),
         # The Headline Score is expression_exact_match, not upstream's first scorer: the
         # description names which column ranks (owner decision on OME-1268, 2026-10-05).
@@ -3908,6 +3921,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             + _inverted_grade_pins(spec)
             + _verdict_grades_pins(spec)
             + _named_score_pins(spec)
+            + _scorer_dependency_pins(spec)
         ),
         scorer_factory=_scorer_factory(spec),
         extra_scorer_factories=_extra_scorer_factories(spec),
@@ -4317,6 +4331,28 @@ def _named_score_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
         pins.append(f"named_scores={json.dumps(list(spec.named_scores))}")
     if spec.dropped_scorers:
         pins.append(f"dropped_scorers={json.dumps(list(spec.dropped_scorers))}")
+    return tuple(pins)
+
+
+def _scorer_dependency_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """Each declared scorer dependency at its INSTALLED version as Benchmark identity —
+    ``sympy==1.14.0`` — a pin only when set, so no published revision moves (OME-1268).
+
+    WHY the installed version, not a literal on the row: the grading-time behaviour is the
+    installed package's; a bump in `pyproject.toml` then moves the revision by itself and
+    `test_published_revisions` says so. A dependency the Engine lacks refuses the row at
+    assembly, before any Case is served — never a scorer_error on every Case at run time.
+    """
+
+    pins: list[str] = []
+    for name in spec.scorer_dependencies:
+        try:
+            pins.append(f"{name}=={version(name)}")
+        except PackageNotFoundError:
+            raise ValueError(
+                f"{spec.key}: scorer dependency {name!r} is not installed; this Engine cannot "
+                "grade the row (install the `inspect` extra)"
+            ) from None
     return tuple(pins)
 
 

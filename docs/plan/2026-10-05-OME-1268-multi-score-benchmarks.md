@@ -455,7 +455,7 @@ Lands in E. Deploys after PR 2's SDK release.
 
 ### Task 5.0: Ledger
 
-- [ ] Create `docs/work/2026-10-09-ome-1268-math-squad.md`; commit.
+- [ ] Create `docs/work/2026-10-06-ome-1268-math-squad.md`; commit.
 
 ### Task 5.1: Import the two rows
 
