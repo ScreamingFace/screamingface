@@ -55,6 +55,25 @@ def test_portal_pages_include_plausible_analytics(tmp_path: Path) -> None:
             assert "plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js" in response.text, path
 
 
+def test_about_page_is_public_structured_and_linked(tmp_path: Path) -> None:
+    """A short About / methodology page, public, with its four sections, and linked from the rail.
+
+    The page states what the leaderboard is, how to read it, how to contribute, and how to cite —
+    the home for the reproducibility/openness/Pareto framing that would otherwise be scattered.
+    """
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        about = client.get("/about.html")
+        assert about.status_code == 200
+        # Public analytics, like the other pages.
+        assert "plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js" in about.text
+        # The section labels.
+        for label in ("Thesis", "How it works", "Contribute", "Who builds this"):
+            assert label in about.text, label
+        # Reachable from the rail on the landing and the per-board pages.
+        for path in ("/about.html", "/index.html", "/benchmark.html", "/spec.html"):
+            assert 'href="about.html"' in client.get(path).text, path
+
+
 def test_api_routes_remain_public_before_root_static_mount(tmp_path: Path) -> None:
     with TestClient(create_app(_settings(tmp_path))) as client:
         assert client.get("/healthz").status_code == 200
