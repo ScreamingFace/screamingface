@@ -107,9 +107,8 @@ class AnthropicOAuth(BaseOAuthStrategy):
         except json.JSONDecodeError as exc:
             raise AuthError(f"OAuth refresh response not JSON: {exc}") from exc
 
-        new_creds = self._convert_refresh_response(data)
-        await self._write_to_store(new_creds)
-        return new_creds
+        # WHY no write here (OME-1497, G0 §5.3): the strategy base publishes under the guard.
+        return self._convert_refresh_response(data)
 
     def _convert_refresh_response(self, data: dict) -> dict:
         for required in ("access_token", "refresh_token", "expires_in"):

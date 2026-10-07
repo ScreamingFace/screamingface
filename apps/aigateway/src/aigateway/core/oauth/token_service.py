@@ -5,10 +5,16 @@ from dataclasses import dataclass
 from typing import Any, Protocol, cast
 from uuid import UUID
 
-from aigateway.core.errors import AuthError, CredentialNotFoundError, ReauthRequiredError
+from aigateway.core.errors import (
+    AuthError,
+    CredentialNotFoundError,
+    ReauthRequiredError,
+    RefreshSuperseded,
+)
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.plugin_base import credential_service_provider_for
 from aigateway.core.provider_access.connection_locator import credential_name_from_locator
+from aigateway.core.provider_access.refresh_guard import ConnectionRefreshOwner, guard_refresh
 
 
 class OAuthConnectionStoreLike(Protocol):
@@ -106,10 +112,13 @@ class OAuthConnectionTokenService:
             provider=connection.provider,
             auth_type="oauth",
             credential_name=credential_name,
-            build=lambda: plugin.oauth_strategy_for(
-                credential_name,
-                credential_store=credential_store,
-                http_client_factory=http_client_factory_for(connection.provider),
+            build=lambda: guard_refresh(
+                plugin.oauth_strategy_for(
+                    credential_name,
+                    credential_store=credential_store,
+                    http_client_factory=http_client_factory_for(connection.provider),
+                ),
+                ConnectionRefreshOwner(str(account_id), connection.provider, connection.id),
             ),
         )
         if strategy is None:
@@ -118,6 +127,10 @@ class OAuthConnectionTokenService:
 
         try:
             access_token, expires_at_ms, refreshed = await token_strategy.get_token_with_expiry()
+        except RefreshSuperseded as exc:
+            # INVARIANT (OME-1497, G0 §5.3): the pair changed owner during the refresh window —
+            # the superseded conflict, never an error mark or a token of the old credential.
+            raise OAuthConnectionTokenError(409, {"code": "connection_conflict"}) from exc
         except (CredentialNotFoundError, ReauthRequiredError) as exc:
             # Credential missing, or the refresh token was rejected by the provider
             # (revoked / invalid_grant). The connection cannot recover without a new

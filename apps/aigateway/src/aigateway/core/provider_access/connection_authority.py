@@ -24,7 +24,7 @@ from ..credential_blob import (
     OperationalOutcome,
 )
 from ..credential_strategy_cache import credential_strategy_cache
-from ..errors import AuthError, CredentialNotFoundError
+from ..errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from ..oauth.models import OAuthConnection
 from ..plugin_base import credential_service_provider_for
 from ..profile_models import Profile
@@ -36,6 +36,7 @@ from .connection_locator import (
 )
 from .profile_authorize import invalidate_session, oauth_connection_store, reauth_url_for
 from .profile_backed import context_stamp
+from .refresh_guard import ConnectionRefreshOwner, guard_refresh
 from .selector import Selector
 from .types import (
     Authorization,
@@ -46,6 +47,7 @@ from .types import (
     TargetPending,
     TargetReauthRequired,
     UnsupportedAuthMode,
+    WriteConflict,
 )
 
 # WHY public: the design card's state mapping in the LEGACY vocabulary (active→authenticated,
@@ -129,8 +131,11 @@ def _strategy_for(app: Any, plugin: Any, provider: str, target: CredentialTarget
         provider=provider,
         auth_type=target.auth_type,
         credential_name=str(target.credential_name),
-        build=lambda: credential_strategy_for_connection(
-            app, plugin, provider, connection, account_id=str(connection.account_id)
+        build=lambda: guard_refresh(
+            credential_strategy_for_connection(
+                app, plugin, provider, connection, account_id=str(connection.account_id)
+            ),
+            ConnectionRefreshOwner(str(connection.account_id), provider, connection.id),
         ),
     )
 
@@ -150,6 +155,10 @@ async def authorize_migrated(
         )
     try:
         raw_headers = await strategy.get_authorization_header()
+    except RefreshSuperseded as exc:
+        # INVARIANT (OME-1497, G0 §5.3): a refresh that lost the pair marks nothing errored.
+        credential_strategy_cache(app).evict(credential_name)
+        raise WriteConflict("superseded", subject="connection", provider=provider) from exc
     except (CredentialNotFoundError, AuthError) as exc:
         credential_strategy_cache(app).evict(credential_name)
         if isinstance(exc, AuthError):
