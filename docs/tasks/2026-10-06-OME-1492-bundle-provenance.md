@@ -24,3 +24,4 @@ Spec (PR 1): `docs/spec/2026-10-06-OME-1492-bundle-provenance.md`.
 
 - 2026-10-06: PR 1 implemented; gates green on both stacks.
 - 2026-10-07: PR 2 implemented (order-blind `case_set_digest` on every declaration, 57/57 backfilled); gates green.
+- 2026-10-07: PR 3 implemented (ledger `docs/work/2026-10-07-hand-built-provenance.md`, spec `docs/spec/2026-10-07-OME-1492-pr3-hand-built-provenance.md`): the six hand-built preparers write the block; the run page maps the four shared-bundle Benchmarks.
