@@ -277,7 +277,7 @@ uv run python -m screamingface_engine_inspect.importer \
     screamingface_engine_inspect.local_tasks.<name>.<name>:<name> --key <name>
 ```
 
-Three things differ from an inspect_evals import:
+Four things differ from an inspect_evals import:
 
 - **Origin.** The generated `BenchmarkSpec` row gets `origin="screamingface"`: the Benchmark is
   ours, and the provenance rule then asks it for no `inspect_contributors`. Leave the default
@@ -285,6 +285,10 @@ Three things differ from an inspect_evals import:
 - **Provenance is hand-written.** There is no `eval.yaml` to read, so every TODO (paper,
   authors, citation, licence, baselines, difficulty) is yours to fill from the paper and the
   reference harness. Registration refuses the row until every TODO is gone.
+- **The Task file opens with `# pyright: reportMissingImports=false`** and the WHY comment
+  every other module in the plugin carries (copy `scorer_adapter.py`'s header). CI typechecks
+  the Engine without the inspect extra, so a bare `from inspect_ai import Task` fails there
+  while the local gate, which has the extra, stays green.
 - **A scorer that reads Sample metadata must tolerate its absence** (`state.metadata.get(...)`).
   The no-network grading lane runs every judge-less Benchmark over stand-in Cases that carry no
   metadata; a `KeyError` there shows as a grading failure on a Benchmark that grades fine in
