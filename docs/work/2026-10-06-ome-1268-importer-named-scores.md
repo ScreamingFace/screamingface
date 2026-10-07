@@ -51,27 +51,31 @@ Stacked on PR 3 (#1249).
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned. Changed: `importer.py` (`ScorerFacts`, `_scorer_facts`,
-  `_resolve_scorer` replacing `_scorer_reference`; `InspectTaskFacts` ×5 fields;
-  `_scorer_lines` keyword fields, `_named_score_lines`, `_tuple_literal`;
-  `_refuse_injectable_text`), `import_replay.py` (`TaskReplayFacts` ×5 fields),
-  `task_replay_rows.py` (the shared lines and the guard), `prepare.py`
-  (`_validated_list_key`, `_validated_answer_key` returns `str | list[str]`),
-  `scorer_metrics.py` (`headline_metric_name`, `extra_metric_names` public,
-  `_declared_metric_names`). New tests: `tests/unit/inspect/test_importer_named_scores.py`
-  (10), `tests/unit/inspect/test_list_target.py` (5). One prior test fixture changed:
-  `test_every_other_refusal_stays_a_plain_refusal` (see Deviations).
-- **Commits:** f246cf767 — feat(screamingface-engine): import Tasks with several scorers and
-  list answer keys
-- **Gates:** `run_gates.py screamingface-engine` stops at the append-only lane on the one
-  prior-test fixture change (owner `--skip-append-only`, named in the PR body); every other
-  lane run by hand and green: ruff check, ruff format --check, pyright (0 errors with the
-  inspect extra), layering OK, pytest `-n auto --cov-fail-under=80` 5574 passed / 44 skipped.
-  `test_published_revisions.py` and the `render_generated_rows` tests untouched and green.
-- **Deviations:** (1) the prior test `test_every_other_refusal_stays_a_plain_refusal` used
-  a two-scorer Task as its "plain refusal" fixture; that Task now imports by design, so the
-  fixture is a no-scorer Task with the same assertion (append-only exception, owner press).
-  (2) The tripwire lives in the reader (`_scorer_facts`), not the renderer, so the Task-replay
-  path gets it for free. (3) "Conservable" = `_is_judged_by` is False; a dict-valued scorer's
-  names are still hand-written. (4) The OME-1253 sweep re-check (spec §8.7) is deferred to
-  PR 5, which runs the importer for real.
+- **Actual files:** rebuilt on 2026-10-07 after OME-1460 removed the Hugging Face import
+  path (the reader `read_inspect_task`, `InspectTaskFacts`, `render_generated_rows` and
+  `test_inspect_importer.py` no longer exist on main). Changed: `importer.py`
+  (`ScorerFacts`, `_scorer_facts`, `_resolve_scorer` replacing `_scorer_reference`;
+  `_scorer_lines` keyword fields, `_named_score_lines`, `_tuple_literal`),
+  `import_replay.py` (`TaskReplayFacts` ×5 fields, `_facts_of`, tuple rebuild in
+  `_import_replay_from_result`), `task_replay_rows.py` (the shared lines and the reference
+  guard), `prepare.py` (`_validated_list_key`, `_validated_answer_key` returns
+  `str | list[str]`), `scorer_metrics.py` (`headline_metric_name`, `extra_metric_names`
+  public, `_declared_metric_names`). New tests:
+  `tests/unit/inspect/test_importer_named_scores.py` (14: ten through the import child on a
+  stand-in eval, four through the row renderer), `tests/unit/inspect/test_list_target.py`
+  (5). No prior test changed.
+- **Commits:** dac52ef0a — feat(screamingface-engine): import Tasks with several scorers and
+  list answer keys (rebuilt on the Task-replay path; the original f246cf767 targeted the
+  deleted Hugging Face reader)
+- **Gates:** `run_gates.py screamingface-engine` ALL GREEN on the rebuilt branch (no prior
+  test changed, so the append-only lane passes): ruff check, ruff format --check, pyright
+  (0 errors with the inspect extra), layering, pytest `-n auto` 5818 passed / 6 skipped
+  with the coverage floor.
+- **Deviations:** (1) Rebuilt on the one Task-replay path: the facts are read in the import
+  child and cross back as JSON, so `_import_replay_from_result` turns every tuple-typed fact
+  back into a tuple (the pins hash from them). (2) The tripwire lives in the reader
+  (`_scorer_facts`), not the renderer. (3) "Conservable" = `_is_judged_by` is False; a
+  dict-valued scorer's names are still hand-written. (4) The prior fixture change the first
+  build needed (`test_every_other_refusal_stays_a_plain_refusal`) is moot: that file was
+  deleted upstream. (5) The OME-1253 sweep re-check (spec §8.7) is deferred to PR 5, which
+  runs the importer for real.

@@ -40,5 +40,6 @@ truncated. The field is absent on every single-scorer Benchmark, so no published
 - 2026-10-06: PR 4 of 5 opened, #1250 (branch `OME-1268-importer-named-scores`, stacked on
   #1249; ledger `docs/work/2026-10-06-ome-1268-importer-named-scores.md`): the importer keeps
   every conservable scorer, drops a judged one by name, refuses a formula headline by name, and
-  Case Preparation accepts a list of accepted answers. One prior-test fixture change needs the
-  owner's `--skip-append-only`. No Benchmark row lands; PR 5 imports MATH and SQuAD.
+  Case Preparation accepts a list of accepted answers. Rebuilt 2026-10-07 on the Task-replay
+  path after OME-1460 removed the Hugging Face reader; no prior test changed. No Benchmark
+  row lands; PR 5 imports MATH and SQuAD.

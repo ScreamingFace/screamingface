@@ -359,8 +359,11 @@ Lands in E. Deploys after PR 2's SDK release.
 
 ## PR 4 — Engine: the importer (branch `OME-1268-importer-named-scores`)
 
-> **As built (2026-10-06).** Four places differ from the tasks below; the ledger records why.
-> (1) "Conservable" is decided by the existing judged-scorer test (`_is_judged_by`): a
+> **As built (2026-10-06, rebuilt 2026-10-07).** Five places differ from the tasks below; the
+> ledger records why. (0) OME-1460 removed the Hugging Face import path while this PR was
+> open, so the slice was rebuilt on the Task-replay path: the facts are read in the import
+> child (`_facts_of`) and rebuilt typed in the parent; `InspectTaskFacts`,
+> `read_inspect_task` and `_refuse_injectable_text` no longer exist. (1) "Conservable" is decided by the existing judged-scorer test (`_is_judged_by`): a
 > scorer that takes a judge model is dropped by name in a multi-scorer Task; the stand-in
 > for MATH's `expression_equivalance` is a scorer with `model=None`. (2) The tripwire lives
 > in `_scorer_facts` (the reader), not in `_scorer_lines` (the renderer): refusing before any
@@ -368,9 +371,8 @@ Lands in E. Deploys after PR 2's SDK release.
 > gets it for free. (3) Non-headline non-mean metrics are `dropped_metrics` on the facts and a
 > "not reproduced" note on the row; the existing `custom_metrics` TODO (the Task's own
 > `metrics=`) is untouched. (4) One prior test's fixture changed:
-> `test_every_other_refusal_stays_a_plain_refusal` used a two-scorer Task as its plain
-> refusal, which is now importable by design; it uses a no-scorer Task (owner
-> `--skip-append-only`, named in the PR body). The sweep re-check of OME-1253's scorer-count
+> none, after the rebuild: `test_inspect_importer.py`, whose fixture the first build had to
+> change, was deleted upstream with the Hugging Face path. The sweep re-check of OME-1253's scorer-count
 > rows (spec §8.7) runs with the MATH and SQuAD imports in PR 5.
 
 ### Task 4.0: Ledger
