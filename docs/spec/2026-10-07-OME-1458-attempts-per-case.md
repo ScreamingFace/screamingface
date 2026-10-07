@@ -1,7 +1,7 @@
 # Spec — a Benchmark may give each Case several Attempts, and a Check passes if any Attempt passes it
 
-- Status: draft for owner approval. Decisions settled on OME-1458 with the owner, 2026-10-07
-  (§1); two of them were revised after reading the code, and §1 marks which.
+- Status: draft for owner review. Decisions D1–D14 approved by the owner on OME-1458,
+  2026-10-07 (§1); D5 and D7 were revised after reading the code and re-approved the same day.
 - Component: `apps/screamingface-engine` (the grading spine and `screamingface_engine_inspect`)
   and `packages/screamingface` (decoder and Report).
 - Ticket: OME-1458. Parent epic: OME-1299. Unblocks OME-1476 (ARC-AGI-2).
@@ -129,17 +129,24 @@ The per-Case step runs the Candidate Invocation and its Grading once per Attempt
 N, inside the one Case. One Attempt is one complete answer: for a Fusion that is every member
 and the synthesizer (D6), for a Corrective Loop every round.
 
-**The trap is the AI gateway's cache.** It keys a stored reply on the exact request, by design
-with no sampling member (`GlobalChatCacheKey`, OME-305). Two identical requests in one run get
-one reply: Attempt 2 would be Attempt 1 photocopied, and the score would silently be
-first-Attempt again. inspect avoids this by putting the epoch number in its cache key; our cache
-is shared across every hosted user and stays exact. So Attempt i ≥ 2 changes its request, and
-only in a way the Candidate does not see:
+**The trap is the AI gateway's cache, not the seed.** A model with no seed already answers
+differently each time it is asked; the problem is that Attempt 2 is never asked. The gateway
+keys a stored reply on the exact request, by design with no sampling member
+(`GlobalChatCacheKey`, OME-305):
+
+- Attempt 1 sends `gpt-x` "What is 6 times 7?"; the gateway calls the provider, gets `41`, and
+  stores it under that exact request.
+- Attempt 2 sends the identical request; the gateway finds the stored `41` and returns it
+  without calling the provider.
+
+Both Attempts say `41`, and the score is silently first-Attempt again. inspect avoids this by
+putting the epoch number in its cache key; our cache is shared across every hosted user and
+stays exact. So Attempt i ≥ 2 changes its request, and only in a way the Candidate does not see:
 
 | The run declared | Attempt 1 | Attempt i ≥ 2 | Why |
 |---|---|---|---|
-| an answer seed `s` | today's request, seed `s` | seed derived from `(s, i)`, cached as normal | every Candidate Model already supports `seed` (the SDK refuses a seeded run otherwise), and a distinct seed is a distinct cache entry, so a rerun replays every Attempt |
-| no seed | today's request, unchanged | the cache opt-out `use-cache: false`, no seed | a seed would refuse every Anthropic model (its Messages API has no `seed`); the opt-out is the gateway's one cache control and works for every provider |
+| no seed (the normal case, and every Anthropic model) | today's request, unchanged | no seed, the cache opt-out `use-cache: false` | the provider is asked afresh and samples a new answer; a seed is not needed, and would refuse every Anthropic model (its Messages API has no `seed`) |
+| an answer seed `s`, chosen by the researcher | today's request, seed `s` | seed derived from `(s, i)`, cached as normal | the run stamps `s` on every answer, and a provider that honours seeds returns the same answer for the same seed, so Attempt 2 needs its own; every Candidate Model already supports `seed` (the SDK refuses a seeded run otherwise), and a distinct seed is a distinct cache entry, so a rerun replays every Attempt |
 
 Attempt 1 is byte-identical to today's request, so a Benchmark without Attempts never changes
 its egress. The Benchmark's own Judges are untouched: a Judge grading the same answer twice may
@@ -157,10 +164,22 @@ per-Case envelope then folds the N grades into the Case's one Case Grade:
 - **The Case Result's shown answer** is the first Attempt with the highest Case score, so the
   answer a reader sees is one that earned the points.
 
-Why per Check: an ARC-AGI-2 task has one Check per test grid. Attempt 1 matches grid A and misses
-grid B; Attempt 2 misses A and matches B. The ARC scorer counts both grids, so the task scores
-1.0. A per-Case fold would pick one Attempt and score 0.5. 45 of the 120 evaluation tasks have
-more than one grid.
+Why per Check, not "pick the best answer sheet": one ARC-AGI-2 task can ask for two output
+grids, A and B, one Check each (45 of the 120 evaluation tasks ask for two or three).
+
+| | Grid A | Grid B |
+|---|---|---|
+| Attempt 1 | ✅ right | ❌ wrong |
+| Attempt 2 | ❌ wrong | ✅ right |
+
+- **ARC's own scorer** checks each grid on its own: A passed (Attempt 1), B passed (Attempt 2),
+  so the task scores **1.0**.
+- **Best Attempt per Case** treats each Attempt as one whole sheet: Attempt 1 scores 0.5,
+  Attempt 2 scores 0.5, the best is **0.5**, lower than ARC's number for the same answers.
+- **Per Check** takes, for each grid, whichever Attempt got it right: **1.0**, ARC's number.
+
+On a Benchmark with one Check per Case, which is every Imported Benchmark, the two rules give
+the same score.
 
 **Any-match needs pass/fail Checks.** A Check graded 0.6 (an F1, a partial rubric) is neither
 met nor missed in the published sense, and inspect's `max` would take the larger partial score,
