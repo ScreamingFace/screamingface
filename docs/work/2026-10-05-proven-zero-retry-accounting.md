@@ -130,6 +130,22 @@ Acceptance: every reproduced nested/malformed counterexample remains unavailable
 never certifies zero but does not erase unique measured cost; old attempt statuses retain their v1
 wire marker; guaranteed-zero attempts carry v2; no prior test changes; all gates pass.
 
+## Public contract review correction — 2026-10-07
+
+A final read-only contract review found one documentation contradiction: the overview said the wire
+carried no numbered version while the new attempt status intentionally uses a v2 attempt marker and
+versioned schema identity. This iteration will:
+
+- qualify the unversioned statement as applying only to the stable top-level accounting/economics
+  markers and explicitly name nested attempt/schema evolution;
+- add the complete legacy/new direct-cost status × v1/v2 attempt-marker matrix as a schema regression;
+- add one metadata-rich positive control covering every accepted nested proof shape;
+- rerun focused, Python 3.12, Engine and full AIGateway gates before commit and push.
+
+Acceptance: public guidance is internally consistent; every valid status/marker pair is accepted and
+every mismatched pair rejected; the metadata-rich insured-zero control remains certifiable; all gates
+pass without changing runtime behavior.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** updated the OpenRouter dispatch/accounting plugin, provider-neutral direct-cost
@@ -172,4 +188,9 @@ wire marker; guaranteed-zero attempts carry v2; no prior test changes; all gates
   Anthropic shapes, and versioned only the new attempt wire status. Final verification passes 116
   focused tests, 636 Python 3.12 usage-accounting tests, 78 Engine consumer tests and the complete
   AIGateway gate. Two independent final reviews report `READY`; the financial refuter checked 191
-  mutation/probe cases with no unsafe pass. No live or paid call was made.
+  mutation/probe cases with no unsafe pass. The public-contract correction then aligned top-level
+  unversioned markers with nested v2 evolution and added the complete status/marker matrix plus a
+  metadata-rich positive control. Final totals are 118 focused tests, 638 Python 3.12
+  usage-accounting tests and 78 Engine consumer tests; the contract re-review reports `READY WITH
+  NOTES` only because the separately authorized live smoke remains outstanding. No live or paid call
+  was made.

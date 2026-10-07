@@ -37,3 +37,5 @@ Ledger: `docs/work/2026-10-05-proven-zero-retry-accounting.md`.
   duplicate-key ambiguity without discarding unrelated measured cost, and add a versioned marker for
   the new closed-enum status. Full gates and two independent final reviews are green; PR #1296 remains
   open and the paid/live smoke remains separately authorized.
+- 2026-10-07: public version guidance and the final schema/metadata-rich regression gaps are closed;
+  contract re-review is `READY WITH NOTES`, with only the separately authorized live smoke remaining.

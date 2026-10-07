@@ -5,9 +5,11 @@
 in the returned copy; cached provider JSON remains unchanged. OpenRouter and Anthropic are the
 initial supported providers.
 
-This contract is pre-beta and may change incompatibly. The wire intentionally carries no numbered
-version and no maturity label. This document and the packaged JSON Schema describe the current
-contract; consumers must update with pre-beta changes.
+This contract is pre-beta and may change incompatibly. Its top-level `usage_accounting` and
+`request_economics` markers intentionally carry no numbered version or maturity label. Nested attempt
+markers and the packaged JSON Schema use a numbered version when a closed vocabulary expands, as
+described below. This document and the packaged schema describe the current contract; consumers must
+update with pre-beta changes.
 
 ## Activation
 
