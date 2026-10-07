@@ -18,7 +18,7 @@ Stages of ``replay_for_import``, in execution order:
               rebound too; call the task function with its args. The recorder learns the
               Hub commits (no pins exist yet) and forces the dev's seeds (OME-1460).
     Stage 3 — child: read the facts off the built Task with the importer's own readers
-              (_scorer_reference, _custom_metrics, plus the multiple_choice witness); render
+              (_scorer_facts, _custom_metrics, plus the multiple_choice witness); render
               the Samples by capture (the Task's own solvers with a stand-in generate).
     Stage 4 — child: write result.json: prepared Cases, Sample ids, Case Sources, the Hub
               fetches (repo, revision read), facts.
@@ -50,9 +50,10 @@ from screamingface_engine_inspect.fetch_pins import (
 )
 from screamingface_engine_inspect.importer import (
     ImporterError,
+    ScorerFacts,
     _custom_metrics,
     _hub_dataset_info,
-    _scorer_reference,
+    _scorer_facts,
     _solver_list,
 )
 from screamingface_engine_inspect.prepare import (
@@ -87,6 +88,12 @@ class TaskReplayFacts:
     scorer_kwargs: dict[str, Any]
     custom_metrics: tuple[str, ...]
     keep_sample_metadata: bool
+    #: The Named Scores declaration, read the Hugging Face reader's way (OME-1268).
+    extra_scorers: tuple[str, ...] = ()
+    named_scores: tuple[str, ...] = ()
+    dropped_scorers: tuple[str, ...] = ()
+    headline_differs: bool = False
+    dropped_metrics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -186,8 +193,17 @@ def _import_replay_from_result(result: Mapping[str, Any]) -> ImportReplay:
     """Rebuild the typed run from result.json (JSON has lists where the facts keep tuples)."""
 
     raw_facts: dict[str, Any] = dict(result["facts"])
+    # WHY each name: JSON has no tuple; every tuple-typed fact comes back as a list and the
+    # frozen facts (and the pins hashed from them) must see the same type the child built.
+    tuple_facts: tuple[str, ...] = (
+        "custom_metrics",
+        "extra_scorers",
+        "named_scores",
+        "dropped_scorers",
+        "dropped_metrics",
+    )
     facts: TaskReplayFacts = TaskReplayFacts(
-        **{**raw_facts, "custom_metrics": tuple(raw_facts["custom_metrics"])}
+        **{**raw_facts, **{name: tuple(raw_facts.get(name, ())) for name in tuple_facts}}
     )
     return ImportReplay(
         prepared=result["prepared"],
@@ -208,7 +224,7 @@ def _facts_of(
 ) -> TaskReplayFacts:
     """Stage 3a — read the built Task with the importer's scorer readers."""
 
-    scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
+    scorers: ScorerFacts = _scorer_facts(task, module)
     return TaskReplayFacts(
         task_ref=task_ref,
         task_args=task_args,
@@ -216,13 +232,18 @@ def _facts_of(
         # OR the choice scorer (mmlu hides its solver inside its own @solver), OR Samples
         # that carry choices (worldsense asks for "1"/"2"/"3"
         # with generate() and a pattern scorer). Any of them refuses mid-run feedback (OME-796).
-        mcq=_uses_multiple_choice(task) or scorer_name == "choice" or samples_carry_choices,
-        scorer=scorer_ref,
-        scorer_kwargs=scorer_kwargs,
+        mcq=_uses_multiple_choice(task) or scorers.scorer_name == "choice" or samples_carry_choices,
+        scorer=scorers.scorer,
+        scorer_kwargs=scorers.scorer_kwargs,
         custom_metrics=_custom_metrics(task),
         # WHY (D11): an eval's own scorer may read state.metadata (chembench), and the
         # metadata sits inside the Case Digest, so it is decided here, never by a hand edit.
-        keep_sample_metadata=not scorer_ref.startswith(INSPECT_SCORER_PREFIX),
+        keep_sample_metadata=not scorers.scorer.startswith(INSPECT_SCORER_PREFIX),
+        extra_scorers=scorers.extra_scorers,
+        named_scores=scorers.named_scores,
+        dropped_scorers=scorers.dropped_scorers,
+        headline_differs=scorers.headline_differs,
+        dropped_metrics=scorers.dropped_metrics,
     )
 
 

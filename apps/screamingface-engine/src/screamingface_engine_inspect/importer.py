@@ -41,6 +41,7 @@ import json
 import re
 import sys
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -91,18 +92,143 @@ def _custom_metrics(task: Any) -> tuple[str, ...]:
     return tuple(names)
 
 
-def _scorer_reference(task: Any, module: Any) -> tuple[str, dict[str, Any], str]:
-    """The eval's scorer as a dotted constructor reference plus its creation kwargs."""
+@dataclass(frozen=True)
+class ScorerFacts:
+    """What the Task declares about its scorers, read off the built Task (OME-1268).
+
+    Mental model: the Task lists its examiners; we keep every examiner we can seat in our
+    marking room (one that grades without a judge), seat the first of them at the head of
+    the table (the Headline Score), and write down by name any examiner we had to turn away.
+    """
+
+    scorer: str
+    scorer_kwargs: dict[str, Any]
+    scorer_name: str
+    extra_scorers: tuple[str, ...] = ()
+    named_scores: tuple[str, ...] = ()
+    dropped_scorers: tuple[str, ...] = ()
+    headline_differs: bool = False
+    dropped_metrics: tuple[str, ...] = ()
+
+
+def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
+    """Every scorer the Task declares, kept or dropped by name (OME-1268).
+
+    Stage 1 — list the declared scorers; none is a refusal.
+    Stage 2 — one scorer: resolve it exactly as before (a judged one takes the judged row).
+    Stage 3 — several: keep each one that grades without a judge, in upstream order; a
+              judged one cannot be seated (only a single-scorer row pins a judge), so it is
+              written to ``dropped_scorers`` by name. None kept is a refusal.
+    Stage 4 — the tripwire: the headline scorer's first declared metric must be a plain mean
+              (``accuracy`` / ``mean``), or the row would publish the wrong headline; any
+              other metric on a kept scorer is noted as not reproduced.
+    """
+
+    from screamingface_engine_inspect.scorer_metrics import (
+        extra_metric_names,
+        headline_metric_kind,
+        headline_metric_name,
+    )
+
+    declared: list[Any] = (
+        task.scorer if isinstance(task.scorer, list) else [task.scorer] if task.scorer else []
+    )
+    if not declared:
+        raise ImporterError("the task declares no scorer")
+    resolved: list[tuple[str, dict[str, Any], str]] = [
+        _resolve_scorer(scorer, module) for scorer in declared
+    ]
+    kept: list[int] = (
+        [0]
+        if len(declared) == 1
+        else [
+            index
+            for index, (ref, params, _) in enumerate(resolved)
+            if not _is_judged_by(ref, params)
+        ]
+    )
+    if not kept:
+        dropped_names: list[str] = [name for _, _, name in resolved]
+        raise ImporterError(
+            f"the task declares {len(declared)} scorers but no conservable scorer: every one "
+            f"grades with a judge ({dropped_names}); add the row by hand"
+        )
+    headline_ref, headline_kwargs, headline_name = resolved[kept[0]]
+    headline_scorer: Any = declared[kept[0]]
+    if headline_metric_kind(headline_scorer) != "mean":
+        metric: str | None = headline_metric_name(headline_scorer)
+        raise ImporterError(
+            f"headline metric {metric or '<none>'} of scorer {headline_name} is not a plain "
+            "mean; the Benchmark would publish the wrong headline — declare a reducer for it "
+            "(OME-1268) or add the row by hand"
+        )
+    if len(declared) == 1:
+        return ScorerFacts(
+            scorer=headline_ref,
+            scorer_kwargs=headline_kwargs,
+            scorer_name=headline_name,
+            dropped_metrics=extra_metric_names(headline_scorer),
+        )
+    _check_kept_scorers(declared, resolved, kept)
+    dropped_metrics: list[str] = []
+    for index in kept:
+        dropped_metrics.extend(extra_metric_names(declared[index]))
+    return ScorerFacts(
+        scorer=headline_ref,
+        scorer_kwargs=headline_kwargs,
+        scorer_name=headline_name,
+        extra_scorers=tuple(resolved[index][0] for index in kept[1:]),
+        named_scores=tuple(resolved[index][2] for index in kept),
+        dropped_scorers=tuple(
+            resolved[index][2] for index in range(len(declared)) if index not in kept
+        ),
+        headline_differs=kept[0] != 0,
+        dropped_metrics=tuple(dropped_metrics),
+    )
+
+
+def _check_kept_scorers(
+    declared: list[Any], resolved: list[tuple[str, dict[str, Any], str]], kept: list[int]
+) -> None:
+    """Refuse a multi-scorer Task whose kept scorers the row cannot write faithfully.
+
+    WHY here, not at the next benchmarks.py import: the row would be written first and die
+    on the registry's own check ("named_scores must be unique"), after the files exist.
+    WHY refuse arguments on an extra scorer: it is constructed bare at grading time
+    (benchmarks.py keeps kwargs for the headline scorer only), so `match(numeric=True)`
+    written as `match()` would pin the wrong configuration into the Revision as faithful —
+    "1,889" grades C upstream and I here. Never truncated, never silent.
+    """
+
+    from inspect_ai._util.registry import registry_params
+
+    names: list[str] = [resolved[index][2] for index in kept]
+    if len(set(names)) != len(names):
+        raise ImporterError(
+            f"the task declares two conservable scorers with one registry name ({names}); a "
+            "Named Score column needs a name of its own — add the row by hand"
+        )
+    for index in kept[1:]:
+        extra_ref, _, extra_name = resolved[index]
+        params: dict[str, Any] = dict(registry_params(declared[index]))
+        if params:
+            raise ImporterError(
+                f"extra scorer {extra_name} ({extra_ref}) is created with arguments {params}, "
+                "which the Benchmark row cannot carry for a non-headline scorer; add the row "
+                "by hand or drop it by name"
+            )
+
+
+def _resolve_scorer(scorer: Any, module: Any) -> tuple[str, dict[str, Any], str]:
+    """One scorer as a dotted constructor reference, its literal creation kwargs, and its
+    registry name."""
 
     from inspect_ai._util.registry import registry_info, registry_params
 
-    scorers: list[Any] = task.scorer if isinstance(task.scorer, list) else [task.scorer]
-    if len(scorers) != 1:
-        raise ImporterError(f"expected exactly one scorer, the task declares {len(scorers)}")
-    registry_name: str = registry_info(scorers[0]).name
+    registry_name: str = registry_info(scorer).name
     package, _, name = registry_name.rpartition("/")
     params: dict[str, Any] = {
-        key: value for key, value in registry_params(scorers[0]).items() if _is_literal(value)
+        key: value for key, value in registry_params(scorer).items() if _is_literal(value)
     }
     if package == "inspect_ai":
         import inspect_ai.scorer as scorer_module
@@ -160,10 +286,18 @@ def _scorer_lines(
     custom_metrics: tuple[str, ...],
     mcq: bool,
     judged: bool,
+    *,
+    extra_scorers: tuple[str, ...] = (),
+    named_scores: tuple[str, ...] = (),
+    dropped_scorers: tuple[str, ...] = (),
+    headline_differs: bool = False,
+    dropped_metrics: tuple[str, ...] = (),
 ) -> list[str]:
     """The scorer, metric, judge and check-surface lines of a BenchmarkSpec row.
 
-    Written once here, so every Task-replay row declares its scorer the same way.
+    Written once here, so every Task-replay row declares its scorer the same way. With
+    Named Scores (OME-1268) the row also declares the extra scorers, the score names
+    (headline first) and any dropped scorer.
     """
 
     benchmark_lines: list[str] = [f'        scorer="{scorer}",']
@@ -177,6 +311,11 @@ def _scorer_lines(
             for name, value in sorted(scorer_kwargs.items())
         )
         benchmark_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
+    benchmark_lines.extend(
+        _named_score_lines(
+            extra_scorers, named_scores, dropped_scorers, headline_differs, dropped_metrics
+        )
+    )
     for metric_name in custom_metrics:
         benchmark_lines.append(
             f"        # TODO(review): the eval reports its own metric {metric_name}, but the"
@@ -210,6 +349,53 @@ def _scorer_lines(
         benchmark_lines.append("        # MCQ benchmarks must NOT set this (OME-796).")
         benchmark_lines.append("        with_check_surface=True,")
     return benchmark_lines
+
+
+def _named_score_lines(
+    extra_scorers: tuple[str, ...],
+    named_scores: tuple[str, ...],
+    dropped_scorers: tuple[str, ...],
+    headline_differs: bool,
+    dropped_metrics: tuple[str, ...],
+) -> list[str]:
+    """The Named Scores declaration of a row (OME-1268): the extra scorers and the score
+    names as tuple literals, a dropped scorer as a Named Deviation with its reason, a moved
+    headline as a review TODO, and any metric not reproduced as a note."""
+
+    lines: list[str] = []
+    if extra_scorers:
+        lines.append(f"        extra_scorers={_tuple_literal(extra_scorers)},")
+    if named_scores:
+        lines.append(f"        named_scores={_tuple_literal(named_scores)},")
+    if dropped_scorers:
+        lines.append(
+            "        # Named Deviation (OME-1268): the Task also declares "
+            f"{', '.join(dropped_scorers)}, left out"
+        )
+        lines.append("        # because it grades with a judge model, and a multi-scorer row pins")
+        lines.append("        # no judge. Name the drop and its effect in the description; the")
+        lines.append("        # dropped name is part of the Benchmark Revision.")
+        lines.append(f"        dropped_scorers={_tuple_literal(dropped_scorers)},")
+    if headline_differs and named_scores:
+        lines.append(
+            f"        # TODO(review): the Headline Score is {named_scores[0]}, not upstream's"
+        )
+        lines.append("        # first scorer — confirm the description names which column ranks.")
+    for metric_name in dropped_metrics:
+        lines.append(f"        # The eval also reports {metric_name}; the Benchmark reports each")
+        lines.append(
+            "        # scorer's mean per-Case score only, so that metric is not reproduced —"
+        )
+        lines.append("        # name it in the description.")
+    return lines
+
+
+def _tuple_literal(items: tuple[str, ...]) -> str:
+    """A tuple literal the generated file's format gate accepts: json-quoted strings, the
+    one-element trailing comma kept."""
+
+    body: str = ", ".join(json.dumps(item) for item in items)
+    return f"({body},)" if len(items) == 1 else f"({body})"
 
 
 #: Kwarg names evals use to take their judge model — mirrored by the assembly

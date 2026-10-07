@@ -1229,24 +1229,54 @@ def _resolve(reference: str) -> Any:
     return getattr(import_module(module_name), attribute)
 
 
+def _validated_list_key(target: list[Any], sample: Sample, case_id: int) -> list[str]:
+    """A list of accepted answers as a Case's key: non-empty, every entry non-blank text,
+    and never beside multiple-choice options (OME-1268)."""
+
+    if not target:
+        raise PrepareError(f"case {case_id}: sample target is empty or not text")
+    if any(not isinstance(item, str) or not item.strip() for item in target):
+        raise PrepareError(
+            f"case {case_id}: a list target must hold only non-blank accepted answers"
+        )
+    if sample.choices is not None:
+        raise PrepareError(
+            f"case {case_id}: a list target beside choices is a multi-answer "
+            "multiple-choice Case, which no Benchmark declares"
+        )
+    return list(target)
+
+
 def _validated_answer_key(
     sample: Sample, case_id: int, has_answer_key: bool = True
-) -> tuple[str, list[str] | None]:
+) -> tuple[str | list[str], list[str] | None]:
     """The one trust boundary on eval-produced Samples — never prepare an unkeyed Case.
 
     ``has_answer_key=False`` (a judged benchmark whose judge never reads a key, or one
     graded by the eval's own scorer from the reply alone, R19) is the one place an empty
     answer key is accepted; the question itself is still required.
+
+    FEATURE (OME-1268): a LIST of accepted answers (SQuAD's every accepted span) is a valid
+    key on a free-text Case; it is frozen as the list inspect's own f1 and exact read, so
+    the grading code is untouched. A list beside multiple-choice options is refused: that
+    would be a multi-answer MCQ, which no row declares.
     """
 
     _require_a_question(sample, case_id)
     target: object = sample.target
     if not has_answer_key and target in ("", []) and sample.choices is None:
         return "", None
-    if not isinstance(target, str) or not target.strip():
+    key: str | list[str]
+    if isinstance(target, list):
+        key = _validated_list_key(target, sample, case_id)
+    elif not isinstance(target, str) or not target.strip():
         raise PrepareError(f"case {case_id}: sample target is empty or not text")
+    else:
+        key = target
     if sample.choices is None:
-        return target, None
+        return key, None
+    # A list key beside choices was refused above, so the key here is the one option's text.
+    assert isinstance(target, str)
     choices: list[str] = [str(choice) for choice in sample.choices]
     if not choices or any(not choice.strip() for choice in choices):
         raise PrepareError(f"case {case_id}: sample carries an empty choice")

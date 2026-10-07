@@ -27,6 +27,10 @@ from typing import Any, Literal
 _PLAIN_MEANS: frozenset[str] = frozenset({"inspect_ai/accuracy", "inspect_ai/mean"})
 #: Declared beside a mean on nearly every scorer; it never changes what the headline is.
 _IGNORED: frozenset[str] = frozenset({"inspect_ai/stderr"})
+#: What the importer writes for a metric that has no registry name (inspect's grouped
+#: form, name → metrics). WHY words, not a sentinel: the note lands in a generated row and
+#: must pass the renderer's reference charset; ``<unnamed metric>`` refused the whole import.
+_GROUPED_BLOCK: str = "a grouped metric block"
 
 type HeadlineMetricKind = Literal["mean", "other"]
 
@@ -44,6 +48,37 @@ def headline_metric_kind(scorer: Any) -> HeadlineMetricKind:
 
     headline: Any | None = _headline_metric(scorer)
     return "mean" if headline is not None and _is_plain_mean(headline) else "other"
+
+
+def extra_metric_names(scorer: Any) -> tuple[str, ...]:
+    """Every declared metric that is neither the headline nor ``stderr`` nor a plain mean,
+    by registry name — the breakdowns the Benchmark does not reproduce (cyberseceval_4's
+    grouped accuracy and Jaccard). The importer writes them as a Named Deviation note; a
+    grouped metric block after the headline, which has no registry name, is written in
+    words (``a grouped metric block``)."""
+
+    extras: list[str] = []
+    seen_headline: bool = False
+    for metric in _declared_metrics(scorer):
+        if metric is None:
+            extras.append(_GROUPED_BLOCK)
+            continue
+        if _qualified_name(metric) in _IGNORED:
+            continue
+        if not seen_headline:
+            seen_headline = True
+            continue
+        if not _is_plain_mean(metric):
+            extras.append(_metric_name(metric))
+    return tuple(extras)
+
+
+def headline_metric_name(scorer: Any) -> str | None:
+    """The unqualified registry name of the headline metric, for a refusal message;
+    ``None`` when the scorer declares none, a grouped block, or an unregistered one."""
+
+    headline: Any | None = _headline_metric(scorer)
+    return None if headline is None else _metric_name(headline)
 
 
 def scorer_registry_name(scorer: Any) -> str:
@@ -112,3 +147,11 @@ def _qualified_name(metric: Any) -> str | None:
         return str(registry_info(metric).name)
     except Exception:  # noqa: BLE001 — an unregistered metric still has no plain name
         return None
+
+
+def _metric_name(metric: Any) -> str:
+    """One registered metric's unqualified name (``accuracy``), for messages and notes."""
+
+    from inspect_ai._util.registry import registry_unqualified_name
+
+    return str(registry_unqualified_name(metric))
