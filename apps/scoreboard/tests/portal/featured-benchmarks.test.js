@@ -96,3 +96,35 @@ test("partitionFeatured tolerates a non-array and leaves its input alone", () =>
   assert.equal(input.length, 5, "the caller's array must not be partitioned in place");
   assert.equal(input[0].id, "agieval-aqua-rat", "input order must be preserved for the caller");
 });
+
+// --- filterBenchmarks: the "More benchmarks" search box ---------------------------------------
+// The tab strip's overflow dropdown lists every non-featured board, scrollable, with a search
+// field; this pure helper is the filter behind that field.
+
+test("filterBenchmarks matches on display_name, case-insensitively", () => {
+  const out = L.filterBenchmarks(catalog(), "mm");
+  assert.deepEqual(out.map((b) => b.id), ["mmlu"]);
+  assert.deepEqual(L.filterBenchmarks(catalog(), "MMLU").map((b) => b.id), ["mmlu"]);
+});
+
+test("filterBenchmarks also matches on the id slug", () => {
+  const out = L.filterBenchmarks(catalog(), "winogrande");
+  assert.deepEqual(out.map((b) => b.id), ["winogrande"]);
+});
+
+test("filterBenchmarks returns a non-matching query's empty result", () => {
+  assert.deepEqual(L.filterBenchmarks(catalog(), "zzz-nothing"), []);
+});
+
+test("filterBenchmarks returns the whole list (a copy) for an empty or whitespace query", () => {
+  const input = catalog();
+  const all = L.filterBenchmarks(input, "   ");
+  assert.deepEqual(all.map((b) => b.id), input.map((b) => b.id));
+  assert.notEqual(all, input, "must be a copy, not the caller's array");
+  assert.deepEqual(L.filterBenchmarks(input, "").map((b) => b.id), input.map((b) => b.id));
+});
+
+test("filterBenchmarks tolerates a non-array and a non-string query", () => {
+  assert.deepEqual(L.filterBenchmarks(undefined, "x"), []);
+  assert.deepEqual(L.filterBenchmarks(catalog(), null).length, catalog().length);
+});

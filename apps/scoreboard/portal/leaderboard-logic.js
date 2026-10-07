@@ -236,6 +236,22 @@
     return text.slice(0, max).replace(/\s+$/, "") + "…";
   }
 
+  // Case-insensitive substring filter over a benchmark list, for the tab strip's "More benchmarks"
+  // search box. Matches on display_name (falling back to id), and also on id, so a reader can type
+  // either the name or the slug. An empty or whitespace-only query returns the list unchanged (a
+  // copy, never the caller's array). Non-array input → [].
+  function filterBenchmarks(benchmarks, query) {
+    if (!Array.isArray(benchmarks)) return [];
+    var q = (typeof query === "string" ? query : "").trim().toLowerCase();
+    if (!q) return benchmarks.slice();
+    return benchmarks.filter(function (b) {
+      if (!b) return false;
+      var name = String(b.display_name || b.id || "").toLowerCase();
+      var id = String(b.id || "").toLowerCase();
+      return name.indexOf(q) !== -1 || id.indexOf(q) !== -1;
+    });
+  }
+
   // One row's open/closed verdict, as the Backends cell shows it.
   //
   // Never a verification claim: `open` means every declared model has downloadable weights, not
@@ -302,6 +318,7 @@
     FEATURED_BENCHMARK_IDS: FEATURED_BENCHMARK_IDS,
     partitionFeatured: partitionFeatured,
     truncate: truncate,
+    filterBenchmarks: filterBenchmarks,
     frontierSummary: frontierSummary,
     opennessLabel: opennessLabel,
   };

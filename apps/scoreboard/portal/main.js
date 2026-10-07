@@ -245,41 +245,79 @@ window.ScorePortal = (function () {
       container.appendChild(a);
     });
     if (split.rest.length) {
-      container.appendChild(buildMoreSelect(split.rest, activeId));
+      container.appendChild(buildMoreMenu(split.rest, activeId));
     }
   }
 
-  // The non-featured boards as a native <select>: keyboard- and screen-reader-operable for free,
-  // and no menu widget to build. On change it navigates to the chosen board.
+  // The non-featured boards as a "More benchmarks" disclosure: a button that opens a scrollable
+  // panel listing every rest board, with a search field to filter by name or slug. Each entry is a
+  // plain link, so navigation, middle-click and the browser's own focus handling come for free; the
+  // search only filters what is shown.
   //
-  // WHY the active board is pre-selected when it is non-featured: landing on e.g. ?id=mmlu leaves
-  // no featured tab marked, so the control itself must show the current board's name rather than a
-  // bare "More benchmarks" placeholder — otherwise the reader has no on-screen cue for where they
-  // are. An empty-valued, disabled placeholder leads for every featured board.
-  function buildMoreSelect(rest, activeId) {
-    var select = el("select", "tabstrip-more");
-    select.setAttribute("aria-label", "More benchmarks");
-    var activeIsRest = rest.some(function (b) { return b.id === activeId; });
+  // WHY the button names the active board when it is non-featured: landing on e.g. ?id=mmlu leaves
+  // no featured tab marked, so the control itself must read "MMLU" rather than a bare
+  // "More benchmarks", or the reader has no on-screen cue for where they are.
+  function buildMoreMenu(rest, activeId) {
+    var activeBoard = null;
+    rest.forEach(function (b) { if (b.id === activeId) activeBoard = b; });
 
-    var placeholder = el("option", null, "More benchmarks…");
-    placeholder.value = "";
-    placeholder.disabled = true;
-    if (!activeIsRest) placeholder.selected = true;
-    select.appendChild(placeholder);
+    var wrap = el("div", "tabstrip-more");
+    var button = el("button", "tabstrip-more-btn",
+      (activeBoard ? (activeBoard.display_name || activeBoard.id) : "More benchmarks") + " ▾");
+    button.type = "button";
+    button.setAttribute("aria-haspopup", "true");
+    button.setAttribute("aria-expanded", "false");
 
-    rest.forEach(function (b) {
-      // textContent via el(), never innerHTML — display_name is community-submitted (see header).
-      var opt = el("option", null, b.display_name || b.id);
-      opt.value = b.id;
-      if (b.id === activeId) opt.selected = true;
-      select.appendChild(opt);
+    var panel = el("div", "tabstrip-more-panel");
+    panel.hidden = true;
+    var search = el("input", "tabstrip-more-search");
+    search.type = "search";
+    search.setAttribute("placeholder", "Search benchmarks…");
+    search.setAttribute("aria-label", "Search benchmarks");
+    var list = el("div", "tabstrip-more-list");
+    panel.appendChild(search);
+    panel.appendChild(list);
+
+    function renderList(query) {
+      clear(list);
+      var matches = window.SFLeaderboardLogic.filterBenchmarks(rest, query);
+      if (!matches.length) {
+        list.appendChild(el("div", "tabstrip-more-empty", "No benchmark matches."));
+        return;
+      }
+      matches.forEach(function (b) {
+        // textContent via link(), never innerHTML — display_name is community-submitted (see header).
+        var a = link("tabstrip-more-item", "benchmark.html?id=" + encodeURIComponent(b.id), b.display_name || b.id);
+        if (b.id === activeId) a.setAttribute("aria-current", "page");
+        list.appendChild(a);
+      });
+    }
+
+    function open() {
+      panel.hidden = false;
+      button.setAttribute("aria-expanded", "true");
+      search.value = "";
+      renderList("");
+      search.focus();
+    }
+    function close() {
+      panel.hidden = true;
+      button.setAttribute("aria-expanded", "false");
+    }
+
+    button.addEventListener("click", function () { if (panel.hidden) open(); else close(); });
+    search.addEventListener("input", function () { renderList(search.value); });
+    search.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { close(); button.focus(); }
+    });
+    // A click anywhere outside the control dismisses the open panel.
+    document.addEventListener("click", function (e) {
+      if (!panel.hidden && !wrap.contains(e.target)) close();
     });
 
-    select.addEventListener("change", function () {
-      var id = select.value;
-      if (id) window.location.assign("benchmark.html?id=" + encodeURIComponent(id));
-    });
-    return select;
+    wrap.appendChild(button);
+    wrap.appendChild(panel);
+    return wrap;
   }
 
   /* ---- ready ----------------------------------------------------------- */
@@ -393,9 +431,9 @@ window.ScorePortal = (function () {
             benchmarks.forEach(function (b, i) { cardsNode.appendChild(benchmarkCard(b, boards[i])); });
             setStatus(statusNode, null);
             cardsNode.hidden = false;
-            // Show ~10 at first; "Show more" reveals the next 10 per click (the long tail stays
-            // folded so the catalogue reads tight rather than as one endless grid).
-            revealCardsInBatches(cardsNode, moreNode, 10);
+            // Show 9 at first; "Show more" reveals the next 9 per click (a 9 fills a 3-column grid
+            // evenly, and the long tail stays folded so the catalogue reads tight).
+            revealCardsInBatches(cardsNode, moreNode, 9);
           }
         );
       },

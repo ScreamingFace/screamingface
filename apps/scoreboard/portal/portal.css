@@ -111,14 +111,12 @@ table .btn { white-space: nowrap; }
    the masthead — and still announced an empty "Benchmarks" navigation landmark. */
 .tabstrip:empty { display: none; }
 
-/* The long tail of non-featured boards, folded into one native <select>. A real
-   <select> keeps it keyboard- and AT-operable for free. Styled as the portal's
-   other inputs (.signup/#gate): square, hairline-sealed, mono, neutral INK at rest
-   — gold stays rationed to the win, not spent on a nav control — accent only on
-   focus (the interaction ladder). margin-left:auto parks it at the strip's end. */
-.tabstrip-more {
-  margin-left: auto;
-  align-self: center;
+/* The long tail of non-featured boards, folded into a "More benchmarks" disclosure: a button at
+   the strip's end opens a scrollable, searchable panel listing every remaining board. Styled as
+   the portal's other inputs (.signup/#gate): square, hairline-sealed, mono, neutral INK at rest —
+   gold stays rationed to the win, not spent on a nav control — accent only on focus/open. */
+.tabstrip-more { position: relative; margin-left: auto; align-self: center; }
+.tabstrip-more-btn {
   font-family: var(--f-mono);
   font-size: var(--text-sm);
   color: var(--ink-2);
@@ -128,8 +126,45 @@ table .btn { white-space: nowrap; }
   border-radius: var(--radius-none);
   cursor: pointer;
 }
-.tabstrip-more:hover { color: var(--ink); }
-.tabstrip-more:focus { outline: none; border-color: var(--accent-solid); }
+.tabstrip-more-btn:hover { color: var(--ink); }
+.tabstrip-more-btn[aria-expanded="true"] { color: var(--ink); border-color: var(--accent-solid); }
+/* The panel floats under the button. It is the one place the portal stacks UI, so it carries the
+   only z-index here; depth still reads from the seam (hairline), never a shadow (SFDS). */
+.tabstrip-more-panel {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: 16rem;
+  max-height: 20rem;
+  background: var(--surface);
+  border: var(--border-hairline) solid var(--line-2);
+  border-radius: var(--radius-none);
+}
+.tabstrip-more-search {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--bg);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-bottom: var(--border-hairline) solid var(--line);
+  border-radius: var(--radius-none);
+  outline: none;
+}
+.tabstrip-more-search:focus { border-bottom-color: var(--accent-solid); }
+.tabstrip-more-list { overflow-y: auto; }
+.tabstrip-more-item {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  color: var(--ink-2);
+  text-decoration: none;
+}
+.tabstrip-more-item:hover { color: var(--ink); background: var(--surface-2); }
+.tabstrip-more-item[aria-current="page"] { color: var(--ink); }
+.tabstrip-more-empty { padding: var(--space-3); color: var(--ink-3); font-size: var(--text-sm); }
 
 /* ---- benchmark catalogue cards --------------------------------------- */
 /* A grid of clickable cards replaced the catalogue table. Square, hairline-sealed,
