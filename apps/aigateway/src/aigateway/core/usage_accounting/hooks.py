@@ -70,6 +70,16 @@ def _parse_decimal(value: str) -> Decimal:
     return parsed
 
 
+def _unique_keys_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # INVARIANT: an object with a repeated key is ambiguous evidence. json.loads would keep
+    # the last occurrence and silently drop the first (`"is_byok": true, "is_byok": false`),
+    # so the whole body is refused instead; the hook runs for every object at every depth.
+    parsed = dict(pairs)
+    if len(parsed) != len(pairs):
+        raise ValueError("duplicate JSON object key")
+    return parsed
+
+
 def _declared_body_exceeds_limit(value: str) -> bool:
     """Compare a decimal Content-Length without constructing an unbounded integer."""
     normalized = value.lstrip("0") or "0"
@@ -101,6 +111,7 @@ def _bounded_json(payload: bytes) -> dict[str, Any] | None:
             payload,
             parse_constant=_reject_non_finite,
             parse_float=_parse_decimal,
+            object_pairs_hook=_unique_keys_object,
         )
     except (ValueError, UnicodeDecodeError, RecursionError):
         return None

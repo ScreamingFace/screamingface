@@ -3,7 +3,7 @@
 FEATURE: default-on evidence for non-streaming ``POST /v1/chat/completions`` calls.
 
 STORY: as a benchmark operator I receive every observed
-local provider attempt, canonical usage and provider-authored cost evidence. Cache replay
+local provider attempt, canonical usage and direct-cost evidence with its provenance. Cache replay
 is labelled historical evidence rather than current spend or counterfactual savings.
 
 INVARIANT: accounting activation is gateway-owned and never enters the request body or the

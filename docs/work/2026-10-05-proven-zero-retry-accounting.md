@@ -93,6 +93,23 @@ certification still requires affirmative zero evidence; prior tests remain uncha
 focused suite, Python 3.12 usage-accounting suite and full AIGateway gate pass against frozen base
 `d578cba9e` without live or paid calls.
 
+## Post-commit review iteration — 2026-10-07
+
+Review of `73e70185c` returned `NOT READY` with two HIGH findings, both reproduced and fixed:
+
+- The raw body parser kept the last of two repeated JSON object keys, so
+  `"is_byok": true, "is_byok": false` or a second empty `usage` hid BYOK and a reported cost and
+  certified the attempt as guaranteed zero. A repeated key at any depth now makes the body
+  unavailable raw evidence.
+- Zero certification ignored unknown or misplaced usage fields (`usage.server_tool_cost`,
+  `usage.future_auxiliary_cost`). It now accepts only the known chat usage shape and fails closed on
+  any other field, a null `cost` included.
+- Docstrings no longer call every direct cost provider-authored.
+
+Tests: `test_openrouter_proven_zero_strict_evidence.py` (RED 10 failed, 2 control passed before the
+fix), including an installed LiteLLM/httpx retry with the duplicate-key 429 body. No prior test was
+changed. A live OpenRouter retry smoke still needs separate authorization for a paid call.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** updated the OpenRouter dispatch/accounting plugin, provider-neutral direct-cost
@@ -100,7 +117,8 @@ focused suite, Python 3.12 usage-accounting suite and full AIGateway gate pass a
   modules: `test_openrouter_proven_zero.py`, `test_openrouter_proven_zero_observer.py`,
   `test_openrouter_proven_zero_fail_closed.py` and `test_openrouter_proven_zero_route.py`. Engine and
   SDK production code are unchanged.
-- **Commits:** implementation captured by this commit; post-commit review follows separately.
+- **Commits:** implementation and post-review strict-evidence correction captured by the branch
+  commits; exact SHAs are recorded in Git and the PR.
 - **Gates:** RED was recorded as 14 expected failures before production edits, followed by targeted
   RED cases for legacy-header ambiguity, auxiliary-charge conflicts and router-metadata leakage. The
   first review correction added five expected failures for current `server_tool_use_details`,

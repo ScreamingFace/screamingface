@@ -288,7 +288,11 @@ class PricingContext:
 
 @dataclass(frozen=True, slots=True)
 class DirectCost:
-    """Provider-authored direct-cost evidence and its independent status."""
+    """Direct-cost evidence and its independent status.
+
+    Only ``reported`` is a provider-authored amount; ``provider_guaranteed_zero`` is a zero
+    the gateway certifies from a provider guarantee, and ``archive_matched`` a logged value.
+    """
 
     status: DirectCostStatus
     amount: str | None = None

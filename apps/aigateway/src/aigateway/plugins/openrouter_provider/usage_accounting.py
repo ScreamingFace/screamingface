@@ -67,6 +67,25 @@ _COST_DETAIL_FIELDS = {
 }
 
 
+# The chat `usage` keys whose meaning zero certification understands; each is checked below.
+# WHY an allowlist: `cost` (even null) and any other key — a misplaced `server_tool_cost`, a
+# future `*_cost` — may carry a charge the predicate cannot rule out, so it fails closed.
+_CERTIFIABLE_USAGE_FIELDS = frozenset(
+    {
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "output_tokens",
+        "prompt_tokens_details",
+        "completion_tokens_details",
+        "is_byok",
+        "cost_details",
+        "server_tool_use",
+        "server_tool_use_details",
+    }
+)
+
+
 def _uncached_input(
     total: int | None, cache_read: int | None, cache_write: int | None
 ) -> int | None:
@@ -199,6 +218,9 @@ def _has_potential_uninsured_charge(raw_response: Mapping[str, Any]) -> bool:
     usage = _mapping(usage_value)
     if usage is None:
         return usage_value is not None
+
+    if not _CERTIFIABLE_USAGE_FIELDS.issuperset(usage):
+        return True
 
     if "is_byok" in usage and usage.get("is_byok") is not False:
         return True

@@ -110,7 +110,10 @@ The prepared request must contain no OpenRouter plugin, OpenRouter server tool o
 metadata must explicitly contain a pipeline with no potentially billable or unknown stage; any
 present stage cost must be exact zero, and any attempt-chain status must be the integer 429.
 Generated output-token evidence, contradictory server-tool usage or nonzero/malformed cost details
-keep the cost unknown. The gateway opts in to router metadata for this accounting check,
+keep the cost unknown, and so does any usage field outside the known chat usage shape (token
+counts and their details, `is_byok`, `cost_details`, server-tool usage) — including a null `cost`
+or a cost field found anywhere but `cost_details`. A raw body with a repeated JSON object key, at
+any depth, is not raw evidence at all. The gateway opts in to router metadata for this accounting check,
 then removes that account-specific field before caller response and cache serialization. It does not
 synthesize zero token counts. Guaranteed-zero attempts count as covered when reported retry costs
 are present, but are never added to `known_direct_cost_subtotals`; a request containing only
