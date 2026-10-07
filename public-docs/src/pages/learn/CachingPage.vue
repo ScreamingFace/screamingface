@@ -71,10 +71,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <p>
-      <code>sf.reproduce(score)</code> runs the score again from that cache version. The replay asks
-      for <code>only-if-cached</code>. The cache then returns a stored answer or fails the call, and
-      it never reaches a provider. So a replay costs no provider spend, and a missing answer fails
-      its case instead of being bought. The
+      <code>sf.reproduce(score)</code> runs the score again from that cache version. The Engine must
+      confirm that it runs the url4 as a replay. A confirmed replay asks the cache for
+      <code>only-if-cached</code>. The cache then returns a stored answer or fails the call, so the
+      replay pays no provider, and a missing answer fails its case instead of being bought. The
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
       calls and the three outcomes.
     </p>
@@ -115,22 +115,24 @@ import { learnNavigation as navigation } from '@/navigation/learn'
         <tr>
           <td>Web tool</td>
           <td>
-            A web search was not served from the cache and was not stored after it ran. A search
-            that is a hit, or is stored, keeps the run complete.
+            Web search and web fetch can be replayed only through the
+            <RouterLink to="/learn/ai-gateway">gateway</RouterLink>'s Tavily cache. Without it, or
+            when a Tavily call fails, the call is recorded as a tool outcome that no replay can
+            answer. A search that is a hit, or is stored, keeps the run complete.
           </td>
         </tr>
         <tr>
           <td>Error</td>
           <td>
-            A model or tool call failed, and no later attempt of the same request succeeded. A
-            failed call stores nothing to replay. A retry that succeeds does not count.
+            A model call failed, and no later attempt of the same request succeeded. A failed call
+            stores nothing to replay. A retry that succeeds does not count.
           </td>
         </tr>
         <tr>
           <td>Mixed revisions</td>
           <td>
-            The calls of one run carried two cache revisions, for example during a deploy. No single
-            label names the run.
+            The calls of one run carried two cache revisions, for example during a deploy, or a
+            reply carried no revision label (an older gateway). No single label names the run.
           </td>
         </tr>
       </tbody>
@@ -138,8 +140,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       A run with no model call and no web search is <code>complete</code> and has no cache revision.
-      A score from a leaderboard that predates this feature has no status. That counts as unknown,
-      and it is not replayed either.
+      It has no label to replay under, so <code>sf.reproduce</code> reports it as
+      <code>not_reproducible</code> with the reason <code>unknown</code>. The same holds for a score
+      with no status, for example from a leaderboard that predates this feature, and for a score
+      with no cache revision or no benchmark revision.
     </p>
 
     <h3>Older revisions, newer software</h3>
@@ -157,20 +161,25 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <ul>
       <li>
-        <strong>An older engine</strong> may not know replay at all. The replay stops before any
-        case runs and reports <code>replay_unsupported</code>. It is never run as a normal call.
+        <strong>An older engine</strong> may not know replay at all. The Client stops a run that the
+        Engine does not confirm as a replay and reports <code>replay_unsupported</code>. If that
+        stop fails, an <code>EvaluationWarning</code> says the run may still be running and
+        spending.
       </li>
       <li>
-        <strong>An older cache service</strong> may not know the score's revision. The run fails at
-        the start with <code>unknown_cache_revision</code>.
+        <strong>An older cache service</strong> may not know the score's revision. Every model call
+        fails with <code>unknown_cache_revision</code>, so every case fails. The run finishes, and
+        the replay is reported as <code>unknown_cache_revision</code>.
       </li>
       <li>
         <strong>A changed engine</strong> may build a request in another way. It then asks for an
         answer that the cache never stored, and the case fails with a <code>cache_miss</code>.
       </li>
       <li>
-        <strong>A changed benchmark</strong> grades a different exam. The replay reports
-        <code>benchmark_revision_changed</code>, because the numbers cannot be compared.
+        <strong>A changed benchmark</strong> grades a different exam. Its calls usually miss the
+        cache, so the replay reports <code>cache_miss</code>, which is checked first.
+        <code>benchmark_revision_changed</code> covers the rest, because the numbers cannot be
+        compared.
       </li>
     </ul>
 

@@ -106,9 +106,7 @@ sf.reproduce(score, record=False)`
       <li>Publish an evaluated <code>CandidateResult</code> as a new score.</li>
       <li>Add a paper link when you publish, and edit the authors and the paper link later.</li>
       <li>Look up one published score by id and reuse its <code>url4</code>.</li>
-      <li>
-        Replay a published score from its cache, at no provider cost, and record that it held.
-      </li>
+      <li>Replay a published score from its cache, and record that it held.</li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -267,9 +265,9 @@ sf.reproduce(score, record=False)`
     <p>
       Pass <code>paper_url="https://…"</code> to link the paper that reports the result. It must be
       an <code>http</code> or <code>https</code> link of at most 2048 characters, with a host, no
-      spaces and no user info. The Client checks it before HTTP. The leaderboard does not check that
-      the link is real or that the authors wrote the paper. If you have no paper yet, leave the
-      argument out and add the link later with <code>edit</code>.
+      whitespace or control characters, and no user info. The Client checks it before HTTP. The
+      leaderboard does not check that the link is real or that the authors wrote the paper. If you
+      have no paper yet, leave the argument out and add the link later with <code>edit</code>.
     </p>
 
     <div class="not-prose">
@@ -335,9 +333,10 @@ sf.reproduce(score, record=False)`
     </p>
 
     <p>
-      Every change goes into an edit log. The log holds the old and new values, so it can hold
-      author emails that you removed on purpose. For this reason only you can read it, and a
-      resubmission by you also writes to it. The newest entry comes first.
+      Every change goes into an edit log. A resubmission that changes these fields writes to it too.
+      The log holds the old and new values, so it can hold author emails that you removed on
+      purpose. For this reason it is not public: only the submitter and the board's operators can
+      read it. The newest entry comes first.
     </p>
 
     <div class="not-prose">
@@ -348,9 +347,13 @@ sf.reproduce(score, record=False)`
 
     <p>
       A score keeps the cache version of the run behind it. <code>sf.reproduce</code> runs the
-      score's <code>url4</code> again with that cache version and the stored answer seed. The
-      <RouterLink to="/learn/caching">cache</RouterLink> answers every call, and a call it cannot
-      answer fails. So a replay costs no provider spend. It never starts a normal run.
+      score's <code>url4</code> again with that cache version and the stored answer seed. The Client
+      asks the Engine to confirm that it runs the url4 as a replay. A replay that the Engine
+      confirms is served from the <RouterLink to="/learn/caching">cache</RouterLink> only, so it
+      pays no provider. A call that the cache cannot answer fails its case. If the Engine does not
+      confirm the replay, the Client stops the run and reports <code>replay_unsupported</code>. If
+      that stop fails, an <code>EvaluationWarning</code> says the run may still be running and
+      spending.
     </p>
 
     <div class="not-prose">
@@ -388,23 +391,26 @@ sf.reproduce(score, record=False)`
         <tr>
           <td><code>not_reproducible</code></td>
           <td>
-            The score has no complete cache version, so no run started. <code>reason</code> is
-            <code>partial</code> or <code>unknown</code>.
+            The score cannot name everything a replay needs, so no run started.
+            <code>reason</code> is <code>partial</code> (the cache does not hold every answer) or
+            <code>unknown</code> (the score has no status, no cache revision or no benchmark
+            revision).
           </td>
         </tr>
       </tbody>
     </table>
 
     <p>
-      Only an exact replay is recorded. The Client sends the replay's run id, score and cache
-      revision to the leaderboard, which checks that they match the stored score. Hosted deployments
-      need a verified identity to record. There is no limit: each exact replay adds one record. The
-      score's page on the portal shows "Reproduced N times", and
+      Only an exact replay is recorded. The Client sends the replay's run id, score and case count,
+      and the score's stored cache revision, to the leaderboard. The leaderboard checks that they
+      match the stored score. Hosted deployments need a verified identity to record. There is no
+      limit: each exact replay adds one record. The score's page on the portal shows "Reproduced N
+      times", and
       <code>reproduction_count</code> and <code>last_reproduced_at</code> hold the same facts on
       <code>LeaderboardScore</code>. If the record fails, the outcome stays <code>exact</code>,
       <code>recorded</code> is <code>False</code>, and <code>record_error</code> says why. The
       <RouterLink to="/sf-client/api/leaderboards"><code>Reproduction</code> reference</RouterLink>
-      lists every field and reason. The caching guide explains
+      lists every field and reason. The caching page explains
       <RouterLink to="/learn/caching">why a score can be partial</RouterLink>.
     </p>
 
@@ -430,6 +436,11 @@ sf.reproduce(score, record=False)`
       ranking.
     </p>
 
+    <p>
+      A reproduction count is a different fact. Each record is self-reported by a verified identity,
+      and it is not <code>verified_by_screamingface</code>.
+    </p>
+
     <h2>Links</h2>
 
     <ul>
@@ -451,6 +462,10 @@ sf.reproduce(score, record=False)`
           >Reproduce &amp; share (url4)</RouterLink
         >
         for reading and rebuilding expressions
+      </li>
+      <li>
+        <RouterLink to="/learn/caching">Caching and compute</RouterLink> for what makes a score
+        reproducible, and why a replay can fail
       </li>
     </ul>
   </DocLayout>

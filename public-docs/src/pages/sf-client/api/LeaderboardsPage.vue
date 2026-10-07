@@ -259,7 +259,7 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
       email addresses. A supplied list is exact: order and duplicates are preserved, and the
       authenticated submitter is not added automatically. Omit it to use the leaderboard's default
       credit line. <code>paper_url</code> is an <code>http</code> or <code>https</code> link of at
-      most 2048 characters, with a host, no spaces and no user info.
+      most 2048 characters, with a host, no whitespace or control characters, and no user info.
     </p>
 
     <p>
@@ -404,7 +404,8 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
     <p>
       One row of a score's edit log, returned by <code>metadata_events(score_id)</code>. Each change
       to the authors or the paper link writes one row. The log can hold author emails that were
-      removed on purpose, so only the submitter can read it.
+      removed on purpose, so it is not public: only the submitter and the board's operators can read
+      it.
     </p>
 
     <table>
@@ -451,9 +452,10 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
 
     <p>
       What <code>client.reproduce(score, *, record=True)</code> returns. It replays a score from its
-      cache version, so it costs no provider spend, and it judges the replay against the stored
-      numbers. <code>score</code> is a <code>LeaderboardScore</code> or its id. The same method is
-      on <code>AsyncClient</code> (awaited) and as <code>sf.reproduce</code>. A replay that does not
+      cache version and judges the replay against the stored numbers. A replay that the Engine
+      confirms is served from the cache only, so it pays no provider. <code>score</code> is a
+      <code>LeaderboardScore</code> or its id. The same method is on
+      <code>AsyncClient</code> (awaited) and as <code>sf.reproduce</code>. A replay that does not
       match is a value here, not an exception.
     </p>
 
@@ -498,7 +500,10 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
         <tr>
           <td><code>result</code></td>
           <td><code>CandidateResult&nbsp;|&nbsp;None</code></td>
-          <td>The replayed result. <code>None</code> when no run started.</td>
+          <td>
+            The replayed result. <code>None</code> when no run started, or when the Engine did not
+            confirm the run as a replay (<code>replay_unsupported</code>).
+          </td>
         </tr>
         <tr>
           <td><code>recorded</code></td>
@@ -537,12 +542,19 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
         <tr>
           <td><code>not_reproducible</code></td>
           <td><code>unknown</code></td>
-          <td>The score has no <code>reproducible</code> status or no cache revision.</td>
+          <td>
+            The score has no <code>reproducible</code> status, no cache revision or no benchmark
+            revision.
+          </td>
         </tr>
         <tr>
           <td><code>failed</code></td>
           <td><code>replay_unsupported</code></td>
-          <td>The engine does not support replay. The run was stopped before any case ran.</td>
+          <td>
+            The Engine did not confirm the run as a replay. The Client stopped the run. If the stop
+            failed, an <code>EvaluationWarning</code> says the run may still be running and
+            spending.
+          </td>
         </tr>
         <tr>
           <td><code>failed</code></td>
@@ -552,7 +564,10 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
         <tr>
           <td><code>failed</code></td>
           <td><code>unknown_cache_revision</code></td>
-          <td>The cache service does not know the score's cache revision.</td>
+          <td>
+            The cache service does not know the score's cache revision. Every model call fails with
+            it, so every case fails. The run finishes, and the result is classified.
+          </td>
         </tr>
         <tr>
           <td><code>failed</code></td>
@@ -562,7 +577,10 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
         <tr>
           <td><code>failed</code></td>
           <td><code>benchmark_revision_changed</code></td>
-          <td>The benchmark is now a different revision, so the numbers cannot be compared.</td>
+          <td>
+            The benchmark is now a different revision, so the numbers cannot be compared. A changed
+            benchmark usually shows as <code>cache_miss</code>, which is checked first.
+          </td>
         </tr>
         <tr>
           <td><code>failed</code></td>
@@ -574,7 +592,17 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
 
     <p>
       Only an <code>"exact"</code> replay is recorded, and only when <code>record=True</code>. A
-      failed record never changes the outcome. The
+      failed record never changes the outcome.
+    </p>
+
+    <p>
+      Some problems still raise. A <code>score</code> that is not a <code>LeaderboardScore</code>, a
+      <code>UUID</code> or a string raises <code>TypeError</code>. Passing an id makes the Client
+      read the score first, and that read raises
+      <RouterLink to="/sf-client/api/errors"><code>LeaderboardError</code></RouterLink> if it fails.
+      Any <code>ExecutionError</code> other than <code>replay_unsupported</code> also raises. When
+      the Client cannot stop a run that the Engine did not confirm as a replay, it emits an
+      <code>EvaluationWarning</code>. The
       <RouterLink to="/learn/caching">caching page</RouterLink> explains what makes a score
       <code>"partial"</code>.
     </p>
