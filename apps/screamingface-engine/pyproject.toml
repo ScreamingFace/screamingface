@@ -113,7 +113,10 @@ url4 = { path = "../../packages/url4", editable = true }
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["src/screamingface_engine/benchmarks/ifeval/vendor"]
+extend-exclude = [
+    "src/screamingface_engine/benchmarks/ifeval/vendor",
+    "src/screamingface_engine/benchmarks/musique/vendor",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702"]
@@ -136,7 +139,10 @@ known-first-party = [
 ]
 
 [tool.pyright]
-ignore = ["src/screamingface_engine/benchmarks/ifeval/vendor"]
+ignore = [
+    "src/screamingface_engine/benchmarks/ifeval/vendor",
+    "src/screamingface_engine/benchmarks/musique/vendor",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
@@ -155,7 +161,10 @@ markers = [
 ]
 
 [tool.coverage.run]
-omit = ["src/screamingface_engine/benchmarks/ifeval/vendor/*"]
+omit = [
+    "src/screamingface_engine/benchmarks/ifeval/vendor/*",
+    "src/screamingface_engine/benchmarks/musique/vendor/*",
+]
 
 [dependency-groups]
 dev = [
