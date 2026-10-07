@@ -139,11 +139,11 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </table>
 
     <p>
-      A run with no model call and no web search is <code>complete</code> and has no cache revision.
-      It has no label to replay under, so <code>sf.reproduce</code> reports it as
+      A run with no model call and no web search reports no <code>reproducible</code> status
+      (<code>None</code>) and no cache revision. <code>sf.reproduce</code> reports such a score as
       <code>not_reproducible</code> with the reason <code>unknown</code>. The same holds for a score
-      with no status, for example from a leaderboard that predates this feature, and for a score
-      with no cache revision or no benchmark revision.
+      from a leaderboard that predates this feature, and for a score with no cache revision or no
+      benchmark revision.
     </p>
 
     <h3>Older revisions, newer software</h3>

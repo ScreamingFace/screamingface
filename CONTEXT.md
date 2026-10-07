@@ -197,7 +197,7 @@ web search of its run from the cache. **Complete**: each call was a cache hit or
 run, all under one Cache Revision, and no call failed. **Partial (reproducibility)**: any call
 bypassed the cache, lost a write race, used a web tool the cache did not hold, failed, or carried
 another Cache Revision or none. A score with no status, no Cache Revision, or no Benchmark Revision
-is unknown. A run with no model call or web search is complete and has no Cache Revision.
+is unknown. A run with no model call or web search reports no status, so it is unknown.
 _Avoid_: Replayable, verified (that is the separate `verified_by_screamingface` mark), Partial
 Report
 
