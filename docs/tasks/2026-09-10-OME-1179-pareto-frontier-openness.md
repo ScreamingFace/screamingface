@@ -1,12 +1,12 @@
 ---
 id: OME-1179
 linear_url: https://linear.app/openmined/issue/OME-1179/epic-compute-pareto-frontier-openness-from-submitted-model-identities
-status: Backlog
+status: done
 type: decision
 priority: 2
 labels: [scoreboard, human, design-session]
 created: 2026-09-10
-closed:
+closed: 2026-10-07
 ---
 
 # EPIC: Compute Pareto-frontier openness from submitted model identities
@@ -50,3 +50,5 @@ Q2 and Q3 were both corrected after review of PR #922 — see the ledger for the
 
 Related: `OME-1145` (the bug), `OME-772` (recorded the gap on 2026-08-11), `OME-323` (built the
 statistic).
+
+- 2026-10-07: closed. Delivered by OME-1181 (#922), OME-1180, OME-1145 (#1080) and OME-1386 (#1081); Q2 (models not public), Q3 (legacy rows unidentified) and Q4 (override stays) settled. Leftover: the old provider-based `classify_score`/`classify_providers` have no production caller.
