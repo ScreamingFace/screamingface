@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1507",
+  "branch": "OME-1507-retry-after-test-flake",
+  "approver": "owner (in the OME-1492 session)",
+  "date": "2026-10-07",
+  "scope": "The two Retry-After HTTP-date tests build their fake server's retry time with a new helper (now rounded down + 6s) instead of now + 5s; the asserted 5 +/- 1 window is unchanged.",
+  "reason": "OME-1507: an HTTP-date drops fractions of a second, so now + 5s could parse as 3.9996s and fail CI at random (#1258, #1268). Test-only; the owner approved filing and fixing it.",
+  "files": {
+    "packages/screamingface/tests/test_transient_retry.py": {
+      "base_blob": "e142022e7caaab8bcf217f31bc519029aa30b39a",
+      "approved_blob": "554142492b2a68ebee1a9f9fbca4a50f5df67341"
+    }
+  }
+}
