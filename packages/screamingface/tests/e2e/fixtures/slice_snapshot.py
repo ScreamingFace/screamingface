@@ -132,6 +132,7 @@ _ASSET_BUNDLE = {
     "healthbench-worst30": "healthbench",
     "healthbench-professional": "healthbench",
     "gdpval-text": "gdpval",
+    "musique-ans": "musique",
 }
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"

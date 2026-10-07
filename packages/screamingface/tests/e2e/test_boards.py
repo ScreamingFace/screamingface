@@ -46,7 +46,8 @@ pytestmark = pytest.mark.e2e
 #: contracteval is listed WITHOUT a golden on purpose (OME-1148, review of PR #984): the
 #: manual-onboarding runbook's Step 7 says to wire a new board in here precisely so it SKIPs
 #: loudly until its fixtures exist. A board absent from this tuple is silently unguarded, and
-#: silence is what let medxpert's omission go unnoticed.
+#: silence is what let medxpert's omission go unnoticed. musique-ans (OME-1475) joins the same
+#: way: it SKIPs until the owner's cache-on paid run is blessed into its golden.
 BOARDS = (
     "draco",
     "draco-3pass",
@@ -55,6 +56,7 @@ BOARDS = (
     "healthbench-professional",
     "gdpval-text",
     "contracteval",
+    "musique-ans",
 )
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
@@ -68,6 +70,7 @@ _ASSET_BUNDLE = {
     "healthbench-professional": "healthbench",
     "gdpval-text": "gdpval",
     "contracteval": "contracteval",
+    "musique-ans": "musique",
 }
 
 
