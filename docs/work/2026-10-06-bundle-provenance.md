@@ -63,6 +63,11 @@ no Benchmark Revision moves, never any Case text in a log.
     "not recorded" until then.
   - The overview section lives in a new `_case_provenance.py`, not `_board_summary.py`, so the
     scoreboard module stays untouched.
+  - Review fixes (2026-10-07, one commit): Case Preparation refuses a used bundle directory
+    before it replays, so a refused re-prepare never touches the earlier label (new test); the
+    SKIPPED-marker writing moved into its own helper to stay under the statement-count lint; the press reader turns a NaN or Infinity `seconds` into an "unreadable" row
+    (new test); `CONTEXT.md` gains a Bundle Provenance entry, kept apart from Benchmark
+    Provenance.
 - **Owner-verify:** the next paid press (its asset cache key covers the inspect plugin, so it
   re-prepares and every Imported bundle gains `provenance.json`). Check that the run page shows
   "Where the Cases came from" with one row per Imported Benchmark, and that the image build log's

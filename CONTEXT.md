@@ -227,6 +227,13 @@ The sha256 of an Imported Benchmark's prepared Cases, fixed at import and checke
 Preparation. A different digest means different Cases, so none are served.
 _Avoid_: Snapshot hash, checksum
 
+**Bundle Provenance**:
+The label Case Preparation writes beside a Benchmark's prepared Cases (`provenance.json`): the Case
+Sources it read with their pins, any seed it forced, how many Samples it loaded, excluded and
+kept, the Inspect versions, and how long it took. It never holds a Case's text. It says how one
+image build filled the Benchmark; Benchmark Provenance says where the Benchmark itself comes from.
+_Avoid_: Provenance alone, build metadata
+
 **Task replay**:
 Calling an eval's own task function in a child process with empty caches, so it fetches its
 Cases the way inspect would, then running the Task's own solvers on each Sample up to their

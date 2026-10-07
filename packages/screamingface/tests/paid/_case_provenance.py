@@ -79,9 +79,12 @@ def _row(benchmark: str, path: Path) -> str:
         TypeError,
         KeyError,
         AttributeError,
+        ValueError,
+        OverflowError,
     ):
         # WHY this wide: the file is data from a build, not code we control; any shape it
-        # takes must end as one row, never as a crash under the press overview.
+        # takes must end as one row, never as a crash under the press overview. json.loads
+        # accepts NaN and Infinity, and rounding them raises ValueError or OverflowError.
         unreadable: str = f"unreadable {PROVENANCE_FILE}"
         return f"| {benchmark} | {unreadable} | {_NONE} | {_NONE} | {_NONE} | {_NONE} |"
     return "| " + " | ".join([benchmark, *cells]) + " |"

@@ -120,3 +120,15 @@ def test_rows_follow_benchmark_name_order(tmp_path: Path) -> None:
         line for line in markdown.splitlines() if line.startswith("| ") and "not recorded" in line
     ]
     assert [row.split(" | ")[0] for row in rows] == ["| draco", "| inspect-gsm8k", "| inspect-mmlu"]
+
+
+def test_a_non_finite_time_never_breaks_the_overview(tmp_path: Path) -> None:
+    """json.loads accepts NaN and Infinity; rounding them raises ValueError/OverflowError,
+    which must end as one honest row like any other unreadable block."""
+    _bundle(tmp_path, "inspect-race_h", {**_RACE_H, "seconds": float("inf")})
+    _bundle(tmp_path, "inspect-gsm8k", {**_RACE_H, "seconds": float("nan")})
+
+    markdown: str = provenance_markdown(["inspect-race_h", "inspect-gsm8k"], tmp_path)
+
+    assert "unreadable" in _row(markdown, "inspect-race_h")
+    assert "unreadable" in _row(markdown, "inspect-gsm8k")
