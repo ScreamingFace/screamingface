@@ -46,6 +46,7 @@
       "Recipe",
       "Report",
       "Reproduction",
+      "ReproductionOutcome",
       "ScoreMetadataEvent",
       "ScreamingFaceError",
       "SelfCorrective",
@@ -690,6 +691,10 @@
           "recorded": "field",
           "result": "field"
         }
+      },
+      "ReproductionOutcome": {
+        "kind": "type alias",
+        "value": "typing.Literal['exact', 'failed', 'not_reproducible']"
       },
       "ScoreMetadataEvent": {
         "kind": "class",

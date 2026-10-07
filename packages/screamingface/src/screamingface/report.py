@@ -27,6 +27,7 @@ from screamingface._report_primitives import (
     _duration,
     _nonblank,
     _usage,
+    reproducible_status,
 )
 from screamingface.accounting import AccountingBreakdown, accounting_breakdown
 from screamingface.case_result import (
@@ -198,11 +199,10 @@ def _cache_version(
         not isinstance(revision, str) or _CACHE_REVISION.fullmatch(revision) is None
     ):
         raise ValueError("Candidate cache_revision must be a cache revision label or None")
-    if reproducible not in (None, "complete", "partial"):
-        raise ValueError("Candidate reproducible must be 'complete', 'partial' or None")
-    if revision is not None and reproducible is None:
+    status = reproducible_status(reproducible)
+    if revision is not None and status is None:
         raise ValueError("Candidate cache_revision requires reproducible")
-    return revision, reproducible  # type: ignore[return-value]
+    return revision, status
 
 
 @dataclass(frozen=True, slots=True, init=False)

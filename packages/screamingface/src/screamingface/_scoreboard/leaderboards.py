@@ -14,12 +14,13 @@ from importlib.metadata import PackageNotFoundError, version
 # parameter named `json`, so the module name is shadowed inside exactly the functions most
 # likely to want it. Importing the one callable under its own name removes the trap.
 from json import dumps as _json_dumps
-from typing import Literal, NoReturn
+from typing import NoReturn
 from urllib.parse import quote, urlsplit
 from uuid import UUID
 
 import httpx
 
+from screamingface._report_primitives import reproducible_status
 from screamingface._scoreboard.submission_notice import (
     display_submission_notice,
     prepare_submission_notice,
@@ -55,6 +56,8 @@ _MAX_MODEL_LENGTH = 255
 _MAX_MODELS_BYTES = 4096
 # FEATURE: OME-1307 — mirrors the Scoreboard's `paper_url` bound (http(s), 1 to 2048 characters).
 _MAX_PAPER_URL_LENGTH = 2048
+# FEATURE: OME-1307 — the width of the board's `score_reproductions.client_version` column.
+_MAX_RECORD_CLIENT_VERSION = 64
 _SUBMIT_OPERATION = "submit a score to"
 _EDIT_OPERATION = "edit a score on"
 _EVENTS_OPERATION = "read score metadata events from"
@@ -584,7 +587,7 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             cache_revision=_optional_text(
                 root.get("cache_revision"), "Leaderboard score cache_revision"
             ),
-            reproducible=_decode_reproducible(root.get("reproducible")),
+            reproducible=reproducible_status(root.get("reproducible")),
             answer_seed=_optional_integer(root.get("answer_seed"), "Leaderboard score answer_seed"),
             # K8: an older board omits the count, and an omitted count reads as 0.
             reproduction_count=_integer(
@@ -599,16 +602,6 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
-
-
-def _decode_reproducible(value: object) -> Literal["complete", "partial"] | None:
-    if value is None:
-        return None
-    if value == "complete":
-        return "complete"
-    if value == "partial":
-        return "partial"
-    _invalid("Leaderboard score reproducible must be 'complete', 'partial' or null")
 
 
 def _decode_metadata_events(payload: object) -> tuple[ScoreMetadataEvent, ...]:
@@ -785,12 +778,19 @@ def _reproduction_payload(
     cache_revision: str | None,
     client: Mapping[str, object],
 ) -> dict[str, object]:
+    selected = dict(client)
+    # WHY drop and not truncate: the board stores a reproduction's `client_version` in a 64
+    # character column and refuses nothing it can drop, so a long version (a local build tag) must
+    # not turn an exact replay into a 500 that is never recorded. Only the record path does this.
+    version = selected.get("version")
+    if isinstance(version, str) and len(version) > _MAX_RECORD_CLIENT_VERSION:
+        del selected["version"]
     return {
         "run_id": run_id,
         "score": score,
         "total_questions": total_questions,
         "cache_revision": cache_revision,
-        "client": dict(client),
+        "client": selected,
     }
 
 

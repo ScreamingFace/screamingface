@@ -65,8 +65,8 @@ def evaluate_url4_sync(
     try:
         bound = None if observer is None else observer.bind(candidate)
         outcome = transport.run(candidate, bound)
-        _require_replay_statement(cache_replay, outcome)
         report = report_from_url4_outcome(candidate, outcome)
+        _require_replay_statement(cache_replay, outcome, report)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
@@ -108,8 +108,8 @@ async def evaluate_url4_async(
     try:
         bound = None if observer is None else observer.bind(candidate)
         outcome = await transport.run(candidate, bound)
-        _require_replay_statement(cache_replay, outcome)
         report = report_from_url4_outcome(candidate, outcome)
+        _require_replay_statement(cache_replay, outcome, report)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
@@ -117,19 +117,35 @@ async def evaluate_url4_async(
     return report
 
 
-def _require_replay_statement(cache_replay: str | None, outcome: _RunOutcome) -> None:
-    """A replay's summary must name the label sent: the Engine states it only when it honoured it.
+# The two case failure codes only a replay-mode Engine raises. A run that carries one has proved it
+# was in replay mode: the Engine fails the call before it reaches a provider.
+_REPLAY_FAILURE_CODES = frozenset({"replay_cache_miss", "unknown_cache_revision"})
+
+
+def _require_replay_statement(
+    cache_replay: str | None, outcome: _RunOutcome, report: Report
+) -> None:
+    """A replay's summary must name the label sent, unless the result itself proves replay mode.
 
     INVARIANT (OME-1307, R24): the start-response echo can come from a front door while a worker
-    ignored the replay env, so the run summary is checked as well. A run that fails the check may
-    have called providers; it is not reported as a replay.
+    ignored the replay env, so the run summary is checked as well. The summary is only written
+    when the run touched the cache, so an all-miss replay or an unknown-label failure may have no
+    summary at all. Those results carry replay failure codes, which only a replay-mode Engine
+    raises, so they are classified by those codes and not refused here. A run that fails the check
+    may have called providers; it is not reported as a replay.
     """
-    if cache_replay is not None and outcome.cache_replay != cache_replay:
-        raise ExecutionError(
-            "SF Engine did not state that it replayed the run from the cache",
-            code="replay_unsupported",
-            permanent=True,
-        )
+    if cache_replay is None or outcome.cache_replay == cache_replay:
+        return
+    result = report.candidates[0]
+    codes = {failure.code for failure in result.failures}
+    codes.update(failure.code for case in result.cases for failure in case.failures)
+    if codes & _REPLAY_FAILURE_CODES:
+        return
+    raise ExecutionError(
+        "SF Engine did not state that it replayed the run from the cache",
+        code="replay_unsupported",
+        permanent=True,
+    )
 
 
 def _candidate_from_url4(value: str) -> Candidate:

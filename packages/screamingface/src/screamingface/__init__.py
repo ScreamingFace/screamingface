@@ -9,7 +9,7 @@ from screamingface._default_client import (
     evaluate,
     reproduce,
 )
-from screamingface._reproduction import Reproduction
+from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._ui.connections import ConnectionPanel
 from screamingface._version import resolve_version
 from screamingface.client import AsyncClient, Client
@@ -120,6 +120,7 @@ __all__ = [
     "Recipe",
     "Report",
     "Reproduction",
+    "ReproductionOutcome",
     "ScoreMetadataEvent",
     "ScreamingFaceError",
     "SelfCorrective",

@@ -15,6 +15,7 @@ from typing import Any, Literal, cast
 from screamingface import events
 from screamingface._client_provenance import valid_client_version
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
+from screamingface._report_primitives import reproducible_status
 from screamingface.errors import ExecutionError
 from screamingface.report import Usage as AccountingUsage
 
@@ -422,14 +423,10 @@ def _summary_reproducible(
     attributes: Mapping[str, object],
 ) -> Literal["complete", "partial"] | None:
     """`complete` or `partial`, absent when the key is absent (unknown), or a refusal."""
-    if _CACHE_REPRODUCIBLE not in attributes:
-        return None
-    value = attributes[_CACHE_REPRODUCIBLE]
-    if value == "complete":
-        return "complete"
-    if value == "partial":
-        return "partial"
-    raise ExecutionError(f"SF Engine cache summary {_CACHE_REPRODUCIBLE} is invalid")
+    try:
+        return reproducible_status(attributes.get(_CACHE_REPRODUCIBLE))
+    except ValueError as exc:
+        raise ExecutionError(f"SF Engine cache summary {_CACHE_REPRODUCIBLE} is invalid") from exc
 
 
 def _cache_hit_count(value: object, attribute: str = _CACHE_HITS) -> int:

@@ -434,7 +434,7 @@ def test_the_score_is_compared_exactly() -> None:
 
 
 def test_a_stored_score_without_a_benchmark_revision_cannot_match() -> None:
-    # The plan compares revisions literally; an older board that omits it is never an exact match.
+    # Compared literally. `reproduce` never gets here with such a score: it refuses it first.
     assert _classify(_score(benchmark_revision=None), _result())[1] == "benchmark_revision_changed"
 
 

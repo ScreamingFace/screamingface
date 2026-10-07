@@ -309,8 +309,8 @@ class Url4CloudTransport:
                 wait=self._abort.wait,
             )
         except ExecutionError as exc:
-            if exc.code == "replay_unsupported":
-                self._stop_own_run(token)
+            if exc.code == "replay_unsupported" and not self._stop_own_run(token):
+                raise _still_running(exc) from exc
             raise
 
     def _retire(self, minted: list[str]) -> None:
@@ -405,7 +405,7 @@ class Url4CloudTransport:
         """
         self._stop_own_run(token)
 
-    def _stop_own_run(self, token: str) -> None:
+    def _stop_own_run(self, token: str) -> bool:
         """Stop ONLY the Run this capability started (spec 2026-09-28 run isolation, §4).
 
         WHY not `cancel_active`: that sweep stops every Run this Client owns, and it is the
@@ -421,6 +421,8 @@ class Url4CloudTransport:
             _stop_sync(self._http, token)
         except Exception as stop_error:  # noqa: BLE001 - see the WHY above
             _logger.warning("Stopping the SF Engine Run also failed: %s", stop_error)
+            return False
+        return True
 
     def _remint_after_challenge(self, minted: list[str], trace: TraceContext) -> None:
         """Refresh Access auth and mint a fresh capability after a WS challenge.
@@ -659,8 +661,8 @@ class AsyncUrl4CloudTransport:
                 wait=self._wait_unless_aborted,
             )
         except ExecutionError as exc:
-            if exc.code == "replay_unsupported":
-                await self._stop_own_run(token)
+            if exc.code == "replay_unsupported" and not await self._stop_own_run(token):
+                raise _still_running(exc) from exc
             raise
 
     def _retire(self, minted: list[str]) -> None:
@@ -790,13 +792,15 @@ class AsyncUrl4CloudTransport:
         """Async twin of the sync `_sweep_after_disconnect`: THIS Run only (C3)."""
         await self._stop_own_run(token)
 
-    async def _stop_own_run(self, token: str) -> None:
+    async def _stop_own_run(self, token: str) -> bool:
         """Async twin of the sync `_stop_own_run` — this Run only, best-effort."""
         self._active_tokens.discard(token)
         try:
             await _stop_async(self._http, token)
         except Exception as stop_error:  # noqa: BLE001 - see the sync twin
             _logger.warning("Stopping the SF Engine Run also failed: %s", stop_error)
+            return False
+        return True
 
     def _settled(self, step: _LifecycleStep, minted: list[str]) -> _RunOutcome | None:
         """The Run's outcome if this step completed it — its capabilities retired first."""
@@ -1280,6 +1284,21 @@ def _require_replay_ack(
             permanent=True,
             trace_id=trace_id,
         )
+
+
+def _still_running(exc: ExecutionError) -> ExecutionError:
+    """The unacknowledged replay's error, told that the stop failed too (R24).
+
+    INVARIANT: the user is told. An Engine that ignored the replay header may be running the
+    Candidate as a paid run, and this stop was the only thing meant to end it.
+    """
+    return ExecutionError(
+        f"{exc.message}, and stopping it failed: the run may still be running on the Engine",
+        code="replay_unsupported",
+        permanent=True,
+        hint="Stop the run from the Engine if you can. It may still spend provider money.",
+        trace_id=exc.trace_id,
+    )
 
 
 def _attachment_is_still_registering(response: httpx.Response) -> bool:

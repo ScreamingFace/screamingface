@@ -65,6 +65,13 @@ class RunPlan:
     # The result travels as an artifact claim ticket; its fetch waits for `artifact_hold`.
     artifact: bool = False
     artifact_hold: threading.Event | None = None
+    # FEATURE: OME-1307 — an Engine that honours `X-Cache-Replay`. When set, a start that carries
+    # the header is acknowledged by echoing it, and the run's summary log (frame 3) also states
+    # `cache.replay`. `summary` is that log's attributes, and `result_body` replaces the plain-text
+    # result with a real one. Without them a plan behaves exactly as it always did.
+    honour_replay: bool = False
+    summary: dict[str, object] | None = None
+    result_body: str | None = None
 
 
 @dataclass
@@ -82,6 +89,8 @@ class StubState:
     pings: dict[str, int] = field(default_factory=dict)
     # Capabilities whose client sent an in-band `ai.url4.stop` after the terminal frame.
     stop_frames: list[str] = field(default_factory=list)
+    # topic -> the `X-Cache-Replay` label its start carried (only starts that carried one).
+    replay_labels: dict[str, str] = field(default_factory=dict)
 
     def mint(self) -> str:
         with self.lock:
@@ -138,6 +147,7 @@ class _Handler(BaseHTTPRequestHandler):
         plan = state.plans[url4]
         topic = state.topics[self.headers["URL4-Capability"]]
         with state.lock:
+            self._note_replay(topic)
             state.start_attempts[url4] = state.start_attempts.get(url4, 0) + 1
             first = state.start_attempts[url4] == 1
             answer = plan.admission.pop(0) if plan.admission else None
@@ -155,8 +165,15 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(HTTPStatus.ACCEPTED)
             self.send_header("Preference-Applied", "respond-async")
             self.send_header("Location", "/?topic=isolation")
+            if plan.honour_replay and topic in state.replay_labels:
+                self.send_header("X-Cache-Replay", state.replay_labels[topic])
             self.send_header("Content-Length", "0")
             self.end_headers()
+
+    def _note_replay(self, topic: str) -> None:
+        """Remember the `X-Cache-Replay` label a start carried. The caller holds the lock."""
+        if "X-Cache-Replay" in self.headers:
+            self.server.state.replay_labels[topic] = self.headers["X-Cache-Replay"]
 
     def _refuse(self, answer: tuple[int, str | None], detail: str) -> None:
         status, retry_after = answer
@@ -295,7 +312,14 @@ class _Handler(BaseHTTPRequestHandler):
         url4 = state.started[topic]
         plan = state.plans[url4]
         for sequence in range(first, last + 1):
-            frame = _frame_for(sequence, topic=topic, url4=url4, artifact=plan.artifact)
+            frame = _frame_for(
+                sequence,
+                topic=topic,
+                url4=url4,
+                artifact=plan.artifact,
+                plan=plan,
+                replay=state.replay_labels.get(topic),
+            )
             _send_text(self.wfile, json.dumps(frame))
 
     def _accept(self) -> None:
@@ -348,12 +372,27 @@ def result_body(url4: str) -> str:
     return f"result of {url4}"
 
 
-def _frame_for(sequence: int, *, topic: str, url4: str, artifact: bool) -> dict[str, Any]:
+def _frame_for(
+    sequence: int,
+    *,
+    topic: str,
+    url4: str,
+    artifact: bool,
+    plan: RunPlan | None = None,
+    replay: str | None = None,
+) -> dict[str, Any]:
+    third: dict[str, object] = {"severity_text": "INFO", "severity_number": 9, "body": "more"}
+    result: dict[str, object] = _result_data(url4, artifact=artifact)
+    if plan is not None and plan.summary is not None:
+        stated = {"cache.replay": replay} if plan.honour_replay and replay else {}
+        third["attributes"] = {**plan.summary, **stated}
+    if plan is not None and plan.result_body is not None:
+        result = {"body": plan.result_body, "media_type": "application/json"}
     kinds: dict[int, tuple[str, dict[str, object]]] = {
         1: ("ai.url4.started", {"url4": url4}),
         2: ("ai.url4.log", {"severity_text": "INFO", "severity_number": 9, "body": "working"}),
-        3: ("ai.url4.log", {"severity_text": "INFO", "severity_number": 9, "body": "more"}),
-        4: ("ai.url4.result", _result_data(url4, artifact=artifact)),
+        3: ("ai.url4.log", third),
+        4: ("ai.url4.result", result),
         5: ("ai.url4.terminated", {"status": "succeeded", "error": None}),
     }
     kind, data = kinds[sequence]
