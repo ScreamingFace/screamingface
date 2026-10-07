@@ -23,7 +23,7 @@ sf.leaderboards.get_score(score.id)         # read it back later`
 const remix = `entry = board.entries[0]
 
 entry.url4.to_python()   # the winning recipe as editable code, no spend
-sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
+sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
 </script>
 
 <template>
@@ -46,6 +46,14 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
       rank is a claim someone else has already reproduced, and that you can reproduce again.
     </p>
 
+    <p>
+      A submission also keeps the cache version of its run. <code>sf.reproduce(score)</code> replays
+      it from the cache, and a confirmed replay pays no provider. The
+      <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
+      call. The <RouterLink to="/learn/caching">caching page</RouterLink> explains what makes a
+      submission reproducible.
+    </p>
+
     <h2>How a rank happens</h2>
 
     <p>
@@ -55,10 +63,10 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
 
     <ul>
       <li>
-        <strong>Validation.</strong> The score is benchmark-native: the exact number the
-        benchmark's own grading produced, fractional or negative included. The board checks it is
-        a finite number and never recomputes, normalizes, or thresholds it — the benchmark is the
-        sole authority on its formula.
+        <strong>Validation.</strong> The score is benchmark-native: the exact number the benchmark's
+        own grading produced, fractional or negative included. The board checks it is a finite
+        number and never recomputes, normalizes, or thresholds it — the benchmark is the sole
+        authority on its formula.
       </li>
       <li>
         <strong>Deduplication.</strong> Each submission is hashed over its recipe identity, meaning
