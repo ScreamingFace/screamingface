@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1512
 stack: scoreboard
 status: in_progress
 started: 2026-10-07
@@ -60,11 +60,29 @@ the public leaderboard read cleaner and more hierarchy-first. Four slices:
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** slice 1 note — the `partitionFeatured` tests live in a NEW file
-  (`featured-benchmarks.test.js`) rather than appended to `leaderboard-logic.test.js`: the
-  append-only gate cannot parse a `.js` edit to prove additivity and fails closed on any
-  modification, so a new file (registered by name in the gate + CI) is the sanctioned additive
-  path. <plus any further deviations>
+Scope grew in a live-iteration session from the featured shortlist into a full leaderboard-portal
+visual refresh (featured tabs + searchable overflow, card-led landing with a research-register
+hero, Pareto axes at 0, the "about" note moved to the per-board page, gold+blue accents).
+
+- **Actual files:** `portal/leaderboard-logic.js` (`FEATURED_BENCHMARK_IDS`, `partitionFeatured`,
+  `truncate`, `filterBenchmarks`), `portal/main.js` (tab strip overflow menu, card rendering +
+  batch reveal), `portal/index.html` (hero + card grid), `portal/benchmark.html` (drop note/caption;
+  add "about" note under description), `portal/pareto-chart.js` (axis origin at 0),
+  `portal/portal.css` (hero, cards, dropdown, accents, spacing), `portal/spec.html` (url4 casing);
+  tests `tests/portal/featured-benchmarks.test.js`, `pareto-origin.test.js`, `index-cards.test.js`
+  (new), `tests/unit/test_portal_static.py` (updated); `.claude/sdlc.local.md` +
+  `.github/workflows/scoreboard-tests.yml` (register new portal test files);
+  `.claude/test-change-approvals/OME-1512.json` (append-only approval).
+- **Commits:** 11 conventional commits `d80f3cb09 … 685d37b76` on `OME-1512-leaderboard-visual-refresh`.
+- **Gates:** `run_gates.py scoreboard` green — ruff · ruff format · pyright · pytest (929 passed,
+  90% cov, ≥80 floor) · node portal tests (6 files). Append-only `--base origin/main` passes via
+  the OME-1512 approval manifest.
+- **Deviations:** (1) new portal pure-logic tests live in NEW files (`featured-benchmarks`,
+  `pareto-origin`, `index-cards`) registered by name in the gate + CI — the append-only gate cannot
+  parse a `.js` edit to prove additivity, so a new file is the sanctioned additive path. (2) The
+  Pareto cost axis only anchors at 0 on the linear scale; wide-cost boards keep a log axis (0 has no
+  logarithm) — the existing log-scale contract/test is preserved. (3) `test_portal_static.py` guard
+  assertions were updated to the new structure/copy (owner-directed), pinned by the approval
+  manifest. (4) The opt-in brand-mockup drift smoke test now diverges from the external mockup at
+  `brand.screamingface.ai` (copy/structure changed); excluded from the default gate — the mockup
+  update is a separate owner action.
