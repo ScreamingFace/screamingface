@@ -85,6 +85,7 @@ table .btn { white-space: nowrap; }
 /* Same visual language as .rail .crumbs (hairline underline for the active
    item) rather than a new pattern — one nav idiom for the whole portal. */
 .tabstrip {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-5);
@@ -130,12 +131,19 @@ table .btn { white-space: nowrap; }
 }
 .tabstrip-more-btn:hover { color: var(--ink); }
 .tabstrip-more-btn[aria-expanded="true"] { color: var(--ink); border-color: var(--accent-solid); }
+/* An OVERLAY, not an inline block: absolute inside the position:relative .tabstrip, anchored under
+   the button at the strip's right edge. It floats over the content below so opening it never
+   shoves the page down. Depth reads from the seam + a single soft shadow is avoided (SFDS) — the
+   hairline border and elevated surface carry it; z-index lifts it above the masthead below. */
 .tabstrip-more-panel {
-  flex-basis: 100%;
-  width: 100%;
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 30;
+  width: 20rem;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
-  margin-top: var(--space-2);
   background: var(--surface);
   border: var(--border-hairline) solid var(--line-2);
   border-radius: var(--radius-none);
@@ -153,14 +161,18 @@ table .btn { white-space: nowrap; }
 }
 .tabstrip-more-search:focus { border-bottom-color: var(--accent-solid); }
 .tabstrip-more-list { max-height: 16rem; overflow-y: auto; }
-.tabstrip-more-item {
+/* These links live inside the .tabstrip <nav>, so `.tabstrip a` (0,1,1) would otherwise force them
+   inline-block with tab padding and an underline. Scope under .tabstrip-more-list (0,2,x) to win,
+   so each benchmark renders as one full-width row, stacked vertically and scrollable. */
+.tabstrip-more-list .tabstrip-more-item {
   display: block;
   padding: var(--space-2) var(--space-3);
+  border-bottom: 0;
   color: var(--ink-2);
   text-decoration: none;
 }
-.tabstrip-more-item:hover { color: var(--ink); background: var(--surface-2); }
-.tabstrip-more-item[aria-current="page"] { color: var(--ink); }
+.tabstrip-more-list .tabstrip-more-item:hover { color: var(--ink); background: var(--surface-2); }
+.tabstrip-more-list .tabstrip-more-item[aria-current="page"] { color: var(--ink); border-bottom: 0; }
 .tabstrip-more-empty { padding: var(--space-3); color: var(--ink-3); font-size: var(--text-sm); }
 
 /* ---- benchmark catalogue cards --------------------------------------- */
@@ -170,7 +182,7 @@ table .btn { white-space: nowrap; }
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--space-5);
+  gap: var(--space-6);
   margin: 0 0 var(--space-6);
 }
 .cards:empty { display: none; }
@@ -178,8 +190,8 @@ table .btn { white-space: nowrap; }
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-5);
-  background: var(--surface);
+  padding: var(--space-6);
+  background: var(--bg);
   border: var(--border-hairline) solid var(--line);
   border-radius: var(--radius-none);
   color: var(--ink);
@@ -226,14 +238,15 @@ table .btn { white-space: nowrap; }
    mono eyebrow, a Parastoo serif title, a quiet subtitle, the board's key terms, and one gold
    button. Generous whitespace; gold is the single accent, used sparingly (eyebrows, button, the
    card arrows) rather than a sales band. */
-.hero { margin-bottom: var(--space-7); }
+.hero { margin-bottom: var(--space-9); }
 .hero-title { font-size: var(--text-hero); line-height: var(--leading-tight); }
-/* The subtitle: one line naming what the board is. Quiet, constrained measure, not a sales pitch. */
-.hero-lead { max-width: 60ch; margin-top: var(--space-5); color: var(--ink-2); }
-/* The three terms sit directly under the title as the key to reading any board. */
-.hero-defs { margin-bottom: var(--space-8); }
+/* The subtitle: one line naming what the board is. Quiet, constrained measure, snug to read. */
+.hero-lead { max-width: 58ch; margin-top: var(--space-6); color: var(--ink-2); line-height: var(--leading-snug); }
+/* The three terms sit directly under the title as the key to reading any board — with air around
+   them so the hero breathes rather than packs. */
+.hero-defs { margin-bottom: var(--space-9); }
 /* One monochrome, bold button — softer than a gold fill, still a clear call to start. */
-.hero-cta { margin-bottom: var(--space-9); }
+.hero-cta { margin-bottom: var(--space-11); }
 .benchmarks-section { margin-top: 0; scroll-margin-top: var(--space-8); }
 
 /* Accents: gold and blue, leaned into but rationed. Gold (brand) carries the mono eyebrows, the
@@ -244,12 +257,19 @@ table .btn { white-space: nowrap; }
 a { color: var(--info-text-low); }
 a:hover { color: var(--info-text-high); }
 
-/* Benchmarks section header: a mono eyebrow over the title — no rule, so it doesn't read as a
-   stray line stacked above the "about" window below it. */
-.section-head { margin: 0 0 var(--space-6); }
-.section-head .eyebrow { display: block; margin-bottom: var(--space-3); }
-.section-head h2 { margin: 0; }
-.section-head .section-sub { margin: var(--space-3) 0 0; }
+/* The catalogue is led by ONE small, subtle label — the same treatment as the hero eyebrow
+   ("SCREAMINGFACE · OPEN LEADERBOARD"), not a big heading. It stays a semantic <h2> for
+   screen-reader navigation, just styled as the gold mono micro-label. */
+.section-label {
+  font-family: var(--f-mono);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  line-height: var(--leading-snug);
+  color: var(--gain-text-low);
+  margin: 0 0 var(--space-6);
+}
 
 /* ---- responsive ------------------------------------------------------ */
 @media (max-width: 639px) {

@@ -230,18 +230,27 @@ def test_pareto_chart_heading_and_label_name_the_pareto_frontier() -> None:
     assert "Score for cost" not in html
 
 
-def test_benchmark_board_has_no_read_this_first_note() -> None:
-    """The boxed "Read this first" note is removed for a cleaner board view (owner decision).
+def test_benchmark_board_carries_the_about_note_under_its_description() -> None:
+    """The per-board page carries the terminal-window "about" note (owner decision).
 
-    It previously carried the cost/score "self-reported, verify by re-running" caveat (the caveat
-    OME-1146 folded into it). The note and that caveat are both intentionally gone now — recorded
-    here so a future reader sees the removal was deliberate, not an accidental regression.
+    It moved here from the landing page (which stays clean) and sits under the benchmark
+    description. The old "Read this first" wording and the OME-1146 "self-reported, verify by
+    re-running" caveat are both gone — recorded here so a future reader sees the rename and the
+    move were deliberate, not a regression.
     """
     portal = Path(__file__).resolve().parents[2] / "portal"
     html = (portal / "benchmark.html").read_text(encoding="utf-8")
 
+    # The "about" note is present, and it sits after the description, before the summary.
+    assert '<span class="kicker">about</span>' in html
+    assert "Every submission carries its url4 expression" in html
+    assert (
+        html.index('id="benchmark-desc"')
+        < html.index('class="note"')
+        < html.index('id="leaderboard-summary"')
+    )
+    # The retired wording must not creep back.
     assert "Costs are self-reported, not verified by re-running." not in html
-    assert 'class="note"' not in html
     assert "Read this first" not in html
     assert "rerun any claim, score, or cost, before trusting it" not in html
 
