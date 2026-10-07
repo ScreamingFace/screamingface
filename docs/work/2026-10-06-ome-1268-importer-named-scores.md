@@ -39,8 +39,9 @@ Stacked on PR 3 (#1249).
 - `tests/unit/inspect/test_importer_named_scores.py` (new): a two-scorer stand-in Task renders
   `scorer`, `extra_scorers`, `named_scores`; a self-grading scorer is dropped by name with a
   review TODO and the headline moves; a Task with no scorer is refused; a single-scorer Task
-  renders byte-identically; a formula headline metric is refused naming it; a grouped metric on
-  a non-headline scorer is a note, not a refusal
+  carries no Named Score line; a formula headline metric is refused naming it; a grouped metric on
+  a non-headline scorer is a note, not a refusal; an extra scorer with arguments or a shared
+  registry name is refused
 - `tests/unit/inspect/test_list_target.py` (new): a list of accepted answers is frozen as a
   list; an empty list and a list with a non-string are refused by name; the adapter grades
   against a list target through the real prepared record
@@ -61,8 +62,8 @@ Stacked on PR 3 (#1249).
   guard), `prepare.py` (`_validated_list_key`, `_validated_answer_key` returns
   `str | list[str]`), `scorer_metrics.py` (`headline_metric_name`, `extra_metric_names`
   public, `_declared_metric_names`). New tests:
-  `tests/unit/inspect/test_importer_named_scores.py` (14: ten through the import child on a
-  stand-in eval, four through the row renderer), `tests/unit/inspect/test_list_target.py`
+  `tests/unit/inspect/test_importer_named_scores.py` (17: twelve through the import child on a
+  stand-in eval plus the real `simpleqa_scorer`, four through the row renderer), `tests/unit/inspect/test_list_target.py`
   (5). No prior test changed.
 - **Commits:** dac52ef0a — feat(screamingface-engine): import Tasks with several scorers and
   list answer keys (rebuilt on the Task-replay path; the original f246cf767 targeted the
@@ -79,3 +80,13 @@ Stacked on PR 3 (#1249).
   build needed (`test_every_other_refusal_stays_a_plain_refusal`) is moot: that file was
   deleted upstream. (5) The OME-1253 sweep re-check (spec §8.7) is deferred to PR 5, which
   runs the importer for real.
+- **Review round (2026-10-07, stack review):** 2cd3cbad0 — (a) an extra scorer created with
+  arguments is refused naming the scorer and its arguments (it was written bare:
+  `match(numeric=True)` became `match()`, pinning the wrong configuration as faithful);
+  (b) two kept scorers sharing one registry name are refused in the child, before any file
+  is written; (c) a grouped metric block after the headline is noted as "a grouped metric
+  block" (the `<unnamed metric>` sentinel hit the charset guard and refused the import under
+  the wrong label); (d) the dropped-scorer comment no longer claims "none pinned" for a
+  literal judge model; (e) the byte-identical renderer test compared the default facts with
+  themselves and is narrowed to "no Named Score line"; (f) rebased on #1249's review round
+  (`headline_metric_kind` by registry identity). Gates ALL GREEN; 3 new child tests.
