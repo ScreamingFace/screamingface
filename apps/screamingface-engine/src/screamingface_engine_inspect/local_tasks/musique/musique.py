@@ -1,3 +1,7 @@
+# pyright: reportMissingImports=false
+# WHY file-level: this module imports the `inspect` extra's packages (inspect_ai,
+# huggingface_hub), absent in the default (extra-less) install the typecheck gate runs against;
+# it is loaded only behind `inspect_available()`, like every other module in this package.
 """MuSiQue-Ans as a LOCAL inspect Task — our own eval in inspect's shape (OME-1513).
 
 Think of it as writing the exam the way inspect_evals writes theirs, then handing it to the
