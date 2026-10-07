@@ -9,3 +9,9 @@ Public Clients enable saving by default and support `save_results=False`. Direct
 Exclude notebook browsing, compact accounting context/cache, presentation state/lifecycle discovery, Engine/runtime changes, and export serializer changes. Reuse the exact atomic-file helper from #1241 while it is unmerged; do not overwrite its faster serializer. Group membership is necessary recovery metadata, not a lifecycle notification feature.
 
 Recovery requires a retained completion manifest and a valid local raw result or an unexpired Engine artifact. No paid calls. All SDK card gates must pass; prove lazy Cases, corruption recovery, storage failures, partial results, and compatibility.
+
+Review correction approved on 2026-10-07: the separately saved evaluation manifest
+is the authority for grouped recovery. A corrupted candidate's embedded membership
+must not discard healthy siblings, including when opening the public evaluation ID.
+For legacy directories without that manifest, prefer a locally validated sibling's
+context. Preserve the existing partial-report error contract and public API.

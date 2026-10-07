@@ -5,3 +5,7 @@
 3. Integrate membership and per-candidate decode settlement while removing accounting caches, lifecycle markers/notices, and all notebook hooks. Preserve current main changes and existing tests.
 4. Reuse #1241 atomic helper exactly. Validate the current-main draft and simulated post-#1241 merge without reverting its export implementation.
 5. Run focused regressions, the full SDK gate runner, and independent Standards/Spec review. Record evidence, create the focused ticket under OME-1294 linked to OME-1448, and open the requested draft.
+
+Review follow-up: add failing corrupt-first regressions; resolve canonical context
+before grouping, retaining a locally validated legacy fallback; rerun SDK gates
+and execute the requested temporary report feature notebook.

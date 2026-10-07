@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import builtins
 import hashlib
+import json
 import shutil
 import sqlite3
 import stat
@@ -18,6 +19,7 @@ from pathlib import Path
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import _compiled_evaluation
 from screamingface._evaluation.results import report_from_outcomes, report_from_url4_outcome
+from screamingface._results.membership import membership_value
 from screamingface._results.store import ResultStore, SavedRun, storage_error
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import ExecutionError, ScreamingFaceError
@@ -88,6 +90,58 @@ def _selected(store: ResultStore, report_id: str) -> SavedRun:
     # WHY: old saved candidate keys remain usable for disk-error remediation.
     matches = [run for run in store.list() if _report_id(run) == report_id]
     return matches[0] if matches else store.load(report_id)
+
+
+def _recovery_selection(store: ResultStore, selected: SavedRun) -> SavedRun:
+    if selected.evaluation is None:
+        return selected
+    report_id = _report_id(selected)
+    manifest = store.directory / "evaluations" / f"{report_id}.json"
+    try:
+        context = membership_value(json.loads(manifest.read_text(encoding="utf-8")))
+    except FileNotFoundError:
+        return _legacy_selection(store, selected)
+    except OSError as exc:
+        raise storage_error(exc, selected.key) from exc
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ExecutionError(
+            "Invalid saved evaluation metadata", code="result_metadata_invalid"
+        ) from exc
+    if context is None or context["id"] != report_id:
+        raise ExecutionError(
+            "Saved evaluation manifest has conflicting identity", code="result_metadata_invalid"
+        )
+    # INVARIANT: validate every original candidate manifest against independent
+    # evaluation metadata; an arbitrary first candidate cannot poison its siblings.
+    return replace(selected, evaluation=context)
+
+
+def _legacy_selection(store: ResultStore, selected: SavedRun) -> SavedRun:
+    # WHY: legacy directories may lack the independent manifest. A context whose
+    # local result decodes successfully is stronger evidence than directory order.
+    runs = [run for run in store.list() if _report_id(run) == _report_id(selected)]
+    names = {run.candidate.name for run in runs}
+    fallback = None
+    for run in (selected, *runs):
+        context = run.evaluation
+        if context is None or not names <= set(context["candidates"]):
+            continue
+        if fallback is None:
+            fallback = context
+        try:
+            local = _local(run)
+            if local is not None:
+                _decode(run, local)
+                return replace(selected, evaluation=context)
+        except (OSError, sqlite3.Error, ScreamingFaceError):
+            continue
+    if fallback is None:
+        raise ExecutionError(
+            "Saved evaluation membership omits known candidates", code="result_metadata_invalid"
+        )
+    # INVARIANT: missing local bytes must not restore a rejected, incomplete
+    # context. Ordinary recovery will download or report each known sibling.
+    return replace(selected, evaluation=fallback)
 
 
 def delete(report_id: str, *, directory: str | Path | None = None) -> None:
@@ -252,7 +306,7 @@ def get(
     with ``partial_report`` and named failures when the evaluation is incomplete.
     """
     store = _store(directory)
-    selected = _selected(store, report_id)
+    selected = _recovery_selection(store, _selected(store, report_id))
     reports: builtins.list[Report] = []
     errors: dict[str, ScreamingFaceError] = {}
     for run in _group(store, selected):
@@ -273,7 +327,7 @@ async def get_async(
 ) -> Report:
     """Open a saved report asynchronously with the same local result contract."""
     store = _store(directory)
-    selected = _selected(store, report_id)
+    selected = await asyncio.to_thread(_recovery_selection, store, _selected(store, report_id))
     reports: builtins.list[Report] = []
     errors: dict[str, ScreamingFaceError] = {}
     for run in _group(store, selected):
