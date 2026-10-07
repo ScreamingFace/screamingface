@@ -238,7 +238,7 @@ table .btn { white-space: nowrap; }
    mono eyebrow, a Parastoo serif title, a quiet subtitle, the board's key terms, and one gold
    button. Generous whitespace; gold is the single accent, used sparingly (eyebrows, button, the
    card arrows) rather than a sales band. */
-.hero { margin-bottom: var(--space-9); }
+.hero { padding-top: var(--space-10); margin-bottom: var(--space-9); }
 .hero-title { font-size: var(--text-hero); line-height: var(--leading-tight); }
 /* The subtitle: one line naming what the board is. Quiet, constrained measure, snug to read. */
 .hero-lead { max-width: 58ch; margin-top: var(--space-6); color: var(--ink-2); line-height: var(--leading-snug); }
