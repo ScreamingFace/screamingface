@@ -23,3 +23,4 @@ Ledger (PR 1): `docs/work/2026-10-06-bundle-provenance.md`.
 Spec (PR 1): `docs/spec/2026-10-06-OME-1492-bundle-provenance.md`.
 
 - 2026-10-06: PR 1 implemented; gates green on both stacks.
+- 2026-10-07: PR 2 implemented (order-blind `case_set_digest` on every declaration, 57/57 backfilled); gates green.
