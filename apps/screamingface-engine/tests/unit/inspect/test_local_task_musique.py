@@ -22,6 +22,7 @@ Runs only with the `inspect` extra installed.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -40,7 +41,12 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
     GradeRequest,
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
-from screamingface_engine_inspect.benchmarks import BENCHMARKS, imported_benchmark  # noqa: E402
+from screamingface_engine_inspect.benchmarks import (  # noqa: E402
+    BENCHMARKS,
+    _task_replay_pins,
+    imported_benchmark,
+)
+from screamingface_engine_inspect.local_tasks import source_digest  # noqa: E402
 from screamingface_engine_inspect.local_tasks.musique.musique import (  # noqa: E402
     CASE_TEMPLATE,
     _record_to_sample,
@@ -150,6 +156,8 @@ async def test_the_grade_hook_gives_the_papers_own_numbers_for_three_replies() -
         ("Supporting paragraphs:\n5, 10\nAnswer:\n\nGiraudy", "Giraudy", [5, 10]),
         # labels in the other order, each value stops at the other label
         ("Answer: Giraudy Supporting paragraphs: 5", "Giraudy", [5]),
+        # labels match in any case — "ANSWER:" is what several models emit
+        ("SUPPORTING PARAGRAPHS: 10\nANSWER: Giraudy", "Giraudy", [10]),
         # no label at all: the whole reply is the answer, the support set is empty
         ("I think it is Steve Hillage.", "I think it is Steve Hillage.", []),
         # a label with nothing after it commits to the empty answer
@@ -231,3 +239,52 @@ def test_the_row_is_our_own_benchmark_with_three_named_scores_and_no_porter_list
     assert spec.with_check_surface is True
     assert TASK_REPLAY_CASES["musique"].keep_sample_metadata is True
     assert TASK_REPLAY_CASES["musique"].case_count == 2417
+
+
+# ── the Task's own source is Benchmark identity ──────────────────────────────────────────
+
+
+def test_a_local_tasks_source_is_pinned_into_its_revision() -> None:
+    """INVARIANT (review finding on #1292): for an inspect_evals import the marking scheme is
+    pinned by `inspect-evals==<version>`; for a local Task it is OUR file, so its bytes must be
+    in the revision or the grading rule could change under a published score."""
+
+    pins = _task_replay_pins(TASK_REPLAY_CASES["musique"])
+    source = [pin for pin in pins if pin.startswith("task_source=")]
+    assert len(source) == 1 and len(source[0]) == len("task_source=") + 64
+    # an inspect_evals import carries no such pin — its scorer is the pinned package's
+    assert not [p for p in _task_replay_pins(TASK_REPLAY_CASES["gsm8k"]) if "task_source" in p]
+
+
+def test_one_byte_in_the_task_package_moves_the_source_digest(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    (package / "vendor").mkdir(parents=True)
+    (package / "task.py").write_text("x = 1\n")
+    (package / "vendor" / "metric.py").write_text("y = 2\n")
+    (package / "README.md").write_text("prose is not identity\n")
+    before: str = source_digest(package)
+    (package / "README.md").write_text("prose changed\n")
+    assert source_digest(package) == before, "only .py files are the marking scheme"
+    (package / "vendor" / "metric.py").write_text("y = 3\n")
+    assert source_digest(package) != before, "a vendored grader edit is a new Benchmark"
+    (package / "__pycache__").mkdir()
+    (package / "__pycache__" / "task.cpython-312.pyc").write_bytes(b"\x00")
+    assert source_digest(package) == source_digest(package), "stable across runs"
+
+
+# ── the hop type rides to the Report ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_the_headline_check_carries_the_cases_hop_type() -> None:
+    """WHY: the dev set mixes 2-, 3- and 4-hop questions; a per-hop view of a run (the paper's
+    Table 5) needs the hop type on each Case's row, not only inside the Case Digest."""
+
+    hook = imported_benchmark("musique").aggregation().grade_case
+    material: dict[str, Any] = {
+        "target": _GOLD,
+        "metadata": {"supporting_idx": _SUPPORT, "hop_type": "2hop"},
+    }
+    outcome: CaseGradeOutcome = await hook(_request(1, _CASES[0], material))
+    headline = outcome.checks[0]
+    assert headline["evidence"][0]["metadata"]["hop_type"] == "2hop"

@@ -165,7 +165,11 @@ def musique_answer_f1() -> Scorer:
         answer: str = extract_answer(state.output.completion)
         ground_truths: Sequence[str] = list(target.target)
         f1: float = float(metric_max_over_ground_truths(compute_f1, answer, ground_truths))
-        return Score(value=f1, answer=answer)
+        # The hop type rides the headline check into the Report, so a run can be cut per hop
+        # (the paper's Table 5); absent on the no-network lane's stand-in Cases.
+        hop_type: object = state.metadata.get("hop_type")
+        metadata: dict[str, str] = {"hop_type": hop_type} if isinstance(hop_type, str) else {}
+        return Score(value=f1, answer=answer, metadata=metadata)
 
     return score
 

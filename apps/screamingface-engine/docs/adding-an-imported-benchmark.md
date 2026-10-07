@@ -285,6 +285,12 @@ Four things differ from an inspect_evals import:
 - **Provenance is hand-written.** There is no `eval.yaml` to read, so every TODO (paper,
   authors, citation, licence, baselines, difficulty) is yours to fill from the paper and the
   reference harness. Registration refuses the row until every TODO is gone.
+- **The Task's own source is part of the revision.** For an import the marking scheme is the
+  pinned `inspect-evals` package; for a local Task it is your file, so the importer's pin
+  builder adds `task_source=<sha256 over the package's .py files, vendor/ included>`. Any
+  edit to the loader, the reply reader, a scorer or the vendored code moves the revision and
+  the `test_published_revisions` literal, which is the review act: a grading rule can never
+  change under a published score.
 - **The Task file opens with `# pyright: reportMissingImports=false`** and the WHY comment
   every other module in the plugin carries (copy `scorer_adapter.py`'s header). CI typechecks
   the Engine without the inspect extra, so a bare `from inspect_ai import Task` fails there

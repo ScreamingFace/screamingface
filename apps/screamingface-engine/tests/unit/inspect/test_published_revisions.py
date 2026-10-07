@@ -32,7 +32,7 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1268: the first two Benchmarks with Named Scores (served in upstream order).
     "squad": "5b8e883be27f795b",
     # OME-1513: the first LOCAL Task (our own eval in inspect's shape, not an inspect_evals import).
-    "musique": "c1688cb36b456c66",
+    "musique": "958386b03c1288e7",
     "math": "cf9663373de8bae4",
     "mmlu": "1e42325597dee3d6",
     "arc_easy": "5f063684bf708ca1",

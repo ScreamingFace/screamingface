@@ -52,6 +52,13 @@ as a whole (answer = the whole reply, support = empty) rather than dropping it.
 - Best published answer F1 0.692 — Beam Retrieval, a fine-tuned retrieval pipeline on the test
   split (NAACL 2024), not a prompted model on dev. Our runs sit beside it, not on the same scale.
 
+## Identity
+
+The Benchmark revision hashes the Case Digest, the Task reference, the Hub pin **and the
+sha256 of every `.py` file in this package** (`task_source=…`). Editing `musique.py` or
+anything under `vendor/` is a new Benchmark: update the literal in
+`tests/unit/inspect/test_published_revisions.py` and say why in the PR.
+
 ## Running it locally
 
 ```sh

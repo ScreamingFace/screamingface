@@ -36,6 +36,7 @@ from screamingface_engine.benchmarks.provenance import (
     NotPublished,
     ProvenanceFields,
 )
+from screamingface_engine_inspect.local_tasks import task_source_pin
 from screamingface_engine_inspect.prepare import (
     INSPECT_SCORER_PREFIX,
     TASK_REPLAY_CASES,
@@ -4387,7 +4388,9 @@ def _task_replay_pins(cases_spec: TaskReplayCasesSpec) -> tuple[str, ...]:
         # are two Benchmarks. Only when set, so no URL-only row's revision moves; sorted, so
         # dict order never does.
         pins = (*pins, f"source_pins={json.dumps(cases_spec.source_pins, sort_keys=True)}")
-    return pins
+    # WHY (OME-1513): a local Task's marking scheme is our own source, not the pinned
+    # inspect-evals package, so its bytes join the revision; empty for every import.
+    return (*pins, *task_source_pin(cases_spec.task))
 
 
 def _inverted_grade_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

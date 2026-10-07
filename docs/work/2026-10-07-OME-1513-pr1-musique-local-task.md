@@ -67,6 +67,15 @@ list, and a scorer that tolerates absent Sample metadata.
 - **Gates:** `run_gates.py screamingface-engine` ALL GREEN (append-only with the OME-1513
   approval, ruff, format, pyright, layering, pytest with coverage ≥ 80); inspect lane 1,280 passed
   on the way.
+- **Review fix (pre-merge review, 2026-10-07):** a local Task's grading code was not part of
+  its revision (an import's is, via `inspect-evals==`). `local_tasks/__init__.py` now hashes
+  every `.py` under the Task's package (`vendor/` included) into a `task_source=` pin that
+  `_task_replay_pins` appends for local-Task rows only; the revision moved once to
+  `958386b03c1288e7`; pinned by a one-byte-moves-the-digest test and an uppercase-label reader
+  case (the reviewer's IGNORECASE mutation had passed the lane). `hop_type` now rides the
+  headline Score's metadata into the Report; an AIDEV-NOTE above the frozen-name test says
+  what it checks now. The continuous `satisfaction` on Draft Feedback is lane-wide (squad
+  exposes F1 the same way) and is left for the owner on the ticket.
 - **Deviations:** the prior assertion "every plugin benchmark came from inspect_evals" is
   amended to "origin matches where the task code lives, both ways" — a Confidence-Gate edit,
   pinned in the approval file and flagged in the PR for the owner to confirm. The importer was

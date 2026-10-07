@@ -136,6 +136,9 @@ def test_catalogue_holds_every_imported_benchmark() -> None:
     assert all(benchmark_id.startswith("inspect-") for benchmark_id in ids)
 
 
+# AIDEV-NOTE (OME-1513): the name predates local Tasks and is frozen by the test-change rule.
+# What it checks now: every row's origin matches where its task code lives — inspect_evals
+# for an import, screamingface for a local Task under local_tasks/ — in both directions.
 def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() -> None:
     """The catalogue must name the collection each benchmark came FROM, not this repo.
 

@@ -3,12 +3,12 @@
   "branch": "OME-1513-pr1-musique-local-task",
   "approver": "Khoa Nguyen (owner) \u2014 direction given 2026-10-07 (MuSiQue as a local Task under OME-1513); the exact edit below is for the owner to confirm in PR review",
   "date": "2026-10-07",
-  "scope": "Assertion only: in test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source, the assertion `set(origins.values()) == {'inspect_evals'}` becomes `origins == expected`, where expected maps each row to 'screamingface' when its Task-replay reference lives under screamingface_engine_inspect. (a local Task) and to 'inspect_evals' otherwise, plus a guard that both origins occur. Also one added row in _EXPECTED_FAMILIES ('musique': 'free_text'). No other edits to that test or file. Plus one added table row in each of test_benchmark_declaration.py (inspect-musique: coverage_declare, single_shot, hard) and test_published_revisions.py (musique: c1688cb36b456c66) \u2014 the per-import rows every imported Benchmark adds; no existing row changes.",
+  "scope": "Assertion only: in test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source, the assertion `set(origins.values()) == {'inspect_evals'}` becomes `origins == expected`, where expected maps each row to 'screamingface' when its Task-replay reference lives under screamingface_engine_inspect. (a local Task) and to 'inspect_evals' otherwise, plus a guard that both origins occur. Also one added row in _EXPECTED_FAMILIES ('musique': 'free_text'). No other edits to that test or file. Plus one added table row in each of test_benchmark_declaration.py (inspect-musique: coverage_declare, single_shot, hard) and test_published_revisions.py (musique: 958386b03c1288e7 \u2014 moved once by the review fix that pins the Task's own source into the revision) \u2014 the per-import rows every imported Benchmark adds; no existing row changes. Review fix: an AIDEV-NOTE comment above test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source saying what it checks now (the name is frozen); the test body is unchanged from the first approved edit.",
   "reason": "OME-1513 adds the first LOCAL Task: an eval we author in inspect's shape and feed to the same importer. Its Benchmark is ours, so its origin is 'screamingface' (the provenance rule then asks it for no inspect porter list). The prior invariant 'every plugin benchmark came from inspect_evals' now has that one named exception; the edited assertion pins origin to where the task code lives, both ways, which is the stronger form of the same rule.",
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
       "base_blob": "09b7b2f467a49bdb57cd230f4e2ceae274c283f8",
-      "approved_blob": "08b1b5b831e80fe01b2dec7cfab5240eb02340fa"
+      "approved_blob": "ccc13e367d9f9c2ff358665d92fc847c8df8d64b"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
       "base_blob": "fe00b734d8cf14f4fb15eeaa68f518393e664db6",
@@ -16,7 +16,7 @@
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
       "base_blob": "3dfc233f2908862009563f645209423984c5476b",
-      "approved_blob": "a530827bf81a445c0afa86cf0a57d3721f5b28aa"
+      "approved_blob": "2ca003a996b2147efbafc1911f6d41da25316926"
     }
   }
 }
