@@ -56,10 +56,10 @@ def test_portal_pages_include_plausible_analytics(tmp_path: Path) -> None:
 
 
 def test_about_page_is_public_structured_and_linked(tmp_path: Path) -> None:
-    """A short About / methodology page, public, with its four sections, and linked from the rail.
+    """A short About page, public, with its four sections, and linked from the rail on every page.
 
-    The page states what the leaderboard is, how to read it, how to contribute, and how to cite —
-    the home for the reproducibility/openness/Pareto framing that would otherwise be scattered.
+    Its sections are Thesis, How it works, Contribute, and Who builds this — the home for the
+    composition / reproducibility / openness framing that would otherwise be scattered.
     """
     with TestClient(create_app(_settings(tmp_path))) as client:
         about = client.get("/about.html")
@@ -69,8 +69,8 @@ def test_about_page_is_public_structured_and_linked(tmp_path: Path) -> None:
         # The section labels.
         for label in ("Thesis", "How it works", "Contribute", "Who builds this"):
             assert label in about.text, label
-        # Reachable from the rail on the landing and the per-board pages.
-        for path in ("/about.html", "/index.html", "/benchmark.html", "/spec.html"):
+        # Reachable from the rail on every portal page.
+        for path in ("/about.html", "/index.html", "/benchmark.html", "/spec.html", "/data.html"):
             assert 'href="about.html"' in client.get(path).text, path
 
 
