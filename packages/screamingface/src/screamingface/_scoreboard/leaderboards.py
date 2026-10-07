@@ -58,6 +58,7 @@ _MAX_PAPER_URL_LENGTH = 2048
 _SUBMIT_OPERATION = "submit a score to"
 _EDIT_OPERATION = "edit a score on"
 _EVENTS_OPERATION = "read score metadata events from"
+_RECORD_OPERATION = "record a reproduction on"
 # WHY a 409 is retryable on these two and not elsewhere: the board answers it when it changed under
 # the request (a resubmit race, or its visibility flipping), and a retry sees one consistent view.
 _CONFLICT_HINTS = {_SUBMIT_OPERATION: "Retry the submission.", _EDIT_OPERATION: "Retry the edit."}
@@ -78,6 +79,14 @@ _STATUS_CODES: dict[str, dict[int, str]] = {
     _EVENTS_OPERATION: {
         401: "scoreboard_authentication_required",
         403: "score_events_forbidden",
+    },
+    # FEATURE (OME-1307, K7): the 409s (`not_reproducible`, `run_id_conflict`, a visibility change)
+    # and the 422 `not_exact` keep their own words in the error text through `_detail_text`.
+    _RECORD_OPERATION: {
+        401: "scoreboard_authentication_required",
+        403: "reproduction_forbidden",
+        409: "reproduction_conflict",
+        422: "invalid_reproduction",
     },
 }
 
@@ -205,6 +214,31 @@ class Leaderboards:
             )
         )
 
+    def _record_reproduction(
+        self,
+        score_id: UUID | str,
+        *,
+        run_id: str,
+        score: float,
+        total_questions: int,
+        cache_revision: str | None,
+        client: Mapping[str, object],
+    ) -> None:
+        """Record one exact replay (K7). Internal: `reproduce` maps any error to `record_error`."""
+        selected = _score_id(score_id)
+        _sync_json(
+            self._request,
+            self._scoreboard_url,
+            "POST",
+            f"{_SCORES_PATH}/{selected}/reproductions",
+            json=_reproduction_payload(run_id, score, total_questions, cache_revision, client),
+            # WHY safe to re-send: the board keys a record by (score, run_id) and answers a repeat
+            # with the first row (R18), so a retried POST cannot count twice.
+            replay_safe=True,
+            missing=("unknown_score", f"Score {str(selected)!r} was not found"),
+            operation=_RECORD_OPERATION,
+        )
+
 
 class AsyncLeaderboards:
     """Asynchronous public Leaderboards bound to one AsyncClient."""
@@ -317,6 +351,31 @@ class AsyncLeaderboards:
                 missing=("unknown_score", f"Score {str(selected)!r} was not found"),
                 operation=_EVENTS_OPERATION,
             )
+        )
+
+    async def _record_reproduction(
+        self,
+        score_id: UUID | str,
+        *,
+        run_id: str,
+        score: float,
+        total_questions: int,
+        cache_revision: str | None,
+        client: Mapping[str, object],
+    ) -> None:
+        """Record one exact replay (K7). Internal: `reproduce` maps any error to `record_error`."""
+        selected = _score_id(score_id)
+        await _async_json(
+            self._request,
+            self._scoreboard_url,
+            "POST",
+            f"{_SCORES_PATH}/{selected}/reproductions",
+            json=_reproduction_payload(run_id, score, total_questions, cache_revision, client),
+            # WHY safe to re-send: the board keys a record by (score, run_id) and answers a repeat
+            # with the first row (R18), so a retried POST cannot count twice.
+            replay_safe=True,
+            missing=("unknown_score", f"Score {str(selected)!r} was not found"),
+            operation=_RECORD_OPERATION,
         )
 
 
@@ -679,11 +738,7 @@ def _submission(
         # status, so sending a mismatched pair only moves a 422 from submit time into the field.
         # `_run_cost_status` on the result already enforces the same rule at construction.
         **_published_cost(candidate_result),
-        "client": {
-            "name": "screamingface",
-            "version": _package_version(),
-            "platform": platform.system().lower() or None,
-        },
+        "client": _client_info(),
         "metadata": {
             "benchmark_revision": candidate_result.benchmark.revision,
             "candidate_kind": candidate_result.kind,
@@ -712,6 +767,31 @@ def _submission(
         )
     payload.update(_cache_version_fields(candidate_result))
     return payload
+
+
+def _client_info() -> dict[str, object]:
+    """This client as the board records it, on a submission and on a reproduction."""
+    return {
+        "name": "screamingface",
+        "version": _package_version(),
+        "platform": platform.system().lower() or None,
+    }
+
+
+def _reproduction_payload(
+    run_id: str,
+    score: float,
+    total_questions: int,
+    cache_revision: str | None,
+    client: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "run_id": run_id,
+        "score": score,
+        "total_questions": total_questions,
+        "cache_revision": cache_revision,
+        "client": dict(client),
+    }
 
 
 def _cache_version_fields(candidate_result: CandidateResult) -> dict[str, object]:
