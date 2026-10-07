@@ -7,8 +7,8 @@
   "reason": "Owner approved widening the SDK's public ConnectionStatus with 'unavailable' (OME-1250 step 1, strict decoding). The snapshot diff is exactly that one Literal line; regenerated with UPDATE_SURFACE_SNAPSHOT=1. JSON is outside approved_test_changes.py's TS-only scope, so the screamingface-stack gate ran with --skip-append-only for this file only.",
   "files": {
     "packages/screamingface/tests/public_surface_snapshot.json": {
-      "base_blob": "2a1670a104c3a06665d40087a872308dfe084e48",
-      "approved_blob": "1a970f6093a448d8afec3be17987707b932243bf"
+      "base_blob": "61abd6c50b2c27a3e04b1c87eab530c8f0be9248",
+      "approved_blob": "d4257680757931583c89328f4e27c107ab19abcf"
     }
   }
 }
