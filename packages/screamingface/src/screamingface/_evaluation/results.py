@@ -192,6 +192,9 @@ def _candidate_result(
             # INVARIANT: retain main's archive savings and unpriced-hit provenance on recovery.
             cache_saved_cost_archive_usd=outcome.cache_saved_cost_archive_usd,
             cache_unpriced_hits=outcome.cache_unpriced_hits,
+            # OME-1307: the cache version, as the Engine's run summary stated it (None = unknown).
+            cache_revision=outcome.cache_revision,
+            reproducible=outcome.reproducible,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"SF Engine Candidate result is invalid: {exc}") from exc
