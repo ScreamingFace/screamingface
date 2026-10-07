@@ -336,6 +336,7 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
         f"{_models_html(candidate)}"
         f"<div class='sf-report__grid'>{''.join(cells)}</div>"
         f"{_coverage_notice_html(candidate)}"
+        f"{_scores_html(candidate.scores)}"
         f"{_axes_html(metrics)}"
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
@@ -406,6 +407,36 @@ def _models_html(candidate: CandidateResult) -> str:
         return ""
     chips = "".join(f"<span class='sf-chip'>{escape(model)}</span>" for model in candidate.models)
     return f"<div class='sf-chips'>{chips}</div>"
+
+
+def _scores_html(scores: Mapping[str, object]) -> str:
+    """The Benchmark's Named Scores, one row each; the Headline Score is tagged, the rest shown.
+
+    FEATURE (OME-1268): a Benchmark with several scorers (SQuAD: f1 and exact) reports every
+    column; only the headline ranks. Rendered only when there is more than one Named Score,
+    so a single-scorer Candidate's card is byte-identical to before.
+    """
+
+    if len(scores) < 2:
+        return ""
+    rows = "".join(
+        _score_row(name, value, headline=index == 0)
+        for index, (name, value) in enumerate(scores.items())
+    )
+    return f"<div class='sf-detail__k'>scores</div><div class='sf-axes'>{rows}</div>"
+
+
+def _score_row(name: object, value: object, *, headline: bool) -> str:
+    """One Named Score: name, the Benchmark-native number, and the `headline` tag if it ranks."""
+
+    # INVARIANT: the headline is the FIRST entry — the Engine writes named scores headline
+    # first, and `score` on the card is the same number. The same 6-digit formatter as the
+    # hero score: a Named Score is Benchmark-native, never a percent.
+    return (
+        f"<div class='sf-axis'><span class='sf-axis__k'>{escape(str(name))}</span>"
+        f"<span class='sf-axis__v'>{_score_text(_number(value))}</span>"
+        f"<span class='sf-axis__r'>{'headline' if headline else ''}</span></div>"
+    )
 
 
 def _axes_html(metrics: Any) -> str:
