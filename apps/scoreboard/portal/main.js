@@ -249,19 +249,22 @@ window.ScorePortal = (function () {
     }
   }
 
-  // The non-featured boards as a "More benchmarks" disclosure: a button that opens a scrollable
-  // panel listing every rest board, with a search field to filter by name or slug. Each entry is a
-  // plain link, so navigation, middle-click and the browser's own focus handling come for free; the
-  // search only filters what is shown.
+  // The non-featured boards as a "More benchmarks" disclosure. The button sits at the end of the
+  // tab strip; opening it drops an inline, full-width panel onto its own row BELOW the tabs (not a
+  // floating box) — a search field over a single vertical, scrollable column of every rest board.
+  // Each entry is a plain link, so navigation, middle-click and focus handling come for free.
   //
   // WHY the button names the active board when it is non-featured: landing on e.g. ?id=mmlu leaves
   // no featured tab marked, so the control itself must read "MMLU" rather than a bare
   // "More benchmarks", or the reader has no on-screen cue for where they are.
+  //
+  // Returns a fragment of [button, panel]: both are flex children of the tab strip, and the panel's
+  // flex-basis:100% is what makes it wrap to the full-width row beneath the tabs.
   function buildMoreMenu(rest, activeId) {
     var activeBoard = null;
     rest.forEach(function (b) { if (b.id === activeId) activeBoard = b; });
 
-    var wrap = el("div", "tabstrip-more");
+    var frag = document.createDocumentFragment();
     var button = el("button", "tabstrip-more-btn",
       (activeBoard ? (activeBoard.display_name || activeBoard.id) : "More benchmarks") + " ▾");
     button.type = "button";
@@ -310,14 +313,14 @@ window.ScorePortal = (function () {
     search.addEventListener("keydown", function (e) {
       if (e.key === "Escape") { close(); button.focus(); }
     });
-    // A click anywhere outside the control dismisses the open panel.
+    // A click outside the button and the panel dismisses an open panel.
     document.addEventListener("click", function (e) {
-      if (!panel.hidden && !wrap.contains(e.target)) close();
+      if (!panel.hidden && !button.contains(e.target) && !panel.contains(e.target)) close();
     });
 
-    wrap.appendChild(button);
-    wrap.appendChild(panel);
-    return wrap;
+    frag.appendChild(button);
+    frag.appendChild(panel);
+    return frag;
   }
 
   /* ---- ready ----------------------------------------------------------- */
