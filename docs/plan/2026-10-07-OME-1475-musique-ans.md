@@ -36,7 +36,7 @@ this plan says where each one lands. Paths: `E` = `apps/screamingface-engine/`,
 %%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 flowchart TB
   r1["① pins the Case Source and the protocol<br/>revision_inputs.py · musique/<br/>✅ NEW · PR 2"]
-  r2["② download, sha256 check, row validation<br/>prepare.py · musique/<br/>✅ NEW · PR 2"]
+  r2["② download, sha256 check, row validation<br/>prepare.py · musique/<br/>✅ NEW · PR 3"]
   r3["③ render one Case input<br/>prompts.py · musique/<br/>✅ NEW · PR 2"]
   r4["④ one Candidate call per Case, single-shot protocol<br/>definition.py · musique/<br/>✅ NEW · PR 3"]
   r5["⑤ read the two committed lines<br/>answering.py · musique/ · used by runtime.py check route<br/>✅ NEW · PR 2, wired in PR 3"]
@@ -60,16 +60,19 @@ green is new code, blue is an existing file this work changes.
 
 The spec, this plan, the PR 1 ledger, and the `docs/tasks/` mirror (status `in_progress`).
 
-## PR 2 — Cases and scoring (`OME-1475-pr2-musique-cases-scoring`)
+## PR 2 — the scoring core (`OME-1475-pr2-musique-cases-scoring`)
 
-Pure functions plus Case Preparation; nothing registered yet, so nothing is served.
+Pure functions only; nothing registered, nothing served. **Case Preparation is not here:** the
+family guard (`tests/unit/test_benchmark_deployment.py`,
+`test_the_family_guard_covers_every_family_preparer_package`) requires every
+`benchmarks/<family>/prepare.py` to belong to a registered Benchmark, so the preparer ships in
+PR 3 with the registration.
 
 | File | Contents |
 | -- | -- |
 | `M/__init__.py` | empty |
 | `M/revision_inputs.py` | `DATASET = "dgslibisey/MuSiQue"`, `DATASET_REVISION = "c8f4f8c9465fb69d31a8eae894c3fd509c4ca321"`, `DATASET_FILE = "musique_ans_v1.0_dev.jsonl"`, `DATASET_SHA256 = "15fa63794d18a94ce12411aca6e2327e65b6e83b0b1490efab3f1962e48abf3b"`, `EXPECTED_CASES = 2417`, `PREPARER_REVISION = "ans-dev-v1"`, `PROTOCOL_REVISION = "answer-support-lines-v1"`, `SCORER_REVISION = "StonyBrookNLP/musique@922ac98f19a201998dbdae6d7f2887a5258dbdeb"`; advisory `MAX_TOKENS = 4096` with ContractEval's WHY comment |
 | `M/prompts.py` | the byte-frozen template from the spec; `render_case_input(question: str, paragraphs: Sequence[Paragraph]) -> str` |
-| `M/prepare.py` | `PrepareError(BenchmarkAssetPreparationError)`; `download_dev_file() -> bytes` (lazy `importlib.import_module("huggingface_hub")`, `hf_hub_download(repo_id=DATASET, filename=DATASET_FILE, revision=DATASET_REVISION, repo_type="dataset")`); `verify_sha256(data: bytes) -> None`; `parse_rows(data: bytes) -> list[dict[str, Any]]`; `validate_row(row) -> None` (fields present, `answerable` true, `idx` equals position, 2 to 4 supporting); `case_records(rows) -> tuple[list[CaseRecord], dict[int, AnswerRecord]]`; `emit(out, cases, answers)`; `prepare(out: Path) -> None`; `main()`; re-export `DATASET_REVISION` (the SDK CLI fingerprints it) |
 | `M/answering.py` | `ExtractedReply(answer: str, answer_line: bool, support: frozenset[int], support_line: bool)`; `extract_reply(completion: str) -> ExtractedReply` per spec D6/D7 |
 | `M/vendor/` | `metric.py`, `answer.py`, `support.py` copied from `StonyBrookNLP/musique@922ac98f`, the only change being `from metrics.metric import Metric` → `from .metric import Metric`; `LICENSE` (the repo's CC BY 4.0); `__init__.py` docstring naming the commit, each file's upstream sha256, and that one change |
 | `M/grading.py` | `score_answer(prediction: str, answer: str, aliases: Sequence[str]) -> AnswerScore(f1: float, exact: int)` via `metric_max_over_ground_truths`; `score_support(predicted: Collection[int], gold: Collection[int]) -> float` via a fresh `SupportMetric` per Case |
@@ -94,14 +97,12 @@ Tests, written first:
   takes the next non-empty line, missing lines, duplicate and non-integer support tokens.
 * `E/tests/unit/test_musique_prompts.py` — the fixture's first row renders to a hand-written
   literal, byte for byte.
-* `E/tests/unit/test_musique_prepare.py` — fixture through `case_records` and `emit`; wrong
-  sha256, wrong count, non-positional `idx`, missing field each raise `PrepareError`; the public
-  Case holds no answer; the download is monkeypatched (no network).
 
 ## PR 3 — the Benchmark (`OME-1475-pr3-musique-benchmark`)
 
 | File | Contents |
 | -- | -- |
+| `M/prepare.py` | `PrepareError(BenchmarkAssetPreparationError)`; `download_dev_file() -> bytes` (lazy `importlib.import_module("huggingface_hub")`, `hf_hub_download(repo_id=DATASET, filename=DATASET_FILE, revision=DATASET_REVISION, repo_type="dataset")`); `verify_sha256(data: bytes) -> None`; `parse_rows(data: bytes) -> list[dict[str, Any]]`; `validate_row(row) -> None` (fields present, `answerable` true, `idx` equals position, 2 to 4 supporting); `case_records(rows) -> tuple[list[CaseRecord], dict[int, AnswerRecord]]`; `emit(out, cases, answers)`; `prepare(out: Path) -> None`; `main()`; re-export `DATASET_REVISION` (the SDK CLI fingerprints it) |
 | `M/case_grade.py` | ContractEval's `CHECK_SCHEMA` / `CASE_GRADE_SCHEMA` shape for this Benchmark |
 | `M/runtime.py` | `ServedBenchmark` as ContractEval's; `_check` runs `extract_reply` and records `{answer, support, answer_line, support_line}` as the verdict |
 | `M/aggregate.py` | `BenchmarkAggregation(..., grading_failure_code="musique_grading_failed", missing_material_code="missing_answer_asset", named_scores=("f1", "exact", "support_f1"))`; `_grade_case` → `CaseGradeOutcome(score=f1, scores={"f1", "exact", "support_f1"}, metrics={"answer_line_found", "support_line_found"}, checks=[…])`; the scorer averages each column over the graded Cases (the inspect `_column_means` pattern, `screamingface_engine_inspect/single_shot.py:827-866`); `Scoring(metadata=…)` surfaces `musique_id` and `hop_type` (MedXpert `aggregate.py:109-117, 180-196`) |
@@ -140,7 +141,9 @@ Enumerating tests to extend (each an existing file):
 * `E/tests/unit/test_failure_classes.py` — the new code.
 * `S/tests/test_runtime_cli.py` — `"musique"` in the parametrize tuple.
 
-New tests: `test_musique_definition.py` (pins in the revision, provenance values, declaration),
+New tests: `test_musique_prepare.py` (fixture through `case_records` and `emit`; wrong sha256, wrong
+count, non-positional `idx`, missing field each raise `PrepareError`; the public Case holds no
+answer; the download is monkeypatched), `test_musique_definition.py` (pins in the revision, provenance values, declaration),
 `test_musique_aggregate.py` (Named Scores key set and order, headline equals score, column means,
 flags in metrics, metadata, missing material → `missing_answer_asset`),
 `test_musique_case_evaluation.py` (the route end to end on the two fixture Cases, as ContractEval's).
