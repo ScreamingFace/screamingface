@@ -181,7 +181,7 @@ table .btn { white-space: nowrap; }
    The whole card is the link. Cards are revealed a page at a time; a hidden card uses [hidden]. */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: var(--space-6);
   margin: 0 0 var(--space-6);
 }
@@ -238,16 +238,23 @@ table .btn { white-space: nowrap; }
    mono eyebrow, a Parastoo serif title, a quiet subtitle, the board's key terms, and one gold
    button. Generous whitespace; gold is the single accent, used sparingly (eyebrows, button, the
    card arrows) rather than a sales band. */
-.hero { padding-top: var(--space-10); margin-bottom: var(--space-9); }
-.hero-title { font-size: var(--text-hero); line-height: var(--leading-tight); }
-/* The subtitle: one line naming what the board is. Quiet, constrained measure, snug to read. */
-.hero-lead { max-width: 58ch; margin-top: var(--space-6); color: var(--ink-2); line-height: var(--leading-snug); }
-/* The three terms sit directly under the title as the key to reading any board — with air around
-   them so the hero breathes rather than packs. */
-.hero-defs { margin-bottom: var(--space-9); }
+.hero { padding-top: var(--space-10); margin-bottom: var(--space-5); }
+/* Title sits between the display size (38) and the full hero clamp — present and editorial, not a
+   billboard. Floors at the display token, caps at ~52px, scaling with the viewport between. */
+.hero-title { font-size: clamp(var(--text-display), 5vw, 3.25rem); line-height: var(--leading-tight); }
+/* The subtitle: one line naming what the board is. Quiet, constrained measure, snug to read, and
+   pulled close under the title so the two read as one unit. */
+.hero-lead { max-width: 58ch; margin-top: var(--space-3); color: var(--ink-2); line-height: var(--leading-snug); }
+/* The three terms sit directly under the title as the key to reading any board; the button follows
+   close beneath them. */
+.hero-defs { margin-bottom: var(--space-6); }
 /* One monochrome, bold button — softer than a gold fill, still a clear call to start. */
 .hero-cta { margin-bottom: var(--space-11); }
 .benchmarks-section { margin-top: 0; scroll-margin-top: var(--space-8); }
+/* The landing sits slightly narrower than the shared --col-wide (1000) so the hero and card grid
+   read tighter; ~920px still holds a comfortable 3-up grid at the 260px card min. Scoped to the
+   landing so the per-board leaderboard table keeps the full width. */
+.wrap.wide.landing { max-width: 920px; }
 
 /* Accents: gold and blue, leaned into but rationed. Gold (brand) carries the mono eyebrows, the
    card open-arrow and the best-reproducible figure; blue (the always-blue --info role, since
