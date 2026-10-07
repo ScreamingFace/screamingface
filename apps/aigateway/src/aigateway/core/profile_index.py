@@ -121,8 +121,15 @@ class ProfileIndexStore:
             current = next((p for p in idx.profiles if p.id == profile_id), None)
             if current is None:
                 raise ProfileTransitionConflict("profile was concurrently deleted")
+            # INVARIANT (§5.3): a re-auth started during the refresh window left the entry PENDING;
+            # promoting it would turn that re-auth's callback into a false 409.
+            state = (
+                current.state
+                if current.state == ProfileState.PENDING
+                else ProfileState.AUTHENTICATED
+            )
             updated = current.model_copy(
-                update={"state": ProfileState.AUTHENTICATED, "last_refreshed_at": datetime.now(UTC)}
+                update={"state": state, "last_refreshed_at": datetime.now(UTC)}
             )
             stamped[:] = [updated]
             idx.profiles = [p for p in idx.profiles if p.id != profile_id] + [updated]

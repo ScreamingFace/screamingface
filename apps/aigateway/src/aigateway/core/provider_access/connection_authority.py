@@ -158,6 +158,7 @@ async def authorize_migrated(
     except RefreshSuperseded as exc:
         # INVARIANT (OME-1497, G0 §5.3): a refresh that lost the pair marks nothing errored.
         credential_strategy_cache(app).evict(credential_name)
+        invalidate_session(plugin, credential_name)
         raise WriteConflict("superseded", subject="connection", provider=provider) from exc
     except (CredentialNotFoundError, AuthError) as exc:
         credential_strategy_cache(app).evict(credential_name)

@@ -1141,6 +1141,10 @@ async def _record_oauth_connection_completion(
         if exc.status_code == 503:
             await store.mark_pending_error(connection, "credential_store_unavailable")
         raise
+    except CredentialBlobMutationConflict:
+        # WHY: the compat-document update exhausted its retries; everything rolled back and the
+        # Connection stays pending, so the callback keeps its retryable `profile_index_conflict`.
+        raise
     except Exception as exc:
         await store.mark_pending_error(connection, "connection_activation_failed")
         raise HTTPException(

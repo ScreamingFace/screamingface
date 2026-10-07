@@ -78,11 +78,12 @@ RED first (`tests/unit/core/provider_access/test_writer_floor_refresh.py`, plus 
   lock-free metadata stamp on the current document) and the `core/provider_access/__init__.py`
   exports (`ConnectionRefreshOwner`, `ProfileRefreshOwner`, `guard_refresh`). New tests:
   `tests/unit/core/provider_access/test_writer_floor_refresh.py` (19),
+  `test_writer_floor_refresh_reauth.py` (3), `test_writer_floor_native_compat.py` (1),
   `tests/integration/test_writer_floor_refresh_postgres.py` (3).
 - **Commits:** pending.
 - **Gates:** `uv run .claude/scripts/run_gates.py aigateway --base origin/main` — ALL GATES GREEN
   (append-only, ruff check, ruff format, pyright, no-enterprise, pytest with coverage ≥ 80%); full
-  suite 5242 passed, 100 skipped; the append-only check passes on the owner-approved transition
+  suite 5246 passed, 100 skipped; the append-only check passes on the owner-approved transition
   recorded in `.claude/test-change-approvals/OME-1497.json`. RED: 6 of the first 11 new tests failed for the defect (refresh
   published over an ownership change); the others are regression guards. PostgreSQL lane
   (`AIGW_TEST_PG=1 uv run pytest -m needs_postgres`): all three new races pass; 5 failures in
@@ -100,6 +101,24 @@ RED first (`tests/unit/core/provider_access/test_writer_floor_refresh.py`, plus 
   marked-pair branch was untested; the falsifiers above now cover `hold_pair` and the owner lock.
   Minor: `profile_authorize` now invalidates the session on a lost refresh, as the other Profile
   paths do.
+- **Second review (delta after the first fixes):** one blocker and two minor points, all fixed.
+  (1) `stamp_refreshed` promoted a PENDING document to AUTHENTICATED, so a legacy re-auth started
+  during a dispatch refresh window (unmarked pair, no marker move) lost its callback with a false
+  409 `profile_auth_conflict` — a regression against main for dispatch, and pre-existing for the
+  legacy refresh route, which is fixed too. The stamp now keeps PENDING and only updates
+  `last_refreshed_at`. Falsifiers: `test_writer_floor_refresh_reauth.py` (dispatch and route;
+  both failed before the fix). (2) The Profile owner presence check was pinned by no test (every
+  remover also claims the pair); a document removal without a marker move now pins it. (3) The
+  native callback's compat-document conflict (`CredentialBlobMutationConflict`) was being turned
+  into 503 `connection_activation_failed` with the Connection marked errored; it again rolls back
+  and answers the existing 503 `profile_index_conflict` with the Connection still pending
+  (`test_writer_floor_native_compat.py`, failed before the fix). Consistency:
+  `authorize_migrated` now also invalidates the session on a lost refresh. Confirmed by the
+  review: lock order and the lock-free stamp hold, the guard inventory is complete, a cached
+  strategy is never rebound to another owner, no token reaches a log or an error body.
+- **Native callback skips the compat update when nothing activates:** the duplicate-identity
+  return, `label_required` and a label conflict no longer flip a same-named Profile to
+  AUTHENTICATED/`oauth` (main did, with no blob or row published). Intended.
 - **Known risk (owner decision 2026-10-07, option a — keep the spec's pair-wide check):** a
   generation move that does not touch this blob (another Connection created or started on the same
   provider during the ~1 s provider round trip) also makes the refresh lose. With a rotating
