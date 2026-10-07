@@ -199,3 +199,59 @@ async def test_the_card_counts_the_cheap_row_when_no_saving_is_stored(
     assert response.status_code == 200
     assert response.json()["frontier_size"] == 1
     assert await _replay_costs() == {CACHED: Decimal("0.010000"), HONEST: Decimal("2.000000")}
+
+
+# --- A non-finite stored amount (review round 1, PR #1259) ---------------------------------------
+#
+# WHY: "NaN" decodes cleanly to Decimal("NaN"), so it never reached the unreadable path. Ranking
+# then compared it and raised, which 500'd the table and the card for the whole board.
+# INVARIANT: a non-finite stored amount is treated exactly like one that cannot be decoded.
+
+NON_FINITE = "NaN"
+
+
+async def _board_with_non_finite(column: str) -> None:
+    await _board(unreadable_column=None)
+    # WHY the column name is interpolated: it is one of the literals in MONEY_COLUMNS, never
+    # input. The value itself is a bound parameter.
+    await Tortoise.get_connection("default").execute_query(
+        f"UPDATE scores SET {column} = ? WHERE spec_id = ?", [NON_FINITE, CACHED]
+    )
+
+
+@pytest.mark.parametrize("column", MONEY_COLUMNS)
+async def test_the_table_serves_no_cost_for_a_non_finite_amount(
+    client: httpx.AsyncClient, column: str
+) -> None:
+    await _board_with_non_finite(column)
+
+    response = await client.get(f"/v1/leaderboard/{BOARD}")
+
+    assert response.status_code == 200
+    rows = {entry["spec_id"]: entry for entry in response.json()["entries"]}
+    assert rows[CACHED]["run_cost_usd"] is None
+    assert rows[CACHED]["on_pareto_frontier"] is False
+    assert rows[HONEST]["run_cost_usd"] == "2.000000"
+    assert rows[HONEST]["on_pareto_frontier"] is True
+
+
+@pytest.mark.parametrize("column", MONEY_COLUMNS)
+async def test_the_pareto_input_carries_no_cost_for_a_non_finite_amount(
+    tortoise_db: None, column: str
+) -> None:
+    await _board_with_non_finite(column)
+
+    assert await _pareto_costs() == {CACHED: None, HONEST: Decimal("2.000000")}
+
+
+@pytest.mark.parametrize("column", MONEY_COLUMNS)
+async def test_the_card_and_replay_ignore_a_non_finite_amount(
+    client: httpx.AsyncClient, column: str
+) -> None:
+    await _board_with_non_finite(column)
+
+    response = await client.get(f"/v1/leaderboard/{BOARD}/frontier")
+
+    assert response.status_code == 200
+    assert response.json()["frontier_size"] == 1
+    assert await _replay_costs() == {CACHED: None, HONEST: Decimal("2.000000")}

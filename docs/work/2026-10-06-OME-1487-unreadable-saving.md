@@ -44,15 +44,17 @@ other unpriced row. Absent savings are unaffected.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** `apps/scoreboard/src/scoreboard/scores/store.py`,
-  `apps/scoreboard/tests/unit/test_unreadable_saving.py` (13 tests), plus this ledger and the
+  `apps/scoreboard/tests/unit/test_unreadable_saving.py` (22 tests), plus this ledger and the
   `docs/tasks/2026-10-05-OME-1487-unreadable-saving.md` mirror. No schema change, no migration.
 - **Commits:**
   - `74f5f6f3c fix(scoreboard): keep the reproduction cost unknown when a saving cannot be read`
     (table and Pareto input).
   - `fix(scoreboard): serve the frontier card when a money column cannot be read` (frontier
     replay; the second commit on the branch).
+  - `fix(scoreboard): treat a non-finite stored amount as unreadable` (review round 1 on
+    PR #1259; the third commit on the branch).
 - **Gates:** `run_gates.py scoreboard` ALL GATES GREEN: append-only check, ruff check, ruff format,
-  pyright, pytest 942 passed / 9 skipped (coverage 90% total, store.py 98%), node portal 62/62.
+  pyright, pytest 951 passed / 9 skipped (coverage 90% total, store.py 98%), node portal 62/62.
 - **Deviations:**
   - Scope widened by owner decision (2026-10-06): `GET /v1/leaderboard/{board}/frontier` returned
     500 on any unreadable money column, because `frontier_history_inputs` read through the ORM
@@ -64,3 +66,17 @@ other unpriced row. Absent savings are unaffected.
   - The rule is unconditional as the ticket states: any unreadable saving nulls the served cost,
     whatever the status. Only `complete` rows add savings, and `partial`/`unavailable` carry no
     spend by contract, so the difference is limited to a corrupt legacy row.
+  - Review round 1 (PR #1259, 2026-10-07): a raw "NaN" decoded cleanly to `Decimal("NaN")`, skipped
+    the degrade path and raised in ranking, so the table and the card returned 500. The new
+    `_decode_raw_column` raises `InvalidOperation` for any non-finite Decimal (`is_finite()`), so it
+    degrades exactly like an undecodable value: unknown spend, or the unreadable-saving path. It
+    covers all three raw reads (table, Pareto input, frontier replay), because all three go
+    through `_to_python_rows`. The conversion was moved into a helper because ruff PLR0912
+    flagged `_to_python_rows` for too many branches.
+  - ORM model reads that can still see a non-finite or undecodable amount. Not changed: they are
+    not the raw-row path. `list_owned_entries` (`Score.filter(...).all()`, then
+    `reproduction_cost`); `_score_to_schema`, which feeds `list_for_spec` -> the route
+    `_history_submission` (`routes/leaderboard.py`, `reproduction_cost`), `list_all_for_benchmark`,
+    the submit receipts, `get_by_idempotency_key` and `delete_scores`; the resubmission fill logic
+    in `_replay_updates` (it reads `existing.run_cost_usd`/savings only for `is None` checks).
+    An undecodable value there raises at model load; a NaN passes through to the DTO.

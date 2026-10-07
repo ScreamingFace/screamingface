@@ -455,6 +455,19 @@ def _content_hash(submission: ScoreSubmission, *, per_submitter: bool = False) -
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _decode_raw_column(name: str, raw: object) -> object:
+    """One raw column as its Python value; raises on a value the column cannot hold.
+
+    INVARIANT (OME-1487, PR #1259 review round 1): "NaN" decodes cleanly to Decimal("NaN"), and
+    ranking it raises. A non-finite amount is unreadable money, so it raises here and takes the
+    same degrade path in `_to_python_rows` as a value that failed to decode.
+    """
+    value = Score._meta.fields_map[name].to_python_value(raw)
+    if isinstance(value, Decimal) and not value.is_finite():
+        raise InvalidOperation(f"non-finite stored amount {value}")
+    return value
+
+
 def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert raw projection rows to Python types, column by column.
 
@@ -478,7 +491,7 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             try:
                 # to_python_value maps None -> None for a nullable field, keeping
                 # the absent-is-not-zero distinction (D5) intact.
-                row[name] = Score._meta.fields_map[name].to_python_value(row[name])
+                row[name] = _decode_raw_column(name, row[name])
             except (InvalidOperation, ValueError, FieldError) as exc:
                 # INVARIANT: one corrupt row must never fail the whole read path.
                 # DecimalField.to_python_value quantizes, and quantize RAISES on a
