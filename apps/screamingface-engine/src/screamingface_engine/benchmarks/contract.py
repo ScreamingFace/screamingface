@@ -68,6 +68,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # code — aigateway's catch-all 500. Sits beside `aigateway_http_<status>`: gateway-
         # attributed and retryable (permanent=False from the 5xx), never `upstream_error`.
         "gateway_internal_error",
+        "provider_queue_timeout",
+        "provider_execution_timeout",
+        "caller_deadline_exceeded",
+        "aigateway_deadline_exceeded",
         "invalid_candidate_input",
         "web_tool_loop_limit",
         "web_retrieval_invalid",
