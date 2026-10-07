@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from screamingface._immutable_json import freeze_mapping
+from screamingface._report_primitives import reproducible_status
 from screamingface.url4 import Url4
 
 
@@ -389,8 +390,7 @@ def _optional_aware_datetime(value: object, label: str) -> None:
 def _reproduction_fields(score: LeaderboardScore) -> None:
     """Validate the OME-1307 cache version fields (K8); the text ones go through the loop above."""
     _optional_aware_datetime(score.last_reproduced_at, "Leaderboard score last_reproduced_at")
-    if score.reproducible not in (None, "complete", "partial"):
-        raise ValueError("Leaderboard score reproducible must be 'complete', 'partial' or None")
+    reproducible_status(score.reproducible)
     if score.answer_seed is not None and (
         isinstance(score.answer_seed, bool) or not isinstance(score.answer_seed, int)
     ):

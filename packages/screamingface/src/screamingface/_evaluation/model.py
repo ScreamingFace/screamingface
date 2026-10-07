@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from types import MappingProxyType
 from typing import Literal, NoReturn
 
@@ -172,40 +172,28 @@ def _answer_seed_value(value: object) -> int | None:
     return value
 
 
+def _stamped(candidate: Candidate, **changes: object) -> Candidate:
+    """Copy one compiled Candidate with some of its fields replaced.
+
+    INVARIANT: every field is copied by iterating the dataclass, so a field added to `Candidate`
+    can never be silently dropped by a stamp (the answer seed and the replay label are stamped
+    independently, in either order).
+    """
+    stamped = object.__new__(Candidate)
+    for field in fields(Candidate):
+        value = changes[field.name] if field.name in changes else getattr(candidate, field.name)
+        object.__setattr__(stamped, field.name, value)
+    return stamped
+
+
 def _with_answer_seed(candidate: Candidate, answer_seed: int) -> Candidate:
     """Copy one compiled Candidate with the run's declared sitting stamped on."""
-    stamped = object.__new__(Candidate)
-    for name in (
-        "name",
-        "kind",
-        "models",
-        "url4",
-        "operations",
-        "members",
-        "parameter_assignments",
-        "cache_replay",
-    ):
-        object.__setattr__(stamped, name, getattr(candidate, name))
-    object.__setattr__(stamped, "answer_seed", answer_seed)
-    return stamped
+    return _stamped(candidate, answer_seed=answer_seed)
 
 
 def _with_cache_replay(candidate: Candidate, cache_replay: str) -> Candidate:
     """Copy one compiled Candidate with the cache revision it must replay from stamped on."""
-    stamped = object.__new__(Candidate)
-    for name in (
-        "name",
-        "kind",
-        "models",
-        "url4",
-        "operations",
-        "members",
-        "parameter_assignments",
-        "answer_seed",
-    ):
-        object.__setattr__(stamped, name, getattr(candidate, name))
-    object.__setattr__(stamped, "cache_replay", cache_replay)
-    return stamped
+    return _stamped(candidate, cache_replay=cache_replay)
 
 
 def _candidate_members(

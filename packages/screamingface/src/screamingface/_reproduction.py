@@ -12,18 +12,20 @@ transport) or refused (`evaluate_url4_*`) before it is judged.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID
 
 from screamingface._evaluation.url4 import evaluate_url4_async, evaluate_url4_sync
 from screamingface._report_primitives import CaseId
 from screamingface._scoreboard.leaderboards import _client_info
 from screamingface.errors import ExecutionError
+from screamingface.leaderboard import LeaderboardScore
+from screamingface.warnings import EvaluationWarning
 
 if TYPE_CHECKING:
     from screamingface.client import AsyncClient, Client
-    from screamingface.leaderboard import LeaderboardScore
     from screamingface.report import CandidateResult
 
 type ReproductionOutcome = Literal["exact", "failed", "not_reproducible"]
@@ -87,37 +89,39 @@ def _classify(
 def _not_reproducible(score: LeaderboardScore) -> Reproduction | None:
     """The refusal for a score with no complete cache version, before any run (R7).
 
-    A `complete` score with no revision is unknown too: a run without `X-Cache-Replay` would be a
-    normal run, and a replay never pays.
+    INVARIANT: a score that cannot name everything a replay needs is `unknown`. A `complete` score
+    with no revision would run without `X-Cache-Replay`, which is a normal, paid run, and a score
+    with no benchmark revision could never match one.
     """
     if score.reproducible == "partial":
         return Reproduction(outcome="not_reproducible", reason="partial")
-    if score.reproducible is None or score.cache_revision is None:
+    if (
+        score.reproducible is None
+        or score.cache_revision is None
+        or score.benchmark_revision is None
+    ):
         return Reproduction(outcome="not_reproducible", reason="unknown")
     return None
 
 
-def _unsupported(exc: ExecutionError) -> Reproduction:
-    if exc.code != "replay_unsupported":
-        raise exc
-    return Reproduction(outcome="failed", reason="replay_unsupported")
+def _score_argument(score: object) -> LeaderboardScore | UUID | str:
+    if not isinstance(score, LeaderboardScore | UUID | str):
+        raise TypeError("score must be an sf.LeaderboardScore, a UUID or a score id string")
+    return score
 
 
-def _judged(score: LeaderboardScore, result: CandidateResult) -> Reproduction:
-    outcome, reason, missed = _classify(score, result)
-    return Reproduction(outcome=outcome, reason=reason, missed_cases=missed, result=result)
-
-
-def _recorded(reproduction: Reproduction, error: Exception | None) -> Reproduction:
-    if error is None:
-        return replace(reproduction, recorded=True)
-    return replace(reproduction, record_error=str(error))
+def _warn_if_still_running(exc: ExecutionError) -> None:
+    """Tell the user when the stop of an unacknowledged replay failed (its run may still go on)."""
+    if exc.hint is not None:
+        warnings.warn(exc.user_message, EvaluationWarning, stacklevel=4)
 
 
 def reproduce_sync(
     client: Client, score: LeaderboardScore | UUID | str, record: bool
 ) -> Reproduction:
-    selected = score if not isinstance(score, UUID | str) else client.leaderboards.get_score(score)
+    selected = _score_argument(score)
+    if not isinstance(selected, LeaderboardScore):
+        selected = client.leaderboards.get_score(selected)
     reproduction = _not_reproducible(selected) or _replayed_sync(client, selected)
     result = reproduction.result
     if record and reproduction.outcome == "exact" and result is not None:
@@ -136,8 +140,13 @@ def _replayed_sync(client: Client, score: LeaderboardScore) -> Reproduction:
             cache_replay=score.cache_revision,
         )
     except ExecutionError as exc:
-        return _unsupported(exc)
-    return _judged(score, report.candidates[0])
+        if exc.code != "replay_unsupported":
+            raise
+        _warn_if_still_running(exc)
+        return Reproduction(outcome="failed", reason="replay_unsupported")
+    result = report.candidates[0]
+    outcome, reason, missed = _classify(score, result)
+    return Reproduction(outcome=outcome, reason=reason, missed_cases=missed, result=result)
 
 
 def _record_sync(
@@ -150,23 +159,23 @@ def _record_sync(
         client.leaderboards._record_reproduction(
             score.id,
             run_id=result.run_id,
-            # Exact means the replay's numbers equal the stored ones, so these ARE the replay's.
-            score=score.score,
-            total_questions=score.total_questions,
+            # The replay's own numbers. The board compares them with the stored score exactly.
+            score=cast(float, result.score),
+            total_questions=len(result.cases),
             cache_revision=score.cache_revision,
             client=_client_info(),
         )
     except Exception as exc:  # noqa: BLE001 - a failed record never undoes an exact replay (R16)
-        return _recorded(reproduction, exc)
-    return _recorded(reproduction, None)
+        return replace(reproduction, record_error=str(exc))
+    return replace(reproduction, recorded=True)
 
 
 async def reproduce_async(
     client: AsyncClient, score: LeaderboardScore | UUID | str, record: bool
 ) -> Reproduction:
-    selected = (
-        score if not isinstance(score, UUID | str) else await client.leaderboards.get_score(score)
-    )
+    selected = _score_argument(score)
+    if not isinstance(selected, LeaderboardScore):
+        selected = await client.leaderboards.get_score(selected)
     reproduction = _not_reproducible(selected) or await _replayed_async(client, selected)
     result = reproduction.result
     if record and reproduction.outcome == "exact" and result is not None:
@@ -185,8 +194,13 @@ async def _replayed_async(client: AsyncClient, score: LeaderboardScore) -> Repro
             cache_replay=score.cache_revision,
         )
     except ExecutionError as exc:
-        return _unsupported(exc)
-    return _judged(score, report.candidates[0])
+        if exc.code != "replay_unsupported":
+            raise
+        _warn_if_still_running(exc)
+        return Reproduction(outcome="failed", reason="replay_unsupported")
+    result = report.candidates[0]
+    outcome, reason, missed = _classify(score, result)
+    return Reproduction(outcome=outcome, reason=reason, missed_cases=missed, result=result)
 
 
 async def _record_async(
@@ -199,14 +213,14 @@ async def _record_async(
         await client.leaderboards._record_reproduction(
             score.id,
             run_id=result.run_id,
-            score=score.score,
-            total_questions=score.total_questions,
+            score=cast(float, result.score),
+            total_questions=len(result.cases),
             cache_revision=score.cache_revision,
             client=_client_info(),
         )
     except Exception as exc:  # noqa: BLE001 - see the sync twin
-        return _recorded(reproduction, exc)
-    return _recorded(reproduction, None)
+        return replace(reproduction, record_error=str(exc))
+    return replace(reproduction, recorded=True)
 
 
-__all__ = ["Reproduction"]
+__all__ = ["Reproduction", "ReproductionOutcome"]
