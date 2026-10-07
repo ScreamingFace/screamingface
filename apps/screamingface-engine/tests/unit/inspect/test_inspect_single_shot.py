@@ -98,3 +98,27 @@ def test_a_revision_pin_with_a_newline_is_refused() -> None:
 
     with pytest.raises(ValueError, match="newline"):
         _benchmark("nl", revision_pins=("dataset", "rev-a\nsplit=test"))
+
+
+def test_origin_defaults_to_inspect_evals_and_a_local_task_declares_screamingface() -> None:
+    """INVARIANT (OME-1513): a Benchmark that arrives through this assembly is an import unless
+    its row says otherwise — a local Task (our own eval in inspect's shape) is `screamingface`
+    origin, which is what lets it ship with no inspect porter list (provenance rule)."""
+
+    assert _benchmark().benchmark.origin == "inspect_evals"
+    local = single_shot_benchmark(
+        benchmark_key="probe-local",
+        title="Probe",
+        description="One non-comparable structural probe.",
+        focus="Probing",
+        dataset_url="https://example.com/probe",
+        case_count=3,
+        revision_pins=("dataset", "rev-a"),
+        scorer_factory=lambda: None,
+        prepare=lambda out: {},
+        install=lambda node, assets: None,
+        with_check_surface=False,
+        difficulty="easy",
+        origin="screamingface",
+    )
+    assert local.benchmark.origin == "screamingface"

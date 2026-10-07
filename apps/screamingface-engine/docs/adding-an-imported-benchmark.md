@@ -251,6 +251,61 @@ not hours):
     judge round trip `role=judge case=N` — the owner's small paid run verifies both,
     plus judge cost in the report's `cost_usd`.
 
+## Importing a local Task — a Benchmark that is NOT in inspect_evals
+
+The importer takes any `module:task` reference, and a scorer defined in that same module
+resolves. So a Benchmark we author ourselves is written **in inspect's shape** and imported
+like gsm8k — the lane rule in `adding-a-benchmark-manually.md` says this is the default for
+every new Benchmark whose Candidate is called once per Case. MuSiQue-Ans is the worked example
+(`src/screamingface_engine_inspect/local_tasks/musique/`, OME-1513).
+
+What you write — one package under `local_tasks/<name>/`, the same five pieces as an
+inspect_evals eval such as `bbeh/`:
+
+| Piece | Where | What it is |
+|---|---|---|
+| dataset loader | `<name>.py` | a pinned fetch (Hub commit + sha256) rendered into `Sample`s: `input` is the exact Candidate-facing text, `target` the answer key (a list when there are aliases), `metadata` whatever the scorer needs |
+| scorer(s) | `<name>.py` | `@scorer` functions, `(state, target) -> Score`; several scorers = several Named Scores, the first is the Headline |
+| the Task | `<name>.py` | `@task def <name>() -> Task(dataset=…, solver=generate(), scorer=[…])` |
+| vendored grading code | `vendor/` | the paper's own scorer when it has one, copied byte-for-byte with its licence and a sha256 test (`test_local_task_musique_vendor.py` is the template) |
+| the card | `README.md` | dataset, prompt, scoring, baselines, how to run |
+
+Then run the importer on it and fill the generated rows exactly as for an import:
+
+```sh
+uv run python -m screamingface_engine_inspect.importer \
+    screamingface_engine_inspect.local_tasks.<name>.<name>:<name> --key <name>
+```
+
+Three things differ from an inspect_evals import:
+
+- **Origin.** The generated `BenchmarkSpec` row gets `origin="screamingface"`: the Benchmark is
+  ours, and the provenance rule then asks it for no `inspect_contributors`. Leave the default
+  (`inspect_evals`) only for evals that really came from inspect_evals.
+- **Provenance is hand-written.** There is no `eval.yaml` to read, so every TODO (paper,
+  authors, citation, licence, baselines, difficulty) is yours to fill from the paper and the
+  reference harness. Registration refuses the row until every TODO is gone.
+- **A scorer that reads Sample metadata must tolerate its absence** (`state.metadata.get(...)`).
+  The no-network grading lane runs every judge-less Benchmark over stand-in Cases that carry no
+  metadata; a `KeyError` there shows as a grading failure on a Benchmark that grades fine in
+  production.
+
+The hand-built lane stays only for a Benchmark whose Candidate must be called more than once
+per Case: capture runs the Task's solvers up to their first `generate`, so a second prompt
+that contains the first reply cannot be captured. Several *independent* attempts per Case
+(pass@k, `Task.epochs`) are a different thing and are decided in `OME-1458`.
+
+### Two network gotchas on a developer Mac
+
+Seen on 2026-10-07; neither is a repo change.
+
+- The Hugging Face hub client can stall mid-file (10 of 30 MB, then nothing) while plain
+  `curl` fetches the same URL in seconds. `HF_HUB_DISABLE_XET=1` makes the client use the plain
+  download path.
+- The importer parent can hang in `SYN_SENT` on an IPv6 connection to the Hub's CDN. Put a
+  `sitecustomize.py` on `PYTHONPATH` that filters `socket.getaddrinfo` results to `AF_INET`;
+  the replay child inherits the environment, so one shim covers both.
+
 ## When the tool refuses
 
 Every refusal is an `ImporterError` that names the fact that stopped it. The rule

@@ -1211,6 +1211,23 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         },
         license="mit",
     ),
+    # musique — imported by Task replay on 2026-10-07 from
+    #   screamingface_engine_inspect.local_tasks.musique.musique:musique.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face dgslibisey/MuSiQue/musique_ans_v1.0_dev.jsonl
+    #     pin revision c8f4f8c9465fb69d31a8eae894c3fd509c4ca321
+    "musique": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.musique.musique:musique",
+        case_count=2417,
+        case_digest="87be73c7a02de7f7b323b3545d08a7a49d9b85d9ea7bcad05bd2cdf3d19261d4",
+        case_set_digest="74aaf04630430866326780fff8a6fa582ede7b0ce0f26f93afe887aea68e005d",
+        keep_sample_metadata=True,
+        source_pins={
+            "dgslibisey/MuSiQue": "c8f4f8c9465fb69d31a8eae894c3fd509c4ca321",
+        },
+        # CC BY 4.0 per the authors' repo; the mirror ships no card (OME-1513).
+        license="cc-by-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

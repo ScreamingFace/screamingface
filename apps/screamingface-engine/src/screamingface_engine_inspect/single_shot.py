@@ -41,6 +41,7 @@ from screamingface_engine.benchmarks.contract import (
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
+    BenchmarkOrigin,
     DifficultyTier,
     DraftFeedbackOffer,
     candidate,
@@ -233,6 +234,7 @@ def single_shot_benchmark(
     verdict_grades: Mapping[str, float] | None = None,
     extra_scorer_factories: Sequence[Callable[[], Any]] = (),
     named_scores: Sequence[str] = (),
+    origin: BenchmarkOrigin = "inspect_evals",
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -342,11 +344,13 @@ def single_shot_benchmark(
         description=description,
         revision=revision,
         case_count=case_count,
-        # WHY explicit: `origin` defaults to "screamingface", which is true for every
-        # benchmark authored in this repo and wrong for every benchmark that arrives through
-        # here. The listing groups by this field (OME-1114), so a defaulted row hides
-        # the imported shelf inside our own group.
-        origin="inspect_evals",
+        # WHY explicit: `Benchmark.origin` defaults to "screamingface", which is wrong for
+        # every eval that arrives through here from inspect_evals — the listing groups by this
+        # field (OME-1114), so a defaulted row would hide the imported shelf inside our own
+        # group. A LOCAL Task (our own eval in inspect's shape, OME-1513) is the one caller
+        # that passes "screamingface": it is ours, and the provenance rule then asks it for no
+        # inspect porter list.
+        origin=origin,
         # FEATURE: the researcher-visible refusal-rate mark (OME-1400) — the same flag the
         # scorer adapter flips on, published so report.json can show it.
         inverted_grade=inverted_grade,

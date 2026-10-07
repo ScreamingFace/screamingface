@@ -38,6 +38,7 @@ from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES  # noqa: E402
 #: lets a fusion re-word a draft until it slips past).
 _EXPECTED_FAMILIES: dict[str, str] = {
     "gsm8k": "free_text",
+    "musique": "free_text",  # OME-1513: a local Task, served like any free-text import
     "mmlu": "mcq",
     "arc_easy": "mcq",
     "arc_challenge": "mcq",
@@ -154,7 +155,19 @@ def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() ->
         registration.benchmark.id: registration.benchmark.origin
         for registration in benchmark_registrations()
     }
-    assert set(origins.values()) == {"inspect_evals"}, origins
+    # OME-1513: a LOCAL Task — our own eval in inspect's shape under `local_tasks/`, fed to
+    # the same importer — is the one row that says "screamingface": it is ours, not brought
+    # in. The origin must match where the task code lives, both ways.
+    expected = {
+        f"inspect-{spec.key}": (
+            "screamingface"
+            if TASK_REPLAY_CASES[spec.key].task.startswith("screamingface_engine_inspect.")
+            else "inspect_evals"
+        )
+        for spec in BENCHMARKS
+    }
+    assert origins == expected, origins
+    assert "screamingface" in origins.values() and "inspect_evals" in origins.values()
 
 
 def test_benchmark_revisions_are_distinct() -> None:

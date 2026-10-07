@@ -1,0 +1,78 @@
+---
+ticket: OME-1513
+stack: screamingface-engine
+status: done
+started: 2026-10-07
+finished: 2026-10-07
+---
+
+# OME-1513-pr1-musique-local-task — MuSiQue-Ans as the first local inspect Task
+
+## Intent
+
+Serve MuSiQue-Ans through the import lane from a Task we author ourselves (not in
+inspect_evals), proving the lane rule "a new Benchmark is one Task file" on a real
+Benchmark, and folding in the two things the 2026-10-07 spike (`spike-musique-local-task`,
+`aaba12596`) found missing: a row-level `origin` so a local Task needs no inspect porter
+list, and a scorer that tolerates absent Sample metadata.
+
+## Planned changes
+
+- `src/screamingface_engine_inspect/local_tasks/__init__.py`, `local_tasks/musique/__init__.py`
+- `src/screamingface_engine_inspect/local_tasks/musique/musique.py` — the Task (loader, reply
+  reader, three scorers, `@task`)
+- `src/screamingface_engine_inspect/local_tasks/musique/vendor/` — the paper's scorer, copied
+  verbatim from StonyBrookNLP/musique@922ac98f (CC BY 4.0) with its LICENSE
+- `src/screamingface_engine_inspect/local_tasks/musique/README.md` — bbeh-style card
+- `src/screamingface_engine_inspect/benchmarks.py` — `BenchmarkSpec.origin` (default
+  `inspect_evals`), the generated `musique` row with origin `screamingface`
+- `src/screamingface_engine_inspect/single_shot.py` — `origin` parameter passed through
+- `src/screamingface_engine_inspect/prepare.py` — the generated `musique` Task-replay row
+- `tests/unit/inspect/test_local_task_musique.py` — new
+- `tests/unit/inspect/test_benchmark_declaration.py`, `test_inspect_imported_benchmarks.py`,
+  `test_published_revisions.py` — one table row each
+- `docs/adding-a-benchmark-manually.md`, `docs/adding-an-imported-benchmark.md` — lane rule,
+  local-Task recipe, network gotchas
+- `docs/tasks/2026-10-07-OME-1513-local-task-benchmarks.md` — mirror
+
+## Test plan
+
+- RED: `test_local_task_musique.py`
+  - conservation: the Benchmark's grade hook returns, for three canned replies, exactly the
+    numbers the paper's own `AnswerMetric` / `SupportMetric` give (happy, partial, no labels)
+  - the reply reader: last label wins, markdown-wrapped label, label alone on its line,
+    no label at all, labels in either order
+  - prompt bytes: a synthetic row renders to a pinned literal
+  - absent Sample metadata grades (support F1 0.0), never raises
+  - the row declares origin `screamingface`, no porter list, and `provenance_gaps` is empty
+  - Named Scores in the published order, answer F1 the headline
+- RED: `BenchmarkSpec(origin="screamingface")` assembles a Benchmark whose `origin` is
+  `screamingface`; the default stays `inspect_evals`
+- Table rows: declaration policy, family, published revision literal
+
+## Acceptance
+
+- `inspect-musique` registers from the local Task with 3 Named Scores; prepare matches the
+  Case Digest; the inspect lane and the Engine gate are green
+- Both onboarding docs carry the lane rule and the local-Task recipe
+- No hand-built `benchmarks/musique/` folder exists
+
+## Outcome (fill at the end — required before COMMIT)
+
+- **Actual files:** as planned, plus `pyproject.toml` (vendor dir excluded from ruff, format and
+  coverage), `tests/unit/inspect/test_local_task_musique_vendor.py` (the vendored scorer's
+  sha256 pins, ported from the closed hand-built PR) and
+  `.claude/test-change-approvals/OME-1513.json` (one amended assertion + two table rows).
+- **Commits:** see the PR; one squash.
+- **Gates:** `run_gates.py screamingface-engine` ALL GREEN (append-only with the OME-1513
+  approval, ruff, format, pyright, layering, pytest with coverage ≥ 80); inspect lane 1,280 passed
+  on the way.
+- **Deviations:** the prior assertion "every plugin benchmark came from inspect_evals" is
+  amended to "origin matches where the task code lives, both ways" — a Confidence-Gate edit,
+  pinned in the approval file and flagged in the PR for the owner to confirm. The importer was
+  run twice (spike path, then final path); only the final rows ship. Network workarounds
+  (`HF_HUB_DISABLE_XET=1`, IPv4-only name resolution) were needed on the dev Mac and are
+  documented, not coded.
+- **Owner-verify:** one paid run of a solo Candidate on `inspect-musique` to see real numbers
+  beside the 0.692 Frontier Score; the amended assertion in
+  `test_inspect_imported_benchmarks.py`.

@@ -27,7 +27,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, cast
 
-from screamingface_engine.benchmarks.definition import DifficultyTier
+from screamingface_engine.benchmarks.definition import BenchmarkOrigin, DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
 from screamingface_engine.benchmarks.provenance import (
     PROVENANCE_FIELD_NAMES,
@@ -104,6 +104,11 @@ class BenchmarkSpec:
     authors: str | None = None
     citation: str | NotPublished | None = None
     inspect_contributors: tuple[str, ...] | None = None
+    #: Who authored the eval this row serves. `inspect_evals` for every import; `screamingface`
+    #: for a LOCAL Task — an eval we wrote in inspect's shape under `local_tasks/` and fed to
+    #: the same importer (OME-1513). A local row has no inspect porters to credit, and the
+    #: provenance rule asks `screamingface`-origin Benchmarks for none.
+    origin: BenchmarkOrigin = "inspect_evals"
     homepage_url: str | None = None
     harness_url: str | None = None
     license: str | NotPublished | None = None
@@ -3874,6 +3879,84 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
     ),
+    BenchmarkSpec(
+        key="musique",
+        title="MuSiQue-Ans",
+        description=(
+            "2,417 multi-hop reading questions from the MuSiQue-Ans dev split (the test split's "
+            "answers are withheld). Each question chains 2 to 4 facts, each fact sits in a "
+            "different paragraph, and the model is given 17 to 20 numbered paragraphs, most of "
+            "them decoys chosen to look relevant. It may reason first, then must end its reply "
+            'with two lines: "Supporting paragraphs:" (the numbers of the paragraphs it used) '
+            'and "Answer:" (the answer in as few words as possible). Grading is the paper\'s own '
+            "scoring code, copied verbatim, so there is no Judge and no grading tokens. Three "
+            "Named Scores per run: answer F1, the headline (token F1 against the answer and its "
+            "accepted aliases), exact match, and support F1 (F1 of the cited paragraph numbers "
+            "against the gold ones). A reply missing either line is still graded. The Frontier "
+            "Score, 0.692 answer F1, is a fine-tuned retrieval pipeline's result on the test "
+            "split, not a prompted model on dev, so our runs sit beside it rather than on the "
+            "same scale. The dev set has been public since 2022 and may be in a model's training "
+            "data. Offers mid-run Draft Feedback (free-form answers)."
+        ),
+        focus="Multi-hop reading over decoy-filled paragraphs",
+        dataset_url="https://huggingface.co/datasets/dgslibisey/MuSiQue",
+        # Frontier models still visibly fail multi-hop composition over decoys (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.musique.musique:musique — a LOCAL Task
+        #   (OME-1513): our own eval in inspect's shape, so there is no eval.yaml and no inspect
+        #   porter to credit; every field below was written by hand from the paper and the
+        #   reference harness.
+        origin="screamingface",
+        paper_url="https://aclanthology.org/2022.tacl-1.31/",
+        authors="Trivedi et al., 2022",
+        citation=(
+            "@article{trivedi-etal-2022-musique,\n"
+            '    title = "{M}u{S}i{Q}ue: Multihop Questions via Single-hop Question Composition",\n'
+            '    author = "Trivedi, Harsh and Balasubramanian, Niranjan and Khot, Tushar and '
+            'Sabharwal, Ashish",\n'
+            '    journal = "Transactions of the Association for Computational Linguistics",\n'
+            '    volume = "10",\n'
+            '    year = "2022",\n'
+            '    publisher = "MIT Press",\n'
+            '    url = "https://aclanthology.org/2022.tacl-1.31/",\n'
+            '    doi = "10.1162/tacl_a_00475",\n'
+            '    pages = "539--554",\n'
+            "}"
+        ),
+        homepage_url="https://github.com/StonyBrookNLP/musique",
+        harness_url=(
+            "https://github.com/StonyBrookNLP/musique/tree/922ac98f19a201998dbdae6d7f2887a5258dbdeb"
+        ),
+        license="CC-BY-4.0",
+        license_note=(
+            "MuSiQue data and code are CC BY 4.0; Cases are served from the dgslibisey/MuSiQue "
+            "mirror, whose dev file is byte-identical to the authors' Google Drive zip "
+            "(sha256-checked at every build)."
+        ),
+        # Human answer F1 on 125 sampled questions (TACL 2022, Table 3).
+        human_baseline=HumanBaseline(
+            score=0.78, source_url="https://aclanthology.org/2022.tacl-1.31/"
+        ),
+        # Best published answer F1 on the TEST split, a fine-tuned retrieval pipeline
+        # (Beam Retrieval, NAACL 2024) — not a prompted model on dev; see the description.
+        frontier_score=FrontierScore(
+            score=0.692,
+            model="Beam Retrieval (DeBERTa-large, beam size 2)",
+            source_url="https://aclanthology.org/2024.naacl-long.96/",
+            as_of="2024-06",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        scorer="screamingface_engine_inspect.local_tasks.musique.musique:musique_answer_f1",
+        extra_scorers=(
+            "screamingface_engine_inspect.local_tasks.musique.musique:musique_answer_em",
+            "screamingface_engine_inspect.local_tasks.musique.musique:musique_support_f1",
+        ),
+        named_scores=("musique_answer_f1", "musique_answer_em", "musique_support_f1"),
+        # Free-form answers make mid-run feedback legitimate (spec §4);
+        # MCQ benchmarks must NOT set this (OME-796).
+        with_check_surface=True,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
@@ -3933,6 +4016,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         judge=spec.judge,
         inverted_grade=spec.inverted_grade,
         verdict_grades=spec.verdict_grades,
+        origin=spec.origin,
         **_provenance_of(spec),
     )
 

@@ -1,9 +1,18 @@
 # Adding a benchmark manually
 
-> **Importing an existing inspect_evals benchmark instead?** That is a data
-> operation, not an authoring project — see
-> [`adding-an-imported-benchmark.md`](adding-an-imported-benchmark.md). This guide
-> is for benchmarks we author ourselves (novel datasets, novel grading).
+> **Read this first — the lane rule (OME-1513).** A new Benchmark is a **local inspect
+> Task** — one file in inspect's shape (dataset loader, scorer, `@task`) under
+> `src/screamingface_engine_inspect/local_tasks/<name>/`, fed to the same importer that
+> imports inspect_evals — **unless the Candidate must be called more than once per Case**
+> (medxpert's reason-then-commit exchange; draco's passes). Only that case is a hand-built
+> folder, and only that case is what this guide is for. Everything else, whether or not it
+> exists in inspect_evals, goes through
+> [`adding-an-imported-benchmark.md`](adding-an-imported-benchmark.md) ("Importing a local
+> Task"). MuSiQue-Ans (`local_tasks/musique/`) is the worked example: 180 lines, three Named
+> Scores, no routes, no envelope, no revision function.
+>
+> **Importing an existing inspect_evals benchmark?** Same doc — that is a data operation,
+> not an authoring project.
 
 **TLDR: a benchmark is an exam, and you only author the exam-specific parts. You bring
 the question paper (dataset mapping), the rule for grading one answer (`grade_case`),
