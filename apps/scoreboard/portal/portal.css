@@ -262,10 +262,24 @@ table .btn { white-space: nowrap; }
    open-arrow and the best-reproducible figure; blue (the always-blue --info role, since --accent is
    gold in the marketing register) carries interaction — plain content links (`:not([class])`, so the
    card and button links are untouched) and the card hover edge. The card accents and hover live in
-   the card rules above (card-only, landing-only already). */
+   the card rules above (card-only, landing-only already). The About page (also `.landing`) inherits
+   these. */
 .landing .eyebrow { color: var(--gain-text-low); }
 .landing a:not([class]) { color: var(--info-text-low); }
 .landing a:not([class]):hover { color: var(--info-text-high); }
+
+/* ---- about page ------------------------------------------------------ */
+/* Sections under a gold .section-label, prose at a readable measure, with the Thesis "needs to"
+   list as square bullets and section links as .btn--link. Reuses the landing hero + .section-label. */
+.about-section { margin: 0 0 var(--space-9); }
+.about-section > .section-label { margin-bottom: var(--space-4); }
+.about-section p { max-width: 66ch; margin: 0 0 var(--space-5); line-height: 1.65; color: var(--ink-2); }
+.about-section p:last-child { margin-bottom: 0; }
+.about-bullets { max-width: 68ch; margin: var(--space-2) 0 0; padding-left: var(--space-5); list-style: square; color: var(--ink); }
+.about-bullets li { margin-bottom: var(--space-3); line-height: 1.55; color: var(--ink-2); }
+.about-bullets li:last-child { margin-bottom: 0; }
+.about-bullets li::marker { color: var(--ink-3); }
+.about-links { display: flex; flex-wrap: wrap; gap: var(--space-5); margin: var(--space-5) 0 0; }
 
 /* The catalogue is led by ONE small, subtle label — the same treatment as the hero eyebrow
    ("SCREAMINGFACE · OPEN LEADERBOARD"), not a big heading. It stays a semantic <h2> for

@@ -55,6 +55,25 @@ def test_portal_pages_include_plausible_analytics(tmp_path: Path) -> None:
             assert "plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js" in response.text, path
 
 
+def test_about_page_is_public_structured_and_linked(tmp_path: Path) -> None:
+    """A short About page, public, with its four sections, and linked from the rail on every page.
+
+    Its sections are Thesis, How it works, Contribute, and Who builds this — the home for the
+    composition / reproducibility / openness framing that would otherwise be scattered.
+    """
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        about = client.get("/about.html")
+        assert about.status_code == 200
+        # Public analytics, like the other pages.
+        assert "plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js" in about.text
+        # The section labels.
+        for label in ("Thesis", "How it works", "Contribute", "Who builds this"):
+            assert label in about.text, label
+        # Reachable from the rail on every portal page.
+        for path in ("/about.html", "/index.html", "/benchmark.html", "/spec.html", "/data.html"):
+            assert 'href="about.html"' in client.get(path).text, path
+
+
 def test_api_routes_remain_public_before_root_static_mount(tmp_path: Path) -> None:
     with TestClient(create_app(_settings(tmp_path))) as client:
         assert client.get("/healthz").status_code == 200
