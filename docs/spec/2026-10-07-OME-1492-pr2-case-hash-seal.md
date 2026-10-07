@@ -82,6 +82,11 @@ flowchart TB
   fingerprint lists and deferred until someone needs it.
 - **A hand-edited seal goes stale.** Re-sealing a Benchmark by editing `case_digest` without
   re-running the import leaves the old `case_set_digest`; the importer always writes both together.
+- **A reshuffle of a Case's answer options reads as "text changed".** The six lab_bench
+  declarations force a `choice_shuffle_seed`, which orders the options inside each Case's prompt.
+  If that order moves, every Case's own text moves with it, so the order-blind seal breaks too.
+  Accepted: the options a Candidate sees did change, and the seed is printed in the bundle's
+  provenance block to check first.
 
 ## Acceptance
 

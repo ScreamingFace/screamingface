@@ -73,3 +73,15 @@ def test_a_row_sealed_before_the_case_set_digest_adds_nothing() -> None:
     )
 
     assert what_moved(unsealed, _SWAPPED) == ""
+
+
+def test_a_duplicated_case_counts_every_time_it_appears() -> None:
+    """INVARIANT: the seal counts copies, not only which Cases exist. Some datasets repeat a
+    row; a rewrite that turns [A, A, B] into [A, B, B] holds the same distinct Cases, so a
+    seal that dropped copies would read "order only" and hide a changed Case."""
+    six, two = ("What is 6 times 7?", "42"), ("What is 2 plus 2?", "4")
+    sealed: list[PreparedCase] = [_case(1, *six), _case(2, *six), _case(3, *two)]
+    rewritten: list[PreparedCase] = [_case(1, *six), _case(2, *two), _case(3, *two)]
+
+    assert case_set_digest(rewritten) != case_set_digest(sealed)
+    assert what_moved(_sealed(sealed), rewritten) == " — same count, different Cases: text changed"

@@ -227,6 +227,13 @@ The sha256 of an Imported Benchmark's prepared Cases, fixed at import and checke
 Preparation. A different digest means different Cases, so none are served.
 _Avoid_: Snapshot hash, checksum
 
+**Case Set Digest**:
+A second sha256 of an Imported Benchmark's prepared Cases, taken with their order ignored and
+stored beside the Case Digest. It is only read when the Case Digest breaks, to say whether the
+same Cases came back in another order or their text changed. It is not part of the Benchmark
+Revision.
+_Avoid_: Order-blind seal, multiset hash
+
 **Bundle Provenance**:
 The label Case Preparation writes beside a Benchmark's prepared Cases (`provenance.json`): the Case
 Sources it read with their pins, any seed it forced, how many Samples it loaded, excluded and

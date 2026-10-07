@@ -50,5 +50,10 @@ changed", never any Case text. Spec: `docs/spec/2026-10-07-OME-1492-pr2-case-has
     the "order only vs text changed" answer for 57 lines.
   - A Case's `id` and `case_id` are its serving position, so they're excluded from the content
     hashed; the stand-in reorder test caught this.
+  - Review fixes (2026-10-07, one commit): a test that a repeated Case counts every time it
+    appears ([A, A, B] vs [A, B, B] reads "text changed"; a mutation that drops copies fails it);
+    the lab_bench choice-shuffle caveat in the spec's limitations and the import doc; runbook
+    wording for both explanations in `adding-an-imported-benchmark.md`; a Case Set Digest
+    glossary entry; the mirror's PR 2 line no longer promises a per-Case list.
 - **Owner-verify:** none beyond PR 1's next paid press; a broken seal needs a dependency bump to
   observe live.

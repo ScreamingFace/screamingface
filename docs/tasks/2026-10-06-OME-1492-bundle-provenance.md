@@ -15,7 +15,9 @@ Three PRs (owner call 2026-10-06):
 
 1. The provenance block for the Imported Benchmarks: `provenance.json` in each bundle, the
    summary line, and the paid smoke's "Where the Cases came from" table.
-2. The per-Case hash list sealed at import and the mismatch explainer.
+2. An order-blind Case Set Digest sealed at import beside the Case Digest, so a broken seal
+   says "same Cases in another order" or "text changed" (owner call 2026-10-07: no per-Case
+   list).
 3. A provenance block from each of the six hand-built preparers, and the Benchmark-to-bundle
    mapping the overview needs for shared bundles.
 
