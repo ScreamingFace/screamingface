@@ -34,6 +34,7 @@ const publish = `report = sf.evaluate(candidate, benchmark="ifeval", limit=3)
 sf.leaderboards.submit(
     report.candidates.only,
     authors=["alice@example.com", "bob@example.org"],
+    paper_url="https://arxiv.org/abs/2601.00001",
 )
 
 # or publish every candidate in the report
@@ -43,8 +44,27 @@ const fetchScore = `score = sf.leaderboards.get_score("57cc25d7-00bf-44ec-bf9d-5
 score.score, score.authors, score.verified_by_screamingface`
 const fetchScoreOut = `(1.0, ('alice', 'bob'), False)`
 
+const editScore = `score = sf.leaderboards.edit(
+    score.id,
+    authors=["alice@example.com", "carol@example.org"],
+    paper_url="https://arxiv.org/abs/2601.00001",
+)
+score.paper_url, score.metadata_updated_at
+
+# remove the paper link; leave authors as they are
+sf.leaderboards.edit(score.id, paper_url=None)`
+
+const editLog = `for event in sf.leaderboards.metadata_events(score.id):
+    print(event.edited_at, event.source, event.old_paper_url, "->", event.new_paper_url)`
+
 const remix = `plan = score.url4.to_python()   # Model / Fusion / Pipeline, free
-sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
+sf.evaluate(score.url4)        # a new paid run; omit benchmark= and limit=`
+
+const reproduce = `reproduction = sf.reproduce(score)   # or sf.reproduce(score.id)
+reproduction.outcome, reproduction.reason
+
+# replay without recording it on the board
+sf.reproduce(score, record=False)`
 </script>
 
 <template>
@@ -84,7 +104,11 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
       <li>List the benchmarks registered as leaderboards.</li>
       <li>Fetch one board's ranked entries and any imported single-model baselines.</li>
       <li>Publish an evaluated <code>CandidateResult</code> as a new score.</li>
+      <li>Add a paper link when you publish, and edit the authors and the paper link later.</li>
       <li>Look up one published score by id and reuse its <code>url4</code>.</li>
+      <li>
+        Replay a published score from its cache, at no provider cost, and record that it held.
+      </li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -113,11 +137,14 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
           </td>
         </tr>
         <tr>
-          <td><code>sf.leaderboards.submit(candidate_result, *, authors=None)</code></td>
+          <td>
+            <code>sf.leaderboards.submit(candidate_result, *, authors=None, paper_url=None)</code>
+          </td>
           <td>
             Publishes one evaluated <code>CandidateResult</code>. The Client derives benchmark id,
             spec id, url4, the benchmark-native score, providers, and the idempotency key from that
-            result. An optional author list supplies the exact credit line.
+            result. An optional author list supplies the exact credit line. An optional
+            <code>paper_url</code> links the paper.
           </td>
         </tr>
         <tr>
@@ -125,13 +152,35 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
           <td>Loads one public <code>LeaderboardScore</code> by UUID (or its string form).</td>
         </tr>
         <tr>
+          <td><code>sf.leaderboards.edit(score_id, *, authors=..., paper_url=...)</code></td>
+          <td>
+            Changes the authors or the paper link of a score you submitted. Returns the updated
+            <code>LeaderboardScore</code>. Only the submitter can do this.
+          </td>
+        </tr>
+        <tr>
+          <td><code>sf.leaderboards.metadata_events(score_id)</code></td>
+          <td>
+            Reads the edit log of a score you submitted, newest first, as
+            <code>ScoreMetadataEvent</code> values. Only the submitter can read it.
+          </td>
+        </tr>
+        <tr>
+          <td><code>sf.reproduce(score, *, record=True)</code></td>
+          <td>
+            Replays a published score from its cache version and returns a
+            <code>Reproduction</code>. An exact replay is recorded on the score unless you pass
+            <code>record=False</code>.
+          </td>
+        </tr>
+        <tr>
           <td>
             <code>LeaderboardEntry</code> · <code>LeaderboardScore</code> ·
-            <code>LeaderboardBaseline</code>
+            <code>LeaderboardBaseline</code> · <code>ScoreMetadataEvent</code>
           </td>
           <td>
-            The public value types: a ranked row, a persisted submission, and an imported
-            single-model line to beat.
+            The public value types: a ranked row, a persisted submission, an imported single-model
+            line to beat, and one row of a score's edit log.
           </td>
         </tr>
       </tbody>
@@ -215,6 +264,14 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
       ownership or access to a private submission.
     </p>
 
+    <p>
+      Pass <code>paper_url="https://…"</code> to link the paper that reports the result. It must be
+      an <code>http</code> or <code>https</code> link of at most 2048 characters, with a host, no
+      spaces and no user info. The Client checks it before HTTP. The leaderboard does not check that
+      the link is real or that the authors wrote the paper. If you have no paper yet, leave the
+      argument out and add the link later with <code>edit</code>.
+    </p>
+
     <div class="not-prose">
       <NbCell :count="5" :code="publish" />
     </div>
@@ -222,12 +279,14 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     <p>
       The Client posts <code>score</code>, <code>total_questions</code>, the compiled
       <code>url4_expression</code>, provider names, required <code>run_cost_usd</code>, optional
-      authors, and client metadata. Direct submissions require a non-null run cost; a genuine fully
-      cached run sends zero, while imported and historical rows may still display an unknown cost.
-      The <code>Idempotency-Key</code> header is the candidate's <code>run_id</code>, so a retry of
-      the same run reuses the original score instead of inserting a duplicate. A resubmission by
-      the same submitter can correct its author list. If another correction wins the same race,
-      the Client reports a retryable conflict; retry the submission.
+      authors, the optional paper link, and client metadata. When the run has them, it also posts
+      the run's cache revision, its <code>reproducible</code> status and its answer seed. They are
+      what <code>sf.reproduce</code> needs later. Direct submissions require a non-null run cost; a
+      genuine fully cached run sends zero, while imported and historical rows may still display an
+      unknown cost. The <code>Idempotency-Key</code> header is the candidate's <code>run_id</code>,
+      so a retry of the same run reuses the original score instead of inserting a duplicate. A
+      resubmission by the same submitter can correct its author list or its paper link. If another
+      correction wins the same race, the Client reports a retryable conflict; retry the submission.
     </p>
 
     <p>
@@ -255,19 +314,112 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
       trust a number you did not produce yourself.
     </p>
 
-    <h3>6 · Remix or replay from the board</h3>
+    <h3>6 · Edit what you submitted</h3>
+
+    <p>
+      You can change the authors and the paper link of a score after you publish it. Only the
+      verified submitter can do this. Another caller gets a
+      <RouterLink to="/sf-client/api/errors"><code>LeaderboardError</code></RouterLink
+      >. Each argument you leave out stays as it is, and you must pass at least one.
+    </p>
 
     <div class="not-prose">
-      <NbCell :count="7" :code="remix" />
+      <NbCell :count="7" :code="editScore" />
     </div>
 
     <p>
+      A new <code>authors</code> list replaces the old one exactly. It follows the same rules as on
+      <code>submit</code>. You cannot clear it. To go back to the default credit line, pass the
+      submitter's own address. <code>paper_url=None</code> removes the paper link. An edit that
+      changes nothing writes no log entry.
+    </p>
+
+    <p>
+      Every change goes into an edit log. The log holds the old and new values, so it can hold
+      author emails that you removed on purpose. For this reason only you can read it, and a
+      resubmission by you also writes to it. The newest entry comes first.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="8" :code="editLog" />
+    </div>
+
+    <h3>7 · Reproduce a score, or remix it</h3>
+
+    <p>
+      A score keeps the cache version of the run behind it. <code>sf.reproduce</code> runs the
+      score's <code>url4</code> again with that cache version and the stored answer seed. The
+      <RouterLink to="/learn/caching">cache</RouterLink> answers every call, and a call it cannot
+      answer fails. So a replay costs no provider spend. It never starts a normal run.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="9" :code="reproduce" />
+    </div>
+
+    <p>
+      <code>sf.reproduce</code> accepts a <code>LeaderboardScore</code> or its id. It returns a
+      <code>Reproduction</code>. A replay that does not match is a value, not an exception. Read
+      <code>outcome</code> first:
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th><code>outcome</code></th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>exact</code></td>
+          <td>
+            The replay gave the stored score and the same number of cases, on the same benchmark
+            revision.
+          </td>
+        </tr>
+        <tr>
+          <td><code>failed</code></td>
+          <td>
+            The replay ran, or tried to, and did not match. <code>reason</code> says why. When the
+            cache could not answer some calls, <code>missed_cases</code> lists their case ids.
+          </td>
+        </tr>
+        <tr>
+          <td><code>not_reproducible</code></td>
+          <td>
+            The score has no complete cache version, so no run started. <code>reason</code> is
+            <code>partial</code> or <code>unknown</code>.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      Only an exact replay is recorded. The Client sends the replay's run id, score and cache
+      revision to the leaderboard, which checks that they match the stored score. Hosted deployments
+      need a verified identity to record. There is no limit: each exact replay adds one record. The
+      score's page on the portal shows "Reproduced N times", and
+      <code>reproduction_count</code> and <code>last_reproduced_at</code> hold the same facts on
+      <code>LeaderboardScore</code>. If the record fails, the outcome stays <code>exact</code>,
+      <code>recorded</code> is <code>False</code>, and <code>record_error</code> says why. The
+      <RouterLink to="/sf-client/api/leaderboards"><code>Reproduction</code> reference</RouterLink>
+      lists every field and reason. The caching guide explains
+      <RouterLink to="/learn/caching">why a score can be partial</RouterLink>.
+    </p>
+
+    <p>
+      To change the recipe instead of checking it, remix it.
       <code>url4.to_python()</code> is local and free. Passing the same <code>url4</code> to
       <RouterLink to="/sf-client/guides/running-an-evaluation"><code>sf.evaluate</code></RouterLink>
       is a new paid run. The expression is already linked to its benchmark, so do not pass
       <code>benchmark=</code> or <code>limit=</code> again. Model output can move; the recipe
       identity does not.
     </p>
+
+    <div class="not-prose">
+      <NbCell :count="10" :code="remix" />
+    </div>
 
     <h2>What "verified" means here</h2>
 
