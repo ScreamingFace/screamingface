@@ -33,3 +33,7 @@ Ledger: `docs/work/2026-10-05-proven-zero-retry-accounting.md`.
   mutation occurred.
 - 2026-10-07: the verified implementation is captured by this branch commit. A fresh post-commit
   review follows from the immutable commit diff; the paid/live smoke remains separately authorized.
+- 2026-10-07: final PR review corrections recursively close nested/malformed charge evidence, scope
+  duplicate-key ambiguity without discarding unrelated measured cost, and add a versioned marker for
+  the new closed-enum status. Full gates and two independent final reviews are green; PR #1296 remains
+  open and the paid/live smoke remains separately authorized.

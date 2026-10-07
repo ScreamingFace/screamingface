@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://screamingface.ai/schemas/aigw-usage-accounting.json",
+  "$id": "https://screamingface.ai/schemas/aigw-usage-accounting.v2.json",
   "title": "AIGateway usage accounting metadata",
   "type": "object",
   "additionalProperties": false,
@@ -212,7 +212,7 @@
         "provider_extensions_truncated", "redirect_hop_count", "failure_code"
       ],
       "properties": {
-        "schema": {"const": "aigw.provider_attempt"},
+        "schema": {"enum": ["aigw.provider_attempt", "aigw.provider_attempt.v2"]},
         "attempt_id": {"type": "string", "pattern": "^attempt_[0-9a-f]{32}$"},
         "sequence": {"type": "integer", "minimum": 1},
         "dispatch_index": {"type": "integer", "minimum": 1},
@@ -251,7 +251,21 @@
             {"type": "null"}
           ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "direct_cost": {
+                "properties": {"status": {"const": "provider_guaranteed_zero"}},
+                "required": ["status"]
+              }
+            }
+          },
+          "then": {"properties": {"schema": {"const": "aigw.provider_attempt.v2"}}},
+          "else": {"properties": {"schema": {"const": "aigw.provider_attempt"}}}
+        }
+      ]
     },
     "cache_reference": {
       "type": "object",

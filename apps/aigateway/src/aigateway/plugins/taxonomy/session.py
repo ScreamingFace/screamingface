@@ -285,7 +285,7 @@ def finalize_provider_evidence(
             continue
         try:
             supplement = getattr(plugin, "supplement_chat_usage_accounting", None)
-            if callable(supplement):
+            if callable(supplement) and collector.evidence_is_complete(call_id):
                 supplemented = supplement(
                     evidence=evidence,
                     raw_response=raw_evidence,

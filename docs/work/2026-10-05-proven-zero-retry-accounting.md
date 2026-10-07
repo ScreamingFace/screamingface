@@ -110,13 +110,35 @@ Tests: `test_openrouter_proven_zero_strict_evidence.py` (RED 10 failed, 2 contro
 fix), including an installed LiteLLM/httpx retry with the duplicate-key 429 body. No prior test was
 changed. A live OpenRouter retry smoke still needs separate authorization for a paid call.
 
+## Final review correction iteration — 2026-10-07
+
+Review of `d6c79c02d` found that direct `usage` key allowlisting did not validate every accepted
+nested shape or router-metadata child. It also identified two compatibility boundaries: rejecting a
+duplicate key globally discarded otherwise measurable evidence, and the new closed-enum value had no
+wire-version signal. This iteration will:
+
+- add RED cases for malformed token fields and nested charge evidence under usage details, pipeline
+  stages, router attempts and router metadata;
+- preserve parseable measured evidence from an ambiguous JSON body while marking that attempt's
+  evidence incomplete, so supplements cannot certify zero and request economics stay partial;
+- emit `aigw.provider_attempt.v2` only for the new provenance status, retain v1 for prior statuses,
+  and give the combined schema document a versioned identity;
+- rerun the focused, Python 3.12, Engine and full AIGateway gates, then independently falsify the
+  complete PR before committing and pushing.
+
+Acceptance: every reproduced nested/malformed counterexample remains unavailable; duplicate JSON
+never certifies zero but does not erase unique measured cost; old attempt statuses retain their v1
+wire marker; guaranteed-zero attempts carry v2; no prior test changes; all gates pass.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** updated the OpenRouter dispatch/accounting plugin, provider-neutral direct-cost
-  taxonomy, mapper, schema, finalization/route seam, renderer and accounting docs; added four focused
+  taxonomy, mapper, schema, finalization/route seam, renderer and accounting docs; added a focused
+  zero-insurance proof module and six focused
   modules: `test_openrouter_proven_zero.py`, `test_openrouter_proven_zero_observer.py`,
-  `test_openrouter_proven_zero_fail_closed.py` and `test_openrouter_proven_zero_route.py`. Engine and
-  SDK production code are unchanged.
+  `test_openrouter_proven_zero_fail_closed.py`, `test_openrouter_proven_zero_route.py`,
+  `test_openrouter_proven_zero_strict_evidence.py` and
+  `test_openrouter_proven_zero_metadata_shapes.py`. Engine and SDK production code are unchanged.
 - **Commits:** implementation and post-review strict-evidence correction captured by the branch
   commits; exact SHAs are recorded in Git and the PR.
 - **Gates:** RED was recorded as 14 expected failures before production edits, followed by targeted
@@ -144,4 +166,10 @@ changed. A live OpenRouter retry smoke still needs separate authorization for a 
   regression protects the integration seam. The final `NOT READY` review required request-side risk,
   explicit pipeline/stage-money, token/cost-detail/attempt-chain checks and mutation-sensitive route
   coverage. Request-fact helpers landed in the existing taxonomy mapper rather than a new file because
-  the architecture test fixes that package's file allowlist. No live or paid call was made.
+  the architecture test fixes that package's file allowlist. The final review correction split the
+  provider proof into `zero_insurance.py`, retained measured evidence for benign duplicate keys while
+  making capture partial, dropped accounting-sensitive duplicate evidence across OpenRouter and
+  Anthropic shapes, and versioned only the new attempt wire status. Final verification passes 116
+  focused tests, 636 Python 3.12 usage-accounting tests, 78 Engine consumer tests and the complete
+  AIGateway gate. Two independent final reviews report `READY`; the financial refuter checked 191
+  mutation/probe cases with no unsafe pass. No live or paid call was made.

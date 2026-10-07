@@ -37,6 +37,7 @@ __all__ = [
 SCHEMA_USAGE_ACCOUNTING = "aigw.chat_usage_accounting"
 SCHEMA_REQUEST_ECONOMICS = "aigw.request_economics"
 SCHEMA_PROVIDER_ATTEMPT = "aigw.provider_attempt"
+SCHEMA_PROVIDER_ATTEMPT_V2 = "aigw.provider_attempt.v2"
 
 TRANSPORT_LITELLM_ASYNC_HTTP: Literal["litellm_async_http"] = "litellm_async_http"
 
@@ -548,7 +549,11 @@ class ProviderAttemptRecord:
 
     def as_json(self) -> dict[str, Any]:
         return {
-            "schema": SCHEMA_PROVIDER_ATTEMPT,
+            "schema": (
+                SCHEMA_PROVIDER_ATTEMPT_V2
+                if self.direct_cost.status == "provider_guaranteed_zero"
+                else SCHEMA_PROVIDER_ATTEMPT
+            ),
             "attempt_id": self.attempt_id,
             "sequence": self.sequence,
             "dispatch_index": self.dispatch_index,
