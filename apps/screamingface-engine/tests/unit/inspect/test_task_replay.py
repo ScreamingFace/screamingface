@@ -24,6 +24,7 @@ import pytest
 pytest.importorskip("inspect_ai")
 
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY  # noqa: E402
+from screamingface_engine_inspect.case_set import case_set_digest  # noqa: E402
 from screamingface_engine_inspect.prepare import (  # noqa: E402
     SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV,
     SKIPPED_MARKER,
@@ -751,3 +752,62 @@ def test_no_case_text_reaches_the_block_or_the_summary_line(fake_eval: str, tmp_
     printed: str = json.dumps(summary) + (out / _PROVENANCE).read_text(encoding="utf-8")
     for text in ("What is 6 times 7?", "What is 2 plus 2?", '"42"', '"4"'):
         assert text not in printed
+
+
+# ── OME-1492 PR 2: a broken seal says whether only the order moved ────────────────────────
+
+
+def test_a_reordered_replay_reads_as_order_only(fake_hub_eval: str, tmp_path: Path) -> None:
+    """The seal holds seed 7's order; a build forced to seed 8 replays the same 4 Cases in
+    another order, so on-call reads "order only" instead of an opaque digest pair."""
+
+    sealed_spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task=f"{fake_hub_eval}:unseeded_shuffle",
+        case_count=4,
+        case_digest=_UNPINNED,
+        source_pins={"stand-in/hub": _HEAD_SHA},
+        shuffle_seed=7,
+    )
+    sealed: list[dict[str, dict[str, object]]] = replayed_cases(sealed_spec)
+    reshuffled: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        **{
+            **sealed_spec.__dict__,
+            "case_digest": case_digest(sealed),
+            "case_set_digest": case_set_digest(sealed),
+            "shuffle_seed": 8,
+        }
+    )
+
+    summary: dict[str, object] = prepare_replayed_cases(reshuffled, tmp_path / "out")
+
+    assert str(summary[UNCONFIRMED_CASES_KEY]).endswith("— same 4 Cases in another order")
+
+
+def test_rewritten_text_reads_as_text_changed(fake_eval: str, tmp_path: Path) -> None:
+    """A sealed case-set digest that no longer matches stands in for a template that rewrote
+    a Case; it simulates the comparison, not a real template change."""
+
+    pinned: TaskReplayCasesSpec = _pinned(fake_eval)
+    resealed: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        **{**pinned.__dict__, "case_digest": "f" * 64, "case_set_digest": "e" * 64}
+    )
+
+    summary: dict[str, object] = prepare_replayed_cases(resealed, tmp_path / "out")
+
+    reason: str = str(summary[UNCONFIRMED_CASES_KEY])
+    assert reason.endswith("— same count, different Cases: text changed")
+    for text in ("What is", "42"):
+        assert text not in reason
+
+
+def test_a_row_without_a_case_set_digest_keeps_todays_reason(
+    fake_eval: str, tmp_path: Path
+) -> None:
+    pinned: TaskReplayCasesSpec = _pinned(fake_eval)
+    resealed: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        **{**pinned.__dict__, "case_digest": "f" * 64}
+    )
+
+    summary: dict[str, object] = prepare_replayed_cases(resealed, tmp_path / "out")
+
+    assert str(summary[UNCONFIRMED_CASES_KEY]).endswith(f"does not match the pinned {'f' * 64}")

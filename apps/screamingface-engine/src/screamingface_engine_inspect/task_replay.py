@@ -51,6 +51,7 @@ from typing import Any, NamedTuple
 
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY
 from screamingface_engine_inspect.capture import captured_case_records
+from screamingface_engine_inspect.case_set import what_moved
 from screamingface_engine_inspect.case_sources import CaseSourceRecorder
 from screamingface_engine_inspect.fetch_pins import FetchPins
 from screamingface_engine_inspect.prepare import (
@@ -300,6 +301,8 @@ def prepare_replayed_cases(
         if digest != spec.case_digest:
             raise TaskReplayError(
                 f"{spec.task}: Case Digest {digest} does not match the pinned {spec.case_digest}"
+                # OME-1492: "same N Cases in another order" or "text changed", when sealed.
+                + what_moved(spec, prepared)
             )
     except TaskReplayError as exc:
         # WHY SKIPPED, not a raise: deployed images keep every other Benchmark (spec R10).

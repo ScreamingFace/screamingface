@@ -20,6 +20,7 @@ import pytest
 
 pytest.importorskip("inspect_ai")
 
+from screamingface_engine_inspect.case_set import case_set_digest  # noqa: E402
 from screamingface_engine_inspect.case_sources import CaseSource  # noqa: E402
 from screamingface_engine_inspect.import_replay import (  # noqa: E402
     ImportReplay,
@@ -699,3 +700,12 @@ def test_a_judge_that_reads_sample_metadata_can_keep_it(fake_eval: str) -> None:
 
     assert kept.declaration.keep_sample_metadata is True
     assert default.declaration.keep_sample_metadata is False
+
+
+def test_an_import_seals_the_order_blind_digest_too(fake_eval: str) -> None:
+    """OME-1492: the order-blind seal matches the Cases every build re-creates."""
+
+    imported: TaskReplayImport = import_by_task_replay(f"{fake_eval}:arithmetic", None)
+
+    rebuilt: list[dict[str, dict[str, object]]] = replayed_cases(imported.declaration)
+    assert imported.declaration.case_set_digest == case_set_digest(rebuilt)
