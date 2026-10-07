@@ -178,6 +178,54 @@
     });
   }
 
+  // The curated benchmark shortlist surfaced first across the portal — the prominent tabs on
+  // benchmark.html and the top rows of the index catalogue.
+  //
+  // WHY it lives here, not in the render code: this is editorial curation, the same kind of
+  // "what the portal presents" decision as listedBenchmarks — so it belongs in the DOM-free,
+  // unit-tested logic layer, assertable without a browser. renderTabStrip still draws whatever it
+  // is handed; the choice of what leads is made here.
+  //
+  // WHY the order matters: the tabs and the catalogue render in exactly this order, so this is the
+  // single source of truth for both the membership and the sequence of the shortlist.
+  // "healthbench-professional" (not a bare "healthbench", which no board uses) is deliberate; the
+  // worst-30 board is intentionally absent — it is being hidden from the UI, not featured.
+  var FEATURED_BENCHMARK_IDS = [
+    "draco-3pass",
+    "contracteval",
+    "frontierscience",
+    "healthbench-professional",
+    "ifeval",
+  ];
+
+  // Split a catalog into { featured, rest }:
+  //   featured — the FEATURED_BENCHMARK_IDS that are PRESENT, in featured order (never input order)
+  //   rest     — every other board, in the input's own order
+  //
+  // WHY it fails open: a featured id the catalog does not return is skipped, never fabricated —
+  // like listedBenchmarks, so a renamed/retired board quietly drops out of the shortlist rather
+  // than rendering a dead tab. Non-destructive (the caller's array is never reordered in place)
+  // and guaranteed disjoint (no board in both lists).
+  function partitionFeatured(benchmarks) {
+    if (!Array.isArray(benchmarks)) return { featured: [], rest: [] };
+    var byId = {};
+    benchmarks.forEach(function (b) {
+      if (b && b.id != null) byId[b.id] = b;
+    });
+    var featured = [];
+    var featuredIds = {};
+    FEATURED_BENCHMARK_IDS.forEach(function (id) {
+      if (byId[id]) {
+        featured.push(byId[id]);
+        featuredIds[id] = true;
+      }
+    });
+    var rest = benchmarks.filter(function (b) {
+      return b && !featuredIds[b.id];
+    });
+    return { featured: featured, rest: rest };
+  }
+
   // One row's open/closed verdict, as the Backends cell shows it.
   //
   // Never a verification claim: `open` means every declared model has downloadable weights, not
@@ -241,6 +289,8 @@
     orderRows: orderRows,
     barWidth: barWidth,
     listedBenchmarks: listedBenchmarks,
+    FEATURED_BENCHMARK_IDS: FEATURED_BENCHMARK_IDS,
+    partitionFeatured: partitionFeatured,
     frontierSummary: frontierSummary,
     opennessLabel: opennessLabel,
   };

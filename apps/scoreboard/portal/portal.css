@@ -111,6 +111,26 @@ table .btn { white-space: nowrap; }
    the masthead — and still announced an empty "Benchmarks" navigation landmark. */
 .tabstrip:empty { display: none; }
 
+/* The long tail of non-featured boards, folded into one native <select>. A real
+   <select> keeps it keyboard- and AT-operable for free. Styled as the portal's
+   other inputs (.signup/#gate): square, hairline-sealed, mono, neutral INK at rest
+   — gold stays rationed to the win, not spent on a nav control — accent only on
+   focus (the interaction ladder). margin-left:auto parks it at the strip's end. */
+.tabstrip-more {
+  margin-left: auto;
+  align-self: center;
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  background: var(--bg);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-hairline) solid var(--line-2);
+  border-radius: var(--radius-none);
+  cursor: pointer;
+}
+.tabstrip-more:hover { color: var(--ink); }
+.tabstrip-more:focus { outline: none; border-color: var(--accent-solid); }
+
 /* ---- responsive ------------------------------------------------------ */
 @media (max-width: 639px) {
   /* sf:// deep-links are not useful on narrow screens; collapse the column. */

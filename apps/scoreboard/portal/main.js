@@ -230,15 +230,56 @@ window.ScorePortal = (function () {
   }
 
   /* ---- benchmark tab strip (shared by benchmark.html) ------------------ */
-  // Render whatever the catalog actually returns; never hardcode benchmark ids.
+  // A curated shortlist leads the strip as prominent tabs; the long tail folds into one
+  // "More benchmarks" dropdown so the page reads tight instead of wrapping ~65 equal-weight links
+  // across eight rows. Which boards lead (and in what order) is editorial curation sourced from
+  // leaderboard-logic's FEATURED_BENCHMARK_IDS — not hardcoded here; this renderer still draws
+  // only what partitionFeatured hands it, catalog-driven as before.
   function renderTabStrip(container, benchmarks, activeId) {
     if (!container) return;
     clear(container);
-    benchmarks.forEach(function (b) {
+    var split = window.SFLeaderboardLogic.partitionFeatured(benchmarks || []);
+    split.featured.forEach(function (b) {
       var a = link(null, "benchmark.html?id=" + encodeURIComponent(b.id), b.display_name || b.id);
       if (b.id === activeId) a.setAttribute("aria-current", "page");
       container.appendChild(a);
     });
+    if (split.rest.length) {
+      container.appendChild(buildMoreSelect(split.rest, activeId));
+    }
+  }
+
+  // The non-featured boards as a native <select>: keyboard- and screen-reader-operable for free,
+  // and no menu widget to build. On change it navigates to the chosen board.
+  //
+  // WHY the active board is pre-selected when it is non-featured: landing on e.g. ?id=mmlu leaves
+  // no featured tab marked, so the control itself must show the current board's name rather than a
+  // bare "More benchmarks" placeholder — otherwise the reader has no on-screen cue for where they
+  // are. An empty-valued, disabled placeholder leads for every featured board.
+  function buildMoreSelect(rest, activeId) {
+    var select = el("select", "tabstrip-more");
+    select.setAttribute("aria-label", "More benchmarks");
+    var activeIsRest = rest.some(function (b) { return b.id === activeId; });
+
+    var placeholder = el("option", null, "More benchmarks…");
+    placeholder.value = "";
+    placeholder.disabled = true;
+    if (!activeIsRest) placeholder.selected = true;
+    select.appendChild(placeholder);
+
+    rest.forEach(function (b) {
+      // textContent via el(), never innerHTML — display_name is community-submitted (see header).
+      var opt = el("option", null, b.display_name || b.id);
+      opt.value = b.id;
+      if (b.id === activeId) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    select.addEventListener("change", function () {
+      var id = select.value;
+      if (id) window.location.assign("benchmark.html?id=" + encodeURIComponent(id));
+    });
+    return select;
   }
 
   /* ---- ready ----------------------------------------------------------- */
@@ -320,7 +361,12 @@ window.ScorePortal = (function () {
         // board it will never draw. `/v1/benchmarks` deliberately keeps returning every board —
         // `sf.leaderboards` needs the private ones so challenge participants can submit against
         // them — so the catalogue is trimmed here rather than at the API.
-        var benchmarks = SFLeaderboardLogic.listedBenchmarks((data && data.benchmarks) || []);
+        var listed = SFLeaderboardLogic.listedBenchmarks((data && data.benchmarks) || []);
+        // Same curated shortlist as the tab strip, surfaced first here too: the featured rows
+        // lead (in FEATURED_BENCHMARK_IDS order), then the rest in catalogue order. Every listed
+        // board still renders — the catalogue is exhaustive; only the order changes.
+        var split = SFLeaderboardLogic.partitionFeatured(listed);
+        var benchmarks = split.featured.concat(split.rest);
         if (benchmarks.length === 0) {
           showEmpty(statusNode, "No listed benchmarks yet. The API is live; rows will appear here as soon as benchmark specs are registered.");
           return;
