@@ -1,13 +1,13 @@
 ---
 id: OME-1384
 linear_url: https://linear.app/openmined/issue/OME-1384/decide-what-to-do-with-historical-rows-that-published-a-cached-run-as
-status: backlog
+status: done
 type: decision
 priority: medium
 labels: [scoreboard, human, design-session]
 parent: OME-1251
 created: 2026-09-25
-closed:
+closed: 2026-10-05
 ---
 
 # Decide what to do with historical rows that published a cached run as $0.00
@@ -21,3 +21,4 @@ Options: leave, flag and keep off the frontier, hide from cost surfaces, or ask 
 First step: count the affected rows on dev.
 
 - 2026-09-25: filed.
+- 2026-10-05: decided and done. The 7 dev `draco-3pass` rows were deleted with `OME-1385`'s `delete_scores`, their unpriced cache entries were priced under `OME-1469` (owner-approved), and they were resubmitted as `complete` with spend plus both savings (D7). Closed in Linear.
