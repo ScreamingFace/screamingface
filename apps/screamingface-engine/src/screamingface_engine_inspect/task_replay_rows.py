@@ -163,7 +163,14 @@ def _refuse_injectable_import(
     """Stage 2 — refuse any string that could escape the generated rows."""
 
     declaration: TaskReplayCasesSpec = imported.declaration
-    references: list[str | None] = [declaration.task, imported.facts.scorer]
+    references: list[str | None] = [
+        declaration.task,
+        imported.facts.scorer,
+        *imported.facts.extra_scorers,
+        *imported.facts.named_scores,
+        *imported.facts.dropped_scorers,
+        *imported.facts.dropped_metrics,
+    ]
     # WHY a looser rule for these: they land only inside comments; only a line break or
     # another control character could end the comment and start code.
     # WHY printable only for the excluded ids: each lands inside a JSON string literal, which
@@ -345,6 +352,11 @@ def _benchmark_row_lines(
             facts.custom_metrics,
             facts.mcq,
             _is_judged_by(facts.scorer, facts.scorer_kwargs),
+            extra_scorers=facts.extra_scorers,
+            named_scores=facts.named_scores,
+            dropped_scorers=facts.dropped_scorers,
+            headline_differs=facts.headline_differs,
+            dropped_metrics=facts.dropped_metrics,
         )
     )
     lines.append("    ),")
