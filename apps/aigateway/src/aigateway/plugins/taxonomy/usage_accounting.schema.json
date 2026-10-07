@@ -76,7 +76,7 @@
       "additionalProperties": false,
       "required": ["status", "amount", "unit", "source"],
       "properties": {
-        "status": {"enum": ["reported", "absent", "unavailable", "invalid", "unit_unknown", "archive_matched"]},
+        "status": {"enum": ["reported", "provider_guaranteed_zero", "absent", "unavailable", "invalid", "unit_unknown", "archive_matched"]},
         "amount": {
           "oneOf": [
             {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{0,32}[1-9])?$", "maxLength": 64},
@@ -102,6 +102,16 @@
           "then": {
             "properties": {
               "amount": {"type": "string"},
+              "unit": {"type": "string"},
+              "source": {"type": "string"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "provider_guaranteed_zero"}}},
+          "then": {
+            "properties": {
+              "amount": {"const": "0"},
               "unit": {"type": "string"},
               "source": {"type": "string"}
             }

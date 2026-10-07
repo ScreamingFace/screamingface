@@ -102,6 +102,20 @@ direct_cost_status == complete
 `cache.reference` describes only historical final-response evidence and is explicitly not incurred
 in the current request.
 
+`provider_guaranteed_zero` is an exact zero backed by a provider billing guarantee rather than a
+reported usage amount. AIGateway currently emits it only for a native OpenRouter HTTP 429 whose raw
+integer `error.code` agrees, complete error metadata proves zero-completion insurance applies,
+router `is_byok` is exactly `false`, and any present usage-level `is_byok` is also exactly `false`.
+The prepared request must contain no OpenRouter plugin, OpenRouter server tool or file part. Router
+metadata must explicitly contain a pipeline with no potentially billable or unknown stage; any
+present stage cost must be exact zero, and any attempt-chain status must be the integer 429.
+Generated output-token evidence, contradictory server-tool usage or nonzero/malformed cost details
+keep the cost unknown. The gateway opts in to router metadata for this accounting check,
+then removes that account-specific field before caller response and cache serialization. It does not
+synthesize zero token counts. Guaranteed-zero attempts count as covered when reported retry costs
+are present, but are never added to `known_direct_cost_subtotals`; a request containing only
+guaranteed-zero attempts remains `direct_cost_status=partial` with no subtotal.
+
 A cache row can also carry a standard metadata block. The gateway captures that block at write
 time from the raw provider response, before any conversion. The block keeps its own direct-cost
 status. One status is `archive_matched`: the amount comes from a real logged call of the same kind
@@ -110,8 +124,10 @@ money.
 
 ## Money and precision
 
-Direct cost is provider-authored evidence only. Amounts are canonical non-negative fixed-point ASCII
-strings with up to 18 integer and 33 fractional digits.
+Direct cost always carries explicit provenance. Current forms include provider-authored response
+money, a named provider guarantee represented by its own status, and historical `archive_matched`
+evidence. Amounts are canonical non-negative fixed-point ASCII strings with up to 18 integer and 33
+fractional digits.
 
 - Raw JSON decimals are parsed directly as `Decimal` and retain their lexical precision.
 - Exact summation uses Decimal arithmetic without a finite context rounding the result.
@@ -134,7 +150,8 @@ The carve-out holds only for the write-time block:
 
 - A value re-read out of `response_json` stays uncertified, whatever its Python carrier is.
 - A block with `direct_cost.status == "reported"` holds the exact provider decimal and its original
-  unit. The status vocabulary also includes `absent`, `unavailable`, `invalid` and `unit_unknown`.
+  unit. The status vocabulary also includes `provider_guaranteed_zero`, `absent`, `unavailable`,
+  `invalid` and `unit_unknown`.
 - A block with `direct_cost.status == "archive_matched"` holds a real measured amount from a paired
   logged call of the same kind and model. That call is not this row's own call, so the amount is
   not exact provider-authored cost.

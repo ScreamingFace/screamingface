@@ -78,15 +78,20 @@ def _direct_cost_status(
     if cache_status == "hit" or not records:
         return "not_applicable"
     reported = sum(record.direct_cost.status == "reported" for record in records)
-    if reported == 0:
+    guaranteed_zero = sum(
+        record.direct_cost.status == "provider_guaranteed_zero" for record in records
+    )
+    covered = reported + guaranteed_zero
+    if covered == 0:
         return "unavailable"
     if (
-        reported == len(records)
+        covered == len(records)
         and capture_status == "complete"
         and omitted_attempts == 0
         and _reported_costs_are_summable(records)
     ):
-        return "complete"
+        # No subtotal means there is intentionally no aggregate to hand to Engine.
+        return "complete" if reported else "partial"
     return "partial"
 
 

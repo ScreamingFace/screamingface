@@ -57,7 +57,13 @@ UsageSource = Literal[
 ]
 UsageEvidenceStatus = Literal["complete", "partial", "unavailable"]
 DirectCostStatus = Literal[
-    "reported", "absent", "unavailable", "invalid", "unit_unknown", "archive_matched"
+    "reported",
+    "provider_guaranteed_zero",
+    "absent",
+    "unavailable",
+    "invalid",
+    "unit_unknown",
+    "archive_matched",
 ]
 ExtensionFactKind = Literal["integer", "decimal", "boolean", "enum"]
 ServiceTier = Literal["standard", "priority", "batch"]
@@ -292,6 +298,7 @@ class DirectCost:
     def __post_init__(self) -> None:
         if type(self.status) is not str or self.status not in {
             "reported",
+            "provider_guaranteed_zero",
             "absent",
             "unavailable",
             "invalid",
@@ -312,6 +319,12 @@ class DirectCost:
             self.source,
         ):
             raise ValueError(f"{self.status} direct cost requires amount, unit and source")
+        if self.status == "provider_guaranteed_zero" and (
+            self.amount != "0" or self.unit is None or self.source is None
+        ):
+            raise ValueError(
+                "provider_guaranteed_zero direct cost requires exact zero, unit and source"
+            )
         if self.status == "unit_unknown" and None in (self.amount, self.source):
             raise ValueError("unit_unknown direct cost requires amount and source")
         if self.status == "unit_unknown" and self.unit is not None:
@@ -324,6 +337,10 @@ class DirectCost:
     @classmethod
     def reported(cls, *, amount: str, unit: str, source: str) -> Self:
         return cls(status="reported", amount=amount, unit=unit, source=source)
+
+    @classmethod
+    def provider_guaranteed_zero(cls, *, unit: str, source: str) -> Self:
+        return cls(status="provider_guaranteed_zero", amount="0", unit=unit, source=source)
 
     @classmethod
     def absent(cls) -> Self:

@@ -65,7 +65,6 @@ from .chat_accounting import (
     finalize_provider_evidence,
     note_conversion_failure,
     note_dispatch_failure,
-    safe_request_view,
 )
 from .chat_cache_stage import (
     global_cache_headers,
@@ -136,7 +135,6 @@ async def _dispatch_and_finalize_accounting(
     target: CredentialTarget,
 ) -> Any:
     """Dispatch once through the provider and finalize any observed accounting evidence."""
-    accounting_request_view = safe_request_view(body)
     dispatch_body = dispatch_body_with_accounting(body, accounting, accounting_handler(request))
     on_dispatch = accounting.note_dispatch if accounting is not None else None
     try:
@@ -154,7 +152,7 @@ async def _dispatch_and_finalize_accounting(
                 provider_error_after_response=bool(getattr(exc, "aigw_provider_body_error", False)),
             )
         finalize_provider_evidence(
-            accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
+            accounting, plugin=plugin, request_body=body, final_response=None
         )
         raise await _safe_dispatch_failure_response(
             request,
@@ -181,7 +179,7 @@ async def _dispatch_and_finalize_accounting(
     ) as exc:
         note_dispatch_failure(accounting, exc)
         finalize_provider_evidence(
-            accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
+            accounting, plugin=plugin, request_body=body, final_response=None
         )
         raise await _safe_dispatch_failure_response(
             request,
@@ -207,7 +205,7 @@ async def _dispatch_and_finalize_accounting(
         error_type = type(exc).__name__
         note_dispatch_failure(accounting, exc)
         finalize_provider_evidence(
-            accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
+            accounting, plugin=plugin, request_body=body, final_response=None
         )
         raise await _safe_dispatch_failure_response(
             request,
@@ -224,14 +222,14 @@ async def _dispatch_and_finalize_accounting(
         result = convert_provider_response(provider_response, accounting, provider=provider)
     except HTTPException:
         finalize_provider_evidence(
-            accounting, plugin=plugin, request_body=accounting_request_view, final_response=None
+            accounting, plugin=plugin, request_body=body, final_response=None
         )
         raise
 
     finalize_provider_evidence(
         accounting,
         plugin=plugin,
-        request_body=accounting_request_view,
+        request_body=body,
         final_response=result if isinstance(result, dict) else None,
     )
     return result

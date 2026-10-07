@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 
@@ -38,11 +39,20 @@ from ..taxonomy.mapper import (
     usage_and_source as _usage_and_source,
 )
 
-__all__ = ["cache_reference_from_cached", "normalize_openrouter_usage_accounting"]
+__all__ = [
+    "cache_reference_from_cached",
+    "normalize_openrouter_usage_accounting",
+    "supplement_openrouter_usage_accounting",
+]
 
 DIRECT_COST_UNIT = "openrouter_credits"
 DIRECT_COST_SOURCE = "openrouter.usage.cost"
 EXTENSION_NAMESPACE = "openrouter.response_usage"
+ZERO_COMPLETION_INSURANCE_SOURCE = "openrouter.zero_completion_insurance"
+
+_NONBILLABLE_PIPELINE_STAGE_TYPES = frozenset(
+    {"context_compression", "guardrail", "response_healing"}
+)
 
 # OpenRouter exposes these provider-cost components without a documented currency/unit.
 # They remain non-aggregable audit evidence until the provider contract supplies one.
@@ -159,6 +169,98 @@ def _provider_extensions(
     return (ProviderExtension(namespace=EXTENSION_NAMESPACE, facts=tuple(facts[:8])),)
 
 
+def _has_generated_token_evidence(usage: Mapping[str, Any]) -> bool:
+    for field in ("completion_tokens", "output_tokens"):
+        if field in usage and (type(usage[field]) is not int or usage[field] != 0):
+            return True
+    completion_details_value = usage.get("completion_tokens_details")
+    completion_details = _mapping(completion_details_value)
+    if completion_details is None:
+        return completion_details_value is not None
+    return any(
+        value is not None and (type(value) is not int or value != 0)
+        for value in completion_details.values()
+    )
+
+
+def _has_nonzero_or_malformed_counts(value: object) -> bool:
+    counts = _mapping(value)
+    if counts is None:
+        return value is not None
+    for count in counts.values():
+        parsed = _int_or_none(count)
+        if parsed is None or parsed > 0:
+            return True
+    return False
+
+
+def _has_potential_uninsured_charge(raw_response: Mapping[str, Any]) -> bool:
+    usage_value = raw_response.get("usage")
+    usage = _mapping(usage_value)
+    if usage is None:
+        return usage_value is not None
+
+    if "is_byok" in usage and usage.get("is_byok") is not False:
+        return True
+
+    if _has_generated_token_evidence(usage):
+        return True
+
+    if any(
+        _has_nonzero_or_malformed_counts(usage.get(field))
+        for field in ("server_tool_use", "server_tool_use_details")
+    ):
+        return True
+
+    cost_details_value = usage.get("cost_details")
+    cost_details = _mapping(cost_details_value)
+    if cost_details is None:
+        return cost_details_value is not None
+    for name, value in cost_details.items():
+        if name == "upstream_inference_cost" and value is None:
+            continue
+        if _exact_raw_amount(value) != "0":
+            return True
+    return False
+
+
+def _pipeline_proves_no_charge(router_metadata: Mapping[str, Any]) -> bool:
+    if "pipeline" not in router_metadata:
+        return False
+    pipeline = router_metadata.get("pipeline")
+    if not isinstance(pipeline, list):
+        return False
+    for stage in pipeline:
+        stage_mapping = _mapping(stage)
+        if (
+            stage_mapping is None
+            or stage_mapping.get("type") not in _NONBILLABLE_PIPELINE_STAGE_TYPES
+            or (
+                "cost_usd" in stage_mapping
+                and _exact_raw_amount(stage_mapping.get("cost_usd")) != "0"
+            )
+        ):
+            return False
+    return True
+
+
+def _attempts_prove_only_rate_limits(router_metadata: Mapping[str, Any]) -> bool:
+    if "attempts" not in router_metadata:
+        return True
+    attempts = router_metadata.get("attempts")
+    if not isinstance(attempts, list):
+        return False
+    for attempt in attempts:
+        attempt_mapping = _mapping(attempt)
+        if (
+            attempt_mapping is None
+            or type(attempt_mapping.get("status")) is not int
+            or attempt_mapping.get("status") != 429
+        ):
+            return False
+    return True
+
+
 def normalize_openrouter_usage_accounting(
     *,
     request_body: Mapping[str, Any],
@@ -183,6 +285,58 @@ def normalize_openrouter_usage_accounting(
         response_model=response_string(raw_response, final_response, field="model"),
         provider_response_id=response_string(raw_response, final_response, field="id"),
         provider_extensions=_provider_extensions(usage, source),
+    )
+
+
+def supplement_openrouter_usage_accounting(
+    *,
+    evidence: ProviderUsageAccountingEvidence,
+    raw_response: Mapping[str, Any] | None,
+    http_status: int | None,
+    failed: bool,
+    request_has_potential_auxiliary_charge: bool | None = None,
+) -> ProviderUsageAccountingEvidence:
+    """Certify only a native, metadata-backed OpenRouter insured rejection."""
+    if (
+        not failed
+        or http_status != 429
+        or raw_response is None
+        or evidence.direct_cost.status != "unavailable"
+        or request_has_potential_auxiliary_charge is not False
+    ):
+        return evidence
+
+    error = _mapping(raw_response.get("error"))
+    error_metadata = _mapping(error.get("metadata")) if error is not None else None
+    router_metadata = _mapping(raw_response.get("openrouter_metadata"))
+    if (
+        error is None
+        or type(error.get("code")) is not int
+        or error.get("code") != http_status
+        or error_metadata is None
+        or error_metadata.get("error_type") != "rate_limit_exceeded"
+        or router_metadata is None
+        or router_metadata.get("is_byok") is not False
+        or _has_potential_uninsured_charge(raw_response)
+    ):
+        return evidence
+
+    if any(
+        raw_response.get(field) not in (None, "", [], ())
+        for field in ("choices", "output", "content")
+    ):
+        return evidence
+    if not _pipeline_proves_no_charge(router_metadata):
+        return evidence
+    if not _attempts_prove_only_rate_limits(router_metadata):
+        return evidence
+
+    return replace(
+        evidence,
+        direct_cost=DirectCost.provider_guaranteed_zero(
+            unit=DIRECT_COST_UNIT,
+            source=ZERO_COMPLETION_INSURANCE_SOURCE,
+        ),
     )
 
 
