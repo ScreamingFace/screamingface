@@ -131,6 +131,55 @@ table .btn { white-space: nowrap; }
 .tabstrip-more:hover { color: var(--ink); }
 .tabstrip-more:focus { outline: none; border-color: var(--accent-solid); }
 
+/* ---- benchmark catalogue cards --------------------------------------- */
+/* A grid of clickable cards replaced the catalogue table. Square, hairline-sealed,
+   no shadow — depth reads from the seam (SFDS). Neutral ink throughout: gold stays
+   rationed to the win, and a catalogue of boards has no single win. The whole card
+   is the link. Cards are revealed ~10 at a time; a hidden card uses [hidden]. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
+  margin: 0 0 var(--space-5);
+}
+.cards:empty { display: none; }
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: var(--border-hairline) solid var(--line);
+  border-radius: var(--radius-none);
+  color: var(--ink);
+  text-decoration: none;
+}
+.card:hover { border-color: var(--ink-3); }
+.card:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: 2px; }
+.card-title { font-family: var(--f-sans); font-weight: var(--weight-semibold); }
+.card-focus { font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2); }
+.card-desc { font-size: var(--text-sm); color: var(--ink-2); }
+/* Best reproducible sits on its own footer rule, pushed to the card's base so cards
+   of differing text length keep their metric on one plane. */
+.card-best {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: var(--border-hairline) solid var(--line);
+}
+.card-best-label {
+  font-family: var(--f-mono);
+  font-size: var(--text-label);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-3);
+}
+.card-best-val { font-size: var(--text-body); color: var(--ink); }
+.cards-more { display: flex; justify-content: center; margin: 0 0 var(--space-6); }
+
 /* ---- responsive ------------------------------------------------------ */
 @media (max-width: 639px) {
   /* sf:// deep-links are not useful on narrow screens; collapse the column. */

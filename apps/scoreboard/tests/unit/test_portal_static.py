@@ -36,7 +36,7 @@ def test_root_portal_is_public(tmp_path: Path) -> None:
         # Structural, not editorial: this test is about the page being publicly reachable.
         # Asserting the hero sentence would make every copy tweak a test failure, and the
         # hero is brand copy that changes on someone else's schedule.
-        assert 'id="benchmark-table-wrap"' in response.text
+        assert 'id="benchmark-cards"' in response.text
 
 
 def test_portal_assets_and_pages_are_public(tmp_path: Path) -> None:
@@ -179,7 +179,7 @@ def test_served_markdown_carries_no_internal_references(tmp_path: Path) -> None:
 
 
 def test_pareto_chart_shell_is_bounded_provenanced_and_loaded_before_its_caller() -> None:
-    """Part C stays hidden by default and explains the limits of its public claim."""
+    """Part C stays hidden by default and loads its logic before its caller."""
     portal = Path(__file__).resolve().parents[2] / "portal"
     html = (portal / "benchmark.html").read_text(encoding="utf-8")
     script = (portal / "benchmark.js").read_text(encoding="utf-8")
@@ -190,8 +190,10 @@ def test_pareto_chart_shell_is_bounded_provenanced_and_loaded_before_its_caller(
     assert 'id="pareto-chart"' in html
     assert 'aria-hidden="true"' in html
     assert "Costs are self-reported, not verified by re-running." not in html
-    assert "Frontier membership considers the full board" in html
-    assert "plots only the submissions shown on this page" in html
+    # The "Frontier membership considers the full board ... plots only the submissions shown on
+    # this page" caption was dropped for a cleaner figure (owner decision).
+    assert "Frontier membership considers the full board" not in html
+    assert "plots only the submissions shown on this page" not in html
 
     logic_at = html.index('<script src="leaderboard-logic.js"')
     chart_at = html.index('<script src="pareto-chart.js"')
@@ -228,19 +230,20 @@ def test_pareto_chart_heading_and_label_name_the_pareto_frontier() -> None:
     assert "Score for cost" not in html
 
 
-def test_pareto_chart_disclaimer_is_folded_into_the_read_this_first_note() -> None:
-    """FEATURE (OME-1146 part 2): the disclaimer is gone; its job moves into the shared note.
+def test_benchmark_board_has_no_read_this_first_note() -> None:
+    """The boxed "Read this first" note is removed for a cleaner board view (owner decision).
 
-    INVARIANT: this is a folded caveat, not a silent drop. The page must still tell a reader to
-    verify cost, just via the same instruction it already gives for score, rather than a
-    cost-specific line living apart from it.
+    It previously carried the cost/score "self-reported, verify by re-running" caveat (the caveat
+    OME-1146 folded into it). The note and that caveat are both intentionally gone now — recorded
+    here so a future reader sees the removal was deliberate, not an accidental regression.
     """
     portal = Path(__file__).resolve().parents[2] / "portal"
     html = (portal / "benchmark.html").read_text(encoding="utf-8")
 
     assert "Costs are self-reported, not verified by re-running." not in html
-    assert "costs are self-reported, not verified by re-running" not in html
-    assert "rerun any claim, score, or cost, before trusting it" in html
+    assert 'class="note"' not in html
+    assert "Read this first" not in html
+    assert "rerun any claim, score, or cost, before trusting it" not in html
 
 
 def test_portal_index_filters_private_boards_through_the_shared_logic_module() -> None:

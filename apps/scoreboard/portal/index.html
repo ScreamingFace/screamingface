@@ -61,19 +61,9 @@
 
     <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
 
-    <div id="benchmark-table-wrap" class="table-wrap" hidden>
-      <table id="benchmark-table" aria-label="Benchmarks">
-        <thead>
-          <tr>
-            <th>Benchmark</th>
-            <th>Focus</th>
-            <th class="num">Fusions</th>
-            <th class="num">Best reproducible</th>
-            <th>Open</th>
-          </tr>
-        </thead>
-        <tbody id="benchmark-list"></tbody>
-      </table>
+    <div id="benchmark-cards" class="cards" aria-label="Benchmarks" hidden></div>
+    <div class="cards-more">
+      <button type="button" id="benchmark-more" class="btn ghost" hidden>Show more benchmarks</button>
     </div>
 
     <div class="foot">

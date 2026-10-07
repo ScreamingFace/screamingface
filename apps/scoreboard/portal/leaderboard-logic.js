@@ -226,6 +226,16 @@
     return { featured: featured, rest: rest };
   }
 
+  // Clip a benchmark description to at most `max` characters for a catalogue card, marking any clip
+  // with a trailing ellipsis. A non-string (a board that ships no description) becomes "" so the
+  // card simply omits the line. Trailing whitespace is trimmed before the ellipsis so a clip that
+  // lands on a space reads "word…" rather than "word …".
+  function truncate(text, max) {
+    if (typeof text !== "string") return "";
+    if (text.length <= max) return text;
+    return text.slice(0, max).replace(/\s+$/, "") + "…";
+  }
+
   // One row's open/closed verdict, as the Backends cell shows it.
   //
   // Never a verification claim: `open` means every declared model has downloadable weights, not
@@ -291,6 +301,7 @@
     listedBenchmarks: listedBenchmarks,
     FEATURED_BENCHMARK_IDS: FEATURED_BENCHMARK_IDS,
     partitionFeatured: partitionFeatured,
+    truncate: truncate,
     frontierSummary: frontierSummary,
     opennessLabel: opennessLabel,
   };
