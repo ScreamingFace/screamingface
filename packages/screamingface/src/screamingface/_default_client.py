@@ -10,10 +10,13 @@ from screamingface.client import DEFAULT_ENGINE_URL, DEFAULT_SCOREBOARD_URL, Cli
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from uuid import UUID
 
+    from screamingface._reproduction import Reproduction
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import Connection, OAuthFlow
     from screamingface.events import Event
+    from screamingface.leaderboard import LeaderboardScore
     from screamingface.recipe import Recipe
     from screamingface.report import Report
 
@@ -158,6 +161,12 @@ def evaluate(
     )
 
 
+def reproduce(score: LeaderboardScore | UUID | str, *, record: bool = True) -> Reproduction:
+    """Reproduce a submitted score from its cache version through the lazy default Client."""
+
+    return default_client().reproduce(score, record=record)
+
+
 @overload
 def connect(
     provider: None = None,
@@ -219,4 +228,4 @@ def disconnect(provider: str) -> Connection:
     return default_client().disconnect(provider)
 
 
-__all__ = ["close", "configure", "connect", "disconnect", "evaluate"]
+__all__ = ["close", "configure", "connect", "disconnect", "evaluate", "reproduce"]

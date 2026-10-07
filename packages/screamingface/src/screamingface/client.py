@@ -20,16 +20,19 @@ from screamingface._engine.identity import engine_headers
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from uuid import UUID
 
     import httpx
 
     from screamingface._core.ports import AsyncRunTransport, SyncRunTransport
     from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels, Benchmarks, Models
     from screamingface._engine.connections import AsyncConnections, Connections
+    from screamingface._reproduction import Reproduction
     from screamingface._scoreboard.leaderboards import AsyncLeaderboards, Leaderboards
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
     from screamingface.events import Event
+    from screamingface.leaderboard import LeaderboardScore
     from screamingface.recipe import Recipe
 from screamingface._evaluation.model import _answer_seed_value
 from screamingface.report import Report
@@ -267,6 +270,23 @@ class Client:
             progress,
             answer_seed=selected_seed,
         )
+
+    def reproduce(
+        self,
+        score: LeaderboardScore | UUID | str,
+        *,
+        record: bool = True,
+    ) -> Reproduction:
+        """Run a submitted score again from its cache version and judge the replay.
+
+        Returns `exact` when the replay gives the stored score. An exact replay is recorded on the
+        Scoreboard unless `record=False`. A score with no complete cache version starts no run.
+        """
+
+        from screamingface._reproduction import reproduce_sync
+
+        self._require_open()
+        return reproduce_sync(self, score, record)
 
     @overload
     def connect(
@@ -599,6 +619,19 @@ class AsyncClient:
             progress,
             answer_seed=selected_seed,
         )
+
+    async def reproduce(
+        self,
+        score: LeaderboardScore | UUID | str,
+        *,
+        record: bool = True,
+    ) -> Reproduction:
+        """Asynchronously run a submitted score again from its cache version."""
+
+        from screamingface._reproduction import reproduce_async
+
+        self._require_open()
+        return await reproduce_async(self, score, record)
 
     @overload
     async def connect(
