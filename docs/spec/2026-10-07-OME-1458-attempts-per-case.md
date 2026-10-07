@@ -6,8 +6,8 @@
   and `packages/screamingface` (decoder and Report).
 - Ticket: OME-1458. Parent epic: OME-1299. Unblocks OME-1476 (ARC-AGI-2).
 - Ledger: `docs/work/2026-10-07-attempts-per-case-spec.md`.
-- Delivery: this docs PR and an importer refusal close OME-1458; the build is a new ticket of
-  three PRs (§7).
+- Delivery: this docs PR and an importer refusal close OME-1458; the build is three PRs on
+  OME-1516 (SDK) and OME-1515 (Engine) (§7).
 
 ## TLDR
 
@@ -50,7 +50,7 @@ that declares no Attempts; its Case Results, Report and Benchmark Revision stay 
 | D11 | The importer maps inspect's any-match reducers to `attempts=N` and refuses every other reducer by name. | — |
 | D12 | Until the build lands, the importer refuses every `epochs` > 1 by name (OME-1458, PR 2). | — |
 | D13 | The build is proven by a test-only Benchmark declaring two Attempts; ARC-AGI-2 proves it for real in OME-1476. | — |
-| D14 | OME-1458 closes when this spec and the refusal merge; the build is its own ticket. | — |
+| D14 | OME-1458 closes when this spec and the refusal merge; the build is OME-1516 (SDK) and OME-1515 (Engine), one ticket per landing. | — |
 
 ## 2. Design
 
@@ -378,9 +378,9 @@ The arrows are the order a Case passes through the code, not imports. The stages
 |---|---|---|---|
 | this one | OME-1458, PR 1 of 2 | `docs/` | this spec, the `Attempt` glossary entry, ledger and mirror |
 | next | OME-1458, PR 2 of 2 | `apps/screamingface-engine` | ② refuses every `epochs` > 1 by name (F1) |
-| build 1 | new ticket | `packages/screamingface` | ⑪ decoder accepts `attempts`, the Report line, the new failure code; released first (F8) |
-| build 2 | new ticket | `apps/screamingface-engine` | ① ③ ④ ⑤ ⑧ ⑨: the declaration, the Attempt loop, Attempt 2's request, the fold, the wire field, the test-only Benchmark |
-| build 3 | new ticket | `apps/screamingface-engine` | ② maps any-match epochs to `attempts=N` and narrows F1 to F2 |
+| build 1 | OME-1516 | `packages/screamingface` | ⑪ decoder accepts `attempts`, the Report line, the new failure code; released first (F8) |
+| build 2 | OME-1515 | `apps/screamingface-engine` | ① ③ ④ ⑤ ⑧ ⑨: the declaration, the Attempt loop, Attempt 2's request, the fold, the wire field, the test-only Benchmark |
+| build 3 | OME-1515 | `apps/screamingface-engine` | ② maps any-match epochs to `attempts=N` and narrows F1 to F2 |
 
 Deploy order: the SDK from build 1 releases before the Engine from build 2 deploys, the order
 OME-1268 used. Build 2 may split in two if it passes the ~500-line review cap; the seam is ⑤
