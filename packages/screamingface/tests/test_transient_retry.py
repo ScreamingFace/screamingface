@@ -20,7 +20,7 @@ from email.utils import format_datetime
 import httpx
 import pytest
 
-from screamingface._core.retry import RetryingAsyncTransport, RetryingTransport
+from screamingface._core.retry import RetryingAsyncTransport, RetryingTransport, _utc_now
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.transport import _require_success
 from screamingface.errors import ExecutionError
@@ -61,6 +61,7 @@ def _rig(
     base_delay: float = 0.25,
     max_retry_after: float = 30.0,
     jitter: Callable[[], float] = lambda: 0.0,
+    now: Callable[[], datetime] = _utc_now,
 ) -> _Rig:
     slept: list[float] = []
     transport = RetryingTransport(
@@ -70,6 +71,7 @@ def _rig(
         max_retry_after=max_retry_after,
         sleep=slept.append,
         jitter=jitter,
+        now=now,
     )
     return _Rig(httpx.Client(transport=transport, base_url="https://engine.test"), slept)
 
@@ -264,30 +266,56 @@ def test_a_problem_json_detail_is_still_preferred() -> None:
 
 # ── Retry-After: the HTTP-date wire form ─────────────────────────────────────────────────
 
+# The one clock both sides of these tests read: the fake server spells `Retry-After` from it,
+# and the transport measures the header against it. Whole seconds, because an HTTP-date has
+# no fractions and must spell this instant exactly.
+#
+# WHY one injected clock (OME-1507): an HTTP-date drops fractions of a second, so a header
+# built from the real "now + 5s" and then measured against the parser's own, later read of
+# the wall clock parsed as 3.9996s and missed a 5 ± 1 window (CI failed twice, 2026-10-06).
+# Rounding "now" down bought 1s of headroom and still read the clock twice. With one clock
+# there is nothing left to drift, so the wait is asserted exactly.
+_WIRE_NOW = datetime(2026, 10, 6, 14, 41, 50, tzinfo=UTC)
+
+
+def _wire_clock() -> datetime:
+    return _WIRE_NOW
+
 
 def test_retry_after_http_date_is_honoured() -> None:
     """A server may send `Retry-After` as an HTTP-date instead of delta-seconds (RFC 9110
     §10.2.3) — both forms are the same server-named number, just spelled differently, and
     second-guessing either is how a thundering herd starts."""
-    target = format_datetime(datetime.now(UTC) + timedelta(seconds=5), usegmt=True)
+    target = format_datetime(_WIRE_NOW + timedelta(seconds=5), usegmt=True)
     handler = _Recorder((503, {"Retry-After": target}), 200)
-    rig = _rig(handler)
+    rig = _rig(handler, now=_wire_clock)
     with rig.client as client:
         response = client.post("/token", extensions={_REPLAY_SAFE: True})
     assert response.status_code == 200
-    assert rig.slept == pytest.approx([5.0], abs=1.0)
+    assert rig.slept == [5.0]
 
 
 def test_retry_after_naive_http_date_is_treated_as_utc() -> None:
     """`_http_date` documents that it normalises to UTC — an HTTP-date with no zone info is
     the case that promise exists for, not merely a parse detail."""
-    naive = (datetime.now(UTC) + timedelta(seconds=5)).strftime("%a, %d %b %Y %H:%M:%S")
+    naive = (_WIRE_NOW + timedelta(seconds=5)).strftime("%a, %d %b %Y %H:%M:%S")
     handler = _Recorder((503, {"Retry-After": naive}), 200)
-    rig = _rig(handler)
+    rig = _rig(handler, now=_wire_clock)
     with rig.client as client:
         response = client.post("/token", extensions={_REPLAY_SAFE: True})
     assert response.status_code == 200
-    assert rig.slept == pytest.approx([5.0], abs=1.0)
+    assert rig.slept == [5.0]
+
+
+def test_the_default_clock_is_real_utc_time() -> None:
+    """The `now=` seam exists for tests. Production must keep measuring an HTTP-date against
+    real UTC wall time, or every server-named clock time would be off by the fake."""
+    read = _utc_now()
+    assert read.tzinfo is UTC
+    assert abs((read - datetime.now(UTC)).total_seconds()) < 1.0
+    # INVARIANT: both transport twins default to that clock, not to a frozen one.
+    assert RetryingTransport(httpx.MockTransport(_Recorder(200)))._plan._now is _utc_now
+    assert RetryingAsyncTransport(httpx.MockTransport(_Recorder(200)))._plan._now is _utc_now
 
 
 def test_an_unparsable_retry_after_falls_back_to_backoff() -> None:

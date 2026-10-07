@@ -50,6 +50,15 @@ def _replay_safe(request: httpx.Request) -> bool:
     return bool(request.extensions.get(_REPLAY_SAFE, False))
 
 
+# The clock an HTTP-date `Retry-After` is measured against: real UTC wall time.
+_Clock = Callable[[], datetime]
+
+
+def _utc_now() -> datetime:
+    """The default clock — the only one production ever reads."""
+    return datetime.now(UTC)
+
+
 def _http_date(text: str) -> datetime | None:
     """The HTTP-date form of `Retry-After`, normalised to UTC, or None if it is not one."""
     try:
@@ -59,8 +68,15 @@ def _http_date(text: str) -> datetime | None:
     return when if when.tzinfo is not None else when.replace(tzinfo=UTC)
 
 
-def _retry_after_seconds(response: httpx.Response) -> float | None:
-    """`Retry-After` as seconds, accepting both wire forms, or None when absent/unparsable."""
+def _retry_after_seconds(response: httpx.Response, *, now: _Clock = _utc_now) -> float | None:
+    """`Retry-After` as seconds, accepting both wire forms, or None when absent/unparsable.
+
+    WHY `now` is injectable (OME-1507): an HTTP-date names an instant, so "how long to wait"
+    is that instant minus the clock — and a test that spells the header from one read of the
+    wall clock and lets this parser take a second read can only assert a window, which an
+    HTTP-date's missing fractions of a second then breach at random. One clock on both sides
+    makes the wait exact. Production never passes it.
+    """
     raw = response.headers.get("retry-after")
     if not raw:
         return None
@@ -70,7 +86,7 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
     except ValueError:
         pass
     when = _http_date(text)
-    return None if when is None else max(0.0, (when - datetime.now(UTC)).total_seconds())
+    return None if when is None else max(0.0, (when - now()).total_seconds())
 
 
 class _RetryPlan:
@@ -84,6 +100,7 @@ class _RetryPlan:
         max_delay: float,
         max_retry_after: float,
         jitter: Callable[[], float],
+        now: _Clock = _utc_now,
     ) -> None:
         if attempts < 1:
             raise ValueError(f"attempts must be >= 1, got {attempts}")
@@ -92,6 +109,7 @@ class _RetryPlan:
         self._max_delay = max_delay
         self._max_retry_after = max_retry_after
         self._jitter = jitter
+        self._now = now
 
     def backoff(self, attempt: int) -> float:
         """Bounded exponential backoff with jitter — a tight loop against a struggling edge is
@@ -107,7 +125,7 @@ class _RetryPlan:
         number, and second-guessing it is how a thundering herd starts — but only up to the
         cap, past which stopping is more honest than an unbounded sleep.
         """
-        requested = _retry_after_seconds(response)
+        requested = _retry_after_seconds(response, now=self._now)
         if requested is None:
             return self.backoff(attempt)
         if requested > self._max_retry_after:
@@ -128,6 +146,7 @@ class RetryingTransport(httpx.BaseTransport):
         max_retry_after: float = _DEFAULT_MAX_RETRY_AFTER_S,
         sleep: Callable[[float], object] = time.sleep,
         jitter: Callable[[], float] = random.random,
+        now: _Clock = _utc_now,
     ) -> None:
         self._inner = inner
         self._sleep = sleep
@@ -137,6 +156,7 @@ class RetryingTransport(httpx.BaseTransport):
             max_delay=max_delay,
             max_retry_after=max_retry_after,
             jitter=jitter,
+            now=now,
         )
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
@@ -206,6 +226,7 @@ class RetryingAsyncTransport(httpx.AsyncBaseTransport):
         max_retry_after: float = _DEFAULT_MAX_RETRY_AFTER_S,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         jitter: Callable[[], float] = random.random,
+        now: _Clock = _utc_now,
     ) -> None:
         self._inner = inner
         self._sleep = sleep
@@ -215,6 +236,7 @@ class RetryingAsyncTransport(httpx.AsyncBaseTransport):
             max_delay=max_delay,
             max_retry_after=max_retry_after,
             jitter=jitter,
+            now=now,
         )
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
