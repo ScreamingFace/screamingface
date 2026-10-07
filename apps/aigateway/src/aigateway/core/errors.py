@@ -16,11 +16,11 @@ class AuthError(AigwError):
 
 
 class RefreshSuperseded(AigwError):
-    """A refreshed token was not published: the pair's owner or generation moved during the fetch.
+    """A refreshed token was not published: its owner or its own stored credential moved.
 
     # INVARIANT (OME-1497, G0 §5.3): deliberately NOT an `AuthError` — every caller marks a row
-    # errored on `AuthError`, and a refresh that lost a race to an ownership change says nothing
-    # about the credential the new owner now holds. Callers answer the superseded conflict.
+    # errored on `AuthError`, and a refresh that lost a race to another writer says nothing
+    # about the credential the store now holds. Callers answer the superseded conflict.
     """
 
 

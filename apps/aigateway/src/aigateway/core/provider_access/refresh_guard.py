@@ -2,22 +2,18 @@
 
 # FEATURE: OME-1138 D18, G0 part 2 (contract §5.3) — the four OAuth plugins fetch a refreshed token
 # outside any transaction; this guard publishes it in one short transaction, only while the same
-# owner still holds the pair at the generation captured before the fetch.
-# INVARIANT: refresh is not an ownership change — the guard checks the generation and never
-# advances it, so a browser re-auth in flight on the same row still completes at its captured
-# generation.
-# INVARIANT (lock order = the ownership writers' order, marker → owner → blob): a marked pair holds
-# the marker row first; an unmarked pair has no row to lock, so the owner row is locked first and
-# the marker must then still be absent. Ownership writers on the pair pass the same owner row (a
-# Connection row, or the account index for a Profile) before their blob write, which serializes
-# them against this publication.
+# owner still holds the blob it refreshed, and that blob is still the row and revision captured
+# before the fetch.
+# INVARIANT (owner decision 2026-10-07): the check is the blob's own row id and
+# `credential_revision`, not the pair generation. Every writer that replaces, deletes or recreates
+# this credential moves one of the two; an ownership change elsewhere on the pair does not, so it
+# never burns a rotating refresh token. Refresh is not an ownership change: nothing here touches
+# the pair marker.
+# INVARIANT (lock order = the ownership writers' order, marker → owner → blob): this publication
+# takes the owner row (a Connection row, or the account index for a Profile), then the blob row —
+# a suffix of the writers' order, so it serializes with them and cannot deadlock against them.
 # AIDEV-NOTE: a lost publication is `RefreshSuperseded`, never `AuthError` — callers answer the
 # superseded conflict and mark nothing errored.
-# AIDEV-NOTE (known risk, owner decision 2026-10-07): the check is pair-wide, as §5.3 states, so a
-# generation move that does not touch this blob (another Connection created or started on the same
-# provider during the ~1 s provider round trip) also makes the refresh lose. With a rotating
-# refresh token the provider has already consumed the old one, so the next refresh of this owner
-# may need a re-auth. Narrowing the check to the blob's own revision is the deferred fix.
 """
 
 from __future__ import annotations
@@ -30,21 +26,34 @@ from uuid import UUID
 
 from tortoise.transactions import in_transaction
 
+from ..credential_blob.model import CredentialBlob
 from ..errors import RefreshSuperseded
 from ..oauth.models import OAuthConnection
 from ..oauth_base import BaseOAuthStrategy, RefreshPublication
 from ..profile_index import ProfileIndexStore, ProfileTransitionConflict, lock_account_index
-from .pair_authority import (
-    UNMARKED_GENERATION,
-    PairAuthority,
-    PairAuthorityConflict,
-    PairAuthorityStore,
-)
-from .writer_floor import hold_pair
 
 
 class _OwnerGone(Exception):
     """The owner the refresh was fetched for no longer holds its credential address."""
+
+
+class _BlobMoved(Exception):
+    """The blob the refresh was fetched from was rewritten, deleted or recreated meanwhile."""
+
+
+@dataclass(frozen=True)
+class BlobObservation:
+    """The blob a refresh reads from, as captured before the provider round trip."""
+
+    blob_id: UUID
+    revision: int
+
+
+async def _observe(service: str, account: str, *, lock: bool) -> BlobObservation | None:
+    query = CredentialBlob.filter(service=service, account=account)
+    # WHY a model-returning query: FOR UPDATE is dropped from `.values()` shapes in Tortoise.
+    row = await (query.select_for_update() if lock else query).first()
+    return None if row is None else BlobObservation(row.id, row.credential_revision)
 
 
 @dataclass(frozen=True)
@@ -97,37 +106,40 @@ RefreshOwner = ConnectionRefreshOwner | ProfileRefreshOwner
 
 
 class GuardedRefreshPublication:
-    """`RefreshPublication` for one owner: capture the pair, publish only while it still stands."""
+    """`RefreshPublication` for one owner and its blob: publish only while both still stand."""
 
-    def __init__(self, owner: RefreshOwner) -> None:
+    def __init__(self, owner: RefreshOwner, *, service: str, account: str) -> None:
         self._owner = owner
+        self._service = service
+        self._account = account
 
-    async def capture(self) -> PairAuthority:
-        return await PairAuthorityStore().read(self._owner.account_id, self._owner.provider)
+    async def capture(self) -> BlobObservation | None:
+        return await _observe(self._service, self._account, lock=False)
 
-    async def publish(self, captured: object, write: Callable[[], Awaitable[None]]) -> None:
-        if not isinstance(captured, PairAuthority):
+    async def publish(
+        self, captured: object, write: Callable[[], Awaitable[None]]
+    ) -> BlobObservation | None:
+        if captured is not None and not isinstance(captured, BlobObservation):
             raise TypeError("a guarded refresh publishes only what its own capture observed")
         try:
             async with in_transaction():
-                if captured.generation != UNMARKED_GENERATION:
-                    await hold_pair(captured)
-                    await self._owner.lock()
-                else:
-                    await self._owner.lock()
-                    current = await PairAuthorityStore().read(
-                        captured.account_id, captured.provider
-                    )
-                    if current.generation != UNMARKED_GENERATION:
-                        raise PairAuthorityConflict(captured.provider, captured.generation)
+                await self._owner.lock()
+                current = await _observe(self._service, self._account, lock=True)
+                # INVARIANT: an absent blob at capture means the credential was deleted under a
+                # cached strategy — publishing would resurrect it.
+                if captured is None or current != captured:
+                    raise _BlobMoved
                 await write()
                 # INVARIANT (§5.3): tokens AND `last_refreshed_at` publish in this one
                 # transaction, on the owner as committed now — never from a pre-fetch snapshot.
                 await self._owner.stamp()
-        except (PairAuthorityConflict, _OwnerGone) as exc:
+                # WHY read back under the row lock: the strategy keeps serving what it wrote, and
+                # its next refresh must check exactly this revision.
+                return await _observe(self._service, self._account, lock=False)
+        except (_BlobMoved, _OwnerGone) as exc:
             # WHY caught outside the transaction: under PostgreSQL it is aborted by now.
             raise RefreshSuperseded(
-                f"{captured.provider} refresh lost the pair it was fetched for"
+                f"{self._owner.provider} refresh lost the credential it was fetched for"
             ) from exc
 
 
@@ -139,12 +151,15 @@ def guard_refresh(strategy: Any, owner: RefreshOwner) -> Any:
     # the native and the legacy refresh routes). An unbound strategy writes directly.
     """
     if isinstance(strategy, BaseOAuthStrategy):
-        publication: RefreshPublication = GuardedRefreshPublication(owner)
+        publication: RefreshPublication = GuardedRefreshPublication(
+            owner, service=strategy.credential_service(), account=strategy.credential_account()
+        )
         strategy.bind_refresh_publication(publication)
     return strategy
 
 
 __all__ = [
+    "BlobObservation",
     "ConnectionRefreshOwner",
     "GuardedRefreshPublication",
     "ProfileRefreshOwner",

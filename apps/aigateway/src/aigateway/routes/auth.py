@@ -177,7 +177,7 @@ async def _profile_refresh_lifecycle(
     # then publishes the result. A delete that commits during that network window must WIN — a
     # deleted profile is never resurrected. Since OME-1497 (G0 §5.3) the strategy's refresh guard
     # publishes the token and stamps the document in ONE transaction, only while the profile is
-    # present and the pair generation captured before the fetch still holds. The error branch
+    # present and the blob still holds the credential that was refreshed. The error branch
     # fences on the snapshot below (auth_type + last_refreshed_at) so a deleted/superseded profile
     # is not recreated as a ghost ERROR row.
     expected_auth_type = profile.auth_type
@@ -185,8 +185,8 @@ async def _profile_refresh_lifecycle(
     try:
         yield
     except RefreshSuperseded as exc:
-        # INVARIANT (OME-1497, G0 §5.3): the pair changed owner during the network window, so the
-        # guard published nothing; the profile is neither marked nor republished.
+        # INVARIANT (OME-1497, G0 §5.3): the profile or its credential moved under the refresh,
+        # so the guard published nothing; the profile is neither marked nor republished.
         _invalidate_profile_session(request.app, plugin, account_id, name)
         raise HTTPException(
             status_code=409,

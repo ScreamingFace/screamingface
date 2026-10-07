@@ -79,17 +79,19 @@ RED first (`tests/unit/core/provider_access/test_writer_floor_refresh.py`, plus 
   exports (`ConnectionRefreshOwner`, `ProfileRefreshOwner`, `guard_refresh`). New tests:
   `tests/unit/core/provider_access/test_writer_floor_refresh.py` (19),
   `test_writer_floor_refresh_reauth.py` (3), `test_writer_floor_native_compat.py` (1),
+  `test_writer_floor_refresh_revision.py` (8), `test_refresh_guard_inventory.py` (3),
   `tests/integration/test_writer_floor_refresh_postgres.py` (3).
 - **Commits:** pending.
 - **Gates:** `uv run .claude/scripts/run_gates.py aigateway --base origin/main` — ALL GATES GREEN
   (append-only, ruff check, ruff format, pyright, no-enterprise, pytest with coverage ≥ 80%); full
-  suite 5246 passed, 100 skipped; the append-only check passes on the owner-approved transition
+  suite 5257 passed, 100 skipped (gates run against the merge base, since main moved by an unrelated
+  `usage_accounting` change); the append-only check passes on the owner-approved transition
   recorded in `.claude/test-change-approvals/OME-1497.json`. RED: 6 of the first 11 new tests failed for the defect (refresh
   published over an ownership change); the others are regression guards. PostgreSQL lane
   (`AIGW_TEST_PG=1 uv run pytest -m needs_postgres`): all three new races pass; 5 failures in
   `test_cache_snapshot_upload_postgres.py` are the local `pg_dump` 15 vs 16-alpine server mismatch
   (`request_cache` untouched); 58 passed, including the re-pointed H-1 race.
-- **Mutation checks:** dropping `hold_pair` fails the two marked-pair tests; dropping the owner
+- **Mutation checks (pair-generation version, before the narrowing below):** dropping `hold_pair` fails the two marked-pair tests; dropping the owner
   lock on the marked branch fails the revoked non-effective row test; dropping the stamp from the
   publication fails the dispatch stamp test; unbinding the guard fails all three PostgreSQL races.
 - **Review:** an independent review found two blockers, both fixed. (1) The metadata write after
@@ -119,16 +121,52 @@ RED first (`tests/unit/core/provider_access/test_writer_floor_refresh.py`, plus 
 - **Native callback skips the compat update when nothing activates:** the duplicate-identity
   return, `label_required` and a label conflict no longer flip a same-named Profile to
   AUTHENTICATED/`oauth` (main did, with no blob or row published). Intended.
-- **Known risk (owner decision 2026-10-07, option a — keep the spec's pair-wide check):** a
-  generation move that does not touch this blob (another Connection created or started on the same
-  provider during the ~1 s provider round trip) also makes the refresh lose. With a rotating
-  refresh token the provider has already consumed the old one, so the next refresh of that owner
-  may need a re-auth. Deferred fix (b), about half a day: check the blob's own revision plus a blob
-  row lock instead of the pair generation; it also closes two rare review cases (an account with no
-  per-account index row; a Profile and a Connection sharing one address).
+- **Refresh check narrowed (owner decision 2026-10-07, after the PR review; supersedes the
+  earlier "known risk, option a"):** the publication no longer checks the pair generation. It
+  captures its own blob's row id and `credential_revision` before the fetch, then locks the owner
+  and the blob row and requires both unchanged (lock order owner → blob, a suffix of the writers'
+  marker → owner → blob). The revision already existed (store increments it on every value write,
+  a PostgreSQL trigger covers older binaries; dispatch outcome writes leave it alone), so no
+  migration. Effects: an ownership change elsewhere on the pair no longer burns a rotating refresh
+  token; a rewrite, delete or recreation of the refreshed blob without a marker move — which the
+  pair check missed — now makes the refresh lose (closes the two rare review cases: an account with
+  no index row, a Profile and a Connection sharing an address). Spec §5.3 and §9 updated. Tests:
+  `test_writer_floor_refresh_revision.py` (5; the first four failed before the change). This PR's
+  own tests that used a bare pair claim as "the other writer" now use a rewrite of the refreshed
+  blob. Mutation checks: no revision check (8 fail), revision without the row id (1), no owner lock
+  (2), publishing over a blob absent at capture (1).
+- **Observation bound to the credential read (third review blocker):** the narrowed check still
+  captured at refresh time, so a cached strategy whose blob was rewritten after its read (or a
+  rewrite between a fresh read and the capture) published the old credential's refreshed tokens
+  over the new key — the pair-generation version had the same hole. `BaseOAuthStrategy` now takes
+  the observation around its own read (equal before and after, else it re-reads, at most 3 times,
+  then refuses with the superseded conflict) and adopts the observation each publication returns
+  for what it wrote; the refresh checks that one, never a fresh capture. Tests (all in
+  `test_writer_floor_refresh_revision.py`): a cached strategy refreshing after a rewrite loses and
+  keeps the new key; a rewrite between the read and the refresh is re-read and served, nothing
+  spent; a credential that changes under every read is refused (both of the first two failed
+  before the fix). Mutation checks: a fresh capture at refresh time (1 fails), no bracket after the
+  read (1), no re-read (1), not adopting the published observation (1).
+- **Guard inventory pinned:** `test_refresh_guard_inventory.py` scans `src/` for every function that
+  builds a credential strategy and fails on an unclassified site, an unguarded refreshing site, or a
+  "no refresh" site that starts refreshing (falsified with an added site and an unbound one). Site
+  names are class-qualified, and a factory reached through an import alias or `getattr` with a
+  literal name is still found (falsified with both); `refresh` counts as a refresh call. A
+  dispatch target with no stored backing is ambient (no blob), which is why it passes unguarded.
+- **Open question for the owner (not blocking):** a Profile delete that leaves the blob in place
+  for a live Connection at the same address makes an in-flight Profile-owned refresh lose, and a
+  rotating provider has then already spent the refresh token the Connection still holds. An option
+  is to publish when the blob is unchanged even though the owner is gone (no stamp, still 409).
+  Left as is: the window is one provider round trip, and the Connection recovers by re-auth.
+- **Third review (delta after the read-bound fix):** no blockers. Two nonblocking notes, left as
+  is: a strategy loaded under the direct publication and guarded later would refresh with no
+  observation and lose (latent — every site binds the guard before the first load); and a request
+  that reads `_cached` after the lock while a concurrent refresh loses can raise instead of
+  answering 409 (pre-existing on main).
 - **Deviations:**
-  - The capture happens per refresh inside the strategy lock, right before the network call, not
-    when the strategy is built; a cached strategy is therefore never stuck on an old generation.
+  - The observation is taken with the strategy's read of the blob and renewed by each publication,
+    not when the strategy is built and not at refresh time; a cached strategy therefore checks
+    exactly the credential it holds.
   - Dispatch on a migrated target answers the `connection` subject (409 `connection_conflict`):
     the owner is the Connection, and the request carries no Profile name to echo.
   - The token endpoint answers 409 `{"code": "connection_conflict"}`, the body the native refresh

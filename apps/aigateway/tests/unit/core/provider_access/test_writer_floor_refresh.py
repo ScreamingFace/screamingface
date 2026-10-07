@@ -1,10 +1,10 @@
-"""G0 writer floor — an OAuth refresh publishes only while its owner holds the pair (OME-1497).
+"""G0 writer floor — an OAuth refresh publishes only while its credential holds (OME-1497).
 
 # FEATURE: OME-1138 D18, G0 part 2 (contract §5.3) — the four OAuth plugins only FETCH a refreshed
-# token; the strategy publishes it through a guard that checks the owner and the pair generation
-# captured before the provider round trip, then writes the blob in one short transaction.
+# token; the strategy publishes it through a guard that checks the owner and the revision of the
+# blob it read, then writes the blob in one short transaction.
 # INVARIANT: refresh is not an ownership change — it never advances the generation, and a refresh
-# that lost the pair during its network window writes nothing, marks nothing errored and answers
+# whose credential moved during its network window writes nothing, marks nothing errored and answers
 # the existing superseded conflict (409 `profile_conflict` / `connection_conflict`).
 """
 
@@ -209,33 +209,46 @@ def test_a_legacy_refresh_of_a_marked_pair_publishes_without_moving_it(legacy) -
 # --- the native Connection refresh route and token endpoint -----------------------------------
 
 
-def test_a_native_refresh_that_lost_the_pair_writes_nothing_and_marks_nothing(legacy) -> None:
+def a_rewrite_of(h: Any, service: str) -> Intrusion:
+    """Another writer replaced the refreshed blob's credential (its revision moves)."""
+
+    async def intrude() -> None:
+        await h.client.app.state.credential_store.write(service, "default", expired_blob("new"))
+
+    return intrude
+
+
+def test_a_native_refresh_that_lost_its_credential_writes_nothing_and_marks_nothing(
+    legacy,
+) -> None:
     h = legacy
     connection_id = h.seed_connection(label="work")
-    use_intruding_tokens(h, "fresh-tok", an_ownership_claim(h))
+    before = marker(h)
+    use_intruding_tokens(h, "fresh-tok", a_rewrite_of(h, connection_service(h, connection_id)))
 
     resp = h.client.post(f"/v1/oauth/connections/{connection_id}/refresh")
 
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == "connection_conflict"
-    assert access_token_of(blob_at_connection_address(h, connection_id)) == "ctok"
+    assert access_token_of(blob_at_connection_address(h, connection_id)) == "new"
     assert connection(h, connection_id).status == "active"
-    assert marker(h).generation == 1
+    assert marker(h) == before
 
 
-def test_a_native_token_refresh_that_lost_the_pair_writes_nothing_and_marks_nothing(
+def test_a_native_token_refresh_that_lost_its_credential_writes_nothing_and_marks_nothing(
     legacy,
 ) -> None:
     h = legacy
     connection_id = h.seed_connection(label="work")
-    h.blobs.write(connection_service(h, connection_id), "default", expired_blob())
-    use_intruding_tokens(h, "fresh-tok", an_ownership_claim(h))
+    service = connection_service(h, connection_id)
+    h.blobs.write(service, "default", expired_blob())
+    use_intruding_tokens(h, "fresh-tok", a_rewrite_of(h, service))
 
     resp = h.client.get(f"/v1/oauth/connections/{connection_id}/token")
 
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == "connection_conflict"
-    assert access_token_of(blob_at_connection_address(h, connection_id)) == "stale"
+    assert access_token_of(blob_at_connection_address(h, connection_id)) == "new"
     assert connection(h, connection_id).status == "active"
 
 
@@ -386,21 +399,23 @@ def test_a_native_refresh_whose_row_was_revoked_in_its_window_writes_nothing(leg
 
 def test_a_guarded_publication_refuses_a_capture_it_did_not_take(legacy) -> None:
     h = legacy
-    guard = GuardedRefreshPublication(ConnectionRefreshOwner(h.account_id, PROVIDER, uuid4()))
+    guard = GuardedRefreshPublication(
+        ConnectionRefreshOwner(h.account_id, PROVIDER, uuid4()), service="s", account="a"
+    )
 
     async def write() -> None:
         raise AssertionError("must not write")
 
     with pytest.raises(TypeError):
-        h.call(guard.publish, None, write)
+        h.call(guard.publish, "a foreign capture", write)
 
 
 # --- a marked pair: the path every pair takes once a G0 writer touched it ----------------------
 
 
 def test_a_legacy_refresh_of_a_marked_pair_loses_to_a_key_replacement(legacy) -> None:
-    # INVARIANT: on a marked pair the generation hold is the fence — without it the refresh would
-    # write the old credential's tokens over the key set during its window.
+    # INVARIANT: on a marked pair the key replacement rewrites this blob, so its revision is the
+    # fence — without it the refresh would write the old credential's tokens over the new key.
     h = legacy
     h.seed_profile()
     h.call(an_ownership_claim(h))

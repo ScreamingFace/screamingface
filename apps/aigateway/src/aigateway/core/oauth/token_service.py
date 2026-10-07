@@ -128,8 +128,8 @@ class OAuthConnectionTokenService:
         try:
             access_token, expires_at_ms, refreshed = await token_strategy.get_token_with_expiry()
         except RefreshSuperseded as exc:
-            # INVARIANT (OME-1497, G0 §5.3): the pair changed owner during the refresh window —
-            # the superseded conflict, never an error mark or a token of the old credential.
+            # INVARIANT (OME-1497, G0 §5.3): the Connection or its credential moved under the
+            # refresh — the superseded conflict, never an error mark or an old credential's token.
             raise OAuthConnectionTokenError(409, {"code": "connection_conflict"}) from exc
         except (CredentialNotFoundError, ReauthRequiredError) as exc:
             # Credential missing, or the refresh token was rejected by the provider

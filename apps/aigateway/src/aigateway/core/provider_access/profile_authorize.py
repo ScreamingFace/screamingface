@@ -124,13 +124,13 @@ def _refresh_owner(app: Any, target: CredentialTarget, *, provider: str) -> Refr
 
 
 def _guarded(app: Any, strategy: Any, target: CredentialTarget, *, provider: str) -> Any:
-    """A dispatch-triggered refresh publishes only while the target still owns the pair (§5.3)."""
+    """A dispatch-triggered refresh publishes only while its owner and credential hold (§5.3)."""
     owner = _refresh_owner(app, target, provider=provider)
     return strategy if owner is None else guard_refresh(strategy, owner)
 
 
 def _superseded(app: Any, target: CredentialTarget, *, plugin: Any, provider: str) -> WriteConflict:
-    """A refresh that lost the pair in its network window: evict, mark nothing (§5.3)."""
+    """A refresh whose credential moved under it: evict, mark nothing (§5.3)."""
     credential_name = str(target.credential_name)
     credential_strategy_cache(app).evict(credential_name)
     invalidate_session(plugin, credential_name)
