@@ -112,8 +112,9 @@ validation of the new fields, the board field decode, both clients, `sf.reproduc
   - Approved test-helper change (append-only exception): `tests/_isolation_engine.py` gained a
     `honour_replay`, `summary` and `result_body` set on `RunPlan` (all defaulted, so every existing
     plan behaves as before), a `replay_labels` record, the echo header, and `plan` and `replay`
-    parameters on `_frame_for`. The gate lists it because three existing lines changed (the `_frame_for`
-    signature, its call, and one comprehension-free dict literal split into locals).
+    parameters on `_frame_for`. The gate lists it because five existing lines changed: the
+    `_frame_for` signature and its call, and the frame 3 and frame 4 entries of its `kinds` table now
+    read from locals. Their values are the same for every plan that sets none of the new fields.
 - **Deviations:**
   - `_RunOutcome.cache_replay` (the summary's `cache.replay`) is an extra field, for the coordinator's
     "replay summary lacks the label" check (Q1). The check lives in `evaluate_url4_*`.
