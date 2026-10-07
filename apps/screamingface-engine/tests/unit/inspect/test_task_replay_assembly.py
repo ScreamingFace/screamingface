@@ -20,10 +20,9 @@ from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY  # 
 from screamingface_engine_inspect import benchmarks  # noqa: E402
 from screamingface_engine_inspect.prepare import (  # noqa: E402
     TASK_REPLAY_CASES,
-    PreparedCase,
     TaskReplayCasesSpec,
 )
-from screamingface_engine_inspect.task_replay import TaskReplayError  # noqa: E402
+from screamingface_engine_inspect.task_replay import TaskReplay, TaskReplayError  # noqa: E402
 
 _SPEC: TaskReplayCasesSpec = TaskReplayCasesSpec(
     task="inspect_evals.mgsm.mgsm:mgsm",
@@ -64,7 +63,7 @@ def test_an_assembled_task_replay_benchmark_names_itself_in_a_skip(
     """Spec R10: assembly hands Case Preparation the Benchmark key, so the SKIPPED reason
     a board visitor reads names the board, not the inspect task path."""
 
-    def failed_fetch(spec: TaskReplayCasesSpec) -> list[PreparedCase]:
+    def failed_fetch(spec: TaskReplayCasesSpec) -> TaskReplay:
         raise TaskReplayError(f"{spec.task}: replay failed (exit 1): HTTP 404")
 
     row = next(spec for spec in benchmarks.BENCHMARKS if spec.key == "gsm8k")
@@ -72,7 +71,9 @@ def test_an_assembled_task_replay_benchmark_names_itself_in_a_skip(
     # and this replay copy must not leak into later tests.
     monkeypatch.setattr("screamingface_engine_inspect.single_shot._BENCHMARKS_BY_ID", {})
     monkeypatch.setitem(TASK_REPLAY_CASES, "gsm8k", _SPEC)
-    monkeypatch.setattr("screamingface_engine_inspect.task_replay.replayed_cases", failed_fetch)
+    monkeypatch.setattr(
+        "screamingface_engine_inspect.task_replay.replay_with_provenance", failed_fetch
+    )
 
     bundle = benchmarks._assemble(row).registration.asset_bundle
     assert bundle is not None

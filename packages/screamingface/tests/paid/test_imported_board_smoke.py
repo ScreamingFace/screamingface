@@ -33,9 +33,10 @@ from _board_summary import (
     run_summary_markdown,
     summarize_board,
 )
+from _case_provenance import provenance_markdown
 from _panel import BOARD_CONCURRENCY, CASE_LIMIT, fusion_panel
 from _scope import SCOPE_ENV, pick_shelf, resolve_scope
-from conftest import PaidStack
+from conftest import PaidStack, assets_root
 
 if TYPE_CHECKING:
     import screamingface as _sf
@@ -174,13 +175,17 @@ def _publish_overview(
     """Print the press totals block and keep `summary.md` for the bundle and CI page.
 
     The workflow appends `summary.md` to the run page. A failed write only warns:
-    the overview is a convenience and must never replace the real verdict.
+    the overview is a convenience and must never replace the real verdict. Under the
+    table, "Where the Cases came from" reads each bundle's provenance.json (OME-1492).
     """
     with capsys.disabled():
         print("\n" + "\n".join(run_summary_lines(summaries, wall_seconds)), flush=True)
     try:
         (log_dir / "summary.md").write_text(
-            run_summary_markdown(summaries, wall_seconds), encoding="utf-8"
+            run_summary_markdown(summaries, wall_seconds)
+            + "\n"
+            + provenance_markdown([summary.board for summary in summaries], assets_root()),
+            encoding="utf-8",
         )
     except OSError as exc:
         with capsys.disabled():
