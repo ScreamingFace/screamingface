@@ -183,6 +183,31 @@ _Avoid_: Leaderboard Score when referring specifically to the write request
 The ranked projection of a Leaderboard Score shown on a Leaderboard.
 _Avoid_: Score Submission
 
+**Cache Revision**:
+The short label (`cr-` and 12 hex digits) for the version of the AI Gateway's cache-key rules that
+stored a response. The Gateway keeps every earlier revision readable, so a Leaderboard Score stored
+under an older revision still replays. A Leaderboard Score stores only its Cache Revision, never a
+key list: its Candidate URL4, Benchmark Revision, answer seed, and Cache Revision together name its
+cache version.
+_Avoid_: Cache key, cache version when naming only the label
+
+**Reproducible**:
+The status a Leaderboard Score stores for whether the cache holds an answer for every model call and
+web search of its run. **Complete**: each call was a cache hit or was stored by the run, all under
+one Cache Revision, and no call failed. **Partial**: any call bypassed the cache, lost a write race,
+used a web tool the cache did not hold, failed, or carried another Cache Revision. Only a complete
+Leaderboard Score can be reproduced. A score with no status is unknown, and it is not reproduced
+either.
+_Avoid_: Replayable, verified (that is the separate `verified_by_screamingface` mark)
+
+**Reproduction**:
+A replay of a complete Leaderboard Score from its Cache Revision, with the Candidate URL4 and the
+stored answer seed. The replay can only read the cache, so it never pays a provider. A Reproduction is
+exact when the replay gives the stored score and case count on the same Benchmark Revision. Otherwise
+it is failed, or not reproducible when no run started. The Scoreboard records only exact
+Reproductions, each from a verified identity and with no limit on the count.
+_Avoid_: Re-run, fresh run, verification
+
 **Aggregation**:
 The phase that combines Case grades into a Candidate’s Benchmark metrics.
 _Avoid_: Reduction
