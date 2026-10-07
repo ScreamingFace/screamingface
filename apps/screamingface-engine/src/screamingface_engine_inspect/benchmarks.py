@@ -3713,6 +3713,154 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         notebook="12_inspect_evals_benchmarks",
         # eval.yaml says 4,520; the task yields 4,519 Samples at the pinned revision.
     ),
+    BenchmarkSpec(
+        key="squad",
+        title="SQuAD 2.0",
+        description=(
+            "11,873 reading-comprehension questions over Wikipedia paragraphs (the SQuAD "
+            "2.0 validation split, served in upstream order), imported from inspect_evals "
+            "by Task replay; about a third are unanswerable from the passage, and the model "
+            "must say 'unanswerable' for those. The model reads the paragraph and the "
+            "question and answers in as few words as possible. Graded by inspect's own f1 "
+            "and exact scorers against the published accepted answers (every accepted span "
+            "per question; 'unanswerable' for the rest), so no judge tokens are spent. "
+            "Benchmark score = mean F1 over the cases run, the Headline Score; exact match "
+            "is reported beside it as a Named Score, shown but not ranked — the EM / F1 "
+            "pair papers report from one run. Named deviation: the eval sends its "
+            "instruction as a system message; the Benchmark delivers it as leading input "
+            "text. Offers mid-run Draft Feedback (free-form answers)."
+        ),
+        focus="Reading comprehension over a passage, with unanswerable questions",
+        dataset_url="https://huggingface.co/datasets/rajpurkar/squad_v2",
+        # Frontier models sit above 90 F1 on SQuAD 2.0 (the human baseline is 89.5):
+        #  saturated material, a quick and cheap signal (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.squad.squad:squad.
+        # License: cc-by-sa-4.0.
+        # Benchmark Provenance (OME-1455): paper, inspect porters, baseline and size
+        # read from the eval's eval.yaml; authors and citation from arXiv. Every TODO
+        # below is refused by name at registration, so an unreviewed row cannot ship.
+        paper_url="https://arxiv.org/abs/1606.05250",
+        authors="Rajpurkar et al., 2016",
+        citation=(
+            "@misc{rajpurkar2016squad100000questionsmachine,\n"
+            "      title={SQuAD: 100,000+ Questions for Machine Comprehension of Text}, \n"
+            "      author={Pranav Rajpurkar and Jian Zhang and Konstantin Lopyrev and Per"
+            "cy Liang},\n"
+            "      year={2016},\n"
+            "      eprint={1606.05250},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/1606.05250}, \n"
+            "}"
+        ),
+        inspect_contributors=("tknasir",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/squad",
+        license="CC-BY-SA-4.0",
+        # The SQuAD 2.0 paper's human performance on its test set: EM 86.8, F1 89.5 (the
+        # headline here is F1). Typed from the paper; the reviewer verifies.
+        human_baseline=HumanBaseline(score=0.895, source_url="https://arxiv.org/abs/1806.03822"),
+        # The SQuAD 2.0 leaderboard's top entry (IE-Net ensemble, F1 93.2) at its last
+        # update; the board has been closed since. Typed from the leaderboard; the reviewer
+        # verifies.
+        frontier_score=FrontierScore(
+            score=0.932,
+            model="IE-Net (ensemble)",
+            source_url="https://rajpurkar.github.io/SQuAD-explorer/",
+            as_of="2021-03",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=11873,
+        scorer="inspect_ai.scorer:f1",
+        extra_scorers=("inspect_ai.scorer:exact",),
+        named_scores=("f1", "exact"),
+        # The eval's own Task(metrics=[mean(), stderr(cluster="context_hash")]) IS the mean
+        # per-case score the Benchmark reports; the clustered standard error is a
+        # confidence figure, not a score, and is not reproduced.
+        # Free-form answers make mid-run feedback legitimate (spec §4);
+        # MCQ benchmarks must NOT set this (OME-796).
+        with_check_surface=True,
+    ),
+    BenchmarkSpec(
+        key="math",
+        title="MATH",
+        description=(
+            "5,000 competition mathematics problems (the MATH test split, all five "
+            "difficulty levels and seven subjects, served in upstream order), imported "
+            "from inspect_evals by Task replay. The model solves the problem step by step "
+            "and ends with 'ANSWER: $ANSWER' (the eval's own prompt). Graded by two of the "
+            "eval's three scorers against the published boxed answer, so no judge tokens "
+            "are spent: expression_exact_match (the paper's normalised exact match) is the "
+            "Headline Score, and expression_exact_match_sympy (the Minerva-style symbolic "
+            "equivalence) is reported beside it as a Named Score, shown but not ranked. "
+            "Benchmark score = mean exact-match accuracy over the cases run. Named "
+            "deviations: the eval's first scorer, expression_equivalance, is left out — it "
+            "grades with a judge model that, unpinned, is the model under test, so its "
+            "number would measure the grader, not the answer; and the eval's sampling "
+            "temperature of 0.5 is not applied — the Candidate answers with its own "
+            "settings. Offers mid-run Draft Feedback (free-form answers)."
+        ),
+        focus="Competition mathematics across five difficulty levels and seven subjects",
+        dataset_url="https://huggingface.co/datasets/DigitalLearningGmbH/MATH-lighteval",
+        # Strong non-reasoning models score in the 70s on exact match and reasoning models
+        #  above 90, so the full set still separates the two (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.math.math:math.
+        # License: mit.
+        # Benchmark Provenance (OME-1455): paper, inspect porters, baseline and size
+        # read from the eval's eval.yaml; authors and citation from arXiv. Every TODO
+        # below is refused by name at registration, so an unreviewed row cannot ship.
+        paper_url="https://arxiv.org/abs/2103.03874",
+        authors="Hendrycks et al., 2021",
+        citation=(
+            "@misc{hendrycks2021measuringmathematicalproblemsolving,\n"
+            "      title={Measuring Mathematical Problem Solving With the MATH Dataset}, "
+            "\n"
+            "      author={Dan Hendrycks and Collin Burns and Saurav Kadavath and Akul Ar"
+            "ora and Steven Basart and Eric Tang and Dawn Song and Jacob Steinhardt},\n"
+            "      year={2021},\n"
+            "      eprint={2103.03874},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      url={https://arxiv.org/abs/2103.03874}, \n"
+            "}"
+        ),
+        inspect_contributors=("xeon27", "mamiglia"),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/math",
+        license="MIT",
+        human_baseline=HumanBaseline(score=0.9, source_url="https://arxiv.org/abs/2103.03874"),
+        # OpenAI o1's 94.8% on the MATH test set (pass@1), from its release note. Typed from
+        # the source; the reviewer verifies.
+        frontier_score=FrontierScore(
+            score=0.948,
+            model="OpenAI o1",
+            source_url="https://openai.com/index/learning-to-reason-with-llms/",
+            as_of="2024-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # The importer read 12,500 from eval.yaml, which counts the whole dataset (7,500 train
+        # + 5,000 test); the Task itself serves the 5,000-problem test split, so that is the
+        # size inspect runs and the size this Benchmark declares. Reviewed by hand (OME-1268).
+        upstream_case_count=5000,
+        scorer="inspect_evals.math.math:expression_exact_match",
+        extra_scorers=("inspect_evals.math.math:expression_exact_match_sympy",),
+        named_scores=("expression_exact_match", "expression_exact_match_sympy"),
+        # Named Deviation (OME-1268): the Task also declares expression_equivalance, left out
+        # because it grades with a judge model (none pinned: it would grade
+        # with the model under test). The description names the drop and its effect;
+        # the dropped name is part of the Benchmark Revision.
+        dropped_scorers=("expression_equivalance",),
+        # The Headline Score is expression_exact_match, not upstream's first scorer: the
+        # description names which column ranks (owner decision on OME-1268, 2026-10-05).
+        # Named Deviation: the Task's config=GenerateConfig(temperature=0.5) is not applied;
+        # the importer never reads task.config and the Candidate answers with its own settings
+        # (plan D10). The description names it.
+        # Free-form answers make mid-run feedback legitimate (spec §4);
+        # MCQ benchmarks must NOT set this (OME-796).
+        with_check_surface=True,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

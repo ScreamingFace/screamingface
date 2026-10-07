@@ -114,6 +114,11 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # bare free-text answer graded by the eval's own rule-based matcher.
     "pre_flight": "mcq",
     "bbeh": "free_text",
+    # OME-1268: the first Benchmarks with Named Scores. SQuAD answers in a few words against a
+    # list of accepted spans (f1 headline, exact beside it); MATH ends with an ANSWER line
+    # graded by two of the eval's three scorers (the self-grading one dropped by name).
+    "squad": "free_text",
+    "math": "free_text",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))

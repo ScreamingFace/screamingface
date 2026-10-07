@@ -1119,6 +1119,37 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         choice_shuffle_seed=7,
         license="cc-by-sa-4.0",
     ),
+    # squad — imported by Task replay on 2026-10-07 from
+    #   inspect_evals.squad.squad:squad.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face rajpurkar/squad_v2
+    #     pin revision 3ffb306f725f7d2ce8394bc1873b24868140c412
+    "squad": TaskReplayCasesSpec(
+        task="inspect_evals.squad.squad:squad",
+        task_args={"shuffle": False},
+        case_count=11873,
+        case_digest="1a56ec15f8b0ae3147ca5e000962e43894147afa03e226c54f22b98ddd19b29f",
+        source_pins={
+            "rajpurkar/squad_v2": "3ffb306f725f7d2ce8394bc1873b24868140c412",
+        },
+        license="cc-by-sa-4.0",
+    ),
+    # math — imported by Task replay on 2026-10-07 from
+    #   inspect_evals.math.math:math.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face DigitalLearningGmbH/MATH-lighteval/default
+    #     pin revision 0530c78699ea5e8eb5530600900e1f328b48acad
+    "math": TaskReplayCasesSpec(
+        task="inspect_evals.math.math:math",
+        task_args={"shuffle": False, "fewshot": 0},
+        case_count=5000,
+        case_digest="4652e25e01f6da8ecf093e5ab8b1018de59a6a0ede205d12cab2e3adb10f2a8b",
+        keep_sample_metadata=True,
+        source_pins={
+            "DigitalLearningGmbH/MATH-lighteval": "0530c78699ea5e8eb5530600900e1f328b48acad",
+        },
+        license="mit",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
