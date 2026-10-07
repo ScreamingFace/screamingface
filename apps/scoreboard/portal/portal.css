@@ -85,6 +85,7 @@ table .btn { white-space: nowrap; }
 /* Same visual language as .rail .crumbs (hairline underline for the active
    item) rather than a new pattern — one nav idiom for the whole portal. */
 .tabstrip {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-5);
@@ -110,6 +111,175 @@ table .btn { white-space: nowrap; }
    bare element still painted its border-bottom — a hairline rule floating above
    the masthead — and still announced an empty "Benchmarks" navigation landmark. */
 .tabstrip:empty { display: none; }
+
+/* The long tail of non-featured boards, folded into a "More benchmarks" disclosure. The button sits
+   at the strip's end; opening it drops a floating overlay (see .tabstrip-more-panel below) — a
+   search over a single vertical, scrollable column. Styled as the portal's other inputs: square,
+   hairline, mono, neutral ink — accent only on focus/open. */
+.tabstrip-more-btn {
+  margin-left: auto;
+  align-self: center;
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  background: var(--bg);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-hairline) solid var(--line-2);
+  border-radius: var(--radius-none);
+  cursor: pointer;
+}
+.tabstrip-more-btn:hover { color: var(--ink); }
+.tabstrip-more-btn[aria-expanded="true"] { color: var(--ink); border-color: var(--accent-solid); }
+/* An OVERLAY, not an inline block: absolute inside the position:relative .tabstrip, anchored under
+   the button at the strip's right edge. It floats over the content below so opening it never
+   shoves the page down. Depth reads from the seam + a single soft shadow is avoided (SFDS) — the
+   hairline border and elevated surface carry it; z-index lifts it above the masthead below. */
+.tabstrip-more-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 30;
+  width: 20rem;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: var(--border-hairline) solid var(--line-2);
+  border-radius: var(--radius-none);
+}
+.tabstrip-more-search {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--bg);
+  padding: var(--space-3);
+  border: 0;
+  border-bottom: var(--border-hairline) solid var(--line);
+  border-radius: var(--radius-none);
+  outline: none;
+}
+.tabstrip-more-search:focus { border-bottom-color: var(--accent-solid); }
+.tabstrip-more-list { max-height: 16rem; overflow-y: auto; }
+/* These links live inside the .tabstrip <nav>, so `.tabstrip a` (0,1,1) would otherwise force them
+   inline-block with tab padding and an underline. Scope under .tabstrip-more-list (0,2,x) to win,
+   so each benchmark renders as one full-width row, stacked vertically and scrollable. */
+.tabstrip-more-list .tabstrip-more-item {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 0;
+  color: var(--ink-2);
+  text-decoration: none;
+}
+.tabstrip-more-list .tabstrip-more-item:hover { color: var(--ink); background: var(--surface-2); }
+.tabstrip-more-list .tabstrip-more-item[aria-current="page"] { color: var(--ink); border-bottom: 0; }
+.tabstrip-more-empty { padding: var(--space-3); color: var(--ink-3); font-size: var(--text-sm); }
+
+/* ---- benchmark catalogue cards --------------------------------------- */
+/* A grid of clickable cards (echoing the docs' card grid). Square, hairline-sealed, no shadow —
+   depth reads from the seam (SFDS). Neutral ink body with one gold "→" accent, like the docs.
+   The whole card is the link. Cards are revealed a page at a time; a hidden card uses [hidden]. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-6);
+  margin: 0 0 var(--space-6);
+}
+.cards:empty { display: none; }
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  background: var(--bg);
+  border: var(--border-hairline) solid var(--line);
+  border-radius: var(--radius-none);
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color .12s;
+}
+/* Only the edge (blue) and the arrow (gold) react to hover. `color: var(--ink)` keeps the title from
+   inheriting the global link-hover blue (a:hover at 0,1,1 would otherwise beat .card at 0,1,0). */
+.card:hover { border-color: var(--info-border-strong); color: var(--ink); }
+.card:hover .card-go { color: var(--gain-text-high); }
+.card:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: 2px; }
+/* Title row: the board name + a gold open-arrow pinned to the right edge. */
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.card-title {
+  font-family: var(--f-sans);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-lead);
+  line-height: var(--leading-snug);
+}
+.card-go { color: var(--gain-text-low); font-weight: var(--weight-medium); }
+.card-focus { font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2); }
+.card-desc { font-size: var(--text-sm); color: var(--ink-2); line-height: var(--leading-snug); }
+/* Footer rule, pushed to the card's base so cards of differing text length keep their metric on
+   one plane: Best-reproducible label at the left, its value at the right. */
+.card-best {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: auto;
+  padding-top: var(--space-4);
+  border-top: var(--border-hairline) solid var(--line);
+}
+.card-best-label {
+  font-family: var(--f-mono);
+  font-size: var(--text-label);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-3);
+}
+.card-best-val { font-size: var(--text-body); color: var(--gain-text-low); }
+.cards-more { display: flex; justify-content: center; margin: 0 0 var(--space-8); }
+
+/* ---- landing hero ---------------------------------------------------- */
+/* The front page reads as a classic, research-register landing in the docs' own language: gold
+   mono eyebrow, a Parastoo serif title, a quiet subtitle, the board's key terms, and one gold
+   button. Generous whitespace; gold is the single accent, used sparingly (eyebrows, button, the
+   card arrows) rather than a sales band. */
+.hero { padding-top: var(--space-10); margin-bottom: var(--space-5); }
+/* Title sits between the display size (38) and the full hero clamp — present and editorial, not a
+   billboard. Floors at the display token, caps at ~52px, scaling with the viewport between. */
+.hero-title { font-size: clamp(var(--text-display), 5vw, 3.25rem); line-height: var(--leading-tight); }
+/* The subtitle: one line naming what the board is. Quiet, constrained measure, snug to read, and
+   pulled close under the title so the two read as one unit. */
+.hero-lead { max-width: 58ch; margin-top: var(--space-3); color: var(--ink-2); line-height: var(--leading-snug); }
+/* The three terms sit directly under the title as the key to reading any board; the button follows
+   close beneath them. */
+.hero-defs { margin-bottom: var(--space-6); }
+/* One monochrome, bold button — softer than a gold fill, still a clear call to start. */
+.hero-cta { margin-bottom: var(--space-11); }
+.benchmarks-section { margin-top: 0; scroll-margin-top: var(--space-8); }
+/* The landing sits slightly narrower than the shared --col-wide (1000) so the hero and card grid
+   read tighter; ~920px still holds a comfortable 3-up grid at the 260px card min. Scoped to the
+   landing so the per-board leaderboard table keeps the full width. */
+.wrap.wide.landing { max-width: 920px; }
+
+/* Accents: gold and blue, rationed and SCOPED TO THE LANDING (`.landing`) so the benchmark, spec and
+   data pages keep their neutral styling. Gold (brand) carries the landing's mono eyebrows, the card
+   open-arrow and the best-reproducible figure; blue (the always-blue --info role, since --accent is
+   gold in the marketing register) carries interaction — plain content links (`:not([class])`, so the
+   card and button links are untouched) and the card hover edge. The card accents and hover live in
+   the card rules above (card-only, landing-only already). */
+.landing .eyebrow { color: var(--gain-text-low); }
+.landing a:not([class]) { color: var(--info-text-low); }
+.landing a:not([class]):hover { color: var(--info-text-high); }
+
+/* The catalogue is led by ONE small, subtle label — the same treatment as the hero eyebrow
+   ("SCREAMINGFACE · OPEN LEADERBOARD"), not a big heading. It stays a semantic <h2> for
+   screen-reader navigation, just styled as the gold mono micro-label. */
+.section-label {
+  font-family: var(--f-mono);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  line-height: var(--leading-snug);
+  color: var(--gain-text-low);
+  margin: 0 0 var(--space-6);
+}
 
 /* ---- responsive ------------------------------------------------------ */
 @media (max-width: 639px) {
