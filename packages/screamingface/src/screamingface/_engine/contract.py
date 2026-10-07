@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from screamingface import events
 from screamingface._client_provenance import valid_client_version
@@ -306,6 +306,7 @@ class _RunState:
             raise ExecutionError("SF Engine terminated before the root Run started")
         cache_hits = max(self._summary_cache_hits, self._hit_spans)
         saved, saved_archive, unpriced = self._cache_evidence(cache_hits)
+        summary = self._cache_summary
         return _Accepted(
             event=event,
             outcome=_RunOutcome(
@@ -319,6 +320,9 @@ class _RunState:
                 cache_saved_cost_archive_usd=saved_archive,
                 cache_hits=cache_hits,
                 cache_unpriced_hits=unpriced,
+                cache_revision=None if summary is None else summary.revision,
+                reproducible=None if summary is None else summary.reproducible,
+                cache_replay=None if summary is None else summary.replay,
                 artifact=self._result[2],
                 client_version=None if self._version_conflict else self._client_version,
             ),
@@ -335,6 +339,11 @@ _REPORTED_HITS = "cache.saved_cost.reported_hits"
 _ARCHIVE_HITS = "cache.saved_cost.archive_hits"
 _SAVED_COST_USD = "cache.saved_cost_usd"
 _SAVED_COST_ARCHIVE_USD = "cache.saved_cost_archive_usd"
+# FEATURE (OME-1307): the cache version of the run (`replay_outcomes.CACHE_REVISION`,
+# `CACHE_REPRODUCIBLE`, and `cache.replay` for a run that honoured `X-Cache-Replay`).
+_CACHE_REVISION = "cache.revision"
+_CACHE_REPRODUCIBLE = "cache.reproducible"
+_CACHE_REPLAY = "cache.replay"
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,6 +356,9 @@ class _CacheSummary:
     unpriced_hits: int | None
     saved_cost_usd: Decimal | None
     saved_cost_archive_usd: Decimal | None
+    revision: str | None = None
+    reproducible: Literal["complete", "partial"] | None = None
+    replay: str | None = None
 
     @classmethod
     def parse(cls, attributes: Mapping[str, object]) -> _CacheSummary:
@@ -360,6 +372,9 @@ class _CacheSummary:
             unpriced_hits=count(_UNPRICED_HITS),
             saved_cost_usd=_summary_amount(attributes, _SAVED_COST_USD),
             saved_cost_archive_usd=_summary_amount(attributes, _SAVED_COST_ARCHIVE_USD),
+            revision=_summary_label(attributes, _CACHE_REVISION),
+            reproducible=_summary_reproducible(attributes),
+            replay=_summary_label(attributes, _CACHE_REPLAY),
         )
 
     def is_consistent(self) -> bool:
@@ -391,6 +406,30 @@ def _summary_amount(attributes: Mapping[str, object], key: str) -> Decimal | Non
     if not isinstance(value, str):
         raise ExecutionError(f"SF Engine cache summary {key} must be a decimal string")
     return _decimal(value, f"cache summary {key}")
+
+
+def _summary_label(attributes: Mapping[str, object], key: str) -> str | None:
+    """A summary's cache revision label, absent when the key is absent, or a refusal."""
+    if key not in attributes:
+        return None
+    value = attributes[key]
+    if not isinstance(value, str) or not value:
+        raise ExecutionError(f"SF Engine cache summary {key} must be a non-empty string")
+    return value
+
+
+def _summary_reproducible(
+    attributes: Mapping[str, object],
+) -> Literal["complete", "partial"] | None:
+    """`complete` or `partial`, absent when the key is absent (unknown), or a refusal."""
+    if _CACHE_REPRODUCIBLE not in attributes:
+        return None
+    value = attributes[_CACHE_REPRODUCIBLE]
+    if value == "complete":
+        return "complete"
+    if value == "partial":
+        return "partial"
+    raise ExecutionError(f"SF Engine cache summary {_CACHE_REPRODUCIBLE} is invalid")
 
 
 def _cache_hit_count(value: object, attribute: str = _CACHE_HITS) -> int:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -182,6 +183,28 @@ def _answer_seed(value: object) -> int | None:
     return value
 
 
+_CACHE_REVISION = re.compile(r"cr-[0-9a-f]{12}")
+
+
+def _cache_version(
+    revision: object, reproducible: object
+) -> tuple[str | None, Literal["complete", "partial"] | None]:
+    """Validate the cache version pair the way the Scoreboard does (cv C10).
+
+    INVARIANT: a label is `cr-` and 12 lower-case hex digits, and a label never travels without
+    its status. The board refuses both, so the Client must not produce them.
+    """
+    if revision is not None and (
+        not isinstance(revision, str) or _CACHE_REVISION.fullmatch(revision) is None
+    ):
+        raise ValueError("Candidate cache_revision must be a cache revision label or None")
+    if reproducible not in (None, "complete", "partial"):
+        raise ValueError("Candidate reproducible must be 'complete', 'partial' or None")
+    if revision is not None and reproducible is None:
+        raise ValueError("Candidate cache_revision requires reproducible")
+    return revision, reproducible  # type: ignore[return-value]
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class CandidateResult:
     """One independently executed Candidate outcome; a higher score is always better."""
@@ -226,6 +249,10 @@ class CandidateResult:
     # FEATURE (OME-1463): the Engine run summary's count of hits with no price at all; None when no
     # summary arrived. Only 0 lets a cached run be published as `complete`.
     cache_unpriced_hits: int | None
+    # FEATURE (OME-1307, cv C4): the gateway cache version this run was served under, and whether a
+    # replay could answer every call of it. None is "unknown" (an older Engine), never `partial`.
+    cache_revision: str | None
+    reproducible: Literal["complete", "partial"] | None
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
     # FEATURE (OME-1268): the Benchmark's Named Scores for this Candidate, each the mean of
     # its column over the graded Cases, headline first; `score` IS the headline. Empty on a
@@ -260,6 +287,8 @@ class CandidateResult:
         cache_saved_cost_archive_usd: Decimal | str | None = None,
         cache_unpriced_hits: int | None = None,
         scores: Mapping[str, float | None] | None = None,
+        cache_revision: str | None = None,
+        reproducible: Literal["complete", "partial"] | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
@@ -271,6 +300,7 @@ class CandidateResult:
             or cache_unpriced_hits < 0
         ):
             raise ValueError("Candidate cache_unpriced_hits must be a non-negative integer or None")
+        selected_revision, selected_reproducible = _cache_version(cache_revision, reproducible)
         selected_score = _optional_number(score, "Candidate score")
         selected_coverage = _coverage(coverage)
         metric_items = _metrics(metrics)
@@ -351,6 +381,8 @@ class CandidateResult:
             "cache_hits": cache_hits,
             "cache_saved_cost_archive_usd": selected_archive,
             "cache_unpriced_hits": cache_unpriced_hits,
+            "cache_revision": selected_revision,
+            "reproducible": selected_reproducible,
             "_metric_items": metric_items,
             "_scores": selected_scores,
         }
@@ -430,6 +462,9 @@ class CandidateResult:
                 else str(self.cache_saved_cost_archive_usd)
             ),
             "cache_unpriced_hits": self.cache_unpriced_hits,
+            # OME-1307: always emitted (null = unknown), like the cache fields above.
+            "cache_revision": self.cache_revision,
+            "reproducible": self.reproducible,
         }
 
 
