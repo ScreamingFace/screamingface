@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 
@@ -37,12 +38,18 @@ from ..taxonomy.mapper import (
 from ..taxonomy.mapper import (
     usage_and_source as _usage_and_source,
 )
+from .zero_insurance import proves_insured_zero
 
-__all__ = ["cache_reference_from_cached", "normalize_openrouter_usage_accounting"]
+__all__ = [
+    "cache_reference_from_cached",
+    "normalize_openrouter_usage_accounting",
+    "supplement_openrouter_usage_accounting",
+]
 
 DIRECT_COST_UNIT = "openrouter_credits"
 DIRECT_COST_SOURCE = "openrouter.usage.cost"
 EXTENSION_NAMESPACE = "openrouter.response_usage"
+ZERO_COMPLETION_INSURANCE_SOURCE = "openrouter.zero_completion_insurance"
 
 # OpenRouter exposes these provider-cost components without a documented currency/unit.
 # They remain non-aggregable audit evidence until the provider contract supplies one.
@@ -183,6 +190,38 @@ def normalize_openrouter_usage_accounting(
         response_model=response_string(raw_response, final_response, field="model"),
         provider_response_id=response_string(raw_response, final_response, field="id"),
         provider_extensions=_provider_extensions(usage, source),
+    )
+
+
+def supplement_openrouter_usage_accounting(
+    *,
+    evidence: ProviderUsageAccountingEvidence,
+    raw_response: Mapping[str, Any] | None,
+    http_status: int | None,
+    failed: bool,
+    request_has_potential_auxiliary_charge: bool | None = None,
+) -> ProviderUsageAccountingEvidence:
+    """Certify only a native, metadata-backed OpenRouter insured rejection."""
+    if (
+        not failed
+        or http_status != 429
+        or raw_response is None
+        or evidence.direct_cost.status != "unavailable"
+    ):
+        return evidence
+    if not proves_insured_zero(
+        raw_response,
+        http_status=http_status,
+        request_has_potential_auxiliary_charge=request_has_potential_auxiliary_charge,
+    ):
+        return evidence
+
+    return replace(
+        evidence,
+        direct_cost=DirectCost.provider_guaranteed_zero(
+            unit=DIRECT_COST_UNIT,
+            source=ZERO_COMPLETION_INSURANCE_SOURCE,
+        ),
     )
 
 

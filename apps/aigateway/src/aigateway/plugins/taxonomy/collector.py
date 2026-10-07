@@ -105,6 +105,7 @@ class _PendingSend:
     outcome: CallOutcome = "indeterminate"
     failure_code: str | None = None
     raw_evidence: dict[str, Any] | None = None
+    evidence_complete: bool = True
     evidence: ProviderUsageAccountingEvidence | None = None
     # Set when a redirect response was seen for THIS send, so the next admission is
     # recognised as a hop of the same generation call rather than a new one.
@@ -240,6 +241,7 @@ class RequestAccountingCollector:
         status: object,
         raw_evidence: dict[str, Any] | None,
         body_completed: bool = True,
+        evidence_complete: bool = True,
     ) -> None:
         """A response arrived for ``request``.
 
@@ -264,6 +266,9 @@ class RequestAccountingCollector:
             send.latency_ms = max(0, int((time.monotonic() - send.started_at) * 1000))
         else:
             self._incomplete = True
+        if not evidence_complete:
+            self._incomplete = True
+        send.evidence_complete = evidence_complete
         send.outcome = outcome_for_status(status)
         if send.outcome == "provider_error":
             send.failure_code = "provider_status_error"
@@ -301,13 +306,16 @@ class RequestAccountingCollector:
     def open_records(self) -> tuple[tuple[str, dict[str, Any] | None, bool], ...]:
         """``(attempt_id, raw_evidence, succeeded)`` for every observed send.
 
-        The seam feeds this to the provider's pure mapper. Handing over the raw evidence
-        rather than the collector keeps a mapper structurally unable to add, drop or
-        reorder records.
+        The seam feeds raw evidence, not the collector, so a mapper cannot reorder records.
         """
         return tuple(
             (send.attempt_id, send.raw_evidence, send.outcome == "succeeded")
             for send in self._sends
+        )
+
+    def evidence_is_complete(self, attempt_id: str) -> bool:
+        return next(
+            (send.evidence_complete for send in self._sends if send.attempt_id == attempt_id), False
         )
 
     def apply_evidence(self, attempt_id: str, evidence: ProviderUsageAccountingEvidence) -> None:

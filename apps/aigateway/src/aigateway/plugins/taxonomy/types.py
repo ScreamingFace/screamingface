@@ -37,6 +37,7 @@ __all__ = [
 SCHEMA_USAGE_ACCOUNTING = "aigw.chat_usage_accounting"
 SCHEMA_REQUEST_ECONOMICS = "aigw.request_economics"
 SCHEMA_PROVIDER_ATTEMPT = "aigw.provider_attempt"
+SCHEMA_PROVIDER_ATTEMPT_V2 = "aigw.provider_attempt.v2"
 
 TRANSPORT_LITELLM_ASYNC_HTTP: Literal["litellm_async_http"] = "litellm_async_http"
 
@@ -57,7 +58,13 @@ UsageSource = Literal[
 ]
 UsageEvidenceStatus = Literal["complete", "partial", "unavailable"]
 DirectCostStatus = Literal[
-    "reported", "absent", "unavailable", "invalid", "unit_unknown", "archive_matched"
+    "reported",
+    "provider_guaranteed_zero",
+    "absent",
+    "unavailable",
+    "invalid",
+    "unit_unknown",
+    "archive_matched",
 ]
 ExtensionFactKind = Literal["integer", "decimal", "boolean", "enum"]
 ServiceTier = Literal["standard", "priority", "batch"]
@@ -282,7 +289,11 @@ class PricingContext:
 
 @dataclass(frozen=True, slots=True)
 class DirectCost:
-    """Provider-authored direct-cost evidence and its independent status."""
+    """Direct-cost evidence and its independent status.
+
+    Only ``reported`` is a provider-authored amount; ``provider_guaranteed_zero`` is a zero
+    the gateway certifies from a provider guarantee, and ``archive_matched`` a logged value.
+    """
 
     status: DirectCostStatus
     amount: str | None = None
@@ -292,6 +303,7 @@ class DirectCost:
     def __post_init__(self) -> None:
         if type(self.status) is not str or self.status not in {
             "reported",
+            "provider_guaranteed_zero",
             "absent",
             "unavailable",
             "invalid",
@@ -312,6 +324,12 @@ class DirectCost:
             self.source,
         ):
             raise ValueError(f"{self.status} direct cost requires amount, unit and source")
+        if self.status == "provider_guaranteed_zero" and (
+            self.amount != "0" or self.unit is None or self.source is None
+        ):
+            raise ValueError(
+                "provider_guaranteed_zero direct cost requires exact zero, unit and source"
+            )
         if self.status == "unit_unknown" and None in (self.amount, self.source):
             raise ValueError("unit_unknown direct cost requires amount and source")
         if self.status == "unit_unknown" and self.unit is not None:
@@ -324,6 +342,10 @@ class DirectCost:
     @classmethod
     def reported(cls, *, amount: str, unit: str, source: str) -> Self:
         return cls(status="reported", amount=amount, unit=unit, source=source)
+
+    @classmethod
+    def provider_guaranteed_zero(cls, *, unit: str, source: str) -> Self:
+        return cls(status="provider_guaranteed_zero", amount="0", unit=unit, source=source)
 
     @classmethod
     def absent(cls) -> Self:
@@ -527,7 +549,11 @@ class ProviderAttemptRecord:
 
     def as_json(self) -> dict[str, Any]:
         return {
-            "schema": SCHEMA_PROVIDER_ATTEMPT,
+            "schema": (
+                SCHEMA_PROVIDER_ATTEMPT_V2
+                if self.direct_cost.status == "provider_guaranteed_zero"
+                else SCHEMA_PROVIDER_ATTEMPT
+            ),
             "attempt_id": self.attempt_id,
             "sequence": self.sequence,
             "dispatch_index": self.dispatch_index,
