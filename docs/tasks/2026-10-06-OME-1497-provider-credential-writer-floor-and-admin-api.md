@@ -1,10 +1,10 @@
 ---
 id: OME-1497
 linear_url: https://linear.app/openmined/issue/OME-1497/guard-provider-credential-writers-and-publish-the-pair-addressed
-status: backlog   # Linear is the authority; blocked until the OME-1375 contract lands
+status: in_progress   # Linear is the authority; the OME-1375 contract landed, G0 started
 type: task
 priority: high
-labels: [aigateway, agentic, autonomous, blocked]
+labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 blocked_by: [OME-1375]
 blocks: [OME-1498]
@@ -27,4 +27,4 @@ Release checklist (owner-confirmed): G0 merged → G0 deployed → G1 merged →
 
 Contract: `docs/spec/2026-10-02-provider-credential-admin-contract.md`.
 Plan: `docs/plan/2026-10-02-provider-credential-admin-contract.md` (sections B and C).
-Ledger: created when implementation starts.
+Ledger (G0): `docs/work/2026-10-06-OME-1497-g0-writer-floor.md`.

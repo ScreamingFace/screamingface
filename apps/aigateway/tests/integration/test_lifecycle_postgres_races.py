@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -18,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from testcontainers.postgres import PostgresContainer  # type: ignore[import-untyped]
+from tortoise import connections
 
 from aigateway.config import Settings
 from aigateway.core.api_key_validation import (
@@ -153,6 +155,32 @@ def _connection_credential(client: TestClient, account_id: str, connection_id: U
     return _read_credential(client, locator["service"], locator["account"])
 
 
+async def _lock_waiters() -> int:
+    rows = await connections.get("default").execute_query_dict(
+        "SELECT count(*) AS n FROM pg_stat_activity"
+        " WHERE wait_event_type = 'Lock' AND datname = current_database()"
+    )
+    return int(rows[0]["n"])
+
+
+def _overlaps(client: TestClient, attempted: threading.Event) -> bool:
+    """The second writer reached its hook, or is parked on a PostgreSQL lock.
+
+    # WHY (OME-1497, G0 §5.3): a writer on a legacy-owned pair now claims the pair marker FIRST,
+    # so the second writer parks on that claim before it reaches the index or the row hook;
+    # either signal means the two writers truly overlap before the first commits.
+    """
+    portal = client.portal
+    if portal is None:
+        raise AssertionError("TestClient portal is not active")
+    deadline = time.monotonic() + 10
+    while not attempted.is_set() and portal.call(_lock_waiters) == 0:
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
 def test_postcondition_owner_check_and_cas_are_atomic_on_postgres(
     pg_client: TestClient,
     monkeypatch,
@@ -281,7 +309,7 @@ def test_profile_absent_credential_delete_set_commit_orders_on_postgres(
             f"/v1/auth/anthropic/profiles/{delete_first}/api-key",
             json={"api_key": _API_KEY},
         )
-        assert set_attempted_index.wait(10)
+        assert _overlaps(pg_client, set_attempted_index)
         release_delete.set()
         deleted = deleting.result(timeout=10)
         set_result = setting.result(timeout=10)
@@ -324,13 +352,16 @@ def test_profile_absent_credential_delete_set_commit_orders_on_postgres(
             pg_client.delete,
             f"/v1/auth/anthropic/profiles/{set_first}",
         )
-        assert delete_attempted_index.wait(10)
+        assert _overlaps(pg_client, delete_attempted_index)
         release_set.set()
         set_result = setting.result(timeout=10)
         deleted = deleting.result(timeout=10)
 
     assert set_result.status_code == 200
-    assert deleted.status_code == 204
+    # WHY 409 (OME-1497, G0 §5.3): the delete read the pair before the set's claim committed, so
+    # its own claim loses and its whole transaction rolls back; a retry reads the new pair.
+    assert deleted.status_code == 409
+    assert pg_client.delete(f"/v1/auth/anthropic/profiles/{set_first}").status_code == 204
     assert pg_client.get(f"/v1/auth/anthropic/profiles/{set_first}").status_code == 404
     assert _profile_credential(pg_client, account_id, set_first) is None
 
@@ -384,7 +415,7 @@ def test_connection_absent_credential_delete_set_commit_orders_on_postgres(
             f"/v1/oauth/connections/{delete_first}/api-key",
             json={"api_key": _API_KEY},
         )
-        assert set_attempted_connection.wait(10)
+        assert _overlaps(pg_client, set_attempted_connection)
         release_delete.set()
         deleted = deleting.result(timeout=10)
         set_result = setting.result(timeout=10)
@@ -422,13 +453,16 @@ def test_connection_absent_credential_delete_set_commit_orders_on_postgres(
         )
         assert set_holds_connection.wait(10)
         deleting = executor.submit(pg_client.delete, f"/v1/oauth/connections/{set_first}")
-        assert delete_attempted_connection.wait(10)
+        assert _overlaps(pg_client, delete_attempted_connection)
         release_set.set()
         set_result = setting.result(timeout=10)
         deleted = deleting.result(timeout=10)
 
     assert set_result.status_code == 200
-    assert deleted.status_code == 204
+    # WHY 409 (OME-1497, G0 §5.3): the delete read the pair before the set's claim committed, so
+    # its own claim loses and its whole transaction rolls back; a retry reads the new pair.
+    assert deleted.status_code == 409
+    assert pg_client.delete(f"/v1/oauth/connections/{set_first}").status_code == 204
     assert pg_client.get(f"/v1/oauth/connections/{set_first}").json()["status"] == "revoked"
     assert _connection_credential(pg_client, account_id, set_first) is None
 

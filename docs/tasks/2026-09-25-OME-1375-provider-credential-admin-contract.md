@@ -1,13 +1,13 @@
 ---
 id: OME-1375
 linear_url: https://linear.app/openmined/issue/OME-1375/aigateway-decide-the-pair-addressed-provider-credential-admin
-status: in_review   # Linear is the authority; the formalization PR is open
+status: done
 type: task
 priority: high
 labels: [aigateway, design-session]
 parent: OME-1138
 created: 2026-09-25
-closed:
+closed: 2026-10-06
 ---
 
 # AIGateway: decide the pair-addressed provider credential admin successor

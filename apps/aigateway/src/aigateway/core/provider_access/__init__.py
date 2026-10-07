@@ -26,6 +26,8 @@ from .connection_admin import ConnectionBackedCredentialAdmin
 from .connection_backed import ConnectionBackedProviderAccess
 from .connection_facade import FacadeTarget, facade_target, patch_facade, refresh_facade
 from .connection_native import (
+    claim_for_connection,
+    claim_native_write,
     credential_has_other_owner,
     credential_name_of,
     effective_pair_of,
@@ -85,6 +87,14 @@ from .types import (
     UnsupportedAuthMode,
     WriteConflict,
 )
+from .writer_floor import (
+    bootstrap_under_the_floor,
+    claim_observed,
+    claim_pair,
+    fences_writer,
+    hold_observed,
+    hold_pair,
+)
 
 __all__ = [
     "BackfillContext",
@@ -135,6 +145,11 @@ __all__ = [
     "auth_type_of",
     "available_auth_modes",
     "begin_connection_oauth",
+    "bootstrap_under_the_floor",
+    "claim_for_connection",
+    "claim_native_write",
+    "claim_observed",
+    "claim_pair",
     "complete_connection_oauth",
     "context_stamp",
     "contract_auth_mode",
@@ -144,6 +159,9 @@ __all__ = [
     "effective_pair_of",
     "facade_target",
     "fail_connection_oauth",
+    "fences_writer",
+    "hold_observed",
+    "hold_pair",
     "invalidate_session",
     "legacy_target_parts",
     "mark_profile_error_fresh",

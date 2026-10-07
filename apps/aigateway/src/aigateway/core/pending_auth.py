@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # WHY type-only: `provider_access` imports this module while it initialises.
+    from .provider_access.pair_authority import PairAuthority
 
 
 @dataclass
@@ -24,6 +29,11 @@ class PendingAuthEntry:
     # delete or an API-key write in between rejects the stale callback at commit time. None for
     # every flow the legacy Profile (or a Connection flow) owns.
     pair_generation: int | None = None
+    # WHY (OME-1497, G0 writer floor §5.3): the pair a flow the legacy Profile owns observed at
+    # start. Begin never advances it; the callback's completion claims this generation, so an
+    # ownership change in between makes the stale callback lose. None for migrated flows, which
+    # are fenced by `pair_generation`.
+    observed_pair: PairAuthority | None = None
 
 
 class PendingAuthTable:
