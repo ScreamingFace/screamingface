@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-10-06
-finished:
+finished: 2026-10-06
 ---
 
 # e14-b5-sdk-reproduce — SDK sends the cache version, and `sf.reproduce`
@@ -70,7 +70,33 @@ validation of the new fields, the board field decode, both clients, `sf.reproduc
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, plus `_evaluation/model.py` and `_evaluation/url4.py` (approved). New
+  tests: `test_cache_version_capture.py`, `test_cache_version_submission.py`,
+  `test_cache_replay_transport.py`, `test_cache_replay_evaluate.py`,
+  `test_leaderboards_reproductions.py`, `test_reproduce.py`. `_report_primitives.py` needed no change:
+  the two codes were already declared there.
+- **Commits:** see `git log --oneline e14-a2-sdk-metadata..HEAD`.
+- **Gates:** without `--skip-append-only`, only the append-only check fails, and it lists exactly
+  `tests/public_surface_snapshot.json` (the approved regeneration). With `--skip-append-only`: ruff,
+  format, pyright, pytest (2442 passed, 26 skipped, coverage gate 95% met), notebooks, build and
+  distribution checks all pass.
+- **Skipped tests:** 26, none Postgres. 7 `tests/e2e/test_boards.py` (no recorded fixtures or
+  prepared assets), 16 e2e replay lane (`SCREAMINGFACE_TEST_E2E` not set), 1
+  `test_inspect_log_live.py` (`inspect_ai` not installed), 1 `test_url4_cloud_integration.py`
+  (needs a real runner). The e2e spine test (rp #22) was not run and not written here.
 - **Deviations:**
+  - `_RunOutcome.cache_replay` (the summary's `cache.replay`) is an extra field, for the coordinator's
+    "replay summary lacks the label" check (Q1). The check lives in `evaluate_url4_*`.
+  - The ack check requires the echo to equal the label sent, not only to be present (Q3).
+  - The transports start a run through a new `_start_run` method (sync and async) so the stop on an
+    unacknowledged replay does not exceed the repo's complexity limits in `_run_reconnecting`.
+  - `Reproduction` fields after `outcome` have defaults. `_record_reproduction` posts the stored
+    `score` and `total_questions` (equal to the replay's, by the exact outcome).
+  - `LeaderboardScore` validates the new fields in a module helper `_reproduction_fields`, and
+    `_submission` builds the cache fields in `_cache_version_fields` (both for ruff limits).
+  - A stored score with no `benchmark_revision` (an older board) classifies as
+    `benchmark_revision_changed`, because the plan compares the two revisions literally.
+  - `CandidateResult` refuses a `cache_revision` without `reproducible` and a malformed label,
+    mirroring the board (cv C10).
+  - The submission tests (cv #15) were written before the code, but their RED run was not recorded
+    before the commit.
