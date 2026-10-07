@@ -52,6 +52,9 @@ class Candidate:
     # already receives, so the run-transport protocol (and every fake implementing it)
     # never widens. None = unseeded, the default for every compiled Candidate.
     answer_seed: int | None
+    # FEATURE (OME-1307, K3): the cache revision a REPLAY run answers from, carried the same way:
+    # only `reproduce` sets it, and the transport sends it as `X-Cache-Replay`. None = a normal run.
+    cache_replay: str | None
 
     def __init__(self) -> NoReturn:
         raise TypeError("Candidate values are derived internally; they are not constructed")
@@ -152,6 +155,7 @@ def _compiled_candidate(
         _candidate_parameter_assignments(parameter_assignments, operation_ids),
     )
     object.__setattr__(candidate, "answer_seed", None)
+    object.__setattr__(candidate, "cache_replay", None)
     return candidate
 
 
@@ -179,9 +183,28 @@ def _with_answer_seed(candidate: Candidate, answer_seed: int) -> Candidate:
         "operations",
         "members",
         "parameter_assignments",
+        "cache_replay",
     ):
         object.__setattr__(stamped, name, getattr(candidate, name))
     object.__setattr__(stamped, "answer_seed", answer_seed)
+    return stamped
+
+
+def _with_cache_replay(candidate: Candidate, cache_replay: str) -> Candidate:
+    """Copy one compiled Candidate with the cache revision it must replay from stamped on."""
+    stamped = object.__new__(Candidate)
+    for name in (
+        "name",
+        "kind",
+        "models",
+        "url4",
+        "operations",
+        "members",
+        "parameter_assignments",
+        "answer_seed",
+    ):
+        object.__setattr__(stamped, name, getattr(candidate, name))
+    object.__setattr__(stamped, "cache_replay", cache_replay)
     return stamped
 
 

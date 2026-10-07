@@ -93,6 +93,10 @@ _KEEPALIVE_PING_S = 20.0
 
 _logger = logging.getLogger(__name__)
 
+# FEATURE (OME-1307, K3): the start header that names the cache revision a replay answers from, and
+# the same header echoed on the start response as the Engine's acknowledgement.
+_CACHE_REPLAY = "X-Cache-Replay"
+
 
 def _reconnect_delay(
     attempt: int, base_s: float, *, max_s: float = _RECONNECT_MAX_DELAY_S
@@ -259,18 +263,7 @@ class Url4CloudTransport:
                     _require_subprotocol(websocket.subprotocol)
                     if not run_started:
                         websocket.send(lifecycle.initial_attach())
-                        _start_sync(
-                            self._http,
-                            minted[-1],
-                            candidate.url4,
-                            trace=trace,
-                            answer_seed=candidate.answer_seed,
-                            admission=_new_admission(
-                                self._admission_budget_s, self._reconnect_base_delay_s
-                            ),
-                            on_event=on_event,
-                            wait=self._abort.wait,
-                        )
+                        self._start_run(minted[-1], candidate, trace, on_event)
                         run_started = True
                     else:
                         websocket.send(lifecycle.resume_attach())
@@ -290,6 +283,35 @@ class Url4CloudTransport:
                     recovery.attempts += 1
             except (WebSocketException, OSError, TimeoutError) as exc:
                 self._back_off(recovery, exc, started, on_event, minted[-1])
+
+    def _start_run(
+        self,
+        token: str,
+        candidate: Candidate,
+        trace: TraceContext,
+        on_event: SyncEventCallback | None,
+    ) -> None:
+        """Start the Run; stop it again when a replay start is not acknowledged.
+
+        FEATURE (OME-1307, R24): the start was accepted, so an Engine that ignored the replay
+        header may be running the Candidate as a paid run. Stop THIS run, then surface the error.
+        """
+        try:
+            _start_sync(
+                self._http,
+                token,
+                candidate.url4,
+                trace=trace,
+                answer_seed=candidate.answer_seed,
+                cache_replay=candidate.cache_replay,
+                admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
+                on_event=on_event,
+                wait=self._abort.wait,
+            )
+        except ExecutionError as exc:
+            if exc.code == "replay_unsupported":
+                self._stop_own_run(token)
+            raise
 
     def _retire(self, minted: list[str]) -> None:
         """Take this Run's capabilities out of the owner sweep's reach."""
@@ -616,6 +638,31 @@ class AsyncUrl4CloudTransport:
             if not cancelled:
                 self._retire(minted)
 
+    async def _start_run(
+        self,
+        token: str,
+        candidate: Candidate,
+        trace: TraceContext,
+        on_event: AsyncEventCallback | None,
+    ) -> None:
+        """Async twin of the sync `_start_run`."""
+        try:
+            await _start_async(
+                self._http,
+                token,
+                candidate.url4,
+                trace=trace,
+                answer_seed=candidate.answer_seed,
+                cache_replay=candidate.cache_replay,
+                admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
+                on_event=on_event,
+                wait=self._wait_unless_aborted,
+            )
+        except ExecutionError as exc:
+            if exc.code == "replay_unsupported":
+                await self._stop_own_run(token)
+            raise
+
     def _retire(self, minted: list[str]) -> None:
         """Async twin of the sync `_retire`; no lock (class INVARIANT)."""
         self._active_tokens.difference_update(minted)
@@ -655,18 +702,7 @@ class AsyncUrl4CloudTransport:
                     _require_subprotocol(websocket.subprotocol)
                     if not run_started:
                         await websocket.send(lifecycle.initial_attach())
-                        await _start_async(
-                            self._http,
-                            minted[-1],
-                            candidate.url4,
-                            trace=trace,
-                            answer_seed=candidate.answer_seed,
-                            admission=_new_admission(
-                                self._admission_budget_s, self._reconnect_base_delay_s
-                            ),
-                            on_event=on_event,
-                            wait=self._wait_unless_aborted,
-                        )
+                        await self._start_run(minted[-1], candidate, trace, on_event)
                         run_started = True
                     else:
                         await websocket.send(lifecycle.resume_attach())
@@ -910,6 +946,7 @@ def _start_sync(
     *,
     trace: TraceContext | None = None,
     answer_seed: int | None = None,
+    cache_replay: str | None = None,
     admission: _AdmissionWait | None = None,
     on_event: object = None,
     wait: Callable[[float], bool] | None = None,
@@ -926,7 +963,9 @@ def _start_sync(
     wait = wait or _sleep_unaborted
     trace_id = trace.trace_id if trace else None
     while True:
-        response = _send_start_sync(http, token, url4, trace=trace, answer_seed=answer_seed)
+        response = _send_start_sync(
+            http, token, url4, trace=trace, answer_seed=answer_seed, cache_replay=cache_replay
+        )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
             break
@@ -934,6 +973,7 @@ def _start_sync(
         if wait(delay):
             raise _start_abandoned(trace_id)
     _finish_start(response, admission, on_event, trace_id)
+    _require_replay_ack(response, cache_replay, trace_id)
 
 
 def _send_start_sync(
@@ -943,6 +983,7 @@ def _send_start_sync(
     *,
     trace: TraceContext | None,
     answer_seed: int | None,
+    cache_replay: str | None = None,
 ) -> httpx.Response:
     """One start request, re-sent only while the WebSocket attach is still registering."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -957,6 +998,7 @@ def _send_start_sync(
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
                     **_answer_seed_header(answer_seed),
+                    **_cache_replay_header(cache_replay),
                 },
             )
         except httpx.HTTPError as exc:
@@ -1141,6 +1183,7 @@ async def _start_async(
     *,
     trace: TraceContext | None = None,
     answer_seed: int | None = None,
+    cache_replay: str | None = None,
     admission: _AdmissionWait | None = None,
     on_event: object = None,
     wait: Callable[[float], Awaitable[bool]] | None = None,
@@ -1150,7 +1193,9 @@ async def _start_async(
     wait = wait or _sleep_unaborted_async
     trace_id = trace.trace_id if trace else None
     while True:
-        response = await _send_start_async(http, token, url4, trace=trace, answer_seed=answer_seed)
+        response = await _send_start_async(
+            http, token, url4, trace=trace, answer_seed=answer_seed, cache_replay=cache_replay
+        )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
             break
@@ -1158,6 +1203,7 @@ async def _start_async(
         if await wait(delay):
             raise _start_abandoned(trace_id)
     _finish_start(response, admission, on_event, trace_id)
+    _require_replay_ack(response, cache_replay, trace_id)
 
 
 async def _send_start_async(
@@ -1167,6 +1213,7 @@ async def _send_start_async(
     *,
     trace: TraceContext | None,
     answer_seed: int | None,
+    cache_replay: str | None = None,
 ) -> httpx.Response:
     """Async twin of `_send_start_sync`."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -1181,6 +1228,7 @@ async def _send_start_async(
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
                     **_answer_seed_header(answer_seed),
+                    **_cache_replay_header(cache_replay),
                 },
             )
         except httpx.HTTPError as exc:
@@ -1204,6 +1252,34 @@ def _answer_seed_header(answer_seed: int | None) -> dict[str, str]:
     if answer_seed is None:
         return {}
     return {"X-Answer-Seed": str(answer_seed)}
+
+
+def _cache_replay_header(cache_replay: str | None) -> dict[str, str]:
+    """The cache revision a replay must answer from as its start header; nothing for a normal run.
+
+    INVARIANT (OME-1307): absence is the default, as for the answer seed. Only `reproduce` sets it.
+    """
+    if cache_replay is None:
+        return {}
+    return {_CACHE_REPLAY: cache_replay}
+
+
+def _require_replay_ack(
+    response: httpx.Response, cache_replay: str | None, trace_id: str | None
+) -> None:
+    """A replay start must be echoed back with its own label (K3, R24).
+
+    WHY: an Engine that predates replay ignores `X-Cache-Replay` and runs the Candidate as a normal,
+    paid run. The echo is the Engine saying it took the header. A missing or different echo ends the
+    start; the caller stops the run it just started.
+    """
+    if cache_replay is not None and response.headers.get(_CACHE_REPLAY) != cache_replay:
+        raise ExecutionError(
+            "SF Engine did not acknowledge the cache replay, so the Run was stopped",
+            code="replay_unsupported",
+            permanent=True,
+            trace_id=trace_id,
+        )
 
 
 def _attachment_is_still_registering(response: httpx.Response) -> bool:

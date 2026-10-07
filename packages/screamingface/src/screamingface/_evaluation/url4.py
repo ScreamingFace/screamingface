@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 
 from url4 import Expression, Source, Text, build
 
-from screamingface._core.ports import AsyncRunTransport, SyncRunTransport
+from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
 from screamingface._evaluation.model import (
     Candidate,
     _canonical_url4,
@@ -15,6 +15,7 @@ from screamingface._evaluation.model import (
     _compiled_operation,
     _member_projection,
     _with_answer_seed,
+    _with_cache_replay,
 )
 from screamingface._evaluation.results import report_from_url4_outcome
 from screamingface._evaluation.topology import (
@@ -22,6 +23,7 @@ from screamingface._evaluation.topology import (
     _topology_bindings,
     _topology_from_expression,
 )
+from screamingface.errors import ExecutionError
 from screamingface.events import Event
 from screamingface.report import Report
 from screamingface.url4 import _calls as _url4_calls
@@ -34,6 +36,7 @@ def evaluate_url4_sync(
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
     answer_seed: int | None = None,
+    cache_replay: str | None = None,
 ) -> Report:
     """Execute one already-linked evaluation expression unchanged."""
 
@@ -49,6 +52,9 @@ def evaluate_url4_sync(
     if answer_seed is not None:
         # FEATURE (OME-1193): a replayed sitting is the reproduction use case itself.
         candidate = _with_answer_seed(candidate, answer_seed)
+    if cache_replay is not None:
+        # FEATURE (OME-1307): the replay label rides the Candidate, as the seed does.
+        candidate = _with_cache_replay(candidate, cache_replay)
     observer = _sync_event_observer(
         on_event,
         progress,
@@ -59,6 +65,7 @@ def evaluate_url4_sync(
     try:
         bound = None if observer is None else observer.bind(candidate)
         outcome = transport.run(candidate, bound)
+        _require_replay_statement(cache_replay, outcome)
         report = report_from_url4_outcome(candidate, outcome)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
@@ -73,6 +80,7 @@ async def evaluate_url4_async(
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
     answer_seed: int | None = None,
+    cache_replay: str | None = None,
 ) -> Report:
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
@@ -88,6 +96,8 @@ async def evaluate_url4_async(
     if answer_seed is not None:
         # FEATURE (OME-1193): see the sync twin.
         candidate = _with_answer_seed(candidate, answer_seed)
+    if cache_replay is not None:
+        candidate = _with_cache_replay(candidate, cache_replay)
     observer = _async_event_observer(
         on_event,
         progress,
@@ -98,12 +108,28 @@ async def evaluate_url4_async(
     try:
         bound = None if observer is None else observer.bind(candidate)
         outcome = await transport.run(candidate, bound)
+        _require_replay_statement(cache_replay, outcome)
         report = report_from_url4_outcome(candidate, outcome)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
     _reconcile_event_observer(observer, report)
     return report
+
+
+def _require_replay_statement(cache_replay: str | None, outcome: _RunOutcome) -> None:
+    """A replay's summary must name the label sent: the Engine states it only when it honoured it.
+
+    INVARIANT (OME-1307, R24): the start-response echo can come from a front door while a worker
+    ignored the replay env, so the run summary is checked as well. A run that fails the check may
+    have called providers; it is not reported as a replay.
+    """
+    if cache_replay is not None and outcome.cache_replay != cache_replay:
+        raise ExecutionError(
+            "SF Engine did not state that it replayed the run from the cache",
+            code="replay_unsupported",
+            permanent=True,
+        )
 
 
 def _candidate_from_url4(value: str) -> Candidate:
