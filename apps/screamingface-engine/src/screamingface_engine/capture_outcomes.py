@@ -20,6 +20,13 @@ from typing import Literal
 Mode = Literal["capture", "replay"]
 Lane = Literal["chat", "tool"]
 Status = Literal["stored", "failed", "refused", "missing", "error"]
+Reason = Literal["failed", "refused", "missing", "open", "seal", "error"]
+
+_REASONS: tuple[Reason, ...] = ("failed", "refused", "missing", "open", "seal", "error")
+_FROZEN_COPY_ID = "capture.frozen_copy_id"
+_STATUS = "capture.status"
+_REPLAY = "capture.replay"
+_PARTIAL_PREFIX = "capture.partial."
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +61,11 @@ def replay_refusal_code(status: int, payload: object) -> str | None:
     return code if code in (REPLAY_MISS, REPLAY_UNAVAILABLE) else None
 
 
+def _reason_of(status: Status) -> Reason:
+    """The partial reason a non-stored status counts under (``stored`` never reaches here)."""
+    return "error" if status in ("stored", "error") else status
+
+
 def request_digest(payload: Mapping[str, object]) -> str:
     """sha256 of the canonical JSON of a request: the identity of one logical call."""
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -69,8 +81,61 @@ class CaptureTally:
     frozen_copy_id: str | None = None
     """Capture: the copy the run opened (``None`` while closed or when the open failed).
     Replay: the copy the run replays."""
+    open_failed: bool = False
+    """The copy could not be opened: the run went on uncaptured."""
+    seal_failed: bool = False
+    """The copy could not be sealed: a replay refuses an open copy."""
     outcomes: list[CaptureOutcome] = field(default_factory=list)
     answers: dict[tuple[Lane, str], int] = field(default_factory=dict)
+
+    def status(self) -> Literal["complete", "partial"]:
+        """``complete`` only for a capture run whose copy opened and sealed and whose every call
+        is stored. An empty run is complete: it has nothing a replay could miss."""
+        complete = (
+            self.mode == "capture"
+            and not self.open_failed
+            and not self.seal_failed
+            and not self._lost()
+        )
+        return "complete" if complete else "partial"
+
+    def attributes(self) -> dict[str, str | int]:
+        """The run's frozen-copy state as run-summary attributes. Empty for a normal run.
+
+        A replay run states only the copy it replays: that is the proof the engine honoured the
+        header. A capture run states its copy, its status and a count per partial reason (zeros
+        omitted). It never carries a request digest or any request content.
+        """
+        if self.mode == "replay" and self.frozen_copy_id is not None:
+            return {_REPLAY: self.frozen_copy_id}
+        if self.mode != "capture":
+            return {}
+        attributes: dict[str, str | int] = {}
+        if self.frozen_copy_id is not None:
+            attributes[_FROZEN_COPY_ID] = self.frozen_copy_id
+        attributes[_STATUS] = self.status()
+        counts: dict[Reason, int] = {reason: 0 for reason in _REASONS}
+        for outcome in self._lost():
+            counts[_reason_of(outcome.status)] += 1
+        counts["open"] += self.open_failed
+        counts["seal"] += self.seal_failed
+        for reason in _REASONS:
+            if counts[reason]:
+                attributes[f"{_PARTIAL_PREFIX}{reason}"] = counts[reason]
+        return attributes
+
+    def _lost(self) -> list[CaptureOutcome]:
+        """The outcomes that are not stored, less each error that a later stored call of the same
+        request made up for: only the final attempt of a logical call counts (D2)."""
+        served: set[str] = set()
+        lost: list[CaptureOutcome] = []
+        for outcome in reversed(self.outcomes):
+            if outcome.status == "stored":
+                if outcome.digest is not None:
+                    served.add(outcome.digest)
+            elif outcome.status != "error" or outcome.digest not in served:
+                lost.append(outcome)
+        return lost
 
     def occurrence(self, lane: Lane, digest: str) -> int:
         """How many successful answers this run already received for this request."""
