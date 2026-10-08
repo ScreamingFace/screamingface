@@ -129,3 +129,83 @@ validation of the new fields, the board field decode, both clients, `sf.reproduc
     mirroring the board (cv C10).
   - The submission tests (cv #15) were written before the code, but their RED run was not recorded
     before the commit.
+
+## Frozen-copy rework (2026-10-08)
+
+Spec: `docs/plan/2026-10-06-e14-reproducible-submission/F-B5-sdk-capture-reproduce.md` and
+`docs/spec/2026-10-06-e14-reproducible-submission/02-frozen-copy-design.md` §5, §7. The cache-revision
+design is gone from the stack. B5 now sends `capture=True` and reproduces over a frozen copy. New
+commits sit on top of the earlier B5 commits. Engine (F-B3) and board (F-B4) are in this checkout;
+their names were read from their code (`X-Capture`, `X-Replay-Frozen-Copy`, `capture.frozen_copy_id`,
+`capture.status`, `capture.replay`, `frozen_copy_miss`, `frozen_copy_unavailable`; board fields
+`frozen_copy_id`, `capture_status`).
+
+### Changes
+
+- `evaluate(..., capture: bool = False)` on `Client`, `AsyncClient` and `sf.evaluate`. It is threaded
+  like `answer_seed`: `client.py` to `_evaluation/url4.py` (url4 path) and `_evaluation/runner.py`
+  (Recipe path) to `Candidate.capture` through `_stamped`, then the transport sends `X-Capture: true`
+  only when true.
+- `Candidate.cache_replay` is now `Candidate.replay_frozen_copy`. `_stamped` refuses a Candidate that
+  has both `capture` and `replay_frozen_copy` (`ValueError`), so no stamp can build one.
+- Transport: the replay header is `X-Replay-Frozen-Copy`. The echo check uses the new name. A capture
+  start has no echo check: an Engine that ignores `X-Capture` gives a result with no
+  `frozen_copy_id`, which the SDK reads as "not captured".
+- Run summary: `capture.frozen_copy_id`, `capture.status`, `capture.replay` go to
+  `_RunOutcome.frozen_copy_id`, `capture_status`, `capture_replay`. Absent is `None`.
+- `CandidateResult.frozen_copy_id` and `capture_status` replace `cache_revision` and `reproducible`.
+  A copy id must be a lower-case UUID string, and it needs a `capture_status`. `to_dict` keys follow.
+- `submit` sends `frozen_copy_id`, `capture_status` and `answer_seed` when set.
+- `LeaderboardScore.frozen_copy_id` and `capture_status` replace `cache_revision` and `reproducible`.
+- `_report_primitives.reproducible_status` is now `capture_status_value` (same narrowing).
+- `sf.reproduce`: outcome table of design §7 in check order. Replay codes are `frozen_copy_miss` and
+  `frozen_copy_unavailable`. Both also prove replay mode when `capture.replay` is absent. The record
+  POST sends `frozen_copy_id` in place of `cache_revision`.
+- Stale PRD ids (`K3`, `R24` and the like) were removed from the B5 comments, because the PRDs that
+  carried them are superseded.
+
+### Tests
+
+- Renamed this PR's own test files (they are new against the base, so the append-only check does not
+  see them): `test_cache_version_capture.py` to `test_capture_summary.py`,
+  `test_cache_version_submission.py` to `test_capture_submission.py`,
+  `test_cache_replay_transport.py` to `test_frozen_copy_transport.py`,
+  `test_cache_replay_evaluate.py` to `test_frozen_copy_evaluate.py`. Fixtures and names in
+  `test_reproduce.py`, `test_reproduce_review.py` and `test_leaderboards_reproductions.py` follow.
+- Added: `X-Capture` is sent only when true (sync, async, real transport); `capture=True` reaches the
+  Candidate on the url4 path and the Recipe path, sync and async; `capture` and a replay are mutually
+  exclusive; the result, submit and board fields decode and validate; the two codes are declared in
+  the SDK mirror and the two old codes are not; check order (miss before unavailable, unavailable
+  before run_failed); a complete score with no copy id starts no run; the spine test now captures with
+  `capture=True` and reproduces from the copy.
+- Approved test-helper change (append-only exception, same as the first B5 round):
+  `tests/_isolation_engine.py` now uses `X-Replay-Frozen-Copy` and `capture.replay`, keeps
+  `replay_copies` (was `replay_labels`) and adds `capture_starts`.
+- `tests/public_surface_snapshot.json` regenerated with `UPDATE_SURFACE_SNAPSHOT=1` (pre-approved).
+  Diff: `capture` on the three `evaluate` signatures; `frozen_copy_id` and `capture_status` replace
+  `cache_revision` and `reproducible` on `CandidateResult` and `LeaderboardScore`.
+- TDD note: this was a rework in place. The old tests failed on the renamed names first (as the task
+  expected). The new capture tests were written together with the code, and their RED run was not
+  recorded separately.
+
+### Deviations
+
+- `_evaluation/runner.py` is not in the plan. It changed so that `capture=True` also works for Recipes,
+  as `answer_seed` does (a private `_captured_candidates` beside `_seeded_candidates`). Without it the
+  Recipe path would drop `capture` silently.
+- `capture` and a replay are refused in `_stamped` (a `ValueError`). The plan says only that they are
+  mutually exclusive.
+- `_classify` keeps `run_failed` as "a non-empty `result.failures`". Replay codes at case level and
+  `frozen_copy_unavailable` at any level are caught by earlier checks. A candidate-level
+  `frozen_copy_miss` therefore reads as `run_failed`, which is a failed run too.
+
+### Gates
+
+- With `--skip-append-only`: ruff, format, pyright, pytest (2487 passed, 26 skipped, coverage gate
+  95% met), notebooks, build and distribution check all pass.
+- Without it: only the append-only check fails, and it lists `tests/_isolation_engine.py` and
+  `tests/public_surface_snapshot.json` (the two approved changes above).
+- Skipped tests (26, none Postgres): 7 `tests/e2e/test_boards.py` (no recorded fixtures or prepared
+  assets), 17 e2e replay lane (`SCREAMINGFACE_TEST_E2E` not set), 1 `test_inspect_log_live.py`
+  (`inspect_ai` not installed), 1 `test_url4_cloud_integration.py` (needs a real runner). The e2e
+  spine test (rp #22) did not run. The in-process spine test covers the same path.
