@@ -53,6 +53,8 @@ TDD order from the plan (risk order):
 
 ## Approved test changes (append-only exception)
 
+**Owner approval:** confirmed by the owner on 2026-10-08. The append-only gate may skip these edits.
+
 - `apps/aigateway/tests/unit/test_migration_0012_provider_credential_slots.py::test_0012_downgrade_drops_only_the_marker_table`:
   one line changed, `_tortoise(url, "migrate")` to `_tortoise(url, "migrate", "models", _MIGRATION)`. The test assumed
   0012 is the newest migration, so any later migration that adds a table broke it. It now migrates to 0012 before
