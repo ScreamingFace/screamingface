@@ -15,3 +15,9 @@ is the authority for grouped recovery. A corrupted candidate's embedded membersh
 must not discard healthy siblings, including when opening the public evaluation ID.
 For legacy directories without that manifest, prefer a locally validated sibling's
 context. Preserve the existing partial-report error contract and public API.
+
+Review correction approved on 2026-10-08: lightweight listing uses the independent
+evaluation manifest when present. Legacy listing retains all expected names and
+known saved candidates without decoding Cases. Explicit deletion removes every
+locally saved run sharing the evaluation identity, even with damaged membership
+or a malformed canonical manifest, and preserves unrelated evaluations.

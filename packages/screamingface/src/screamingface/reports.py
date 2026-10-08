@@ -51,10 +51,7 @@ def list(*, directory: str | Path | None = None) -> builtins.list[SavedReportInf
         groups.setdefault(_report_id(run), []).append(run)
     entries = []
     for report_id, runs in groups.items():
-        selected = runs[0]
-        names = tuple(
-            selected.evaluation["candidates"] if selected.evaluation else [selected.candidate.name]
-        )
+        names = _listed_candidates(store, runs)
         downloaded = {run.candidate.name for run in runs if run.path.exists()}
         entries.append(
             SavedReportInfo(
@@ -66,6 +63,21 @@ def list(*, directory: str | Path | None = None) -> builtins.list[SavedReportInf
             )
         )
     return sorted(entries, key=lambda entry: entry.id)
+
+
+def _listed_candidates(store: ResultStore, runs: builtins.list[SavedRun]) -> tuple[str, ...]:
+    selected = _canonical_selection(store, runs[0])
+    if selected is not None:
+        return tuple(
+            selected.evaluation["candidates"] if selected.evaluation else [selected.candidate.name]
+        )
+    # INVARIANT: lightweight legacy discovery retains expected and known siblings
+    # without decoding raw Cases or trusting one potentially truncated context.
+    names = dict.fromkeys(
+        name for run in runs if run.evaluation for name in run.evaluation["candidates"]
+    )
+    names.update((run.candidate.name, None) for run in runs)
+    return tuple(names)
 
 
 def _directory_size(directory: Path) -> int:
@@ -93,6 +105,10 @@ def _selected(store: ResultStore, report_id: str) -> SavedRun:
 
 
 def _recovery_selection(store: ResultStore, selected: SavedRun) -> SavedRun:
+    return _canonical_selection(store, selected) or _legacy_selection(store, selected)
+
+
+def _canonical_selection(store: ResultStore, selected: SavedRun) -> SavedRun | None:
     if selected.evaluation is None:
         return selected
     report_id = _report_id(selected)
@@ -100,7 +116,7 @@ def _recovery_selection(store: ResultStore, selected: SavedRun) -> SavedRun:
     try:
         context = membership_value(json.loads(manifest.read_text(encoding="utf-8")))
     except FileNotFoundError:
-        return _legacy_selection(store, selected)
+        return None
     except OSError as exc:
         raise storage_error(exc, selected.key) from exc
     except (ValueError, KeyError, TypeError) as exc:
@@ -151,7 +167,10 @@ def delete(report_id: str, *, directory: str | Path | None = None) -> None:
     """
     store = _store(directory)
     selected = _selected(store, report_id)
-    for run in _group(store, selected):
+    # INVARIANT: explicit deletion removes every locally known sibling by identity,
+    # even when membership or the independent evaluation manifest is damaged.
+    related = [run for run in store.list() if _report_id(run) == _report_id(selected)]
+    for run in related:
         shutil.rmtree(run.path.parent)
     # INVARIANT: saved metadata must not redirect deletion outside this manifest folder.
     manifests = store.directory / "evaluations"

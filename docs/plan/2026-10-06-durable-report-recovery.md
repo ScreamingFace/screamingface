@@ -9,3 +9,10 @@
 Review follow-up: add failing corrupt-first regressions; resolve canonical context
 before grouping, retaining a locally validated legacy fallback; rerun SDK gates
 and execute the requested temporary report feature notebook.
+# Listing and deletion review correction (2026-10-08)
+
+Share the canonical metadata loader between recovery and lightweight listing.
+Union expected legacy membership and locally known names without result decoding.
+Delete saved runs by evaluation identity independently of candidate name lists.
+Add corruption, completeness, error, saved-key lookup, and unrelated-group tests;
+preserve every inherited test and run all SDK gates before committing.
