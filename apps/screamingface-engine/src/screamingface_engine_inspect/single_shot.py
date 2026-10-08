@@ -214,6 +214,14 @@ class ImportedBenchmark:
         )
 
 
+def imported_benchmark_id(benchmark_key: str, origin: BenchmarkOrigin) -> str:
+    """The catalogue id this plugin gives a row: ``inspect-<key>`` for an inspect_evals import,
+    the bare key for a local Task (our own eval in inspect's shape, OME-1513) — "musique", not
+    "inspect-musique", because nothing about it came from inspect_evals."""
+
+    return benchmark_key if origin == "screamingface" else f"inspect-{benchmark_key}"
+
+
 def single_shot_benchmark(
     *,
     benchmark_key: str,
@@ -283,7 +291,7 @@ def single_shot_benchmark(
         The assembled benchmark, its registration ready for the plugin's entry point.
     """
 
-    benchmark_id: str = f"inspect-{benchmark_key}"
+    benchmark_id: str = imported_benchmark_id(benchmark_key, origin)
     if judge is not None and with_check_surface:
         # WHY: a judged mid-run check spends judge tokens per attempt, and the
         # advertised check cost is still hardcoded "free" — until the check-cost

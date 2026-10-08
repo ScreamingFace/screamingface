@@ -227,6 +227,7 @@ async def test_support_f1_grades_a_sample_without_metadata_as_zero() -> None:
 def test_the_row_is_our_own_benchmark_with_three_named_scores_and_no_porter_list() -> None:
     spec = next(row for row in BENCHMARKS if row.key == "musique")
     benchmark = imported_benchmark("musique")
+    assert benchmark.benchmark.id == "musique"  # the bare key: nothing came from inspect_evals
     assert benchmark.benchmark.origin == "screamingface"
     assert benchmark.benchmark.inspect_contributors is None
     assert provenance_gaps(benchmark.benchmark) == []

@@ -29,6 +29,7 @@ from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     imported_benchmark,
 )
 from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES  # noqa: E402
+from screamingface_engine_inspect.single_shot import imported_benchmark_id  # noqa: E402
 
 #: Every imported benchmark key and its family: "mcq" (choice scorer, draft-feedback offer
 #: refused per OME-796), "free_text" (draft-feedback offer ON, spec §4), "judged"
@@ -133,7 +134,8 @@ def test_catalogue_holds_every_imported_benchmark() -> None:
     assert set(TASK_REPLAY_CASES) == set(_EXPECTED_FAMILIES)
     ids = [registration.benchmark.id for registration in benchmark_registrations()]
     assert len(ids) == len(set(ids)) == len(_EXPECTED_FAMILIES)
-    assert all(benchmark_id.startswith("inspect-") for benchmark_id in ids)
+    # OME-1513: an import is "inspect-<key>"; a local Task keeps its bare key.
+    assert set(ids) == {imported_benchmark_id(spec.key, spec.origin) for spec in BENCHMARKS}
 
 
 # AIDEV-NOTE (OME-1513): the name predates local Tasks and is frozen by the test-change rule.
@@ -162,7 +164,7 @@ def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() ->
     # the same importer — is the one row that says "screamingface": it is ours, not brought
     # in. The origin must match where the task code lives, both ways.
     expected = {
-        f"inspect-{spec.key}": (
+        imported_benchmark_id(spec.key, spec.origin): (
             "screamingface"
             if TASK_REPLAY_CASES[spec.key].task.startswith("screamingface_engine_inspect.")
             else "inspect_evals"

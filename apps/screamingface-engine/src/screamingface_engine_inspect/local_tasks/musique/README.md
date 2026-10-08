@@ -72,7 +72,7 @@ anything under `vendor/` is a new Benchmark: update the literal in
 uv run python -m screamingface_engine_inspect.importer \
     screamingface_engine_inspect.local_tasks.musique.musique:musique --key musique
 # prepare the bundle
-uv run python -m screamingface_engine.benchmarks.prepare --root /tmp/assets --bundle inspect-musique
+uv run python -m screamingface_engine.benchmarks.prepare --root /tmp/assets --bundle musique
 ```
 
 On a developer Mac the Hub client may stall mid-file; `HF_HUB_DISABLE_XET=1` fixes it. See

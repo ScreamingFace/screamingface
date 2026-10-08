@@ -45,6 +45,7 @@ from screamingface_engine_inspect.prepare import (
 from screamingface_engine_inspect.single_shot import (
     ImportedBenchmark,
     JudgeSpec,
+    imported_benchmark_id,
     install_imported_benchmark,
     single_shot_benchmark,
 )
@@ -3987,7 +3988,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         extra_scorer_factories=_extra_scorer_factories(spec),
         named_scores=spec.named_scores,
         prepare=prepare,
-        install=_installer(f"inspect-{spec.key}"),
+        install=_installer(imported_benchmark_id(spec.key, spec.origin)),
         with_check_surface=spec.with_check_surface,
         multiple_correct=spec.multiple_correct,
         judge=spec.judge,

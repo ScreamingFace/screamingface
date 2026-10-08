@@ -38,6 +38,7 @@ from screamingface_engine_inspect.prepare import (  # noqa: E402
     PreparedCase,
     _write_cases,
 )
+from screamingface_engine_inspect.single_shot import imported_benchmark_id  # noqa: E402
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
 from url4.peer.server import Url4Node  # noqa: E402
 
@@ -143,7 +144,8 @@ def test_declaration_is_sealed_licensed_and_registered(key: str) -> None:
 
     assert spec.license != LICENSE_TODO
     assert benchmark.benchmark.case_count == spec.case_count > 0
-    assert benchmark.benchmark.id == f"inspect-{key}"
+    row = next(spec for spec in BENCHMARKS if spec.key == key)
+    assert benchmark.benchmark.id == imported_benchmark_id(key, row.origin)
 
 
 @pytest.mark.asyncio

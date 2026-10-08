@@ -299,10 +299,11 @@ Four things differ from an inspect_evals import:
   metadata; a `KeyError` there shows as a grading failure on a Benchmark that grades fine in
   production.
 
-The hand-built lane stays only for a Benchmark whose Candidate must be called more than once
-per Case: capture runs the Task's solvers up to their first `generate`, so a second prompt
-that contains the first reply cannot be captured. Several *independent* attempts per Case
-(pass@k, `Task.epochs`) are a different thing and are decided in `OME-1458`.
+The hand-built lane stays only for a Benchmark where a later Candidate call's prompt depends
+on an earlier reply (medxpert's reason-then-commit): capture runs the Task's solvers up to
+their first `generate`, so a second prompt that contains the first reply cannot be captured.
+Several *independent* Attempts per Case (pass@k, `Task.epochs`) are not that exception: the
+Engine asks each Case N times with the same prompt, and `OME-1458` brings it to both lanes.
 
 ### Two network gotchas on a developer Mac
 

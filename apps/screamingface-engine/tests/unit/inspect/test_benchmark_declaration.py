@@ -257,7 +257,8 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # OME-1268: SQuAD 2.0 is saturated material (frontier models above 90 F1); MATH still
         # separates reasoning from non-reasoning models (70s vs above 90 on exact match).
         "inspect-squad": ("coverage_declare", "single_shot", "medium"),
-        "inspect-musique": ("coverage_declare", "single_shot", "hard"),
+        # OME-1513: a local Task keeps its bare key as its id — nothing came from inspect_evals.
+        "musique": ("coverage_declare", "single_shot", "hard"),
         "inspect-math": ("coverage_declare", "single_shot", "medium"),
     }
     actual = {
@@ -268,9 +269,12 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         )
         for benchmark in BUILTIN_BENCHMARKS
     }
-    plugin_actual = {
-        benchmark: row for benchmark, row in actual.items() if benchmark.startswith("inspect-")
-    }
+    # WHY by registration and not by the "inspect-" prefix (OME-1513): a local Task's id is
+    # its bare key, so the prefix no longer tells plugin rows from core ones; the registry does.
+    from screamingface_engine_inspect.benchmarks import benchmark_registrations
+
+    plugin_ids = {registration.benchmark.id for registration in benchmark_registrations()}
+    plugin_actual = {benchmark: row for benchmark, row in actual.items() if benchmark in plugin_ids}
     core_actual = {
         benchmark: row for benchmark, row in actual.items() if benchmark not in plugin_actual
     }

@@ -52,7 +52,7 @@ list, and a scorer that tolerates absent Sample metadata.
 
 ## Acceptance
 
-- `inspect-musique` registers from the local Task with 3 Named Scores; prepare matches the
+- `musique` registers from the local Task with 3 Named Scores; prepare matches the
   Case Digest; the inspect lane and the Engine gate are green
 - Both onboarding docs carry the lane rule and the local-Task recipe
 - No hand-built `benchmarks/musique/` folder exists
@@ -89,6 +89,6 @@ list, and a scorer that tolerates absent Sample metadata.
   run twice (spike path, then final path); only the final rows ship. Network workarounds
   (`HF_HUB_DISABLE_XET=1`, IPv4-only name resolution) were needed on the dev Mac and are
   documented, not coded.
-- **Owner-verify:** one paid run of a solo Candidate on `inspect-musique` to see real numbers
+- **Owner-verify:** one paid run of a solo Candidate on `musique` to see real numbers
   beside the 0.692 Frontier Score; the amended assertion in
   `test_inspect_imported_benchmarks.py`.
