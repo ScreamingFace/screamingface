@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ..credential_blob import DispatchObservation, OperationalOutcome
@@ -40,7 +41,43 @@ from .types import (
     AvailabilityStatus,
     CredentialTarget,
     ResolvePolicy,
+    TargetMissing,
+    TargetPending,
+    TargetReauthRequired,
 )
+
+logger = logging.getLogger(__name__)
+# The refusals that mean "this pair's credential is not usable now" — the ones OME-1389 could not
+# see. Selector and store refusals already say what went wrong in their own response.
+_UNUSABLE = (TargetMissing, TargetPending, TargetReauthRequired)
+
+
+def _log_refusal(
+    account_id: str,
+    provider: str,
+    connection: OAuthConnection | None,
+    refusal: Exception,
+    policy: ResolvePolicy,
+) -> None:
+    """One record per refused resolve on a migrated pair (OME-1389).
+
+    # WHY: this refusal never reaches the provider, so the access log's `401` was the only trace
+    # and finding the cause took a database query. The refused Connection and its status are
+    # known only here — the refusal itself carries neither.
+    # INVARIANT: identifiers and closed vocabularies only; never the refusal's message, the
+    # Connection's `error_message` (provider text) or its locator.
+    # WHY WARNING: as `log_dispatch_failure` for a 4xx — visible to WARNING+ alerting, no page.
+    """
+    logger.warning(
+        "provider access refused provider=%s account=%s connection=%s status=%s refusal=%s "
+        "policy=%s",
+        provider,
+        account_id,
+        "none" if connection is None else connection.id,
+        "none" if connection is None else connection.status,
+        type(refusal).__name__,
+        policy.value,
+    )
 
 
 class ConnectionBackedProviderAccess(ProfileBackedProviderAccess):
@@ -69,8 +106,27 @@ class ConnectionBackedProviderAccess(ProfileBackedProviderAccess):
             # WHY: a selector naming no legacy document of this pair is exactly today's situation
             # — the Connection-label path, now locator-authoritative (`connection_target`), so the
             # effective Connection can be matched by label without being poisoned. Never a guess.
-            target = await self._resolve_without_profile(
-                account_id, provider, selector, plugin=plugin, policy=policy
+            # The row refused here is the one matched, which need not be the effective one.
+            matched: OAuthConnection | None = None
+            try:
+                target = await self._resolve_without_profile(
+                    account_id, provider, selector, plugin=plugin, policy=policy
+                )
+                matched = target._backing if isinstance(target._backing, OAuthConnection) else None
+                return await require_operational_access_migrated(
+                    self._app,
+                    target,
+                    plugin=plugin,
+                    provider=provider,
+                    requested=selector.name,
+                )
+            except _UNUSABLE as refusal:
+                _log_refusal(account_id, provider, matched, refusal, policy)
+                raise
+        connection = await self._effective_connection(account_id, pair)
+        try:
+            target = migrated_target(
+                account_id, provider, selector, document, connection, plugin=plugin
             )
             return await require_operational_access_migrated(
                 self._app,
@@ -79,17 +135,9 @@ class ConnectionBackedProviderAccess(ProfileBackedProviderAccess):
                 provider=provider,
                 requested=selector.name,
             )
-        connection = await self._effective_connection(account_id, pair)
-        target = migrated_target(
-            account_id, provider, selector, document, connection, plugin=plugin
-        )
-        return await require_operational_access_migrated(
-            self._app,
-            target,
-            plugin=plugin,
-            provider=provider,
-            requested=selector.name,
-        )
+        except _UNUSABLE as refusal:
+            _log_refusal(account_id, provider, connection, refusal, policy)
+            raise
 
     async def _effective_connection(
         self, account_id: str, pair: PairAuthority
