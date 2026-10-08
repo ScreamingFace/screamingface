@@ -1,9 +1,9 @@
 ---
 ticket: OME-1512
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-10-07
-finished:
+finished: 2026-10-07
 ---
 
 # leaderboard-visual-refresh — tighter, card-led leaderboard portal

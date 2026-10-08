@@ -1,12 +1,12 @@
 ---
 id: OME-1512
 linear_url: https://linear.app/openmined/issue/OME-1512/refresh-the-leaderboard-portal-curated-benchmarks-card-led-landing
-status: in_progress
+status: done
 type: task
 priority: 3
 labels: [scoreboard, agentic, autonomous]
 created: 2026-10-07
-closed:
+closed: 2026-10-08
 ---
 
 # Refresh the leaderboard portal: curated benchmarks, card-led landing, Pareto axes at 0
