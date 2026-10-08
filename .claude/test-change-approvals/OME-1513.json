@@ -8,7 +8,7 @@
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
       "base_blob": "09b7b2f467a49bdb57cd230f4e2ceae274c283f8",
-      "approved_blob": "9caabd53880b8708e745893a6ec9a0a983a3dc66"
+      "approved_blob": "0592cebea57de9cf81b9946df420eefed2b73d21"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
       "base_blob": "fe00b734d8cf14f4fb15eeaa68f518393e664db6",

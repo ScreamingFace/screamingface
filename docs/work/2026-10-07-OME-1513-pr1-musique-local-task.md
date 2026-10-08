@@ -43,7 +43,7 @@ list, and a scorer that tolerates absent Sample metadata.
   - the reply reader: last label wins, markdown-wrapped label, label alone on its line,
     no label at all, labels in either order
   - prompt bytes: a synthetic row renders to a pinned literal
-  - absent Sample metadata grades (support F1 0.0), never raises
+  - absent Sample metadata never raises; the paper's metric scores it (0.0 if the reply cites, 1.0 if not)
   - the row declares origin `screamingface`, no porter list, and `provenance_gaps` is empty
   - Named Scores in the published order, answer F1 the headline
 - RED: `BenchmarkSpec(origin="screamingface")` assembles a Benchmark whose `origin` is
@@ -99,6 +99,13 @@ list, and a scorer that tolerates absent Sample metadata.
   longer repeated as ours. The pin test drops the header before hashing (upstream code sha256,
   not file sha256). The `task_source` digest moved with it: musique revision `67d3fc96ffc68e46`
   → `1ae798e073477a54`.
+- **Review fixes (2026-10-08, second external review):** notebook 09 rebuilt IFEval-only and
+  notebook 12's boolq paragraph corrected (both ran or described loops now refused); the PR
+  TLDR names the 14 Benchmarks that refuse a loop and the nine revision moves; a catalogue-wide
+  test pins "only IFEval offers Draft Feedback"; the support-F1-without-metadata claim corrected
+  from 0.0 to the paper's rule (0.0 citing, 1.0 not) with a test for both; the `task_source`
+  pin now covers every Task not under `inspect_evals` and refuses an empty package; the origin
+  rule is "inspect_evals iff the task lives there". Rubric-board route gating stays a follow-up.
 - **Owner-verify:** one paid run of a solo Candidate on `musique` to see real numbers
   beside the 0.692 Frontier Score; the amended assertion in
   `test_inspect_imported_benchmarks.py`.

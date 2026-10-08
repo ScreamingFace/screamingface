@@ -1486,10 +1486,10 @@ by the eval's `pattern` scorer against a regex anchored at the end of the reply.
 is the whole trick: a model that reasons for a paragraph and finishes with "Yes" scores,
 while one that opens with "Yes, because…" does not. Say so in the prompt.
 
-This board is free text rather than a fixed set of options, so unlike the MCQ boards it
-carries a **check surface** — the mid-run pass/fail signal a `corrective_loop` reads (see
-`09_corrective_loops.ipynb`). MCQ boards are refused one deliberately: pass/fail feedback
-over four options is an elimination attack, not a hint."""),
+Like every imported board, it carries **no check surface** — the mid-run pass/fail signal a
+`corrective_loop` reads (see `09_corrective_loops.ipynb`) is an owner decision per Benchmark,
+and a free pass/fail per draft on a yes/no task would be a one-ask elimination attack, not a
+hint. A `corrective_loop` on this board is refused before any money is spent."""),
         nbformat.v4.new_code_cell("""\
 BOOLQ_SYNTHESIS_PROMPT = (
     "You are given several experts' readings of one passage and a yes/no question about it. "
@@ -1739,7 +1739,7 @@ and read the cost in `report.usage` as you go."""),
 def _corrective_loops() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell("""\
-# Corrective loops across the benchmark suite
+# Corrective loops on IFEval
 
 `sf.CorrectiveLoop` (the protocol from [this paper](https://openreview.net/pdf?id=XSIYfTm2h7))
 runs a
@@ -1747,14 +1747,14 @@ panel of members against each Case, checks every draft mid-run on the Benchmark'
 check surface, and — when a draft fails — feeds the sanitized verification feedback through a
 judge-coached rewrite, up to `max_rounds`. The best passing draft is submitted verbatim.
 
-Every installed Benchmark advertises whether its check surface is free or paid:
+A Benchmark offers that mid-run check only when its owner has decided it should — the paper
+worked on IFEval, and today IFEval is the one Benchmark that advertises one. Every other
+Benchmark refuses a corrective loop **before any money is spent** (`check_surface_missing`),
+so this notebook runs the loop on IFEval alone:
 
 | Benchmark | Checked by | Mid-run check cost |
 |---|---|---|
-| `ifeval` | vendored official verifier (deterministic) | free |
-| `healthbench-worst30` | pinned GPT-5.4 rubric Judge | **paid — every round spends judge tokens** |
-| `healthbench-professional` | the same pinned Judge | **paid — and 525 Cases, not 157** |
-| `draco` | pinned Gemini rubric Judge | **paid — every round spends judge tokens** |"""),
+| `ifeval` | vendored official verifier (deterministic) | free |"""),
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
@@ -1762,15 +1762,12 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface prepare --all  # first run only: download all three Benchmark assets
-screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface prepare ifeval  # first run only: download the pinned Benchmark assets
+screamingface up              # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-
-For DRACO, export `TAVILY_API_KEY` before `screamingface up`: the answer routes use its guarded
-tool loop, and the Engine fails before model spend when that retrieval mechanism is missing.
 """),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
@@ -1824,23 +1821,7 @@ A first-round pass costs the member drafts and nothing else; only correction rou
 ifeval_report = sf.evaluate(corrective_loop, benchmark="ifeval", limit=1)
 ifeval_report"""),
         nbformat.v4.new_markdown_cell("""\
-## 2. HealthBench worst-30% — paid rubric checks
-
-The physician-authored rubric is graded by the pinned Judge, so every round — including a
-first-round pass — makes one judge call per draft."""),
-        nbformat.v4.new_code_cell("""\
-healthbench_report = sf.evaluate(corrective_loop, benchmark="healthbench-worst30", limit=1)
-healthbench_report"""),
-        nbformat.v4.new_markdown_cell("""\
-## 3. DRACO — paid rubric checks
-
-Research-quality prompts with weighted rubrics; the longest and most expensive of the three.
-"""),
-        nbformat.v4.new_code_cell("""\
-draco_report = sf.evaluate(corrective_loop, benchmark="draco", limit=1)
-draco_report"""),
-        nbformat.v4.new_markdown_cell("""\
-## 4. Send the scores to the Scoreboard
+## 2. Send the score to the Scoreboard
 
 Publication takes the evaluated `CandidateResult` and submits the Benchmark's **native
 score** exactly as the Engine graded it — fractional or negative values included — and the
@@ -1849,15 +1830,8 @@ the public Leaderboard."""),
         nbformat.v4.new_code_cell("""\
 PUBLISH_RESULT = False
 
-submissions = (
-    [
-        sf.leaderboards.submit(report.candidates.only)
-        for report in (ifeval_report, healthbench_report, draco_report)
-    ]
-    if PUBLISH_RESULT
-    else None
-)
-submissions"""),
+submission = sf.leaderboards.submit(ifeval_report.candidates.only) if PUBLISH_RESULT else None
+submission"""),
     )
 
 

@@ -12,8 +12,10 @@ What these tests pin, and why:
   or orders the labels, and a reply with no label is graded as a whole, never dropped;
 - the prompt bytes: a synthetic row renders to a pinned literal — the prompt is Benchmark
   identity on a judge-free Benchmark;
-- absent Sample metadata grades to a support F1 of 0.0 and never raises — the no-network
-  grading lane feeds stand-in Cases without metadata;
+- absent Sample metadata never raises — the no-network grading lane feeds stand-in Cases
+  without metadata; the paper's metric then scores "cited nothing, expected nothing" as
+  support F1 1.0 and any citation as 0.0 (production Cases always carry the key: it is in
+  the Case Digest);
 - the row: origin `screamingface` (no inspect porter list), three Named Scores in the
   published order, answer F1 the headline.
 
@@ -46,7 +48,7 @@ from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     _task_replay_pins,
     imported_benchmark,
 )
-from screamingface_engine_inspect.local_tasks import source_digest  # noqa: E402
+from screamingface_engine_inspect.local_tasks import source_digest, task_source_pin  # noqa: E402
 from screamingface_engine_inspect.local_tasks.musique.musique import (  # noqa: E402
     CASE_TEMPLATE,
     _record_to_sample,
@@ -211,11 +213,16 @@ def test_a_row_renders_to_the_pinned_prompt_bytes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_support_f1_grades_a_sample_without_metadata_as_zero() -> None:
+async def test_support_f1_without_metadata_never_raises_and_scores_by_the_papers_rule() -> None:
     """WHY: the no-network grading lane feeds stand-in Cases with no Sample metadata; a raise
-    there would show as a grading failure on a Benchmark that grades fine in production."""
+    there would show as a grading failure on a Benchmark that grades fine in production.
+    The empty gold list is the paper's own metric's input, so a reply that cites paragraphs
+    scores 0.0 and one that cites none scores 1.0 ("cited nothing, expected nothing") — not
+    a blanket 0.0 (review finding on #1292). Production never hits this: `supporting_idx`
+    is in every Case's metadata and the Case Digest."""
 
     assert await _score_with(musique_support_f1(), _CASES[0], None) == 0.0
+    assert await _score_with(musique_support_f1(), "Answer: Kalamazoo", None) == 1.0
     assert await _score_with(musique_support_f1(), _CASES[0], {"supporting_idx": [5, 10]}) == 1.0
     assert await _score_with(musique_answer_f1(), _CASES[0], None) == 1.0
     assert await _score_with(musique_answer_em(), _CASES[1], None) == 0.0
@@ -256,6 +263,36 @@ def test_a_local_tasks_source_is_pinned_into_its_revision() -> None:
     assert len(source) == 1 and len(source[0]) == len("task_source=") + 64
     # an inspect_evals import carries no such pin — its scorer is the pinned package's
     assert not [p for p in _task_replay_pins(TASK_REPLAY_CASES["gsm8k"]) if "task_source" in p]
+
+
+def test_a_package_with_no_python_files_is_refused_a_digest(tmp_path: Path) -> None:
+    """WHY: sha256 of nothing is a valid-looking digest; a mislocated package would pin
+    "no source" and the revision would never move when the real source changed."""
+
+    (tmp_path / "README.md").write_text("prose only")
+    with pytest.raises(ValueError, match="no .py files"):
+        source_digest(tmp_path)
+
+
+def test_every_task_outside_inspect_evals_is_source_pinned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WHY: a Task elsewhere in the plugin or in a third-party package has no
+    `inspect-evals==` pin to lean on; without a source pin its grading rule could change under
+    a published score with no test failing. Only inspect_evals' own Tasks are exempt."""
+
+    # a stand-in third-party Task package on sys.path: one module, one function
+    package = tmp_path / "thirdparty_tasks"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "task.py").write_text("def task():\n    return None\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    pins = task_source_pin("thirdparty_tasks.task:task")
+    assert len(pins) == 1 and pins[0] == f"task_source={source_digest(package)}"
+    assert task_source_pin("inspect_evals.gsm8k.gsm8k:gsm8k") == ()
+    with pytest.raises(ValueError, match="cannot be located"):
+        task_source_pin("no_such_package.task:task")
 
 
 def test_one_byte_in_the_task_package_moves_the_source_digest(tmp_path: Path) -> None:

@@ -294,10 +294,14 @@ Four things differ from an inspect_evals import:
   every other module in the plugin carries (copy `scorer_adapter.py`'s header). CI typechecks
   the Engine without the inspect extra, so a bare `from inspect_ai import Task` fails there
   while the local gate, which has the extra, stays green.
-- **A scorer that reads Sample metadata must tolerate its absence** (`state.metadata.get(...)`).
-  The no-network grading lane runs every judge-less Benchmark over stand-in Cases that carry no
-  metadata; a `KeyError` there shows as a grading failure on a Benchmark that grades fine in
-  production.
+- **A scorer that reads Sample metadata must tolerate its absence** (`state.metadata.get(...)`),
+  and its tests must say what a missing key scores. The no-network grading lane runs every
+  judge-less Benchmark over stand-in Cases that carry no metadata; a `KeyError` there shows as a
+  grading failure on a Benchmark that grades fine in production. Tolerating is not defaulting
+  to a pass: hand the paper's metric its honest empty input and pin the result (MuSiQue:
+  support F1 is 0.0 for a reply that cites paragraphs and 1.0 for one that cites none, the
+  paper's own "cited nothing, expected nothing" rule). Production never hits this path when
+  the row keeps Sample metadata: the key is in the Case Digest.
 
 The hand-built lane stays only for a Benchmark where a later Candidate call's prompt depends
 on an earlier reply (medxpert's reason-then-commit): capture runs the Task's solvers up to

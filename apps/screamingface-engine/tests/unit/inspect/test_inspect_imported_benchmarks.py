@@ -165,9 +165,9 @@ def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() ->
     # in. The origin must match where the task code lives, both ways.
     expected = {
         imported_benchmark_id(spec.key, spec.origin): (
-            "screamingface"
-            if TASK_REPLAY_CASES[spec.key].task.startswith("screamingface_engine_inspect.")
-            else "inspect_evals"
+            "inspect_evals"
+            if TASK_REPLAY_CASES[spec.key].task.startswith("inspect_evals.")
+            else "screamingface"
         )
         for spec in BENCHMARKS
     }
