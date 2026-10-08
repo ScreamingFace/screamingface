@@ -70,13 +70,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import SelectedCase
 from screamingface_engine.benchmarks.graded_answer import (
     GradedAnswer,
+    case_attempts,
     graded_answer,
     graded_answer_matches,
 )
@@ -94,11 +95,15 @@ class CaseGradeIndex:
             at that position, retained so a missing case can name its cause.
         grading_failures: Case id → the preserved Candidate answer plus the grading error,
             for a Case whose Candidate answered but whose grading step failed.
+        attempts: Case id → that Case's per-Attempt rows, in Attempt order, for a Benchmark
+            that asks each Case several times (OME-1458). Each row is still opaque: the
+            marking room files it with this same reader, one Attempt at a time.
     """
 
     case_grades: dict[int, dict[str, Any]]
     collected_errors: dict[int, list[dict[str, Any]]]
     grading_failures: dict[int, GradedAnswer]
+    attempts: dict[int, list[object]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +190,16 @@ class CaseGradeReader:
         if self._filed_outer_error(row, position, expected_case_id, index):
             return
         try:
+            attempted: tuple[object, list[object]] | None = case_attempts(row)
+            if attempted is not None:
+                claimed, rows = attempted
+                if claimed != expected_case_id and str(claimed) != str(expected_case_id):
+                    raise ValueError(
+                        f"Case attempts claim case_id {claimed!r}, "
+                        f"but the selected Case is {expected_case_id!r}"
+                    )
+                index.attempts[expected_case_id] = rows
+                return
             outcome: GradedAnswer = graded_answer(row)
             if not graded_answer_matches(outcome, expected_case_id):
                 raise ValueError(

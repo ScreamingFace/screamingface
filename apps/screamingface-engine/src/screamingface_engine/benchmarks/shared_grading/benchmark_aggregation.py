@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import json
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -73,9 +74,10 @@ from screamingface_engine.benchmarks.aggregation import (
     refusal_case_result,
     scored_case_result,
 )
-from screamingface_engine.benchmarks.contract import CaseId, CaseResult
+from screamingface_engine.benchmarks.contract import CaseId, CaseResult, Failure
 from screamingface_engine.benchmarks.graded_answer import GradedAnswer
 from screamingface_engine.benchmarks.progress import completed_case, grading_progress
+from screamingface_engine.benchmarks.shared_grading.attempt_fold import fold_case_attempts
 from screamingface_engine.benchmarks.shared_grading.case_grades import (
     CaseGradeIndex,
     CaseGradeReader,
@@ -371,7 +373,52 @@ class BenchmarkAggregation:
 
         The original selected index preserves anonymous failure attribution.
         ``None`` retains a board's explicit omission policy.
+
+        FEATURE (OME-1458): a Case asked N times arrives as N Attempt rows. Each is filed by
+        this Benchmark's own reader and graded by this same method, exactly as a one-Attempt
+        Case, then `fold_case_attempts` folds them per Check.
         """
+
+        rows: list[object] | None = indexed.attempts.get(int(selected_case.case_id))
+        if rows is not None:
+            return await self._attempts_result(
+                selected_case, selected_index, rows, grading_material, case_metadata
+            )
+        return await self._answer_result(
+            selected_case, selected_index, indexed, grading_material, case_metadata
+        )
+
+    async def _attempts_result(
+        self,
+        selected_case: SelectedCase,
+        selected_index: int,
+        rows: Sequence[object],
+        grading_material: Callable[[int], object | None],
+        case_metadata: Callable[[int], Mapping[str, Any]] | None,
+    ) -> CaseResult:
+        """Grade each Attempt row as its own one-Attempt Case, then fold them per Check."""
+
+        case_ids: tuple[int, ...] = (int(selected_case.case_id),)
+        results: list[CaseResult] = []
+        for row in rows:
+            indexed: CaseGradeIndex = self.reader.index(json.dumps([row]), case_ids)
+            result: CaseResult | None = await self._answer_result(
+                selected_case, selected_index, indexed, grading_material, case_metadata
+            )
+            # WHY: a Benchmark whose missing-case hook files nothing still owes this Attempt
+            # a row in the Attempts list; it reads as the finalizer's own missing-row code.
+            results.append(result if result is not None else _missing_attempt(selected_case))
+        return fold_case_attempts(results)
+
+    async def _answer_result(
+        self,
+        selected_case: SelectedCase,
+        selected_index: int,
+        indexed: CaseGradeIndex,
+        grading_material: Callable[[int], object | None],
+        case_metadata: Callable[[int], Mapping[str, Any]] | None,
+    ) -> CaseResult | None:
+        """Grade one answer — a one-Attempt Case, or one Attempt of a Case — on the ladder."""
         case_id: int = int(selected_case.case_id)
         row: dict[str, Any] | None = indexed.case_grades.get(case_id)
         material: object | None = grading_material(case_id)
@@ -681,6 +728,31 @@ def _run_sync[T](coroutine: Awaitable[T]) -> T:
 
 async def _awaited[T](coroutine: Awaitable[T]) -> T:
     return await coroutine
+
+
+def _missing_attempt(selected: SelectedCase) -> CaseResult:
+    """An Attempt the Benchmark's missing-case hook filed nothing for, as the finalizer reads it."""
+
+    return CaseResult(
+        status="failed",
+        case_id=selected.case_id,
+        input=selected.input,
+        output=None,
+        finish_reason=None,
+        refusal=None,
+        grade=None,
+        failures=[
+            Failure(
+                stage="aggregation",
+                code="case_result_missing",
+                message="the selected Case produced no Case Result",
+                retryable=None,
+                case_id=selected.case_id,
+                metadata={},
+            )
+        ],
+        metadata=selected.metadata,
+    )
 
 
 @dataclass(frozen=True, slots=True)
