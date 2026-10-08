@@ -14,7 +14,8 @@ OME-1492 gave every bundle a `provenance.json` label and the paid smoke's run pa
 Cases came from" table, but the "Read from" cell is plain text that cannot be turned into a link
 from the text alone (`TsinghuaC3I/MedXpertQA/Text` is a config, `dgslibisey/MuSiQue/<file>` is a
 file, IFEval's vendored file is on GitHub), and the labels die with the CI runner. This unit adds
-a `url` to every Case Source, built by the code that read it and pointing at the pinned commit;
+a `url` to every Case Source, built by the code that read it (a Hub or GitHub source at its full
+commit, a web download at its own address);
 renders it as a link on the run page; and copies each picked Benchmark's label into the debug
 bundle as `provenance/<benchmark>.json`. No existing label field, Case or score changes.
 

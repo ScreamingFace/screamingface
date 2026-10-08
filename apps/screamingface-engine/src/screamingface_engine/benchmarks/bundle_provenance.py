@@ -26,10 +26,12 @@ here are illustrative)::
 INVARIANT: the block holds commits, locations, counts and versions, never a Case's input or
 target. The build log is public and some datasets are gated or licensed.
 
-Each source may carry a ``url`` (OME-1524): a browser link to that source AT its pinned
-commit, built by the code that read it, because only that code knows the host, the repo id
-and whether the last path segment is a config or a file. The link builders below are the one
-home for those addresses; the inspect plugin's fetch recorder imports them.
+Each source may carry a ``url`` (OME-1524): a browser link to that source, built by the code
+that read it, because only that code knows the host, the repo id and whether the last path
+segment is a config or a file. A Hugging Face or GitHub source links only AT a full commit
+(the builders below, the one home for those addresses; the inspect plugin's fetch recorder
+imports them). A plain web download links to its own address, which the label's pin may not
+pin: ``unpinned`` then still says so beside the link.
 """
 
 from __future__ import annotations

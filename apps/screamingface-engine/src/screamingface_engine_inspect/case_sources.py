@@ -90,8 +90,9 @@ class CaseSource:
     reviewer reads the two differently: a load fetch is where the Cases come from, a render
     fetch is something the prompt depends on.
 
-    ``url`` is a browser link to the source AT its pin (OME-1524), or None. It is built when
-    the fetch is recorded because the location alone cannot say what it names:
+    ``url`` is a browser link to the source (OME-1524), or None: a Hub source at its full
+    commit, an http(s) download at its own address (pinned or not; the pin says which). It
+    is built when the fetch is recorded because the location alone cannot say what it names:
     ``TsinghuaC3I/MedXpertQA/Text`` is a config, ``dgslibisey/MuSiQue/<file>`` a file.
     WHY outside equality: the call that fixed kind, location and pin also fixed the link, so
     it adds no identity; two records of one fetch stay one Case Source.

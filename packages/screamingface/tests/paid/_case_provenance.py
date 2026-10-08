@@ -18,7 +18,9 @@ Worked example, race_h's block ``{"sources": [{"location": "ehovy/race/high", "p
     | 3498 of 3498 | inspect-evals 0.20.0 | 15s |
 
 (one table row, wrapped here). A source whose label carries a ``url`` (OME-1524: a link to
-that source at its pinned commit, built by the Engine code that read it) reads as that link,
+that source, built by the Engine code that read it: a Hub or GitHub source at its full commit,
+a web download at its own address, whose pin cell may still read ``unpinned``) reads as that
+link,
 ``[ehovy/race/high @ 2fec9fd8](https://huggingface.co/datasets/ehovy/race/tree/2fec9fd8…)``.
 This module never builds a URL itself: only the Engine knows the host and the repo id.
 

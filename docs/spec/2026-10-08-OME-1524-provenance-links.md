@@ -11,7 +11,8 @@ building it.
 Case Preparation writes a label, `provenance.json`, beside each bundle's Cases: for each
 source it read, the place (`location`) and the exact version (`pin`). The paid smoke's run
 page turns the labels into its "Where the Cases came from" table. Now each source also gets a
-`url`, a browser link to that source at its pinned commit, built by the code that read it.
+`url`, a browser link to that source, built by the code that read it: a Hugging Face or
+GitHub source at its full commit, a plain web download at its own address.
 The table draws a source with a link as that link, and the smoke copies each label into the
 debug bundle as `provenance/<benchmark>.json`. No existing label field, Case or score
 changes.
@@ -21,8 +22,10 @@ changes.
 - **One link builder, in core.** `hugging_face_url` and `github_file_url` live in the core
   provenance module; the hand-built preparers call them directly, and the inspect plugin's
   fetch recorder imports them (core never imports a plugin, a plugin may import core).
-- **A link only for a full 40-hex commit.** A branch, a tag or a short sha moves or is
-  ambiguous; a link to it would claim more than the pin does. Such a source has no `url` key.
+- **A Hub or GitHub link only at a full 40-hex commit.** A branch, a tag or a short sha moves
+  or is ambiguous; a link to it would claim more than the pin does. Such a source has no `url`
+  key. A plain web download is different: it links to its own address whatever its pin (the
+  ticket's source-kind table), because that address is the only place to look.
 - **The plugin builds the link when it records the fetch.** The location text cannot say what
   it names: `TsinghuaC3I/MedXpertQA/Text` (a config) and
   `dgslibisey/MuSiQue/musique_ans_v1.0_dev.jsonl` (a file) have the same shape. A dataset
@@ -45,6 +48,11 @@ changes.
 
 - A link 404s if the dataset owner deletes the repo or rewrites history; the pin, not the
   link, is the record.
+- An unpinned web download (PIQA's `tests.jsonl` on yonatanbisk.com and its Cloud Storage zip)
+  links to an address whose bytes can change after import (the Case Digest still refuses
+  Cases built from changed bytes; the link alone would show them). Accepted for now: the cell still
+  reads `@ unpinned`, so the link is never shown as a commit. Linking only a pinned URL source
+  (a commit in the path or a sha256) is the follow-up if this misleads.
 - Changing the provenance writers changes the asset cache key, so the first press after merge
   re-prepares every bundle once.
 - The debug bundle's link text in the workflow still lists "stack logs, one Report per
