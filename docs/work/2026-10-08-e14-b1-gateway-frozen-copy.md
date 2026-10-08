@@ -51,10 +51,18 @@ TDD order from the plan (risk order):
 - `uv run .claude/scripts/run_gates.py aigateway --base e14-reproducible-submission-spec` is green.
 - Postgres-only tests are listed as skipped (no Docker on this machine).
 
+## Approved test changes (append-only exception)
+
+- `apps/aigateway/tests/unit/test_migration_0012_provider_credential_slots.py::test_0012_downgrade_drops_only_the_marker_table`:
+  one line changed, `_tortoise(url, "migrate")` to `_tortoise(url, "migrate", "models", _MIGRATION)`. The test assumed
+  0012 is the newest migration, so any later migration that adds a table broke it. It now migrates to 0012 before
+  it snapshots the schema. Nothing else in the test changed.
+- Approval: orchestrator-approved under the owner's E14 authorization, to be confirmed by the owner.
+
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned, plus `tests/unit/test_frozen_copy_support.py` (shared test arrangement, no tests) and the `main.py` router include and import.
+- **Actual files:** as planned, plus `tests/unit/test_frozen_copy_support.py` (shared test arrangement, no tests), the `main.py` router include and import, and the one-line approved test change above.
 - **Commits:** see `git log --oneline e14-reproducible-submission-spec..HEAD`.
-- **Gates:** ruff check, ruff format, pyright, check_no_enterprise pass. pytest: 5246 passed, 93 skipped, 1 failed. The failure is the existing `test_0012_downgrade_drops_only_the_marker_table`, which compares the schema at head with the schema after a downgrade to 0011 and so fails for any migration that adds a table. Not edited (append-only rule). Open question for the owner.
+- **Gates:** see the final report (run without and with `--skip-append-only`).
 - **Skipped:** 55 need Postgres (`AIGW_TEST_PG=1`), 21 are live provider tests (`AIGW_LIVE=1`). None is new.
-- **Deviations:** none from the design. Decisions taken inside the plan: see the final report.
+- **Deviations:** none from the design. Decisions inside the plan, all accepted by the orchestrator: migration FK spelling as in 0012; zero-cost hit `_aigw` with top-level `frozen_copy_replay`; `frozen_copy_not_found` 404 code; no capture header on refusals before the copy check; row lock in store capture and seal; capture object always present in `chat_completions` to stay inside the 76-statement limit.
