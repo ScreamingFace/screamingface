@@ -106,6 +106,8 @@ def test_the_declared_vocabulary_is_exactly_the_agreed_set() -> None:
             "provider_execution_timeout",
             "caller_deadline_exceeded",
             "aigateway_deadline_exceeded",
+            "frozen_copy_miss",
+            "frozen_copy_unavailable",
             "invalid_candidate_input",
             "web_tool_loop_limit",
             "web_retrieval_invalid",
