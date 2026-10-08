@@ -89,6 +89,11 @@ list, and a scorer that tolerates absent Sample metadata.
   run twice (spike path, then final path); only the final rows ship. Network workarounds
   (`HF_HUB_DISABLE_XET=1`, IPv4-only name resolution) were needed on the dev Mac and are
   documented, not coded.
+- **CI fix (2026-10-08):** the amended declaration test told plugin rows apart by assembling
+  them (`benchmark_registrations()`), which reads inspect-ai's installed version; CI's unit lane
+  has no inspect extra, so it raised `PackageNotFoundError` while the local gate (venv with the
+  extra) was green. It now derives the ids from the spec rows; verified in an extra-less venv
+  (pyright clean, 4,616 unit tests passed) and re-pinned in the approval manifest.
 - **Owner-verify:** one paid run of a solo Candidate on `musique` to see real numbers
   beside the 0.692 Frontier Score; the amended assertion in
   `test_inspect_imported_benchmarks.py`.
