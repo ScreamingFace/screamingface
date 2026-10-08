@@ -21,6 +21,7 @@ from frozen_copy_support import (
     tool_call,
 )
 
+from screamingface_engine.capture_outcomes import FROZEN_COPY_HEADER, REPLAY_OCCURRENCE_HEADER
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.world.config import ModelSpec
@@ -40,8 +41,11 @@ async def test_normal_run_is_byte_identical() -> None:
     # No copy route of any kind is reached; the Tavily cache lanes are the only side routes.
     assert {p for p in gateway.paths() if "frozen-copies" in p} == set()
     assert gateway.paths().count(CHAT) == 2
+    # WHY only the E14 names: every chat call also carries the gateway timeout headers
+    # (`x-aigw-execution-timeout-s`, `x-aigw-queue-timeout-s`), which are not part of E14.
+    e14_headers = {FROZEN_COPY_HEADER.lower(), REPLAY_OCCURRENCE_HEADER.lower()}
     for headers, body in gateway.calls(CHAT):
-        assert not [name for name in headers if name.lower().startswith("x-aigw-")]
+        assert not [name for name in headers if name.lower() in e14_headers]
         assert "cache" not in body
     # Nothing is recorded or counted: the tally of a normal run stays empty.
     assert tally.mode is None
