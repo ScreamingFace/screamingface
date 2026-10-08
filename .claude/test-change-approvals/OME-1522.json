@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1522",
+  "branch": "OME-1522-paid-smoke-named-benchmarks",
+  "approver": "owner",
+  "date": "2026-10-08",
+  "scope": "Paid-lane helpers only. _scope.py: pick_shelf gains an optional named= argument (default empty keeps every prior call and test unchanged) and its docstring covers it; new parse_named/_pick_named/NAMED_ENV. test_imported_board_smoke.py: the paid test reads SCREAMINGFACE_PAID_BENCHMARKS, passes it to pick_shelf, and the start line says which Benchmarks were named. No prior assertion changed or weakened; the seven prior test_scope.py tests are untouched and pass.",
+  "reason": "OME-1522 lets the owner name the Benchmarks one paid press runs; the ticket's design changes the shelf picker and the smoke's start line (Architecture boxes 5 and 6). Owner approved the prior-file edits in session on 2026-10-08.",
+  "files": {
+    "packages/screamingface/tests/paid/_scope.py": {
+      "base_blob": "51b2b067119272bca60959809fa88ce8da120146",
+      "approved_blob": "b3f8ac75b21da55ceb95453b0c1c9ab1e097d024"
+    },
+    "packages/screamingface/tests/paid/test_imported_board_smoke.py": {
+      "base_blob": "0714c88f280735efd655f82a90b78780462926ea",
+      "approved_blob": "cb5ed3a448d92cb09e3889d5a9741d4f990f498b"
+    }
+  }
+}
