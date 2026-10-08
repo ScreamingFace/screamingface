@@ -155,6 +155,12 @@ class Settings(BaseSettings):
         default=1_000_000, gt=0, validation_alias="AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES"
     )
 
+    # FEATURE: OME-1307 — one frozen-copy entry (request plus response JSON) is at most this many
+    # bytes. A larger one is not stored; the capture is reported as `failed` (design F3).
+    frozen_copy_max_entry_bytes: int = Field(
+        default=2_000_000, gt=0, validation_alias="AIGW_FROZEN_COPY_MAX_ENTRY_BYTES"
+    )
+
     # Admin cache-snapshot upload cap (OME-952): the COMPRESSED archive size accepted by
     # POST /v1/admin/cache/snapshots. Deliberately on the compressed bytes — that is what
     # crosses the wire and fills the spool directory — and deliberately generous: the DRACO
