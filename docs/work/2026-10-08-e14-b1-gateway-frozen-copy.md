@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-08
-finished:
+finished: 2026-10-08
 ---
 
 # e14-b1-gateway-frozen-copy — AI Gateway frozen copy store, capture on chat, replay endpoints
@@ -61,8 +61,11 @@ TDD order from the plan (risk order):
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned, plus `tests/unit/test_frozen_copy_support.py` (shared test arrangement, no tests), the `main.py` router include and import, and the one-line approved test change above.
+- **Actual files:** as planned, plus `src/aigateway/core/frozen_copy/headers.py` (capture header constants and the request-state hand-off), `core/request_hardening.py` (now holds `prepare_ingress_body`), `main.py` and `unhandled_errors.py` (the two app handlers add the capture header), `tests/unit/test_frozen_copy_support.py` and `test_frozen_copy_store.py`, and the one-line approved test change above.
 - **Commits:** see `git log --oneline e14-reproducible-submission-spec..HEAD`.
-- **Gates:** see the final report (run without and with `--skip-append-only`).
-- **Skipped:** 55 need Postgres (`AIGW_TEST_PG=1`), 21 are live provider tests (`AIGW_LIVE=1`). None is new.
-- **Deviations:** none from the design. Decisions inside the plan, all accepted by the orchestrator: migration FK spelling as in 0012; zero-cost hit `_aigw` with top-level `frozen_copy_replay`; `frozen_copy_not_found` 404 code; no capture header on refusals before the copy check; row lock in store capture and seal; capture object always present in `chat_completions` to stay inside the 76-statement limit.
+- **Gates (without `--skip-append-only`):** `✗ append-only test check` — only the approved line in `test_migration_0012_provider_credential_slots.py`; the runner stops there.
+- **Gates (with `--skip-append-only`):** `✓ uv run ruff check`, `✓ uv run ruff format --check`, `✓ uv run pyright`, `✓ uv run python scripts/check_no_enterprise.py`, `✓ uv run pytest --cov=aigateway --cov-fail-under=80 -q`, `ALL GATES GREEN`.
+- **Skipped tests:** 55 need Postgres (`AIGW_TEST_PG=1`), 21 are live provider tests (`AIGW_LIVE=1`). None is new. The Postgres row lock in `capture` and `seal` is not exercised.
+- **Review round (F-B1 design review):** a non-dict success is `failed` and stamped; a mutation conflict (503) and an unexpected exception (generic 500) are captured and re-raised unchanged, the header reaching the response through the two app handlers; a replayed error has `detail` plus the zero-cost `_aigw` block with `frozen_copy_replay`; an empty `X-AIGW-Frozen-Copy` is `refused`; an inert capture never touches `exc.headers`; entries are ordered by a per-copy `seq` (`frozen_copies.entry_seq` counter, advanced under the copy-row lock; migration 0014 edited in place); one store accessor (`frozen_copy_store_for`) and one log helper (`log_capture_failure`); `prepare_ingress_body` moved to `core/request_hardening`; relative imports in `routes/frozen_copies.py`; unused `KIND_*` constants removed; a store or database failure on tool-results is 200 `failed`; a malformed copy id on replay and tool lookup is 404 `frozen_copy_unavailable`; `frozen_copies.account_id` is indexed.
+- **Known limits:** the exclusive row lock on capture serialises inserts per copy (accepted). Entries are stored in JSON columns, so a `\u0000` character inside a request or response is not storable on Postgres: the capture is then `failed` and the run is `partial` (accepted).
+- **Deviations:** none from the design. Decisions inside the plan, all accepted by the orchestrator: migration FK spelling as in 0012; zero-cost hit `_aigw` with top-level `frozen_copy_replay`; `frozen_copy_not_found` 404 code; no capture header on refusals before the copy check; row lock in store capture and seal; always-present capture object in `chat_completions` to stay inside the 76-statement limit.
