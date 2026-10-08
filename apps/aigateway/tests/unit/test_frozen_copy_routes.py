@@ -378,3 +378,28 @@ def _small_cap_env(monkeypatch):
 @pytest.fixture
 def authenticated_client_small_cap(_small_cap_env, authenticated_client: TestClient):
     return authenticated_client
+
+
+def test_a_malformed_copy_id_on_tool_lookup_is_404_unavailable_not_422(
+    authenticated_client: TestClient,
+) -> None:
+    response = authenticated_client.post(_lookup("not-a-uuid"), json={"description": _DESCRIPTION})
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "frozen_copy_unavailable"
+
+
+def test_a_copy_lookup_failure_on_tool_results_is_failed_not_500(
+    authenticated_client: TestClient, monkeypatch
+) -> None:
+    copy_id = authenticated_client.post(_COPIES).json()["id"]
+
+    async def _boom(self, copy_id: Any) -> None:
+        raise RuntimeError("database is down")
+
+    monkeypatch.setattr(FrozenCopyStore, "get", _boom)
+
+    response = _store_tool(authenticated_client, copy_id, "text")
+
+    assert response.status_code == 200
+    assert response.json() == {"outcome": "failed"}

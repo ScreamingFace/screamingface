@@ -20,8 +20,6 @@ if TYPE_CHECKING:
 
 STATUS_OPEN = "open"
 STATUS_SEALED = "sealed"
-KIND_CHAT = "chat"
-KIND_TOOL = "tool"
 
 
 class FrozenCopy(Model):
@@ -34,10 +32,13 @@ class FrozenCopy(Model):
         "models.Account",
         related_name="frozen_copies",
         on_delete=fields.OnDelete.CASCADE,
+        db_index=True,
     )
     status = fields.CharField(max_length=16, default=STATUS_OPEN)
     # Set at seal; 0 while open.
     entries = fields.IntField(default=0)
+    # Per-copy counter for `FrozenCopyEntry.seq`, advanced under the copy-row lock at each insert.
+    entry_seq = fields.IntField(default=0)
     created_at = fields.DatetimeField(auto_now_add=True)
     sealed_at = fields.DatetimeField(null=True)
 
@@ -49,7 +50,7 @@ class FrozenCopyEntry(Model):
     class Meta:
         table = "frozen_copy_entries"
         # The replay lookup: every entry of one (copy, kind, digest) in capture order.
-        indexes = (("frozen_copy_id", "kind", "request_digest", "created_at"),)
+        indexes = (("frozen_copy_id", "kind", "request_digest", "seq"),)
 
     id = fields.UUIDField(pk=True, default=uuid.uuid4)
     frozen_copy: fields.ForeignKeyRelation[FrozenCopy] = fields.ForeignKeyField(
@@ -63,6 +64,9 @@ class FrozenCopyEntry(Model):
     response_json: Any = fields.JSONField()
     # 200 for a success; the HTTP status of a captured error.
     status_code = fields.IntField()
+    # Capture order within the copy: 1, 2, 3, ... assigned under the copy-row lock. The clock is
+    # never the order (two rows can share a timestamp, and a clock can step back).
+    seq = fields.IntField()
     created_at = fields.DatetimeField(auto_now_add=True)
 
     if TYPE_CHECKING:

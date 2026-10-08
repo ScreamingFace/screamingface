@@ -155,7 +155,7 @@ def test_capture_failure_never_fails_the_call(
 
     monkeypatch.setattr(FrozenCopyStore, "capture", _boom)
 
-    with caplog.at_level(logging.WARNING, logger="aigateway.routes.chat"):
+    with caplog.at_level(logging.WARNING, logger="aigateway.core.frozen_copy.store"):
         response = _chat(capture_client, open_copy, chat_body())
 
     assert response.status_code == 200, response.text
@@ -413,3 +413,115 @@ def test_no_capture_without_the_header(cache_capture_client: TestClient, monkeyp
     for response in (live, hit, failed, streamed):
         assert CAPTURE_HEADER not in response.headers
     assert _entry_count(client) == 0
+
+
+# --- review round: every ending of a captured call is captured -----------------------------
+
+
+def test_a_non_dict_success_is_failed_and_still_stamped(
+    capture_client: TestClient, open_copy: str, monkeypatch
+) -> None:
+    async def _not_a_dict(*_args: Any, **_kwargs: Any) -> str:
+        return "plain text"
+
+    monkeypatch.setattr("aigateway.routes.chat._dispatch_and_finalize_accounting", _not_a_dict)
+
+    response = _chat(capture_client, open_copy)
+
+    assert response.status_code == 200, response.text
+    assert response.headers[CAPTURE_HEADER] == "failed"
+    assert stored_entries(capture_client, open_copy) == []
+
+
+def test_a_mutation_conflict_is_captured_as_the_503_the_app_renders(
+    capture_client: TestClient, open_copy: str, monkeypatch
+) -> None:
+    from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
+
+    async def _conflict(*_args: Any, **_kwargs: Any) -> None:
+        raise CredentialBlobMutationConflict
+
+    monkeypatch.setattr("aigateway.routes.chat._resolve_credential_target", _conflict)
+
+    live = _chat(capture_client, open_copy)
+
+    assert live.status_code == 503
+    assert live.json()["detail"]["code"] == "profile_index_conflict"
+    assert live.headers[CAPTURE_HEADER] == "stored"
+    (entry,) = stored_entries(capture_client, open_copy)
+    assert entry["status_code"] == 503
+    # INVARIANT: the stored detail IS the body the app handler renders (drift guard).
+    assert entry["response"] == {"detail": live.json()["detail"]}
+    seal_copy(capture_client, open_copy)
+    replay = capture_client.post(_replay_path(open_copy), json=chat_body())
+    assert replay.status_code == 503
+    assert replay.json()["detail"] == live.json()["detail"]
+
+
+def test_an_unexpected_exception_is_captured_as_a_generic_500_and_not_swallowed(
+    capture_client: TestClient, open_copy: str, monkeypatch
+) -> None:
+    from tests.unit.test_frozen_copy_support import server_errors_as_responses
+
+    async def _boom(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("PROMPT-LEAK-MARKER")
+
+    monkeypatch.setattr("aigateway.routes.chat._resolve_credential_target", _boom)
+
+    with server_errors_as_responses(capture_client):
+        live = _chat(capture_client, open_copy)
+
+    assert live.status_code == 500
+    assert live.headers[CAPTURE_HEADER] == "stored"
+    (entry,) = stored_entries(capture_client, open_copy)
+    assert entry["status_code"] == 500
+    assert entry["response"]["detail"]["code"] == "gateway_internal_error"
+    assert "PROMPT-LEAK-MARKER" not in str(entry["response"])
+    seal_copy(capture_client, open_copy)
+    replay = capture_client.post(_replay_path(open_copy), json=chat_body())
+    assert replay.status_code == 500
+    assert replay.json()["detail"]["code"] == "gateway_internal_error"
+
+
+def test_an_unexpected_exception_without_the_header_has_no_capture_header(
+    capture_client: TestClient, monkeypatch
+) -> None:
+    from tests.unit.test_frozen_copy_support import server_errors_as_responses
+
+    async def _boom(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("aigateway.routes.chat._resolve_credential_target", _boom)
+
+    with server_errors_as_responses(capture_client):
+        response = _chat(capture_client, None)
+
+    assert response.status_code == 500
+    assert CAPTURE_HEADER not in response.headers
+
+
+def test_an_empty_copy_header_is_refused(capture_client: TestClient) -> None:
+    response = capture_client.post(CHAT_PATH, json=chat_body(), headers={COPY_HEADER: ""})
+
+    assert response.status_code == 200, response.text
+    assert response.headers[CAPTURE_HEADER] == "refused"
+
+
+def test_a_replayed_error_has_the_body_shape_of_a_live_error(
+    capture_client: TestClient, open_copy: str, monkeypatch
+) -> None:
+    monkeypatch.setattr(PATCH_TARGET, ScriptedDispatch(_bad_request()))
+    live = _chat(capture_client, open_copy)
+    seal_copy(capture_client, open_copy)
+
+    replay = capture_client.post(_replay_path(open_copy), json=chat_body())
+
+    assert live.status_code == replay.status_code == 400
+    assert set(live.json()) == set(replay.json()) == {"detail", "_aigw"}
+    assert replay.json()["detail"] == live.json()["detail"]
+    aigw = replay.json()["_aigw"]
+    assert aigw["frozen_copy_replay"] is True
+    assert aigw["request_economics"]["direct_cost_status"] == "not_applicable"
+    assert aigw["request_economics"]["known_direct_cost_subtotals"] == []
+    assert aigw["usage_accounting"]["cache"]["status"] == "hit"
+    assert set(aigw) == set(live.json()["_aigw"]) | {"frozen_copy_replay"}

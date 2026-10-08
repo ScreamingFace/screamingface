@@ -1,7 +1,8 @@
 """Create the frozen-copy tables (OME-1307, design §3).
 
-UPGRADE. Two ``CREATE TABLE`` plus the replay-lookup index on ``frozen_copy_entries``. No existing
-table is touched or rebuilt, so no standalone index of another table is at risk.
+UPGRADE. Two ``CREATE TABLE``, the replay-lookup index on ``frozen_copy_entries`` and the owner
+index on ``frozen_copies``. No existing table is touched or rebuilt, so no standalone index of
+another table is at risk.
 
 DOWNGRADE. ``DROP TABLE`` of both, entries first. Nothing else references them.
 
@@ -38,6 +39,7 @@ class Migration(migrations.Migration):
                     fields.ForeignKeyField(
                         "models.Account",
                         source_field="account_id",
+                        db_index=True,
                         db_constraint=True,
                         to_field="id",
                         related_name="frozen_copies",
@@ -46,6 +48,7 @@ class Migration(migrations.Migration):
                 ),
                 ("status", fields.CharField(default="open", max_length=16)),
                 ("entries", fields.IntField(default=0)),
+                ("entry_seq", fields.IntField(default=0)),
                 ("created_at", fields.DatetimeField(auto_now=False, auto_now_add=True)),
                 (
                     "sealed_at",
@@ -78,14 +81,13 @@ class Migration(migrations.Migration):
                 ("request_json", fields.JSONField()),
                 ("response_json", fields.JSONField()),
                 ("status_code", fields.IntField()),
+                ("seq", fields.IntField()),
                 ("created_at", fields.DatetimeField(auto_now=False, auto_now_add=True)),
             ],
             options={
                 "table": "frozen_copy_entries",
                 "app": "models",
-                "indexes": [
-                    Index(fields=["frozen_copy_id", "kind", "request_digest", "created_at"])
-                ],
+                "indexes": [Index(fields=["frozen_copy_id", "kind", "request_digest", "seq"])],
                 "pk_attr": "id",
             },
             bases=["Model"],

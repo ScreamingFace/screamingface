@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterator
+from contextlib import contextmanager
 from functools import partial
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -85,12 +86,11 @@ def stored_entries(client: TestClient, copy_id: str) -> list[dict[str, Any]]:
     from aigateway.core.frozen_copy.models import FrozenCopyEntry
 
     async def _read() -> list[dict[str, Any]]:
-        rows = await FrozenCopyEntry.filter(frozen_copy_id=UUID(copy_id)).order_by(
-            "created_at", "id"
-        )
+        rows = await FrozenCopyEntry.filter(frozen_copy_id=UUID(copy_id)).order_by("seq")
         return [
             {
                 "kind": row.kind,
+                "seq": row.seq,
                 "digest": row.request_digest,
                 "request": row.request_json,
                 "response": row.response_json,
@@ -156,3 +156,15 @@ class ScriptedDispatch:
         if isinstance(outcome, Exception):
             raise outcome
         return SimpleNamespace(model_dump=lambda: outcome)
+
+
+@contextmanager
+def server_errors_as_responses(client: TestClient) -> Iterator[None]:
+    """Let an unhandled exception come back as the app's 500 instead of raising in the test."""
+    transport = client._transport  # type: ignore[attr-defined]
+    previous = transport.raise_server_exceptions
+    transport.raise_server_exceptions = False
+    try:
+        yield
+    finally:
+        transport.raise_server_exceptions = previous

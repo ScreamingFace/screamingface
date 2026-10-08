@@ -33,12 +33,18 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from aigateway.call_context import call_scope
+from aigateway.core.frozen_copy.headers import published_capture_headers
 from aigateway.middleware.call_id import TRACE_RESPONSE_HEADER
 
 logger = logging.getLogger(__name__)
 
 _CODE = "gateway_internal_error"
 _MESSAGE = "The gateway hit an unexpected error."
+
+
+def generic_detail() -> dict[str, str]:
+    """The fixed, sanitized 500 detail (also what a frozen copy stores for such an error)."""
+    return {"code": _CODE, "message": _MESSAGE}
 
 
 def _published_id(request: Request, name: str) -> str | None:
@@ -62,8 +68,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     # WHY not `internal_error` (owner decision 2026-10-02): that is url4's engine-fault default, so
     # a gateway 500 under it reads as an engine fault in the engine's error surface. A
     # gateway-prefixed code keeps the failure attributed to this service.
-    detail: dict[str, str] = {"code": _CODE, "message": _MESSAGE}
-    headers: dict[str, str] = {}
+    detail = generic_detail()
+    # FEATURE: OME-1307 — the capture outcome of a call whose route raised after the copy check.
+    headers = published_capture_headers(request)
     if call_id is not None:
         detail["gateway_call_id"] = call_id
     if trace_id is not None:
@@ -84,4 +91,4 @@ def _log(request: Request, exc: Exception) -> None:
     )
 
 
-__all__ = ["unhandled_exception_handler"]
+__all__ = ["generic_detail", "unhandled_exception_handler"]
