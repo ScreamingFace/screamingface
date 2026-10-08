@@ -16,12 +16,15 @@ import httpx
 
 from screamingface_engine.capture_outcomes import (
     REPLAY_MISS,
+    REPLAY_OCCURRENCE_HEADER,
     REPLAY_UNAVAILABLE,
     CaptureOutcome,
     current_capture_tally,
     record_capture_outcome,
     replay_refusal_code,
     request_digest,
+    tool_lookup_path,
+    tool_results_path,
 )
 from screamingface_engine.retrieval_policy import RetrievalPolicy
 from screamingface_engine.world.config import ModelSpec
@@ -111,7 +114,7 @@ class FrozenToolResults:
         """Post one result to the copy. Returns ``stored`` or ``failed``; never raises."""
         try:
             response = await self.client.post(
-                f"/v1/frozen-copies/{self.copy_id}/tool-results",
+                tool_results_path(self.copy_id),
                 headers=self.headers,
                 json={"description": description, "result": result},
                 timeout=_COPY_TIMEOUT,
@@ -120,31 +123,41 @@ class FrozenToolResults:
             body = response.json()
             outcome = body.get("outcome") if isinstance(body, dict) else None
             return "stored" if outcome == "stored" else "failed"
-        except (httpx.HTTPError, ValueError):
+        except Exception:  # noqa: BLE001 - best effort: nothing here may fail the tool loop
             return "failed"
 
     async def lookup(self, description: Mapping[str, object]) -> str:
         """Read the result the original run's model read, in capture order for repeated requests.
 
-        INVARIANT: raises a `RunnerRequestError`, which `_execute_tool` lets through. Any other
-        failure would become a "… failed: …" string the model reads and carries on from, and a
-        replay that carried on from a made-up tool result would be exact in name only.
+        The occurrence slot of this description is reserved NOW and given back unless a result
+        comes back, so concurrent identical lookups read distinct entries.
+
+        INVARIANT: raises a `RunnerRequestError` for every failure, and the caller (`_executed`)
+        lets it through. Any other failure would become a "… failed: …" string the model reads and
+        carries on from, and a replay that carried on from a made-up tool result would be exact in
+        name only.
         """
         digest = request_digest(description)
         tally = current_capture_tally()
-        occurrence = 0 if tally is None else tally.occurrence("tool", digest)
+        occurrence = 0 if tally is None else tally.reserve("tool", digest)
+        try:
+            return await self._read(description, occurrence)
+        except BaseException:
+            if tally is not None:
+                tally.release("tool", digest)
+            raise
+
+    async def _read(self, description: Mapping[str, object], occurrence: int) -> str:
         try:
             response = await self.client.post(
-                f"/v1/frozen-copies/{self.copy_id}/tool-results/lookup",
-                headers={**self.headers, "X-AIGW-Replay-Occurrence": str(occurrence)},
+                tool_lookup_path(self.copy_id),
+                headers={**self.headers, REPLAY_OCCURRENCE_HEADER: str(occurrence)},
                 json={"description": description},
                 timeout=_COPY_TIMEOUT,
             )
             payload = response.json() if response.content else None
             result = payload.get("result") if isinstance(payload, dict) else None
             if response.status_code == 200 and isinstance(result, str):
-                if tally is not None:
-                    tally.answered("tool", digest)
                 return result
             # A 404 is the copy saying it cannot answer; any other failure is a gateway that did
             # not answer at all, which a retry may fix.
@@ -297,16 +310,23 @@ async def _executed(tool_call: dict, runtime: WebToolRuntime | None) -> str:
     description = _tool_description(name, args, runtime)
     if runtime.frozen.replay:
         return await runtime.frozen.lookup(description)
-    result = await _execute_tool(tool_call, runtime)
-    await _capture_result(runtime.frozen, description, result)
+    digest = request_digest(description)
+    try:
+        result = await _execute_tool(tool_call, runtime)
+    except BaseException:
+        # A cancelled or crashed execution gave the model no result and the copy none to store
+        # (D1), as a cancelled chat call: the run is partial unless a later call of the same
+        # request replaces it (D2).
+        record_capture_outcome(CaptureOutcome("tool", "error", digest))
+        raise
+    await _capture_result(runtime.frozen, description, digest, result)
     return result
 
 
 async def _capture_result(
-    frozen: FrozenToolResults, description: Mapping[str, object], result: str
+    frozen: FrozenToolResults, description: Mapping[str, object], digest: str, result: str
 ) -> None:
     """Post one result to the copy and record the outcome. Only a cancellation escapes (D1)."""
-    digest = request_digest(description)
     try:
         status = await frozen.store(description, result)
     except BaseException:

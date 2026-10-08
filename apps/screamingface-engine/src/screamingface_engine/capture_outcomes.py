@@ -19,10 +19,9 @@ from typing import Literal
 
 Mode = Literal["capture", "replay"]
 Lane = Literal["chat", "tool"]
-Status = Literal["stored", "failed", "refused", "missing", "error"]
-Reason = Literal["failed", "refused", "missing", "open", "seal", "error"]
+Status = Literal["stored", "failed", "refused", "missing", "error", "ambiguous"]
 
-_REASONS: tuple[Reason, ...] = ("failed", "refused", "missing", "open", "seal", "error")
+_REASONS = ("failed", "refused", "missing", "open", "seal", "error", "ambiguous")
 _FROZEN_COPY_ID = "capture.frozen_copy_id"
 _STATUS = "capture.status"
 _REPLAY = "capture.replay"
@@ -37,6 +36,30 @@ class CaptureOutcome:
     status: Status
     digest: str | None = None
     """:func:`request_digest` of the request, so a retry can be told from a different call."""
+
+
+# The gateway's frozen-copy contract (design §4): the names both ends of a call share, kept in ONE
+# place so the connector and the web tools can never half-rename one.
+FROZEN_COPY_HEADER = "X-AIGW-Frozen-Copy"
+CAPTURE_FIELD = "X-AIGW-Capture"
+REPLAY_OCCURRENCE_HEADER = "X-AIGW-Replay-Occurrence"
+FROZEN_COPIES_PATH = "/v1/frozen-copies"
+
+
+def seal_path(copy_id: str) -> str:
+    return f"{FROZEN_COPIES_PATH}/{copy_id}/seal"
+
+
+def replay_chat_path(copy_id: str) -> str:
+    return f"{FROZEN_COPIES_PATH}/{copy_id}/chat/completions"
+
+
+def tool_results_path(copy_id: str) -> str:
+    return f"{FROZEN_COPIES_PATH}/{copy_id}/tool-results"
+
+
+def tool_lookup_path(copy_id: str) -> str:
+    return f"{FROZEN_COPIES_PATH}/{copy_id}/tool-results/lookup"
 
 
 # The two ways the gateway tells a replay that it cannot answer (design §4.4). Engine-authored
@@ -61,11 +84,6 @@ def replay_refusal_code(status: int, payload: object) -> str | None:
     return code if code in (REPLAY_MISS, REPLAY_UNAVAILABLE) else None
 
 
-def _reason_of(status: Status) -> Reason:
-    """The partial reason a non-stored status counts under (``stored`` never reaches here)."""
-    return "error" if status in ("stored", "error") else status
-
-
 def request_digest(payload: Mapping[str, object]) -> str:
     """sha256 of the canonical JSON of a request: the identity of one logical call."""
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -83,19 +101,18 @@ class CaptureTally:
     Replay: the copy the run replays."""
     open_failed: bool = False
     """The copy could not be opened: the run went on uncaptured."""
-    seal_failed: bool = False
-    """The copy could not be sealed: a replay refuses an open copy."""
+    sealed: bool = False
+    """The gateway confirmed the seal. A replay refuses an open copy, so only a sealed copy can
+    make a capture run complete."""
     outcomes: list[CaptureOutcome] = field(default_factory=list)
-    answers: dict[tuple[Lane, str], int] = field(default_factory=dict)
+    slots: dict[tuple[Lane, str], int] = field(default_factory=dict)
+    """Replay: the occurrence slots taken per request, reserved at send, given back on failure."""
 
     def status(self) -> Literal["complete", "partial"]:
         """``complete`` only for a capture run whose copy opened and sealed and whose every call
         is stored. An empty run is complete: it has nothing a replay could miss."""
         complete = (
-            self.mode == "capture"
-            and not self.open_failed
-            and not self.seal_failed
-            and not self._lost()
+            self.mode == "capture" and not self.open_failed and self.sealed and not self._lost()
         )
         return "complete" if complete else "partial"
 
@@ -114,11 +131,12 @@ class CaptureTally:
         if self.frozen_copy_id is not None:
             attributes[_FROZEN_COPY_ID] = self.frozen_copy_id
         attributes[_STATUS] = self.status()
-        counts: dict[Reason, int] = {reason: 0 for reason in _REASONS}
+        counts = {reason: 0 for reason in _REASONS}
         for outcome in self._lost():
-            counts[_reason_of(outcome.status)] += 1
+            counts[outcome.status] += 1
         counts["open"] += self.open_failed
-        counts["seal"] += self.seal_failed
+        # A copy that opened and was never confirmed sealed — the seal failed, or never ran.
+        counts["seal"] += self.frozen_copy_id is not None and not self.sealed
         for reason in _REASONS:
             if counts[reason]:
                 attributes[f"{_PARTIAL_PREFIX}{reason}"] = counts[reason]
@@ -137,13 +155,23 @@ class CaptureTally:
                 lost.append(outcome)
         return lost
 
-    def occurrence(self, lane: Lane, digest: str) -> int:
-        """How many successful answers this run already received for this request."""
-        return self.answers.get((lane, digest), 0)
+    def reserve(self, lane: Lane, digest: str) -> int:
+        """Take the next occurrence slot of this request, when its call is SENT.
 
-    def answered(self, lane: Lane, digest: str) -> None:
-        """Count one more successful answer for this request."""
-        self.answers[(lane, digest)] = self.occurrence(lane, digest) + 1
+        Reserved at send, not counted at answer, so concurrent identical requests take distinct
+        slots and the gateway serves them distinct entries (design §5.3 item 1).
+        """
+        slot = self.slots.get((lane, digest), 0)
+        self.slots[(lane, digest)] = slot + 1
+        return slot
+
+    def release(self, lane: Lane, digest: str) -> None:
+        """Give a slot back: its call did not succeed, so no answer was taken from the copy."""
+        taken = self.slots.get((lane, digest), 0)
+        if taken > 1:
+            self.slots[(lane, digest)] = taken - 1
+        else:
+            self.slots.pop((lane, digest), None)
 
 
 _tally: contextvars.ContextVar[CaptureTally | None] = contextvars.ContextVar(
@@ -178,13 +206,21 @@ def record_capture_outcome(outcome: CaptureOutcome) -> None:
 
 
 __all__ = [
+    "CAPTURE_FIELD",
+    "FROZEN_COPIES_PATH",
+    "FROZEN_COPY_HEADER",
     "REPLAY_MISS",
+    "REPLAY_OCCURRENCE_HEADER",
     "REPLAY_UNAVAILABLE",
     "CaptureOutcome",
     "CaptureTally",
     "capture_outcomes",
     "current_capture_tally",
     "record_capture_outcome",
+    "replay_chat_path",
     "replay_refusal_code",
     "request_digest",
+    "seal_path",
+    "tool_lookup_path",
+    "tool_results_path",
 ]

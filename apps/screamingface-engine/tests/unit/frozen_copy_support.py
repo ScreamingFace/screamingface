@@ -7,8 +7,9 @@ Not a test module itself, so the append-only gate sees only new files.
 
 from __future__ import annotations
 
+import asyncio
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 import httpx
@@ -29,6 +30,7 @@ TOOL_RESULTS = f"/v1/frozen-copies/{COPY}/tool-results"
 TOOL_LOOKUP = f"/v1/frozen-copies/{COPY}/tool-results/lookup"
 OPEN = "/v1/frozen-copies"
 SEAL = f"/v1/frozen-copies/{COPY}/seal"
+ADMIT = "/v1/models/admit"
 TAVILY_CACHE_PREFIX = "/v1/retrieval/tavily/cache"
 EXPRESSION = f"/{MODEL}(ctx)!go"
 
@@ -105,6 +107,8 @@ class Gateway:
         )
         self._tool_lookup = tool_lookup or (lambda _r: httpx.Response(404, json={}))
         self.requests: list[tuple[str, str, httpx.Headers, Any]] = []
+        self.gate: Callable[[httpx.Request], Awaitable[None]] | None = None
+        """Awaited before each request is answered: a test parks concurrent requests here."""
         self._chat_calls = 0
         self._replay_calls = 0
 
@@ -138,9 +142,25 @@ class Gateway:
         return step
 
     def client(self) -> httpx.AsyncClient:
+        async def handle(request: httpx.Request) -> httpx.Response:
+            if self.gate is not None:
+                await self.gate(request)
+            return self.handle(request)
+
         return httpx.AsyncClient(
-            transport=httpx.MockTransport(self.handle), base_url="http://aigateway.test"
+            transport=httpx.MockTransport(handle), base_url="http://aigateway.test"
         )
+
+    def hold_until(self, path: str, count: int) -> None:
+        """Park every request to ``path`` until ``count`` of them have arrived, so a test makes
+        concurrent identical requests overlap for certain."""
+        barrier = asyncio.Barrier(count)
+
+        async def gate(request: httpx.Request) -> None:
+            if request.url.path == path:
+                await barrier.wait()
+
+        self.gate = gate
 
     def paths(self) -> list[str]:
         return [path for _method, path, _headers, _body in self.requests]
@@ -176,6 +196,37 @@ def replay_scope(**kwargs: Any) -> RequestScope:
     return RequestScope(origin="run", replay_frozen_copy=COPY, **kwargs)
 
 
+def _bind_mode(scope: RequestScope, tally: CaptureTally, *, bind_copy: bool) -> None:
+    """Play the executor's binding of the tally's mode (and, for capture, its open step)."""
+    if scope.replay_frozen_copy is not None:
+        tally.mode, tally.frozen_copy_id = "replay", scope.replay_frozen_copy
+    elif scope.capture:
+        tally.mode = "capture"
+        if bind_copy:
+            tally.frozen_copy_id = COPY
+
+
+async def _drive(
+    node: Any, expressions: Sequence[str], observer: Any, *, concurrent: bool
+) -> tuple[str | None, ResolutionError | None]:
+    """Run the expressions on ``node``; the answer or failure of the LAST one."""
+    if concurrent:
+        results = await asyncio.gather(
+            *(url4_run(e, io=node, observer=observer) for e in expressions),
+            return_exceptions=True,
+        )
+        failures = [r for r in results if isinstance(r, ResolutionError)]
+        answer = next((r for r in reversed(results) if isinstance(r, str)), None)
+        return answer, (failures[-1] if failures else None)
+    answer, failure = None, None
+    for expression in expressions:
+        try:
+            answer, failure = await url4_run(expression, io=node, observer=observer), None
+        except ResolutionError as exc:
+            answer, failure = None, exc
+    return answer, failure
+
+
 async def run_call(
     gateway: Gateway,
     scope: RequestScope,
@@ -185,16 +236,15 @@ async def run_call(
     bind_copy: bool = True,
     expressions: Sequence[str] = (EXPRESSION,),
     observer: Any = None,
+    concurrent: bool = False,
 ) -> tuple[CaptureTally, str | None, ResolutionError | None]:
-    """The model calls of ``expressions`` in turn, under ``scope`` with ONE tally bound for the
-    run, as the executor binds it.
+    """The model calls of ``expressions`` under ``scope`` with ONE tally bound for the run, as
+    the executor binds it.
 
     ``bind_copy`` plays the executor's open step for a capture scope: the tally learns the copy id.
     Returns the tally, and the answer text or the failure of the LAST call.
     """
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL, web_search=web_search),), default_model=MODEL)
-    answer: str | None = None
-    failure: ResolutionError | None = None
     tavily_client = tavily.client() if tavily is not None else None
     async with gateway.client() as client:
         world = await build_aigateway_world(
@@ -204,18 +254,8 @@ async def run_call(
             tavily_client=tavily_client,
         )
         with request_scope(scope), capture_outcomes() as tally:
-            if scope.replay_frozen_copy is not None:
-                tally.mode, tally.frozen_copy_id = "replay", scope.replay_frozen_copy
-            elif scope.capture:
-                tally.mode = "capture"
-                if bind_copy:
-                    tally.frozen_copy_id = COPY
-            for expression in expressions:
-                try:
-                    answer = await url4_run(expression, io=world.node, observer=observer)
-                    failure = None
-                except ResolutionError as exc:
-                    answer, failure = None, exc
+            _bind_mode(scope, tally, bind_copy=bind_copy)
+            answer, failure = await _drive(world.node, expressions, observer, concurrent=concurrent)
     if tavily_client is not None:
         await tavily_client.aclose()
     return tally, answer, failure
