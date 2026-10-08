@@ -53,6 +53,8 @@ from url4.streaming.trace import valid_traceparent
 # differ on purpose and are reconciled only by `identity_from_headers`/`identity_from_env`.
 PROFILE_HEADER = "X-Profile"
 ANSWER_SEED_HEADER = "X-Answer-Seed"
+CAPTURE_HEADER = "X-Capture"
+REPLAY_FROZEN_COPY_HEADER = "X-Replay-Frozen-Copy"
 CACHE_CONTROL_HEADER = "Cache-Control"
 TRACEPARENT_HEADER = "traceparent"
 
@@ -141,6 +143,15 @@ _scope: contextvars.ContextVar[RequestScope] = contextvars.ContextVar(
 )
 
 
+class FrozenCopyHeaderError(ValueError):
+    """The caller's ``X-Capture`` or ``X-Replay-Frozen-Copy`` was malformed, or both were stated.
+
+    A NAMED refusal beside :class:`AnswerSeedError`, for the same reason: a request that asked to
+    capture or to replay must not silently run as a normal, paid run. The sync producer raises it;
+    the start route maps it to 400.
+    """
+
+
 class AnswerSeedError(ValueError):
     """The sync caller's ``X-Answer-Seed`` was present but not an integer.
 
@@ -168,13 +179,20 @@ def request_scope_from_headers(
     Raises:
         AnswerSeedError: ``X-Answer-Seed`` is present but not an integer. The same refusal the
             child boot makes, for the same reason (OME-1038).
+        FrozenCopyHeaderError: ``X-Capture`` or ``X-Replay-Frozen-Copy`` is malformed, or both
+            are stated (OME-1307).
     """
 
+    capture, replay_frozen_copy = frozen_copy_mode_from_headers(
+        headers.get(CAPTURE_HEADER), headers.get(REPLAY_FROZEN_COPY_HEADER)
+    )
     return RequestScope(
         identity_headers=job_env.identity_from_headers(headers),
         answer_seed=_optional_int(headers.get(ANSWER_SEED_HEADER)),
         cache=parse_cache_control(headers.get(CACHE_CONTROL_HEADER)) or CachePolicy(),
         origin="sync",
+        capture=capture,
+        replay_frozen_copy=replay_frozen_copy,
     )
 
 
@@ -227,6 +245,31 @@ def _optional_int(raw: str | None) -> int | None:
         return int(text)
     except ValueError as exc:
         raise AnswerSeedError(f"{ANSWER_SEED_HEADER} must be an integer, got {raw!r}") from exc
+
+
+def frozen_copy_mode_from_headers(
+    capture_raw: str | None, replay_raw: str | None
+) -> tuple[bool, str | None]:
+    """The run's frozen-copy mode: ``(capture, replay copy id)``. A missing or blank header is
+    absence; anything else that is not exactly ``true`` / a lowercase UUID is a refusal.
+
+    Shared by the sync producer and the start route, so the two surfaces accept exactly the same
+    values — and the same id shape the env reader checks (`job_env.FROZEN_COPY_ID`).
+
+    Raises:
+        FrozenCopyHeaderError: a malformed value, or both modes stated at once.
+    """
+    capture_text = _optional(capture_raw)
+    replay = _optional(replay_raw)
+    if capture_text is not None and capture_text.lower() != "true":
+        raise FrozenCopyHeaderError(f"{CAPTURE_HEADER} must be true")
+    if replay is not None and job_env.FROZEN_COPY_ID.fullmatch(replay) is None:
+        raise FrozenCopyHeaderError(f"{REPLAY_FROZEN_COPY_HEADER} must be a frozen copy id")
+    if capture_text is not None and replay is not None:
+        raise FrozenCopyHeaderError(
+            f"{CAPTURE_HEADER} and {REPLAY_FROZEN_COPY_HEADER} cannot be sent together"
+        )
+    return capture_text is not None, replay
 
 
 def current_scope() -> RequestScope:
@@ -286,7 +329,14 @@ def bind_sync_request(headers: Mapping[str, str]) -> Iterator[RequestScope]:
 # The request headers local mode's eval path passes to the node, and ONLY these (C2). Identity
 # is not in the list: it is set from the verified value, never copied from the wire.
 _PASSED_REQUEST_HEADERS = {
-    name.lower(): name for name in (CACHE_CONTROL_HEADER, ANSWER_SEED_HEADER, TRACEPARENT_HEADER)
+    name.lower(): name
+    for name in (
+        CACHE_CONTROL_HEADER,
+        ANSWER_SEED_HEADER,
+        CAPTURE_HEADER,
+        REPLAY_FROZEN_COPY_HEADER,
+        TRACEPARENT_HEADER,
+    )
 }
 
 
@@ -315,16 +365,20 @@ def forwarded_headers(
 __all__ = [
     "ANSWER_SEED_HEADER",
     "CACHE_CONTROL_HEADER",
+    "CAPTURE_HEADER",
     "PROFILE_HEADER",
+    "REPLAY_FROZEN_COPY_HEADER",
     "TRACEPARENT_HEADER",
     "X_PROFILE_UNSUPPORTED",
     "X_PROFILE_UNSUPPORTED_MESSAGE",
     "AnswerSeedError",
+    "FrozenCopyHeaderError",
     "RequestScope",
     "RequestScopeError",
     "bind_sync_request",
     "current_scope",
     "forwarded_headers",
+    "frozen_copy_mode_from_headers",
     "request_scope",
     "request_scope_from_headers",
     "requests_selector",

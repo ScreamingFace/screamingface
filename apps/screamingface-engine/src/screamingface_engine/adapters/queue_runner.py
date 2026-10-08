@@ -273,6 +273,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: job_env.RunShape = "expression",
+        capture: bool = False,
+        replay_frozen_copy: str | None = None,
     ) -> str:
         """Publish the run to the queue and return its job name.
 
@@ -316,6 +318,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 io_concurrency=self._io_concurrency,
                 extra_models=() if self._extra_models is None else self._extra_models(),
                 shape=shape,
+                capture=capture,
+                replay_frozen_copy=replay_frozen_copy,
             )
             await self._queue.publish(message, identity=identity)
             # AFTER the publish: a line claiming a run was scheduled when the publish then

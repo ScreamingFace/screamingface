@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -139,6 +140,25 @@ must. Absent means the run declared nothing, and the
 connector then adds NO seed param at all — egress stays byte-identical to an unseeded run's,
 which is what keeps every request-keyed replay fixture valid.
 """
+
+CAPTURE = "URL4_CLOUD_CAPTURE"
+"""Whether this run captures a frozen copy — `"1"`, or absent for a normal run.
+
+FEATURE: OME-1307. Per-run, like the answer seed beside it: the caller states it and the App
+writes it. INVARIANT: never read from the ambient environment of a shared process — a leftover
+value would turn another caller's normal run into a capture.
+"""
+
+REPLAY_FROZEN_COPY = "URL4_CLOUD_REPLAY_FROZEN_COPY"
+"""The id of the frozen copy a replay run answers from — a lowercase hyphenated UUID.
+
+FEATURE: OME-1307. Per-run, with the same invariant as :data:`CAPTURE`: a leftover id would turn
+another caller's paid run into a replay. Absent means a normal run.
+"""
+
+FROZEN_COPY_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+"""The one shape of a frozen copy id. Shared by the header and env readers so the two carriers
+can never disagree about what an id is."""
 
 CACHE_MAX_AGE_S = "URL4_CLOUD_CACHE_MAX_AGE_S"
 """The caller's freshness bound in whole seconds, when they stated one.
@@ -292,6 +312,60 @@ def answer_seed_from_env(env: Mapping[str, str]) -> int | None:
         return int(raw)
     except ValueError as exc:
         raise ValueError(f"{ANSWER_SEED} must be an integer, got {raw!r}") from exc
+
+
+def capture_env(capture: bool) -> dict[str, str]:
+    """Render a run's capture flag as the Job env key that carries it.
+
+    ``False`` renders NOTHING, so a normal run's env is byte-identical to today's.
+    """
+    return {CAPTURE: "1"} if capture else {}
+
+
+def capture_from_env(env: Mapping[str, str]) -> bool:
+    """Read a run's capture flag back out of its environment.
+
+    Raises like :func:`answer_seed_from_env`, for the same reason: a run that was meant to capture
+    and silently ran uncaptured would publish a score that claims otherwise. This env is
+    App-written, so a malformed value is a bug and the loud answer is safe.
+
+    Raises:
+        ValueError: the variable is present but is not ``1``.
+    """
+    raw = env.get(CAPTURE)
+    if raw is None:
+        return False
+    if raw != "1":
+        raise ValueError(f"{CAPTURE} must be 1, got {raw!r}")
+    return True
+
+
+def replay_frozen_copy_env(copy_id: str | None) -> dict[str, str]:
+    """Render a run's replay copy id as the Job env key that carries it.
+
+    ``None`` renders NOTHING, so a normal run's env is byte-identical to today's.
+    """
+    if copy_id is None:
+        return {}
+    return {REPLAY_FROZEN_COPY: copy_id}
+
+
+def replay_frozen_copy_from_env(env: Mapping[str, str]) -> str | None:
+    """Read a run's replay copy id back out of its environment.
+
+    Raises for the same reason as :func:`capture_from_env`: a run that was meant to replay and
+    silently ran as a normal, paid run would bill someone and publish a result that claims
+    otherwise.
+
+    Raises:
+        ValueError: the variable is present but is not a frozen copy id.
+    """
+    raw = env.get(REPLAY_FROZEN_COPY)
+    if raw is None:
+        return None
+    if FROZEN_COPY_ID.fullmatch(raw) is None:
+        raise ValueError(f"{REPLAY_FROZEN_COPY} must be a frozen copy id, got {raw!r}")
+    return raw
 
 
 def io_concurrency_from_env(env: Mapping[str, str]) -> int | None:
@@ -516,6 +590,8 @@ WRITTEN_BY_APP = frozenset(
         STREAM_GRACE_S,
         TRACEPARENT,
         ANSWER_SEED,
+        CAPTURE,
+        REPLAY_FROZEN_COPY,
         CACHE_PARTICIPATE,
         CACHE_MAX_AGE_S,
         EXTRA_MODELS,

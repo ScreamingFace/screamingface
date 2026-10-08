@@ -200,6 +200,8 @@ class _SeedRecordingRunner(RecordingJobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: RunShape = "expression",
+        capture: bool = False,
+        replay_frozen_copy: str | None = None,
     ) -> str:
         self.answer_seeds.append(answer_seed)
         return await super().schedule(
