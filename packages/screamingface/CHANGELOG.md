@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+* Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
+
 ### Features
 
 * **screamingface:** carry each Benchmark's provenance and saturation verdict from the Engine catalogue. `Benchmark.provenance` is a `BenchmarkProvenance` (paper, authors, citation, inspect porters as GitHub handles, website, harness pinned to a commit or tag, licence with any note, content warning, a `PublishedScore` human baseline and frontier score, the SDK notebook that runs it) and `Benchmark.saturation` is the Engine's derived verdict (`saturated` / `open` / `unknown`). An Engine that predates them serves neither: `provenance` reads `None` and `saturation` reads `unknown`. The local Scoreboard seed emits the same keys, so a local board shows what a deployed one shows.

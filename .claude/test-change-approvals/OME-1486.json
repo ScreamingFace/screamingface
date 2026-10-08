@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1486",
+  "branch": "OME-1486-streamed-atomic-report-export",
+  "approver": "User in this task",
+  "date": "2026-10-05",
+  "scope": "Adapt only the full-disk fdopen helper signature and forward closefd; all inherited assertions remain unchanged.",
+  "reason": "User explicitly approved adapting the helper and finishing both fixes; descriptor ownership must survive buffered writer construction failure.",
+  "files": {
+    "packages/screamingface/tests/test_atomic_file.py": {
+      "base_blob": "e1252ec334563d053f8a130a8af165524ebff1bf",
+      "approved_blob": "37426cd0550ec9bce40ce65e1dc09a87e5af0020"
+    }
+  }
+}
