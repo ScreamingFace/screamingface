@@ -57,6 +57,7 @@ from screamingface_engine.request_scope import (
     X_PROFILE_UNSUPPORTED,
     X_PROFILE_UNSUPPORTED_MESSAGE,
     AnswerSeedError,
+    FrozenCopyHeaderError,
     bind_sync_request,
     forwarded_headers,
     requests_selector,
@@ -255,7 +256,7 @@ class _LocalNodeMount:
                 # `bind_sync_request` binds the request scope, the trace (FX-64) and the
                 # run-context log identity (FX-6) together.
                 bound = stack.enter_context(bind_sync_request(raw_headers))
-            except AnswerSeedError as exc:
+            except (AnswerSeedError, FrozenCopyHeaderError) as exc:
                 # A declared sitting must not silently run without its seed (OME-1038). This
                 # maps it to 400 before dispatch with the shared code ``MALFORMED_HEADER``
                 # (item 3, B6 review) rather than letting a malformed seed escape as a 500.

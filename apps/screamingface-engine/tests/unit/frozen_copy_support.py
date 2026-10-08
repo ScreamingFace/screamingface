@@ -50,7 +50,7 @@ def chat(
 
 def tool_call(
     name: str,
-    arguments: dict[str, Any],
+    arguments: Any,
     headers: Mapping[str, str] | None = None,
     *,
     call_id: str = "call_1",
