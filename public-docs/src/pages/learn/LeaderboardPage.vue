@@ -47,11 +47,13 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
     </p>
 
     <p>
-      A submission also keeps the cache version of its run. <code>sf.reproduce(score)</code> replays
-      it from the cache, and a confirmed replay pays no provider. The
+      A run made with <code>capture=True</code> keeps a frozen copy of every model answer and every
+      web-tool result. A submission keeps the id of that copy.
+      <code>sf.reproduce(score)</code> replays the run against the copy, and a confirmed replay pays
+      no provider and no web-search service. The
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
-      call. The <RouterLink to="/learn/caching">caching page</RouterLink> explains what makes a
-      submission reproducible.
+      call. The <RouterLink to="/learn/caching">caching page</RouterLink> explains how a frozen copy
+      is made and when it is partial.
     </p>
 
     <h2>How a rank happens</h2>

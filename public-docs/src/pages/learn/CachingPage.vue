@@ -62,31 +62,57 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <h2>Reproducing a submission</h2>
 
     <p>
-      A leaderboard submission can name the cache it ran against. The cache keys its entries with
-      rules, and those rules can change between releases. A <strong>cache revision</strong> is a
-      short label, such as <code>cr-1a2b3c4d5e6f</code>, for the version of the rules that stored a
-      run's answers. The submission keeps that label. It keeps no list of keys. The
-      <RouterLink to="/learn/url4">url4</RouterLink>, the benchmark revision, the answer seed and
-      the cache revision together name the cache version of the run.
+      A cache saves money, but it is not a record. Its rules can change between releases, and a
+      model can be retired. So a run can make a <strong>frozen copy</strong> of itself. A frozen
+      copy keeps every model answer and every web-tool result of the run. It is separate from the
+      cache. It does not use the cache's keys or rules, and it is kept forever.
     </p>
 
     <p>
-      <code>sf.reproduce(score)</code> runs the score again from that cache version. The Engine must
-      confirm that it runs the url4 as a replay. A confirmed replay asks the cache for
-      <code>only-if-cached</code>. The cache then returns a stored answer or fails the call, so the
-      replay pays no provider, and a missing answer fails its case instead of being bought. The
+      <code>sf.evaluate(..., capture=True)</code> makes the copy. A leaderboard submission keeps the
+      copy id and the capture status. <code>sf.reproduce(score)</code> then runs the score's
+      <RouterLink to="/learn/url4">url4</RouterLink> and answer seed against the copy. The
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
-      calls and the three outcomes.
+      calls and the outcomes.
+    </p>
+
+    <h3>Make a frozen copy</h3>
+
+    <p>
+      With <code>capture=True</code>, the Engine opens a frozen copy in the
+      <RouterLink to="/learn/ai-gateway">AI gateway</RouterLink> when the run starts. The gateway
+      stores each model answer. It stores the answer that the model got, whether the answer came
+      from the cache or from a live call. Model calls of the benchmark's judges are stored too. The
+      Engine stores each web-search and web-fetch result that the model reads. When the run ends,
+      the Engine seals the copy. A sealed copy cannot change.
+    </p>
+
+    <p>
+      Capture adds no call to a provider, so a captured run costs the same as a normal run. It is
+      best effort. If the gateway cannot store something, the run still goes on and still returns
+      its result. The copy is then <code>partial</code>.
+    </p>
+
+    <p>
+      Keep one thing in mind. The copy id is part of a published score. Anyone who has the id and
+      sends the exact request can read the stored answer. No private-board rule limits this. Capture
+      only a run that you are willing to publish.
+    </p>
+
+    <p>
+      A frozen copy of a local run is not supported yet. A copy lives in the AI gateway, and an
+      Engine that has no gateway cannot open one. The run goes on, and its capture status is
+      <code>partial</code>.
     </p>
 
     <h3>Complete and partial</h3>
 
     <p>
-      Each submission also stores a <code>reproducible</code> status. It is
-      <code>complete</code> when the cache holds an answer for every model call and every web search
-      of the run, all under one cache revision. It is <code>partial</code> when it cannot promise
-      that. A partial score is not replayed: <code>sf.reproduce</code> returns
-      <code>not_reproducible</code> and starts no run.
+      A captured run has a <code>capture_status</code> and a <code>frozen_copy_id</code>. The status
+      is <code>complete</code> only when the copy opened, the copy sealed, and every model call and
+      every web-tool result is stored. In all other cases it is <code>partial</code>. A partial
+      score is not replayed: <code>sf.reproduce</code> returns <code>not_reproducible</code> and
+      starts no run.
     </p>
 
     <table>
@@ -98,94 +124,140 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       </thead>
       <tbody>
         <tr>
-          <td>Bypass</td>
+          <td>Open</td>
           <td>
-            A call skipped the cache. The url4 turned caching off, the provider is not cached (see
-            the Providers table), a parameter was not supported, the store was down, or a
-            <code>max-age</code> limit forced a new call.
+            The Engine could not open the copy when the run started, so the run went on without
+            capture. An Engine with no AI gateway does this.
           </td>
         </tr>
         <tr>
-          <td>Race</td>
+          <td>Seal</td>
           <td>
-            Another run stored the same call first. This run got an answer, but the cache holds the
-            other one.
+            The gateway did not confirm the seal at the end of the run. A copy that is not sealed
+            cannot be replayed.
           </td>
         </tr>
         <tr>
-          <td>Web tool</td>
+          <td>Failed</td>
           <td>
-            Web search and web fetch can be replayed only through the
-            <RouterLink to="/learn/ai-gateway">gateway</RouterLink>'s Tavily cache. Without it, or
-            when a Tavily call fails, the call is recorded as a tool outcome that no replay can
-            answer. A search that is a hit, or is stored, keeps the run complete.
+            The gateway could not store a model answer or a web-tool result. For example, one entry
+            was larger than the gateway's limit for one entry.
+          </td>
+        </tr>
+        <tr>
+          <td>Refused</td>
+          <td>
+            The gateway did not take a call into the copy. It never stores a streaming call. It also
+            refuses a call when the copy is not open.
+          </td>
+        </tr>
+        <tr>
+          <td>Missing</td>
+          <td>
+            The gateway did not say whether it stored a call. An older gateway, from before frozen
+            copies, does this.
           </td>
         </tr>
         <tr>
           <td>Error</td>
           <td>
-            A model call failed, and no later attempt of the same request succeeded. A failed call
-            stores nothing to replay. A retry that succeeds does not count.
+            A model call or a web tool ended with no answer to store, for example after a time-out
+            or a cancel, and no later call with the same request was stored. A later call with the
+            same request that was stored removes this reason.
           </td>
         </tr>
         <tr>
-          <td>Mixed revisions</td>
+          <td>Ambiguous</td>
           <td>
-            The calls of one run carried two cache revisions, for example during a deploy, or a
-            reply carried no revision label (an older gateway). No single label names the run.
+            The copy can hold an answer that the model did not use. This is the case when the Engine
+            sent a call again because of a <code>max-age</code> bound, or when it retried a call
+            after a transport error. The Engine cannot tell which answer is the right one.
           </td>
         </tr>
       </tbody>
     </table>
 
     <p>
-      A run with no model call and no web search reports no <code>reproducible</code> status
-      (<code>None</code>) and no cache revision. <code>sf.reproduce</code> reports such a score as
-      <code>not_reproducible</code> with the reason <code>unknown</code>. The same holds for a score
-      from a leaderboard that predates this feature, and for a score with no cache revision or no
-      benchmark revision.
-    </p>
-
-    <h3>Older revisions, newer software</h3>
-
-    <p>
-      When the cache rules change, the cache gets a new revision label. Every earlier label stays
-      readable. A score stored under an older revision still replays with that revision, and the
-      replay is read-only: it can never write under an old label.
+      A model call that ends with an error from the provider is stored with that error. It does not
+      make the run partial. A replay gives the same error, so the case fails in the same way as in
+      the original run.
     </p>
 
     <p>
-      Software can still move away from a score. A replay can fail when you use a different SDK or
-      engine version from the one that made the run:
+      A run that is not captured has no <code>capture_status</code> (<code>None</code>), and no
+      frozen copy id. <code>None</code> means unknown, not partial. If you asked for capture and the
+      Engine did not capture the run (an older Engine), the Client emits an
+      <code>EvaluationWarning</code>, and the result keeps <code>None</code>. A score from a
+      leaderboard that predates frozen copies has no status too. <code>sf.reproduce</code> reports
+      each such score as <code>not_reproducible</code> with the reason <code>unknown</code>. It does
+      the same for a score with no copy id or no benchmark revision.
+    </p>
+
+    <h3>Replay from the copy</h3>
+
+    <p>
+      <code>sf.reproduce(score)</code> asks the Engine to run the score's url4 and answer seed
+      against the frozen copy. The Engine must confirm that it runs in replay mode. In a confirmed
+      replay, every model call goes to the copy, and so does every web-tool read. The copy answers a
+      request with the answer that it stored for the same request. Nothing calls a provider, and
+      nothing calls the web-search service. A confirmed replay costs <strong>$0</strong>.
+    </p>
+
+    <p>
+      A replay does not depend on the cache or on the models of today. It works after a model is
+      retired, after a provider plugin is removed, and after the cache rules change. A request that
+      the copy cannot answer fails its case. The replay never buys the answer.
+    </p>
+
+    <p>
+      If the Engine does not confirm replay mode, it may run the url4 as a normal, paid run. So the
+      Client stops the run and reports <code>replay_unsupported</code>. If that stop fails, an
+      <code>EvaluationWarning</code> says that the run may still be running and spending.
+    </p>
+
+    <h3>When a replay fails</h3>
+
+    <p>
+      A replay can fail for reasons that do not change the score. Each one is a reason on the
+      <code>Reproduction</code>:
     </p>
 
     <ul>
       <li>
-        <strong>An older engine</strong> may not know replay at all. The Client stops a run that the
-        Engine does not confirm as a replay and reports <code>replay_unsupported</code>. If that
-        stop fails, an <code>EvaluationWarning</code> says the run may still be running and
-        spending.
+        <strong>An older engine</strong> may not know replay. The Client reports
+        <code>replay_unsupported</code>.
       </li>
       <li>
-        <strong>An older cache service</strong> may not know the score's revision. Every model call
-        fails with <code>unknown_cache_revision</code>, so every case fails. The run finishes, and
-        the replay is reported as <code>unknown_cache_revision</code>.
+        <strong>A copy that is not available.</strong> The copy is unknown, or it is not sealed (for
+        example, the Engine stopped during the original run), or the gateway is older and has no
+        frozen copies. Cases fail, and the replay is reported as
+        <code>frozen_copy_unavailable</code>.
       </li>
       <li>
-        <strong>A changed engine</strong> may build a request in another way. It then asks for an
-        answer that the cache never stored, and the case fails with a <code>cache_miss</code>.
+        <strong>A changed engine or SDK</strong> may build a request in another way. The copy has no
+        answer for that request, and the case fails with <code>frozen_copy_miss</code>.
+        <code>missed_cases</code> lists these cases.
       </li>
       <li>
-        <strong>A changed benchmark</strong> grades a different exam. Its calls usually miss the
-        cache, so the replay reports <code>cache_miss</code>, which is checked first.
-        <code>benchmark_revision_changed</code> covers the rest, because the numbers cannot be
-        compared.
+        <strong>Different web tools.</strong> A run that had no web tools (it had no web-search
+        connection) can differ from a replay on an Engine that offers them. The requests then
+        differ, and the case misses the copy.
+      </li>
+      <li>
+        <strong>Same request, different answers.</strong> With sampling, or with the cache off, the
+        same request can get different answers. The copy serves them in the order that the original
+        run took them. Parallel branches can take them in another order in the replay. Then the
+        score can differ (<code>score_differs</code>).
+      </li>
+      <li>
+        <strong>A changed benchmark</strong> grades a different exam, so the numbers cannot be
+        compared. The Client reports <code>benchmark_revision_changed</code>.
       </li>
     </ul>
 
     <p>
       A failed replay is not recorded, and it says nothing against the score. It says that this
-      software cannot rebuild the run.
+      software cannot rebuild the run from the copy.
     </p>
 
     <h2>Where the compute comes from</h2>

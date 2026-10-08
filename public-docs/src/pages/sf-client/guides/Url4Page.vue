@@ -344,13 +344,14 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     </p>
 
     <p>
-      To check a published score, use <code>sf.reproduce(score)</code> instead. It replays the score
-      from its stored cache revision and answer seed. A replay that the Engine confirms is served
-      from the cache only, so it pays no provider, and it is exact only when it gives the stored
-      score. The
+      To check a published score, use <code>sf.reproduce(score)</code> instead. It runs the score's
+      url4 and answer seed against the frozen copy that the original run made with
+      <code>capture=True</code>. A replay that the Engine confirms is answered from the copy only,
+      so it pays no provider and no web-search service, and it is exact only when it gives the
+      stored score. The
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
-      call, and the <RouterLink to="/learn/caching">caching page</RouterLink> explains what makes a
-      score reproducible.
+      call, and the <RouterLink to="/learn/caching">caching page</RouterLink> explains how a frozen
+      copy is made and when it is partial.
     </p>
 
     <h2>Links</h2>
