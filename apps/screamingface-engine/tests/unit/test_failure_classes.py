@@ -102,6 +102,7 @@ def test_the_declared_vocabulary_is_exactly_the_agreed_set() -> None:
             "aigateway_empty_response",
             "aigateway_transport_error",
             "gateway_internal_error",
+            "attempt_grade_not_pass_fail",
             "provider_queue_timeout",
             "provider_execution_timeout",
             "caller_deadline_exceeded",

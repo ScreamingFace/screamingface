@@ -107,7 +107,8 @@
       "Benchmark": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'str', title: 'str', description: 'str', revision: 'str', case_count: 'int', origin: 'str' = 'screamingface', interaction: 'str | None' = None, difficulty: 'str | None' = None, inverted_grade: 'bool' = False, provenance: 'BenchmarkProvenance | None' = None, saturation: 'str' = 'unknown') -> None",
+          "__init__": "method (self, id: 'str', title: 'str', description: 'str', revision: 'str', case_count: 'int', origin: 'str' = 'screamingface', interaction: 'str | None' = None, difficulty: 'str | None' = None, inverted_grade: 'bool' = False, provenance: 'BenchmarkProvenance | None' = None, saturation: 'str' = 'unknown', attempts: 'int' = 1) -> None",
+          "attempts": "field",
           "case_count": "field",
           "description": "field",
           "difficulty": "field",
@@ -180,7 +181,8 @@
       "CaseResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, case_id: 'CaseId', input: 'str', output: 'str | None', finish_reason: 'str | None', grade: 'CaseGrade | None', failures: 'Sequence[Failure]', metadata: 'Mapping[str, object]', status: 'CaseStatus | None' = None, refusal: 'str | None' = None, stop_reason: 'StopReason | None' = None, rounds_executed: 'int | None' = None, operations: 'Sequence[CaseOperation] | None' = None) -> 'None'",
+          "__init__": "method (self, *, case_id: 'CaseId', input: 'str', output: 'str | None', finish_reason: 'str | None', grade: 'CaseGrade | None', failures: 'Sequence[Failure]', metadata: 'Mapping[str, object]', status: 'CaseStatus | None' = None, refusal: 'str | None' = None, stop_reason: 'StopReason | None' = None, rounds_executed: 'int | None' = None, operations: 'Sequence[CaseOperation] | None' = None, attempts: 'Sequence[CaseAttempt] | None' = None) -> 'None'",
+          "attempts": "field",
           "case_id": "field",
           "conversation": "property",
           "display_input": "property",
@@ -1071,7 +1073,8 @@
       "CaseResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, case_id: 'CaseId', input: 'str', output: 'str | None', finish_reason: 'str | None', grade: 'CaseGrade | None', failures: 'Sequence[Failure]', metadata: 'Mapping[str, object]', status: 'CaseStatus | None' = None, refusal: 'str | None' = None, stop_reason: 'StopReason | None' = None, rounds_executed: 'int | None' = None, operations: 'Sequence[CaseOperation] | None' = None) -> 'None'",
+          "__init__": "method (self, *, case_id: 'CaseId', input: 'str', output: 'str | None', finish_reason: 'str | None', grade: 'CaseGrade | None', failures: 'Sequence[Failure]', metadata: 'Mapping[str, object]', status: 'CaseStatus | None' = None, refusal: 'str | None' = None, stop_reason: 'StopReason | None' = None, rounds_executed: 'int | None' = None, operations: 'Sequence[CaseOperation] | None' = None, attempts: 'Sequence[CaseAttempt] | None' = None) -> 'None'",
+          "attempts": "field",
           "case_id": "field",
           "conversation": "property",
           "display_input": "property",

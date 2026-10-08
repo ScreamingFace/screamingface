@@ -68,6 +68,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # code — aigateway's catch-all 500. Sits beside `aigateway_http_<status>`: gateway-
         # attributed and retryable (permanent=False from the 5xx), never `upstream_error`.
         "gateway_internal_error",
+        # WHY declared (OME-1458): a Benchmark that asks each Case several times marks a
+        # Check met if any Attempt met it, which only means something for a Check graded 0
+        # or 1. An Attempt whose Check scored anything else fails its Case by this name.
+        "attempt_grade_not_pass_fail",
         "provider_queue_timeout",
         "provider_execution_timeout",
         "caller_deadline_exceeded",
