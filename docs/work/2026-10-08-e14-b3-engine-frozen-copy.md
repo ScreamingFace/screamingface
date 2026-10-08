@@ -158,3 +158,16 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
   were not run (a frozenset edit cannot affect them).
 - **Deviations:** none from the plan's files or pinned decisions; see "Decisions made inside the
   plan" for the points the plan left open.
+
+## Rebase onto main (2026-10-08)
+
+- The stack was rebased onto `origin/main` `4cd063445` (87 new commits on main).
+- Conflict in `world/connector.py`: main moved the POST into `_post_attempt`. That helper now takes
+  a keyword `path` (default `_COMPLETIONS_PATH`), so the replay route still goes through the
+  transport retry and the deadline rules.
+- Conflict in `benchmarks/contract.py` and `tests/unit/test_failure_classes.py`: main added four
+  timeout codes. Both sets keep main's codes and `frozen_copy_miss`, `frozen_copy_unavailable`.
+- New commit: `test_normal_run_is_byte_identical` checks only for `X-AIGW-Frozen-Copy` and
+  `X-AIGW-Replay-Occurrence`. Main now sends the gateway timeout headers on every chat call.
+- Gates for stack `screamingface-engine` pass against `e14-b2-engine-tavily-cache`
+  (`--skip-append-only`; the approved test edits are unchanged).
