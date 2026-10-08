@@ -232,6 +232,15 @@ def _facts_of(
     # facts are read (OME-1458).
     attempts: int = task_attempts(task)
     scorers: ScorerFacts = _scorer_facts(task, module)
+    # INVARIANT (OME-1458): the Attempts fold credits each Check on its own, and a Named
+    # Score has no Checks to fold. Refused here, where both facts are known, because the
+    # marking room's own refusal comes after every Case was asked N times and paid for.
+    if attempts > 1 and scorers.named_scores:
+        raise ImporterError(
+            f"the task declares epochs={attempts} and several scores "
+            f"({', '.join(scorers.named_scores)}): Attempts are folded per Check, and Named "
+            "Scores have no Checks to fold (OME-1458)"
+        )
     return TaskReplayFacts(
         task_ref=task_ref,
         task_args=task_args,

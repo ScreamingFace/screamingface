@@ -110,8 +110,13 @@ def task_attempts(task: Any) -> int:
     ``pass_at_k`` with k < N is inspect's unbiased estimator, a different number from any-of-N
     (spec §2.1), and ``mean`` is an average. One epoch is one Attempt, so
     ``Epochs(1, "mode")`` (lab_bench) imports as before.
+
+    INVARIANT: the name alone is not the rule. ``at_least(1, value=0.5)`` is logged as
+    ``at_least_1`` but counts a half-right answer; any parameter other than ``k`` (a
+    ``value`` below full marks, a ``value_to_float``) is refused, naming it.
     """
 
+    from inspect_ai._util.registry import registry_params
     from inspect_ai.scorer._reducer.registry import reducer_log_names
 
     epochs: int | None = getattr(task, "epochs", None)
@@ -129,7 +134,30 @@ def task_attempts(task: Any) -> int:
             f"any-of-{epochs} reducers ({', '.join(sorted(any_match))}) import as "
             f"{epochs} Attempts per Case; this one would publish a different number (OME-1458)"
         )
+    # WHY: every name is any-match from here, so the Task declared its reducers; a tuned
+    # threshold behind an any-match name is a different rule.
+    tuned: list[str] = [
+        f"{name}({', '.join(f'{key}={value!r}' for key, value in params.items())})"
+        for name, reducer in zip(names, reducers or [], strict=True)
+        if (params := _tuned_params(registry_params(reducer)))
+    ]
+    if tuned:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {', '.join(tuned)}: only "
+            f"any-of-{epochs} at full marks imports as {epochs} Attempts per Case; a tuned "
+            "threshold would publish a different number (OME-1458)"
+        )
     return epochs
+
+
+def _tuned_params(params: dict[str, Any]) -> dict[str, Any]:
+    """The reducer parameters that change what "any of N" counts: all but ``k`` and full marks."""
+
+    return {
+        key: value
+        for key, value in params.items()
+        if key != "k" and not (key == "value" and value == 1.0)
+    }
 
 
 @dataclass(frozen=True)

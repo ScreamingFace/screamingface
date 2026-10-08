@@ -47,9 +47,16 @@ closes the ticket and its docs.
 - **Commits:** see the PR.
 - **Gates:** `pytest tests/unit` with the inspect extra: 6012 passed, 6 skipped; inspect lane
   1264 passed; `pyright` 0 errors; ruff clean.
-- **Deviations:** `test_importer_refuses_epochs.py` is a prior-test change, as the plan said: its
-  first test pinned the PR 2 refusal of `Epochs(2, "pass_at_2")`, which this PR replaces with the
-  mapping. The file needs the owner's approval manifest before the gate's append-only lane passes.
-- **Owner-verify:** release the SDK (PR 3), deploy the gateway (PR 4), deploy the Engine (PRs 5–7),
+- **Deviations:** (1) `test_importer_refuses_epochs.py`'s first test changes, as the plan said:
+  it pinned #1295's refusal of `Epochs(2, "pass_at_2")`, which this PR replaces with the mapping.
+  The file is new against main, so the append-only gate does not flag it and no approval
+  manifest entry is needed. (2) **Review fixes.** The name alone was not the rule:
+  `at_least(1, value=0.5)` is logged as `at_least_1`, so any reducer parameter other than `k`
+  at full marks is now refused, naming it. A Task with any-match epochs and several scores
+  (Named Scores) is refused at import, where both facts are known, instead of by the marking
+  room after every Case was paid for N times. The refusal tests now also cover `at_least_2`,
+  `pass_at_5` at 2 epochs and an eval's own reducer.
+- **Owner-verify:** release the SDK (#1303), deploy the gateway (#1304), deploy the Engine
+  (#1305, #1306, #1307),
   then one paid run of an Attempts Benchmark twice to watch the rerun replay every Attempt
   (OME-1476, ARC-AGI-2, is the real one). Linear status moves to Done by hand when this merges.

@@ -39,12 +39,16 @@ from screamingface_engine_inspect.task_replay import TaskReplayError  # noqa: E4
 #: in the epochs it declares: `any_of_two`, `max_of_two` and `at_least_one_of_three` stand in
 #: for ARC-style any-match Tasks, `pass_at_one_of_five` for MBPP's estimator, `mbpp_like` for
 #: averaged epochs with no reducer named, `lab_bench_like` for lab_bench's `Epochs(1, "mode")`.
+#: The review-fix tasks: `at_least_two_of_two` and `pass_at_five_of_two` carry any-match-looking
+#: names at the wrong k, `custom_of_two` a reducer of the eval's own, `half_marks_of_two`
+#: `at_least(1, value=0.5)` (logged as `at_least_1`), and `two_scores_of_two` an any-match
+#: Task with two scorers (Named Scores).
 FAKE_EVAL: str = textwrap.dedent(
     """
     import os
     from inspect_ai import Epochs, Task, task
     from inspect_ai.dataset import FieldSpec, json_dataset
-    from inspect_ai.scorer import match
+    from inspect_ai.scorer import Score, at_least, includes, match, score_reducer
     from inspect_ai.solver import generate, prompt_template
 
     DATA = os.environ["FAKE_EPOCHS_DATA"]
@@ -85,6 +89,34 @@ FAKE_EVAL: str = textwrap.dedent(
     @task
     def no_epochs() -> Task:
         return _task()
+
+    @score_reducer(name="first_epoch")
+    def first_epoch():
+        def reduce(scores: list[Score]) -> Score:
+            return scores[0]
+        return reduce
+
+    @task
+    def at_least_two_of_two() -> Task:
+        return _task(epochs=Epochs(2, "at_least_2"))
+
+    @task
+    def pass_at_five_of_two() -> Task:
+        return _task(epochs=Epochs(2, "pass_at_5"))
+
+    @task
+    def custom_of_two() -> Task:
+        return _task(epochs=Epochs(2, first_epoch()))
+
+    @task
+    def half_marks_of_two() -> Task:
+        return _task(epochs=Epochs(2, at_least(1, value=0.5)))
+
+    @task
+    def two_scores_of_two() -> Task:
+        return Task(dataset=json_dataset(DATA, FieldSpec(input="q", target="a", id="id")),
+                    solver=[prompt_template("Answer briefly.\\n\\n{prompt}\\n"), generate()],
+                    scorer=[match(), includes()], epochs=Epochs(2, "max"))
     """
 )
 
@@ -159,3 +191,36 @@ def test_a_task_declaring_no_epochs_imports_as_before(fake_eval: str) -> None:
     replay: ImportReplay = replay_for_import(f"{fake_eval}:no_epochs", None)
 
     assert replay.facts.scorer == "inspect_ai.scorer:match"
+
+
+@pytest.mark.parametrize(
+    ("task_name", "reducer"),
+    [
+        ("at_least_two_of_two", "at_least_2"),
+        ("pass_at_five_of_two", "pass_at_5"),
+        ("custom_of_two", "first_epoch"),
+    ],
+)
+def test_a_non_any_match_reducer_at_n_is_refused_naming_it(
+    fake_eval: str, task_name: str, reducer: str
+) -> None:
+    # WHY each: at 2 epochs, at_least_2 needs both right (all-of-2, ZeroBench's reliability
+    # shape), pass_at_5 is an estimator at the wrong k, and an eval's own reducer is a rule we
+    # cannot read; only the exact any-of-N names import.
+    with pytest.raises(TaskReplayError, match=rf"epochs=2 with reducer {reducer}:"):
+        replay_for_import(f"{fake_eval}:{task_name}", None)
+
+
+def test_an_any_match_name_with_a_tuned_threshold_is_refused(fake_eval: str) -> None:
+    # WHY: inspect logs at_least(1, value=0.5) as at_least_1, but it credits a half-right
+    # answer; the Engine's fold credits only a Check met at full marks.
+    with pytest.raises(TaskReplayError, match=r"reducer at_least_1\(value=0\.5\)"):
+        replay_for_import(f"{fake_eval}:half_marks_of_two", None)
+
+
+def test_attempts_with_named_scores_are_refused_before_any_case_runs(fake_eval: str) -> None:
+    # INVARIANT: the fold credits each Check, and a Named Score has none. The marking room
+    # refuses the pair too, but only after every Case was asked twice and paid for; the
+    # import refuses it first.
+    with pytest.raises(TaskReplayError, match=r"epochs=2 and several scores \(match, includes\)"):
+        replay_for_import(f"{fake_eval}:two_scores_of_two", None)

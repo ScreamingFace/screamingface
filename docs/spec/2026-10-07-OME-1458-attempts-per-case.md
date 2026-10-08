@@ -58,7 +58,7 @@ that declares no Attempts; its Case Results, Report and Benchmark Revision stay 
 | D6 | One Attempt of a Fusion is one full fusion, members and synthesizer, as a solo Model gets one full call. | Q2 |
 | D7 | **Revised.** The fold is per **Check**: a Check is met if any Attempt met it, and the Case score is the share of met Checks. For a Benchmark with one Check per Case this is "the best Attempt wins". The owner first approved "best Attempt per Case"; that undercounts ARC-AGI-2 (§2.4). | Q3, Q4 |
 | D8 | Partial credit is per output: an ARC-AGI-2 task with two test grids, one matched, scores 0.5. That is what the ARC Prize's own scorer computes. | Q4 |
-| D9 | The Report shows each Attempt's answer and grade, and which Attempts matched, only when N > 1. | Q3 |
+| D9 | The Report shows each Attempt's answer and grade, and how many Attempts failed, only when N > 1. It gives no per-Attempt verdict: credit is per Check, so a Case can pass while no single Attempt has full marks. | Q3 |
 | D10 | Question 5 (multiply the pre-run Cost Estimate by k) has nothing to multiply: no Cost Estimate exists in code (ADR 0003). The catalogue says "N Candidate Invocations per Case" instead, and the Report shows the cost actually spent. | Q5 |
 | D11 | The importer maps inspect's any-match reducers to `attempts=N` and refuses every other reducer by name. | — |
 | D12 | Until the build lands, the importer refuses every `epochs` > 1 by name (OME-1458, PR 2). | — |
@@ -218,7 +218,8 @@ The Case Result's own `output` and `grade` stay what a reader and the Aggregatio
 the shown answer and the folded Case Grade.
 
 The Aggregation is unchanged: the Headline Score is the mean of Case scores. The SDK Report adds
-one line per Case, "1 of 2 Attempts matched", and the run's cost counts every Attempt once:
+a badge per Case, "any of 2 Attempts", lists each Attempt's answer and score under it, and
+counts every Attempt once in the run's cost:
 each Attempt carries its own cost records, so the Case-level ones are left out. The
 Leaderboard ranks the Headline Score; since N is part of the Benchmark Revision, every entry on
 one Leaderboard used the same N.
@@ -231,6 +232,8 @@ one Leaderboard used the same N.
 | `epochs=N`, every reducer `max`, `at_least(1)` or `pass_at(N)` | an ARC-style any-of-N Task | `attempts=N` |
 | `pass_at(k)` with k < N, `mean`, `median`, `mode` | MBPP (5 epochs, `pass_at_1`/`_2`/`_5`), b3, tac | refused, naming the reducer |
 | `pass_k`, `at_least(k > 1)`, a custom reducer | ZeroBench's `5_of_5_reliability` | refused, naming the reducer |
+| an any-match reducer with a tuned threshold | `at_least(1, value=0.5)` | refused, naming the parameter |
+| any-match epochs beside several scores | `Epochs(2, "max")` with two scorers | refused (F10) |
 
 Until the build lands, the importer refuses every `epochs` > 1 (D12), because there is nowhere
 yet to send a second Attempt.
@@ -265,7 +268,7 @@ flowchart TB
   s8["⑧ the fold: a Check is met if any Attempt met it<br/>e.g. Check 1: MET by Attempt 2 · Case score: 1.0 · shown: Attempt 2"]
   r9[("⑨ Case Result in report.json<br/>e.g. output: 42 · score: 1.0<br/>attempts: 1 → 41, 0.0 · 2 → 42, 1.0<br/>💾 SPACE: the run's report")]
   s10["⑩ Aggregation, unchanged<br/>e.g. mean over 120 Cases → Headline Score 0.31"]
-  s11["⑪ OUTPUT · the SDK Report<br/>e.g. Case 1: 1 of 2 Attempts matched"]
+  s11["⑪ OUTPUT · the SDK Report<br/>e.g. Case 1: any of 2 Attempts · Attempt 1 score 0 · Attempt 2 score 1"]
   s0 -->|the Engine loads the Case| s3
   s3 -->|asks the Candidate| s4a
   s4a -.->|🌐 gateway looks up the exact request| c1
@@ -305,14 +308,20 @@ which gives it its own entry the same way (§2.3).
 | # | Fault | Box | Who notices | Outcome |
 |---|---|---|---|---|
 | F1 | An inspect Task declares `epochs` > 1, before the build lands | ② | the importer | refused by name (D12) |
-| F2 | An inspect Task declares epochs with a reducer we don't run (`mean`, `pass_at(k < N)`, a custom one) | ② | the importer | refused naming the reducer |
+| F2 | An inspect Task declares epochs with a reducer we don't run (`mean`, `pass_at(k < N)`, a custom one), or an any-match reducer with a tuned threshold (`at_least(1, value=0.5)`, logged as `at_least_1`) | ② | the importer | refused naming the reducer and, for a tuned one, its parameters |
 | F3 | Attempt 2 would be served Attempt 1's stored reply | ⑤ ⑥ | nobody, which is why §2.3 exists | prevented: Attempt 2's request always keys differently (a derived seed, or the Attempt number in the cache control) |
-| F4 | One Attempt's Grading fails (or its row is collected as an error), another is graded | ③ ⑧ | the Report | the Case is graded from the graded Attempts; the failed one keeps its failure in `attempts`; the Report says "1 of 2 Attempts failed". A failed **Candidate Invocation** in any Attempt fails the whole Case instead, as it does for a one-Attempt Case today (§4) |
+| F4 | One Attempt's Grading fails, another is graded | ③ ⑧ | the Report | the Case is graded from the graded Attempts; the failed one keeps its failure in `attempts`; the Report says "1 of 2 Attempts failed". A failed **Candidate Invocation** in any Attempt fails the whole Case instead, as it does for a one-Attempt Case today (§4) |
 | F5 | Every Attempt of a Case fails | ⑧ | the Aggregation | the Case has no Case Grade; the Benchmark's Failure Policy applies, as today |
 | F6 | An Attempt's Check is graded neither 0 nor 1 | ⑧ | the marking room | the Case fails as `attempt_grade_not_pass_fail`; no guessed fold |
 | F7 | A seeded run names a Model whose provider has no `seed` | ⑤ | the SDK's parameter check, before any paid call | refused, as today for every seeded run |
 | F8 | A researcher's SDK released before the build reads a report with `attempts` | ⑪ | the SDK decoder | "unsupported field"; reports without Attempts unaffected; the SDK slice releases first (§7) |
 | F9 | The Engine sends the Attempt number to a gateway without PR 4 | ⑥ | nobody | that gateway bypasses the cache on the unknown field: Attempts are fresh and graded correctly, only the free rerun is lost until it deploys |
+| F10 | An inspect Task declares any-match epochs and several scores (Named Scores) | ② | the importer | refused by name: the fold credits Checks, and a Named Score has none. The marking room refuses the pair too, as a contract error that aborts the run, but only after every Case was asked N times |
+| F11 | A Benchmark's Attempts are graded on different Checks | ⑧ | the marking room | a contract error that aborts the run: the fold matches Checks by id, and no Benchmark grades Attempts differently |
+| F12 | The Benchmark's missing-case hook files nothing for one Attempt | ⑧ | the marking room | that Attempt gets the finalizer's `case_result_missing` failure; the Case is graded from the rest (F4) |
+| F13 | A Candidate pins its own `seed` | ⑤ | nobody | the seed is kept, and Attempt 2 carries the Attempt number in the cache control instead: a fresh call, but a provider that honours the seed may return Attempt 1's answer again (§4) |
+| F14 | Attempt 2's rewrite reaches no Candidate Invocation (one nested in an `iterate` or a struct) | ③ | the Engine, when the Benchmark is built | refused before any paid call: an unmarked Attempt 2 would be sent identical to Attempt 1 |
+| F15 | A Benchmark we build ourselves declares N Attempts but its expression asks fewer | ① ③ | CI: a test over every registered Benchmark | the test fails: the two numbers are written in two places, and a forgotten second one would publish a first-Attempt score under an any-of-N label |
 
 ### 3.3 Architecture
 
@@ -381,6 +390,22 @@ The arrows are the order a Case passes through the code, not imports. The stages
   behaves the same way; the Report shows the identical answers.
 - **Only any-match is supported.** MBPP (pass@1 estimated from 5 samples) and ZeroBench's
   all-must-match reliability stay refused by name until a Benchmark needs them.
+- **`max` over a partial-credit scorer imports, then fails per Case.** `Epochs(2, "max")` with an
+  F1 scorer reads as any-match, but its Checks are graded between 0 and 1, so each Case fails as
+  `attempt_grade_not_pass_fail` (F6) after its Attempts were paid for. The importer cannot tell a
+  partial-credit scorer from its name. Accepted: no inspect_evals Task declares it today.
+- **A Candidate that pins its own `seed` may get the same answer on every Attempt** (F13).
+  Overriding the seed would change the Candidate under test, so it is kept. Accepted, like
+  temperature 0: the Report shows the identical answers.
+- **A failed Attempt can lose its siblings' spend from the record.** The Attempts of one Case
+  run side by side; when one fails, the run cancels the others in flight, and a provider call
+  already billed for them is not recorded. The Case fails either way (the next bullet).
+- **The fold scores met Checks ÷ Checks, not the Benchmark's own formula.** A weighted rubric
+  Benchmark that declared Attempts would switch to an unweighted share. Accepted: no weighted
+  Benchmark declares Attempts; revisit before one does.
+- **A `--task-arg` that sets the epoch count imports at that count.** `epochs=1` on a Task whose
+  eval publishes any-of-5 gives a one-Attempt Benchmark. The pinned task args move the revision,
+  so it shows; the import doc says so.
 - **A Case with a failed Attempt has fewer chances to pass** (F4). Accepted: the ARC harness
   counts a missing Attempt the same way; the Report says how many Attempts failed.
 - **A failed Candidate Invocation in any Attempt fails the whole Case**, losing the Attempts
@@ -390,7 +415,9 @@ The arrows are the order a Case passes through the code, not imports. The stages
   when a real Attempts Benchmark (OME-1476) shows such failures in its Report.
 - **How ARC-AGI-2 prompts each test grid is OME-1476's design.** The harness sends one prompt per
   grid; that Benchmark will need one Candidate Invocation per grid per Attempt, which the
-  glossary already allows ("a Case may require multiple ordered Candidate Invocations").
+  glossary already allows ("a Case may require multiple ordered Candidate Invocations"). If those
+  invocations sit inside an `iterate`, the Attempts rewrite does not reach them today and the
+  build refuses the Benchmark (F14); OME-1476 extends the rewrite or builds them differently.
 
 ## 5. Out of scope
 
@@ -406,7 +433,7 @@ The arrows are the order a Case passes through the code, not imports. The stages
    `expression_sha` rung, and Attempt 1's egress identical to today's.
 2. A test-only Benchmark declaring `attempts=2` runs end to end locally against stubbed replies
    `41` then `42`: its Case Result carries both Attempts, the Case scores 1.0, and the Report
-   prints "1 of 2 Attempts matched".
+   prints "any of 2 Attempts" and both Attempts' scores.
 3. A two-Check fixture where Attempt 1 meets only Check A and Attempt 2 only Check B scores 1.0
    (the ARC rule), pinned by a test that says why.
 4. **Attempt 2..N never get the cached answer from Attempt 1.** Test: in one run, Attempt 1 is
