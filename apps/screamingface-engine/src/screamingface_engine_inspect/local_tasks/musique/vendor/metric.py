@@ -1,5 +1,10 @@
-"""
-An abstract class representing a metric which can be accumulated.
+"""The accumulator base both MuSiQue scorers extend, copied from the paper's repo.
+
+Source, pinned to the commit we copied (CC BY 4.0, licence text beside this file):
+https://github.com/StonyBrookNLP/musique/blob/922ac98f19a201998dbdae6d7f2887a5258dbdeb/metrics/metric.py
+
+Everything below this docstring is that file byte for byte.
+``tests/unit/inspect/test_local_task_musique_vendor.py`` pins it; do not edit.
 """
 from typing import Any, Dict
 

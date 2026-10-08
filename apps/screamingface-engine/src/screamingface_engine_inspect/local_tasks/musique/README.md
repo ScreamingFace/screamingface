@@ -33,8 +33,8 @@ with the gold `is_supporting` idx.
 ## Scoring
 
 Three scorers, three Named Scores, computed by the paper's own code copied verbatim into
-`vendor/` (StonyBrookNLP/musique@922ac98f; `test_local_task_musique_vendor.py` pins each file's
-upstream sha256):
+`vendor/` (StonyBrookNLP/musique@922ac98f; each file's docstring links to its upstream blob at
+that commit, and `test_local_task_musique_vendor.py` pins each file's upstream code sha256):
 
 | Named Score | What it is | Headline? |
 |---|---|---|

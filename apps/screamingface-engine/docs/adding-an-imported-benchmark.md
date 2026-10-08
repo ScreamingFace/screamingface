@@ -266,7 +266,7 @@ inspect_evals eval such as `bbeh/`:
 | dataset loader | `<name>.py` | a pinned fetch (Hub commit + sha256) rendered into `Sample`s: `input` is the exact Candidate-facing text, `target` the answer key (a list when there are aliases), `metadata` whatever the scorer needs |
 | scorer(s) | `<name>.py` | `@scorer` functions, `(state, target) -> Score`; several scorers = several Named Scores, the first is the Headline |
 | the Task | `<name>.py` | `@task def <name>() -> Task(dataset=…, solver=generate(), scorer=[…])` |
-| vendored grading code | `vendor/` | the paper's own scorer when it has one, copied byte-for-byte with its licence and a sha256 test (`test_local_task_musique_vendor.py` is the template) |
+| vendored grading code | `vendor/` | the paper's own scorer when it has one, copied byte-for-byte below a header of ours that links to the upstream blob at the pinned commit (never the upstream docstring), with its licence and a sha256 test (`test_local_task_musique_vendor.py` is the template) |
 | the card | `README.md` | dataset, prompt, scoring, baselines, how to run |
 
 Then run the importer on it and fill the generated rows exactly as for an import:

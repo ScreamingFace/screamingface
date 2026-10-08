@@ -94,6 +94,11 @@ list, and a scorer that tolerates absent Sample metadata.
   has no inspect extra, so it raised `PackageNotFoundError` while the local gate (venv with the
   extra) was green. It now derives the ids from the spec rows; verified in an extra-less venv
   (pyright clean, 4,616 unit tests passed) and re-pinned in the approval manifest.
+- **Vendored headers (owner rule, 2026-10-08):** each file under `vendor/` now opens with our
+  own docstring linking to its upstream blob at the pinned commit; the authors' docstrings are no
+  longer repeated as ours. The pin test drops the header before hashing (upstream code sha256,
+  not file sha256). The `task_source` digest moved with it: musique revision `67d3fc96ffc68e46`
+  → `1ae798e073477a54`.
 - **Owner-verify:** one paid run of a solo Candidate on `musique` to see real numbers
   beside the 0.692 Frontier Score; the amended assertion in
   `test_inspect_imported_benchmarks.py`.

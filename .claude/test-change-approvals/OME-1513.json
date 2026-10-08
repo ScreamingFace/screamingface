@@ -16,7 +16,7 @@
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
       "base_blob": "3dfc233f2908862009563f645209423984c5476b",
-      "approved_blob": "1a84ff0e9262cd64923a562acea6e3c4d002fcc0"
+      "approved_blob": "9da673b7acf65349d05adf1afbe5910682b08a68"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_gsm8k_benchmark.py": {
       "base_blob": "f74aefbb9e0b6a69fefe545afda6af0da8b739e3",

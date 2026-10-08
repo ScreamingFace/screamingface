@@ -1,5 +1,11 @@
-"""
-Answer metric -- mostly taken directly from squad_tools of allennlp.
+"""The MuSiQue answer scorer (exact match and token F1), copied from the paper's repo.
+
+Source, pinned to the commit we copied (CC BY 4.0, licence text beside this file):
+https://github.com/StonyBrookNLP/musique/blob/922ac98f19a201998dbdae6d7f2887a5258dbdeb/metrics/answer.py
+
+Everything below this docstring is that file byte for byte, except that
+``from metrics.metric import Metric`` became ``from .metric import Metric``.
+``tests/unit/inspect/test_local_task_musique_vendor.py`` pins it; do not edit.
 """
 import re
 import string
