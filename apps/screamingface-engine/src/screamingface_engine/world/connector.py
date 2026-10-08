@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import NoReturn
+from weakref import WeakKeyDictionary
 
 import httpx
 
@@ -93,6 +94,7 @@ from url4.peer.server import Request, Url4Node
 from url4.streaming.protocol import CachePolicy
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
+_FROZEN_COPIES_PATH = "/v1/frozen-copies"
 _FROZEN_COPY_HEADER = "X-AIGW-Frozen-Copy"
 _CAPTURE_FIELD = "X-AIGW-Capture"
 _OCCURRENCE_HEADER = "X-AIGW-Replay-Occurrence"
@@ -431,6 +433,16 @@ class _ModelEndpoint:
             raise error from exc
 
 
+_GATEWAY_CLIENTS: WeakKeyDictionary[Url4Node, httpx.AsyncClient] = WeakKeyDictionary()
+"""The aigateway client of each world node, keyed by the node itself.
+
+WHY a side table (the idiom of `world.factory._DIRECT_MOUNTS`): the executor drives a run on the
+node the world factory returned and owns no client, yet a capture run must open and seal its copy
+on the SAME client and headers as the run's chat calls. An engine-owned table read through
+:func:`open_frozen_copy` keeps the node's own type unwidened and the `World` tuple unchanged.
+"""
+
+
 async def build_aigateway_world(
     cfg: AigatewayConfig,
     *,
@@ -499,6 +511,7 @@ async def build_aigateway_world(
     )
     for path in routes:
         node.endpoint(path)(call_model)
+    _GATEWAY_CLIENTS[node] = http_client
     return AigatewayWorld(
         node=node,
         _client=http_client,
@@ -506,6 +519,56 @@ async def build_aigateway_world(
         _tavily_client=tavily_http,
         _owns_tavily_client=owns_tavily_client,
     )
+
+
+async def open_frozen_copy(node: object) -> str | None:
+    """Open the frozen copy a capture run stores into, on ``node``'s gateway client.
+
+    FEATURE: OME-1307 (design §5.2 item 1). Sent with the run's identity headers, as the chat calls
+    are. Total: a node with no gateway client, any gateway failure and a body without a copy id all
+    return ``None``, and the run goes on uncaptured and partial. Names the error type only in the
+    log, never a body.
+
+    INVARIANT: the id goes into every later URL path, so it must be a UUID or it is refused.
+    """
+    client = _gateway_client(node)
+    if client is None:
+        return None
+    try:
+        response = await client.post(_FROZEN_COPIES_PATH, headers=_headers(current_scope()))
+        response.raise_for_status()
+        body = response.json()
+        copy_id = body.get("id") if isinstance(body, dict) else None
+        if not isinstance(copy_id, str) or job_env.FROZEN_COPY_ID.fullmatch(copy_id) is None:
+            raise ValueError("the gateway named no frozen copy")
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("frozen copy open failed error=%s", type(exc).__name__)
+        return None
+    return copy_id
+
+
+async def seal_frozen_copy(node: object, copy_id: str) -> bool:
+    """Seal ``copy_id``. ``True`` only when the gateway confirms it is sealed; total, like the open.
+
+    A sealed copy is what a replay reads; an open one is refused as unavailable.
+    """
+    client = _gateway_client(node)
+    if client is None:
+        return False
+    try:
+        response = await client.post(
+            f"{_FROZEN_COPIES_PATH}/{copy_id}/seal", headers=_headers(current_scope())
+        )
+        response.raise_for_status()
+        body = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("frozen copy seal failed error=%s", type(exc).__name__)
+        return False
+    return isinstance(body, dict) and body.get("status") == "sealed"
+
+
+def _gateway_client(node: object) -> httpx.AsyncClient | None:
+    return _GATEWAY_CLIENTS.get(node) if isinstance(node, Url4Node) else None
 
 
 def _report_response(choice: Choice, cache: CacheOutcome, aigw: object = None) -> None:
@@ -1419,4 +1482,10 @@ def _raise_for_status(resp: httpx.Response) -> None:
     raise ResolutionError(message, code=code, permanent=permanent)
 
 
-__all__ = ["AigatewayConfig", "AigatewayWorld", "build_aigateway_world"]
+__all__ = [
+    "AigatewayConfig",
+    "AigatewayWorld",
+    "build_aigateway_world",
+    "open_frozen_copy",
+    "seal_frozen_copy",
+]
