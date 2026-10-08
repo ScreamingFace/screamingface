@@ -101,12 +101,41 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
 ## Known limits
 
 - A capture run under a `max-age` bound stores the discarded hit AND the live re-issue (two 200
-  entries for one logical call). A replay takes entry 0 (the discarded hit). Not handled: the plan
-  has no re-issue in replay, and the default policy never re-issues.
-- A failed run (an exception out of the steps) is sealed but states no `capture.*` attribute,
-  like the cache counters: the summary frames are emitted only after a successful run.
-- Mount routes (`rest/mounts.py`) ignore both headers, as they ignore the old replay header.
-- Concurrent identical requests can take their occurrences in another order (design §9).
+  entries for one logical call), and a replay takes entry 0 (the discarded hit). Review F8: kept as
+  a documented limit. Since review round 1 the capture run is marked `partial` for it
+  (`capture.partial.ambiguous`), so the limit is visible and never hidden in a `complete` run.
+- A replay's occurrence slot follows the order requests are SENT, so two concurrent identical
+  requests can take their entries in another order than capture did (design §9). They get distinct
+  entries.
+- No engine run path calls `/v1/models/admit` (only the catalog route
+  `GET /v1/models/{id}/parameters` does), so a replay never calls it. A retired model still needs
+  its route in the run's world config: replay does not add undeclared routes. See the open question
+  in the report.
+
+## Review round 1 (coordinator, 2026-10-08) — what changed
+
+- F1+F2: a capture call that was re-issued under a `max-age` bound, or whose transport attempt was
+  retried, records `ambiguous` (never forgiven); `capture.partial.ambiguous` counts it.
+- F3: the replay occurrence slot is reserved when the call is sent and released unless it succeeds
+  (`CaptureTally.reserve` / `release`), for chat and tool lookups. Concurrent tests for both.
+- F4: a cancelled or crashed tool execution in capture mode records `error`, then re-raises.
+- F5: a failed capture or replay run writes its `capture.*` attributes into the run summary and one
+  log frame (no cache counters: a failed run's figures are not exact). A stopped run writes none.
+- F6: mount routes and the local eval path answer 400 `capture_unsupported` for either header
+  (presence counts). The sync producer and the forwarding allowlist no longer carry the headers.
+- F7: a replayed answer is accounted as a hit at $0 with no saved-cost claim (the connector hands
+  `_report_response` no `_aigw` for a replay).
+- F10: the two wrong comments fixed (the lookup docstring; "permanent" in the contract and SDK mirror).
+- F11: `FrozenToolResults.store`, `open_frozen_copy` and `seal_frozen_copy` catch `Exception`.
+- F12: `CaptureTally.sealed` replaces `seal_failed`; `status()` is `complete` only when sealed. A
+  copy that opened and was never confirmed sealed counts as `capture.partial.seal`.
+- F16: the paths and header names are shared constants in `capture_outcomes.py`; the `_reason_of`
+  mapping is gone.
+- F17: the guard test `test_a_replay_never_calls_the_model_admission_route` was added. It passed
+  before and after: no run path calls the admission route (see Known limits).
+- Test edits: only files of this PR changed (`test_frozen_copy_headers.py`,
+  `test_capture_outcomes.py`, `test_frozen_copy_normal_run.py`, `frozen_copy_support.py`). No
+  prior test of the base branch moved beyond the approved list above.
 
 ## Outcome
 
@@ -121,9 +150,7 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
   `world/connector.py`, `world/web_tools.py`, `error_text.py`, `benchmarks/contract.py`,
   `README.md`, and the SDK mirror `packages/screamingface/src/screamingface/_report_primitives.py`.
 - **Commits:** see `git log --oneline e14-b2-engine-tavily-cache..HEAD`.
-- **Gates:** engine with `--skip-append-only`: ruff, format, pyright, layering and pytest pass
-  (`ALL GATES GREEN`). Engine without it: only the append-only check fails, and it lists exactly
-  the eight approved files above. SDK package (touched for the mirror): ruff, format and pyright
+- **Gates:** see the report; re-run after review round 1. SDK package (touched for the mirror): ruff, format and pyright
   pass; pytest gives `2245 passed, 26 skipped`. The SDK notebook, build and distribution gates
   were not run (a frozenset edit cannot affect them).
 - **Deviations:** none from the plan's files or pinned decisions; see "Decisions made inside the
