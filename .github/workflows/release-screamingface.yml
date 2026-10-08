@@ -1,15 +1,28 @@
 name: Release screamingface
+run-name: Release screamingface ${{ inputs.version }} (${{ inputs.channel }}) from ${{ inputs.commit }}
 
-# Publishes the ScreamingFace Client SDK to PyPI when release-please pushes a
-# `screamingface-v*` tag.
+# Publishes the ScreamingFace Client SDK to PyPI, then tags the commit and creates the
+# GitHub release. It runs only on a manual dispatch on `main`, with three inputs:
+#   channel  `staging` (a pre-release such as 0.1.3rc1) or `production` (a final such as 0.1.3)
+#   commit   the full 40-character SHA of a commit on main to build
+#   version  the exact PyPI version to stamp into that build
+# PULSE dispatches it when the person who promoted a release presses Release in Slack. A
+# maintainer can dispatch it by hand with the same inputs.
 #
-# Auth is PyPI Trusted Publishing (OIDC) — no stored token. Before the first real
-# publish an owner must, one time:
-#   1. reserve the `screamingface` project on PyPI and add a Trusted Publisher →
-#      owner/repo: ScreamingFace/screamingface, workflow: release-screamingface.yml,
-#      environment: pypi
-#   2. create the `pypi` GitHub Environment (optionally with required reviewers)
-# Until then verify+build still run (packaging is validated); only publish fails.
+# WHY no tag trigger: the tag is an output of a release, not its input. The `release` job
+# creates `screamingface-v<version>` with GITHUB_TOKEN after the upload succeeds, and a tag
+# that GITHUB_TOKEN creates starts no workflow. A tag on a commit that carries this file
+# publishes nothing. A tag on an older commit runs that commit's old file.
+#
+# WHY stamp instead of commit: `build` checks out `commit` and writes `version` into
+# pyproject.toml on the runner only. Nothing is committed, so the version on main stays as it is.
+#
+# SECURITY: the inputs reach every `run:` through `env:`. No input is interpolated into a
+# shell context.
+#
+# Auth is PyPI Trusted Publishing (OIDC) — no stored token. The PyPI Trusted Publisher binds
+# owner/repo ScreamingFace/screamingface, workflow release-screamingface.yml and environment
+# pypi. Renaming this file or the environment stops publishing.
 #
 # AIDEV-NOTE (OME-910): the repo moved from the OpenMined org to ScreamingFace. PyPI Trusted
 # Publishing matches the OIDC `repository` claim as an EXACT string and does NOT follow
@@ -17,48 +30,86 @@ name: Release screamingface
 # `OpenMined/screamingface` no longer matches and publish fails with an OIDC mismatch while
 # verify+build stay green. The owner/repo above is the value to set; correcting this comment
 # does not repoint PyPI. Verify the entry in the PyPI console before trusting a release.
-#
-# AIDEV-NOTE: the name `screamingface` is NOT yet reserved on PyPI. Reserve it before
-# announcing the package, or the first tag will build cleanly and fail at the publish step.
 
 on:
-  push:
-    tags: ["screamingface-v*"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag (e.g. screamingface-v0.1.0)"
+      channel:
+        description: "staging (pre-release, X.Y.ZrcN) or production (final, X.Y.Z)"
+        type: choice
+        options: [staging, production]
+        default: staging
+        required: true
+      commit:
+        description: "Full 40-character SHA of a commit on main"
+        type: string
+        required: true
+      version:
+        description: "Exact PyPI version, e.g. 0.1.3rc1 (staging) or 0.1.3 (production)"
+        type: string
         required: true
 
 permissions:
   contents: read
 
+# One release runs at a time, and a running release is never cancelled. GitHub keeps at most
+# one more run waiting in the group; a newer dispatch replaces the waiting one.
+concurrency:
+  group: release-screamingface
+  cancel-in-progress: false
+
 jobs:
   verify:
+    # WHY: a dispatch on any other ref skips the whole run. An edited copy of this file on a
+    # branch can drop this line; only a deployment policy on the `pypi` environment stops that.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.v.outputs.version }}
-      tag: ${{ steps.v.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
-      - id: v
+      - name: Check the inputs against main, the tags and PyPI
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ github.event.inputs.tag }}
+          CHANNEL: ${{ inputs.channel }}
+          COMMIT: ${{ inputs.commit }}
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            TAG="$INPUT_TAG"
-          else
-            TAG="${GITHUB_REF#refs/tags/}"
-          fi
-          VERSION="${TAG#screamingface-v}"
-          MANIFEST=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' packages/screamingface/pyproject.toml)
-          if [ "$MANIFEST" != "$VERSION" ]; then
-            echo "::error::tag $TAG implies version $VERSION but packages/screamingface/pyproject.toml reports $MANIFEST"
+          set -euo pipefail
+          if [[ ! "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit must be a full 40-character lowercase SHA"
             exit 1
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # WHY canonical only (no leading zeros, no separators): uv normalizes what it stamps,
+          # and the tag name must equal the version PyPI shows.
+          case "$CHANNEL" in
+            staging) PATTERN='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)rc(0|[1-9][0-9]*)$' ;;
+            production) PATTERN='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' ;;
+            *) echo "::error::channel must be staging or production"; exit 1 ;;
+          esac
+          if [[ ! "$VERSION" =~ $PATTERN ]]; then
+            echo "::error::version $VERSION is not a canonical $CHANNEL version (staging X.Y.ZrcN, production X.Y.Z)"
+            exit 1
+          fi
+          # `ahead` means main contains the commit; `identical` means the commit is main's head.
+          STATUS=$(gh api "repos/$GITHUB_REPOSITORY/compare/$COMMIT...main" --jq .status) || {
+            echo "::error::cannot compare commit $COMMIT with main (unknown commit or API error)"
+            exit 1
+          }
+          case "$STATUS" in
+            ahead | identical) ;;
+            *) echo "::error::commit $COMMIT is not on main (compare status: $STATUS)"; exit 1 ;;
+          esac
+          TAG="screamingface-v$VERSION"
+          REFS=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" --jq '.[].ref')
+          if grep -qxF "refs/tags/$TAG" <<< "$REFS"; then
+            echo "::error::tag $TAG already exists"
+            exit 1
+          fi
+          # PyPI refuses a duplicate upload anyway; this check stops the run before the build.
+          CODE=$(curl -sS --retry 3 -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/screamingface/$VERSION/json")
+          if [ "$CODE" != "404" ]; then
+            echo "::error::PyPI answered $CODE for screamingface $VERSION; expected 404 (not published)"
+            exit 1
+          fi
+          echo "Release screamingface $VERSION ($CHANNEL) from $COMMIT as $TAG"
 
   build:
     needs: verify
@@ -66,9 +117,30 @@ jobs:
     defaults:
       run:
         working-directory: packages/screamingface
+    env:
+      # WHY: uv.lock records the committed version. After the stamp the lock no longer matches
+      # pyproject.toml, so every uv command uses the lock as it is and never re-locks.
+      UV_FROZEN: "1"
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v7
+        with:
+          # WHY: a release build restores no shared cache, so no other run can feed it.
+          enable-cache: false
+      - name: Stamp the release version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          uv version --frozen "$VERSION"
+          STAMPED=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' pyproject.toml)
+          if [ "$STAMPED" != "$VERSION" ]; then
+            echo "::error::pyproject.toml reports $STAMPED after the stamp, not $VERSION"
+            exit 1
+          fi
       - name: Build sdist + wheel
         run: uv build --out-dir dist
       - name: Verify distribution contents
@@ -101,3 +173,36 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+
+  release:
+    # WHY after the upload: a failed upload leaves no tag. If only this job fails, use
+    # "Re-run failed jobs"; the version on PyPI is already final.
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # creates the tag and the GitHub release
+    steps:
+      - name: Tag the commit and create the GitHub release
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          COMMIT: ${{ inputs.commit }}
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="screamingface-v$VERSION"
+          KIND=()
+          if [ "$CHANNEL" = "staging" ]; then KIND=(--prerelease); fi
+          NOTES=$(printf 'PyPI: %s\nCommit: %s\nChannel: %s\nRun: %s\n' \
+            "https://pypi.org/project/screamingface/$VERSION/" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$COMMIT" \
+            "$CHANNEL" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          # WHY --latest=false: this monorepo shares one "Latest" badge across components.
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$COMMIT" \
+            --title "screamingface: v$VERSION" --notes "$NOTES" --latest=false "${KIND[@]}"
+          TAGGED=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)
+          if [ "$TAGGED" != "$COMMIT" ]; then
+            echo "::error::tag $TAG points at $TAGGED, not $COMMIT"
+            exit 1
+          fi
