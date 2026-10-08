@@ -183,30 +183,30 @@ _Avoid_: Leaderboard Score when referring specifically to the write request
 The ranked projection of a Leaderboard Score shown on a Leaderboard.
 _Avoid_: Score Submission
 
-**Cache Revision**:
-The short label (`cr-` and 12 hex digits) for the version of the AI gateway's cache-key rules that
-stored a response. The gateway keeps every earlier revision readable, so a Leaderboard Score stored
-under an older revision still has its cache. A Leaderboard Score stores only its Cache Revision,
-never a key list: its Candidate URL4, Benchmark Revision, answer seed, and Cache Revision together
-name its cache version.
-_Avoid_: Cache key, cache version when naming only the label
+**Frozen Copy**:
+A permanent record of every model answer and every web-tool result of one run, made when the run
+asks to capture. The AI gateway stores each chat answer, whether it came from the cache or from a
+live call. The Engine stores each web-tool result that the model reads. The Engine seals the copy at
+the end of the run. A sealed copy does not change and is kept forever. It does not use the cache,
+its keys, or its rules. Anyone who holds the copy id and sends the exact request can read the stored
+answer.
+_Avoid_: Cache, snapshot, cache version, archive
 
-**Reproducible**:
-The status a Leaderboard Score stores for whether a Reproduction could answer every model call and
-web search of its run from the cache. **Complete**: each call was a cache hit or was stored by the
-run, all under one Cache Revision, and no call failed. **Partial (reproducibility)**: any call
-bypassed the cache, lost a write race, used a web tool the cache did not hold, failed, or carried
-another Cache Revision or none. A score with no status, no Cache Revision, or no Benchmark Revision
-is unknown. A run with no model call or web search reports no status, so it is unknown.
+**Capture Status**:
+The status a Leaderboard Score stores for whether its Frozen Copy holds the whole run. **Complete**:
+the copy opened and sealed, and every model call and web-tool result is stored. **Partial
+(capture)**: capture is best effort, so a run is partial when the copy did not open or seal, or when
+a call was not stored cleanly (failed, refused, missing, ended in error, or ambiguous). A score with
+no Capture Status, no Frozen Copy id, or no Benchmark Revision is unknown, not partial.
 _Avoid_: Replayable, verified (that is the separate `verified_by_screamingface` mark), Partial
 Report
 
 **Reproduction**:
-A cache replay of a Leaderboard Score from its Cache Revision, run with its Candidate URL4 and
-stored answer seed. The Engine must confirm the replay. A confirmed replay is served from the cache
-only (`only-if-cached`), so it pays no provider. A Reproduction is exact when the replay gives the
-stored score and case count on the same Benchmark Revision. Otherwise it is failed, or not
-reproducible when no run started.
+A replay of a Leaderboard Score against its Frozen Copy, run with its Candidate URL4 and stored
+answer seed. The Engine must confirm the replay. A confirmed replay answers every model call and
+web-tool result from the copy, so it pays no provider and no web-search service. A Reproduction is
+exact when the replay gives the stored score and case count on the same Benchmark Revision.
+Otherwise it is failed, or not reproducible when no run started.
 _Avoid_: Re-run, fresh run, verification, replay alone
 
 **Aggregation**:
