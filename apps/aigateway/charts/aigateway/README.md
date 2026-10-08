@@ -83,7 +83,9 @@ Three more things to know before enabling it anywhere else:
 - **Rows never expire.** There is no TTL and no eviction, so `request_cache_entries` grows with the
   number of distinct requests ever answered. Monitor it and prune deliberately.
 
-Callers opt a single request out with `{"cache": {"use-cache": false}}`. Full runbook — including
+Callers opt a single request out with `{"cache": {"use-cache": false}}`, and mark Attempt 2 and
+later of a repeated question with `{"cache": {"attempt": 2}}` so each Attempt keeps its own entry.
+Full runbook — including
 destructive rollback and pruning queries:
 `apps/aigateway/DEPLOYMENT.md`.
 

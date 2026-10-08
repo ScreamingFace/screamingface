@@ -42,7 +42,7 @@ here so existing importers are unaffected.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Final
 
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass, GlobalCacheProjection
@@ -94,6 +94,7 @@ __all__ = [
     "GlobalCacheKeyResult",
     "GlobalCacheProjection",
     "GlobalChatCacheKey",
+    "build_attempt_cache_key",
     "build_global_cache_key",
     "build_global_cache_key_dto",
     "canonical_key_material",
@@ -150,6 +151,10 @@ class GlobalChatCacheKey:
     prepared_request: Mapping[str, Any]
     parameter_contract_revision: str
     provider_adapter_revision: str
+    # FEATURE (OME-1458): the caller's Attempt number, 2 or more, so Attempt 2 of a Case is
+    # its own entry and never Attempt 1's reply. Not a sampling lane: the number is declared
+    # by the caller, and None — every ordinary request — renders no member at all.
+    attempt: int | None = None
 
 
 @dataclass(frozen=True)
@@ -192,6 +197,9 @@ def _canonical_mapping(dto: GlobalChatCacheKey) -> dict[str, Any]:
         "prepared_request": dto.prepared_request,
         "parameter_contract_revision": dto.parameter_contract_revision,
         "provider_adapter_revision": dto.provider_adapter_revision,
+        # INVARIANT (OME-1458): the member exists only when an Attempt number was sent, so
+        # every request without one hashes byte-identically to before and keeps its entry.
+        **({} if dto.attempt is None else {"attempt": dto.attempt}),
     }
 
 
@@ -280,6 +288,45 @@ def build_global_cache_key(
     )
     if isinstance(dto, CacheBypass):
         return dto
+    return _key_result(dto)
+
+
+def build_attempt_cache_key(
+    *,
+    attempt: int,
+    provider: str,
+    body: Mapping[str, Any],
+    rules: Iterable[ParameterProjectionRule],
+    projection: GlobalCacheProjection,
+    provider_auth_modes: Iterable[str],
+) -> GlobalCacheKeyResult | CacheBypass:
+    """The global key for Attempt ``attempt`` (2 or more) of an explicit model call.
+
+    FEATURE (OME-1458): a Benchmark that asks each Case several times sends Attempt 2..N with
+    its number. The key is the ordinary key's closed member set plus ``attempt``, so
+    Attempt 2 is never served Attempt 1's reply and a rerun of Attempt 2 is served its own.
+
+    WHY a second builder instead of an ``attempt`` argument on ``build_global_cache_key``:
+    an ordinary request keeps going through the builder whose parameter set is pinned to
+    carry no caller identity, unchanged. The Attempt number is not identity either; every
+    caller sending Attempt 2 of the same request reaches the same entry.
+    """
+
+    dto = build_global_cache_key_dto(
+        provider=provider,
+        body=body,
+        rules=rules,
+        projection=projection,
+        provider_auth_modes=provider_auth_modes,
+    )
+    if isinstance(dto, CacheBypass):
+        return dto
+    return _key_result(replace(dto, attempt=attempt))
+
+
+def _key_result(dto: GlobalChatCacheKey) -> GlobalCacheKeyResult | CacheBypass:
+    """Hash one closed key DTO into what the route may hold, or bypass if it cannot."""
+
     try:
         key_hash = canonical_digest(_canonical_mapping(dto))
     except (CanonicalizationError, TypeError, ValueError):

@@ -241,6 +241,11 @@ discover. Set `config.requestCache.enabled=false` to opt out.
 - **Default-on per request, opt-out per request.** With the operator flag on, an eligible request
   participates in the cache by default. A caller who must not be served a stored answer sends
   `{"cache": {"use-cache": false}}` in the request body and gets a normal dispatch.
+- **One deliberate repeat: the Attempt number.** A Benchmark that asks each Case several times
+  (OME-1458) sends Attempt 2 and later with `{"cache": {"attempt": 2}}` (an integer of at least 2;
+  Attempt 1 sends nothing). The reply is stored under the request plus that number, so Attempt 2
+  is never served Attempt 1's answer and a rerun of Attempt 2 is served its own. A request without
+  the number keys exactly as before. Any other control field still bypasses the cache.
 - **First successful fill wins, permanently.** Rows are created, never overwritten. Whatever the
   first caller's request produced is what everyone receives from then on. A concurrent second fill
   is discarded, not merged.
