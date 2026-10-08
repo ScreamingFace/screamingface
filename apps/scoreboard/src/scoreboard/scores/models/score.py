@@ -57,18 +57,18 @@ class BaseScore(BaseScoreboardModel):
     # same-owner resubmit). NULL means "never edited". Only a change sets it; a request that
     # changes nothing leaves it alone.
     metadata_updated_at = fields.DatetimeField(null=True)
-    # FEATURE: OME-1307 — which cache version produced this run, and whether a replay can answer
-    # every call of it. The gateway label (`cr-<12 hex>`) plus url4, benchmark revision and answer
-    # seed name the cache version; no key list or digest is stored.
+    # FEATURE: OME-1307 — which frozen copy holds this run, and whether it holds every call of it.
+    # The copy id (a UUID string, lower-case canonical form) names the AI Gateway frozen copy the
+    # run was captured into; no request or response is stored here.
     #
-    # INVARIANT: `cache_revision` is set only when `reproducible` is set (the request validator),
+    # INVARIANT: `frozen_copy_id` is set only when `capture_status` is set (the request validator),
     # and the two are FILL-ONLY and move TOGETHER on a same-owner resubmit: they describe ONE
     # execution.
-    # NULL `reproducible` means "unknown" (a row that predates the field), never "partial". A
-    # `complete` or `partial` row may have no label (a run with no cacheable call, or two labels).
+    # NULL `capture_status` means "unknown" (a row that predates the field), never "partial". A
+    # row may hold a status and no copy id (a run that failed to open its copy).
     # None of the three is in `_content_hash` or `_ENRICHING_FIELDS`.
-    cache_revision = fields.CharField(max_length=32, null=True)
-    reproducible = fields.CharField(max_length=16, null=True)
+    frozen_copy_id = fields.CharField(max_length=36, null=True)
+    capture_status = fields.CharField(max_length=16, null=True)
     # INVARIANT: a replay must send the same seed or its requests differ. `0` is a real seed, so
     # "unfilled" is NULL, never falsy.
     answer_seed = fields.IntField(null=True)

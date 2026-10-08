@@ -34,8 +34,8 @@ from scoreboard.scores.store import (
 ALICE = "alice@example.test"
 BOB = "bob@example.test"
 CAROL = "carol@example.test"
-LABEL = "cr-0123456789ab"
-OTHER_LABEL = "cr-ba9876543210"
+COPY_ID = "0192a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5b"
+OTHER_COPY_ID = "ffeeddcc-bbaa-4998-8776-655443322110"
 
 
 def _payload(**overrides: Any) -> dict[str, Any]:
@@ -50,8 +50,8 @@ def _payload(**overrides: Any) -> dict[str, Any]:
         "ran_with_providers": ["openai"],
         "run_cost_usd": "1.250000",
         "run_cost_status": "complete",
-        "reproducible": "complete",
-        "cache_revision": LABEL,
+        "capture_status": "complete",
+        "frozen_copy_id": COPY_ID,
         "answer_seed": 42,
     }
     payload.update(overrides)
@@ -64,7 +64,7 @@ def _record(**overrides: Any) -> dict[str, Any]:
         "run_id": f"run-{uuid4()}",
         "score": 0.75,
         "total_questions": 4,
-        "cache_revision": LABEL,
+        "frozen_copy_id": COPY_ID,
         "client": {"name": "screamingface", "version": "0.2.0", "platform": "darwin"},
     }
     body.update(overrides)
@@ -176,8 +176,8 @@ async def test_record_from_an_untrusted_peer_is_403(cloudflare_app: FastAPI) -> 
 @pytest.mark.parametrize(
     "overrides",
     [
-        pytest.param({"reproducible": "partial"}, id="partial"),
-        pytest.param({"reproducible": None, "cache_revision": None}, id="null-legacy"),
+        pytest.param({"capture_status": "partial"}, id="partial"),
+        pytest.param({"capture_status": None, "frozen_copy_id": None}, id="null-legacy"),
     ],
 )
 async def test_record_on_a_partial_or_null_score_is_409(
@@ -208,11 +208,11 @@ async def test_record_on_a_partial_or_null_score_is_409(
         pytest.param({"score": 0.7}, id="score"),
         pytest.param({"score": 0.7500000000000001}, id="score-one-ulp-off"),
         pytest.param({"total_questions": 5}, id="total-questions"),
-        pytest.param({"cache_revision": OTHER_LABEL}, id="other-label"),
-        pytest.param({"cache_revision": None}, id="no-label-for-a-labelled-score"),
+        pytest.param({"frozen_copy_id": OTHER_COPY_ID}, id="other-frozen-copy"),
+        pytest.param({"frozen_copy_id": None}, id="no-frozen-copy-for-a-captured-score"),
     ],
 )
-async def test_record_with_mismatched_numbers_or_revision_is_422_not_exact(
+async def test_record_with_mismatched_numbers_or_frozen_copy_is_422_not_exact(
     client: AsyncClient, overrides: dict[str, Any]
 ) -> None:
     score_id = await _submit(client)
@@ -229,30 +229,45 @@ async def test_record_with_mismatched_numbers_or_revision_is_422_not_exact(
 
 
 @pytest.mark.asyncio
-async def test_a_label_for_a_score_stored_without_one_is_not_exact(client: AsyncClient) -> None:
-    # A `complete` run with no cacheable call has no label (R23); a record that names one differs.
-    score_id = await _submit(client, cache_revision=None)
+async def test_a_copy_id_in_upper_case_is_the_same_copy(client: AsyncClient) -> None:
+    # The body is normalised to the lower-case canonical form before it is compared.
+    score_id = await _submit(client)
+
+    response = await client.post(
+        f"/v1/scores/{score_id}/reproductions",
+        json=_record(frozen_copy_id=COPY_ID.upper()),
+        headers=_as(BOB),
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["frozen_copy_id"] == COPY_ID
+
+
+@pytest.mark.asyncio
+async def test_a_copy_id_for_a_score_stored_without_one_is_not_exact(client: AsyncClient) -> None:
+    # A score stored with a status and no copy id has none to match; a record naming one differs.
+    score_id = await _submit(client, frozen_copy_id=None)
 
     without = await client.post(
-        f"/v1/scores/{score_id}/reproductions", json=_record(cache_revision=None), headers=_as(BOB)
+        f"/v1/scores/{score_id}/reproductions", json=_record(frozen_copy_id=None), headers=_as(BOB)
     )
-    with_label = await client.post(
+    with_copy_id = await client.post(
         f"/v1/scores/{score_id}/reproductions", json=_record(), headers=_as(BOB)
     )
 
     assert without.status_code == 201, without.text
-    assert without.json()["cache_revision"] is None
-    assert with_label.status_code == 422
-    assert with_label.json()["detail"]["code"] == "not_exact"
+    assert without.json()["frozen_copy_id"] is None
+    assert with_copy_id.status_code == 422
+    assert with_copy_id.json()["detail"]["code"] == "not_exact"
 
 
 @pytest.mark.asyncio
 async def test_the_refusals_are_checked_in_the_documented_order(client: AsyncClient) -> None:
     # 404 (private, not yours) before 409 (not complete) before 422 (not exact).
     await Benchmark.create(id="private-x", display_name="Private", visibility="private")
-    partial = await _submit(client, reproducible="partial", cache_revision=None)
+    partial = await _submit(client, capture_status="partial", frozen_copy_id=None)
     private = await _submit(
-        client, benchmark_id="private-x", reproducible="partial", cache_revision=None
+        client, benchmark_id="private-x", capture_status="partial", frozen_copy_id=None
     )
 
     not_complete_and_not_exact = await client.post(
@@ -272,7 +287,7 @@ async def test_the_refusals_are_checked_in_the_documented_order(client: AsyncCli
     [
         pytest.param({"run_id": ""}, id="empty-run-id"),
         pytest.param({"run_id": "r" * 129}, id="long-run-id"),
-        pytest.param({"cache_revision": "cr-XYZ"}, id="bad-label"),
+        pytest.param({"frozen_copy_id": "cr-0123456789ab"}, id="not-a-uuid"),
         pytest.param({"extra": 1}, id="unknown-field"),
     ],
 )
@@ -324,13 +339,13 @@ async def test_an_exact_record_stores_one_row_and_answers_201(client: AsyncClien
         "reproduced_by",
         "reproduced_at",
         "run_id",
-        "cache_revision",
+        "frozen_copy_id",
         "client_version",
     }
     assert shown["score_id"] == score_id
     assert shown["reproduced_by"] == BOB
     assert shown["run_id"] == "run-1"
-    assert shown["cache_revision"] == LABEL
+    assert shown["frozen_copy_id"] == COPY_ID
     assert shown["client_version"] == "0.2.0"
     (row,) = await _rows(score_id)
     assert str(row.id) == shown["id"]
@@ -413,8 +428,8 @@ async def test_an_unverified_claim_never_reaches_a_private_score(
         score=0.75,
         total_questions=4,
         ran_with_providers=["openai"],
-        reproducible="complete",
-        cache_revision=LABEL,
+        capture_status="complete",
+        frozen_copy_id=COPY_ID,
     )
 
     response = await disabled_client.post(
@@ -848,7 +863,7 @@ async def test_every_answer_of_the_record_route_carries_the_private_cache_policy
 ) -> None:
     # The 201/200 body carries the caller's email, and the refusals are identity-dependent too.
     score_id = await _submit(client)
-    partial = await _submit(client, spec_id="spec-2", reproducible="partial", cache_revision=None)
+    partial = await _submit(client, spec_id="spec-2", capture_status="partial", frozen_copy_id=None)
     url = f"/v1/scores/{score_id}/reproductions"
     body = _record(run_id="run-1")
 

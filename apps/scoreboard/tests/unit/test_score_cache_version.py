@@ -1,8 +1,8 @@
-"""The cache version of a run on a score (E14 B4, PRD `cache-version-capture` C4, C10, C12; TDD
-#16-#18).
+"""The frozen copy of a run on a score (E14 B4, PRD `cache-version-capture` C4, C10, C12; TDD
+#16-#18, reworked for the frozen-copy design, spec 02 section 6).
 
-FEATURE: OME-1307 — `cache_revision`, `reproducible` and `answer_seed` say which cache version
-produced a submission and whether a replay can answer every call of it. They are stored as sent,
+FEATURE: OME-1307 — `frozen_copy_id`, `capture_status` and `answer_seed` say which frozen copy
+holds a submission's run and whether it holds every call of it. They are stored as sent,
 read back, never part of the recipe hash, and FILL-ONLY on a same-owner resubmit.
 """
 
@@ -30,8 +30,8 @@ from scoreboard.scores.store import ScoreStore, _content_hash
 
 REPO_APP = Path(__file__).resolve().parents[2]
 ALICE = "alice@example.test"
-LABEL = "cr-0123456789ab"
-OTHER_LABEL = "cr-ba9876543210"
+COPY_ID = "0192a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5b"
+OTHER_COPY_ID = "ffeeddcc-bbaa-4998-8776-655443322110"
 
 
 def _payload(**overrides: Any) -> dict[str, Any]:
@@ -52,7 +52,7 @@ def _payload(**overrides: Any) -> dict[str, Any]:
 
 
 def _submission(**extra: Any) -> ScoreSubmission:
-    # The cache-version fields are only passed when given, so a CHAR-style call runs on any schema.
+    # The frozen-copy fields are only passed when given, so a CHAR-style call runs on any schema.
     return ScoreSubmission(
         benchmark_id="hle",
         spec_id="spec-1",
@@ -82,12 +82,12 @@ async def disabled_client(tortoise_db: None) -> AsyncGenerator[AsyncClient, None
 
 
 @pytest.mark.asyncio
-async def test_post_stores_and_get_returns_cache_version_fields(
+async def test_post_stores_and_get_returns_frozen_copy_fields(
     disabled_client: AsyncClient,
 ) -> None:
     created = await disabled_client.post(
         "/v1/scores",
-        json=_payload(reproducible="complete", cache_revision=LABEL, answer_seed=42),
+        json=_payload(capture_status="complete", frozen_copy_id=COPY_ID, answer_seed=42),
     )
 
     assert created.status_code == 201, created.text
@@ -95,83 +95,98 @@ async def test_post_stores_and_get_returns_cache_version_fields(
         created.json(),
         (await disabled_client.get(f"/v1/scores/{created.json()['id']}")).json(),
     ):
-        assert body["reproducible"] == "complete"
-        assert body["cache_revision"] == LABEL
+        assert body["capture_status"] == "complete"
+        assert body["frozen_copy_id"] == COPY_ID
         assert body["answer_seed"] == 42
     stored = await Score.get(id=created.json()["id"])
-    assert (stored.reproducible, stored.cache_revision, stored.answer_seed) == (
+    assert (stored.capture_status, stored.frozen_copy_id, stored.answer_seed) == (
         "complete",
-        LABEL,
+        COPY_ID,
         42,
     )
 
 
 @pytest.mark.asyncio
-async def test_a_score_without_cache_version_omits_the_keys(disabled_client: AsyncClient) -> None:
-    # INVARIANT: excluded when absent, so no legacy row gains `"reproducible": null` in the private
-    # JSONL export whose bytes authorise a purge (the same reason `paper_url` is excluded).
+async def test_a_score_without_a_frozen_copy_omits_the_keys(disabled_client: AsyncClient) -> None:
+    # INVARIANT: excluded when absent, so no legacy row gains `"capture_status": null` in the
+    # private JSONL export whose bytes authorise a purge (the same reason `paper_url` is excluded).
     created = await disabled_client.post("/v1/scores", json=_payload())
 
     assert created.status_code == 201, created.text
-    for key in ("cache_revision", "reproducible", "answer_seed"):
+    for key in ("frozen_copy_id", "capture_status", "answer_seed"):
         assert key not in created.json()
         assert key not in (await disabled_client.get(f"/v1/scores/{created.json()['id']}")).json()
 
 
 @pytest.mark.asyncio
-async def test_a_zero_answer_seed_and_a_partial_run_without_a_label_are_stored(
+async def test_a_zero_answer_seed_and_a_partial_run_without_a_copy_id_are_stored(
     disabled_client: AsyncClient,
 ) -> None:
-    # `0` is a real seed (not "absent"), and a partial or empty run legitimately has no label.
+    # `0` is a real seed (not "absent"), and a partial run that failed to open its copy has no id.
     created = await disabled_client.post(
-        "/v1/scores", json=_payload(reproducible="partial", answer_seed=0)
+        "/v1/scores", json=_payload(capture_status="partial", answer_seed=0)
     )
 
     assert created.status_code == 201, created.text
     assert created.json()["answer_seed"] == 0
-    assert created.json()["reproducible"] == "partial"
-    assert "cache_revision" not in created.json()
+    assert created.json()["capture_status"] == "partial"
+    assert "frozen_copy_id" not in created.json()
 
 
 @pytest.mark.asyncio
-async def test_the_cache_version_never_enters_the_recipe_hash() -> None:
+async def test_a_copy_id_is_stored_in_lower_case_canonical_form(
+    disabled_client: AsyncClient,
+) -> None:
+    # `UUID(...)` is the check and `str(...)` the stored form: the same copy in upper case is the
+    # same value, so the reproduction route can compare ids as plain strings.
+    created = await disabled_client.post(
+        "/v1/scores", json=_payload(capture_status="complete", frozen_copy_id=COPY_ID.upper())
+    )
+
+    assert created.status_code == 201, created.text
+    assert created.json()["frozen_copy_id"] == COPY_ID
+    assert (await Score.get(id=created.json()["id"])).frozen_copy_id == COPY_ID
+
+
+@pytest.mark.asyncio
+async def test_the_frozen_copy_never_enters_the_recipe_hash() -> None:
     # I3: dedup does not change.
     bare = _content_hash(_submission())
-    full = _content_hash(_submission(reproducible="complete", cache_revision=LABEL, answer_seed=1))
+    full = _content_hash(
+        _submission(capture_status="complete", frozen_copy_id=COPY_ID, answer_seed=1)
+    )
 
     assert bare == full
 
 
-# --- #17 C10: a bad label or status pairing is a 422 -------------------------------------------
+# --- #17 C10: a bad copy id or status pairing is a 422 -------------------------------------------
 
 BAD_FIELDS = [
-    pytest.param({"cache_revision": LABEL}, "cache_revision", id="label-without-status"),
-    pytest.param({"reproducible": "yes"}, "reproducible", id="unknown-status"),
-    pytest.param({"reproducible": "Complete"}, "reproducible", id="status-case"),
-    pytest.param({"reproducible": ""}, "reproducible", id="empty-status"),
+    pytest.param({"frozen_copy_id": COPY_ID}, "frozen_copy_id", id="copy-id-without-status"),
+    pytest.param({"capture_status": "yes"}, "capture_status", id="unknown-status"),
+    pytest.param({"capture_status": "Complete"}, "capture_status", id="status-case"),
+    pytest.param({"capture_status": ""}, "capture_status", id="empty-status"),
     *[
         pytest.param(
-            {"reproducible": "complete", "cache_revision": label},
-            "cache_revision",
-            id=f"label-{label!r}",
+            {"capture_status": "complete", "frozen_copy_id": copy_id},
+            "frozen_copy_id",
+            id=f"copy-id-{copy_id!r}",
         )
-        for label in (
-            "cr-0123456789a",  # 11 hex
-            "cr-0123456789abc",  # 13 hex
-            "cr-0123456789AB",  # upper-case hex
-            "cr-0123456789ag",  # not hex
-            "CR-0123456789ab",
-            "0123456789ab",
-            "cr-0123456789ab\n",
-            " cr-0123456789ab",
+        for copy_id in (
+            "cr-0123456789ab",  # the cache-revision label this field replaced
+            "0192a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5",  # one hex digit short
+            "0192a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5b0",  # one hex digit long
+            "0192a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5g",  # not hex
+            COPY_ID + "\n",
+            " " + COPY_ID,
             "",
         )
     ],
     pytest.param(
-        {"reproducible": "complete", "answer_seed": 2**31}, "answer_seed", id="seed-too-big"
+        {"capture_status": "complete", "answer_seed": 2**31}, "answer_seed", id="seed-too-big"
     ),
     pytest.param(
-        {"reproducible": "complete", "answer_seed": -(2**31) - 1},
+        {"capture_status": "complete", "answer_seed": -(2**31) - 1},
         "answer_seed",
         id="seed-too-small",
     ),
@@ -181,7 +196,7 @@ BAD_FIELDS = [
 
 @pytest.mark.parametrize(("fields", "field"), BAD_FIELDS)
 @pytest.mark.asyncio
-async def test_post_rejects_a_bad_label_or_status_pairing(
+async def test_post_rejects_a_bad_copy_id_or_status_pairing(
     disabled_client: AsyncClient, fields: dict[str, Any], field: str
 ) -> None:
     response = await disabled_client.post("/v1/scores", json=_payload(**fields))
@@ -196,27 +211,29 @@ async def test_post_rejects_a_bad_label_or_status_pairing(
 @pytest.mark.parametrize(
     "fields",
     [
-        pytest.param({"reproducible": "complete"}, id="complete-no-label"),
-        pytest.param({"reproducible": "partial"}, id="partial-no-label"),
-        pytest.param({"reproducible": "partial", "cache_revision": LABEL}, id="partial-with-label"),
+        pytest.param({"capture_status": "complete"}, id="complete-no-copy-id"),
+        pytest.param({"capture_status": "partial"}, id="partial-no-copy-id"),
+        pytest.param(
+            {"capture_status": "partial", "frozen_copy_id": COPY_ID}, id="partial-with-copy-id"
+        ),
         pytest.param({"answer_seed": -(2**31)}, id="min-seed-alone"),
         pytest.param({"answer_seed": 2**31 - 1}, id="max-seed-alone"),
         pytest.param({}, id="nothing"),
     ],
 )
-def test_submission_accepts_a_coherent_cache_version(fields: dict[str, Any]) -> None:
+def test_submission_accepts_a_coherent_frozen_copy(fields: dict[str, Any]) -> None:
     submission = _submission(**fields)
 
     for name, value in fields.items():
         assert getattr(submission, name) == value
 
 
-def test_a_label_without_a_status_is_refused_by_the_model() -> None:
-    with pytest.raises(ValidationError, match="reproducible"):
-        _submission(cache_revision=LABEL)
+def test_a_copy_id_without_a_status_is_refused_by_the_model() -> None:
+    with pytest.raises(ValidationError, match="capture_status"):
+        _submission(frozen_copy_id=COPY_ID)
 
 
-# --- #18 C12: a resubmit fills NULL cache-version fields and never replaces a set one ----------
+# --- #18 C12: a resubmit fills NULL frozen-copy fields and never replaces a set one ------------
 
 
 async def _store_then_resubmit(first: dict[str, Any], again: dict[str, Any]) -> Score:
@@ -231,51 +248,51 @@ async def _store_then_resubmit(first: dict[str, Any], again: dict[str, Any]) -> 
 
 
 def _held(row: Score) -> tuple[str | None, str | None, int | None]:
-    return (row.reproducible, row.cache_revision, row.answer_seed)
+    return (row.capture_status, row.frozen_copy_id, row.answer_seed)
 
 
 @pytest.mark.asyncio
-async def test_resubmit_fills_a_null_cache_version(tortoise_db: None) -> None:
+async def test_resubmit_fills_a_null_frozen_copy(tortoise_db: None) -> None:
     row = await _store_then_resubmit(
-        {}, {"reproducible": "complete", "cache_revision": LABEL, "answer_seed": 7}
+        {}, {"capture_status": "complete", "frozen_copy_id": COPY_ID, "answer_seed": 7}
     )
 
-    assert _held(row) == ("complete", LABEL, 7)
+    assert _held(row) == ("complete", COPY_ID, 7)
     # Not an enriching field: the frontier reads none of them, so the row is not re-dated, and a
-    # cache-version fill is not a metadata edit either.
+    # frozen-copy fill is not a metadata edit either.
     assert row.enriched_at is None
     assert row.metadata_updated_at is None
     assert await ScoreMetadataEvent.filter(score_id=row.id).count() == 0
 
 
 @pytest.mark.asyncio
-async def test_resubmit_never_replaces_a_set_cache_version(tortoise_db: None) -> None:
+async def test_resubmit_never_replaces_a_set_frozen_copy(tortoise_db: None) -> None:
     row = await _store_then_resubmit(
-        {"reproducible": "complete", "cache_revision": LABEL, "answer_seed": 7},
-        {"reproducible": "partial", "cache_revision": OTHER_LABEL, "answer_seed": 9},
+        {"capture_status": "complete", "frozen_copy_id": COPY_ID, "answer_seed": 7},
+        {"capture_status": "partial", "frozen_copy_id": OTHER_COPY_ID, "answer_seed": 9},
     )
 
-    assert _held(row) == ("complete", LABEL, 7)
+    assert _held(row) == ("complete", COPY_ID, 7)
 
 
 @pytest.mark.asyncio
 async def test_resubmit_without_the_fields_cannot_erase_them(tortoise_db: None) -> None:
     row = await _store_then_resubmit(
-        {"reproducible": "complete", "cache_revision": LABEL, "answer_seed": 7}, {}
+        {"capture_status": "complete", "frozen_copy_id": COPY_ID, "answer_seed": 7}, {}
     )
 
-    assert _held(row) == ("complete", LABEL, 7)
+    assert _held(row) == ("complete", COPY_ID, 7)
 
 
 @pytest.mark.asyncio
-async def test_the_label_and_the_status_are_filled_together_or_not_at_all(
+async def test_the_copy_id_and_the_status_are_filled_together_or_not_at_all(
     tortoise_db: None,
 ) -> None:
-    # A row that already holds a status (even `partial`, with no label) is NOT given a label by a
-    # replay: the pair describes ONE execution. Filling the label alone would pair run A's status
-    # with run B's cache version.
+    # A row that already holds a status (even `partial`, with no copy id) is NOT given a copy id by
+    # a replay: the pair describes ONE execution. Filling the copy id alone would pair run A's
+    # status with run B's frozen copy.
     row = await _store_then_resubmit(
-        {"reproducible": "partial"}, {"reproducible": "complete", "cache_revision": LABEL}
+        {"capture_status": "partial"}, {"capture_status": "complete", "frozen_copy_id": COPY_ID}
     )
 
     assert _held(row) == ("partial", None, None)
@@ -286,11 +303,11 @@ async def test_resubmit_fills_the_seed_alone_when_the_pair_is_already_set(
     tortoise_db: None,
 ) -> None:
     row = await _store_then_resubmit(
-        {"reproducible": "complete", "cache_revision": LABEL},
-        {"reproducible": "partial", "cache_revision": OTHER_LABEL, "answer_seed": 5},
+        {"capture_status": "complete", "frozen_copy_id": COPY_ID},
+        {"capture_status": "partial", "frozen_copy_id": OTHER_COPY_ID, "answer_seed": 5},
     )
 
-    assert _held(row) == ("complete", LABEL, 5)
+    assert _held(row) == ("complete", COPY_ID, 5)
 
 
 @pytest.mark.asyncio
@@ -299,10 +316,10 @@ async def test_resubmit_fills_the_pair_alone_when_the_seed_is_already_set(
 ) -> None:
     row = await _store_then_resubmit(
         {"answer_seed": 3},
-        {"reproducible": "complete", "cache_revision": LABEL, "answer_seed": 8},
+        {"capture_status": "complete", "frozen_copy_id": COPY_ID, "answer_seed": 8},
     )
 
-    assert _held(row) == ("complete", LABEL, 3)
+    assert _held(row) == ("complete", COPY_ID, 3)
 
 
 @pytest.mark.asyncio
@@ -317,15 +334,17 @@ async def test_a_zero_seed_is_a_set_value_that_a_resubmit_keeps(tortoise_db: Non
 async def test_the_resubmit_response_reports_what_the_row_holds(tortoise_db: None) -> None:
     await Benchmark.create(id="hle", display_name="Humanity's Last Exam")
     store = ScoreStore()
-    await store.submit(_submission(reproducible="complete", cache_revision=LABEL, answer_seed=7))
-
-    replayed, _ = await store.submit(
-        _submission(reproducible="partial", cache_revision=OTHER_LABEL, answer_seed=9)
+    await store.submit(
+        _submission(capture_status="complete", frozen_copy_id=COPY_ID, answer_seed=7)
     )
 
-    assert (replayed.reproducible, replayed.cache_revision, replayed.answer_seed) == (
+    replayed, _ = await store.submit(
+        _submission(capture_status="partial", frozen_copy_id=OTHER_COPY_ID, answer_seed=9)
+    )
+
+    assert (replayed.capture_status, replayed.frozen_copy_id, replayed.answer_seed) == (
         "complete",
-        LABEL,
+        COPY_ID,
         7,
     )
 
@@ -357,7 +376,7 @@ def _columns(connection: sqlite3.Connection, table: str) -> dict[str, tuple[obje
     return {row[1]: row for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
-def test_cache_version_migration_applies_to_a_populated_database(tmp_path: Path) -> None:
+def test_frozen_copy_migration_applies_to_a_populated_database(tmp_path: Path) -> None:
     database = tmp_path / "scoreboard.sqlite3"
     url = f"sqlite://{database}"
 
@@ -388,10 +407,11 @@ def test_cache_version_migration_applies_to_a_populated_database(tmp_path: Path)
     connection = sqlite3.connect(database)
     connection.execute("PRAGMA foreign_keys = ON")
     scores = _columns(connection, "scores")
-    for name in ("cache_revision", "reproducible", "answer_seed"):
+    for name in ("frozen_copy_id", "capture_status", "answer_seed"):
         assert scores[name][3] == 0, name
+    assert scores["frozen_copy_id"][2] == "VARCHAR(36)"
     assert connection.execute(
-        "SELECT cache_revision, reproducible, answer_seed FROM scores"
+        "SELECT frozen_copy_id, capture_status, answer_seed FROM scores"
     ).fetchone() == (None, None, None)
     reproductions = _columns(connection, "score_reproductions")
     assert set(reproductions) == {
@@ -400,7 +420,7 @@ def test_cache_version_migration_applies_to_a_populated_database(tmp_path: Path)
         "reproduced_by",
         "reproduced_at",
         "run_id",
-        "cache_revision",
+        "frozen_copy_id",
         "client_version",
     }
     insert = (

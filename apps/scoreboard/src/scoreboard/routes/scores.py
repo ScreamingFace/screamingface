@@ -198,17 +198,18 @@ RECORD_REPRODUCTION_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_409_CONFLICT: {
         "model": CodedErrorResponse | MessageErrorResponse,
         "description": (
-            "Two shapes. `{code: not_reproducible}`: the score is not `complete`, so there is "
-            "nothing to replay. `{code: run_id_conflict}`: another identity already recorded this "
-            "run_id for the score (nothing about that row is returned; use a new run_id). A string "
-            "`detail` (`MessageErrorResponse`): the board's visibility changed mid-request; retry."
+            "Two shapes. `{code: not_reproducible}`: the score's `capture_status` is not "
+            "`complete`, so there is nothing to replay. `{code: run_id_conflict}`: another "
+            "identity already recorded this run_id for the score (nothing about that row is "
+            "returned; use a new run_id). A string `detail` (`MessageErrorResponse`): the "
+            "board's visibility changed mid-request; retry."
         ),
     },
     422: {
         "model": CodedErrorResponse | ValidationErrorResponse,
         "description": (
             "Two shapes. `{code: not_exact}` (`CodedErrorResponse`): the score, total_questions or "
-            "cache_revision differs from the stored score. A list `detail` "
+            "frozen_copy_id differs from the stored score. A list `detail` "
             "(`ValidationErrorResponse`): the body failed validation."
         ),
     },
@@ -574,13 +575,13 @@ async def get_metadata_events(
 
 
 def _refuse_unless_exact(score: Score, body: ReproductionSubmission) -> None:
-    """409 when the score is not `complete`, then 422 when the body is not the stored result."""
-    if score.reproducible != "complete":
+    """409 when the score's `capture_status` is not `complete`, then 422 when the body differs."""
+    if score.capture_status != "complete":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "code": "not_reproducible",
-                "message": "only a score whose run is fully in the cache can be reproduced",
+                "message": "only a score whose run was fully captured can be reproduced",
             },
             headers=PRIVATE_CACHE_HEADERS,
         )
@@ -589,13 +590,13 @@ def _refuse_unless_exact(score: Score, body: ReproductionSubmission) -> None:
     if (
         body.score != score.score
         or body.total_questions != score.total_questions
-        or body.cache_revision != score.cache_revision
+        or body.frozen_copy_id != score.frozen_copy_id
     ):
         raise HTTPException(
             status_code=422,
             detail={
                 "code": "not_exact",
-                "message": "score, total_questions and cache_revision must equal the stored score",
+                "message": "score, total_questions and frozen_copy_id must equal the stored score",
             },
             headers=PRIVATE_CACHE_HEADERS,
         )
@@ -617,8 +618,8 @@ async def record_reproduction(
     """Record one exact replay of a `complete` score (E14 B4); any verified identity may.
 
     The checks run in a fixed order: identity (401/403), the score exists (404), a private board
-    that is not the caller's (the same 404), `reproducible` is not `complete` (409
-    `not_reproducible`), then the score, total_questions or cache_revision differ from the stored
+    that is not the caller's (the same 404), `capture_status` is not `complete` (409
+    `not_reproducible`), then the score, total_questions or frozen_copy_id differ from the stored
     row (422 `not_exact`). A run_id this identity already recorded answers 200 with that row; one
     another identity recorded answers 409 `run_id_conflict`.
     """
