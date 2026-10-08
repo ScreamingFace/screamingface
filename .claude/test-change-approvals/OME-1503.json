@@ -4,11 +4,11 @@
   "approver": "User in this chat",
   "date": "2026-10-06",
   "scope": "Public API snapshot records only the authorized sf.reports export and Client/AsyncClient save_results option. Every inherited Python test and assertion remains unchanged.",
-  "reason": "User authorized extracting and opening the next durable recovery slice from #1156, including its explicit recovery API and public opt-out. The snapshot is updated to pin that interface.",
+  "reason": "User authorized extracting and opening the next durable recovery slice from #1156, including its explicit recovery API and public opt-out. The snapshot is updated to pin that interface. User requested fixing the review issues and current-main snapshot conflict on 2026-10-08; the resolved snapshot preserves main production defaults and Named Scores while retaining only the already authorized recovery API additions.",
   "files": {
     "packages/screamingface/tests/public_surface_snapshot.json": {
-      "base_blob": "f4a68640c0685f94f627440a4467371f4243f905",
-      "approved_blob": "f0bcbd63d739054aa1bca28c42812ca2eae836aa"
+      "base_blob": "61abd6c50b2c27a3e04b1c87eab530c8f0be9248",
+      "approved_blob": "9ea986780c7cc8f42afd92c64003e0c3f985eb68"
     }
   }
 }

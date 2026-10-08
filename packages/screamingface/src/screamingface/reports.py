@@ -166,15 +166,18 @@ def delete(report_id: str, *, directory: str | Path | None = None) -> None:
     Existing Reports backed by these files will no longer be readable.
     """
     store = _store(directory)
-    selected = _selected(store, report_id)
+    identity, members = store.member_manifests(report_id)
+    if not members:
+        # WHY: preserve legacy run-ID lookup and its missing/ambiguous-key error.
+        selected = _selected(store, report_id)
+        identity, members = store.member_manifests(_report_id(selected))
     # INVARIANT: explicit deletion removes every locally known sibling by identity,
     # even when membership or the independent evaluation manifest is damaged.
-    related = [run for run in store.list() if _report_id(run) == _report_id(selected)]
-    for run in related:
-        shutil.rmtree(run.path.parent)
+    for manifest, _ in members:
+        shutil.rmtree(manifest.parent)
     # INVARIANT: saved metadata must not redirect deletion outside this manifest folder.
     manifests = store.directory / "evaluations"
-    manifest = manifests / f"{_report_id(selected)}.json"
+    manifest = manifests / f"{identity}.json"
     if manifest.parent == manifests:
         manifest.unlink(missing_ok=True)
 
@@ -232,15 +235,27 @@ async def _fetch_async(run: SavedRun) -> _RunOutcome:
         return await download_async(client._http, run, lambda: _mint_async(client._http))
 
 
-def _group(store: ResultStore, selected: SavedRun) -> builtins.list[SavedRun]:
+def _group(
+    store: ResultStore, selected: SavedRun
+) -> tuple[builtins.list[SavedRun], dict[str, ScreamingFaceError]]:
     if selected.evaluation is None:
-        return [selected]
-    related = {
-        run.candidate.name: run
-        for run in store.list()
-        if run.evaluation and run.evaluation["id"] == selected.evaluation["id"]
-    }
-    return [related[name] for name in selected.evaluation["candidates"] if name in related]
+        return [selected], {}
+    expected = selected.evaluation["candidates"]
+    related: dict[str, SavedRun] = {}
+    errors: dict[str, ScreamingFaceError] = {}
+    _, members = store.member_manifests(selected.evaluation["id"])
+    for path, name in members:
+        if name not in expected or name is None:
+            continue
+        try:
+            related[name] = store._load(path)
+        except (OSError, sqlite3.Error) as exc:
+            errors[name] = storage_error(exc, path.parent.name)
+        except ScreamingFaceError as exc:
+            # INVARIANT: malformed siblings settle as named failures, never disappear
+            # into result_not_received or prevent healthy candidate decoding.
+            errors[name] = exc
+    return [related[name] for name in expected if name in related], errors
 
 
 def _validate_sibling(selected: SavedRun, run: SavedRun) -> None:
@@ -327,8 +342,8 @@ def get(
     store = _store(directory)
     selected = _recovery_selection(store, _selected(store, report_id))
     reports: builtins.list[Report] = []
-    errors: dict[str, ScreamingFaceError] = {}
-    for run in _group(store, selected):
+    runs, errors = _group(store, selected)
+    for run in runs:
         try:
             _validate_sibling(selected, run)
             if destination is not None:
@@ -348,8 +363,8 @@ async def get_async(
     store = _store(directory)
     selected = await asyncio.to_thread(_recovery_selection, store, _selected(store, report_id))
     reports: builtins.list[Report] = []
-    errors: dict[str, ScreamingFaceError] = {}
-    for run in _group(store, selected):
+    runs, errors = await asyncio.to_thread(_group, store, selected)
+    for run in runs:
         try:
             _validate_sibling(selected, run)
             if destination is not None:

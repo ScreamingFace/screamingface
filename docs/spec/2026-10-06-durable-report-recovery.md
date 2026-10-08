@@ -21,3 +21,9 @@ evaluation manifest when present. Legacy listing retains all expected names and
 known saved candidates without decoding Cases. Explicit deletion removes every
 locally saved run sharing the evaluation identity, even with damaged membership
 or a malformed canonical manifest, and preserves unrelated evaluations.
+
+Review fixes approved on 2026-10-08: malformed saved decimal costs become named
+metadata failures per candidate while healthy siblings remain available. Explicit
+deletion identifies saved members using minimal evaluation identity, independent
+of full cost/membership decoding, and cannot redirect deletion outside the store.
+Preserve current main production defaults and Named Scores when rebasing.

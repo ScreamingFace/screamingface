@@ -16,3 +16,12 @@ Union expected legacy membership and locally known names without result decoding
 Delete saved runs by evaluation identity independently of candidate name lists.
 Add corruption, completeness, error, saved-key lookup, and unrelated-group tests;
 preserve every inherited test and run all SDK gates before committing.
+
+## Corrupt metadata review fixes (2026-10-08)
+
+Add RED regressions for malformed saved costs and full membership validation
+failures. Normalize decimal parse errors; settle each identifiable sibling
+manifest independently. Reuse minimal identity enumeration for complete deletion,
+including saved-key lookup and groups whose members all fail full validation.
+Rebase on current main, refresh the precise API snapshot transition, run all SDK
+gates and independently recheck the demonstrated failures.

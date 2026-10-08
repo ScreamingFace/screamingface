@@ -9,6 +9,7 @@ import os
 import shutil
 import sqlite3
 from dataclasses import dataclass, replace
+from decimal import InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -141,10 +142,44 @@ class ResultStore:
                 logging.getLogger(__name__).warning("Could not read saved run %s", path)
         return runs
 
+    def member_manifests(self, report_id: str) -> tuple[str, list[tuple[Path, str | None]]]:
+        """Locate group members without trusting their decodable costs or membership.
+
+        Paths come only from this store's manifest enumeration, never saved metadata.
+        A saved candidate key can select its group even when that candidate is corrupt.
+        """
+        identities: list[tuple[str, Path, str | None]] = []
+        selected_id = report_id
+        for path in sorted(self.directory.glob("*/run.json")):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict) or data.get("schema") != "screamingface.saved-run.v1":
+                    continue
+                evaluation = data.get("evaluation")
+                identity = evaluation.get("id") if isinstance(evaluation, dict) else None
+                if evaluation is None:
+                    identity = path.parent.name
+                if not isinstance(identity, str) or not identity:
+                    continue
+                candidate = data.get("candidate")
+                name = candidate.get("name") if isinstance(candidate, dict) else None
+                name = name if isinstance(name, str) and name.strip() else None
+                identities.append((identity, path, name))
+                if path.parent.name == report_id:
+                    selected_id = identity
+            except (OSError, ValueError):
+                logging.getLogger(__name__).warning("Could not read saved run %s", path)
+        # WHY: public evaluation identity takes precedence over a coincident saved key.
+        if any(identity == report_id for identity, _, _ in identities):
+            selected_id = report_id
+        return selected_id, [
+            (path, name) for identity, path, name in identities if identity == selected_id
+        ]
+
     def _load(self, path: Path) -> SavedRun:
         try:
             return self._decode_manifest(path)
-        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        except (ValueError, KeyError, TypeError, AttributeError, InvalidOperation) as exc:
             raise ExecutionError(
                 "Invalid saved run metadata", code="result_metadata_invalid"
             ) from exc
