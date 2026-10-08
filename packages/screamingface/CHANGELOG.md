@@ -62,6 +62,111 @@
 * **screamingface:** accept `answer_seed` on the module-level `evaluate(...)`, not only on `Client.evaluate`. The one-line call every example notebook uses raised `TypeError: evaluate() got an unexpected keyword argument 'answer_seed'`, so seeded runs were unreachable for notebook users even though the feature above had shipped. Both branches forward it now — Recipes and a complete URL4 — and omitting it still declares no seed.
 * **screamingface:** check every required Candidate Model before evaluation dispatch and raise `ProviderConnectionError` for Gateway-reported missing access. Sync and async Clients reuse model admission details; older Gateways preserve existing behavior.
 
+## [0.2.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-v0.1.1...screamingface-v0.2.0) (2026-10-08)
+
+
+### Features
+
+* **aigateway:** log an unhandled exception once, by class name, with its call id ([db6757b](https://github.com/ScreamingFace/screamingface/commit/db6757bc56a7f6b49b38ae16e7059c06a55cda3f))
+* **aigateway:** return full cache metadata on hits and pin the cross-stack hit contract ([#1100](https://github.com/ScreamingFace/screamingface/issues/1100)) ([16bb09a](https://github.com/ScreamingFace/screamingface/commit/16bb09ae38a73eed25576763ba5a73ed65729f0e))
+* **client:** preserve run Client version in reports ([#1059](https://github.com/ScreamingFace/screamingface/issues/1059)) ([b39b9bc](https://github.com/ScreamingFace/screamingface/commit/b39b9bc284f7bca4729c42fb925cc7f4011e213b))
+* **client:** show completed operation accounting ([#1097](https://github.com/ScreamingFace/screamingface/issues/1097)) ([2adc7a9](https://github.com/ScreamingFace/screamingface/commit/2adc7a9f1119e1eb54c0d0cec881b74a873da30d))
+* **client:** show stages and dynamic activity in candidate rows ([#983](https://github.com/ScreamingFace/screamingface/issues/983)) ([a171901](https://github.com/ScreamingFace/screamingface/commit/a1719014f9a4e68b1ce924e9a5d02384ee013031))
+* **engine:** attribute candidate model activity to benchmark cases ([#988](https://github.com/ScreamingFace/screamingface/issues/988)) ([36c9f36](https://github.com/ScreamingFace/screamingface/commit/36c9f366a70973507bac24f618abd62759da55fe))
+* **engine:** declare gateway_internal_error in the failure vocabulary ([83b2c99](https://github.com/ScreamingFace/screamingface/commit/83b2c9901e2df5f66612185a78c7247f405b1122))
+* **engine:** update live scores across shipped benchmarks ([#1096](https://github.com/ScreamingFace/screamingface/issues/1096)) ([e59f09b](https://github.com/ScreamingFace/screamingface/commit/e59f09b7d9f2dea43a149acc6eabfd90545211f5))
+* **screamingface-engine:** bake gated datasets with a CI token and import xstest_safe ([fdda6f9](https://github.com/ScreamingFace/screamingface/commit/fdda6f9638f44c6f26ca4eae96b4ec8a58d77f37))
+* **screamingface-engine:** declare Benchmark provenance and serve a saturation verdict ([7d1efb4](https://github.com/ScreamingFace/screamingface/commit/7d1efb4b61d1c06ea0acb014b44ad966a3947a25))
+* **screamingface-engine:** declare Benchmark provenance and serve a saturation verdict (OME-1455, PR 2 of 4) ([8561d57](https://github.com/ScreamingFace/screamingface/commit/8561d57af23c348ad4ae2885b04853d6e28fb54c))
+* **screamingface-engine:** keep where each Imported bundle's Cases came from ([128b4b4](https://github.com/ScreamingFace/screamingface/commit/128b4b40820daa61b2e02c1a9fc4760ba726acf3))
+* **screamingface-engine:** keep where each Imported bundle's Cases came from (OME-1492, PR 1 of 3) ([12b29d7](https://github.com/ScreamingFace/screamingface/commit/12b29d7d52c7b235c9b2e8398ad3b48b24cf25b2))
+* **screamingface-engine:** record where each hand-built bundle's Cases came from ([3b48f43](https://github.com/ScreamingFace/screamingface/commit/3b48f434876c8ff26c6e3cdd3c28f491ca29720a))
+* **screamingface-engine:** record where each hand-built bundle's Cases came from (OME-1492, PR 3 of 3) ([f3e3c6f](https://github.com/ScreamingFace/screamingface/commit/f3e3c6f5d6cd057062d2f8e1aa3ab9b53023047e))
+* **screamingface-engine:** serve MuSiQue-Ans as the first local inspect Task (OME-1513) ([21d2b2e](https://github.com/ScreamingFace/screamingface/commit/21d2b2ebc3100a0aae10dfc6c85b78bd2702522c))
+* **screamingface:** decode, export and show a Benchmark's Named Scores ([0098e4a](https://github.com/ScreamingFace/screamingface/commit/0098e4a2381ea3b3a277a20fd78adacfdab32e77))
+* **screamingface:** decode, export and show a Benchmark's Named Scores (OME-1268, PR 2 of 5) ([3a2246f](https://github.com/ScreamingFace/screamingface/commit/3a2246fb6170ed26fd2b2c0730165db85bb2ec59))
+* **screamingface:** end the paid-smoke summary table with a total row ([ec64b16](https://github.com/ScreamingFace/screamingface/commit/ec64b164779350c5feced9c990e1f433dcc684fd))
+* **screamingface:** give every paid-smoke press a per-board and whole-run overview ([1103223](https://github.com/ScreamingFace/screamingface/commit/1103223622493f71f6267bc99187a53dbd502d6c))
+* **screamingface:** keep every paid-smoke press's full debug bundle ([9f0ab38](https://github.com/ScreamingFace/screamingface/commit/9f0ab38aeb3c6e187e692ad28cb752740f749527))
+* **screamingface:** keep the paid smoke's stack logs when a CI run fails ([33e6c50](https://github.com/ScreamingFace/screamingface/commit/33e6c509beffa7af75de1702cb84dfc8dd1483af))
+* **screamingface:** mark Benchmarks scored by refusal rate in report.json ([a89a190](https://github.com/ScreamingFace/screamingface/commit/a89a19004219ec7a84c3f54a8ff185c8889297ee))
+* **screamingface:** mark Benchmarks scored by refusal rate in report.json ([bf256b4](https://github.com/ScreamingFace/screamingface/commit/bf256b43e9cd6d354f3a5b3ffec8cb4f9d37fefb))
+* **screamingface:** print each paid-smoke board's verdict as it finishes ([8f2b62e](https://github.com/ScreamingFace/screamingface/commit/8f2b62e73291093ef81e96839ac0d3a916d1030c))
+* **screamingface:** publish a cached run's full cost when every hit is priced ([#1229](https://github.com/ScreamingFace/screamingface/issues/1229)) ([64f064d](https://github.com/ScreamingFace/screamingface/commit/64f064d252dfd92d71c6d095fd8cee689b06cbc6))
+* **screamingface:** run paid-smoke boards four at a time with a 32k token budget ([0bab9dc](https://github.com/ScreamingFace/screamingface/commit/0bab9dcffd15ba748c29b441ecc6daf69e410b17))
+* **screamingface:** run the paid smoke over every Benchmark, with a scope choice ([c567c4d](https://github.com/ScreamingFace/screamingface/commit/c567c4d68b3247e4eb5d6b14b5382a0cd0ad43e4))
+* **screamingface:** run the paid smoke over every Benchmark, with a scope choice (OME-1500) ([cb30007](https://github.com/ScreamingFace/screamingface/commit/cb30007fc5b467fc79154dbeb067b32ac1f841c1))
+* **screamingface:** send run_cost_status beside the run cost ([#1017](https://github.com/ScreamingFace/screamingface/issues/1017)) ([b44fa78](https://github.com/ScreamingFace/screamingface/commit/b44fa781ff8c21cc47b36889817a8e573f8e76c9))
+* **screamingface:** send what the cache saved on a leaderboard submission ([#1075](https://github.com/ScreamingFace/screamingface/issues/1075)) ([4168da1](https://github.com/ScreamingFace/screamingface/commit/4168da148ed2e5c38c7f4043a9dd85c427b72bd8))
+* **screamingface:** show a judge's full reasoning behind a toggle in the report ([7bd90d0](https://github.com/ScreamingFace/screamingface/commit/7bd90d06978f32197fadf364b10b506a3f5d27ce))
+* **screamingface:** show a judge's full reasoning behind a toggle in the report ([92551f9](https://github.com/ScreamingFace/screamingface/commit/92551f9dcd42891bc0b7d5be06622c8013ea026b))
+* **screamingface:** show the refusal-rate mark in the catalogue and report view ([b4a0bc3](https://github.com/ScreamingFace/screamingface/commit/b4a0bc3c2117fb0a0f947c515ceecc605821c301))
+* **screamingface:** show the refusal-rate mark in the catalogue and report view ([72c798d](https://github.com/ScreamingFace/screamingface/commit/72c798d1bdec0bab895002652bab28e1d105312e))
+* **screamingface:** tighten rotated runtime logs and add logs --purge ([d26ef53](https://github.com/ScreamingFace/screamingface/commit/d26ef53eb362ec8f664493b95e3ad736051f6035))
+* **screamingface:** tighten rotated runtime logs and add logs --purge ([4106fad](https://github.com/ScreamingFace/screamingface/commit/4106fad8b4e50d0efa960af68ab551f89a2fd127))
+* **screamingface:** wait for Engine capacity when a run start gets the Engine's 503 ([#1115](https://github.com/ScreamingFace/screamingface/issues/1115)) ([a3f7769](https://github.com/ScreamingFace/screamingface/commit/a3f776956e9c1909f0237ebd9ea4147c0384fc1c))
+
+
+### Bug Fixes
+
+* attribute judge activity and simplify log display ([#1071](https://github.com/ScreamingFace/screamingface/issues/1071)) ([3293550](https://github.com/ScreamingFace/screamingface/commit/3293550b3d0dd8cc87798a70a4cffde9c42da2e0))
+* **client:** reject termination without an identified run root ([#1224](https://github.com/ScreamingFace/screamingface/issues/1224)) ([8fbacd5](https://github.com/ScreamingFace/screamingface/commit/8fbacd57971c1bcca65ad23ea505488976fe1b81))
+* **engine:** align transport with provider admission budgets ([#1152](https://github.com/ScreamingFace/screamingface/issues/1152)) ([d0534a2](https://github.com/ScreamingFace/screamingface/commit/d0534a23d52587cd87c51e9311fe1d72f9c8ee96))
+* **engine:** attribute failures at the candidate execution boundary ([#1060](https://github.com/ScreamingFace/screamingface/issues/1060)) ([a59d82e](https://github.com/ScreamingFace/screamingface/commit/a59d82e87c40cdc10a48c675e00f47964898f1ec))
+* **engine:** report a missing row's real cause as its failure code ([f5a26db](https://github.com/ScreamingFace/screamingface/commit/f5a26db082e3cae3d70310da297cdc8c75608dd8))
+* **engine:** report a missing row's real cause as its failure code ([3008da6](https://github.com/ScreamingFace/screamingface/commit/3008da684c6ef9f31d2a8c125fe62538d4537d51))
+* **screamingface-engine:** close the xstest and CI-token gaps from review ([a11b685](https://github.com/ScreamingFace/screamingface/commit/a11b68512c1bcaa38676193cd548a1ccc1a7be59))
+* **screamingface-engine:** pin the Draft Feedback rule catalogue-wide and close the review's gaps ([1b3aaea](https://github.com/ScreamingFace/screamingface/commit/1b3aaea2f53176894d5f79c8544639830e82a191))
+* **screamingface-engine:** refuse a used bundle directory before its label is touched ([649fd11](https://github.com/ScreamingFace/screamingface/commit/649fd1156f7391b6f0204b70b21d1f9f403e212b))
+* **screamingface:** advise a paid-smoke rerun only when every failure was tolerated ([8fc76bd](https://github.com/ScreamingFace/screamingface/commit/8fc76bdf7050d320431a7dd090d9dcbe2073d712))
+* **screamingface:** cap the full reasoning like every free text in the report ([f3f0d41](https://github.com/ScreamingFace/screamingface/commit/f3f0d41c9d90f5a7e480eb6101b1ad7ecd2df7db))
+* **screamingface:** cap the paid smoke qwen member's reasoning at low ([#1256](https://github.com/ScreamingFace/screamingface/issues/1256)) ([8a4dacb](https://github.com/ScreamingFace/screamingface/commit/8a4dacb07af92d12e014065199a2bb31a12be614))
+* **screamingface:** drop the stale kubernetes requirement from the runtime ([b0deaee](https://github.com/ScreamingFace/screamingface/commit/b0deaeef25af04225dfef84f6801e3704830b7da))
+* **screamingface:** drop the stale kubernetes requirement from the runtime ([83f289b](https://github.com/ScreamingFace/screamingface/commit/83f289b3fdcc7e4c6bf5134d8cdb3edebab65dfc))
+* **screamingface:** fail the paid button instead of green-skipping it ([9724506](https://github.com/ScreamingFace/screamingface/commit/97245069affe8792af81811d158a5c001777caee))
+* **screamingface:** give the frontierscience panel room to finish and keep constraints ([8a80b51](https://github.com/ScreamingFace/screamingface/commit/8a80b5163ee76e3581f2dabce5a61ae7a2f1b170))
+* **screamingface:** keep inverted_grade when the notebook helper reloads a report ([1cbd3af](https://github.com/ScreamingFace/screamingface/commit/1cbd3af41e77107651777568c02c60ef1e439f04))
+* **screamingface:** keep the other candidates running when one fails; raise candidates_failed with a partial report ([#1121](https://github.com/ScreamingFace/screamingface/issues/1121)) ([762d928](https://github.com/ScreamingFace/screamingface/commit/762d928500970e5e9a54fe14f25f99fc44e3f84f))
+* **screamingface:** keep the SDK's inspect-ai pin on the Engine's version ([98a234e](https://github.com/ScreamingFace/screamingface/commit/98a234e1e657a94872d3a8ccd167d57d2111f7b5))
+* **screamingface:** keep the Studio sidecar build working without editable copies ([6f63231](https://github.com/ScreamingFace/screamingface/commit/6f63231e022e73a324bebea42df583ada8568f40))
+* **screamingface:** keep the WS capability ticket out of runtime.log ([664c667](https://github.com/ScreamingFace/screamingface/commit/664c667ee384f416a42c66963408af1e89a013fa))
+* **screamingface:** keep the WS capability ticket out of runtime.log ([1978eab](https://github.com/ScreamingFace/screamingface/commit/1978eabec77944aa424a49fdc1101852af5c22ad))
+* **screamingface:** let pyright see the report view's inverted_grade read ([c3b90d0](https://github.com/ScreamingFace/screamingface/commit/c3b90d0692968efc31e3cc7a6ac2803f5e846b7a))
+* **screamingface:** live notebook activity and a frontierscience panel that finishes ([ecff774](https://github.com/ScreamingFace/screamingface/commit/ecff7745967629fe4d3aecf4211f504eaf48582d))
+* **screamingface:** make the paid smoke's cost and timeout honest for a growing shelf ([d7e5667](https://github.com/ScreamingFace/screamingface/commit/d7e5667fedf43896c2c08fac99cf8ec52c26882d))
+* **screamingface:** measure an HTTP-date Retry-After against an injectable clock ([2e65fee](https://github.com/ScreamingFace/screamingface/commit/2e65fee318a6003b0fadb246505ad96c0228679b))
+* **screamingface:** measure an HTTP-date Retry-After against an injectable clock (OME-1507) ([ce382ce](https://github.com/ScreamingFace/screamingface/commit/ce382ce0479ee93f4257ac52e6ad4a5016ad00dc))
+* **screamingface:** never raise from the redacting factory; redact quoted url4 intents ([a153189](https://github.com/ScreamingFace/screamingface/commit/a153189af0fc437ccd4e0fcb9f79203e0c1e574b))
+* **screamingface:** pin the inverted_grade key's spelling on both sides ([a7381c3](https://github.com/ScreamingFace/screamingface/commit/a7381c323903220a1df19a30b074fe4fb4eb2b8d))
+* **screamingface:** pin the SDK's inspect-ai to the Engine's version and bind them ([2d03a8f](https://github.com/ScreamingFace/screamingface/commit/2d03a8f2338b16b251509ab803561f6eeab3a620))
+* **screamingface:** point the default hosted engine and leaderboard at prod ([#1270](https://github.com/ScreamingFace/screamingface/issues/1270)) ([b481c25](https://github.com/ScreamingFace/screamingface/commit/b481c255ea351ecd4a13906e3486706d6e5e0280))
+* **screamingface:** redact prompt carriers at the runtime log sink ([34e9052](https://github.com/ScreamingFace/screamingface/commit/34e905205c59976f9ed134aa1ffbc9694e147a97))
+* **screamingface:** redact prompt carriers at the runtime log sink ([3960b4e](https://github.com/ScreamingFace/screamingface/commit/3960b4e6691d2b31ce9b07fd92f69b5b1eb39678))
+* **screamingface:** resume the same capability after reconnect challenges and show reconnect progress ([#1099](https://github.com/ScreamingFace/screamingface/issues/1099)) ([d4af3cc](https://github.com/ScreamingFace/screamingface/commit/d4af3ccf5113cc7d1d5bd5bed1ab1e7bfb3bf056))
+* **screamingface:** run the live url4 and apps from a dev checkout's editable install ([7008bc0](https://github.com/ScreamingFace/screamingface/commit/7008bc0e94f2dfa12a1404e637f9004c23c50eaf))
+* **screamingface:** run the live url4 and apps from a dev checkout's editable install ([33c8ce5](https://github.com/ScreamingFace/screamingface/commit/33c8ce5f1030ae116cf77674008c153f3409e0d5))
+* **screamingface:** stop only the failed run on a fatal reconnect rejection; keep the owner abort in effect while runs are in flight ([#1105](https://github.com/ScreamingFace/screamingface/issues/1105)) ([65ab8d1](https://github.com/ScreamingFace/screamingface/commit/65ab8d13db97aaf9a506940666977a9d48054750))
+* **screamingface:** stop only the lost run when its stream gives up; never stop a completed run ([#1109](https://github.com/ScreamingFace/screamingface/issues/1109)) ([70054e4](https://github.com/ScreamingFace/screamingface/commit/70054e4a8ca1a02e41eb276122e258ab29156b77))
+* **screamingface:** stream atomic report JSON exports (OME-1486) ([#1241](https://github.com/ScreamingFace/screamingface/issues/1241)) ([af1a100](https://github.com/ScreamingFace/screamingface/commit/af1a100248045f7c991df9b5415e0ebcdf85dd1c))
+* **screamingface:** submit a run with any cache hit as a partial cost ([#1187](https://github.com/ScreamingFace/screamingface/issues/1187)) ([2c53213](https://github.com/ScreamingFace/screamingface/commit/2c532132f660b23e0e1c7bcd81eb12a1a2456f87))
+* **screamingface:** use a panel that finishes frontierscience in notebook 12 ([a835bdd](https://github.com/ScreamingFace/screamingface/commit/a835bddc5e33c3ada2b7e53205ba0254e6ea3d23))
+
+
+### Refactors
+
+* **screamingface-engine:** say "needs an HF token" instead of "gated" ([aa9ac1b](https://github.com/ScreamingFace/screamingface/commit/aa9ac1ba4fee9a13ce0d18184bb4d3603ca748fa))
+* **screamingface:** drop the review-only kubernetes comment and guard test ([95d374c](https://github.com/ScreamingFace/screamingface/commit/95d374cb20a3ef68360ca737eb6c5fc92d42b978))
+* **screamingface:** take the live source directories from the runtime itself ([c5eb584](https://github.com/ScreamingFace/screamingface/commit/c5eb584dd4817b0bbfbaaddd23c1c47d9d2dafd4))
+
+
+### Documentation
+
+* **screamingface-engine:** model-graded imports are in scope — correct the env-var judge plan ([f17ad00](https://github.com/ScreamingFace/screamingface/commit/f17ad0006f69e92d1a11cb9a9444e7219e3a852e))
+* **screamingface:** add the MuSiQue example notebook and point its card at it ([bdd6c68](https://github.com/ScreamingFace/screamingface/commit/bdd6c6885f3dea450fd2e67b8cf6271240574596))
+* **screamingface:** add the MuSiQue example notebook and point its card at it (OME-1513) ([88c0631](https://github.com/ScreamingFace/screamingface/commit/88c0631c11a7dfe377bec6530e9e45c16dc599ee))
+* **screamingface:** say an Engine with xstest_unsafe but no mark reads as unflipped ([88cff79](https://github.com/ScreamingFace/screamingface/commit/88cff79b192728c0b9c01390f3fa18674af5d210))
+* **screamingface:** say the catalogue mark needs both Engine changes deployed ([414aa76](https://github.com/ScreamingFace/screamingface/commit/414aa7622e4455719b0ee70b57fc15ca7f59fa3e))
+
 ## 0.1.1 (2026-08-13)
 
 Baseline-only release. `0.1.0` and `0.1.1` were both uploaded to PyPI by hand rather than by
