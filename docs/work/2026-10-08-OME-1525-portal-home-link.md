@@ -1,9 +1,9 @@
 ---
 ticket: OME-1525
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-10-08
-finished:
+finished: 2026-10-08
 ---
 
 # OME-1525 — portal logo links home; one consistent breadcrumb
@@ -34,7 +34,7 @@ The portal's top bar names the home page "leaderboard" on two pages and "portal"
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned (5 pages, `benchmark.js`, `spec.js`, `portal.css`, `test_portal_static.py`).
-- **Commits:** see the PR (squash-merged).
+- **Commits:** `fc8cb9c` — squash of PR #1308 (`5facee1` feat, `428a355` review fixes).
 - **Gates:** RED 6 failed → GREEN; scoreboard `pytest` 958 passed / 9 skipped; `ruff check` + `ruff format --check` clean; `pyright` 0 errors; Node portal tests 82/82 (CI's file list).
 - **Deviations:**
   - The planned single test `test_rail_brand_links_home_and_crumbs_are_consistent` became three: `test_rail_brand_is_the_home_link_and_no_crumb_repeats_it` (per page), `test_rail_crumbs_show_only_where_you_are_below_home`, `test_rail_benchmark_crumb_starts_hidden_with_its_separator`.
