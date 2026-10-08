@@ -381,7 +381,8 @@ no model provider and no Tavily, and it costs nothing. Epic: OME-1307. Design:
   onto the run env (or queue message), and the run mode binds them as `RequestScope.capture` and
   `RequestScope.replay_frozen_copy`. The start response (`202`, a finished sync result, and the
   sync `202` fallback) echoes the accepted header. An engine that ignores the headers never sends
-  the echo.
+  the echo. Only the run route honours the headers. A mount route and the local eval path answer
+  `400` with `code: capture_unsupported` when either header is present, and run nothing.
 - **Capture.** Before the first step, the run opens a copy (`POST /v1/frozen-copies`). Each chat
   call sends `X-AIGW-Frozen-Copy: <id>` and records the `X-AIGW-Capture` answer of the gateway.
   Each web-tool result goes to the copy before the engine truncates it. After the last step, the
@@ -389,17 +390,23 @@ no model provider and no Tavily, and it costs nothing. Epic: OME-1307. Design:
   it was cancelled, and a replay refuses an open copy.
 - **`capture.status`.** The run summary and the cache summary log line always carry
   `capture.frozen_copy_id`, `capture.status` (`complete` or `partial`) and `capture.partial.<reason>`
-  counts (`failed`, `refused`, `missing`, `open`, `seal`, `error`). The status is `complete` only
-  when the copy opened and sealed, and every chat call and tool result is `stored`. Only the final
-  attempt of a logical call counts: a cancelled or crashed call (`error`) is forgiven when a later
-  call with the same request digest is `stored`. A gateway older than the frozen copy sends no
-  `X-AIGW-Capture`, so each call is `missing` and the run is `partial`.
+  counts (`failed`, `refused`, `missing`, `open`, `seal`, `error`, `ambiguous`). A failed run
+  writes them too, as the only attributes of its summary (a failed run states no cache counts).
+  The status is `complete` only when the copy opened and was sealed, and every chat call and tool
+  result is `stored`. Only the final attempt of a logical call counts: a cancelled or crashed call
+  (`error`, chat or tool) is forgiven when a later call with the same request digest is `stored`.
+  A call that the engine re-issued under a `max-age` bound, or whose transport attempt was
+  retried, is `ambiguous`: it may have left a stored answer the model never used ahead of the one
+  it used. Nothing forgives `ambiguous`, so the run is `partial`. A gateway older than the frozen
+  copy sends no `X-AIGW-Capture`, so each call is `missing` and the run is `partial`.
 - **Replay.** Each chat call goes to `POST /v1/frozen-copies/{id}/chat/completions` with
-  `X-AIGW-Replay-Occurrence: <n>`. `n` is the number of successful answers the run already took for
-  the same request, so identical requests with different original answers come back in capture
-  order. The engine adds no cache field and makes no `max-age` re-issue. It accounts a found
-  answer like a cache hit, at `$0`. Each web-tool call reads `…/tool-results/lookup`, so the run
-  needs no Tavily key.
+  `X-AIGW-Replay-Occurrence: <n>`. The engine reserves the next slot `n` of the request when it
+  sends the call, and gives the slot back if the call does not succeed. So identical requests with
+  different original answers come back in capture order, also when they run at the same time.
+  The engine adds no cache field and makes no `max-age` re-issue. It accounts a found answer like
+  a cache hit, at `$0`, and states no saved cost for it. Each web-tool call reads
+  `…/tool-results/lookup`, so the run needs no Tavily key. The run path never asks the gateway
+  to admit a model (`/v1/models/admit`).
 - **Replay failures.** A captured error fails the case as it failed in the original run. A `404`
   `frozen_copy_miss` fails the case with `frozen_copy_miss`. A `404` `frozen_copy_unavailable` (an
   unknown or unsealed copy, or a gateway without the replay routes) fails it with
