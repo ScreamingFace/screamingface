@@ -158,22 +158,23 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td>When it ran and for how long.</td>
         </tr>
         <tr>
-          <td><code>cache_revision</code></td>
+          <td><code>frozen_copy_id</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
-            The label of the cache rules that served this run, read from the engine's run summary.
-            <code>None</code> when the summary has none, for example with an older engine or a run
-            with no model call and no web search. <code>submit</code> sends it with the score.
+            The id of the frozen copy that this run made, read from the engine's run summary. It is
+            set only for a run made with <code>capture=True</code> whose copy opened.
+            <code>None</code> means the run was not captured, the copy did not open, or the engine
+            did not say (an older engine). <code>submit</code> sends it with the score.
           </td>
         </tr>
         <tr>
-          <td><code>reproducible</code></td>
+          <td><code>capture_status</code></td>
           <td><code>"complete"&nbsp;|&nbsp;"partial"&nbsp;|&nbsp;None</code></td>
           <td>
-            Whether a replay can answer every call of this run, read from the engine's run summary.
-            <code>None</code> means unknown, not partial. A run with no model call and no web search
-            reports <code>None</code>, and <code>sf.reproduce</code> reports such a score as
-            <code>not_reproducible</code> with the reason <code>unknown</code>.
+            Whether the frozen copy holds every model answer and web-tool result of this run.
+            <code>None</code> means unknown, not partial. If you passed <code>capture=True</code>
+            and the engine did not capture the run, the Client emits an
+            <code>EvaluationWarning</code>, and this stays <code>None</code>.
             <code>submit</code> sends it with the score, and <code>sf.reproduce</code> reads it back
             from the stored score. See
             <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.

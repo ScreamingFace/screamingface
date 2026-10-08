@@ -360,18 +360,18 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td>When the authors or the paper link last changed. <code>None</code> if never.</td>
         </tr>
         <tr>
-          <td><code>cache_revision</code></td>
+          <td><code>frozen_copy_id</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
-            The label of the cache rules that stored the run's answers.
-            <code>None</code> when the run has none.
+            The id of the frozen copy that the run made. <code>None</code> when the run was not
+            captured.
           </td>
         </tr>
         <tr>
-          <td><code>reproducible</code></td>
+          <td><code>capture_status</code></td>
           <td><code>"complete"&nbsp;|&nbsp;"partial"&nbsp;|&nbsp;None</code></td>
           <td>
-            Whether the cache holds every answer of the run. <code>"partial"</code> scores cannot be
+            Whether the frozen copy holds the whole run. <code>"partial"</code> scores cannot be
             replayed. <code>None</code> means unknown.
           </td>
         </tr>
@@ -451,10 +451,10 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
     <h2>Reproduction</h2>
 
     <p>
-      What <code>client.reproduce(score, *, record=True)</code> returns. It replays a score from its
-      cache version and judges the replay against the stored numbers. A replay that the Engine
-      confirms is served from the cache only, so it pays no provider. <code>score</code> is a
-      <code>LeaderboardScore</code> or its id. The same method is on
+      What <code>client.reproduce(score, *, record=True)</code> returns. It replays a score against
+      its frozen copy and judges the replay against the stored numbers. A replay that the Engine
+      confirms is answered from the copy only, so it pays no provider and no web-search service.
+      <code>score</code> is a <code>LeaderboardScore</code> or its id. The same method is on
       <code>AsyncClient</code> (awaited) and as <code>sf.reproduce</code>. A replay that does not
       match is a value here, not an exception.
     </p>
@@ -478,7 +478,7 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td>
             <code>"exact"</code>: the replay gave the stored score and case count on the same
             benchmark revision. <code>"failed"</code>: it ran, or tried to, and did not match.
-            <code>"not_reproducible"</code>: the score has no complete cache version, so no run
+            <code>"not_reproducible"</code>: the score has no complete frozen copy, so no run
             started.
           </td>
         </tr>
@@ -493,8 +493,8 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>missed_cases</code></td>
           <td><code>tuple[int&nbsp;|&nbsp;str, ...]</code></td>
           <td>
-            The ids of cases the cache could not answer. Filled only when <code>reason</code> is
-            <code>"cache_miss"</code>.
+            The ids of cases the frozen copy could not answer. Filled only when
+            <code>reason</code> is <code>"frozen_copy_miss"</code>.
           </td>
         </tr>
         <tr>
@@ -522,7 +522,9 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
 
     <p>
       The Client checks a replay in this order and reports the first problem. A score that is not
-      reproducible starts no run, so its reason comes before any replay.
+      reproducible starts no run, so its reason comes before any replay. A missing or unavailable
+      copy is checked before a failed run, because a run that missed the copy has nothing to
+      compare.
     </p>
 
     <table>
@@ -537,49 +539,55 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
         <tr>
           <td><code>not_reproducible</code></td>
           <td><code>partial</code></td>
-          <td>The score is <code>reproducible="partial"</code>.</td>
+          <td>The score is <code>capture_status="partial"</code>. No run starts.</td>
         </tr>
         <tr>
           <td><code>not_reproducible</code></td>
           <td><code>unknown</code></td>
           <td>
-            The score has no <code>reproducible</code> status, no cache revision or no benchmark
-            revision.
+            The score has no <code>capture_status</code>, no <code>frozen_copy_id</code> or no
+            benchmark revision. No run starts.
           </td>
         </tr>
         <tr>
           <td><code>failed</code></td>
           <td><code>replay_unsupported</code></td>
           <td>
-            The Engine did not confirm the run as a replay. The Client stopped the run. If the stop
-            failed, an <code>EvaluationWarning</code> says the run may still be running and
-            spending.
+            The Engine did not confirm replay mode. When the Engine did not echo the replay at the
+            start, the Client stopped the run. If the stop failed, an
+            <code>EvaluationWarning</code> says the run may still be running and spending. An Engine
+            can also confirm the start and then finish a run whose summary does not name the copy.
+            That run is already over and may have called providers. The Client does not report it as
+            a replay.
           </td>
         </tr>
         <tr>
           <td><code>failed</code></td>
-          <td><code>cache_miss</code></td>
-          <td>The cache could not answer some calls. <code>missed_cases</code> lists them.</td>
+          <td><code>frozen_copy_miss</code></td>
+          <td>
+            The copy had no answer for some calls. <code>missed_cases</code> lists their cases. The
+            replay bought nothing.
+          </td>
         </tr>
         <tr>
           <td><code>failed</code></td>
-          <td><code>unknown_cache_revision</code></td>
+          <td><code>frozen_copy_unavailable</code></td>
           <td>
-            The cache service does not know the score's cache revision. Every model call fails with
-            it, so every case fails. The run finishes, and the result is classified.
+            The copy is unknown or not sealed, or the gateway has no frozen copies (an older
+            gateway). The cases fail, and the run finishes.
           </td>
         </tr>
         <tr>
           <td><code>failed</code></td>
           <td><code>run_failed</code></td>
-          <td>The replayed run itself failed.</td>
+          <td>The replayed run itself failed, and the cause is not a missing copy.</td>
         </tr>
         <tr>
           <td><code>failed</code></td>
           <td><code>benchmark_revision_changed</code></td>
           <td>
             The benchmark is now a different revision, so the numbers cannot be compared. A changed
-            benchmark usually shows as <code>cache_miss</code>, which is checked first.
+            benchmark can also show as <code>frozen_copy_miss</code>, which is checked first.
           </td>
         </tr>
         <tr>

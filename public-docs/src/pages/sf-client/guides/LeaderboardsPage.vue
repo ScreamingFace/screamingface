@@ -28,7 +28,8 @@ const configure = `sf.configure(
     scoreboard_url="http://127.0.0.1:9106",
 )`
 
-const publish = `report = sf.evaluate(candidate, benchmark="ifeval", limit=3)
+const publish = `# capture=True makes a frozen copy, so others can reproduce the score
+report = sf.evaluate(candidate, benchmark="ifeval", limit=3, capture=True)
 
 # publish one candidate
 sf.leaderboards.submit(
@@ -106,7 +107,9 @@ sf.reproduce(score, record=False)`
       <li>Publish an evaluated <code>CandidateResult</code> as a new score.</li>
       <li>Add a paper link when you publish, and edit the authors and the paper link later.</li>
       <li>Look up one published score by id and reuse its <code>url4</code>.</li>
-      <li>Replay a published score from its cache, and record that it held.</li>
+      <li>
+        Replay a published score from its frozen copy at no provider cost, and record that it held.
+      </li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -166,7 +169,7 @@ sf.reproduce(score, record=False)`
         <tr>
           <td><code>sf.reproduce(score, *, record=True)</code></td>
           <td>
-            Replays a published score from its cache version and returns a
+            Replays a published score against its frozen copy and returns a
             <code>Reproduction</code>. An exact replay is recorded on the score unless you pass
             <code>record=False</code>.
           </td>
@@ -275,11 +278,21 @@ sf.reproduce(score, record=False)`
     </div>
 
     <p>
+      <code>capture=True</code> asks the Engine to make a <strong>frozen copy</strong> of each run:
+      every model answer and every web-tool result, kept forever. Capture is best effort, so the
+      copy can be <code>partial</code>. Read <code>capture_status</code> and
+      <code>frozen_copy_id</code> on the <code>CandidateResult</code> before you publish. If the
+      Engine did not capture a run, the Client emits an <code>EvaluationWarning</code>, and both
+      fields stay <code>None</code>. A score with no complete copy cannot be reproduced. Capture
+      costs no extra provider call.
+    </p>
+
+    <p>
       The Client posts <code>score</code>, <code>total_questions</code>, the compiled
       <code>url4_expression</code>, provider names, required <code>run_cost_usd</code>, optional
       authors, the optional paper link, and client metadata. When the run has them, it also posts
-      the run's cache revision, its <code>reproducible</code> status and its answer seed. They are
-      what <code>sf.reproduce</code> needs later. Direct submissions require a non-null run cost; a
+      the run's frozen copy id, its <code>capture_status</code> and its answer seed. They are what
+      <code>sf.reproduce</code> needs later. Direct submissions require a non-null run cost; a
       genuine fully cached run sends zero, while imported and historical rows may still display an
       unknown cost. The <code>Idempotency-Key</code> header is the candidate's <code>run_id</code>,
       so a retry of the same run reuses the original score instead of inserting a duplicate. A
@@ -346,14 +359,14 @@ sf.reproduce(score, record=False)`
     <h3>7 · Reproduce a score, or remix it</h3>
 
     <p>
-      A score keeps the cache version of the run behind it. <code>sf.reproduce</code> runs the
-      score's <code>url4</code> again with that cache version and the stored answer seed. The Client
-      asks the Engine to confirm that it runs the url4 as a replay. A replay that the Engine
-      confirms is served from the <RouterLink to="/learn/caching">cache</RouterLink> only, so it
-      pays no provider. A call that the cache cannot answer fails its case. If the Engine does not
-      confirm the replay, the Client stops the run and reports <code>replay_unsupported</code>. If
-      that stop fails, an <code>EvaluationWarning</code> says the run may still be running and
-      spending.
+      A score keeps the frozen copy of the run behind it. <code>sf.reproduce</code> runs the score's
+      <code>url4</code> again with the stored answer seed, against that copy. The Client asks the
+      Engine to confirm that it runs in replay mode. A confirmed replay answers every model call and
+      every web-tool result from the copy. It calls no provider and no web-search service, so it
+      costs <strong>$0</strong>. It works after a model is retired. A call that the copy cannot
+      answer fails its case. If the Engine does not confirm replay mode, the Client stops the run
+      and reports <code>replay_unsupported</code>. If that stop fails, an
+      <code>EvaluationWarning</code> says the run may still be running and spending.
     </p>
 
     <div class="not-prose">
@@ -384,17 +397,20 @@ sf.reproduce(score, record=False)`
         <tr>
           <td><code>failed</code></td>
           <td>
-            The replay ran, or tried to, and did not match. <code>reason</code> says why. When the
-            cache could not answer some calls, <code>missed_cases</code> lists their case ids.
+            The replay ran, or tried to, and did not match. <code>reason</code> says why:
+            <code>replay_unsupported</code>, <code>frozen_copy_miss</code>,
+            <code>frozen_copy_unavailable</code>, <code>run_failed</code>,
+            <code>benchmark_revision_changed</code> or <code>score_differs</code>. When the copy had
+            no answer for some calls, <code>missed_cases</code> lists their case ids.
           </td>
         </tr>
         <tr>
           <td><code>not_reproducible</code></td>
           <td>
             The score cannot name everything a replay needs, so no run started.
-            <code>reason</code> is <code>partial</code> (the cache does not hold every answer) or
-            <code>unknown</code> (the score has no status, no cache revision or no benchmark
-            revision).
+            <code>reason</code> is <code>partial</code> (the frozen copy does not hold the whole
+            run) or <code>unknown</code> (the score has no capture status, no frozen copy id or no
+            benchmark revision).
           </td>
         </tr>
       </tbody>
@@ -402,10 +418,9 @@ sf.reproduce(score, record=False)`
 
     <p>
       Only an exact replay is recorded. The Client sends the replay's run id, score and case count,
-      and the score's stored cache revision, to the leaderboard. The leaderboard checks that they
-      match the stored score. Hosted deployments need a verified identity to record. There is no
-      limit: each exact replay adds one record. The score's page on the portal shows "Reproduced N
-      times", and
+      and the score's frozen copy id, to the leaderboard. The leaderboard checks that they match the
+      stored score. Hosted deployments need a verified identity to record. There is no limit: each
+      exact replay adds one record. The score's page on the portal shows "Reproduced N times", and
       <code>reproduction_count</code> and <code>last_reproduced_at</code> hold the same facts on
       <code>LeaderboardScore</code>. If the record fails, the outcome stays <code>exact</code>,
       <code>recorded</code> is <code>False</code>, and <code>record_error</code> says why. The
@@ -464,8 +479,8 @@ sf.reproduce(score, record=False)`
         for reading and rebuilding expressions
       </li>
       <li>
-        <RouterLink to="/learn/caching">Caching and compute</RouterLink> for what makes a score
-        reproducible, and why a replay can fail
+        <RouterLink to="/learn/caching">Caching and compute</RouterLink> for how a frozen copy is
+        made, why it can be partial, and why a replay can fail
       </li>
     </ul>
   </DocLayout>
