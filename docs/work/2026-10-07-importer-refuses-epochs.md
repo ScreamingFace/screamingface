@@ -6,7 +6,7 @@ started: 2026-10-07
 finished: 2026-10-07
 ---
 
-# importer-refuses-epochs — the inspect importer refuses a Task that asks each Case several times (PR 2 of 2)
+# importer-refuses-epochs — the inspect importer refuses a Task that asks each Case several times (PR 2 of 7)
 
 ## Intent
 
@@ -26,7 +26,8 @@ declares more than one epoch, so nothing already imported changes.
 - `apps/screamingface-engine/docs/importing-an-inspect-eval.md` — the one-Attempt line now says
   the Task is refused.
 - `apps/screamingface-engine/tests/unit/inspect/test_importer_refuses_epochs.py` — new.
-- Close the OME-1458 mirror and both OME-1458 ledgers (this PR closes the ticket).
+- `docs/work/2026-10-07-attempts-per-case-spec.md` — record the seven-PR plan. The mirror and
+  ticket close in PR 7 of 7 (#1307), which maps the any-match epochs this PR refuses.
 
 ## Test plan
 
@@ -47,7 +48,7 @@ declares more than one epoch, so nothing already imported changes.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned, plus the OME-1458 mirror and the spec ledger closed.
-- **Commits:** 9507eaa75 feat(screamingface-engine): refuse an inspect Task that declares more than one epoch; the docs-close commit after it.
+- **Actual files:** as planned. This PR closes nothing: the mirror and ticket close in #1307.
+- **Commits:** see the PR.
 - **Gates:** `run_gates.py screamingface-engine` ALL GATES GREEN (append-only check, ruff check, ruff format, pyright, layering, full pytest with coverage ≥ 80%); the 4 new tests green through the real import child.
 - **Deviations:** none. Owner-verify: none.

@@ -1,7 +1,7 @@
 # pyright: reportMissingImports=false
 # WHY file-level: this module imports the `inspect` extra's packages, absent in the
 # default (extra-less) install the typecheck gate runs against.
-"""The importer refuses a Task that asks each Sample several times (OME-1458, PR 2 of 2).
+"""The importer refuses a Task that asks each Sample several times (OME-1458, PR 2 of 7).
 
 FEATURE: several Attempts per Case. An inspect Task may declare ``epochs=N``: run every
 Sample N times and fold the N scores with a reducer (MBPP: 5 epochs, ``pass_at_1``;
