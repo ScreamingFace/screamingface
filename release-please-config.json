@@ -32,14 +32,6 @@
       "include-component-in-tag": true,
       "version-file": "packages/url4/pyproject.toml"
     },
-    "packages/screamingface": {
-      "release-type": "python",
-      "package-name": "screamingface",
-      "component": "screamingface",
-      "tag-separator": "-",
-      "include-component-in-tag": true,
-      "version-file": "packages/screamingface/pyproject.toml"
-    },
     "apps/screamingface-engine": {
       "release-type": "python",
       "package-name": "screamingface-engine",
