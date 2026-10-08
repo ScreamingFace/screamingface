@@ -104,6 +104,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
+    capture: bool = False,
 ) -> Report: ...
 
 
@@ -116,6 +117,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
+    capture: bool = False,
 ) -> Report: ...
 
 
@@ -127,6 +129,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
+    capture: bool = False,
 ) -> Report:
     """Evaluate Recipes or a complete URL4 through the lazy default Client.
 
@@ -148,6 +151,7 @@ def evaluate(
             on_event=on_event,
             progress=progress,
             answer_seed=answer_seed,
+            capture=capture,
         )
     if benchmark is None:
         raise TypeError("benchmark is required when evaluating Recipes")
@@ -158,11 +162,12 @@ def evaluate(
         on_event=on_event,
         progress=progress,
         answer_seed=answer_seed,
+        capture=capture,
     )
 
 
 def reproduce(score: LeaderboardScore | UUID | str, *, record: bool = True) -> Reproduction:
-    """Reproduce a submitted score from its cache version through the lazy default Client."""
+    """Reproduce a submitted score from its frozen copy through the lazy default Client."""
 
     return default_client().reproduce(score, record=record)
 

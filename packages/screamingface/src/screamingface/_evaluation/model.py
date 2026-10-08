@@ -52,9 +52,12 @@ class Candidate:
     # already receives, so the run-transport protocol (and every fake implementing it)
     # never widens. None = unseeded, the default for every compiled Candidate.
     answer_seed: int | None
-    # FEATURE (OME-1307, K3): the cache revision a REPLAY run answers from, carried the same way:
-    # only `reproduce` sets it, and the transport sends it as `X-Cache-Replay`. None = a normal run.
-    cache_replay: str | None
+    # FEATURE (OME-1307): the frozen-copy mode of the run, carried the same way. `capture` is the
+    # caller's `capture=True` (sent as `X-Capture: true`); `replay_frozen_copy` is the copy a REPLAY
+    # run answers from (only `reproduce` sets it; sent as `X-Replay-Frozen-Copy`). Both default to
+    # a normal run, and they are never set together.
+    capture: bool
+    replay_frozen_copy: str | None
 
     def __init__(self) -> NoReturn:
         raise TypeError("Candidate values are derived internally; they are not constructed")
@@ -155,7 +158,8 @@ def _compiled_candidate(
         _candidate_parameter_assignments(parameter_assignments, operation_ids),
     )
     object.__setattr__(candidate, "answer_seed", None)
-    object.__setattr__(candidate, "cache_replay", None)
+    object.__setattr__(candidate, "capture", False)
+    object.__setattr__(candidate, "replay_frozen_copy", None)
     return candidate
 
 
@@ -176,13 +180,18 @@ def _stamped(candidate: Candidate, **changes: object) -> Candidate:
     """Copy one compiled Candidate with some of its fields replaced.
 
     INVARIANT: every field is copied by iterating the dataclass, so a field added to `Candidate`
-    can never be silently dropped by a stamp (the answer seed and the replay label are stamped
-    independently, in either order).
+    can never be silently dropped by a stamp (the answer seed, the capture flag and the replay copy
+    are stamped independently, in any order).
+
+    INVARIANT (OME-1307): `capture` and `replay_frozen_copy` are mutually exclusive, so no stamp can
+    produce a Candidate that asks the Engine for both.
     """
     stamped = object.__new__(Candidate)
     for field in fields(Candidate):
         value = changes[field.name] if field.name in changes else getattr(candidate, field.name)
         object.__setattr__(stamped, field.name, value)
+    if stamped.capture and stamped.replay_frozen_copy is not None:
+        raise ValueError("capture and a frozen copy replay are mutually exclusive")
     return stamped
 
 
@@ -191,9 +200,14 @@ def _with_answer_seed(candidate: Candidate, answer_seed: int) -> Candidate:
     return _stamped(candidate, answer_seed=answer_seed)
 
 
-def _with_cache_replay(candidate: Candidate, cache_replay: str) -> Candidate:
-    """Copy one compiled Candidate with the cache revision it must replay from stamped on."""
-    return _stamped(candidate, cache_replay=cache_replay)
+def _with_capture(candidate: Candidate) -> Candidate:
+    """Copy one compiled Candidate with the run's request to capture a frozen copy stamped on."""
+    return _stamped(candidate, capture=True)
+
+
+def _with_replay_frozen_copy(candidate: Candidate, frozen_copy_id: str) -> Candidate:
+    """Copy one compiled Candidate with the frozen copy it must replay from stamped on."""
+    return _stamped(candidate, replay_frozen_copy=frozen_copy_id)
 
 
 def _candidate_members(

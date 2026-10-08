@@ -215,6 +215,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = False,
     ) -> Report: ...
 
     @overload
@@ -227,6 +228,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = False,
     ) -> Report: ...
 
     def evaluate(
@@ -238,8 +240,13 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = False,
     ) -> Report:
-        """Evaluate Recipes, or replay one complete evaluation URL4 unchanged."""
+        """Evaluate Recipes, or replay one complete evaluation URL4 unchanged.
+
+        `capture=True` asks the Engine to store every model and web-tool result of each run in a
+        frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
+        """
 
         from screamingface._evaluation.runner import evaluate_sync
         from screamingface._evaluation.url4 import evaluate_url4_sync
@@ -256,6 +263,7 @@ class Client:
                 on_event,
                 progress,
                 answer_seed=selected_seed,
+                capture=capture,
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
@@ -270,6 +278,7 @@ class Client:
             on_event,
             progress,
             answer_seed=selected_seed,
+            capture=capture,
         )
 
     def reproduce(
@@ -278,10 +287,10 @@ class Client:
         *,
         record: bool = True,
     ) -> Reproduction:
-        """Run a submitted score again from its cache version and judge the replay.
+        """Run a submitted score again from its frozen copy and judge the replay.
 
         Returns `exact` when the replay gives the stored score. An exact replay is recorded on the
-        Scoreboard unless `record=False`. A score with no complete cache version starts no run.
+        Scoreboard unless `record=False`. A score with no complete frozen copy starts no run.
         """
 
         from screamingface._reproduction import reproduce_sync
@@ -568,6 +577,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = False,
     ) -> Report: ...
 
     @overload
@@ -580,6 +590,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = False,
     ) -> Report: ...
 
     async def evaluate(
@@ -591,6 +602,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = False,
     ) -> Report:
         """Asynchronously evaluate Recipes, or replay one complete evaluation URL4."""
 
@@ -608,6 +620,7 @@ class AsyncClient:
                 on_event,
                 progress,
                 answer_seed=selected_seed,
+                capture=capture,
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
@@ -622,6 +635,7 @@ class AsyncClient:
             on_event,
             progress,
             answer_seed=selected_seed,
+            capture=capture,
         )
 
     async def reproduce(
@@ -630,7 +644,7 @@ class AsyncClient:
         *,
         record: bool = True,
     ) -> Reproduction:
-        """Asynchronously run a submitted score again from its cache version."""
+        """Asynchronously run a submitted score again from its frozen copy."""
 
         from screamingface._reproduction import reproduce_async
 

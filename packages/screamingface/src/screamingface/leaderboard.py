@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from screamingface._immutable_json import freeze_mapping
-from screamingface._report_primitives import reproducible_status
+from screamingface._report_primitives import capture_status_value
 from screamingface.url4 import Url4
 
 
@@ -145,10 +145,10 @@ class LeaderboardScore:
     # FEATURE: OME-1307 — absent on a board that predates the field; decoded as None.
     paper_url: str | None = None
     metadata_updated_at: datetime | None = None
-    # FEATURE: OME-1307 (K8) — the cache version of the run and its reproductions. An older board
-    # leaves them absent: None, and a count of 0. A null `reproducible` means "unknown".
-    cache_revision: str | None = None
-    reproducible: Literal["complete", "partial"] | None = None
+    # FEATURE: OME-1307 — the frozen copy of the run and its reproductions. An older board leaves
+    # them absent: None, and a count of 0. A null `capture_status` means "unknown".
+    frozen_copy_id: str | None = None
+    capture_status: Literal["complete", "partial"] | None = None
     answer_seed: int | None = None
     reproduction_count: int = 0
     last_reproduced_at: datetime | None = None
@@ -177,7 +177,7 @@ class LeaderboardScore:
             "client_platform",
             "scoreboard_url",
             "paper_url",
-            "cache_revision",
+            "frozen_copy_id",
             "benchmark_revision",
         )
         for name in optional_fields:
@@ -388,9 +388,9 @@ def _optional_aware_datetime(value: object, label: str) -> None:
 
 
 def _reproduction_fields(score: LeaderboardScore) -> None:
-    """Validate the OME-1307 cache version fields (K8); the text ones go through the loop above."""
+    """Validate the OME-1307 frozen copy fields; the text ones go through the loop above."""
     _optional_aware_datetime(score.last_reproduced_at, "Leaderboard score last_reproduced_at")
-    reproducible_status(score.reproducible)
+    capture_status_value(score.capture_status)
     if score.answer_seed is not None and (
         isinstance(score.answer_seed, bool) or not isinstance(score.answer_seed, int)
     ):

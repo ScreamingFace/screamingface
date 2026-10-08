@@ -15,7 +15,7 @@ from typing import Any, Literal, cast
 from screamingface import events
 from screamingface._client_provenance import valid_client_version
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
-from screamingface._report_primitives import reproducible_status
+from screamingface._report_primitives import capture_status_value
 from screamingface.errors import ExecutionError
 from screamingface.report import Usage as AccountingUsage
 
@@ -321,9 +321,9 @@ class _RunState:
                 cache_saved_cost_archive_usd=saved_archive,
                 cache_hits=cache_hits,
                 cache_unpriced_hits=unpriced,
-                cache_revision=None if summary is None else summary.revision,
-                reproducible=None if summary is None else summary.reproducible,
-                cache_replay=None if summary is None else summary.replay,
+                frozen_copy_id=None if summary is None else summary.frozen_copy_id,
+                capture_status=None if summary is None else summary.capture_status,
+                capture_replay=None if summary is None else summary.capture_replay,
                 artifact=self._result[2],
                 client_version=None if self._version_conflict else self._client_version,
             ),
@@ -340,11 +340,12 @@ _REPORTED_HITS = "cache.saved_cost.reported_hits"
 _ARCHIVE_HITS = "cache.saved_cost.archive_hits"
 _SAVED_COST_USD = "cache.saved_cost_usd"
 _SAVED_COST_ARCHIVE_USD = "cache.saved_cost_archive_usd"
-# FEATURE (OME-1307): the cache version of the run (`replay_outcomes.CACHE_REVISION`,
-# `CACHE_REPRODUCIBLE`, and `cache.replay` for a run that honoured `X-Cache-Replay`).
-_CACHE_REVISION = "cache.revision"
-_CACHE_REPRODUCIBLE = "cache.reproducible"
-_CACHE_REPLAY = "cache.replay"
+# FEATURE (OME-1307): the frozen copy of the run (`capture_outcomes.CaptureTally.attributes`:
+# `capture.frozen_copy_id` and `capture.status` of a capture run, `capture.replay` of a run that
+# honoured `X-Replay-Frozen-Copy`). They ride on the same summary line as the cache tally.
+_CAPTURE_FROZEN_COPY_ID = "capture.frozen_copy_id"
+_CAPTURE_STATUS = "capture.status"
+_CAPTURE_REPLAY = "capture.replay"
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,9 +358,9 @@ class _CacheSummary:
     unpriced_hits: int | None
     saved_cost_usd: Decimal | None
     saved_cost_archive_usd: Decimal | None
-    revision: str | None = None
-    reproducible: Literal["complete", "partial"] | None = None
-    replay: str | None = None
+    frozen_copy_id: str | None = None
+    capture_status: Literal["complete", "partial"] | None = None
+    capture_replay: str | None = None
 
     @classmethod
     def parse(cls, attributes: Mapping[str, object]) -> _CacheSummary:
@@ -373,9 +374,9 @@ class _CacheSummary:
             unpriced_hits=count(_UNPRICED_HITS),
             saved_cost_usd=_summary_amount(attributes, _SAVED_COST_USD),
             saved_cost_archive_usd=_summary_amount(attributes, _SAVED_COST_ARCHIVE_USD),
-            revision=_summary_label(attributes, _CACHE_REVISION),
-            reproducible=_summary_reproducible(attributes),
-            replay=_summary_label(attributes, _CACHE_REPLAY),
+            frozen_copy_id=_summary_label(attributes, _CAPTURE_FROZEN_COPY_ID),
+            capture_status=_summary_capture_status(attributes),
+            capture_replay=_summary_label(attributes, _CAPTURE_REPLAY),
         )
 
     def is_consistent(self) -> bool:
@@ -410,7 +411,7 @@ def _summary_amount(attributes: Mapping[str, object], key: str) -> Decimal | Non
 
 
 def _summary_label(attributes: Mapping[str, object], key: str) -> str | None:
-    """A summary's cache revision label, absent when the key is absent, or a refusal."""
+    """A summary's frozen copy id, absent when the key is absent, or a refusal."""
     if key not in attributes:
         return None
     value = attributes[key]
@@ -419,14 +420,14 @@ def _summary_label(attributes: Mapping[str, object], key: str) -> str | None:
     return value
 
 
-def _summary_reproducible(
+def _summary_capture_status(
     attributes: Mapping[str, object],
 ) -> Literal["complete", "partial"] | None:
     """`complete` or `partial`, absent when the key is absent (unknown), or a refusal."""
     try:
-        return reproducible_status(attributes.get(_CACHE_REPRODUCIBLE))
+        return capture_status_value(attributes.get(_CAPTURE_STATUS))
     except ValueError as exc:
-        raise ExecutionError(f"SF Engine cache summary {_CACHE_REPRODUCIBLE} is invalid") from exc
+        raise ExecutionError(f"SF Engine cache summary {_CAPTURE_STATUS} is invalid") from exc
 
 
 def _cache_hit_count(value: object, attribute: str = _CACHE_HITS) -> int:

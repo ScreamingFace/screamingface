@@ -1,12 +1,12 @@
 """B5 design-review round: realistic replay failures, the replay's own numbers, and the spine.
 
 FEATURE: OME-1307 — what `reproduce` does with the outputs a real Engine gives. The Engine writes
-its `cache.replay` statement only when the run touched the cache, so an all-miss replay, or a replay
-refused for an unknown label, may arrive with no summary at all. The replay failure codes in the
-result prove replay mode, so they decide the outcome before the statement is required.
-STORY: as someone who reproduces a score, a replay that missed the cache says which cases missed,
-and a run that never replayed is still refused. The one spine test runs submit, get_score and
-reproduce against a stub Engine that honours replay and a board that stores what it is sent.
+its `capture.replay` statement in the run summary, but a copy it refuses (unknown, not sealed) may
+fail the run with no summary at all. The replay failure codes in the result prove replay mode, so
+they decide the outcome before the statement is required.
+STORY: as someone who reproduces a score, a replay that missed the frozen copy says which cases
+missed, and a run that never replayed is still refused. The one spine test runs submit, get_score
+and reproduce against a stub Engine that honours replay and a board that stores what it is sent.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ import json
 from dataclasses import fields
 from http import HTTPStatus
 from typing import Any
-from uuid import UUID
 
 import httpx
 import pytest
@@ -23,7 +22,7 @@ from _isolation_engine import RunPlan, isolation_engine
 from test_client_run import REPLAY_URL4, _ReplayTransport
 from test_leaderboards import SCORE_ID, SCOREBOARD_URL, _score_response
 from test_reproduce import (
-    LABEL,
+    COPY,
     RUN_ID,
     _AsyncReplayer,
     _Board,
@@ -37,37 +36,37 @@ import screamingface as sf
 from screamingface import _reproduction
 from screamingface._engine.transport import AsyncUrl4CloudTransport
 from screamingface._evaluation.model import Candidate, _stamped, _with_answer_seed
-from screamingface._report_primitives import reproducible_status
+from screamingface._report_primitives import capture_status_value, is_declared_failure_code
 from screamingface.errors import ExecutionError
 
 # --- finding 1: replay failure codes prove replay mode ------------------------------------------
 
 
-def test_an_all_miss_replay_with_no_summary_is_cache_miss_with_its_case_ids() -> None:
-    # The Engine fails every call before a provider, and a run that touched no cache writes no
-    # summary, so `cache.replay` is absent. The miss codes still say it was a replay.
+def test_an_all_miss_replay_with_no_summary_is_frozen_copy_miss_with_its_case_ids() -> None:
+    # The Engine fails every call before a provider and may write no summary, so `capture.replay`
+    # is absent. The miss codes still say it was a replay.
     transport = _Replayer(
-        cases=((4, "replay_cache_miss"), (9, "replay_cache_miss")), score=None, honoured=False
+        cases=((4, "frozen_copy_miss"), (9, "frozen_copy_miss")), score=None, honoured=False
     )
     with _client(transport) as client:
         reproduction = client.reproduce(_score(total_questions=2))
 
-    assert (reproduction.outcome, reproduction.reason) == ("failed", "cache_miss")
+    assert (reproduction.outcome, reproduction.reason) == ("failed", "frozen_copy_miss")
     assert reproduction.missed_cases == (4, 9)
     assert reproduction.result is not None
 
 
-def test_an_unknown_cache_revision_with_no_summary_is_its_own_reason() -> None:
-    # K10: the Engine fails every case before the first chat call, so there is no summary either.
+def test_an_unavailable_copy_with_no_summary_is_its_own_reason() -> None:
+    # A copy that is unknown or not sealed fails every case before the first call.
     transport = _Replayer(
-        cases=((1, "unknown_cache_revision"), (2, "unknown_cache_revision")),
+        cases=((1, "frozen_copy_unavailable"), (2, "frozen_copy_unavailable")),
         score=None,
         honoured=False,
     )
     with _client(transport) as client:
         reproduction = client.reproduce(_score(total_questions=2))
 
-    assert (reproduction.outcome, reproduction.reason) == ("failed", "unknown_cache_revision")
+    assert (reproduction.outcome, reproduction.reason) == ("failed", "frozen_copy_unavailable")
     assert reproduction.missed_cases == ()
 
 
@@ -85,25 +84,25 @@ def test_a_candidate_level_replay_code_also_proves_replay_mode() -> None:
     transport = _Replayer(
         cases=((1, "provider_error"),),
         score=None,
-        failures=[_failure("unknown_cache_revision")],
+        failures=[_failure("frozen_copy_unavailable")],
         honoured=False,
     )
     with _client(transport) as client:
         reproduction = client.reproduce(_score())
 
-    assert (reproduction.outcome, reproduction.reason) == ("failed", "unknown_cache_revision")
+    assert (reproduction.outcome, reproduction.reason) == ("failed", "frozen_copy_unavailable")
 
 
 def test_the_url4_path_returns_a_replay_failure_and_refuses_a_plain_one() -> None:
     from screamingface._evaluation.url4 import evaluate_url4_sync
 
-    missed = _Replayer(cases=((1, "replay_cache_miss"),), score=None, honoured=False)
-    report = evaluate_url4_sync(missed, REPLAY_URL4, None, False, cache_replay=LABEL)
-    assert report.candidates[0].cases[0].failures[0].code == "replay_cache_miss"
+    missed = _Replayer(cases=((1, "frozen_copy_miss"),), score=None, honoured=False)
+    report = evaluate_url4_sync(missed, REPLAY_URL4, None, False, replay_frozen_copy=COPY)
+    assert report.candidates[0].cases[0].failures[0].code == "frozen_copy_miss"
 
     plain = _Replayer(honoured=False)
     with pytest.raises(ExecutionError) as raised:
-        evaluate_url4_sync(plain, REPLAY_URL4, None, False, cache_replay=LABEL)
+        evaluate_url4_sync(plain, REPLAY_URL4, None, False, replay_frozen_copy=COPY)
     assert raised.value.code == "replay_unsupported"
 
 
@@ -112,12 +111,15 @@ def test_a_wrong_statement_beside_replay_codes_still_classifies_by_the_codes() -
         def run(self, candidate: Any, on_event: object) -> Any:
             from dataclasses import replace
 
-            return replace(super().run(candidate, on_event), cache_replay="cr-ba9876543210")
+            return replace(
+                super().run(candidate, on_event),
+                capture_replay="5e2a9c47-1d3b-4f60-8a7e-9c1b2d3e4f50",
+            )
 
-    with _client(_Other(cases=((1, "replay_cache_miss"),), score=None)) as client:
+    with _client(_Other(cases=((1, "frozen_copy_miss"),), score=None)) as client:
         reproduction = client.reproduce(_score())
 
-    assert (reproduction.outcome, reproduction.reason) == ("failed", "cache_miss")
+    assert (reproduction.outcome, reproduction.reason) == ("failed", "frozen_copy_miss")
 
 
 @pytest.mark.asyncio
@@ -130,14 +132,14 @@ async def test_the_async_client_classifies_realistic_failures_the_same_way() -> 
             run_transport=transport,  # type: ignore[arg-type]
         )
 
-    miss = make(_AsyncReplayer(cases=((7, "replay_cache_miss"),), score=None, honoured=False))
+    miss = make(_AsyncReplayer(cases=((7, "frozen_copy_miss"),), score=None, honoured=False))
     async with miss:
         missed = await miss.reproduce(_score())
     plain = make(_AsyncReplayer(cases=((1, "provider_error"),), score=None, honoured=False))
     async with plain:
         unsupported = await plain.reproduce(_score())
 
-    assert (missed.reason, missed.missed_cases) == ("cache_miss", (7,))
+    assert (missed.reason, missed.missed_cases) == ("frozen_copy_miss", (7,))
     assert unsupported.reason == "replay_unsupported"
 
 
@@ -181,13 +183,13 @@ def test_a_score_without_a_benchmark_revision_is_unknown_and_starts_no_run() -> 
 def test_a_stamp_copies_every_candidate_field_and_changes_only_what_it_names() -> None:
     candidate = _with_answer_seed(_candidate(), 7)
 
-    stamped = _stamped(candidate, cache_replay=LABEL)
+    stamped = _stamped(candidate, replay_frozen_copy=COPY)
 
     for field in fields(Candidate):
-        expected = LABEL if field.name == "cache_replay" else getattr(candidate, field.name)
+        expected = COPY if field.name == "replay_frozen_copy" else getattr(candidate, field.name)
         assert getattr(stamped, field.name) == expected, field.name
     assert stamped.answer_seed == 7
-    assert candidate.cache_replay is None, "the original is not changed"
+    assert candidate.replay_frozen_copy is None, "the original is not changed"
 
 
 def _candidate() -> Candidate:
@@ -199,16 +201,16 @@ def _candidate() -> Candidate:
     return transport.candidate
 
 
-# --- finding 5: one narrowing of the reproducible status ----------------------------------------
+# --- finding 5: one narrowing of the capture status ----------------------------------------
 
 
-def test_the_reproducible_status_narrows_in_one_place() -> None:
-    assert reproducible_status(None) is None
-    assert reproducible_status("complete") == "complete"
-    assert reproducible_status("partial") == "partial"
+def test_the_capture_status_narrows_in_one_place() -> None:
+    assert capture_status_value(None) is None
+    assert capture_status_value("complete") == "complete"
+    assert capture_status_value("partial") == "partial"
     for bad in ("maybe", True, 1, ""):
-        with pytest.raises(ValueError, match="reproducible"):
-            reproducible_status(bad)
+        with pytest.raises(ValueError, match="capture_status"):
+            capture_status_value(bad)
 
 
 # --- finding 6: the score argument is checked ---------------------------------------------------
@@ -259,7 +261,7 @@ def test_a_long_client_version_is_dropped_from_the_record_and_kept_on_submit() -
                 run_id="r",
                 score=0.5,
                 total_questions=2,
-                cache_revision=LABEL,
+                frozen_copy_id=COPY,
                 client=info,
             )
         client.leaderboards.submit(_candidate_result())
@@ -335,7 +337,7 @@ async def test_the_async_transport_tells_when_the_stop_failed_too() -> None:
         try:
             with pytest.raises(ExecutionError) as raised:
                 await transport.run(
-                    _stamped(_candidate(), cache_replay=LABEL),
+                    _stamped(_candidate(), replay_frozen_copy=COPY),
                     None,
                 )
         finally:
@@ -377,7 +379,7 @@ class _StoringBoard:
         return {"reproduction_count": count} if count else {}
 
     def _submit(self, payload: dict[str, Any]) -> httpx.Response:
-        keys = ("cache_revision", "reproducible", "answer_seed")
+        keys = ("frozen_copy_id", "capture_status", "answer_seed")
         self.stored = {
             **_score_response(),
             "correct_questions": None,
@@ -396,7 +398,7 @@ class _StoringBoard:
     def _record(self, body: dict[str, Any]) -> httpx.Response:
         assert self.stored is not None
         exact = all(
-            body[key] == self.stored[key] for key in ("score", "total_questions", "cache_revision")
+            body[key] == self.stored[key] for key in ("score", "total_questions", "frozen_copy_id")
         )
         if not exact:
             return httpx.Response(422, json={"detail": {"code": "not_exact", "message": "x"}})
@@ -409,24 +411,27 @@ class _StoringBoard:
                 "reproduced_by": "reader@example.com",
                 "reproduced_at": "2026-10-07T09:00:00Z",
                 "run_id": body["run_id"],
-                "cache_revision": body["cache_revision"],
+                "frozen_copy_id": body["frozen_copy_id"],
                 "client_version": None,
             },
         )
 
 
-def test_submit_then_get_score_then_reproduce_is_exact_and_recorded() -> None:
+def _honouring_plan() -> RunPlan:
+    """A stub Engine run that captures into `COPY` and, on a replay start, honours it."""
     body = json.loads(_ReplayTransport().run(None, None).result_body or "")  # type: ignore[arg-type]
     summary = {
         "cache.hits": 0,
         "cache.misses": 1,
         "cache.bypasses": 0,
-        "cache.revision": LABEL,
-        "cache.reproducible": "complete",
+        "capture.frozen_copy_id": COPY,
+        "capture.status": "complete",
     }
-    plans = {
-        REPLAY_URL4: RunPlan(honour_replay=True, summary=summary, result_body=json.dumps(body))
-    }
+    return RunPlan(honour_replay=True, summary=summary, result_body=json.dumps(body))
+
+
+def test_submit_then_get_score_then_reproduce_is_exact_and_recorded() -> None:
+    plans = {REPLAY_URL4: _honouring_plan()}
     board = _StoringBoard()
     with isolation_engine(plans) as engine:
         client = sf.Client(
@@ -435,26 +440,34 @@ def test_submit_then_get_score_then_reproduce_is_exact_and_recorded() -> None:
             scoreboard_transport=httpx.MockTransport(board),
         )
         with client:
-            (result,) = client.evaluate(REPLAY_URL4, answer_seed=7, progress=False).candidates
+            (result,) = client.evaluate(
+                REPLAY_URL4, answer_seed=7, capture=True, progress=False
+            ).candidates
             submitted = client.leaderboards.submit(result)
             fetched = client.leaderboards.get_score(submitted.id)
             reproduction = client.reproduce(fetched)
             after = client.leaderboards.get_score(submitted.id)
 
-        labels = dict(engine.state.replay_labels)
+        copies = dict(engine.state.replay_copies)
+        captures = list(engine.state.capture_starts)
 
-    # The original run named its cache version and the board stored it.
-    assert (result.cache_revision, result.reproducible) == (LABEL, "complete")
+    # The original run asked to be captured, named its frozen copy, and the board stored it.
+    assert len(captures) == 1
+    assert (result.frozen_copy_id, result.capture_status) == (COPY, "complete")
     assert board.stored is not None
-    assert board.stored["cache_revision"] == LABEL
-    assert board.stored["answer_seed"] == 7
-    assert (fetched.cache_revision, fetched.answer_seed, fetched.reproduction_count) == (
-        LABEL,
+    stored = board.stored
+    assert (stored["frozen_copy_id"], stored["capture_status"], stored["answer_seed"]) == (
+        COPY,
+        "complete",
+        7,
+    )
+    assert (fetched.frozen_copy_id, fetched.answer_seed, fetched.reproduction_count) == (
+        COPY,
         7,
         0,
     )
-    # The reproduction was a replay: it started once with the label, and the first run did not.
-    assert list(labels.values()) == [LABEL]
+    # The reproduction was a replay: it started once with the copy id, and the first run did not.
+    assert list(copies.values()) == [COPY]
     assert (reproduction.outcome, reproduction.reason) == ("exact", None)
     assert (reproduction.recorded, reproduction.record_error) == (True, None)
     # The board stored the replay's own run, and now counts it.
@@ -462,4 +475,65 @@ def test_submit_then_get_score_then_reproduce_is_exact_and_recorded() -> None:
     assert reproduction.result is not None
     assert recorded["run_id"] == reproduction.result.run_id != result.run_id
     assert after.reproduction_count == 1
-    assert UUID(str(after.id)) == UUID(SCORE_ID)
+
+
+# --- the two frozen-copy codes (design §5.3, §7) ------------------------------------------------
+
+
+@pytest.mark.parametrize("code", ["frozen_copy_miss", "frozen_copy_unavailable"])
+def test_the_replay_codes_are_declared_in_the_sdk_mirror(code: str) -> None:
+    assert is_declared_failure_code(code)
+
+
+@pytest.mark.parametrize("old", ["replay_cache_miss", "unknown_cache_revision"])
+def test_the_cache_revision_codes_no_longer_exist(old: str) -> None:
+    assert not is_declared_failure_code(old)
+
+
+def test_a_miss_outranks_an_unavailable_copy_in_the_check_order() -> None:
+    result = _Replayer(cases=((3, "frozen_copy_miss"), (5, "frozen_copy_unavailable")), score=None)
+    with _client(result) as client:
+        reproduction = client.reproduce(_score(total_questions=2))
+
+    assert (reproduction.outcome, reproduction.reason) == ("failed", "frozen_copy_miss")
+    assert reproduction.missed_cases == (3,)
+
+
+def test_an_unavailable_copy_outranks_a_run_failure_and_lists_no_missed_cases() -> None:
+    transport = _Replayer(
+        cases=((1, "frozen_copy_unavailable"),),
+        score=None,
+        failures=[_failure("candidate_failed")],
+    )
+    with _client(transport) as client:
+        reproduction = client.reproduce(_score())
+
+    assert (reproduction.outcome, reproduction.reason) == ("failed", "frozen_copy_unavailable")
+    assert reproduction.missed_cases == ()
+    assert reproduction.recorded is False
+
+
+def test_a_complete_score_without_a_copy_id_starts_no_run() -> None:
+    transport = _Replayer()
+    with _client(transport) as client:
+        reproduction = client.reproduce(_score(capture_status="complete", frozen_copy_id=None))
+
+    assert reproduction == sf.Reproduction(outcome="not_reproducible", reason="unknown")
+    assert transport.runs == 0
+
+
+def test_a_replay_start_sends_the_copy_id_header_and_no_capture_header() -> None:
+    # The real transport against a stub Engine that honours replay: `X-Replay-Frozen-Copy` goes
+    # out, `X-Capture` never does (the Engine refuses both together).
+    plans = {REPLAY_URL4: _honouring_plan()}
+    with isolation_engine(plans) as engine:
+        client = sf.Client(
+            engine_url=engine.url,
+            scoreboard_url=SCOREBOARD_URL,
+            scoreboard_transport=httpx.MockTransport(_Board()),
+        )
+        with client:
+            client.reproduce(_score(), record=False)
+
+        assert list(engine.state.replay_copies.values()) == [COPY]
+        assert engine.state.capture_starts == []

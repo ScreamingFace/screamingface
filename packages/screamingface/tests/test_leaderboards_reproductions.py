@@ -1,4 +1,4 @@
-"""Record one exact reproduction on the board (E14 B5, K7, R3, R16, R18).
+"""Record one exact reproduction on the board (E14 B5, design §6, §7).
 
 FEATURE: OME-1307 — `Leaderboards._record_reproduction` posts the numbers of an exact replay to
 `POST /v1/scores/{id}/reproductions`. It is internal: `reproduce` calls it and turns any error into
@@ -7,7 +7,7 @@ half-recorded state.
 STORY: as someone who reproduced a score, the board stores my replay once, and a refusal tells me
 why in the board's own words.
 
-The board half (B4) is faked with `httpx.MockTransport` against contract K7 and the B4 route.
+The board half (B4) is faked with `httpx.MockTransport` against the B4 route (`frozen_copy_id`).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from test_leaderboards import SCORE_ID, _async_client, _sync_client
 import screamingface as sf
 from screamingface._scoreboard.leaderboards import _client_info
 
-LABEL = "cr-0123456789ab"
+COPY = "0b1f6d3a-5c0e-4a8e-9a3f-2f6f8f4c7d11"
 RUN_ID = "replay-run-1"
 CLIENT = {"name": "screamingface", "version": "0.2.0", "platform": "darwin"}
 RECORDED = {
@@ -31,7 +31,7 @@ RECORDED = {
     "reproduced_by": "reader@example.com",
     "reproduced_at": "2026-10-07T09:00:00Z",
     "run_id": RUN_ID,
-    "cache_revision": LABEL,
+    "frozen_copy_id": COPY,
     "client_version": "0.2.0",
 }
 
@@ -41,7 +41,7 @@ def _arguments() -> dict[str, Any]:
         "run_id": RUN_ID,
         "score": 0.5,
         "total_questions": 2,
-        "cache_revision": LABEL,
+        "frozen_copy_id": COPY,
         "client": CLIENT,
     }
 
@@ -61,13 +61,13 @@ def test_the_record_posts_the_numbers_of_the_replay() -> None:
         "run_id": RUN_ID,
         "score": 0.5,
         "total_questions": 2,
-        "cache_revision": LABEL,
+        "frozen_copy_id": COPY,
         "client": CLIENT,
     }
 
 
 def test_a_repeated_run_id_answers_200_and_is_not_an_error() -> None:
-    # R18: the board answers 200 with the first row for the same run_id.
+    # The board answers 200 with the first row for the same run_id.
     with _sync_client(lambda _: httpx.Response(200, json=RECORDED)) as client:
         client.leaderboards._record_reproduction(SCORE_ID, **_arguments())
 
@@ -79,9 +79,9 @@ def test_a_repeated_run_id_answers_200_and_is_not_an_error() -> None:
         (403, {"detail": "untrusted peer"}, "reproduction_forbidden", "untrusted peer"),
         (
             409,
-            {"detail": {"code": "not_reproducible", "message": "not in the cache"}},
+            {"detail": {"code": "not_reproducible", "message": "not complete"}},
             "reproduction_conflict",
-            "not_reproducible: not in the cache",
+            "not_reproducible: not complete",
         ),
         (
             409,
