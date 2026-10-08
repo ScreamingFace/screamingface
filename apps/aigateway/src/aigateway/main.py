@@ -63,6 +63,7 @@ from .routes import (
     auth,
     auth_session,
     chat,
+    frozen_copies,
     health,
     model_admission,
     model_parameters,
@@ -490,6 +491,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(model_parameters.router)
     app.include_router(tavily_retrieval_cache.router)
     app.include_router(chat.router)
+    app.include_router(frozen_copies.router)
 
     logger.info("aigateway ready (port=%d, providers=%d)", settings.port, len(registry.all()))
     return app
