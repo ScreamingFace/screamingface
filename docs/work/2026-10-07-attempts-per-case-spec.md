@@ -6,13 +6,14 @@ started: 2026-10-07
 finished:
 ---
 
-# attempts-per-case-spec — decide how a Benchmark with several Attempts per Case is scored (PR 1 of 2)
+# attempts-per-case-spec — decide how a Benchmark with several Attempts per Case is scored (PR 1 of 6)
 
 ## Intent
 
 Write the decision OME-1458 asks for: how a Benchmark that allows several Attempts per question
 (ARC-AGI-2's two Attempts, ZeroBench's pass@5) is declared, run, graded and reported, so its
-score is the number its authors publish. The decision is the spec; the build is a new ticket.
+score is the number its authors publish. The decision is the spec; the build is PRs 3 to 6 on
+the same ticket.
 
 ## Planned changes
 
@@ -31,7 +32,8 @@ score is the number its authors publish. The decision is the spec; the build is 
 ## Acceptance
 
 - The owner approves the spec in plain words.
-- PR 2 of 2 (the importer refuses `epochs` > 1) follows and closes OME-1458.
+- PR 2 of 6 (the importer refuses `epochs` > 1) follows; the build is PRs 3 to 6 on the same
+  ticket, and PR 6 closes OME-1458.
 
 ## Outcome (fill at the end — required before COMMIT)
 

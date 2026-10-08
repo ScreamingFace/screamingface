@@ -2,13 +2,14 @@
 
 - Status: draft for owner review. Decisions D1–D14 approved by the owner on OME-1458,
   2026-10-07 (§1); D5 and D7 were revised after reading the code and re-approved the same day;
-  D5 was extended on 2026-10-08 so an unseeded rerun replays every Attempt (OME-1520).
+  D5 was extended on 2026-10-08 so an unseeded rerun replays every Attempt (PR 4), and D14
+  was changed the same day: the build rides OME-1458 as one stack.
 - Component: `apps/screamingface-engine` (the grading spine and `screamingface_engine_inspect`)
   and `packages/screamingface` (decoder and Report).
 - Ticket: OME-1458. Parent epic: OME-1299. Unblocks OME-1476 (ARC-AGI-2).
 - Ledger: `docs/work/2026-10-07-attempts-per-case-spec.md`.
-- Delivery: this docs PR and an importer refusal close OME-1458; the build is OME-1516 (SDK),
-  OME-1520 (AI gateway) and OME-1515 (Engine) (§7).
+- Delivery: one stack of six PRs on OME-1458: this spec, the importer refusal, then the build in
+  the SDK, the AI gateway and the Engine (§7). The last PR closes the ticket.
 
 ## TLDR
 
@@ -51,7 +52,7 @@ that declares no Attempts; its Case Results, Report and Benchmark Revision stay 
 | D11 | The importer maps inspect's any-match reducers to `attempts=N` and refuses every other reducer by name. | — |
 | D12 | Until the build lands, the importer refuses every `epochs` > 1 by name (OME-1458, PR 2). | — |
 | D13 | The build is proven by a test-only Benchmark declaring two Attempts; ARC-AGI-2 proves it for real in OME-1476. | — |
-| D14 | OME-1458 closes when this spec and the refusal merge; the build is OME-1516 (SDK) and OME-1515 (Engine), one ticket per landing. | — |
+| D14 | **Revised.** The decision and the build ride one ticket, OME-1458, as one stack of six PRs across the SDK, the AI gateway and the Engine (owner, 2026-10-08, the OME-1268 precedent). | — |
 
 ## 2. Design
 
@@ -146,14 +147,14 @@ stays exact. So Attempt i ≥ 2 changes its request, and only in a way the Candi
 
 | The run declared | Attempt 1 | Attempt i ≥ 2 | Why |
 |---|---|---|---|
-| no seed (the normal case, and every Anthropic model) | today's request, unchanged | no seed; the cache control carries the Attempt number, `cache: {"attempt": i}` (OME-1520) | the gateway keys the stored reply on the request plus the Attempt number and strips it before the provider, so Attempt i is asked afresh once and replayed on every rerun; a seed is not needed, and would refuse every Anthropic model (its Messages API has no `seed`) |
+| no seed (the normal case, and every Anthropic model) | today's request, unchanged | no seed; the cache control carries the Attempt number, `cache: {"attempt": i}` (PR 4) | the gateway keys the stored reply on the request plus the Attempt number and strips it before the provider, so Attempt i is asked afresh once and replayed on every rerun; a seed is not needed, and would refuse every Anthropic model (its Messages API has no `seed`) |
 | an answer seed `s`, chosen by the researcher | today's request, seed `s` | seed derived from `(s, i)`, cached as normal | the run stamps `s` on every answer, and a provider that honours seeds returns the same answer for the same seed, so Attempt 2 needs its own; every Candidate Model already supports `seed` (the SDK refuses a seeded run otherwise), and a distinct seed is a distinct cache entry, so a rerun replays every Attempt |
 
 **Rerun = replay holds for every Benchmark.** In both rows each Attempt has its own stored reply,
 the same one on every run, so a second run of an Attempts Benchmark costs nothing and returns the
 same answers, like any other rerun.
 
-**A gateway older than OME-1520 is still correct.** Its cache control accepts only `use-cache`
+**A gateway without PR 4 is still correct.** Its cache control accepts only `use-cache`
 and bypasses the cache on any other field, so an unseeded Attempt i ≥ 2 is asked afresh, just not
 stored: the free rerun waits for the gateway, the score never does.
 
@@ -291,7 +292,7 @@ which gives it its own entry the same way (§2.3).
 | F1 | An inspect Task declares `epochs` > 1, before the build lands | ② | the importer | refused by name (D12) |
 | F2 | An inspect Task declares epochs with a reducer we don't run (`mean`, `pass_at(k < N)`, a custom one) | ② | the importer | refused naming the reducer |
 | F3 | Attempt 2 would be served Attempt 1's stored reply | ⑤ ⑥ | nobody, which is why §2.3 exists | prevented: Attempt 2's request always keys differently (a derived seed, or the Attempt number in the cache control) |
-| F9 | The Engine sends the Attempt number to a gateway older than OME-1520 | ⑥ | nobody | that gateway bypasses the cache on the unknown field: Attempts are fresh and graded correctly, only the free rerun is lost until it deploys |
+| F9 | The Engine sends the Attempt number to a gateway without PR 4 | ⑥ | nobody | that gateway bypasses the cache on the unknown field: Attempts are fresh and graded correctly, only the free rerun is lost until it deploys |
 | F4 | One Attempt's Candidate Invocation or Grading fails, another is graded | ③ ⑧ | the Report | the Case is graded from the graded Attempts; the failed one keeps its failure in `attempts`; the Report says "1 of 2 Attempts failed" |
 | F5 | Every Attempt of a Case fails | ⑧ | the Aggregation | the Case has no Case Grade; the Benchmark's Failure Policy applies, as today |
 | F6 | An Attempt's Check is graded neither 0 nor 1 | ⑧ | the per-Case envelope | the Case fails as `attempt_grade_not_pass_fail`; no guessed fold |
@@ -382,7 +383,7 @@ The arrows are the order a Case passes through the code, not imports. The stages
 4. Attempt 2's request keys differently from Attempt 1's in an unseeded run (the Attempt number in
    the cache control) and in a seeded run (a different seed), pinned by tests on the request the
    Engine sends; a rerun of an unseeded Attempts Benchmark is served every Attempt from the
-   cache, pinned by a gateway test (OME-1520).
+   cache, pinned by a gateway test (PR 4).
 5. The importer maps `max`, `at_least(1)` and `pass_at(N)` to `attempts=N` and refuses every
    other reducer by name; before the build, it refuses every `epochs` > 1 (OME-1458, PR 2).
 6. A non-0/1 Check under Attempts fails the Case as `attempt_grade_not_pass_fail`, pinned on both
@@ -392,16 +393,16 @@ The arrows are the order a Case passes through the code, not imports. The stages
 
 | PR | Ticket | Lands in | Carries |
 |---|---|---|---|
-| this one | OME-1458, PR 1 of 2 | `docs/` | this spec, the `Attempt` glossary entry, ledger and mirror |
-| next | OME-1458, PR 2 of 2 | `apps/screamingface-engine` | ② refuses every `epochs` > 1 by name (F1) |
-| build 1 | OME-1516 | `packages/screamingface` | ⑪ decoder accepts `attempts`, the Report line, the new failure code; released first (F8) |
-| build 2 | OME-1520 | `apps/aigateway` | ⑥ the cache control accepts the Attempt number, keys on it, strips it |
-| build 3 | OME-1515 | `apps/screamingface-engine` | ① ③ ④ ⑤ ⑧ ⑨: the declaration, the Attempt loop, Attempt 2's request, the fold, the wire field, the test-only Benchmark |
-| build 4 | OME-1515 | `apps/screamingface-engine` | ② maps any-match epochs to `attempts=N` and narrows F1 to F2 |
+| 1 (this one) | OME-1458, PR 1 of 6 | `docs/` | this spec, the `Attempt` glossary entry, ledger and mirror |
+| 2 | OME-1458, PR 2 of 6 | `apps/screamingface-engine` | ② refuses every `epochs` > 1 by name (F1) |
+| 3 | OME-1458, PR 3 of 6 | `packages/screamingface` | ⑪ decoder accepts `attempts`, the Report line, the new failure code; released first (F8) |
+| 4 | OME-1458, PR 4 of 6 | `apps/aigateway` | ⑥ the cache control accepts the Attempt number, keys on it, strips it |
+| 5 | OME-1458, PR 5 of 6 | `apps/screamingface-engine` | ① ③ ④ ⑤ ⑧ ⑨: the declaration, the Attempt loop, Attempt 2's request, the fold, the wire field, the test-only Benchmark |
+| 6 | OME-1458, PR 6 of 6 | `apps/screamingface-engine` | ② maps any-match epochs to `attempts=N` and narrows F1 to F2; closes OME-1458 and its docs |
 
-Deploy order: the SDK from build 1 releases and the gateway from build 2 deploys before the
-Engine from build 3, the order OME-1268 used. Only the SDK order is required for correctness
-(F8); the gateway order only decides when reruns become free (F9). Build 3 may split in two if
+Deploy order: the SDK from PR 3 releases and the gateway from PR 4 deploys before the Engine
+from PR 5, the order OME-1268 used. Only the SDK order is required for correctness (F8); the
+gateway order only decides when reruns become free (F9). PR 5 may split in two if
 it passes the ~500-line review cap; the seam is ⑤ (Attempt 2's request) versus ⑧ ⑨ (the fold
 and the wire).
 
