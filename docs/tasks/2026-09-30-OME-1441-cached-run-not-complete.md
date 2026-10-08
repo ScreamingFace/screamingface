@@ -1,13 +1,13 @@
 ---
 id: OME-1441
 linear_url: https://linear.app/openmined/issue/OME-1441/submit-a-run-with-any-cache-hit-as-a-partial-cost-with-no-amount
-status: in-progress
+status: done
 type: task
 priority: high
 labels: [client-sf, agentic, autonomous]
 parent: OME-1251
 created: 2026-09-30
-closed:
+closed: 2026-10-01
 ---
 
 # Submit a run with any cache hit as a partial cost with no amount
@@ -21,3 +21,5 @@ Spec: `docs/spec/2026-09-30-cached-run-not-complete.md`.
 
 - 2026-09-30: filed under `OME-1251` at PR-open. Built, all screamingface gates green.
 - Not solved here: older SDKs and non-SDK clients (board-side follow-up), stored rows (`OME-1384`).
+- 2026-10-01: merged via #1187; closed in Linear. Narrowed by `OME-1463` (D7): a cached run whose
+  every hit is priced is `complete` again.

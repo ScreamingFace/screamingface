@@ -21,4 +21,10 @@ Options: leave, flag and keep off the frontier, hide from cost surfaces, or ask 
 First step: count the affected rows on dev.
 
 - 2026-09-25: filed.
-- 2026-10-05: decided and done. The 7 dev `draco-3pass` rows were deleted with `OME-1385`'s `delete_scores`, their unpriced cache entries were priced under `OME-1469` (owner-approved), and they were resubmitted as `complete` with spend plus both savings (D7). Closed in Linear.
+- 2026-10-05: resolved for the 7 dev `draco-3pass` rows (the only affected public rows). D7 on
+  `OME-1251` made archive-priced cache money publishable, so every unpriced cache entry the
+  recipes hit was re-measured and loaded as `archive_matched` (`OME-1469`, $135.09 on the team
+  key). The 7 rows were deleted with `scoreboard.delete_scores` and resubmitted from cached
+  reruns as `complete` with their full cost ($182.82 to $500.24). Four scores are unchanged;
+  `pareto_cross`, `best_open_source` and `pareto_lean` moved by under 0.01 because cases built on
+  a 2026-08-22 synthesis are now fully judged. Closed in Linear.
