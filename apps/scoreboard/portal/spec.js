@@ -65,20 +65,28 @@
       benchmarkId = P.requireParam("benchmark");
       specId = P.requireParam("spec");
     } catch (e) {
-      P.showError(statusNode, "Missing benchmark or spec. Return to the leaderboard.");
+      P.setStatus(statusNode, "error", "");
+      statusNode.appendChild(document.createTextNode("Missing benchmark or spec. "));
+      statusNode.appendChild(P.link(null, "index.html", "Return to the benchmark list."));
       return;
+    }
+
+    // The masthead and the breadcrumb name the same benchmark: set them together.
+    function setBenchmarkName(name) {
+      benchNode.textContent = name;
+      backLink.textContent = name;
+      backLink.hidden = false;
     }
 
     specIdNode.textContent = specId;
     backLink.setAttribute("href", "benchmark.html?id=" + encodeURIComponent(benchmarkId));
+    setBenchmarkName(benchmarkId);
     document.title = specId + " — screamingface";
 
     P.showLoading(statusNode, "Loading spec history…");
     contentNode.hidden = true;
 
-    resolveBenchmarkName(benchmarkId).then(function (name) {
-      benchNode.textContent = name;
-    });
+    resolveBenchmarkName(benchmarkId).then(setBenchmarkName);
 
     P.fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "/" + encodeURIComponent(specId) + "/history?limit=20").then(
       function (data) {
