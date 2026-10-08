@@ -1,7 +1,7 @@
 """The queue message codec (OME-1088): ONE encoding, through `job_env`.
 
 The message body is exactly the per-run env mapping the App writes onto a run — topic,
-expression, deadline, stream grace, validated traceparent, profile, identity headers,
+expression, deadline, stream grace, validated traceparent, identity headers,
 cache policy, extra models, io budget. Both sides render through `job_env`, so there is
 no second encoding to drift; these tests pin the codec against the inprocess adapter's
 rendering of the same contract.
@@ -54,9 +54,7 @@ def _inprocess_env(
         executor_factory=lambda env: _NeverExecutor(),
         extra_models=(lambda: extra_models) if extra_models is not None else None,
     )
-    return runner._env(  # noqa: SLF001
-        "topic-a", expression, 60, traceparent, None, identity, cache
-    )
+    return runner._env("topic-a", expression, 60, traceparent, identity, cache)  # noqa: SLF001
 
 
 def _codec_env(

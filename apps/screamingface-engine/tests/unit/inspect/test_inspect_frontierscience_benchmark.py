@@ -32,7 +32,7 @@ from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     build_case_grade,
 )
-from screamingface_engine_inspect.prepare import BENCHMARK_CASES  # noqa: E402
+from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES  # noqa: E402
 from screamingface_engine_inspect.single_shot import JudgeSpec  # noqa: E402
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
 from url4.peer.server import Request, Url4Node  # noqa: E402
@@ -65,8 +65,9 @@ def test_the_judge_is_declared_and_pinned() -> None:
         params=(("web_search", "false"), ("max_tokens", "4096")),
     )
     assert spec.scorer_kwargs["model"] == "screamingface/openrouter/openai/gpt-5.4"
-    assert BENCHMARK_CASES["frontierscience"].keep_sample_metadata is True
-    assert BENCHMARK_CASES["frontierscience"].shuffle_seed is not None
+    # OME-1460: a Task-replay declaration now; the same two facts.
+    assert TASK_REPLAY_CASES["frontierscience"].keep_sample_metadata is True
+    assert TASK_REPLAY_CASES["frontierscience"].shuffle_seed is not None
 
 
 def test_no_check_surface_until_the_check_cost_knob() -> None:
@@ -183,7 +184,7 @@ def test_the_benchmarks_revision_is_pinned() -> None:
     """The judged benchmark's benchmark identity, frozen — the published-revisions test
     covers the string-match benchmarks; this literal is FrontierScience's."""
 
-    assert BENCHMARK.benchmark.revision == "34155c32aec9841b"
+    assert BENCHMARK.benchmark.revision == "fb33b1e6a2cf0c12"
 
 
 @pytest.mark.asyncio

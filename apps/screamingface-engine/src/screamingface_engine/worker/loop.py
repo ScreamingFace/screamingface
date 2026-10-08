@@ -127,6 +127,7 @@ class Worker:
         spawn: Callable[..., Awaitable[_ChildProcess]] | None = None,
         warm_children: int = 0,
         reclaim: Callable[[str], Awaitable[None]] | None = None,
+        trim_retained: Callable[[str], Awaitable[None]] | None = None,
         control: _Control | None = None,
         pull_timeout_s: float = PULL_TIMEOUT_S,
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
@@ -215,6 +216,8 @@ class Worker:
             launcher=self._pool,
             # The pool's children leave their subject to the worker (RECLAIM_OWNER).
             reclaim=reclaim if self._pool is not None else None,
+            # Ungated: the supervisor only trims on its reclaim path, which `reclaim` gates.
+            trim_retained=trim_retained,
             memory_budget_bytes=memory_budget_bytes,
             io_capacity=io_capacity,
             draining=self._draining,
@@ -635,6 +638,7 @@ def run_worker(settings: Settings | None = None) -> None:
                 io_capacity=settings.worker_io_capacity,
                 memory_budget_bytes=settings.worker_memory_budget_bytes,
                 reclaim=publisher.delete_stream,
+                trim_retained=publisher.trim_retained,
                 warm_children=(
                     settings.run_queue_worker_slots
                     if settings.worker_warm_children is None

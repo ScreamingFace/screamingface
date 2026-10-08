@@ -4,10 +4,10 @@
 # the blob its stored `credential_locator` names, which the migration tool points at the blob the
 # legacy Profile already addresses; a new Connection keeps its UUID locator and addresses exactly
 # what it addresses today.
-# INVARIANT: the locator decides the credential NAME a strategy is built from — and, through the
-# plugin's `credential_service_for`, the blob — never the Connection id. A malformed locator falls
-# back to today's UUID-derived name, which addresses a blob unique to that Connection, so no other
-# pair's secret can ever be served through it.
+# INVARIANT: the locator decides the credential NAME a strategy is built from; the strategy then
+# declares the exact service/account slot it reads. A malformed locator falls back to today's
+# UUID-derived name, which addresses a blob unique to that Connection, so no other pair's secret can
+# ever be served through it.
 # AIDEV-NOTE: the address format `aigateway:<credential-provider>:<credential-name>` is owned by
 # each plugin's `credential_service_for` and mirrored by `core.oauth.store.credential_locator_for`;
 # the core never imports a plugin, so the format is inverted here from that same literal shape.
@@ -42,8 +42,8 @@ def credential_name_from_locator(
     fallback = credential_key_for(account_id, connection_id)
     if not isinstance(locator, Mapping):
         return fallback
-    # WHY: every strategy reads the `default` slot of its service; another slot cannot be honoured,
-    # and silently reading `default` instead would serve a blob the locator did not name.
+    # INVARIANT: the stored locator still names the canonical logical slot. A provider may map that
+    # credential name to a configurable physical account, but the locator cannot select it.
     if locator.get("account", DEFAULT_CREDENTIAL_ACCOUNT) != DEFAULT_CREDENTIAL_ACCOUNT:
         return fallback
     service = locator.get("service")
@@ -51,6 +51,33 @@ def credential_name_from_locator(
     if not isinstance(service, str) or not service.startswith(prefix):
         return fallback
     return service[len(prefix) :] or fallback
+
+
+def credential_blob_address(
+    app: Any,
+    plugin: Any,
+    provider: str,
+    connection: OAuthConnection,
+) -> tuple[str, str] | None:
+    """Return the service/account pair declared by this Connection's strategy."""
+    strategy = credential_strategy_for_connection(
+        app,
+        plugin,
+        provider,
+        connection,
+        account_id=str(connection.account_id),
+    )
+    if strategy is None:
+        return None
+    service = getattr(strategy, "credential_service", None)
+    account = getattr(strategy, "credential_account", None)
+    if not callable(service) or not callable(account):
+        return None
+    resolved_service = service()
+    resolved_account = account()
+    if not isinstance(resolved_service, str) or not isinstance(resolved_account, str):
+        return None
+    return resolved_service, resolved_account
 
 
 def credential_strategy_for_connection(
@@ -82,4 +109,8 @@ def credential_strategy_for_connection(
     )
 
 
-__all__ = ["credential_name_from_locator", "credential_strategy_for_connection"]
+__all__ = [
+    "credential_blob_address",
+    "credential_name_from_locator",
+    "credential_strategy_for_connection",
+]

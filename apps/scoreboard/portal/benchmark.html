@@ -21,11 +21,12 @@
 </head>
 <body>
   <div class="rail">
-    <span class="brand"><span class="m">😱</span> screamingface</span><span class="sep">/</span>
-    <nav class="crumbs"><a href="index.html">portal</a><a href="#" class="here">leaderboard</a></nav>
+    <a class="brand" href="index.html"><span class="m" aria-hidden="true">😱</span> screamingface</a><span class="sep" hidden>/</span>
+    <nav class="crumbs" hidden><a href="#" class="here" id="crumb-benchmark"></a></nav>
     <span class="spacer"></span>
     <nav class="rail-nav" aria-label="Site">
       <a class="rail-link" href="index.html#benchmarks">benchmarks</a>
+      <a class="rail-link" href="about.html">about</a>
       <a class="rail-link" href="https://github.com/ScreamingFace/screamingface" target="_blank" rel="noopener">github</a>
       <a class="rail-link" href="https://docs.screamingface.ai" target="_blank" rel="noopener">docs</a>
     </nav>
@@ -43,10 +44,7 @@
     <p class="lead" id="benchmark-desc"></p>
 
     <div class="note">
-      <span class="kicker">Read this first</span>
-      The top of this board is the best submitted result: the current SOTA. Every row keeps
-      its URL4 expression, so you can rerun any claim, score, or cost, before trusting it.
-    </div>
+      <span class="kicker">about</span> The leaderboard's top row is the current state of the art. Every submission carries its url4 expression, a complete recipe for the run, so any score here can be rerun, verified, and iterated on before you cite it.</div>
 
     <div id="leaderboard-summary" class="stats stats--two" aria-label="Leaderboard summary" hidden>
       <div class="s"><span class="k">Best score</span><div class="v gain" id="summary-best">—</div></div>
@@ -82,7 +80,6 @@
           <span class="pareto-chart-key"><span class="pareto-chart-key__leader" aria-hidden="true"></span>highest score</span>
           <span class="pareto-chart-key"><span class="pareto-chart-key__unpriced" aria-hidden="true"></span>cost n/a</span>
           <span id="pareto-chart-meta"></span>
-          <span>Frontier membership considers the full board; this chart plots only the submissions shown on this page.</span>
         </figcaption>
       </figure>
     </section>

@@ -1,0 +1,26 @@
+{
+  "issue": "OME-1502",
+  "branch": "OME-1502-client-prod-default-endpoints",
+  "approver": "Irina Bejan (owner)",
+  "date": "2026-10-06",
+  "scope": "assertion-only: the hosted default engine/leaderboard hosts move dev→prod; no test logic, structure, or coverage changed",
+  "reason": "Deliberate public-contract change under OME-1304 (E11 · production release): DEFAULT_ENGINE_URL/DEFAULT_SCOREBOARD_URL repoint from *.dev.screamingface.ai to the live prod hosts, so the tests and public_surface_snapshot.json that pin the old default hosts are updated in lockstep.",
+  "files": {
+    "packages/screamingface/tests/test_client_configuration.py": {
+      "base_blob": "60ead58d42a40bbb7532e070bea25484f97731ca",
+      "approved_blob": "d13541fd5866b9bda5141645a985c3c3426ce1c0"
+    },
+    "packages/screamingface/tests/test_public_surface.py": {
+      "base_blob": "b8d320469c6d85c5cbc6187cd83489690f29b662",
+      "approved_blob": "dcd448f96b8e0d706db574a2d59fb06b744a89d1"
+    },
+    "packages/screamingface/tests/test_default_client_local_discovery.py": {
+      "base_blob": "cceaf15c823318a186d6a6493fb81ed7366e313b",
+      "approved_blob": "5829c26d152c945d1224f9c7884b8b2f17c65954"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "f4a68640c0685f94f627440a4467371f4243f905",
+      "approved_blob": "563ccabc2c6051be302a93d9b46374483e8260fc"
+    }
+  }
+}

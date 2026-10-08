@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Final
 
 from .types import MAX_TOKEN_COUNT, UsageSource
+
+_MAPPER_HIDDEN_FIELDS: Final = frozenset(
+    {"api_key", "messages", "system", "headers", "extra_headers", "client", "metadata"}
+)
 
 
 def bounded_count(value: object) -> int | None:
@@ -17,6 +21,54 @@ def bounded_count(value: object) -> int | None:
 
 def mapping_or_none(value: object) -> Mapping[str, Any] | None:
     return value if isinstance(value, Mapping) else None
+
+
+def safe_request_view(body: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Return only scalar request fields that cannot carry prompts or credentials.
+
+    INVARIANT: mappers never receive credentials or prompt content. The value-shape filter
+    also drops structured values under future field names, so least privilege is structural.
+    """
+    return {
+        key: value
+        for key, value in body.items()
+        if key not in _MAPPER_HIDDEN_FIELDS and not isinstance(value, (list, dict))
+    }
+
+
+def has_potential_auxiliary_charge(body: Mapping[str, Any]) -> bool:
+    """Derive one bounded risk fact without retaining request content."""
+    # WHY: provider error metadata is intentionally optional and may omit a paid stage. The
+    # prepared request is authoritative about services the gateway itself asked to run.
+    plugins = body.get("plugins")
+    if plugins not in (None, []):
+        return True
+
+    tools = body.get("tools")
+    if tools is not None:
+        if not isinstance(tools, list):
+            return True
+        for tool in tools:
+            if not isinstance(tool, Mapping):
+                return True
+            tool_type = tool.get("type")
+            if isinstance(tool_type, str) and tool_type.startswith("openrouter:"):
+                return True
+
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return False
+    for message in messages:
+        if not isinstance(message, Mapping):
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            # INVARIANT: inspect only the discriminator; never retain or return file/prompt data.
+            if isinstance(part, Mapping) and part.get("type") == "file":
+                return True
+    return False
 
 
 def final_detail_or_none(value: object, source: UsageSource) -> int | None:

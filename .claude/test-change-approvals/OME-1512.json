@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1512",
+  "branch": "OME-1512-leaderboard-visual-refresh",
+  "approver": "Irina Bejan (owner)",
+  "date": "2026-10-07",
+  "scope": "portal static-asset guards only: test_portal_static.py updated for the owner-directed leaderboard-portal visual refresh. No logic/behaviour assertions weakened.",
+  "reason": "The index table became a card grid (benchmark-table-wrap -> benchmark-cards); the per-board 'Read this first' note was dropped and the terminal 'about' note moved under the benchmark description; the Pareto figure caption was removed. These are intentional structure/copy contract changes the AST range check cannot accept as additions, so the before/after blobs are pinned here.",
+  "files": {
+    "apps/scoreboard/tests/unit/test_portal_static.py": {
+      "base_blob": "3393c17ed360074b8d6813ba08dd5dd5a51dc166",
+      "approved_blob": "4705e7f7d3f6fb7242d3dc1bb4c140f5f7a5cdb4"
+    }
+  }
+}

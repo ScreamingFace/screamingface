@@ -35,6 +35,9 @@ from aigateway.core.oauth_pkce import generate_pkce, generate_state
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import credential_service_provider_for, credential_strategy_from
 from aigateway.core.provider_access import (
+    PairAuthorityStore,
+    claim_for_connection,
+    claim_native_write,
     credential_has_other_owner,
     credential_name_of,
     lock_lower_addressers,
@@ -44,7 +47,7 @@ from aigateway.core.provider_access import (
 from aigateway.core.provider_access.connection_locator import credential_strategy_for_connection
 
 from .api_key_validation import normalize_api_key, require_valid_api_key
-from .auth import _redirect_uri_for
+from .auth import _close_loopback_callback, _redirect_uri_for
 from .credential_persistence import persist_credentials_or_503
 from .provider_access_http import refusals_as_http
 
@@ -112,22 +115,34 @@ async def start_connection_oauth(
             status_code=409,
             detail={"code": "label_conflict", "provider": body.provider, "label": body.label},
         )
+    # FEATURE (OME-1497, G0): the start is an ownership change on a legacy-owned pair; its
+    # callback claims the pair this start published.
+    observed = await PairAuthorityStore().read(account_id, body.provider)
+    # WHY (OME-307 Blocker 5): bind the redirect (a loopback listener keyed by `state`) BEFORE the
+    # claim — a start that cannot bind must not supersede the flow in flight.
+    if redirect_uri is None:
+        redirect_uri = await _redirect_uri_for(request, body.provider, cfg, state)
     try:
-        await store.create_pending(
-            account_id=account_id,
-            provider=body.provider,
-            label=label,
-            connection_id=connection_id,
-            credential_provider=credential_service_provider_for(plugin, body.provider),
-        )
+        with refusals_as_http():
+            async with in_transaction():
+                published = await claim_native_write(observed, requested=label)
+                await store.create_pending(
+                    account_id=account_id,
+                    provider=body.provider,
+                    label=label,
+                    connection_id=connection_id,
+                    credential_provider=credential_service_provider_for(plugin, body.provider),
+                )
     except IntegrityError as exc:
+        await _close_loopback_callback(request.app, state)
         raise HTTPException(
             status_code=409,
             detail={"code": "label_conflict", "provider": body.provider, "label": label},
         ) from exc
+    except Exception:
+        await _close_loopback_callback(request.app, state)
+        raise
 
-    if redirect_uri is None:
-        redirect_uri = await _redirect_uri_for(request, body.provider, cfg, state)
     request.app.state.pending_auth.put(
         state,
         PendingAuthEntry(
@@ -139,6 +154,7 @@ async def start_connection_oauth(
             redirect_uri=redirect_uri,
             connection_id=str(connection_id),
             requested_label=body.label,
+            observed_pair=published,
         ),
     )
 
@@ -210,6 +226,8 @@ async def create_api_key_connection(
             status_code=409,
             detail={"code": "label_conflict", "provider": body.provider, "label": label},
         )
+    # FEATURE (OME-1497, G0, §5.3): capture the pair BEFORE the validation's network I/O.
+    observed = await PairAuthorityStore().read(account_id, body.provider)
     await require_valid_api_key(request, plugin, body.provider, api_key)
     # WHY (OME-307 Unit 4): persist the key and create the connection row in ONE short
     # transaction so ROLLBACK — not best-effort except-cleanup — is the atomicity mechanism.
@@ -221,15 +239,17 @@ async def create_api_key_connection(
     # the row inside the transaction, writing the blob slot keyed by the already-generated
     # connection_id — the exact slot the chat path reads (SF-291 review F4 ordering).
     try:
-        async with in_transaction():
-            await _persist_api_key_credentials(strategy, api_key)
-            connection = await store.create_api_key(
-                account_id=account_id,
-                provider=body.provider,
-                label=label,
-                connection_id=connection_id,
-                credential_provider=credential_service_provider_for(plugin, body.provider),
-            )
+        with refusals_as_http():
+            async with in_transaction():
+                await claim_native_write(observed, requested=label)
+                await _persist_api_key_credentials(strategy, api_key)
+                connection = await store.create_api_key(
+                    account_id=account_id,
+                    provider=body.provider,
+                    label=label,
+                    connection_id=connection_id,
+                    credential_provider=credential_service_provider_for(plugin, body.provider),
+                )
     except IntegrityError as exc:
         # Duplicate label lost the race with a concurrent create. The transaction already
         # rolled the blob back, so no orphan remains — just surface the retryable conflict.
@@ -335,6 +355,8 @@ async def _replace_api_key(
                 "message": "Connection changed during API-key validation",
             },
         )
+    # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed here, after the validation.
+    await claim_for_connection(latest_connection)
     # INVARIANT (D14, S2'b4): a migrated pair's effective row fences the pair and mirrors the
     # compat document FIRST (marker, index), then the row, then the blob — a no-op otherwise.
     await republish_effective_api_key(request.app, latest_connection, raw_api_key=api_key)
@@ -402,6 +424,8 @@ async def _delete_connection(
     connection = await store.get(account_id, connection_id)
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
+    # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed FIRST (marker → row → blob).
+    await claim_for_connection(connection)
     # INVARIANT (D14, S2'b4): a migrated pair's effective row retires the pair FIRST — marker
     # (effective → None) and compat document — before the row and the blob; no-op otherwise.
     await retire_effective(request.app, connection)

@@ -18,7 +18,7 @@
 
 A Benchmark is one exam. Today the Engine declares five display facts about it (title,
 description, focus, dataset link, Case count) and the pages show two. This change adds the
-Benchmark Provenance (paper, authors, citation, contributors, website, harness, licence), a
+Benchmark Provenance (paper, authors, citation, website, harness, licence), a
 content warning, the SDK notebook that runs it, a Human Baseline and a Frontier Score, each with
 a source, and the Engine derives one Benchmark Saturation verdict from the frontier headroom.
 
@@ -29,12 +29,12 @@ Three rules hold:
 2. **None of it touches the Benchmark Revision**, so no Leaderboard Score detaches. A link or a
    baseline says nothing about which Cases are asked or how they are graded.
 3. **A silent gap is a failing test, from the first code PR.** A Benchmark that has no paper may
-   say so with a reason; a Benchmark that says nothing fails CI. The 57 Benchmarks registered
+   say so with a reason; a Benchmark that says nothing fails CI. The 65 Benchmarks registered
    today are grandfathered by an explicit allowlist until the values PR empties it, so a
    Benchmark added in between must already carry the fields.
 
 Delivery is four PRs: this one (spec, plan, glossary); the backend across Engine, Scoreboard
-and SDK; the sourced values for all 57; the pages. The pages wait on product's sign-off of the
+and SDK; the sourced values for all 65; the pages. The pages wait on product's sign-off of the
 mockup on the ticket.
 
 ## 1. Delivery — four PRs, and why the test is strict before the values exist
@@ -49,11 +49,11 @@ flowchart TB
     a3["👤 reader googles the paper,<br/>the licence and the baseline"]:::warn
     a1 --> a2 --> a3
   end
-  subgraph AFTER["AFTER the backend PR — a new Benchmark without provenance fails CI; the 57 existing ones are grandfathered until the values PR"]
+  subgraph AFTER["AFTER the backend PR — a new Benchmark without provenance fails CI; the 65 existing ones are grandfathered until the values PR"]
     direction LR
     b1["Engine Benchmark declares<br/>every provenance field<br/>+ baseline + frontier + notebook"]:::good
     b2["🤖 conformance test: every<br/>registered Benchmark has every<br/>required field or a stated reason,<br/>except ids on the allowlist"]:::stage
-    b3[("allowlist: the 57 ids<br/>registered on 2026-10-05;<br/>the values PR empties it")]:::data
+    b3[("allowlist: the 65 ids<br/>registered on 2026-10-05;<br/>the values PR empties it")]:::data
     b4["✅ a new Benchmark with a gap<br/>fails CI by name"]:::good
     b1 --> b2 --> b4
     b3 --> b2
@@ -70,7 +70,7 @@ flowchart TB
 | PR | Ticket boxes | Lands | Conformance test | Owner press |
 |---|---|---|---|---|
 | 1 (this) | — | spec, plan, four glossary entries, mirror | — | review |
-| 2 backend | ① ③ ④ ⑤ ⑥ ⑨ + the data half of ⑧ | Engine fields + validation + served verdict; importer reads `eval.yaml` and arXiv; Scoreboard column, migration, schema; SDK discovery carries the block; SDK seed twin emits it | **strict, with the allowlist of the 57 ids registered today** | `--skip-append-only` for the SDK public-surface snapshot |
+| 2 backend | ① ③ ④ ⑤ ⑥ ⑨ + the data half of ⑧ | Engine fields + validation + served verdict; importer reads `eval.yaml` and arXiv; Scoreboard column, migration, schema; SDK discovery carries the block; SDK seed twin emits it | **strict, with the allowlist of the 65 ids registered today (8 built-in + 57 imported)** | `--skip-append-only` for the SDK public-surface snapshot |
 | 3 values | ② | every row and declaration gets its sourced values; allowlist emptied | strict, allowlist empty | review of each source |
 | 4 pages | ⑦ + the UI half of ⑧ | Leaderboard page strip, content warning, Cite, Run it; catalogue badge + cases; SDK list columns and card links | unchanged | product sign-off of the mockup first |
 
@@ -102,8 +102,7 @@ definition module from an explicit tuple of parts, and no module adds them (the 
 | `paper_url` | `str \| NotPublished \| None` | http(s), the existing `_WEB_URL` check | yes (a Benchmark with no paper: a blog post goes here instead) |
 | `authors` | `str \| None` | non-blank, ≤ 255; the short author line, e.g. `Hendrycks et al., 2020` | no |
 | `citation` | `str \| NotPublished \| None` | non-blank; BibTeX | yes |
-| `contributors` | `tuple[str, ...] \| None` | each a valid GitHub username (`[A-Za-z0-9]` then up to 38 of `[A-Za-z0-9-]`, no double or trailing hyphen), at least one | no |
-| `inspect_contributors` | `tuple[str, ...] \| None` | same format; **must be `None` on a Benchmark whose origin is not `inspect_evals`** | no (Imported only) |
+| `inspect_contributors` | `tuple[str, ...] \| None` | each a valid GitHub username (`[A-Za-z0-9]` then up to 38 of `[A-Za-z0-9-]`, no double or trailing hyphen), at least one; **must be `None` on a Benchmark whose origin is not `inspect_evals`** | no (Imported only) |
 | `homepage_url` | `str \| None` | http(s) | optional field |
 | `harness_url` | `str \| None` | http(s) **and** pinned: the path contains a 7–40 hex sha or a `v`-prefixed tag segment; refused when it contains `/tree/main`, `/tree/master`, `/blob/main`, ends at a repo root, or contains `github.com/ScreamingFace/` | no |
 | `license` | `str \| NotPublished \| None` | non-blank, ≤ 64; an SPDX id where one exists (`MIT`, `CC-BY-4.0`); `NotPublished` for the two whose owner licence decision on OME-1273 is "unknown" | yes |
@@ -209,8 +208,6 @@ today: the Hub licence goes into a comment, and `BenchmarkSpec` has no licence f
   version's tag: `https://github.com/UKGovernmentBEIS/inspect_evals/tree/v<version>/src/inspect_evals/<package>`.
   When OME-1421's single-source pin bumps, the link follows (§5).
 - **`notebook`** defaults to `12_inspect_evals_benchmarks` for every generated row.
-- **`contributors`** is generated as `("TODO",)` under `# TODO(review):`; the importing agent
-  writes their own handle. The importer cannot know who is running it.
 - **`frontier_score`** is generated as `NotPublished(reason="TODO")` under `# TODO(review):`;
   the agent either sources one or writes the real reason. Assembly refuses a literal `TODO`
   reason, the same rule as every other generated TODO.
@@ -247,13 +244,16 @@ JSON column, and `saturation` is one flat `CharField(16)` column.** Alternatives
 - *One JSON column for everything, verdict included*: loses the one value the catalogue page
   will filter and sort on when OME-1383 scales the list past a flat table.
 
-The block is typed on both sides. The Scoreboard decodes it into a `_CatalogProvenance`
-pydantic model (`extra="ignore"` so an older Scoreboard still boots against a newer Engine,
-the Don't-regress rule) and serves it as a `ProvenanceSchema` (`extra="forbid"`, like every
-schema there). Failure F4, "the seed silently drops a key", is pinned by an Engine-side test
-that parses the Scoreboard's `_CatalogProvenance` with `ast`, the way
+The block is typed on both sides. The Scoreboard reads it through ONE class,
+`ProvenanceSchema` (`extra="ignore"` so an older Scoreboard still boots against a newer Engine,
+the Don't-regress rule), key by key: the seed cuts the block off a catalogue entry and the API
+rebuilds it from the stored copy through the same `from_stored`, so a key this build cannot
+read costs that key, never the row (PR 2, second review round: a seed-side duplicate class
+and a whole-block read were a 500 on the whole listing). Failure F4, "the seed silently drops
+a key", is pinned by an Engine-side test that parses the Scoreboard's `ProvenanceSchema` with
+`ast`, the way
 `test_catalogue_vocabulary_conformance.py` already parses the SDK, and asserts every served
-provenance key is a declared field there. Migration `0017_benchmark_provenance.py`, nullable,
+provenance key is a declared field there. Migration `0018_benchmark_provenance.py`, nullable,
 no backfill, safe for a rolling rollout like `0011_benchmark_case_count.py`; Tortoise
 mechanics per the `tortoise-dev` companion skill in PR 2.
 
@@ -280,9 +280,16 @@ Those the ticket already lists (stale frontier scores, the half-definition of sa
 0.10 floor, the 1.0 ceiling, hand-sourced baselines, licence as display only, the harness
 link following the pin bump, no link to our own translation, inverted frontier values,
 non-arXiv papers, content warning as human judgement, notebook following main, the
-cross-app notebook check, contributors checked for format only) stand. This spec adds:
+cross-app notebook check, inspect porters checked for format only) stand. This spec adds:
 
-- **Between PR 2 and PR 3 the pages show nothing new for the 57 grandfathered Benchmarks**, and
+- **No `contributors` field for who typed the row here** (owner decision, 2026-10-06, during
+  PR 2 review). In a team-only registry it was one handle on 57 of 65 rows, so it carried
+  nothing a reader could use, and git holds the same fact with better precision. The field a
+  syft-space private-data Benchmark will need is a different one (the data owner: an org and a
+  contact, not a GitHub handle tuple) and gets designed when that work is real. The porters
+  upstream (`inspect_contributors`) stay: credit owed outside.
+
+- **Between PR 2 and PR 3 the pages show nothing new for the 65 grandfathered Benchmarks**, and
   nothing at all until PR 4. Accepted: that is the point of backend-first; the strip is a
   rendering of fields that already exist.
 - **The allowlist is a list of ids in a test, so a renamed Benchmark falls off it and fails.**
@@ -319,5 +326,5 @@ cross-app notebook check, contributors checked for format only) stand. This spec
   verdict fixtures pass. Every revision golden is byte-identical. The Scoreboard migration
   applies on an empty and on a seeded database; `GET /v1/benchmarks` serves the block.
 - After PR 3: the allowlist is empty and the test passes; every `harness_url` is pinned and
-  upstream; every `notebook` names a real file; every `contributors` entry is a valid handle.
+  upstream; every `notebook` names a real file; every `inspect_contributors` entry is a valid handle.
 - After PR 4: the ticket's page-level acceptance, verified against the mockup product signed.

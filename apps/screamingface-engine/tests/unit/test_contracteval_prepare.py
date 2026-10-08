@@ -297,3 +297,37 @@ class TestRowCountGuard:
         from screamingface_engine.benchmarks.contracteval import definition, revision_inputs
 
         assert definition.CASE_COUNT is revision_inputs.EXPECTED_CASES
+
+
+def test_a_prepared_bundle_records_where_its_cases_came_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The block names the CUAD parquet commit and counts the Cases kept, never a gold span."""
+    from _bundle_provenance_checks import (
+        assert_hand_built_block,
+        hugging_face_source,
+        watch_provenance_writes,
+    )
+
+    from screamingface_engine.benchmarks.contracteval import prepare as module
+    from screamingface_engine.benchmarks.contracteval.revision_inputs import DATASET_REVISION
+
+    rows: list[dict[str, object]] = [_row("a", spans=["governed by Delaware law"]), _row("b")]
+    # WHY bypass load_rows: it downloads the 4,182-row split and checks that exact size.
+    monkeypatch.setattr(module, "load_rows", lambda: rows)
+    writes: list[bool] = watch_provenance_writes(monkeypatch, module)
+
+    summary: dict = module.prepare(tmp_path)
+
+    assert_hand_built_block(
+        tmp_path,
+        summary,
+        writes,
+        sources=[hugging_face_source("theatticusproject/cuad-qa", DATASET_REVISION)],
+        yielded=2,
+        kept=2,
+        case_texts=[
+            "Which state's law governs this contract?",
+            "governed by Delaware law",
+        ],
+    )

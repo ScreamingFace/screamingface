@@ -11,7 +11,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import KEY_ENV, PAID_ENV, REQUIRED_ENV, _require_imported_assets, require_paid_stack
+from _scope import SCOPE_ENV
+from conftest import (
+    KEY_ENV,
+    PAID_ENV,
+    REQUIRED_ENV,
+    _require_known_scope,
+    _require_prepared_assets,
+    require_paid_stack,
+)
 
 
 def test_gate_skips_loudly_when_opt_in_flag_is_absent(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -44,8 +52,8 @@ def test_missing_assets_fail_when_required(monkeypatch: pytest.MonkeyPatch, tmp_
     this is the exact path where a broken --list-bundles used to yield a green run."""
     monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(tmp_path))
     monkeypatch.setenv(REQUIRED_ENV, "1")
-    with pytest.raises(pytest.fail.Exception, match="no prepared imported-board assets"):
-        _require_imported_assets()
+    with pytest.raises(pytest.fail.Exception, match="no prepared benchmark assets"):
+        _require_prepared_assets()
 
 
 def test_missing_assets_skip_without_required(
@@ -53,5 +61,13 @@ def test_missing_assets_skip_without_required(
 ) -> None:
     monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(tmp_path))
     monkeypatch.delenv(REQUIRED_ENV, raising=False)
-    with pytest.raises(pytest.skip.Exception, match="no prepared imported-board assets"):
-        _require_imported_assets()
+    with pytest.raises(pytest.skip.Exception, match="no prepared benchmark assets"):
+        _require_prepared_assets()
+
+
+def test_unknown_scope_fails_before_the_stack_boots(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A scope typo fails even without REQUIRED: a skip would end green, running nothing."""
+    monkeypatch.setenv(SCOPE_ENV, "handbuilt")
+    monkeypatch.delenv(REQUIRED_ENV, raising=False)
+    with pytest.raises(pytest.fail.Exception, match="all, imported, hand-built"):
+        _require_known_scope()

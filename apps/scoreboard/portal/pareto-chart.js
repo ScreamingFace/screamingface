@@ -66,6 +66,15 @@
     var scoreMax = Math.max.apply(null, scores);
     var logarithmic = costMin > 0 && costMax / costMin > 8;
 
+    // Anchor the axes at the origin so each point reads against a true zero, not a zoomed-in
+    // window of the data (a board scoring [0.4, 0.8] framed its own floor at 0.4). Score floor is
+    // min(0, lowest) so a board whose scores go negative (HealthBench worst-30) still shows every
+    // point instead of being cropped at 0. Cost is never negative, so a linear axis floors at 0; a
+    // log axis keeps its own positive minimum, because zero has no logarithm — and that scale only
+    // engages when costMin > 0, so the two never collide.
+    var scoreFloor = Math.min(0, scoreMin);
+    var costFloor = logarithmic ? costMin : 0;
+
     var priced = pricedSources.map(function (point) {
       return {
         entry: point.entry,
@@ -74,14 +83,14 @@
         cost: point.cost,
         isFrontier: L.isParetoMarked(point.entry),
         isLeader: point.isLeader,
-        x: normalize(point.cost, costMin, costMax, logarithmic),
-        y: normalize(point.score, scoreMin, scoreMax, false),
+        x: normalize(point.cost, costFloor, costMax, logarithmic),
+        y: normalize(point.score, scoreFloor, scoreMax, false),
       };
     });
     var unpriced = sources
       .filter(function (point) { return point.cost === null; })
       .map(function (point) {
-        point.y = normalize(point.score, scoreMin, scoreMax, false);
+        point.y = normalize(point.score, scoreFloor, scoreMax, false);
         return point;
       });
     var frontier = priced
@@ -94,8 +103,8 @@
       unpriced: unpriced,
       frontier: frontier,
       costScale: logarithmic ? "log" : "linear",
-      costDomain: [costMin, costMax],
-      scoreDomain: [scoreMin, scoreMax],
+      costDomain: [costFloor, costMax],
+      scoreDomain: [scoreFloor, scoreMax],
       leaderScore: leaderScore,
     };
   }

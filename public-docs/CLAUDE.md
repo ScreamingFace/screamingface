@@ -40,7 +40,7 @@ There is no automated test setup in this project.
 - `src/components/nb/` — notebook-cell primitives for docs pages: `NbCell` (input + output chrome), `NbTextOut` (plain repr output), `NbStateCarousel`, plus the panel kit (`NbPanel`, `NbRowList`, `NbProgress`, `NbStatGrid`, `NbCheckList`, `NbScoreList`, `ProviderConnections`, `EvaluationReport`, `CandidateScores`) and `tokens.css`. A page wraps each cell in `<div class="not-prose">`.
 - `src/composables/` — reusable logic: `useCopy` (clipboard + "Copied!" feedback), `useHighlight` (central Prism setup + `highlight()`), `useDocNavigation` (sidebar active-state + prev/next from a nav tree), `useCarousel` (index + auto-advance)
 - `src/stores/` — Pinia stores for shared reactive state: `theme` (`isDark` state, `theme` getter, dark/light + localStorage persistence) and `codeLang` (shared code-tab language across `TabbedCodeBlock`s)
-- `src/lib/` — framework-agnostic helpers: `utils.ts` (`cn` class merge) and `notebook.ts` (nbformat types + pure helpers for `NotebookViewer`)
+- `src/lib/` — framework-agnostic helpers: `utils.ts` (`cn` class merge), `notebook.ts` (nbformat types + pure helpers for `NotebookViewer`) and `analytics.ts` (`track` wrapper over the Plausible snippet in `index.html`; no-op when the script is absent)
 - `src/pages/` — route components; `src/router/index.ts` — routes
 - `src/navigation/` — one data file per documentation section (drives the sidebar + prev/next)
 - `src/style.css` — Tailwind import + light/dark theme tokens + prose styling (includes `@tailwindcss/typography` with prose variables mapped to the theme tokens)

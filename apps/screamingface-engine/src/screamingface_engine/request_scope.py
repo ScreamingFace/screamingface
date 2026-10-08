@@ -1,7 +1,7 @@
 """The request's caller state, bound for the duration of one request so a stateless handler
 can read it.
 
-FEATURE (F2, prd/01): the connector used to keep identity headers, profile, cache policy and
+FEATURE (F2, prd/01): the connector used to keep identity headers, cache policy and
 answer seed as fields on the long-lived `_ModelEndpoint`. That is safe only while one process
 serves one caller: a single `Url4Node` shared by two callers would let the first request's
 identity leave on the second request's aigateway call. The request scope moves every one of
@@ -26,7 +26,7 @@ they live apart on purpose:
   never bound apart from one another.
 
 Nothing may call a handler outside a bound scope: `current_scope()` raises rather than inventing
-a default, because an anonymous, unprofiled, unseeded call still reaches aigateway and still
+a default, because an anonymous, unseeded call still reaches aigateway and still
 bills someone (AC5).
 """
 
@@ -57,9 +57,8 @@ CACHE_CONTROL_HEADER = "Cache-Control"
 TRACEPARENT_HEADER = "traceparent"
 
 # FEATURE (OME-1381, Stage D of OME-1138): selector-less provider access. Engine ingress refuses a
-# stated `X-Profile` instead of carrying it; the gateway is still the only interpreter of a legacy
-# selector already on a queued run. ONE code and ONE message for every Engine surface, REST
-# (RFC 9457 `code` member) and sync mount (url4 envelope) alike.
+# stated `X-Profile` instead of carrying it. ONE code and ONE message for every Engine surface,
+# REST (RFC 9457 `code` member) and sync mount (url4 envelope) alike.
 # INVARIANT: the message never names the requested value — it is neither echoed nor logged.
 X_PROFILE_UNSUPPORTED = "x_profile_unsupported"
 X_PROFILE_UNSUPPORTED_MESSAGE = (
@@ -101,7 +100,6 @@ class RequestScope:
     """
 
     identity_headers: Mapping[str, str] = field(default_factory=dict)
-    profile: str | None = None
     answer_seed: int | None = None
     cache: CachePolicy = field(default_factory=CachePolicy)
     # INVARIANT (FX-66): NO default. A scope that does not name its surface would be counted,
@@ -130,7 +128,7 @@ class RequestScope:
 
 
 # INVARIANT: NO default. A permissive default would let an unbound read silently produce an
-# anonymous, unprofiled, unseeded call — the failure mode AC5 exists to prevent.
+# anonymous, unseeded call — the failure mode AC5 exists to prevent.
 _scope: contextvars.ContextVar[RequestScope] = contextvars.ContextVar(
     "screamingface_engine_request_scope"
 )
@@ -167,7 +165,6 @@ def request_scope_from_headers(
 
     return RequestScope(
         identity_headers=job_env.identity_from_headers(headers),
-        profile=_optional(headers.get(PROFILE_HEADER)),
         answer_seed=_optional_int(headers.get(ANSWER_SEED_HEADER)),
         cache=parse_cache_control(headers.get(CACHE_CONTROL_HEADER)) or CachePolicy(),
         origin="sync",
@@ -230,7 +227,7 @@ def current_scope() -> RequestScope:
 
     Raises:
         RequestScopeError: nothing is bound. A silent default would send an anonymous,
-            unprofiled, unseeded aigateway call and bill someone (AC5).
+            unseeded aigateway call and bill someone (AC5).
     """
 
     try:
@@ -282,8 +279,7 @@ def bind_sync_request(headers: Mapping[str, str]) -> Iterator[RequestScope]:
 # The request headers local mode's eval path passes to the node, and ONLY these (C2). Identity
 # is not in the list: it is set from the verified value, never copied from the wire.
 _PASSED_REQUEST_HEADERS = {
-    name.lower(): name
-    for name in (PROFILE_HEADER, CACHE_CONTROL_HEADER, ANSWER_SEED_HEADER, TRACEPARENT_HEADER)
+    name.lower(): name for name in (CACHE_CONTROL_HEADER, ANSWER_SEED_HEADER, TRACEPARENT_HEADER)
 }
 
 

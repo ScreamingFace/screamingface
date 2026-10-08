@@ -71,6 +71,12 @@ inspect = [
     # version a reviewable decision instead of a resolution accident. Keep in step with
     # `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
     "datasets==5.0.1",
+    # WHY here, not in `benchmarks`: MATH's second scorer (expression_exact_match_sympy, the
+    # Minerva-style symbolic equivalence) imports sympy at GRADING time, which runs in the
+    # deployed Engine, not in the build stage. inspect-evals keeps both behind its own `math`
+    # extra, so they are declared here by name (owner decision on OME-1268, 2026-10-06).
+    "sympy==1.14.0",
+    "antlr4-python3-runtime==4.11.1",
 ]
 
 # Everything needed to BUILD benchmark assets, on top of what serving needs. Separate from
@@ -107,7 +113,23 @@ url4 = { path = "../../packages/url4", editable = true }
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["src/screamingface_engine/benchmarks/ifeval/vendor"]
+# WHY the `vendor/` directories are fenced off from ruff, pyright and coverage (the same three
+# entries below): each holds a benchmark's OFFICIAL grading code copied byte-for-byte from the
+# paper's repository, so that our score means what the paper's score means. A test reverses the
+# one permitted edit (a relative import) and demands the upstream sha256 of every file — a hash
+# pins bytes, so it is a proof of provenance a reviewer can check without reading the code.
+#   - ruff: `ruff format` is behaviour-neutral, but any reflow breaks that proof; `--fix` could
+#     also drop an "unused" name upstream keeps. Excluded so the bytes stay upstream's.
+#   - pyright: the upstream code is untyped and has oddities (a duplicated assignment in
+#     musique's support.py) that only an edit would silence — and an edit is the thing we forbid.
+#   - coverage: those branches are upstream's, not ours; the benchmark's own tests exercise the
+#     paths we call, and nobody should write tests for upstream's dead branches to lift a number.
+# Pins: ifeval → josejg/instruction_following_eval (its vendor/__init__.py); musique →
+# StonyBrookNLP/musique@922ac98f (tests/unit/inspect/test_local_task_musique_vendor.py).
+extend-exclude = [
+    "src/screamingface_engine/benchmarks/ifeval/vendor",
+    "src/screamingface_engine_inspect/local_tasks/musique/vendor",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702"]
@@ -130,7 +152,11 @@ known-first-party = [
 ]
 
 [tool.pyright]
-ignore = ["src/screamingface_engine/benchmarks/ifeval/vendor"]
+# Vendored official graders — see the WHY above `extend-exclude` under [tool.ruff].
+ignore = [
+    "src/screamingface_engine/benchmarks/ifeval/vendor",
+    "src/screamingface_engine_inspect/local_tasks/musique/vendor",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
@@ -149,7 +175,11 @@ markers = [
 ]
 
 [tool.coverage.run]
-omit = ["src/screamingface_engine/benchmarks/ifeval/vendor/*"]
+# Vendored official graders — see the WHY above `extend-exclude` under [tool.ruff].
+omit = [
+    "src/screamingface_engine/benchmarks/ifeval/vendor/*",
+    "src/screamingface_engine_inspect/local_tasks/musique/vendor/*",
+]
 
 [dependency-groups]
 dev = [

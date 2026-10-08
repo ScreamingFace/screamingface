@@ -5,9 +5,9 @@
 # far along each one is. The Hosted Engine moves onto it at OME-1245.
 # INVARIANT (D17, spec §3.3 op 6): rows carry `provider` and `status` ONLY — no name, id, label,
 # default, auth method, account label, locator, reauth URL, credential name or secret-derived
-# field — and the route delegates to the provider-access port: no secret read, no refresh, no
-# mutation, no credential strategy. Inbound `X-Profile` selects nothing here; nonblank values are
-# rejected at ingress.
+# field — and the route delegates to the provider-access port: migrated API-key rows may build a
+# strategy and read blob metadata, but never credential plaintext, refresh state, or mutation.
+# Inbound `X-Profile` selects nothing here; nonblank values are rejected at ingress.
 """
 
 from __future__ import annotations
@@ -60,11 +60,10 @@ async def list_provider_access(
     try:
         with refusals_as_http():
             selector_from_request(request)
+            rows = await provider_access_for(request.app).availability(str(current.id))
     except HTTPException as exc:
         exc.headers = {**(exc.headers or {}), **_PRIVATE_CACHE_HEADERS}
         raise
-
-    rows = await provider_access_for(request.app).availability(str(current.id))
     response.headers.update(_PRIVATE_CACHE_HEADERS)
     return ProviderAccessAvailability(
         providers=[

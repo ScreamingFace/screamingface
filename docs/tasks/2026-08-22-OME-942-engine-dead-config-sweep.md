@@ -1,12 +1,12 @@
 ---
 id: OME-942
 linear_url: https://linear.app/openmined/issue/OME-942/sweep-engine-dead-observability-config-log-level-chart-readyz-rbac
-status: in_review
+status: done
 type: improvement
 priority: 3
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-08-22
-closed:
+closed: 2026-10-01
 ---
 
 # Sweep engine dead observability config (log-level chart, readyz, RBAC, active_count)

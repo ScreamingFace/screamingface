@@ -19,12 +19,10 @@ pytest.importorskip("inspect_ai")
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY  # noqa: E402
 from screamingface_engine_inspect import benchmarks  # noqa: E402
 from screamingface_engine_inspect.prepare import (  # noqa: E402
-    BENCHMARK_CASES,
     TASK_REPLAY_CASES,
-    PreparedCase,
     TaskReplayCasesSpec,
 )
-from screamingface_engine_inspect.task_replay import TaskReplayError  # noqa: E402
+from screamingface_engine_inspect.task_replay import TaskReplay, TaskReplayError  # noqa: E402
 
 _SPEC: TaskReplayCasesSpec = TaskReplayCasesSpec(
     task="inspect_evals.mgsm.mgsm:mgsm",
@@ -53,19 +51,6 @@ def test_a_different_digest_is_a_different_revision_pin() -> None:
     assert benchmarks._task_replay_pins(other) != benchmarks._task_replay_pins(_SPEC)
 
 
-def test_a_key_in_both_registries_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Review Focus 5: assembly never silently picks one of two declarations."""
-
-    monkeypatch.setitem(TASK_REPLAY_CASES, "gsm8k", _SPEC)
-
-    with pytest.raises(ValueError, match="gsm8k.*both"):
-        benchmarks._cases_declaration("gsm8k")
-
-
-def test_hugging_face_declarations_still_resolve() -> None:
-    assert benchmarks._cases_declaration("gsm8k") is BENCHMARK_CASES["gsm8k"]
-
-
 def test_a_task_replay_key_resolves_to_its_declaration(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(TASK_REPLAY_CASES, "mgsm_en", _SPEC)
 
@@ -78,16 +63,17 @@ def test_an_assembled_task_replay_benchmark_names_itself_in_a_skip(
     """Spec R10: assembly hands Case Preparation the Benchmark key, so the SKIPPED reason
     a board visitor reads names the board, not the inspect task path."""
 
-    def failed_fetch(spec: TaskReplayCasesSpec) -> list[PreparedCase]:
+    def failed_fetch(spec: TaskReplayCasesSpec) -> TaskReplay:
         raise TaskReplayError(f"{spec.task}: replay failed (exit 1): HTTP 404")
 
     row = next(spec for spec in benchmarks.BENCHMARKS if spec.key == "gsm8k")
     # WHY an empty registry: the real gsm8k is assembled elsewhere with another revision,
     # and this replay copy must not leak into later tests.
     monkeypatch.setattr("screamingface_engine_inspect.single_shot._BENCHMARKS_BY_ID", {})
-    monkeypatch.delitem(BENCHMARK_CASES, "gsm8k")
     monkeypatch.setitem(TASK_REPLAY_CASES, "gsm8k", _SPEC)
-    monkeypatch.setattr("screamingface_engine_inspect.task_replay.replayed_cases", failed_fetch)
+    monkeypatch.setattr(
+        "screamingface_engine_inspect.task_replay.replay_with_provenance", failed_fetch
+    )
 
     bundle = benchmarks._assemble(row).registration.asset_bundle
     assert bundle is not None
@@ -119,5 +105,64 @@ def test_every_task_replay_row_without_an_exclusion_keeps_its_three_pins() -> No
     before R18, so the 19 Task-replay Benchmarks already on main keep their revisions."""
 
     for key, spec in TASK_REPLAY_CASES.items():
-        if spec.excluded_sample_ids is None:
+        # WHY `not spec.source_pins` (OME-1460, owner-approved): the five rows that read the
+        # Hub gain a Hub pin on purpose (spec D4); test_published_revisions.py freezes the rest.
+        if spec.excluded_sample_ids is None and not spec.source_pins:
             assert len(benchmarks._task_replay_pins(spec)) == 3, key
+
+
+# --- OME-1460: the source pins join identity (spec R7) -------------------------------------
+
+_MEDQA_SHA: str = "ddef95d268cdad413693d634279a9a679d468469"
+
+
+def test_source_pins_join_identity_as_a_fourth_pin() -> None:
+    """Two declarations with the same task and digest but different Hub commits are two
+    Benchmarks, so the commit rides the revision (spec R7)."""
+
+    pinned = TaskReplayCasesSpec(
+        task=_SPEC.task,
+        case_count=250,
+        case_digest="a" * 64,
+        task_args={"languages": ["en"]},
+        source_pins={"bigbio/med_qa": _MEDQA_SHA},
+    )
+
+    assert benchmarks._task_replay_pins(pinned) == (
+        *benchmarks._task_replay_pins(_SPEC),
+        f'source_pins={{"bigbio/med_qa": "{_MEDQA_SHA}"}}',
+    )
+
+
+def test_source_pins_are_written_sorted_so_dict_order_never_moves_a_revision() -> None:
+    first = TaskReplayCasesSpec(
+        task=_SPEC.task,
+        case_count=1,
+        case_digest="a" * 64,
+        source_pins={"b/b": "1" * 40, "a/a": "2" * 40},
+    )
+    second = TaskReplayCasesSpec(
+        task=_SPEC.task,
+        case_count=1,
+        case_digest="a" * 64,
+        source_pins={"a/a": "2" * 40, "b/b": "1" * 40},
+    )
+
+    assert benchmarks._task_replay_pins(first) == benchmarks._task_replay_pins(second)
+
+
+def test_seeds_and_the_gate_add_no_identity_pin() -> None:
+    """INVARIANT: no published revision moves for a field the digest already seals (the
+    seeds fix the order, which the digest seals) or that is access, not identity (the gate)."""
+
+    seeded = TaskReplayCasesSpec(
+        task=_SPEC.task,
+        case_count=250,
+        case_digest="a" * 64,
+        task_args={"languages": ["en"]},
+        shuffle_seed=1234,
+        choice_shuffle_seed=7,
+        needs_hf_token=True,
+    )
+
+    assert benchmarks._task_replay_pins(seeded) == benchmarks._task_replay_pins(_SPEC)

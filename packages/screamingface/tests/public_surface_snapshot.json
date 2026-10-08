@@ -65,7 +65,7 @@
       "AsyncClient": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.dev.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.dev.screamingface.ai', http_transport: 'httpx.AsyncBaseTransport | None' = None, scoreboard_transport: 'httpx.AsyncBaseTransport | None' = None, run_transport: 'AsyncRunTransport | None' = None) -> 'None'",
+          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai', http_transport: 'httpx.AsyncBaseTransport | None' = None, scoreboard_transport: 'httpx.AsyncBaseTransport | None' = None, run_transport: 'AsyncRunTransport | None' = None) -> 'None'",
           "aclose": "method (self) -> 'None'",
           "authenticated": "property",
           "authenticating": "property",
@@ -107,7 +107,7 @@
       "Benchmark": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'str', title: 'str', description: 'str', revision: 'str', case_count: 'int', origin: 'str' = 'screamingface', interaction: 'str | None' = None, difficulty: 'str | None' = None, inverted_grade: 'bool' = False) -> None",
+          "__init__": "method (self, id: 'str', title: 'str', description: 'str', revision: 'str', case_count: 'int', origin: 'str' = 'screamingface', interaction: 'str | None' = None, difficulty: 'str | None' = None, inverted_grade: 'bool' = False, provenance: 'BenchmarkProvenance | None' = None, saturation: 'str' = 'unknown') -> None",
           "case_count": "field",
           "description": "field",
           "difficulty": "field",
@@ -115,7 +115,9 @@
           "interaction": "field",
           "inverted_grade": "field",
           "origin": "field",
+          "provenance": "field",
           "revision": "field",
+          "saturation": "field",
           "title": "field"
         }
       },
@@ -132,12 +134,14 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None) -> 'None'",
           "accounting": "property",
           "answer_seed": "field",
           "benchmark": "field",
           "cache_hits": "field",
+          "cache_saved_cost_archive_usd": "field",
           "cache_saved_cost_usd": "field",
+          "cache_unpriced_hits": "field",
           "cases": "field",
           "client_version": "field",
           "completed_at": "field",
@@ -153,6 +157,7 @@
           "run_cost_status": "field",
           "run_id": "field",
           "score": "field",
+          "scores": "property",
           "started_at": "field",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "trace_id": "field",
@@ -163,11 +168,12 @@
       "CaseGrade": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, method: 'str', score: 'float | None', metrics: 'Mapping[str, object]', checks: 'Sequence[Check]') -> 'None'",
+          "__init__": "method (self, *, method: 'str', score: 'float | None', metrics: 'Mapping[str, object]', checks: 'Sequence[Check]', scores: 'Mapping[str, float | None] | None' = None) -> 'None'",
           "checks": "field",
           "method": "field",
           "metrics": "property",
           "score": "field",
+          "scores": "property",
           "to_dict": "method (self) -> 'dict[str, object]'"
         }
       },
@@ -213,7 +219,7 @@
         "members": {
           "__enter__": "method (self) -> 'Client'",
           "__exit__": "method (self, exc_type: 'type[BaseException] | None', exc: 'BaseException | None', traceback: 'TracebackType | None') -> 'None'",
-          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.dev.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.dev.screamingface.ai', http_transport: 'httpx.BaseTransport | None' = None, scoreboard_transport: 'httpx.BaseTransport | None' = None, run_transport: 'SyncRunTransport | None' = None) -> 'None'",
+          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai', http_transport: 'httpx.BaseTransport | None' = None, scoreboard_transport: 'httpx.BaseTransport | None' = None, run_transport: 'SyncRunTransport | None' = None) -> 'None'",
           "authenticated": "property",
           "authenticating": "property",
           "close": "method (self) -> 'None'",
@@ -712,7 +718,7 @@
       },
       "configure": {
         "kind": "function",
-        "signature": "(*, engine_url: 'str' = 'https://fusion.dev.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.dev.screamingface.ai') -> 'Client'"
+        "signature": "(*, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai') -> 'Client'"
       },
       "connect": {
         "kind": "function",
@@ -1019,12 +1025,14 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None) -> 'None'",
           "accounting": "property",
           "answer_seed": "field",
           "benchmark": "field",
           "cache_hits": "field",
+          "cache_saved_cost_archive_usd": "field",
           "cache_saved_cost_usd": "field",
+          "cache_unpriced_hits": "field",
           "cases": "field",
           "client_version": "field",
           "completed_at": "field",
@@ -1040,6 +1048,7 @@
           "run_cost_status": "field",
           "run_id": "field",
           "score": "field",
+          "scores": "property",
           "started_at": "field",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "trace_id": "field",
@@ -1050,11 +1059,12 @@
       "CaseGrade": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, method: 'str', score: 'float | None', metrics: 'Mapping[str, object]', checks: 'Sequence[Check]') -> 'None'",
+          "__init__": "method (self, *, method: 'str', score: 'float | None', metrics: 'Mapping[str, object]', checks: 'Sequence[Check]', scores: 'Mapping[str, float | None] | None' = None) -> 'None'",
           "checks": "field",
           "method": "field",
           "metrics": "property",
           "score": "field",
+          "scores": "property",
           "to_dict": "method (self) -> 'dict[str, object]'"
         }
       },

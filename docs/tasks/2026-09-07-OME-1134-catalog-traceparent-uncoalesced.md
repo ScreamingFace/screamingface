@@ -1,12 +1,12 @@
 ---
 id: OME-1134
 linear_url: https://linear.app/openmined/issue/OME-1134/propagate-the-callers-traceparent-on-the-two-uncoalesced-catalog-calls
-status: in_review
+status: done
 type: null
 priority: 3
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-07
-closed:
+closed: 2026-10-01
 ---
 
 # Propagate the caller's traceparent on the two uncoalesced catalog calls

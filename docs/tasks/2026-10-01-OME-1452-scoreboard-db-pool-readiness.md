@@ -1,13 +1,13 @@
 ---
 id: OME-1452
 linear_url: https://linear.app/openmined/issue/OME-1452/size-the-scoreboard-db-pool-explicitly-so-readyz-cannot-flap-under
-status: in_review
+status: done
 type: fix
 priority: medium
 labels: [scoreboard, agentic, autonomous]
 parent: OME-935
 created: 2026-10-01
-closed:
+closed: 2026-10-05
 ---
 
 # Size the scoreboard DB pool explicitly so /readyz cannot flap under load

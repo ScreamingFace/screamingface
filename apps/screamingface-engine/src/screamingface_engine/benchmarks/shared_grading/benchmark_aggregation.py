@@ -59,7 +59,7 @@ import asyncio
 import contextvars
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import (
@@ -120,6 +120,9 @@ class CaseGradeOutcome:
     metrics: Mapping[str, Any]
     checks: Sequence[Mapping[str, Any]]
     failure_code: str | None = None
+    # FEATURE (OME-1268): the Case's Named Scores, headline first; `score` IS the headline.
+    # Empty for every single-scorer hook, so existing benchmarks construct this unchanged.
+    scores: Mapping[str, float | None] = field(default_factory=dict)
 
 
 #: The seam every benchmark implements: async because the call may be a network hop
@@ -226,6 +229,10 @@ class BenchmarkAggregation:
     hook_failure_result: HookFailureResult | None = None
     missing_material_code: str = "missing_rubric_asset"
     inverted_grade: bool = False
+    # FEATURE (OME-1268): the row's declared Named Score keys, headline first. When set, a
+    # scored Case's `scores` must carry exactly these keys and its headline column must
+    # equal `score` — checked HERE because this is where the row is known (plan D4).
+    named_scores: Sequence[str] = ()
 
     def aggregate(
         self,
@@ -511,6 +518,15 @@ class BenchmarkAggregation:
             "metrics": dict(outcome.metrics),
             "checks": list(outcome.checks),
         }
+        if self.named_scores:
+            grade["scores"] = self._named_scores(outcome)
+        elif outcome.scores:
+            # WHY refuse, not publish: a column nobody declared would reach the wire under
+            # no row's name; the Benchmark, not the hook, says which columns exist.
+            raise ValueError(
+                f"the grading hook returned Named Scores {list(outcome.scores)} but the "
+                "Benchmark declares none"
+            )
         common: dict[str, Any] = {
             "selected_case": selected,
             "finish_reason": fields.finish_reason,
@@ -524,6 +540,32 @@ class BenchmarkAggregation:
             # refusal with text is scored; a textless provider decline is failed.
             return refusal_case_result(refusal=fields.refusal, **common)
         return scored_case_result(output=fields.output, **common)
+
+    def _named_scores(self, outcome: CaseGradeOutcome) -> dict[str, float | None]:
+        """The Case's Named Scores as the grade publishes them: declared keys, headline first.
+
+        INVARIANT: the key set equals the row's `named_scores` in order, and the headline
+        column equals the Case score, so a column nobody declared can never be published
+        and the headline on the wire never disagrees with `score`.
+        """
+
+        declared: tuple[str, ...] = tuple(self.named_scores)
+        observed: tuple[str, ...] = tuple(outcome.scores)
+        if observed != declared:
+            raise ValueError(
+                f"Case Grade scores {list(observed)} differ from the declared named_scores "
+                f"{list(declared)}"
+            )
+        rounded: dict[str, float | None] = {
+            name: None if value is None else round(value, 4)
+            for name, value in outcome.scores.items()
+        }
+        if rounded[declared[0]] != round(outcome.score or 0.0, 4):
+            raise ValueError(
+                f"Case Grade headline column {declared[0]!r} ({rounded[declared[0]]}) differs "
+                f"from the Case score ({round(outcome.score or 0.0, 4)})"
+            )
+        return rounded
 
     def _missing_case_result(
         self,

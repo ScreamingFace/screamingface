@@ -12,17 +12,21 @@ helpers cannot participate in its key or storage lifecycle.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
 from collections.abc import Callable
 from typing import Any, cast
 
+import httpx
 from fastapi import HTTPException, Request
+from litellm.exceptions import Timeout
 
-from ..core.concurrency import effective_provider_limit, provider_slot
+from ..core.admission import ProviderExecutionTimeout, dispatch_with_budgets
+from ..core.credential_blob import DispatchObservation, OperationalOutcome
 from ..core.http_status import valid_http_error_status
-from ..core.provider_access import CredentialTarget, provider_access_for
+from ..core.provider_access import CredentialTarget, operational_access_for, provider_access_for
 from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
 from ..tracing import provider_span
 from .chat_accounting import note_conversion_failure
@@ -35,29 +39,59 @@ def _should_mark_profile_error_on_dispatch_status(plugin: Any, status_code: int)
     return bool(checker(status_code)) if callable(checker) else False
 
 
+def _supports_operational_outcome_classification(plugin: Any) -> bool:
+    return callable(getattr(plugin, "classify_dispatch_operational_outcome", None))
+
+
+def _classified_operational_outcome(
+    plugin: Any, status_code: int, detail: Any
+) -> OperationalOutcome | None:
+    classifier = getattr(plugin, "classify_dispatch_operational_outcome", None)
+    if not callable(classifier):
+        return None
+    outcome = classifier(status_code, detail)
+    return cast(OperationalOutcome | None, outcome)
+
+
 async def _dispatch_failure_response(
     request: Request,
     exc: HTTPException,
     *,
     plugin: Any,
     target: CredentialTarget,
+    observation: DispatchObservation | None = None,
 ) -> HTTPException:
-    """Mark the credential target on auth-meaning dispatch failures.
+    """Record classified operational outcomes or use the legacy error path.
 
-    Shared by the HTTPException path (custom handlers raise these) and the
-    LiteLLM-exception path (e.g. anthropic AuthenticationError), so a bad
-    stored credential flips the target to ERROR regardless of which exception
-    family the provider dispatch uses.
-
-    # INVARIANT (OME-1207): the STATUS GATE stays here — deciding that a status means
-    # "this credential is bad" is the plugin's contract, read at the route. Everything
-    # after it (strategy eviction, marking the row, session invalidation, the
-    # `reauth_url` rewrite) belongs to the backing and happens inside op 5, so Stage B
-    # can change what a mark means without touching this module.
+    Shared by the HTTPException path and the LiteLLM-exception path. A migrated
+    effective API-key target records only an adapter-classified outcome through
+    its revision-fenced observation. Every unclassified failure, including one
+    carrying an observation, falls through to legacy op 5 when the provider's
+    status hook marks it; other targets retain existing lifecycle semantics.
     """
+    access = provider_access_for(request.app)
+    if observation is not None:
+        operational_access = operational_access_for(request.app)
+        outcome = _classified_operational_outcome(plugin, exc.status_code, exc.detail)
+        if operational_access is not None and outcome is not None:
+            try:
+                rewritten = await operational_access.record_dispatch_outcome(
+                    target, observation, outcome, exc.detail, plugin=plugin
+                )
+            except Exception as failure:
+                logger.error(
+                    "dispatch outcome persistence error type=%s status=%s",
+                    type(failure).__name__,
+                    exc.status_code,
+                )
+                return exc
+            if rewritten is None:
+                return exc
+            return HTTPException(status_code=exc.status_code, detail=rewritten)
+
     if not _should_mark_profile_error_on_dispatch_status(plugin, exc.status_code):
         return exc
-    rewritten = await provider_access_for(request.app).record_dispatch_failure(
+    rewritten = await access.record_dispatch_failure(
         target, exc.status_code, exc.detail, plugin=plugin
     )
     # `None` means the caller's own detail stands: a Connection target (whose failure body
@@ -76,6 +110,7 @@ async def _safe_dispatch_failure_response(
     account_id: str,
     profile_name: str,
     target: CredentialTarget,
+    observation: DispatchObservation | None = None,
     error_type: str | None = None,
 ) -> HTTPException:
     """Contain secondary failures while rendering/persisting dispatch errors.
@@ -86,7 +121,13 @@ async def _safe_dispatch_failure_response(
     terminal record per failing request without each branch having to remember to log.
     """
     try:
-        final = await _dispatch_failure_response(request, exc, plugin=plugin, target=target)
+        final = await _dispatch_failure_response(
+            request,
+            exc,
+            plugin=plugin,
+            target=target,
+            observation=observation,
+        )
     except Exception as failure:
         logger.error(
             "dispatch failure handling error type=%s provider=%s account=%s profile=%s",
@@ -148,6 +189,33 @@ def log_dispatch_failure(
     )
 
 
+async def _record_dispatch_success(
+    request: Request,
+    *,
+    plugin: Any,
+    provider: str,
+    account_id: str,
+    profile_name: str,
+    target: CredentialTarget,
+    observation: DispatchObservation | None,
+) -> None:
+    if observation is None:
+        return
+    access = operational_access_for(request.app)
+    if access is None:
+        return
+    try:
+        await access.record_dispatch_outcome(target, observation, "connected", None, plugin=plugin)
+    except Exception as failure:
+        logger.error(
+            "dispatch success observation error type=%s provider=%s account=%s profile=%s",
+            type(failure).__name__,
+            provider,
+            account_id,
+            profile_name,
+        )
+
+
 def _retry_after_headers(exc: Exception) -> dict[str, str]:
     seconds = parse_retry_after_seconds(exc)
     if seconds is None:
@@ -180,10 +248,13 @@ async def _dispatch_with_backpressure(
     """
     settings = request.app.state.settings
 
-    def _attempt() -> Any:
+    async def _attempt() -> Any:
         if on_dispatch is not None:
             on_dispatch()
-        return plugin.chat_completion(body)
+        try:
+            return await plugin.chat_completion(body)
+        except (Timeout, httpx.TimeoutException):
+            raise ProviderExecutionTimeout() from None
 
     # FEATURE (OME-1132): the provider call as a CHILD span — "which provider was slow",
     # answerable at last. Deliberately wraps the WHOLE block, slot wait and retries included,
@@ -196,13 +267,27 @@ async def _dispatch_with_backpressure(
     # `middleware/call_id.py` was written to undo for the correlation ids. One extra clock read
     # is the cheaper of the two costs.
     with provider_span(provider):
-        async with provider_slot(
-            request.app, provider, effective_provider_limit(settings, provider)
-        ):
-            return await with_overload_retry(
-                _attempt,
-                policy=RetryPolicy.from_settings(settings),
+        try:
+            return await dispatch_with_budgets(
+                request,
+                provider,
+                lambda: with_overload_retry(_attempt, policy=RetryPolicy.from_settings(settings)),
             )
+        except asyncio.CancelledError:
+            if not getattr(request.state, "provider_disconnect_cancelled", False):
+                raise
+            work = asyncio.current_task()
+            assert work is not None
+            # INVARIANT: consume only the watcher's cancellation. Concurrent server
+            # shutdown or caller cancellation must still propagate to the ASGI server.
+            if work.uncancel():
+                raise
+            # WHY: a normal HTTP response lets middleware unwind without an ASGI
+            # ERROR traceback; the client has gone and cannot receive this response.
+            raise HTTPException(
+                status_code=499,
+                detail={"code": "client_disconnected", "message": "The client disconnected."},
+            ) from None
 
 
 # WHY (FINDING B): the client-facing message is gateway-authored per machine

@@ -158,3 +158,36 @@ def test_prepared_rubrics_load_back_into_the_aggregator(tmp_path: Path) -> None:
     rubrics = assets.load_rubrics(tmp_path / "rubrics")
     assert set(rubrics) == {1, 2}
     assert scoring.normalized_score(rubrics[1], {"a1": True}) == 1.0
+
+
+# --- where the Cases came from (OME-1492) ---------------------------------------------
+
+
+def test_a_prepared_bundle_records_where_its_cases_came_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A red build or press can name the DRACO commit read and the Cases kept, from the bundle."""
+    from _bundle_provenance_checks import (
+        assert_hand_built_block,
+        hugging_face_source,
+        watch_provenance_writes,
+    )
+
+    rows: list[dict] = [_row("What is X?"), _row("Which central bank moved first in 2008?")]
+    # WHY patch the count: `prepare` checks the full 100-row dataset; two fixture rows stand in
+    # for the download, which never runs here.
+    monkeypatch.setattr(prepare, "CASE_COUNT", len(rows))
+    monkeypatch.setattr(prepare, "load_rows", lambda _limit=None: rows)
+    writes: list[bool] = watch_provenance_writes(monkeypatch, prepare)
+
+    summary: dict = prepare.prepare(tmp_path)
+
+    assert_hand_built_block(
+        tmp_path,
+        summary,
+        writes,
+        sources=[hugging_face_source("perplexity-ai/draco", prepare.DATASET_REVISION)],
+        yielded=2,
+        kept=2,
+        case_texts=["What is X?", "Which central bank moved first in 2008?"],
+    )

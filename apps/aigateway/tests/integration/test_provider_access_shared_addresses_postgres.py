@@ -163,7 +163,14 @@ def test_two_concurrent_deletes_of_rows_sharing_a_blob_leave_no_orphan_on_postgr
         release.set()
         results = (one.result(timeout=30), two.result(timeout=30))
 
-    assert [r.status_code for r in results] == [204, 204], [r.text for r in results]
+    # WHY [204, 409] (OME-1497, G0 §5.3): both deletes claim the unmarked pair's first marker;
+    # exactly one commits, the loser rolls back whole and its row stays live — so it keeps the
+    # blob, and its retry, now the last live addresser, takes the blob with it.
+    assert [r.status_code for r in results] == [204, 409], [r.text for r in results]
+    assert results[1].json()["detail"]["code"] == "connection_conflict"
+    assert backing._connection(pg_client, account_id, second).status == "active"
+    assert backing._profile_blob(pg_client, account_id, name) is not None
+    assert pg_client.delete(f"/v1/oauth/connections/{second}").status_code == 204
     for row_id in (first, second):
         assert backing._connection(pg_client, account_id, row_id).status == "revoked"
     # INVARIANT: the blob goes with its LAST live addresser — two deletes that each saw the other

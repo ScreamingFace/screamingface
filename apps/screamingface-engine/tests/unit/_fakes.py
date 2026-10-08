@@ -131,7 +131,6 @@ class ScheduledRun(NamedTuple):
     deadline_s: int
     traceparent: str | None
     credential: str | None
-    profile: str | None
     identity: Mapping[str, str] | None = None
 
 
@@ -151,7 +150,6 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         *,
         traceparent: str | None = None,
         credential: str | None = None,
-        profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         # Accepted so this fake still satisfies the port, and deliberately NOT recorded onto
         # `ScheduledRun`: that tuple is compared whole by an existing test, so widening it would
@@ -165,7 +163,7 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         if self._conflict:
             raise JobAlreadyExists(topic)
         self.scheduled.append(
-            ScheduledRun(topic, url4, deadline_s, traceparent, credential, profile, identity)
+            ScheduledRun(topic, url4, deadline_s, traceparent, credential, identity)
         )
         # Recorded beside, not on, `ScheduledRun` — see the `cache` note above.
         self.shapes.append(shape)

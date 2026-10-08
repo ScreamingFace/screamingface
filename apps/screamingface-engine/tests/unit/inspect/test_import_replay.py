@@ -14,11 +14,13 @@ import json
 import os
 import textwrap
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 pytest.importorskip("inspect_ai")
 
+from screamingface_engine_inspect.case_set import case_set_digest  # noqa: E402
 from screamingface_engine_inspect.case_sources import CaseSource  # noqa: E402
 from screamingface_engine_inspect.import_replay import (  # noqa: E402
     ImportReplay,
@@ -548,3 +550,162 @@ def test_a_keyless_import_is_refused_unless_told_there_is_no_key(gap_import_eval
 
     assert imported.declaration.has_answer_key is False
     assert imported.declaration.case_count == 1
+
+
+# --- OME-1460: the import seals the Hub commits and the seeds it replayed under ------------
+
+from types import SimpleNamespace  # noqa: E402
+
+import httpx  # noqa: E402
+from test_task_replay import _HEAD_SHA, _OLD_SHA, FAKE_HUB_EVAL  # noqa: E402
+
+from screamingface_engine_inspect.fetch_pins import FetchPinError, source_pins_of  # noqa: E402
+
+
+@pytest.fixture
+def hub_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """The fake-Hub stand-in eval of test_task_replay.py, importable by the child."""
+
+    (tmp_path / "fake_hub_import_eval.py").write_text(FAKE_HUB_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_hub_import_eval"
+
+
+def _hub_info(gated: bool = False) -> Any:
+    """A stand-in for HfApi().dataset_info: HEAD resolves to `_HEAD_SHA`, a commit to
+    itself. It proves what the importer seals; it does not prove the real Hub's answer."""
+
+    def dataset_info(repo_id: str, revision: str | None) -> Any:
+        """The stand-in Hub's view of one repo at one revision."""
+
+        sha: str = _HEAD_SHA if revision in (None, "main") else str(revision)
+        return SimpleNamespace(sha=sha, gated=gated)
+
+    return dataset_info
+
+
+def test_the_import_seals_the_hub_commit_head_resolved_to(hub_eval: str) -> None:
+    """The eval names no revision: the importer pins the commit HEAD named at import, and
+    run 2 (the image-side child) reads exactly that commit."""
+
+    imported: TaskReplayImport = import_by_task_replay(
+        f"{hub_eval}:unpinned_fetch", None, dataset_info=_hub_info()
+    )
+
+    assert imported.declaration.source_pins == {"stand-in/hub": _HEAD_SHA}
+    assert imported.declaration.needs_hf_token is False
+    assert imported.declaration.case_count == 4
+
+
+def test_the_import_reads_the_gate_off_the_hub(hub_eval: str) -> None:
+    imported: TaskReplayImport = import_by_task_replay(
+        f"{hub_eval}:unpinned_fetch", None, dataset_info=_hub_info(gated=True)
+    )
+
+    assert imported.declaration.needs_hf_token is True
+
+
+def test_the_second_run_forces_the_same_seed_as_the_first(hub_eval: str) -> None:
+    """Spec acceptance 6: an unseeded upstream shuffle seals under the declared seed, and
+    the image-side run agrees (without the seed the two runs disagree 23 times in 24)."""
+
+    imported: TaskReplayImport = import_by_task_replay(
+        f"{hub_eval}:unseeded_shuffle", None, shuffle_seed=7, dataset_info=_hub_info()
+    )
+
+    assert imported.declaration.shuffle_seed == 7
+    assert imported.declaration.source_pins == {"stand-in/hub": _HEAD_SHA}
+
+
+def test_an_unseeded_hub_shuffle_without_a_seed_is_refused_by_name_at_import(
+    hub_eval: str,
+) -> None:
+    """F6: named, before any digest is taken."""
+
+    with pytest.raises(ImporterError, match="shuffle_seed"):
+        import_by_task_replay(f"{hub_eval}:unseeded_shuffle", None, dataset_info=_hub_info())
+
+
+def test_a_fetch_with_no_hub_source_writes_no_source_pins(fake_eval: str) -> None:
+    """R7: a URL-only or file-only eval gets no source pins, so its revision never moves."""
+
+    imported: TaskReplayImport = import_by_task_replay(f"{fake_eval}:arithmetic", None)
+
+    assert imported.declaration.source_pins == {}
+
+
+def test_one_repo_read_at_two_commits_is_refused_by_name() -> None:
+    """A declaration can pin a repo to one commit only; an eval reading two cannot be
+    replayed faithfully, so the import says so rather than picking one."""
+
+    with pytest.raises(FetchPinError, match=f"stand-in/hub.*{_HEAD_SHA}.*{_OLD_SHA}"):
+        source_pins_of(
+            (("stand-in/hub", _HEAD_SHA), ("stand-in/hub", _OLD_SHA)), dataset_info=_hub_info()
+        )
+
+
+def test_an_unreachable_hub_is_a_named_refusal_not_a_leaked_http_error() -> None:
+    """Defend at the boundary: the dev reads which repo could not be resolved."""
+
+    def unreachable(repo_id: str, revision: str | None) -> Any:
+        """A Hub that cannot be reached, as the real client reports it."""
+
+        raise httpx.ConnectError("connection refused")
+
+    with pytest.raises(FetchPinError, match="stand-in/hub.*connection refused"):
+        source_pins_of((("stand-in/hub", None),), dataset_info=unreachable)
+
+
+def test_the_import_names_the_eval_when_the_hub_cannot_be_asked(hub_eval: str) -> None:
+    def unreachable(repo_id: str, revision: str | None) -> Any:
+        """A Hub that cannot be reached."""
+
+        raise httpx.ConnectError("connection refused")
+
+    with pytest.raises(ImporterError, match=f"{hub_eval}:unpinned_fetch: cannot resolve"):
+        import_by_task_replay(f"{hub_eval}:unpinned_fetch", None, dataset_info=unreachable)
+
+
+def test_a_seed_the_eval_never_needs_is_refused_by_name(fake_eval: str) -> None:
+    """R10: a row must never promise an order nothing pins; the stand-in loads a JSONL file
+    with no hf_dataset shuffle, so a shuffle seed would be written and never applied."""
+
+    with pytest.raises(ImporterError, match="shuffle_seed.*never applied"):
+        import_by_task_replay(f"{fake_eval}:arithmetic", None, shuffle_seed=7)
+
+
+def test_a_choice_seed_the_eval_never_needs_is_refused_by_name(hub_eval: str) -> None:
+    with pytest.raises(ImporterError, match="choice_shuffle_seed.*never applied"):
+        import_by_task_replay(
+            f"{hub_eval}:unseeded_shuffle",
+            None,
+            shuffle_seed=7,
+            choice_shuffle_seed=3,
+            dataset_info=_hub_info(),
+        )
+
+
+def test_a_judge_that_reads_sample_metadata_can_keep_it(fake_eval: str) -> None:
+    """coconot's Judge template reads the category rubric from the Sample metadata, though
+    its scorer is inspect's own (which alone would drop the metadata, D11): the importing
+    agent says so, and the metadata then sits inside the Case Digest (OME-1460)."""
+
+    kept: TaskReplayImport = import_by_task_replay(
+        f"{fake_eval}:arithmetic", None, keep_sample_metadata=True
+    )
+    default: TaskReplayImport = import_by_task_replay(f"{fake_eval}:arithmetic", None)
+
+    assert kept.declaration.keep_sample_metadata is True
+    assert default.declaration.keep_sample_metadata is False
+
+
+def test_an_import_seals_the_order_blind_digest_too(fake_eval: str) -> None:
+    """OME-1492: the order-blind seal matches the Cases every build re-creates."""
+
+    imported: TaskReplayImport = import_by_task_replay(f"{fake_eval}:arithmetic", None)
+
+    rebuilt: list[dict[str, dict[str, object]]] = replayed_cases(imported.declaration)
+    assert imported.declaration.case_set_digest == case_set_digest(rebuilt)

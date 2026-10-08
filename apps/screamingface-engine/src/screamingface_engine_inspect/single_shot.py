@@ -27,16 +27,21 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Unpack
 
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.aggregation import CandidateScore
 from screamingface_engine.benchmarks.case_context import case_scope
 from screamingface_engine.benchmarks.case_selection import install_cases
-from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA, CaseResult
+from screamingface_engine.benchmarks.contract import (
+    CANDIDATE_RESULT_SCHEMA,
+    CaseGrade,
+    CaseResult,
+)
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
+    BenchmarkOrigin,
     DifficultyTier,
     DraftFeedbackOffer,
     candidate,
@@ -65,6 +70,7 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.provenance import ProvenanceFields
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
     CaseGradeOutcome,
@@ -80,12 +86,12 @@ from screamingface_engine_inspect.envelopes import (
     build_case_grade,
     decode_case_grade,
 )
-from screamingface_engine_inspect.pins import (
+from screamingface_engine_inspect.prepare import SKIPPED_MARKER
+from screamingface_engine_inspect.revision_inputs import (
     PREPARER_REVISION,
     PROTOCOL_REVISION,
     pinned_inspect_packages,
 )
-from screamingface_engine_inspect.prepare import SKIPPED_MARKER
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Request, Url4Node
 
@@ -167,6 +173,12 @@ class ImportedBenchmark:
     #: The judge's verdict word → grade map, replacing inspect's letters (OME-1371);
     #: None for every letter- or number-graded benchmark. Hashed by the caller's pins.
     verdict_grades: Mapping[str, float] | None = None
+    #: The Task's other scorers (OME-1268), each a lazy factory like ``scorer_factory``;
+    #: empty for every single-scorer benchmark. Hashed by the caller's pins.
+    extra_scorer_factories: tuple[Callable[[], Any], ...] = ()
+    #: The keys of the Case's Named Scores, headline first (OME-1268); empty for every
+    #: single-scorer benchmark. Hashed by the caller's pins.
+    named_scores: tuple[str, ...] = ()
 
     def aggregation(self) -> BenchmarkAggregation:
         """This benchmark's shared-grading binding — built on demand so the scorer stays lazy."""
@@ -186,6 +198,8 @@ class ImportedBenchmark:
             ),
             grade_case=inspect_grade_case(
                 self.scorer_factory(),
+                extra_scorers=[factory() for factory in self.extra_scorer_factories],
+                named_scores=self.named_scores,
                 multiple_correct=self.multiple_correct,
                 inverted_grade=self.inverted_grade,
                 verdict_grades=self.verdict_grades,
@@ -196,7 +210,16 @@ class ImportedBenchmark:
             grading_failure_message="the inspect scorer pipeline could not grade this Case",
             missing_material_code="missing_target_asset",
             inverted_grade=self.inverted_grade,
+            named_scores=self.named_scores,
         )
+
+
+def imported_benchmark_id(benchmark_key: str, origin: BenchmarkOrigin) -> str:
+    """The catalogue id this plugin gives a row: ``inspect-<key>`` for an inspect_evals import,
+    the bare key for a local Task (our own eval in inspect's shape, OME-1513) — "musique", not
+    "inspect-musique", because nothing about it came from inspect_evals."""
+
+    return benchmark_key if origin == "screamingface" else f"inspect-{benchmark_key}"
 
 
 def single_shot_benchmark(
@@ -217,6 +240,10 @@ def single_shot_benchmark(
     judge: JudgeSpec | None = None,
     inverted_grade: bool = False,
     verdict_grades: Mapping[str, float] | None = None,
+    extra_scorer_factories: Sequence[Callable[[], Any]] = (),
+    named_scores: Sequence[str] = (),
+    origin: BenchmarkOrigin = "inspect_evals",
+    **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
 
@@ -254,12 +281,17 @@ def single_shot_benchmark(
             in words (coconot); passed to the scorer adapter, which then grades by it
             instead of inspect's letters. The caller carries it into ``revision_pins``
             (OME-1371).
+        extra_scorer_factories: the Task's other scorers as lazy factories, in upstream
+            order; the adapter grades each Case once per scorer (OME-1268). The caller
+            carries them into ``revision_pins``.
+        named_scores: the keys of the Case's Named Scores, headline first (OME-1268);
+            empty on a single-scorer benchmark. The caller carries it into ``revision_pins``.
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
     """
 
-    benchmark_id: str = f"inspect-{benchmark_key}"
+    benchmark_id: str = imported_benchmark_id(benchmark_key, origin)
     if judge is not None and with_check_surface:
         # WHY: a judged mid-run check spends judge tokens per attempt, and the
         # advertised check cost is still hardcoded "free" — until the check-cost
@@ -320,11 +352,13 @@ def single_shot_benchmark(
         description=description,
         revision=revision,
         case_count=case_count,
-        # WHY explicit: `origin` defaults to "screamingface", which is true for every
-        # benchmark authored in this repo and wrong for every benchmark that arrives through
-        # here. The listing groups by this field (OME-1114), so a defaulted row hides
-        # the imported shelf inside our own group.
-        origin="inspect_evals",
+        # WHY explicit: `Benchmark.origin` defaults to "screamingface", which is wrong for
+        # every eval that arrives through here from inspect_evals — the listing groups by this
+        # field (OME-1114), so a defaulted row would hide the imported shelf inside our own
+        # group. A LOCAL Task (our own eval in inspect's shape, OME-1513) is the one caller
+        # that passes "screamingface": it is ours, and the provenance rule then asks it for no
+        # inspect porter list.
+        origin=origin,
         # FEATURE: the researcher-visible refusal-rate mark (OME-1400) — the same flag the
         # scorer adapter flips on, published so report.json can show it.
         inverted_grade=inverted_grade,
@@ -332,6 +366,9 @@ def single_shot_benchmark(
         install=install,
         focus=focus,
         dataset_url=dataset_url,
+        # Benchmark Provenance, baselines, notebook (OME-1455): authored on the BenchmarkSpec
+        # row like `difficulty`, threaded through verbatim; shapes checked by `Benchmark`.
+        **provenance,
         declaration=BenchmarkDeclaration(
             # WHY "coverage_declare": imported benchmarks reduce through the shared
             # finalize_candidate_result, which scores the gradeable subset and
@@ -371,6 +408,8 @@ def single_shot_benchmark(
         judge=judge,
         inverted_grade=inverted_grade,
         verdict_grades=verdict_grades,
+        extra_scorer_factories=tuple(extra_scorer_factories),
+        named_scores=tuple(named_scores),
     )
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept
@@ -798,13 +837,19 @@ def _case_by_input(root: Path, prompt: str) -> int:
 
 
 def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
-    """Mean score over the graded Cases — the imported single-shot reduction."""
+    """Mean score over the graded Cases — the imported single-shot reduction.
 
-    values: list[float] = [
-        float(case.grade.score)
-        for case in cases
-        if case.grade is not None and case.grade.score is not None
+    With Named Scores (OME-1268) every column is averaged over the SAME graded Cases as the
+    headline, so all columns share Coverage's denominator (the adapter never half-grades a
+    Case; a column one graded Case could not fill is published as unknown, never over
+    fewer Cases). Worked example, 2 graded Cases: f1 1.0 and 0.334, exact 1.0 and 0.0 →
+    score 0.667, scores f1 0.667, exact 0.5.
+    """
+
+    graded: list[CaseGrade] = [
+        case.grade for case in cases if case.grade is not None and case.grade.score is not None
     ]
+    values: list[float] = [float(grade.score) for grade in graded if grade.score is not None]
     if not values:  # pragma: no cover - a Benchmark always selects one Case
         raise AssertionError("an imported board's scorer requires at least one scored Case")
     return CandidateScore(
@@ -813,7 +858,24 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
             "correct": sum(1 for value in values if value >= 1.0),
             "scored_cases": len(values),
         },
+        scores=_column_means(graded),
     )
+
+
+def _column_means(graded: Sequence[CaseGrade]) -> dict[str, float | None]:
+    """Each Named Score column's mean over the graded Cases, in the headline-first order
+    the first Case declares; empty when the Benchmark has no Named Scores."""
+
+    names: tuple[str, ...] = tuple(graded[0].scores) if graded else ()
+    means: dict[str, float | None] = {}
+    for name in names:
+        column: list[float | None] = [grade.scores.get(name) for grade in graded]
+        # INVARIANT: every column shares the headline's denominator. A column one graded
+        # Case could not fill (a None value) has no honest mean over those Cases, so it is
+        # published as unknown — never as a mean over fewer Cases, never as 0.0.
+        filled: list[float] = [float(value) for value in column if value is not None]
+        means[name] = round(sum(filled) / len(filled), 4) if len(filled) == len(column) else None
+    return means
 
 
 def _run_sync[T](coroutine: Awaitable[T]) -> T:

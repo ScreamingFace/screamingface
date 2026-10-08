@@ -67,14 +67,17 @@ async def begin_connection_oauth(
     provider: str,
     name: str,
     scopes: Sequence[str],
+    observed_pair: PairAuthority | None = None,
 ) -> MigratedFlow | None:
     """Open the flow on a MIGRATED pair, or answer `None` when the legacy Profile owns the pair.
 
     One transaction: [fresh pending row] → marker advance (the fence) → mirror document. The
     generation returned is what the callback presents to `complete_connection_oauth`.
+    `observed_pair` is the pair the route captured (G0: a legacy flow records it for its
+    callback); absent, it is read here.
     """
     markers = PairAuthorityStore()
-    pair = await markers.read(account_id, provider)
+    pair = observed_pair or await markers.read(account_id, provider)
     if pair.migration_state != "migrated":
         return None
     store = OAuthConnectionStore()

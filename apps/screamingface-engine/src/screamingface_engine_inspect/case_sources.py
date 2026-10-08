@@ -23,6 +23,13 @@ logged once, with what it fetched and what pins it. Stages, in execution order:
     Stage 4 — uninstall: put every rebound attribute back. The import child dies with its
               patches; the tests that install into the pytest process need this.
 
+With fetch pins (OME-1460, :mod:`screamingface_engine_inspect.fetch_pins`) the officer also
+stamps visas: in stage 2 a top-level Hub fetch gets the declaration's revision before the
+original runs, and inspect's ``hf_dataset`` is wrapped too (by identity, so a name bound at
+import and the inspect_evals shim both reach it) to force the revision and the shuffle
+seeds. That wrap records nothing and does not count depth: the Case Source stays the
+``datasets.load_dataset`` call ``hf_dataset`` makes, as before.
+
 Example: mgsm's `download(url, "4c2f…", cache/mgsm_en.tsv)` records
 ``url https://…/mgsm_en.tsv · pin sha256 4c2f…``; its following read of cache/mgsm_en.tsv
 through file() records nothing.
@@ -45,18 +52,27 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.bundle_provenance import (
+    FILE,
+    HUGGING_FACE,
+    LOAD_PHASE,
+    UNPINNED,
+    URL,
+)
+from screamingface_engine_inspect.fetch_pins import (
+    FetchPins,
+    forced_hf_dataset_arguments,
+    forced_revision,
+)
+
 _COMMIT_IN_URL: re.Pattern[str] = re.compile(r"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])")
 _URL_SCHEMES: tuple[str, ...] = ("http://", "https://", "s3://", "gs://", "hf://")
 
-#: Kinds a Case Source can be. The comment the importer writes starts with the kind.
-HUGGING_FACE: str = "hugging-face"
-URL: str = "url"
-FILE: str = "file"
-#: The pin of a Case Source nothing upstream pins: the Case Digest is then the only pin.
-UNPINNED: str = "unpinned"
-#: When a Case Source was fetched: while the task function loaded its dataset, or while
-#: capture rendered a Sample (see CaseSource.phase).
-LOAD_PHASE: str = "load"
+# The Case Source kind words (hugging-face, url, file), "unpinned" and the load phase live in
+# core, so the hand-built preparers' labels and this recorder's read alike; the comment the
+# importer writes starts with the kind.
+#: When capture rendered a Sample, as opposed to while the task function loaded its dataset
+#: (see CaseSource.phase).
 RENDER_PHASE: str = "render"
 
 #: What a describe step returns: the Case Sources one call fetched (often one, maybe none).
@@ -193,19 +209,24 @@ def _describe_download_manager(call: Mapping[str, Any]) -> Described:
 
 @dataclass(frozen=True)
 class Primitive:
-    """One fetch primitive the recorder wraps: where it lives and how to describe a call."""
+    """One fetch primitive the recorder wraps: where it lives and how to describe a call.
+
+    ``hub_repo_argument`` names the argument holding the Hugging Face repo id on a Hub
+    fetch (its ``revision`` argument is then forced by the fetch pins); None elsewhere.
+    """
 
     module: str
     attribute: str
     describe: Callable[[Mapping[str, Any]], Described]
+    hub_repo_argument: str | None = None
 
 
 #: The module-level fetch primitives of spec R3. inspect_ai's file() is the sixth; it needs
 #: the recorder's cache root, so the recorder adds it (and D7's DownloadManager method).
 PRIMITIVES: tuple[Primitive, ...] = (
-    Primitive("datasets", "load_dataset", _describe_load_dataset),
-    Primitive("huggingface_hub", "snapshot_download", _describe_snapshot_download),
-    Primitive("huggingface_hub", "hf_hub_download", _describe_hf_hub_download),
+    Primitive("datasets", "load_dataset", _describe_load_dataset, "path"),
+    Primitive("huggingface_hub", "snapshot_download", _describe_snapshot_download, "repo_id"),
+    Primitive("huggingface_hub", "hf_hub_download", _describe_hf_hub_download, "repo_id"),
     Primitive("inspect_ai.util", "download", _describe_inspect_download),
     Primitive("inspect_evals.utils.load_dataset", "_download_remote", _describe_download_remote),
 )
@@ -216,16 +237,30 @@ class CaseSourceRecorder:
 
     def __init__(self, cache_root: Path) -> None:
         self.sources: list[CaseSource] = []
+        #: Every top-level Hub fetch as (repo id, revision it read), in call order: the
+        #: importer resolves these to the declaration's source pins (OME-1460).
+        self.hub_fetches: list[tuple[str, str | None]] = []
+        #: Which declared seeds a call actually needed ("shuffle_seed", "choice_shuffle_seed"):
+        #: the importer refuses a seed nothing applied (OME-1460, R10).
+        self.seeds_applied: set[str] = set()
+        self._pins: FetchPins | None = None
         self._cache_root: Path = cache_root.resolve()
         self._depth: int = 0
         self._package_root: Path | None = None
         self._rebound: list[tuple[Any, str, Any, Any]] = []
 
-    def install(self) -> None:
-        """Stage 1 — wrap every primitive and rebind it wherever it is already bound."""
+    def install(self, pins: FetchPins | None = None) -> None:
+        """Stage 1 — wrap every primitive and rebind it wherever it is already bound.
 
+        Args:
+            pins: the fetch pins to force (OME-1460); None watches without changing a call.
+        """
+
+        import inspect_ai.dataset
         import inspect_evals
         from datasets.download.download_manager import DownloadManager
+
+        self._pins = pins
 
         # WHY the guard: a module's __file__ is typed str | None (a namespace package has none).
         package_file: str | None = inspect_evals.__file__
@@ -236,11 +271,19 @@ class CaseSourceRecorder:
         )
         for primitive in primitives:
             original: Any = getattr(import_module(primitive.module), primitive.attribute)
-            self._rebind_everywhere(original, self._wrap(original, primitive.describe))
+            self._rebind_everywhere(original, self._wrap(original, primitive))
+        if pins is not None:
+            # WHY only the real hf_dataset: the inspect_evals shim calls it through the
+            # inspect_ai.dataset module attribute, which this rebinds too.
+            real_hf_dataset: Any = inspect_ai.dataset.hf_dataset
+            self._rebind_everywhere(real_hf_dataset, self._enforce_hf_dataset(real_hf_dataset))
         # D7: the DownloadManager primitive is a method, so the class holds the binding.
         method: Any = DownloadManager.download
         self._rebind(
-            DownloadManager, "download", method, self._wrap(method, _describe_download_manager)
+            DownloadManager,
+            "download",
+            method,
+            self._wrap(method, Primitive("datasets", "download", _describe_download_manager)),
         )
 
     def uninstall(self) -> None:
@@ -271,26 +314,65 @@ class CaseSourceRecorder:
             return CaseSource(FILE, f"inspect_evals/{relative}", pin)
         return CaseSource(FILE, str(resolved), UNPINNED)
 
-    def _wrap(self, original: Any, describe: Callable[[Mapping[str, Any]], Described]) -> Any:
-        """Stage 2 — a pass-through that records a top-level call before running the original."""
+    def _wrap(self, original: Any, primitive: Primitive) -> Any:
+        """Stage 2 — a pass-through that records a top-level call before running the original,
+        forcing a Hub fetch's revision first when fetch pins are installed."""
 
         signature: inspect.Signature = inspect.signature(original)
 
         @functools.wraps(original)
         def wrapped(*args: Any, **kwargs: Any) -> Any:
-            """The primitive, with its top-level calls recorded first."""
+            """The primitive, with its top-level calls pinned and recorded first."""
 
             self._depth += 1
             try:
                 if self._depth == 1:
                     # WHY bind: evals pass the same argument by position or by name.
                     bound: inspect.BoundArguments = signature.bind_partial(*args, **kwargs)
-                    self._record(describe(bound.arguments))
+                    repo_argument: str | None = primitive.hub_repo_argument
+                    if repo_argument is not None and repo_argument in bound.arguments:
+                        self._pin_hub_fetch(bound, str(bound.arguments[repo_argument]))
+                        args, kwargs = bound.args, bound.kwargs
+                    self._record(primitive.describe(bound.arguments))
+                # INVARIANT: a nested call is the same fetch as its parent; the parent's
+                # revision already reached it, so it is neither pinned again nor recorded.
                 return original(*args, **kwargs)
             finally:
                 self._depth -= 1
 
         return wrapped
+
+    def _pin_hub_fetch(self, bound: inspect.BoundArguments, repo_id: str) -> None:
+        """Force the declaration's revision onto one top-level Hub fetch and remember it."""
+
+        if self._pins is not None:
+            revision: Any = forced_revision(self._pins, repo_id, bound.arguments.get("revision"))
+            if revision is not None:
+                bound.arguments["revision"] = revision
+        fetched: Any = bound.arguments.get("revision")
+        self.hub_fetches.append((repo_id, None if fetched is None else str(fetched)))
+
+    def _enforce_hf_dataset(self, original: Any) -> Any:
+        """inspect's hf_dataset with the revision and seeds forced; records nothing itself."""
+
+        signature: inspect.Signature = inspect.signature(original)
+
+        @functools.wraps(original)
+        def enforced(*args: Any, **kwargs: Any) -> Any:
+            """hf_dataset, called with the declaration's revision and seeds."""
+
+            bound: inspect.BoundArguments = signature.bind_partial(*args, **kwargs)
+            # WHY assert: install() wraps hf_dataset only when pins are given.
+            assert self._pins is not None
+            forced: dict[str, Any] = forced_hf_dataset_arguments(self._pins, bound.arguments)
+            if forced.get("seed") != bound.arguments.get("seed"):
+                self.seeds_applied.add("shuffle_seed")
+            if forced.get("shuffle_choices") is not bound.arguments.get("shuffle_choices"):
+                self.seeds_applied.add("choice_shuffle_seed")
+            bound.arguments.update(forced)
+            return original(*bound.args, **bound.kwargs)
+
+        return enforced
 
     def _record(self, described: Described) -> None:
         """Keep each Case Source once, in first-seen order."""

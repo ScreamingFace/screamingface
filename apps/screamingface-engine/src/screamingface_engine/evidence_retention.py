@@ -11,6 +11,11 @@ WHY by the subject's TAIL and not by how the process ended: `lifecycle.run` publ
 `Terminated(failed)` and RETURNS normally, so a child that failed its run still exits 0 and a
 runner's `run_once` does not raise. The terminal frame is the one account both paths share.
 
+CAPPED (OME-1462, owner decision 2026-10-02): a retained subject is trimmed to its newest
+`retained_max_msgs` frames and `retained_max_bytes` of payload, terminal frame always kept
+(`adapters.jetstream._JetStreamConnection.trim_retained`), so a failure storm costs at most
+the cap per failed run instead of filling the shared stream.
+
 AIDEV-NOTE: retention here is best-effort, not a guarantee. The events stream is `discard=OLD`
 with a 1 GiB `max_bytes`: under load JetStream drops the OLDEST frames of any subject, so a
 retained failed run can still be evicted well before 24 h. That is deliberate — retention must
@@ -57,5 +62,15 @@ async def subject_retained(
         frame = await last_frame(topic)
     except QueueReadError:
         logger.warning("tail of %s unreadable; reclaiming without the failure check", topic)
+        return False
+    except Exception:
+        # WHY broad (OME-1462): the rule above is about an UNKNOWN ending, whatever made it
+        # unknown. Only `QueueReadError` reached it before; a connect failing with `OSError`
+        # (or anything else) escaped to the caller's teardown guard, which skips the purge —
+        # so a possibly successful run's frames sat for `max_age`. `CancelledError` is a
+        # `BaseException` and still unwinds a stopping worker.
+        logger.warning(
+            "tail of %s unreadable; reclaiming without the failure check", topic, exc_info=True
+        )
         return False
     return retains_evidence(frame)

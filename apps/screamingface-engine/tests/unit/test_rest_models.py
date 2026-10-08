@@ -104,9 +104,7 @@ async def test_neither_an_access_proxy_assertion_nor_a_bearer_token_identifies_a
 
 
 async def test_a_profile_is_refused_before_it_can_become_part_of_the_identity() -> None:
-    """OME-1381 (Stage D producer-off): was `test_the_profile_becomes_part_of_the_identity`,
-    which pinned `seen[0].profile == "team-a"`. The header now selects nothing, so it is refused
-    before the catalog is asked and can key no entry."""
+    """The retired header selects nothing and is refused before catalog access."""
     catalog = FakeCatalog()
     async with client_for(build_app(catalog)) as client:
         response = await client.get("/v1/models", headers={**auth(EMAIL_A), "X-Profile": "team-a"})

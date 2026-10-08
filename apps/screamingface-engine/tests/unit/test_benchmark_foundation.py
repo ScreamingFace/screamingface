@@ -132,6 +132,10 @@ async def test_list_is_complete_metadata_and_detail_is_an_exact_selection() -> N
                 "interaction": "single_shot",
                 # OME-1257: the hand-assigned easy→hard tier the listing groups by.
                 "difficulty": "easy",
+                # OME-1455: the derived saturation verdict is always served; "unknown" when
+                # no Frontier Score is recorded. The provenance keys are present-only, so a
+                # Benchmark declaring none serves none of them.
+                "saturation": "unknown",
                 "href": "/v1/benchmarks/example-smoke",
             }
         ],

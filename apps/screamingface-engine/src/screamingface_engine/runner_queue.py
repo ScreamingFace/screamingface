@@ -186,7 +186,6 @@ def _env_mapping(
     deadline_s: int,
     *,
     traceparent: str | None = None,
-    profile: str | None = None,
     identity: Mapping[str, str] | None = None,
     cache: CachePolicy | None = None,
     answer_seed: int | None = None,
@@ -210,8 +209,6 @@ def _env_mapping(
     forwarded = valid_traceparent(traceparent)
     if forwarded is not None:
         env[job_env.TRACEPARENT] = forwarded
-    if profile is not None:
-        env[job_env.AIGATEWAY_PROFILE] = profile
     env.update(job_env.identity_to_env(identity or {}))
     env.update(job_env.cache_policy_to_env(cache))
     env.update(job_env.answer_seed_to_env(answer_seed))
@@ -238,7 +235,6 @@ def encode_message(
     deadline_s: int,
     *,
     traceparent: str | None = None,
-    profile: str | None = None,
     identity: Mapping[str, str] | None = None,
     cache: CachePolicy | None = None,
     answer_seed: int | None = None,
@@ -254,7 +250,6 @@ def encode_message(
             url4,
             deadline_s,
             traceparent=traceparent,
-            profile=profile,
             identity=identity,
             cache=cache,
             answer_seed=answer_seed,

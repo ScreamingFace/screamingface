@@ -211,15 +211,9 @@ def cold_child_env(
     is written last so it is the authority on how wide a run may fan out (the fair-share
     gate cannot span processes, so the budget travels by env).
     """
-    env = dict(environ)
+    env = job_env.without_retired_keys(environ)
     # INVARIANT: only this queue message may declare its Client version.
     env.pop(CLIENT_VERSION_ENV, None)
-    # INVARIANT (OME-1381): only this queue message may carry a profile selector. An ambient
-    # value would route a selector-less run through a credential its caller never named — a
-    # warm child's `deploy_env` and the in-process runner already drop it. A legacy message that
-    # carries the field (work accepted before producer-off) still sets it from `run_env` below,
-    # and is honoured until the drain.
-    env.pop(job_env.AIGATEWAY_PROFILE, None)
     env.update(run_env)
     env[job_env.IO_CONCURRENCY] = str(io_concurrency)
     return env
@@ -283,6 +277,7 @@ class RunSupervisor:
         ownership_probe_timeout_s: float = OWNERSHIP_PROBE_TIMEOUT_S,
         metrics: WorkerMetrics | None = None,
         reclaim: Callable[[str], Awaitable[None]] | None = None,
+        trim_retained: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self._publisher = publisher
         # ONE of the two: production hands in the warm child pool; the `spawn=` seam (a fake
@@ -351,6 +346,9 @@ class RunSupervisor:
         # detached so it never holds the run's slot. `None` (the supervisor's unit tests)
         # reclaims nothing; `max_age` is the backstop either way.
         self._reclaim = reclaim
+        # The cap a RETAINED run's subject gets in place of the purge (OME-1462). `None` keeps
+        # the subject whole until `max_age`, as before the cap.
+        self._trim_retained = trim_retained
         self._reclaims: set[asyncio.Task[None]] = set()
 
     async def supervise(self, msg: ClaimedMessage) -> None:
@@ -683,13 +681,15 @@ class RunSupervisor:
         """Purge the finished run's subject after its grace, detached from the slot.
 
         A run that ended `failed`/`timed_out` is NOT purged (OME-946): its frames are the
-        post-mortem, left for the events stream's 24 h `max_age` — see `evidence_retention`.
+        post-mortem, left for the events stream's 24 h `max_age` — see `evidence_retention` —
+        and capped by `trim_retained` (OME-1462) so a failure storm cannot fill the stream.
         """
         if self._reclaim is None:
             return
         grace_s = _float_or_none(env.get(job_env.STREAM_GRACE_S))
         delay = job_env.DEFAULT_STREAM_GRACE_S if grace_s is None else grace_s
         reclaim = self._reclaim
+        trim = self._trim_retained
         last_frame = self._publisher.last_frame
 
         async def _later() -> None:
@@ -700,6 +700,8 @@ class RunSupervisor:
                 # and the tail is the one account of the ending both publishers share.
                 if await subject_retained(last_frame, topic):
                     logger.info("kept the subject of failed run %s for post-mortem", topic)
+                    if trim is not None:
+                        await trim(topic)
                     return
                 await reclaim(topic)
             except Exception:

@@ -10,6 +10,7 @@ from tortoise import Tortoise
 from .config import DEFAULT_DATABASE_URL, PoolSize, normalize_database_url
 
 __all__ = [
+    "DEFAULT_CONNECTION",
     "READINESS_CONNECTION",
     "TORTOISE_CONFIG",
     "PoolSize",
@@ -18,6 +19,14 @@ __all__ = [
     "close_db",
     "init_db",
 ]
+
+DEFAULT_CONNECTION = "default"
+"""Tortoise alias of the request connection: the one every scoreboard transaction opens on.
+
+INVARIANT (OME-1488): every `in_transaction()` names it. With a second connection configured
+(`READINESS_CONNECTION` below) Tortoise refuses to choose one for an unnamed transaction, which
+took down every leaderboard read and submission in the web app on 2026-10-05.
+"""
 
 READINESS_CONNECTION = "readiness"
 """Tortoise alias of the connection reserved for `/readyz` (OME-1452).
@@ -37,12 +46,12 @@ DEFAULT_CONFIGURED_DATABASE_URL = normalize_database_url(
 )
 
 TORTOISE_CONFIG: dict[str, Any] = {
-    "connections": {"default": DEFAULT_CONFIGURED_DATABASE_URL},
+    "connections": {DEFAULT_CONNECTION: DEFAULT_CONFIGURED_DATABASE_URL},
     "apps": {
         "models": {
             "models": ["scoreboard.scores.models"],
             "migrations": "scoreboard.scores.migrations",
-            "default_connection": "default",
+            "default_connection": DEFAULT_CONNECTION,
         }
     },
     "use_tz": True,
@@ -52,7 +61,7 @@ TORTOISE_CONFIG: dict[str, Any] = {
 
 def build_tortoise_config(database_url: str) -> dict[str, Any]:
     config = deepcopy(TORTOISE_CONFIG)
-    config["connections"]["default"] = database_url
+    config["connections"][DEFAULT_CONNECTION] = database_url
     return config
 
 

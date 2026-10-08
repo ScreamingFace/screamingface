@@ -70,6 +70,76 @@ def _parse_decimal(value: str) -> Decimal:
     return parsed
 
 
+_ACCOUNTING_SENSITIVE_KEYS = frozenset(
+    {
+        "usage",
+        "cost",
+        "cost_details",
+        "is_byok",
+        "server_tool_use",
+        "server_tool_use_details",
+        "prompt_tokens",
+        "input_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "output_tokens",
+        "prompt_tokens_details",
+        "completion_tokens_details",
+        "error",
+        "metadata",
+        "error_type",
+        "code",
+        "openrouter_metadata",
+        "pipeline",
+        "attempts",
+        "status",
+        "cost_usd",
+        "choices",
+        "output",
+        "content",
+        "cache_creation",
+        "service_tier",
+    }
+)
+
+
+def _bounded_json_with_duplicates(
+    payload: bytes,
+) -> tuple[dict[str, Any] | None, frozenset[str]]:
+    """Parse bounded JSON and return every repeated object-key name."""
+    if len(payload) > MAX_RAW_EVIDENCE_BYTES:
+        return None, frozenset({"*"})
+    duplicate_keys: set[str] = set()
+
+    def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in parsed:
+                duplicate_keys.add(key)
+            parsed[key] = value
+        return parsed
+
+    try:
+        parsed = json.loads(
+            payload,
+            parse_constant=_reject_non_finite,
+            parse_float=_parse_decimal,
+            object_pairs_hook=_object,
+        )
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        return None, frozenset()
+    return (parsed if isinstance(parsed, dict) else None), frozenset(duplicate_keys)
+
+
+def _duplicate_can_change_accounting(key: str) -> bool:
+    normalized = key.lower()
+    return (
+        key in _ACCOUNTING_SENSITIVE_KEYS
+        or normalized.endswith(("_tokens", "_requests", "_details"))
+        or any(word in normalized for word in ("cost", "price", "charge", "billing", "fee"))
+    )
+
+
 def _declared_body_exceeds_limit(value: str) -> bool:
     """Compare a decimal Content-Length without constructing an unbounded integer."""
     normalized = value.lstrip("0") or "0"
@@ -94,21 +164,12 @@ def _bounded_json(payload: bytes) -> dict[str, Any] | None:
     the life of the request and handed to a provider mapper, so it is bounded before it
     is parsed rather than after.
     """
-    if len(payload) > MAX_RAW_EVIDENCE_BYTES:
-        return None
-    try:
-        parsed = json.loads(
-            payload,
-            parse_constant=_reject_non_finite,
-            parse_float=_parse_decimal,
-        )
-    except (ValueError, UnicodeDecodeError, RecursionError):
-        return None
-    return parsed if isinstance(parsed, dict) else None
+    parsed, duplicates = _bounded_json_with_duplicates(payload)
+    return parsed if not duplicates else None
 
 
-async def _read_body(response: httpx.Response) -> tuple[dict[str, Any] | None, bool]:
-    """``(raw_evidence, body_completed)`` for a response, reading it when that is safe.
+async def _read_body(response: httpx.Response) -> tuple[dict[str, Any] | None, bool, bool]:
+    """``(raw_evidence, body_completed, evidence_complete)`` for a response.
 
     WHY reading here is safe and correct: the handler is injected ONLY for accounted
     non-streaming requests; streaming bypasses accounting before dispatch. Every response
@@ -119,14 +180,17 @@ async def _read_body(response: httpx.Response) -> tuple[dict[str, Any] | None, b
     LiteLLM's zero-filled ``Usage``.
     """
     if _EVENT_STREAM in response.headers.get("content-type", ""):
-        return None, False
+        return None, False, False
     declared = response.headers.get("content-length")
     if declared is not None and declared.isdigit() and _declared_body_exceeds_limit(declared):
         # Refuse before reading, not after: the cap is a memory bound, and a bound
         # enforced only once the bytes are already resident is not a bound.
-        return None, False
+        return None, False, False
     await response.aread()
-    return _bounded_json(response.content), True
+    raw_evidence, duplicate_keys = _bounded_json_with_duplicates(response.content)
+    if any(_duplicate_can_change_accounting(key) for key in duplicate_keys):
+        raw_evidence = None
+    return raw_evidence, True, not duplicate_keys
 
 
 def _redirect_target(request: httpx.Request, response: httpx.Response) -> str | None:
@@ -206,7 +270,7 @@ async def _on_response(response: httpx.Response) -> None:
         return
 
     try:
-        raw_evidence, body_completed = await _read_body(response)
+        raw_evidence, body_completed, evidence_complete = await _read_body(response)
     except asyncio.CancelledError:
         # INVARIANT: cancellation is NOT an accounting failure — it is the caller going
         # away. Swallowing it here would let httpx continue a response/body path the
@@ -227,6 +291,7 @@ async def _on_response(response: httpx.Response) -> None:
             status=response.status_code,
             raw_evidence=raw_evidence,
             body_completed=body_completed,
+            evidence_complete=evidence_complete,
         )
     except asyncio.CancelledError:
         raise

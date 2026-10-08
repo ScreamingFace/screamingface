@@ -1,18 +1,10 @@
-"""Characterisation of how a profile selector travels into a run, and of the Local listing's
-ambiguity rule (OME-1199, Stage 0 of OME-1138).
+"""Local listing ambiguity characterization and worker fakes shared by queue tests.
 
-# FEATURE: OME-1138 adapter-first convergence. The later selector sunset (Stage D) rejects a
-# present `AIGATEWAY_PROFILE`; the Local listing's 409 ambiguity rule is a retained consumer
-# obligation that must survive untouched while the Hosted listing moves (A4). Both are pinned
-# here BEFORE any boundary work.
-# AIDEV-NOTE: this module records LEGACY behaviour exactly; it does not judge or fix it. The
-# queued runner and the in-process runner disagreed about an ambient profile until OME-1381
-# (Stage D producer-off) made the worker drop it too; the first test now pins that agreement,
-# and the legacy message path (a carried profile wins) is still pinned as it was.
+The retired Profile queue/env carrier coverage left with OME-1449. The listing's 409 ambiguity
+rule is an independent retained consumer obligation from OME-1199 and remains pinned here.
 """
 
 import asyncio
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -20,20 +12,11 @@ from typing import Any
 import httpx
 import pytest
 
-from screamingface_engine import job_env
-from screamingface_engine.adapters.inprocess import InProcessJobRunner
-from screamingface_engine.adapters.memory import InMemoryEventStream
 from screamingface_engine.connections.aigateway import AigatewayConnections
 from screamingface_engine.connections.port import Caller, ConnectionConflict
-from screamingface_engine.runner_queue import encode_message
-from screamingface_engine.worker.loop import Worker
-from url4.streaming.interfaces import Completed, ExecStep, Executor, TraceContext
 from url4.streaming.protocol import TerminatedEvent
 
 pytestmark = pytest.mark.asyncio
-
-_AMBIENT = "ambient-team"
-
 
 # --- the worker's fakes: the slice of the queue, the publisher and the child the claim path
 # touches, mirroring `test_worker_claim.py` -----------------------------------------------------
@@ -98,132 +81,7 @@ class _FakeQueue:
         return []
 
 
-async def _child_env_for(message: bytes) -> dict[str, str]:
-    """Claim one message through the real worker and return the env its child was spawned with."""
-    envs: list[dict[str, str]] = []
-
-    async def spawn(*_args: Any, env: Any = None, **_kwargs: Any) -> _FakeProcess:
-        envs.append(dict(env))
-        return _FakeProcess()
-
-    worker = Worker(
-        queue=_FakeQueue([_FakeMsg(message)]),
-        publisher=_FakePublisher(),
-        slots=1,
-        drain_grace_s=0.1,
-        io_capacity=4,
-        memory_budget_bytes=1024**3,
-        spawn=spawn,
-        pull_timeout_s=0.05,
-        kill_grace_s=0.05,
-    )
-    async with asyncio.TaskGroup() as tg:
-        claim = tg.create_task(worker._claim_loop(tg))
-        deadline = asyncio.get_running_loop().time() + 2.0
-        while not envs:
-            if asyncio.get_running_loop().time() > deadline:
-                raise AssertionError("the worker never spawned the child")
-            await asyncio.sleep(0.01)
-        claim.cancel()
-    return envs[0]
-
-
-# --- 1. the queued runner: the child DROPS an ambient profile the message did not carry -------
-
-
-async def test_the_worker_child_drops_an_ambient_profile_the_message_did_not_carry(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """# INVARIANT (OME-1381): a cold child's environment (`worker.supervisor.cold_child_env`,
-    which `RunSupervisor._child_env` returns) removes an ambient `AIGATEWAY_PROFILE` before it
-    overlays the message, so a profile-less message runs with no profile at all. A warm child
-    never had it: `worker.warm_pool.deploy_env` strips every per-run key (`test_selector_carrier`).
-
-    Was `test_the_worker_child_inherits_an_ambient_profile_the_message_did_not_carry`, which
-    pinned the legacy inheritance (`env[AIGATEWAY_PROFILE] == _AMBIENT`) that Stage D producer-off
-    removes: that inheritance routed every profile-less run through a credential its caller never
-    named.
-    """
-    monkeypatch.setenv(job_env.AIGATEWAY_PROFILE, _AMBIENT)
-
-    env = await _child_env_for(encode_message("t-profile-inherit", "'hi'", 60))
-
-    assert job_env.AIGATEWAY_PROFILE not in env
-
-
-async def test_a_profile_carried_by_the_message_replaces_the_ambient_one_in_the_child(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The message's per-run values win over the worker's ambient ones — the merge order the
-    `_child_env` docstring promises."""
-    monkeypatch.setenv(job_env.AIGATEWAY_PROFILE, _AMBIENT)
-
-    env = await _child_env_for(encode_message("t-profile-carried", "'hi'", 60, profile="p"))
-
-    assert env[job_env.AIGATEWAY_PROFILE] == "p"
-
-
-# --- 2. the in-process runner: an ambient profile is DROPPED unless the request carries one --
-
-
-class _CompletingExecutor(Executor):
-    async def execute(
-        self, url4: str, *, trace: TraceContext | None = None
-    ) -> AsyncIterator[ExecStep]:
-        from decimal import Decimal
-
-        from url4.streaming.protocol import ResultData
-        from url4.streaming.protocol.signals import CostUsageData
-        from url4.streaming.protocol.taxonomy import CostBreakdown, TokenUsage
-
-        yield Completed(
-            result=ResultData(body="ok"),
-            subtree_cost=CostUsageData(
-                scope="self",
-                provider="test",
-                model="test-model",
-                pricing_version="v0",
-                usage=TokenUsage(input_tokens=0, output_tokens=0),
-                cost=CostBreakdown(total_usd=Decimal("0")),
-            ),
-        )
-
-
-async def _in_process_env_for(profile: str | None) -> dict[str, str]:
-    stream = InMemoryEventStream()
-    seen: list[dict[str, str]] = []
-
-    def factory(env: Any) -> Executor:
-        seen.append(dict(env))
-        return _CompletingExecutor()
-
-    runner = InProcessJobRunner(
-        stream, factory, base_env={job_env.AIGATEWAY_PROFILE: _AMBIENT}, max_concurrent_runs=1
-    )
-    await runner.schedule("t-local-profile", "'hi'", 42, traceparent=None, profile=profile)
-    async for event in stream.subscribe("t-local-profile", from_sequence=None):
-        if isinstance(event, TerminatedEvent):
-            break
-    return seen[0]
-
-
-async def test_the_in_process_runner_drops_an_ambient_profile_the_request_did_not_carry() -> None:
-    """# INVARIANT (legacy, pinned): `InProcessJobRunner._env` pops `AIGATEWAY_PROFILE` when the
-    request carries none (`adapters/inprocess.py:179-185`) — the opposite of what the worker did
-    with the same ambient variable until OME-1381 made it drop the value too.
-    """
-    env = await _in_process_env_for(profile=None)
-
-    assert job_env.AIGATEWAY_PROFILE not in env
-
-
-async def test_the_in_process_runner_lets_a_requested_profile_replace_the_ambient_one() -> None:
-    env = await _in_process_env_for(profile="p")
-
-    assert env[job_env.AIGATEWAY_PROFILE] == "p"
-
-
-# --- 3. the Local listing refuses when more than one managed row exists, whatever its status --
+# The Local listing refuses when more than one managed row exists, whatever its status.
 
 
 def _adapter(rows: list[dict[str, object]]) -> AigatewayConnections:

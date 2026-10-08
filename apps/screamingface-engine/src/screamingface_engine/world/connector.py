@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import random
 import time
 from collections.abc import Mapping
@@ -18,6 +19,7 @@ from typing import NoReturn
 
 import httpx
 
+from screamingface_engine import job_env
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.error_text import ENGINE_RESERVED_CODES
@@ -29,12 +31,7 @@ from screamingface_engine.operation_accounting import (
     combine_operation_accounting,
 )
 from screamingface_engine.operation_calls import operation_call_identity, record_operation_call
-from screamingface_engine.request_scope import (
-    PROFILE_HEADER,
-    RequestScope,
-    RequestScopeError,
-    current_scope,
-)
+from screamingface_engine.request_scope import RequestScope, RequestScopeError, current_scope
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
@@ -95,6 +92,7 @@ logger = logging.getLogger("screamingface_engine.runner.connector")
 # retries it with exponential backoff + jitter before surfacing a retryable
 # ResolutionError. Module-level so tests can zero them; the benchmark's own ``retry=``
 # (url4) remains a second layer for HTTP-status failures and for a sustained outage.
+_GATEWAY_RESPONSE_MARGIN_S = 5.0
 _TRANSPORT_RETRIES = 1  # one retry → two attempts; url4's retry= adds more if needed
 _TRANSPORT_BACKOFF_BASE_S = 0.5
 _TRANSPORT_BACKOFF_MAX_S = 8.0
@@ -242,6 +240,7 @@ class AigatewayConfig:
     # `Url4Node` world has always had. Set False to hand the node a denying outbound layer.
     allow_outbound: bool = True
     timeout_s: float = 60.0
+    queue_timeout_s: float | None = None
     tavily_base_url: str = "https://api.tavily.com"
     tavily_search_depth: str = "advanced"
     tavily_max_results: int = 5
@@ -257,6 +256,22 @@ class AigatewayConfig:
     #   concurrently, so an unbounded fan-out is an unbounded burst of upstream requests.
     web_tool_max_result_bytes: int = 32_768
     web_tool_max_calls_per_turn: int = 8
+
+    def __post_init__(self) -> None:
+        for value in (self.timeout_s, self.queue_timeout_s):
+            if isinstance(value, bool) or (
+                value is not None and (not math.isfinite(value) or value <= 0)
+            ):
+                raise WorldConfigError("Gateway timeout budgets must be finite and positive")
+
+    @property
+    def admission_timeout_s(self) -> float:
+        return self.timeout_s if self.queue_timeout_s is None else self.queue_timeout_s
+
+    @property
+    def transport_timeout_s(self) -> float:
+        # Leave time for the Gateway to serialize its classified timeout response.
+        return self.admission_timeout_s + self.timeout_s + _GATEWAY_RESPONSE_MARGIN_S
 
 
 @dataclass
@@ -299,7 +314,7 @@ class _ModelEndpoint:
     `__call__` never touches them, but this class holds only the fields it actually needs.
 
     FEATURE (F2, prd/01): the handler is STATELESS with respect to the caller. Identity,
-    profile, cache policy and answer seed are read from `current_scope()` per call, so one world
+    identity, cache policy and answer seed are read from `current_scope()` per call, so one world
     can serve many callers without letting one request's values reach another's (AC2). Anything
     added here must be world-level (a route, an HTTP client), never per-request.
     """
@@ -392,7 +407,7 @@ async def build_aigateway_world(
 ) -> AigatewayWorld:
     """Build the `Url4Node` world: one endpoint per declared model, routed to aigateway.
 
-    The world carries NO caller state (F2). Identity, profile, cache policy and answer seed are
+    The world carries NO caller state (F2). Identity, cache policy and answer seed are
     per-request values read from the `request_scope` ContextVar by `_ModelEndpoint.__call__`, so
     the same world can be shared by every caller in the process without one request's values
     reaching another's. A producer binds the scope before any handler runs — the child run path
@@ -419,7 +434,10 @@ async def build_aigateway_world(
     http_client = (
         client
         if client is not None
-        else httpx.AsyncClient(base_url=cfg.base_url, timeout=cfg.timeout_s)
+        else httpx.AsyncClient(
+            base_url=cfg.base_url,
+            timeout=httpx.Timeout(cfg.timeout_s, read=cfg.transport_timeout_s),
+        )
     )
     routes = routes_for(cfg.models)
 
@@ -619,71 +637,136 @@ async def _post_completion(
     headers: dict[str, str],
     body: dict,
 ) -> tuple[httpx.Response, bool]:
-    """One chat-completions POST: retry transport failures, then translate to a retryable error.
+    """Use one bounded retry policy for transport failures and explicit queue expiry.
 
-    WHY (OME-1016): a transport failure (connection reset, read error, timeout) is
-    transient by nature — aigateway may be restarting or a pooled keep-alive connection
-    went stale. Left raw, an ``httpx.ReadError`` bypasses the benchmark's declared
-    ``retry=`` policy (url4 retries only ``Url4Error``) and carries no error ``code``,
-    so the report falls back to the opaque benchmark default (``draco_grading_failed``)
-    with a useless ``ReadError('')`` message. This retries the transport failure with
-    exponential backoff + jitter (so concurrent judge calls that fail together do not
-    retry in lockstep), then raises a retryable ``ResolutionError`` that names the real
-    cause. ``HTTPStatusError`` is deliberately NOT caught — ``_raise_for_status``
-    handles non-2xx after the post returns.
-
-    Returns the response and WHETHER A RETRY PRECEDED IT. A retried attempt may already have
-    been processed and billed with only its reply lost, so accounting must not treat the
-    attempt that finally answered as the whole operation.
-
-    FEATURE (04-review-fixes §2.1, FX-1): when the bound request scope carries a ``deadline``
-    (the sync surface), each attempt's timeout is ``min(configured, time left)``, and a retry is
-    not started when the backoff plus one full attempt no longer fits. With no deadline (the
-    ensemble path) the post is the one this function has always made.
-
-    FEATURE (§2.2b): when the BUDGET is what ran out — an attempt timed out at the time-left
-    bound, the time left was already gone, or a retry did not fit — the transient code is
-    ``aigateway_deadline_exceeded`` (still a 502), so the R7 signal stays countable. With no
-    deadline the codes are unchanged.
+    Other HTTP errors remain owned by the caller's declared URL4 retry policy.
+    The caller deadline bounds each attempt and must fit a full attempt before retry.
+    The bool marks a lost transport reply, which may have been billed. A known
+    queue refusal never dispatched and must not make subsequent usage unknown.
     """
     deadline = _current_deadline()
-    # WHY the READ timeout is "the configured timeout": it bounds how long one attempt waits for
-    # aigateway's answer, which is what a slow model spends. The world builds its client with
-    # `httpx.Timeout(timeout_s)`, which sets all four parts to that one value.
-    configured = http_client.timeout.read
+    configured = _transport_budget(http_client, headers)
     last: httpx.TransportError | None = None
     for attempt in range(_TRANSPORT_RETRIES + 1):
         timeout = _attempt_timeout(deadline, configured, last)
         try:
-            # INVARIANT: with no deadline (`timeout is None`) this passes no timeout at all —
-            # `USE_CLIENT_DEFAULT` is httpx's own sentinel for that — so the client's configured
-            # timeout applies, byte-identical to the ensemble path before FX-1.
-            response = await http_client.post(
-                _COMPLETIONS_PATH,
-                headers=headers,
-                json=body,
-                timeout=httpx.USE_CLIENT_DEFAULT if timeout is None else timeout,
+            response = await _post_attempt(
+                http_client, headers, body, deadline, configured, timeout
             )
         except httpx.TransportError as exc:
             last = exc
             if isinstance(exc, httpx.TimeoutException) and _deadline_bound(timeout, configured):
                 raise _deadline_exceeded(exc) from exc
             if attempt < _TRANSPORT_RETRIES:
-                delay = _transport_backoff(attempt)
-                if deadline is not None and not _retry_fits(deadline, delay, configured):
-                    raise _deadline_exceeded(exc) from exc
-                observation = current_model_call()
-                if observation is not None:
-                    observation.retry(attempt=attempt + 2, delay_seconds=delay)
-                await asyncio.sleep(delay)
+                await _retry_transport(attempt, deadline, configured, exc)
             continue
-        return response, attempt > 0
-    assert last is not None  # every path out of the loop that did not return set it
+        if _queue_timeout(response) and attempt < _TRANSPORT_RETRIES:
+            if await _retry_queue(response, attempt, deadline, configured):
+                continue
+        return response, last is not None
+    assert last is not None
     raise ResolutionError(
         f"aigateway request failed at the transport layer: {_transport_detail(last)}",
         code="aigateway_transport_error",
         permanent=False,
     ) from last
+
+
+def _transport_budget(client: httpx.AsyncClient, headers: dict[str, str]) -> float | None:
+    if "x-aigw-execution-timeout-s" not in headers:
+        return client.timeout.read
+    return (
+        float(headers["x-aigw-execution-timeout-s"])
+        + float(headers["x-aigw-queue-timeout-s"])
+        + _GATEWAY_RESPONSE_MARGIN_S
+    )
+
+
+async def _post_attempt(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    body: dict,
+    deadline: float | None,
+    configured: float | None,
+    timeout: float | None,
+) -> httpx.Response:
+    attempt_headers = dict(headers)
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise _deadline_exceeded(None)
+        attempt_headers["x-aigw-remaining-timeout-s"] = str(remaining)
+    limit = configured if timeout is None else timeout
+    # Queueing extends the read allowance, not connection/pool/write limits.
+    transport_timeout = httpx.Timeout(client.timeout)
+    transport_timeout.read = limit
+    try:
+        # Also bound transports without HTTPX timeout enforcement and trickling replies.
+        async with asyncio.timeout(limit):
+            return await client.post(
+                _COMPLETIONS_PATH,
+                headers=attempt_headers,
+                json=body,
+                timeout=transport_timeout,
+            )
+    except TimeoutError as exc:
+        raise httpx.ReadTimeout("Gateway transport budget expired") from exc
+
+
+async def _retry_transport(
+    attempt: int, deadline: float | None, configured: float | None, exc: httpx.TransportError
+) -> None:
+    delay = _transport_backoff(attempt)
+    if deadline is not None and not _retry_fits(deadline, delay, configured):
+        raise _deadline_exceeded(exc) from exc
+    await _wait_to_retry(attempt, delay)
+    if deadline is not None and not _retry_fits(deadline, 0, configured):
+        raise _deadline_exceeded(exc) from exc
+
+
+async def _retry_queue(
+    response: httpx.Response, attempt: int, deadline: float | None, configured: float | None
+) -> bool:
+    delay = _queue_retry_delay(response, attempt)
+    if deadline is not None and not _retry_fits(deadline, delay, configured):
+        return False
+    await _wait_to_retry(attempt, delay)
+    # A delayed wakeup must not turn a full-budget retry into a partial attempt.
+    # Preserve the known queue refusal when a retry no longer fits.
+    return deadline is None or _retry_fits(deadline, 0, configured)
+
+
+async def _wait_to_retry(attempt: int, delay: float) -> None:
+    observation = current_model_call()
+    if observation is not None:
+        observation.retry(attempt=attempt + 2, delay_seconds=delay)
+    await asyncio.sleep(delay)
+
+
+def _queue_timeout(response: httpx.Response) -> bool:
+    if response.status_code != 503:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    return (
+        isinstance(payload, dict)
+        and isinstance(payload.get("detail"), dict)
+        and payload["detail"].get("code") == "provider_queue_timeout"
+    )
+
+
+def _queue_retry_delay(response: httpx.Response, attempt: int) -> float:
+    # The Gateway emits delta-seconds. Invalid, nonfinite or negative values use
+    # the existing backoff; valid values share its cap and cannot create a hot loop.
+    try:
+        seconds = float(response.headers.get("Retry-After", ""))
+    except ValueError:
+        seconds = float("nan")
+    if not math.isfinite(seconds) or seconds < 0:
+        return _transport_backoff(attempt)
+    return min(_TRANSPORT_BACKOFF_MAX_S, max(_TRANSPORT_BACKOFF_BASE_S, seconds))
 
 
 def _current_deadline() -> float | None:
@@ -856,7 +939,11 @@ async def _chat_completion_loop(
         retrieval_policy=retrieval_policy,
     )
     sampling = model_params(params)
-    headers = _headers(scope)
+    headers = {
+        **_headers(scope),
+        "x-aigw-execution-timeout-s": str(cfg.timeout_s),
+        "x-aigw-queue-timeout-s": str(cfg.admission_timeout_s),
+    }
     operation_accounting: list[OperationAccounting | None] = []
     for _ in range(cfg.web_tool_max_iterations):
         body = {"model": real_model_id, "messages": messages, **sampling, **extra}
@@ -1047,34 +1134,25 @@ def _invalid_candidate_input(detail: str) -> NoReturn:
 
 
 def _headers(scope: RequestScope) -> dict[str, str]:
-    """The outgoing aigateway headers: the caller's identity, then the values this world owns.
-
-    INVARIANT: the gateway-owned header is written LAST. `scope.identity_headers` reaches here
-    from an inbound request, and although Envoy guarantees a client cannot forge the identity
-    header itself, nothing guarantees the mapping holds ONLY that key — so `X-Profile` is applied
-    over it rather than under it, and no inbound value can displace this run's routing choice.
-    Same ordering rule the aigateway provider plugins apply to their own gateway-owned headers.
+    """The outgoing aigateway headers: verified identity plus the trace this world owns.
 
     WHY no `Authorization`: aigateway runs `cloudflare_headers` when deployed and `disabled`
     locally. Neither mode reads a bearer token, and a deployed caller cannot obtain one, so the
     run carries none at all.
 
-    FEATURE (OME-1119): `traceparent` is gateway-owned for the same reason `X-Profile` is, and is
-    written under the same rule — the run's own trace must win over anything that arrived in the
-    identity mapping. Absent (no bound run) the key is OMITTED rather than sent empty: a
-    well-formed header carrying a zero or invented id would parse everywhere, join nothing, and
-    look correct in every log it reached.
+    FEATURE (OME-1119): `traceparent` is gateway-owned: the run's own trace must win over anything
+    that arrived in the identity mapping. Absent (no bound run) the key is OMITTED rather than sent
+    empty: a well-formed header carrying a zero or invented id would parse everywhere, join nothing,
+    and look correct in every log it reached.
 
-    INVARIANT (F2): identity, profile and seed come from the REQUEST SCOPE, never from `self`, so
+    INVARIANT (F2): identity and seed come from the REQUEST SCOPE, never from `self`, so
     a shared world renders each caller's own values (AC2).
 
     INVARIANT (FX-64): the trace comes ONLY from `trace_scope`. The run path binds it inside the
     driving task (`Url4Executor`); a sync producer binds it from the validated inbound header
     (`request_scope.trace_from_headers`). One carrier, so no path can prefer a second copy.
     """
-    headers = dict(scope.identity_headers)
-    if scope.profile is not None:
-        headers[PROFILE_HEADER] = scope.profile
+    headers = job_env.identity_for_forwarding(scope.identity_headers)
     traceparent = current_traceparent()
     if traceparent is not None:
         headers["traceparent"] = traceparent

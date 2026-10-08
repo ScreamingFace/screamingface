@@ -133,16 +133,20 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
         *,
         raw_api_key: str,
         legacy_name: str | None,
+        observed_pair: PairAuthority | None = None,
     ) -> CredentialSummary:
         name = legacy_name or DEFAULT_LEGACY_NAME
         plugin = self._plugin(provider)
-        pair = await self._markers.read(account_id, provider)
+        pair = observed_pair or await self._markers.read(account_id, provider)
         if pair.migration_state != "migrated":
+            # INVARIANT (G0, §5.3): the branch read IS the capture — the legacy body claims this
+            # pair, so an adoption after the read makes it lose instead of writing under `migrated`.
             return await super().set_api_key(
                 account_id,
                 provider,
                 raw_api_key=raw_api_key,
                 legacy_name=legacy_name,
+                observed_pair=pair,
             )
         current = await self._effective(account_id, pair)
         # WHY start over: a revoked or absent effective Connection is the post-delete state; the
@@ -231,11 +235,20 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
 
     # --- op 9 ---------------------------------------------------------------------------------
 
-    async def delete(self, account_id: str, provider: str, *, legacy_name: str) -> None:
+    async def delete(
+        self,
+        account_id: str,
+        provider: str,
+        *,
+        legacy_name: str,
+        observed_pair: PairAuthority | None = None,
+    ) -> None:
         plugin = self._plugin(provider)
-        pair = await self._markers.read(account_id, provider)
+        pair = observed_pair or await self._markers.read(account_id, provider)
         if pair.migration_state != "migrated":
-            return await super().delete(account_id, provider, legacy_name=legacy_name)
+            return await super().delete(
+                account_id, provider, legacy_name=legacy_name, observed_pair=pair
+            )
         document = await self._index.get(account_id, provider, legacy_name)
         if document is None:
             raise TargetMissing(provider, legacy_name)

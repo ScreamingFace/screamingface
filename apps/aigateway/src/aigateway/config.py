@@ -108,6 +108,19 @@ class Settings(BaseSettings):
         default=30.0, validation_alias="AIGW_RETRY_MAX_WAIT"
     )
     retry_jitter_seconds: float = Field(default=0.25, validation_alias="AIGW_RETRY_JITTER")
+    provider_execution_timeout_s: float = Field(
+        default=600.0,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="AIGW_PROVIDER_EXECUTION_TIMEOUT_S",
+    )
+    provider_queue_timeout_s: float | None = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="AIGW_PROVIDER_QUEUE_TIMEOUT_S",
+    )
+
     provider_max_concurrency: int = Field(
         default=4, validation_alias="AIGW_PROVIDER_MAX_CONCURRENCY"
     )

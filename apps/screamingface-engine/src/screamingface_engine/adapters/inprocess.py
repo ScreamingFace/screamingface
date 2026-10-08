@@ -165,7 +165,6 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         url4: str,
         deadline_s: int,
         traceparent: str | None,
-        profile: str | None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
@@ -178,20 +177,13 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         run from a worker's, and a variable added to one adapter is visibly missing from the
         other.
         """
-        env = dict(self._base_env)
+        env = job_env.without_retired_keys(self._base_env)
         env[job_env.TOPIC] = topic
         env[job_env.EXPRESSION] = url4
         env[job_env.JOB_DEADLINE_S] = str(deadline_s)
         forwarded = valid_traceparent(traceparent)
         if forwarded is not None:
             env[job_env.TRACEPARENT] = forwarded
-        # INVARIANT: the request's profile REPLACES the ambient one rather than inheriting it. A
-        # profile left over in `_base_env` would silently route one caller's run through a profile
-        # they never asked for — the same reasoning as the identity reset below.
-        if profile is not None:
-            env[job_env.AIGATEWAY_PROFILE] = profile
-        else:
-            env.pop(job_env.AIGATEWAY_PROFILE, None)
         # INVARIANT: the request's identity REPLACES the ambient one rather than merging with it.
         # `_base_env` is this process's own environment, so a leftover identity key there would
         # otherwise leak one caller's identity onto another caller's run — and a partial merge is
@@ -238,7 +230,6 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         *,
         traceparent: str | None = None,
         credential: str | None = None,
-        profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
@@ -267,7 +258,6 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             url4,
             deadline_s,
             run_traceparent,
-            profile,
             identity,
             cache,
             answer_seed=answer_seed,

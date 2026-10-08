@@ -65,6 +65,11 @@ class _RunState:
         # engine that sends no summary. The outcome takes the larger of the two.
         self._summary_cache_hits = 0
         self._hit_spans = 0
+        # OME-1463: the root run summary, when one arrived. It is the authority for BOTH the proof
+        # that no hit was unpriced AND the saving amounts (review of #1229, P1): the engine tallies
+        # a hit's saving on the summary before checking that its span exists, so span totals can
+        # miss money the summary holds. Spans cannot stand in for it.
+        self._cache_summary: _CacheSummary | None = None
         self._client_version: str | None = None
         self._version_conflict = False
         self._last_sequence = 0
@@ -205,9 +210,11 @@ class _RunState:
         # The engine's run summary (`cache_counters.attributes`, one per run that touched the
         # cache). Root only: it is the run's own tally, not a child endpoint's.
         if envelope["source"] == self._root_source and _CACHE_HITS in event.attributes:
-            self._summary_cache_hits = max(
-                self._summary_cache_hits, _cache_hit_count(event.attributes[_CACHE_HITS])
-            )
+            summary = _CacheSummary.parse(event.attributes)
+            self._summary_cache_hits = max(self._summary_cache_hits, summary.hits)
+            # The run's own tally only grows, so the largest summary is the latest complete one.
+            if self._cache_summary is None or summary.hits >= self._cache_summary.hits:
+                self._cache_summary = summary
         return _Accepted(event=event)
 
     def _span(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
@@ -223,6 +230,28 @@ class _RunState:
             self._saved_cost_archive_usd, span.cache_saved_cost_archive_usd
         )
         return _Accepted(event=span)
+
+    def _cache_evidence(self, cache_hits: int) -> tuple[Decimal | None, Decimal | None, int | None]:
+        """The run's two saving totals and its unpriced-hit count, from ONE body of evidence.
+
+        INVARIANT (review of #1229, P1): the proof and the money come from the same source. With a
+        summary that carries its coverage counts, both savings are the summary's own totals, and the
+        unpriced count is published only when the summary agrees with itself and with the run's
+        final hit count. Otherwise the count is `None`, which the submission reads as "no proof"
+        and sends `partial`: fail CLOSED.
+
+        Without coverage counts (an older engine, or a summary dropped under backpressure) the span
+        totals are the only amounts available, and nothing can be proven complete.
+        """
+        summary = self._cache_summary
+        if summary is None or summary.unpriced_hits is None:
+            return self._saved_cost_usd, self._saved_cost_archive_usd, None
+        consistent = summary.is_consistent() and cache_hits == summary.hits
+        return (
+            summary.saved_cost_usd,
+            summary.saved_cost_archive_usd,
+            summary.unpriced_hits if consistent else None,
+        )
 
     def _usage(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
         usage_event = _usage(envelope, data)
@@ -259,6 +288,9 @@ class _RunState:
             raise ExecutionError("SF Engine termination status is invalid")
         selected_status = _termination_status(status)
         event = events.Terminated(**envelope, status=selected_status, error=error)
+        # WHY: heartbeats can keep recv alive forever after an unrecognized root terminates.
+        if self._root_source is None:
+            raise ExecutionError("SF Engine run root was never identified (URL4 mismatch)")
         if envelope["source"] != self._root_source:
             return _Accepted(event=event)
         if status != "succeeded":
@@ -272,6 +304,8 @@ class _RunState:
             raise ExecutionError("SF Engine succeeded without a root result")
         if self._run_id is None or self._started_at is None:
             raise ExecutionError("SF Engine terminated before the root Run started")
+        cache_hits = max(self._summary_cache_hits, self._hit_spans)
+        saved, saved_archive, unpriced = self._cache_evidence(cache_hits)
         return _Accepted(
             event=event,
             outcome=_RunOutcome(
@@ -281,9 +315,10 @@ class _RunState:
                 result_body=self._result[0],
                 media_type=self._result[1],
                 root_usage=self._root_usage,
-                cache_saved_cost_usd=self._saved_cost_usd,
-                cache_saved_cost_archive_usd=self._saved_cost_archive_usd,
-                cache_hits=max(self._summary_cache_hits, self._hit_spans),
+                cache_saved_cost_usd=saved,
+                cache_saved_cost_archive_usd=saved_archive,
+                cache_hits=cache_hits,
+                cache_unpriced_hits=unpriced,
                 artifact=self._result[2],
                 client_version=None if self._version_conflict else self._client_version,
             ),
@@ -293,16 +328,79 @@ class _RunState:
 # The engine's run-summary attribute counting every gateway round trip the cache served
 # (`screamingface_engine.runner.cache_counters.CACHE_HITS`).
 _CACHE_HITS = "cache.hits"
+# Hits whose entry carried no price at all (`cache_counters.UNPRICED_HITS`). OME-1463.
+_UNPRICED_HITS = "cache.saved_cost.unpriced_hits"
+# The coverage counts and totals beside it (`cache_counters.SAVED_COST_*`).
+_REPORTED_HITS = "cache.saved_cost.reported_hits"
+_ARCHIVE_HITS = "cache.saved_cost.archive_hits"
+_SAVED_COST_USD = "cache.saved_cost_usd"
+_SAVED_COST_ARCHIVE_USD = "cache.saved_cost_archive_usd"
 
 
-def _cache_hit_count(value: object) -> int:
-    """The summary's hit count, or a refusal: a malformed count must not read as 'no hits'.
+@dataclass(frozen=True, slots=True)
+class _CacheSummary:
+    """One engine run summary's cache tally: hits, coverage by provenance, and the two totals."""
 
-    INVARIANT: fail CLOSED. This number decides whether a cost may be published as exact, so a
+    hits: int
+    reported_hits: int | None
+    archive_hits: int | None
+    unpriced_hits: int | None
+    saved_cost_usd: Decimal | None
+    saved_cost_archive_usd: Decimal | None
+
+    @classmethod
+    def parse(cls, attributes: Mapping[str, object]) -> _CacheSummary:
+        def count(key: str) -> int | None:
+            return _cache_hit_count(attributes[key], key) if key in attributes else None
+
+        return cls(
+            hits=_cache_hit_count(attributes[_CACHE_HITS]),
+            reported_hits=count(_REPORTED_HITS),
+            archive_hits=count(_ARCHIVE_HITS),
+            unpriced_hits=count(_UNPRICED_HITS),
+            saved_cost_usd=_summary_amount(attributes, _SAVED_COST_USD),
+            saved_cost_archive_usd=_summary_amount(attributes, _SAVED_COST_ARCHIVE_USD),
+        )
+
+    def is_consistent(self) -> bool:
+        """Whether the coverage counts account for every hit and match the totals beside them.
+
+        The engine publishes a total exactly when its provenance had a priced hit
+        (`cache_counters.attributes`), so an amount without hits, or hits without an amount, is a
+        summary that cannot certify anything.
+        """
+        if self.reported_hits is None or self.archive_hits is None or self.unpriced_hits is None:
+            return False
+        if self.reported_hits + self.archive_hits + self.unpriced_hits != self.hits:
+            return False
+        return (self.reported_hits > 0) == (self.saved_cost_usd is not None) and (
+            self.archive_hits > 0
+        ) == (self.saved_cost_archive_usd is not None)
+
+
+def _summary_amount(attributes: Mapping[str, object], key: str) -> Decimal | None:
+    """A summary total, absent when the key is absent, or a refusal.
+
+    INVARIANT: a canonical decimal STRING only. The engine formats each total exactly
+    (`format(total, "f")`), so any other carrier, a float included, is a summary we cannot trust,
+    and it stops the run rather than rounding the money.
+    """
+    if key not in attributes:
+        return None
+    value = attributes[key]
+    if not isinstance(value, str):
+        raise ExecutionError(f"SF Engine cache summary {key} must be a decimal string")
+    return _decimal(value, f"cache summary {key}")
+
+
+def _cache_hit_count(value: object, attribute: str = _CACHE_HITS) -> int:
+    """A summary count, or a refusal: a malformed count must not read as zero.
+
+    INVARIANT: fail CLOSED. These numbers decide whether a cost may be published as exact, so a
     value that cannot be trusted stops the run rather than silently becoming zero.
     """
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ExecutionError("SF Engine cache summary cache.hits is invalid")
+        raise ExecutionError(f"SF Engine cache summary {attribute} is invalid")
     return value
 
 

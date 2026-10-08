@@ -12,6 +12,11 @@ from screamingface_engine.benchmarks.definition import (
     candidate,
     link_candidate,
 )
+from screamingface_engine.benchmarks.provenance import (
+    FrontierScore,
+    HumanBaseline,
+    NotPublished,
+)
 from screamingface_engine.benchmarks.registry import (
     BENCHMARK_ASSETS_ENV,
     DEFAULT_BENCHMARK_ASSETS_ROOT,
@@ -29,6 +34,9 @@ __all__ = [
     "BenchmarkInstaller",
     "BenchmarkRegistry",
     "EMPTY_BENCHMARKS",
+    "FrontierScore",
+    "HumanBaseline",
+    "NotPublished",
     "assets_root",
     "candidate",
     "link_candidate",

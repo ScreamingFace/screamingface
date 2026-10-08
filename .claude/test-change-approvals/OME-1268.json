@@ -1,0 +1,22 @@
+{
+  "issue": "OME-1268",
+  "branch": "OME-1268-math-squad",
+  "approver": "owner (in the OME-1268 session)",
+  "date": "2026-10-07",
+  "scope": "additive registry rows for the two new Benchmarks, squad and math: two revision literals in test_published_revisions.py, two policy/tier rows in test_benchmark_declaration.py, two family rows in test_inspect_imported_benchmarks.py. 12 inserted lines, no assertion changed, no line removed.",
+  "reason": "every import PR adds its rows to these three tables inside existing tests (the shape --skip-append-only covered from #1194 on); the rows are the registry conformance of the two Benchmarks this ticket exists for.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "4d468069b4a002521b8aab42670b51c8028badab",
+      "approved_blob": "3dfc233f2908862009563f645209423984c5476b"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "8db9713613d09545cf829d9d0197583082a5b824",
+      "approved_blob": "fe00b734d8cf14f4fb15eeaa68f518393e664db6"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "dbb7c11853a5c860cba2a708c2382d0ec163b991",
+      "approved_blob": "09b7b2f467a49bdb57cd230f4e2ceae274c283f8"
+    }
+  }
+}

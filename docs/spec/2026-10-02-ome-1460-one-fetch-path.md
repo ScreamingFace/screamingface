@@ -1,7 +1,9 @@
 # Spec — prepare every Imported Benchmark's Cases by calling the eval's own task function
 
-- Status: draft for owner review. Spec before plan before code: no plan task starts before
-  the owner approves this document. The decisions below are proposals; each names its flip.
+- Status: approved (merged as #1223, 2026-10-05). Amended 2026-10-06 by PR 2 from the Task 0
+  sweep: the fold moves **30** rows, not 28 (coconot's two rows came with OME-1371 after this
+  was written); R12's mmlu and hellaswag cells and R14's licences are corrected in place.
+  Counts of 28 elsewhere in this document are as written on 2026-10-02.
 - Component: `apps/screamingface-engine` (`screamingface_engine_inspect`).
 - Ticket: [OME-1460](https://linear.app/openmined/issue/OME-1460/prepare-every-imported-benchmarks-cases-by-calling-the-evals-own-task),
   sub-issue of OME-1273 (Task replay). Parent epic: OME-1299.
@@ -349,7 +351,7 @@ flowchart TB
   else `license="TODO"` with the card's value in the note, refused by the gate until the
   owner decides.
 
-### The 28 moved rows
+### The 30 moved rows
 
 - **R12. Each row's fate is declared before it is re-imported**, from task 0's sweep, and
   the fold PR carries it as a one-line note on the row (F5). Expected from reading
@@ -359,24 +361,35 @@ flowchart TB
   | -- | -- | -- | -- |
   | plain, no shuffle | arc_easy, arc_challenge, wmdp_bio, wmdp_chem, wmdp_cyber, pubmedqa | `hf_dataset` with the same sha; pubmedqa filters by its bundled id list | text and order identical |
   | plain, few-shot task | gsm8k, winogrande | `fewshot=10` and `fewshot=5` defaults build a seeded few-shot system message | `fewshot=0` task arg (D2): text identical |
-  | our row shuffle, upstream seeded | mmlu | `shuffle=True, seed=42` | inspect's seeded order replaces ours; text identical |
+  | our row shuffle, upstream seeded | mmlu | `shuffle=True, seed=42`, then `filter_duplicate_ids` | inspect's seeded order replaces ours; text identical; **sweep: 105 duplicate questions dropped** (14,042 → 13,937), as inspect itself does |
   | our row shuffle, upstream unseeded | commonsense_qa, paws, boolq, mmlu_pro, race_h, frontierscience, onet_m6 | `shuffle=True`, no seed | our seed forced through inspect's shuffle (D1): order changes, text identical; onet_m6 keeps its system text, filter and six exclusions |
   | our row shuffle, upstream unseeded, system text unbaked | musr | `shuffle=True`, no seed; `system_message(SYSTEM_PROMPT)` | order changes and the text gains the leading system message (D3) |
   | our row and choice shuffle | lab_bench ×6 | `shuffle=True` and `shuffle_choices=True`, no seeds, no task args | both seeds forced (D1): row and choice order change; the answer stays shuffled |
-  | our row shuffle, no upstream shuffle | aime24, aime25, hellaswag | no shuffle (hellaswag `shuffle=False`) | the Hub's order: ours was policy; text identical |
+  | our row shuffle, no upstream shuffle | aime24, aime25, hellaswag | no shuffle (hellaswag `shuffle=False`) | the Hub's order: ours was policy; aime text identical; **sweep: every hellaswag Case gains the leading newline its `SYSTEM_MESSAGE` starts with** (today's row strips it) |
+  | plain, judged, no answer key (added by OME-1371) | coconot_original, coconot_contrast | `hf_dataset` with a pinned sha; the subset is a task arg | `task_args` carry the subset; text identical |
   | question filter, gated, judged | xstest_safe, xstest_unsafe | filter by `subset`; `system_message("You are a helpful assistant.")` | `task_args` carry the subset; `needs_hf_token` (R8); text gains the leading system message (D3) |
 
   Counts: 28 rows; 18 carry our row seed today (14 forced, 1 inspect's, 3 dropped); 6 carry
   our choice seed (all forced); 2 bake a system message today (hellaswag, onet_m6, both
   identical under capture); 4 run a question filter (onet_m6, pubmedqa, xstest ×2); 1 has a
   named exclusion (onet_m6); 2 are gated (xstest ×2); 1 keeps Sample metadata
-  (frontierscience, which parent D11 keeps on because its scorer is its own).
+  (frontierscience, which parent D11 keeps on because its scorer is its own). Add coconot ×2
+  (no seed, no filter, judged, no answer key) for 30. The sweep (PR 1 of 2's ledger) confirms
+  every other cell; its frontierscience "ids differ" is an artifact of the sweep itself (the
+  eval numbers repeated ids with a process-wide counter and the sweep built today's Samples
+  twice in one process), not a change.
 - **R13. The question filter proves the same Case ids.** For the four filter rows, task 0
   diffs today's prepared `cases.json` against the replayed one by Sample id: the kept id
   set must be identical (the filter is the eval's own in both paths), and the digest then
   seals it. xstest_unsafe's 200 and xstest_safe's 250 are the acceptance numbers.
-- **R14. Licences carry over.** The 22 rows with a cleared licence note in `pins.py` get it
-  as `license=`; the six without (Known limitations) are written `TODO` for the owner.
+- **R14. Licences carry over.** The rows with a cleared licence note in `pins.py` get it as
+  `license=`. The six without one were decided by the owner on 2026-10-06: gsm8k and mmlu
+  `mit` (their Hub cards say so; the old notes simply had no licence line); hellaswag `mit`
+  (per rowanz/hellaswag, owner decision 2026-09-22); winogrande `cc-by-4.0` (allenai's README
+  says CC-BY, no version); paws Google's own licence ("may be freely used for any purpose"),
+  crediting Google LLC as the data source; race_h CMU's terms (non-commercial research only),
+  crediting and linking the source page. The credits are written into each Benchmark's
+  description, where a visitor reads them.
 - **R15. No-network grading for every Imported Benchmark.** One parametrised test over
   every key in `TASK_REPLAY_CASES` runs the grading path with the `no_network` fixture, so
   the 28 moved rows get the guard the 19 already have (parent R16, R17), as one lane rather
@@ -470,8 +483,8 @@ Each PR's file list and RED-first tests are in the plan.
 ## Acceptance
 
 1. `BENCHMARK_CASES`, `CasesSpec`, `pins.py` and the Hugging Face reader are gone; every
-   Imported Benchmark key resolves to a `TaskReplayCasesSpec` (28 moved + 19 + step 7's).
-2. All 28 moved rows carry `source_pins` naming the sha their eval pins at 0.20.0; the fold
+   Imported Benchmark key resolves to a `TaskReplayCasesSpec` (30 moved + 19 + step 7's).
+2. All 30 moved rows carry `source_pins` naming the sha their eval pins at 0.20.0; the fold
    PRs show, per row, that the Cases' text is identical to today's or name the difference
    from R12 (order only; the system text of musr and xstest). (R12, F5)
 3. All 19 revision-literal sites move (18 in `test_published_revisions.py`, 1 in

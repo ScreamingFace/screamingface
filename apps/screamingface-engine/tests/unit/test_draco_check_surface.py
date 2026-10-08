@@ -441,26 +441,21 @@ async def test_an_unknown_intent_is_rejected(tmp_path: Path) -> None:
 # --- the advertised manifest block ------------------------------------------------
 
 
+# AIDEV-NOTE (OME-1513): the name is frozen by the test-change rule; what it checks now is that
+# the offer is OFF — Draft Feedback is a per-Benchmark owner decision (owner rule 2026-10-07),
+# and today only IFEval carries one. The check-surface route is still served, not advertised.
 def test_draco_advertises_a_paid_check_surface() -> None:
-    surface = DRACO.check_surface
-    assert surface is not None
-    assert surface.expected_check_cost == "paid"
-    assert surface.feedback_intent == "feedback"
-    # The pass criterion is protocol semantics, so it rides in the route: a
+    assert DRACO.check_surface is None
+    # The route itself still exists and still carries the pass criterion in its address: a
     # different criterion is a different route, visible in every compiled url4.
-    assert surface.check_route.endswith(f"/check-surface/{CHECK_CRITERION}")
-    assert DRACO.revision in surface.check_route
+    assert DRAFT_FEEDBACK_ROUTE.endswith(f"/check-surface/{CHECK_CRITERION}")
+    assert DRACO.revision in DRAFT_FEEDBACK_ROUTE
 
 
 def test_the_resource_publishes_the_check_surface_block() -> None:
-    surface = DRACO.check_surface
-    assert surface is not None
-    resource = DRACO.resource(limit=1)
-    assert resource["check_surface"] == {
-        "check_route": surface.check_route,
-        "feedback_intent": "feedback",
-        "expected_check_cost": "paid",
-    }
+    # (frozen name; see the note above) — with no offer, the resource carries NO block, which
+    # is what makes the SDK refuse a Corrective Loop before any paid work starts.
+    assert "check_surface" not in DRACO.resource(limit=1)
 
 
 def test_the_check_instructions_are_url4_expression_safe() -> None:

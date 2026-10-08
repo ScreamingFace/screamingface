@@ -9,7 +9,7 @@ WHY the world is built LAZILY by its callers: a bad config or an unreachable gat
 INSIDE the run (a Terminated frame on the topic) rather than taking down the scheduling caller
 before the stream exists. This module therefore exposes a builder, not a built world; the run
 mode wraps it in ``Url4Executor``'s lazy ``world_factory``. It carries NO caller state (F2): the
-connector reads identity, profile, cache policy and answer seed from the `request_scope` ContextVar,
+connector reads identity, cache policy and answer seed from the `request_scope` ContextVar,
 so one world serves many callers.
 """
 
@@ -212,6 +212,7 @@ async def build_world(
             models=section.models,
             allow_outbound=section.allow_outbound,
             timeout_s=section.timeout_s,
+            queue_timeout_s=section.queue_timeout_s,
             web_tool_max_iterations=section.web_tool_max_iterations,
         ),
         client=client,

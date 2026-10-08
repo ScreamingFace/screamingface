@@ -224,13 +224,14 @@ class ProviderUnknown(ProviderAccessRefusal):
 
 
 class CredentialStoreUnavailable(ProviderAccessRefusal):
-    """The credential blob could not be written, and the publication rolled back (op 8; A3).
+    """A credential-blob operation failed without exposing the adapter exception.
 
-    # INVARIANT: the message names only WHAT was being stored (`description`), never the
-    # credential — store adapters may echo secrets in their own exception text, which is why the
-    # cause is chained but never repeated here.
+    # INVARIANT: the message names only the static operation and object description, never the
+    # credential — store adapters may echo secrets in their own exception text, so the cause is
+    # chained but never repeated here.
     """
 
-    def __init__(self, description: str) -> None:
-        super().__init__(f"could not store {description}")
+    def __init__(self, description: str, *, operation: str = "store") -> None:
+        super().__init__(f"could not {operation} {description}")
         self.description = description
+        self.operation = operation

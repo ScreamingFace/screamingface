@@ -90,3 +90,34 @@ def test_the_inverted_grade_key_is_spelled_the_same_on_both_sides() -> None:
     assert sdk_key == INVERTED_GRADE_KEY
     # The run result spells the key through its field name — the same word.
     assert INVERTED_GRADE_KEY in CandidateResult.model_fields
+
+
+@pytest.mark.skipif(not _SDK_PACKAGE.exists(), reason="SDK package not present")
+def test_the_saturation_verdicts_are_spelled_the_same_on_both_sides() -> None:
+    # OME-1455: the SDK's copy of SATURATION_VERDICTS orders its listing; the engine side
+    # pins it here so an engine-only PR cannot drift the words (the difficulty-tier reason).
+    from screamingface_engine.benchmarks.provenance import SATURATION_VERDICTS
+
+    assert _SDK_VOCABULARY.exists(), "SDK _catalogue_vocabulary.py moved — update the bind"
+    tree = ast.parse(_SDK_VOCABULARY.read_text(encoding="utf-8"))
+    sdk_verdicts = _sdk_tuple(tree, "SATURATION_VERDICTS")
+    assert sdk_verdicts is not None, "SDK SATURATION_VERDICTS not found"
+    assert sdk_verdicts == SATURATION_VERDICTS
+    # The Scoreboard is the third side: its seed stores only a word on this list, so a
+    # verdict added on the Engine alone would be stored as null on every board.
+    assert _SCOREBOARD_SCHEMAS.exists(), "Scoreboard scores/schemas.py moved — update the bind"
+    board_tree = ast.parse(_SCOREBOARD_SCHEMAS.read_text(encoding="utf-8"))
+    board_verdicts = _sdk_tuple(board_tree, "SATURATION_VERDICTS")
+    assert board_verdicts is not None, "Scoreboard SATURATION_VERDICTS not found"
+    assert board_verdicts == SATURATION_VERDICTS
+
+
+_SCOREBOARD_SCHEMAS = (
+    _SDK_PACKAGE.parent.parent
+    / "apps"
+    / "scoreboard"
+    / "src"
+    / "scoreboard"
+    / "scores"
+    / "schemas.py"
+)

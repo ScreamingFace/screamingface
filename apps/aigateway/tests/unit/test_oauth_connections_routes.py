@@ -478,22 +478,24 @@ def test_refresh_connection_refreshes_the_shared_cached_strategy(
 def test_patch_connection_label_conflict_returns_409(authenticated_client) -> None:
     authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
 
+    # WHY each flow completes before the next starts (OME-1497, G0 §5.3): a native OAuth start is
+    # an ownership change, so a second start before the first callback supersedes the first flow.
     first = authenticated_client.post(
         "/v1/oauth/connections",
         json={"provider": "anthropic", "label": "first-anthropic"},
     )
-    second = authenticated_client.post(
-        "/v1/oauth/connections",
-        json={"provider": "anthropic", "label": "second-anthropic"},
-    )
     assert first.status_code == 201
-    assert second.status_code == 201
     assert (
         authenticated_client.get(
             "/callback", params={"code": "first", "state": first.json()["state"]}
         ).status_code
         == 200
     )
+    second = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "second-anthropic"},
+    )
+    assert second.status_code == 201
     assert (
         authenticated_client.get(
             "/callback", params={"code": "second", "state": second.json()["state"]}

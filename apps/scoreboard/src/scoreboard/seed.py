@@ -7,14 +7,23 @@ import os
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from .config import Settings
 from .db import close_db, init_db
 from .logs import configure as configure_logging
-from .scores.schemas import BenchmarkSchema, Visibility
+from .scores.schemas import SATURATION_VERDICTS, BenchmarkSchema, ProvenanceSchema, Visibility
 from .scores.store import ScoreStore
 
 SEED_BENCHMARKS_ENV = "SCOREBOARD_SEED_BENCHMARKS_JSON"
@@ -71,6 +80,14 @@ class SeedBenchmark(BaseModel):
     # `case_count: 1` would re-open the hole from the other side — every one-case run would then
     # rank as complete. It reaches this model only via `_CatalogEntry.as_seed`.
     case_count: int | None = Field(default=None, ge=1)
+    # OME-1455: the Benchmark Provenance block (paper, authors, citation, inspect porters, links,
+    # licence, baseline, frontier score, notebook) and the derived saturation verdict.
+    # INVARIANT: Engine-owned, exactly like `case_count` — refused from deployment configuration
+    # by `_classify_configured`; they reach this model only via `_CatalogEntry.as_seed`. The block
+    # is a copy stored whole (one JSON column, spec §4.1); the verdict has its own column because
+    # it is the one value a catalogue page will sort on.
+    provenance: dict[str, Any] | None = None
+    saturation: str | None = Field(default=None, max_length=16)
 
 
 class _CatalogEntry(BaseModel):
@@ -115,6 +132,21 @@ class _CatalogEntry(BaseModel):
     # Optional for the same reason `description` is: a catalogue that omits it costs the board
     # its ranking filter, not the benchmark its row.
     case_count: int | None = None
+    # OME-1455: the verdict is always served; the provenance keys are served flat and
+    # present-only, so the whole entry is read a second time as the block (`_block_of`).
+    saturation: str | None = None
+
+    @field_validator("saturation", mode="before")
+    @classmethod
+    def _unusable_verdict_is_absent(cls, value: object) -> str | None:
+        """Anything but a verdict word costs the field, never the row (the case_count rule).
+
+        WHY the closed vocabulary and not "any short string": the page will group on this
+        column, so "Saturated" or "plateaued" stored verbatim would be a group of one that
+        no filter names. Null means "this board holds no verdict", which is honest.
+        """
+
+        return value if isinstance(value, str) and value in SATURATION_VERDICTS else None
 
     @field_validator("case_count", mode="before")
     @classmethod
@@ -154,7 +186,40 @@ class _CatalogEntry(BaseModel):
             revision=self.revision,
             focus=self.focus,
             case_count=self.case_count,
+            provenance=self.provenance,
+            saturation=self.saturation,
         )
+
+    # OME-1455: the Engine serves the provenance keys FLAT beside `title`, present-only. They
+    # are cut into one block before field validation, because `extra="ignore"` would drop
+    # them first; a `provenance` key the Engine never sends is set here, never read.
+    provenance: dict[str, Any] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _cut_the_provenance_block(cls, data: object) -> object:
+        if isinstance(data, dict):
+            return {**data, "provenance": _block_of(data)}
+        return data
+
+
+def _block_of(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """Cut the provenance block out of one raw catalogue entry.
+
+    A malformed value costs its own key, never the row: the response schema reads it key by
+    key (`ProvenanceSchema.from_stored`) so one bad score object leaves the paper link
+    standing. None, not {}, when the Engine sent nothing: an empty block would read as
+    "checked, none".
+
+    AIDEV-NOTE: the other half of a cross-app contract. The Engine's
+    ``test_every_served_provenance_key_is_a_field_the_scoreboard_seeds`` parses
+    `ProvenanceSchema` by name and asserts every key it serves is a field there — add a field
+    there, add it to the schema, one pull request. The schema ignores unknown keys for the same
+    reason as `_CatalogEntry`: a newer Engine must never break an older board's seed.
+    """
+
+    block: ProvenanceSchema | None = ProvenanceSchema.from_stored(raw)
+    return block.model_dump(exclude_none=True) if block is not None else None
 
 
 class _Catalog(BaseModel):
@@ -389,7 +454,13 @@ def _classify_configured(
     for row in configured:
         if row.id in published:
             report.shadowed.append(row.id)
-        elif row.revision is not None or row.case_count is not None or row.id in engine_owned:
+        elif (
+            row.revision is not None
+            or row.case_count is not None
+            or row.provenance is not None
+            or row.saturation is not None
+            or row.id in engine_owned
+        ):
             report.refused.append(row.id)
         elif row.visibility is not None and row.id not in existing_ids:
             # INVARIANT: a row declaring `visibility` OVERRIDES; it never brings a board into
@@ -545,6 +616,8 @@ async def seed_benchmarks(benchmarks: Sequence[SeedBenchmark]) -> list[Benchmark
                 focus=benchmark.focus,
                 visibility=benchmark.visibility,
                 case_count=benchmark.case_count,
+                provenance=benchmark.provenance,
+                saturation=benchmark.saturation,
             )
         )
     return seeded

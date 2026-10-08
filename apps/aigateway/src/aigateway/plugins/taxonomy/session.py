@@ -3,7 +3,7 @@
 FEATURE: default-on evidence for non-streaming ``POST /v1/chat/completions`` calls.
 
 STORY: as a benchmark operator I receive every observed
-local provider attempt, canonical usage and provider-authored cost evidence. Cache replay
+local provider attempt, canonical usage and direct-cost evidence with its provenance. Cache replay
 is labelled historical evidence rather than current spend or counterfactual savings.
 
 INVARIANT: accounting activation is gateway-owned and never enters the request body or the
@@ -35,6 +35,7 @@ from .entry_metadata import (
     CacheEntryMetadataReferenceError,
     cache_reference_from_entry_metadata,
 )
+from .mapper import has_potential_auxiliary_charge, safe_request_view
 from .render import (
     CacheStatusWord,
     attach_metadata,
@@ -219,29 +220,6 @@ class _NullBinding:
         return False
 
 
-def safe_request_view(body: Mapping[str, Any]) -> Mapping[str, Any]:
-    """The only part of the dispatch body a provider mapper may see.
-
-    INVARIANT: mappers never receive credentials or prompt content. By the time the
-    route finalizes evidence, ``body`` carries the injected provider credential and the
-    caller's full ``messages``; handing that to a plugin hook would give evidence
-    normalization access to both, for no reason — it needs neither to read a ``usage``
-    block. Least privilege, enforced structurally rather than by convention.
-    """
-    return {
-        key: value
-        for key, value in body.items()
-        if key not in _MAPPER_HIDDEN_FIELDS and not isinstance(value, (list, dict))
-    }
-
-
-# Credentials, prompt content and transport controls. The value-shape filter above also
-# drops anything structured, so a nested prompt cannot arrive through a new field name.
-_MAPPER_HIDDEN_FIELDS: Final = frozenset(
-    {"api_key", "messages", "system", "headers", "extra_headers", "client", "metadata"}
-)
-
-
 def finalize_provider_evidence(
     session: AccountingSession | None,
     *,
@@ -261,7 +239,22 @@ def finalize_provider_evidence(
     if session is None or session.collector is None:
         return
     collector = session.collector
+    try:
+        request_has_auxiliary_risk = has_potential_auxiliary_charge(request_body)
+        request_view = safe_request_view(request_body)
+    except Exception:
+        # INVARIANT: a broken request projection can only remove proof, never fail the response.
+        logger.warning(
+            "provider usage-accounting request projection failed provider=%s gateway_call_id=%s",
+            session.provider,
+            session.gateway_call_id,
+        )
+        request_has_auxiliary_risk = True
+        request_view = {}
     observed = collector.open_records()
+    http_status_by_call_id = {
+        record.attempt_id: record.http_status for record in collector.records()
+    }
     last_success = next(
         (call_id for call_id, _raw, ok in reversed(observed) if ok),
         None,
@@ -270,7 +263,7 @@ def finalize_provider_evidence(
         try:
             contribution = getattr(plugin, "normalize_chat_usage_accounting")
             evidence = contribution(
-                request_body=request_body,
+                request_body=request_view,
                 raw_response=raw_evidence,
                 final_response=final_response if call_id == last_success else None,
                 failed=not succeeded,
@@ -290,6 +283,34 @@ def finalize_provider_evidence(
                 session.gateway_call_id,
             )
             continue
+        try:
+            supplement = getattr(plugin, "supplement_chat_usage_accounting", None)
+            if callable(supplement) and collector.evidence_is_complete(call_id):
+                supplemented = supplement(
+                    evidence=evidence,
+                    raw_response=raw_evidence,
+                    http_status=http_status_by_call_id.get(call_id),
+                    failed=not succeeded,
+                    request_has_potential_auxiliary_charge=request_has_auxiliary_risk,
+                )
+            else:
+                supplemented = evidence
+        except Exception:
+            logger.warning(
+                "provider usage-accounting supplement failed provider=%s gateway_call_id=%s",
+                session.provider,
+                session.gateway_call_id,
+            )
+        else:
+            if type(supplemented) is ProviderUsageAccountingEvidence:
+                evidence = supplemented
+            else:
+                logger.warning(
+                    "provider usage-accounting supplement returned invalid evidence "
+                    "provider=%s gateway_call_id=%s",
+                    session.provider,
+                    session.gateway_call_id,
+                )
         collector.apply_evidence(call_id, evidence)
 
 

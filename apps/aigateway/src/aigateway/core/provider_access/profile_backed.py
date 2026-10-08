@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..credential_blob import DispatchObservation, OperationalOutcome
 from ..oauth.models import OAuthConnection
 from ..plugin_base import credential_service_provider_for
 from ..profile_index import ProfileIndexStore
@@ -26,7 +27,7 @@ from .auth_mode import (
     profileless_auth_mode,
 )
 from .connection_locator import credential_name_from_locator
-from .ports import ProviderAccess
+from .ports import ProviderAccess, ProviderOperationalAccess
 from .profile_authorize import (
     authorize,
     backing_rows,
@@ -239,10 +240,28 @@ class ProfileBackedProviderAccess:
     ) -> Authorization:
         return await authorize(self._app, target, plugin=plugin, provider=provider)
 
+    async def begin_dispatch(
+        self, target: CredentialTarget, *, plugin: Any, provider: str
+    ) -> DispatchObservation | None:
+        del target, plugin, provider
+        return None
+
     async def record_dispatch_failure(
         self, target: CredentialTarget, status: int, detail: Any, *, plugin: Any
     ) -> dict[str, Any] | None:
         return await record_dispatch_failure(self._app, target, status, detail, plugin=plugin)
+
+    async def record_dispatch_outcome(
+        self,
+        target: CredentialTarget,
+        observation: DispatchObservation,
+        outcome: OperationalOutcome,
+        detail: Any,
+        *,
+        plugin: Any,
+    ) -> dict[str, Any] | None:
+        del target, observation, outcome, detail, plugin
+        return None
 
     async def availability(self, account_id: str) -> tuple[AvailabilityRow, ...]:
         """Op 6 (A3, OME-1230): the Hosted Engine's aggregation, gateway-side.
@@ -291,6 +310,12 @@ def provider_access_for(app: Any) -> ProviderAccess:
         access = ProfileBackedProviderAccess(app)
         app.state.provider_access = access
     return access
+
+
+def operational_access_for(app: Any) -> ProviderOperationalAccess | None:
+    """Return the optional outcome capability without widening the stable port."""
+    access = provider_access_for(app)
+    return access if isinstance(access, ProviderOperationalAccess) else None
 
 
 # --- shim support: dies with `routes/chat_credentials.py` at Stage E (OME-1209) -----------------

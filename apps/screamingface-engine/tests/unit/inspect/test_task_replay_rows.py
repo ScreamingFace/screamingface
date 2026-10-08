@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import datetime
 import shutil
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -105,7 +106,8 @@ def _benchmark(rows: TaskReplayRows) -> BenchmarkSpec:
 def engine_src_copy(tmp_path: Path) -> Path:
     """A working copy of the real three generated-into files."""
 
-    for name in ("pins.py", "prepare.py", "benchmarks.py"):
+    # OME-1460: pins.py is gone; an import writes into these two files only.
+    for name in ("prepare.py", "benchmarks.py"):
         shutil.copy(_SRC_DIR / name, tmp_path / name)
     return tmp_path
 
@@ -255,6 +257,9 @@ def test_a_source_with_no_web_page_leaves_the_dataset_url_for_review() -> None:
     assert "TODO(review): no Case Source has a web page" in rows.benchmark
 
 
+# AIDEV-NOTE (OME-1513): the name is frozen by the test-change rule; what it checks now is the
+# OPPOSITE of what it says — a free-text task is generated with the offer OFF, because Draft
+# Feedback is a per-Benchmark owner decision, never a family default (owner rule 2026-10-07).
 def test_a_free_text_task_offers_the_check_surface() -> None:
     facts: TaskReplayFacts = _facts(
         task_ref="inspect_evals.mgsm.mgsm:mgsm",
@@ -267,7 +272,8 @@ def test_a_free_text_task_offers_the_check_surface() -> None:
     benchmark: BenchmarkSpec = _benchmark(rows)
 
     assert benchmark.scorer_kwargs == {"numeric": True}
-    assert benchmark.with_check_surface is True
+    assert benchmark.with_check_surface is False
+    assert "with_check_surface" not in rows.benchmark  # never emitted; the field defaults off
 
 
 def test_write_task_replay_rows_lands_in_prepare_and_benchmarks_only(
@@ -284,7 +290,11 @@ def test_write_task_replay_rows_lands_in_prepare_and_benchmarks_only(
         "TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {"
     )
     assert 'key="stand_in_replay"' in benchmarks_text
-    assert (engine_src_copy / "pins.py").read_text() == (_SRC_DIR / "pins.py").read_text()
+    # OME-1460: pins.py is gone; the import still writes no third file.
+    assert sorted(path.name for path in engine_src_copy.iterdir()) == [
+        "benchmarks.py",
+        "prepare.py",
+    ]
     for name in ("prepare.py", "benchmarks.py"):
         ast.parse((engine_src_copy / name).read_text())
 
@@ -441,3 +451,88 @@ def test_an_excluded_id_that_could_escape_the_generated_code_is_refused() -> Non
 
     with pytest.raises(ImporterError, match="injection guard"):
         render_task_replay_rows("x", imported, "TODO")
+
+
+# --- OME-1460: the generated row carries the Hub pins, the seeds and the gate --------------
+
+_MEDQA_SHA: str = "ddef95d268cdad413693d634279a9a679d468469"
+
+
+def test_the_hub_pins_seeds_and_gate_are_written_and_evaluate_back() -> None:
+    """Every image build reads these off the row, so a row that dropped one would replay
+    unpinned (or be refused) at the first build after import."""
+
+    imported: TaskReplayImport = _imported(
+        source_pins={"bigbio/med_qa": _MEDQA_SHA},
+        shuffle_seed=1234,
+        choice_shuffle_seed=7,
+        needs_hf_token=True,
+    )
+
+    rows: TaskReplayRows = render_task_replay_rows("medqa", imported, "TODO")
+
+    assert f'            "bigbio/med_qa": "{_MEDQA_SHA}",\n' in rows.cases
+    assert "        shuffle_seed=1234,\n" in rows.cases
+    assert "        choice_shuffle_seed=7,\n" in rows.cases
+    assert "        needs_hf_token=True,\n" in rows.cases
+    assert _declared(rows)["medqa"] == imported.declaration
+
+
+def test_several_hub_pins_are_written_sorted() -> None:
+    imported: TaskReplayImport = _imported(source_pins={"b/b": "1" * 40, "a/a": "2" * 40})
+
+    rows: TaskReplayRows = render_task_replay_rows("k", imported, "TODO")
+
+    assert rows.cases.index('"a/a"') < rows.cases.index('"b/b"')
+    assert _declared(rows)["k"] == imported.declaration
+
+
+@pytest.mark.parametrize(
+    "source_pins",
+    [
+        {'x/y"\nimport os': "1" * 40},
+        {"x/y": 'abc"\nimport os'},
+    ],
+    ids=["repo id", "commit"],
+)
+def test_a_hub_pin_that_could_escape_the_generated_code_is_refused(
+    source_pins: dict[str, str],
+) -> None:
+    """Review Focus 5: a repo id comes from the eval's own call, a commit from the Hub."""
+
+    with pytest.raises(ImporterError, match="injection guard"):
+        render_task_replay_rows("x", _imported(source_pins=source_pins), "TODO")
+
+
+def test_a_non_ascii_excluded_sample_id_is_written_and_evaluates_back() -> None:
+    """onet_m6's Named Deviation names Thai ids (2019_10ข_6985). The id lands inside a JSON
+    string literal, which escapes every quote, backslash and line break, so the guard need
+    only refuse what a reviewer cannot read (OME-1460)."""
+
+    imported: TaskReplayImport = _imported(excluded_sample_ids=("2019_10ข_6985", "2021_4_b447"))
+
+    rows: TaskReplayRows = render_task_replay_rows("onet_m6", imported, "TODO")
+
+    assert '            "2019_10ข_6985",\n' in rows.cases
+    assert _declared(rows)["onet_m6"] == imported.declaration
+
+
+@pytest.mark.parametrize("sample_id", ['a"\nimport os', "a‮b"], ids=["line break", "bidi"])
+def test_an_excluded_sample_id_a_reviewer_cannot_read_is_refused(sample_id: str) -> None:
+    with pytest.raises(ImporterError, match="injection guard"):
+        render_task_replay_rows("x", _imported(excluded_sample_ids=(sample_id,)), "TODO")
+
+
+def test_an_import_with_a_case_set_digest_writes_it_on_the_row(engine_src_copy: Path) -> None:
+    """OME-1492: the order-blind seal sits beside the Case Digest on the declaration, so a
+    later broken seal can say "order only"."""
+
+    imported: TaskReplayImport = _imported()
+    sealed: TaskReplayImport = replace(
+        imported, declaration=replace(imported.declaration, case_set_digest="d" * 64)
+    )
+
+    write_task_replay_rows("stand_in_replay", sealed, engine_src=engine_src_copy, license="TODO")
+
+    prepare_text: str = (engine_src_copy / "prepare.py").read_text()
+    assert f'case_set_digest="{"d" * 64}",' in prepare_text

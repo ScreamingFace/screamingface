@@ -281,12 +281,12 @@ async def test_feedback_never_names_a_rubric_criterion(tmp_path: Path) -> None:
 # --- the advertised manifest block ------------------------------------------------
 
 
+# AIDEV-NOTE (OME-1513): the name is frozen by the test-change rule; what it checks now is that
+# the offer is OFF — Draft Feedback is a per-Benchmark owner decision (owner rule 2026-10-07),
+# and today only IFEval carries one. The check-surface route is still served, not advertised.
 def test_healthbench_advertises_a_paid_check_surface() -> None:
-    surface = HEALTHBENCH_WORST30.check_surface
-    assert surface is not None
-    assert surface.expected_check_cost == "paid"
-    assert surface.check_route.endswith("/check-surface/healthbench-pass.v1")
-    assert HEALTHBENCH_WORST30.revision in surface.check_route
+    assert HEALTHBENCH_WORST30.check_surface is None
+    assert "check_surface" not in HEALTHBENCH_WORST30.resource(limit=1)
 
 
 def test_the_pass_criterion_is_named_and_pinned() -> None:

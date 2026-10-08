@@ -39,9 +39,9 @@ skill: `tortoise-dev` for step 8. Owner press: `--skip-append-only` for step 11.
    (like `focus=`/`dataset_url=`). `I/benchmarks.py::BenchmarkSpec`: the new fields plus
    `upstream_case_count`. Verify: an assembled inspect row round-trips a full provenance set.
 4. **③ Importer, eval.yaml** → `I/importer.py`: `read_eval_metadata(package, task_name)` via
-   `importlib.resources`; `_benchmark_lines` emits `paper_url`, `inspect_contributors`,
+   `importlib.resources`; the Task-replay row renderer emits `paper_url`, `inspect_contributors`,
    `human_baseline`, `upstream_case_count`, `license=` (from the Hub facts, SPDX-normalised),
-   `harness_url` at the pinned tag, `notebook`, `contributors=("TODO",)`,
+   `harness_url` at the pinned tag, `notebook`,
    `frontier_score=NotPublished(reason="TODO")`, and `content_warning="TODO"` for the
    `Safeguards` group. Verify: `tests/unit/inspect/test_importer_provenance.py` on a copied MMLU
    `eval.yaml` fixture and one `Safeguards` fixture; a missing `arxiv` key leaves the field
@@ -50,22 +50,25 @@ skill: `tortoise-dev` for step 8. Owner press: `--skip-append-only` for step 11.
    with the `et al.` rule; recorded reply fixtures under `tests/fixtures/arxiv/`; network
    failure → TODO (F8). Verify: same test file; a test asserts no socket is opened (the
    existing no-network idiom of the importer tests).
-6. **⑨ Conformance, Engine** → `tests/unit/test_benchmark_provenance_conformance.py`:
-   `GRANDFATHERED: frozenset[str]` written from the registry on the day (57 ids, listed
+6. **⑨ Conformance, Engine** → `tests/unit/inspect/test_benchmark_provenance_conformance.py`
+   (the inspect lane: the only CI lane where the imported Benchmarks register; the fixture
+   probe and the two key-set twins stay extra-less in `tests/unit/test_benchmark_provenance_twins.py`):
+   `GRANDFATHERED: frozenset[str]` written from the registry on the day (65 ids on 2026-10-05, listed
    explicitly, never computed); parametrized over `BUILTIN_BENCHMARKS`; for an id not on the
    list: every required field present or `NotPublished`; `harness_url` pinned and upstream;
    `notebook` stem exists under `packages/screamingface/examples/` (read by path from the repo
    root, never imported); `upstream_case_count == case_count` unless a Named Deviation on the
    row; `inspect_contributors` only on Imported. Verify: the test is green on the day's
    registry and red for a fixture Benchmark missing `paper_url`.
-7. **⑨ Conformance, cross-app key set** → same file: parse `S/seed.py::_CatalogProvenance`
-   with `ast` (the `test_catalogue_vocabulary_conformance.py` idiom) and assert every served
+7. **⑨ Conformance, cross-app key set** → same file: parse
+   `S/scores/schemas.py::ProvenanceSchema` with `ast` (the `test_catalogue_vocabulary_conformance.py` idiom) and assert every served
    provenance key is a field there (F4).
-8. **⑤ Scoreboard copy** → `S/seed.py`: `_CatalogProvenance` (`extra="ignore"`),
+8. **⑤ Scoreboard copy** → `S/scores/schemas.py`: `ProvenanceSchema.from_stored` (the one
+   key-by-key reader, `extra="ignore"`); `S/seed.py`: `_block_of` calling it,
    `_CatalogEntry.provenance`, `_CatalogEntry.saturation`, `SeedBenchmark` twins, `as_seed()`;
    `S/scores/models/benchmark.py`: `provenance = JSONField(null=True)`,
    `saturation = CharField(16, null=True)`; migration
-   `S/scores/migrations/0017_benchmark_provenance.py` (nullable, no backfill, rolling-safe
+   `S/scores/migrations/0018_benchmark_provenance.py` (nullable, no backfill, rolling-safe
    note like `0011`); `S/scores/store.py::register_benchmark` defaults. Verify:
    `tests/unit/test_seed_engine_catalog.py` with a regenerated `tests/fixtures/engine_catalog.json`
    (one row carrying the full block, one carrying none); migration applies on an empty and a
@@ -91,10 +94,10 @@ skill: `tortoise-dev` for step 8. Owner press: `--skip-append-only` for step 11.
 ## PR 3 — sourced values, allowlist emptied
 
 1. **② Imported rows** → `I/benchmarks.py`: re-run the importer's provenance emitters on all
-   49 rows (a one-off script in the PR's ledger, not committed) to fill `paper_url`,
+   57 rows (a one-off script in the PR's ledger, not committed) to fill `paper_url`,
    `inspect_contributors`, `human_baseline`, `upstream_case_count`, `license`, `harness_url`,
-   `notebook`, `authors`, `citation`; then by hand: `contributors` from `git log -S` of each
-   row's `key=` line, `frontier_score` with a cited source per row, `content_warning` for the
+   `notebook`, `authors`, `citation`; then by hand: `frontier_score` with a cited source per
+   row, `content_warning` for the
    Safeguards rows, `license_note` where the owner licence decision on OME-1273 names one,
    `NotPublished` with the real reason elsewhere. Verify: the conformance test with
    `GRANDFATHERED` shrunk to the eight built-ins.
@@ -110,7 +113,7 @@ skill: `tortoise-dev` for step 8. Owner press: `--skip-append-only` for step 11.
 ## PR 4 — pages (after product sign-off of the mockup)
 
 1. **⑦ Leaderboard page** → `apps/scoreboard/portal/benchmark.html` + `benchmark.js`: the strip
-   under the title (authors · contributors linked · PAPER · HARNESS · DATASET · LICENCE ·
+   under the title (authors · PAPER · HARNESS · DATASET · LICENCE ·
    CASES · HUMANS · FRONTIER with as-of · verdict badge · Cite copies `citation` · Run it opens
    the notebook on main); `content_warning` above the strip; links through `main.js::httpUrlOrNull`
    (its first caller); missing fields omitted, never a dash. Verify: `node --test` cases for the
@@ -118,7 +121,7 @@ skill: `tortoise-dev` for step 8. Owner press: `--skip-append-only` for step 11.
 2. **⑦ Catalogue rows** → `portal/index.html` + `main.js::benchmarkRow`: verdict badge and
    Case count columns. Verify: `tests/portal/leaderboard-logic.test.js` additions.
 3. **⑧ SDK views** → `K/_ui/cards.py`: per-Benchmark links replace `_ORIGIN_SOURCES`; authors,
-   contributors, notebook name on the card; `Cases` and `Saturation` columns in
+   notebook name on the card; `Cases` and `Saturation` columns in
    `benchmarks_rows_html`; `K/_ui/leaderboard_view.py::_catalog_row`: the same strip from
    `LeaderboardInfo` once `K/leaderboard.py::LeaderboardInfo` carries the block. Verify:
    `tests/test_benchmark_catalogue_grouping.py` idiom; a generated-notebook check stays

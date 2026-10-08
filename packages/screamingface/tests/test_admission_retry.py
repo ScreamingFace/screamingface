@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import io
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
@@ -31,6 +32,7 @@ from _isolation_engine import (
 )
 
 from screamingface._core.ports import _ConnectionNotice
+from screamingface._core.retry import _utc_now
 from screamingface._engine import admission as admission_module
 from screamingface._engine import transport as transport_module
 from screamingface._engine.admission import _AdmissionWait
@@ -54,9 +56,25 @@ def _busy(retry_after: str | None) -> httpx.Response:
     return httpx.Response(503, headers=headers)
 
 
-def _policy(budget_s: float = 900.0, floor_s: float = 0.5) -> _AdmissionWait:
+def _policy(
+    budget_s: float = 900.0,
+    floor_s: float = 0.5,
+    wall_clock: Callable[[], datetime] = _utc_now,
+) -> _AdmissionWait:
     # A deterministic stand-in for the full-jitter backoff: attempt n waits n + 1 seconds.
-    return _AdmissionWait(budget_s=budget_s, floor_s=floor_s, backoff=lambda attempt: attempt + 1.0)
+    return _AdmissionWait(
+        budget_s=budget_s,
+        floor_s=floor_s,
+        backoff=lambda attempt: attempt + 1.0,
+        wall_clock=wall_clock,
+    )
+
+
+# The one clock the fake Engine's HTTP-date and the policy's parser both read (whole seconds,
+# since an HTTP-date has no fractions). WHY (OME-1507): a header built from the real "now +
+# 10s" and measured against a later wall-clock read can lose up to 1s and leave a window
+# instead of a number; one injected clock makes the wait exact.
+_WIRE_NOW = datetime(2026, 10, 6, 14, 41, 50, tzinfo=UTC)
 
 
 # --- The policy: how long to wait, and when to stop --------------------------------------
@@ -67,10 +85,15 @@ def test_a_delta_seconds_retry_after_is_obeyed() -> None:
 
 
 def test_an_http_date_retry_after_is_obeyed() -> None:
-    when = format_datetime(datetime.now(UTC) + timedelta(seconds=10), usegmt=True)
-    delay = _policy().next_delay(_busy(when), now=0.0)
-    assert delay is not None
-    assert 8.0 <= delay <= 10.0
+    when = format_datetime(_WIRE_NOW + timedelta(seconds=10), usegmt=True)
+    delay = _policy(wall_clock=lambda: _WIRE_NOW).next_delay(_busy(when), now=0.0)
+    assert delay == 10.0
+
+
+def test_the_default_wall_clock_is_real_utc_time() -> None:
+    # INVARIANT: the seam is for tests; a production policy measures the Engine's HTTP-date
+    # against real UTC time, never a frozen one.
+    assert _AdmissionWait(budget_s=1.0, floor_s=0.0, backoff=float).wall_clock is _utc_now
 
 
 @pytest.mark.parametrize("retry_after", [None, "soon", ""])

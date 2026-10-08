@@ -86,6 +86,7 @@ _AIGATEWAY_KEYS = frozenset(
         "models",
         "allow_outbound",
         "timeout_s",
+        "queue_timeout_s",
         "web_tool_max_iterations",
     }
 )
@@ -192,6 +193,7 @@ class AigatewaySection:
     models: tuple[ModelSpec, ...]
     allow_outbound: bool = True
     timeout_s: float = 60.0
+    queue_timeout_s: float | None = None
     web_tool_max_iterations: int = DEFAULT_WEB_TOOL_MAX_ITERATIONS
 
 
@@ -496,7 +498,10 @@ def _parse_aigateway(
         default_model=_normalize_id(_str(table, "default_route", "")),
         models=models,
         allow_outbound=_bool(table, "allow_outbound", default=True),
-        timeout_s=_float(table, "timeout_s", 60.0),
+        timeout_s=_positive_budget(table, "timeout_s", 60.0),
+        queue_timeout_s=(
+            _positive_budget(table, "queue_timeout_s", 60.0) if "queue_timeout_s" in table else None
+        ),
         web_tool_max_iterations=_positive_int(
             table,
             "web_tool_max_iterations",
@@ -743,6 +748,13 @@ def _float(table: Mapping[str, object], key: str, default: float) -> float:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         raise WorldConfigError(f"[aigateway] {key} must be a number, got {value!r}") from None
+
+
+def _positive_budget(table: Mapping[str, object], key: str, default: float) -> float:
+    value = _float(table, key, default)
+    if not 0 < value < float("inf") or isinstance(table.get(key), bool):
+        raise WorldConfigError(f"[aigateway] {key} must be finite and positive")
+    return value
 
 
 def _positive_int(table: Mapping[str, object], key: str, default: int) -> int:

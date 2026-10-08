@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1507",
+  "branch": "OME-1507-retry-after-test-flake",
+  "approver": "owner (in the OME-1492 session; seam follow-up approved in the PR #1283 review session)",
+  "date": "2026-10-07",
+  "scope": "The three Retry-After HTTP-date tests stop reading the wall clock: in test_transient_retry.py the two HTTP-date tests build their fake server's header from a fixed clock (_WIRE_NOW) handed to the transport via the new now= seam, and assert an exact [5.0] instead of 5 +/- 1; in test_admission_retry.py test_an_http_date_retry_after_is_obeyed hands the same fixed clock to _AdmissionWait.wall_clock and asserts exactly 10.0 instead of 8..10. The _rig/_policy helpers gain a clock kwarg; a new test in each file pins that the default clock is real UTC time. No other test in either file changes.",
+  "reason": "OME-1507: an HTTP-date drops fractions of a second, so a header built from now + 5s could parse as 3.9996s and fail CI at random (#1258, #1268). The first cut rounded now down for 1s of headroom; the PR review asked for a deterministic fix, so the parser got a clock seam and the tests assert exact waits. The owner approved filing and fixing it.",
+  "files": {
+    "packages/screamingface/tests/test_transient_retry.py": {
+      "base_blob": "e142022e7caaab8bcf217f31bc519029aa30b39a",
+      "approved_blob": "1b38df49e5e48f758741320ec7f433b7a896d193"
+    },
+    "packages/screamingface/tests/test_admission_retry.py": {
+      "base_blob": "a7ed1f493dfebb31e4424d194a8a354cdebb7dee",
+      "approved_blob": "94ef9ed96639374849e07d05ac98b57b4defdac5"
+    }
+  }
+}

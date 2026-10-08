@@ -49,9 +49,17 @@ import argparse
 import importlib
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.bundle_provenance import (
+    PROVENANCE_KEY,
+    hand_built_provenance,
+    hugging_face_source,
+    read_provenance,
+    write_provenance,
+)
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine.benchmarks.healthbench.definition import PROFESSIONAL_CASE_COUNT
@@ -167,8 +175,11 @@ def _rubric_item(item: Any, index: int, case_id: int) -> dict[str, Any]:
     return {"rubric_id": index, "criterion": criterion, "points": points}
 
 
-def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
+def emit(rows: list[dict[str, Any]], out: Path, *, started: float | None = None) -> tuple[int, int]:
     """Write the public cases file and the private rubric assets — ALL rows.
+
+    ``started`` is ``time.monotonic()`` when the preparer began, so the provenance block's
+    ``seconds`` covers the download too; left out, it counts from this call.
 
     Every HF row becomes a Case and a rubric file; the worst-30% subset is not
     filtered here (it is a serve-time selection — see the module NOTE).
@@ -190,6 +201,7 @@ def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
             f"board declares {PROFESSIONAL_CASE_COUNT} Cases; refusing to prepare a "
             "differently-sized benchmark under that identity"
         )
+    began: float = time.monotonic() if started is None else started
     # Where does each frozen HF row id sit in TODAY'S file? (1-based position)
     positions = {
         hf_id: index for index, hf_id in enumerate((str(row.get("id")) for row in rows), start=1)
@@ -220,6 +232,17 @@ def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
             ),
             encoding="utf-8",
         )
+    # WHY before cases.json: a parseable cases.json marks the bundle finished (OME-1492).
+    # Nothing is excluded: the worst-30% Benchmark selects from these Cases at serve time.
+    write_provenance(
+        out,
+        hand_built_provenance(
+            [hugging_face_source(DATASET, DATASET_REVISION)],
+            yielded=len(rows),
+            kept=len(cases),
+            started=began,
+        ),
+    )
     (out / "cases.json").write_text(
         json.dumps(cases, ensure_ascii=False, separators=(",", ":")),
         encoding="utf-8",
@@ -228,7 +251,8 @@ def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
 
 
 def _prepare(out: Path) -> dict[str, Any]:
-    emit(load_rows(), out)
+    started: float = time.monotonic()
+    emit(load_rows(), out, started=started)
     # INVARIANT: count what LANDED, not what was declared. `emit` already refuses any row
     # count but PROFESSIONAL_CASE_COUNT, so echoing its inputs would restate a constant the
     # build enforced rather than report this prepare — a record that can never differ is not
@@ -245,6 +269,8 @@ def _prepare(out: Path) -> dict[str, Any]:
         # log cannot mistake a compile-time constant for something this run produced.
         "declared_worst30_cases": len(WORST30_CASE_IDS),
         "out": str(out),
+        # Read back like `cases` above: the summary reports the block that landed (OME-1492).
+        PROVENANCE_KEY: read_provenance(out),
     }
 
 

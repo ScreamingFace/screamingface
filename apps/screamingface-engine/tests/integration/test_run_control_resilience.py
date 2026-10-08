@@ -61,14 +61,13 @@ class _RecordingJobRunner(IdentityAwareJobRunner):
         *,
         traceparent: str | None = None,
         credential: str | None = None,
-        profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: RunShape = "expression",
     ) -> str:
-        del url4, deadline_s, traceparent, credential, profile, identity, cache
+        del url4, deadline_s, traceparent, credential, identity, cache
         del answer_seed, client_version, shape
         self.scheduled.append(topic)
         return job_name(topic)

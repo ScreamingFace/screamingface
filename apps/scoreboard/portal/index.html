@@ -21,26 +21,25 @@
 </head>
 <body>
   <div class="rail">
-    <span class="brand"><span class="m">😱</span> screamingface</span><span class="sep">/</span>
-    <nav class="crumbs"><a href="index.html" class="here">leaderboard</a></nav>
+    <a class="brand" href="index.html"><span class="m" aria-hidden="true">😱</span> screamingface</a>
     <span class="spacer"></span>
     <nav class="rail-nav" aria-label="Site">
       <a class="rail-link" href="index.html#benchmarks">benchmarks</a>
+      <a class="rail-link" href="about.html">about</a>
       <a class="rail-link" href="https://github.com/ScreamingFace/screamingface" target="_blank" rel="noopener">github</a>
       <a class="rail-link rail-link--end" href="https://docs.screamingface.ai" target="_blank" rel="noopener">docs</a>
     </nav>
     <button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
   </div>
 
-  <div class="wrap wide">
-    <header class="masthead">
-      <div class="eyebrow">Leaderboard</div>
-      <h1>Fusi<img class="o-mark" src="assets/mark/sf-mark-128.png" alt="o">ns, ranked and reproducible.</h1>
+  <div class="wrap wide landing">
+    <header class="masthead hero">
+      <div class="eyebrow">ScreamingFace · open leaderboard</div>
+      <h1 class="hero-title">Fusi<img class="o-mark" src="assets/mark/sf-mark-128.png" alt="o">ns, ranked and reproducible.</h1>
+      <p class="lead hero-lead">The first verified map of the quality–cost frontier for ensembles and routers.</p>
     </header>
 
-    <p class="lead">A <em>fusion</em> is one or more models scored on a public benchmark.</p>
-
-    <dl class="kv defs">
+    <dl class="kv defs hero-defs" aria-label="How to read the board">
       <dt class="dt-repro">Reproducible</dt>
       <dd>Ran on shared compute and stored on the global cache. Anyone can re-run it and get the same
       score.</dd>
@@ -50,35 +49,24 @@
       <dd>A single model, shown as a reference baseline (no submitter).</dd>
     </dl>
 
-    <div class="note">
-      <span class="kicker">Read this first</span> The top of each leaderboard is the best submitted result: the current SOTA. Every row keeps its URL4 expression, so you can rerun any claim before trusting it.</div>
-
-    <p><a class="btn" href="https://docs.screamingface.ai/" target="_blank" rel="noopener">Get started with ScreamingFace →</a></p>
-
-    <h2 id="benchmarks">Benchmarks</h2>
-
-    <p class="faint">Pick a benchmark to open its leaderboard. Inside, you can tab across all benchmarks.</p>
-
-    <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
-
-    <div id="benchmark-table-wrap" class="table-wrap" hidden>
-      <table id="benchmark-table" aria-label="Benchmarks">
-        <thead>
-          <tr>
-            <th>Benchmark</th>
-            <th>Focus</th>
-            <th class="num">Fusions</th>
-            <th class="num">Best reproducible</th>
-            <th>Open</th>
-          </tr>
-        </thead>
-        <tbody id="benchmark-list"></tbody>
-      </table>
+    <div class="hero-cta">
+      <a class="btn" href="https://docs.screamingface.ai/" target="_blank" rel="noopener">Get started with ScreamingFace →</a>
     </div>
+
+    <section id="benchmarks" class="benchmarks-section">
+      <h2 class="section-label">Catalogue</h2>
+
+      <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
+
+      <div id="benchmark-cards" class="cards" aria-label="Benchmarks" hidden></div>
+      <div class="cards-more">
+        <button type="button" id="benchmark-more" class="btn ghost" hidden>Show more benchmarks</button>
+      </div>
+    </section>
 
     <div class="foot">
       <span>😱 screamingface</span>
-      <span><a href="https://scoreboard.screamingface.ai/" rel="noopener noreferrer">scoreboard.screamingface.ai</a></span>
+      <span><a href="https://leaderboard.screamingface.ai/" rel="noopener noreferrer">leaderboard.screamingface.ai</a></span>
     </div>
   </div>
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Literal
@@ -11,6 +12,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PlainSerializer,
+    ValidationError,
     field_validator,
     model_validator,
 )
@@ -469,9 +471,8 @@ class ScoreSubmission(BaseModel):
     # separate so the board can store real data now and choose the basis later; a pre-summed
     # number would be silently low until `OME-1287` lands, with no way to tell how low.
     #
-    # INVARIANT: PROVIDER-AUTHORED money only. `cache_saved_cost_archive_usd` is measured from a
-    # DIFFERENT call of the same model and kind, so `OME-1251` D3 keeps it off the wire entirely.
-    # Never accept it here and never sum the two.
+    # INVARIANT: PROVIDER-AUTHORED money only. The archive-matched saving travels in its own field
+    # below (`OME-1251` D7), so the board keeps the provenance and can label it later.
     #
     # INVARIANT: ONE-WAY pairing only. `partial` beside a null here stays ACCEPTED: a `partial`
     # run has a saved-cost sum by definition, but `OME-1252` ships the status and NOT this field,
@@ -482,8 +483,12 @@ class ScoreSubmission(BaseModel):
     # `unavailable` means NO cost evidence, so any saving beside it is a contradiction. Older
     # clients never send this field, so nothing deployed can trip it (review of PR #1055, P2).
     cache_saved_cost_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    # FEATURE: OME-1382 / OME-1251 D7 (owner, 2026-10-02, reverses D3) — what this run's cache hits
+    # would have cost, priced from the archive (another call of the same model and kind). Summed
+    # with the spend and the reported saving at the point of use; never sent pre-summed.
+    cache_saved_cost_archive_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
 
-    @field_validator("cache_saved_cost_usd")
+    @field_validator("cache_saved_cost_usd", "cache_saved_cost_archive_usd")
     @classmethod
     def validate_cache_saved_cost(cls, value: Decimal | None) -> Decimal | None:
         # Money's domain is already defined once, by the amount this figure sits beside. A second
@@ -499,11 +504,12 @@ class ScoreSubmission(BaseModel):
         with a saving of any value. The reverse (`partial` without a saving) is deliberately
         allowed for the staged rollout; see the field comment.
         """
-        if self.run_cost_status == "unavailable" and self.cache_saved_cost_usd is not None:
-            raise ValueError(
-                "cache_saved_cost_usd must be absent when run_cost_status is 'unavailable': "
-                "a saving is cost evidence"
-            )
+        for name in ("cache_saved_cost_usd", "cache_saved_cost_archive_usd"):
+            if self.run_cost_status == "unavailable" and getattr(self, name) is not None:
+                raise ValueError(
+                    f"{name} must be absent when run_cost_status is 'unavailable': "
+                    "a saving is cost evidence"
+                )
         return self
 
     @model_validator(mode="after")
@@ -536,7 +542,10 @@ class ScoreSubmission(BaseModel):
         if self.run_cost_status is None:
             if self.run_cost_usd is not None:
                 self.run_cost_status = "complete"
-            elif self.cache_saved_cost_usd is not None:
+            elif (
+                self.cache_saved_cost_usd is not None
+                or self.cache_saved_cost_archive_usd is not None
+            ):
                 self.run_cost_status = "partial"
             return self
         priced = self.run_cost_status == "complete"
@@ -622,6 +631,102 @@ class ScoreSubmission(BaseModel):
 Visibility = Literal["public", "private"]
 
 
+#: The saturation verdict words the Engine serves (OME-1455).
+#: INVARIANT: value-for-value identical to the Engine's `SATURATION_VERDICTS` in
+#: `benchmarks/provenance.py` and the SDK's in `_catalogue_vocabulary.py`; the Engine's
+#: `test_the_saturation_verdicts_are_spelled_the_same_on_both_sides` parses this tuple.
+SATURATION_VERDICTS: tuple[str, ...] = ("saturated", "open", "unknown")
+
+
+class PublishedScoreSchema(BaseModel):
+    """One published score on the Benchmark's headline metric, with its source (OME-1455).
+
+    A Human Baseline carries `score` and `source_url`; a Frontier Score adds the `model` and
+    the `as_of` month. Both are copied from the Engine catalogue, never computed here.
+
+    WHY ``extra="ignore"``, like the block that holds it: pydantic applies each model's OWN
+    rule, so a ``forbid`` here is not overridden by the parent's ``ignore`` — one stray key
+    inside a stored score object was the same whole-listing 500 the parent had just been
+    changed to prevent (second review round on PR 1236).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    score: float
+    source_url: str
+    model: str | None = None
+    as_of: str | None = None
+
+
+class ProvenanceSchema(BaseModel):
+    """The Benchmark Provenance block as the Engine declared it (OME-1455).
+
+    Every field is optional: the Engine serves a key only when the Benchmark declares a value,
+    and a Benchmark that declares none-published for a fact serves no key for it either. The
+    page omits a missing field rather than printing a dash.
+
+    WHY ``extra="ignore"`` on a READ schema, where every other DTO here forbids: this one is
+    built from a stored JSON copy, and a key this build does not declare can sit in that copy
+    after a Helm rollback (the seed is a post-upgrade hook, so a rollback never reseeds) or
+    after a one-sided edit to the seed's reader. ``forbid`` would turn ONE such row into a
+    500 on the whole catalogue listing (review finding on PR 1236). Serve the keys this build
+    knows.
+
+    INVARIANT: this is the ONE reader of the block, on both sides of the table. The seed cuts
+    the block off a catalogue entry through :meth:`from_stored` and the API read rebuilds the
+    DTO from the stored copy through the same method, so there is no second class to drift
+    from this one (the seed's own copy, pinned to this by field NAME only, let the nested
+    ``forbid`` through — second review round on PR 1236).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    paper_url: str | None = None
+    authors: str | None = None
+    citation: str | None = None
+    inspect_contributors: list[str] | None = None
+    homepage_url: str | None = None
+    harness_url: str | None = None
+    license: str | None = None
+    license_note: str | None = None
+    content_warning: str | None = None
+    human_baseline: PublishedScoreSchema | None = None
+    frontier_score: PublishedScoreSchema | None = None
+    notebook: str | None = None
+
+    @classmethod
+    def from_stored(cls, raw: Mapping[str, Any]) -> ProvenanceSchema | None:
+        """Read a block key by key, so one bad key costs itself and never the block.
+
+        A key this build does not declare is skipped; a declared key whose value does not
+        validate (a score sent as a string, a list sent as a word) is skipped the same way, and
+        a key that validates to None is left out. None, not an empty schema, when nothing
+        readable remains: an empty block would read as "checked, none", which is a claim
+        nobody made. Whole-block validation would instead raise on the first bad key — and the
+        catalogue listing maps every row through this, so one row's bad key was a 500 for
+        every board (second review round on PR 1236).
+
+        Args:
+            raw: the block as served flat on a catalogue entry (extra keys beside it are
+                ignored) or as stored in the ``provenance`` column.
+
+        Returns:
+            The readable keys as this schema, or None when there are none.
+        """
+        kept: dict[str, Any] = {}
+        for name in cls.model_fields:
+            if name not in raw:
+                continue
+            try:
+                checked = cls.model_validate({name: raw[name]})
+            except ValidationError:
+                continue
+            value: Any = getattr(checked, name)
+            if value is not None:
+                kept[name] = value
+        return cls(**kept) if kept else None
+
+
 class BenchmarkSchema(BaseModel):
     """Read DTO for benchmarks."""
 
@@ -641,6 +746,14 @@ class BenchmarkSchema(BaseModel):
     # understand why its score is absent from the ranking. None means the board declares no
     # canonical scope and therefore ranks everything.
     case_count: int | None
+    # OME-1455: where the Benchmark comes from and the derived saturation verdict, both copied
+    # from the Engine catalogue. `provenance` is null when the Engine published no block.
+    # `saturation` is the Engine's word ("unknown" is itself a verdict: no frontier score
+    # recorded); it is null when this board holds NO verdict — a pre-migration row, an Engine
+    # that predates the field, or a value outside the verdict vocabulary, which the seed
+    # stores as null rather than invent "unknown" on the Engine's behalf.
+    provenance: ProvenanceSchema | None
+    saturation: str | None
     visibility: Visibility
     created_at: datetime
 
@@ -748,6 +861,12 @@ class ScoreSchema(BaseModel):
     # INVARIANT: null is NOT 0. Null means not reported; 0 means a client looked and the run
     # genuinely saved nothing.
     cache_saved_cost_usd: RunCostUsd = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    # FEATURE: OME-1382 / OME-1251 D7 — the archive-matched saving, as STORED. Excluded when absent
+    # for the same export-digest reason as `cache_saved_cost_usd` directly above.
+    cache_saved_cost_archive_usd: RunCostUsd = Field(
         default=None,
         exclude_if=lambda value: value is None,
     )
