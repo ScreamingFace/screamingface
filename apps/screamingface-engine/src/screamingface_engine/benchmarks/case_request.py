@@ -7,6 +7,7 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
 CONTEXT_FORMAT = "case-v1"
+CONTEXT_FORMAT_PARAM = "context_format"
 
 
 def candidate_input(request: Request) -> tuple[str, CaseId | None]:
@@ -57,3 +58,25 @@ def candidate_position(request: Request) -> tuple[int, int] | None:
         raise ResolutionError(
             "Invalid candidate case position", code="candidate_contract_error", permanent=True
         ) from exc
+
+
+CASE_ATTEMPT_PARAM = "attempt"
+"""The Candidate Invocation param naming Attempt 2 or later of a Case (OME-1458). Engine call
+metadata, never model input: the adapter strips it before the policy check."""
+
+
+def candidate_attempt(request: Request) -> int | None:
+    """Decode the Attempt number of a Candidate Invocation; None for Attempt 1 and plain calls.
+
+    WHY 2 or more only: Attempt 1 is spelled by absence, so the one-Attempt expression of every
+    existing Benchmark renders unchanged and one Attempt can never be spelled two ways.
+    """
+
+    raw = request.params.get(CASE_ATTEMPT_PARAM)
+    if raw is None:
+        return None
+    if not raw.isascii() or not raw.isdigit() or int(raw) < 2:
+        raise ResolutionError(
+            "Invalid Candidate Invocation attempt", code="candidate_contract_error", permanent=True
+        )
+    return int(raw)
