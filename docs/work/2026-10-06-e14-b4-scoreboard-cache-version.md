@@ -136,3 +136,10 @@ edited. The file names stay, to keep the branch history easy to follow.
   accepts them and stores the canonical form. The spec says "validate with `uuid.UUID`, store
   `str(uuid)`", so this is by design. No test pins the non-hyphen forms.
 - The branch name and this ledger file name keep "cache-version". The plan says to rework in place.
+
+## Rebase onto main (2026-10-08)
+
+- The stack was rebased onto `origin/main` `4cd063445` (87 new commits on main).
+- Conflict in `.claude/sdlc.local.md` and `.github/workflows/scoreboard-tests.yml`: both lists keep
+  main's portal test files and add `tests/portal/reproduced-count.test.js`.
+- Gates for stack `scoreboard` pass against `e14-a1-scoreboard-metadata`.
