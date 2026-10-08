@@ -64,6 +64,8 @@ validation of the new fields, the board field decode, both clients, `sf.reproduc
 
 ## Approved test changes (append-only exception)
 
+**Owner approval:** confirmed by the owner on 2026-10-08. The append-only gate may skip these edits.
+
 - `tests/public_surface_snapshot.json` regenerated with `UPDATE_SURFACE_SNAPSHOT=1` for the new
   public names (`reproduce`, `Reproduction`, the new `CandidateResult` and `LeaderboardScore`
   fields). Pre-approved by the coordinator.
