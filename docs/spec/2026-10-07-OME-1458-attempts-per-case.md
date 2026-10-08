@@ -1,6 +1,6 @@
 # Spec — a Benchmark may give each Case several Attempts, and a Check passes if any Attempt passes it
 
-- Status: draft for owner review. Decisions D1–D14 approved by the owner on OME-1458,
+- Status: implemented by the seven-PR stack on OME-1458 (2026-10-08). Decisions D1–D14 approved by the owner on OME-1458,
   2026-10-07 (§1); D5 and D7 were revised after reading the code and re-approved the same day;
   D5 was extended on 2026-10-08 so an unseeded rerun replays every Attempt (PR 4), and D14
   was changed the same day: the build rides OME-1458 as one stack. The plan

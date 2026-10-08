@@ -92,6 +92,9 @@ class BenchmarkSpec:
     #: The description must name what the flipped score means (refusal rate, or
     #: sosbench's safe-reply rate): the flag flips, it never names.
     inverted_grade: bool = False
+    #: Attempts per Case (OME-1458): the Task's any-match epochs. Each Case is asked this many
+    #: times and a Check is met if any Attempt met it; 1 is an ordinary Benchmark.
+    attempts: int = 1
     #: For a judge that answers in WORDS, not inspect's C/I/P/N letters: each verdict
     #: word → its grade, copied from the eval's own reducer (coconot: UNACCEPTABLE → 1).
     #: It replaces the letters and is matched ignoring case; a word outside it fails the
@@ -3980,6 +3983,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             identity_pins
             + _judge_prompt_pins(spec)
             + _inverted_grade_pins(spec)
+            + _attempts_pins(spec)
             + _verdict_grades_pins(spec)
             + _named_score_pins(spec)
             + _scorer_dependency_pins(spec)
@@ -3995,6 +3999,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         inverted_grade=spec.inverted_grade,
         verdict_grades=spec.verdict_grades,
         origin=spec.origin,
+        attempts=spec.attempts,
         **_provenance_of(spec),
     )
 
@@ -4377,6 +4382,15 @@ def _inverted_grade_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     # WHY: flipping the grade changes what every score means; a flipped Benchmark
     # must never keep a revision its members' published scores hang off.
     return ("inverted_grade=1",) if spec.inverted_grade else ()
+
+
+def _attempts_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """Attempts per Case as Benchmark identity — a pin only above 1, so no published revision
+    moves (OME-1458)."""
+
+    # WHY: any-of-2 and any-of-1 are different numbers for the same answers, so a change
+    # of N must never keep a revision its published scores hang off.
+    return (f"attempts={spec.attempts}",) if spec.attempts > 1 else ()
 
 
 def _named_score_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

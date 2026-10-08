@@ -96,35 +96,40 @@ def _custom_metrics(task: Any) -> tuple[str, ...]:
 _INSPECT_DEFAULT_REDUCER: str = "mean"
 
 
-def _refuse_several_epochs(task: Any) -> None:
-    """Refuse a Task that asks each Sample more than once, naming its epochs and reducer.
+def task_attempts(task: Any) -> int:
+    """How many Attempts each Case gets: the Task's epochs when they mean "any of N", else 1.
 
-    FEATURE: several Attempts per Case (OME-1458). ``epochs=N`` runs every Sample N times
-    and folds the N scores with a reducer (MBPP: 5, ``pass_at_1``); our Benchmark asks
-    each Case once, so the import would publish a one-Attempt score as the eval's number.
+    FEATURE: several Attempts per Case (OME-1458). ``epochs=N`` runs every Sample N times and
+    folds the N scores with a reducer. Our Benchmark asks each Case N times and marks a Check
+    met if any Attempt met it, which is exactly what three inspect reducers compute at N:
+    ``max``, ``at_least_1`` and ``pass_at_N``. Worked example: ``Epochs(2, "pass_at_2")`` →
+    2; MBPP's ``Epochs(5, ["mean", "pass_at_1", "pass_at_2", "pass_at_5"])`` → refused,
+    naming ``mean``.
 
-    INVARIANT: refused whatever the reducer, until the Engine runs several Attempts per
-    Case (spec ``docs/spec/2026-10-07-OME-1458-attempts-per-case.md`` D12). One epoch is
-    one Attempt, so ``Epochs(1, "mode")`` (lab_bench) imports as before.
-    AIDEV-NOTE: the build replaces this refusal with a mapping: any-match reducers
-    (``max``, ``at_least_1``, ``pass_at_N``) become ``attempts=N``; every other reducer
-    stays refused by name (spec §2.6).
+    INVARIANT: every declared reducer must be any-match at N, or the Task is refused by name:
+    ``pass_at_k`` with k < N is inspect's unbiased estimator, a different number from any-of-N
+    (spec §2.1), and ``mean`` is an average. One epoch is one Attempt, so
+    ``Epochs(1, "mode")`` (lab_bench) imports as before.
     """
 
     from inspect_ai.scorer._reducer.registry import reducer_log_names
 
     epochs: int | None = getattr(task, "epochs", None)
     if epochs is None or epochs <= 1:
-        return
+        return 1
     reducers: list[Any] | None = getattr(task, "epochs_reducer", None)
     names: list[str] = (reducer_log_names(reducers) if reducers else None) or [
         _INSPECT_DEFAULT_REDUCER
     ]
-    raise ImporterError(
-        f"the task declares epochs={epochs} with reducer {', '.join(names)}: a Benchmark "
-        "that asks each Case several times is not supported yet (OME-1458), and importing "
-        "it would publish a one-Attempt score"
-    )
+    any_match: frozenset[str] = frozenset({"max", "at_least_1", f"pass_at_{epochs}"})
+    refused: list[str] = [name for name in names if name not in any_match]
+    if refused:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {', '.join(refused)}: only "
+            f"any-of-{epochs} reducers ({', '.join(sorted(any_match))}) import as "
+            f"{epochs} Attempts per Case; this one would publish a different number (OME-1458)"
+        )
+    return epochs
 
 
 @dataclass(frozen=True)
