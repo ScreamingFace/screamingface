@@ -133,7 +133,9 @@ Invariants:
 | both | — | 400 `malformed_header` |
 
 Both travel header → job env → `RequestScope`, the same path as `X-Answer-Seed`. The start response
-echoes the header that was accepted (`X-Capture` or `X-Replay-Frozen-Copy`).
+echoes the header that was accepted (`X-Capture` or `X-Replay-Frozen-Copy`). Only the run route honours
+them: the mount routes and the local eval path answer 400 `capture_unsupported` when either header is
+present (pinned 2026-10-08, B3 review).
 
 ### 5.2 Capture mode
 
@@ -149,14 +151,21 @@ echoes the header that was accepted (`X-Capture` or `X-Replay-Frozen-Copy`).
    outcome is `stored`. A failed or cancelled call that a later attempt with the same request replaced
    is forgiven (the request-digest rule, D2). Anything else is `partial`.
 6. Run summary attributes: `capture.frozen_copy_id`, `capture.status`, and
-   `capture.partial.<reason>` counts (`failed`, `refused`, `missing`, `open`, `seal`, `error`). A
-   capture run always writes them, even with no model call.
+   `capture.partial.<reason>` counts (`failed`, `refused`, `missing`, `open`, `seal`, `error`,
+   `ambiguous`). A capture run always writes them, even with no model call and also when the run fails.
+7. **`ambiguous` (pinned 2026-10-08, B3 review):** in capture mode, a call that the engine re-issued under a
+   `max-age` bound, or a call whose transport attempt was retried, may leave a stored answer the model never
+   used ahead of the one it used. Such a call records `ambiguous`, which is never forgiven, so the run is
+   `partial`.
 
 ### 5.3 Replay mode
 
 1. Every chat call goes to `POST /v1/frozen-copies/{id}/chat/completions` with
-   `X-AIGW-Replay-Occurrence`. The engine counts, per request digest, the successful answers it already
-   received in this run.
+   `X-AIGW-Replay-Occurrence`. The engine reserves the next occurrence slot for the request digest when it
+   sends the call, and gives the slot back if the call does not succeed, so concurrent identical requests
+   get distinct entries.
+1a. Replay skips the engine's model-admission check (`/v1/models/admit`), so a retired model still
+   replays.
 2. A found success is used as usual and accounted as $0 (like a cache hit). A captured error is raised as
    usual, so the case fails the same way as in the original run. A 404 `frozen_copy_miss` fails the case
    with `frozen_copy_miss`; a 404 `frozen_copy_unavailable` fails it with `frozen_copy_unavailable`.
@@ -227,6 +236,7 @@ echoes the header that was accepted (`X-Capture` or `X-Replay-Frozen-Copy`).
 | Capture insert fails | The call is served; `failed` → the run is `partial`. |
 | Gateway older than B1 | No `X-AIGW-Capture` header → `missing` → `partial`. A replay gets 404 on the replay route → `frozen_copy_unavailable`. |
 | Engine crashes mid-run | The copy stays `open`; replay refuses it (`frozen_copy_unavailable`). |
+| Replay of a run that offered no web tools (no Tavily connection) on an engine that offers them | The request bodies differ → `frozen_copy_miss`. Known limit. |
 | Different engine/SDK version renders prompts differently | Different digests → `frozen_copy_miss`, visible. |
 | Model retired, plugin removed, cache key rules changed | Replay still works. |
 | Local runs | Out of scope (Q14). Future: upload a local frozen copy. |
