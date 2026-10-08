@@ -97,6 +97,11 @@ class RequestScope:
     request must have answered, or ``None`` when no request budget applies. The run producer
     sets ``start + JOB_DEADLINE_S`` for a DIRECT run (a mount call) and ``None`` for an
     expression run; local mode's eval path sets ``None``.
+
+    ``capture`` and ``replay_frozen_copy`` are the run's frozen-copy mode (FEATURE: OME-1307).
+    ``capture`` asks the run to store every chat answer and tool result in a new frozen copy;
+    ``replay_frozen_copy`` is the id of the copy a REPLAY run answers from, and ``None`` for any
+    other run. INVARIANT: a producer never sets both; the header and env readers refuse that.
     """
 
     identity_headers: Mapping[str, str] = field(default_factory=dict)
@@ -109,6 +114,8 @@ class RequestScope:
     # tell whether one more attempt still fits the budget, and the wrapper that owns the budget
     # cannot see the retry. A retry the wrapper then cuts off is billed and useless (NT-H1).
     deadline: float | None = None
+    capture: bool = False
+    replay_frozen_copy: str | None = None
 
     def __post_init__(self) -> None:
         # INVARIANT (FX-65): the scope OWNS what it holds. `frozen` stops a write to the scope's
