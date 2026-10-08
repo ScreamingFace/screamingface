@@ -184,6 +184,7 @@ async def run_call(
     web_search: bool = True,
     bind_copy: bool = True,
     expressions: Sequence[str] = (EXPRESSION,),
+    observer: Any = None,
 ) -> tuple[CaptureTally, str | None, ResolutionError | None]:
     """The model calls of ``expressions`` in turn, under ``scope`` with ONE tally bound for the
     run, as the executor binds it.
@@ -211,7 +212,7 @@ async def run_call(
                     tally.frozen_copy_id = COPY
             for expression in expressions:
                 try:
-                    answer = await url4_run(expression, io=world.node)
+                    answer = await url4_run(expression, io=world.node, observer=observer)
                     failure = None
                 except ResolutionError as exc:
                     answer, failure = None, exc
