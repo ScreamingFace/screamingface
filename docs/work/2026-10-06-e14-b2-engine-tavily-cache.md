@@ -70,3 +70,13 @@ routing edits are exactly these:
 - **Gates:** see the PR report (run without and with `--skip-append-only`).
 - **Deviations:** helper names `search_description` / `fetch_description` and the private
   `_extraction` helper (accepted); the approved mock edits above.
+
+## Rebase onto main (2026-10-08)
+
+- The stack was rebased onto `origin/main` `4cd063445` (87 new commits on main).
+- Conflict in `world/connector.py`: main made the chat `headers` a dict with
+  `x-aigw-execution-timeout-s` and `x-aigw-queue-timeout-s`. This PR builds `headers` before
+  `_retrieval_request`, so main's dict now sits there. The Tavily cache still gets the same headers
+  as the chat calls.
+- Gates for stack `screamingface-engine` pass against `e14-b1-gateway-frozen-copy`
+  (`--skip-append-only`; the approved test edits are unchanged).
