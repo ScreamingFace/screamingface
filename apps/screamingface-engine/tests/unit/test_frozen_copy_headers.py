@@ -27,15 +27,11 @@ from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
-from screamingface_engine.local import _LocalNodeMount
 from screamingface_engine.request_scope import (
     CAPTURE_HEADER,
     REPLAY_FROZEN_COPY_HEADER,
     FrozenCopyHeaderError,
-    RequestScope,
-    current_scope,
-    forwarded_headers,
-    request_scope_from_headers,
+    frozen_copy_mode_from_headers,
 )
 from screamingface_engine.runner.main import RunnerConfigError, request_scope_from_env
 from screamingface_engine.runner_queue import decode_message, encode_message
@@ -65,124 +61,41 @@ LIFETIME_S = 58_800
 T0 = datetime(2026, 10, 8, 9, 0, 0, tzinfo=UTC)
 
 
-# ── the request scope ──────────────────────────────────────────────────────────────────────
+# ── the header reader (the start route's one reader) ───────────────────────────────────────
 
 
-def test_the_sync_producer_reads_the_capture_header() -> None:
-    scope = request_scope_from_headers({CAPTURE_HEADER: "true"})
-
-    assert scope.capture is True
-    assert scope.replay_frozen_copy is None
-    assert scope.origin == "sync"
+def test_the_reader_reads_the_capture_header() -> None:
+    assert frozen_copy_mode_from_headers("true", None) == (True, None)
 
 
-def test_the_sync_producer_reads_the_replay_header() -> None:
-    scope = request_scope_from_headers({REPLAY_FROZEN_COPY_HEADER: COPY})
-
-    assert scope.replay_frozen_copy == COPY
-    assert scope.capture is False
+def test_the_reader_reads_the_replay_header() -> None:
+    assert frozen_copy_mode_from_headers(None, COPY) == (False, COPY)
 
 
-def test_the_sync_producer_reads_both_headers_case_insensitively() -> None:
-    capture = request_scope_from_headers(httpx.Headers({"x-capture": " TRUE "}))
-    replay = request_scope_from_headers(httpx.Headers({"x-replay-frozen-copy": COPY}))
-
-    assert capture.capture is True
-    assert replay.replay_frozen_copy == COPY
+def test_the_reader_accepts_true_in_any_case_with_blanks() -> None:
+    assert frozen_copy_mode_from_headers(" TRUE ", None) == (True, None)
 
 
-@pytest.mark.parametrize("headers", [{}, {CAPTURE_HEADER: "  ", REPLAY_FROZEN_COPY_HEADER: " "}])
-def test_no_header_or_a_blank_one_is_a_normal_run(headers: Mapping[str, str]) -> None:
-    scope = request_scope_from_headers(headers)
-
-    assert (scope.capture, scope.replay_frozen_copy) == (False, None)
+@pytest.mark.parametrize("raw", [(None, None), ("  ", " "), ("", "")])
+def test_no_header_or_a_blank_one_is_a_normal_run(raw: tuple[str | None, str | None]) -> None:
+    assert frozen_copy_mode_from_headers(*raw) == (False, None)
 
 
 @pytest.mark.parametrize("value", _BAD_COPIES)
 def test_a_malformed_replay_header_is_a_loud_refusal(value: str) -> None:
     with pytest.raises(FrozenCopyHeaderError):
-        request_scope_from_headers({REPLAY_FROZEN_COPY_HEADER: value})
+        frozen_copy_mode_from_headers(None, value)
 
 
 @pytest.mark.parametrize("value", _BAD_CAPTURES)
 def test_a_capture_header_that_is_not_true_is_a_loud_refusal(value: str) -> None:
     with pytest.raises(FrozenCopyHeaderError):
-        request_scope_from_headers({CAPTURE_HEADER: value})
+        frozen_copy_mode_from_headers(value, None)
 
 
 def test_both_headers_at_once_is_a_loud_refusal() -> None:
     with pytest.raises(FrozenCopyHeaderError):
-        request_scope_from_headers({CAPTURE_HEADER: "true", REPLAY_FROZEN_COPY_HEADER: COPY})
-
-
-def test_the_forwarded_header_table_passes_both_headers_on() -> None:
-    forwarded = forwarded_headers(
-        [("x-capture", "true"), ("X-Replay-Frozen-Copy", COPY), ("Cookie", "secret")],
-        verified_identity={},
-    )
-
-    assert forwarded == [(CAPTURE_HEADER, "true"), (REPLAY_FROZEN_COPY_HEADER, COPY)]
-
-
-class _Recorder:
-    def __init__(self) -> None:
-        self.scope: RequestScope | None = None
-        self.headers: Mapping[str, str] = {}
-
-    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
-        self.scope = current_scope()
-        self.headers = {k.decode().lower(): v.decode() for k, v in scope["headers"]}
-        await send({"type": "http.response.start", "status": 200, "headers": []})
-        await send({"type": "http.response.body", "body": b"{}"})
-
-
-def _local_client(inner: Any) -> httpx.AsyncClient:
-    mount = _LocalNodeMount({"asgi": inner})
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=mount), base_url="http://app.test")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("header", "value"),
-    [(CAPTURE_HEADER, "true"), (REPLAY_FROZEN_COPY_HEADER, COPY)],
-    ids=["capture", "replay"],
-)
-async def test_the_local_sync_mount_binds_the_mode(header: str, value: str) -> None:
-    recorder = _Recorder()
-
-    async with _local_client(recorder) as client:
-        response = await client.get("/m", headers={header: value})
-
-    assert response.status_code == 200
-    assert recorder.scope is not None
-    assert recorder.scope.capture is (header == CAPTURE_HEADER)
-    assert recorder.scope.replay_frozen_copy == (
-        COPY if header == REPLAY_FROZEN_COPY_HEADER else None
-    )
-    assert recorder.headers[header.lower()] == value
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "headers",
-    [
-        {REPLAY_FROZEN_COPY_HEADER: "garbage"},
-        {CAPTURE_HEADER: "maybe"},
-        {CAPTURE_HEADER: "true", REPLAY_FROZEN_COPY_HEADER: COPY},
-    ],
-    ids=["bad-uuid", "bad-capture", "both"],
-)
-async def test_the_local_sync_mount_refuses_a_bad_header_before_the_handler_runs(
-    headers: dict[str, str],
-) -> None:
-    recorder = _Recorder()
-
-    async with _local_client(recorder) as client:
-        response = await client.get("/m", headers=headers)
-
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "malformed_header"
-    assert recorder.scope is None
+        frozen_copy_mode_from_headers("true", COPY)
 
 
 # ── the job env ────────────────────────────────────────────────────────────────────────────
