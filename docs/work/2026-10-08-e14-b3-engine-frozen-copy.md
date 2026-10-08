@@ -150,7 +150,10 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
   `world/connector.py`, `world/web_tools.py`, `error_text.py`, `benchmarks/contract.py`,
   `README.md`, and the SDK mirror `packages/screamingface/src/screamingface/_report_primitives.py`.
 - **Commits:** see `git log --oneline e14-b2-engine-tavily-cache..HEAD`.
-- **Gates:** see the report; re-run after review round 1. SDK package (touched for the mirror): ruff, format and pyright
+- **Gates:** after review round 1, engine with `--skip-append-only`: ruff, format, pyright,
+  layering and pytest pass (`ALL GATES GREEN`). Without it, only the append-only check fails and it
+  lists exactly the eight approved files above. SDK package (comment-only change in the mirror):
+  ruff, format and pyright pass. SDK package (touched for the mirror): ruff, format and pyright
   pass; pytest gives `2245 passed, 26 skipped`. The SDK notebook, build and distribution gates
   were not run (a frozenset edit cannot affect them).
 - **Deviations:** none from the plan's files or pinned decisions; see "Decisions made inside the
