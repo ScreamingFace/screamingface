@@ -39,9 +39,9 @@ is PRs 3 to 7 on the same ticket.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned.
-- **Commits:** 379749d08 docs(screamingface-engine): spec several Attempts per Case, any-match per Check · 893995cc6 docs(screamingface-engine): explain the cache trap and the per-Check fold with examples · d1a235710 docs(screamingface-engine): name the build tickets OME-1515 and OME-1516 in the spec · c25175c97 docs(screamingface-engine): give each unseeded Attempt its own cache entry so a rerun replays every Attempt (PR #1294)
+- **Commits:** 379749d08 docs(screamingface-engine): spec several Attempts per Case, any-match per Check · 893995cc6 docs(screamingface-engine): explain the cache trap and the per-Check fold with examples · d1a235710 docs(screamingface-engine): name the build tickets OME-1515 and OME-1516 in the spec · c25175c97 docs(screamingface-engine): give each unseeded Attempt its own cache entry so a rerun replays every Attempt · 18e354ffc docs(screamingface-engine): carry the build on OME-1458 as one six-PR stack (PR #1294)
 - **Gates:** docs only; three mermaid diagrams rendered and read.
 - **Deviations:** two owner-approved decisions were revised after reading the code, both marked
   in the spec's §1. D5: "one seed per Attempt" would refuse every Anthropic model, so an unseeded
   run uses the gateway's cache opt-out for Attempt 2 and later. D7: "best Attempt per Case"
-  undercounts ARC-AGI-2's multi-grid tasks, so the fold is per Check. D5 extended 2026-10-08 (owner): an unseeded Attempt i ≥ 2 carries its Attempt number in the gateway's cache control instead of opting out, so a rerun replays every Attempt (OME-1520).
+  undercounts ARC-AGI-2's multi-grid tasks, so the fold is per Check. D5 extended 2026-10-08 (owner): an unseeded Attempt i ≥ 2 carries its Attempt number in the gateway's cache control instead of opting out, so a rerun replays every Attempt (the gateway change, PR 4). D14 changed 2026-10-08 (owner): the build rides OME-1458 as PRs 3 to 6, not separate tickets.
