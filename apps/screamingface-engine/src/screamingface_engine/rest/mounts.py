@@ -32,10 +32,13 @@ from screamingface_engine.artifacts.signing import signed_artifact_path
 from screamingface_engine.auth.problem import ProblemException
 from screamingface_engine.auth.token import new_topic
 from screamingface_engine.request_scope import (
+    CAPTURE_UNSUPPORTED,
+    CAPTURE_UNSUPPORTED_MESSAGE,
     PROFILE_HEADER,
     X_PROFILE_UNSUPPORTED,
     X_PROFILE_UNSUPPORTED_MESSAGE,
     requests_selector,
+    states_frozen_copy_mode,
 )
 from screamingface_engine.rest.routes import (
     WAIT_GONE,
@@ -254,6 +257,10 @@ def _validated(
     # forwarder refused it. Local mode requires no identity, so there it is the first answer.
     if requests_selector(request.headers.getlist(PROFILE_HEADER)):
         raise _Refused(_envelope(400, X_PROFILE_UNSUPPORTED, X_PROFILE_UNSUPPORTED_MESSAGE))
+    # INVARIANT (OME-1307): only the run route honours the frozen-copy headers. A mount call would
+    # run paid and uncaptured, so either header is refused, whatever its value.
+    if states_frozen_copy_mode(request.headers):
+        raise _Refused(_envelope(400, CAPTURE_UNSUPPORTED, CAPTURE_UNSUPPORTED_MESSAGE))
     if mount.kind == "endpoint" and q is None:
         raise _Refused(
             _envelope(400, "missing_intent", f"endpoint {mount.path} needs q=(context)!intent")
