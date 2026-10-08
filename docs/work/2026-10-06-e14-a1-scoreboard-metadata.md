@@ -73,3 +73,10 @@ as they are.
 - **Deviations:** the workflow-file edit; `uv run` for run_gates.py (PyYAML is not in the system
   python); `ScoreStore.metadata_row_query` added so a test can render the lock SQL;
   `related_name=False` on the event FK (see Pinned-decision notes). All accepted.
+
+## Rebase onto main (2026-10-08)
+
+- The stack was rebased onto `origin/main` `4cd063445` (87 new commits on main).
+- Conflict in `.claude/sdlc.local.md` and `.github/workflows/scoreboard-tests.yml`: main added three
+  portal test files. Both lists keep main's files and add `tests/portal/paper-link.test.js`.
+- Gates for stack `scoreboard` pass against `e14-b3-engine-frozen-copy`.
