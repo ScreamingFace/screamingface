@@ -8,7 +8,7 @@ Not a test module itself, so the append-only gate sees only new files.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import httpx
@@ -183,11 +183,13 @@ async def run_call(
     tavily: Tavily | None = None,
     web_search: bool = True,
     bind_copy: bool = True,
+    expressions: Sequence[str] = (EXPRESSION,),
 ) -> tuple[CaptureTally, str | None, ResolutionError | None]:
-    """One model call under ``scope`` with a tally bound, as the executor binds it.
+    """The model calls of ``expressions`` in turn, under ``scope`` with ONE tally bound for the
+    run, as the executor binds it.
 
     ``bind_copy`` plays the executor's open step for a capture scope: the tally learns the copy id.
-    Returns the tally, the answer text, and the failure (when the call raised).
+    Returns the tally, and the answer text or the failure of the LAST call.
     """
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL, web_search=web_search),), default_model=MODEL)
     answer: str | None = None
@@ -207,10 +209,12 @@ async def run_call(
                 tally.mode = "capture"
                 if bind_copy:
                     tally.frozen_copy_id = COPY
-            try:
-                answer = await url4_run(EXPRESSION, io=world.node)
-            except ResolutionError as exc:
-                failure = exc
+            for expression in expressions:
+                try:
+                    answer = await url4_run(expression, io=world.node)
+                    failure = None
+                except ResolutionError as exc:
+                    answer, failure = None, exc
     if tavily_client is not None:
         await tavily_client.aclose()
     return tally, answer, failure
