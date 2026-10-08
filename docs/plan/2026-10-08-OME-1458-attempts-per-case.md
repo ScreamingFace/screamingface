@@ -39,6 +39,12 @@ the tasks below (each PR's ledger has the detail):
   `test_case_attempts_contract.py`.
 - **PR 7 (importer):** as planned; `test_importer_refuses_epochs.py` is the named prior-test
   change.
+- **Review fixes (2026-10-08):** #1303's pane says "any of N Attempts" instead of "1 of 2
+  Attempts matched" (credit is per Check, so a Case can pass while no Attempt has full marks)
+  and pins that a judged Attempts Case is billed once. #1306 refuses at build an Attempt the
+  rewrite cannot number, and checks every registered Benchmark asks the Attempts it declares;
+  Task 6.5's probe Benchmark was not built. #1307 refuses a tuned any-match threshold and any-match
+  epochs beside Named Scores. The spec's failure table gained F10 to F15 and §4 five limitations.
 
 ## What the code changed in the spec
 
