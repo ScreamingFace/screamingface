@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import builtins
 import hashlib
-import json
 import shutil
 import sqlite3
 import stat
@@ -19,7 +18,12 @@ from pathlib import Path
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import _compiled_evaluation
 from screamingface._evaluation.results import report_from_outcomes, report_from_url4_outcome
-from screamingface._results.membership import membership_value
+from screamingface._results.discovery import (
+    evaluation_context,
+    incomplete_report,
+    unreadable_groups,
+    unreadable_selection,
+)
 from screamingface._results.store import ResultStore, SavedRun, storage_error
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import ExecutionError, ScreamingFaceError
@@ -62,6 +66,17 @@ def list(*, directory: str | Path | None = None) -> builtins.list[SavedReportInf
                 size_bytes=sum(_directory_size(run.path.parent) for run in runs),
             )
         )
+    # INVARIANT: rejecting every candidate's metadata must not hide a known evaluation.
+    for report_id, names, members in unreadable_groups(store, set(groups)):
+        entries.append(
+            SavedReportInfo(
+                id=report_id,
+                candidates=names,
+                directory=store.directory,
+                downloaded=False,
+                size_bytes=sum(_directory_size(path.parent) for path, _ in members),
+            )
+        )
     return sorted(entries, key=lambda entry: entry.id)
 
 
@@ -101,7 +116,12 @@ def _directory_size(directory: Path) -> int:
 def _selected(store: ResultStore, report_id: str) -> SavedRun:
     # WHY: old saved candidate keys remain usable for disk-error remediation.
     matches = [run for run in store.list() if _report_id(run) == report_id]
-    return matches[0] if matches else store.load(report_id)
+    if matches:
+        return matches[0]
+    try:
+        return store.load(report_id)
+    except KeyError:
+        return unreadable_selection(store, report_id)
 
 
 def _recovery_selection(store: ResultStore, selected: SavedRun) -> SavedRun:
@@ -112,21 +132,9 @@ def _canonical_selection(store: ResultStore, selected: SavedRun) -> SavedRun | N
     if selected.evaluation is None:
         return selected
     report_id = _report_id(selected)
-    manifest = store.directory / "evaluations" / f"{report_id}.json"
-    try:
-        context = membership_value(json.loads(manifest.read_text(encoding="utf-8")))
-    except FileNotFoundError:
+    context = evaluation_context(store, report_id, selected.key)
+    if context is None:
         return None
-    except OSError as exc:
-        raise storage_error(exc, selected.key) from exc
-    except (ValueError, KeyError, TypeError) as exc:
-        raise ExecutionError(
-            "Invalid saved evaluation metadata", code="result_metadata_invalid"
-        ) from exc
-    if context is None or context["id"] != report_id:
-        raise ExecutionError(
-            "Saved evaluation manifest has conflicting identity", code="result_metadata_invalid"
-        )
     # INVARIANT: validate every original candidate manifest against independent
     # evaluation metadata; an arbitrary first candidate cannot poison its siblings.
     return replace(selected, evaluation=context)
@@ -316,19 +324,9 @@ def _finish(
     )
     if missing:
         # INVARIANT: use the SDK's existing Partial Report contract, never pretend complete.
-        raise ExecutionError(
-            "Evaluation recovery is incomplete; completed results are in "
-            "partial_report. No models were rerun.",
-            code="candidates_failed",
-            details={"failed": missing, **_error_messages(errors)},
-            partial_report=report,
-        ) from next(iter(errors.values()), None)
+        raise incomplete_report(missing, errors, report) from next(iter(errors.values()), None)
     assert report is not None
     return report
-
-
-def _error_messages(errors: dict[str, ScreamingFaceError]) -> dict[str, object]:
-    return {"failure_messages": {name: str(exc) for name, exc in errors.items()}} if errors else {}
 
 
 def get(

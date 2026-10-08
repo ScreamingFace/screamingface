@@ -27,3 +27,8 @@ metadata failures per candidate while healthy siblings remain available. Explici
 deletion identifies saved members using minimal evaluation identity, independent
 of full cost/membership decoding, and cannot redirect deletion outside the store.
 Preserve current main production defaults and Named Scores when rebasing.
+
+Review correction authorized on 2026-10-08: evaluations remain discoverable when
+all candidate manifests fail decoding. Canonical metadata or minimal local identity
+records determine expected names; sync/async recovery reports named failures with
+partial_report=None when none succeeds. Preserve direct corrupt saved-key errors.

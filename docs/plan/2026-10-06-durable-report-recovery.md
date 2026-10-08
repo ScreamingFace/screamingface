@@ -25,3 +25,9 @@ manifest independently. Reuse minimal identity enumeration for complete deletion
 including saved-key lookup and groups whose members all fail full validation.
 Rebase on current main, refresh the precise API snapshot transition, run all SDK
 gates and independently recheck the demonstrated failures.
+
+## All-corrupt discovery correction (2026-10-08)
+
+Reuse minimal identity enumeration and independent canonical metadata when full
+candidate decoding yields no saved runs. Add failing listing and sync/async
+settlement regressions, preserve inherited behavior, and run all SDK gates.

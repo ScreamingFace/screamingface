@@ -148,8 +148,21 @@ class ResultStore:
         Paths come only from this store's manifest enumeration, never saved metadata.
         A saved candidate key can select its group even when that candidate is corrupt.
         """
-        identities: list[tuple[str, Path, str | None]] = []
+        identities = self.identities()
         selected_id = report_id
+        for identity, path, _ in identities:
+            if path.parent.name == report_id:
+                selected_id = identity
+        # WHY: public evaluation identity takes precedence over a coincident saved key.
+        if any(identity == report_id for identity, _, _ in identities):
+            selected_id = report_id
+        return selected_id, [
+            (path, name) for identity, path, name in identities if identity == selected_id
+        ]
+
+    def identities(self) -> list[tuple[str, Path, str | None]]:
+        """Enumerate known reports independently of full candidate metadata decoding."""
+        identities: list[tuple[str, Path, str | None]] = []
         for path in sorted(self.directory.glob("*/run.json")):
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
@@ -165,16 +178,9 @@ class ResultStore:
                 name = candidate.get("name") if isinstance(candidate, dict) else None
                 name = name if isinstance(name, str) and name.strip() else None
                 identities.append((identity, path, name))
-                if path.parent.name == report_id:
-                    selected_id = identity
             except (OSError, ValueError):
                 logging.getLogger(__name__).warning("Could not read saved run %s", path)
-        # WHY: public evaluation identity takes precedence over a coincident saved key.
-        if any(identity == report_id for identity, _, _ in identities):
-            selected_id = report_id
-        return selected_id, [
-            (path, name) for identity, path, name in identities if identity == selected_id
-        ]
+        return identities
 
     def _load(self, path: Path) -> SavedRun:
         try:
