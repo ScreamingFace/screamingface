@@ -1,5 +1,8 @@
 # E14 — Each leaderboard submission is a reproducible research artifact (rebuild spec)
 
+> **Superseded in part (2026-10-08).** The reproducibility design changed to a frozen copy. Read `02-frozen-copy-design.md` first: it wins wherever this file names a cache revision, `only-if-cached`, `cache-revision`, `X-Cache-Replay`, `reproducible`/`cache_revision` fields or the revisions endpoint.
+
+
 **Epic:** OME-1307 · **Status:** draft for owner approval · **Date:** 2026-10-06
 **Base:** `origin/main` at `4d81004e1` (every `[existing …]` anchor is on this commit)
 

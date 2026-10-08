@@ -1,5 +1,8 @@
 # PRD: Reproduce a submission and record the reproduction
 
+> **Superseded in part (2026-10-08).** The reproducibility design changed to a frozen copy. Read `02-frozen-copy-design.md` first: it wins wherever this file names a cache revision, `only-if-cached`, `cache-revision`, `X-Cache-Replay`, `reproducible`/`cache_revision` fields or the revisions endpoint.
+
+
 **Source:** prompt / ans:Q1, ans:Q2, ans:Q6, ans:Q8, ans:Q9 · **Priority:** P0 (Stack B, the user-facing end)
 **Lifecycle:** planned (new flow on existing seams)
 **Owner:** unassigned

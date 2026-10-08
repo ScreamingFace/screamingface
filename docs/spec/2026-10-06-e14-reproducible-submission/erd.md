@@ -1,5 +1,8 @@
 # ERD — E14 reproducible submission
 
+> **Superseded in part (2026-10-08).** The reproducibility design changed to a frozen copy. Read `02-frozen-copy-design.md` first: it wins wherever this file names a cache revision, `only-if-cached`, `cache-revision`, `X-Cache-Replay`, `reproducible`/`cache_revision` fields or the revisions endpoint.
+
+
 Source tags follow `00-overview.md` §3. Anchors are on `origin/main` at `4d81004e1`.
 
 E14 adds no new store. It adds columns and two tables to the scoreboard, and one committed registry
