@@ -17,8 +17,15 @@ Some Benchmarks let the model hand in more than one answer per question and mark
 right if **any** answer is right. ARC-AGI-2 gives two Attempts per test grid; ZeroBench and MBPP
 publish the same rule as pass@k. Think of it as an exam that accepts two answer sheets.
 
-The rule that must hold: **our score for such a Benchmark is the number its authors publish**, so
-the Attempts are reproduced, never approximated, or the Benchmark is refused by name.
+The rules that must hold:
+
+1. **Our score for such a Benchmark is the number its authors publish**, so the Attempts are
+   reproduced, never approximated, or the Benchmark is refused by name.
+2. **Attempt 2..N never get the cached answer from Attempt 1.** Each Attempt is a real, separate
+   answer from the model (§2.3).
+3. **Rerunning a Benchmark with N Attempts a second / third time gets all cached results for all
+   Attempts from the 1st run**, so the rerun is free and returns the same answers, like any other
+   Benchmark (§2.3).
 
 Today it breaks in two places:
 
@@ -352,6 +359,14 @@ The arrows are the order a Case passes through the code, not imports. The stages
 - **The shared cache gains a sampling dimension it was built without** (OME-305 chose an exact
   cache with no sampling lane). Accepted: the Attempt number is caller-declared and absent from
   every existing request, so the cache stays exact for everything else.
+- **A rerun is free only when nothing about the request changed.** Rule 3 holds while the gateway
+  change (PR 4) is deployed, the cache is on, the run does not opt out of caching, the stored
+  replies have not expired, and the Candidate (models, Fusion members, parameters) and the seed
+  are the same. A different seed is meant to give new answers, so it is not served the old ones.
+  Before PR 4 deploys, a rerun replays Attempt 1 but pays for Attempts 2..N again (F9).
+- **The cache is shared by every hosted user.** If another researcher already ran the same
+  Attempt 2 request, your first run is served their stored Attempt 2 answer. That is how the
+  cache treats every request today.
 - **Attempts at temperature 0 come out nearly identical**, and the score is close to the
   first-Attempt score. Accepted: the Candidate owns its sampling settings, and the ARC harness
   behaves the same way; the Report shows the identical answers.
@@ -380,13 +395,17 @@ The arrows are the order a Case passes through the code, not imports. The stages
    prints "1 of 2 Attempts matched".
 3. A two-Check fixture where Attempt 1 meets only Check A and Attempt 2 only Check B scores 1.0
    (the ARC rule), pinned by a test that says why.
-4. Attempt 2's request keys differently from Attempt 1's in an unseeded run (the Attempt number in
-   the cache control) and in a seeded run (a different seed), pinned by tests on the request the
-   Engine sends; a rerun of an unseeded Attempts Benchmark is served every Attempt from the
-   cache, pinned by a gateway test (PR 4).
-5. The importer maps `max`, `at_least(1)` and `pass_at(N)` to `attempts=N` and refuses every
+4. **Attempt 2..N never get the cached answer from Attempt 1.** Test: in one run, Attempt 1 is
+   answered `41` and stored; Attempt 2 of the same Case is not served `41` from the cache, it goes
+   to the model. Holds in an unseeded run (the Attempt number in the cache control) and in a
+   seeded run (a different seed), pinned by tests on the request the Engine sends.
+5. **Rerunning a Benchmark with N Attempts a second / third time gets all cached results for all
+   Attempts from the 1st run.** Test: run an `attempts=2` Benchmark twice with the same Candidate
+   and no seed; the second run makes zero model calls and every Attempt's answer equals the first
+   run's. Same with the same seed in a seeded run. Pinned by a gateway test (PR 4).
+6. The importer maps `max`, `at_least(1)` and `pass_at(N)` to `attempts=N` and refuses every
    other reducer by name; before the build, it refuses every `epochs` > 1 (OME-1458, PR 2).
-6. A non-0/1 Check under Attempts fails the Case as `attempt_grade_not_pass_fail`, pinned on both
+7. A non-0/1 Check under Attempts fails the Case as `attempt_grade_not_pass_fail`, pinned on both
    the Engine and SDK failure-code lists.
 
 ## 7. Delivery
