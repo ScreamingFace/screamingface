@@ -20,7 +20,7 @@ from uuid import UUID
 
 import httpx
 
-from screamingface._report_primitives import reproducible_status
+from screamingface._report_primitives import capture_status_value
 from screamingface._scoreboard.submission_notice import (
     display_submission_notice,
     prepare_submission_notice,
@@ -83,7 +83,7 @@ _STATUS_CODES: dict[str, dict[int, str]] = {
         401: "scoreboard_authentication_required",
         403: "score_events_forbidden",
     },
-    # FEATURE (OME-1307, K7): the 409s (`not_reproducible`, `run_id_conflict`, a visibility change)
+    # FEATURE (OME-1307): the 409s (`not_reproducible`, `run_id_conflict`, a visibility change)
     # and the 422 `not_exact` keep their own words in the error text through `_detail_text`.
     _RECORD_OPERATION: {
         401: "scoreboard_authentication_required",
@@ -224,19 +224,19 @@ class Leaderboards:
         run_id: str,
         score: float,
         total_questions: int,
-        cache_revision: str | None,
+        frozen_copy_id: str | None,
         client: Mapping[str, object],
     ) -> None:
-        """Record one exact replay (K7). Internal: `reproduce` maps any error to `record_error`."""
+        """Record one exact replay. Internal: `reproduce` maps any error to `record_error`."""
         selected = _score_id(score_id)
         _sync_json(
             self._request,
             self._scoreboard_url,
             "POST",
             f"{_SCORES_PATH}/{selected}/reproductions",
-            json=_reproduction_payload(run_id, score, total_questions, cache_revision, client),
+            json=_reproduction_payload(run_id, score, total_questions, frozen_copy_id, client),
             # WHY safe to re-send: the board keys a record by (score, run_id) and answers a repeat
-            # with the first row (R18), so a retried POST cannot count twice.
+            # with the first row, so a retried POST cannot count twice.
             replay_safe=True,
             missing=("unknown_score", f"Score {str(selected)!r} was not found"),
             operation=_RECORD_OPERATION,
@@ -363,19 +363,19 @@ class AsyncLeaderboards:
         run_id: str,
         score: float,
         total_questions: int,
-        cache_revision: str | None,
+        frozen_copy_id: str | None,
         client: Mapping[str, object],
     ) -> None:
-        """Record one exact replay (K7). Internal: `reproduce` maps any error to `record_error`."""
+        """Record one exact replay. Internal: `reproduce` maps any error to `record_error`."""
         selected = _score_id(score_id)
         await _async_json(
             self._request,
             self._scoreboard_url,
             "POST",
             f"{_SCORES_PATH}/{selected}/reproductions",
-            json=_reproduction_payload(run_id, score, total_questions, cache_revision, client),
+            json=_reproduction_payload(run_id, score, total_questions, frozen_copy_id, client),
             # WHY safe to re-send: the board keys a record by (score, run_id) and answers a repeat
-            # with the first row (R18), so a retried POST cannot count twice.
+            # with the first row, so a retried POST cannot count twice.
             replay_safe=True,
             missing=("unknown_score", f"Score {str(selected)!r} was not found"),
             operation=_RECORD_OPERATION,
@@ -584,12 +584,12 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             metadata_updated_at=_optional_timestamp(
                 root.get("metadata_updated_at"), "Leaderboard score metadata_updated_at"
             ),
-            cache_revision=_optional_text(
-                root.get("cache_revision"), "Leaderboard score cache_revision"
+            frozen_copy_id=_optional_text(
+                root.get("frozen_copy_id"), "Leaderboard score frozen_copy_id"
             ),
-            reproducible=reproducible_status(root.get("reproducible")),
+            capture_status=capture_status_value(root.get("capture_status")),
             answer_seed=_optional_integer(root.get("answer_seed"), "Leaderboard score answer_seed"),
-            # K8: an older board omits the count, and an omitted count reads as 0.
+            # An older board omits the count, and an omitted count reads as 0.
             reproduction_count=_integer(
                 root.get("reproduction_count", 0), "Leaderboard score reproduction_count"
             ),
@@ -758,7 +758,7 @@ def _submission(
         payload["cache_saved_cost_archive_usd"] = _cost_text(
             candidate_result.cache_saved_cost_archive_usd
         )
-    payload.update(_cache_version_fields(candidate_result))
+    payload.update(_capture_fields(candidate_result))
     return payload
 
 
@@ -775,7 +775,7 @@ def _reproduction_payload(
     run_id: str,
     score: float,
     total_questions: int,
-    cache_revision: str | None,
+    frozen_copy_id: str | None,
     client: Mapping[str, object],
 ) -> dict[str, object]:
     selected = dict(client)
@@ -789,20 +789,20 @@ def _reproduction_payload(
         "run_id": run_id,
         "score": score,
         "total_questions": total_questions,
-        "cache_revision": cache_revision,
+        "frozen_copy_id": frozen_copy_id,
         "client": selected,
     }
 
 
-def _cache_version_fields(candidate_result: CandidateResult) -> dict[str, object]:
-    """The cache version and the sitting, only the parts the run has.
+def _capture_fields(candidate_result: CandidateResult) -> dict[str, object]:
+    """The frozen copy and the sitting, only the parts the run has.
 
-    INVARIANT (OME-1307, K4, cv C13): omitted rather than null, so a board that predates the
-    fields 422s nothing a run without cache data submits. A zero seed is a sitting and is sent.
+    INVARIANT (OME-1307): omitted rather than null, so a board that predates the fields 422s
+    nothing a run without capture data submits. A zero seed is a sitting and is sent.
     """
     known = {
-        "cache_revision": candidate_result.cache_revision,
-        "reproducible": candidate_result.reproducible,
+        "frozen_copy_id": candidate_result.frozen_copy_id,
+        "capture_status": candidate_result.capture_status,
         "answer_seed": candidate_result.answer_seed,
     }
     return {name: value for name, value in known.items() if value is not None}

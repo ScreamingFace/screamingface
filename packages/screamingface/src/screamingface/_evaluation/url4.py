@@ -15,7 +15,8 @@ from screamingface._evaluation.model import (
     _compiled_operation,
     _member_projection,
     _with_answer_seed,
-    _with_cache_replay,
+    _with_capture,
+    _with_replay_frozen_copy,
 )
 from screamingface._evaluation.results import report_from_url4_outcome
 from screamingface._evaluation.topology import (
@@ -36,7 +37,8 @@ def evaluate_url4_sync(
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
     answer_seed: int | None = None,
-    cache_replay: str | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
 ) -> Report:
     """Execute one already-linked evaluation expression unchanged."""
 
@@ -52,9 +54,11 @@ def evaluate_url4_sync(
     if answer_seed is not None:
         # FEATURE (OME-1193): a replayed sitting is the reproduction use case itself.
         candidate = _with_answer_seed(candidate, answer_seed)
-    if cache_replay is not None:
-        # FEATURE (OME-1307): the replay label rides the Candidate, as the seed does.
-        candidate = _with_cache_replay(candidate, cache_replay)
+    if capture:
+        # FEATURE (OME-1307): the capture request rides the Candidate, as the seed does.
+        candidate = _with_capture(candidate)
+    if replay_frozen_copy is not None:
+        candidate = _with_replay_frozen_copy(candidate, replay_frozen_copy)
     observer = _sync_event_observer(
         on_event,
         progress,
@@ -66,7 +70,7 @@ def evaluate_url4_sync(
         bound = None if observer is None else observer.bind(candidate)
         outcome = transport.run(candidate, bound)
         report = report_from_url4_outcome(candidate, outcome)
-        _require_replay_statement(cache_replay, outcome, report)
+        _require_replay_statement(replay_frozen_copy, outcome, report)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
@@ -80,7 +84,8 @@ async def evaluate_url4_async(
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
     answer_seed: int | None = None,
-    cache_replay: str | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
 ) -> Report:
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
@@ -96,8 +101,10 @@ async def evaluate_url4_async(
     if answer_seed is not None:
         # FEATURE (OME-1193): see the sync twin.
         candidate = _with_answer_seed(candidate, answer_seed)
-    if cache_replay is not None:
-        candidate = _with_cache_replay(candidate, cache_replay)
+    if capture:
+        candidate = _with_capture(candidate)
+    if replay_frozen_copy is not None:
+        candidate = _with_replay_frozen_copy(candidate, replay_frozen_copy)
     observer = _async_event_observer(
         on_event,
         progress,
@@ -109,7 +116,7 @@ async def evaluate_url4_async(
         bound = None if observer is None else observer.bind(candidate)
         outcome = await transport.run(candidate, bound)
         report = report_from_url4_outcome(candidate, outcome)
-        _require_replay_statement(cache_replay, outcome, report)
+        _require_replay_statement(replay_frozen_copy, outcome, report)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
@@ -117,24 +124,24 @@ async def evaluate_url4_async(
     return report
 
 
-# The two case failure codes only a replay-mode Engine raises. A run that carries one has proved it
-# was in replay mode: the Engine fails the call before it reaches a provider.
-_REPLAY_FAILURE_CODES = frozenset({"replay_cache_miss", "unknown_cache_revision"})
+# The two failure codes only a replay-mode Engine raises. A run that carries one has proved it was
+# in replay mode: the Engine fails the call before it reaches a provider or a search service.
+_REPLAY_FAILURE_CODES = frozenset({"frozen_copy_miss", "frozen_copy_unavailable"})
 
 
 def _require_replay_statement(
-    cache_replay: str | None, outcome: _RunOutcome, report: Report
+    replay_frozen_copy: str | None, outcome: _RunOutcome, report: Report
 ) -> None:
-    """A replay's summary must name the label sent, unless the result itself proves replay mode.
+    """A replay's summary must name the copy sent, unless the result itself proves replay mode.
 
-    INVARIANT (OME-1307, R24): the start-response echo can come from a front door while a worker
-    ignored the replay env, so the run summary is checked as well. The summary is only written
-    when the run touched the cache, so an all-miss replay or an unknown-label failure may have no
-    summary at all. Those results carry replay failure codes, which only a replay-mode Engine
+    INVARIANT (OME-1307): the start-response echo can come from a front door while a worker
+    ignored the replay env, so the run summary is checked as well. A replay run always writes
+    `capture.replay`, but a copy the Engine refused (unknown, not sealed) may fail the run before
+    any summary exists. Those results carry replay failure codes, which only a replay-mode Engine
     raises, so they are classified by those codes and not refused here. A run that fails the check
     may have called providers; it is not reported as a replay.
     """
-    if cache_replay is None or outcome.cache_replay == cache_replay:
+    if replay_frozen_copy is None or outcome.capture_replay == replay_frozen_copy:
         return
     result = report.candidates[0]
     codes = {failure.code for failure in result.failures}
@@ -142,7 +149,7 @@ def _require_replay_statement(
     if codes & _REPLAY_FAILURE_CODES:
         return
     raise ExecutionError(
-        "SF Engine did not state that it replayed the run from the cache",
+        "SF Engine did not state that it replayed the run from the frozen copy",
         code="replay_unsupported",
         permanent=True,
     )

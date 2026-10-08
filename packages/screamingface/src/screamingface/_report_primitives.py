@@ -111,8 +111,8 @@ def is_declared_failure_code(code: str) -> bool:
     return code in DECLARED_FAILURE_CODES or _AIGATEWAY_HTTP_CODE.fullmatch(code) is not None
 
 
-def reproducible_status(value: object) -> Literal["complete", "partial"] | None:
-    """The one narrowing of a run's reproducible status: `complete`, `partial`, or None (unknown).
+def capture_status_value(value: object) -> Literal["complete", "partial"] | None:
+    """The one narrowing of a run's capture status: `complete`, `partial`, or None (unknown).
 
     INVARIANT (OME-1307): a null status means "unknown", never `partial`. Anything else is a
     ValueError, which each caller re-raises in the error type of its own boundary.
@@ -123,7 +123,7 @@ def reproducible_status(value: object) -> Literal["complete", "partial"] | None:
         return "complete"
     if value == "partial":
         return "partial"
-    raise ValueError("reproducible must be 'complete', 'partial' or None")
+    raise ValueError("capture_status must be 'complete', 'partial' or None")
 
 
 @dataclass(frozen=True, slots=True, init=False)

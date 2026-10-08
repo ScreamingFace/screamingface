@@ -93,9 +93,11 @@ _KEEPALIVE_PING_S = 20.0
 
 _logger = logging.getLogger(__name__)
 
-# FEATURE (OME-1307, K3): the start header that names the cache revision a replay answers from, and
-# the same header echoed on the start response as the Engine's acknowledgement.
-_CACHE_REPLAY = "X-Cache-Replay"
+# FEATURE (OME-1307): the start headers of the two frozen-copy modes. `X-Capture` asks the Engine to
+# capture the run into a new copy; `X-Replay-Frozen-Copy` names the copy a replay answers from. Each
+# is echoed on the start response as the Engine's acknowledgement.
+_CAPTURE = "X-Capture"
+_REPLAY_FROZEN_COPY = "X-Replay-Frozen-Copy"
 
 
 def _reconnect_delay(
@@ -293,7 +295,7 @@ class Url4CloudTransport:
     ) -> None:
         """Start the Run; stop it again when a replay start is not acknowledged.
 
-        FEATURE (OME-1307, R24): the start was accepted, so an Engine that ignored the replay
+        FEATURE (OME-1307): the start was accepted, so an Engine that ignored the replay
         header may be running the Candidate as a paid run. Stop THIS run, then surface the error.
         """
         try:
@@ -303,7 +305,8 @@ class Url4CloudTransport:
                 candidate.url4,
                 trace=trace,
                 answer_seed=candidate.answer_seed,
-                cache_replay=candidate.cache_replay,
+                capture=candidate.capture,
+                replay_frozen_copy=candidate.replay_frozen_copy,
                 admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
                 on_event=on_event,
                 wait=self._abort.wait,
@@ -655,7 +658,8 @@ class AsyncUrl4CloudTransport:
                 candidate.url4,
                 trace=trace,
                 answer_seed=candidate.answer_seed,
-                cache_replay=candidate.cache_replay,
+                capture=candidate.capture,
+                replay_frozen_copy=candidate.replay_frozen_copy,
                 admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
                 on_event=on_event,
                 wait=self._wait_unless_aborted,
@@ -950,7 +954,8 @@ def _start_sync(
     *,
     trace: TraceContext | None = None,
     answer_seed: int | None = None,
-    cache_replay: str | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
     admission: _AdmissionWait | None = None,
     on_event: object = None,
     wait: Callable[[float], bool] | None = None,
@@ -968,7 +973,13 @@ def _start_sync(
     trace_id = trace.trace_id if trace else None
     while True:
         response = _send_start_sync(
-            http, token, url4, trace=trace, answer_seed=answer_seed, cache_replay=cache_replay
+            http,
+            token,
+            url4,
+            trace=trace,
+            answer_seed=answer_seed,
+            capture=capture,
+            replay_frozen_copy=replay_frozen_copy,
         )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
@@ -977,7 +988,7 @@ def _start_sync(
         if wait(delay):
             raise _start_abandoned(trace_id)
     _finish_start(response, admission, on_event, trace_id)
-    _require_replay_ack(response, cache_replay, trace_id)
+    _require_replay_ack(response, replay_frozen_copy, trace_id)
 
 
 def _send_start_sync(
@@ -987,7 +998,8 @@ def _send_start_sync(
     *,
     trace: TraceContext | None,
     answer_seed: int | None,
-    cache_replay: str | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
 ) -> httpx.Response:
     """One start request, re-sent only while the WebSocket attach is still registering."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -1002,7 +1014,7 @@ def _send_start_sync(
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
                     **_answer_seed_header(answer_seed),
-                    **_cache_replay_header(cache_replay),
+                    **_frozen_copy_headers(capture, replay_frozen_copy),
                 },
             )
         except httpx.HTTPError as exc:
@@ -1187,7 +1199,8 @@ async def _start_async(
     *,
     trace: TraceContext | None = None,
     answer_seed: int | None = None,
-    cache_replay: str | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
     admission: _AdmissionWait | None = None,
     on_event: object = None,
     wait: Callable[[float], Awaitable[bool]] | None = None,
@@ -1198,7 +1211,13 @@ async def _start_async(
     trace_id = trace.trace_id if trace else None
     while True:
         response = await _send_start_async(
-            http, token, url4, trace=trace, answer_seed=answer_seed, cache_replay=cache_replay
+            http,
+            token,
+            url4,
+            trace=trace,
+            answer_seed=answer_seed,
+            capture=capture,
+            replay_frozen_copy=replay_frozen_copy,
         )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
@@ -1207,7 +1226,7 @@ async def _start_async(
         if await wait(delay):
             raise _start_abandoned(trace_id)
     _finish_start(response, admission, on_event, trace_id)
-    _require_replay_ack(response, cache_replay, trace_id)
+    _require_replay_ack(response, replay_frozen_copy, trace_id)
 
 
 async def _send_start_async(
@@ -1217,7 +1236,8 @@ async def _send_start_async(
     *,
     trace: TraceContext | None,
     answer_seed: int | None,
-    cache_replay: str | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
 ) -> httpx.Response:
     """Async twin of `_send_start_sync`."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -1232,7 +1252,7 @@ async def _send_start_async(
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
                     **_answer_seed_header(answer_seed),
-                    **_cache_replay_header(cache_replay),
+                    **_frozen_copy_headers(capture, replay_frozen_copy),
                 },
             )
         except httpx.HTTPError as exc:
@@ -1258,28 +1278,37 @@ def _answer_seed_header(answer_seed: int | None) -> dict[str, str]:
     return {"X-Answer-Seed": str(answer_seed)}
 
 
-def _cache_replay_header(cache_replay: str | None) -> dict[str, str]:
-    """The cache revision a replay must answer from as its start header; nothing for a normal run.
+def _frozen_copy_headers(capture: bool, replay_frozen_copy: str | None) -> dict[str, str]:
+    """The frozen-copy mode as start headers; nothing for a normal run.
 
-    INVARIANT (OME-1307): absence is the default, as for the answer seed. Only `reproduce` sets it.
+    INVARIANT (OME-1307): absence is the default, as for the answer seed. `X-Capture` is sent only
+    when true, and `X-Replay-Frozen-Copy` only for `reproduce`; the Engine refuses both together.
     """
-    if cache_replay is None:
-        return {}
-    return {_CACHE_REPLAY: cache_replay}
+    headers: dict[str, str] = {}
+    if capture:
+        headers[_CAPTURE] = "true"
+    if replay_frozen_copy is not None:
+        headers[_REPLAY_FROZEN_COPY] = replay_frozen_copy
+    return headers
 
 
 def _require_replay_ack(
-    response: httpx.Response, cache_replay: str | None, trace_id: str | None
+    response: httpx.Response, replay_frozen_copy: str | None, trace_id: str | None
 ) -> None:
-    """A replay start must be echoed back with its own label (K3, R24).
+    """A replay start must be echoed back with its own copy id.
 
-    WHY: an Engine that predates replay ignores `X-Cache-Replay` and runs the Candidate as a normal,
-    paid run. The echo is the Engine saying it took the header. A missing or different echo ends the
-    start; the caller stops the run it just started.
+    WHY: an Engine that predates replay ignores `X-Replay-Frozen-Copy` and runs the Candidate as a
+    normal, paid run. The echo is the Engine saying it took the header. A missing or different echo
+    ends the start; the caller stops the run it just started.
+
+    A capture start is not checked here: an Engine that ignores `X-Capture` runs the Candidate
+    normally and the result has no `frozen_copy_id`, which the caller reads as "not captured".
     """
-    if cache_replay is not None and response.headers.get(_CACHE_REPLAY) != cache_replay:
+    if replay_frozen_copy is not None and response.headers.get(_REPLAY_FROZEN_COPY) != (
+        replay_frozen_copy
+    ):
         raise ExecutionError(
-            "SF Engine did not acknowledge the cache replay, so the Run was stopped",
+            "SF Engine did not acknowledge the frozen copy replay, so the Run was stopped",
             code="replay_unsupported",
             permanent=True,
             trace_id=trace_id,
@@ -1287,7 +1316,7 @@ def _require_replay_ack(
 
 
 def _still_running(exc: ExecutionError) -> ExecutionError:
-    """The unacknowledged replay's error, told that the stop failed too (R24).
+    """The unacknowledged replay's error, told that the stop failed too.
 
     INVARIANT: the user is told. An Engine that ignored the replay header may be running the
     Candidate as a paid run, and this stop was the only thing meant to end it.
