@@ -20,4 +20,5 @@ Task's `epochs` at one.
 Decision (2026-10-07, spec `docs/spec/2026-10-07-OME-1458-attempts-per-case.md`): a Benchmark
 declares `attempts=N`; each Case is asked N times, each Attempt graded on its own, and a Check is
 met if any Attempt met it. Delivered as this docs PR plus an importer refusal of `epochs` > 1
-(PR 2 of 6); the build is PRs 3 to 6 on this ticket (SDK, AI gateway, Engine, importer mapping).
+(PR 2 of 7); the build is PRs 3 to 7 on this ticket (SDK, AI gateway, Engine egress, Engine
+loop and fold, importer mapping), planned in `docs/plan/2026-10-08-OME-1458-attempts-per-case.md`.

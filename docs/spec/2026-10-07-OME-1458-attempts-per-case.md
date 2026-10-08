@@ -3,12 +3,16 @@
 - Status: draft for owner review. Decisions D1–D14 approved by the owner on OME-1458,
   2026-10-07 (§1); D5 and D7 were revised after reading the code and re-approved the same day;
   D5 was extended on 2026-10-08 so an unseeded rerun replays every Attempt (PR 4), and D14
-  was changed the same day: the build rides OME-1458 as one stack.
+  was changed the same day: the build rides OME-1458 as one stack. The plan
+  (`docs/plan/2026-10-08-OME-1458-attempts-per-case.md`, 2026-10-08) moved the fold into the
+  shared marking room, put the failure code on both lists in the SDK PR, split the Engine build
+  in two (seven PRs), and gave each Attempt its own cost records; this spec says so where it
+  applies.
 - Component: `apps/screamingface-engine` (the grading spine and `screamingface_engine_inspect`)
   and `packages/screamingface` (decoder and Report).
 - Ticket: OME-1458. Parent epic: OME-1299. Unblocks OME-1476 (ARC-AGI-2).
 - Ledger: `docs/work/2026-10-07-attempts-per-case-spec.md`.
-- Delivery: one stack of six PRs on OME-1458: this spec, the importer refusal, then the build in
+- Delivery: one stack of seven PRs on OME-1458: this spec, the importer refusal, then the build in
   the SDK, the AI gateway and the Engine (§7). The last PR closes the ticket.
 
 ## TLDR
@@ -59,7 +63,7 @@ that declares no Attempts; its Case Results, Report and Benchmark Revision stay 
 | D11 | The importer maps inspect's any-match reducers to `attempts=N` and refuses every other reducer by name. | — |
 | D12 | Until the build lands, the importer refuses every `epochs` > 1 by name (OME-1458, PR 2). | — |
 | D13 | The build is proven by a test-only Benchmark declaring two Attempts; ARC-AGI-2 proves it for real in OME-1476. | — |
-| D14 | **Revised.** The decision and the build ride one ticket, OME-1458, as one stack of six PRs across the SDK, the AI gateway and the Engine (owner, 2026-10-08, the OME-1268 precedent). | — |
+| D14 | **Revised.** The decision and the build ride one ticket, OME-1458, as one stack of seven PRs across the SDK, the AI gateway and the Engine (owner, 2026-10-08, the OME-1268 precedent). | — |
 
 ## 2. Design
 
@@ -172,7 +176,9 @@ be served the same stored verdict, which is right.
 ### 2.4 Grading and the fold: per Check, not per Case
 
 Each Attempt is graded by the Benchmark's own Grading, unchanged, into its own Case Grade. The
-per-Case envelope then folds the N grades into the Case's one Case Grade:
+shared marking room (`BenchmarkAggregation`), where every Benchmark's Case Grades are built,
+then folds the N grades into
+the Case's one Case Grade:
 
 - **A Check is met if it is met in any Attempt.** The folded Check records which Attempts met
   it.
@@ -206,12 +212,13 @@ than 0 or 1 fails the Case with the named failure `attempt_grade_not_pass_fail`,
 ### 2.5 What the Report and the Leaderboard see
 
 The Case Result gains `attempts`: one entry per Attempt, carrying its answer, finish reason,
-failures and Case Grade. It is absent when N = 1, so every existing report.json is unchanged.
+failures, Case Grade and its own cost records. It is absent when N = 1, so every existing report.json is unchanged.
 The Case Result's own `output` and `grade` stay what a reader and the Aggregation already read:
 the shown answer and the folded Case Grade.
 
 The Aggregation is unchanged: the Headline Score is the mean of Case scores. The SDK Report adds
-one line per Case, "1 of 2 Attempts matched", and the run's cost includes every Attempt. The
+one line per Case, "1 of 2 Attempts matched", and the run's cost counts every Attempt once:
+each Attempt carries its own cost records, so the Case-level ones are left out. The
 Leaderboard ranks the Headline Score; since N is part of the Benchmark Revision, every entry on
 one Leaderboard used the same N.
 
@@ -301,7 +308,7 @@ which gives it its own entry the same way (§2.3).
 | F3 | Attempt 2 would be served Attempt 1's stored reply | ⑤ ⑥ | nobody, which is why §2.3 exists | prevented: Attempt 2's request always keys differently (a derived seed, or the Attempt number in the cache control) |
 | F4 | One Attempt's Candidate Invocation or Grading fails, another is graded | ③ ⑧ | the Report | the Case is graded from the graded Attempts; the failed one keeps its failure in `attempts`; the Report says "1 of 2 Attempts failed" |
 | F5 | Every Attempt of a Case fails | ⑧ | the Aggregation | the Case has no Case Grade; the Benchmark's Failure Policy applies, as today |
-| F6 | An Attempt's Check is graded neither 0 nor 1 | ⑧ | the per-Case envelope | the Case fails as `attempt_grade_not_pass_fail`; no guessed fold |
+| F6 | An Attempt's Check is graded neither 0 nor 1 | ⑧ | the marking room | the Case fails as `attempt_grade_not_pass_fail`; no guessed fold |
 | F7 | A seeded run names a Model whose provider has no `seed` | ⑤ | the SDK's parameter check, before any paid call | refused, as today for every seeded run |
 | F8 | A researcher's SDK released before the build reads a report with `attempts` | ⑪ | the SDK decoder | "unsupported field"; reports without Attempts unaffected; the SDK slice releases first (§7) |
 | F9 | The Engine sends the Attempt number to a gateway without PR 4 | ⑥ | nobody | that gateway bypasses the cache on the unknown field: Attempts are fresh and graded correctly, only the free rerun is lost until it deploys |
@@ -318,7 +325,7 @@ flowchart TB
   n5["⑤ the model call leaving the Engine<br/>apply_answer_seed · world/request_parameters.py · world/connector.py<br/>✏️ Attempt 2 and later: derived seed, or the Attempt number in the cache control"]
   n6["⑥ the AI gateway exact-request cache<br/>global_controls.py · GlobalChatCacheKey · apps/aigateway request_cache<br/>✏️ accepts the Attempt number, keys on it, strips it before the provider"]
   n7["⑦ the Benchmark's own Grading<br/>scorer adapter, rubric graders<br/>unchanged: runs once per Attempt"]
-  n8["⑧ the per-Case envelope and the fold<br/>graded_answer.py<br/>✏️ accepts N outcomes, folds per Check"]
+  n8["⑧ the marking room and the fold<br/>BenchmarkAggregation · shared_grading/benchmark_aggregation.py · attempt_fold.py<br/>✏️ grades each Attempt, then folds per Check"]
   n9["⑨ the Case Result on the wire<br/>CaseResult · benchmarks/contract.py<br/>✅ new attempts list, absent when N is 1"]
   n10["⑩ Aggregation<br/>finalize_candidate_result · benchmarks/aggregation.py<br/>unchanged: mean of Case scores"]
   n11["⑪ the SDK decoder and Report<br/>case_result.py · report.py · packages/screamingface<br/>✏️ decodes attempts, shows which matched"]
@@ -412,18 +419,19 @@ The arrows are the order a Case passes through the code, not imports. The stages
 
 | PR | Ticket | Lands in | Carries |
 |---|---|---|---|
-| 1 (this one) | OME-1458, PR 1 of 6 | `docs/` | this spec, the `Attempt` glossary entry, ledger and mirror |
-| 2 | OME-1458, PR 2 of 6 | `apps/screamingface-engine` | ② refuses every `epochs` > 1 by name (F1) |
-| 3 | OME-1458, PR 3 of 6 | `packages/screamingface` | ⑪ decoder accepts `attempts`, the Report line, the new failure code; released first (F8) |
-| 4 | OME-1458, PR 4 of 6 | `apps/aigateway` | ⑥ the cache control accepts the Attempt number, keys on it, strips it |
-| 5 | OME-1458, PR 5 of 6 | `apps/screamingface-engine` | ① ③ ④ ⑤ ⑧ ⑨: the declaration, the Attempt loop, Attempt 2's request, the fold, the wire field, the test-only Benchmark |
-| 6 | OME-1458, PR 6 of 6 | `apps/screamingface-engine` | ② maps any-match epochs to `attempts=N` and narrows F1 to F2; closes OME-1458 and its docs |
+| 1 (this one) | OME-1458, PR 1 of 7 | `docs/` | this spec, the plan, the `Attempt` glossary entry, ledger and mirror |
+| 2 | OME-1458, PR 2 of 7 | `apps/screamingface-engine` | ② refuses every `epochs` > 1 by name (F1) |
+| 3 | OME-1458, PR 3 of 7 | `packages/screamingface` | ⑪ decoder accepts `attempts`, per-Attempt cost, the Report line, the catalogue line; the new failure code on both the SDK and Engine lists (they are pinned equal); released first (F8) |
+| 4 | OME-1458, PR 4 of 7 | `apps/aigateway` | ⑥ the cache control accepts the Attempt number, keys on it, strips it |
+| 5 | OME-1458, PR 5 of 7 | `apps/screamingface-engine` | ④ ⑤: Attempt 2's request (the Attempt scope, the derived seed or the cache control) |
+| 6 | OME-1458, PR 6 of 7 | `apps/screamingface-engine` | ① ③ ⑧ ⑨: the declaration, the Attempt loop, the fold, the wire field, the test-only Benchmark |
+| 7 | OME-1458, PR 7 of 7 | `apps/screamingface-engine` | ② maps any-match epochs to `attempts=N` and narrows F1 to F2; closes OME-1458 and its docs |
 
 Deploy order: the SDK from PR 3 releases and the gateway from PR 4 deploys before the Engine
-from PR 5, the order OME-1268 used. Only the SDK order is required for correctness (F8); the
-gateway order only decides when reruns become free (F9). PR 5 may split in two if
-it passes the ~500-line review cap; the seam is ⑤ (Attempt 2's request) versus ⑧ ⑨ (the fold
-and the wire).
+from PRs 5 and 6, the order OME-1268 used. Only the SDK order is required for correctness (F8);
+the gateway order only decides when reruns become free (F9). The Engine build is split at ⑤
+(Attempt 2's request) versus ③ ⑧ ⑨ (the loop, the fold and the wire) to stay near the
+~500-line review cap.
 
 ## 8. Glossary
 
