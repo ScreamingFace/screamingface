@@ -53,7 +53,8 @@ TDD order from the plan (risk order):
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus `tests/unit/test_frozen_copy_support.py` (shared test arrangement, no tests) and the `main.py` router include and import.
+- **Commits:** see `git log --oneline e14-reproducible-submission-spec..HEAD`.
+- **Gates:** ruff check, ruff format, pyright, check_no_enterprise pass. pytest: 5246 passed, 93 skipped, 1 failed. The failure is the existing `test_0012_downgrade_drops_only_the_marker_table`, which compares the schema at head with the schema after a downgrade to 0011 and so fails for any migration that adds a table. Not edited (append-only rule). Open question for the owner.
+- **Skipped:** 55 need Postgres (`AIGW_TEST_PG=1`), 21 are live provider tests (`AIGW_LIVE=1`). None is new.
+- **Deviations:** none from the design. Decisions taken inside the plan: see the final report.
