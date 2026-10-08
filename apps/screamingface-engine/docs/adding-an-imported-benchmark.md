@@ -149,17 +149,16 @@ flags. The importing agent (not a human) resolves all of them:
 - **The Case Sources comment** above the declaration lists every fetch run 1 recorded, with
   what pins it. Check each against the eval's loader.
 
-## Step 3 — decide the draft-feedback offer
+## Step 3 — leave the draft-feedback offer off
 
-`with_check_surface=True` **only for string-match free-text benchmarks** (spec §4): the
-eval's own scorer then also answers the corrective loop's mid-run checks with sealed
-pass/fail-only feedback. **MCQ benchmarks never get one** — pass/fail feedback over a
-handful of options is an elimination attack (OME-796). **Judged benchmarks never get one
-either (yet)** — a judged mid-run check spends judge tokens per attempt while the
-surface still advertises `free`; assembly refuses the combination until the check-cost
-knob lands (OME-1116). The generated row defaults correctly from the grading family —
-judged rows are generated with NO surface; treat changing any of it as an owner
-decision.
+The generated row says `with_check_surface=False`, and it stays that way. Draft Feedback (the
+Corrective Loop's mid-run check) is a **per-Benchmark owner decision, never a default** (owner
+rule 2026-10-07, OME-1513): what a loop may learn mid-run is a product call, and the lane's
+`satisfaction` is the headline score, so an F1-graded Benchmark would tell a loop how close a
+partial answer is. Today only IFEval carries the offer. MCQ rows can never carry it (pass/fail
+over a handful of options is an elimination attack, OME-796); judged rows are refused it at
+assembly until the check-cost knob lands (OME-1116). To turn it on for a free-text row, the
+owner says so, and the row carries a comment naming that decision.
 
 ### Live activity comes from the shared adapter
 
@@ -250,6 +249,76 @@ not hours):
     evidence `accounting` (tokens/USD/latency/attempts) and the engine log tags the
     judge round trip `role=judge case=N` — the owner's small paid run verifies both,
     plus judge cost in the report's `cost_usd`.
+
+## Importing a local Task — a Benchmark that is NOT in inspect_evals
+
+The importer takes any `module:task` reference, and a scorer defined in that same module
+resolves. So a Benchmark we author ourselves is written **in inspect's shape** and imported
+like gsm8k — the lane rule in `adding-a-benchmark-manually.md` says this is the default for
+every new Benchmark whose Candidate is called once per Case. MuSiQue-Ans is the worked example
+(`src/screamingface_engine_inspect/local_tasks/musique/`, OME-1513).
+
+What you write — one package under `local_tasks/<name>/`, the same five pieces as an
+inspect_evals eval such as `bbeh/`:
+
+| Piece | Where | What it is |
+|---|---|---|
+| dataset loader | `<name>.py` | a pinned fetch (Hub commit + sha256) rendered into `Sample`s: `input` is the exact Candidate-facing text, `target` the answer key (a list when there are aliases), `metadata` whatever the scorer needs |
+| scorer(s) | `<name>.py` | `@scorer` functions, `(state, target) -> Score`; several scorers = several Named Scores, the first is the Headline |
+| the Task | `<name>.py` | `@task def <name>() -> Task(dataset=…, solver=generate(), scorer=[…])` |
+| vendored grading code | `vendor/` | the paper's own scorer when it has one, copied byte-for-byte below a header of ours that links to the upstream blob at the pinned commit (never the upstream docstring), with its licence and a sha256 test (`test_local_task_musique_vendor.py` is the template) |
+| the card | `README.md` | dataset, prompt, scoring, baselines, how to run |
+
+Then run the importer on it and fill the generated rows exactly as for an import:
+
+```sh
+uv run python -m screamingface_engine_inspect.importer \
+    screamingface_engine_inspect.local_tasks.<name>.<name>:<name> --key <name>
+```
+
+Four things differ from an inspect_evals import:
+
+- **Origin.** The generated `BenchmarkSpec` row gets `origin="screamingface"`: the Benchmark is
+  ours, and the provenance rule then asks it for no `inspect_contributors`. Leave the default
+  (`inspect_evals`) only for evals that really came from inspect_evals.
+- **Provenance is hand-written.** There is no `eval.yaml` to read, so every TODO (paper,
+  authors, citation, licence, baselines, difficulty) is yours to fill from the paper and the
+  reference harness. Registration refuses the row until every TODO is gone.
+- **The Task's own source is part of the revision.** For an import the marking scheme is the
+  pinned `inspect-evals` package; for a local Task it is your file, so the importer's pin
+  builder adds `task_source=<sha256 over the package's .py files, vendor/ included>`. Any
+  edit to the loader, the reply reader, a scorer or the vendored code moves the revision and
+  the `test_published_revisions` literal, which is the review act: a grading rule can never
+  change under a published score.
+- **The Task file opens with `# pyright: reportMissingImports=false`** and the WHY comment
+  every other module in the plugin carries (copy `scorer_adapter.py`'s header). CI typechecks
+  the Engine without the inspect extra, so a bare `from inspect_ai import Task` fails there
+  while the local gate, which has the extra, stays green.
+- **A scorer that reads Sample metadata must tolerate its absence** (`state.metadata.get(...)`),
+  and its tests must say what a missing key scores. The no-network grading lane runs every
+  judge-less Benchmark over stand-in Cases that carry no metadata; a `KeyError` there shows as a
+  grading failure on a Benchmark that grades fine in production. Tolerating is not defaulting
+  to a pass: hand the paper's metric its honest empty input and pin the result (MuSiQue:
+  support F1 is 0.0 for a reply that cites paragraphs and 1.0 for one that cites none, the
+  paper's own "cited nothing, expected nothing" rule). Production never hits this path when
+  the row keeps Sample metadata: the key is in the Case Digest.
+
+The hand-built lane stays only for a Benchmark where a later Candidate call's prompt depends
+on an earlier reply (medxpert's reason-then-commit): capture runs the Task's solvers up to
+their first `generate`, so a second prompt that contains the first reply cannot be captured.
+Several *independent* Attempts per Case (pass@k, `Task.epochs`) are not that exception: the
+Engine asks each Case N times with the same prompt, and `OME-1458` brings it to both lanes.
+
+### Two network gotchas on a developer Mac
+
+Seen on 2026-10-07; neither is a repo change.
+
+- The Hugging Face hub client can stall mid-file (10 of 30 MB, then nothing) while plain
+  `curl` fetches the same URL in seconds. `HF_HUB_DISABLE_XET=1` makes the client use the plain
+  download path.
+- The importer parent can hang in `SYN_SENT` on an IPv6 connection to the Hub's CDN. Put a
+  `sitecustomize.py` on `PYTHONPATH` that filters `socket.getaddrinfo` results to `AF_INET`;
+  the replay child inherits the environment, so one shim covers both.
 
 ## When the tool refuses
 

@@ -27,7 +27,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, cast
 
-from screamingface_engine.benchmarks.definition import DifficultyTier
+from screamingface_engine.benchmarks.definition import BenchmarkOrigin, DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
 from screamingface_engine.benchmarks.provenance import (
     PROVENANCE_FIELD_NAMES,
@@ -36,6 +36,7 @@ from screamingface_engine.benchmarks.provenance import (
     NotPublished,
     ProvenanceFields,
 )
+from screamingface_engine_inspect.local_tasks import task_source_pin
 from screamingface_engine_inspect.prepare import (
     INSPECT_SCORER_PREFIX,
     TASK_REPLAY_CASES,
@@ -44,6 +45,7 @@ from screamingface_engine_inspect.prepare import (
 from screamingface_engine_inspect.single_shot import (
     ImportedBenchmark,
     JudgeSpec,
+    imported_benchmark_id,
     install_imported_benchmark,
     single_shot_benchmark,
 )
@@ -71,8 +73,13 @@ class BenchmarkSpec:
     difficulty: DifficultyTier
     scorer: str
     scorer_kwargs: Mapping[str, Any] = field(default_factory=dict)
-    #: §4 dual registration; False for MCQ benchmarks — pass/fail feedback over a
-    #: handful of options is an elimination attack (OME-796).
+    #: Draft Feedback — the Corrective Loop's mid-run check (§4 dual registration). OFF unless
+    #: the owner turns it on for this Benchmark by name (owner rule 2026-10-07, OME-1513):
+    #: never a default, never inferred from the grading family. Today only IFEval (hand-built)
+    #: carries an offer; no imported row does, and the importer never emits the field. A row
+    #: that sets True carries a comment naming the decision. MCQ rows can never carry it
+    #: (pass/fail over a handful of options is an elimination attack, OME-796); judged rows are
+    #: refused it at assembly (OME-1116).
     with_check_surface: bool = False
     multiple_correct: bool = False
     #: The benchmark's judge declaration (OME-1240): required exactly when the scorer
@@ -104,6 +111,11 @@ class BenchmarkSpec:
     authors: str | None = None
     citation: str | NotPublished | None = None
     inspect_contributors: tuple[str, ...] | None = None
+    #: Who authored the eval this row serves. `inspect_evals` for every import; `screamingface`
+    #: for a LOCAL Task — an eval we wrote in inspect's shape under `local_tasks/` and fed to
+    #: the same importer (OME-1513). A local row has no inspect porters to credit, and the
+    #: provenance rule asks `screamingface`-origin Benchmarks for none.
+    origin: BenchmarkOrigin = "inspect_evals"
     homepage_url: str | None = None
     harness_url: str | None = None
     license: str | NotPublished | None = None
@@ -241,7 +253,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer_kwargs={"numeric": True},
         # Free-form answers make mid-run feedback legitimate: the same scorer serves
         # the corrective loop (spec §4; owner decision on OME-1115, 2026-09-15).
-        with_check_surface=True,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/2110.14168",
@@ -517,9 +528,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.paws.paws:paws. License: other.
         scorer="inspect_ai.scorer:includes",
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1904.01130",
@@ -578,9 +586,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.boolq.boolq:boolq. License: cc-by-sa-3.0.
         scorer="inspect_ai.scorer:pattern",
         scorer_kwargs={"pattern": "(Yes|No).?\\Z"},
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1905.10044",
@@ -808,9 +813,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.aime2024.aime2024:aime2024.
         # License: mit.
         scorer="inspect_evals.aime2024.aime2024:aime_scorer",
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
@@ -860,9 +862,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.aime2025.aime2025:aime2025.
         # License: apache-2.0.
         scorer="inspect_evals.aime2025.aime2025:aime_scorer",
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/math-ai/aime25",
@@ -2464,9 +2463,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer_kwargs={"numeric": True},
         # The eval's own accuracy metric IS the board's mean per-case score.
         # Its clustered stderr is not reported; the description names that.
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/2210.03057",
@@ -3665,8 +3661,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "the cases run, the figure the paper reports for BBEH Mini; the paper's headline "
             "BBEH score is the harmonic mean of the 23 per-task accuracies (each plus 0.01), "
             "which the board does not compute; each Case keeps its task name, so the per-task "
-            "accuracies can be regrouped from a full run. Offers mid-run Draft Feedback "
-            "(free-form answers)."
+            "accuracies can be regrouped from a full run."
         ),
         focus="Hard multi-step reasoning across 23 BIG-Bench task families (free text)",
         dataset_url="https://huggingface.co/datasets/BBEH/bbeh",
@@ -3682,9 +3677,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Its per-task accuracies (inspect_ai/grouped) and their harmonic mean
         # (inspect_evals/harmonic_mean_across_tasks) are not reported; the description names
         # that and how to regroup them from the kept task metadata.
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/pdf/2502.19187",
@@ -3734,7 +3726,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "is reported beside it as a Named Score, shown but not ranked — the EM / F1 "
             "pair papers report from one run. Named deviation: the eval sends its "
             "instruction as a system message; the Benchmark delivers it as leading input "
-            "text. Offers mid-run Draft Feedback (free-form answers)."
+            "text."
         ),
         focus="Reading comprehension over a passage, with unanswerable questions",
         dataset_url="https://huggingface.co/datasets/rajpurkar/squad_v2",
@@ -3787,9 +3779,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The eval's own Task(metrics=[mean(), stderr(cluster="context_hash")]) IS the mean
         # per-case score the Benchmark reports; the clustered standard error is a
         # confidence figure, not a score, and is not reproduced.
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
     ),
     BenchmarkSpec(
         key="math",
@@ -3808,7 +3797,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "grades with a judge model that, unpinned, is the model under test, so its "
             "number would measure the grader, not the answer; and the eval's sampling "
             "temperature of 0.5 is not applied — the Candidate answers with its own "
-            "settings. Offers mid-run Draft Feedback (free-form answers)."
+            "settings."
         ),
         focus="Competition mathematics across five difficulty levels and seven subjects",
         dataset_url="https://huggingface.co/datasets/DigitalLearningGmbH/MATH-lighteval",
@@ -3870,9 +3859,81 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Named Deviation: the Task's config=GenerateConfig(temperature=0.5) is not applied;
         # the importer never reads task.config and the Candidate answers with its own settings
         # (plan D10). The description names it.
-        # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ benchmarks must NOT set this (OME-796).
-        with_check_surface=True,
+    ),
+    BenchmarkSpec(
+        key="musique",
+        title="MuSiQue-Ans",
+        description=(
+            "2,417 multi-hop reading questions from the MuSiQue-Ans dev split (the test split's "
+            "answers are withheld). Each question chains 2 to 4 facts, each fact sits in a "
+            "different paragraph, and the model is given 17 to 20 numbered paragraphs, most of "
+            "them decoys chosen to look relevant. It may reason first, then must end its reply "
+            'with two lines: "Supporting paragraphs:" (the numbers of the paragraphs it used) '
+            'and "Answer:" (the answer in as few words as possible). Grading is the paper\'s own '
+            "scoring code, copied verbatim, so there is no Judge and no grading tokens. Three "
+            "Named Scores per run: answer F1, the headline (token F1 against the answer and its "
+            "accepted aliases), exact match, and support F1 (F1 of the cited paragraph numbers "
+            "against the gold ones). A reply missing either line is still graded. The Frontier "
+            "Score, 0.692 answer F1, is a fine-tuned retrieval pipeline's result on the test "
+            "split, not a prompted model on dev, so our runs sit beside it rather than on the "
+            "same scale. The dev set has been public since 2022 and may be in a model's training "
+            "data."
+        ),
+        focus="Multi-hop reading over decoy-filled paragraphs",
+        dataset_url="https://huggingface.co/datasets/dgslibisey/MuSiQue",
+        # Frontier models still visibly fail multi-hop composition over decoys (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.musique.musique:musique — a LOCAL Task
+        #   (OME-1513): our own eval in inspect's shape, so there is no eval.yaml and no inspect
+        #   porter to credit; every field below was written by hand from the paper and the
+        #   reference harness.
+        origin="screamingface",
+        paper_url="https://aclanthology.org/2022.tacl-1.31/",
+        authors="Trivedi et al., 2022",
+        citation=(
+            "@article{trivedi-etal-2022-musique,\n"
+            '    title = "{M}u{S}i{Q}ue: Multihop Questions via Single-hop Question Composition",\n'
+            '    author = "Trivedi, Harsh and Balasubramanian, Niranjan and Khot, Tushar and '
+            'Sabharwal, Ashish",\n'
+            '    journal = "Transactions of the Association for Computational Linguistics",\n'
+            '    volume = "10",\n'
+            '    year = "2022",\n'
+            '    publisher = "MIT Press",\n'
+            '    url = "https://aclanthology.org/2022.tacl-1.31/",\n'
+            '    doi = "10.1162/tacl_a_00475",\n'
+            '    pages = "539--554",\n'
+            "}"
+        ),
+        homepage_url="https://github.com/StonyBrookNLP/musique",
+        harness_url=(
+            "https://github.com/StonyBrookNLP/musique/tree/922ac98f19a201998dbdae6d7f2887a5258dbdeb"
+        ),
+        license="CC-BY-4.0",
+        license_note=(
+            "MuSiQue data and code are CC BY 4.0; Cases are served from the dgslibisey/MuSiQue "
+            "mirror, whose dev file is byte-identical to the authors' Google Drive zip "
+            "(sha256-checked at every build)."
+        ),
+        # Human answer F1 on 125 sampled questions (TACL 2022, Table 3).
+        human_baseline=HumanBaseline(
+            score=0.78, source_url="https://aclanthology.org/2022.tacl-1.31/"
+        ),
+        # Best published answer F1 on the TEST split, a fine-tuned retrieval pipeline
+        # (Beam Retrieval, NAACL 2024) — not a prompted model on dev; see the description.
+        frontier_score=FrontierScore(
+            score=0.692,
+            model="Beam Retrieval (DeBERTa-large, beam size 2)",
+            source_url="https://aclanthology.org/2024.naacl-long.96/",
+            as_of="2024-06",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        scorer="screamingface_engine_inspect.local_tasks.musique.musique:musique_answer_f1",
+        extra_scorers=(
+            "screamingface_engine_inspect.local_tasks.musique.musique:musique_answer_em",
+            "screamingface_engine_inspect.local_tasks.musique.musique:musique_support_f1",
+        ),
+        named_scores=("musique_answer_f1", "musique_answer_em", "musique_support_f1"),
     ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
@@ -3927,12 +3988,13 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         extra_scorer_factories=_extra_scorer_factories(spec),
         named_scores=spec.named_scores,
         prepare=prepare,
-        install=_installer(f"inspect-{spec.key}"),
+        install=_installer(imported_benchmark_id(spec.key, spec.origin)),
         with_check_surface=spec.with_check_surface,
         multiple_correct=spec.multiple_correct,
         judge=spec.judge,
         inverted_grade=spec.inverted_grade,
         verdict_grades=spec.verdict_grades,
+        origin=spec.origin,
         **_provenance_of(spec),
     )
 
@@ -4303,7 +4365,9 @@ def _task_replay_pins(cases_spec: TaskReplayCasesSpec) -> tuple[str, ...]:
         # are two Benchmarks. Only when set, so no URL-only row's revision moves; sorted, so
         # dict order never does.
         pins = (*pins, f"source_pins={json.dumps(cases_spec.source_pins, sort_keys=True)}")
-    return pins
+    # WHY (OME-1513): a local Task's marking scheme is our own source, not the pinned
+    # inspect-evals package, so its bytes join the revision; empty for every import.
+    return (*pins, *task_source_pin(cases_spec.task))
 
 
 def _inverted_grade_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

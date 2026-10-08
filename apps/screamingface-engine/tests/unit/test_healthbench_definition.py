@@ -170,16 +170,15 @@ def test_a_limit_slices_the_professional_run_without_redefining_the_benchmark() 
     assert ")!'3'" in _url4(HEALTHBENCH_PROFESSIONAL, 3)
 
 
+# AIDEV-NOTE (OME-1513): the name is frozen by the test-change rule; what it checks now is that
+# the offer is OFF — Draft Feedback is a per-Benchmark owner decision (owner rule 2026-10-07),
+# and today only IFEval carries one. The check-surface route is still served, not advertised.
 def test_the_professional_check_surface_sits_under_its_own_prefix() -> None:
-    # Capability parity with worst30 (owner decision, 2026-08-20): a corrective_loop
-    # recipe runs on either benchmark, under the SAME criterion and threshold.
-    surface = HEALTHBENCH_PROFESSIONAL.check_surface
-    assert surface is not None
-    assert surface.check_route == (
+    # Capability parity with worst30 still holds, in the OFF direction: neither Benchmark
+    # advertises an offer, and each one's (unadvertised) route sits under its own prefix.
+    assert HEALTHBENCH_PROFESSIONAL.check_surface is None
+    assert HEALTHBENCH_WORST30.check_surface is None
+    assert PROFESSIONAL_VARIANT.routes.check_surface == (
         f"/benchmarks/{PROFESSIONAL_VARIANT.id}/{PROFESSIONAL_VARIANT.revision}"
         f"/check-surface/{CHECK_CRITERION}"
     )
-    assert surface.expected_check_cost == "paid"
-    worst30_surface = HEALTHBENCH_WORST30.check_surface
-    assert worst30_surface is not None
-    assert surface.feedback_intent == worst30_surface.feedback_intent

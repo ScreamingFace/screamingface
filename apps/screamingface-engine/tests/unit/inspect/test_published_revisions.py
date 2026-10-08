@@ -27,22 +27,26 @@ pytest.importorskip("inspect_evals")
 from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: E402
 
 #: key → the exact published revision, as served on main (verified 2026-09-24).
+#: OME-1513 (2026-10-07): eight free-text rows moved once when their Draft Feedback offer was
+#: turned off — the offer is a per-Benchmark owner decision, never a family default.
 _PUBLISHED_REVISIONS: dict[str, str] = {
-    "gsm8k": "39331c3bab42c313",
+    "gsm8k": "330615c3213bb681",
     # OME-1268: the first two Benchmarks with Named Scores (served in upstream order).
-    "squad": "5b8e883be27f795b",
-    "math": "cf9663373de8bae4",
+    "squad": "d0075817a5457cfb",
+    # OME-1513: the first LOCAL Task (our own eval in inspect's shape, not an inspect_evals import).
+    "musique": "1ae798e073477a54",
+    "math": "1963559fac28e4a1",
     "mmlu": "1e42325597dee3d6",
     "arc_easy": "5f063684bf708ca1",
     "arc_challenge": "b54aa46de0840b60",
     "commonsense_qa": "c133584254776a5e",
-    "paws": "d7b8de71b6396e78",
-    "boolq": "994061e3c4a36f79",
+    "paws": "866ee57e62d10a88",
+    "boolq": "d29adda5bb6a246c",
     "mmlu_pro": "05aaa663ac69d943",
     "winogrande": "07e46e0177ff0cb9",
     "race_h": "5ca6b26990c19643",
-    "aime24": "62ceb43424c5f530",
-    "aime25": "7dd86b3850735f03",
+    "aime24": "d958c058e3f67e44",
+    "aime25": "c637b487988d0753",
     "musr": "335aca22d85fd610",
     "wmdp_bio": "8b36af2e74e0c6d5",
     "wmdp_chem": "297614ecae016baa",
@@ -77,7 +81,7 @@ _URL_ONLY_TASK_REPLAY_REVISIONS: dict[str, str] = {
     "cybermetric_500": "9ff30cf33ee155e4",
     "cybermetric_80": "6cfebaf54236f398",
     "cyse4_mitre_frr": "0d6a53f259f81eff",
-    "mgsm_en": "773b5e835820032d",
+    "mgsm_en": "e96465d3247b9658",
     "sad_facts_human_defaults": "0a90cd743e4e33a7",
     "sad_facts_llms": "6e0763d561439f9a",
     "sad_influence": "c6124a6e15dcdef7",

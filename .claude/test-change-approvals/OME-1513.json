@@ -1,0 +1,58 @@
+{
+  "issue": "OME-1513",
+  "branch": "OME-1513-pr1-musique-local-task",
+  "approver": "Khoa Nguyen (owner) \u2014 directions given 2026-10-07 in session: MuSiQue as a local Task under OME-1513; then 'never turn draft feedback / with_check_surface=True / corrective loop on by auto / default' with the nine imported rows and the three hand-built rubric Benchmarks turned off, IFEval the only Benchmark with the offer; to confirm in PR review",
+  "date": "2026-10-07",
+  "scope": "(1) test_inspect_imported_benchmarks.py: the origin assertion becomes origin-matches-task-location both ways; one _EXPECTED_FAMILIES row (musique: free_text); the family/check-surface test asserts NO imported row carries the offer; an AIDEV-NOTE above the frozen-name origin test. (2) test_benchmark_declaration.py: one added table row (inspect-musique). (3) test_published_revisions.py: one added literal (musique: 67d3fc96ffc68e46) and eight moved literals (gsm8k, paws, boolq, aime24, aime25, mgsm_en, squad, math), each moved once by turning the offer off. (4) test_inspect_gsm8k_benchmark.py: the five check-surface tests run on gsm8k's row re-assembled WITH the offer (a probe on fresh caches, the test_inverted_grade idiom); the declaration test first asserts gsm8k's own offer is None. (5) test_task_replay_rows.py: test_a_free_text_task_offers_the_check_surface asserts False and that the generated row never emits the field (it defaults off); AIDEV-NOTE above it. (6) test_inspect_task_replay_benchmarks.py: the no-network lane picks its stand-in shape from the family table instead of the (now always-off) offer; the mgsm_en and bbeh offer assertions flip to None with AIDEV-NOTEs. (7) test_inverted_grade.py: gsm8k's literal moved once. (8) test_gdpval_definition.py, test_draco_check_surface.py, test_draco_3pass_definition.py, test_healthbench_check_surface.py, test_healthbench_definition.py: the 'advertises a paid check surface' / resource-block / catalogue-entry assertions flip to 'no offer'; route-address facts kept; AIDEV-NOTEs above frozen names. Test bodies not listed here are unchanged. (9) Local-Task id: a local Task's id is its bare key (musique, not inspect-musique); test_benchmark_declaration.py partitions plugin rows by the plugin's registrations instead of the inspect- prefix and keys the row 'musique'; test_inspect_task_replay_benchmarks.py and test_inspect_imported_benchmarks.py derive the expected id through imported_benchmark_id(key, origin).",
+  "reason": "OME-1513 adds the first LOCAL Task (origin 'screamingface', its own source pinned into the revision) and, by owner rule 2026-10-07, makes Draft Feedback a per-Benchmark owner decision: the importer default is off, the nine imported rows and the three hand-built rubric Benchmarks (gdpval, draco, healthbench) turn their offer off, and IFEval is the one Benchmark that keeps it. The prior tests encoded the old family rule ('free text implies on') and the rubric boards' offers; each amended assertion is the same fact in the OFF direction, with the route-level facts kept.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "09b7b2f467a49bdb57cd230f4e2ceae274c283f8",
+      "approved_blob": "0592cebea57de9cf81b9946df420eefed2b73d21"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "fe00b734d8cf14f4fb15eeaa68f518393e664db6",
+      "approved_blob": "fef775106cc19ff5ba8cee9c91569516b1e943c7"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "3dfc233f2908862009563f645209423984c5476b",
+      "approved_blob": "9da673b7acf65349d05adf1afbe5910682b08a68"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_gsm8k_benchmark.py": {
+      "base_blob": "f74aefbb9e0b6a69fefe545afda6af0da8b739e3",
+      "approved_blob": "af86024645084c8b911d30e0a7f0bff6bf069220"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_task_replay_rows.py": {
+      "base_blob": "130ab8801d1b0b163e6a261b9203defc9f31be1d",
+      "approved_blob": "a1775a2d8bfbc60773b9c53eea1f365bedc82ff5"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_task_replay_benchmarks.py": {
+      "base_blob": "53fc6165a7dbe7b6d131b09f450723f732cf5520",
+      "approved_blob": "b63c2b1f3ee9418660e1d5e1565f7b4c21b2ee08"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inverted_grade.py": {
+      "base_blob": "f8b925e8912f6fbbde44d665af372714f25c87ff",
+      "approved_blob": "c0b901462fe6e6f5672c40f8da211dbf93cbdec3"
+    },
+    "apps/screamingface-engine/tests/unit/test_gdpval_definition.py": {
+      "base_blob": "a663c9011a95d802a5efd0966c7cd95c89a95704",
+      "approved_blob": "0fbd143d8b6eceaf1f17816f853df1f310f14360"
+    },
+    "apps/screamingface-engine/tests/unit/test_draco_check_surface.py": {
+      "base_blob": "3e94a6d0c68751a33886cb781e7a82b6def9acd6",
+      "approved_blob": "d8b7eafbd5d09eba82481932966832b9009ff7d1"
+    },
+    "apps/screamingface-engine/tests/unit/test_draco_3pass_definition.py": {
+      "base_blob": "a8bca6628967c56dad48783e47f280f12879db0c",
+      "approved_blob": "14a3d95c47eaecbf798321c2fae9fe2e0e177254"
+    },
+    "apps/screamingface-engine/tests/unit/test_healthbench_check_surface.py": {
+      "base_blob": "75a10129ddc31c9fe36c5fecfa0c2d45f6fcc24a",
+      "approved_blob": "fe8981345f19c9cbf4901ecccf7d0d948c956cad"
+    },
+    "apps/screamingface-engine/tests/unit/test_healthbench_definition.py": {
+      "base_blob": "88fc01017823b5ab6707fee6dca4988d51943e02",
+      "approved_blob": "3664b8206ac7fa8edecb7dc7b89e01da9ceae33f"
+    }
+  }
+}

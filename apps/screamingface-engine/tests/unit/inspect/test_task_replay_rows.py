@@ -257,6 +257,9 @@ def test_a_source_with_no_web_page_leaves_the_dataset_url_for_review() -> None:
     assert "TODO(review): no Case Source has a web page" in rows.benchmark
 
 
+# AIDEV-NOTE (OME-1513): the name is frozen by the test-change rule; what it checks now is the
+# OPPOSITE of what it says — a free-text task is generated with the offer OFF, because Draft
+# Feedback is a per-Benchmark owner decision, never a family default (owner rule 2026-10-07).
 def test_a_free_text_task_offers_the_check_surface() -> None:
     facts: TaskReplayFacts = _facts(
         task_ref="inspect_evals.mgsm.mgsm:mgsm",
@@ -269,7 +272,8 @@ def test_a_free_text_task_offers_the_check_surface() -> None:
     benchmark: BenchmarkSpec = _benchmark(rows)
 
     assert benchmark.scorer_kwargs == {"numeric": True}
-    assert benchmark.with_check_surface is True
+    assert benchmark.with_check_surface is False
+    assert "with_check_surface" not in rows.benchmark  # never emitted; the field defaults off
 
 
 def test_write_task_replay_rows_lands_in_prepare_and_benchmarks_only(

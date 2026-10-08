@@ -342,12 +342,10 @@ def _scorer_lines(
         benchmark_lines.append("        # If the scorer dispatches on sample metadata, also pass")
         benchmark_lines.append("        # --keep-sample-metadata when importing.")
         benchmark_lines.append('        judge=JudgeSpec(model="TODO"),')
-    if not mcq and not judged:
-        benchmark_lines.append(
-            "        # Free-form answers make mid-run feedback legitimate (spec §4);"
-        )
-        benchmark_lines.append("        # MCQ benchmarks must NOT set this (OME-796).")
-        benchmark_lines.append("        with_check_surface=True,")
+    # Draft Feedback (the Corrective Loop's mid-run check) is never emitted: the field
+    # defaults to False on BenchmarkSpec, and turning it on is a per-Benchmark owner decision
+    # written by hand with a comment naming it (owner rule 2026-10-07, OME-1513) — never a
+    # default, never inferred from the grading family.
     return benchmark_lines
 
 

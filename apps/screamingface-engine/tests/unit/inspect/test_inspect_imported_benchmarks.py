@@ -29,6 +29,7 @@ from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     imported_benchmark,
 )
 from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES  # noqa: E402
+from screamingface_engine_inspect.single_shot import imported_benchmark_id  # noqa: E402
 
 #: Every imported benchmark key and its family: "mcq" (choice scorer, draft-feedback offer
 #: refused per OME-796), "free_text" (draft-feedback offer ON, spec §4), "judged"
@@ -38,6 +39,7 @@ from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES  # noqa: E402
 #: lets a fusion re-word a draft until it slips past).
 _EXPECTED_FAMILIES: dict[str, str] = {
     "gsm8k": "free_text",
+    "musique": "free_text",  # OME-1513: a local Task, served like a free-text import
     "mmlu": "mcq",
     "arc_easy": "mcq",
     "arc_challenge": "mcq",
@@ -132,9 +134,13 @@ def test_catalogue_holds_every_imported_benchmark() -> None:
     assert set(TASK_REPLAY_CASES) == set(_EXPECTED_FAMILIES)
     ids = [registration.benchmark.id for registration in benchmark_registrations()]
     assert len(ids) == len(set(ids)) == len(_EXPECTED_FAMILIES)
-    assert all(benchmark_id.startswith("inspect-") for benchmark_id in ids)
+    # OME-1513: an import is "inspect-<key>"; a local Task keeps its bare key.
+    assert set(ids) == {imported_benchmark_id(spec.key, spec.origin) for spec in BENCHMARKS}
 
 
+# AIDEV-NOTE (OME-1513): the name predates local Tasks and is frozen by the test-change rule.
+# What it checks now: every row's origin matches where its task code lives — inspect_evals
+# for an import, screamingface for a local Task under local_tasks/ — in both directions.
 def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() -> None:
     """The catalogue must name the collection each benchmark came FROM, not this repo.
 
@@ -154,7 +160,19 @@ def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() ->
         registration.benchmark.id: registration.benchmark.origin
         for registration in benchmark_registrations()
     }
-    assert set(origins.values()) == {"inspect_evals"}, origins
+    # OME-1513: a LOCAL Task — our own eval in inspect's shape under `local_tasks/`, fed to
+    # the same importer — is the one row that says "screamingface": it is ours, not brought
+    # in. The origin must match where the task code lives, both ways.
+    expected = {
+        imported_benchmark_id(spec.key, spec.origin): (
+            "inspect_evals"
+            if TASK_REPLAY_CASES[spec.key].task.startswith("inspect_evals.")
+            else "screamingface"
+        )
+        for spec in BENCHMARKS
+    }
+    assert origins == expected, origins
+    assert "screamingface" in origins.values() and "inspect_evals" in origins.values()
 
 
 def test_benchmark_revisions_are_distinct() -> None:
@@ -170,12 +188,12 @@ def test_benchmark_row_declares_its_family_check_surface(key: str) -> None:
     attack — MCQ benchmarks are refused the surface, free-text benchmarks carry it."""
 
     benchmark = imported_benchmark(key).benchmark
-    if _EXPECTED_FAMILIES[key] == "free_text":
-        assert benchmark.check_surface is not None
-    else:
-        # "mcq" (elimination attack), "judged" (no check-cost knob yet) and "reply_only"
-        # (re-wording past a refusal regex) alike.
-        assert benchmark.check_surface is None
+    # OME-1513 (owner rule 2026-10-07): Draft Feedback is a per-Benchmark owner decision, never
+    # a family default. No imported row carries the offer today — "free_text" included, which
+    # used to imply it; "mcq" (elimination attack), "judged" (no check-cost knob yet) and
+    # "reply_only" (re-wording past a refusal regex) could never. A row the owner turns on
+    # by name is the exception this test will then have to list.
+    assert benchmark.check_surface is None, _EXPECTED_FAMILIES[key]
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
