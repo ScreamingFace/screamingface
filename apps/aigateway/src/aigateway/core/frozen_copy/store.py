@@ -30,6 +30,7 @@ __all__ = [
     "FrozenCopySealed",
     "FrozenCopyStore",
     "request_digest",
+    "request_digest_prefix",
 ]
 
 EntryKind = Literal["chat", "tool"]
@@ -47,6 +48,14 @@ class FrozenCopyEntryTooLarge(Exception):
 
 def request_digest(kind: EntryKind, request: Any) -> str:
     return canonical_digest({"kind": kind, "request": request})
+
+
+def request_digest_prefix(kind: EntryKind, request: Any) -> str:
+    """The first 12 digest characters, for a log line; never raises, never carries the request."""
+    try:
+        return request_digest(kind, request)[:12]
+    except Exception:
+        return "unavailable"
 
 
 def _json_bytes(value: Any) -> int:

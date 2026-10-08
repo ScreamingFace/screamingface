@@ -43,7 +43,7 @@ from litellm.exceptions import (
 from ..core.auth.middleware import CurrentAccount
 from ..core.credential_blob import DispatchObservation
 from ..core.frozen_copy.models import STATUS_OPEN, FrozenCopy
-from ..core.frozen_copy.store import FrozenCopySealed, FrozenCopyStore, request_digest
+from ..core.frozen_copy.store import FrozenCopySealed, FrozenCopyStore, request_digest_prefix
 from ..core.parameter_projection import (
     IncompatibleParametersError,
     UnsupportedParametersError,
@@ -300,7 +300,7 @@ class _Capture:
             logger.warning(
                 "frozen copy capture failed copy=%s digest=%s kind=chat error=%s",
                 self._copy.id,
-                self._digest_prefix(),
+                request_digest_prefix("chat", self._request),
                 type(exc).__name__,
             )
         else:
@@ -315,12 +315,6 @@ class _Capture:
     async def record_error(self, exc: HTTPException) -> None:
         await self.record({"detail": exc.detail}, exc.status_code)
         exc.headers = {**(exc.headers or {}), **self.headers}
-
-    def _digest_prefix(self) -> str:
-        try:
-            return request_digest("chat", self._request)[:12]
-        except Exception:
-            return "unavailable"
 
 
 async def _begin_capture(
