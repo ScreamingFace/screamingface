@@ -285,7 +285,7 @@ tavily:
   # pass it with `--set-file tavily.apiKey=<path>` or `--set`, or use `existingSecret`.
   apiKey: ""
 
-# Distributed tracing — the runner pool exports each run's spans over OTLP (OME-1131, Phase 2).
+# Distributed tracing — the runner pool and the App export their spans over OTLP (OME-1131, Phase 2; App: OME-1218).
 # Phase 1 made one `trace_id` greppable across services; this is what makes a tracing backend's
 # TRACE VIEW show a waterfall instead of a log search.
 #
@@ -297,9 +297,11 @@ tavily:
 # than starting a pool that silently exports nothing. There is no runtime symptom for that
 # state; the trace view is simply empty, which looks identical to "nobody ran anything".
 #
-# Applies to the RUNNER POOL only. The control plane publishes no spans (the exporter is
-# mounted in the run mode), so configuring it there would wire up an exporter that does not
-# exist. aigateway is instrumented separately.
+# Applies to BOTH the runner pool (`url4.run` and the run's waterfall) and the App (the
+# control-plane `url4.accept` span that `url4.run` is a child of, OME-1218) — one set of keys,
+# rendered into both ConfigMaps by `screamingface-engine.tracingEnv`. This used to say "runner
+# pool only", which stopped being true at OME-1218 and left the App with no exporter on dev.
+# aigateway is instrumented separately.
 tracing:
   # ON by default (OME-1190) — deliberately, and conditionally.
   #

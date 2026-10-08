@@ -27,6 +27,11 @@ class BaseCredentialBlob(Model):
     # "pre-encryption/unknown" rather than assume "v1" (e.g.
     # ``WHERE ciphertext_version IS NULL OR ciphertext_version != 'vN'``).
     ciphertext_version = fields.CharField(max_length=16, null=True, default="v1")
+    credential_revision = fields.BigIntField(default=1, db_default=1)
+    next_dispatch_sequence = fields.BigIntField(default=0, db_default=0)
+    last_outcome_sequence = fields.BigIntField(default=0, db_default=0)
+    last_operational_outcome = fields.CharField(max_length=32, null=True)
+    last_outcome_at = fields.DatetimeField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
 

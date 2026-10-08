@@ -18,6 +18,7 @@ from screamingface_engine.benchmarks.protocol import (
     early_result,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.provenance import FrontierScore, NotPublished
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Url4Node
 
@@ -147,13 +148,48 @@ IFEVAL = Benchmark(
     ),
     build=_build,
     install=install_ifeval,
-    # Free: the deterministic verifier costs no model call, so a corrective loop
-    # on IFEval spends only on members and the judge.
+    # WHY IFEval is the ONE Benchmark that offers Draft Feedback (owner decision 2026-10-07,
+    # OME-1513): the published Corrective-Loop work targets IFEval, and its verifier is
+    # deterministic checker code, so a mid-run check is free and leaks only pass/fail per
+    # instruction. Every other Benchmark, imported or hand-built, has the offer off until the
+    # owner turns it on by name — never by grading family.
     check_surface=DraftFeedbackOffer(
         check_route=DRAFT_FEEDBACK_ROUTE,
         feedback_intent="feedback",
         expected_check_cost="free",
     ),
+    # Benchmark Provenance (OME-1455); sources in the PR 3 table.
+    paper_url="https://arxiv.org/abs/2311.07911",
+    authors="Zhou et al., 2023",
+    citation=(
+        "@misc{zhou2023instructionfollowingevaluationlargelanguage,\n"
+        "      title={Instruction-Following Evaluation for Large Language Models}, \n"
+        "      author={Jeffrey Zhou and Tianjian Lu and Swaroop Mishra and Siddhartha"
+        " Brahma and Sujoy Basu and Yi Luan and Denny Zhou and Le Hou},\n"
+        "      year={2023},\n"
+        "      eprint={2311.07911},\n"
+        "      archivePrefix={arXiv},\n"
+        "      primaryClass={cs.CL},\n"
+        "      url={https://arxiv.org/abs/2311.07911}, \n"
+        "}"
+    ),
+    harness_url=(
+        "https://github.com/josejg/instruction_following_eval/tree/0c495b2f95155e8b10acb919ae283bfb4d5be6e2"
+    ),
+    license="Apache-2.0",
+    license_note=(
+        "google/IFEval dataset card; the vendored verifier (the bug-fixed fork inspect_evals "
+        "pins) is Apache-2.0."
+    ),
+    human_baseline=NotPublished(reason="the IFEval paper reports no human study"),
+    # Frontier score: IFEval accuracy (variant not stated in the source.
+    frontier_score=FrontierScore(
+        score=0.948,
+        model="GPT-5.2",
+        source_url="https://huggingface.co/Qwen/Qwen3.5-397B-A17B",
+        as_of="2026-02",
+    ),
+    notebook="07_ifeval",
 )
 
 __all__ = ["ASSET_BUNDLE_ID", "IFEVAL", "install_ifeval"]

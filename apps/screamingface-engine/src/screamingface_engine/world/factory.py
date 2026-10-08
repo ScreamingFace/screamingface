@@ -212,6 +212,7 @@ async def build_world(
             models=section.models,
             allow_outbound=section.allow_outbound,
             timeout_s=section.timeout_s,
+            queue_timeout_s=section.queue_timeout_s,
             web_tool_max_iterations=section.web_tool_max_iterations,
         ),
         client=client,

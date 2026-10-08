@@ -73,7 +73,7 @@ class OAuthConnectionStore:
         fresh pending row on the requested name's Profile blob address, so an R1 rollback reads
         the credential exactly where the legacy path expects it.
         """
-        await _ensure_anonymous_account(account_id)
+        await ensure_anonymous_account(account_id)
         return await OAuthConnection.create(
             id=connection_id,
             account_id=account_id,
@@ -105,7 +105,7 @@ class OAuthConnectionStore:
         the chat path reads via credential_key_for(account_id, connection_id); a
         caller that owns another blob address (OME-1208: the Connection-backed
         authority re-keying a migrated pair at its Profile address) passes it."""
-        await _ensure_anonymous_account(account_id)
+        await ensure_anonymous_account(account_id)
         connection = await OAuthConnection.create(
             id=connection_id,
             account_id=account_id,
@@ -418,7 +418,12 @@ def response_from_connection(
     )
 
 
-async def _ensure_anonymous_account(account_id: str | UUID) -> None:
+async def ensure_anonymous_account(account_id: str | UUID) -> None:
+    """Persist the anonymous account row before a row that names it by foreign key.
+
+    # WHY: in `auth_mode=disabled` the caller is an unsaved in-memory account; a Connection or a
+    # pair marker is the first row that needs it to exist. Every other account is already stored.
+    """
     if str(account_id) != str(ANONYMOUS_ACCOUNT_ID):
         return
     await Account.get_or_create(

@@ -15,8 +15,9 @@ An API-key-only provider (no OAuth) routed through LiteLLM's built-in
   copies the body — it never mutates the caller's dict.
 - Non-streaming in every mode (plan D5): the route rejects ``stream:true``
   before credentials are read.
-- Only 401 marks the stored credential unusable (plan D9); 402/403/408/429/5xx
-  are provider/billing states and must not invalidate a valid key.
+- A classified 401 projects ``needs_reauth`` and a classified 402 projects an
+  insufficient-credit error; neither mutates Connection lifecycle state. Other
+  provider and transport failures remain operationally neutral.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from typing import TYPE_CHECKING, Any, cast
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.cache_ports import CacheBypass
+from aigateway.core.credential_blob import OperationalOutcome
 from aigateway.core.parameter_discovery import (
     DiscoveryHttpClient,
     DiscoveryLimits,
@@ -107,6 +109,7 @@ from .settings import OFFICIAL_API_BASE as OFFICIAL_API_BASE
 from .usage_accounting import (
     cache_reference_from_cached,
     normalize_openrouter_usage_accounting,
+    supplement_openrouter_usage_accounting,
 )
 from .web_search import (
     WEB_SEARCH_EXCLUDED_DOMAINS_PARAM,
@@ -154,6 +157,7 @@ _TRUSTED_ATTRIBUTION = {
     "HTTP-Referer": "https://screamingface.ai",
     "X-OpenRouter-Title": "ScreamingFace",
     "X-Title": "ScreamingFace",
+    "X-OpenRouter-Metadata": "enabled",
 }
 
 # AIDEV-NOTE (OME-704): the gateway-owned strict-routing policy moved to
@@ -176,7 +180,9 @@ _STRIPPED_CALLER_HEADERS = frozenset(
         # attribution (gateway-owned)
         "http-referer",
         "referer",
+        "x-openrouter-experimental-metadata",
         "x-openrouter-title",
+        "x-openrouter-metadata",
         "x-title",
     }
 )
@@ -277,6 +283,16 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # D9: only 401 proves the stored key is bad. 402 (credits), 403
         # (policy), 408/429/5xx (transient) must not invalidate a valid key.
         return status_code == 401
+
+    def classify_dispatch_operational_outcome(
+        self, status_code: int, detail: Any
+    ) -> OperationalOutcome | None:
+        code = detail.get("code") if isinstance(detail, Mapping) else None
+        if status_code == 401 and code == "auth_required":
+            return "needs_reauth"
+        if status_code == 402 and code == "insufficient_credits":
+            return "insufficient_credits"
+        return None
 
     def chat_parameter_rules(
         self, *, model: str, auth_type: AuthMode | None = None
@@ -493,6 +509,23 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             failed=failed,
         )
 
+    def supplement_chat_usage_accounting(
+        self,
+        *,
+        evidence: ProviderUsageAccountingEvidence,
+        raw_response: Mapping[str, Any] | None,
+        http_status: int | None,
+        failed: bool,
+        request_has_potential_auxiliary_charge: bool | None = None,
+    ) -> ProviderUsageAccountingEvidence:
+        return supplement_openrouter_usage_accounting(
+            evidence=evidence,
+            raw_response=raw_response,
+            http_status=http_status,
+            failed=failed,
+            request_has_potential_auxiliary_charge=request_has_potential_auxiliary_charge,
+        )
+
     def cache_reference_from_cached_response(
         self, cached_response: Mapping[str, Any]
     ) -> CacheReference | None:
@@ -550,8 +583,11 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                 # A 401 here flows through the route's dispatch-failure path
                 # and marks only the selected connection (D9 local).
                 raise _embedded_error_exception(status)
-        # Return the dumped dict so native usage/cost/generation metadata
-        # reaches the caller byte-for-byte (D10 — URL4 per-leaf telemetry).
+            # The raw accounting observer already captured this account-specific routing
+            # evidence. It must not enter the auth-independent cache or caller response.
+            payload = dict(payload)
+            payload.pop("openrouter_metadata", None)
+        # Preserve native usage/cost/generation evidence for URL4 per-leaf telemetry.
         return payload
 
 

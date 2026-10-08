@@ -1,0 +1,30 @@
+{
+  "issue": "OME-1497",
+  "branch": "OME-1497-g0-writer-floor",
+  "approver": "owner (in the G0 PR1 session)",
+  "date": "2026-10-06",
+  "scope": "G0 writer floor (spec 5.3): every ownership writer on a none/quarantined pair now claims the pair generation it observed. Marker generations move in four legacy-path tests (0->1, 1->3, 0->1 with a rename from never_writes_a_marker to stays_legacy_owned, 1->2); the label-conflict route test completes each native OAuth flow before starting the next; the PostgreSQL commit-order races wait for the second writer to park on a lock (it now parks on the pair claim before the old index/row hooks), and a delete that read the pair before a committed set or a first-marker delete now answers 409 and is retried.",
+  "reason": "OME-1497 G0 PR1 makes every ownership change advance the pair generation (owner decision 2026-10-06, spec 5.3); concurrent ownership writers on one pair now conflict instead of serializing, and these prior tests encoded the pre-floor outcomes.",
+  "files": {
+    "apps/aigateway/tests/integration/test_lifecycle_postgres_races.py": {
+      "base_blob": "860d2926e907454350360f87cb9856cd08bf888c",
+      "approved_blob": "77fa2cc24c25017a579a7e66b3d5ebf4e9ed874a"
+    },
+    "apps/aigateway/tests/integration/test_provider_access_shared_addresses_postgres.py": {
+      "base_blob": "9aa0d319075e3c285bd1fa18ceb867a65eff544e",
+      "approved_blob": "7ff3ad9b08f2ad04cbc64134713d6d6d148975af"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_admin.py": {
+      "base_blob": "32de166bc9f8f50873941b2136a966ef107b7665",
+      "approved_blob": "ab1548f2a93b865c0ef8281c2c75923efd840d27"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_oauth_flow.py": {
+      "base_blob": "c30de1f8103c0289837e6200c0a4adc51a74265d",
+      "approved_blob": "9070a281925c36158a1307de1384ca278bba785d"
+    },
+    "apps/aigateway/tests/unit/test_oauth_connections_routes.py": {
+      "base_blob": "a1dc60ec071c503e8edd61e1e5534d0490f04a37",
+      "approved_blob": "684429ac1016f0206b835805a0a5713511df2bca"
+    }
+  }
+}

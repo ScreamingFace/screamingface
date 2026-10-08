@@ -10,6 +10,13 @@ from typing import Literal
 
 from screamingface_engine.benchmarks.case_request import CONTEXT_FORMAT
 from screamingface_engine.benchmarks.contract import CANDIDATE_BINDING, CANDIDATE_ROUTE
+from screamingface_engine.benchmarks.provenance import (
+    FrontierScore,
+    HumanBaseline,
+    NotPublished,
+    provenance_metadata,
+    validate_provenance,
+)
 from screamingface_engine.retrieval_policy import normalize_excluded_domains
 from url4 import Node, RelExpr, build, expr, render, src, struct, text
 from url4.peer.server import Url4Node
@@ -69,6 +76,12 @@ _DIFFICULTY_TIERS: tuple[DifficultyTier, ...] = ("easy", "medium", "hard")
 #: INVARIANT: spelled exactly as the SDK's copy in `_catalogue_vocabulary.py`; pinned
 #: by test_catalogue_vocabulary_conformance on BOTH sides.
 INVERTED_GRADE_KEY: str = "inverted_grade"
+#: The wire key of a Benchmark's Named Scores (OME-1268) — on a Case Grade and (as
+#: `CandidateResult`'s field name) the run result. Absent unless the Benchmark declares
+#: several scorers. INVARIANT: spelled exactly as the SDK's copy in
+#: `_catalogue_vocabulary.py`; pinned by test_named_scores_contract on the Engine side
+#: (the SDK decodes the key by this spelling before any Engine emits it).
+SCORES_KEY: str = "scores"
 _BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_evals")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
@@ -218,6 +231,27 @@ class Benchmark:
     # INVARIANT: published only when true, so every other Benchmark's catalogue entry and
     # resource stay byte-identical.
     inverted_grade: bool = False
+    # FEATURE: Benchmark Provenance, Human Baseline, Frontier Score (OME-1455). The facts on
+    # the exam's cover sheet: who wrote it, who brought it here, where the original code and
+    # data live, may you use it, how humans and the best published model scored, and which
+    # SDK notebook runs it. Shapes and rules live in `benchmarks/provenance.py`.
+    # WHY defaults, unlike `declaration`: OME-1039's no-defaults rule guards score-changing
+    # declarations; these change nothing about scoring. Presence is enforced by the
+    # conformance test over every registered Benchmark, not by the type, so the Benchmarks
+    # registered before the values landed keep registering (grandfather allowlist, spec §1).
+    # INVARIANT: none of these enters `revision` (the OME-904 rule above).
+    paper_url: str | NotPublished | None = None
+    authors: str | None = None
+    citation: str | NotPublished | None = None
+    inspect_contributors: tuple[str, ...] | None = None
+    homepage_url: str | None = None
+    harness_url: str | None = None
+    license: str | NotPublished | None = None
+    license_note: str | None = None
+    content_warning: str | None = None
+    human_baseline: HumanBaseline | NotPublished | None = None
+    frontier_score: FrontierScore | NotPublished | None = None
+    notebook: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
@@ -225,6 +259,7 @@ class Benchmark:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"Benchmark {name} must be non-empty text")
         self._validate_display_metadata()
+        validate_provenance(self)
         if not isinstance(self.id, str) or _BENCHMARK_ID.fullmatch(self.id) is None:
             raise ValueError("Benchmark id must be one lowercase identifier")
         if (
@@ -286,6 +321,8 @@ class Benchmark:
             metadata["check_surface"] = self.check_surface.as_block()
         if self.inverted_grade:
             metadata[INVERTED_GRADE_KEY] = True
+        # Present-only like `focus`; `saturation` is the one key always emitted (OME-1455).
+        metadata.update(provenance_metadata(self))
         return metadata
 
     def protocol(self, selected_case_count: int) -> Node:

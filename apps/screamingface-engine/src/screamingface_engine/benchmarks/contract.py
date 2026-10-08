@@ -68,6 +68,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # code — aigateway's catch-all 500. Sits beside `aigateway_http_<status>`: gateway-
         # attributed and retryable (permanent=False from the 5xx), never `upstream_error`.
         "gateway_internal_error",
+        "provider_queue_timeout",
+        "provider_execution_timeout",
+        "caller_deadline_exceeded",
+        "aigateway_deadline_exceeded",
         "invalid_candidate_input",
         "web_tool_loop_limit",
         "web_retrieval_invalid",
@@ -199,18 +203,32 @@ class Check(_StrictWireModel):
 
 
 class CaseGrade(_StrictWireModel):
-    """Benchmark-specific grading projected into the shared Case envelope."""
+    """Benchmark-specific grading projected into the shared Case envelope.
+
+    FEATURE (OME-1268): ``scores`` carries the Benchmark's Named Scores for this Case, keyed
+    by scorer name (SQuAD: ``f1``, ``exact``), the Headline Score first; ``score`` IS the
+    headline. INVARIANT: absent unless set, so every single-scorer Benchmark's grade
+    serializes byte-for-byte as before and no published Revision moves.
+    """
 
     method: str = Field(min_length=1)
     # HealthBench deliberately permits negative penalty-bearing Case scores.
     score: float | None = Field(le=1.0)
     metrics: dict[str, Any]
     checks: list[Check]
+    scores: dict[str, float | None] = Field(
+        default_factory=dict, exclude_if=lambda value: not value
+    )
 
     @field_validator("score", mode="before")
     @classmethod
     def _validate_score(cls, value: object) -> object:
         return _finite_score(value)
+
+    @field_validator("scores", mode="before")
+    @classmethod
+    def _validate_scores(cls, value: object) -> object:
+        return _named_scores(value)
 
 
 class Failure(_StrictWireModel):
@@ -455,11 +473,22 @@ class CandidateResult(_StrictWireModel):
     # INVARIANT: absent unless true. The SDK refuses unknown keys here, so emitting `false`
     # for every Benchmark would break every SDK that predates the mark.
     inverted_grade: bool = Field(default=False, exclude_if=lambda value: not value)
+    # FEATURE (OME-1268): the Benchmark's Named Scores for this Candidate — each the mean of
+    # its column over the graded Cases, headline first; `score` IS the headline.
+    # INVARIANT: absent unless set, for the same reason as the mark above.
+    scores: dict[str, float | None] = Field(
+        default_factory=dict, exclude_if=lambda value: not value
+    )
 
     @field_validator("score", mode="before")
     @classmethod
     def _validate_score(cls, value: object) -> object:
         return _finite_score(value)
+
+    @field_validator("scores", mode="before")
+    @classmethod
+    def _validate_scores(cls, value: object) -> object:
+        return _named_scores(value)
 
     @model_validator(mode="after")
     def _enforce_result_contract(self) -> CandidateResult:
@@ -505,17 +534,25 @@ def _candidate_outcome(result: CandidateResult) -> None:
             f"coverage must equal numeric Case grades / selected Cases ({expected_coverage})"
         )
     if result.score is None:
-        if result.metrics:
-            raise ValueError("a failed or unscored Candidate cannot contain metrics")
-        if gradeable:
-            raise ValueError("an unscored Candidate cannot contain a numeric Case grade")
-        if not result.failures and all(case.status == "scored" for case in result.cases):
-            raise ValueError(
-                "an unscored Candidate must be explained by a non-scored Case or Failure"
-            )
+        _unscored_candidate_outcome(result, gradeable)
         return
     if not gradeable:
         raise ValueError("a scored Candidate requires at least one numeric Case grade")
+
+
+def _unscored_candidate_outcome(result: CandidateResult, gradeable: Sequence[CaseResult]) -> None:
+    """An unscored Candidate publishes no number at all, and says why it has none."""
+
+    if result.metrics:
+        raise ValueError("a failed or unscored Candidate cannot contain metrics")
+    if result.scores:
+        # INVARIANT: like metrics — an infrastructure failure never becomes a plausible
+        # number in any Named Score column.
+        raise ValueError("a failed or unscored Candidate cannot contain scores")
+    if gradeable:
+        raise ValueError("an unscored Candidate cannot contain a numeric Case grade")
+    if not result.failures and all(case.status == "scored" for case in result.cases):
+        raise ValueError("an unscored Candidate must be explained by a non-scored Case or Failure")
 
 
 def validate_case_id(value: CaseId | None, *, optional: bool = False) -> CaseId | None:
@@ -564,6 +601,20 @@ def _finite_score(value: object) -> object:
         raise ValueError("score must be a finite number or null")
     if isinstance(value, int | float) and not math.isfinite(value):
         raise ValueError("score must be a finite number or null")
+    return value
+
+
+def _named_scores(value: object) -> object:
+    """Named Scores: non-blank names, each value a finite number or null (a scorer that
+    could not grade); the key SET is the row's business, checked where the row is known."""
+
+    if not isinstance(value, Mapping):
+        raise ValueError("scores must be a mapping of score name to finite number or null")
+    for name, item in value.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("scores must be keyed by a non-empty score name")
+        if isinstance(item, bool) or (isinstance(item, int | float) and not math.isfinite(item)):
+            raise ValueError(f"score {name!r} must be a finite number or null")
     return value
 
 

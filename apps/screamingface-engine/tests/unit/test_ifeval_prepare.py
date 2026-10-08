@@ -7,6 +7,8 @@ REAL official rows (via `official_rows`) — synthetic rows would be rejected as
 from __future__ import annotations
 
 import json
+from importlib import resources
+from importlib.resources.abc import Traversable
 from pathlib import Path
 
 import pytest
@@ -116,3 +118,56 @@ def test_build_rejects_skewed_instruction_kwargs_lengths(tmp_path: Path) -> None
 
     with pytest.raises(PrepareError):
         build([row], tmp_path, expected_count=1)
+
+
+def test_a_prepared_bundle_records_where_its_cases_came_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The block names both places IFEval's Case text comes from: the Hub pin and the official file.
+
+    WHY the vendored official file is a source: its text wins over the Hub's on key 2785, so
+    that Case's prompt comes from it, at the verifier commit it was copied from.
+    """
+    from _bundle_provenance_checks import (
+        assert_hand_built_block,
+        hugging_face_source,
+        watch_provenance_writes,
+    )
+
+    from screamingface_engine.benchmarks.ifeval import definition
+    from screamingface_engine.benchmarks.ifeval import prepare as module
+
+    rows: list[dict] = official_rows()[:2]
+    # WHY these stand-ins: the full 541-row download and the nltk corpus need the network; two
+    # real official rows go through the same build, and the corpus is not a Case source.
+    monkeypatch.setattr(module, "CASE_COUNT", len(rows))
+    monkeypatch.setattr(module, "load_rows", lambda _limit=None: rows)
+    monkeypatch.setattr(module, "prepare_nltk", lambda out: {"nltk_data": str(out / "nltk_data")})
+    writes: list[bool] = watch_provenance_writes(monkeypatch, module)
+    # WHY derived, not typed: each vendored file's banner cites its real upstream path, so a
+    # location that drifts from it (a 404 for on-call) fails here instead of matching a copy.
+    vendor: Traversable = resources.files("screamingface_engine.benchmarks.ifeval.vendor")
+    banner: str = vendor.joinpath("instructions.py").read_text(encoding="utf-8").splitlines()[1]
+    upstream_folder: str = banner.split(f"{definition.VERIFIER_REVISION}/", 1)[1].rsplit("/", 1)[0]
+
+    summary: dict = module.prepare(tmp_path)
+
+    assert_hand_built_block(
+        tmp_path,
+        summary,
+        writes,
+        sources=[
+            hugging_face_source("google/IFEval", definition.DATASET_REVISION),
+            {
+                "kind": "file",
+                "location": (
+                    f"{definition.VERIFIER_REPOSITORY}/{upstream_folder}/data/input_data.jsonl"
+                ),
+                "pin": f"commit {definition.VERIFIER_REVISION}",
+                "phase": "load",
+            },
+        ],
+        yielded=2,
+        kept=2,
+        case_texts=[rows[0]["prompt"], rows[1]["prompt"]],
+    )

@@ -15,11 +15,13 @@ Stages of ``replay_for_import``, in execution order:
               environment exactly as the image side does (replay_environment).
     Stage 2 — child: import the task module, THEN install the Case Source recorder, so a
               name the module bound at import (`from inspect_ai.util import download`) is
-              rebound too; call the task function with its args.
+              rebound too; call the task function with its args. The recorder learns the
+              Hub commits (no pins exist yet) and forces the dev's seeds (OME-1460).
     Stage 3 — child: read the facts off the built Task with the importer's own readers
-              (_scorer_reference, _custom_metrics, plus the multiple_choice witness); render
+              (_scorer_facts, _custom_metrics, plus the multiple_choice witness); render
               the Samples by capture (the Task's own solvers with a stand-in generate).
-    Stage 4 — child: write result.json: prepared Cases, Sample ids, Case Sources, facts.
+    Stage 4 — child: write result.json: prepared Cases, Sample ids, Case Sources, the Hub
+              fetches (repo, revision read), facts.
               WHY a file: evals print while they load.
     Stage 5 — parent: a non-zero exit, a timeout or an unreadable result is a
               TaskReplayError carrying the child's final error line.
@@ -32,18 +34,27 @@ import os
 import subprocess
 import sys
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, replace
 from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 from screamingface_engine_inspect.capture import captured_case_records
+from screamingface_engine_inspect.case_set import case_set_digest
 from screamingface_engine_inspect.case_sources import RENDER_PHASE, CaseSource, CaseSourceRecorder
+from screamingface_engine_inspect.fetch_pins import (
+    FetchPinError,
+    FetchPins,
+    HubPins,
+    source_pins_of,
+)
 from screamingface_engine_inspect.importer import (
     ImporterError,
+    ScorerFacts,
     _custom_metrics,
-    _scorer_reference,
+    _hub_dataset_info,
+    _scorer_facts,
     _solver_list,
 )
 from screamingface_engine_inspect.prepare import (
@@ -78,6 +89,12 @@ class TaskReplayFacts:
     scorer_kwargs: dict[str, Any]
     custom_metrics: tuple[str, ...]
     keep_sample_metadata: bool
+    #: The Named Scores declaration, read the Hugging Face reader's way (OME-1268).
+    extra_scorers: tuple[str, ...] = ()
+    named_scores: tuple[str, ...] = ()
+    dropped_scorers: tuple[str, ...] = ()
+    headline_differs: bool = False
+    dropped_metrics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -89,6 +106,10 @@ class ImportReplay:
     sample_ids: tuple[str | None, ...]
     case_sources: tuple[CaseSource, ...]
     facts: TaskReplayFacts
+    #: Every top-level Hub fetch as (repo id, revision it read), in call order (OME-1460).
+    hub_fetches: tuple[tuple[str, str | None], ...] = ()
+    #: The declared seeds some hf_dataset call needed ("shuffle_seed", "choice_shuffle_seed").
+    seeds_applied: frozenset[str] = frozenset()
 
 
 def replay_for_import(
@@ -97,6 +118,9 @@ def replay_for_import(
     *,
     excluded_sample_ids: tuple[str, ...] | None = None,
     has_answer_key: bool = True,
+    shuffle_seed: int | None = None,
+    choice_shuffle_seed: int | None = None,
+    keep_sample_metadata: bool = False,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
 ) -> ImportReplay:
     """Run the import child once and read back Cases, Case Sources and facts.
@@ -107,6 +131,10 @@ def replay_for_import(
         excluded_sample_ids: upstream Sample ids capture leaves out (spec R18); None for none.
         has_answer_key: False when the Benchmark has no answer key, so an empty one is
             accepted (spec R19).
+        shuffle_seed: forced onto an ``hf_dataset`` row shuffle the eval makes without one.
+        choice_shuffle_seed: forced onto a bare ``shuffle_choices=True``.
+        keep_sample_metadata: keep the Sample metadata even under one of inspect's own
+            scorers, because a Judge template reads it (coconot's rubric).
         timeout: seconds before a stalled replay is abandoned.
 
     Returns:
@@ -128,6 +156,9 @@ def replay_for_import(
             "task_args": dict(task_args) if task_args else None,
             "excluded_sample_ids": list(excluded_sample_ids) if excluded_sample_ids else None,
             "has_answer_key": has_answer_key,
+            "shuffle_seed": shuffle_seed,
+            "choice_shuffle_seed": choice_shuffle_seed,
+            "keep_sample_metadata": keep_sample_metadata,
             "cache_root": str(cache_root),
         }
         request_path.write_text(json.dumps(request), encoding="utf-8")
@@ -163,14 +194,25 @@ def _import_replay_from_result(result: Mapping[str, Any]) -> ImportReplay:
     """Rebuild the typed run from result.json (JSON has lists where the facts keep tuples)."""
 
     raw_facts: dict[str, Any] = dict(result["facts"])
+    # WHY each name: JSON has no tuple; every tuple-typed fact comes back as a list and the
+    # frozen facts (and the pins hashed from them) must see the same type the child built.
+    tuple_facts: tuple[str, ...] = (
+        "custom_metrics",
+        "extra_scorers",
+        "named_scores",
+        "dropped_scorers",
+        "dropped_metrics",
+    )
     facts: TaskReplayFacts = TaskReplayFacts(
-        **{**raw_facts, "custom_metrics": tuple(raw_facts["custom_metrics"])}
+        **{**raw_facts, **{name: tuple(raw_facts.get(name, ())) for name in tuple_facts}}
     )
     return ImportReplay(
         prepared=result["prepared"],
         sample_ids=tuple(result["sample_ids"]),
         case_sources=tuple(CaseSource(**source) for source in result["case_sources"]),
         facts=facts,
+        hub_fetches=tuple((str(repo), revision) for repo, revision in result["hub_fetches"]),
+        seeds_applied=frozenset(result["seeds_applied"]),
     )
 
 
@@ -181,32 +223,36 @@ def _facts_of(
     task_args: dict[str, Any] | None,
     samples_carry_choices: bool,
 ) -> TaskReplayFacts:
-    """Stage 3a — read the built Task with the Hugging Face reader's own scorer readers."""
+    """Stage 3a — read the built Task with the importer's scorer readers."""
 
-    scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
+    scorers: ScorerFacts = _scorer_facts(task, module)
     return TaskReplayFacts(
         task_ref=task_ref,
         task_args=task_args,
-        # INVARIANT: the Hugging Face reader's two MCQ witnesses — the multiple_choice solver,
-        # OR the choice scorer (mmlu hides its solver inside its own @solver) — plus a third
-        # only a replay can see: Samples that carry choices (worldsense asks for "1"/"2"/"3"
+        # INVARIANT: three MCQ witnesses — the multiple_choice solver,
+        # OR the choice scorer (mmlu hides its solver inside its own @solver), OR Samples
+        # that carry choices (worldsense asks for "1"/"2"/"3"
         # with generate() and a pattern scorer). Any of them refuses mid-run feedback (OME-796).
-        mcq=_uses_multiple_choice(task) or scorer_name == "choice" or samples_carry_choices,
-        scorer=scorer_ref,
-        scorer_kwargs=scorer_kwargs,
+        mcq=_uses_multiple_choice(task) or scorers.scorer_name == "choice" or samples_carry_choices,
+        scorer=scorers.scorer,
+        scorer_kwargs=scorers.scorer_kwargs,
         custom_metrics=_custom_metrics(task),
         # WHY (D11): an eval's own scorer may read state.metadata (chembench), and the
         # metadata sits inside the Case Digest, so it is decided here, never by a hand edit.
-        keep_sample_metadata=not scorer_ref.startswith(INSPECT_SCORER_PREFIX),
+        keep_sample_metadata=not scorers.scorer.startswith(INSPECT_SCORER_PREFIX),
+        extra_scorers=scorers.extra_scorers,
+        named_scores=scorers.named_scores,
+        dropped_scorers=scorers.dropped_scorers,
+        headline_differs=scorers.headline_differs,
+        dropped_metrics=scorers.dropped_metrics,
     )
 
 
 def _uses_multiple_choice(task: Any) -> bool:
     """Whether the Task's setup or solver chain holds inspect's multiple_choice solver.
 
-    WHY a walk of our own and not the Hugging Face reader's: that reader also binds template
-    references and refuses chains it cannot imitate (two prompt templates, a rewritten system
-    message); capture renders those fine, so only the MCQ witness is read here.
+    WHY only this witness: capture renders the prompt from the real chain, so nothing else
+    about the solvers needs reading.
     """
 
     from inspect_ai._util.registry import registry_info
@@ -232,7 +278,15 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     # Stage 2 — the recorder installs AFTER the import, so names bound at import are rebound.
     # It is never uninstalled: this process exists only for this one replay.
     recorder: CaseSourceRecorder = CaseSourceRecorder(Path(request["cache_root"]))
-    recorder.install()
+    # WHY source_pins=None: this run is where the Hub commits are learned (OME-1460); the
+    # seeds are the dev's, known already, so they are forced here as in every later run.
+    recorder.install(
+        FetchPins(
+            source_pins=None,
+            shuffle_seed=request["shuffle_seed"],
+            choice_shuffle_seed=request["choice_shuffle_seed"],
+        )
+    )
     task: Any = getattr(module, attribute)(**(task_args or {}))
     # WHY count here: every Case Source recorded from now on was fetched by a solver while
     # capture rendered a Sample, not by the loader; the row says so (CaseSource.phase).
@@ -242,6 +296,8 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     facts: TaskReplayFacts = _facts_of(
         task, module, task_ref, task_args, any(sample.choices for sample in samples)
     )
+    if request["keep_sample_metadata"]:
+        facts = replace(facts, keep_sample_metadata=True)
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
         task=task_ref,
         case_count=0,
@@ -266,6 +322,8 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         "prepared": prepared,
         "sample_ids": [None if sample.id is None else str(sample.id) for sample in samples],
         "case_sources": [asdict(source) for source in sources],
+        "hub_fetches": recorder.hub_fetches,
+        "seeds_applied": sorted(recorder.seeds_applied),
         "facts": asdict(facts),
     }
     result_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
@@ -286,6 +344,10 @@ def import_by_task_replay(
     *,
     excluded_sample_ids: tuple[str, ...] | None = None,
     has_answer_key: bool = True,
+    shuffle_seed: int | None = None,
+    choice_shuffle_seed: int | None = None,
+    keep_sample_metadata: bool = False,
+    dataset_info: Callable[[str, str | None], Any] | None = None,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
 ) -> TaskReplayImport:
     """Import one eval by Task replay: run 1 reads, the declaration is sealed, run 2 proves it.
@@ -297,12 +359,16 @@ def import_by_task_replay(
         Stage 2 — refuse by name (spec R4): the task raised; no Samples; Samples but no Case
                   Source; two Samples share an id (id-less Samples never collide).
         Stage 3 — seal: the declaration carries run 1's Case count and Case Digest, the one
-                  fact that shapes a Case (keep_sample_metadata), and the two things only
-                  the importing agent can say: which Sample ids to leave out (R18) and that
-                  the Benchmark has no answer key (R19).
+                  fact that shapes a Case (keep_sample_metadata), the things only the
+                  importing agent can say (which Sample ids to leave out, R18; that the
+                  Benchmark has no answer key, R19; the seeds, D1), and, per Hub repo run 1
+                  read, the commit the Hub resolves that revision to plus the Hub's gate
+                  (OME-1460, :func:`~screamingface_engine_inspect.fetch_pins.source_pins_of`).
         Stage 4 — run 2, the IMAGE-SIDE child (task_replay.replayed_cases) on that
-                  declaration: what every build will do. A different digest is refused: an
-                  unseeded shuffle would pass once and go SKIPPED at every build.
+                  declaration: what every build will do, with the pins and seeds forced. A
+                  different digest is refused: an unseeded shuffle the enforcer cannot reach
+                  (a MemoryDataset.shuffle() in the eval's own code) would pass once and go
+                  SKIPPED at every build; so is HEAD moving between the two runs.
 
     Example: the stand-in eval's two arithmetic Cases seal to one digest; its four-row
     unseeded shuffle seals to one order and replays to another 23 times in 24 → refused.
@@ -312,6 +378,12 @@ def import_by_task_replay(
         task_args: forwarded to the task function in both runs; None for none.
         excluded_sample_ids: upstream Sample ids both runs leave out (R18); None for none.
         has_answer_key: False when the Benchmark has no answer key, in both runs (R19).
+        shuffle_seed: the seed both runs force onto an unseeded ``hf_dataset`` row shuffle.
+        choice_shuffle_seed: the seed both runs force onto a bare ``shuffle_choices=True``.
+        keep_sample_metadata: keep the Sample metadata although the scorer is inspect's own,
+            because a Judge template reads it; False lets the scorer decide (D11).
+        dataset_info: ``(repo id, revision) → Hub dataset info`` (HfApi().dataset_info by
+            default); injectable for tests.
         timeout: seconds before either run is abandoned.
 
     Returns:
@@ -328,21 +400,38 @@ def import_by_task_replay(
             task_args,
             excluded_sample_ids=excluded_sample_ids,
             has_answer_key=has_answer_key,
+            shuffle_seed=shuffle_seed,
+            choice_shuffle_seed=choice_shuffle_seed,
+            keep_sample_metadata=keep_sample_metadata,
             timeout=timeout,
         )
     except TaskReplayError as exc:
         raise ImporterError(str(exc)) from exc
     # Stage 2
     _refuse_unsealable(task_ref, first)
+    _refuse_inert_seeds(task_ref, first, shuffle_seed, choice_shuffle_seed)
     # Stage 3
+    try:
+        hub: HubPins = source_pins_of(
+            first.hub_fetches, dataset_info=dataset_info or _hub_dataset_info
+        )
+    except FetchPinError as exc:
+        raise ImporterError(f"{task_ref}: {exc}") from exc
     declaration: TaskReplayCasesSpec = TaskReplayCasesSpec(
         task=task_ref,
         case_count=len(first.prepared),
         case_digest=case_digest(first.prepared),
+        # OME-1492: the order-blind seal, so a later reorder reads as "order only". Sealed
+        # from run 1 like the Case Digest; run 2's matching digest proves it too.
+        case_set_digest=case_set_digest(first.prepared),
         task_args=dict(task_args) if task_args else None,
         keep_sample_metadata=first.facts.keep_sample_metadata,
         has_answer_key=has_answer_key,
         excluded_sample_ids=excluded_sample_ids,
+        source_pins=hub.source_pins,
+        shuffle_seed=shuffle_seed,
+        choice_shuffle_seed=choice_shuffle_seed,
+        needs_hf_token=hub.needs_hf_token,
     )
     # Stage 4
     try:
@@ -361,6 +450,24 @@ def import_by_task_replay(
     return TaskReplayImport(
         declaration=declaration, case_sources=first.case_sources, facts=first.facts
     )
+
+
+def _refuse_inert_seeds(
+    task_ref: str, first: ImportReplay, shuffle_seed: int | None, choice_shuffle_seed: int | None
+) -> None:
+    """Stage 2 — refuse a declared seed no hf_dataset call needed (OME-1460, R10): written on
+    the row, it would promise an order nothing pins."""
+
+    declared: dict[str, int | None] = {
+        "shuffle_seed": shuffle_seed,
+        "choice_shuffle_seed": choice_shuffle_seed,
+    }
+    for name, seed in declared.items():
+        if seed is not None and name not in first.seeds_applied:
+            raise ImporterError(
+                f"{task_ref}: {name}={seed} was never applied — the eval makes no unseeded "
+                "hf_dataset shuffle it would pin; leave it out"
+            )
 
 
 def _refuse_unsealable(task_ref: str, first: ImportReplay) -> None:

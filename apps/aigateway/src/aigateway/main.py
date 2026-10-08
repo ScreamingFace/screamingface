@@ -43,6 +43,7 @@ from .core.provider_access import (
     ConnectionBackedCredentialAdmin,
     ConnectionBackedProviderAccess,
     SelectorPolicy,
+    bootstrap_under_the_floor,
 )
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
@@ -223,7 +224,9 @@ async def _lifespan(app):
         if os.getenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE") == "1":
             for plugin in app.state.providers.all():
                 try:
-                    await plugin.bootstrap_profiles(
+                    # FEATURE (OME-1497, G0): the import is a legacy writer on its pair.
+                    await bootstrap_under_the_floor(
+                        plugin,
                         account_id=bootstrap_account_id,
                         credential_store=credential_store,
                         index_store=app.state.profile_index,

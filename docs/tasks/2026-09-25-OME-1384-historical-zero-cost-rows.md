@@ -7,7 +7,7 @@ priority: medium
 labels: [scoreboard, human, design-session]
 parent: OME-1251
 created: 2026-09-25
-closed: 2026-10-06
+closed: 2026-10-05
 ---
 
 # Decide what to do with historical rows that published a cached run as $0.00
@@ -27,4 +27,4 @@ First step: count the affected rows on dev.
   key). The 7 rows were deleted with `scoreboard.delete_scores` and resubmitted from cached
   reruns as `complete` with their full cost ($182.82 to $500.24). Four scores are unchanged;
   `pareto_cross`, `best_open_source` and `pareto_lean` moved by under 0.01 because cases built on
-  a 2026-08-22 synthesis are now fully judged.
+  a 2026-08-22 synthesis are now fully judged. Closed in Linear.

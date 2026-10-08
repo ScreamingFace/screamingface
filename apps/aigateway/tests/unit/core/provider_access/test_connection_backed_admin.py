@@ -95,7 +95,8 @@ def test_an_unmarked_pair_is_served_by_the_profile_backed_body_after_one_marker_
     assert (summary.auth_type, summary.state) == ("api_key", "authenticated")
     assert json.loads(blob_at_profile_address(legacy) or "{}")["api_key"] == KEY
     assert connections(legacy) == []
-    assert (marker(legacy).migration_state, marker(legacy).generation) == ("none", 0)
+    # WHY 1 (OME-1497, G0 §5.3): the key set claims the pair it read and keeps it legacy-owned.
+    assert (marker(legacy).migration_state, marker(legacy).generation) == ("none", 1)
 
 
 def test_a_quarantined_pair_keeps_the_legacy_body_and_its_marker(
@@ -114,9 +115,10 @@ def test_a_quarantined_pair_keeps_the_legacy_body_and_its_marker(
     delete(legacy, "default")
 
     pair = marker(legacy)
+    # WHY 3 (OME-1497, G0 §5.3): the set and the delete each claim the pair, keeping its note.
     assert (pair.migration_state, pair.generation, pair.migration_note) == (
         "quarantined",
-        1,
+        3,
         "conflict",
     )
     assert connections(legacy) == []

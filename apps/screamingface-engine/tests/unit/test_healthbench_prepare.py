@@ -157,3 +157,36 @@ def test_cli_summary_keys_match_real_preparation(
         f"healthbench: prepared 525 cases into {tmp_path} "
         "— the professional benchmark serves all 525, worst30 serves 157\n"
     )
+
+
+def test_a_prepared_bundle_records_where_its_cases_came_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both HealthBench Benchmarks read this one bundle, so its block counts all 525 rows.
+
+    WHY nothing is excluded: the worst-30% Benchmark is a selection at serve time, never a
+    smaller bundle (see the preparer's module NOTE).
+    """
+    from _bundle_provenance_checks import (
+        assert_hand_built_block,
+        hugging_face_source,
+        watch_provenance_writes,
+    )
+
+    from screamingface_engine.benchmarks.healthbench import prepare as module
+    from screamingface_engine.benchmarks.healthbench.revision_inputs import DATASET_REVISION
+
+    monkeypatch.setattr(module, "load_rows", _synthetic_rows)
+    writes: list[bool] = watch_provenance_writes(monkeypatch, module)
+
+    summary: dict = module.prepare(tmp_path)
+
+    assert_hand_built_block(
+        tmp_path,
+        summary,
+        writes,
+        sources=[hugging_face_source("openai/healthbench-professional", DATASET_REVISION)],
+        yielded=_TOTAL_ROWS,
+        kept=_TOTAL_ROWS,
+        case_texts=["question 20", "criterion 20"],
+    )

@@ -4,13 +4,21 @@ import asyncio
 import random
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Protocol, cast
 
 from tortoise.exceptions import DoesNotExist, IntegrityError
+from tortoise.expressions import F
+from tortoise.transactions import in_transaction
 
 from ..secrets.factory import get_active_secret_store
 from ..secrets.mixin import SecretDecryptionError, SecretStoreMixin
 from .model import CredentialBlob
+from .outcomes import (
+    OPERATIONAL_OUTCOMES,
+    CredentialOperationalState,
+    DispatchObservation,
+    OperationalOutcome,
+)
 
 _MUTATE_MAX_ATTEMPTS = 8
 _MUTATE_BACKOFF_BASE_SECONDS = 0.001
@@ -81,9 +89,16 @@ class ORMStore:
                 return
             except IntegrityError:
                 blob = await CredentialBlob.get(service=service, account=account)
-        blob.value = ciphertext
-        blob.ciphertext_version = version
-        await blob.save(update_fields=["value", "ciphertext_version", "updated_at"])
+        await CredentialBlob.filter(id=blob.id).update(
+            value=ciphertext,
+            ciphertext_version=version,
+            credential_revision=F("credential_revision") + 1,
+            next_dispatch_sequence=0,
+            last_outcome_sequence=0,
+            last_operational_outcome=None,
+            last_outcome_at=None,
+            updated_at=datetime.now(UTC),
+        )
 
     async def delete(self, service: str, account: str) -> None:
         await CredentialBlob.filter(service=service, account=account).delete()
@@ -151,6 +166,11 @@ class ORMStore:
             ).update(
                 value=next_ciphertext,
                 ciphertext_version=store.version,
+                credential_revision=F("credential_revision") + 1,
+                next_dispatch_sequence=0,
+                last_outcome_sequence=0,
+                last_operational_outcome=None,
+                last_outcome_at=None,
                 updated_at=datetime.now(UTC),
             )
             if updated == 1:
@@ -160,6 +180,54 @@ class ORMStore:
 
         raise CredentialBlobMutationConflict(
             f"Credential blob mutation conflicted after {_MUTATE_MAX_ATTEMPTS} attempts"
+        )
+
+    async def begin_dispatch(self, service: str, account: str) -> DispatchObservation | None:
+        async with in_transaction():
+            blob = (
+                await CredentialBlob.filter(service=service, account=account)
+                .select_for_update()
+                .first()
+            )
+            if blob is None:
+                return None
+            sequence = blob.next_dispatch_sequence + 1
+            blob.next_dispatch_sequence = sequence
+            await blob.save(update_fields=["next_dispatch_sequence"])
+            return DispatchObservation(blob.id, blob.credential_revision, sequence)
+
+    async def record_dispatch_outcome(
+        self, observation: DispatchObservation, outcome: OperationalOutcome
+    ) -> bool:
+        if outcome not in OPERATIONAL_OUTCOMES:
+            raise ValueError(f"unsupported operational outcome: {outcome}")
+        updated = await CredentialBlob.filter(
+            id=observation.blob_id,
+            credential_revision=observation.credential_revision,
+            last_outcome_sequence__lt=observation.dispatch_sequence,
+        ).update(
+            last_outcome_sequence=observation.dispatch_sequence,
+            last_operational_outcome=outcome,
+            last_outcome_at=datetime.now(UTC),
+        )
+        return updated == 1
+
+    async def operational_state(
+        self, service: str, account: str
+    ) -> CredentialOperationalState | None:
+        blob = await CredentialBlob.filter(service=service, account=account).first()
+        if blob is None:
+            return None
+        raw_outcome = blob.last_operational_outcome
+        if raw_outcome is not None and raw_outcome not in OPERATIONAL_OUTCOMES:
+            raise ValueError(f"unsupported stored operational outcome: {raw_outcome}")
+        return CredentialOperationalState(
+            blob_id=blob.id,
+            credential_revision=blob.credential_revision,
+            next_dispatch_sequence=blob.next_dispatch_sequence,
+            last_outcome_sequence=blob.last_outcome_sequence,
+            outcome=cast(OperationalOutcome | None, raw_outcome),
+            observed_at=blob.last_outcome_at,
         )
 
 

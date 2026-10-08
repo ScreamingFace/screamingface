@@ -34,8 +34,8 @@ if TYPE_CHECKING:
 from screamingface._evaluation.model import _answer_seed_value
 from screamingface.report import Report
 
-DEFAULT_ENGINE_URL = "https://fusion.dev.screamingface.ai"
-DEFAULT_SCOREBOARD_URL = "https://leaderboard.dev.screamingface.ai"
+DEFAULT_ENGINE_URL = "https://fusion.screamingface.ai"
+DEFAULT_SCOREBOARD_URL = "https://leaderboard.screamingface.ai"
 
 
 class Client:

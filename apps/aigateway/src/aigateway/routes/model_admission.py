@@ -3,9 +3,10 @@
 FEATURE: run any OpenRouter model (OME-878). The url4-cloud engine calls this
 endpoint on a model-id miss: "does this model actually exist?" A grant
 registers the model live — it joins ``GET /v1/models`` and resolves on
-``GET /v1/model-parameters`` for the rest of this deployment's life. A refusal
-is a 200 ANSWER carrying a diagnostic code, never an HTTP error: the caller's
-next move (tell the user which knob to turn) needs the body either way.
+``GET /v1/model-parameters`` for the rest of this deployment's life. A business
+refusal is a 200 ANSWER carrying a diagnostic code so the caller can tell the
+user which knob to turn. An unavailable credential store is infrastructure
+failure and uses the shared retryable 503 response instead.
 
 STORY: as a researcher, I point a run at any real OpenRouter model and it just
 works with only my OpenRouter key; typos refuse before any money is spent.
@@ -27,6 +28,7 @@ from pydantic import BaseModel
 from ..core.auth.middleware import CurrentAccount
 from ..core.model_capabilities import canonical_model_id
 from ..core.provider_access import (
+    CredentialStoreUnavailable,
     ProviderAccessRefusal,
     Selector,
     TargetPending,
@@ -105,13 +107,13 @@ async def _credential_verdict(
     what "credentialed" means. A target that EXISTS but is in a reauth/pending state is not
     "no key" (review F6): those two states are relayed as their own (code, message) so the
     user is told to finish or redo the connection — not to re-add a key they already have.
-    Every other refusal (typically a missing target) collapses to plain not-credentialed,
-    and the plugin's ladder words that diagnosis.
+    Every other business refusal (typically a missing target) collapses to plain
+    not-credentialed, and the plugin's ladder words that diagnosis.
 
-    # INVARIANT (OME-1207): the relayed CODE STRINGS are this endpoint's own wire contract,
-    # not the HTTP edge's. They happen to spell the same two words `render_refusal` uses,
-    # but a refusal here is a 200 ANSWER — so this route reads the typed refusal directly
-    # instead of round-tripping through an `HTTPException` just to re-read its `code`.
+    INVARIANT (OME-1207): pending and reauthentication code strings belong to this endpoint's
+    200-answer contract, so those typed refusals are read directly. CredentialStoreUnavailable is
+    deliberately re-raised for the surrounding HTTP renderer because authority failure must not be
+    misreported as an absent credential.
     """
     try:
         target = await provider_access_for(request.app).resolve(
@@ -129,6 +131,9 @@ async def _credential_verdict(
             f"the {provider} profile {selector.name!r} is still connecting — "
             "finish the connection, then retry",
         )
+    except CredentialStoreUnavailable:
+        # INVARIANT: an unavailable authority is not evidence that the credential is absent.
+        raise
     except ProviderAccessRefusal:
         return False, None
     return target.kind == "stored", None
@@ -167,13 +172,14 @@ async def admit_model(request: Request, current: CurrentAccount, body: _AdmitReq
     if len(admitted_models) >= _MAX_ADMITTED_MODELS:
         return _capacity_refusal(model_id)
 
-    credentialed, relayed = await _credential_verdict(
-        request,
-        account_id=str(current.id),
-        provider=provider,
-        selector=selector,
-        plugin=plugin,
-    )
+    with refusals_as_http():
+        credentialed, relayed = await _credential_verdict(
+            request,
+            account_id=str(current.id),
+            provider=provider,
+            selector=selector,
+            plugin=plugin,
+        )
     if relayed is not None:
         code, message = relayed
         return _answer(model_id, admitted=False, code=code, message=message)

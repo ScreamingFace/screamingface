@@ -20,9 +20,17 @@ import argparse
 import importlib
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.bundle_provenance import (
+    PROVENANCE_KEY,
+    hand_built_provenance,
+    hugging_face_source,
+    read_provenance,
+    write_provenance,
+)
 from screamingface_engine.benchmarks.contracteval.prompts import render_case_input
 from screamingface_engine.benchmarks.contracteval.revision_inputs import (
     DATASET,
@@ -95,9 +103,14 @@ def case_records(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict
     return cases, answers
 
 
-def emit(rows: list[dict[str, Any]], out: Path) -> dict[str, Any]:
-    """Write the public cases file and the private answer key. Returns the audit summary."""
+def emit(rows: list[dict[str, Any]], out: Path, *, started: float | None = None) -> dict[str, Any]:
+    """Write the public cases file and the private answer key. Returns the audit summary.
 
+    ``started`` is ``time.monotonic()`` when the preparer began, so the provenance block's
+    ``seconds`` covers the download too; left out, it counts from this call.
+    """
+
+    began: float = time.monotonic() if started is None else started
     cases, answers = case_records(rows)
     answers_dir = out / "answers"
     answers_dir.mkdir(parents=True, exist_ok=True)
@@ -105,6 +118,16 @@ def emit(rows: list[dict[str, Any]], out: Path) -> dict[str, Any]:
         (answers_dir / f"{case_id}.json").write_text(
             json.dumps(record, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
         )
+    # WHY before cases.json: a parseable cases.json marks the bundle finished (OME-1492).
+    write_provenance(
+        out,
+        hand_built_provenance(
+            [hugging_face_source(DATASET, DATASET_REVISION)],
+            yielded=len(rows),
+            kept=len(cases),
+            started=began,
+        ),
+    )
     (out / "cases.json").write_text(
         json.dumps(cases, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
     )
@@ -147,7 +170,10 @@ def load_rows() -> list[dict[str, Any]]:
 def prepare(out: Path) -> dict[str, Any]:
     """Prepare the ContractEval assets into ``out``, returning the audit summary."""
 
-    return emit(load_rows(), out)
+    started: float = time.monotonic()
+    summary: dict[str, Any] = emit(load_rows(), out, started=started)
+    # The summary line reports the block that landed in the bundle (OME-1492).
+    return summary | {PROVENANCE_KEY: read_provenance(out)}
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -28,7 +28,8 @@ from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     benchmark_registrations,
     imported_benchmark,
 )
-from screamingface_engine_inspect.prepare import BENCHMARK_CASES, TASK_REPLAY_CASES  # noqa: E402
+from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES  # noqa: E402
+from screamingface_engine_inspect.single_shot import imported_benchmark_id  # noqa: E402
 
 #: Every imported benchmark key and its family: "mcq" (choice scorer, draft-feedback offer
 #: refused per OME-796), "free_text" (draft-feedback offer ON, spec §4), "judged"
@@ -38,6 +39,7 @@ from screamingface_engine_inspect.prepare import BENCHMARK_CASES, TASK_REPLAY_CA
 #: lets a fusion re-word a draft until it slips past).
 _EXPECTED_FAMILIES: dict[str, str] = {
     "gsm8k": "free_text",
+    "musique": "free_text",  # OME-1513: a local Task, served like a free-text import
     "mmlu": "mcq",
     "arc_easy": "mcq",
     "arc_challenge": "mcq",
@@ -114,27 +116,31 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # bare free-text answer graded by the eval's own rule-based matcher.
     "pre_flight": "mcq",
     "bbeh": "free_text",
+    # OME-1268: the first Benchmarks with Named Scores. SQuAD answers in a few words against a
+    # list of accepted spans (f1 headline, exact beside it); MATH ends with an ANSWER line
+    # graded by two of the eval's three scorers (the self-grading one dropped by name).
+    "squad": "free_text",
+    "math": "free_text",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
-#: The new keys prepared from a pinned Hugging Face revision; the Task-replay keys have no
-#: dataset revision or row rule to pin, and their own twins sit at the end of this file.
-_HF_KEYS: tuple[str, ...] = tuple(k for k in _NEW_KEYS if k not in TASK_REPLAY_CASES)
 
 
 def test_catalogue_holds_every_imported_benchmark() -> None:
     """OME-1116 acceptance: ≥10 imported benchmarks; the row table IS the catalogue."""
 
     assert {spec.key for spec in BENCHMARKS} == set(_EXPECTED_FAMILIES)
-    # OME-1273: a second registry joins the catalogue; the owner granted the edit of this
-    # prior assertion (--skip-append-only, first on #1194).
-    assert set(BENCHMARK_CASES) | set(TASK_REPLAY_CASES) == set(_EXPECTED_FAMILIES)
-    assert not set(BENCHMARK_CASES) & set(TASK_REPLAY_CASES)
+    # OME-1460: one registry; every Imported Benchmark is a Task-replay declaration.
+    assert set(TASK_REPLAY_CASES) == set(_EXPECTED_FAMILIES)
     ids = [registration.benchmark.id for registration in benchmark_registrations()]
     assert len(ids) == len(set(ids)) == len(_EXPECTED_FAMILIES)
-    assert all(benchmark_id.startswith("inspect-") for benchmark_id in ids)
+    # OME-1513: an import is "inspect-<key>"; a local Task keeps its bare key.
+    assert set(ids) == {imported_benchmark_id(spec.key, spec.origin) for spec in BENCHMARKS}
 
 
+# AIDEV-NOTE (OME-1513): the name predates local Tasks and is frozen by the test-change rule.
+# What it checks now: every row's origin matches where its task code lives — inspect_evals
+# for an import, screamingface for a local Task under local_tasks/ — in both directions.
 def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() -> None:
     """The catalogue must name the collection each benchmark came FROM, not this repo.
 
@@ -154,7 +160,19 @@ def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() ->
         registration.benchmark.id: registration.benchmark.origin
         for registration in benchmark_registrations()
     }
-    assert set(origins.values()) == {"inspect_evals"}, origins
+    # OME-1513: a LOCAL Task — our own eval in inspect's shape under `local_tasks/`, fed to
+    # the same importer — is the one row that says "screamingface": it is ours, not brought
+    # in. The origin must match where the task code lives, both ways.
+    expected = {
+        imported_benchmark_id(spec.key, spec.origin): (
+            "inspect_evals"
+            if TASK_REPLAY_CASES[spec.key].task.startswith("inspect_evals.")
+            else "screamingface"
+        )
+        for spec in BENCHMARKS
+    }
+    assert origins == expected, origins
+    assert "screamingface" in origins.values() and "inspect_evals" in origins.values()
 
 
 def test_benchmark_revisions_are_distinct() -> None:
@@ -164,52 +182,26 @@ def test_benchmark_revisions_are_distinct() -> None:
     assert len(revisions) == len(_EXPECTED_FAMILIES)
 
 
-@pytest.mark.parametrize("key", sorted(_HF_KEYS))
-def test_cases_row_pins_benchmark_identity(key: str) -> None:
-    cases_spec = BENCHMARK_CASES[key]
-    assert len(cases_spec.dataset_revision) == 40
-    int(cases_spec.dataset_revision, 16)
-    assert cases_spec.case_count > 0
-    assert cases_spec.dataset and cases_spec.split
-
-
-@pytest.mark.parametrize("key", sorted(_HF_KEYS))
-def test_cases_row_references_resolve_inside_the_pinned_eval(key: str) -> None:
-    """The rows POINT at the eval's own code; a dangling reference must fail CI,
-    not the image build."""
-
-    cases_spec = BENCHMARK_CASES[key]
-    references: list[str] = [cases_spec.record_to_sample]
-    if cases_spec.prompt_template is not None:
-        references.append(cases_spec.prompt_template)
-    if cases_spec.choice_template is not None:
-        references.append(cases_spec.choice_template)
-    if cases_spec.system_message is not None:
-        references.append(cases_spec.system_message)
-    if cases_spec.question_filter_task is not None:
-        # The question-filter pointer (OME-1269): the prepare step CALLS it at image build.
-        references.append(cases_spec.question_filter_task)
-    for reference in references:
-        module_name, _, attribute = reference.partition(":")
-        assert hasattr(import_module(module_name), attribute), reference
-
-
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
 def test_benchmark_row_declares_its_family_check_surface(key: str) -> None:
     """OME-796: pass/fail feedback over a handful of options is an elimination
     attack — MCQ benchmarks are refused the surface, free-text benchmarks carry it."""
 
     benchmark = imported_benchmark(key).benchmark
-    if _EXPECTED_FAMILIES[key] == "free_text":
-        assert benchmark.check_surface is not None
-    else:
-        # "mcq" (elimination attack), "judged" (no check-cost knob yet) and "reply_only"
-        # (re-wording past a refusal regex) alike.
-        assert benchmark.check_surface is None
+    # OME-1513 (owner rule 2026-10-07): Draft Feedback is a per-Benchmark owner decision, never
+    # a family default. No imported row carries the offer today — "free_text" included, which
+    # used to imply it; "mcq" (elimination attack), "judged" (no check-cost knob yet) and
+    # "reply_only" (re-wording past a refusal regex) could never. A row the owner turns on
+    # by name is the exception this test will then have to list.
+    assert benchmark.check_surface is None, _EXPECTED_FAMILIES[key]
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
 def test_benchmark_row_scorer_resolves_and_constructs(key: str) -> None:
+    # WHY (OME-1460): a judged row names the "screamingface" judge model, a provider that
+    # registers when judge_provider is imported, as assembly does; without it this test
+    # passed only when an earlier test in the same worker had imported it.
+    import_module("screamingface_engine_inspect.judge_provider")
     spec = next(spec for spec in BENCHMARKS if spec.key == key)
     module_name, _, attribute = spec.scorer.partition(":")
     constructor = getattr(import_module(module_name), attribute)
@@ -237,41 +229,28 @@ def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     (hf_dataset shuffle=True); an import must pin one order — a dropped shuffle
     was the 2026-09-17 review blocker, and this set is its regression pin."""
 
+    # OME-1460: every row is a Task-replay declaration; shuffle_seed is now the seed forced
+    # through inspect's own shuffle on an hf_dataset call that shuffles with none (D1), so
+    # exactly the rows whose eval does that carry one. aime24/aime25/hellaswag lost their
+    # policy seed (their evals never shuffle: the Hub's order is served, spec Known
+    # limitations); mmlu's eval seeds its own shuffle (seed=42); wmdp serves upstream order.
     seeded: set[str] = {
-        key for key, spec in BENCHMARK_CASES.items() if spec.shuffle_seed is not None
+        key for key, spec in TASK_REPLAY_CASES.items() if spec.shuffle_seed is not None
     }
-    # aime24/aime25: OURS policy seed (owner-approved 2026-09-22) — upstream serves
-    # dataset order (AIME I then II, roughly ascending difficulty within each), so an
-    # unseeded import would give a limited run only the easier AIME I half.
-    # musr: upstream shuffles per run (hf_dataset shuffle=True, no seed), so the
-    # import pins one order. wmdp benchmarks serve upstream order — no seed.
-    # hellaswag: OURS policy seed (review finding on PR #1018) — the pinned
-    # validation split is domain-grouped (3,243 ActivityNet rows then 6,799
-    # WikiHow), so an unshuffled limit ≤ 3243 run would examine zero WikiHow.
-    # lab_bench_*: upstream shuffles rows per run (shuffle=True, no seed), so
-    # the import pins one order (OURS policy seed, OME-1264 batch 1).
     assert seeded == {
-        "mmlu",
         "commonsense_qa",
         "mmlu_pro",
         "race_h",
         "paws",
         "boolq",
-        "aime24",
-        "aime25",
         "musr",
-        "hellaswag",
         "lab_bench_litqa",
         "lab_bench_suppqa",
         "lab_bench_dbqa",
         "lab_bench_protocolqa",
         "lab_bench_seqqa",
         "lab_bench_cloning_scenarios",
-        # frontierscience: mixed formats/subjects in dataset order — OURS policy
-        # seed so a limited run spans both formats (sweep 2026-09-22, OME-1240).
         "frontierscience",
-        # onet_m6: upstream shuffles rows per run (shuffle=True, no seed), so the
-        # import pins one order (OURS policy seed, OME-1269).
         "onet_m6",
     }
 
@@ -282,9 +261,9 @@ def test_lab_bench_benchmarks_pin_a_choice_order() -> None:
     order every prepared answer would be 'A'. The six text benchmarks must carry the
     policy choice-shuffle seed, and it must ride benchmark identity."""
 
-    from screamingface_engine_inspect.benchmarks import _revision_pins
-
-    lab_bench_keys = {key for key in BENCHMARK_CASES if key.startswith("lab_bench_")}
+    # OME-1460: Task-replay declarations; the forced seed's order is sealed by the Case
+    # Digest, which rides identity, so the seed needs no pin of its own (spec R7).
+    lab_bench_keys = {key for key in TASK_REPLAY_CASES if key.startswith("lab_bench_")}
     assert lab_bench_keys == {
         "lab_bench_litqa",
         "lab_bench_suppqa",
@@ -294,10 +273,7 @@ def test_lab_bench_benchmarks_pin_a_choice_order() -> None:
         "lab_bench_cloning_scenarios",
     }
     for key in sorted(lab_bench_keys):
-        assert BENCHMARK_CASES[key].choice_shuffle_seed is not None, key
-        assert f"choice_shuffle_seed={BENCHMARK_CASES[key].choice_shuffle_seed}" in _revision_pins(
-            BENCHMARK_CASES[key]
-        )
+        assert TASK_REPLAY_CASES[key].choice_shuffle_seed is not None, key
 
 
 def test_lab_bench_pins_track_upstreams_own_revision_constant() -> None:
@@ -307,8 +283,10 @@ def test_lab_bench_pins_track_upstreams_own_revision_constant() -> None:
 
     from inspect_evals.lab_bench.lab_bench import LAB_BENCH_DATASET_REVISION as UPSTREAM
 
-    for key in (k for k in BENCHMARK_CASES if k.startswith("lab_bench_")):
-        assert BENCHMARK_CASES[key].dataset_revision == UPSTREAM, key
+    lab_bench_keys = [k for k in TASK_REPLAY_CASES if k.startswith("lab_bench_")]
+    assert len(lab_bench_keys) == 6
+    for key in lab_bench_keys:
+        assert TASK_REPLAY_CASES[key].source_pins == {"futurehouse/lab-bench": UPSTREAM}, key
 
 
 def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
@@ -318,9 +296,8 @@ def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
 
     from inspect_evals.aime2024.aime2024 import AIME2024_DATASET_REVISION
 
-    from screamingface_engine_inspect.pins import AIME24_DATASET_REVISION
-
-    assert AIME24_DATASET_REVISION == AIME2024_DATASET_REVISION
+    # OME-1460: the Hub pin now lives on the Task-replay declaration.
+    assert set(TASK_REPLAY_CASES["aime24"].source_pins.values()) == {AIME2024_DATASET_REVISION}
 
 
 def test_aime25_pin_tracks_upstreams_own_revision_constant() -> None:
@@ -329,9 +306,8 @@ def test_aime25_pin_tracks_upstreams_own_revision_constant() -> None:
 
     from inspect_evals.aime2025.aime2025 import AIME2025_DATASET_REVISION
 
-    from screamingface_engine_inspect.pins import AIME25_DATASET_REVISION
-
-    assert AIME25_DATASET_REVISION == AIME2025_DATASET_REVISION
+    # OME-1460: the Hub pin now lives on the Task-replay declaration.
+    assert set(TASK_REPLAY_CASES["aime25"].source_pins.values()) == {AIME2025_DATASET_REVISION}
 
 
 def test_hellaswag_pin_tracks_upstreams_own_revision_constant() -> None:
@@ -341,58 +317,8 @@ def test_hellaswag_pin_tracks_upstreams_own_revision_constant() -> None:
 
     from inspect_evals.hellaswag.hellaswag import HELLASWAG_DATASET_REVISION as UPSTREAM
 
-    from screamingface_engine_inspect.pins import HELLASWAG_DATASET_REVISION
-
-    assert HELLASWAG_DATASET_REVISION == UPSTREAM
-
-
-def test_choice_shuffle_seed_rides_benchmark_identity() -> None:
-    """OME-1264: the pinned choice order is part of the benchmark a candidate sits —
-    a re-import that gains or loses the choice-shuffle seed cannot keep the
-    benchmark's revision identity."""
-
-    from dataclasses import replace
-
-    from screamingface_engine_inspect.benchmarks import _revision_pins
-
-    pins = _revision_pins(replace(BENCHMARK_CASES["mmlu"], choice_shuffle_seed=7))
-    assert "choice_shuffle_seed=7" in pins
-    # And a benchmark without one carries no such pin (the field is conditional).
-    assert not any(
-        p.startswith("choice_shuffle_seed=") for p in _revision_pins(BENCHMARK_CASES["mmlu"])
-    )
-
-
-def test_data_files_and_features_ride_benchmark_identity() -> None:
-    """OME-1264 extension 2: data_files selects WHICH files load and features
-    fixes their schema — both change the benchmark, so both ride the benchmark's
-    revision identity."""
-
-    from dataclasses import replace
-
-    from screamingface_engine_inspect.benchmarks import _revision_pins
-
-    spec = replace(BENCHMARK_CASES["mmlu"], data_files={"t": "t.jsonl"}, features="fake_mod:FT")
-    pins = _revision_pins(spec)
-    assert 'data_files={"t": "t.jsonl"}' in pins
-    assert "features=fake_mod:FT" in pins
-    # And a benchmark without them carries neither pin (the fields are conditional).
-    assert not any(
-        p.startswith(("data_files=", "features=")) for p in _revision_pins(BENCHMARK_CASES["mmlu"])
-    )
-
-
-def test_system_message_pointer_rides_benchmark_identity() -> None:
-    """Review finding on PR #1018: adding or dropping the leading instruction
-    changes the benchmark a candidate sits, so the pointer must move the benchmark's
-    revision identity — a re-import that lost it cannot keep the revision."""
-
-    from screamingface_engine_inspect.benchmarks import _revision_pins
-
-    pins = _revision_pins(BENCHMARK_CASES["hellaswag"])
-    assert "system_message=inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE" in pins
-    # And a benchmark without one carries no such pin (the field is conditional).
-    assert not any(p.startswith("system_message=") for p in _revision_pins(BENCHMARK_CASES["musr"]))
+    # OME-1460: the Hub pin now lives on the Task-replay declaration.
+    assert set(TASK_REPLAY_CASES["hellaswag"].source_pins.values()) == {UPSTREAM}
 
 
 def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
@@ -406,17 +332,17 @@ def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
 
     from inspect_evals.onet.onet import ONET_DATASET_REVISION as UPSTREAM
 
-    from screamingface_engine_inspect.benchmarks import _revision_pins
+    from screamingface_engine_inspect.benchmarks import _task_replay_pins
 
-    row = BENCHMARK_CASES["onet_m6"]
-    assert row.dataset_revision == UPSTREAM
-    assert row.question_filter_task == "inspect_evals.onet.onet:onet_m6"
-    assert row.choice_template == "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
+    # OME-1460: a Task-replay declaration now. The eval's own task filters (no filter
+    # pointer to pin) and capture renders its own chain-of-thought template (no template
+    # pointer); the exclusion still rides identity.
+    row = TASK_REPLAY_CASES["onet_m6"]
+    assert row.source_pins == {"matichon/thai-onet-m6-exam": UPSTREAM}
+    assert row.task == "inspect_evals.onet.onet:onet_m6"
     assert row.excluded_sample_ids is not None and len(row.excluded_sample_ids) == 6
     assert row.case_count == 397 - 6
-    pins = _revision_pins(row)
-    assert "question_filter_task=inspect_evals.onet.onet:onet_m6" in pins
-    assert any(pin.startswith("excluded_sample_ids=") for pin in pins)
+    assert any(pin.startswith("excluded_sample_ids=") for pin in _task_replay_pins(row))
 
 
 def test_pubmedqa_prepares_the_evals_test_list_through_its_task() -> None:
@@ -426,15 +352,16 @@ def test_pubmedqa_prepares_the_evals_test_list_through_its_task() -> None:
 
     from inspect_evals.pubmedqa.pubmedqa import PUBMEDQA_DATASET_REVISION as UPSTREAM
 
-    from screamingface_engine_inspect.benchmarks import _revision_pins
+    from screamingface_engine_inspect.benchmarks import _task_replay_pins
 
-    row = BENCHMARK_CASES["pubmedqa"]
-    assert row.dataset_revision == UPSTREAM
-    assert row.question_filter_task == "inspect_evals.pubmedqa.pubmedqa:pubmedqa"
-    assert row.choice_template == "inspect_evals.pubmedqa.pubmedqa:TEMPLATE"
+    # OME-1460: a Task-replay declaration now; the eval's own task keeps the 500 and its own
+    # template renders them, so the task reference rides identity in place of the filter.
+    row = TASK_REPLAY_CASES["pubmedqa"]
+    assert row.source_pins == {"qiaojin/PubMedQA": UPSTREAM}
+    assert row.task == "inspect_evals.pubmedqa.pubmedqa:pubmedqa"
     assert row.case_count == 500
     assert row.excluded_sample_ids is None
-    assert "question_filter_task=inspect_evals.pubmedqa.pubmedqa:pubmedqa" in _revision_pins(row)
+    assert "task=inspect_evals.pubmedqa.pubmedqa:pubmedqa" in _task_replay_pins(row)
 
 
 def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() -> None:
@@ -446,16 +373,17 @@ def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() ->
     from inspect_evals.xstest.xstest import XSTEST_DATASET_REVISION as UPSTREAM
     from inspect_evals.xstest.xstest import scorer_instructions, scorer_template
 
-    from screamingface_engine_inspect.benchmarks import BENCHMARKS, _revision_pins
+    from screamingface_engine_inspect.benchmarks import BENCHMARKS, _task_replay_pins
 
-    row = BENCHMARK_CASES["xstest_safe"]
-    assert row.dataset_revision == UPSTREAM
-    assert row.question_filter_task == "inspect_evals.xstest.xstest:xstest"
-    assert row.question_filter_task_args == {"subset": "safe"}
+    # OME-1460: a Task-replay declaration now; the subset is the eval's own task arg.
+    row = TASK_REPLAY_CASES["xstest_safe"]
+    assert row.source_pins == {"walledai/XSTest": UPSTREAM}
+    assert row.task == "inspect_evals.xstest.xstest:xstest"
+    assert row.task_args == {"subset": "safe"}
     assert row.case_count == 250
     assert row.has_answer_key is False
     assert row.needs_hf_token is True
-    assert 'question_filter_task_args={"subset": "safe"}' in _revision_pins(row)
+    assert 'task_args={"subset": "safe"}' in _task_replay_pins(row)
     benchmark = next(spec for spec in BENCHMARKS if spec.key == "xstest_safe")
     assert benchmark.scorer_kwargs["template"] == scorer_template
     assert benchmark.scorer_kwargs["instructions"] == scorer_instructions
@@ -493,7 +421,7 @@ def test_xstest_safe_names_upstreams_own_metric_and_generate_config(
 
 # ── OME-1273: Task-replay declarations (spec R7) ────────────────────────────────
 
-from screamingface_engine_inspect.prepare import LICENSE_TODO, TASK_REPLAY_CASES  # noqa: E402
+from screamingface_engine_inspect.prepare import LICENSE_TODO  # noqa: E402
 
 
 def test_task_replay_declarations_carry_an_owner_license_decision() -> None:

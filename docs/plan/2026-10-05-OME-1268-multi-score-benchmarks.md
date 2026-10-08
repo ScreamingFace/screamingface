@@ -99,6 +99,14 @@ the same PR to match.
 
 Lands in S. Releases before PR 3 deploys.
 
+> **As built (2026-10-06).** Two places differ from the tasks below. (1) `CaseGrade.to_dict`
+> writes `scores` only when set: the Case Grade dict is pinned one-to-one to the Engine's wire
+> by the exact-contract round-trip tests (`test_case_outcome_decoding`, `test_case_results`,
+> `test_candidate_result_coverage`), so the stable `{}` key lives on the Candidate Result only
+> (D7 narrowed). (2) Task 2.5 was not needed: no prior test asserts a full Candidate dict, so
+> the only prior-test change is the public-surface snapshot (Task 2.3). All new tests live in
+> one file, `tests/test_named_scores.py`, instead of appended to four.
+
 ### Task 2.0: Ledger
 
 **Files:**
@@ -210,6 +218,14 @@ Lands in S. Releases before PR 3 deploys.
 ## PR 3 — Engine: the spine (branch `OME-1268-engine-named-scores`)
 
 Lands in E. Deploys after PR 2's SDK release.
+
+> **As built (2026-10-06).** Five places differ from the tasks below; the ledger records why.
+> (1) The branch is stacked on PR 2's branch so the SDK key twin test can pass; retarget to
+> `main` after #1248 merges. (2) A dict-valued scorer writes one Check (id `"1"`) with the
+> headline key's grade, not a Check per key. (3) `extra_scorers` are default-constructed (no
+> kwargs twin yet). (4) The word map applies to the headline scorer only; other scorers speak
+> inspect's letters. (5) All new tests live in four new files instead of being appended to
+> three existing ones.
 
 ### Task 3.0: Ledger
 
@@ -343,6 +359,22 @@ Lands in E. Deploys after PR 2's SDK release.
 
 ## PR 4 — Engine: the importer (branch `OME-1268-importer-named-scores`)
 
+> **As built (2026-10-06, rebuilt 2026-10-07).** Five places differ from the tasks below; the
+> ledger records why. (0) OME-1460 removed the Hugging Face import path while this PR was
+> open, so the slice was rebuilt on the Task-replay path: the facts are read in the import
+> child (`_facts_of`) and rebuilt typed in the parent; `InspectTaskFacts`,
+> `read_inspect_task` and `_refuse_injectable_text` no longer exist. (1) "Conservable" is decided by the existing judged-scorer test (`_is_judged_by`): a
+> scorer that takes a judge model is dropped by name in a multi-scorer Task; the stand-in
+> for MATH's `expression_equivalance` is a scorer with `model=None`. (2) The tripwire lives
+> in `_scorer_facts` (the reader), not in `_scorer_lines` (the renderer): refusing before any
+> facts exist is simpler than threading a refusal through rendering, and the Task-replay path
+> gets it for free. (3) Non-headline non-mean metrics are `dropped_metrics` on the facts and a
+> "not reproduced" note on the row; the existing `custom_metrics` TODO (the Task's own
+> `metrics=`) is untouched. (4) One prior test's fixture changed:
+> none, after the rebuild: `test_inspect_importer.py`, whose fixture the first build had to
+> change, was deleted upstream with the Hugging Face path. The sweep re-check of OME-1253's scorer-count
+> rows (spec §8.7) runs with the MATH and SQuAD imports in PR 5.
+
 ### Task 4.0: Ledger
 
 - [ ] Create `docs/work/2026-10-08-ome-1268-importer-named-scores.md`; commit.
@@ -406,9 +438,24 @@ Lands in E. Deploys after PR 2's SDK release.
 
 ## PR 5 — Engine: MATH and SQuAD (branch `OME-1268-math-squad`)
 
+> **As built (2026-10-06, rebuilt 2026-10-07).** Three facts the plan did not know. (1) MATH's
+> `expression_exact_match_sympy` imports `sympy` at grading time and the Engine's `inspect`
+> extra did not install it; the owner chose to add `sympy==1.14.0` and
+> `antlr4-python3-runtime==4.11.1` to that extra (the deployed image grows by roughly
+> sympy's size) rather than drop the scorer. (2) OME-1460 removed the Hugging Face import
+> path while the stack was open, so both rows were re-imported by Task replay: the Case
+> Digest is the seal and the importer's second run is the offline Case Preparation; no
+> `pins.py` exists. Both rows are served in upstream order (`--task-arg shuffle=False`).
+> (3) OME-1455 landed Benchmark Provenance on every row: the importer filled paper, porters
+> and licence from eval.yaml and arXiv; the human baselines and frontier scores were typed
+> from cited sources for the reviewer to verify; MATH's `upstream_case_count` is the 5,000
+> test split the Task serves, not eval.yaml's 12,500 whole-dataset figure. The OME-1253
+> sweep re-check (spec §8.7) is trivial: MATH and SQuAD were the only rows whose sole
+> refusal was scorer count, and both now import.
+
 ### Task 5.0: Ledger
 
-- [ ] Create `docs/work/2026-10-09-ome-1268-math-squad.md`; commit.
+- [ ] Create `docs/work/2026-10-06-ome-1268-math-squad.md`; commit.
 
 ### Task 5.1: Import the two rows
 

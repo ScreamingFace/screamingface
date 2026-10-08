@@ -365,3 +365,75 @@ def test_availability_leaves_every_other_provider_on_the_legacy_precedence(
     assert before[PROVIDER] == "pending"
     assert others
     assert all(status == "not_connected" for status in others.values())
+
+
+def test_api_key_operational_outcomes_project_without_changing_lifecycle(
+    migrated: ConnectionBackedHarness,
+) -> None:
+    migrated.seed_profile(auth_type="api_key", credential="tok")
+    connection_id = migrated.migrated["default"]
+    target = _resolve(migrated)
+
+    insufficient = migrated.call(
+        migrated.access.begin_dispatch, target, plugin=ANTHROPIC, provider=PROVIDER
+    )
+    assert insufficient is not None
+    migrated.call(
+        migrated.access.record_dispatch_outcome,
+        target,
+        insufficient,
+        "insufficient_credits",
+        None,
+        plugin=ANTHROPIC,
+    )
+    assert _availability(migrated)[PROVIDER] == "error"
+    assert _resolve(migrated).credential_name == target.credential_name
+    assert migrated.connection_status(connection_id) == "active"
+
+    recovered = migrated.call(
+        migrated.access.begin_dispatch, target, plugin=ANTHROPIC, provider=PROVIDER
+    )
+    assert recovered is not None
+    migrated.call(
+        migrated.access.record_dispatch_outcome,
+        target,
+        recovered,
+        "connected",
+        None,
+        plugin=ANTHROPIC,
+    )
+    assert _availability(migrated)[PROVIDER] == "connected"
+
+    rejected = migrated.call(
+        migrated.access.begin_dispatch, target, plugin=ANTHROPIC, provider=PROVIDER
+    )
+    assert rejected is not None
+    rewritten = migrated.call(
+        migrated.access.record_dispatch_outcome,
+        target,
+        rejected,
+        "needs_reauth",
+        {"code": "auth_required", "message": "token expired"},
+        plugin=ANTHROPIC,
+    )
+    assert rewritten == {
+        "code": "auth_required",
+        "message": "token expired",
+        "reauth_url": target.reauth_url,
+    }
+    assert _availability(migrated)[PROVIDER] == "needs_reauth"
+    with pytest.raises(TargetReauthRequired):
+        _resolve(migrated)
+    assert migrated.connection_status(connection_id) == "active"
+
+
+def test_api_key_availability_requires_the_effective_credential_blob(
+    migrated: ConnectionBackedHarness,
+) -> None:
+    migrated.seed_profile(auth_type="api_key", credential="tok")
+    target = _resolve(migrated)
+    migrated.blobs.delete(credential_service_for(str(target.credential_name)), "default")
+
+    assert _availability(migrated)[PROVIDER] == "needs_reauth"
+    with pytest.raises(TargetReauthRequired):
+        _resolve(migrated)

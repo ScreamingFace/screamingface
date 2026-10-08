@@ -43,14 +43,20 @@ from ..core.profile_models import (
     profile_id_for,
 )
 from ..core.provider_access import (
+    PairAuthority,
+    PairAuthorityConflict,
+    PairAuthorityStore,
     ProviderCredentialAdmin,
     ProviderUnknown,
     TargetMissing,
     WriteConflict,
     begin_connection_oauth,
+    claim_observed,
     complete_connection_oauth,
     facade_target,
     fail_connection_oauth,
+    hold_observed,
+    hold_pair,
     patch_facade,
     provider_credential_admin_for,
     refresh_facade,
@@ -597,6 +603,8 @@ async def start_oauth(
     # FEATURE (OME-1208, D14): a MIGRATED pair claims its pair marker's generation and publishes
     # on its effective Connection; every other pair claims today's index generation.
     try:
+        # FEATURE (OME-1497, G0): the pair observed here is what this flow's callback claims.
+        observed = await PairAuthorityStore().read(account_id, provider)
         with refusals_as_http():
             flow = await begin_connection_oauth(
                 request.app,
@@ -605,6 +613,7 @@ async def start_oauth(
                 provider=provider,
                 name=body.name,
                 scopes=cfg.scopes,
+                observed_pair=observed,
             )
         generation = (
             None
@@ -626,6 +635,7 @@ async def start_oauth(
             redirect_uri=redirect_uri,
             oauth_generation=generation,
             pair_generation=None if flow is None else flow.generation,
+            observed_pair=observed if flow is None else None,
         ),
     )
 
@@ -821,6 +831,7 @@ async def _complete_oauth_for_app(
         except Exception:
             await _mark_oauth_completion_error(app, pending, "OAuth code exchange failed", state)
             raise
+        published: PairAuthority | None = None
         if pending.pair_generation is not None:
             await _publish_migrated_oauth(app, plugin, pending, creds, state)
         elif pending.connection_id is None:
@@ -830,7 +841,9 @@ async def _complete_oauth_for_app(
                 # publication is atomic. The always-present account index row is mutated first,
                 # matching API-key set/delete's lock order; the optional credential row follows.
                 # The generation CAS rejects stale callbacks before they can write credentials.
+                # INVARIANT (OME-1497, G0): the pair claim precedes both — marker → index → blob.
                 async with in_transaction():
+                    published = await claim_observed(pending.observed_pair)
                     await _mark_profile_authenticated(
                         app,
                         pending,
@@ -843,7 +856,7 @@ async def _complete_oauth_for_app(
                         creds,
                         description="OAuth profile credentials",
                     )
-            except ProfileTransitionConflict as exc:
+            except (PairAuthorityConflict, ProfileTransitionConflict) as exc:
                 await _close_loopback_callback(app, state)
                 raise HTTPException(
                     status_code=409,
@@ -860,11 +873,22 @@ async def _complete_oauth_for_app(
                 raise
             _invalidate_profile_session(app, plugin, pending.account_id, pending.profile_name)
         else:
-            await _mark_profile_authenticated(app, pending, plugin, creds)
+            try:
+                # INVARIANT (OME-1497, G0): a native callback holds the pair its start published
+                # while the compat document moves; it claims the pair only in the transaction that
+                # activates the Connection, so a failed activation advances nothing (§5.3).
+                async with in_transaction():
+                    await hold_observed(pending.observed_pair)
+                    await _mark_profile_authenticated(app, pending, plugin, creds)
+            except PairAuthorityConflict as exc:
+                await _close_loopback_callback(app, state)
+                raise _connection_conflict(pending) from exc
         if pending.pair_generation is None:
             # D14: the shadow Connection write is today's behaviour for a pair the legacy Profile
             # owns; a MIGRATED pair's effective Connection IS the Connection.
-            await _record_oauth_connection_completion(app, pending, plugin, creds)
+            await _record_oauth_connection_completion(
+                app, pending, plugin, creds, published=published
+            )
         await _close_loopback_callback(app, state)
     except asyncio.CancelledError:
         # INVARIANT (OME-307 Blocker 5): a callback cancellation must never strand the profile
@@ -1061,6 +1085,8 @@ async def _record_oauth_connection_completion(
     pending: PendingAuthEntry,
     plugin,
     creds: dict,
+    *,
+    published: PairAuthority | None = None,
 ) -> None:
     store = OAuthConnectionStore()
     if not _plugin_extracts_identity(plugin) and pending.connection_id is None:
@@ -1084,6 +1110,14 @@ async def _record_oauth_connection_completion(
         # optional credential row. The pending-only CAS and credential write commit together, so
         # a concurrent DELETE wins without credential orphaning or stale-row resurrection.
         async with in_transaction():
+            if pending.connection_id is not None:
+                # INVARIANT (OME-1497, G0 §5.3): check and publication are atomic — the native
+                # claim commits with the activated row and its blob, or not at all.
+                await claim_observed(pending.observed_pair)
+            elif published is not None:
+                # INVARIANT (OME-1497, G0 D14 refinement): the shadow records the credential this
+                # callback published only while the pair still stands where it was published.
+                await hold_pair(published)
             activated = await store.complete_pending(connection, label=label, identity=identity)
             if activated is None:
                 raise HTTPException(
@@ -1101,6 +1135,13 @@ async def _record_oauth_connection_completion(
                 str(activated.id),
                 creds,
             )
+    except PairAuthorityConflict as exc:
+        if pending.connection_id is not None:
+            raise _connection_conflict(pending) from exc
+        # WHY no error for a shadow: the Profile publication committed while this flow owned the
+        # pair; a later ownership change superseded it, so the shadow row retires without a blob.
+        await store.mark_revoked(connection, "superseded")
+        return
     except IntegrityError as exc:
         await store.mark_revoked(connection, "connection_conflict")
         raise HTTPException(
@@ -1121,6 +1162,13 @@ async def _record_oauth_connection_completion(
                 "message": "Could not activate OAuth connection. Try again.",
             },
         ) from exc
+
+
+def _connection_conflict(pending: PendingAuthEntry) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={"code": "connection_conflict", "provider": pending.provider},
+    )
 
 
 def _plugin_extracts_identity(plugin) -> bool:

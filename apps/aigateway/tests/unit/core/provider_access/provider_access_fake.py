@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 from uuid import UUID, uuid4
 
+from aigateway.core.credential_blob import DispatchObservation, OperationalOutcome
 from aigateway.core.oauth.store import credential_key_for
 from aigateway.core.profile_models import (
     AuthMode,
@@ -210,6 +211,12 @@ class FakeProviderAccess:
             auth_type=target.auth_type,
         )
 
+    async def begin_dispatch(
+        self, target: CredentialTarget, *, plugin: Any, provider: str
+    ) -> DispatchObservation | None:
+        del target, plugin, provider
+        return None
+
     async def record_dispatch_failure(
         self, target: CredentialTarget, status: int, detail: Any, *, plugin: Any
     ) -> dict[str, Any] | None:
@@ -228,6 +235,18 @@ class FakeProviderAccess:
             "message": body.get("message", str(detail)),
             "reauth_url": body.get("reauth_url", target.reauth_url),
         }
+
+    async def record_dispatch_outcome(
+        self,
+        target: CredentialTarget,
+        observation: DispatchObservation,
+        outcome: OperationalOutcome,
+        detail: Any,
+        *,
+        plugin: Any,
+    ) -> dict[str, Any] | None:
+        del target, observation, outcome, detail, plugin
+        return None
 
     async def availability(self, account_id: str) -> tuple[AvailabilityRow, ...]:
         states: dict[str, set[str]] = {}

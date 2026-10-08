@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import (
@@ -68,6 +68,9 @@ class CandidateScore:
     # HealthBench's official penalty-bearing result can be negative.
     score: float
     metrics: dict[str, Any]
+    # FEATURE (OME-1268): the Named Score columns, each averaged over the same Cases as
+    # `score`, headline first. Empty for every single-scorer Benchmark.
+    scores: dict[str, float | None] = field(default_factory=dict)
 
 
 Scorer = Callable[[Sequence[CaseResult]], CandidateScore]
@@ -151,6 +154,7 @@ def finalize_candidate_result(
         cases=typed_cases,
         failures=typed_failures,
         inverted_grade=inverted_grade,
+        scores=scored.scores if scored is not None else {},
     )
     reconcile_candidate_grading_accounting(result)
     return result

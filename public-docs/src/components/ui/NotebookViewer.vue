@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import { useHighlight } from '@/composables/useHighlight'
+import { trackCodeCopy } from '@/lib/analytics'
 import {
   type Notebook,
   type NbCell,
@@ -134,6 +135,7 @@ let copyTimer: ReturnType<typeof setTimeout> | undefined
 async function copyCell(id: number, code: string) {
   try {
     await navigator.clipboard?.writeText(code)
+    trackCodeCopy()
     copiedId.value = id
     clearTimeout(copyTimer)
     copyTimer = setTimeout(() => (copiedId.value = null), 1500)

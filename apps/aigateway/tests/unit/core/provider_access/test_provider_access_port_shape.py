@@ -22,8 +22,10 @@ from aigateway.core.provider_access import (
     ProfileBackedProviderAccess,
     ProviderAccess,
     ProviderCredentialAdmin,
+    ProviderOperationalAccess,
     Selector,
     UnsupportedAuthMode,
+    operational_access_for,
 )
 
 KW = Parameter.KEYWORD_ONLY
@@ -79,6 +81,54 @@ def test_record_dispatch_failure_takes_status_and_detail_then_the_plugin_by_keyw
         ("plugin", KW),
     ]
     assert params["status"].annotation is int
+
+
+def test_dispatch_observation_operations_keep_provider_context_keyword_only() -> None:
+    declared = {
+        name
+        for name, member in vars(ProviderOperationalAccess).items()
+        if callable(member) and not name.startswith("_")
+    }
+    assert declared == {"begin_dispatch", "record_dispatch_outcome"}
+
+    begin = _params(ProviderOperationalAccess.begin_dispatch)
+    assert [(p.name, p.kind) for p in begin.values()] == [
+        ("target", POS),
+        ("plugin", KW),
+        ("provider", KW),
+    ]
+
+    record = _params(ProviderOperationalAccess.record_dispatch_outcome)
+    assert [(p.name, p.kind) for p in record.values()] == [
+        ("target", POS),
+        ("observation", POS),
+        ("outcome", POS),
+        ("detail", POS),
+        ("plugin", KW),
+    ]
+
+
+def test_stable_port_substitute_does_not_claim_the_optional_outcome_capability() -> None:
+    legacy = SimpleNamespace(
+        defaults_for=lambda: None,
+        resolve=lambda: None,
+        auth_mode=lambda: None,
+        contract_auth_mode=lambda: None,
+        authorize=lambda: None,
+        record_dispatch_failure=lambda: None,
+        availability=lambda: None,
+    )
+    app = SimpleNamespace(state=SimpleNamespace(provider_access=legacy))
+
+    assert isinstance(legacy, ProviderAccess)
+    assert operational_access_for(app) is None
+
+
+def test_both_witnesses_expose_the_optional_outcome_capability() -> None:
+    app = SimpleNamespace(state=SimpleNamespace())
+
+    assert isinstance(FakeProviderAccess(), ProviderOperationalAccess)
+    assert isinstance(ProfileBackedProviderAccess(app), ProviderOperationalAccess)
 
 
 def test_availability_is_account_scoped_and_returns_rows_only() -> None:

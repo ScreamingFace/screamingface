@@ -101,10 +101,42 @@ def scoreboard_seed_json(benchmarks: Iterable[BenchmarkDefinition]) -> str:
                     if (dataset_url := getattr(benchmark, "dataset_url", None))
                     else {}
                 ),
+                # OME-1455: the provenance block and the verdict, in the board's SEED-ROW
+                # shape (one `provenance` object, `saturation` beside it) — not the flat keys
+                # the Engine's HTTP catalogue serves. The deployed board cuts the block off the
+                # flat keys itself; this JSON goes straight to the board's seed-row parser,
+                # which forbids unknown keys, so a flat key here would refuse the whole local
+                # seed at boot (review finding on PR 1236).
+                **_provenance_seed_fields(benchmark),
             }
             for benchmark in benchmarks
         ]
     )
+
+
+def _provenance_seed_fields(benchmark: BenchmarkDefinition) -> dict[str, object]:
+    """The provenance block and the verdict of one definition, read off its catalogue entry.
+
+    The keys come from the SDK's catalogue decoder, so this twin never re-derives a verdict,
+    re-types a link, or keeps a key list of its own. None of either when the definition has
+    no catalogue entry (a bare stub), and no `provenance` when the entry carries no key.
+    """
+
+    from screamingface._engine.catalog_contract import PROVENANCE_KEYS
+
+    entry = getattr(benchmark, "catalog_entry", None)
+    if not callable(entry):
+        return {}
+    served = entry()
+    if not isinstance(served, dict):
+        return {}
+    fields: dict[str, object] = {}
+    block: dict[str, object] = {key: served[key] for key in PROVENANCE_KEYS if key in served}
+    if block:
+        fields["provenance"] = block
+    if isinstance(served.get("saturation"), str):
+        fields["saturation"] = served["saturation"]
+    return fields
 
 
 __all__: list[str] = []

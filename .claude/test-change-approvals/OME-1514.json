@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1514",
+  "branch": "OME-1514-about-leaderboard-page",
+  "approver": "Irina Bejan (owner)",
+  "date": "2026-10-07",
+  "scope": "portal static-asset guards only: test_portal_static.py. Covers the full origin/main -> this-branch transition, which includes OME-1512's owner-approved edits plus this branch's purely-additive About-page test. No behaviour assertions weakened.",
+  "reason": "This branch is stacked on OME-1512; measured against origin/main the file carries OME-1512's structure/copy changes (already owner-approved under OME-1512) plus a new additive test_about_page_* function. Pinning the end-state blob lets the gate pass against either base.",
+  "files": {
+    "apps/scoreboard/tests/unit/test_portal_static.py": {
+      "base_blob": "3393c17ed360074b8d6813ba08dd5dd5a51dc166",
+      "approved_blob": "e25036fe6aaad2b75dbe0b4ea7e239ac60977e9f"
+    }
+  }
+}

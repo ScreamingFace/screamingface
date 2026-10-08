@@ -1,9 +1,8 @@
 """The generated code of a Task-replay import: its declaration and its BenchmarkSpec row.
 
-FEATURE: Task-replay Imported Benchmarks (OME-1273, spec R6). The Hugging Face importer
-writes three rows (pins, CasesSpec, BenchmarkSpec); a Task-replay import writes two, because
-it has no dataset pin: a ``TaskReplayCasesSpec`` entry in ``prepare.py`` and the usual
-``BenchmarkSpec`` row in ``benchmarks.py``.
+FEATURE: Imported Benchmarks (OME-1273, spec R6; the only import path since OME-1460). An
+import writes two rows: a ``TaskReplayCasesSpec`` entry in ``prepare.py`` (its Hub commits,
+seeds and seal) and the usual ``BenchmarkSpec`` row in ``benchmarks.py``.
 
 Think of it as filing the sealed booklet: the label on the envelope (Case count, Case Digest)
 is CAPTURED, so code enforces it; the note clipped to it (the Case Sources) is COPIED, so a
@@ -40,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine_inspect.case_sources import HUGGING_FACE, CaseSource
+from screamingface_engine_inspect.fetch_pins import is_commit_sha
 from screamingface_engine_inspect.import_replay import TaskReplayFacts, TaskReplayImport
 from screamingface_engine_inspect.importer import (
     _BENCHMARKS_ANCHOR,
@@ -49,7 +49,6 @@ from screamingface_engine_inspect.importer import (
     ImporterError,
     _is_judged_by,
     _is_literal,
-    _pin_prefix,
     _python_literal_source,
     _refuse_existing_rows,
     _scorer_lines,
@@ -57,6 +56,7 @@ from screamingface_engine_inspect.importer import (
     _write_verified_python,
 )
 from screamingface_engine_inspect.prepare import LICENSE_TODO, TaskReplayCasesSpec
+from screamingface_engine_inspect.provenance_facts import ProvenanceFacts, provenance_row_lines
 
 #: The anchor generated TaskReplayCasesSpec entries land above, inside TASK_REPLAY_CASES.
 _TASK_REPLAY_CASES_ANCHOR: str = (
@@ -65,6 +65,8 @@ _TASK_REPLAY_CASES_ANCHOR: str = (
 #: What a Case Source may hold to land in a generated comment. URLs carry ? = & % (sad's
 #: `structs.zip?ref=…`); a quote, a backslash or a newline could escape, and stays refused.
 _CASE_SOURCE_CHARSET: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._:/\-?=&%+#~@ ]*\Z")
+#: What a Hub repo id may hold to land as a source_pins key (OME-1460).
+_HUB_REPO_CHARSET: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._\-/]+\Z")
 
 
 @dataclass(frozen=True)
@@ -76,7 +78,12 @@ class TaskReplayRows:
 
 
 def render_task_replay_rows(
-    key: str, imported: TaskReplayImport, license: str, *, card_license: str | None = None
+    key: str,
+    imported: TaskReplayImport,
+    license: str,
+    *,
+    card_license: str | None = None,
+    provenance: ProvenanceFacts | None = None,
 ) -> TaskReplayRows:
     """Stages 2 to 4 — render a Task-replay declaration and its BenchmarkSpec row (spec R6).
 
@@ -96,7 +103,7 @@ def render_task_replay_rows(
 
     _refuse_injectable_import(imported, license, card_license)
     cases: str = "\n".join(_declaration_lines(key, imported, license, card_license)) + "\n"
-    benchmark: str = "\n".join(_benchmark_row_lines(key, imported, license)) + "\n"
+    benchmark: str = "\n".join(_benchmark_row_lines(key, imported, license, provenance)) + "\n"
     return TaskReplayRows(cases=cases, benchmark=benchmark)
 
 
@@ -107,6 +114,7 @@ def write_task_replay_rows(
     engine_src: Path,
     license: str,
     card_license: str | None = None,
+    provenance: ProvenanceFacts | None = None,
 ) -> TaskReplayRows:
     """Stages 1 to 5 — insert a Task-replay import's two rows into prepare.py and benchmarks.py.
 
@@ -127,11 +135,13 @@ def write_task_replay_rows(
 
     prepare_path: Path = engine_src / "prepare.py"
     benchmarks_path: Path = engine_src / "benchmarks.py"
-    texts: dict[Path, str] = {path: path.read_text() for path in (prepare_path, benchmarks_path)}
+    texts: dict[Path, str] = {
+        path: path.read_text(encoding="utf-8") for path in (prepare_path, benchmarks_path)
+    }
     # Stage 1
-    _refuse_existing_rows(key, _pin_prefix(key), texts)
+    _refuse_existing_rows(key, texts)
     rows: TaskReplayRows = render_task_replay_rows(
-        key, imported, license, card_license=card_license
+        key, imported, license, card_license=card_license, provenance=provenance
     )
     # Stage 5 — compose both files before writing either.
     new_texts: dict[Path, str] = {
@@ -156,14 +166,19 @@ def _refuse_injectable_import(
     references: list[str | None] = [
         declaration.task,
         imported.facts.scorer,
-        *(declaration.excluded_sample_ids or ()),
+        *imported.facts.extra_scorers,
+        *imported.facts.named_scores,
+        *imported.facts.dropped_scorers,
+        *imported.facts.dropped_metrics,
     ]
     # WHY a looser rule for these: they land only inside comments; only a line break or
     # another control character could end the comment and start code.
-    for text in imported.facts.custom_metrics:
+    # WHY printable only for the excluded ids: each lands inside a JSON string literal, which
+    # escapes every quote, backslash and line break; onet_m6's ids are Thai (OME-1460).
+    for text in (*imported.facts.custom_metrics, *(declaration.excluded_sample_ids or ())):
         if not text.isprintable():
             raise ImporterError(
-                f"{text!r} cannot be written into a generated comment — refusing (injection guard)"
+                f"{text!r} cannot be written into generated code — refusing (injection guard)"
             )
     texts: list[tuple[str, re.Pattern[str]]] = [
         *((value, _REFERENCE_CHARSET) for value in references if value is not None),
@@ -178,6 +193,13 @@ def _refuse_injectable_import(
         if not charset.match(text):
             raise ImporterError(
                 f"{text!r} cannot be written into generated code — refusing (injection guard)"
+            )
+    for repo_id, commit in declaration.source_pins.items():
+        # WHY: a repo id comes from the eval's own call, a commit from the Hub's answer.
+        if not _HUB_REPO_CHARSET.match(repo_id) or not is_commit_sha(commit):
+            raise ImporterError(
+                f"source pin {repo_id!r}: {commit!r} cannot be written into generated code "
+                "— refusing (injection guard)"
             )
     if declaration.task_args is not None and not _is_literal(declaration.task_args):
         raise ImporterError(
@@ -205,6 +227,9 @@ def _declaration_lines(
         lines.append(f"        task_args={_python_literal_source(declaration.task_args)},")
     lines.append(f"        case_count={declaration.case_count},")
     lines.append(f'        case_digest="{declaration.case_digest}",')
+    if declaration.case_set_digest is not None:
+        # OME-1492: the order-blind seal, so a later broken seal can say "order only".
+        lines.append(f'        case_set_digest="{declaration.case_set_digest}",')
     if declaration.keep_sample_metadata:
         # WHY written: the metadata is inside the Case Digest, so the row must say so (D11).
         lines.append("        keep_sample_metadata=True,")
@@ -213,8 +238,31 @@ def _declaration_lines(
         lines.append("        has_answer_key=False,")
     if declaration.excluded_sample_ids:
         lines.extend(_excluded_id_lines(declaration.excluded_sample_ids))
+    lines.extend(_fetch_pin_lines(declaration))
     lines.extend(_license_lines(license, card_license))
     lines.append("    ),")
+    return lines
+
+
+def _fetch_pin_lines(declaration: TaskReplayCasesSpec) -> list[str]:
+    """What every build forces onto the eval's fetches (OME-1460): the Hub commits, the
+    seeds, and the gate. Written only when set, so a URL-only row reads as before."""
+
+    lines: list[str] = []
+    if declaration.source_pins:
+        # WHY written: every image build forces these commits; they ride identity (R7).
+        lines.append("        source_pins={")
+        lines.extend(
+            f"            {json.dumps(repo_id)}: {json.dumps(commit)},"
+            for repo_id, commit in sorted(declaration.source_pins.items())
+        )
+        lines.append("        },")
+    if declaration.shuffle_seed is not None:
+        lines.append(f"        shuffle_seed={declaration.shuffle_seed},")
+    if declaration.choice_shuffle_seed is not None:
+        lines.append(f"        choice_shuffle_seed={declaration.choice_shuffle_seed},")
+    if declaration.needs_hf_token:
+        lines.append("        needs_hf_token=True,")
     return lines
 
 
@@ -225,7 +273,10 @@ def _excluded_id_lines(excluded_ids: tuple[str, ...]) -> list[str]:
         "        # NAMED DEVIATION — TODO(review): say why upstream's Samples",
         "        # below are left out.",
         "        excluded_sample_ids=(",
-        *(f"            {json.dumps(sample_id)}," for sample_id in excluded_ids),
+        *(
+            f"            {json.dumps(sample_id, ensure_ascii=False)},"
+            for sample_id in excluded_ids
+        ),
         "        ),",
     ]
 
@@ -255,7 +306,12 @@ def _license_lines(license: str, card_license: str | None) -> list[str]:
     return lines
 
 
-def _benchmark_row_lines(key: str, imported: TaskReplayImport, license: str) -> list[str]:
+def _benchmark_row_lines(
+    key: str,
+    imported: TaskReplayImport,
+    license: str,
+    provenance: ProvenanceFacts | None = None,
+) -> list[str]:
     """Stage 4 — the BenchmarkSpec row: prose as TODOs, the first browsable source as URL."""
 
     facts: TaskReplayFacts = imported.facts
@@ -288,6 +344,10 @@ def _benchmark_row_lines(key: str, imported: TaskReplayImport, license: str) -> 
             f"        # License: {license}.",
         ]
     )
+    if provenance is not None:
+        # Benchmark Provenance (OME-1455): the licence is the one decided above (a cleared
+        # value or TODO), not re-read from a card.
+        lines.extend(provenance_row_lines(provenance, license, CLEARED_DATASET_LICENSES))
     lines.extend(
         _scorer_lines(
             facts.scorer,
@@ -295,6 +355,11 @@ def _benchmark_row_lines(key: str, imported: TaskReplayImport, license: str) -> 
             facts.custom_metrics,
             facts.mcq,
             _is_judged_by(facts.scorer, facts.scorer_kwargs),
+            extra_scorers=facts.extra_scorers,
+            named_scores=facts.named_scores,
+            dropped_scorers=facts.dropped_scorers,
+            headline_differs=facts.headline_differs,
+            dropped_metrics=facts.dropped_metrics,
         )
     )
     lines.append("    ),")
@@ -348,7 +413,7 @@ def _card_license_text(
 ) -> str | None:
     """The card's license at the source's revision, lowercased; None when the card has none.
 
-    Read the way read_hub_dataset_facts reads it: a list of licenses is joined.
+    A list of licenses is joined.
     """
 
     revision: str | None = (

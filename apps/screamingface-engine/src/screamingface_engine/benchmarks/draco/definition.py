@@ -45,6 +45,7 @@ from screamingface_engine.benchmarks.draco.variant import (
     RETRIEVAL_POLICY_ID,
     draco_benchmark,
 )
+from screamingface_engine.benchmarks.provenance import FrontierScore, NotPublished
 
 # Both benchmarks replay the same 100 DRACO tasks over the same public dataset; they differ only in
 # how many times each answer is judged.
@@ -66,6 +67,41 @@ CANONICAL_VARIANT, DRACO = draco_benchmark(
     difficulty="hard",
     focus="Research reports with citations",
     dataset_url=DRACO_DATASET_URL,
+    # Benchmark Provenance (OME-1455); sources in the PR 3 table.
+    paper_url="https://arxiv.org/abs/2602.11685",
+    authors="Zhong et al., 2026",
+    citation=(
+        "@misc{zhong2026dracocrossdomainbenchmarkdeep,\n"
+        "      title={DRACO: a Cross-Domain Benchmark for Deep Research Accuracy, Com"
+        "pleteness, and Objectivity}, \n"
+        "      author={Joey Zhong and Hao Zhang and Clare Southern and Jeremy Yang an"
+        "d Thomas Wang and Kate Jung and Shu Zhang and Denis Yarats and Johnny Ho and"
+        " Jerry Ma},\n"
+        "      year={2026},\n"
+        "      eprint={2602.11685},\n"
+        "      archivePrefix={arXiv},\n"
+        "      primaryClass={cs.LG},\n"
+        "      url={https://arxiv.org/abs/2602.11685}, \n"
+        "}"
+    ),
+    harness_url=(
+        "https://huggingface.co/datasets/perplexity-ai/draco/tree/ce076749809027649ebd331bcb70f42bf720d387"
+    ),
+    license="MIT",
+    license_note=(
+        "perplexity-ai/draco dataset card. The GitHub repo the docstring cites as protocol "
+        "authority is not public, so the harness link is the dataset repo (rubrics and tasks) at "
+        "the pinned revision."
+    ),
+    human_baseline=NotPublished(reason="the DRACO paper reports no human study"),
+    # Frontier score: DRACO score, five judge passes, agentic deep research with retrieval.
+    frontier_score=FrontierScore(
+        score=0.705,
+        model="Perplexity Deep Research (Claude Opus 4.6)",
+        source_url="https://arxiv.org/abs/2602.11685",
+        as_of="2026-02",
+    ),
+    notebook="06_draco",
 )
 
 # ── Benchmark 2 — the three-pass cache-seeded replay ────────────────────────────────────
@@ -89,6 +125,41 @@ THREE_PASS_VARIANT, DRACO_3PASS = draco_benchmark(
     focus="Research reports, three judge passes",
     dataset_url=DRACO_DATASET_URL,
     protocol_revision="three-pass-reproduction-v1",
+    # Benchmark Provenance (OME-1455); sources in the PR 3 table.
+    paper_url="https://arxiv.org/abs/2602.11685",
+    authors="Zhong et al., 2026",
+    citation=(
+        "@misc{zhong2026dracocrossdomainbenchmarkdeep,\n"
+        "      title={DRACO: a Cross-Domain Benchmark for Deep Research Accuracy, Com"
+        "pleteness, and Objectivity}, \n"
+        "      author={Joey Zhong and Hao Zhang and Clare Southern and Jeremy Yang an"
+        "d Thomas Wang and Kate Jung and Shu Zhang and Denis Yarats and Johnny Ho and"
+        " Jerry Ma},\n"
+        "      year={2026},\n"
+        "      eprint={2602.11685},\n"
+        "      archivePrefix={arXiv},\n"
+        "      primaryClass={cs.LG},\n"
+        "      url={https://arxiv.org/abs/2602.11685}, \n"
+        "}"
+    ),
+    harness_url=(
+        "https://huggingface.co/datasets/perplexity-ai/draco/tree/ce076749809027649ebd331bcb70f42bf720d387"
+    ),
+    license="MIT",
+    license_note=(
+        "perplexity-ai/draco dataset card. The GitHub repo the docstring cites as protocol "
+        "authority is not public, so the harness link is the dataset repo (rubrics and tasks) at "
+        "the pinned revision."
+    ),
+    human_baseline=NotPublished(reason="the DRACO paper reports no human study"),
+    # Frontier score: DRACO score, five judge passes, agentic deep research with retrieval.
+    frontier_score=FrontierScore(
+        score=0.705,
+        model="Perplexity Deep Research (Claude Opus 4.6)",
+        source_url="https://arxiv.org/abs/2602.11685",
+        as_of="2026-02",
+    ),
+    notebook="06_draco",
 )
 
 # ── canonical aliases (kept for the runtime and the tests that import them) ─────────

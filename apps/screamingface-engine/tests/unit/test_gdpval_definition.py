@@ -115,11 +115,12 @@ def test_a_partial_run_slices_without_changing_the_address() -> None:
     assert five != full
 
 
+# AIDEV-NOTE (OME-1513): the name is frozen by the test-change rule; what it checks now is that
+# the offer is OFF — Draft Feedback is a per-Benchmark owner decision (owner rule 2026-10-07),
+# and today only IFEval carries one. The check-surface route is still served, not advertised.
 def test_the_check_surface_declares_a_paid_cost() -> None:
-    # WHY: every check is a judge call over the case rubric — the loop's cost is real and the
-    # client must be told before any paid work starts.
-    assert GDPVAL_TEXT.check_surface is not None
-    assert GDPVAL_TEXT.check_surface.expected_check_cost == "paid"
+    assert GDPVAL_TEXT.check_surface is None
+    assert "check_surface" not in GDPVAL_TEXT.resource(limit=1)
 
 
 def test_the_description_discloses_both_deviations() -> None:

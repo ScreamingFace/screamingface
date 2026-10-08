@@ -1,13 +1,13 @@
 ---
 id: OME-1268
 linear_url: https://linear.app/openmined/issue/OME-1268/multi-scorers-benchmarks
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [screamingface-engine, human]
 parent: OME-1299
 created: 2026-09-23
-closed:
+closed: 2026-10-07
 ---
 
 # Multi scorers benchmarks
@@ -30,3 +30,22 @@ truncated. The field is absent on every single-scorer Benchmark, so no published
   plan `docs/plan/2026-10-05-OME-1268-multi-score-benchmarks.md`, glossary entries Headline
   Score and Named Score, ledger `docs/work/2026-10-02-multi-score-boards.md`). The docs PR is
   #1235 (PR 1 of 5); code PRs 2–5 follow the plan, SDK first; the last one closes this ticket.
+- 2026-10-06: PR 2 of 5 opened, #1248 (branch `OME-1268-sdk-named-scores`, ledger
+  `docs/work/2026-10-06-ome-1268-sdk-named-scores.md`): the SDK decodes, exports and shows
+  Named Scores. Needs the owner's `--skip-append-only` for the regenerated public-surface
+  snapshot. Release this SDK before deploying PR 3's Engine.
+- 2026-10-06: PR 3 of 5 opened, #1249 (branch `OME-1268-engine-named-scores`, stacked on
+  #1248; ledger `docs/work/2026-10-06-ome-1268-engine-named-scores.md`): the Engine spine
+  carries Named Scores; no importer change, no new Benchmark, every published Revision unchanged.
+- 2026-10-06: PR 4 of 5 opened, #1250 (branch `OME-1268-importer-named-scores`, stacked on
+  #1249; ledger `docs/work/2026-10-06-ome-1268-importer-named-scores.md`): the importer keeps
+  every conservable scorer, drops a judged one by name, refuses a formula headline by name, and
+  Case Preparation accepts a list of accepted answers. Rebuilt 2026-10-07 on the Task-replay
+  path after OME-1460 removed the Hugging Face reader; no prior test changed. No Benchmark
+  row lands; PR 5 imports MATH and SQuAD.
+- 2026-10-06: PR 5 of 5 opened, #1251 (branch `OME-1268-math-squad`, stacked on #1250;
+  ledger `docs/work/2026-10-06-ome-1268-math-squad.md`): MATH (5,000 Cases, two of three
+  scorers, `expression_equivalance` dropped by name) and SQuAD 2.0 (11,873 Cases, f1 headline,
+  exact beside it) imported with Named Scores; `sympy` joins the Engine's `inspect` extra
+  (owner decision). Rebuilt 2026-10-07 by Task replay after OME-1460, with OME-1455 Benchmark
+  Provenance filled. This PR closes the ticket; the paid smoke of each row is the owner's.

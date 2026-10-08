@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first re-plan; no execution, task or publication approval is inferred
 created: 2026-09-09
-updated: 2026-10-01
+updated: 2026-10-06
 spec: ../spec/2026-09-09-OME-1138-converge-connections.md
 ---
 
@@ -222,7 +222,7 @@ the tooling retirement list.
 | D4 date, D12 → G5b | **closed for reject activation:** selector contract and rollback floor decided; Engine producer-off merged as PR #1082 (`df6e9b92`); census/drain precondition waived with accepted alpha-canary risk and no zero-count claim; Gateway rejection merged as PR #1114 (`3083640b`). Guidance cleanup merged as PR #1210 (`57e78d71`); S6/S9 carrier deletion is the coordinated `OME-1449`/`OME-1450` follow-up. |
 | D6 → G6 | retention fulfilled; reference-safe cleanup proven; deletion approved |
 | D13, M0 | catalog write/version handling resolved; successor protocols decided for `X-Profile` removal; only then `--write` — **D13/M0 closed 2026-09-25:** version bump of the existing cards, no successor protocols (`OME-1380`, merged `3ba6a3d`) |
-| D18 | admin successor timing and shape (may wait for D11) |
+| D18 | **contract decided 2026-10-05 (`OME-1375`):** `docs/spec/2026-10-02-provider-credential-admin-contract.md` and its plan; landings filed 2026-10-06 under `OME-1138`: Gateway `OME-1497` (G0 writer floor, then G1 successor) and Admin UI `OME-1498` (S7, blocked by `OME-1497`); `OME-1209` is blocked by `OME-1498` |
 
 Implementation details inside an approved contract belong to the agent. Escalate material new
 blockers as one grouped report with recommendations and continue independent authorised work.

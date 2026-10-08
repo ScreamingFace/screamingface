@@ -155,8 +155,9 @@ def _management_refusal(exc: ProviderAccessRefusal) -> HTTPException | None:
             status_code=503,
             detail={
                 "code": "credential_store_unavailable",
-                "message": f"Could not store {exc.description}. Try again.",
+                "message": f"Could not {exc.operation} {exc.description}. Try again.",
             },
+            headers={"Retry-After": "1"},
         )
     return None
 

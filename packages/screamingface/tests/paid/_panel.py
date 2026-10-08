@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import screamingface as _sf
 
 # INVARIANT: every model here must be a gateway seed (aigateway's openrouter plugin
@@ -39,6 +41,28 @@ SYNTHESIZER_MODEL: Final[str] = "openrouter/google/gemini-3-flash-preview"
 # for all of them costs nothing, and there is no list of reasoning boards to maintain.
 PANEL_PARAMS: Final[dict[str, int | float]] = {"max_tokens": 32768, "temperature": 0.0}
 
+# WHY qwen alone reasons at "low" (run 37442602029, 2026-10-06): after #1254's Task replay
+# changed inspect's shuffle, `slice=0:2` on lab_bench cloning_scenarios picks two longer DNA
+# Cases. qwen spent the whole 32768-token cap on reasoning on both (65536 reasoning tokens)
+# and wrote no answer, so both Fusion Cases died with `model_token_cap`; on 2026-10-02 the
+# old pair passed at ~15k output tokens. `reasoning_effort="low"` bounds the thinking while
+# keeping qwen a live reasoning member. Only qwen gets it: haiku and the synthesizer keep
+# PANEL_PARAMS, so only qwen's calls re-key the cache. The gateway's OpenRouter plugin
+# forwards the field verbatim (OME-993, enum low/medium/high).
+# WHY qwen alone also gets 65536 (paid run 37453343696): "low" did not stop it — one of the
+# two cloning Cases still spent all 32768 tokens on reasoning (57.8k reasoning over the pair),
+# so the board passed on 1/2 graded, one capped Case from red. 65536 is qwen3.7-flash's own
+# max_completion_tokens on OpenRouter, so there is no higher cap to fall back on.
+# INVARIANT: every other call keeps PANEL_PARAMS (32768) — `test_panel_models.py` pins it.
+MEMBER_PARAMS: Final[dict[str, Mapping[str, int | float | str]]] = {
+    "openrouter/qwen/qwen3.7-flash": {
+        **PANEL_PARAMS,
+        "max_tokens": 65536,
+        "reasoning_effort": "low",
+    },
+    "openrouter/anthropic/claude-haiku-4.5": PANEL_PARAMS,
+}
+
 # WHY board-agnostic wording: one panel serves every imported board (math, MCQ,
 # yes/no, free-text science), so the prompt asks for reconciliation and one committed final answer
 # without assuming any answer format.
@@ -63,6 +87,6 @@ def fusion_panel() -> _sf.Fusion:
 
     import screamingface as sf
 
-    members = [sf.Model(model=model, params=PANEL_PARAMS) for model in MEMBER_MODELS]
+    members = [sf.Model(model=model, params=MEMBER_PARAMS[model]) for model in MEMBER_MODELS]
     synthesizer = sf.Model(model=SYNTHESIZER_MODEL, params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT)
     return sf.Fusion(name="paid_smoke_panel", members=members, synthesizer=synthesizer)

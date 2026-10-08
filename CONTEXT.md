@@ -227,13 +227,26 @@ The sha256 of an Imported Benchmark's prepared Cases, fixed at import and checke
 Preparation. A different digest means different Cases, so none are served.
 _Avoid_: Snapshot hash, checksum
 
+**Case Set Digest**:
+A second sha256 of an Imported Benchmark's prepared Cases, taken with their order ignored and
+stored beside the Case Digest. It is only read when the Case Digest breaks, to say whether the
+same Cases came back in another order or their text changed. It is not part of the Benchmark
+Revision.
+_Avoid_: Order-blind seal, multiset hash
+
+**Bundle Provenance**:
+The label Case Preparation writes beside a Benchmark's prepared Cases (`provenance.json`): the Case
+Sources it read with their pins, any seed it forced, how many Samples it loaded, excluded and
+kept, the Inspect versions, and how long it took. It never holds a Case's text. It says how one
+image build filled the Benchmark; Benchmark Provenance says where the Benchmark itself comes from.
+_Avoid_: Provenance alone, build metadata
+
 **Task replay**:
 Calling an eval's own task function in a child process with empty caches, so it fetches its
 Cases the way inspect would, then running the Task's own solvers on each Sample up to their
 first model call, where a stand-in records the prompt instead (capture). It never calls
-inspect's `eval()`: no model, scorer or Judge runs. The importer uses it when it cannot read
-the Case Sources off the task file, and Case Preparation uses it again at every image build,
-checking the Case Digest.
+inspect's `eval()`: no model, scorer or Judge runs. The importer uses it for every Imported
+Benchmark, and Case Preparation uses it again at every image build, checking the Case Digest.
 _Avoid_: Running the eval, replaying the evaluation, replay alone
 
 **Coverage**:
@@ -249,7 +262,7 @@ _Avoid_: Error handling
 The external evaluation framework (`inspect_ai`, with its eval catalogue `inspect_evals`) that
 Imported Benchmarks come from. A name that starts with `inspect` means it touches that framework:
 the `screamingface_engine_inspect` plugin, `inspect-<key>` Benchmark ids, the `inspect` install
-extra, `InspectTaskFacts`, `read_inspect_task`, `inspect_grade_case`.
+extra, `inspect_grade_case`.
 Inspect's own words name only inspect's own objects, in the plugin code that calls inspect.
 Everywhere else, including our own concepts inside the plugin, use our word:
 - inspect Task (`@task`): one eval definition (dataset, solver, scorer) → the eval an Imported
@@ -302,9 +315,9 @@ _Avoid_: Sub-score, secondary metric, extra metric
 
 **Benchmark Provenance**:
 What says where a Benchmark comes from: its paper with the authors and a citation, the links to
-its website, harness, dataset and licence (with any restriction on it), and the contributors who
-brought it to ScreamingFace (plus, for an Imported Benchmark, the people who ported it into
-Inspect). The harness link is always the original upstream code that produced the paper's
+its website, harness, dataset and licence (with any restriction on it) and, for an Imported
+Benchmark, the people who ported it into Inspect. Who typed the row into ScreamingFace is not
+part of it: git holds that. The harness link is always the original upstream code that produced the paper's
 numbers, pinned to a commit or version tag, never ScreamingFace's own translation of it. None of
 it is part of the Benchmark Revision: a link or a baseline says nothing about which Cases are
 asked or how they are graded.

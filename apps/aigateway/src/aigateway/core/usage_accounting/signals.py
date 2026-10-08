@@ -24,6 +24,7 @@ class AccountingSignalTarget(Protocol):
         status: object,
         raw_evidence: dict[str, Any] | None,
         body_completed: bool = True,
+        evidence_complete: bool = True,
     ) -> None: ...
 
     def on_send_admitted(self, request: object) -> None: ...
