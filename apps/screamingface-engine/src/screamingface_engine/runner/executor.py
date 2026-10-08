@@ -30,13 +30,20 @@ from screamingface_engine.artifacts import (
     decide_result_delivery,
 )
 from screamingface_engine.benchmarks.registry import served_routes
+from screamingface_engine.capture_outcomes import CaptureTally, capture_outcomes
 from screamingface_engine.job_env import RunShape
 from screamingface_engine.observations import bridge_loss_attributes
-from screamingface_engine.request_scope import RequestScope, request_scope
+from screamingface_engine.request_scope import (
+    RequestScope,
+    RequestScopeError,
+    current_scope,
+    request_scope,
+)
 from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCostTotals
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
 from screamingface_engine.trace_scope import bind_node_span, run_trace_scope
 from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, accumulate
+from screamingface_engine.world.connector import open_frozen_copy, seal_frozen_copy
 from screamingface_engine.world.factory import WorldFactory, direct_mount_paths
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag import run as url4_run
@@ -349,6 +356,9 @@ class _RunState:
         # per-span outcome answers "what happened to this call", while the question an operator
         # asks is about the run. Published once at the end — see `Url4Executor.execute`.
         self.cache_counters = RunCacheCounters()
+        # FEATURE: OME-1307 — replaced by the tally `_drive` binds around the run (the model calls
+        # publish into THAT one), so a state that never ran reads as a normal run.
+        self.capture_tally = CaptureTally()
         self._sum_input = 0
         self._sum_output = 0
         # WHY these three are summed as plain ints while the SPAN-level equivalents poison through
@@ -678,7 +688,26 @@ class _RunState:
         return "mixed", "mixed"
 
 
-def _closing_logs(bridge: _Bridge, counters: RunCacheCounters) -> list[Traced]:
+def _bind_frozen_copy_mode(tally: CaptureTally) -> None:
+    """Set the tally's mode from the request scope this same task is about to run under.
+
+    Read where the tally is bound, so ``capture.replay`` is stated only by an engine that actually
+    honoured the header (the SDK reads its absence as `replay_unsupported`). No scope bound means
+    a normal run.
+    """
+    try:
+        scope = current_scope()
+    except RequestScopeError:
+        return
+    if scope.replay_frozen_copy is not None:
+        tally.mode, tally.frozen_copy_id = "replay", scope.replay_frozen_copy
+    elif scope.capture:
+        tally.mode = "capture"
+
+
+def _closing_logs(
+    bridge: _Bridge, counters: RunCacheCounters, capture: CaptureTally | None = None
+) -> list[Traced]:
     """The log frames a run emits about ITSELF, after its last span and before `Completed`.
 
     All are statements about the whole run rather than about any node, so all carry
@@ -689,6 +718,7 @@ def _closing_logs(bridge: _Bridge, counters: RunCacheCounters) -> list[Traced]:
     Args:
         bridge: The run's event bridge, for its dropped count and its high-water mark.
         counters: The run's cache tallies.
+        capture: The run's frozen-copy tally; its attributes join the cache summary line.
 
     Returns:
         Only the frames that have something to say. A run that dropped nothing, never
@@ -731,12 +761,18 @@ def _closing_logs(bridge: _Bridge, counters: RunCacheCounters) -> list[Traced]:
                 span=None,
             )
         )
-    if counters.observed:
+    # FEATURE: OME-1307 — a capture or replay run ALWAYS writes the line: `capture.frozen_copy_id`
+    # and `capture.replay` must reach the client even when no call reported a cache outcome.
+    if counters.observed or (capture is not None and capture.mode is not None):
         # The run's cache summary (spec §7): hits, misses and bypasses BY REASON, which is what
         # turns "I asked for no caching and something still cached" into an answerable question.
         frames.append(
             Traced(
-                payload=LogData.at("INFO", counters.summary_body(), counters.attributes()),
+                payload=LogData.at(
+                    "INFO",
+                    counters.summary_body(),
+                    {**counters.attributes(), **(capture.attributes() if capture else {})},
+                ),
                 span=None,
             )
         )
@@ -934,8 +970,14 @@ class Url4Executor(Executor):
             # malformed scope value raising outside it would leave the consumer's `drain`
             # waiting forever on a bridge nobody closes — a run that hangs instead of failing.
             try:
-                with run_trace_scope(trace), self._scope_context():
-                    return await self._evaluate(url4, trace, bridge)
+                with (
+                    run_trace_scope(trace),
+                    self._scope_context(),
+                    capture_outcomes() as tally,
+                ):
+                    _bind_frozen_copy_mode(tally)
+                    state.capture_tally = tally
+                    return await self._evaluate_in_copy(url4, trace, bridge, tally)
             finally:
                 bridge.close()
 
@@ -945,7 +987,7 @@ class Url4Executor(Executor):
                 for frame in state.map(ev):
                     yield frame
             eval_result = await task
-            for frame in _closing_logs(bridge, state.cache_counters):
+            for frame in _closing_logs(bridge, state.cache_counters, state.capture_tally):
                 yield frame
             # WHY to_thread: for a spilled result this hashes and writes up to hard_cap
             # bytes — synchronous disk work that would otherwise stall the very loop that
@@ -973,6 +1015,30 @@ class Url4Executor(Executor):
                     await task
             elif not task.cancelled():
                 task.exception()
+
+    async def _evaluate_in_copy(
+        self, url4: str, trace: TraceContext | None, bridge: _Bridge, tally: CaptureTally
+    ) -> _EvalResult:
+        """Run the run's work, in a capture run between the opening and the sealing of its copy.
+
+        FEATURE: OME-1307 (design §5.2). A copy that cannot open leaves the run to go on uncaptured
+        and partial. The copy is sealed after the steps, also when they failed, so a failed run
+        leaves a replayable copy; it is NEVER sealed after a cancellation — a cancelled run is
+        partial and its copy stays open, which a replay refuses.
+        """
+        if tally.mode != "capture":
+            return await self._evaluate(url4, trace, bridge)
+        tally.frozen_copy_id = await open_frozen_copy(self._node)
+        tally.open_failed = tally.frozen_copy_id is None
+        cancelled = False
+        try:
+            return await self._evaluate(url4, trace, bridge)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+        finally:
+            if tally.frozen_copy_id is not None and not cancelled:
+                tally.seal_failed = not await seal_frozen_copy(self._node, tally.frozen_copy_id)
 
     async def _evaluate(
         self, url4: str, trace: TraceContext | None, bridge: _Bridge
@@ -1066,7 +1132,11 @@ class Url4Executor(Executor):
             duration_s=time.monotonic() - started,
             cost_usd=subtree.cost.total_usd if subtree is not None else None,
             pricing_version=subtree.pricing_version if subtree is not None else None,
-            cache_attributes=state.cache_counters.attributes() if subtree is not None else None,
+            cache_attributes=(
+                {**state.cache_counters.attributes(), **state.capture_tally.attributes()}
+                if subtree is not None
+                else None
+            ),
             dropped_logs=bridge.dropped,
             high_water=bridge.high_water,
         )
