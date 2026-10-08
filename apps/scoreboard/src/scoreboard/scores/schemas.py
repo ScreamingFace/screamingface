@@ -389,13 +389,20 @@ PaperUrl = Annotated[
 ]
 
 
-# FEATURE: OME-1307 — the gateway cache revision label: `cr-` plus 12 lower-case hex characters.
+# FEATURE: OME-1307 — the frozen copy id in the AI Gateway: a UUID, stored in lower case.
 # INVARIANT: the same spelling on the submission, on a recorded reproduction and in the column
-# width (`VARCHAR(32)`). Pydantic's pattern is a Rust regex, where `$` matches only at the very end,
-# so a label with a trailing newline is refused.
-CacheRevision = Annotated[str, Field(pattern=r"^cr-[0-9a-f]{12}$")]
-# `complete`: every call of the run is in the cache, so a replay can answer it. `partial`: not.
-ReproducibleStatus = Literal["complete", "partial"]
+# width (`VARCHAR(36)`). `UUID(...)` is the check and `str(...)` the stored form, so the same copy
+# sent in upper case or without hyphens is the same value, and a trailing newline is refused.
+def _validate_frozen_copy_id(value: str) -> str:
+    try:
+        return str(UUID(value))
+    except ValueError as exc:
+        raise ValueError("frozen_copy_id must be a UUID") from exc
+
+
+FrozenCopyId = Annotated[str, AfterValidator(_validate_frozen_copy_id)]
+# `complete`: the frozen copy holds every call, so a replay can answer it. `partial`: not.
+CaptureStatus = Literal["complete", "partial"]
 # A 32-bit signed INT, the width of the column. Anything wider would fail on PostgreSQL after
 # passing here, so it is refused as a 422 instead of reaching the database.
 AnswerSeed = Annotated[int, Field(ge=-(2**31), le=2**31 - 1)]
@@ -582,25 +589,25 @@ class ScoreSubmission(BaseModel):
     # would have cost, priced from the archive (another call of the same model and kind). Summed
     # with the spend and the reported saving at the point of use; never sent pre-summed.
     cache_saved_cost_archive_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
-    # FEATURE: OME-1307 — which cache version produced this run and whether a replay can answer it.
+    # FEATURE: OME-1307 — which frozen copy holds this run and whether it holds every call of it.
     #
     # WHY optional: like `paper_url`, these deploy BEFORE the SDK that sends them (`extra="forbid"`
     # makes the rollout one-directional), and the SDK omits each one when it is NULL.
     #
-    # INVARIANT: `cache_revision` needs `reproducible` (below). `reproducible` alone is legal: a
-    # run with no cacheable call, or calls under two labels, has a status and no single label.
+    # INVARIANT: `frozen_copy_id` needs `capture_status` (below). `capture_status` alone is legal: a
+    # run that failed to open its copy has a status and no copy id.
     #
     # AIDEV-NOTE: deliberately absent from `_content_hash`. They describe one execution of a recipe,
     # as the cost fields do, and a resubmit only FILLS them (`_replay_updates`).
-    cache_revision: CacheRevision | None = None
-    reproducible: ReproducibleStatus | None = None
+    frozen_copy_id: FrozenCopyId | None = None
+    capture_status: CaptureStatus | None = None
     answer_seed: AnswerSeed | None = None
 
     @model_validator(mode="after")
-    def validate_cache_revision_has_a_status(self) -> ScoreSubmission:
-        """INVARIANT (I1): a label without a status is incoherent, so it is refused."""
-        if self.cache_revision is not None and self.reproducible is None:
-            raise ValueError("cache_revision requires reproducible")
+    def validate_frozen_copy_id_has_a_capture_status(self) -> ScoreSubmission:
+        """INVARIANT (I1): a copy id without a status is incoherent, so it is refused."""
+        if self.frozen_copy_id is not None and self.capture_status is None:
+            raise ValueError("frozen_copy_id requires capture_status")
         return self
 
     @field_validator("cache_saved_cost_usd", "cache_saved_cost_archive_usd")
@@ -987,13 +994,13 @@ class ScoreSchema(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
-    # FEATURE: OME-1307 — the cache version of the run. EXCLUDED WHEN ABSENT, for exactly the reason
+    # FEATURE: OME-1307 — the frozen copy of the run. EXCLUDED WHEN ABSENT, for exactly the reason
     # `paper_url` and `models` record: the private JSONL export hashes these bytes to authorise a
-    # purge, and no legacy row may gain `"reproducible": null`.
+    # purge, and no legacy row may gain `"capture_status": null`.
     #
-    # INVARIANT: a null `reproducible` means "unknown", never `partial`.
-    cache_revision: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    reproducible: ReproducibleStatus | None = Field(
+    # INVARIANT: a null `capture_status` means "unknown", never `partial`.
+    frozen_copy_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    capture_status: CaptureStatus | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
     answer_seed: int | None = Field(default=None, exclude_if=lambda value: value is None)
@@ -1106,7 +1113,7 @@ class ValidationErrorResponse(BaseModel):
 class ReproductionSubmission(BaseModel):
     """Body of `POST /v1/scores/{id}/reproductions`: one exact replay a verified identity records.
 
-    FEATURE: OME-1307 — `score`, `total_questions` and `cache_revision` are compared with the stored
+    FEATURE: OME-1307 — `score`, `total_questions` and `frozen_copy_id` are compared with the stored
     score by the route (a mismatch is `not_exact`); this DTO only checks their shape.
     """
 
@@ -1115,7 +1122,7 @@ class ReproductionSubmission(BaseModel):
     run_id: Annotated[str, Field(min_length=1, max_length=128)]
     score: ExactScore
     total_questions: int
-    cache_revision: CacheRevision | None = None
+    frozen_copy_id: FrozenCopyId | None = None
     client: ReproductionClientInfo
 
 
@@ -1129,7 +1136,7 @@ class ReproductionSchema(BaseModel):
     reproduced_by: str
     reproduced_at: datetime
     run_id: str
-    cache_revision: str | None
+    frozen_copy_id: str | None
     client_version: str | None
 
 

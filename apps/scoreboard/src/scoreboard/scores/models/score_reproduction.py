@@ -18,9 +18,9 @@ class BaseScoreReproduction(BaseScoreboardModel):
     reproduced_at = fields.DatetimeField(auto_now_add=True)
     # The replay run's id from the client. Unique per score, so a retry is not counted twice.
     run_id = fields.CharField(max_length=128)
-    # INVARIANT: equal to the score's `cache_revision` (the route refuses anything else), kept on
-    # the row so a record states the revision it replayed even if the score row is corrected.
-    cache_revision = fields.CharField(max_length=32, null=True)
+    # INVARIANT: equal to the score's `frozen_copy_id` (the route refuses anything else), kept on
+    # the row so a record states the frozen copy it replayed even if the score row is corrected.
+    frozen_copy_id = fields.CharField(max_length=36, null=True)
     client_version = fields.CharField(max_length=64, null=True)
 
 
