@@ -35,7 +35,11 @@ from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
 from ..plugin_base import ProviderPluginBase
 from .global_controls import GlobalCacheControls
 from .global_eligibility import BYPASS_RULE_SET, BYPASS_UNSUPPORTED_SHAPE, is_text
-from .global_keys import GlobalCacheKeyResult, build_global_cache_key
+from .global_keys import (
+    GlobalCacheKeyResult,
+    build_attempt_cache_key,
+    build_global_cache_key,
+)
 
 # The operator's kill switch. Published in ``X-AIGW-Cache-Reason`` like every other
 # reason, so an operator reading a response can tell "off" from "not cacheable".
@@ -132,6 +136,16 @@ def build_global_cache_plan(
         provider_modes = tuple(plugin.available_auth_modes())
     except Exception:
         return CacheBypass(BYPASS_RULE_SET)
+    if controls.attempt is not None:
+        # FEATURE (OME-1458): Attempt 2..N of a Case each get their own entry.
+        return build_attempt_cache_key(
+            attempt=controls.attempt,
+            provider=plugin.custom_llm_provider,
+            body=body,
+            rules=rules,
+            projection=plugin.global_cache_projection,
+            provider_auth_modes=provider_modes,
+        )
     built = build_global_cache_key(
         provider=plugin.custom_llm_provider,
         body=body,
