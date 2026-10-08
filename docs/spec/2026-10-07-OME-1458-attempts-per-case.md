@@ -138,8 +138,9 @@ record's own named extension point for declared axes, and grading is untouched b
 
 ### 2.3 Running the Attempts: Attempt 2 must not be a copy of Attempt 1
 
-The per-Case step runs the Candidate Invocation and its Grading once per Attempt, in order 1 to
-N, inside the one Case. One Attempt is one complete answer: for a Fusion that is every member
+The per-Case step runs the Candidate Invocation and its Grading once per Attempt, numbered 1 to
+N, inside the one Case (the Attempts may run side by side; the Case Result keeps them in order).
+One Attempt is one complete answer: for a Fusion that is every member
 and the synthesizer (D6), for a Corrective Loop every round.
 
 **The trap is the AI gateway's cache, not the seed.** A model with no seed already answers
@@ -252,7 +253,7 @@ declares `attempts=2`.
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
 flowchart TB
   s0["INPUT · the Case, frozen at Case Preparation (an example)<br/>e.g. input: What is 6 times 7? · answer key: 42 · attempts: 2"]
-  s3["③ the per-Case step starts Attempt 1 of 2<br/>symbol · preserve_candidate_outcome · protocol.py<br/>🔀 WHEN & WHO: Attempts run in order, inside one Case"]
+  s3["③ the per-Case step starts Attempt 1 of 2<br/>symbol · preserve_candidate_outcome · protocol.py<br/>🔀 WHEN & WHO: Attempts run inside one Case, maybe side by side"]
   s4a["④ ⑤ Attempt 1: the Candidate Invocation, request unchanged<br/>e.g. seed: none · cache: participates<br/>⏱ TIME: one full Candidate answer"]
   c1[("⑥ AI gateway exact-request cache<br/>💾 SPACE: shared by every hosted user<br/>e.g. no stored reply for this request")]
   p1["model provider<br/>e.g. reply: 41"]
@@ -306,7 +307,7 @@ which gives it its own entry the same way (§2.3).
 | F1 | An inspect Task declares `epochs` > 1, before the build lands | ② | the importer | refused by name (D12) |
 | F2 | An inspect Task declares epochs with a reducer we don't run (`mean`, `pass_at(k < N)`, a custom one) | ② | the importer | refused naming the reducer |
 | F3 | Attempt 2 would be served Attempt 1's stored reply | ⑤ ⑥ | nobody, which is why §2.3 exists | prevented: Attempt 2's request always keys differently (a derived seed, or the Attempt number in the cache control) |
-| F4 | One Attempt's Candidate Invocation or Grading fails, another is graded | ③ ⑧ | the Report | the Case is graded from the graded Attempts; the failed one keeps its failure in `attempts`; the Report says "1 of 2 Attempts failed" |
+| F4 | One Attempt's Grading fails (or its row is collected as an error), another is graded | ③ ⑧ | the Report | the Case is graded from the graded Attempts; the failed one keeps its failure in `attempts`; the Report says "1 of 2 Attempts failed". A failed **Candidate Invocation** in any Attempt fails the whole Case instead, as it does for a one-Attempt Case today (§4) |
 | F5 | Every Attempt of a Case fails | ⑧ | the Aggregation | the Case has no Case Grade; the Benchmark's Failure Policy applies, as today |
 | F6 | An Attempt's Check is graded neither 0 nor 1 | ⑧ | the marking room | the Case fails as `attempt_grade_not_pass_fail`; no guessed fold |
 | F7 | A seeded run names a Model whose provider has no `seed` | ⑤ | the SDK's parameter check, before any paid call | refused, as today for every seeded run |
@@ -320,7 +321,7 @@ which gives it its own entry the same way (§2.3).
 flowchart TB
   n1["① the Benchmark's cover sheet<br/>BenchmarkDeclaration · benchmarks/definition.py<br/>✏️ gains attempts, shown and pinned only when above 1"]
   n2["② the inspect importer<br/>importer.py · single_shot.py · screamingface_engine_inspect<br/>✏️ reads epochs: any-match becomes attempts, the rest refused"]
-  n3["③ the per-Case step<br/>preserve_candidate_outcome · benchmarks/protocol.py<br/>✏️ runs ④ to ⑦ once per Attempt, in order"]
+  n3["③ the per-Case step<br/>preserve_candidate_outcome · benchmarks/protocol.py<br/>✏️ runs ④ to ⑦ once per Attempt"]
   n4["④ the Candidate Invocation<br/>_CandidateInvocation · world/candidate_adapter.py<br/>✏️ opens an Attempt scope holding the Attempt number"]
   n5["⑤ the model call leaving the Engine<br/>apply_answer_seed · world/request_parameters.py · world/connector.py<br/>✏️ Attempt 2 and later: derived seed, or the Attempt number in the cache control"]
   n6["⑥ the AI gateway exact-request cache<br/>global_controls.py · GlobalChatCacheKey · apps/aigateway request_cache<br/>✏️ accepts the Attempt number, keys on it, strips it before the provider"]
@@ -349,8 +350,9 @@ flowchart TB
 The arrows are the order a Case passes through the code, not imports. The stages that carry a
 "because":
 
-- ③ runs Attempts in order inside one Case, because Cases already run one at a time and the
-  Case scope is what attributes each call's cost to its Case.
+- ③ runs Attempts inside one Case, because Cases already run one at a time and the Case scope
+  is what attributes each call's cost to its Case; the Attempts themselves are independent, so
+  they may run side by side.
 - ⑤ changes only Attempts 2 and later, because Attempt 1 byte-identical to today is what keeps
   every existing Benchmark's egress, replay fixtures and goldens unchanged.
 - ⑥ keys on the Attempt number only when it is present, because every request without one must
@@ -381,6 +383,11 @@ The arrows are the order a Case passes through the code, not imports. The stages
   all-must-match reliability stay refused by name until a Benchmark needs them.
 - **A Case with a failed Attempt has fewer chances to pass** (F4). Accepted: the ARC harness
   counts a missing Attempt the same way; the Report says how many Attempts failed.
+- **A failed Candidate Invocation in any Attempt fails the whole Case**, losing the Attempts
+  that did answer: a provider that keeps erroring on Attempt 2 after the gateway's retries fails
+  that Case, as it would at one Attempt. URL4 collects an error only inside `iterate`, which
+  rebinds `$item` and `$index` that every Benchmark's own nodes read. Accepted for now; revisit
+  when a real Attempts Benchmark (OME-1476) shows such failures in its Report.
 - **How ARC-AGI-2 prompts each test grid is OME-1476's design.** The harness sends one prompt per
   grid; that Benchmark will need one Candidate Invocation per grid per Attempt, which the
   glossary already allows ("a Case may require multiple ordered Candidate Invocations").

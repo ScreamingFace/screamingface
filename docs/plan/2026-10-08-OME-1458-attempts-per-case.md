@@ -15,6 +15,31 @@ section); the spec is updated in the same PR (#1294) to match.
 **Tech stack:** Python 3.12, uv, pytest, pydantic v2 (Engine wire models), URL4, `inspect-ai`
 0.3.263.
 
+## As built (2026-10-08)
+
+All five build PRs are implemented and their free unit tests pass. Where the build differs from
+the tasks below (each PR's ledger has the detail):
+
+- **PR 3 (SDK):** `examples/helpers.py` is unchanged (its loader already drops operations and
+  Check detail). `Benchmark.attempts` is the last field, because the dataclass is positional.
+  Two prior-test changes need the owner's approval manifest: the public-surface snapshot, and
+  one added line in the Engine's pinned failure-code set
+  (`test_failure_classes.py::test_the_declared_vocabulary_is_exactly_the_agreed_set`, the
+  OME-939 precedent).
+- **PR 4 (gateway):** an Attempt-numbered request goes through a second key builder,
+  `build_attempt_cache_key`, instead of an `attempt` argument on `build_global_cache_key`,
+  whose parameter set is pinned to carry no caller identity. No prior test changed.
+- **PR 5 (Engine egress):** the Attempt number rides in the request body from the turn loop,
+  and `_fetch_completion` merges the cache policy into that `cache` object
+  (`with_cache_policy`), so no call signature changed and no prior test did. `candidate_call`
+  gained no `attempt` argument: PR 6 tags the Benchmark's own Candidate Invocation.
+- **PR 6 (Engine fold):** a failed Candidate Invocation in any Attempt fails the whole Case
+  (spec F4 and §4 say so): only `iterate` collects errors, and it rebinds `$item` and `$index`.
+  The Attempts of one Case may run side by side. The declaration's tests sit in
+  `test_case_attempts_contract.py`.
+- **PR 7 (importer):** as planned; `test_importer_refuses_epochs.py` is the named prior-test
+  change.
+
 ## What the code changed in the spec
 
 | # | Spec said | Code says | Plan does |
