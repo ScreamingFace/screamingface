@@ -331,6 +331,12 @@ def test_the_marking_room_folds_two_grids_per_check() -> None:
 
 
 def test_a_collected_attempt_error_is_kept_and_the_case_graded_from_the_rest() -> None:
+    # Stand-in: a bare error row in an Attempt's slot. The per-Case expression does not emit
+    # this shape today: Attempts are sibling sources, not `iterate` rows, so a failed
+    # Candidate Invocation fails the whole Case and a failed Grading arrives inside its
+    # Attempt's envelope. This pins the marking room's reader for the day an Attempt is
+    # collected on its own (spec §4, the Candidate-failure limitation); it does not prove
+    # the expression produces it.
     error_row: dict[str, object] = {
         "case_id": 1,
         "error": {"kind": "ResolutionError", "message": "boom", "code": "upstream_error"},

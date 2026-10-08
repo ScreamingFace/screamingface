@@ -51,16 +51,26 @@ grades per Check; the Case Result carries every Attempt.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned; no separate declaration test file (its tests sit in
-  `test_case_attempts_contract.py` beside the wire).
+- **Actual files:** as planned, except Task 6.5: there is no `test_attempts_end_to_end.py`
+  probe Benchmark run end to end. `test_case_attempts_protocol.py` runs the two-Attempt Case
+  through a live URL4 node instead, and `test_case_attempts_contract.py` holds the declaration
+  tests beside the wire.
 - **Commits:** see the PR.
 - **Gates:** extra-less `pyright` 0 errors; `pytest tests/unit -n auto`: 4668 passed, 44
   skipped.
 - **Deviations:** (1) **A failed Candidate Invocation in any Attempt fails the whole Case**, as
-  it does for a one-Attempt Case today; only a failed Grading or a collected per-Attempt error
-  is kept per Attempt. URL4 collects errors only inside `iterate`, which rebinds `$item` and
+  it does for a one-Attempt Case today; only a failed Grading is kept per
+  Attempt (inside that Attempt's envelope). URL4 collects errors only inside `iterate`, which rebinds `$item` and
   `$index` that every Benchmark's own nodes read. This narrows spec F4; the spec's failure
   table and limitations say so. (2) The Attempts of one Case may run side by side (they are
   sibling sources of one expression); Cases still run one at a time, and the joined row keeps
   Attempt order. (3) A Benchmark's missing-case hook that files nothing for one Attempt gives
-  that Attempt the finalizer's `case_result_missing` row.
+  that Attempt the finalizer's `case_result_missing` row. (4) **Review fixes.** The cover
+  sheet's `attempts` and the expression's `preserve_candidate_outcome(attempts=)` are two
+  places a Benchmark we build ourselves writes the number; nothing tied them, so a board could
+  declare 2 and ask once. `test_every_benchmark_asks_as_many_attempts_as_it_declares` now
+  checks every registered Benchmark; the root fix (the expression reads the declaration) is
+  left to the first such Benchmark, ARC-AGI-2 (OME-1476). The Attempts rewrite now raises at
+  build when Attempt 2 or later reaches no Candidate Invocation, instead of sending a copy of
+  Attempt 1. Only a failed Grading is kept per Attempt: a bare per-Attempt error row is not
+  emitted today, and its test says the row is a stand-in.

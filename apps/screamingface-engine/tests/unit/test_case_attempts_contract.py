@@ -16,8 +16,18 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from screamingface_engine.benchmarks.contract import CaseAttempt, CaseGrade, CaseResult
-from screamingface_engine.benchmarks.definition import ATTEMPTS_KEY, BenchmarkDeclaration
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.benchmarks.case_request import CASE_ATTEMPT_PARAM
+from screamingface_engine.benchmarks.contract import (
+    CANDIDATE_ROUTE,
+    CaseAttempt,
+    CaseGrade,
+    CaseResult,
+)
+from screamingface_engine.benchmarks.definition import ATTEMPTS_KEY, Benchmark, BenchmarkDeclaration
+from screamingface_engine.benchmarks.graded_answer import CASE_ATTEMPTS_ROUTE
+from screamingface_engine.benchmarks.protocol import preserve_candidate_outcome
+from url4 import RelExpr, Text, render
 
 # parents[3] = apps/, so its parent is the monorepo root
 _SDK_PACKAGE = Path(__file__).resolve().parents[3].parent / "packages" / "screamingface"
@@ -170,3 +180,58 @@ def test_the_attempts_key_matches_the_sdk() -> None:
     )
 
     assert sdk_key == ATTEMPTS_KEY
+
+
+# --- the cover sheet and the expression agree ------------------------------------------
+
+
+def _asked_attempts(benchmark: Benchmark) -> int:
+    """How many Attempts per Case the Benchmark's built expression really asks.
+
+    1 when it never joins Attempts; otherwise the highest Attempt number the rendered URL4
+    sends on a Candidate Invocation (Attempt 1 carries none).
+    """
+
+    rendered: str = render(benchmark.build(1))
+    if CASE_ATTEMPTS_ROUTE not in rendered:
+        return 1
+    asked: int = 1
+    while f"{CASE_ATTEMPT_PARAM}={asked + 1}" in rendered:
+        asked += 1
+    return asked
+
+
+@pytest.mark.parametrize("benchmark", tuple(BUILTIN_BENCHMARKS), ids=lambda item: item.id)
+def test_every_benchmark_asks_as_many_attempts_as_it_declares(benchmark: Benchmark) -> None:
+    # INVARIANT: the cover sheet's `attempts` (the catalogue's "any of N Attempts", the
+    # revision) and the expression's `preserve_candidate_outcome(attempts=)` are written in two
+    # places by a Benchmark we build ourselves. If only the first says 2, the board publishes a
+    # first-Attempt score under an any-of-2 label, silently (review finding on #1306).
+    assert _asked_attempts(benchmark) == benchmark.declaration.attempts
+
+
+def _probe(*, declared: int, asked: int) -> Benchmark:
+    """A test-only Benchmark: its cover sheet says ``declared``, its expression asks ``asked``."""
+
+    return Benchmark(
+        id="attempts-probe",
+        title="Attempts Probe",
+        description="A structural probe; never served.",
+        revision="attempts-probe-v1",
+        case_count=1,
+        build=lambda _selected: preserve_candidate_outcome(
+            candidate_invocation=RelExpr(path=CANDIDATE_ROUTE, context="q", intent=Text("")),
+            grading=RelExpr(path="/grade", context="$candidate_invocation", intent=Text("")),
+            case_id="1",
+            attempts=asked,
+        ),
+        declaration=_declaration(attempts=declared),
+    )
+
+
+def test_a_cover_sheet_the_expression_ignores_is_caught() -> None:
+    # Stand-ins for the forgotten second number, and for both written: the check above
+    # compares exactly these two counts.
+    assert _asked_attempts(_probe(declared=2, asked=1)) == 1
+    assert _asked_attempts(_probe(declared=2, asked=2)) == 2
+    assert _asked_attempts(_probe(declared=3, asked=3)) == 3

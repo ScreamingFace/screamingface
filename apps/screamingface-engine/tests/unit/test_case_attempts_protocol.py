@@ -29,7 +29,7 @@ from screamingface_engine.benchmarks.graded_answer import (
 )
 from screamingface_engine.benchmarks.grading_endpoints import candidate_answer
 from screamingface_engine.benchmarks.protocol import preserve_candidate_outcome
-from url4 import RelExpr, Text, render
+from url4 import RelExpr, Text, iterate, render, src, struct
 from url4.peer.server import Request, Url4Node
 
 
@@ -76,15 +76,19 @@ def _node(candidate: _Candidate) -> Url4Node:
     return node
 
 
+_CANDIDATE_INVOCATION = RelExpr(
+    path=CANDIDATE_ROUTE,
+    context="What is 6 times 7?",
+    intent=Text("$candidate"),
+    params=(("web_search", "false"),),
+)
+_GRADING = RelExpr(path="/grade", context="$candidate_invocation", intent=Text(""))
+
+
 def _case(attempts: int) -> Any:
     return preserve_candidate_outcome(
-        candidate_invocation=RelExpr(
-            path=CANDIDATE_ROUTE,
-            context="What is 6 times 7?",
-            intent=Text("$candidate"),
-            params=(("web_search", "false"),),
-        ),
-        grading=RelExpr(path="/grade", context="$candidate_invocation", intent=Text("")),
+        candidate_invocation=_CANDIDATE_INVOCATION,
+        grading=_GRADING,
         case_id="1",
         attempts=attempts,
     )
@@ -93,14 +97,30 @@ def _case(attempts: int) -> Any:
 def test_one_attempt_renders_byte_identical() -> None:
     # INVARIANT: the default and an explicit 1 are the same text, and neither names Attempts.
     default = preserve_candidate_outcome(
-        candidate_invocation=RelExpr(path=CANDIDATE_ROUTE, context="q", intent=Text("")),
-        grading=RelExpr(path="/grade", context="$candidate_invocation", intent=Text("")),
-        case_id="1",
+        candidate_invocation=_CANDIDATE_INVOCATION, grading=_GRADING, case_id="1"
     )
 
-    assert render(_case(1)) == render(_case(1))
+    assert render(_case(1)) == render(default)
     assert "attempt" not in render(default)
-    assert "case-attempts" not in render(_case(1))
+    assert "case-attempts" not in render(default)
+
+
+def test_a_candidate_invocation_the_rewrite_cannot_reach_is_refused_at_build() -> None:
+    # INVARIANT: Attempt 2 must carry its number, or it leaves the Engine identical to
+    # Attempt 1 and an unseeded run is served Attempt 1's stored reply. Stand-in: the Candidate
+    # Invocation nested inside an `iterate`, a node kind the rewrite does not walk.
+    hidden = iterate(
+        [struct({"question": "What is 6 times 7?"})],
+        body=(src(_CANDIDATE_INVOCATION, name="answer", weight=0.0),),
+        intent=Text("$answer"),
+    )
+
+    with pytest.raises(ValueError, match="Attempt 2 reached no Candidate Invocation"):
+        preserve_candidate_outcome(
+            candidate_invocation=hidden, grading=_GRADING, case_id="1", attempts=2
+        )
+    # One Attempt carries no number, so the same node still builds.
+    preserve_candidate_outcome(candidate_invocation=hidden, grading=_GRADING, case_id="1")
 
 
 def test_attempt_two_carries_the_attempt_param_and_one_does_not() -> None:

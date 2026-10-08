@@ -124,19 +124,16 @@ def _attempted_case(
     finishes first. Cases still run one at a time (the per-Case iterate's concurrency of 1).
     """
 
-    executions: list[Node] = [
-        src(
-            _preserved_case(
-                _numbered(candidate_invocation, number),
-                grading,
-                case_id,
-                tuple(_numbered(binding, number) for binding in bindings),
-            ),
-            name=f"attempt_{number}",
-            weight=0.0,
+    executions: list[Node] = []
+    for number in range(1, attempts + 1):
+        invocation, numbered_bindings = _numbered_or_refused(candidate_invocation, bindings, number)
+        executions.append(
+            src(
+                _preserved_case(invocation, grading, case_id, numbered_bindings),
+                name=f"attempt_{number}",
+                weight=0.0,
+            )
         )
-        for number in range(1, attempts + 1)
-    ]
     names: list[str] = [f"attempt_{number}" for number in range(1, attempts + 1)]
     joined = RelExpr(
         path=CASE_ATTEMPTS_ROUTE,
@@ -150,8 +147,35 @@ def _attempted_case(
     )
 
 
-def _numbered(node: Node, attempt: int) -> Node:
+def _numbered_or_refused(
+    candidate_invocation: Node, bindings: tuple[Node, ...], attempt: int
+) -> tuple[Node, tuple[Node, ...]]:
+    """The Candidate Invocation and bindings marked as Attempt ``attempt``, or a refusal.
+
+    INVARIANT: Attempt 2 and later carry their number on at least one Candidate Invocation.
+    An unmarked Attempt 2 leaves the Engine byte-identical to Attempt 1, so an unseeded run
+    is served Attempt 1's stored reply and the board silently scores one answer N times.
+    ``_numbered`` walks only Expressions and Sources; a Candidate Invocation nested inside
+    another node kind (an ``iterate``, a struct) is not reached, and this raise is how the
+    Benchmark author finds out, at build time, before any paid call.
+    """
+
+    parts: list[tuple[Node, int]] = [
+        _numbered(node, attempt) for node in (candidate_invocation, *bindings)
+    ]
+    if attempt > 1 and sum(count for _, count in parts) == 0:
+        raise ValueError(
+            f"Attempt {attempt} reached no Candidate Invocation on {CANDIDATE_ROUTE}: it would "
+            "be sent identical to Attempt 1; build the Candidate Invocation as an expression "
+            "or source the Attempts rewrite can reach (OME-1458)"
+        )
+    return parts[0][0], tuple(node for node, _ in parts[1:])
+
+
+def _numbered(node: Node, attempt: int) -> tuple[Node, int]:
     """Mark every Candidate Invocation inside ``node`` as Attempt ``attempt``; 1 is unmarked.
+
+    Returns the rewritten node and how many Candidate Invocations it marked (0 at Attempt 1).
 
     WHY a rewrite of the Benchmark's own node instead of a second builder argument: the
     Benchmark built one Candidate Invocation, and Attempt i must be exactly it plus the
@@ -159,15 +183,20 @@ def _numbered(node: Node, attempt: int) -> Node:
     """
 
     selected: Node = node
+    rewrites: int = 0
     if attempt == 1:
         pass
     elif isinstance(node, RelExpr) and node.path == CANDIDATE_ROUTE:
         selected = replace(node, params=(*node.params, (CASE_ATTEMPT_PARAM, str(attempt))))
+        rewrites = 1
     elif isinstance(node, Source):
-        selected = replace(node, value=_numbered(node.value, attempt))
+        value, rewrites = _numbered(node.value, attempt)
+        selected = replace(node, value=value)
     elif isinstance(node, Expression):
-        selected = replace(node, sources=tuple(_numbered(item, attempt) for item in node.sources))
-    return selected
+        parts: list[tuple[Node, int]] = [_numbered(item, attempt) for item in node.sources]
+        selected = replace(node, sources=tuple(item for item, _ in parts))
+        rewrites = sum(count for _, count in parts)
+    return selected, rewrites
 
 
 def build_evaluation_protocol(
@@ -193,6 +222,9 @@ def build_evaluation_protocol(
         raise TypeError("bindings must contain only URL4 Nodes")
 
     # INVARIANT: Case admission covers the complete spawned row; nested Case work keeps its cap.
+    # NOTE (OME-1458): concurrency=1 bounds Cases, not Attempts. The Attempts of one Case are
+    # sibling sources and may run side by side; when one fails the run's TaskGroup cancels
+    # its in-flight siblings, whose provider spend is not recorded (spec §4).
     case_evaluations = iterate(
         RelExpr(path=cases_route, intent=Text(str(selected_case_count))),
         body=(src(case_evaluation, name="evaluated", weight=0.0),),
