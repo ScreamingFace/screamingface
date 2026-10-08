@@ -33,13 +33,19 @@ def watch_provenance_writes(monkeypatch: pytest.MonkeyPatch, module: ModuleType)
 
 
 def hugging_face_source(location: str, revision: str) -> dict[str, str]:
-    """The Case Source a pinned Hugging Face load reads, in the shape the block lists it."""
+    """The Case Source a pinned Hugging Face load reads, in the shape the block lists it.
 
+    The ``url`` (OME-1524) is the repo at the commit: the first two location segments, never
+    a config, because ``huggingface.co/datasets/TsinghuaC3I/MedXpertQA/Text`` is a 404.
+    """
+
+    repo_id: str = "/".join(location.split("/")[:2])
     return {
         "kind": "hugging-face",
         "location": location,
         "pin": f"revision {revision}",
         "phase": "load",
+        "url": f"https://huggingface.co/datasets/{repo_id}/tree/{revision}",
     }
 
 

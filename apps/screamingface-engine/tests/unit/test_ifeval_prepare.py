@@ -165,6 +165,10 @@ def test_a_prepared_bundle_records_where_its_cases_came_from(
                 ),
                 "pin": f"commit {definition.VERIFIER_REVISION}",
                 "phase": "load",
+                "url": (
+                    f"https://github.com/{definition.VERIFIER_REPOSITORY}/blob/"
+                    f"{definition.VERIFIER_REVISION}/{upstream_folder}/data/input_data.jsonl"
+                ),
             },
         ],
         yielded=2,
