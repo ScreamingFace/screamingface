@@ -55,7 +55,7 @@ from ..core.provider_access import (
     provider_access_for,
 )
 from ..core.registry import ProviderRegistry
-from ..core.request_cache.global_controls import parse_global_cache_controls
+from ..core.request_cache.global_controls import GlobalCacheControls, parse_global_cache_controls
 from ..core.request_hardening import chat_body_shape_error, strip_dispatch_controls
 from .chat_accounting import (
     accounting_handler,
@@ -253,6 +253,23 @@ async def _dispatch_and_finalize_accounting(
     return result
 
 
+def prepare_ingress_body(body: dict[str, Any]) -> tuple[dict[str, Any], GlobalCacheControls]:
+    """The gateway-level preparation of a parsed chat body: pop ``cache``, strip dispatch controls.
+
+    # INVARIANT (OME-1307): the frozen-copy digest is taken of the body this returns. The chat
+    # route and the replay route both call it, so the same request digests the same way in both
+    # and the two can never drift.
+    """
+    cache_controls = parse_global_cache_controls(body)
+    # The gateway owns upstream routing and credentials. Caller-supplied
+    # LiteLLM control-plane fields (api_key/api_base/base_url/fallbacks/
+    # model_list/...) would let LiteLLM send the injected credential to an
+    # arbitrary host or bend dispatch behavior (SF-244 audit F03, OME-428 D6).
+    # Providers that need an api_base (ollama) set their own in
+    # prepare_chat_body; the gateway credential is injected after this strip.
+    return strip_dispatch_controls(body), cache_controls
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
     # INVARIANT: authentication has already succeeded before this route-level boundary parses every
@@ -278,14 +295,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # opt-in all participate. `ttl`, `s-maxage`, `no-cache` and `no-store` bypass as
     # `unsupported_control` rather than being silently honoured.
     try:
-        cache_controls = parse_global_cache_controls(body)
-        # The gateway owns upstream routing and credentials. Caller-supplied
-        # LiteLLM control-plane fields (api_key/api_base/base_url/fallbacks/
-        # model_list/...) would let LiteLLM send the injected credential to an
-        # arbitrary host or bend dispatch behavior (SF-244 audit F03, OME-428 D6).
-        # Providers that need an api_base (ollama) set their own in
-        # prepare_chat_body; the gateway credential is injected after this strip.
-        body = strip_dispatch_controls(body)
+        body, cache_controls = prepare_ingress_body(body)
     except HTTPException:
         if not streaming:
             begin_accounting(request, plugin=None, provider="unresolved", model="")
