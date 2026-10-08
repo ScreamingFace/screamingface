@@ -56,6 +56,8 @@ The F-B3 TDD list, in order (risk order):
 
 ## Approved test changes (append-only exception)
 
+**Owner approval:** confirmed by the owner on 2026-10-08. The append-only gate may skip these edits.
+
 Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
 
 1. `frozen_copy_miss` and `frozen_copy_unavailable` added to the exact sets in
