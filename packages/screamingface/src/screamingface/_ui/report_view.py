@@ -802,19 +802,28 @@ def _pane_html(candidate: CandidateResult, case: CaseResult, cost_html: str) -> 
 
 
 def _attempt_badges_html(case: CaseResult) -> str:
-    """Say how many of a Case's Attempts matched, and how many failed, in the pane header.
+    """Say the Case was asked N times, and how many of those Attempts failed, in the pane header.
 
     FEATURE (OME-1458): a Benchmark that asks each Case N times marks a Check met if any
-    Attempt met it, so "1 of 2 Attempts matched" is the reader's first question. Absent
-    for a Case without Attempts, so every other pane renders byte-identically.
+    Attempt met it. Absent for a Case without Attempts, so every other pane renders
+    byte-identically.
+
+    WHY no per-Attempt verdict here: credit is per Check, not per Attempt. An ARC task with
+    grids A and B, A right in Attempt 1 and B right in Attempt 2, passes with score 1.0 while
+    neither Attempt has full marks; "0 of 2 Attempts matched" beside that pass would read as
+    a contradiction. The verdict badge carries the folded result; the Attempts list below
+    carries each Attempt's own score.
     """
 
     if case.attempts is None:
         return ""
     total: int = len(case.attempts)
-    matched: int = sum(1 for attempt in case.attempts if attempt.matched)
     failed: int = sum(1 for attempt in case.attempts if attempt.status == "failed")
-    badges: str = _badge(f"{matched} of {total} Attempts matched", good=matched > 0)
+    badges: str = _badge(
+        f"any of {total} Attempts",
+        good=True,
+        title="A Check is met if any Attempt met it; each Attempt's own score is listed below.",
+    )
     if failed:
         badges += _badge(f"{failed} of {total} Attempts failed", good=False, warn=True)
     return badges

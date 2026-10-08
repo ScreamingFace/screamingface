@@ -368,12 +368,6 @@ class CaseAttempt:
                 _typed_values(self.operations, CaseOperation, "Case Attempt operations"),
             )
 
-    @property
-    def matched(self) -> bool:
-        """True when this Attempt was graded with full marks — every Check met."""
-
-        return self.status == "scored" and self.grade is not None and self.grade.score == 1.0
-
     def to_dict(self) -> dict[str, object]:
         selected: dict[str, object] = {
             "attempt": self.attempt,

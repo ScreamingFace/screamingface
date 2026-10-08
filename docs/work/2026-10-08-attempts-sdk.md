@@ -20,7 +20,7 @@ PR releases first (spec F8).
 - `packages/screamingface/src/screamingface/case_result.py` — `CaseAttempt`, `CaseResult.attempts`.
 - `.../_evaluation/results.py` — decode `attempts` strictly.
 - `.../accounting.py` — bill each Attempt's calls once.
-- `.../_ui/report_view.py` — "1 of 2 Attempts matched" and the per-Attempt list.
+- `.../_ui/report_view.py` — "any of 2 Attempts", the failed count, and the per-Attempt list.
 - `.../_engine/catalog_contract.py`, `_engine/catalog.py`, `discovery.py`, `_ui/cards.py`,
   `_catalogue_vocabulary.py` — `Benchmark.attempts` and "any of N Attempts".
 - `.../_report_primitives.py` and `apps/screamingface-engine/.../benchmarks/contract.py` — the
@@ -36,7 +36,7 @@ PR releases first (spec F8).
   round-trip.
 - Accounting: two Attempts × one call billed twice, no duplicate-operation refusal; member usage
   sums Attempts.
-- Report: matched count; failed count; each Attempt listed; empty fragments without Attempts.
+- Report: the Attempts rule (no per-Attempt verdict); failed count; each Attempt listed; empty fragments without Attempts.
 - Catalogue: "any of 2 Attempts" on the row and the card; absent means 1 and shows nothing; a
   malformed value is a catalogue defect.
 

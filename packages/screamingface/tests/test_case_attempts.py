@@ -3,8 +3,8 @@
 FEATURE: a Benchmark that declares N Attempts asks each Case N times and marks a Check met
 if any Attempt met it. The Engine sends every Attempt in an `attempts` list on the Case
 Result; the SDK must know the key BEFORE any Engine emits it (its decoder refuses unknown
-keys), bill each Attempt's model calls exactly once, say on the report how many Attempts
-matched, and show "any of N Attempts" in the catalogue.
+keys), bill each Attempt's model calls exactly once, list every Attempt's score on the
+report, and show "any of N Attempts" in the catalogue.
 
 INVARIANT: a Benchmark without Attempts never sends the key, and its Case Result, report.json
 and report card stay byte-identical.
@@ -131,7 +131,7 @@ def test_case_attempts_keep_their_order_and_grades() -> None:
 
     assert folded.attempts is not None
     assert [attempt.output for attempt in folded.attempts] == ["41", "42"]
-    assert [attempt.matched for attempt in folded.attempts] == [False, True]
+    assert [attempt.grade.score for attempt in folded.attempts if attempt.grade] == [0.0, 1.0]
     exported = cast(list[dict[str, Any]], folded.to_dict()["attempts"])
     assert [item["attempt"] for item in exported] == [1, 2]
 
@@ -228,6 +228,57 @@ def test_member_usage_sums_every_attempt() -> None:
     assert usage.cost_usd == Decimal("0.2")
 
 
+def _judged_grade(score: float) -> sf.CaseGrade:
+    """A one-Check grade whose judge call cost $0.05, the way a judged Benchmark grades."""
+
+    evidence = sf.Evidence(
+        sequence=1,
+        producer=sf.EvidenceProducer(type="model", id="judge"),
+        valid=True,
+        raw_output="MET" if score == 1.0 else "UNMET",
+        outcome="MET" if score == 1.0 else "UNMET",
+        accounting=accounting("0.05"),
+    )
+    check = sf.Check(
+        type="rubric",
+        id="1",
+        label="Correct",
+        outcome="MET" if score == 1.0 else "UNMET",
+        score=score,
+        evidence=(evidence,),
+    )
+    return sf.CaseGrade(method="rubric", score=score, metrics={}, checks=(check,))
+
+
+def test_case_level_rows_are_not_counted_again_under_attempts() -> None:
+    # INVARIANT: the folded Case grade's judge evidence is a view of an Attempt's evidence,
+    # not a third judge call. Two Attempts x ($0.1 answer + $0.05 judge) = $0.3 paid. Billing
+    # the Case-level grade too would count $0.35 against a $0.3 run, flip the view to
+    # inconsistent, and the report's cost tab would vanish on every judged Attempts board.
+    attempts: tuple[CaseAttempt, ...] = tuple(
+        CaseAttempt(
+            attempt=number,
+            status="scored",
+            output=output,
+            finish_reason="stop",
+            refusal=None,
+            grade=_judged_grade(score),
+            failures=(),
+            operations=(CaseOperation("op", output, "stop", accounting()),),
+        )
+        for number, output, score in ((1, "41", 0.0), (2, "42", 1.0))
+    )
+    case = _case(attempts, grade=_judged_grade(1.0))
+    value = panel_candidate("Example", 1.0, cases=(case,))
+    view = replace(value, usage=sf.Usage(cost_usd="0.3"), run_cost_status=None).accounting
+
+    assert view.consistent
+    assert view.by_stage["generation"].calls == 2
+    assert view.by_stage["grading"].calls == 2
+    assert view.by_case[1].usage.cost_usd == Decimal("0.3")
+    assert view.unattributed_cost_usd == Decimal("0")
+
+
 # --- the report pane --------------------------------------------------------------------
 
 
@@ -237,17 +288,21 @@ def _pane(case: sf.CaseResult) -> str:
     return body(report_html(panel_report(panel_candidate("a", 1.0, cases=(case,)))))
 
 
-def test_the_case_pane_says_how_many_attempts_matched() -> None:
+def test_the_case_pane_names_the_attempts_rule_without_a_per_attempt_verdict() -> None:
+    # WHY: credit is per Check. On the spec's grid A/B task the Case passes at 1.0 while
+    # neither Attempt has full marks, so a "0 of 2 Attempts matched" badge would contradict
+    # the pass beside it (review finding on #1303).
     html = _pane(_case(_TWO_ATTEMPTS))
 
-    assert "1 of 2 Attempts matched" in html
+    assert "any of 2 Attempts" in html
+    assert "Attempts matched" not in html
     assert "Attempts failed" not in html
 
 
 def test_a_failed_attempt_is_counted_on_the_pane() -> None:
     html = _pane(_case((_failed_attempt(1), _attempt(2, "42", 1.0))))
 
-    assert "1 of 2 Attempts matched" in html
+    assert "any of 2 Attempts" in html
     assert "1 of 2 Attempts failed" in html
 
 

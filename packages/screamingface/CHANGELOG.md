@@ -8,7 +8,7 @@
 
 ### Features
 
-* **screamingface:** read Benchmarks that ask each Case several times (`OME-1458`). Such a Benchmark marks a Check met if any Attempt met it; `CaseResult.attempts` keeps every Attempt's own answer, finish reason, failures, grade and cost records (`CaseAttempt`), in order, and is `None` for every other Benchmark. The Case Result's `output` and `grade` stay the shown answer and the folded grade. The report pane says "1 of 2 Attempts matched" (and how many failed) and lists each Attempt's answer and score; `CandidateResult.accounting` bills each Attempt's calls once. `Benchmark.attempts` carries the catalogue's count (absent means 1), shown as "any of N Attempts · N Candidate Invocations per Case". Failure code `attempt_grade_not_pass_fail` is declared.
+* **screamingface:** read Benchmarks that ask each Case several times (`OME-1458`). Such a Benchmark marks a Check met if any Attempt met it; `CaseResult.attempts` keeps every Attempt's own answer, finish reason, failures, grade and cost records (`CaseAttempt`), in order, and is `None` for every other Benchmark. The Case Result's `output` and `grade` stay the shown answer and the folded grade. The report pane says "any of 2 Attempts" (and how many failed) and lists each Attempt's answer and score; `CandidateResult.accounting` bills each Attempt's calls once. `Benchmark.attempts` carries the catalogue's count (absent means 1), shown as "any of N Attempts · N Candidate Invocations per Case". Failure code `attempt_grade_not_pass_fail` is declared.
 
   **Engines that send Attempts need this release first.** An older SDK refuses the run result of an Attempts Benchmark ("unsupported field `attempts`"); every other Benchmark is unaffected.
 
