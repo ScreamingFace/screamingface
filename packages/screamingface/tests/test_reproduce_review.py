@@ -29,6 +29,7 @@ from test_reproduce import (
     _client,
     _failure,
     _Replayer,
+    _result,
     _score,
 )
 
@@ -37,6 +38,7 @@ from screamingface import _reproduction
 from screamingface._engine.transport import AsyncUrl4CloudTransport
 from screamingface._evaluation.model import Candidate, _stamped, _with_answer_seed
 from screamingface._report_primitives import capture_status_value, is_declared_failure_code
+from screamingface._reproduction import _classify
 from screamingface.errors import ExecutionError
 
 # --- finding 1: replay failure codes prove replay mode ------------------------------------------
@@ -430,10 +432,9 @@ def _honouring_plan() -> RunPlan:
     return RunPlan(honour_replay=True, summary=summary, result_body=json.dumps(body))
 
 
-def test_submit_then_get_score_then_reproduce_is_exact_and_recorded() -> None:
-    plans = {REPLAY_URL4: _honouring_plan()}
-    board = _StoringBoard()
-    with isolation_engine(plans) as engine:
+def _spine(board: _StoringBoard) -> tuple[Any, ...]:
+    """Capture, submit, fetch and reproduce against the stub Engine; return what each step gave."""
+    with isolation_engine({REPLAY_URL4: _honouring_plan()}) as engine:
         client = sf.Client(
             engine_url=engine.url,
             scoreboard_url=SCOREBOARD_URL,
@@ -447,9 +448,19 @@ def test_submit_then_get_score_then_reproduce_is_exact_and_recorded() -> None:
             fetched = client.leaderboards.get_score(submitted.id)
             reproduction = client.reproduce(fetched)
             after = client.leaderboards.get_score(submitted.id)
+        return (
+            result,
+            fetched,
+            reproduction,
+            after,
+            dict(engine.state.replay_copies),
+            list(engine.state.capture_starts),
+        )
 
-        copies = dict(engine.state.replay_copies)
-        captures = list(engine.state.capture_starts)
+
+def test_submit_then_get_score_then_reproduce_is_exact_and_recorded() -> None:
+    board = _StoringBoard()
+    result, fetched, reproduction, after, copies, captures = _spine(board)
 
     # The original run asked to be captured, named its frozen copy, and the board stored it.
     assert len(captures) == 1
@@ -468,12 +479,20 @@ def test_submit_then_get_score_then_reproduce_is_exact_and_recorded() -> None:
     )
     # The reproduction was a replay: it started once with the copy id, and the first run did not.
     assert list(copies.values()) == [COPY]
-    assert (reproduction.outcome, reproduction.reason) == ("exact", None)
-    assert (reproduction.recorded, reproduction.record_error) == (True, None)
-    # The board stored the replay's own run, and now counts it.
+    summary = (reproduction.outcome, reproduction.reason)
+    assert (*summary, reproduction.recorded, reproduction.record_error) == (
+        "exact",
+        None,
+        True,
+        None,
+    )
+    # The board stored the replay's own run, and now counts it. A replay states only
+    # `capture.replay`, so its result has no copy of its own: the copy id came from the capture run.
     (recorded,) = board.reproductions
-    assert reproduction.result is not None
-    assert recorded["run_id"] == reproduction.result.run_id != result.run_id
+    replayed = reproduction.result
+    assert replayed is not None
+    assert recorded["run_id"] == replayed.run_id != result.run_id
+    assert (replayed.frozen_copy_id, replayed.capture_status) == (None, None)
     assert after.reproduction_count == 1
 
 
@@ -537,3 +556,66 @@ def test_a_replay_start_sends_the_copy_id_header_and_no_capture_header() -> None
 
         assert list(engine.state.replay_copies.values()) == [COPY]
         assert engine.state.capture_starts == []
+
+
+# --- a candidate-level failure with no case failures (design §7) --------------------------------
+
+
+def test_a_candidate_level_unavailable_copy_with_scored_cases_is_its_own_reason() -> None:
+    # The Engine refused the copy (unknown, not sealed) for the whole run: no case failed, and
+    # there is no summary. The code proves replay mode, so the statement check lets it through.
+    transport = _Replayer(failures=[_failure("frozen_copy_unavailable")], honoured=False)
+    with _client(transport) as client:
+        reproduction = client.reproduce(_score())
+
+    assert (reproduction.outcome, reproduction.reason) == ("failed", "frozen_copy_unavailable")
+    assert reproduction.missed_cases == ()
+    assert reproduction.result is not None
+    assert reproduction.recorded is False
+
+
+def test_a_candidate_level_miss_is_run_failed_by_the_accepted_rule() -> None:
+    # `frozen_copy_miss` is a case-level code: `missed_cases` lists cases, so a candidate-level one
+    # names none. It still proves replay mode (no `replay_unsupported`), and it is a failed run.
+    transport = _Replayer(failures=[_failure("frozen_copy_miss")], honoured=False)
+    with _client(transport) as client:
+        reproduction = client.reproduce(_score())
+
+    assert (reproduction.outcome, reproduction.reason) == ("failed", "run_failed")
+    assert reproduction.missed_cases == ()
+    assert reproduction.result is not None
+
+
+def test_classify_judges_candidate_level_codes_without_a_run() -> None:
+    unavailable = _result(failures=[_failure("frozen_copy_unavailable")])
+    missed = _result(failures=[_failure("frozen_copy_miss")])
+
+    assert _classify(_score(), unavailable) == ("failed", "frozen_copy_unavailable", ())
+    assert _classify(_score(), missed) == ("failed", "run_failed", ())
+
+
+# --- the copy id of a stored score is validated and normalised ----------------------------------
+
+
+def test_a_score_normalises_its_copy_id_like_the_board() -> None:
+    assert _score(frozen_copy_id=COPY.upper()).frozen_copy_id == COPY
+    assert _score(frozen_copy_id="{" + COPY + "}").frozen_copy_id == COPY
+    assert _score(frozen_copy_id=COPY.replace("-", "")).frozen_copy_id == COPY
+
+
+@pytest.mark.parametrize(
+    ("bad", "error"),
+    [("not-a-uuid", ValueError), ("", ValueError), (COPY + "\n", ValueError), (7, TypeError)],
+)
+def test_a_score_refuses_an_invalid_copy_id_at_construction(bad: object, error: type) -> None:
+    with pytest.raises(error, match="frozen_copy_id"):
+        _score(frozen_copy_id=bad)
+
+
+def test_reproduce_never_sends_a_malformed_copy_id_header() -> None:
+    transport = _Replayer()
+    with _client(transport) as client:
+        client.reproduce(_score(frozen_copy_id=COPY.upper()))
+
+    assert transport.candidate is not None
+    assert transport.candidate.replay_frozen_copy == COPY

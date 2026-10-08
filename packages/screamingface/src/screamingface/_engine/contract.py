@@ -350,7 +350,10 @@ _CAPTURE_REPLAY = "capture.replay"
 
 @dataclass(frozen=True, slots=True)
 class _CacheSummary:
-    """One engine run summary's cache tally: hits, coverage by provenance, and the two totals."""
+    """One engine run summary: the cache tally and the `capture.*` attributes on the same line.
+
+    The tally is hits, coverage by provenance, and the two totals.
+    """
 
     hits: int
     reported_hits: int | None
@@ -374,9 +377,9 @@ class _CacheSummary:
             unpriced_hits=count(_UNPRICED_HITS),
             saved_cost_usd=_summary_amount(attributes, _SAVED_COST_USD),
             saved_cost_archive_usd=_summary_amount(attributes, _SAVED_COST_ARCHIVE_USD),
-            frozen_copy_id=_summary_label(attributes, _CAPTURE_FROZEN_COPY_ID),
+            frozen_copy_id=_summary_copy_id(attributes, _CAPTURE_FROZEN_COPY_ID),
             capture_status=_summary_capture_status(attributes),
-            capture_replay=_summary_label(attributes, _CAPTURE_REPLAY),
+            capture_replay=_summary_copy_id(attributes, _CAPTURE_REPLAY),
         )
 
     def is_consistent(self) -> bool:
@@ -410,13 +413,13 @@ def _summary_amount(attributes: Mapping[str, object], key: str) -> Decimal | Non
     return _decimal(value, f"cache summary {key}")
 
 
-def _summary_label(attributes: Mapping[str, object], key: str) -> str | None:
+def _summary_copy_id(attributes: Mapping[str, object], key: str) -> str | None:
     """A summary's frozen copy id, absent when the key is absent, or a refusal."""
     if key not in attributes:
         return None
     value = attributes[key]
     if not isinstance(value, str) or not value:
-        raise ExecutionError(f"SF Engine cache summary {key} must be a non-empty string")
+        raise ExecutionError(f"SF Engine capture summary {key} must be a non-empty string")
     return value
 
 
@@ -427,7 +430,7 @@ def _summary_capture_status(
     try:
         return capture_status_value(attributes.get(_CAPTURE_STATUS))
     except ValueError as exc:
-        raise ExecutionError(f"SF Engine cache summary {_CAPTURE_STATUS} is invalid") from exc
+        raise ExecutionError(f"SF Engine capture summary {_CAPTURE_STATUS} is invalid") from exc
 
 
 def _cache_hit_count(value: object, attribute: str = _CACHE_HITS) -> int:

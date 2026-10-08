@@ -86,8 +86,9 @@ def evaluate_sync(
     resource = load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
-    # FEATURE (OME-1193): stamp the declared sitting onto every compiled Candidate ONCE,
-    # so the transport, the progress observer and the report all see the same objects.
+    # FEATURE (OME-1193, OME-1307): stamp the declared sitting (`answer_seed`) and the capture
+    # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
+    # observer and the report all see the same objects.
     selected_candidates = _captured_candidates(
         _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
     )
@@ -119,7 +120,8 @@ def evaluate_sync(
         except BaseException as exc:
             _abort_event_observer(observer, exc)
             raise
-        return _returned_report(observer, report)
+        _conclude_evaluation(observer, report, capture)
+        return report
 
 
 async def evaluate_async(
@@ -146,8 +148,8 @@ async def evaluate_async(
     resource = await load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
-    # FEATURE (OME-1193): see the sync twin — one stamped tuple for transport,
-    # observer and report alike.
+    # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
+    # transport, observer and report alike.
     selected_candidates = _captured_candidates(
         _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
     )
@@ -179,7 +181,8 @@ async def evaluate_async(
         except BaseException as exc:
             _abort_event_observer(observer, exc)
             raise
-        return _returned_report(observer, report)
+        _conclude_evaluation(observer, report, capture)
+        return report
 
 
 def _settled_sync(
@@ -445,6 +448,17 @@ def _close_event_observer(observer: object) -> None:
 def _reconcile_event_observer(observer: object, report: Report) -> None:
     if isinstance(observer, (_SyncEventObserver, _AsyncEventObserver)):
         observer.reconcile(report)
+
+
+def _conclude_evaluation(observer: object, report: Report, capture: bool) -> None:
+    """Reconcile the progress observer, mark the report ready, then say what capture missed."""
+    from screamingface._evaluation.results import _warn_if_not_captured
+    from screamingface._results.lifecycle import mark_report
+
+    _reconcile_event_observer(observer, report)
+    mark_report(report, "ready")
+    if capture:
+        _warn_if_not_captured(report)
 
 
 def _abort_event_observer(observer: object, exc: BaseException) -> None:
@@ -859,11 +873,3 @@ def _prepared_results(transport, evaluation, candidates) -> Iterator[None]:
         finish = getattr(transport, "finish_results", None)
         if callable(finish):
             finish(candidates)
-
-
-def _returned_report(observer, report: Report) -> Report:
-    from screamingface._results.lifecycle import mark_report
-
-    _reconcile_event_observer(observer, report)
-    mark_report(report, "ready")
-    return report

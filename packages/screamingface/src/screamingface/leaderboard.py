@@ -177,7 +177,6 @@ class LeaderboardScore:
             "client_platform",
             "scoreboard_url",
             "paper_url",
-            "frozen_copy_id",
             "benchmark_revision",
         )
         for name in optional_fields:
@@ -388,7 +387,12 @@ def _optional_aware_datetime(value: object, label: str) -> None:
 
 
 def _reproduction_fields(score: LeaderboardScore) -> None:
-    """Validate the OME-1307 frozen copy fields; the text ones go through the loop above."""
+    """Validate the OME-1307 frozen copy fields; the text ones go through the loop above.
+
+    INVARIANT: a copy id is normalised as the board does (`str(UUID(value))`) and an invalid one is
+    refused here, so `reproduce` never sends a malformed `X-Replay-Frozen-Copy` header.
+    """
+    object.__setattr__(score, "frozen_copy_id", _frozen_copy_id(score.frozen_copy_id))
     _optional_aware_datetime(score.last_reproduced_at, "Leaderboard score last_reproduced_at")
     capture_status_value(score.capture_status)
     if score.answer_seed is not None and (
@@ -396,6 +400,17 @@ def _reproduction_fields(score: LeaderboardScore) -> None:
     ):
         raise TypeError("Leaderboard score answer_seed must be an integer or None")
     _nonnegative_int(score.reproduction_count, "Leaderboard score reproduction_count")
+
+
+def _frozen_copy_id(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError("Leaderboard score frozen_copy_id must be a string or None")
+    try:
+        return str(UUID(value))
+    except ValueError:
+        raise ValueError("Leaderboard score frozen_copy_id must be a UUID") from None
 
 
 def _names(values: object, label: str) -> tuple[str, ...]:

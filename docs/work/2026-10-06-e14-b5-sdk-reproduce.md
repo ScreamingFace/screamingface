@@ -209,3 +209,36 @@ their names were read from their code (`X-Capture`, `X-Replay-Frozen-Copy`, `cap
   assets), 17 e2e replay lane (`SCREAMINGFACE_TEST_E2E` not set), 1 `test_inspect_log_live.py`
   (`inspect_ai` not installed), 1 `test_url4_cloud_integration.py` (needs a real runner). The e2e
   spine test (rp #22) did not run. The in-process spine test covers the same path.
+
+### Design-review round (coordinator, 2026-10-08; one round, "accept with fixes")
+
+- Stub engine (`tests/_isolation_engine.py`, approved helper): the plan's `capture.*` summary keys
+  are sent only to a start that carried `X-Capture`. A replay run states only `capture.replay`. The
+  spine test now checks that the replay result has no `frozen_copy_id` and no `capture_status`: the
+  copy id comes from the capture run.
+- New tests: `capture=True` on the async Recipe path; module-level `sf.evaluate` forwards `capture`
+  on both branches (a complete URL4, and Recipes with a benchmark), true and default. The module
+  level function is sync only, and the async Client door is covered by its own tests.
+  A removed forwarding fails a test.
+- New tests: a candidate-level `frozen_copy_unavailable` with no case failures is
+  `failed/frozen_copy_unavailable` and passes the statement check. A candidate-level
+  `frozen_copy_miss` is `failed/run_failed` (accepted rule, also pinned in `_classify`).
+- `_engine/contract.py`: `_summary_label` is now `_summary_copy_id`. Capture parse errors say
+  "capture summary". The fields stay on `_CacheSummary`; its docstring says so.
+- `LeaderboardScore.frozen_copy_id` is normalised as the board does (`str(UUID(value))`). An invalid
+  value is refused at construction (`ValueError`, or `TypeError` for a non-string), so `reproduce`
+  never sends a malformed header. A decoded board score with a bad id is a `LeaderboardError`. The
+  `_capture` docstring in `report.py` now says that `CandidateResult` is stricter than the board:
+  it refuses a non-canonical spelling and does not normalise it.
+- Decision: with `capture=True` and no `capture.status` in the run summary, `evaluate` emits an
+  `EvaluationWarning` ("the Engine did not capture this run; it cannot be reproduced (Candidate
+  'name')"). The result keeps `frozen_copy_id=None` and `capture_status=None`. A stated `partial`
+  status without a copy id does not warn. The check is `_warn_if_not_captured` in
+  `_evaluation/results.py`, called through `_conclude_evaluation` in `_evaluation/runner.py` from
+  the url4 and Recipe paths (sync and async). Tests cover warn, no warn, and both paths.
+- `runner.py` comment over the two stamps names both `answer_seed` and `capture`. The async
+  `evaluate` docstring mentions `capture`. Finding 9 left as is. Finding 10 is fixed in the engine's
+  later commits.
+- Gates: with `--skip-append-only` all green (pytest: 2508 passed, 26 skipped, coverage gate met).
+  Without it, only the append-only check fails, on `tests/_isolation_engine.py` and
+  `tests/public_surface_snapshot.json` (the two approved changes). Skips are the same 26 as above.

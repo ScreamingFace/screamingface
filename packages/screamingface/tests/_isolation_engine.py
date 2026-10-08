@@ -67,8 +67,9 @@ class RunPlan:
     artifact_hold: threading.Event | None = None
     # FEATURE: OME-1307 — an Engine that honours `X-Replay-Frozen-Copy`. When set, a start that
     # carries the header is acknowledged by echoing it, and the run's summary log (frame 3) also
-    # states `capture.replay`. `summary` is that log's attributes, and `result_body` replaces the
-    # plain-text result with a real one. Without them a plan behaves exactly as it always did.
+    # states `capture.replay`. `summary` is that log's attributes (its `capture.*` keys go only to a
+    # start that carried `X-Capture`), and `result_body` replaces the plain-text result with a
+    # real one. Without them a plan behaves exactly as it always did.
     honour_replay: bool = False
     summary: dict[str, object] | None = None
     result_body: str | None = None
@@ -324,6 +325,7 @@ class _Handler(BaseHTTPRequestHandler):
                 artifact=plan.artifact,
                 plan=plan,
                 replay=state.replay_copies.get(topic),
+                capture=any(state.topics[token] == topic for token in state.capture_starts),
             )
             _send_text(self.wfile, json.dumps(frame))
 
@@ -385,12 +387,20 @@ def _frame_for(
     artifact: bool,
     plan: RunPlan | None = None,
     replay: str | None = None,
+    capture: bool = False,
 ) -> dict[str, Any]:
     third: dict[str, object] = {"severity_text": "INFO", "severity_number": 9, "body": "more"}
     result: dict[str, object] = _result_data(url4, artifact=artifact)
     if plan is not None and plan.summary is not None:
+        # A real Engine states `capture.*` only for a capture run, and only `capture.replay` for a
+        # replay run, so the plan's capture keys are kept for a start that carried `X-Capture`.
+        kept = {
+            key: value
+            for key, value in plan.summary.items()
+            if capture or not key.startswith("capture.")
+        }
         stated = {"capture.replay": replay} if plan.honour_replay and replay else {}
-        third["attributes"] = {**plan.summary, **stated}
+        third["attributes"] = {**kept, **stated}
     if plan is not None and plan.result_body is not None:
         result = {"body": plan.result_body, "media_type": "application/json"}
     kinds: dict[int, tuple[str, dict[str, object]]] = {
