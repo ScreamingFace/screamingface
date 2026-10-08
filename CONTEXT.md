@@ -84,6 +84,12 @@ The Benchmark-produced score, metrics, and ordered Checks for one Case. A failed
 Case Grade.
 _Avoid_: Result when referring specifically to grading
 
+**Attempt**:
+One complete, independent answer by the Candidate to a Case, graded on its own. A Benchmark that
+declares N Attempts asks each Case N times; a Check is met if any Attempt met it.
+_Avoid_: Epoch (inspect's word), sample, try, retry (a retry re-sends one failed request), pass@k
+(inspect's `pass_at` is an estimator, a different number)
+
 **Check**:
 One named grading requirement inspected within a Case Grade, together with the Evidence used to
 evaluate it. A DRACO rubric criterion and an IFEval instruction constraint are both Checks.
