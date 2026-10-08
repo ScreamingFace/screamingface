@@ -184,29 +184,19 @@ The ranked projection of a Leaderboard Score shown on a Leaderboard.
 _Avoid_: Score Submission
 
 **Frozen Copy**:
-A permanent record of every model answer and every web-tool result of one run, made when the run
-asks to capture. The AI gateway stores each chat answer, whether it came from the cache or from a
-live call. The Engine stores each web-tool result that the model reads. The Engine seals the copy at
-the end of the run. A sealed copy does not change and is kept forever. It does not use the cache,
-its keys, or its rules. Anyone who holds the copy id and sends the exact request can read the stored
-answer.
-_Avoid_: Cache, snapshot, cache version, archive
+The permanent record of every model answer and web-tool result of one captured run. The AI gateway
+keeps it, and the Engine seals it when the run ends.
+_Avoid_: Cache, snapshot, cache version
 
 **Capture Status**:
-The status a Leaderboard Score stores for whether its Frozen Copy holds the whole run. **Complete**:
-the copy opened and sealed, and every model call and web-tool result is stored. **Partial
-(capture)**: capture is best effort, so a run is partial when the copy did not open or seal, or when
-a call was not stored cleanly (failed, refused, missing, ended in error, or ambiguous). A score with
-no Capture Status, no Frozen Copy id, or no Benchmark Revision is unknown, not partial.
-_Avoid_: Replayable, verified (that is the separate `verified_by_screamingface` mark), Partial
-Report
+Whether a Frozen Copy holds the whole run: complete or partial. A Candidate Result carries it, and a
+Leaderboard Score stores it.
+_Avoid_: Verified (that is the separate `verified_by_screamingface` mark), Partial Report
 
 **Reproduction**:
 A replay of a Leaderboard Score against its Frozen Copy, run with its Candidate URL4 and stored
-answer seed. The Engine must confirm the replay. A confirmed replay answers every model call and
-web-tool result from the copy, so it pays no provider and no web-search service. A Reproduction is
-exact when the replay gives the stored score and case count on the same Benchmark Revision.
-Otherwise it is failed, or not reproducible when no run started.
+answer seed. It is exact when it gives the stored score and case count on the same Benchmark
+Revision.
 _Avoid_: Re-run, fresh run, verification, replay alone
 
 **Aggregation**:
