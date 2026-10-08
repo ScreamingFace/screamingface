@@ -81,10 +81,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <p>
       With <code>capture=True</code>, the Engine opens a frozen copy in the
       <RouterLink to="/learn/ai-gateway">AI gateway</RouterLink> when the run starts. The gateway
-      stores each model answer. It stores the answer that the model got, whether the answer came
+      stores each model answer. It stores the answer that the caller got, whether the answer came
       from the cache or from a live call. Model calls of the benchmark's judges are stored too. The
-      Engine stores each web-search and web-fetch result that the model reads. When the run ends,
-      the Engine seals the copy. A sealed copy cannot change.
+      Engine stores each web-search and web-fetch result as the tool returned it, before the Engine
+      cuts it to length. When the run ends, the Engine seals the copy. A sealed copy cannot change.
     </p>
 
     <p>
@@ -94,25 +94,29 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <p>
-      Keep one thing in mind. The copy id is part of a published score. Anyone who has the id and
-      sends the exact request can read the stored answer. No private-board rule limits this. Capture
-      only a run that you are willing to publish.
+      Keep one thing in mind. The copy id is part of a published score. Any authenticated gateway
+      account that has the id and sends the exact request can read the stored answer. No
+      private-board rule limits this. Capture only a run that you are willing to publish.
     </p>
 
+    <h3>Local runs</h3>
+
     <p>
-      A frozen copy of a local run is not supported yet. A copy lives in the AI gateway, and an
-      Engine that has no gateway cannot open one. The run goes on, and its capture status is
-      <code>partial</code>.
+      The local runtime starts a real AI gateway with its own SQLite database. A local run made with
+      <code>capture=True</code> can be <code>complete</code>. Its copy lives only in that local
+      gateway. Only the same local setup can replay it. A hosted reproduction of that score gets
+      <code>frozen_copy_unavailable</code>. To upload a local copy to the hosted gateway is a
+      planned follow-up.
     </p>
 
     <h3>Complete and partial</h3>
 
     <p>
-      A captured run has a <code>capture_status</code> and a <code>frozen_copy_id</code>. The status
-      is <code>complete</code> only when the copy opened, the copy sealed, and every model call and
-      every web-tool result is stored. In all other cases it is <code>partial</code>. A partial
-      score is not replayed: <code>sf.reproduce</code> returns <code>not_reproducible</code> and
-      starts no run.
+      A captured run has a <code>capture_status</code> and, when the copy opened, a
+      <code>frozen_copy_id</code>. The status is <code>complete</code> only when the copy opened,
+      the copy sealed, and every model call and every web-tool result is stored. In all other cases
+      it is <code>partial</code>. A partial score is not replayed: <code>sf.reproduce</code> returns
+      <code>not_reproducible</code> and starts no run.
     </p>
 
     <table>
@@ -126,15 +130,15 @@ import { learnNavigation as navigation } from '@/navigation/learn'
         <tr>
           <td>Open</td>
           <td>
-            The Engine could not open the copy when the run started, so the run went on without
-            capture. An Engine with no AI gateway does this.
+            The Engine could not open the copy when the run started. The run went on without capture
+            and has no copy id.
           </td>
         </tr>
         <tr>
           <td>Seal</td>
           <td>
-            The gateway did not confirm the seal at the end of the run. A copy that is not sealed
-            cannot be replayed.
+            The gateway did not confirm the seal at the end of the run. A run that is cancelled is
+            never sealed. A copy that is not sealed cannot be replayed.
           </td>
         </tr>
         <tr>
@@ -148,14 +152,15 @@ import { learnNavigation as navigation } from '@/navigation/learn'
           <td>Refused</td>
           <td>
             The gateway did not take a call into the copy. It never stores a streaming call. It also
-            refuses a call when the copy is not open.
+            refuses a call when the copy is unknown, is not open, or belongs to another account.
           </td>
         </tr>
         <tr>
           <td>Missing</td>
           <td>
             The gateway did not say whether it stored a call. An older gateway, from before frozen
-            copies, does this.
+            copies, does this. So does a gateway that refused the call before it checked the copy,
+            for example because the request body was not valid.
           </td>
         </tr>
         <tr>
@@ -210,9 +215,12 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <p>
-      If the Engine does not confirm replay mode, it may run the url4 as a normal, paid run. So the
-      Client stops the run and reports <code>replay_unsupported</code>. If that stop fails, an
-      <code>EvaluationWarning</code> says that the run may still be running and spending.
+      If the Engine does not confirm replay mode when the run starts, it may run the url4 as a
+      normal, paid run. So the Client stops the run and reports <code>replay_unsupported</code>. If
+      that stop fails, an <code>EvaluationWarning</code> says that the run may still be running and
+      spending. An Engine can also confirm the start and then finish a run whose summary does not
+      name the copy. That run is already over, and it may have paid providers. The Client reports it
+      as <code>replay_unsupported</code> too, and not as a replay.
     </p>
 
     <h3>When a replay fails</h3>
@@ -230,8 +238,9 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       <li>
         <strong>A copy that is not available.</strong> The copy is unknown, or it is not sealed (for
         example, the Engine stopped during the original run), or the gateway is older and has no
-        frozen copies. Cases fail, and the replay is reported as
-        <code>frozen_copy_unavailable</code>.
+        frozen copies. A web-tool lookup that the gateway does not answer, because of a transport
+        failure or an error other than not found, is the same. Cases fail, and the replay is
+        reported as <code>frozen_copy_unavailable</code>.
       </li>
       <li>
         <strong>A changed engine or SDK</strong> may build a request in another way. The copy has no
@@ -256,8 +265,8 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </ul>
 
     <p>
-      A failed replay is not recorded, and it says nothing against the score. It says that this
-      software cannot rebuild the run from the copy.
+      A failed replay is not recorded. It is not proof against the score, because of the known
+      limits above. It is not a confirmation either.
     </p>
 
     <h2>Where the compute comes from</h2>

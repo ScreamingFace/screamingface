@@ -30,7 +30,15 @@ const evaluateSig = `Client.evaluate(
     limit: int | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
+    answer_seed: int | None = None,
+    capture: bool = False,
 ) -> Report`
+
+const reproduceSig = `Client.reproduce(
+    score: LeaderboardScore | UUID | str,
+    *,
+    record: bool = True,
+) -> Reproduction`
 
 const withBlock = `with sf.Client() as client:
     report = client.evaluate(
@@ -210,8 +218,40 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td><code>bool&nbsp;|&nbsp;None</code></td>
           <td>Force the progress display on or off instead of letting it decide.</td>
         </tr>
+        <tr>
+          <td><code>answer_seed</code></td>
+          <td><code>int&nbsp;|&nbsp;None</code></td>
+          <td>
+            An integer that the engine sends to each model call as its <code>seed</code>, unless the
+            call sets one. <code>None</code> (the default) runs unseeded. Not a <code>bool</code>.
+            The result keeps it, and a reproduction runs with it.
+          </td>
+        </tr>
+        <tr>
+          <td><code>capture</code></td>
+          <td><code>bool</code></td>
+          <td>
+            <code>True</code> asks the engine to make a frozen copy of each run, so the score can be
+            reproduced later. Best effort. Read <code>capture_status</code> on each
+            <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink>. See
+            <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
+          </td>
+        </tr>
       </tbody>
     </table>
+
+    <h3>reproduce()</h3>
+
+    <CodeBlock :code="reproduceSig" language="python" />
+
+    <p>
+      <code>reproduce()</code> runs a submitted score again against its frozen copy and returns a
+      <code>Reproduction</code>. <code>score</code> is a <code>LeaderboardScore</code> or its id.
+      <code>record=True</code> records an exact replay on the leaderboard. A confirmed replay pays
+      no provider. The
+      <RouterLink to="/sf-client/api/leaderboards">Leaderboards reference</RouterLink> lists the
+      outcomes and reasons.
+    </p>
 
     <h3>connect() and disconnect()</h3>
 
@@ -288,9 +328,9 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
     </table>
 
     <p>
-      <code>evaluate()</code>, <code>connect()</code>, <code>disconnect()</code>,
-      <code>login()</code> and <code>logout()</code> are all awaited. The properties
-      (<code>engine_url</code>, <code>closed</code>, <code>authenticated</code>) are not.
+      <code>evaluate()</code>, <code>reproduce()</code>, <code>connect()</code>,
+      <code>disconnect()</code>, <code>login()</code> and <code>logout()</code> are all awaited. The
+      properties (<code>engine_url</code>, <code>closed</code>, <code>authenticated</code>) are not.
     </p>
   </DocLayout>
 </template>

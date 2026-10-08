@@ -451,12 +451,13 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
     <h2>Reproduction</h2>
 
     <p>
-      What <code>client.reproduce(score, *, record=True)</code> returns. It replays a score against
-      its frozen copy and judges the replay against the stored numbers. A replay that the Engine
-      confirms is answered from the copy only, so it pays no provider and no web-search service.
-      <code>score</code> is a <code>LeaderboardScore</code> or its id. The same method is on
+      What <code>client.reproduce(score, *, record=True)</code> returns. It runs a score against its
+      frozen copy and judges the replay against the stored numbers. <code>score</code> is a
+      <code>LeaderboardScore</code> or its id. The same method is on
       <code>AsyncClient</code> (awaited) and as <code>sf.reproduce</code>. A replay that does not
-      match is a value here, not an exception.
+      match is a value here, not an exception. The
+      <RouterLink to="/learn/caching">caching page</RouterLink> explains how a frozen copy is made
+      and replayed.
     </p>
 
     <div class="not-prose">
@@ -574,7 +575,9 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>frozen_copy_unavailable</code></td>
           <td>
             The copy is unknown or not sealed, or the gateway has no frozen copies (an older
-            gateway). The cases fail, and the run finishes.
+            gateway), or a web-tool lookup got no answer from the gateway. The cases fail, and the
+            run finishes. A copy made by a local run, replayed against a hosted gateway, is
+            unavailable.
           </td>
         </tr>
         <tr>

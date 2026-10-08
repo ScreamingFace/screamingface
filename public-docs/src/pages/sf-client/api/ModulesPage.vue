@@ -29,13 +29,21 @@ const evaluateSig = `sf.evaluate(
     limit: int | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
+    answer_seed: int | None = None,
+    capture: bool = False,
 ) -> Report`
+
+const reproduceSig = `sf.reproduce(
+    score: LeaderboardScore | UUID | str,
+    *,
+    record: bool = True,
+) -> Reproduction`
 </script>
 
 <template>
   <DocLayout
     title="Modules"
-    description="The five modules and five functions you can call on sf directly."
+    description="The five modules and six functions you can call on sf directly."
     :navigation="navigation"
     :version="version"
   >
@@ -187,7 +195,7 @@ const evaluateSig = `sf.evaluate(
     <h2>Top-level functions</h2>
 
     <p>
-      These five act on the shared Client. They exist so a script or notebook never has to build one
+      These six act on the shared Client. They exist so a script or notebook never has to build one
       explicitly.
     </p>
 
@@ -197,8 +205,19 @@ const evaluateSig = `sf.evaluate(
 
     <p>
       The one call that spends money. Identical to
-      <code>Client.evaluate()</code>, including replaying a url4 string. Its parameters are
-      documented on the <RouterLink to="/sf-client/api/clients">Clients</RouterLink> page.
+      <code>Client.evaluate()</code>, including running a url4 string again. Its parameters are
+      documented on the <RouterLink to="/sf-client/api/clients">Clients</RouterLink> page. That
+      includes <code>answer_seed</code> and <code>capture</code>.
+    </p>
+
+    <h3>reproduce()</h3>
+
+    <CodeBlock :code="reproduceSig" language="python" />
+
+    <p>
+      Identical to <code>Client.reproduce()</code>. It runs a submitted score again against its
+      frozen copy. See the <RouterLink to="/sf-client/api/clients">Clients</RouterLink> page and the
+      <RouterLink to="/sf-client/api/leaderboards">Leaderboards reference</RouterLink>.
     </p>
 
     <h3>configure()</h3>
