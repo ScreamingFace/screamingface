@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from _case_provenance import provenance_markdown
+from _case_provenance import copy_labels, provenance_markdown
 
 #: The block Case Preparation writes for race_h (values from its declaration). It
 #: simulates one prepared bundle; it does not prove the Engine writes this shape, which
@@ -193,3 +193,143 @@ def test_a_hand_built_block_with_empty_pins_renders(tmp_path: Path) -> None:
     assert "unreadable" not in row
     assert "openai/gdpval @ 11e7900c" in row
     assert row.endswith("| 3 of 3 | — | 95s |")
+
+
+# ── OME-1524: each source links to its pinned commit, and the labels ship in the bundle ──
+
+_MUSIQUE_URL: str = (
+    "https://huggingface.co/datasets/dgslibisey/MuSiQue/blob/"
+    "c8f4f8c9465fb69d31a8eae894c3fd509c4ca321/musique_ans_v1.0_dev.jsonl"
+)
+
+
+def _one_source(source: dict[str, str]) -> dict[str, Any]:
+    """A hand-built-shaped block around one Case Source (no seeds, no inspect pins)."""
+    return {
+        "sources": [source],
+        "seeds_applied": {},
+        "samples": {"yielded": 2417, "excluded": 0, "kept": 2417},
+        "pins": {},
+        "seconds": 3.0,
+    }
+
+
+def test_a_source_with_a_link_reads_as_that_link(tmp_path: Path) -> None:
+    """The owner opens the exact file the Cases came from in one click."""
+    _bundle(
+        tmp_path,
+        "musique",
+        _one_source(
+            {
+                "kind": "hugging-face",
+                "location": "dgslibisey/MuSiQue/musique_ans_v1.0_dev.jsonl",
+                "pin": "revision c8f4f8c9465fb69d31a8eae894c3fd509c4ca321",
+                "phase": "load",
+                "url": _MUSIQUE_URL,
+            }
+        ),
+    )
+
+    row: str = _row(provenance_markdown(["musique"], tmp_path), "musique")
+
+    assert f"[dgslibisey/MuSiQue/musique_ans_v1.0_dev.jsonl @ c8f4f8c9]({_MUSIQUE_URL})" in row
+
+
+def test_a_source_without_a_link_stays_plain_text(tmp_path: Path) -> None:
+    """A label written before links existed, or an unpinned source, reads as it always did."""
+    _bundle(tmp_path, "inspect-race_h", _RACE_H)
+
+    row: str = _row(provenance_markdown(["inspect-race_h"], tmp_path), "inspect-race_h")
+
+    assert "| ehovy/race/high @ 2fec9fd8 |" in row
+    assert "](" not in row
+
+
+def test_a_pipe_or_bracket_in_a_source_never_breaks_the_row(tmp_path: Path) -> None:
+    """INVARIANT: one row per Benchmark, six cells. A ``|`` in a location would otherwise open
+    a seventh cell, and a ``]`` or ``)`` would end the link early."""
+    _bundle(
+        tmp_path,
+        "odd",
+        _one_source(
+            {
+                "kind": "url",
+                "location": "https://x.test/a|b]c.jsonl",
+                "pin": "unpinned",
+                "phase": "load",
+                "url": "https://x.test/a|b]c (1).jsonl",
+            }
+        ),
+    )
+
+    row: str = _row(provenance_markdown(["odd"], tmp_path), "odd")
+
+    assert (
+        r"[https://x.test/a\|b\]c.jsonl @ unpinned](https://x.test/a%7Cb%5Dc%20%281%29.jsonl)"
+        in row
+    )
+    assert row.replace(r"\|", "").count("|") == 7
+
+
+def test_only_a_web_address_becomes_a_link(tmp_path: Path) -> None:
+    """The label is build data, not code we control: a ``javascript:`` url is shown as text."""
+    _bundle(
+        tmp_path,
+        "odd",
+        _one_source(
+            {
+                "kind": "url",
+                "location": "x",
+                "pin": "unpinned",
+                "phase": "load",
+                "url": "javascript:alert(1)",
+            }
+        ),
+    )
+
+    row: str = _row(provenance_markdown(["odd"], tmp_path), "odd")
+
+    assert "| x @ unpinned |" in row
+    assert "javascript" not in row
+
+
+def test_each_picked_benchmarks_label_is_copied_for_the_debug_bundle(tmp_path: Path) -> None:
+    """The labels outlive the runner: one ``provenance/<benchmark>.json`` per Benchmark, a
+    shared bundle's label under each Benchmark that reads it, and a missing one skipped."""
+    assets: Path = tmp_path / "assets"
+    _bundle(assets, "inspect-race_h", _RACE_H)
+    _bundle(
+        assets,
+        "draco",
+        _one_source(
+            {
+                "kind": "hugging-face",
+                "location": "perplexity-ai/draco",
+                "pin": "revision x",
+                "phase": "load",
+            }
+        ),
+    )
+    log_dir: Path = tmp_path / "logs"
+
+    copy_labels(["inspect-race_h", "draco-3pass", "never-prepared"], assets, log_dir)
+
+    copied: list[str] = sorted(path.name for path in (log_dir / "provenance").iterdir())
+    assert copied == ["draco-3pass.json", "inspect-race_h.json"]
+    assert json.loads((log_dir / "provenance" / "inspect-race_h.json").read_text()) == _RACE_H
+    assert (log_dir / "provenance" / "draco-3pass.json").read_bytes() == (
+        assets / "draco" / "provenance.json"
+    ).read_bytes()
+
+
+def test_the_debug_bundle_never_carries_the_cases(tmp_path: Path) -> None:
+    """INVARIANT: labels only. Some datasets are gated (xstest needs an accepted licence), and
+    anyone who can read the repo can download the bundle."""
+    assets: Path = tmp_path / "assets"
+    _bundle(assets, "inspect-xstest", _RACE_H)
+    (assets / "inspect-xstest" / "cases.json").write_text("[]", encoding="utf-8")
+    log_dir: Path = tmp_path / "logs"
+
+    copy_labels(["inspect-xstest"], assets, log_dir)
+
+    assert [path.name for path in log_dir.rglob("*") if path.is_file()] == ["inspect-xstest.json"]

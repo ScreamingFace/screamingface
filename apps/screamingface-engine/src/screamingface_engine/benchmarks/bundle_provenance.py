@@ -16,7 +16,8 @@ Worked example, MedXpertQA: the preparer loaded 2450 rows of ``TsinghuaC3I/MedXp
 here are illustrative)::
 
     {"sources": [{"kind": "hugging-face", "location": "TsinghuaC3I/MedXpertQA/Text",
-                  "pin": "revision 7e7c465a…", "phase": "load"}],
+                  "pin": "revision 7e7c465a…", "phase": "load",
+                  "url": "https://huggingface.co/datasets/TsinghuaC3I/MedXpertQA/tree/7e7c465a…"}],
      "seeds_applied": {},
      "samples": {"yielded": 2450, "excluded": 0, "kept": 2450},
      "pins": {},
@@ -24,11 +25,17 @@ here are illustrative)::
 
 INVARIANT: the block holds commits, locations, counts and versions, never a Case's input or
 target. The build log is public and some datasets are gated or licensed.
+
+Each source may carry a ``url`` (OME-1524): a browser link to that source AT its pinned
+commit, built by the code that read it, because only that code knows the host, the repo id
+and whether the last path segment is a config or a file. The link builders below are the one
+home for those addresses; the inspect plugin's fetch recorder imports them.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Final
@@ -53,6 +60,47 @@ UNPINNED: Final = "unpinned"
 #: Read while the dataset loads (the plugin also has "render": read while building a prompt).
 LOAD_PHASE: Final = "load"
 
+#: A full git commit: the only revision a link may point at.
+_COMMIT: Final = re.compile(r"[0-9a-f]{40}")
+#: A Hub repo id, ``owner/name``: each part starts with a letter or digit (the Hub's own rule),
+#: so builder names (``json``), local paths and ``owner/name/config`` never match.
+_HUB_REPO_ID: Final = re.compile(r"[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*")
+
+
+def hugging_face_url(repo_id: str, commit: str, *, file: str | None = None) -> str | None:
+    """A browser link to a Hub dataset repo, or one file in it, at a commit.
+
+    Example: ``("dgslibisey/MuSiQue", "c8f4…", file="musique_ans_v1.0_dev.jsonl")`` →
+    ``https://huggingface.co/datasets/dgslibisey/MuSiQue/blob/c8f4…/musique_ans_v1.0_dev.jsonl``;
+    without ``file`` → ``…/dgslibisey/MuSiQue/tree/c8f4…``, the repo's files at that commit.
+
+    Args:
+        repo_id: the dataset repo, ``owner/name``; a config name is NOT part of it.
+        commit: the revision the source was read at.
+        file: the path inside the repo, when one file was read.
+
+    Returns:
+        The link, or None when ``commit`` is not a full commit (a branch moves, so a link to
+        it would claim more than the pin does) or ``repo_id`` is not a Hub repo id.
+    """
+
+    if _COMMIT.fullmatch(commit) is None or _HUB_REPO_ID.fullmatch(repo_id) is None:
+        return None
+    repo: str = f"https://huggingface.co/datasets/{repo_id}"
+    return f"{repo}/blob/{commit}/{file}" if file else f"{repo}/tree/{commit}"
+
+
+def github_file_url(repository: str, commit: str, path: str) -> str | None:
+    """A browser link to one file of a GitHub repository at a commit, or None off a commit.
+
+    Example: IFEval's vendored official file →
+    ``https://github.com/josejg/instruction_following_eval/blob/0c495b2f…/instruction_following_eval/data/input_data.jsonl``.
+    """
+
+    if _COMMIT.fullmatch(commit) is None:
+        return None
+    return f"https://github.com/{repository}/blob/{commit}/{path}"
+
 
 def hugging_face_source(
     dataset: str, revision: str, *, config: str | None = None
@@ -66,16 +114,21 @@ def hugging_face_source(
             ``owner/name/config``, the form the plugin records for the same call.
 
     Returns:
-        ``{"kind", "location", "pin", "phase"}``, all strings.
+        ``{"kind", "location", "pin", "phase"}``, all strings, plus ``url`` (the repo at the
+        commit, never the config: it is not a path on the Hub) when the revision is a commit.
     """
 
     location: str = f"{dataset}/{config}" if config else dataset
-    return {
+    source: dict[str, str] = {
         "kind": HUGGING_FACE,
         "location": location,
         "pin": f"revision {revision}",
         "phase": LOAD_PHASE,
     }
+    url: str | None = hugging_face_url(dataset, revision)
+    if url is not None:
+        source["url"] = url
+    return source
 
 
 def hand_built_provenance(
@@ -137,8 +190,10 @@ __all__ = [
     "PROVENANCE_KEY",
     "UNPINNED",
     "URL",
+    "github_file_url",
     "hand_built_provenance",
     "hugging_face_source",
+    "hugging_face_url",
     "read_provenance",
     "write_provenance",
 ]

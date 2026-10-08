@@ -17,7 +17,14 @@ Worked example, race_h's block ``{"sources": [{"location": "ehovy/race/high", "p
     | inspect-race_h | ehovy/race/high @ 2fec9fd8 | shuffle_seed 20260917
     | 3498 of 3498 | inspect-evals 0.20.0 | 15s |
 
-(one table row, wrapped here)
+(one table row, wrapped here). A source whose label carries a ``url`` (OME-1524: a link to
+that source at its pinned commit, built by the Engine code that read it) reads as that link,
+``[ehovy/race/high @ 2fec9fd8](https://huggingface.co/datasets/ehovy/race/tree/2fec9fd8…)``.
+This module never builds a URL itself: only the Engine knows the host and the repo id.
+
+The labels also ship in the debug bundle: :func:`copy_labels` copies each one into the log
+folder, because the assets root lives on the CI runner and in the Actions cache, neither of
+which the owner can download.
 
 INVARIANT: a view, never a verdict. A missing or unreadable file is one honest row, never
 an exception, because this section must not hide the press overview it sits under.
@@ -26,8 +33,10 @@ an exception, because this section must not hide the press overview it sits unde
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Final
+from urllib.parse import quote
 
 #: The file Case Preparation writes into each bundle (the Engine's ``PROVENANCE_FILE``;
 #: the SDK venv cannot import the Engine, so the name is repeated here).
@@ -39,6 +48,14 @@ _SHORT_PIN_CHARS: Final = 8
 _MIN_HASH_CHARS: Final = 12
 _HEX_DIGITS: Final = frozenset("0123456789abcdef")
 _NONE: Final = "—"
+#: The only addresses drawn as links: the label is build data, so a ``javascript:`` url in it
+#: stays text.
+_WEB_SCHEMES: Final = ("https://", "http://")
+#: What a link target keeps as-is; everything else is percent-encoded, so ``|`` cannot open a
+#: table cell and ``)`` or a space cannot end the link early.
+_URL_SAFE: Final = ":/?#@!$&'*+,;=%"
+#: The folder, inside the log folder, the debug bundle carries the labels in.
+LABELS_DIR: Final = "provenance"
 
 #: The Benchmarks that read another Benchmark's bundle (the Engine's ``builtins.py`` pairs
 #: them). Every other Benchmark's bundle folder has the Benchmark's own id. Repeated here
@@ -70,10 +87,41 @@ def provenance_markdown(benchmarks: list[str], assets_root: Path) -> str:
         "|---|---|---|---|---|---|",
     ]
     rows += [
-        _row(benchmark, assets_root / _SHARED_BUNDLE.get(benchmark, benchmark) / PROVENANCE_FILE)
-        for benchmark in sorted(benchmarks)
+        _row(benchmark, _label_path(benchmark, assets_root)) for benchmark in sorted(benchmarks)
     ]
     return "\n".join(rows) + "\n"
+
+
+def copy_labels(benchmarks: list[str], assets_root: Path, log_dir: Path) -> None:
+    """Copy each Benchmark's label to ``log_dir/provenance/<benchmark>.json`` for the bundle.
+
+    Example: a press over ``inspect-race_h`` and ``draco-3pass`` leaves
+    ``provenance/inspect-race_h.json`` and ``provenance/draco-3pass.json`` (draco's label: the
+    two share a bundle), one file per row of the table.
+
+    INVARIANT: labels only, never ``cases.json``: some datasets are gated on Hugging Face, and
+    anyone who can read the repo can download the bundle. A Benchmark with no label is skipped;
+    its table row already says "not recorded".
+
+    Args:
+        benchmarks: the Benchmark ids this press ran.
+        assets_root: the prepared assets root the stack served from.
+        log_dir: the folder the debug bundle uploads.
+
+    Raises:
+        OSError: a copy failed; the caller decides it only warns.
+    """
+    labels: Path = log_dir / LABELS_DIR
+    for benchmark in benchmarks:
+        source: Path = _label_path(benchmark, assets_root)
+        if source.is_file():
+            labels.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, labels / f"{benchmark}.json")
+
+
+def _label_path(benchmark: str, assets_root: Path) -> Path:
+    """Where a Benchmark's label sits: its own bundle, or the bundle it shares."""
+    return assets_root / _SHARED_BUNDLE.get(benchmark, benchmark) / PROVENANCE_FILE
 
 
 def _row(benchmark: str, path: Path) -> str:
@@ -103,9 +151,7 @@ def _row(benchmark: str, path: Path) -> str:
 
 def _cells(block: dict[str, Any]) -> list[str]:
     """The five data cells: sources, seeds, sample counts, inspect-evals version, time."""
-    sources: str = "<br>".join(
-        f"{source['location']} @ {_short_pin(source['pin'])}" for source in block["sources"]
-    )
+    sources: str = "<br>".join(_source_cell(source) for source in block["sources"])
     seeds: str = ", ".join(f"{name} {value}" for name, value in block["seeds_applied"].items())
     samples: dict[str, int] = block["samples"]
     kept: str = f"{samples['kept']} of {samples['yielded']}"
@@ -120,6 +166,26 @@ def _cells(block: dict[str, Any]) -> list[str]:
         f"inspect-evals {inspect_evals}" if inspect_evals else _NONE,
         f"{round(block['seconds'])}s",
     ]
+
+
+def _source_cell(source: dict[str, Any]) -> str:
+    """One source as ``location @ pin``, a link to that pin when its label carries one.
+
+    WHY escape: a location is upstream text, and a ``|`` would open a cell or a ``]`` end the
+    link text, breaking the row (and every row under it) on the run page.
+    """
+    text: str = _escape(f"{source['location']} @ {_short_pin(source['pin'])}")
+    url: Any = source.get("url")
+    if not isinstance(url, str) or not url.startswith(_WEB_SCHEMES):
+        return text
+    return f"[{text}]({quote(url, safe=_URL_SAFE)})"
+
+
+def _escape(text: str) -> str:
+    """Make upstream text inert inside a Markdown table cell and link text."""
+    for character in ("\\", "|", "[", "]"):
+        text = text.replace(character, "\\" + character)
+    return text
 
 
 def _short_pin(pin: str) -> str:

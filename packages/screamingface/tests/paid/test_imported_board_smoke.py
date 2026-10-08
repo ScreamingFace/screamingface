@@ -33,7 +33,7 @@ from _board_summary import (
     run_summary_markdown,
     summarize_board,
 )
-from _case_provenance import provenance_markdown
+from _case_provenance import copy_labels, provenance_markdown
 from _panel import BOARD_CONCURRENCY, CASE_LIMIT, fusion_panel
 from _scope import SCOPE_ENV, pick_shelf, resolve_scope
 from conftest import PaidStack, assets_root
@@ -176,7 +176,9 @@ def _publish_overview(
 
     The workflow appends `summary.md` to the run page. A failed write only warns:
     the overview is a convenience and must never replace the real verdict. Under the
-    table, "Where the Cases came from" reads each bundle's provenance.json (OME-1492).
+    table, "Where the Cases came from" reads each bundle's provenance.json (OME-1492),
+    and each of those labels is copied to `provenance/<benchmark>.json` beside it, so
+    the debug bundle keeps them after the runner is gone (OME-1524).
     """
     with capsys.disabled():
         print("\n" + "\n".join(run_summary_lines(summaries, wall_seconds)), flush=True)
@@ -190,6 +192,12 @@ def _publish_overview(
     except OSError as exc:
         with capsys.disabled():
             print(f"[paid smoke] could not write summary.md — {exc}", flush=True)
+    # WHY here and not a workflow step: the local `just` twin writes the same log folder.
+    try:
+        copy_labels([summary.board for summary in summaries], assets_root(), log_dir)
+    except OSError as exc:
+        with capsys.disabled():
+            print(f"[paid smoke] could not copy the provenance labels — {exc}", flush=True)
 
 
 def _progress_line(

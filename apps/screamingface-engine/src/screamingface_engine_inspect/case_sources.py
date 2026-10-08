@@ -46,7 +46,7 @@ import inspect
 import re
 import sys
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import import_module
 from importlib.metadata import version
 from pathlib import Path
@@ -58,6 +58,7 @@ from screamingface_engine.benchmarks.bundle_provenance import (
     LOAD_PHASE,
     UNPINNED,
     URL,
+    hugging_face_url,
 )
 from screamingface_engine_inspect.fetch_pins import (
     FetchPins,
@@ -88,12 +89,19 @@ class CaseSource:
     (``render``: a solver that reads a few-shot file or a template at solve time). The
     reviewer reads the two differently: a load fetch is where the Cases come from, a render
     fetch is something the prompt depends on.
+
+    ``url`` is a browser link to the source AT its pin (OME-1524), or None. It is built when
+    the fetch is recorded because the location alone cannot say what it names:
+    ``TsinghuaC3I/MedXpertQA/Text`` is a config, ``dgslibisey/MuSiQue/<file>`` a file.
+    WHY outside equality: the call that fixed kind, location and pin also fixed the link, so
+    it adds no identity; two records of one fetch stay one Case Source.
     """
 
     kind: str
     location: str
     pin: str
     phase: str = LOAD_PHASE
+    url: str | None = field(default=None, compare=False)
 
     def as_comment(self) -> str:
         """The one-line review note the importer prints for this Case Source (spec R6)."""
@@ -153,25 +161,52 @@ def _revision_pin(revision: Any) -> str:
     return f"revision {revision}" if revision else UNPINNED
 
 
+def _hub_link(call: Mapping[str, Any], repo_id: str, *, file: str | None = None) -> str | None:
+    """The browser link for a Hub fetch at its revision; only a dataset repo has one here.
+
+    WHY datasets only: a model or Space page lives at another address, and a wrong link is
+    worse than none. ``load_dataset`` passes no ``repo_type``; callers say "dataset" for it.
+    """
+
+    revision: Any = call.get("revision")
+    if call.get("repo_type") != "dataset" or not isinstance(revision, str):
+        return None
+    return hugging_face_url(repo_id, revision, file=file)
+
+
+def _web_link(url: str) -> str | None:
+    """An http(s) address is its own link; s3:// or gs:// opens nothing in a browser."""
+
+    return url if url.startswith(("http://", "https://")) else None
+
+
 def _describe_load_dataset(call: Mapping[str, Any]) -> Described:
     """datasets.load_dataset(path, name=None, ..., revision=None)."""
 
     name: Any = call.get("name")
     location: str = f"{call['path']}/{name}" if name else str(call["path"])
-    return [CaseSource(HUGGING_FACE, location, _revision_pin(call.get("revision")))]
+    # The config is not a path on the Hub, so the link is the repo (``path``) at the commit.
+    url: str | None = _hub_link({**call, "repo_type": "dataset"}, str(call["path"]))
+    return [CaseSource(HUGGING_FACE, location, _revision_pin(call.get("revision")), url=url)]
 
 
 def _describe_snapshot_download(call: Mapping[str, Any]) -> Described:
     """huggingface_hub.snapshot_download(repo_id, ..., revision=None)."""
 
-    return [CaseSource(HUGGING_FACE, str(call["repo_id"]), _revision_pin(call.get("revision")))]
+    repo_id: str = str(call["repo_id"])
+    url: str | None = _hub_link(call, repo_id)
+    return [CaseSource(HUGGING_FACE, repo_id, _revision_pin(call.get("revision")), url=url)]
 
 
 def _describe_hf_hub_download(call: Mapping[str, Any]) -> Described:
     """huggingface_hub.hf_hub_download(repo_id, filename, ..., revision=None)."""
 
     location: str = f"{call['repo_id']}/{call['filename']}"
-    return [CaseSource(HUGGING_FACE, location, _revision_pin(call.get("revision")))]
+    # WHY join the subfolder: hf_hub_download fetches ``subfolder/filename``.
+    subfolder: Any = call.get("subfolder")
+    file: str = f"{subfolder}/{call['filename']}" if subfolder else str(call["filename"])
+    url: str | None = _hub_link(call, str(call["repo_id"]), file=file)
+    return [CaseSource(HUGGING_FACE, location, _revision_pin(call.get("revision")), url=url)]
 
 
 def _describe_inspect_download(call: Mapping[str, Any]) -> Described:
@@ -179,14 +214,15 @@ def _describe_inspect_download(call: Mapping[str, Any]) -> Described:
 
     url: str = str(call["url"])
     sha256: Any = call.get("sha256")
-    return [CaseSource(URL, url, f"sha256 {sha256}" if sha256 else pin_from_url(url))]
+    pin: str = f"sha256 {sha256}" if sha256 else pin_from_url(url)
+    return [CaseSource(URL, url, pin, url=_web_link(url))]
 
 
 def _describe_download_remote(call: Mapping[str, Any]) -> Described:
     """inspect_evals' _download_remote(remote_url, local_cache_path): no hash, maybe a commit."""
 
     url: str = str(call["remote_url"])
-    return [CaseSource(URL, url, pin_from_url(url))]
+    return [CaseSource(URL, url, pin_from_url(url), url=_web_link(url))]
 
 
 def _describe_download_manager(call: Mapping[str, Any]) -> Described:
@@ -204,7 +240,11 @@ def _describe_download_manager(call: Mapping[str, Any]) -> Described:
             flat.append(item)
     # WHY skip non-URLs: medqa's builder "downloads" data_clean.zip, a relative path inside
     # the snapshot already recorded by snapshot_download.
-    return [CaseSource(URL, str(url), pin_from_url(str(url))) for url in flat if _is_url(url)]
+    return [
+        CaseSource(URL, str(url), pin_from_url(str(url)), url=_web_link(str(url)))
+        for url in flat
+        if _is_url(url)
+    ]
 
 
 @dataclass(frozen=True)
@@ -299,7 +339,7 @@ class CaseSourceRecorder:
 
         text: str = str(call["file"])
         if _is_url(text):
-            return [CaseSource(URL, text, pin_from_url(text))]
+            return [CaseSource(URL, text, pin_from_url(text), url=_web_link(text))]
         resolved: Path = Path(text).resolve()
         if resolved.is_relative_to(self._cache_root):
             return []  # Stage 3: the eval reading its own download back

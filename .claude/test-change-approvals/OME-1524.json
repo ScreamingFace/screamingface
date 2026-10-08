@@ -1,0 +1,26 @@
+{
+  "issue": "OME-1524",
+  "branch": "OME-1524-provenance-links",
+  "approver": "owner",
+  "date": "2026-10-08",
+  "scope": "Assertion growth only. In tests/unit/_bundle_provenance_checks.py, the shared expected-source helper hugging_face_source gains one key, url (the dataset repo at the revision, config dropped), plus a docstring note; its signature, the other keys and every other function are unchanged. In tests/unit/test_ifeval_prepare.py::test_a_prepared_bundle_records_where_its_cases_came_from, the vendored official file's expected source gains one key, url (its GitHub blob link at the verifier commit); nothing else in that test or file changes. Paid-lane code under tests/ (no assertion changes): tests/paid/_case_provenance.py renders a source as a link when its label carries an http(s) url, escapes Markdown in the sources cell, and gains copy_labels plus the label-path helper the table now shares; tests/paid/test_imported_board_smoke.py::_publish_overview copies the labels into the log folder after summary.md, warning on OSError like the summary write.",
+  "reason": "OME-1524 adds a url to every Case Source in provenance.json: a browser link to the source at its pinned commit. The six hand-built preparer tests compare the label's sources by exact equality, so their expected dicts must carry the new key; the edits add it and remove nothing. The ticket also asks the run page to render that link and the debug bundle to keep the labels; both live in the paid lane, which sits under tests/, so its code reads as prior tests to the append-only check (the same as OME-1492 and OME-1500).",
+  "files": {
+    "apps/screamingface-engine/tests/unit/_bundle_provenance_checks.py": {
+      "base_blob": "946dddb34b9c016bcda6fc16324feab178bc003a",
+      "approved_blob": "fce7eac7f930ff948271d17a919f89ecea2baddf"
+    },
+    "apps/screamingface-engine/tests/unit/test_ifeval_prepare.py": {
+      "base_blob": "b1b19f25efca1293bb5249097951c6afa7288357",
+      "approved_blob": "317fc9ba4bdf713ea24e8dbb970f276fd2806bb0"
+    },
+    "packages/screamingface/tests/paid/_case_provenance.py": {
+      "base_blob": "e82a58f6cdec9b80ef32f06b7b2cdc7efba46c35",
+      "approved_blob": "1bb8ef7aaed055a226ededb04cd7783bbf06c062"
+    },
+    "packages/screamingface/tests/paid/test_imported_board_smoke.py": {
+      "base_blob": "0714c88f280735efd655f82a90b78780462926ea",
+      "approved_blob": "e4b9f7bcd1cf64b93c4e4672e6ecfec9bcea0992"
+    }
+  }
+}
