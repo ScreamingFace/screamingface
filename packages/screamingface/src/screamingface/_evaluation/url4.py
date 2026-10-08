@@ -44,8 +44,8 @@ def evaluate_url4_sync(
 
     from screamingface._evaluation.runner import (
         _abort_event_observer,
+        _conclude_evaluation,
         _evaluation_options,
-        _reconcile_event_observer,
         _sync_event_observer,
     )
 
@@ -74,7 +74,7 @@ def evaluate_url4_sync(
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
-    _reconcile_event_observer(observer, report)
+    _conclude_evaluation(observer, report, capture)
     return report
 
 
@@ -92,8 +92,8 @@ async def evaluate_url4_async(
     from screamingface._evaluation.runner import (
         _abort_event_observer,
         _async_event_observer,
+        _conclude_evaluation,
         _evaluation_options,
-        _reconcile_event_observer,
     )
 
     _evaluation_options(on_event, progress)
@@ -120,7 +120,7 @@ async def evaluate_url4_async(
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
-    _reconcile_event_observer(observer, report)
+    _conclude_evaluation(observer, report, capture)
     return report
 
 

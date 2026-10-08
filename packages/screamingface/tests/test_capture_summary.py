@@ -94,7 +94,7 @@ def test_an_older_engine_without_the_attributes_leaves_them_unknown() -> None:
     ],
 )
 def test_a_malformed_capture_attribute_stops_the_run(attributes: dict[str, object]) -> None:
-    with pytest.raises(ExecutionError, match="cache summary"):
+    with pytest.raises(ExecutionError, match="capture summary"):
         _decode(attributes)
 
 

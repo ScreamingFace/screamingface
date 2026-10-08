@@ -244,7 +244,8 @@ class Client:
         """Evaluate Recipes, or replay one complete evaluation URL4 unchanged.
 
         `capture=True` asks the Engine to store every model and web-tool result of each run in a
-        frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
+        frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later. An
+        Engine that did not capture a run is reported with an `EvaluationWarning`.
         """
 
         from screamingface._evaluation.runner import evaluate_sync
@@ -600,7 +601,12 @@ class AsyncClient:
         answer_seed: int | None = None,
         capture: bool = False,
     ) -> Report:
-        """Asynchronously evaluate Recipes, or replay one complete evaluation URL4."""
+        """Asynchronously evaluate Recipes, or replay one complete evaluation URL4.
+
+        `capture=True` asks the Engine to store every model and web-tool result of each run in a
+        frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later. An
+        Engine that did not capture a run is reported with an `EvaluationWarning`.
+        """
 
         from screamingface._evaluation.runner import evaluate_async
         from screamingface._evaluation.url4 import evaluate_url4_async

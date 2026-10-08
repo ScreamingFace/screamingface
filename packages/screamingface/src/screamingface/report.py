@@ -187,10 +187,12 @@ def _answer_seed(value: object) -> int | None:
 def _capture(
     frozen_copy_id: object, capture_status: object
 ) -> tuple[str | None, Literal["complete", "partial"] | None]:
-    """Validate the frozen copy pair the way the Scoreboard does.
+    """Validate the frozen copy pair; stricter than the Scoreboard on the spelling of the id.
 
-    INVARIANT: a copy id is a lower-case UUID, and a copy id never travels without its status. The
-    board refuses both, so the Client must not produce them.
+    INVARIANT: a copy id is a canonical (lower-case, hyphenated) UUID string, and a copy id never
+    travels without its status. The board refuses the pair without a status. It also accepts other
+    spellings of a UUID and normalises them; the Client refuses those instead, so the id it stores
+    and sends is exactly the id the Engine stated.
     """
     if frozen_copy_id is not None and (
         not isinstance(frozen_copy_id, str) or not _is_canonical_uuid(frozen_copy_id)

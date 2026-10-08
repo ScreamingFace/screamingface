@@ -12,15 +12,19 @@ replay summary that does not name the copy I sent is a replay the Engine did not
 from __future__ import annotations
 
 import inspect
+import warnings
 from dataclasses import replace
+from typing import Any
 
 import httpx
 import pytest
 from test_answer_seed_report import _CandidateRecordingTransport
 from test_client_run import REPLAY_URL4, _AsyncReplayTransport, _engine, _ReplayTransport
+from test_draco_vertical_slice import _AsyncFakeTransport
 from test_draco_vertical_slice import _engine as _draco_engine
 
 import screamingface as sf
+from screamingface import _default_client
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import (
     _with_answer_seed,
@@ -55,8 +59,13 @@ class _AsyncHonouring(_AsyncReplayTransport):
 # --- capture=True ---------------------------------------------------------------------------------
 
 
+def _captured(**fields: object) -> _Honouring:
+    """A transport whose run summary states a complete capture, as an honouring Engine's does."""
+    return _Honouring(frozen_copy_id=COPY, capture_status="complete", **fields)
+
+
 def test_capture_is_stamped_on_the_candidate_beside_the_seed() -> None:
-    transport = _ReplayTransport()
+    transport = _captured()
 
     evaluate_url4_sync(transport, REPLAY_URL4, None, False, answer_seed=7, capture=True)
 
@@ -78,16 +87,17 @@ def test_a_normal_evaluation_leaves_capture_and_replay_unset() -> None:
 
 
 def test_the_client_threads_capture_to_the_transport() -> None:
-    transport = _ReplayTransport()
+    transport = _captured()
     with sf.Client(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_engine),
         run_transport=transport,
     ) as client:
-        client.evaluate(REPLAY_URL4, progress=False, capture=True)
+        (result,) = client.evaluate(REPLAY_URL4, progress=False, capture=True).candidates
 
     assert transport.candidate is not None
     assert transport.candidate.capture is True
+    assert (result.frozen_copy_id, result.capture_status) == (COPY, "complete")
 
 
 def test_the_client_does_not_capture_by_default() -> None:
@@ -106,7 +116,7 @@ def test_the_client_does_not_capture_by_default() -> None:
 
 @pytest.mark.asyncio
 async def test_the_async_client_threads_capture_to_the_transport() -> None:
-    transport = _AsyncReplayTransport()
+    transport = _AsyncHonouring(frozen_copy_id=COPY, capture_status="complete")
     client = sf.AsyncClient(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_engine),
@@ -133,12 +143,47 @@ def test_recipe_evaluation_stamps_capture_on_every_compiled_candidate() -> None:
         client.evaluate(
             sf.Model("anthropic/claude-haiku-4-5", name="haiku"), benchmark="draco", limit=1
         )
-        client.evaluate(
-            sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
-            benchmark="draco",
-            limit=1,
-            capture=True,
+        with pytest.warns(sf.EvaluationWarning, match="did not capture"):
+            client.evaluate(
+                sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+                benchmark="draco",
+                limit=1,
+                capture=True,
+            )
+
+    assert [candidate.capture for candidate in transport.candidates] == [False, True]
+
+
+class _AsyncCandidateRecording(_AsyncFakeTransport):
+    def __init__(self) -> None:
+        super().__init__()
+        self.candidates: list[Any] = []
+
+    async def run(self, candidate: Any, on_event: object) -> _RunOutcome:
+        self.candidates.append(candidate)
+        return await super().run(candidate, on_event)
+
+
+@pytest.mark.asyncio
+async def test_the_async_recipe_path_stamps_capture_on_every_compiled_candidate() -> None:
+    transport = _AsyncCandidateRecording()
+    client = sf.AsyncClient(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_draco_engine),
+        run_transport=transport,
+    )
+
+    async with client:
+        await client.evaluate(
+            sf.Model("anthropic/claude-haiku-4-5", name="haiku"), benchmark="draco", limit=1
         )
+        with pytest.warns(sf.EvaluationWarning, match="did not capture"):
+            await client.evaluate(
+                sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+                benchmark="draco",
+                limit=1,
+                capture=True,
+            )
 
     assert [candidate.capture for candidate in transport.candidates] == [False, True]
 
@@ -150,6 +195,82 @@ def test_every_evaluate_door_takes_capture_and_none_takes_a_replay(target: objec
     assert parameters["capture"].default is False
     assert "replay_frozen_copy" not in parameters
     assert "frozen_copy_id" not in parameters
+
+
+class _RecordingDefaultClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def evaluate(self, *args: object, **kwargs: object) -> str:
+        self.calls.append((args, kwargs))
+        return "report"
+
+
+@pytest.mark.parametrize("capture", [True, False])
+def test_module_level_evaluate_forwards_capture_on_both_branches(
+    monkeypatch: pytest.MonkeyPatch, capture: bool
+) -> None:
+    # INVARIANT: `sf.evaluate` is a pass-through; removing the forwarding on either branch (a
+    # complete URL4, or Recipes with a benchmark) must fail here.
+    fake = _RecordingDefaultClient()
+    monkeypatch.setattr(_default_client, "default_client", lambda: fake)
+
+    sf.evaluate(REPLAY_URL4, capture=capture)
+    sf.evaluate(sf.Model("provider/opus"), benchmark="draco", capture=capture)
+
+    assert [kwargs["capture"] for _, kwargs in fake.calls] == [capture, capture]
+
+
+def test_module_level_evaluate_does_not_capture_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _RecordingDefaultClient()
+    monkeypatch.setattr(_default_client, "default_client", lambda: fake)
+
+    sf.evaluate(REPLAY_URL4)
+    sf.evaluate(sf.Model("provider/opus"), benchmark="draco")
+
+    assert [kwargs["capture"] for _, kwargs in fake.calls] == [False, False]
+
+
+# --- a capture the Engine did not make ------------------------------------------------------------
+
+
+def test_capture_without_a_capture_status_warns_and_keeps_the_fields_none() -> None:
+    # An Engine that ignores `X-Capture` runs the Candidate normally: no `capture.status`.
+    with pytest.warns(sf.EvaluationWarning, match="did not capture this run") as caught:
+        report = evaluate_url4_sync(_ReplayTransport(), REPLAY_URL4, None, False, capture=True)
+
+    (result,) = report.candidates
+    assert (result.frozen_copy_id, result.capture_status) == (None, None)
+    assert "it cannot be reproduced" in str(caught[0].message)
+    assert result.name in str(caught[0].message)
+
+
+@pytest.mark.asyncio
+async def test_the_async_path_warns_too() -> None:
+    with pytest.warns(sf.EvaluationWarning, match="did not capture this run"):
+        await evaluate_url4_async(_AsyncReplayTransport(), REPLAY_URL4, None, False, capture=True)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"frozen_copy_id": COPY, "capture_status": "complete"},
+        # A copy that failed to open: the Engine stated a status, so it did capture (partially).
+        {"frozen_copy_id": None, "capture_status": "partial"},
+    ],
+)
+def test_a_stated_capture_status_raises_no_warning(fields: dict[str, object]) -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        evaluate_url4_sync(_Honouring(**fields), REPLAY_URL4, None, False, capture=True)
+
+
+def test_a_run_that_did_not_ask_for_capture_raises_no_capture_warning() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        evaluate_url4_sync(_ReplayTransport(), REPLAY_URL4, None, False)
 
 
 def test_capture_and_a_replay_are_mutually_exclusive() -> None:
@@ -226,7 +347,7 @@ async def test_the_async_twin_stamps_and_checks_the_copy() -> None:
         )
     assert raised.value.code == "replay_unsupported"
 
-    capture_transport = _AsyncReplayTransport()
+    capture_transport = _AsyncHonouring(frozen_copy_id=COPY, capture_status="complete")
     await evaluate_url4_async(capture_transport, REPLAY_URL4, None, False, capture=True)
     assert capture_transport.candidate is not None
     assert capture_transport.candidate.capture is True

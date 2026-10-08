@@ -151,6 +151,8 @@ def test_an_older_board_leaves_the_new_fields_absent() -> None:
     [
         {"capture_status": "maybe"},
         {"frozen_copy_id": 7},
+        {"frozen_copy_id": "not-a-uuid"},
+        {"frozen_copy_id": ""},
         {"answer_seed": "7"},
         {"reproduction_count": -1},
         {"reproduction_count": "3"},
@@ -172,3 +174,11 @@ async def test_the_async_client_reads_the_same_fields() -> None:
         score = await client.leaderboards.get_score(SCORE_ID)
 
     assert (score.frozen_copy_id, score.reproduction_count) == (_COPY, 3)
+
+
+def test_get_score_normalises_the_copy_id_as_the_board_does() -> None:
+    response = _reproduced_response(frozen_copy_id=_COPY.upper())
+    with _sync_client(lambda _: httpx.Response(200, json=response)) as client:
+        score = client.leaderboards.get_score(SCORE_ID)
+
+    assert score.frozen_copy_id == _COPY
