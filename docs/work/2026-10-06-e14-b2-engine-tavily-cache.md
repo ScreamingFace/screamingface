@@ -37,6 +37,8 @@ engine. Replay of web search needs this, so B3 can count the lookup and fill out
 
 ## Approved test changes (append-only exception)
 
+**Owner approval:** confirmed by the owner on 2026-10-08. The append-only gate may skip these edits.
+
 Mock routing only, no assertion changed; orchestrator-approved under the owner's E14 authorization,
 to be confirmed by the owner. Each mock gateway now answers `/v1/retrieval/tavily/cache/lookup`
 (`miss`) and `/entries` (`stored`), and does not count those calls as chat calls. The remaining
