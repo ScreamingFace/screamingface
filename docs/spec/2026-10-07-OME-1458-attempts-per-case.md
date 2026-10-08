@@ -1,13 +1,14 @@
 # Spec — a Benchmark may give each Case several Attempts, and a Check passes if any Attempt passes it
 
 - Status: draft for owner review. Decisions D1–D14 approved by the owner on OME-1458,
-  2026-10-07 (§1); D5 and D7 were revised after reading the code and re-approved the same day.
+  2026-10-07 (§1); D5 and D7 were revised after reading the code and re-approved the same day;
+  D5 was extended on 2026-10-08 so an unseeded rerun replays every Attempt (OME-1520).
 - Component: `apps/screamingface-engine` (the grading spine and `screamingface_engine_inspect`)
   and `packages/screamingface` (decoder and Report).
 - Ticket: OME-1458. Parent epic: OME-1299. Unblocks OME-1476 (ARC-AGI-2).
 - Ledger: `docs/work/2026-10-07-attempts-per-case-spec.md`.
-- Delivery: this docs PR and an importer refusal close OME-1458; the build is three PRs on
-  OME-1516 (SDK) and OME-1515 (Engine) (§7).
+- Delivery: this docs PR and an importer refusal close OME-1458; the build is OME-1516 (SDK),
+  OME-1520 (AI gateway) and OME-1515 (Engine) (§7).
 
 ## TLDR
 
@@ -41,7 +42,7 @@ that declares no Attempts; its Case Results, Report and Benchmark Revision stay 
 | D2 | **Any-match is the only rule.** pass@1 estimated from N samples, all-must-match (ZeroBench's pass^k) and mean-over-Attempts wait until a Benchmark needs them. | Q3 |
 | D3 | A new required-when-set field `attempts` on `BenchmarkDeclaration`, shown in the catalogue and pinned into the Benchmark Revision only when N > 1. | Q1 |
 | D4 | The catalogue says **"any of N Attempts"**, never a bare "pass@N": inspect's `pass_at` means the unbiased estimator, a different number (§2.1). | Q1 |
-| D5 | **Revised.** Attempt 1 is sent exactly as today. Attempt i ≥ 2 differs only in what keeps it from being a copy of Attempt 1: a seed derived from the run's answer seed when the run declared one, and a cache opt-out when it did not (§2.3). The owner first approved "one seed per Attempt"; that would refuse every Anthropic model (§2.3). | Q2 |
+| D5 | **Revised.** Attempt 1 is sent exactly as today. Attempt i ≥ 2 differs only in what keeps it from being a copy of Attempt 1: a seed derived from the run's answer seed when the run declared one, and the Attempt number in the gateway's cache control when it did not (§2.3), so a rerun replays every Attempt. The owner first approved "one seed per Attempt"; that would refuse every Anthropic model (§2.3). | Q2 |
 | D6 | One Attempt of a Fusion is one full fusion, members and synthesizer, as a solo Model gets one full call. | Q2 |
 | D7 | **Revised.** The fold is per **Check**: a Check is met if any Attempt met it, and the Case score is the share of met Checks. For a Benchmark with one Check per Case this is "the best Attempt wins". The owner first approved "best Attempt per Case"; that undercounts ARC-AGI-2 (§2.4). | Q3, Q4 |
 | D8 | Partial credit is per output: an ARC-AGI-2 task with two test grids, one matched, scores 0.5. That is what the ARC Prize's own scorer computes. | Q4 |
@@ -145,8 +146,16 @@ stays exact. So Attempt i ≥ 2 changes its request, and only in a way the Candi
 
 | The run declared | Attempt 1 | Attempt i ≥ 2 | Why |
 |---|---|---|---|
-| no seed (the normal case, and every Anthropic model) | today's request, unchanged | no seed, the cache opt-out `use-cache: false` | the provider is asked afresh and samples a new answer; a seed is not needed, and would refuse every Anthropic model (its Messages API has no `seed`) |
+| no seed (the normal case, and every Anthropic model) | today's request, unchanged | no seed; the cache control carries the Attempt number, `cache: {"attempt": i}` (OME-1520) | the gateway keys the stored reply on the request plus the Attempt number and strips it before the provider, so Attempt i is asked afresh once and replayed on every rerun; a seed is not needed, and would refuse every Anthropic model (its Messages API has no `seed`) |
 | an answer seed `s`, chosen by the researcher | today's request, seed `s` | seed derived from `(s, i)`, cached as normal | the run stamps `s` on every answer, and a provider that honours seeds returns the same answer for the same seed, so Attempt 2 needs its own; every Candidate Model already supports `seed` (the SDK refuses a seeded run otherwise), and a distinct seed is a distinct cache entry, so a rerun replays every Attempt |
+
+**Rerun = replay holds for every Benchmark.** In both rows each Attempt has its own stored reply,
+the same one on every run, so a second run of an Attempts Benchmark costs nothing and returns the
+same answers, like any other rerun.
+
+**A gateway older than OME-1520 is still correct.** Its cache control accepts only `use-cache`
+and bypasses the cache on any other field, so an unseeded Attempt i ≥ 2 is asked afresh, just not
+stored: the free rerun waits for the gateway, the score never does.
 
 Attempt 1 is byte-identical to today's request, so a Benchmark without Attempts never changes
 its egress. The Benchmark's own Judges are untouched: a Judge grading the same answer twice may
@@ -215,7 +224,7 @@ yet to send a second Attempt.
 How to read this section: the circled numbers ① to ⑪ are the boxes of the Architecture map in
 §3.3, one numbering for the whole spec, so ⑤ is the same code in the Data Flow, the Failure-modes
 table and the delivery plan. Read the Data Flow first (one Case, two Attempts, end to end: *how*
-it works), then the Failure modes (rows F1 to F8: *what breaks* and who notices), then the
+it works), then the Failure modes (rows F1 to F9: *what breaks* and who notices), then the
 Architecture map (*where*: which files, new or changed). Read each diagram's key before its
 boxes.
 
@@ -233,7 +242,8 @@ flowchart TB
   c1[("⑥ AI gateway exact-request cache<br/>💾 SPACE: shared by every hosted user<br/>e.g. no stored reply for this request")]
   p1["model provider<br/>e.g. reply: 41"]
   s7a["⑦ Grading, Attempt 1<br/>e.g. Check 1: UNMET · score: 0.0"]
-  s4b["④ ⑤ Attempt 2: same prompt, cache opt-out<br/>e.g. seed: none · cache: use-cache false<br/>🧩 MEANING: the Candidate sees the same input"]
+  s4b["④ ⑤ Attempt 2: same prompt, the Attempt number in the cache control<br/>e.g. seed: none · cache: attempt 2<br/>🧩 MEANING: the Candidate sees the same input"]
+  c2[("⑥ AI gateway cache, Attempt 2's own entry<br/>💾 SPACE: keyed on the request plus attempt 2<br/>e.g. first run: no stored reply · rerun: 42")]
   p2["model provider<br/>e.g. reply: 42"]
   s7b["⑦ Grading, Attempt 2<br/>e.g. Check 1: MET · score: 1.0"]
   s8["⑧ the fold: a Check is met if any Attempt met it<br/>e.g. Check 1: MET by Attempt 2 · Case score: 1.0 · shown: Attempt 2"]
@@ -246,7 +256,8 @@ flowchart TB
   c1 -.->|🌐 miss: the gateway calls the provider| p1
   p1 -->|the reply comes back| s7a
   s7a -->|Attempt 2 starts| s4b
-  s4b -.->|🌐 opt-out skips the cache, gateway calls the provider| p2
+  s4b -.->|🌐 gateway looks up the request plus attempt 2| c2
+  c2 -.->|🌐 miss: the gateway strips the number and calls the provider| p2
   p2 -->|the reply comes back| s7b
   s7b -->|both Case Grades| s8
   s8 -->|writes| r9
@@ -263,14 +274,15 @@ flowchart TB
   classDef data  fill:#4c1d95,stroke:#a06ed4,color:#ede9fe
   classDef plain fill:#374151,stroke:#9ca3af,color:#f3f4f6
   class s0,s3,s4a,s4b,s7a,s7b,s8,s10,s11,k1 stage
-  class c1,r9,k2 data
+  class c1,c2,r9,k2 data
   class p1,p2,k3 plain
   style KEY fill:#111827,stroke:#6b7280,color:#f3f4f6
 ```
 
 Tags inside a box name the limit that shapes it: ⏱ when it runs, 💾 where it rests, 🌐 a
-network hop, 🔀 ordering, 🧩 the same bytes read differently. In a seeded run, Attempt 2 instead
-carries a seed derived from the run's seed and may be served from the cache on a rerun (§2.3).
+network hop, 🔀 ordering, 🧩 the same bytes read differently. On a rerun both lookups hit and no
+provider is called. In a seeded run, Attempt 2 instead carries a seed derived from the run's seed,
+which gives it its own entry the same way (§2.3).
 
 ### 3.2 Failure modes
 
@@ -278,7 +290,8 @@ carries a seed derived from the run's seed and may be served from the cache on a
 |---|---|---|---|---|
 | F1 | An inspect Task declares `epochs` > 1, before the build lands | ② | the importer | refused by name (D12) |
 | F2 | An inspect Task declares epochs with a reducer we don't run (`mean`, `pass_at(k < N)`, a custom one) | ② | the importer | refused naming the reducer |
-| F3 | Attempt 2 would be served Attempt 1's stored reply | ⑤ ⑥ | nobody, which is why §2.3 exists | prevented: Attempt 2's request always differs (a derived seed, or the cache opt-out) |
+| F3 | Attempt 2 would be served Attempt 1's stored reply | ⑤ ⑥ | nobody, which is why §2.3 exists | prevented: Attempt 2's request always keys differently (a derived seed, or the Attempt number in the cache control) |
+| F9 | The Engine sends the Attempt number to a gateway older than OME-1520 | ⑥ | nobody | that gateway bypasses the cache on the unknown field: Attempts are fresh and graded correctly, only the free rerun is lost until it deploys |
 | F4 | One Attempt's Candidate Invocation or Grading fails, another is graded | ③ ⑧ | the Report | the Case is graded from the graded Attempts; the failed one keeps its failure in `attempts`; the Report says "1 of 2 Attempts failed" |
 | F5 | Every Attempt of a Case fails | ⑧ | the Aggregation | the Case has no Case Grade; the Benchmark's Failure Policy applies, as today |
 | F6 | An Attempt's Check is graded neither 0 nor 1 | ⑧ | the per-Case envelope | the Case fails as `attempt_grade_not_pass_fail`; no guessed fold |
@@ -294,8 +307,8 @@ flowchart TB
   n2["② the inspect importer<br/>importer.py · single_shot.py · screamingface_engine_inspect<br/>✏️ reads epochs: any-match becomes attempts, the rest refused"]
   n3["③ the per-Case step<br/>preserve_candidate_outcome · benchmarks/protocol.py<br/>✏️ runs ④ to ⑦ once per Attempt, in order"]
   n4["④ the Candidate Invocation<br/>_CandidateInvocation · world/candidate_adapter.py<br/>✏️ opens an Attempt scope holding the Attempt number"]
-  n5["⑤ the model call leaving the Engine<br/>apply_answer_seed · world/request_parameters.py · world/connector.py<br/>✏️ Attempt 2 and later: derived seed, or the cache opt-out"]
-  n6["⑥ the AI gateway exact-request cache<br/>GlobalChatCacheKey · apps/aigateway request_cache/global_keys.py<br/>unchanged: the reason ⑤ changes"]
+  n5["⑤ the model call leaving the Engine<br/>apply_answer_seed · world/request_parameters.py · world/connector.py<br/>✏️ Attempt 2 and later: derived seed, or the Attempt number in the cache control"]
+  n6["⑥ the AI gateway exact-request cache<br/>global_controls.py · GlobalChatCacheKey · apps/aigateway request_cache<br/>✏️ accepts the Attempt number, keys on it, strips it before the provider"]
   n7["⑦ the Benchmark's own Grading<br/>scorer adapter, rubric graders<br/>unchanged: runs once per Attempt"]
   n8["⑧ the per-Case envelope and the fold<br/>graded_answer.py<br/>✏️ accepts N outcomes, folds per Check"]
   n9["⑨ the Case Result on the wire<br/>CaseResult · benchmarks/contract.py<br/>✅ new attempts list, absent when N is 1"]
@@ -313,8 +326,8 @@ flowchart TB
   classDef stage fill:#1e3a8a,stroke:#4a7fd4,color:#dbeafe
   classDef plain fill:#374151,stroke:#9ca3af,color:#f3f4f6
   class n9,k1 good
-  class n1,n2,n3,n4,n5,n8,n11,k2 stage
-  class n6,n7,n10,k3 plain
+  class n1,n2,n3,n4,n5,n6,n8,n11,k2 stage
+  class n7,n10,k3 plain
   style KEY fill:#111827,stroke:#6b7280,color:#f3f4f6
 ```
 
@@ -325,6 +338,8 @@ The arrows are the order a Case passes through the code, not imports. The stages
   Case scope is what attributes each call's cost to its Case.
 - ⑤ changes only Attempts 2 and later, because Attempt 1 byte-identical to today is what keeps
   every existing Benchmark's egress, replay fixtures and goldens unchanged.
+- ⑥ keys on the Attempt number only when it is present, because every request without one must
+  hash exactly as today, or every stored reply would be abandoned.
 - ⑧ folds per Check, because ARC-AGI-2 credits each test grid separately (§2.4).
 - ⑨'s field is absent at N = 1, because the SDK decoder refuses unknown keys and every
   existing report must stay readable.
@@ -333,9 +348,9 @@ The arrows are the order a Case passes through the code, not imports. The stages
 
 - **N Attempts cost N times as much.** ARC-AGI-2 at two Attempts per grid is 334 Candidate
   Invocations for 120 tasks. Accepted: it is the published rule, and the catalogue states it.
-- **An unseeded run cannot replay Attempts 2 and later from the cache**, so a rerun pays for them
-  again. Accepted: a seeded run replays every Attempt; giving the shared cache a sampling member
-  is a gateway decision (OME-305) this ticket does not reopen.
+- **The shared cache gains a sampling dimension it was built without** (OME-305 chose an exact
+  cache with no sampling lane). Accepted: the Attempt number is caller-declared and absent from
+  every existing request, so the cache stays exact for everything else.
 - **Attempts at temperature 0 come out nearly identical**, and the score is close to the
   first-Attempt score. Accepted: the Candidate owns its sampling settings, and the ARC harness
   behaves the same way; the Report shows the identical answers.
@@ -350,7 +365,6 @@ The arrows are the order a Case passes through the code, not imports. The stages
 ## 5. Out of scope
 
 - pass@1-from-N, all-must-match and mean-over-Attempts folds (D2).
-- A sampling member in the AI gateway's cache key.
 - A Cost Estimate (ADR 0003); question 5's ×N waits for it.
 - ARC-AGI-2 itself (OME-1476) and ZeroBench (needs image input).
 - Any Leaderboard or Scoreboard column for per-Attempt detail.
@@ -365,8 +379,10 @@ The arrows are the order a Case passes through the code, not imports. The stages
    prints "1 of 2 Attempts matched".
 3. A two-Check fixture where Attempt 1 meets only Check A and Attempt 2 only Check B scores 1.0
    (the ARC rule), pinned by a test that says why.
-4. Attempt 2's request differs from Attempt 1's in an unseeded run (the cache opt-out) and in a
-   seeded run (a different seed), pinned by tests on the request the Engine sends.
+4. Attempt 2's request keys differently from Attempt 1's in an unseeded run (the Attempt number in
+   the cache control) and in a seeded run (a different seed), pinned by tests on the request the
+   Engine sends; a rerun of an unseeded Attempts Benchmark is served every Attempt from the
+   cache, pinned by a gateway test (OME-1520).
 5. The importer maps `max`, `at_least(1)` and `pass_at(N)` to `attempts=N` and refuses every
    other reducer by name; before the build, it refuses every `epochs` > 1 (OME-1458, PR 2).
 6. A non-0/1 Check under Attempts fails the Case as `attempt_grade_not_pass_fail`, pinned on both
@@ -379,12 +395,15 @@ The arrows are the order a Case passes through the code, not imports. The stages
 | this one | OME-1458, PR 1 of 2 | `docs/` | this spec, the `Attempt` glossary entry, ledger and mirror |
 | next | OME-1458, PR 2 of 2 | `apps/screamingface-engine` | ② refuses every `epochs` > 1 by name (F1) |
 | build 1 | OME-1516 | `packages/screamingface` | ⑪ decoder accepts `attempts`, the Report line, the new failure code; released first (F8) |
-| build 2 | OME-1515 | `apps/screamingface-engine` | ① ③ ④ ⑤ ⑧ ⑨: the declaration, the Attempt loop, Attempt 2's request, the fold, the wire field, the test-only Benchmark |
-| build 3 | OME-1515 | `apps/screamingface-engine` | ② maps any-match epochs to `attempts=N` and narrows F1 to F2 |
+| build 2 | OME-1520 | `apps/aigateway` | ⑥ the cache control accepts the Attempt number, keys on it, strips it |
+| build 3 | OME-1515 | `apps/screamingface-engine` | ① ③ ④ ⑤ ⑧ ⑨: the declaration, the Attempt loop, Attempt 2's request, the fold, the wire field, the test-only Benchmark |
+| build 4 | OME-1515 | `apps/screamingface-engine` | ② maps any-match epochs to `attempts=N` and narrows F1 to F2 |
 
-Deploy order: the SDK from build 1 releases before the Engine from build 2 deploys, the order
-OME-1268 used. Build 2 may split in two if it passes the ~500-line review cap; the seam is ⑤
-(Attempt 2's request) versus ⑧ ⑨ (the fold and the wire).
+Deploy order: the SDK from build 1 releases and the gateway from build 2 deploys before the
+Engine from build 3, the order OME-1268 used. Only the SDK order is required for correctness
+(F8); the gateway order only decides when reruns become free (F9). Build 3 may split in two if
+it passes the ~500-line review cap; the seam is ⑤ (Attempt 2's request) versus ⑧ ⑨ (the fold
+and the wire).
 
 ## 8. Glossary
 
