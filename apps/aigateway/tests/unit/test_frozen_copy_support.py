@@ -71,6 +71,16 @@ def seed_copy(
     return run_async(client, _seed)
 
 
+def seal_copy(client: TestClient, copy_id: str) -> None:
+    """Seal through the store as the signed-in account."""
+    owner_id = account_id_of(client)
+
+    async def _seal() -> None:
+        assert await store().seal(UUID(copy_id), owner_id) is not None
+
+    run_async(client, _seal)
+
+
 def stored_entries(client: TestClient, copy_id: str) -> list[dict[str, Any]]:
     from aigateway.core.frozen_copy.models import FrozenCopyEntry
 
@@ -129,3 +139,20 @@ class DispatchCounter:
 
         self.calls.append(dict(body))
         return SimpleNamespace(model_dump=lambda: chat_response(f"live-{len(self.calls)}"))
+
+
+class ScriptedDispatch:
+    """Stands in for the provider call: each call raises or returns the next scripted outcome."""
+
+    def __init__(self, *outcomes: Exception | dict[str, Any]) -> None:
+        self._outcomes = list(outcomes)
+        self.calls: list[dict[str, Any]] = []
+
+    async def __call__(self, body: dict[str, Any]):
+        from types import SimpleNamespace
+
+        self.calls.append(dict(body))
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return SimpleNamespace(model_dump=lambda: outcome)
