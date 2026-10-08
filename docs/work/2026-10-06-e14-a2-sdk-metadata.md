@@ -42,6 +42,8 @@ and `leaderboards.metadata_events(...)`, and `LeaderboardScore` reads `paper_url
 
 ## Approved test changes (append-only exception)
 
+**Owner approval:** confirmed by the owner on 2026-10-08. The append-only gate may skip these edits.
+
 - `tests/public_surface_snapshot.json` regenerated with `UPDATE_SURFACE_SNAPSHOT=1` for the new
   public names (`edit`, `metadata_events`, `ScoreMetadataEvent`, `paper_url`,
   `metadata_updated_at`). Orchestrator-approved under the owner's E14 authorization, to be
