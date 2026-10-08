@@ -412,11 +412,36 @@ def test_rail_crumbs_show_only_where_you_are_below_home() -> None:
         crumbs = _rail(page).crumbs
         assert [(c["text"], c.get("class")) for c in crumbs] == [(label, "here")], page
 
+    # The benchmark name is filled in by script; until then (and on a missing or unknown id)
+    # the empty crumb must be hidden, never an empty focusable link or a stale label.
     benchmark = _rail("benchmark.html").crumbs
-    assert [(c.get("id"), c.get("class")) for c in benchmark] == [("crumb-benchmark", "here")]
+    assert [(c.get("id"), c.get("class"), c["text"]) for c in benchmark] == [
+        ("crumb-benchmark", "here", "")
+    ]
 
     spec = _rail("spec.html").crumbs
     assert [(c.get("id"), c.get("class"), c["text"]) for c in spec] == [
         ("back-link", None, ""),
         (None, "here", "spec"),
     ]
+    assert "hidden" in spec[0], "the empty back-link must start hidden"
+
+
+def test_rail_benchmark_crumb_starts_hidden_with_its_separator() -> None:
+    portal = Path(__file__).resolve().parents[2] / "portal"
+
+    class _HiddenInRail(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.hidden: dict[str, bool] = {}
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            attributes = dict(attrs)
+            classes = (attributes.get("class") or "").split()
+            for name in ("sep", "crumbs"):
+                if name in classes and name not in self.hidden:
+                    self.hidden[name] = "hidden" in attributes
+
+    parser = _HiddenInRail()
+    parser.feed((portal / "benchmark.html").read_text(encoding="utf-8"))
+    assert parser.hidden == {"sep": True, "crumbs": True}

@@ -36,4 +36,13 @@ The portal's top bar names the home page "leaderboard" on two pages and "portal"
 - **Actual files:** as planned (5 pages, `benchmark.js`, `spec.js`, `portal.css`, `test_portal_static.py`).
 - **Commits:** see the PR (squash-merged).
 - **Gates:** RED 6 failed → GREEN; scoreboard `pytest` 958 passed / 9 skipped; `ruff check` + `ruff format --check` clean; `pyright` 0 errors; Node portal tests 82/82 (CI's file list).
-- **Deviations:** the benchmark and spec crumbs show the benchmark id straight away and switch to the display name once it loads, so an unknown benchmark never shows a misleading "leaderboard" crumb. Browser check on a local scoreboard (empty database): all 5 bars as specified, the brand is a link with no underline.
+- **Deviations:**
+  - The planned single test `test_rail_brand_links_home_and_crumbs_are_consistent` became three: `test_rail_brand_is_the_home_link_and_no_crumb_repeats_it` (per page), `test_rail_crumbs_show_only_where_you_are_below_home`, `test_rail_benchmark_crumb_starts_hidden_with_its_separator`.
+  - The benchmark and spec crumbs show the benchmark id straight away, then the display name once it loads.
+  - Code-review fixes (round 2):
+    - Empty crumb placeholders start `hidden`. The benchmark crumb and its separator hide again on a missing id or a 404.
+    - The spec page's missing-parameter error links to the benchmark list instead of naming a removed "leaderboard" crumb.
+    - The brand emoji is `aria-hidden`, and the brand gets a hover tone change.
+    - Duplicated name logic is pulled into one helper per script.
+  - Not done, proposed as a follow-up: generating the rail from one shared source instead of 5 hand-copied pages.
+  - Browser check on a local scoreboard (empty database): all 5 bars as specified, and the brand is a link with no underline.

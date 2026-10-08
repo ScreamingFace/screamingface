@@ -345,6 +345,15 @@
     statusNode.appendChild(P.link(null, "index.html", "Return to the benchmark list."));
   }
 
+  // The breadcrumb names the benchmark being shown. With no benchmark (missing id, 404) the
+  // crumb and its separator stay hidden rather than showing a stale or misleading label.
+  function setBenchmarkCrumb(crumbNode, name) {
+    var nav = crumbNode.parentNode;
+    crumbNode.textContent = name;
+    nav.hidden = !name;
+    nav.previousElementSibling.hidden = !name;
+  }
+
   function init() {
     var statusNode = document.getElementById("leaderboard-status");
     var wrap = document.getElementById("leaderboard-wrap");
@@ -352,6 +361,7 @@
     var legendPareto = document.getElementById("legend-pareto");
     var nameNode = document.getElementById("benchmark-name");
     var descNode = document.getElementById("benchmark-desc");
+    var crumbNode = document.getElementById("crumb-benchmark");
 
     var id;
     try {
@@ -362,7 +372,7 @@
       return;
     }
     state.benchmarkId = id;
-    document.getElementById("crumb-benchmark").textContent = id;
+    setBenchmarkCrumb(crumbNode, id);
     initTabStrip(id);
 
     P.showLoading(statusNode, "Loading leaderboard…");
@@ -373,10 +383,11 @@
       function (data) {
         var b = data && data.benchmark;
         if (b) {
-          nameNode.textContent = b.display_name || b.id;
-          document.getElementById("crumb-benchmark").textContent = b.display_name || b.id;
+          var name = b.display_name || b.id;
+          nameNode.textContent = name;
+          setBenchmarkCrumb(crumbNode, name);
           descNode.textContent = b.description || "";
-          document.title = (b.display_name || b.id) + " — screamingface";
+          document.title = name + " — screamingface";
         }
         state.entries = (data && data.entries) || [];
         if (state.entries.length === 0) {
@@ -411,6 +422,7 @@
       },
       function (err) {
         if (err && err.status === 404) {
+          setBenchmarkCrumb(crumbNode, "");
           showNotFound(statusNode, "Benchmark not found.");
           return;
         }
