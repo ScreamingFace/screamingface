@@ -3,7 +3,7 @@
 FEATURE: a cheap owner-pressed button that re-proves the whole shelf's product pipe —
 SDK → gateway → OpenRouter → engine grading — after any refactor. The shelf is every
 Benchmark the live Engine lists, Imported and hand-built, narrowed by the button's
-`scope` choice (`_scope.py`).
+`scope` choice or replaced by the Benchmarks it names (`_scope.py`).
 
 STORY: as the owner, before citing "every Benchmark runs", I run
 `just screamingface test-paid-benchmarks` and get, for a small bounded spend, either a
@@ -35,7 +35,7 @@ from _board_summary import (
 )
 from _case_provenance import provenance_markdown
 from _panel import BOARD_CONCURRENCY, CASE_LIMIT, fusion_panel
-from _scope import SCOPE_ENV, pick_shelf, resolve_scope
+from _scope import ShelfPick, pick_from_env
 from conftest import PaidStack, assets_root
 
 if TYPE_CHECKING:
@@ -77,15 +77,17 @@ def test_every_benchmark_runs_end_to_end(
     import screamingface as sf
 
     # The paid_stack fixture already refused an unknown scope before booting.
-    scope: str = resolve_scope(os.environ.get(SCOPE_ENV))
     with sf.Client(engine_url=paid_stack.engine_url) as client:
         listed: list[tuple[str, str]] = [
             (benchmark.id, benchmark.origin) for benchmark in client.benchmarks.list()
         ]
-    boards, shelf_problems = pick_shelf(listed, scope)
+    pick: ShelfPick = pick_from_env(listed, os.environ)
+    boards: list[str] = pick.boards
     # A picked kind with nothing listed (e.g. an engine booted without the inspect
-    # extra) is a lane bug, not a Benchmark bug; fail here before spending anything.
-    assert not shelf_problems, "\n".join(shelf_problems)
+    # extra) is a lane bug, and a named Benchmark the engine does not list is a typo;
+    # neither is a Benchmark bug, so fail here before spending anything.
+    # WHY only after boot: the Benchmark list lives on the live engine.
+    assert not pick.problems, "\n".join(pick.problems)
 
     # WHY print past pytest's capture: this is one test looping over the whole
     # shelf, so `-v` shows a single line until every board is done. The owner
@@ -93,7 +95,7 @@ def test_every_benchmark_runs_end_to_end(
     # moment it finishes, not after the whole paid run.
     with capsys.disabled():
         print(
-            f"\n[paid smoke] scope {scope}: {len(boards)} Benchmarks, {CASE_LIMIT} Cases each, "
+            f"\n[paid smoke] {pick.picked_by}: {len(boards)} Benchmarks, {CASE_LIMIT} Cases each, "
             f"{BOARD_CONCURRENCY} at a time",
             flush=True,
         )
