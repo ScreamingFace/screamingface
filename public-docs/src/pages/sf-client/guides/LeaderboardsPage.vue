@@ -278,13 +278,10 @@ sf.reproduce(score, record=False)`
     </div>
 
     <p>
-      <code>capture=True</code> asks the Engine to make a <strong>frozen copy</strong> of each run:
-      every model answer and every web-tool result, kept forever. Capture is best effort, so the
-      copy can be <code>partial</code>. Read <code>capture_status</code> and
-      <code>frozen_copy_id</code> on the <code>CandidateResult</code> before you publish. If the
-      Engine did not capture a run, the Client emits an <code>EvaluationWarning</code>, and both
-      fields stay <code>None</code>. A score with no complete copy cannot be reproduced. Capture
-      costs no extra provider call.
+      <code>capture=True</code> asks the Engine to make a frozen copy of each run, so others can
+      reproduce the score. Read <code>capture_status</code> on the result before you publish: a
+      partial or missing copy cannot be reproduced.
+      <RouterLink to="/learn/caching">Reproducing a submission</RouterLink> explains why.
     </p>
 
     <p>
@@ -359,14 +356,13 @@ sf.reproduce(score, record=False)`
     <h3>7 · Reproduce a score, or remix it</h3>
 
     <p>
-      A score keeps the frozen copy of the run behind it. <code>sf.reproduce</code> runs the score's
-      <code>url4</code> again with the stored answer seed, against that copy. The Client asks the
-      Engine to confirm that it runs in replay mode. A confirmed replay answers every model call and
-      every web-tool result from the copy. It calls no provider and no web-search service, so it
-      costs <strong>$0</strong>. It works after a model is retired. A call that the copy cannot
-      answer fails its case. If the Engine does not confirm replay mode, the Client stops the run
-      and reports <code>replay_unsupported</code>. If that stop fails, an
-      <code>EvaluationWarning</code> says the run may still be running and spending.
+      <code>sf.reproduce</code> runs the score's <code>url4</code> and stored answer seed against
+      the frozen copy of the original run. A confirmed replay pays no provider and costs
+      <strong>$0</strong>. If the Engine does not confirm replay mode, the Client stops the run and
+      reports <code>replay_unsupported</code>, and an <code>EvaluationWarning</code> says so if the
+      stop fails. A finished run whose summary does not name the copy gets the same reason, and it
+      may have paid providers. The <RouterLink to="/learn/caching">caching page</RouterLink> has the
+      mechanics.
     </p>
 
     <div class="not-prose">
@@ -397,20 +393,15 @@ sf.reproduce(score, record=False)`
         <tr>
           <td><code>failed</code></td>
           <td>
-            The replay ran, or tried to, and did not match. <code>reason</code> says why:
-            <code>replay_unsupported</code>, <code>frozen_copy_miss</code>,
-            <code>frozen_copy_unavailable</code>, <code>run_failed</code>,
-            <code>benchmark_revision_changed</code> or <code>score_differs</code>. When the copy had
-            no answer for some calls, <code>missed_cases</code> lists their case ids.
+            The replay ran, or tried to, and did not match. <code>reason</code> says why, and
+            <code>missed_cases</code> lists the cases that the frozen copy could not answer.
           </td>
         </tr>
         <tr>
           <td><code>not_reproducible</code></td>
           <td>
             The score cannot name everything a replay needs, so no run started.
-            <code>reason</code> is <code>partial</code> (the frozen copy does not hold the whole
-            run) or <code>unknown</code> (the score has no capture status, no frozen copy id or no
-            benchmark revision).
+            <code>reason</code> is <code>partial</code> or <code>unknown</code>.
           </td>
         </tr>
       </tbody>
@@ -425,8 +416,7 @@ sf.reproduce(score, record=False)`
       <code>LeaderboardScore</code>. If the record fails, the outcome stays <code>exact</code>,
       <code>recorded</code> is <code>False</code>, and <code>record_error</code> says why. The
       <RouterLink to="/sf-client/api/leaderboards"><code>Reproduction</code> reference</RouterLink>
-      lists every field and reason. The caching page explains
-      <RouterLink to="/learn/caching">why a score can be partial</RouterLink>.
+      lists every field and reason.
     </p>
 
     <p>
@@ -470,7 +460,7 @@ sf.reproduce(score, record=False)`
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>00_quickstart.ipynb</code></a
-        >, which walks list → evaluate → optional publish → replay
+        >, which walks list → evaluate → optional publish → run again
       </li>
       <li>
         <RouterLink to="/sf-client/guides/reproduce-and-share"

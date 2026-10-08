@@ -108,7 +108,7 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
     <p>
       Text and tree are two views of the same thing, and converting between them loses nothing in
       either direction: <code>url4.build(url4.render(node))</code> gives back the tree you started
-      with. That guarantee is what lets a run be logged, shared, and replayed exactly rather than
+      with. That guarantee is what lets a run be logged, shared, and rebuilt exactly rather than
       approximately.
     </p>
 
@@ -144,10 +144,10 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
     </p>
 
     <p>
-      Be careful about what it pins down, though. Model outputs vary between runs, so replaying an
-      expression will not reproduce the numbers to the decimal. What the expression fixes is the
-      <em>definition</em> of the run, not its results. Stability is the promise on top of that: a
-      url4 written today is meant to run tomorrow.
+      Be careful about what it pins down, though. Model outputs vary between runs, so running an
+      expression again will not reproduce the numbers to the decimal. What the expression fixes is
+      the <em>definition</em> of the run, not its results. Stability is the promise on top of that:
+      a url4 written today is meant to run tomorrow.
     </p>
 
     <h2>In code</h2>

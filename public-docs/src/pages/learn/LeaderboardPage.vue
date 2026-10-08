@@ -47,13 +47,9 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
     </p>
 
     <p>
-      A run made with <code>capture=True</code> keeps a frozen copy of every model answer and every
-      web-tool result. A submission keeps the id of that copy.
-      <code>sf.reproduce(score)</code> replays the run against the copy, and a confirmed replay pays
-      no provider and no web-search service. The
-      <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
-      call. The <RouterLink to="/learn/caching">caching page</RouterLink> explains how a frozen copy
-      is made and when it is partial.
+      A run made with <code>capture=True</code> keeps a frozen copy of its model answers and
+      web-tool results, and <code>sf.reproduce(score)</code> replays a submission against that copy.
+      The <RouterLink to="/learn/caching">caching page</RouterLink> explains how.
     </p>
 
     <h2>How a rank happens</h2>
@@ -65,10 +61,10 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
 
     <ul>
       <li>
-        <strong>Validation.</strong> The score is benchmark-native: the exact number the benchmark's
-        own grading produced, fractional or negative included. The board checks it is a finite
-        number and never recomputes, normalizes, or thresholds it — the benchmark is the sole
-        authority on its formula.
+        <strong>Validation.</strong> The score is benchmark-native: the exact number the
+        benchmark's own grading produced, fractional or negative included. The board checks it is
+        a finite number and never recomputes, normalizes, or thresholds it — the benchmark is the
+        sole authority on its formula.
       </li>
       <li>
         <strong>Deduplication.</strong> Each submission is hashed over its recipe identity, meaning
