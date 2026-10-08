@@ -342,16 +342,10 @@ def _scorer_lines(
         benchmark_lines.append("        # If the scorer dispatches on sample metadata, also pass")
         benchmark_lines.append("        # --keep-sample-metadata when importing.")
         benchmark_lines.append('        judge=JudgeSpec(model="TODO"),')
-    # Draft Feedback (the Corrective Loop's mid-run check) is OFF for every generated row,
-    # whatever the grading family: it is a per-Benchmark owner decision, never a default
-    # (owner rule 2026-10-07, OME-1513). MCQ rows can never carry it (OME-796, an elimination
-    # attack); judged rows are refused it at assembly (OME-1116); a free-text row may be turned
-    # on only by hand, with a comment naming the decision.
-    benchmark_lines.append("        # Draft Feedback is off unless the owner turns it on for this")
-    benchmark_lines.append(
-        "        # Benchmark by name (OME-1513); never infer it from the family."
-    )
-    benchmark_lines.append("        with_check_surface=False,")
+    # Draft Feedback (the Corrective Loop's mid-run check) is never emitted: the field
+    # defaults to False on BenchmarkSpec, and turning it on is a per-Benchmark owner decision
+    # written by hand with a comment naming it (owner rule 2026-10-07, OME-1513) — never a
+    # default, never inferred from the grading family.
     return benchmark_lines
 
 

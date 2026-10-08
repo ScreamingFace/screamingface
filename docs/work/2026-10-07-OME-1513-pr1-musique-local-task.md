@@ -77,7 +77,7 @@ list, and a scorer that tolerates absent Sample metadata.
   what it checks now. The continuous `satisfaction` on Draft Feedback is lane-wide (squad
   exposes F1 the same way) and is left for the owner on the ticket.
 - **Owner rule folded in (2026-10-07): Draft Feedback is opt-in per Benchmark, never a default.**
-  The importer now emits `with_check_surface=False`; the nine imported rows that carried the
+  The importer no longer emits the field at all (it defaults to False on the row type, where the rule now lives); the nine imported rows that carried the
   offer by family rule (gsm8k, paws, boolq, aime24, aime25, mgsm_en, bbeh, squad, math) and the
   three hand-built rubric Benchmarks (gdpval, draco, healthbench: `check_surface=None`, route
   still served) turn it off; IFEval is the one Benchmark with the offer, and says why. Nine

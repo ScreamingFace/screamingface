@@ -273,7 +273,7 @@ def test_a_free_text_task_offers_the_check_surface() -> None:
 
     assert benchmark.scorer_kwargs == {"numeric": True}
     assert benchmark.with_check_surface is False
-    assert "never infer it from the family" in rows.benchmark
+    assert "with_check_surface" not in rows.benchmark  # never emitted; the field defaults off
 
 
 def test_write_task_replay_rows_lands_in_prepare_and_benchmarks_only(

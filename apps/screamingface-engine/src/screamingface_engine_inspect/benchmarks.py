@@ -72,8 +72,13 @@ class BenchmarkSpec:
     difficulty: DifficultyTier
     scorer: str
     scorer_kwargs: Mapping[str, Any] = field(default_factory=dict)
-    #: §4 dual registration; False for MCQ benchmarks — pass/fail feedback over a
-    #: handful of options is an elimination attack (OME-796).
+    #: Draft Feedback — the Corrective Loop's mid-run check (§4 dual registration). OFF unless
+    #: the owner turns it on for this Benchmark by name (owner rule 2026-10-07, OME-1513):
+    #: never a default, never inferred from the grading family. Today only IFEval (hand-built)
+    #: carries an offer; no imported row does, and the importer never emits the field. A row
+    #: that sets True carries a comment naming the decision. MCQ rows can never carry it
+    #: (pass/fail over a handful of options is an elimination attack, OME-796); judged rows are
+    #: refused it at assembly (OME-1116).
     with_check_surface: bool = False
     multiple_correct: bool = False
     #: The benchmark's judge declaration (OME-1240): required exactly when the scorer
@@ -247,8 +252,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer_kwargs={"numeric": True},
         # Free-form answers make mid-run feedback legitimate: the same scorer serves
         # the corrective loop (spec §4; owner decision on OME-1115, 2026-09-15).
-        # Draft Feedback off (owner rule 2026-10-07, OME-1513); only IFEval carries the offer.
-        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/2110.14168",
@@ -524,9 +527,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.paws.paws:paws. License: other.
         scorer="inspect_ai.scorer:includes",
-        # Draft Feedback off: a per-Benchmark owner decision, never a family default
-        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
-        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1904.01130",
@@ -585,9 +585,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.boolq.boolq:boolq. License: cc-by-sa-3.0.
         scorer="inspect_ai.scorer:pattern",
         scorer_kwargs={"pattern": "(Yes|No).?\\Z"},
-        # Draft Feedback off: a per-Benchmark owner decision, never a family default
-        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
-        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1905.10044",
@@ -815,9 +812,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.aime2024.aime2024:aime2024.
         # License: mit.
         scorer="inspect_evals.aime2024.aime2024:aime_scorer",
-        # Draft Feedback off: a per-Benchmark owner decision, never a family default
-        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
-        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
@@ -867,9 +861,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   inspect_evals.aime2025.aime2025:aime2025.
         # License: apache-2.0.
         scorer="inspect_evals.aime2025.aime2025:aime_scorer",
-        # Draft Feedback off: a per-Benchmark owner decision, never a family default
-        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
-        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/math-ai/aime25",
@@ -2471,9 +2462,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer_kwargs={"numeric": True},
         # The eval's own accuracy metric IS the board's mean per-case score.
         # Its clustered stderr is not reported; the description names that.
-        # Draft Feedback off: a per-Benchmark owner decision, never a family default
-        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
-        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/2210.03057",
@@ -3688,9 +3676,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Its per-task accuracies (inspect_ai/grouped) and their harmonic mean
         # (inspect_evals/harmonic_mean_across_tasks) are not reported; the description names
         # that and how to regroup them from the kept task metadata.
-        # Draft Feedback off: a per-Benchmark owner decision, never a family default
-        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
-        with_check_surface=False,
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/pdf/2502.19187",
@@ -3793,9 +3778,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The eval's own Task(metrics=[mean(), stderr(cluster="context_hash")]) IS the mean
         # per-case score the Benchmark reports; the clustered standard error is a
         # confidence figure, not a score, and is not reproduced.
-        # Draft Feedback off: a per-Benchmark owner decision, never a family default
-        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
-        with_check_surface=False,
     ),
     BenchmarkSpec(
         key="math",
@@ -3876,9 +3858,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Named Deviation: the Task's config=GenerateConfig(temperature=0.5) is not applied;
         # the importer never reads task.config and the Candidate answers with its own settings
         # (plan D10). The description names it.
-        # Draft Feedback off: a per-Benchmark owner decision, never a family default
-        # (owner rule 2026-10-07, OME-1513); only IFEval carries the offer today.
-        with_check_surface=False,
     ),
     BenchmarkSpec(
         key="musique",
@@ -3954,11 +3933,6 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "screamingface_engine_inspect.local_tasks.musique.musique:musique_support_f1",
         ),
         named_scores=("musique_answer_f1", "musique_answer_em", "musique_support_f1"),
-        # WHY off (OME-1475 spec D14, kept for the local Task): no Draft Feedback for launch. The
-        # importer's free-text default would expose the headline token F1 as `satisfaction`,
-        # which tells a Corrective Loop how close a partial span is; answers here are spans
-        # copied from the 20 paragraphs, so that is a narrower search than free text looks.
-        with_check_surface=False,
     ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
