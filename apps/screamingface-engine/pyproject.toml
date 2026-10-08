@@ -76,7 +76,7 @@ inspect = [
     # deployed Engine, not in the build stage. inspect-evals keeps both behind its own `math`
     # extra, so they are declared here by name (owner decision on OME-1268, 2026-10-06).
     "sympy==1.14.0",
-    "antlr4-python3-runtime==4.11.1",
+    "antlr4-python3-runtime==4.13.2",
 ]
 
 # Everything needed to BUILD benchmark assets, on top of what serving needs. Separate from
