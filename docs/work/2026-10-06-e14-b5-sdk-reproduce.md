@@ -242,3 +242,14 @@ their names were read from their code (`X-Capture`, `X-Replay-Frozen-Copy`, `cap
 - Gates: with `--skip-append-only` all green (pytest: 2508 passed, 26 skipped, coverage gate met).
   Without it, only the append-only check fails, on `tests/_isolation_engine.py` and
   `tests/public_surface_snapshot.json` (the two approved changes). Skips are the same 26 as above.
+
+## Rebase onto main (2026-10-08)
+
+- The stack was rebased onto `origin/main` `4cd063445` (87 new commits on main).
+- Conflict in `report.py`: main added the `scores` argument to `CandidateResult`. The constructor
+  keeps `scores` and adds `frozen_copy_id` and `capture_status`.
+- Conflict in `tests/public_surface_snapshot.json`: regenerated with
+  `UPDATE_SURFACE_SNAPSHOT=1 uv run pytest tests/test_public_surface.py` at each commit that changed
+  it, never merged by hand.
+- Gates for stack `screamingface` pass against `e14-a2-sdk-metadata` (`--skip-append-only`; the
+  approved test edits are unchanged).
