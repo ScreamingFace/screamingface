@@ -42,8 +42,15 @@ from litellm.exceptions import (
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.credential_blob import DispatchObservation
+from ..core.credential_blob.store import CredentialBlobMutationConflict
+from ..core.frozen_copy.headers import CAPTURE_HEADER, COPY_HEADER, publish_capture_headers
 from ..core.frozen_copy.models import STATUS_OPEN, FrozenCopy
-from ..core.frozen_copy.store import FrozenCopySealed, FrozenCopyStore, request_digest_prefix
+from ..core.frozen_copy.store import (
+    FrozenCopySealed,
+    FrozenCopyStore,
+    frozen_copy_store_for,
+    log_capture_failure,
+)
 from ..core.parameter_projection import (
     IncompatibleParametersError,
     UnsupportedParametersError,
@@ -59,8 +66,8 @@ from ..core.provider_access import (
     provider_access_for,
 )
 from ..core.registry import ProviderRegistry
-from ..core.request_cache.global_controls import GlobalCacheControls, parse_global_cache_controls
-from ..core.request_hardening import chat_body_shape_error, strip_dispatch_controls
+from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
+from ..unhandled_errors import generic_detail
 from .chat_accounting import (
     accounting_handler,
     attach_hit_metadata,
@@ -257,8 +264,22 @@ async def _dispatch_and_finalize_accounting(
     return result
 
 
-_COPY_HEADER = "X-AIGW-Frozen-Copy"
-_CAPTURE_HEADER = "X-AIGW-Capture"
+def _error_view(exc: Exception) -> tuple[int, Any]:
+    """The status and detail a client receives for an exception that ends a captured call.
+
+    INVARIANT: each branch mirrors what the app renders for that exception, so a frozen copy
+    replays the error a live call produced. ``HTTPException`` is its own status and detail;
+    ``CredentialBlobMutationConflict`` is the 503 of ``main._profile_index_conflict``; anything
+    else is the fixed sanitized 500 of ``unhandled_errors`` (never the exception's message).
+    """
+    if isinstance(exc, HTTPException):
+        return exc.status_code, exc.detail
+    if isinstance(exc, CredentialBlobMutationConflict):
+        return 503, {
+            "code": "profile_index_conflict",
+            "message": "Profile metadata update conflicted. Try again.",
+        }
+    return 500, generic_detail()
 
 
 class _Capture:
@@ -267,8 +288,8 @@ class _Capture:
     # INVARIANT: best effort. Nothing here raises into the route: a failed insert, an unreadable
     # copy or a body that cannot be stored becomes the ``failed`` outcome, and the call is served
     # exactly as it would be without the header.
-    # INVARIANT: the log line names the copy, the kind and a digest prefix — never the prompt, and
-    # never an exception message, which may carry it.
+    # INVARIANT: a caller that sent no header gets an inert capture: no outcome, no header, no
+    # insert, and no change to any exception it passes through.
     """
 
     def __init__(
@@ -286,23 +307,20 @@ class _Capture:
     @property
     def headers(self) -> dict[str, str]:
         """The response header; empty for a caller that sent no ``X-AIGW-Frozen-Copy``."""
-        return {} if self.outcome is None else {_CAPTURE_HEADER: self.outcome}
+        return {} if self.outcome is None else {CAPTURE_HEADER: self.outcome}
 
     async def record(self, response_json: Any, status_code: int) -> None:
         if self._copy is None:
             return
         try:
+            if status_code == 200 and not isinstance(response_json, dict):
+                raise TypeError("a success body must be a JSON object")
             await self._store.capture(self._copy, "chat", self._request, response_json, status_code)
         except FrozenCopySealed:
             self.outcome = "refused"
         except Exception as exc:
             self.outcome = "failed"
-            logger.warning(
-                "frozen copy capture failed copy=%s digest=%s kind=chat error=%s",
-                self._copy.id,
-                request_digest_prefix("chat", self._request),
-                type(exc).__name__,
-            )
+            log_capture_failure("chat", exc, copy_id=self._copy.id, request=self._request)
         else:
             self.outcome = "stored"
 
@@ -312,9 +330,21 @@ class _Capture:
         response.headers.update(self.headers)
         return body
 
-    async def record_error(self, exc: HTTPException) -> None:
-        await self.record({"detail": exc.detail}, exc.status_code)
-        exc.headers = {**(exc.headers or {}), **self.headers}
+    async def record_exception(self, request: Request, exc: Exception) -> None:
+        """Capture the error that ends the call, and stamp its response with the outcome.
+
+        The exception is never changed except for the header: an ``HTTPException`` carries it,
+        and any other exception is rendered by an app-level handler that reads what is published
+        on ``request.state``.
+        """
+        status_code, detail = _error_view(exc)
+        await self.record({"detail": detail}, status_code)
+        if not self.headers:
+            return
+        if isinstance(exc, HTTPException):
+            exc.headers = {**(exc.headers or {}), **self.headers}
+        else:
+            publish_capture_headers(request, self.headers)
 
 
 async def _begin_capture(
@@ -322,13 +352,12 @@ async def _begin_capture(
 ) -> _Capture:
     """Check the copy named by ``X-AIGW-Frozen-Copy``.
 
-    A caller that sent no header gets an inert capture: no outcome, no header, no insert.
-
     Valid means: the copy exists, belongs to the caller, is ``open``, and the call is not a
-    stream (the gateway has no assembled body for a stream). Anything else is ``refused``.
+    stream (the gateway has no assembled body for a stream). Anything else, an empty or malformed
+    id included, is ``refused``.
     """
-    raw = request.headers.get(_COPY_HEADER)
-    store = FrozenCopyStore(max_entry_bytes=request.app.state.settings.frozen_copy_max_entry_bytes)
+    raw = request.headers.get(COPY_HEADER)
+    store = frozen_copy_store_for(request.app)
     if raw is None or snapshot is None:
         return _Capture(store, {}, None, None)
     if streaming:
@@ -338,29 +367,12 @@ async def _begin_capture(
     except ValueError:
         return _Capture(store, snapshot, None, "refused")
     except Exception as exc:
-        logger.warning("frozen copy lookup failed kind=chat error=%s", type(exc).__name__)
+        log_capture_failure("chat", exc)
         return _Capture(store, snapshot, None, "failed")
     if copy_row is None or copy_row.account_id != current_id or copy_row.status != STATUS_OPEN:
         return _Capture(store, snapshot, None, "refused")
     # ``failed`` until an insert succeeds: a call that ends without recording stored nothing.
     return _Capture(store, snapshot, copy_row, "failed")
-
-
-def prepare_ingress_body(body: dict[str, Any]) -> tuple[dict[str, Any], GlobalCacheControls]:
-    """The gateway-level preparation of a parsed chat body: pop ``cache``, strip dispatch controls.
-
-    # INVARIANT (OME-1307): the frozen-copy digest is taken of the body this returns. The chat
-    # route and the replay route both call it, so the same request digests the same way in both
-    # and the two can never drift.
-    """
-    cache_controls = parse_global_cache_controls(body)
-    # The gateway owns upstream routing and credentials. Caller-supplied
-    # LiteLLM control-plane fields (api_key/api_base/base_url/fallbacks/
-    # model_list/...) would let LiteLLM send the injected credential to an
-    # arbitrary host or bend dispatch behavior (SF-244 audit F03, OME-428 D6).
-    # Providers that need an api_base (ollama) set their own in
-    # prepare_chat_body; the gateway credential is injected after this strip.
-    return strip_dispatch_controls(body), cache_controls
 
 
 @router.post("/v1/chat/completions")
@@ -396,7 +408,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # FEATURE: OME-1307 — the request a frozen copy digests is the body AS IT IS HERE. Later stages
     # may rewrite or add to it (provider controls, projection, credentials), so a copy of it is
     # held, and only for a caller that named a copy.
-    capture_snapshot = copy.deepcopy(body) if request.headers.get(_COPY_HEADER) else None
+    capture_snapshot = copy.deepcopy(body) if request.headers.get(COPY_HEADER) is not None else None
 
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
@@ -645,10 +657,10 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # and `store_global_response` measures `response_size_bytes` against what it is
         # handed — attaching first could push an otherwise cacheable response over the cap.
         if not isinstance(result, dict):
-            return result
+            return await capture.finish(response, result)
         return await capture.finish(
             response, attach_success_metadata(result, accounting, cache_status=cache_outcome.status)
         )
-    except HTTPException as exc:
-        await capture.record_error(exc)
+    except Exception as exc:
+        await capture.record_exception(request, exc)
         raise

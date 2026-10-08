@@ -309,3 +309,33 @@ def test_a_captured_body_without_aigw_still_replays_with_the_zero_cost_block(
     aigw = response.json()["_aigw"]
     assert aigw["frozen_copy_replay"] is True
     assert aigw["request_economics"]["direct_cost_status"] == "not_applicable"
+
+
+def test_a_replayed_error_carries_the_zero_cost_block_beside_the_detail(
+    authenticated_client: TestClient,
+) -> None:
+    detail = {"code": "provider_error", "message": "nope"}
+    copy_id = seed_copy(
+        authenticated_client,
+        account_id_of(authenticated_client),
+        [("chat", chat_body(), {"detail": detail}, 502)],
+    )
+
+    response = authenticated_client.post(_replay_path(copy_id), json=chat_body())
+
+    assert response.status_code == 502
+    body = response.json()
+    assert set(body) == {"detail", "_aigw"}
+    assert body["detail"] == detail
+    assert body["_aigw"]["frozen_copy_replay"] is True
+    assert body["_aigw"]["request_economics"]["direct_cost_status"] == "not_applicable"
+    assert response.headers["X-AIGW-Replay"] == "error"
+
+
+def test_a_malformed_copy_id_on_replay_is_404_unavailable_not_422(
+    authenticated_client: TestClient,
+) -> None:
+    response = authenticated_client.post(_replay_path("not-a-uuid"), json=chat_body())
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "frozen_copy_unavailable"

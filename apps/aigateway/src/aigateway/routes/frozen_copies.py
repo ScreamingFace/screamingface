@@ -12,29 +12,26 @@ Replay is open to any authenticated account that holds the copy id and sends the
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from aigateway.call_context import current_call_id, current_trace_id
-from aigateway.core.auth.middleware import CurrentAccount
-from aigateway.core.frozen_copy.models import STATUS_OPEN, STATUS_SEALED, FrozenCopy
-from aigateway.core.frozen_copy.store import (
+from ..call_context import current_call_id, current_trace_id
+from ..core.auth.middleware import CurrentAccount
+from ..core.frozen_copy.models import STATUS_OPEN, STATUS_SEALED, FrozenCopy
+from ..core.frozen_copy.store import (
     FrozenCopySealed,
-    FrozenCopyStore,
-    request_digest_prefix,
+    frozen_copy_store_for,
+    log_capture_failure,
 )
-from aigateway.core.request_cache.canonical import CanonicalizationError
-from aigateway.core.request_hardening import chat_body_shape_error
-from aigateway.plugins.taxonomy import new_gateway_call_id
-from aigateway.plugins.taxonomy.render import attach_metadata, render_aigw_metadata
+from ..core.request_cache.canonical import CanonicalizationError
+from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
+from ..plugins.taxonomy import new_gateway_call_id
+from ..plugins.taxonomy.render import attach_metadata, merged_error_detail, render_aigw_metadata
 
-from .chat import prepare_ingress_body
-
-logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _OCCURRENCE_HEADER = "X-AIGW-Replay-Occurrence"
@@ -49,10 +46,6 @@ class ToolResultRequest(BaseModel):
 
 class ToolLookupRequest(BaseModel):
     description: dict[str, Any]
-
-
-def _store(request: Request) -> FrozenCopyStore:
-    return FrozenCopyStore(max_entry_bytes=request.app.state.settings.frozen_copy_max_entry_bytes)
 
 
 def _occurrence(request: Request) -> int:
@@ -80,21 +73,27 @@ def _miss() -> HTTPException:
     )
 
 
-async def _sealed_copy(request: Request, copy_id: UUID) -> FrozenCopy:
-    copy = await _store(request).get(copy_id)
+async def _sealed_copy(request: Request, raw_copy_id: str) -> FrozenCopy:
+    """The sealed copy, or the one 404 for unknown, open and malformed ids alike."""
+    unavailable = HTTPException(
+        status_code=404,
+        detail={
+            "code": "frozen_copy_unavailable",
+            "message": "the frozen copy does not exist or is not sealed",
+        },
+    )
+    try:
+        copy_id = UUID(raw_copy_id)
+    except ValueError:
+        raise unavailable from None
+    copy = await frozen_copy_store_for(request.app).get(copy_id)
     if copy is None or copy.status != STATUS_SEALED:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "frozen_copy_unavailable",
-                "message": "the frozen copy does not exist or is not sealed",
-            },
-        )
+        raise unavailable
     return copy
 
 
-def _zero_cost(body: dict[str, Any]) -> dict[str, Any]:
-    """The captured body with ``_aigw`` replaced by the block of a free cache hit.
+def _replay_metadata() -> dict[str, Any]:
+    """The ``_aigw`` block of a replayed answer: a free cache hit, marked as a replay.
 
     WHY the renderer and not an edit of the captured block: the captured ``_aigw`` describes the
     ORIGINAL call (its attempts and cost). The engine prices a call as $0 only for the shape a
@@ -109,12 +108,12 @@ def _zero_cost(body: dict[str, Any]) -> dict[str, Any]:
         gateway_call_id=current_call_id() or new_gateway_call_id(),
     )
     metadata["frozen_copy_replay"] = True
-    return attach_metadata(body, metadata)
+    return metadata
 
 
 @router.post("/v1/frozen-copies/{copy_id}/chat/completions")
 async def replay_chat_completions(
-    copy_id: UUID, request: Request, response: Response, current: CurrentAccount
+    copy_id: str, request: Request, response: Response, current: CurrentAccount
 ) -> Any:
     occurrence = _occurrence(request)
     copy = await _sealed_copy(request, copy_id)
@@ -127,25 +126,27 @@ async def replay_chat_completions(
         raise HTTPException(status_code=400, detail=shape_error)
     body, _ = prepare_ingress_body(body)
     try:
-        entry = await _store(request).find(copy, "chat", body, occurrence)
+        entry = await frozen_copy_store_for(request.app).find(copy, "chat", body, occurrence)
     except (CanonicalizationError, UnicodeError):
         # A request that cannot be digested was never captured (the capture would have failed).
         entry = None
     if entry is None:
         raise _miss()
     if entry.status_code != 200:
-        raise HTTPException(
+        # The body shape of a live error: `detail` with `_aigw` beside it (see
+        # `main._accounted_http_exception`), here the zero-cost replay block.
+        return JSONResponse(
             status_code=entry.status_code,
-            detail=entry.response_json["detail"],
+            content=merged_error_detail(entry.response_json["detail"], _replay_metadata()),
             headers={_REPLAY_HEADER: "error"},
         )
     response.headers[_REPLAY_HEADER] = "hit"
-    return _zero_cost(entry.response_json)
+    return attach_metadata(entry.response_json, _replay_metadata())
 
 
 @router.post("/v1/frozen-copies", status_code=201)
 async def open_frozen_copy(request: Request, current: CurrentAccount) -> dict[str, str]:
-    copy = await _store(request).open(current.id)
+    copy = await frozen_copy_store_for(request.app).open(current.id)
     return {"id": str(copy.id), "status": copy.status}
 
 
@@ -169,7 +170,7 @@ def _sealed() -> HTTPException:
 async def seal_frozen_copy(
     copy_id: UUID, request: Request, current: CurrentAccount
 ) -> dict[str, Any]:
-    copy = await _store(request).seal(copy_id, current.id)
+    copy = await frozen_copy_store_for(request.app).seal(copy_id, current.id)
     if copy is None:
         raise _not_found()
     return {"id": str(copy.id), "status": copy.status, "entries": copy.entries}
@@ -179,36 +180,35 @@ async def seal_frozen_copy(
 async def capture_tool_result(
     copy_id: UUID, body: ToolResultRequest, request: Request, current: CurrentAccount
 ) -> dict[str, str]:
-    store = _store(request)
-    copy = await store.get(copy_id)
+    store = frozen_copy_store_for(request.app)
+    # Best effort (design Q18): a store or database failure is `failed` (the engine then marks the
+    # run partial), never an error. Ownership and sealed state still answer 404 and 409.
+    try:
+        copy = await store.get(copy_id)
+        if copy is not None and copy.account_id == current.id and copy.status == STATUS_OPEN:
+            await store.capture(copy, "tool", body.description, {"result": body.result}, 200)
+    except FrozenCopySealed:
+        raise _sealed() from None
+    except Exception as exc:
+        log_capture_failure("tool", exc, copy_id=copy_id, request=body.description)
+        return {"outcome": "failed"}
     if copy is None or copy.account_id != current.id:
         raise _not_found()
     if copy.status != STATUS_OPEN:
         raise _sealed()
-    try:
-        await store.capture(copy, "tool", body.description, {"result": body.result}, 200)
-    except FrozenCopySealed:
-        raise _sealed() from None
-    except Exception as exc:
-        # Best effort (design Q18): the engine records `failed` and the run turns partial.
-        logger.warning(
-            "frozen copy capture failed copy=%s digest=%s kind=tool error=%s",
-            copy.id,
-            request_digest_prefix("tool", body.description),
-            type(exc).__name__,
-        )
-        return {"outcome": "failed"}
     return {"outcome": "stored"}
 
 
 @router.post("/v1/frozen-copies/{copy_id}/tool-results/lookup")
 async def look_up_tool_result(
-    copy_id: UUID, body: ToolLookupRequest, request: Request, current: CurrentAccount
+    copy_id: str, body: ToolLookupRequest, request: Request, current: CurrentAccount
 ) -> dict[str, str]:
     occurrence = _occurrence(request)
     copy = await _sealed_copy(request, copy_id)
     try:
-        entry = await _store(request).find(copy, "tool", body.description, occurrence)
+        entry = await frozen_copy_store_for(request.app).find(
+            copy, "tool", body.description, occurrence
+        )
     except (CanonicalizationError, UnicodeError):
         entry = None
     if entry is None:

@@ -25,6 +25,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .request_cache.global_controls import GlobalCacheControls, parse_global_cache_controls
+
 _CALLBACK_DYNAMIC_FIELDS: frozenset[str] = frozenset(
     {
         "langfuse_public_key",
@@ -223,3 +225,20 @@ def chat_body_shape_error(body: object) -> str | None:
         if not isinstance(schema, Mapping):
             return "response_format.json_schema.schema must be an object"
     return None
+
+
+def prepare_ingress_body(body: dict[str, Any]) -> tuple[dict[str, Any], GlobalCacheControls]:
+    """The gateway-level preparation of a parsed chat body: pop ``cache``, strip dispatch controls.
+
+    # INVARIANT (OME-1307): the frozen-copy digest is taken of the body this returns. The chat
+    # route and the frozen-copy replay route both call it, so the same request digests the same
+    # way in both and the two can never drift.
+    """
+    cache_controls = parse_global_cache_controls(body)
+    # The gateway owns upstream routing and credentials. Caller-supplied
+    # LiteLLM control-plane fields (api_key/api_base/base_url/fallbacks/
+    # model_list/...) would let LiteLLM send the injected credential to an
+    # arbitrary host or bend dispatch behavior (SF-244 audit F03, OME-428 D6).
+    # Providers that need an api_base (ollama) set their own in
+    # prepare_chat_body; the gateway credential is injected after this strip.
+    return strip_dispatch_controls(body), cache_controls
