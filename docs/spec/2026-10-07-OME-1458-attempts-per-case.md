@@ -292,12 +292,12 @@ which gives it its own entry the same way (§2.3).
 | F1 | An inspect Task declares `epochs` > 1, before the build lands | ② | the importer | refused by name (D12) |
 | F2 | An inspect Task declares epochs with a reducer we don't run (`mean`, `pass_at(k < N)`, a custom one) | ② | the importer | refused naming the reducer |
 | F3 | Attempt 2 would be served Attempt 1's stored reply | ⑤ ⑥ | nobody, which is why §2.3 exists | prevented: Attempt 2's request always keys differently (a derived seed, or the Attempt number in the cache control) |
-| F9 | The Engine sends the Attempt number to a gateway without PR 4 | ⑥ | nobody | that gateway bypasses the cache on the unknown field: Attempts are fresh and graded correctly, only the free rerun is lost until it deploys |
 | F4 | One Attempt's Candidate Invocation or Grading fails, another is graded | ③ ⑧ | the Report | the Case is graded from the graded Attempts; the failed one keeps its failure in `attempts`; the Report says "1 of 2 Attempts failed" |
 | F5 | Every Attempt of a Case fails | ⑧ | the Aggregation | the Case has no Case Grade; the Benchmark's Failure Policy applies, as today |
 | F6 | An Attempt's Check is graded neither 0 nor 1 | ⑧ | the per-Case envelope | the Case fails as `attempt_grade_not_pass_fail`; no guessed fold |
 | F7 | A seeded run names a Model whose provider has no `seed` | ⑤ | the SDK's parameter check, before any paid call | refused, as today for every seeded run |
 | F8 | A researcher's SDK released before the build reads a report with `attempts` | ⑪ | the SDK decoder | "unsupported field"; reports without Attempts unaffected; the SDK slice releases first (§7) |
+| F9 | The Engine sends the Attempt number to a gateway without PR 4 | ⑥ | nobody | that gateway bypasses the cache on the unknown field: Attempts are fresh and graded correctly, only the free rerun is lost until it deploys |
 
 ### 3.3 Architecture
 
