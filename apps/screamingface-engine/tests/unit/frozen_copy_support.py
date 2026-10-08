@@ -150,14 +150,15 @@ class Gateway:
 
 
 class Tavily:
-    """A recording Tavily: it answers every call with one search result."""
+    """A recording Tavily: it answers every call with one search result, or with ``response``."""
 
-    def __init__(self) -> None:
+    def __init__(self, response: httpx.Response | None = None) -> None:
+        self._response = response
         self.requests: list[httpx.Request] = []
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        return httpx.Response(
+        return self._response or httpx.Response(
             200, json={"results": [{"title": "T", "url": "https://ok.test/a", "content": "C"}]}
         )
 
