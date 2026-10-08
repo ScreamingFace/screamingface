@@ -34,7 +34,7 @@ def _tally(
         mode="capture",
         frozen_copy_id=None if open_failed else _COPY,
         open_failed=open_failed,
-        seal_failed=seal_failed,
+        sealed=not open_failed and not seal_failed,
     )
     tally.outcomes.extend(CaptureOutcome(*outcome) for outcome in outcomes)
     return tally
@@ -69,6 +69,13 @@ def _tally(
             "partial",
             {"failed": 1, "error": 1},
         ),
+        # `ambiguous` (a re-issued or retried call) is never forgiven, by any later call.
+        (_tally(("chat", "ambiguous", "a")), "partial", {"ambiguous": 1}),
+        (
+            _tally(("chat", "ambiguous", "a"), ("chat", "stored", "a")),
+            "partial",
+            {"ambiguous": 1},
+        ),
         # An outcome with no digest cannot be matched to a retry.
         (_tally(("chat", "error", None), ("chat", "stored", None)), "partial", {"error": 1}),
         (
@@ -87,6 +94,17 @@ def test_capture_status_rule(tally: CaptureTally, status: str, partial: dict[str
         for key, value in attributes.items()
         if key.startswith("capture.partial.")
     } == partial
+
+
+def test_a_copy_that_was_never_sealed_is_partial_seal() -> None:
+    # A run that ended without sealing (stopped, or the seal never ran) is not complete.
+    tally = CaptureTally(mode="capture", frozen_copy_id=_COPY)
+
+    assert tally.status() == "partial"
+    assert tally.attributes()["capture.partial.seal"] == 1
+    tally.sealed = True
+    assert tally.status() == "complete"
+    assert "capture.partial.seal" not in tally.attributes()
 
 
 def test_a_capture_run_states_its_copy_even_with_no_call() -> None:
@@ -129,3 +147,28 @@ def test_the_tally_is_bound_for_a_scope_and_restored_after_it() -> None:
 
     assert tally.outcomes == [CaptureOutcome("chat", "stored", "a")]
     assert current_capture_tally() is None
+
+
+def test_slots_are_reserved_in_order_and_given_back() -> None:
+    tally = CaptureTally()
+
+    assert [tally.reserve("chat", "a") for _ in range(3)] == [0, 1, 2]
+    tally.release("chat", "a")
+    assert tally.reserve("chat", "a") == 2
+
+
+def test_slots_are_kept_per_lane_and_per_digest() -> None:
+    tally = CaptureTally()
+
+    assert tally.reserve("chat", "a") == 0
+    assert tally.reserve("tool", "a") == 0
+    assert tally.reserve("chat", "b") == 0
+    assert tally.reserve("chat", "a") == 1
+
+
+def test_giving_back_a_slot_that_was_never_reserved_does_nothing() -> None:
+    tally = CaptureTally()
+
+    tally.release("chat", "a")
+
+    assert tally.reserve("chat", "a") == 0

@@ -16,7 +16,7 @@ import contextlib
 import logging
 import time
 from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -779,6 +779,39 @@ def _closing_logs(
     return frames
 
 
+def _summary_attributes(
+    state: _RunState, outcome: RunOutcome, *, succeeded: bool
+) -> Mapping[str, str | int | float | bool | None] | None:
+    """The run summary's cache attributes.
+
+    A succeeded run states its cache counters and its frozen-copy state. A FAILED run states no
+    cache counts (a partial figure would read as a complete one) but still states its frozen-copy
+    state; with no capture or replay that is nothing, so a normal failed run keeps ``None``. A
+    stopped run states neither: its copy stays open.
+    """
+    if succeeded:
+        return {**state.cache_counters.attributes(), **state.capture_tally.attributes()}
+    if outcome == "failed":
+        return state.capture_tally.attributes() or None
+    return None
+
+
+def _failed_run_logs(capture: CaptureTally) -> list[Traced]:
+    """The one log frame a failed capture or replay run emits: its frozen-copy state.
+
+    A normal failed run emits nothing, as before.
+    """
+    attributes: dict[str, str | int | float | bool | None] = dict(capture.attributes())
+    if not attributes:
+        return []
+    return [
+        Traced(
+            payload=LogData.at("INFO", "frozen copy state of the failed run", attributes),
+            span=None,
+        )
+    ]
+
+
 def _log_frame(event: Log) -> LogData:
     # The engine's severity is a free string; anything the protocol does not name maps to INFO.
     severity = cast(Severity, event.severity.upper())
@@ -931,7 +964,7 @@ class Url4Executor(Executor):
             return contextlib.nullcontext()
         return request_scope(self._request_scope_factory())
 
-    async def _run_steps(
+    async def _run_steps(  # noqa: C901, PLR0912, PLR0915 - the one place the run's frames are yielded
         self,
         url4: str,
         trace: TraceContext | None,
@@ -986,7 +1019,15 @@ class Url4Executor(Executor):
             async for ev in bridge.drain():
                 for frame in state.map(ev):
                     yield frame
-            eval_result = await task
+            try:
+                eval_result = await task
+            except Exception:
+                # FEATURE: OME-1307 (design §5.2 item 6) — a FAILED capture or replay run still
+                # states its copy. Only the `capture.*` attributes: a failed run's cache counters
+                # are not exact. A cancelled run is not an `Exception` and states nothing.
+                for frame in _failed_run_logs(state.capture_tally):
+                    yield frame
+                raise
             for frame in _closing_logs(bridge, state.cache_counters, state.capture_tally):
                 yield frame
             # WHY to_thread: for a spilled result this hashes and writes up to hard_cap
@@ -1038,7 +1079,7 @@ class Url4Executor(Executor):
             raise
         finally:
             if tally.frozen_copy_id is not None and not cancelled:
-                tally.seal_failed = not await seal_frozen_copy(self._node, tally.frozen_copy_id)
+                tally.sealed = await seal_frozen_copy(self._node, tally.frozen_copy_id)
 
     async def _evaluate(
         self, url4: str, trace: TraceContext | None, bridge: _Bridge
@@ -1132,11 +1173,7 @@ class Url4Executor(Executor):
             duration_s=time.monotonic() - started,
             cost_usd=subtree.cost.total_usd if subtree is not None else None,
             pricing_version=subtree.pricing_version if subtree is not None else None,
-            cache_attributes=(
-                {**state.cache_counters.attributes(), **state.capture_tally.attributes()}
-                if subtree is not None
-                else None
-            ),
+            cache_attributes=_summary_attributes(state, outcome, succeeded=subtree is not None),
             dropped_logs=bridge.dropped,
             high_water=bridge.high_water,
         )

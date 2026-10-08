@@ -74,7 +74,9 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "aigateway_deadline_exceeded",
         # WHY declared (OME-1307, F-B3): a replay's own failures. A case that the frozen copy
         # cannot answer, or a copy that is unknown or not sealed, fails as itself — a client must
-        # not read either as `upstream_error`. Both are engine-authored and permanent.
+        # not read either as `upstream_error`. Both are engine-authored. `frozen_copy_miss` is
+        # permanent; `frozen_copy_unavailable` is permanent for an unknown or unsealed copy and
+        # transient when the gateway did not answer a tool lookup.
         "frozen_copy_miss",
         "frozen_copy_unavailable",
         "invalid_candidate_input",

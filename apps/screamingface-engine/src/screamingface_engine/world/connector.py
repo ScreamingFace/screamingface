@@ -24,14 +24,20 @@ from screamingface_engine import job_env
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.capture_outcomes import (
+    CAPTURE_FIELD,
+    FROZEN_COPIES_PATH,
+    FROZEN_COPY_HEADER,
     REPLAY_MISS,
+    REPLAY_OCCURRENCE_HEADER,
     REPLAY_UNAVAILABLE,
     CaptureOutcome,
     Status,
     current_capture_tally,
     record_capture_outcome,
+    replay_chat_path,
     replay_refusal_code,
     request_digest,
+    seal_path,
 )
 from screamingface_engine.error_text import ENGINE_RESERVED_CODES
 from screamingface_engine.grading_call_scope import grading_call_log_suffix
@@ -94,10 +100,6 @@ from url4.peer.server import Request, Url4Node
 from url4.streaming.protocol import CachePolicy
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
-_FROZEN_COPIES_PATH = "/v1/frozen-copies"
-_FROZEN_COPY_HEADER = "X-AIGW-Frozen-Copy"
-_CAPTURE_FIELD = "X-AIGW-Capture"
-_OCCURRENCE_HEADER = "X-AIGW-Replay-Occurrence"
 _CAPTURE_STATUSES: dict[str, Status] = {
     "stored": "stored",
     "failed": "failed",
@@ -217,7 +219,12 @@ async def _observed_round_trip(
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most
         # needs to audit, and raising first would lose exactly the event OME-679 exists to
         # capture.
-        _report_response(choice, outcome, data.get("_aigw"))
+        # INVARIANT: a replayed answer claims NO saving. It is served from the cache's accounting
+        # path at $0, but the copy answered; nothing was avoided, and the captured body's `_aigw`
+        # may still carry the saved-cost reference of the original run's own cache hit.
+        _report_response(
+            choice, outcome, None if replay_frozen_copy is not None else data.get("_aigw")
+        )
         _raise_if_unusable_with_accounting(
             choice,
             max_tokens=max_tokens,
@@ -525,9 +532,9 @@ async def open_frozen_copy(node: object) -> str | None:
     """Open the frozen copy a capture run stores into, on ``node``'s gateway client.
 
     FEATURE: OME-1307 (design §5.2 item 1). Sent with the run's identity headers, as the chat calls
-    are. Total: a node with no gateway client, any gateway failure and a body without a copy id all
-    return ``None``, and the run goes on uncaptured and partial. Names the error type only in the
-    log, never a body.
+    are. Total: a node with no gateway client, any failure (`Exception`, never a cancellation) and
+    a body without a copy id all return ``None``, and the run goes on uncaptured and partial.
+    Names the error type only in the log, never a body.
 
     INVARIANT: the id goes into every later URL path, so it must be a UUID or it is refused.
     """
@@ -535,13 +542,13 @@ async def open_frozen_copy(node: object) -> str | None:
     if client is None:
         return None
     try:
-        response = await client.post(_FROZEN_COPIES_PATH, headers=_headers(current_scope()))
+        response = await client.post(FROZEN_COPIES_PATH, headers=_headers(current_scope()))
         response.raise_for_status()
         body = response.json()
         copy_id = body.get("id") if isinstance(body, dict) else None
         if not isinstance(copy_id, str) or job_env.FROZEN_COPY_ID.fullmatch(copy_id) is None:
             raise ValueError("the gateway named no frozen copy")
-    except (httpx.HTTPError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001 - best effort: nothing here may fail the run
         logger.warning("frozen copy open failed error=%s", type(exc).__name__)
         return None
     return copy_id
@@ -556,12 +563,10 @@ async def seal_frozen_copy(node: object, copy_id: str) -> bool:
     if client is None:
         return False
     try:
-        response = await client.post(
-            f"{_FROZEN_COPIES_PATH}/{copy_id}/seal", headers=_headers(current_scope())
-        )
+        response = await client.post(seal_path(copy_id), headers=_headers(current_scope()))
         response.raise_for_status()
         body = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001 - best effort, as the open: a failed seal is `partial`
         logger.warning("frozen copy seal failed error=%s", type(exc).__name__)
         return False
     return isinstance(body, dict) and body.get("status") == "sealed"
@@ -981,7 +986,7 @@ async def _fetch_completion(
         body={**body, **policy_to_body_field(cache)},
     )
     if probe is not None:
-        probe.read(resp)
+        probe.read(resp, retried=retried)
     _raise_for_status(resp)
     outcome = read_cache_outcome(resp.headers, retried=retried)
     if not requires_revalidation(cache, outcome):
@@ -995,7 +1000,7 @@ async def _fetch_completion(
         body={**body, **policy_to_body_field(CachePolicy(participate=False))},
     )
     if probe is not None:
-        probe.read(resp)
+        probe.read(resp, retried=reissue_retried)
     _raise_for_status(resp)
     return resp, read_cache_outcome(resp.headers, retried=reissue_retried)
 
@@ -1010,12 +1015,25 @@ class _CaptureProbe:
 
     responded: bool = False
     header: str | None = None
+    responses: int = 0
+    retried: bool = False
 
-    def read(self, resp: httpx.Response) -> None:
+    def read(self, resp: httpx.Response, *, retried: bool) -> None:
         self.responded = True
-        self.header = resp.headers.get(_CAPTURE_FIELD)
+        self.header = resp.headers.get(CAPTURE_FIELD)
+        self.responses += 1
+        self.retried = self.retried or retried
 
     def status(self) -> Status:
+        """What the gateway said, or `ambiguous` when more than one answer may have been stored.
+
+        FEATURE: OME-1307 (design §5.2 item 7). A call re-issued under a `max-age` bound has two
+        responses, and a call whose transport attempt was retried may have been processed — and
+        stored — before its reply was lost. Either can leave an answer the model never used AHEAD
+        of the one it used, in capture order, which a replay would then serve.
+        """
+        if self.responses > 1 or self.retried:
+            return "ambiguous"
         return _CAPTURE_STATUSES.get((self.header or "").strip().lower(), "missing")
 
 
@@ -1055,7 +1073,7 @@ async def _recorded_completion(
     try:
         resp, outcome = await _fetch_completion(
             http_client,
-            headers={**headers, _FROZEN_COPY_HEADER: copy_id},
+            headers={**headers, FROZEN_COPY_HEADER: copy_id},
             body=body,
             cache=cache,
             probe=probe,
@@ -1088,20 +1106,26 @@ async def _fetch_replay(
     """
     digest = request_digest(body)
     tally = current_capture_tally()
-    occurrence = 0 if tally is None else tally.occurrence("chat", digest)
-    resp, _retried = await _post_completion(
-        http_client,
-        headers={**headers, _OCCURRENCE_HEADER: str(occurrence)},
-        body=body,
-        path=f"/v1/frozen-copies/{copy_id}/chat/completions",
-    )
-    refusal = _replay_refusal(resp)
-    if refusal is not None:
-        raise refusal
-    # Any other failure status is the captured original error, raised as the original run raised it.
-    _raise_for_status(resp)
-    if tally is not None:
-        tally.answered("chat", digest)
+    # Reserved NOW and given back unless the call succeeds, so a concurrent identical request takes
+    # the next entry and a failed one leaves its entry for the retry.
+    occurrence = 0 if tally is None else tally.reserve("chat", digest)
+    try:
+        resp, _retried = await _post_completion(
+            http_client,
+            headers={**headers, REPLAY_OCCURRENCE_HEADER: str(occurrence)},
+            body=body,
+            path=replay_chat_path(copy_id),
+        )
+        refusal = _replay_refusal(resp)
+        if refusal is not None:
+            raise refusal
+        # Any other failure status is the captured original error, raised as the original run
+        # raised it.
+        _raise_for_status(resp)
+    except BaseException:
+        if tally is not None:
+            tally.release("chat", digest)
+        raise
     return resp, _REPLAYED
 
 

@@ -47,7 +47,7 @@ async def test_normal_run_is_byte_identical() -> None:
     assert tally.mode is None
     assert tally.frozen_copy_id is None
     assert tally.outcomes == []
-    assert tally.answers == {}
+    assert tally.slots == {}
 
 
 @pytest.mark.asyncio
