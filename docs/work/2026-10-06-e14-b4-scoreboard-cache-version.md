@@ -87,3 +87,52 @@ append-only: no existing test is edited.
   unparseable date. Left as the coordinator said: 8, 9, 10, 12, 13.
 - **Deviations:** the private helpers above (accepted); "Reproduced 1 time" for a count of one;
   `uv run` for run_gates.py. The open questions of the first report are answered and applied.
+
+## Frozen-copy rework (2026-10-08)
+
+The owner changed the E14 design on 2026-10-08. The cache version is gone. A run now captures a
+frozen copy in the AI Gateway. This PR changes the names, the copy-id check and the texts only.
+Spec: `docs/spec/2026-10-06-e14-reproducible-submission/02-frozen-copy-design.md` section 6.
+Plan: `docs/plan/2026-10-06-e14-reproducible-submission/F-B4-scoreboard-frozen-copy.md`.
+
+### What changed
+
+- `cache_revision` is now `frozen_copy_id`. It is a UUID string: `CharField(36, null=True)`. The schema
+  type `FrozenCopyId` checks it with `uuid.UUID` and stores `str(uuid)` (lower case, with hyphens).
+  The old pattern `cr-<12 hex>` is no longer valid. An upper-case UUID is stored in lower case.
+- `reproducible` is now `capture_status`: `Literal["complete", "partial"] | None`, `CharField(16,
+  null=True)`. The schema type `ReproducibleStatus` is now `CaptureStatus`.
+- `score_reproductions.cache_revision` is now `score_reproductions.frozen_copy_id`.
+- Rule I1: `frozen_copy_id` needs `capture_status`. The error text is `frozen_copy_id requires
+  capture_status`.
+- The fill-only rule is unchanged. `frozen_copy_id` and `capture_status` fill together, gated on a
+  NULL `capture_status`. `answer_seed` fills alone. The helper is now `_frozen_copy_fills`.
+- `POST /v1/scores/{id}/reproductions` is unchanged except for the names. It answers 409
+  `not_reproducible` when `capture_status` is not `complete`. It answers 422 `not_exact` when
+  `score`, `total_questions` or `frozen_copy_id` differ.
+- Migration `0020_score_cache_version.py` is now `0020_score_frozen_copy.py`, rewritten in place. It
+  was never released: the E14 stack is local and no deployed database has it. `makemigrations`
+  reports "No changes detected".
+- Docstrings, comments, OpenAPI descriptions and the 409 message are updated. The message is now
+  "only a score whose run was fully captured can be reproduced".
+- The portal needs no change. `portal/spec.js` reads `reproduction_count` and `last_reproduced_at`
+  only.
+
+### Tests
+
+Only this PR's own tests changed: `tests/unit/test_score_cache_version.py` and
+`tests/unit/test_score_reproductions.py`. Both are new in this PR. No test from before this PR is
+edited. The file names stay, to keep the branch history easy to follow.
+
+- Renamed fields, constants (`COPY_ID`, `OTHER_COPY_ID`, UUID values), test names and comments.
+- `BAD_FIELDS`: the bad-label cases are now bad-UUID cases. Upper-case hex is no longer a bad
+  value, because it is normalised.
+- New: `test_a_copy_id_is_stored_in_lower_case_canonical_form`,
+  `test_a_copy_id_in_upper_case_is_the_same_copy`, and a `VARCHAR(36)` check in the migration test.
+
+### Pinned-decision notes
+
+- `uuid.UUID` also accepts the forms without hyphens, with braces and with `urn:uuid:`. The schema
+  accepts them and stores the canonical form. The spec says "validate with `uuid.UUID`, store
+  `str(uuid)`", so this is by design. No test pins the non-hyphen forms.
+- The branch name and this ledger file name keep "cache-version". The plan says to rework in place.
