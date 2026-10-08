@@ -362,6 +362,7 @@
       return;
     }
     state.benchmarkId = id;
+    document.getElementById("crumb-benchmark").textContent = id;
     initTabStrip(id);
 
     P.showLoading(statusNode, "Loading leaderboard…");
@@ -373,6 +374,7 @@
         var b = data && data.benchmark;
         if (b) {
           nameNode.textContent = b.display_name || b.id;
+          document.getElementById("crumb-benchmark").textContent = b.display_name || b.id;
           descNode.textContent = b.description || "";
           document.title = (b.display_name || b.id) + " — screamingface";
         }

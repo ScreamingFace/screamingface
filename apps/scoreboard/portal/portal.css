@@ -401,6 +401,8 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 .rail .rail-nav { display: flex; gap: var(--space-4); margin-right: var(--space-11); }
 .rail .rail-link { color: var(--ink-2); text-decoration: none; }
 .rail .rail-link:hover { color: var(--ink); }
+/* The brand is the home link: keep the wordmark looking exactly as it did as a span. */
+.rail a.brand { text-decoration: none; }
 @media (max-width: 620px) {
   .rail .rail-nav { flex: 0 0 100%; margin-right: 0; gap: var(--space-3); }
 }

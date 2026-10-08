@@ -71,6 +71,7 @@
 
     specIdNode.textContent = specId;
     backLink.setAttribute("href", "benchmark.html?id=" + encodeURIComponent(benchmarkId));
+    backLink.textContent = benchmarkId;
     document.title = specId + " — screamingface";
 
     P.showLoading(statusNode, "Loading spec history…");
@@ -78,6 +79,7 @@
 
     resolveBenchmarkName(benchmarkId).then(function (name) {
       benchNode.textContent = name;
+      backLink.textContent = name;
     });
 
     P.fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "/" + encodeURIComponent(specId) + "/history?limit=20").then(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -333,3 +334,89 @@ def test_every_served_asset_carries_no_internal_references(tmp_path: Path) -> No
                 name for name, pattern in forbidden.items() if pattern.search(response.content)
             ]
             assert not leaks, f"{route} publicly exposes {', '.join(leaks)}"
+
+
+class _RailLinks(HTMLParser):
+    """Collect the brand and breadcrumb links inside a page's top bar (`.rail`)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.brand: dict[str, str] | None = None
+        self.crumbs: list[dict[str, str]] = []
+        self._depth = 0
+        self._in_crumbs = False
+        self._open_crumb: dict[str, str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = {name: value or "" for name, value in attrs}
+        classes = attributes.get("class", "").split()
+        if tag == "div" and "rail" in classes:
+            self._depth = 1
+            return
+        if not self._depth:
+            return
+        if tag == "div":
+            self._depth += 1
+        if "brand" in classes:
+            self.brand = {"tag": tag, **attributes}
+        if tag == "nav" and "crumbs" in classes:
+            self._in_crumbs = True
+        if tag == "a" and self._in_crumbs:
+            self._open_crumb = {**attributes, "text": ""}
+
+    def handle_endtag(self, tag: str) -> None:
+        if not self._depth:
+            return
+        if tag == "a" and self._open_crumb is not None:
+            self._open_crumb["text"] = self._open_crumb["text"].strip()
+            self.crumbs.append(self._open_crumb)
+            self._open_crumb = None
+        elif tag == "nav":
+            self._in_crumbs = False
+        elif tag == "div":
+            self._depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._open_crumb is not None:
+            self._open_crumb["text"] += data
+
+
+def _rail(page: str) -> _RailLinks:
+    parser = _RailLinks()
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    parser.feed((portal / page).read_text(encoding="utf-8"))
+    return parser
+
+
+@pytest.mark.parametrize(
+    "page", ["index.html", "about.html", "benchmark.html", "data.html", "spec.html"]
+)
+def test_rail_brand_is_the_home_link_and_no_crumb_repeats_it(page: str) -> None:
+    rail = _rail(page)
+
+    assert rail.brand is not None, f"{page} has no brand in its top bar"
+    assert rail.brand["tag"] == "a", f"{page}: the brand must be a link"
+    assert rail.brand["href"] == "index.html", f"{page}: the brand must link home"
+    assert [c for c in rail.crumbs if c.get("href") == "index.html"] == [], (
+        f"{page}: the brand is the home link, so no crumb may point home"
+    )
+    assert [c for c in rail.crumbs if c["text"].lower() == "portal"] == [], (
+        f"{page}: 'portal' is not a name the portal uses for itself"
+    )
+
+
+def test_rail_crumbs_show_only_where_you_are_below_home() -> None:
+    assert _rail("index.html").crumbs == []
+
+    for page, label in (("about.html", "about"), ("data.html", "data")):
+        crumbs = _rail(page).crumbs
+        assert [(c["text"], c.get("class")) for c in crumbs] == [(label, "here")], page
+
+    benchmark = _rail("benchmark.html").crumbs
+    assert [(c.get("id"), c.get("class")) for c in benchmark] == [("crumb-benchmark", "here")]
+
+    spec = _rail("spec.html").crumbs
+    assert [(c.get("id"), c.get("class"), c["text"]) for c in spec] == [
+        ("back-link", None, ""),
+        (None, "here", "spec"),
+    ]
