@@ -1,9 +1,9 @@
 ---
 ticket: unfiled
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-10-06
-finished:
+finished: 2026-10-06
 ---
 
 # e14-a2-sdk-metadata — SDK paper link, edit and metadata events
