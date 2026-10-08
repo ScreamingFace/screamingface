@@ -3927,7 +3927,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             source_url="https://aclanthology.org/2024.naacl-long.96/",
             as_of="2024-06",
         ),
-        notebook="12_inspect_evals_benchmarks",
+        notebook="15_musique",
         scorer="screamingface_engine_inspect.local_tasks.musique.musique:musique_answer_f1",
         extra_scorers=(
             "screamingface_engine_inspect.local_tasks.musique.musique:musique_answer_em",

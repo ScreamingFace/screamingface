@@ -294,6 +294,10 @@ Four things differ from an inspect_evals import:
   every other module in the plugin carries (copy `scorer_adapter.py`'s header). CI typechecks
   the Engine without the inspect extra, so a bare `from inspect_ai import Task` fails there
   while the local gate, which has the extra, stays green.
+- **A local Task ships its own example notebook**, like a hand-built Benchmark
+  (`packages/screamingface/scripts/build_notebooks.py` → `examples/NN_<key>.ipynb`), and its
+  row's `notebook=` names it. The imported boards share `12_inspect_evals_benchmarks`; a local
+  Task is ours and has its own story to tell (its scores, its reply format, its caveats).
 - **A scorer that reads Sample metadata must tolerate its absence** (`state.metadata.get(...)`),
   and its tests must say what a missing key scores. The no-network grading lane runs every
   judge-less Benchmark over stand-in Cases that carry no metadata; a `KeyError` there shows as a
