@@ -8,7 +8,16 @@ spend, never an empty (and therefore green) run.
 from __future__ import annotations
 
 import pytest
-from _scope import UnknownScopeError, parse_named, pick_shelf, resolve_scope
+from _scope import (
+    NAMED_ENV,
+    SCOPE_ENV,
+    ShelfPick,
+    UnknownScopeError,
+    parse_named,
+    pick_from_env,
+    pick_shelf,
+    resolve_scope,
+)
 
 # Stand-in listing: two Imported Benchmarks around one hand-built one, in the order the
 # Engine would list them. It simulates `client.benchmarks.list()` as (id, origin)
@@ -130,3 +139,46 @@ def test_a_named_press_does_not_require_every_kind() -> None:
 
     assert picked == ["draco"]
     assert problems == []
+
+
+def test_an_unknown_scope_hints_how_to_name_benchmarks() -> None:
+    """`just ... test-paid-benchmarks musique` fills `scope`, not `benchmarks` (just
+    arguments are positional); the error must show the one-line fix with the owner's ids,
+    because the recipe has already spent the bundle downloads by the time it fails."""
+    with pytest.raises(UnknownScopeError, match="test-paid-benchmarks all musique"):
+        resolve_scope("musique")
+
+
+# --- The hookup: env vars → the picker → the start line, as the paid test reads them. ---
+
+
+def test_the_named_env_var_reaches_the_picker_and_the_start_line() -> None:
+    """The paid test hands `os.environ` to `pick_from_env`; if the names were dropped on
+    the way, this press would run the scope's whole kind and pay for it."""
+    pick: ShelfPick = pick_from_env(_LISTED, {SCOPE_ENV: "imported", NAMED_ENV: " draco "})
+
+    assert pick.boards == ["draco"]
+    assert pick.problems == []
+    assert pick.picked_by == "named draco (scope imported ignored)"
+
+
+def test_without_names_the_scope_env_var_decides() -> None:
+    pick: ShelfPick = pick_from_env(_LISTED, {SCOPE_ENV: "hand-built", NAMED_ENV: ""})
+
+    assert pick.boards == ["draco"]
+    assert pick.picked_by == "scope hand-built"
+
+
+def test_an_empty_environment_runs_the_whole_shelf() -> None:
+    """A caller that sets neither variable keeps the pre-choice behaviour: everything."""
+    pick: ShelfPick = pick_from_env(_LISTED, {})
+
+    assert pick.boards == ["inspect-gsm8k", "draco", "inspect-mmlu"]
+    assert pick.picked_by == "scope all"
+
+
+def test_an_unknown_name_from_the_env_var_is_a_problem() -> None:
+    pick: ShelfPick = pick_from_env(_LISTED, {NAMED_ENV: "musqiue"})
+
+    assert len(pick.problems) == 1
+    assert "'musqiue'" in pick.problems[0]

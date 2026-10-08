@@ -57,6 +57,10 @@ The ticket (OME-1522) is the spec; its Architecture / Failure-modes sections are
   pyright, pytest + coverage ≥95, notebooks, build, distribution). Free lane:
   `SCREAMINGFACE_TEST_PAID=1 pytest tests/paid tests/test_paid_lane_isolation.py` 52 passed,
   1 skipped (the paid test, no key).
+- **Review follow-up (same day):** the scope error now hints `test-paid-benchmarks all <ids>`
+  (just arguments are positional, so one argument lands in `scope`); `pick_from_env` moves the
+  env reads + start-line wording into `_scope.py` so a free test pins the hookup the paid test
+  uses. Free lane 57 passed, 1 skipped.
 - **Deviations:** an unknown name still returns the known picks beside the problem line; the
   caller fails on the problem before any spend, so nothing runs either way.
 - **Owner-verify:** press the button with `benchmarks: musique` (expect 1 Benchmark, start

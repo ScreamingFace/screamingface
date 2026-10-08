@@ -12,6 +12,8 @@ owner names Benchmark ids, exactly those go in the basket, whatever the scope sa
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Final
 
 #: Set by the workflow's `scope` input and the just recipe's `scope` argument.
@@ -58,7 +60,13 @@ def resolve_scope(raw: str | None) -> str:
     scope: str = raw or ALL
     if scope not in ORIGINS_BY_SCOPE:
         allowed: str = ", ".join(ORIGINS_BY_SCOPE)
-        raise UnknownScopeError(f"unknown paid smoke scope {scope!r}; use one of: {allowed}")
+        # WHY the hint: just arguments are positional, so `test-paid-benchmarks musique`
+        # lands here as a scope; show the fix with the owner's own ids.
+        raise UnknownScopeError(
+            f"unknown paid smoke scope {scope!r}; use one of: {allowed}. To name "
+            f"Benchmarks with the just recipe, pass a scope first: "
+            f"`just screamingface test-paid-benchmarks all {scope}`"
+        )
     return scope
 
 
@@ -134,3 +142,40 @@ def _pick_named(
         f"the live engine lists no Benchmark named {', '.join(map(repr, unknown))} — "
         f"valid ids: {', '.join(sorted(known))}"
     ]
+
+
+@dataclass(frozen=True, slots=True)
+class ShelfPick:
+    """What one press runs, what is wrong with that choice, and how the log names it."""
+
+    boards: list[str]
+    problems: list[str]
+    #: The start line's wording, e.g. "named musique (scope all ignored)" or "scope all".
+    picked_by: str
+
+
+def pick_from_env(listed: list[tuple[str, str]], environ: Mapping[str, str]) -> ShelfPick:
+    """Read the button's two fields from the environment and pick the shelf from them.
+
+    WHY one function from env to start line: the paid test runs only on a paid press, so
+    this is the seam a free test can reach; a name dropped between the button and
+    `pick_shelf` would otherwise surface only as a whole kind paid for.
+
+    Args:
+        listed: (Benchmark id, origin) pairs in the Engine's listing order.
+        environ: the process environment (`os.environ` in the paid test).
+
+    Returns:
+        The pick; its problems must fail the press before any spend.
+
+    Raises:
+        UnknownScopeError: for a scope word nobody defined (the paid_stack fixture has
+            already refused it before boot, so the paid test never sees this).
+    """
+    scope: str = resolve_scope(environ.get(SCOPE_ENV))
+    named: tuple[str, ...] = parse_named(environ.get(NAMED_ENV))
+    boards, problems = pick_shelf(listed, scope, named)
+    picked_by: str = (
+        f"named {', '.join(named)} (scope {scope} ignored)" if named else f"scope {scope}"
+    )
+    return ShelfPick(boards=boards, problems=problems, picked_by=picked_by)

@@ -3,16 +3,16 @@
   "branch": "OME-1522-paid-smoke-named-benchmarks",
   "approver": "owner",
   "date": "2026-10-08",
-  "scope": "Paid-lane helpers only. _scope.py: pick_shelf gains an optional named= argument (default empty keeps every prior call and test unchanged) and its docstring covers it; new parse_named/_pick_named/NAMED_ENV. test_imported_board_smoke.py: the paid test reads SCREAMINGFACE_PAID_BENCHMARKS, passes it to pick_shelf, and the start line says which Benchmarks were named. No prior assertion changed or weakened; the seven prior test_scope.py tests are untouched and pass.",
+  "scope": "Paid-lane helpers only. _scope.py: pick_shelf gains an optional named= argument (default empty keeps every prior call and test unchanged) and its docstring covers it; new parse_named/_pick_named/NAMED_ENV. test_imported_board_smoke.py: the paid test reads SCREAMINGFACE_PAID_BENCHMARKS, passes it to pick_shelf, and the start line says which Benchmarks were named. No prior assertion changed or weakened; the seven prior test_scope.py tests are untouched and pass. Update 2026-10-08 (review, owner-approved): _scope.py's UnknownScopeError message gains a hint for the just recipe's positional-argument trap (the old allowed-values text is kept verbatim), and a new pick_from_env/ShelfPick reads both env vars and builds the start-line wording; the paid test now calls pick_from_env instead of reading the env itself. Still no prior assertion changed.",
   "reason": "OME-1522 lets the owner name the Benchmarks one paid press runs; the ticket's design changes the shelf picker and the smoke's start line (Architecture boxes 5 and 6). Owner approved the prior-file edits in session on 2026-10-08.",
   "files": {
     "packages/screamingface/tests/paid/_scope.py": {
       "base_blob": "51b2b067119272bca60959809fa88ce8da120146",
-      "approved_blob": "b3f8ac75b21da55ceb95453b0c1c9ab1e097d024"
+      "approved_blob": "9d592f22e95a587b63f008063fd2287e7dbe14fa"
     },
     "packages/screamingface/tests/paid/test_imported_board_smoke.py": {
       "base_blob": "0714c88f280735efd655f82a90b78780462926ea",
-      "approved_blob": "cb5ed3a448d92cb09e3889d5a9741d4f990f498b"
+      "approved_blob": "52efd5d449d212889b72f5d82be9c7b28fe99070"
     }
   }
 }
