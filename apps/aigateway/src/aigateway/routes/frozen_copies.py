@@ -12,15 +12,21 @@ Replay is open to any authenticated account that holds the copy id and sends the
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from pydantic import BaseModel
 
 from aigateway.call_context import current_call_id, current_trace_id
 from aigateway.core.auth.middleware import CurrentAccount
-from aigateway.core.frozen_copy.models import STATUS_SEALED, FrozenCopy
-from aigateway.core.frozen_copy.store import FrozenCopyStore
+from aigateway.core.frozen_copy.models import STATUS_OPEN, STATUS_SEALED, FrozenCopy
+from aigateway.core.frozen_copy.store import (
+    FrozenCopySealed,
+    FrozenCopyStore,
+    request_digest_prefix,
+)
 from aigateway.core.request_cache.canonical import CanonicalizationError
 from aigateway.core.request_hardening import chat_body_shape_error
 from aigateway.plugins.taxonomy import new_gateway_call_id
@@ -28,11 +34,21 @@ from aigateway.plugins.taxonomy.render import attach_metadata, render_aigw_metad
 
 from .chat import prepare_ingress_body
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _OCCURRENCE_HEADER = "X-AIGW-Replay-Occurrence"
 _REPLAY_HEADER = "X-AIGW-Replay"
 _MAX_OCCURRENCE_DIGITS = 18
+
+
+class ToolResultRequest(BaseModel):
+    description: dict[str, Any]
+    result: str
+
+
+class ToolLookupRequest(BaseModel):
+    description: dict[str, Any]
 
 
 def _store(request: Request) -> FrozenCopyStore:
@@ -52,6 +68,16 @@ def _occurrence(request: Request) -> int:
             },
         )
     return int(raw)
+
+
+def _miss() -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail={
+            "code": "frozen_copy_miss",
+            "message": "the frozen copy holds no answer for this request",
+        },
+    )
 
 
 async def _sealed_copy(request: Request, copy_id: UUID) -> FrozenCopy:
@@ -106,13 +132,7 @@ async def replay_chat_completions(
         # A request that cannot be digested was never captured (the capture would have failed).
         entry = None
     if entry is None:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "frozen_copy_miss",
-                "message": "the frozen copy holds no answer for this request",
-            },
-        )
+        raise _miss()
     if entry.status_code != 200:
         raise HTTPException(
             status_code=entry.status_code,
@@ -121,3 +141,76 @@ async def replay_chat_completions(
         )
     response.headers[_REPLAY_HEADER] = "hit"
     return _zero_cost(entry.response_json)
+
+
+@router.post("/v1/frozen-copies", status_code=201)
+async def open_frozen_copy(request: Request, current: CurrentAccount) -> dict[str, str]:
+    copy = await _store(request).open(current.id)
+    return {"id": str(copy.id), "status": copy.status}
+
+
+def _not_found() -> HTTPException:
+    # INVARIANT: an unknown copy and another account's copy answer identically, so a caller
+    # cannot learn that a copy id exists.
+    return HTTPException(
+        status_code=404,
+        detail={"code": "frozen_copy_not_found", "message": "no such frozen copy"},
+    )
+
+
+def _sealed() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={"code": "frozen_copy_sealed", "message": "the frozen copy is sealed"},
+    )
+
+
+@router.post("/v1/frozen-copies/{copy_id}/seal")
+async def seal_frozen_copy(
+    copy_id: UUID, request: Request, current: CurrentAccount
+) -> dict[str, Any]:
+    copy = await _store(request).seal(copy_id, current.id)
+    if copy is None:
+        raise _not_found()
+    return {"id": str(copy.id), "status": copy.status, "entries": copy.entries}
+
+
+@router.post("/v1/frozen-copies/{copy_id}/tool-results")
+async def capture_tool_result(
+    copy_id: UUID, body: ToolResultRequest, request: Request, current: CurrentAccount
+) -> dict[str, str]:
+    store = _store(request)
+    copy = await store.get(copy_id)
+    if copy is None or copy.account_id != current.id:
+        raise _not_found()
+    if copy.status != STATUS_OPEN:
+        raise _sealed()
+    try:
+        await store.capture(copy, "tool", body.description, {"result": body.result}, 200)
+    except FrozenCopySealed:
+        raise _sealed() from None
+    except Exception as exc:
+        # Best effort (design Q18): the engine records `failed` and the run turns partial.
+        logger.warning(
+            "frozen copy capture failed copy=%s digest=%s kind=tool error=%s",
+            copy.id,
+            request_digest_prefix("tool", body.description),
+            type(exc).__name__,
+        )
+        return {"outcome": "failed"}
+    return {"outcome": "stored"}
+
+
+@router.post("/v1/frozen-copies/{copy_id}/tool-results/lookup")
+async def look_up_tool_result(
+    copy_id: UUID, body: ToolLookupRequest, request: Request, current: CurrentAccount
+) -> dict[str, str]:
+    occurrence = _occurrence(request)
+    copy = await _sealed_copy(request, copy_id)
+    try:
+        entry = await _store(request).find(copy, "tool", body.description, occurrence)
+    except (CanonicalizationError, UnicodeError):
+        entry = None
+    if entry is None:
+        raise _miss()
+    return {"result": entry.response_json["result"]}
