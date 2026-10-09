@@ -147,3 +147,20 @@ PRD §7 rows CH1–CH11 and 1–29, in the plan's task order (CHAR first). Gates
   merge base names only the CH8–CH10 files.
 - Components touched: `packages/url4` only (the Engine is unchanged), so one issue under
   OME-500 at PR-open.
+
+## Second follow-up round (2026-10-09; user: "work for the O8 and the files at their size limit")
+
+- V1 O8 (`0cf755cfd` + fix): new Engine guard test forbids every `url4.peer._*` module and every
+  `_` name imported from `url4.peer` (the design review found `from url4.peer import _dispatch`
+  bypassed the first version). Mutation-checked (4 private forms fail, a public import passes).
+- V2 (`7e7fab748`): `peer/server.py` 322 → 254; holdings/identity registration → mixin
+  `peer/_holdings.py` (AST-identical); the mixin now owns its state (`_init_holdings`).
+- V3 (`0eeae2197`): `dag/nodes/iteration.py` 228 → 183; `ReduceNode` → `dag/nodes/reduce.py`
+  (AST-identical).
+- Baselines: server 254, iteration 183; every module split out in this PR now has a cap.
+- Design review: no structural finding; fixes applied. New owner item O9 (the Engine reads a
+  private holdings attribute; older than this branch).
+- Gates: url4 and Engine card gates green (url4 append-only against the merge base names only
+  the CH8–CH10 files). Regression: Engine 4639 passed, SDK 2296 passed.
+- Components touched now: `packages/url4` and `apps/screamingface-engine` (one test file), so two
+  issues under OME-500 at PR-open.
