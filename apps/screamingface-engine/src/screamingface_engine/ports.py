@@ -54,6 +54,10 @@ class IdentityAwareJobRunner(JobRunner):
     INVARIANT: per RUN. It must never be folded into world configuration shared by every run in a
     process — in local mode those runs share one event loop, so a policy parked there is one
     caller's directive that another caller's run reads.
+
+    ``capture`` and ``replay_frozen_copy`` (OME-1307) are the run's frozen-copy mode: capture a new
+    copy, or replay the copy with that id. Both default to a normal run, are never both set, and
+    are per RUN for the same reason; they ride the same path as ``answer_seed``.
     """
 
     @abstractmethod
@@ -70,4 +74,6 @@ class IdentityAwareJobRunner(JobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: RunShape = "expression",
+        capture: bool = False,
+        replay_frozen_copy: str | None = None,
     ) -> str: ...

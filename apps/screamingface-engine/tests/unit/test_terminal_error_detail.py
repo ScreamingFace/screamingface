@@ -339,6 +339,8 @@ ALLOWLISTED_CODES = (
     "unknown_identity",
     "timeout",
     "result_too_large",
+    "frozen_copy_miss",
+    "frozen_copy_unavailable",
 )
 
 

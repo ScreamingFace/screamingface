@@ -14,6 +14,18 @@ from typing import Protocol
 
 import httpx
 
+from screamingface_engine.capture_outcomes import (
+    REPLAY_MISS,
+    REPLAY_OCCURRENCE_HEADER,
+    REPLAY_UNAVAILABLE,
+    CaptureOutcome,
+    current_capture_tally,
+    record_capture_outcome,
+    replay_refusal_code,
+    request_digest,
+    tool_lookup_path,
+    tool_results_path,
+)
 from screamingface_engine.retrieval_policy import RetrievalPolicy
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.errors import RunnerRequestError
@@ -80,14 +92,106 @@ class WebToolConfig(Protocol):
     def web_tool_max_result_bytes(self) -> int: ...
 
 
+# WHY its own timeout (like the Tavily cache's): the frozen copy is a side lane, so a slow gateway
+# must cost seconds, not a Tavily call's 30 s.
+_COPY_TIMEOUT = httpx.Timeout(5.0)
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenToolResults:
+    """The frozen copy's tool-result routes on the connector's gateway client (design §4.3).
+
+    FEATURE: OME-1307 — capture mode posts every result string the model reads; replay mode reads
+    it back and never calls Tavily. ``headers`` are the chat calls' identity headers.
+    """
+
+    client: httpx.AsyncClient
+    headers: Mapping[str, str]
+    copy_id: str
+    replay: bool
+
+    async def store(self, description: Mapping[str, object], result: str) -> str:
+        """Post one result to the copy. Returns ``stored`` or ``failed``; never raises."""
+        try:
+            response = await self.client.post(
+                tool_results_path(self.copy_id),
+                headers=self.headers,
+                json={"description": description, "result": result},
+                timeout=_COPY_TIMEOUT,
+            )
+            response.raise_for_status()
+            body = response.json()
+            outcome = body.get("outcome") if isinstance(body, dict) else None
+            return "stored" if outcome == "stored" else "failed"
+        except Exception:  # noqa: BLE001 - best effort: nothing here may fail the tool loop
+            return "failed"
+
+    async def lookup(self, description: Mapping[str, object]) -> str:
+        """Read the result the original run's model read, in capture order for repeated requests.
+
+        The occurrence slot of this description is reserved NOW and given back unless a result
+        comes back, so concurrent identical lookups read distinct entries.
+
+        INVARIANT: raises a `RunnerRequestError` for every failure, and the caller (`_executed`)
+        lets it through. Any other failure would become a "… failed: …" string the model reads and
+        carries on from, and a replay that carried on from a made-up tool result would be exact in
+        name only.
+        """
+        digest = request_digest(description)
+        tally = current_capture_tally()
+        occurrence = 0 if tally is None else tally.reserve("tool", digest)
+        try:
+            return await self._read(description, occurrence)
+        except BaseException:
+            if tally is not None:
+                tally.release("tool", digest)
+            raise
+
+    async def _read(self, description: Mapping[str, object], occurrence: int) -> str:
+        try:
+            response = await self.client.post(
+                tool_lookup_path(self.copy_id),
+                headers={**self.headers, REPLAY_OCCURRENCE_HEADER: str(occurrence)},
+                json={"description": description},
+                timeout=_COPY_TIMEOUT,
+            )
+            payload = response.json() if response.content else None
+            result = payload.get("result") if isinstance(payload, dict) else None
+            if response.status_code == 200 and isinstance(result, str):
+                return result
+            # A 404 is the copy saying it cannot answer; any other failure is a gateway that did
+            # not answer at all, which a retry may fix.
+            code = (
+                (replay_refusal_code(404, payload) or REPLAY_MISS)
+                if response.status_code == 404
+                else None
+            )
+        except (httpx.HTTPError, ValueError):
+            code = None
+        if code == REPLAY_MISS:
+            raise RunnerRequestError(
+                "the frozen copy holds no result for a web tool call of this replay",
+                code=REPLAY_MISS,
+                permanent=True,
+            )
+        raise RunnerRequestError(
+            "the frozen copy cannot serve a web tool call of this replay",
+            code=REPLAY_UNAVAILABLE,
+            permanent=code is not None,
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class WebToolRuntime:
-    client: httpx.AsyncClient
+    # `None` only in a replay, which never calls Tavily and so needs neither (OME-1307).
+    client: httpx.AsyncClient | None
     config: WebToolConfig
-    api_key: str
+    api_key: str | None
     excluded_domains: tuple[str, ...]
     # FEATURE: OME-1045 — the gateway retrieval cache. `None` leaves every Tavily call as it was.
     cache: TavilyRetrievalCache | None = None
+    # FEATURE: OME-1307 — the run's frozen copy: set in capture mode and in replay mode.
+    frozen: FrozenToolResults | None = None
 
 
 def tavily_key(raw: str | None) -> str | None:
@@ -126,22 +230,27 @@ def build_runtime(
     policy: RetrievalPolicy | None,
     params: Mapping[str, str],
     cache: TavilyRetrievalCache | None = None,
+    frozen: FrozenToolResults | None = None,
 ) -> WebToolRuntime | None:
     """Resolve tool availability before the first paid model request."""
     if not wants_search or not spec.uses_web_tools:
         return None
+    runtime = WebToolRuntime(
+        tavily_http, config, tavily_api_key, caller_exclusions(params), cache, frozen
+    )
+    # A replay never calls Tavily, so it needs no credential — but the model must be offered the
+    # same tools the original run was, or its request would key differently and miss.
+    configured = (frozen is not None and frozen.replay) or (
+        tavily_http is not None and tavily_api_key is not None
+    )
     required = params.get(WEB_SEARCH_PARAM) == "true"
     if not required and policy is None:
         # A route whose mechanism resolves to `uses_web_tools` searches by default, so the caller
         # reaches here without writing `web_search=true`. Their exclusions still bind: an ignored
         # exclusion list is the worst failure mode for a privacy control, because it looks like
         # it was honoured.
-        return (
-            WebToolRuntime(tavily_http, config, tavily_api_key, caller_exclusions(params), cache)
-            if tavily_http is not None and tavily_api_key is not None
-            else None
-        )
-    if tavily_http is None or tavily_api_key is None:
+        return runtime if configured else None
+    if not configured:
         raise RunnerRequestError(
             f"web_search=true on /{spec.id} requires a configured Tavily connection",
             code=(
@@ -151,7 +260,7 @@ def build_runtime(
             ),
             permanent=True,
         )
-    return WebToolRuntime(tavily_http, config, tavily_api_key, caller_exclusions(params), cache)
+    return runtime
 
 
 async def append_tool_results(
@@ -163,7 +272,7 @@ async def append_tool_results(
     """Execute a bounded tool fan-out and append one reply for every requested call."""
     served = tool_calls[: config.web_tool_max_calls_per_turn]
     dropped = tool_calls[config.web_tool_max_calls_per_turn :]
-    results = await asyncio.gather(*(_execute_tool(call, runtime) for call in served))
+    results = await asyncio.gather(*(_executed(call, runtime) for call in served))
     for call, result in zip(served, results, strict=True):
         messages.append(
             {
@@ -185,6 +294,48 @@ async def append_tool_results(
                 ),
             }
         )
+
+
+async def _executed(tool_call: dict, runtime: WebToolRuntime | None) -> str:
+    """One tool call's result string, as the model reads it, in the run's frozen-copy mode.
+
+    Replay reads EVERY result from the copy, failure strings included: they came from Tavily or
+    from the run's own checks, and the copy holds what the model saw. Capture posts the result
+    BEFORE truncation (the caller truncates), so the copy holds exactly what the tool returned —
+    success, "no results" and failure strings alike (design §5.2).
+    """
+    if runtime is None or runtime.frozen is None:
+        return await _execute_tool(tool_call, runtime)
+    name, args = _tool_args(tool_call)
+    description = _tool_description(name, args, runtime)
+    if runtime.frozen.replay:
+        return await runtime.frozen.lookup(description)
+    digest = request_digest(description)
+    try:
+        result = await _execute_tool(tool_call, runtime)
+    except BaseException:
+        # A cancelled or crashed execution gave the model no result and the copy none to store
+        # (D1), as a cancelled chat call: the run is partial unless a later call of the same
+        # request replaces it (D2).
+        record_capture_outcome(CaptureOutcome("tool", "error", digest))
+        raise
+    await _capture_result(runtime.frozen, description, digest, result)
+    return result
+
+
+async def _capture_result(
+    frozen: FrozenToolResults, description: Mapping[str, object], digest: str, result: str
+) -> None:
+    """Post one result to the copy and record the outcome. Only a cancellation escapes (D1)."""
+    try:
+        status = await frozen.store(description, result)
+    except BaseException:
+        # A cancelled store left no entry the replay could read (D1).
+        record_capture_outcome(CaptureOutcome("tool", "error", digest))
+        raise
+    record_capture_outcome(
+        CaptureOutcome("tool", "stored" if status == "stored" else "failed", digest)
+    )
 
 
 _TOOL_TRUNCATION_MARKER = "\n…[truncated]"
@@ -236,6 +387,26 @@ async def _execute_tool(tool_call: dict, runtime: WebToolRuntime | None) -> str:
         return f"{name} failed: {exc}"
 
 
+def _tool_description(name: str, args: dict | None, runtime: WebToolRuntime) -> dict[str, object]:
+    """The tool call as the frozen copy keys it: the description the Tavily cache uses.
+
+    A call with no description builder (an unknown tool, arguments that are not an object, or a
+    search without a text query) is described by its name and arguments.
+    """
+    query = args.get("query") if args is not None else None
+    url = args.get("url") if args is not None else None
+    if name == "web_search" and isinstance(query, str):
+        return search_description(
+            query,
+            runtime.config.tavily_search_depth,
+            runtime.config.tavily_max_results,
+            runtime.excluded_domains,
+        )
+    if name == "web_fetch" and isinstance(url, str):
+        return fetch_description(url, runtime.excluded_domains)
+    return {"tool": name, "arguments": args}
+
+
 async def _tavily_search(runtime: WebToolRuntime, args: dict) -> str:
     query = args.get("query")
     if not isinstance(query, str) or not query:
@@ -256,11 +427,8 @@ async def _tavily_search(runtime: WebToolRuntime, args: dict) -> str:
     }
     if runtime.excluded_domains:
         payload["exclude_domains"] = list(runtime.excluded_domains)
-    response = await runtime.client.post(
-        "/search",
-        headers=_tavily_headers(runtime.api_key),
-        json=payload,
-    )
+    client, api_key = _tavily_access(runtime)
+    response = await client.post("/search", headers=_tavily_headers(api_key), json=payload)
     response.raise_for_status()
     data = response.json()
     results = [
@@ -289,9 +457,10 @@ async def _tavily_extract(runtime: WebToolRuntime, args: dict) -> str:
     lookup = await _cache_lookup(runtime, description)
     if lookup.status == "hit" and lookup.result is not None:
         return lookup.result
-    response = await runtime.client.post(
+    client, api_key = _tavily_access(runtime)
+    response = await client.post(
         "/extract",
-        headers=_tavily_headers(runtime.api_key),
+        headers=_tavily_headers(api_key),
         json={"urls": url, "format": "markdown", "extract_depth": "advanced"},
     )
     response.raise_for_status()
@@ -299,6 +468,13 @@ async def _tavily_extract(runtime: WebToolRuntime, args: dict) -> str:
     if extracted:
         await _cache_fill(runtime, lookup, description, text)
     return text
+
+
+def _tavily_access(runtime: WebToolRuntime) -> tuple[httpx.AsyncClient, str]:
+    """The Tavily client and key. A replay may have neither, and never gets this far."""
+    if runtime.client is None or runtime.api_key is None:
+        raise RuntimeError("Tavily is not configured")
+    return runtime.client, runtime.api_key
 
 
 def _extraction(data: dict, url: str) -> tuple[str, bool]:

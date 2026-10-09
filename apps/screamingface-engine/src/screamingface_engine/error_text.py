@@ -72,6 +72,12 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         "timeout",
         # runner/executor.py:574 — two byte counts, no values.
         "result_too_large",
+        # world/connector.py::_replay_refusal, world/web_tools.py::FrozenToolResults.lookup
+        # (OME-1307) — a replay the frozen copy cannot answer. Each raise site uses a fixed message
+        # and interpolates nothing, and `_raise_for_status` never lifts the text of the upstream
+        # response that triggered it.
+        "frozen_copy_miss",
+        "frozen_copy_unavailable",
     }
 )
 

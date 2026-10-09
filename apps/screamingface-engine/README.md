@@ -368,6 +368,57 @@ neither accepts a freshness bound nor reports an entry's `Age`, so a bounded run
 hit fresh and declines instead — observably, as `bypass` / `opted_out`. The honouring path is
 written and dormant; when either upstream half lands, the change is a branch, not a redesign.
 
+## Capture and replay — `X-Capture`, `X-Replay-Frozen-Copy`
+
+A run can **capture** a frozen copy of itself. A later run can **replay** that copy. A replay calls
+no model provider and no Tavily, and it costs nothing. Epic: OME-1307. Design:
+`02-frozen-copy-design.md` §5.
+
+- **Select a mode.** `GET /` takes `X-Capture: true` (capture) or `X-Replay-Frozen-Copy: <uuid>`
+  (replay). Send one, not both. A malformed value, or both headers, gives `400` with
+  `code: malformed_header`, and the engine schedules nothing. The headers travel like
+  `X-Answer-Seed`: the App writes `URL4_CLOUD_CAPTURE=1` or `URL4_CLOUD_REPLAY_FROZEN_COPY=<uuid>`
+  onto the run env (or queue message), and the run mode binds them as `RequestScope.capture` and
+  `RequestScope.replay_frozen_copy`. The start response (`202`, a finished sync result, and the
+  sync `202` fallback) echoes the accepted header. An engine that ignores the headers never sends
+  the echo. Only the run route honours the headers. A mount route and the local eval path answer
+  `400` with `code: capture_unsupported` when either header is present, and run nothing.
+- **Capture.** Before the first step, the run opens a copy (`POST /v1/frozen-copies`). Each chat
+  call sends `X-AIGW-Frozen-Copy: <id>` and records the `X-AIGW-Capture` answer of the gateway.
+  Each web-tool result goes to the copy before the engine truncates it. After the last step, the
+  run seals the copy. The run seals the copy also when it failed. The run never seals the copy when
+  it was cancelled, and a replay refuses an open copy.
+- **`capture.status`.** The run summary and the cache summary log line always carry
+  `capture.frozen_copy_id`, `capture.status` (`complete` or `partial`) and `capture.partial.<reason>`
+  counts (`failed`, `refused`, `missing`, `open`, `seal`, `error`, `ambiguous`). A failed run
+  writes them too, as the only attributes of its summary (a failed run states no cache counts).
+  The status is `complete` only when the copy opened and was sealed, and every chat call and tool
+  result is `stored`. Only the final attempt of a logical call counts: a cancelled or crashed call
+  (`error`, chat or tool) is forgiven when a later call with the same request digest is `stored`.
+  A call that the engine re-issued under a `max-age` bound, or whose transport attempt was
+  retried, is `ambiguous`: it may have left a stored answer the model never used ahead of the one
+  it used. Nothing forgives `ambiguous`, so the run is `partial`. A gateway older than the frozen
+  copy sends no `X-AIGW-Capture`, so each call is `missing` and the run is `partial`.
+- **Replay.** Each chat call goes to `POST /v1/frozen-copies/{id}/chat/completions` with
+  `X-AIGW-Replay-Occurrence: <n>`. The engine reserves the next slot `n` of the request when it
+  sends the call, and gives the slot back if the call does not succeed. So identical requests with
+  different original answers come back in capture order, also when they run at the same time.
+  The engine adds no cache field and makes no `max-age` re-issue. It accounts a found answer like
+  a cache hit, at `$0`, and states no saved cost for it. Each web-tool call reads
+  `…/tool-results/lookup`, so the run needs no Tavily key. The run path never asks the gateway
+  to admit a model (`/v1/models/admit`).
+- **Replay failures.** A captured error fails the case as it failed in the original run. A `404`
+  `frozen_copy_miss` fails the case with `frozen_copy_miss`. A `404` `frozen_copy_unavailable` (an
+  unknown or unsealed copy, or a gateway without the replay routes) fails it with
+  `frozen_copy_unavailable`. A tool lookup that the copy cannot answer fails the case too.
+- **Proof of replay.** A replay run always writes `capture.replay = <id>`. Only an engine that
+  honoured the header can write it, so a client treats a replay summary without it as unsupported.
+
+> **Deploy order — workers before the App.** For a change to the capture or replay env, roll out
+> the **workers** (the `run` mode and the queue worker pool) first, and the App (`serve`) second.
+> A worker that predates the env ignores it, and the run goes on as a normal, **paid** run. The
+> start-response echo comes from the App and cannot show this. The `capture.replay` attribute can.
+
 ## Provider connections — `/v1/connections`
 
 The ScreamingFace Client connects provider credentials through the Engine:

@@ -169,6 +169,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         shape: job_env.RunShape = "expression",
+        capture: bool = False,
+        replay_frozen_copy: str | None = None,
     ) -> dict[str, str]:
         """The environment this run's `Executor` is built from.
 
@@ -207,6 +209,13 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # one caller's sitting onto the next caller's run, corrupting both records (OME-1038).
         env.pop(job_env.ANSWER_SEED, None)
         env.update(job_env.answer_seed_to_env(answer_seed))
+        # INVARIANT: same reset (OME-1307). A leftover mode in the shared `_base_env` would turn the
+        # next caller's normal run into a capture or a paid run into a replay, so both keys are
+        # re-stated from THIS run.
+        env.pop(job_env.CAPTURE, None)
+        env.pop(job_env.REPLAY_FROZEN_COPY, None)
+        env.update(job_env.capture_env(capture))
+        env.update(job_env.replay_frozen_copy_env(replay_frozen_copy))
         # INVARIANT (OME-908): local mode's downstream bound is the shared fair-share gate,
         # NEVER this env — a copy exported in the operator's shell would stack a per-run
         # `BoundedIOLayer` UNDER the gate and re-introduce exactly the static bound local
@@ -235,6 +244,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: job_env.RunShape = "expression",
+        capture: bool = False,
+        replay_frozen_copy: str | None = None,
     ) -> str:
         """Spawn the run as a task and return its job name.
 
@@ -262,6 +273,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             cache,
             answer_seed=answer_seed,
             shape=shape,
+            capture=capture,
+            replay_frozen_copy=replay_frozen_copy,
         )
         # WHY build the Executor here but resolve its world lazily (inside `execute`): a factory
         # that raised now would take down the caller's request with nothing on the stream, where a

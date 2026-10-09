@@ -82,7 +82,9 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
     the seed is the one value that REFUSES the run when malformed.
 
     Raises:
-        RunnerConfigError: ``ANSWER_SEED`` is present but not an integer. This is the same
+        RunnerConfigError: ``CAPTURE`` or ``REPLAY_FROZEN_COPY`` is malformed, or both are set,
+            for the same reason (a capture or replay must never silently run as a normal run).
+            ``ANSWER_SEED`` is present but not an integer. This is the same
             refusal `job_env.answer_seed_from_env` always produced — a run silently executed
             without its declared seed would publish a score claiming a sitting it never had.
             Also an unknown ``RUN_SHAPE``, and a malformed ``JOB_DEADLINE_S`` on a direct run.
@@ -90,6 +92,12 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
 
     try:
         answer_seed = job_env.answer_seed_from_env(env)
+        capture = job_env.capture_from_env(env)
+        replay_frozen_copy = job_env.replay_frozen_copy_from_env(env)
+        if capture and replay_frozen_copy is not None:
+            raise ValueError(
+                f"{job_env.CAPTURE} and {job_env.REPLAY_FROZEN_COPY} cannot be set together"
+            )
         direct = job_env.run_shape_from_env(env) == "direct"
     except ValueError as exc:
         raise RunnerConfigError(str(exc)) from exc
@@ -105,6 +113,8 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
         cache=job_env.cache_policy_from_env(env),
         origin="sync" if direct else "run",
         deadline=None if job_deadline is None else time.monotonic() + job_deadline,
+        capture=capture,
+        replay_frozen_copy=replay_frozen_copy,
     )
 
 

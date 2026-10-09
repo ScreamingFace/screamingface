@@ -53,6 +53,8 @@ from url4.streaming.trace import valid_traceparent
 # differ on purpose and are reconciled only by `identity_from_headers`/`identity_from_env`.
 PROFILE_HEADER = "X-Profile"
 ANSWER_SEED_HEADER = "X-Answer-Seed"
+CAPTURE_HEADER = "X-Capture"
+REPLAY_FROZEN_COPY_HEADER = "X-Replay-Frozen-Copy"
 CACHE_CONTROL_HEADER = "Cache-Control"
 TRACEPARENT_HEADER = "traceparent"
 
@@ -97,6 +99,11 @@ class RequestScope:
     request must have answered, or ``None`` when no request budget applies. The run producer
     sets ``start + JOB_DEADLINE_S`` for a DIRECT run (a mount call) and ``None`` for an
     expression run; local mode's eval path sets ``None``.
+
+    ``capture`` and ``replay_frozen_copy`` are the run's frozen-copy mode (FEATURE: OME-1307).
+    ``capture`` asks the run to store every chat answer and tool result in a new frozen copy;
+    ``replay_frozen_copy`` is the id of the copy a REPLAY run answers from, and ``None`` for any
+    other run. INVARIANT: a producer never sets both; the header and env readers refuse that.
     """
 
     identity_headers: Mapping[str, str] = field(default_factory=dict)
@@ -109,6 +116,8 @@ class RequestScope:
     # tell whether one more attempt still fits the budget, and the wrapper that owns the budget
     # cannot see the retry. A retry the wrapper then cuts off is billed and useless (NT-H1).
     deadline: float | None = None
+    capture: bool = False
+    replay_frozen_copy: str | None = None
 
     def __post_init__(self) -> None:
         # INVARIANT (FX-65): the scope OWNS what it holds. `frozen` stops a write to the scope's
@@ -132,6 +141,15 @@ class RequestScope:
 _scope: contextvars.ContextVar[RequestScope] = contextvars.ContextVar(
     "screamingface_engine_request_scope"
 )
+
+
+class FrozenCopyHeaderError(ValueError):
+    """The caller's ``X-Capture`` or ``X-Replay-Frozen-Copy`` was malformed, or both were stated.
+
+    A NAMED refusal beside :class:`AnswerSeedError`, for the same reason: a request that asked to
+    capture or to replay must not silently run as a normal, paid run. The start route maps it to
+    400 `malformed_header`.
+    """
 
 
 class AnswerSeedError(ValueError):
@@ -161,6 +179,10 @@ def request_scope_from_headers(
     Raises:
         AnswerSeedError: ``X-Answer-Seed`` is present but not an integer. The same refusal the
             child boot makes, for the same reason (OME-1038).
+
+    INVARIANT (OME-1307): this producer never carries a frozen-copy mode. Only the run route
+    honours `X-Capture` and `X-Replay-Frozen-Copy`; the sync surfaces refuse them
+    (:func:`states_frozen_copy_mode`) before they get here.
     """
 
     return RequestScope(
@@ -220,6 +242,49 @@ def _optional_int(raw: str | None) -> int | None:
         return int(text)
     except ValueError as exc:
         raise AnswerSeedError(f"{ANSWER_SEED_HEADER} must be an integer, got {raw!r}") from exc
+
+
+# FEATURE (OME-1307, pinned 2026-10-08): only the RUN route honours the frozen-copy headers. Every
+# other ingress answers 400 with ONE code and ONE message, whatever the header's value — a silent
+# ignore would run a paid, uncaptured call for a caller who asked to capture or to replay.
+CAPTURE_UNSUPPORTED = "capture_unsupported"
+CAPTURE_UNSUPPORTED_MESSAGE = (
+    "the X-Capture and X-Replay-Frozen-Copy headers are honoured only on the run route; "
+    "send the request without them"
+)
+
+
+def states_frozen_copy_mode(headers: Mapping[str, str]) -> bool:
+    """Whether a request carries either frozen-copy header. PRESENCE counts, value or not."""
+    return (
+        headers.get(CAPTURE_HEADER) is not None
+        or headers.get(REPLAY_FROZEN_COPY_HEADER) is not None
+    )
+
+
+def frozen_copy_mode_from_headers(
+    capture_raw: str | None, replay_raw: str | None
+) -> tuple[bool, str | None]:
+    """The run's frozen-copy mode: ``(capture, replay copy id)``. A missing or blank header is
+    absence; anything else that is not exactly ``true`` / a lowercase UUID is a refusal.
+
+    The start route's reader. It accepts the same id shape the env reader checks
+    (`job_env.FROZEN_COPY_ID`), so the two carriers can never disagree about what an id is.
+
+    Raises:
+        FrozenCopyHeaderError: a malformed value, or both modes stated at once.
+    """
+    capture_text = _optional(capture_raw)
+    replay = _optional(replay_raw)
+    if capture_text is not None and capture_text.lower() != "true":
+        raise FrozenCopyHeaderError(f"{CAPTURE_HEADER} must be true")
+    if replay is not None and job_env.FROZEN_COPY_ID.fullmatch(replay) is None:
+        raise FrozenCopyHeaderError(f"{REPLAY_FROZEN_COPY_HEADER} must be a frozen copy id")
+    if capture_text is not None and replay is not None:
+        raise FrozenCopyHeaderError(
+            f"{CAPTURE_HEADER} and {REPLAY_FROZEN_COPY_HEADER} cannot be sent together"
+        )
+    return capture_text is not None, replay
 
 
 def current_scope() -> RequestScope:
@@ -308,18 +373,25 @@ def forwarded_headers(
 __all__ = [
     "ANSWER_SEED_HEADER",
     "CACHE_CONTROL_HEADER",
+    "CAPTURE_HEADER",
+    "CAPTURE_UNSUPPORTED",
+    "CAPTURE_UNSUPPORTED_MESSAGE",
     "PROFILE_HEADER",
+    "REPLAY_FROZEN_COPY_HEADER",
     "TRACEPARENT_HEADER",
     "X_PROFILE_UNSUPPORTED",
     "X_PROFILE_UNSUPPORTED_MESSAGE",
     "AnswerSeedError",
+    "FrozenCopyHeaderError",
     "RequestScope",
     "RequestScopeError",
     "bind_sync_request",
     "current_scope",
     "forwarded_headers",
+    "frozen_copy_mode_from_headers",
     "request_scope",
     "request_scope_from_headers",
     "requests_selector",
+    "states_frozen_copy_mode",
     "trace_from_headers",
 ]
