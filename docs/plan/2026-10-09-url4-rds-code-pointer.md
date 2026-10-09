@@ -439,3 +439,25 @@ baseline; lower a baseline when its module shrinks for good. U2 and U3 fix all f
   entries to their new counts (they shrank for good); add entries for the new modules only if
   the script's convention lists comparable modules (read it); never raise one.
 - **Tests:** none new (pure move); the full suite, pyright and the layering test prove it.
+
+## Second follow-up round (2026-10-09, user: "work for the O8 and the files at their size limit")
+
+No PR yet (user). Three units; V2 and V3 run in parallel in worktrees branched from this branch's
+head; V1 runs in the main loop. No unit edits `scripts/check_module_size.py`: each reports its
+line counts and the main loop updates `BASELINE` at merge (lower the shrunk entries, add the new
+modules, never raise).
+
+- **V1 — O8 (Engine test, main loop):** a NEW test in
+  `apps/screamingface-engine/tests/unit/test_no_private_url4_dispatch_import.py` that forbids
+  every `url4.peer._*` module (prefix), so `_code_pointer`, `_request` and any later private
+  module are covered. Additive: the existing test and helper do not change. The Engine imports
+  no private `url4.peer` module today. This makes the Engine a touched component: two issues at
+  PR-open (url4, Engine).
+- **V2 — `peer/server.py` (322/322):** the `@` holdings and `@identity` registration (Spec
+  §5.6: `holdings` overloads, `_register_holdings`, `identity`, `_adapt_holdings`, the identity
+  name rule) moves to `peer/_holdings.py` as a mixin that `Url4Node` inherits. Public API and
+  import paths unchanged; behavior unchanged (pure move); `server.py` well under its cap.
+- **V3 — `dag/nodes/iteration.py` (228/228):** `ReduceNode` moves to `dag/nodes/reduce.py`
+  (the reducer carries the code-pointer call; expand and map stay). Import paths through
+  `url4.dag.nodes` unchanged; keep `url4.dag.nodes.iteration.ReduceNode` importable if anything
+  imports it there. Pure move.
