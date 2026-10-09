@@ -27,7 +27,7 @@ layer. A layer imports only the layers below it.
   |  node / CLI            |          url4.cli    `url4 serve` / `url4 eval`
   +------------------------+
 
-  url4.observe    leaf: the observation seam. Only the engine imports it.
+  url4.observe    leaf: the observation seam. The engine and the node import it.
   url4.streaming  separate axis: the CloudEvents / OTel wire contract.
 ```
 
@@ -39,10 +39,10 @@ layer. A layer imports only the layers below it.
 | wire | `url4.wire` | The `?q=(context)!intent` codec. One owner, shared below both consumers. | `core` |
 | engine | `url4.dag` | AST → typed DAG → concurrent execution. | `core`, `wire`, `io.layer`, `io.idempotency`, `observe` |
 | io port | `url4.io` | The `IOLayer` port and its adapters — the seam. | `core`, `wire` |
-| leaf | `url4.observe` | Observation events and context-local sinks. | standard library |
-| node | `url4.peer` | `Url4Node` (server), `Client` (requestor), dispatch. | `core`, `wire`, `dag`, `io`, `observe` |
-| node | `url4.cli` | `url4 serve` / `url4 eval`. The composition root. | all of the above |
-| axis | `url4.streaming` | The wire contract between a client and a runner. | standard library + pydantic |
+| leaf | `url4.observe` | Observation events and context-local sinks. | standard library only (plus `url4._log_attributes`, a stdlib-only leaf) |
+| node | `url4.peer` | `Url4Node` (server), `Client` (requestor), dispatch. | `core`, `wire`, `dag`, `io`, `observe`. Not `cli`, not `streaming` |
+| node | `url4.cli` | `url4 serve` / `url4 eval`. The composition root. | `core`, `wire`, `dag`, `io`, `observe`, `peer`. Not `streaming` |
+| axis | `url4.streaming` | The wire contract between a client and a runner. | standard library + pydantic. No other url4 layer |
 
 ## The direction rule
 
@@ -50,25 +50,35 @@ layer. A layer imports only the layers below it.
 
 - `url4.core` imports the standard library only. It is a leaf of leaves.
 - `url4.wire` imports `core` only.
-- `url4.dag` may import `core`, `wire`, `io.layer`, `io.idempotency`, and `observe`. It must not
+- `url4.dag` may import `core`, `wire`, `observe`, and `io` (`io.layer` and
+  `io.idempotency`). It must not
   import `peer`, `cli`, or `streaming`.
-- `url4.io` must not import `dag`. The engine depends on the port, never the
-  reverse. `io.layer` and `io.idempotency` are standard-library only, so the engine can name the port
-  without dragging in a transport.
-- `url4.observe` is a leaf. It imports no engine module and no transport.
-- `url4.peer` must not import `cli`. The CLI composes the node, not the reverse.
-- `url4.streaming` imports no url4 module.
+- `url4.io` may import `core` and `wire` only. It must not import `dag`,
+  `observe`, `peer`, `cli`, or `streaming`. The engine depends on the port, never
+  the reverse. `io.layer` and `io.idempotency` are standard-library only, so the engine can
+  name the port without dragging in a transport.
+- `url4.observe` is a leaf. It imports the standard library only (and
+  `url4._log_attributes`, a stdlib-only leaf outside the layer matrix).
+- `url4.peer` must not import `cli` or `streaming`. The CLI composes the node,
+  not the reverse.
+- `url4.cli` must not import `streaming`.
+- `url4.streaming` imports no other url4 layer.
 
-`tests/unit/test_layering.py` enforces this over the source AST. It sees
-function-local and `TYPE_CHECKING` imports too. A crossing import fails the test
-with the file and the module name.
+`tests/unit/test_layering.py` enforces this over the source AST. It is the
+source of truth: when this document and the test disagree, the test is right.
+It sees function-local and `TYPE_CHECKING` imports too. A crossing import fails
+the test with the file and the module name.
+
+Not yet enforced: "`url4.dag` reaches `url4.io` only through `url4.io.layer`".
+`dag/_run.py` lazily imports `url4.io.http` for the default IO layer, so the rule
+does not hold today. The test adds it only after that import moves or the rule
+changes.
 
 `io/layer.py` is the port, and `io/idempotency.py` is the key a retrying guard
 offers through it (a context variable, so adapters opt in). `io/static.py` and
-`io/http.py` are adapters. The
-engine may name the port at module scope; a concrete adapter is imported lazily
-(the default `HttpIOLayer` in `dag/_run.py`), so `import url4.dag` names no
-transport.
+`io/http.py` are adapters. The engine may name the port at module scope. The
+default `HttpIOLayer` in `dag/_run.py` is imported lazily, so `import url4.dag`
+names no transport.
 
 ## Where do I start? — a task index
 
@@ -103,12 +113,12 @@ Note: `dag/compiler.py` is the public facade only. The implementation is
 
 ## The two side axes
 
-`url4.observe` is a leaf at the package root. The engine imports it; it imports
-nothing above it. It is documented public API (`from url4.observe import
+`url4.observe` is a leaf at the package root. The engine and the node import it;
+it imports nothing above it. It is documented public API (`from url4.observe import
 current_log_sink`), so it stays at the root.
 
 `url4.streaming` is a separate axis, not a layer. It is the wire contract
-between a client and a runner. It imports no url4 module. It is an optional
+between a client and a runner. It imports no other url4 layer. It is an optional
 extra (`url4[streaming]`) because it is pydantic models.
 
 ## The invariants the layers rest on
@@ -122,7 +132,7 @@ extra (`url4[streaming]`) because it is pydantic models.
 - **HTTP and in-process dispatch cannot diverge.** `peer/_http.py` reuses
   `peer/_dispatch.py`.
 - **The engine names no transport at module scope.** `HttpIOLayer` is imported
-  lazily.
+  lazily in `dag/_run.py`.
 
 ## Gates
 

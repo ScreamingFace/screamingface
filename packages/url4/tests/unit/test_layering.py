@@ -5,12 +5,15 @@ the boundary does not erode silently. The rule is:
 
     url4.core       LANGUAGE  text <-> AST.   Imports nothing above it.
     url4.wire       shared    the ?q= codec.   Imports core only.
-    url4.dag        ENGINE    AST -> execute.  May import core, wire, io, observe.
-    url4.io         PORT      + adapters.      Must not import the engine.
-    url4.observe    leaf      Must not import the engine or a transport.
-    url4.peer       NODE      server + client. May import everything below it.
-    url4.cli        NODE      composition root. May import everything below it.
-    url4.streaming  separate  the wire contract. Imports no engine module.
+    url4.dag        ENGINE    AST -> execute.  May import core, wire, observe, and io.
+    url4.io         PORT      + adapters.      Imports core and wire only.
+    url4.observe    leaf      Standard library only (plus url4._log_attributes).
+    url4.peer       NODE      server + client. Imports core, wire, dag, io, observe.
+    url4.cli        NODE      composition root. Imports everything below it, not streaming.
+    url4.streaming  separate  the wire contract. Imports no other url4 layer.
+
+This file is the source of truth for ARCHITECTURE.md's import rules. When the
+two disagree, this file is right and the document is wrong.
 
 This checks the SOURCE with an AST walk, so function-local and TYPE_CHECKING
 imports are seen too — exactly where a boundary violation likes to hide.
@@ -47,9 +50,12 @@ _LAYER_FOR_PREFIX = {
 _FORBIDDEN: dict[str, set[str]] = {
     "core": {"wire", "dag", "io", "observe", "peer", "cli", "streaming"},
     "wire": {"dag", "io", "observe", "peer", "cli", "streaming"},
+    # NOT ENFORCED: url4.dag may name url4.io only through url4.io.layer, but
+    # dag/_run.py lazily imports url4.io.http for the default IO layer, so this
+    # rule does not hold yet. Add it only after that import moves or is allowed.
     "dag": {"peer", "cli", "streaming"},
-    "io": {"dag", "peer", "cli", "streaming"},
-    "observe": {"dag", "io", "peer", "cli", "streaming"},
+    "io": {"dag", "observe", "peer", "cli", "streaming"},
+    "observe": {"core", "wire", "dag", "io", "peer", "cli", "streaming"},
     "peer": {"cli", "streaming"},
     "cli": {"streaming"},
     "streaming": {"core", "wire", "dag", "io", "observe", "peer", "cli"},
@@ -140,12 +146,18 @@ def test_engine_layer_does_not_reach_the_node_layer() -> None:
     assert _offenders("dag") == []
 
 
-def test_io_port_does_not_depend_on_the_engine() -> None:
+def test_io_port_imports_only_core_and_wire() -> None:
     assert _offenders("io") == []
 
 
 def test_observe_is_a_leaf() -> None:
     assert _offenders("observe") == []
+
+
+def test_observe_imports_only_the_standard_library() -> None:
+    # url4._log_attributes is a stdlib-only leaf that sits outside the layer matrix.
+    observe = _SRC / "observe.py"
+    assert _imported_modules(observe) <= {"url4._log_attributes"}
 
 
 def test_peer_does_not_import_the_cli() -> None:
