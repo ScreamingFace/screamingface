@@ -5,7 +5,8 @@ the boundary does not erode silently. The rule is:
 
     url4.core       LANGUAGE  text <-> AST.   Imports nothing above it.
     url4.wire       shared    the ?q= codec.   Imports core only.
-    url4.dag        ENGINE    AST -> execute.  May import core, wire, observe, and io.layer.
+    url4.dag        ENGINE    AST -> execute.  May import core, wire, observe, io.layer,
+                                                  and io.idempotency.
     url4.io         PORT      + adapters.      Imports core and wire only.
     url4.observe    leaf      Standard library only (plus url4._log_attributes).
     url4.peer       NODE      server + client. Imports core, wire, dag, io, observe.
@@ -110,14 +111,18 @@ def _imported_modules(path: Path) -> set[str]:
     return found
 
 
-# The one documented exception to "dag reaches io only through url4.io.layer":
+# The engine's port modules: the port itself and the retry idempotency key (both stdlib-only).
+_DAG_IO_PORTS = frozenset({"url4.io.layer", "url4.io.idempotency"})
+# The one documented exception to "dag reaches io only through its port modules":
 # dag/_run.py lazily imports the default HttpIOLayer when the caller passes no io.
 _DAG_IO_EXCEPTION = ("dag/_run.py", "url4.io.http")
 
 
 def _bypasses_io_layer(source_layer: str, path: Path, module: str) -> bool:
-    """True when the engine names url4.io somewhere other than url4.io.layer."""
-    if source_layer != "dag" or _layer_of(module) != "io" or module == "url4.io.layer":
+    """True when the engine names url4.io somewhere other than the port modules."""
+    if source_layer != "dag" or _layer_of(module) != "io":
+        return False
+    if module in _DAG_IO_PORTS:
         return False
     return (path.relative_to(_SRC).as_posix(), module) != _DAG_IO_EXCEPTION
 
