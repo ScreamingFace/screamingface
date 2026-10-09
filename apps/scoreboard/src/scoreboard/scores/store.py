@@ -3,11 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, NamedTuple, cast
+from typing import Any, Literal, NamedTuple, cast
 from uuid import UUID
 
 from pypika_tortoise.analytics import RowNumber
@@ -24,7 +24,7 @@ from scoreboard.classification.openness import Openness
 from scoreboard.db import DEFAULT_CONNECTION
 
 from .frontier import FrontierMember, HistoryRow
-from .models import Benchmark, IdempotencyKey, Score
+from .models import Benchmark, IdempotencyKey, Score, ScoreMetadataEvent
 from .pareto import ParetoEntry
 from .reproduction_cost import reproduction_cost
 from .schemas import (
@@ -34,6 +34,7 @@ from .schemas import (
     LeaderboardStoreEntry,
     ProvenanceSchema,
     RunCostStatus,
+    ScoreMetadataEventSchema,
     ScoreSchema,
     ScoreSubmission,
     Visibility,
@@ -161,6 +162,8 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         url4_expression=model.url4_expression,
         submitted_by=model.submitted_by,
         authors=_resolved_authors(model.authors, model.submitted_by),
+        paper_url=model.paper_url,
+        metadata_updated_at=model.metadata_updated_at,
         # INVARIANT: no fallback, unlike `authors` above. A NULL here means the routes were
         # never declared, and deriving them from `ran_with_providers` is impossible — the
         # Client's truncation is lossy. Inventing a value would turn "we do not know" into a
@@ -242,6 +245,7 @@ def _derived_providers(submission: ScoreSubmission) -> list[str]:
 # be written but is missing here would be answered from a pre-lock read instead.
 _REPLAY_FIELDS: tuple[str, ...] = (
     "authors",
+    "paper_url",
     "metadata",
     "models",
     "ran_with_providers",
@@ -252,8 +256,59 @@ _REPLAY_FIELDS: tuple[str, ...] = (
 )
 
 # INVARIANT (OME-1145, review round 3): filling any of these changes what the frontier reads, so
-# it stamps `enriched_at`. Authors and metadata are display-only and never move a row in time.
-_ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {"authors", "metadata"}
+# it stamps `enriched_at`. Authors, paper link and metadata are display-only and never move a row
+# in time.
+_ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {"authors", "paper_url", "metadata"}
+
+
+# FEATURE: OME-1307 — the two display-only fields a submitter may correct after the fact, and the
+# two the edit log records. A change to either, from a PATCH or from a same-owner resubmit, dates
+# the row (`metadata_updated_at`) and writes one `ScoreMetadataEvent`.
+_METADATA_FIELDS: tuple[str, ...] = ("authors", "paper_url")
+
+
+def _metadata_changes(locked: Score, proposed: Mapping[str, object]) -> dict[str, object]:
+    """The part of ``proposed`` that differs from what the LOCKED row holds.
+
+    INVARIANT: compared against the locked row, never an earlier read, so "no change" is decided on
+    the value the write would replace. A request whose values already match writes no event and
+    leaves `metadata_updated_at` alone, which is what makes a retry after a lost response a no-op.
+    """
+    return {
+        field: proposed[field]
+        for field in _METADATA_FIELDS
+        if field in proposed and proposed[field] != getattr(locked, field)
+    }
+
+
+async def _log_metadata_event(
+    connection: Any,
+    locked: Score,
+    changes: Mapping[str, object],
+    *,
+    source: Literal["patch", "resubmit"],
+    edited_by: str,
+    edited_at: datetime,
+) -> None:
+    """Insert the one event for a change, in the caller's transaction and against its locked row.
+
+    A field the request did not change carries equal old and new values. The old values are read
+    off ``locked``, so call this BEFORE the new ones are copied onto it.
+
+    INVARIANT: ``edited_at`` is the SAME instant the row's `metadata_updated_at` was set to, so the
+    newest event and the row's own stamp never disagree.
+    """
+    await ScoreMetadataEvent.create(
+        using_db=connection,
+        score=locked,
+        edited_by=edited_by,
+        edited_at=edited_at,
+        source=source,
+        old_authors=locked.authors,
+        new_authors=changes.get("authors", locked.authors),
+        old_paper_url=locked.paper_url,
+        new_paper_url=changes.get("paper_url", locked.paper_url),
+    )
 
 
 def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
@@ -277,6 +332,10 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
     updates: dict[str, object] = {}
     if submission.authors is not None:
         updates["authors"] = submission.authors
+    # FEATURE: OME-1307 — REPLACE when given, like `authors`; `None` is "not given", so an older SDK
+    # replaying without it cannot erase the stored link.
+    if submission.paper_url is not None:
+        updates["paper_url"] = submission.paper_url
     if submission.metadata is not None:
         updates["metadata"] = submission.metadata
     # FEATURE: OME-1181 — how a row submitted before OME-1180 ever becomes classifiable.
@@ -365,6 +424,8 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "url4_expression": submission.url4_expression,
         "submitted_by": submission.submitted_by,
         "authors": submission.authors,
+        # Deliberately absent from _content_hash: display-only, like `authors`.
+        "paper_url": submission.paper_url,
         "models": submission.models,
         "score": submission.score,
         "total_questions": submission.total_questions,
@@ -1269,20 +1330,44 @@ class ScoreStore:
             raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
 
         updates = _replay_updates(submission, locked)
+        # FEATURE: OME-1307 — authors and paper link are replaced when given, so a resubmit that
+        # really changes one is an edit: it dates the row and writes one `resubmit` event, in this
+        # same locked transaction. `enriched_at` is a separate stamp and is not touched by them.
+        metadata_changes = _metadata_changes(locked, updates)
+        stamp: dict[str, datetime] = {}
         if updates:
             # WHY compare values, not keys: the cost branch of `_replay_updates` writes all three
             # cost fields together, so an unpriced replay of an unpriced row returns them as
             # None over None. Nothing the frontier reads changed, so nothing is dated.
             touched = _ENRICHING_FIELDS & updates.keys()
             enriched = any(updates[field] != getattr(locked, field) for field in touched)
-            stamp = {"enriched_at": datetime.now(UTC)} if enriched else {}
+            now = datetime.now(UTC)
+            if enriched:
+                stamp["enriched_at"] = now
+            if metadata_changes:
+                stamp["metadata_updated_at"] = now
             updated = await (
                 Score.filter(id=locked.id).using_db(connection).update(**updates, **stamp)
             )
             if updated != 1:
                 raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
+            if metadata_changes:
+                await _log_metadata_event(
+                    connection,
+                    locked,
+                    metadata_changes,
+                    source="resubmit",
+                    edited_by=cast(str, locked.submitted_by),
+                    edited_at=now,
+                )
 
-        return {field: updates.get(field, getattr(locked, field)) for field in _REPLAY_FIELDS}
+        settled: dict[str, object] = {
+            field: updates.get(field, getattr(locked, field)) for field in _REPLAY_FIELDS
+        }
+        settled["metadata_updated_at"] = stamp.get(
+            "metadata_updated_at", locked.metadata_updated_at
+        )
+        return settled
 
     def replay_row_query(
         self,
@@ -1313,6 +1398,90 @@ class ScoreStore:
         if connection is not None:
             rows = rows.using_db(connection)
         return rows.select_for_update()
+
+    def metadata_row_query(self, score_id: Any, *, connection: Any = None) -> QuerySet[Score]:
+        """The locking re-read `patch_metadata` runs, exposed so a test can render its SQL.
+
+        INVARIANT: a MODEL projection, and `select_for_update()` applied last, for the reason
+        `replay_row_query` records: `values()` and `values_list()` drop the lock silently, and
+        SQLite implements no row lock, so only the rendered SQL proves it.
+        """
+        rows = Score.filter(id=score_id)
+        if connection is not None:
+            rows = rows.using_db(connection)
+        return rows.select_for_update()
+
+    async def patch_metadata(
+        self,
+        score_id: UUID,
+        *,
+        edited_by: str,
+        changes: Mapping[str, object],
+        benchmark_id: str,
+        expect_private: bool,
+    ) -> ScoreSchema | None:
+        """Apply a submitter's edit of `authors` / `paper_url`, and return the score as it now is.
+
+        Returns None when the score no longer exists. The CALLER has already established that
+        ``edited_by`` owns the row; ownership never changes, so it is not re-proved under the lock.
+
+        INVARIANT: one transaction, against the LOCKED row. The no-change decision and the event's
+        old values both come from that read, so two parallel edits apply in some order and the log
+        chains without a gap. A request that changes nothing writes nothing, and leaves
+        `metadata_updated_at` alone.
+
+        INVARIANT: only `authors` and `paper_url` can be written here, and neither one touches
+        `enriched_at`, the ranking inputs or `content_hash`: both are display-only.
+
+        INVARIANT: the board is re-checked INSIDE the transaction, first and under its lock, the way
+        the resubmit path does. The route decided who may edit from a read taken before this
+        transaction, and a flip to private in between would otherwise let a caller that was never
+        verified mutate a private row. ``expect_private`` is what that decision assumed; a mismatch
+        refuses with `BenchmarkVisibilityChanged` and the caller retries on a consistent view.
+        The board is locked BEFORE the score row, the same order the resubmit path takes.
+        """
+        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
+            await self._revalidate_visibility(
+                benchmark_id, expect_private, connection=connection, lock=True
+            )
+            locked = await self.metadata_row_query(score_id, connection=connection).first()
+            if locked is None:
+                return None
+            applied = _metadata_changes(locked, changes)
+            if applied:
+                stamp = datetime.now(UTC)
+                await (
+                    Score.filter(id=locked.id)
+                    .using_db(connection)
+                    .update(**applied, metadata_updated_at=stamp)
+                )
+                await _log_metadata_event(
+                    connection,
+                    locked,
+                    applied,
+                    source="patch",
+                    edited_by=edited_by,
+                    edited_at=stamp,
+                )
+                for name, value in {**applied, "metadata_updated_at": stamp}.items():
+                    setattr(locked, name, value)
+        # Field names only: the values are author emails.
+        logger.info(
+            "score metadata patch score_id=%s fields=%s status=%s",
+            score_id,
+            ",".join(applied) or "-",
+            "changed" if applied else "unchanged",
+        )
+        return _score_to_schema(locked)
+
+    async def metadata_events(self, score_id: UUID) -> list[ScoreMetadataEventSchema]:
+        """A score's edit log, newest first. Empty for a score that was never edited.
+
+        The id is the tiebreaker, so two events with the same timestamp always come back in the
+        same order (the order itself is arbitrary, since ids are random, but it is stable).
+        """
+        rows = await ScoreMetadataEvent.filter(score_id=score_id).order_by("-edited_at", "-id")
+        return [ScoreMetadataEventSchema.model_validate(row, from_attributes=True) for row in rows]
 
     def visibility_query(
         self,

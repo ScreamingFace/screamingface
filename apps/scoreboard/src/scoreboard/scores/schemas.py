@@ -5,9 +5,11 @@ from collections.abc import Mapping
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -330,6 +332,63 @@ AuthorEmail = Annotated[
 ]
 
 
+def _validate_bounded_authors(value: list[str] | None) -> list[str] | None:
+    """The author-list bounds, shared by `ScoreSubmission` and `ScoreMetadataPatch`.
+
+    INVARIANT: the cap protects credit cardinality, not raw audit history. The serializer uses this
+    exact key when it collapses repeated identities. A PATCH must apply the SAME bounds as a POST,
+    so both call this one function.
+    """
+    if value is None:
+        return value
+    if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
+        raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
+    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+    if len(encoded) > _AUTHORS_MAX_BYTES:
+        raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
+    return value
+
+
+_PAPER_URL_MAX_CHARS = 2048
+_PAPER_URL_SCHEMES = frozenset({"http", "https"})
+
+
+def _validate_paper_url(value: str) -> str:
+    """Accept an absolute `http(s)` link with a host, and return it UNCHANGED.
+
+    FEATURE: OME-1307 — this checks the SHAPE of the link, never that the paper exists or that the
+    named authors wrote it (out of scope for E14).
+
+    INVARIANT: the string is stored exactly as sent. That is why this is not pydantic's `HttpUrl`,
+    which lower-cases the host and appends a slash: a link a researcher pasted must come back as
+    they pasted it. The portal still runs every link through `httpUrlOrNull` on read (M21).
+    """
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+        raise ValueError("paper_url must not contain control characters")
+    # WHY any whitespace, anywhere: `urlsplit` quietly strips leading and trailing blanks, so a
+    # link with one would validate, be stored as sent, and then not be the URL it looks like.
+    if any(char.isspace() for char in value):
+        raise ValueError("paper_url must not contain whitespace")
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in _PAPER_URL_SCHEMES:
+        raise ValueError("paper_url must use the http or https scheme")
+    if not parts.hostname:
+        raise ValueError("paper_url must name a host")
+    # WHY refuse user info: a paper link is shown and followed by readers, and
+    # `https://trusted.example@evil.test/` reads as the first host while going to the second.
+    # `username` is "" (not None) for a bare `@`, so test for None.
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("paper_url must not contain user info")
+    return value
+
+
+PaperUrl = Annotated[
+    str,
+    Field(min_length=1, max_length=_PAPER_URL_MAX_CHARS),
+    AfterValidator(_validate_paper_url),
+]
+
+
 class ClientInfo(BaseModel):
     """Optional client metadata for a score submission."""
 
@@ -365,6 +424,23 @@ class MessageErrorResponse(BaseModel):
     detail: str
 
 
+class CodedErrorDetail(BaseModel):
+    """A machine-readable refusal: a stable `code` plus a human `message`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+
+
+class CodedErrorResponse(BaseModel):
+    """HTTP error response whose detail carries a stable code (for example `not_score_owner`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    detail: CodedErrorDetail
+
+
 class ScoreSubmission(BaseModel):
     """Input DTO for score ingestion."""
 
@@ -382,6 +458,10 @@ class ScoreSubmission(BaseModel):
     # None means the client did not specify a credit line; reads then derive [submitted_by].
     # An explicit list is exact — the submitter is not auto-added (OME-1051 D1).
     authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    # FEATURE: OME-1307 — a link to the paper behind this result. None means "not given", so a
+    # same-owner resubmit without it keeps the stored link (an older SDK never sends it).
+    # AIDEV-NOTE: deliberately absent from `_content_hash`, like `authors`: it is display-only.
+    paper_url: PaperUrl | None = None
     # FEATURE: OME-1181 — the candidate's DECLARED model routes, as composed in the recipe.
     #
     # WHY optional: this field deploys BEFORE the Client that populates it (OME-1179
@@ -560,16 +640,7 @@ class ScoreSubmission(BaseModel):
     @field_validator("authors")
     @classmethod
     def validate_distinct_authors(cls, value: list[str] | None) -> list[str] | None:
-        # INVARIANT: the cap protects credit cardinality, not raw audit history. The
-        # serializer uses this exact key when it collapses repeated identities.
-        if value is None:
-            return value
-        if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
-            raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
-        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
-        if len(encoded) > _AUTHORS_MAX_BYTES:
-            raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
-        return value
+        return _validate_bounded_authors(value)
 
     @field_validator("models")
     @classmethod
@@ -799,6 +870,17 @@ class ScoreSchema(BaseModel):
     url4_expression: str
     submitted_by: SubmittedBy
     authors: Authors = None
+    # FEATURE: OME-1307 — the paper link and the time `authors` or `paper_url` last changed.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, for exactly the reason `models` below records. This schema
+    # feeds the private JSONL export whose bytes authorize a purge; `"paper_url": null` on every
+    # legacy row would change every export saved before these fields existed.
+    #
+    # INVARIANT: null `metadata_updated_at` means "never edited". Only a CHANGE sets it.
+    paper_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    metadata_updated_at: datetime | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     # FEATURE: OME-1181 — the declared candidate model routes, for classification.
     #
     # INVARIANT: EXCLUDED WHEN ABSENT, like `ranking_notice` below and for the same reason.
@@ -877,6 +959,61 @@ class ScoreSchema(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+
+
+class ScoreMetadataPatch(BaseModel):
+    """Body of `PATCH /v1/scores/{id}`: the two fields a submitter may edit after the fact.
+
+    FEATURE: OME-1307 — an ABSENT key means "unchanged" and `paper_url: null` means "clear the
+    link"; `model_fields_set` is what tells them apart, so the route must not dump the model with
+    defaults. `authors: null` is refused: to go back to the derived credit line, send
+    `authors: [submitted_by]`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    paper_url: PaperUrl | None = None
+
+    @field_validator("authors", mode="before")
+    @classmethod
+    def refuse_null_authors(cls, value: object) -> object:
+        # A FIELD validator (not the model one below) so the 422 points at `body.authors`. It runs
+        # only when the key is present, which is exactly the case to refuse.
+        if value is None:
+            raise ValueError("authors cannot be null; send a list, or omit the key")
+        return value
+
+    @field_validator("authors")
+    @classmethod
+    def validate_distinct_authors(cls, value: list[str] | None) -> list[str] | None:
+        return _validate_bounded_authors(value)
+
+    @model_validator(mode="after")
+    def validate_one_known_key(self) -> ScoreMetadataPatch:
+        if not self.model_fields_set:
+            raise ValueError("send at least one of: authors, paper_url")
+        return self
+
+
+class ScoreMetadataEventSchema(BaseModel):
+    """One row of a score's edit log, for its owner only (`GET /v1/scores/{id}/metadata-events`).
+
+    INVARIANT: `authors` here is a plain list, NOT the `Authors` type. That type publishes local
+    parts only, which is right for a public read and wrong here: the owner reads the full addresses
+    they added or removed. The route is owner-only and `no-store` for that reason.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    edited_by: str
+    edited_at: datetime
+    source: Literal["patch", "resubmit"]
+    old_authors: list[str] | None
+    new_authors: list[str] | None
+    old_paper_url: str | None
+    new_paper_url: str | None
 
 
 class LeaderboardEntry(BaseModel):
