@@ -71,4 +71,10 @@ describe("benchmarkBlurb", () => {
     expect(blurb.endsWith("…")).toBe(true);
     expect(blurb).not.toMatch(/\s…$/);
   });
+
+  it("cuts a long description with no spaces at the limit", () => {
+    expect(benchmarkBlurb(summary({ description: "x".repeat(200) }))).toBe(
+      `${"x".repeat(80)}…`,
+    );
+  });
 });
