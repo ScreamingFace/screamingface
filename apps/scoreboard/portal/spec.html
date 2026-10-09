@@ -14,13 +14,10 @@
   <script>(function(){try{var t=localStorage.getItem('sf_theme')||'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
   <!-- Privacy-friendly analytics by Plausible -->
   <script async src="https://plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js"></script>
-  <script>
-    window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
-    plausible.init()
-  </script>
+  <script src="analytics.js"></script>
 </head>
 <body>
-  <div class="rail">
+  <div class="rail" data-section="nav">
     <a class="brand" href="index.html"><span class="m" aria-hidden="true">😱</span> screamingface</a><span class="sep">/</span>
     <nav class="crumbs"><a id="back-link" href="#" hidden></a><a href="#" class="here">spec</a></nav>
     <span class="spacer"></span>
@@ -34,7 +31,7 @@
   </div>
 
   <div class="wrap">
-    <header class="masthead">
+    <header class="masthead" data-section="header">
       <div class="eyebrow">Spec history</div>
       <h1>Run history</h1>
     </header>
@@ -42,7 +39,7 @@
     <p class="meta mono" id="spec-id"></p>
     <p class="lead" id="spec-benchmark"></p>
 
-    <div class="note">
+    <div class="note" data-section="note">
       <span class="kicker">Reproduce before trusting</span>
       History is newest-first. The Copy button copies the newest submission's url4
       expression — paste it into the desktop app to reproduce the latest public claim
@@ -76,7 +73,7 @@
       </div>
     </div>
 
-    <div class="foot">
+    <div class="foot" data-section="footer">
       <span>😱 screamingface</span>
       <span><a href="https://github.com/ScreamingFace/screamingface" rel="noopener noreferrer nofollow">GitHub</a></span>
     </div>
