@@ -356,9 +356,11 @@
       "Fusion": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, name: 'str | None' = None, synthesizer: 'str | Recipe') -> 'None'",
+          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, name: 'str | None' = None, synthesizer: 'str | Recipe', quorum: \"int | Literal['all']\" = 'all', optional_members: 'bool' = False) -> 'None'",
           "members": "field",
           "name": "field",
+          "optional_members": "field",
+          "quorum": "field",
           "synthesizer": "field",
           "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
         }
