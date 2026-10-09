@@ -389,6 +389,30 @@ PaperUrl = Annotated[
 ]
 
 
+# FEATURE: OME-1307 — the frozen copy id in the AI Gateway: a UUID, stored in lower case.
+# INVARIANT: the same spelling on the submission, on a recorded reproduction and in the column
+# width (`VARCHAR(36)`). `UUID(...)` is the check and `str(...)` the stored form, so the same copy
+# sent in upper case or without hyphens is the same value, and a trailing newline is refused.
+def _validate_frozen_copy_id(value: str) -> str:
+    try:
+        return str(UUID(value))
+    except ValueError as exc:
+        raise ValueError("frozen_copy_id must be a UUID") from exc
+
+
+FrozenCopyId = Annotated[str, AfterValidator(_validate_frozen_copy_id)]
+# `complete`: the frozen copy holds every call, so a replay can answer it. `partial`: not.
+CaptureStatus = Literal["complete", "partial"]
+# A 32-bit signed INT, the width of the column. Anything wider would fail on PostgreSQL after
+# passing here, so it is refused as a 422 instead of reaching the database.
+AnswerSeed = Annotated[int, Field(ge=-(2**31), le=2**31 - 1)]
+
+
+# The exact primary score the Engine Benchmark produced: any finite number, higher is better. One
+# annotation for the submitted score and the replayed one, so the two are compared as the same type.
+ExactScore = Annotated[float, Field(strict=True, allow_inf_nan=False)]
+
+
 class ClientInfo(BaseModel):
     """Optional client metadata for a score submission."""
 
@@ -478,9 +502,7 @@ class ScoreSubmission(BaseModel):
     # projection of what `url4_expression` already carries, and that IS hashed — see the
     # invariant on `_content_hash` in store.py before changing this.
     models: Annotated[list[ModelRoute], Field(min_length=1)] | None = None
-    # the exact primary score the Engine Benchmark produced — any
-    # finite number, higher is better
-    score: Annotated[float, Field(strict=True, allow_inf_nan=False)]
+    score: ExactScore
     total_questions: int
     correct_questions: int | None = None
     ran_with_providers: list[str]
@@ -567,6 +589,26 @@ class ScoreSubmission(BaseModel):
     # would have cost, priced from the archive (another call of the same model and kind). Summed
     # with the spend and the reported saving at the point of use; never sent pre-summed.
     cache_saved_cost_archive_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    # FEATURE: OME-1307 — which frozen copy holds this run and whether it holds every call of it.
+    #
+    # WHY optional: like `paper_url`, these deploy BEFORE the SDK that sends them (`extra="forbid"`
+    # makes the rollout one-directional), and the SDK omits each one when it is NULL.
+    #
+    # INVARIANT: `frozen_copy_id` needs `capture_status` (below). `capture_status` alone is legal: a
+    # run that failed to open its copy has a status and no copy id.
+    #
+    # AIDEV-NOTE: deliberately absent from `_content_hash`. They describe one execution of a recipe,
+    # as the cost fields do, and a resubmit only FILLS them (`_replay_updates`).
+    frozen_copy_id: FrozenCopyId | None = None
+    capture_status: CaptureStatus | None = None
+    answer_seed: AnswerSeed | None = None
+
+    @model_validator(mode="after")
+    def validate_frozen_copy_id_has_a_capture_status(self) -> ScoreSubmission:
+        """INVARIANT (I1): a copy id without a status is incoherent, so it is refused."""
+        if self.frozen_copy_id is not None and self.capture_status is None:
+            raise ValueError("frozen_copy_id requires capture_status")
+        return self
 
     @field_validator("cache_saved_cost_usd", "cache_saved_cost_archive_usd")
     @classmethod
@@ -952,6 +994,33 @@ class ScoreSchema(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    # FEATURE: OME-1307 — the frozen copy of the run. EXCLUDED WHEN ABSENT, for exactly the reason
+    # `paper_url` and `models` record: the private JSONL export hashes these bytes to authorise a
+    # purge, and no legacy row may gain `"capture_status": null`.
+    #
+    # INVARIANT: a null `capture_status` means "unknown", never `partial`.
+    frozen_copy_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    capture_status: CaptureStatus | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    answer_seed: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    # FEATURE: OME-1307 — recorded reproductions, DERIVED on read (never stored on `scores`). Only
+    # `GET /v1/scores/{id}` fills them; every other path that builds this DTO leaves the default.
+    #
+    # INVARIANT: EXCLUDED WHEN ZERO or null, for the reason `paper_url` records. An absent count
+    # reads as 0 (K8), so a row with no reproductions serializes as it did before the field: the
+    # private JSONL export (whose bytes authorise a purge) and the PATCH and resubmit responses,
+    # which never compute the count, do not change.
+    reproduction_count: int = Field(
+        default=0,
+        exclude_if=lambda value: value == 0,
+        description="Recorded reproductions; only `GET /v1/scores/{id}` carries it. Absent: 0.",
+    )
+    last_reproduced_at: datetime | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Latest reproduction time; only `GET /v1/scores/{id}` carries it.",
+    )
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a
     # mismatch supplied by POST remains visible and documented in the shared schema.
@@ -1014,6 +1083,61 @@ class ScoreMetadataEventSchema(BaseModel):
     new_authors: list[str] | None
     old_paper_url: str | None
     new_paper_url: str | None
+
+
+class ReproductionClientInfo(ClientInfo):
+    """`ClientInfo` with the one field this table stores bounded to its column.
+
+    WHY not bounded on `ClientInfo`: that model is shared with `POST /v1/scores`, whose behaviour
+    this change does not alter. `client_version` is `VARCHAR(64)`, and an unbounded value would
+    reach PostgreSQL as a DataError and answer 503 for a client error.
+    """
+
+    version: Annotated[str, Field(max_length=64)] | None = None
+
+
+class ValidationErrorItem(BaseModel):
+    """One entry of the framework's list-shaped 422 `detail`, for the OpenAPI document."""
+
+    loc: list[str | int]
+    msg: str
+    type: str
+
+
+class ValidationErrorResponse(BaseModel):
+    """The framework's 422 for a body that fails validation (as opposed to a coded refusal)."""
+
+    detail: list[ValidationErrorItem]
+
+
+class ReproductionSubmission(BaseModel):
+    """Body of `POST /v1/scores/{id}/reproductions`: one exact replay a verified identity records.
+
+    FEATURE: OME-1307 — `score`, `total_questions` and `frozen_copy_id` are compared with the stored
+    score by the route (a mismatch is `not_exact`); this DTO only checks their shape.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: Annotated[str, Field(min_length=1, max_length=128)]
+    score: ExactScore
+    total_questions: int
+    frozen_copy_id: FrozenCopyId | None = None
+    client: ReproductionClientInfo
+
+
+class ReproductionSchema(BaseModel):
+    """One recorded reproduction, as the recorder receives it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    score_id: UUID
+    reproduced_by: str
+    reproduced_at: datetime
+    run_id: str
+    frozen_copy_id: str | None
+    client_version: str | None
 
 
 class LeaderboardEntry(BaseModel):

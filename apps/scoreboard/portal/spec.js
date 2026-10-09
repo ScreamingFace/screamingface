@@ -43,10 +43,23 @@
     contentNode.insertBefore(line, contentNode.querySelector("h2"));
   }
 
+  // The reproduced count comes from the same score detail. It is API data, so it is shown only
+  // when it is a positive whole number, and only as text.
+  function renderReproduced(contentNode, score) {
+    var count = score && score.reproduction_count;
+    if (typeof count !== "number" || !isFinite(count) || count < 1 || Math.floor(count) !== count) return;
+    var text = "Reproduced " + count + (count === 1 ? " time" : " times");
+    // `formatDate` answers the dash for a value it cannot parse; a dash after "last" says nothing.
+    var when = score.last_reproduced_at ? P.formatDate(score.last_reproduced_at) : P.EM_DASH;
+    if (when !== P.EM_DASH) text += " \u00b7 last " + when;
+    contentNode.insertBefore(P.el("p", "meta mono", text), contentNode.querySelector("h2"));
+  }
+
   function renderRunLink(contentNode, regionNode, specId, latestId) {
     P.fetchJson("/v1/scores/" + encodeURIComponent(latestId)).then(
       function (score) {
         renderPaperLink(contentNode, score);
+        renderReproduced(contentNode, score);
         if (score && score.url4_expression) {
           P.clear(regionNode);
           regionNode.appendChild(P.createCopyButton(specId, score.url4_expression));

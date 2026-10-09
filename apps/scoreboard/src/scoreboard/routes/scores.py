@@ -45,16 +45,20 @@ from scoreboard.scores.schemas import (
     FieldErrorDetail,
     FieldErrorResponse,
     MessageErrorResponse,
+    ReproductionSchema,
+    ReproductionSubmission,
     ScoreMetadataEventSchema,
     ScoreMetadataPatch,
     ScoreRankingNotice,
     ScoreSchema,
     ScoreSubmission,
+    ValidationErrorResponse,
 )
 from scoreboard.scores.store import (
     BenchmarkVisibilityChanged,
     ConcurrentScoreUpdate,
     PrivateBoardRequiresIdentity,
+    ReproductionRunIdConflict,
     ScoreStore,
 )
 
@@ -182,6 +186,36 @@ PATCH_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
         "model": ScoreSchema,
         "description": "The score after the edit (unchanged values write no event).",
     },
+}
+RECORD_REPRODUCTION_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_200_OK: {
+        "model": ReproductionSchema,
+        "description": "You already recorded this run_id for the score; returns that row.",
+    },
+    status.HTTP_401_UNAUTHORIZED: OWNER_ONLY_RESPONSES[status.HTTP_401_UNAUTHORIZED],
+    status.HTTP_403_FORBIDDEN: SUBMIT_SCORE_RESPONSES[status.HTTP_403_FORBIDDEN],
+    status.HTTP_404_NOT_FOUND: OWNER_ONLY_RESPONSES[status.HTTP_404_NOT_FOUND],
+    status.HTTP_409_CONFLICT: {
+        "model": CodedErrorResponse | MessageErrorResponse,
+        "description": (
+            "Two shapes. `{code: not_reproducible}`: the score's `capture_status` is not "
+            "`complete`, so there is nothing to replay. `{code: run_id_conflict}`: another "
+            "identity already recorded this run_id for the score (nothing about that row is "
+            "returned; use a new run_id). A string `detail` (`MessageErrorResponse`): the "
+            "board's visibility changed mid-request; retry."
+        ),
+    },
+    422: {
+        "model": CodedErrorResponse | ValidationErrorResponse,
+        "description": (
+            "Two shapes. `{code: not_exact}` (`CodedErrorResponse`): the score, total_questions or "
+            "frozen_copy_id differs from the stored score. A list `detail` "
+            "(`ValidationErrorResponse`): the body failed validation."
+        ),
+    },
+    status.HTTP_503_SERVICE_UNAVAILABLE: SUBMIT_SCORE_RESPONSES[
+        status.HTTP_503_SERVICE_UNAVAILABLE
+    ],
 }
 GET_METADATA_EVENTS_RESPONSES: dict[int | str, dict[str, Any]] = {
     **OWNER_ONLY_RESPONSES,
@@ -331,7 +365,9 @@ async def submit_score(
 
 
 @router.get("/scores/{score_id}", response_model=ScoreSchema, responses=GET_SCORE_RESPONSES)
-async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) -> ScoreSchema:
+async def get_score(
+    score_id: UUID, request: Request, response: Response, identity: ReadIdentity
+) -> ScoreSchema:
     """Return a public score by id.
 
     ``verified_by_screamingface`` carries no verification claim yet: nothing re-runs
@@ -354,6 +390,16 @@ async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) 
             None
             if score is None
             else await Benchmark.get_or_none(id=cast(str, getattr(score, "benchmark_id")))
+        )
+        # FEATURE: OME-1307 — one aggregate (COUNT, MAX) over the recorded reproductions, read with
+        # the other two so the store-unavailable boundary covers it. Fetched before the access
+        # decision below and used only if the score is served; the refusals never carry it.
+        reproductions = (
+            (0, None)
+            if score is None
+            else await cast(ScoreStore, request.app.state.score_store).reproduction_aggregate(
+                score_id
+            )
         )
     except OperationalError as exc:
         raise HTTPException(
@@ -384,18 +430,22 @@ async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) 
     if not private and await turned_private(cast(str, getattr(score, "benchmark_id"))):
         raise _score_not_found()
 
-    return ScoreSchema.model_validate(score, from_attributes=True)
+    count, last_reproduced_at = reproductions
+    return ScoreSchema.model_validate(score, from_attributes=True).model_copy(
+        update={"reproduction_count": count, "last_reproduced_at": last_reproduced_at}
+    )
 
 
-async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> tuple[Score, bool]:
-    """The score ``identity`` submitted and whether its board is private, or the refusal.
+async def _load_visible_score(
+    request: Request, score_id: UUID, identity: str
+) -> tuple[Score, bool]:
+    """The score ``identity`` may see and whether its board is private, or the 503 / 404 refusal.
 
-    Shared by the two owner-only routes. The flag is what this decision ASSUMED about the board;
-    the write path re-proves it inside its transaction.
+    Shared by the owner-only routes and the reproduction record. The flag is what this decision
+    ASSUMED about the board; a write path re-proves it inside its transaction.
 
-    INVARIANT: the checks run in a fixed order, so a refusal says no more than it must. A missing
-    score and a private-board score the caller may not see are the SAME 404; only after that does
-    a visible score that is not the caller's answer 403 `not_score_owner`.
+    INVARIANT: a missing score and a private-board score the caller may not see are the SAME 404,
+    so holding a real id is not confirmable (OME-894).
 
     INVARIANT: on a private board the owner match counts only when the identity is VERIFIED. In
     `disabled` mode `X-User-Email` is an unverified claim, and honouring it would let anyone read
@@ -407,7 +457,7 @@ async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> 
 
     WHY the privacy decision ends in `turned_private`: it reads the board's state fresh,
     immediately before the answer that depends on it, so there is no earlier copy to go stale
-    between the read and the 403 that would otherwise confirm the id exists.
+    between the read and any answer that would otherwise confirm the id exists.
     """
     try:
         score = await Score.get_or_none(id=score_id)
@@ -428,7 +478,17 @@ async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> 
     owner = score.submitted_by == identity
     if private and not (owner and identity_is_verified(settings.auth_mode)):
         raise _score_not_found()
-    if owner:
+    return score, private
+
+
+async def _load_owned_score(request: Request, score_id: UUID, identity: str) -> tuple[Score, bool]:
+    """The score ``identity`` submitted and whether its board is private, or the refusal.
+
+    The shared checks run first (`_load_visible_score`), so a score the caller may see but did not
+    submit is the only thing left to answer 403 `not_score_owner`.
+    """
+    score, private = await _load_visible_score(request, score_id, identity)
+    if score.submitted_by == identity:
         return score, private
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -512,3 +572,97 @@ async def get_metadata_events(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=STORE_UNAVAILABLE_DETAIL,
         ) from exc
+
+
+def _refuse_unless_exact(score: Score, body: ReproductionSubmission) -> None:
+    """409 when the score's `capture_status` is not `complete`, then 422 when the body differs."""
+    if score.capture_status != "complete":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "not_reproducible",
+                "message": "only a score whose run was fully captured can be reproduced",
+            },
+            headers=PRIVATE_CACHE_HEADERS,
+        )
+    # INVARIANT: exact equality, the same value the board stores. A replay that differs by one ulp
+    # is a different result, and the board never rounds it into agreement.
+    if (
+        body.score != score.score
+        or body.total_questions != score.total_questions
+        or body.frozen_copy_id != score.frozen_copy_id
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "not_exact",
+                "message": "score, total_questions and frozen_copy_id must equal the stored score",
+            },
+            headers=PRIVATE_CACHE_HEADERS,
+        )
+
+
+@router.post(
+    "/scores/{score_id}/reproductions",
+    response_model=ReproductionSchema,
+    status_code=status.HTTP_201_CREATED,
+    responses=RECORD_REPRODUCTION_RESPONSES,
+)
+async def record_reproduction(
+    score_id: UUID,
+    body: ReproductionSubmission,
+    request: Request,
+    response: Response,
+    identity: VerifiedIdentity,
+) -> ReproductionSchema:
+    """Record one exact replay of a `complete` score (E14 B4); any verified identity may.
+
+    The checks run in a fixed order: identity (401/403), the score exists (404), a private board
+    that is not the caller's (the same 404), `capture_status` is not `complete` (409
+    `not_reproducible`), then the score, total_questions or frozen_copy_id differ from the stored
+    row (422 `not_exact`). A run_id this identity already recorded answers 200 with that row; one
+    another identity recorded answers 409 `run_id_conflict`.
+    """
+    # INVARIANT: identity-scoped on every answer: the body names the caller's email, and each
+    # refusal depends on who asked. No shared cache may keep any of them.
+    response.headers.update(PRIVATE_CACHE_HEADERS)
+    score, private = await _load_visible_score(request, score_id, identity)
+    _refuse_unless_exact(score, body)
+    store = cast(ScoreStore, request.app.state.score_store)
+    try:
+        outcome = await store.record_reproduction(
+            score_id,
+            reproduced_by=identity,
+            submission=body,
+            benchmark_id=cast(str, getattr(score, "benchmark_id")),
+            expect_private=private,
+        )
+    except BenchmarkVisibilityChanged as exc:
+        # The board changed between the check above and the locked insert. Nothing is wrong with the
+        # request, and a retry sees one consistent view (the same answer as the resubmit path).
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=VISIBILITY_CHANGED_DETAIL,
+            headers=PRIVATE_CACHE_HEADERS,
+        ) from exc
+    except ReproductionRunIdConflict as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "run_id_conflict",
+                "message": "this run_id was already recorded for the score; send a new run_id",
+            },
+            headers=PRIVATE_CACHE_HEADERS,
+        ) from exc
+    except OperationalError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=STORE_UNAVAILABLE_DETAIL,
+        ) from exc
+    if outcome is None:
+        # Deleted between the read above and the insert.
+        raise _score_not_found()
+    reproduction, created = outcome
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return reproduction

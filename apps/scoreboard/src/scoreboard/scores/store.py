@@ -16,6 +16,7 @@ from pypika_tortoise.queries import Query, QueryBuilder
 from tortoise import BaseDBAsyncClient, Tortoise
 from tortoise.exceptions import FieldError, IntegrityError
 from tortoise.expressions import Q
+from tortoise.functions import Count, Max
 from tortoise.query_api import execute_pypika
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
@@ -24,15 +25,18 @@ from scoreboard.classification.openness import Openness
 from scoreboard.db import DEFAULT_CONNECTION
 
 from .frontier import FrontierMember, HistoryRow
-from .models import Benchmark, IdempotencyKey, Score, ScoreMetadataEvent
+from .models import Benchmark, IdempotencyKey, Score, ScoreMetadataEvent, ScoreReproduction
 from .pareto import ParetoEntry
 from .reproduction_cost import reproduction_cost
 from .schemas import (
     SATURATION_VERDICTS,
     BenchmarkSchema,
+    CaptureStatus,
     LeaderboardEntry,
     LeaderboardStoreEntry,
     ProvenanceSchema,
+    ReproductionSchema,
+    ReproductionSubmission,
     RunCostStatus,
     ScoreMetadataEventSchema,
     ScoreSchema,
@@ -195,6 +199,11 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         # export would have omitted data the purge deletes (review of PR #1055, P1).
         cache_saved_cost_usd=model.cache_saved_cost_usd,
         cache_saved_cost_archive_usd=model.cache_saved_cost_archive_usd,
+        # FEATURE: OME-1307 — same CharField narrowing as `run_cost_status`. Null `capture_status`
+        # means "unknown" (a row that predates the field), not `partial`.
+        frozen_copy_id=model.frozen_copy_id,
+        capture_status=cast("CaptureStatus | None", model.capture_status),
+        answer_seed=model.answer_seed,
     )
 
 
@@ -253,12 +262,22 @@ _REPLAY_FIELDS: tuple[str, ...] = (
     "run_cost_status",
     "cache_saved_cost_usd",
     "cache_saved_cost_archive_usd",
+    "frozen_copy_id",
+    "capture_status",
+    "answer_seed",
 )
 
 # INVARIANT (OME-1145, review round 3): filling any of these changes what the frontier reads, so
 # it stamps `enriched_at`. Authors, paper link and metadata are display-only and never move a row
-# in time.
-_ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {"authors", "paper_url", "metadata"}
+# in time, and neither does the frozen copy (OME-1307): the frontier reads none of its fields.
+_ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {
+    "authors",
+    "paper_url",
+    "metadata",
+    "frozen_copy_id",
+    "capture_status",
+    "answer_seed",
+}
 
 
 # FEATURE: OME-1307 — the two display-only fields a submitter may correct after the fact, and the
@@ -309,6 +328,32 @@ async def _log_metadata_event(
         old_paper_url=locked.paper_url,
         new_paper_url=changes.get("paper_url", locked.paper_url),
     )
+
+
+def _frozen_copy_fills(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
+    """The frozen-copy fields a same-owner replay may FILL on ``existing``, and nothing else.
+
+    FEATURE: OME-1307 — the frozen copy of the run, for a row stored before the SDK sent it.
+
+    INVARIANT: FILL ONLY, never replace, for the reason `models` and the cost fields record. A
+    published `complete` is a claim others replay against, and a replay of the same recipe must
+    not be able to turn it into `partial` or point it at another frozen copy (C12).
+
+    INVARIANT: the copy id and the status move TOGETHER or not at all, gated on the STATUS. They
+    describe ONE execution: a row that already holds a status (even `partial`, with no copy id) is
+    not given a copy id from a different run. `answer_seed` is a separate fact and fills alone.
+    The sentinel is NULL, not falsy: `0` is a real seed.
+
+    WHY a function of its own: `_replay_updates` is at the repo's complexity and branch limits, and
+    this rule is the one part of it that has nothing to do with the others.
+    """
+    fills: dict[str, object] = {}
+    if submission.capture_status is not None and existing.capture_status is None:
+        fills["capture_status"] = submission.capture_status
+        fills["frozen_copy_id"] = submission.frozen_copy_id
+    if submission.answer_seed is not None and existing.answer_seed is None:
+        fills["answer_seed"] = submission.answer_seed
+    return fills
 
 
 def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
@@ -399,6 +444,8 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
         # recoverable without asking the client, because an amount IS the claim `complete` makes.
         # Healing it here means the population `OME-1258` inherits is already correct.
         updates["run_cost_status"] = "complete"
+    # FEATURE: OME-1307 — the frozen copy of the run, fill-only (see the helper's invariants).
+    updates.update(_frozen_copy_fills(submission, existing))
     return updates
 
 
@@ -454,6 +501,11 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "cache_saved_cost_usd": submission.cache_saved_cost_usd,
         # OME-1251 D7: stored apart from the reported saving; summed only at the point of use.
         "cache_saved_cost_archive_usd": submission.cache_saved_cost_archive_usd,
+        # FEATURE: OME-1307 — the frozen copy of the run. Deliberately absent from _content_hash:
+        # it describes one execution of a recipe, like the cost fields above.
+        "frozen_copy_id": submission.frozen_copy_id,
+        "capture_status": submission.capture_status,
+        "answer_seed": submission.answer_seed,
         "content_hash": content_hash,
     }
 
@@ -697,6 +749,10 @@ def _mapping_is_ours(stored_key: str, linked: IdempotencyKey) -> bool:
     if not stored_key.startswith(RESERVED_KEY_PREFIXES):
         return True
     return linked.scheme == KEY_SCHEME
+
+
+class ReproductionRunIdConflict(Exception):
+    """A `run_id` that another identity already recorded for the same score."""
 
 
 class BenchmarkVisibilityChanged(Exception):
@@ -1482,6 +1538,102 @@ class ScoreStore:
         """
         rows = await ScoreMetadataEvent.filter(score_id=score_id).order_by("-edited_at", "-id")
         return [ScoreMetadataEventSchema.model_validate(row, from_attributes=True) for row in rows]
+
+    async def _insert_reproduction(
+        self,
+        score_id: UUID,
+        *,
+        reproduced_by: str,
+        submission: ReproductionSubmission,
+        benchmark_id: str,
+        expect_private: bool,
+    ) -> ScoreReproduction:
+        """The insert of `record_reproduction`, with the board re-checked first, under its lock.
+
+        WHY a method of its own: the re-check dominates the insert and every exit after it, which
+        `test_visibility_exit_guard` can see only when the transaction is not wrapped in the unique
+        clash handling of the caller. The board is locked BEFORE any score-side write, the order
+        `patch_metadata` takes.
+        """
+        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
+            await self._revalidate_visibility(
+                benchmark_id, expect_private, connection=connection, lock=True
+            )
+            row = await ScoreReproduction.create(
+                using_db=connection,
+                score_id=score_id,
+                reproduced_by=reproduced_by,
+                run_id=submission.run_id,
+                frozen_copy_id=submission.frozen_copy_id,
+                client_version=submission.client.version,
+            )
+        return row
+
+    async def record_reproduction(
+        self,
+        score_id: UUID,
+        *,
+        reproduced_by: str,
+        submission: ReproductionSubmission,
+        benchmark_id: str,
+        expect_private: bool,
+    ) -> tuple[ReproductionSchema, bool] | None:
+        """Store one reproduction; return it and whether it is NEW, or None if the score is gone.
+
+        The CALLER has checked that the score is `complete`, that the body matches it, and that
+        ``reproduced_by`` may see it. The board is the one thing re-proved here, under its lock.
+
+        INVARIANT: insert first, and on a unique `(score_id, run_id)` clash re-read the row. A
+        pre-check would lose a race to a second request with the same run (R18, R22). Only the
+        identity that recorded the row gets it back; any other gets `ReproductionRunIdConflict`,
+        which carries nothing about it.
+
+        INVARIANT: ``expect_private`` is what the route's access decision assumed. A mismatch under
+        the lock refuses with `BenchmarkVisibilityChanged`, as `patch_metadata` does.
+
+        WHY None: the score was deleted before the insert. That is a 404, not an unavailable store
+        (`IntegrityError` subclasses `OperationalError`, which the route maps to 503).
+        """
+        try:
+            row = await self._insert_reproduction(
+                score_id,
+                reproduced_by=reproduced_by,
+                submission=submission,
+                benchmark_id=benchmark_id,
+                expect_private=expect_private,
+            )
+            created = True
+        except IntegrityError:
+            existing = await ScoreReproduction.get_or_none(
+                score_id=score_id, run_id=submission.run_id
+            )
+            if existing is None:
+                if not await Score.exists(id=score_id):
+                    return None
+                raise
+            if existing.reproduced_by != reproduced_by:
+                raise ReproductionRunIdConflict(submission.run_id) from None
+            row, created = existing, False
+        # The score id and the outcome only: the identity is an email.
+        logger.info(
+            "score reproduction score_id=%s status=%s",
+            score_id,
+            "created" if created else "existing",
+        )
+        return ReproductionSchema.model_validate(row, from_attributes=True), created
+
+    async def reproduction_aggregate(self, score_id: UUID) -> tuple[int, datetime | None]:
+        """How many reproductions a score has and when the latest was recorded, in ONE query.
+
+        INVARIANT: derived on read, never stored on `scores`, so two records at the same moment
+        cannot lose an update and a deleted score takes its count with it.
+        """
+        (row,) = await (
+            ScoreReproduction.filter(score_id=score_id)
+            .annotate(total=Count("id"), latest=Max("reproduced_at"))
+            .values("total", "latest")
+        )
+        return row["total"], row["latest"]
 
     def visibility_query(
         self,
