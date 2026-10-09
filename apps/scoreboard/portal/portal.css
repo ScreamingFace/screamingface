@@ -64,7 +64,7 @@ table .btn { white-space: nowrap; }
 
 /* ---- spec page run region ------------------------------------------- */
 .run-region { margin: 0 0 var(--space-5); }
-.quiet { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-3); }
+.quiet { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-2); }
 
 /* ---- screen-reader-only text ----------------------------------------- */
 /* Non-visual a11y utility (standard clip pattern); carries meaning that
@@ -566,4 +566,32 @@ td.col-open { white-space: nowrap; }
 @media (max-width: 620px) {
   .pareto-chart-section { margin-top: var(--space-5); }
   .pareto-chart-caption { align-items: flex-start; }
+}
+
+/* ---- subscribe ---------------------------------------------------- */
+/* The email forms rendered by subscribe.js: one per board, opened from "Follow this board" under
+   the title, and one site-wide band above the footer. Extends the vendored .signup row. */
+.subscribe { margin: var(--space-10) 0 0; padding-top: var(--space-6); border-top: var(--border-hairline) solid var(--line); }
+.subscribe-heading { margin: 0 0 var(--space-2); padding: 0; border: 0; font-family: var(--f-sans); font-size: var(--text-body); font-weight: var(--weight-semibold); color: var(--ink); }
+.subscribe-body { margin: 0 0 var(--space-4); font-size: var(--text-sm); color: var(--ink-2); }
+.subscribe .signup { justify-content: flex-start; margin: 0 0 var(--space-3); }
+.subscribe .signup input.err { border-color: var(--blind); }
+/* Focus is the field's own border turning the button's gold, so the row reads as one outline. */
+.subscribe .signup input:focus { border-color: var(--accent-solid); }
+.subscribe .signup .btn--primary { padding: var(--space-3) var(--space-5); white-space: nowrap; }
+.subscribe-trap { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+.subscribe-also { display: flex; margin: 0 0 var(--space-3); font-size: var(--text-sm); color: var(--ink-2); }
+/* The vendored tick is a masked icon file the portal does not ship, so the box draws its own. */
+.subscribe .checkbox input:checked + .checkbox-box::after { -webkit-mask: none; mask: none;
+  clip-path: polygon(12% 52%, 26% 38%, 42% 56%, 76% 20%, 90% 34%, 42% 84%); }
+.subscribe-status { margin: 0; font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2); }
+.subscribe-status:not(:empty) { margin-bottom: var(--space-2); }
+.subscribe-status.is-error { color: var(--blind); }
+.subscribe-status.is-done { color: var(--success-text-low); }
+.subscribe-fine { margin: 0; font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-2); }
+.subscribe-follow { margin-top: var(--space-4); }
+#subscribe-panel.subscribe { margin: calc(-1 * var(--space-6)) 0 var(--space-7); }
+.hero-cta { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+@media (max-width: 620px) {
+  .subscribe .signup { max-width: none; }
 }
