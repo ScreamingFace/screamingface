@@ -94,9 +94,10 @@ async def test_2_0_broadcast_with_a_failed_required_source_fails_without_a_call(
     node: Url4Node, calls: list[Request]
 ) -> None:
     # WHY: url4 2.0 — a required source that fails fails the run, and the code pointer is not
-    # called for it (PRD E5).
+    # called for it (PRD E5). One source only: broadcast parts are independent (no barrier,
+    # as in the LLM broadcast), so with siblings a resolved part may call before the failure.
     with pytest.raises(ResolutionError) as err:
-        await run("(a='1', b=/nope, c='3')!*/score", node)
+        await run("(b=/nope)!*/score", node)
     assert err.value.code == "endpoint_not_found"
     assert [c.path for c in calls if c.path == "/score"] == []
 
