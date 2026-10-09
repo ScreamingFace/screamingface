@@ -21,6 +21,8 @@ import json
 from collections.abc import Mapping
 from urllib.parse import quote, unquote, unquote_plus
 
+from url4.wire.subrequest import _fully_encoded
+
 RdsValue = str | list[object] | dict[str, object]
 RDS_VERSION = 1
 
@@ -45,10 +47,11 @@ def decode_rds_document(text: str) -> dict[str, RdsValue] | None:
     """The ``inputs`` of a valid v1 document, else None. Never raises."""
     try:
         doc = json.loads(text)
-    except (json.JSONDecodeError, RecursionError):
-        # WHY: RecursionError is the parser's answer to nesting too deep to read.
-        # The text is attacker-controlled over HTTP, so it is a bad document, not
-        # a crash.
+    except (ValueError, RecursionError):
+        # WHY: the text comes from a remote caller over HTTP, so every parser
+        # refusal is a bad document, not a crash: ValueError covers JSONDecodeError
+        # and the int-digit limit (a 5000-digit number); RecursionError is nesting
+        # too deep to read.
         return None
     if not _is_v1_document(doc):
         return None
@@ -56,12 +59,15 @@ def decode_rds_document(text: str) -> dict[str, RdsValue] | None:
 
 
 def _is_v1_document(doc: object) -> bool:
-    # WHY: `type(...) is int` rejects a JSON `true`, which `== 1` would accept.
+    # WHY: `type(...) is int` rejects a JSON `true`, which `== 1` would accept. An
+    # input value is a string, an array or an object (contracts C1), never a JSON
+    # number, boolean or null, so `RdsValue` holds for what this returns.
     return (
         isinstance(doc, dict)
         and type(doc.get("v")) is int
         and doc["v"] == RDS_VERSION
         and isinstance(doc.get("inputs"), dict)
+        and all(isinstance(value, str | list | dict) for value in doc["inputs"].values())
     )
 
 
@@ -83,11 +89,11 @@ def decode_q_payload(raw_q: str) -> str | None:
     Two conventions, told apart by a raw ``(``: url4's own writer keeps the
     structural parens raw, and a standard HTTP client escapes them all.
     """
-    if "(" in raw_q:
-        return _decode_raw_q(raw_q)
-    if "%" in raw_q:
+    # INVARIANT: the convention test is the subrequest codec's own (one owner,
+    # contracts C2 step 2), so the RDS decode cannot drift from the LLM decode.
+    if _fully_encoded(raw_q):
         return _decode_encoded_q(raw_q)
-    return None
+    return _decode_raw_q(raw_q)
 
 
 def _decode_raw_q(raw_q: str) -> str | None:

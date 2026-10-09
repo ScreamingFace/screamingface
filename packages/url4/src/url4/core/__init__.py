@@ -10,6 +10,7 @@ Owns
 - ``render`` — AST → canonical text; the certified inverse of ``build``.
 - ``builders`` — the Python AST builders (``expr``, ``src``, ``iterate``, …).
 - ``context`` — the lexical scope chain (``$name`` resolution).
+- ``intent`` — the intent classifier: the mode an intent runs in, and its code pointer.
 - ``_scan`` / ``_annotations`` — shared scanning and annotation validation.
 - ``errors`` — the shared error hierarchy; a leaf every layer imports.
 

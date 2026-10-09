@@ -186,3 +186,10 @@ def test_validate_param_still_refuses_at() -> None:
 def test_eval_path_param_still_refuses_at_after_the_reader_exists() -> None:
     with pytest.raises(ParseError, match="param"):
         extract_expression_params("extract=last_number@1&q=(a)!'go'")
+
+
+def test_url4_uri_protocol_params_keep_param_value_and_refuse_at():
+    # STORY (row 5, ans:Q3): only a code pointer's query-tail admits `@`. The protocol
+    # params of a url4 URI's own query string still follow `param-value`.
+    with pytest.raises(ParseError, match="'a@b' for 'tone'"):
+        parse("url4://n/p?tone=a@b&q=(x)!'go'")

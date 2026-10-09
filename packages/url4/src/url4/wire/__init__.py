@@ -3,7 +3,9 @@
 A relative expression ``/path(context)!intent`` is dispatched as a localhost
 fetch of ``/path?[params&]q=(context)!intent``. ``subrequest`` is the single
 definition of that encoding: the engine builds sub-requests with it, and every
-node adapter decodes them with it.
+node adapter decodes them with it. ``rds`` is the code-pointer twin: the RDS
+input document and its ``?q=(<document>)`` target, decoded with the same
+convention test.
 
 This is a SHARED layer. Both the engine (``url4.dag``) and the node layer
 (``url4.io``, ``url4.peer``) import it, so it must stay below both.

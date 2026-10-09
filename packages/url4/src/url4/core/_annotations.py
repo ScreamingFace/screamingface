@@ -147,6 +147,7 @@ def validate_params(params: Params) -> None:
         validate_param(key, value)
 
 
+# WHY: the ABNF rule this reader applies (contracts C6):
 # query-tail = *( ALPHA / DIGIT / unreserved / ":" / "@" / "/" / "?" / "+" / "&" / "=" )
 # WHY: "&" is the part separator and "=" the key separator, so neither can appear in
 # a decoded part; the reader splits before it decodes, and checks "=" in the key.

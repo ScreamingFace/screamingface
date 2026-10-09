@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import random
-from urllib.parse import quote
+from urllib.parse import quote, quote_plus
 
 import pytest
 
@@ -29,7 +29,7 @@ _TEXT_ALPHABET = ("\n", "'", '"', "%", "&", "(", ")", "#", "+", " ", "\\", "é",
 
 
 def _q_value(target: str) -> str:
-    # The test targets carry no `q=` inside their path or query tail, so the
+    # WHY: the test targets carry no `q=` inside their path or query tail, so the
     # first `q=` is the last parameter's name.
     return target.partition("?")[2].partition("q=")[2]
 
@@ -39,7 +39,7 @@ def _random_text(rng: random.Random) -> str:
 
 
 def _random_value(rng: random.Random) -> RdsValue:
-    # The candidates are all built, so the draw consumes the same numbers every run.
+    # WHY: the candidates are all built, so the draw consumes the same numbers every run.
     candidates: list[RdsValue] = [
         "",
         _random_text(rng),
@@ -247,3 +247,36 @@ def test_c2_worked_example_decodes_to_the_three_named_inputs():
         "member_2": "B: 5 (final)\nok",
         "extract_pattern": "ANSWER: \\d+",
     }
+
+
+def test_decode_q_payload_keeps_a_raw_plus_in_the_raw_convention():
+    # INVARIANT (contracts C2 step 2): the raw convention decodes with ONE `unquote`,
+    # so a raw `+` stays `+`; `unquote_plus` would turn it into a space.
+    assert decode_q_payload("(a+b%20c)") == "a+b c"
+
+
+def test_seeded_corpus_with_the_safe_set_round_trips_both_conventions():
+    # WHY: the safe set travels raw, so it needs its own round-trip; the main
+    # alphabet holds none of these characters.
+    rng = random.Random(20261010)
+    alphabet = (*_TEXT_ALPHABET, "!", "$", "*", ",", ";", ":", "@", "/", "?", "=")
+    for _ in range(200):
+        inputs: dict[str, RdsValue] = {
+            f"k{i}": "".join(rng.choice(alphabet) for _ in range(rng.randrange(12)))
+            for i in range(rng.randrange(1, 4))
+        }
+        document = encode_rds_document(inputs)
+        raw_q = _q_value(encode_rds_target("/c", "", document))
+        for q in (raw_q, quote("(" + document + ")", safe=""), quote_plus("(" + document + ")")):
+            decoded = decode_q_payload(q)
+            assert decoded is not None
+            assert decode_rds_document(decoded) == inputs
+
+
+def test_decode_document_returns_none_for_a_number_too_long_to_read():
+    assert decode_rds_document('{"v":1,"inputs":{"a":' + "9" * 5000 + "}}") is None
+
+
+@pytest.mark.parametrize("value", ["5", "null", "true"])
+def test_decode_document_returns_none_for_an_input_that_is_not_text_array_or_object(value):
+    assert decode_rds_document('{"v":1,"inputs":{"a":' + value + "}}") is None
