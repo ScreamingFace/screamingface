@@ -39,3 +39,36 @@ def test_no_module_imports_a_private_url4_peer_dispatch_module() -> None:
         if _imports_private_url4_peer(py_file)
     ]
     assert offenders == []
+
+
+_PRIVATE_PEER_PREFIX = "url4.peer._"
+
+
+def _imports_any_private_url4_peer(py_file: Path) -> bool:
+    tree = ast.parse(py_file.read_text(), filename=str(py_file))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name.startswith(_PRIVATE_PEER_PREFIX) for alias in node.names
+        ):
+            return True
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and node.module.startswith(_PRIVATE_PEER_PREFIX)
+        ):
+            return True
+    return False
+
+
+def test_no_module_imports_any_private_url4_peer_module() -> None:
+    """The same guarantee for EVERY package-private `url4.peer._*` module, not a fixed list.
+
+    WHY: url4 2.0 split `_dispatch` into `_request` and `_code_pointer`, and a named list goes
+    stale on every such split. A prefix covers the next private module too (O8, 2026-10-09).
+    """
+    offenders = [
+        py_file
+        for py_file in (_SRC_ROOT / "screamingface_engine").rglob("*.py")
+        if _imports_any_private_url4_peer(py_file)
+    ]
+    assert offenders == []
