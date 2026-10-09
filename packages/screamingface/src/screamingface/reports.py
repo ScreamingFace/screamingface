@@ -12,6 +12,7 @@ import hashlib
 import shutil
 import sqlite3
 import stat
+from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -54,6 +55,7 @@ def list(*, directory: str | Path | None = None) -> builtins.list[SavedReportInf
     for run in store.list():
         groups.setdefault(_report_id(run), []).append(run)
     entries = []
+    sizes = _retained_sizes(store)
     for report_id, runs in groups.items():
         names = _listed_candidates(store, runs)
         downloaded = {run.candidate.name for run in runs if run.path.exists()}
@@ -63,7 +65,8 @@ def list(*, directory: str | Path | None = None) -> builtins.list[SavedReportInf
                 candidates=names,
                 directory=store.directory,
                 downloaded=set(names) <= downloaded,
-                size_bytes=sum(_directory_size(run.path.parent) for run in runs),
+                # INVARIANT: undecodable members still occupy retained storage.
+                size_bytes=sizes.get(report_id, 0),
             )
         )
     # INVARIANT: rejecting every candidate's metadata must not hide a known evaluation.
@@ -111,6 +114,14 @@ def _directory_size(directory: Path) -> int:
     except FileNotFoundError:
         pass  # WHY: explicit report deletion can also win after manifests were listed.
     return total
+
+
+def _retained_sizes(store: ResultStore) -> dict[str, int]:
+    # WHY: scan minimal identities once, rather than once for every listed evaluation.
+    sizes: dict[str, int] = {}
+    for identity, path, _ in store.identities():
+        sizes[identity] = sizes.get(identity, 0) + _directory_size(path.parent)
+    return sizes
 
 
 def _selected(store: ResultStore, report_id: str) -> SavedRun:
@@ -252,8 +263,15 @@ def _group(
     related: dict[str, SavedRun] = {}
     errors: dict[str, ScreamingFaceError] = {}
     _, members = store.member_manifests(selected.evaluation["id"])
+    claims = Counter(name for _, name in members)
     for path, name in members:
         if name not in expected or name is None:
+            continue
+        # INVARIANT: canonical membership cannot identify a duplicate name's owner.
+        if claims[name] > 1:
+            errors[name] = ExecutionError(
+                "Duplicate saved candidate name claims", code="result_metadata_invalid"
+            )
             continue
         try:
             related[name] = store._load(path)
