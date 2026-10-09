@@ -10,7 +10,7 @@
 # Check:  fm check spawn_cache_fixed.py   (the formal-modeling skill, bin/fm.py)
 #         (expect clean, 4 states)
 #
-# SOURCE: packages/url4/src/url4/dag/executor.py:_wire_spawn.spawn_hook (lines 261-276)
+# SOURCE: packages/url4/src/url4/dag/executor.py:_wire_spawn.spawn_hook (lines 261-285)
 
 """spawn_hook compile cache — the REAL atomic get → compile → store.
 

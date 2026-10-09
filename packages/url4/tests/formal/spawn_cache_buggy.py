@@ -12,7 +12,7 @@
 # Check:  fm check spawn_cache_buggy.py   (the formal-modeling skill, bin/fm.py)
 #         (expect a violation + counterexample)
 #
-# SOURCE: packages/url4/src/url4/dag/executor.py:_wire_spawn.spawn_hook (lines 261-276)
+# SOURCE: packages/url4/src/url4/dag/executor.py:_wire_spawn.spawn_hook (lines 261-285)
 
 """spawn_hook compile cache — WRONG: an await inserted between get and store.
 

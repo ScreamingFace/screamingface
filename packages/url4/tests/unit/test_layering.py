@@ -28,6 +28,7 @@ interpreter pulls in no framework); this proves the compile-time half.
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 
 import url4
@@ -58,6 +59,12 @@ _FORBIDDEN: dict[str, set[str]] = {
     "cli": {"streaming"},
     "streaming": {"core", "wire", "dag", "io", "observe", "peer", "cli"},
 }
+
+# The engine's port modules: the port itself and the retry idempotency key (both stdlib-only).
+_DAG_IO_PORTS = frozenset({"url4.io.layer", "url4.io.idempotency"})
+# The one documented exception to "dag reaches io only through its port modules":
+# dag/_run.py lazily imports the default HttpIOLayer when the caller passes no io.
+_DAG_IO_EXCEPTION = ("dag/_run.py", "url4.io.http")
 
 
 def _layer_of(module: str) -> str | None:
@@ -111,11 +118,37 @@ def _imported_modules(path: Path) -> set[str]:
     return found
 
 
-# The engine's port modules: the port itself and the retry idempotency key (both stdlib-only).
-_DAG_IO_PORTS = frozenset({"url4.io.layer", "url4.io.idempotency"})
-# The one documented exception to "dag reaches io only through its port modules":
-# dag/_run.py lazily imports the default HttpIOLayer when the caller passes no io.
-_DAG_IO_EXCEPTION = ("dag/_run.py", "url4.io.http")
+def _all_imports(path: Path) -> set[str]:
+    """Every module ``path`` imports, third-party included, relative names resolved.
+
+    Unlike ``_imported_modules`` this keeps non-url4 names such as ``pydantic``.
+    """
+    found: set[str] = set()
+    package = ["url4", *path.relative_to(_SRC).parts[:-1]]
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                found.update({node.module} if node.module else set())
+            else:
+                found.update(_from_modules(node, package))
+    return found
+
+
+def _outside_stdlib(path: Path, allowed: tuple[str, ...]) -> list[str]:
+    """Every import in ``path`` that is neither standard library nor under an ``allowed`` prefix.
+
+    A stdlib-only module must not take on a dependency unnoticed.
+    """
+    result: list[str] = []
+    for module in sorted(_all_imports(path)):
+        if module.split(".")[0] in sys.stdlib_module_names:
+            continue
+        if any(module == prefix or module.startswith(f"{prefix}.") for prefix in allowed):
+            continue
+        result.append(f"{path.relative_to(_SRC)} imports {module}")
+    return result
 
 
 def _bypasses_io_layer(source_layer: str, path: Path, module: str) -> bool:
@@ -135,7 +168,19 @@ def _offenders(source_layer: str) -> list[str]:
         if _importer_layer(path) != source_layer:
             continue
         for module in sorted(_imported_modules(path)):
-            if _layer_of(module) in forbidden or _bypasses_io_layer(source_layer, path, module):
+            if _layer_of(module) in forbidden:
+                result.append(f"{path.relative_to(_SRC)} imports {module}")
+    return result
+
+
+def _io_bypass_offenders() -> list[str]:
+    """Every engine import of url4.io that is not url4.io.layer or the documented exception."""
+    result: list[str] = []
+    for path in sorted(_SRC.rglob("*.py")):
+        if _importer_layer(path) != "dag":
+            continue
+        for module in sorted(_imported_modules(path)):
+            if _bypasses_io_layer("dag", path, module):
                 result.append(f"{path.relative_to(_SRC)} imports {module}")
     return result
 
@@ -160,6 +205,10 @@ def test_engine_layer_does_not_reach_the_node_layer() -> None:
     assert _offenders("dag") == []
 
 
+def test_engine_names_io_only_through_the_port() -> None:
+    assert _io_bypass_offenders() == []
+
+
 def test_io_port_imports_only_core_and_wire() -> None:
     assert _offenders("io") == []
 
@@ -168,10 +217,24 @@ def test_observe_is_a_leaf() -> None:
     assert _offenders("observe") == []
 
 
+def test_language_layer_imports_only_the_standard_library() -> None:
+    violations: list[str] = []
+    for path in sorted((_SRC / "core").rglob("*.py")):
+        violations.extend(_outside_stdlib(path, ("url4.core",)))
+    assert violations == []
+
+
 def test_observe_imports_only_the_standard_library() -> None:
     # url4._log_attributes is a stdlib-only leaf that sits outside the layer matrix.
-    observe = _SRC / "observe.py"
-    assert _imported_modules(observe) <= {"url4._log_attributes"}
+    assert _outside_stdlib(_SRC / "observe.py", ("url4._log_attributes",)) == []
+
+
+def test_log_attributes_imports_only_the_standard_library() -> None:
+    assert _outside_stdlib(_SRC / "_log_attributes.py", ()) == []
+
+
+def test_io_layer_imports_only_the_standard_library() -> None:
+    assert _outside_stdlib(_SRC / "io" / "layer.py", ()) == []
 
 
 def test_peer_does_not_import_the_cli() -> None:
@@ -184,3 +247,10 @@ def test_cli_does_not_import_the_wire_contract() -> None:
 
 def test_streaming_imports_no_engine_module() -> None:
     assert _offenders("streaming") == []
+
+
+def test_streaming_imports_only_the_standard_library_and_pydantic() -> None:
+    violations: list[str] = []
+    for path in sorted((_SRC / "streaming").rglob("*.py")):
+        violations.extend(_outside_stdlib(path, ("pydantic", "url4.streaming")))
+    assert violations == []

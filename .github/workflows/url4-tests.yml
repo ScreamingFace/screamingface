@@ -235,7 +235,7 @@ jobs:
 
       # The show_graph and show_run cells render with the Graphviz `dot` binary.
       - name: Install Graphviz
-        run: sudo apt-get install -y graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz
 
       - name: Install dependencies (notebook group)
         run: uv sync --group notebook

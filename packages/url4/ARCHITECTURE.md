@@ -50,8 +50,7 @@ layer. A layer imports only the layers below it.
 
 - `url4.core` imports the standard library only. It is a leaf of leaves.
 - `url4.wire` imports `core` only.
-- `url4.dag` may import `core`, `wire`, `observe`, and `io` (`io.layer` and
-  `io.idempotency`). It must not
+- `url4.dag` may import `core`, `wire`, `observe`, `io.layer`, and `io.idempotency`. It must not
   import `peer`, `cli`, or `streaming`.
 - `url4.io` may import `core` and `wire` only. It must not import `dag`,
   `observe`, `peer`, `cli`, or `streaming`. The engine depends on the port, never

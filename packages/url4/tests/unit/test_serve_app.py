@@ -110,7 +110,7 @@ async def test_over_max_inflight_returns_503() -> None:
     app = build_asgi_app(node, config)
     async with _driver(app) as http:
         first = asyncio.create_task(http.get("/v1", params={"q": "(r=/slow(x)!'go')!'$r'"}))
-        await entered.wait()
+        await asyncio.wait_for(entered.wait(), 5)
         second = await http.get("/v1", params={"q": "(r=/slow(x)!'go')!'$r'"})
         assert second.status_code == 503
         assert second.headers["retry-after"] == "1"

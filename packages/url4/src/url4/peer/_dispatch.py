@@ -66,7 +66,8 @@ class Request:
 # to the expression (spec §11.6.3). The ingress set is broader than the spec's
 # transport-only rule: it also drops params this node consumes itself
 # (delivery/cb/meta/v) and `processor`. The eval path consumes `processor` for
-# its §27.3 delegation; endpoint calls drop it.
+# its §27.3 delegation; endpoint calls do not reassemble an expression, so the
+# value reaches the handler in request.params.
 # INVARIANT: _TRANSPORT_PARAMS is DERIVED from TRANSPORT_ONLY_PARAMS, so the two
 # can never disagree about resume/rid.
 _TRANSPORT_PARAMS = TRANSPORT_ONLY_PARAMS | frozenset({"delivery", "cb", "meta", "v", "processor"})

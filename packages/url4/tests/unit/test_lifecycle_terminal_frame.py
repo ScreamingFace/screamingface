@@ -9,9 +9,7 @@ Also pins the producer-side sequencer invariants (F5b): the wire ``sequence`` co
 ``lifecycle._Sequencer`` and the ``engine_seq`` counter in ``dag._context._ObsState`` are
 strictly monotonic and gap-free, and each fails loudly if the increment ever breaks.
 
-Requires the ``[streaming]`` extra (pydantic). The dev group installs it; the import guard
-below keeps a base install green if it is ever absent.
-"""
+Requires the ``[streaming]`` extra (pydantic)."""
 
 from __future__ import annotations
 

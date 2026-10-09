@@ -15,7 +15,7 @@ Owns
 
 May import: the standard library, ``url4.core``, and ``url4.wire``.
 Must not import: ``url4.dag`` (the engine depends on this port, not the
-reverse), ``url4.peer``, ``url4.cli``, ``url4.streaming``.
+reverse), ``url4.observe``, ``url4.peer``, ``url4.cli``, ``url4.streaming``.
 
 See ``ARCHITECTURE.md`` for the layer map and the direction rule.
 """
