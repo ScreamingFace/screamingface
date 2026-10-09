@@ -28,8 +28,8 @@ const configure = `sf.configure(
     scoreboard_url="http://127.0.0.1:9106",
 )`
 
-const publish = `# capture=True makes a frozen copy, so others can reproduce the score
-report = sf.evaluate(candidate, benchmark="ifeval", limit=3, capture=True)
+const publish = `# capture is on by default, so the run keeps a frozen copy that others can reproduce
+report = sf.evaluate(candidate, benchmark="ifeval", limit=3)
 
 # publish one candidate
 sf.leaderboards.submit(
@@ -278,9 +278,9 @@ sf.reproduce(score, record=False)`
     </div>
 
     <p>
-      <code>capture=True</code> asks the Engine to make a frozen copy of each run, so others can
-      reproduce the score. Read <code>capture_status</code> on the result before you publish: a
-      partial or missing copy cannot be reproduced.
+      Capture is on by default. The Engine makes a frozen copy of each run, so others can reproduce
+      the score. Read <code>capture_status</code> on the result before you publish: a partial or
+      missing copy cannot be reproduced.
       <RouterLink to="/learn/caching">Reproducing a submission</RouterLink> explains why.
     </p>
 

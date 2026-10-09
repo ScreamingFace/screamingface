@@ -169,8 +169,8 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>frozen_copy_id</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
-            The id of the frozen copy that a run made with <code>capture=True</code> opened.
-            <code>None</code> when the run was not captured or the copy did not open.
+            The id of the frozen copy that the run opened. <code>None</code> when the run was not
+            captured (for example, <code>capture=False</code>) or the copy did not open.
           </td>
         </tr>
         <tr>

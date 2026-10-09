@@ -30,7 +30,7 @@ const evaluateSig = `sf.evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = False,
+    capture: bool = True,
 ) -> Report`
 
 const reproduceSig = `sf.reproduce(
