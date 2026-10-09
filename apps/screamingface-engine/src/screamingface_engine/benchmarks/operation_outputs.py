@@ -37,7 +37,7 @@ from screamingface_engine.benchmarks.contract import OperationOutput
 from screamingface_engine.operation_accounting import combine_operation_accounting
 from screamingface_engine.operation_calls import OperationCall
 from url4.core.errors import ParseError
-from url4.core.nodes import Expression, RelExpr, Source
+from url4.core.nodes import Expression, RelExpr, Source, walk
 from url4.core.parser import build
 
 # INVARIANT: kept in lock-step with the Client's operation projection, where
@@ -113,13 +113,28 @@ def _operation_bindings(expression: str) -> tuple[_OperationBinding, ...]:
     if not isinstance(node, Expression):
         return ()
     selected: list[_OperationBinding] = []
-    for source in node.sources:
+    # Quorum panels nest complete member Recipes. Their model bindings still
+    # own outputs and accounting, even though they are no longer root sources.
+    for source in (nested for root in node.sources for nested in _panel_sources(root)):
         if not isinstance(source, Source) or source.name is None:
             continue
         if not _BINDING.match(source.name):
             continue
         selected.append(_OperationBinding(source.name, _fingerprint(source.value)))
     return tuple(selected)
+
+
+def _panel_sources(value: object) -> tuple[Source, ...]:
+    if not isinstance(value, Source):
+        return ()
+    if (
+        value.name is not None
+        and re.fullmatch(r"panel_\d+", value.name)
+        and isinstance(value.value, Expression)
+    ):
+        return tuple(node for node in walk(value.value) if isinstance(node, Source))
+    # Other nested bindings keep their legacy opaque attribution semantics.
+    return (value,)
 
 
 def _fingerprint(value: object) -> _Fingerprint | None:
