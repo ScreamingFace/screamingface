@@ -190,12 +190,17 @@ def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
         )
     headline_ref, headline_kwargs, headline_name = resolved[kept[0]]
     headline_scorer: Any = declared[kept[0]]
+    # WHY this also catches a Task-level ``metrics=[...]``: inspect copies the Task's metrics
+    # onto every scorer when it builds the Task (resolve_scorer_metrics), so xstest's
+    # ``Task(metrics=[refusal_rate()])`` reads here as the scorer's headline (OME-1527).
     if headline_metric_kind(headline_scorer) != "mean":
         metric: str | None = headline_metric_name(headline_scorer)
         raise ImporterError(
             f"headline metric {metric or '<none>'} of scorer {headline_name} is not a plain "
-            "mean; the Benchmark would publish the wrong headline — declare a reducer for it "
-            "(OME-1268) or add the row by hand"
+            "mean; the Benchmark would publish the wrong headline. A Task-level metrics=[...] "
+            "is checked here too, because inspect copies it onto every scorer. Whole-run "
+            "metrics other than the mean are coming with OME-1527 (R1); until then add the "
+            "row by hand"
         )
     if len(declared) == 1:
         return ScorerFacts(
@@ -352,6 +357,11 @@ def _scorer_lines(
         )
     )
     for metric_name in custom_metrics:
+        # WHY skip a dropped metric: inspect copies Task-level metrics onto the scorer, so
+        # _named_score_lines already wrote its "not reproduced" note; a TODO beside it
+        # would ask for the same deviation twice (OME-1527).
+        if metric_name.rpartition("/")[2] in dropped_metrics:
+            continue
         benchmark_lines.append(
             f"        # TODO(review): the eval reports its own metric {metric_name}, but the"
         )
