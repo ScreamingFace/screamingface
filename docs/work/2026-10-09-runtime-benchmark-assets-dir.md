@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-09
-finished:
+finished: 2026-10-09
 ---
 
 # runtime-benchmark-assets-dir — runtime `--benchmark-assets-dir` (Slice D1)
@@ -46,7 +46,21 @@ Approved inputs (landing with the slice A PR, `studio-compose-fusion-run` branch
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned — `_runtime/config.py`, `_runtime/cli.py`,
+  `tests/test_runtime_benchmark_assets_dir.py` (21 tests), `CHANGELOG.md`, `README.md`.
+  `server.py` needed no change: it already passes `config.assets_dir` as `URL4_BENCHMARK_ASSETS`.
+- **Commits:** `18cf76c26` — feat(screamingface): read benchmark datasets from --benchmark-assets-dir
+- **Gates:** `run_gates.py screamingface` — ALL GATES GREEN (append-only, ruff check, ruff
+  format, pyright, pytest 2317 passed / 26 skipped at 96.25% coverage, notebooks, uv build,
+  check_distribution).
+- **Final CLI shape:** `screamingface [--data-dir D] up [--foreground] [--benchmark-assets-dir P]`
+  — the option goes after `up` (it is per-command; `--data-dir` stays accepted before or after).
 - **Deviations:**
+  - PR #1217 had not merged (still open), so the folder is recorded in `runtime.json` as
+    `benchmark_assets_dir`, the existing state pattern; the key is absent by default.
+  - `restart` also takes the option and otherwise keeps the recorded folder (as it keeps
+    ports) — not in the plan, added so a restart never silently drops the bundle.
+  - `status --json` gains a `benchmark_assets_dir` key and `doctor` a `benchmark assets dir`
+    line only when the override is in effect, keeping default output byte-for-byte unchanged.
+  - Open: `up` adopting an already-running healthy stack does not compare that stack's recorded
+    folder with a new `--benchmark-assets-dir` (ports are not compared either).
