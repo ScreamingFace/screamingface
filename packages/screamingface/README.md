@@ -191,6 +191,14 @@ Quorum is a success floor checked after members finish, not an early response ra
 `None`, booleans, negative numbers, and numbers above the member count are rejected.
 Quorum and per-member optional settings survive `Url4.to_python()` and replay.
 
+**Deployment requirement:** before using composed quorum Recipes (such as a Pipeline
+feeding a quorum Fusion or a quorum Fusion used as a synthesizer), deploy an Engine
+containing the URL4 nested-expression scope fix shipped with this change. Older runtimes
+can pass literal binding references instead of resolved upstream answers. Deploy the
+Engine operation-reporting update as well to retain member outputs and accounting.
+URL4 already supports quorum and optional sources; the runtime change fixes scope
+propagation for these compositions.
+
 ### Serial and recursive composition
 
 Every complete `Recipe` accepts one input and returns one final answer. `Model` is atomic,

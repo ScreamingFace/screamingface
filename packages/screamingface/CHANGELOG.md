@@ -4,7 +4,9 @@
 
 ### Fixes
 
-* Preserve upstream answers across composed quorum panels and reject executable quorum/member policy that disagrees with default-valued Recipe metadata during export and replay (`OME-1557`).
+* Show optional Model, Pipeline, and Fusion members in `Fusion` repr so member failure policy is visible (`OME-1557`). Required members retain their compact name-only representation.
+
+* Preserve upstream answers across composed quorum panels and reject executable quorum/member policy that disagrees with default-valued Recipe metadata during export and replay (`OME-1557`). Composed quorum Recipes require an Engine containing the patched URL4 runtime; deploy the Engine operation-reporting update as well to retain member outputs and accounting.
 
 * Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
 

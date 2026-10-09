@@ -159,3 +159,25 @@ def test_optional_requires_a_boolean_on_every_member_kind(value: Any) -> None:
 def test_optional_members_flag_is_removed() -> None:
     with pytest.raises(TypeError, match="optional_members"):
         sf.Fusion(["a"], synthesizer="synth", optional_members=True)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("kind", ["model", "pipeline", "fusion"])
+def test_fusion_repr_distinguishes_optional_member_policy(kind: str) -> None:
+    # WHY: identical printed panels hid whether a member failure stops synthesis.
+    def member(optional: bool) -> sf.Recipe:
+        if kind == "model":
+            return sf.Model("a", optional=optional)
+        if kind == "pipeline":
+            return sf.Pipeline(["a", "b"], optional=optional)
+        return sf.Fusion(["a", "b"], synthesizer="inner", optional=optional)
+
+    optional_member = member(True)
+    tolerant = sf.Fusion([optional_member, "c"], synthesizer="s", quorum=1)
+    required = sf.Fusion([member(False), "c"], synthesizer="s", quorum=1)
+    assert repr(tolerant) != repr(required)
+    assert repr(tolerant) == (
+        f"Fusion([{optional_member!r}, 'c'], synthesizer=Model('s'), quorum=1)"
+    )
+    assert repr(required) == (
+        f"Fusion([{member(False).name!r}, 'c'], synthesizer=Model('s'), quorum=1)"
+    )

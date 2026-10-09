@@ -52,7 +52,10 @@ class Fusion(Recipe):
         return None
 
     def __repr__(self) -> str:
-        members = ", ".join(repr(member.name) for member in self.members)
+        # WHY: member failure policy must be visible without expanding required members.
+        members = ", ".join(
+            repr(member) if member.optional else repr(member.name) for member in self.members
+        )
         inferred_name = "+".join(member.name for member in self.members)
         arguments = [f"[{members}]"]
         if self.name != inferred_name:
