@@ -16,9 +16,10 @@ Stages, in execution order:
    model route with different params (e.g. temperature) stay distinct.
 3. Join recorded calls to bindings by fingerprint. A fingerprint claimed by ONE
    binding takes its last (terminal) call. A fingerprint claimed by SEVERAL
-   bindings is genuinely ambiguous: identical recorded outputs attribute to
-   each claimant (no information invented), anything else stays null — never a
-   positional guess.
+   bindings shares identical recorded outputs only when every claimant is required.
+   If any claimant belongs to an optional subtree, the observations cannot prove
+   which operation answered; output and finish reason stay null for every claimant.
+   Never make a positional guess.
 
 Worked example — members ``/alpha?temperature=0.0``, ``/beta`` and synthesis
 ``/alpha?temperature=0.5`` with calls [(alpha@0.0 → "A"), (beta → "B"),
@@ -51,6 +52,7 @@ type _Fingerprint = tuple[str, tuple[tuple[str, str], ...]]
 class _OperationBinding:
     binding: str
     fingerprint: _Fingerprint | None
+    optional: bool = False
 
 
 def attribute_operation_outputs(
@@ -69,7 +71,12 @@ def attribute_operation_outputs(
     for binding in bindings:
         if binding.fingerprint is not None:
             claims[binding.fingerprint] = claims.get(binding.fingerprint, 0) + 1
-    operations = [_attributed(binding, by_fingerprint, claims) for binding in bindings]
+    optional = {
+        binding.fingerprint
+        for binding in bindings
+        if binding.optional and binding.fingerprint is not None
+    }
+    operations = [_attributed(binding, by_fingerprint, claims, optional) for binding in bindings]
     if len(bindings) == 1 and bindings[0].fingerprint is None:
         return None
     return operations
@@ -79,6 +86,7 @@ def _attributed(
     binding: _OperationBinding,
     by_fingerprint: dict[_Fingerprint, list[OperationCall]],
     claims: dict[_Fingerprint, int],
+    optional: set[_Fingerprint],
 ) -> OperationOutput:
     output: str | None = None
     finish_reason: str | None = None
@@ -93,7 +101,9 @@ def _attributed(
             accounting = combine_operation_accounting(
                 [call.accounting for call in matched if call.accounting is not None]
             )
-    elif matched:
+    # WHY: an optional claimant may have failed without recording a terminal
+    # call. Identical answers, even from repeated calls, do not prove it answered.
+    elif matched and binding.fingerprint not in optional:
         distinct = {(call.output, call.finish_reason) for call in matched}
         if len(distinct) == 1:
             output, finish_reason = next(iter(distinct))
@@ -112,6 +122,7 @@ def _operation_bindings(expression: str) -> tuple[_OperationBinding, ...]:
         return ()
     if not isinstance(node, Expression):
         return ()
+    optional = _optional_bindings(node)
     selected: list[_OperationBinding] = []
     # Quorum panels nest complete member Recipes. Their model bindings still
     # own outputs and accounting, even though they are no longer root sources.
@@ -120,8 +131,22 @@ def _operation_bindings(expression: str) -> tuple[_OperationBinding, ...]:
             continue
         if not _BINDING.match(source.name):
             continue
-        selected.append(_OperationBinding(source.name, _fingerprint(source.value)))
+        selected.append(
+            _OperationBinding(source.name, _fingerprint(source.value), source.name in optional)
+        )
     return tuple(selected)
+
+
+def _optional_bindings(expression: Expression) -> set[str]:
+    # INVARIANT: a complete optional Recipe can fail after any of its internal
+    # operations; all descendant bindings participate in the same uncertainty.
+    return {
+        child.name
+        for node in walk(expression)
+        if isinstance(node, Source) and any(key == "optional" for key, _ in node.annotations)
+        for child in walk(node)
+        if isinstance(child, Source) and child.name is not None
+    }
 
 
 def _panel_sources(value: object) -> tuple[Source, ...]:

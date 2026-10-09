@@ -292,3 +292,77 @@ def _assert_scope_requests(seen, composition):
         assert inputs["good-a"] == inputs["good-b"] == "DRAFT"
     else:
         assert json.loads(inputs["good-b"]) == {"input": "Explain.", "outputs": "member_1: A"}
+
+
+def _shared_route_transport(format_name, calls, seen, judge_model):
+    ordinary = _transport(format_name, calls, judge_model)
+
+    def respond(request):
+        payload = json.loads(request.content)
+        seen.append(payload)
+        if payload["model"] == "same" and any(
+            message["content"] == "FAIL" for message in payload["messages"]
+        ):
+            calls.append("same")
+            return _failed_member_response("error")
+        return ordinary.handle_request(request)
+
+    return httpx.MockTransport(respond)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("format_name", ["olympic", "research"])
+async def test_quorum_failed_shared_route_member_does_not_borrow_an_answer(tmp_path, format_name):
+    from pathlib import Path
+
+    # WHY: route + parameters do not identify the successful member after an
+    # optional failure; the scored artifact must not invent the missing answer.
+    candidate = (
+        (Path(__file__).parents[1] / "data" / "fusion_quorum_duplicate_members.url4")
+        .read_text()
+        .strip()
+    )
+    benchmark = _benchmark(tmp_path, format_name)
+    calls, seen = [], []
+    judge_model = "openrouter/openai/gpt-5.4"
+    async with httpx.AsyncClient(
+        base_url="http://gateway",
+        transport=_shared_route_transport(format_name, calls, seen, judge_model),
+    ) as client:
+        world = await build_aigateway_world(
+            AigatewayConfig(
+                base_url="http://gateway",
+                default_model="same",
+                models=tuple(ModelSpec(id=name) for name in ("same", "synth", judge_model)),
+                allow_outbound=False,
+            ),
+            client=client,
+        )
+        install_candidate_invocation(world.node)
+        benchmark.benchmark.install(world.node, tmp_path)
+        observations = RunObservations((ActivityObserver,))
+        try:
+            with observations.bind():
+                result = json.loads(
+                    await execute(
+                        link_candidate(candidate, benchmark.benchmark.protocol(1)), io=world.node
+                    )
+                )
+        finally:
+            await observations.aclose()
+            await world.aclose()
+    _assert_shared_route_result(result, calls, seen)
+
+
+def _assert_shared_route_result(result, calls, seen):
+    assert result["cases"][0]["status"] == "scored"
+    assert calls.count("same") == 2
+    synthesis = next(payload for payload in seen if payload["model"] == "synth")
+    user_input = next(m["content"] for m in synthesis["messages"] if m["role"] == "user")
+    assert json.loads(user_input)["outputs"] == "member_2: Answer"
+    operations = {op["operation_id"]: op for op in result["cases"][0]["operations"]}
+    for name in ("op_model_1", "op_model_2"):
+        assert operations[name]["output"] is None
+        assert operations[name]["finish_reason"] is None
+    assert operations["op_synthesis_1"]["output"] == "Answer"
+    assert operations["op_synthesis_1"]["accounting"] is not None
