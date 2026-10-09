@@ -141,3 +141,10 @@ def test_reader_refuses_and_names_the_key(query: str, name: str) -> None:
         read_query_tail(query)
     assert err.value.code == ErrorCode.MALFORMED_SOURCE
     assert repr(name) in str(err.value)
+
+
+@pytest.mark.parametrize("text", ["url4://n(c)/p", "url4:///p", "url4://n?x=1/p"])
+def test_url4_uri_without_a_plain_authority_is_legacy(text: str) -> None:
+    # INVARIANT: a `(`, `?`, `#` or `'` in the authority, or no authority, is not a
+    # remote reference, so 2.0 leaves the intent as it was (LEGACY), never RDS.
+    assert classify_intent(intent_atom(text)).mode is IntentMode.LEGACY

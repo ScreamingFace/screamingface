@@ -30,6 +30,9 @@ from url4.core.nodes import (
 )
 
 _URL4_SCHEME = "url4://"
+# WHY: the grammar does not validate `host` (it defines no hostname rule), so
+# only the characters that end an authority or open an expression are refused.
+_AUTHORITY_STOP = frozenset("(?#'")
 
 
 class IntentMode(StrEnum):
@@ -104,6 +107,8 @@ def _classify_url(value: str) -> IntentClass:
     if not value.startswith(_URL4_SCHEME):
         return IntentClass(IntentMode.UNSUPPORTED)
     authority, _, rest = value[len(_URL4_SCHEME) :].partition("/")
+    if not authority or not _AUTHORITY_STOP.isdisjoint(authority):
+        return IntentClass(IntentMode.LEGACY)
     return _classify_path("/" + rest, authority=authority)
 
 
