@@ -24,7 +24,7 @@ All services bind to loopback and store writable state below the data directory 
 - `build-sidecar.sh` builds the frozen `onedir` artifact.
 - `sign-sidecar.sh` signs nested Mach-O files and then the sidecar executable for macOS.
 - `verify-sidecar.sh` checks frozen startup, the three health endpoints, Engine model discovery,
-  graceful shutdown, and port release.
+  the bundled benchmark datasets (`verify_benchmarks.py`), graceful shutdown, and port release.
 
 ## Requirements
 
@@ -98,9 +98,29 @@ The desktop release workflow passes the same identity to Tauri. Tauri signs the 
 uses the configured Apple ID credentials to notarize the final macOS artifacts. Signing proceeds
 from the innermost PyInstaller libraries outward so later bundle steps do not invalidate signatures.
 
+## Bundled benchmark datasets
+
+Every benchmark dataset ships inside the app (spec D10), so a fresh install can run any benchmark
+without a download. After signing, `before_build.sh` runs `screamingface prepare --all` from the
+build venv into the cache `runtime/build/benchmark-data` (gitignored; `HF_TOKEN` is passed through
+when set). The frozen sidecar cannot run `prepare` itself: it spawns `python -m` preparer children,
+which a PyInstaller executable does not accept. The frozen sidecar then runs `prepare --list` on
+the cache, and the build fails unless all six bundles are `prepared`. The bundles are copied with
+`rsync --delete` into `src-tauri/resources/screamingface-runtime/benchmark-assets/` (gitignored).
+Only the first build downloads, about 293 MB in about two minutes.
+
+At startup Tauri adds `--benchmark-assets-dir <resources>/screamingface-runtime/benchmark-assets`
+to `up` when that folder exists. The folder is read-only inside the signed app; `prepare` keeps
+writing to the data directory. A development run without the folder reads
+`<data-dir>/benchmark-assets` as before.
+
+`verify-sidecar.sh` starts the sidecar on the build cache, checks that the Engine lists all eight
+benchmarks, and runs one case of each bundle's first benchmark (DRACO excepted). With no provider
+the model call fails, so each run must load its cases and end `succeeded` with a null score.
+
 ## Current limitations
 
 - Only the macOS arm64 frozen artifact has been verified.
 - Studio currently uses the default runtime ports.
-- Provider credentials and downloaded benchmark assets remain user data and are never bundled.
+- Provider credentials remain user data and are never bundled.
 - Target-triple naming and additional platform validation remain release-pipeline work.

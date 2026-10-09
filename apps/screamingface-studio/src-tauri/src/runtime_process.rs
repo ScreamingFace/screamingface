@@ -1,7 +1,8 @@
 use std::{
   env,
+  ffi::OsString,
   io::{BufRead, BufReader, Error, ErrorKind},
-  path::PathBuf,
+  path::{Path, PathBuf},
   process::{Child, Command, Stdio},
   sync::{mpsc, Mutex},
   thread,
@@ -81,12 +82,10 @@ pub fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
   let data_dir = app.path().app_data_dir()?.join("runtime");
   std::fs::create_dir_all(&data_dir)?;
+  let resource_dir = app.path().resource_dir().ok();
   let mut command = Command::new(&executable);
   command
-    .arg("--data-dir")
-    .arg(&data_dir)
-    .arg("up")
-    .arg("--foreground")
+    .args(sidecar_args(&data_dir, resource_dir.as_deref()))
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
   #[cfg(unix)]
@@ -175,6 +174,25 @@ pub fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
       return startup_failure(child, "runtime readiness timed out".to_owned());
     }
   }
+}
+
+/// The sidecar's command line. A packaged app ships every benchmark dataset read-only under
+/// `<resource_dir>/screamingface-runtime/benchmark-assets` (spec D10), so `up` reads them from
+/// there. A dev run has no bundled folder and the runtime falls back to `<data_dir>`.
+fn sidecar_args(data_dir: &Path, resource_dir: Option<&Path>) -> Vec<OsString> {
+  let mut args = vec![
+    OsString::from("--data-dir"),
+    data_dir.as_os_str().to_owned(),
+    OsString::from("up"),
+    OsString::from("--foreground"),
+  ];
+  let bundled_assets = resource_dir
+    .map(|dir| dir.join("screamingface-runtime").join("benchmark-assets"))
+    .filter(|assets| assets.is_dir());
+  if let Some(assets) = bundled_assets {
+    args.extend([OsString::from("--benchmark-assets-dir"), assets.into_os_string()]);
+  }
+  args
 }
 
 pub fn stop(app: &AppHandle) {
@@ -334,6 +352,46 @@ mod tests {
         engine: "http://127.0.0.1:9108".to_owned()
       })
     );
+  }
+
+  fn scratch_dir(name: &str) -> PathBuf {
+    let dir = env::temp_dir().join(format!("sidecar-args-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+  }
+
+  fn base_args() -> Vec<OsString> {
+    ["--data-dir", "/data/runtime", "up", "--foreground"]
+      .map(OsString::from)
+      .to_vec()
+  }
+
+  #[test]
+  fn starts_the_runtime_in_the_foreground_on_the_data_dir() {
+    let resources = scratch_dir("no-assets");
+    assert_eq!(
+      sidecar_args(Path::new("/data/runtime"), Some(&resources)),
+      base_args()
+    );
+  }
+
+  #[test]
+  fn points_up_at_the_bundled_datasets_when_the_folder_exists() {
+    let resources = scratch_dir("with-assets");
+    let assets = resources.join("screamingface-runtime").join("benchmark-assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    let mut expected = base_args();
+    expected.extend([OsString::from("--benchmark-assets-dir"), assets.into_os_string()]);
+    assert_eq!(
+      sidecar_args(Path::new("/data/runtime"), Some(&resources)),
+      expected
+    );
+  }
+
+  #[test]
+  fn falls_back_to_the_data_dir_without_a_resource_dir() {
+    assert_eq!(sidecar_args(Path::new("/data/runtime"), None), base_args());
   }
 
   #[test]

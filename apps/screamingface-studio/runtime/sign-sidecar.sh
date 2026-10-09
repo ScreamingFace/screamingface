@@ -25,12 +25,14 @@ if [[ ! -f "$entitlements" ]]; then
 fi
 
 echo "Signing PyInstaller sidecar with identity: $signing_identity"
+# The bundled benchmark datasets (spec D10) hold no Mach-O files; scanning their ~8,000 files
+# would add about 40 s to every build.
 while IFS= read -r -d '' candidate; do
   if [[ "$candidate" != "$executable" ]] && file "$candidate" | grep -q "Mach-O"; then
     codesign --force --options runtime --entitlements "$entitlements" \
       --sign "$signing_identity" "$candidate"
   fi
-done < <(find "$sidecar_dir" -type f -print0)
+done < <(find "$sidecar_dir" -path "$sidecar_dir/benchmark-assets" -prune -o -type f -print0)
 
 # Sign the outer executable last so its signature covers the finalized onedir contents.
 codesign --force --options runtime --entitlements "$entitlements" \

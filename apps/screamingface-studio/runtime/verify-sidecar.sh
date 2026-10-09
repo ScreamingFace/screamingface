@@ -3,6 +3,8 @@ set -euo pipefail
 
 runtime_dir="$(cd "$(dirname "$0")" && pwd)"
 executable="$runtime_dir/dist/screamingface-runtime/screamingface-runtime"
+# The datasets src-tauri/before_build.sh prepares and bundles into the app (spec D10).
+benchmark_assets="$runtime_dir/build/benchmark-data/benchmark-assets"
 verification_dir="$(mktemp -d "${TMPDIR:-/tmp}/screamingface-sidecar.XXXXXX")"
 runtime_log="$verification_dir/runtime.log"
 runtime_pid=""
@@ -19,10 +21,15 @@ if [[ ! -x "$executable" ]]; then
   echo "Sidecar executable not found at $executable. Run ./build-sidecar.sh first." >&2
   exit 1
 fi
+if [[ ! -d "$benchmark_assets" ]]; then
+  echo "Benchmark datasets not found at $benchmark_assets. Run src-tauri/before_build.sh first." >&2
+  exit 1
+fi
 
 "$runtime_dir/.venv/bin/python" -c \
   'import os, sys; os.chdir(sys.argv[1]); os.setpgrp(); os.execv(sys.argv[2], sys.argv[2:])' \
   "$verification_dir" "$executable" --data-dir "$verification_dir/data" up --foreground \
+  --benchmark-assets-dir "$benchmark_assets" \
   >"$runtime_log" 2>&1 &
 runtime_pid=$!
 
@@ -57,6 +64,7 @@ model_count="$(
       'import json, sys; models = json.load(sys.stdin).get("data", []); assert models; print(len(models))'
 )"
 echo "SCREAMINGFACE_RUNTIME_SMOKE_OK models=$model_count"
+"$runtime_dir/.venv/bin/python" -I "$runtime_dir/verify_benchmarks.py"
 
 kill -TERM -- "-$runtime_pid"
 wait "$runtime_pid" || true
