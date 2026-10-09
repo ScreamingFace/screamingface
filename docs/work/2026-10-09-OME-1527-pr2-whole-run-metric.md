@@ -1,9 +1,9 @@
 ---
 ticket: OME-1527
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-09
-finished:
+finished: 2026-10-09
 ---
 
 # OME-1527-pr2-whole-run-metric — score a run with the eval's own whole-run metric when the row opts in
@@ -62,14 +62,17 @@ re-importable again with their published rows unchanged.
 - xstest_safe/unsafe, coconot_original/contrast and bbeh import again with the mean kept.
 - Free inspect unit lane green; extra-less pyright clean on the touched files.
 
-## Outcome (interim: held before PR-open for a size split)
+## Outcome
 
 - **Actual files:** as planned, plus `test_whole_run_metric.py` and
   `test_importer_whole_run_choice.py` (new). No prior test edited.
-- **Size:** about 1,064 added lines (about 407 src + 657 tests) against the ~500 cap, so the
-  PR is held and a split proposed: (a) the runtime half (adapter store, tally, row field,
-  assembly gates) and (b) the importer half (the `--whole-run-metric` choice, the five rows).
-- **Gates:** `tests/unit/inspect` 1340 passed (1315 on the base + 25 new); plugin-adjacent
+- **Size:** about 1,064 added lines (about 407 src + 657 tests) against the ~500 cap. The PR
+  was held and a two-PR split proposed (runtime half, importer half); the owner waived the
+  cap for this PR only and it opened as ONE draft PR, both commits as they were.
+- **Commits:** `56bf0a2d4` feat(screamingface-engine): score a run with the eval's own
+  whole-run metric when the row opts in; `ddb0a58eb` feat(screamingface-engine): let the
+  importer honour or keep the mean for a non-mean whole-run metric; plus this ledger's close.
+- **Gates:** `run_gates.py screamingface-engine` ALL GATES GREEN; `tests/unit/inspect` 1340 passed (1315 on the base + 25 new); plugin-adjacent
   unit tests 103 passed; ruff check + format clean; extra-less pyright on the touched files
   0 errors.
 - **Re-import proof (free, network, no model call):** xstest_safe/unsafe,
