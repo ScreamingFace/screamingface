@@ -11,6 +11,7 @@
 // `parseRecipe` reads exactly that text back, so a copied recipe imports as the same recipe.
 
 import type { ModelParam, SavedModel, SavedSlot } from "./ensemble-store";
+import { quoteText } from "./engine/url4";
 import { createUuid } from "./uuid";
 
 export type RecipeKind = "solo" | "fusion" | "pipeline";
@@ -193,10 +194,26 @@ const DEFAULT_PROMPT = {
   synthesis: "Synthesize the member answers into one final answer.",
 } as const;
 
-function quoteIntent(text: string): string {
-  const oneLine = text.replace(/\s+/g, " ").trim();
-  const escaped = oneLine.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  return `'${escaped}'`;
+// Prompt text as url4 Text, exactly as the SDK's `_url4_text`
+// (`packages/screamingface/src/screamingface/_evaluation/candidate.py:436-447`): CR LF and CR
+// become LF, LF becomes U+2028 (url4 Text is one line), a tab becomes a space, and `$` is
+// doubled so `$input` / `$USD` stay literal text — the Engine collapses `$$` back to `$` when it
+// substitutes (`url4/dag/semantics/ensemble.py` `_ENV_VAR_RE`). The SDK refuses any other control
+// character; a builder preview cannot refuse, so Studio drops them. `quoteText` then escapes `\`
+// and `'` (url4's `_quote`).
+function encodePrompt(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n/g, "\u2028")
+    .replace(/\t/g, " ")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\$/g, "$$$$");
+}
+
+// The inverse, as the SDK reads a Candidate back (`screamingface/url4.py:446-447`
+// `_python_text`): U+2028 is a newline again and `$$` is `$`.
+function decodePrompt(text: string): string {
+  return text.replace(/\u2028/g, "\n").replace(/\$\$/g, "$");
 }
 
 // url4's query form for a call with params: `?k=v&…&q=` and then the call's `(<context>)`
@@ -222,7 +239,9 @@ export function recipeToUrl4(root: RecipeNode): string {
       const index = role === "synthesis" ? ++counters.synthesis : ++counters.model;
       const name = `${prefix}_${index}`;
       const path = `/${node.model ? node.model.name : UNSET_MODEL}`;
-      const intent = quoteIntent(node.prompt || DEFAULT_PROMPT[role]);
+      // A blank prompt means the default (the SDK refuses a blank one outright).
+      const prompt = node.prompt.trim() ? node.prompt : DEFAULT_PROMPT[role];
+      const intent = quoteText(encodePrompt(prompt));
       sources.push(`${name}:0.0:${path}${paramQuery(node.params)}(${context})!${intent}`);
       return name;
     }
@@ -427,7 +446,7 @@ function buildTree(sources: ParsedSource[], rootRef: string): RecipeNode {
       kind: "solo",
       id: createUuid(),
       model: source.modelId ? modelFromRoute(source.modelId) : null,
-      prompt: source.intent === DEFAULT_PROMPT[role] ? "" : source.intent,
+      prompt: source.intent === DEFAULT_PROMPT[role] ? "" : decodePrompt(source.intent),
       params: source.params,
     };
   }

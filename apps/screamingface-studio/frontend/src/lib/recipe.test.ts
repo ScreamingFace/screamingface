@@ -47,6 +47,10 @@ function pipeline(stages: RecipeNode[]): PipelineNode {
 
 const ANSWER = "Answer the request.";
 const SYNTHESIZE = "Combine the member answers.";
+// The same prompt texts as scripts/gen-link-fixtures.py.
+const MEMBER_TEXT = "Answer in $USD.\nShow the total on its own line.";
+const SYNTHESIS_TEXT = "Use $input and $$ literally;\nit's a \\ path.";
+const SOLO_TEXT = "Line one\nLine two with $input, '$model_1', $$5 and C:\\dir\\.";
 const T07_SEED3: ModelParam[] = [
   { key: "temperature", value: "0.7" },
   { key: "seed", value: "3" },
@@ -72,6 +76,12 @@ const SDK_EQUIVALENTS: Record<keyof typeof linked, () => RecipeNode> = {
       solo("openai/gpt-4o", ANSWER),
       solo("anthropic/claude-opus-4-5", "Check the answer."),
     ]),
+  prompts_encoded: () =>
+    fusion(
+      [solo("openai/gpt-4o", MEMBER_TEXT), solo("anthropic/claude-opus-4-5", ANSWER)],
+      solo("openai/gpt-4o", SYNTHESIS_TEXT),
+    ),
+  solo_prompt_encoded: () => solo("openai/gpt-4o", SOLO_TEXT),
   solo_params: () => solo("openai/gpt-4o", ANSWER, T07_SEED3),
 };
 
@@ -205,6 +215,52 @@ describe("parseRecipe", () => {
     // A default prompt comes back as "no prompt", so the builder keeps showing the default.
     expect(members[1]).toMatchObject({ kind: "solo", model: model("ollama/llama3"), prompt: "" });
     expect(synthesizer).toMatchObject({ kind: "solo", model: null, prompt: "" });
+  });
+
+  it.each([
+    ["newlines", "First line.\nSecond line.\n\nAfter a blank line."],
+    ["a dollar amount", "Answer in $USD."],
+    ["text that looks like a reference", "use $input, then $model_1 and $synthesis_1"],
+    ["a doubled dollar", "Costs $$5"],
+    ["quotes and backslashes", "it's a \\ path, \\' and '\\"],
+    ["all of them", SOLO_TEXT],
+    ["runs of spaces", "  spaced   out  "],
+  ])("decodes a prompt with %s back to the original text", (_name, prompt) => {
+    for (const root of [
+      solo("openai/gpt-4o", prompt),
+      fusion([solo("openai/gpt-4o", prompt)], solo("ollama/llama3", prompt)),
+    ]) {
+      const { url4, parsed, again } = roundTrip(root);
+      expect(again).toBe(url4);
+      expect(collectSolos(parsed).map((node) => node.prompt)).toEqual(
+        collectSolos(root).map(() => prompt),
+      );
+    }
+  });
+
+  it("never leaves a prompt's $ where url4 would read it as a reference", () => {
+    const url4 = recipeToUrl4(solo("openai/gpt-4o", "use $input and $model_1"));
+    expect(url4).toContain("'use $$input and $$model_1'");
+  });
+
+  it("encodes newlines as U+2028 and tabs as spaces, as the SDK does", () => {
+    expect(recipeToUrl4(solo("a/b", "one\r\ntwo\rthree\tfour"))).toBe(
+      "(model_1:0.0:/a/b($input)!'one\u2028two\u2028three four')!'$model_1'",
+    );
+  });
+
+  it("drops control characters the SDK refuses", () => {
+    expect(recipeToUrl4(solo("a/b", "be\u0000ep\u007f"))).toBe(
+      "(model_1:0.0:/a/b($input)!'beep')!'$model_1'",
+    );
+  });
+
+  it("uses the default prompt for a blank one", () => {
+    expect(recipeToUrl4(solo("a/b", "  \n "))).toBe("(model_1:0.0:/a/b($input)!'Answer.')!'$model_1'");
+  });
+
+  it("rejects a prompt with a single $, which would be a reference", () => {
+    expect(parseRecipe("(model_1:0.0:/a/b($input)!'use $input')!'$model_1'").ok).toBe(false);
   });
 
   it("gives every node a fresh id", () => {
