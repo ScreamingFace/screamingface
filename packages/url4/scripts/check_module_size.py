@@ -51,6 +51,13 @@ BASELINE: dict[str, int] = {
     "dag/nodes/_shared.py": 211,
     "dag/nodes/iteration.py": 218,
     "peer/_dispatch.py": 195,
+    # The modules split out of dag/_lowering.py, dag/nodes/_shared.py and peer/_dispatch.py
+    # (url4 2.0, 2026-10-09): a split guards its parts, or the code regrows where the cap is not.
+    "dag/_lowering_nodes.py": 368,
+    "dag/_lowering_intent.py": 204,
+    "dag/_lowering_text.py": 198,
+    "dag/nodes/_gather.py": 107,
+    "peer/_code_pointer.py": 103,
     "cli/_serve.py": 340,
     "cli/_config.py": 341,
 }

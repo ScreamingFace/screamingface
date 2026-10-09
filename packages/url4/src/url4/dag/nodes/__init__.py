@@ -23,9 +23,12 @@ here:
 - :mod:`.guard` — :class:`GuardNode` (``;optional``/``;t=``/``;retry=``);
 - :mod:`.iteration` — :class:`ExpandNode`, :class:`MapNode`,
   :class:`ReduceNode`;
-- :mod:`.code_pointer` — :class:`CodePointerNode`, the RDS code-pointer call;
+- :mod:`.code_pointer` — :class:`CodePointerNode`, the RDS code-pointer call, and the
+  code-pointer gather (sources → the input document);
+- :mod:`._gather` — the LLM-mode gather (slots → packed sources, quorum), re-exported by
+  :mod:`._shared`;
 - :mod:`._shared` — the helpers every family consumes (substitution, the
-  reference-edge scope frame, the gather machinery, fetch plumbing, row
+  reference-edge scope frame, fetch plumbing, row
   serialization). Private to the package: a node module may import it, never
   the reverse.
 

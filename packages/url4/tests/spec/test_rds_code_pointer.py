@@ -52,10 +52,17 @@ def node(wire: list[Request]) -> Url4Node:
     async def combine(request: Request) -> str:
         return "COMBINED"
 
-    @n.endpoint("/claude", rds=True)
+    @n.endpoint("/claude")
     async def claude(request: Request) -> str:
         wire.append(request)
         return "CLAUDE"
+
+    # WHY: a recording code endpoint. `/claude` is the model route (the default processor), and
+    # a model route never opts in to code-pointer calls (ans:Q7).
+    @n.endpoint("/code/record", rds=True)
+    async def record(request: Request) -> str:
+        wire.append(request)
+        return "RECORDED"
 
     n.data("/instr", "INSTRUCTION TEXT")
     n.data("/rows", '["r1", "r2"]')
@@ -101,7 +108,7 @@ async def test_2_0_weight_zero_member_is_delivered_to_the_code_pointer(
     node: Url4Node, wire: list[Request]
 ) -> None:
     # WHY: url4 2.0 — weight is attribution metadata, so a weight-0.0 source is an input (H3).
-    await run("(member_1:/a($input)!'P', member_2:0.0:/b($input)!'P')!/claude", node)
+    await run("(member_1:/a($input)!'P', member_2:0.0:/b($input)!'P')!/code/record", node)
     assert wire[-1].mode == "rds"
     assert wire[-1].inputs == {"member_1": "A says 4", "member_2": "B says 5"}
 

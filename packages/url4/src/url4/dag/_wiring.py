@@ -7,8 +7,8 @@ process. It knows nothing about parse-tree node types or surface text; a
 :class:`_Slot` carries a ``make(edges)`` callable supplied by the lowering
 path, so this module stays pure graph construction.
 
-The lowerers (:mod:`url4.dag._lowering`) import these strategies; the split is
-one-directional, so no cycle exists. The public module
+The lowerers (:mod:`url4.dag._lowering_nodes`, :mod:`url4.dag._lowering_text`) import
+these strategies; the split is one-directional, so no cycle exists. The public module
 :mod:`url4.dag.compiler` re-exports every name here.
 """
 

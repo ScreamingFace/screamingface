@@ -32,10 +32,10 @@ from url4.core.render import render
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
 from url4.io.layer import FetchRequest, FetchResult, IOLayer
 from url4.peer import _dispatch
-from url4.peer._dispatch import Request
 from url4.peer._http import asgi_app as _asgi_app
 from url4.peer._http import serve as _serve_node
 from url4.peer._owned import _OwnedIO
+from url4.peer._request import Request
 from url4.peer.client import Url4Result, _blaming_render
 
 EndpointHandler = Callable[[Request], str | Awaitable[str]]
@@ -205,12 +205,12 @@ class Url4Node:
         """The node's reduce route (:class:`~url4.io.layer.SupportsDefaultRoute`).
 
         The explicit ``default_processor`` when one was given, else the FIRST
-        registered endpoint — the node hardcodes no route names; with neither,
-        a fan-out reduce fails with a clear error.
+        registered endpoint that is not a code pointer (``rds=True`` never takes
+        a prompt reduce); with neither, a fan-out reduce fails with a clear error.
         """
         if self._processor is not None:
             return self._processor
-        return next(iter(self._endpoints), None)
+        return next((p for p in self._endpoints if p not in self._rds_endpoints), None)
 
     def _check_routable(self, path: str) -> None:
         if not path.startswith("/"):

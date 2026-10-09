@@ -78,7 +78,7 @@ transport.
 | the Python builders (`src`, `expr`, `iterate`) | `core/builders.py` | language |
 | the lexical scope (`$name` resolution) | `core/context.py` | language |
 | the `?q=` escaping or decoding | `wire/subrequest.py` | wire |
-| how text lowers to a DAG node | `dag/_lowering.py`, `dag/_wiring.py` | engine |
+| how text lowers to a DAG node | `dag/_lowering*.py`, `dag/_wiring.py` | engine |
 | the public `run()` entry | `dag/_run.py` | engine |
 | the scheduler or the exactly-once memo | `dag/executor.py` | engine |
 | the `DagNode` protocol or `ExecutionContext` | `dag/node.py`, `dag/_context.py` | engine |
@@ -89,14 +89,17 @@ transport.
 | the in-memory test adapter | `io/static.py` | io |
 | the httpx adapter | `io/http.py` | io |
 | the node's registration or dispatch order | `peer/server.py`, `peer/_dispatch.py` | node |
+| a code-pointer (RDS) call: the receiver's decode, opt-in and errors | `peer/_code_pointer.py`, `peer/_request.py` | node |
 | the requestor `Client` | `peer/client.py` | node |
 | `url4.toml` or the `serve` flags | `cli/_config.py`, `cli/_serve.py` | node |
 | observation events or sinks | `observe.py` | leaf |
 | the CloudEvents wire contract | `streaming/protocol/` | streaming |
 
 Note: `dag/compiler.py` is the public facade only. The implementation is
-`dag/_lowering.py` (the `LoweringRegistry` and the per-node lowerers) plus
-`dag/_wiring.py` (the group-wiring strategy).
+`dag/_lowering.py` (a facade: `Graph`, `compile_expression`) over
+`dag/_lowering_registry.py` (the `LoweringRegistry`), `dag/_lowering_nodes.py` (the per-node
+lowerers), `dag/_lowering_text.py` (the text path) and `dag/_lowering_intent.py` (intent,
+reducer and row-intent classification), plus `dag/_wiring.py` (the group-wiring strategy).
 
 ## The two side axes
 

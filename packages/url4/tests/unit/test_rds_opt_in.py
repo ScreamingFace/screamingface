@@ -15,6 +15,7 @@ import httpx
 import pytest
 
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.io.http import HttpIOLayer
 from url4.peer import dispatch_direct
 from url4.peer.server import Request, Url4Node
 from url4.wire.rds import RdsValue, encode_rds_document, encode_rds_target
@@ -104,3 +105,47 @@ async def test_a_code_pointer_with_the_flag_reaches_the_handler() -> None:
     assert request.intent == ""
     assert request.context == _DOC
     assert request.inputs == _INPUTS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "(a='1', b='2')!*/model",  # broadcast: one call per source
+        "(/rows*()!'R $item')!/model",  # iteration reducer
+    ],
+)
+async def test_every_group_site_refuses_a_code_pointer_without_the_flag(expression: str) -> None:
+    # INVARIANT (ans:Q7): the refusal lives at the receiver, so no group site can bypass it.
+    node, seen = _node(rds=False)
+    node.data("/rows", '["r1", "r2"]')
+    with pytest.raises(ResolutionError) as exc:
+        await node.evaluate(expression)
+    assert exc.value.code == ErrorCode.INTENT_ERROR
+    assert exc.value.permanent is True
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_a_remote_code_pointer_without_the_flag_is_refused_across_the_hop() -> None:
+    # WHY: the remote node refuses, and the caller's adapter keeps the code and its permanence,
+    # so `;retry=` never retries the refusal.
+    remote, seen = _node(rds=False)
+    client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=remote.asgi()), base_url="https://t"
+    )
+    caller = Url4Node("caller", outbound=HttpIOLayer(client=client))
+    with pytest.raises(ResolutionError) as exc:
+        await caller.evaluate("(a='1')!url4://t/model")
+    assert exc.value.code == ErrorCode.INTENT_ERROR
+    assert exc.value.permanent is True
+    assert seen == []
+
+
+def test_the_default_reduce_route_is_never_a_code_only_endpoint() -> None:
+    # WHY: with no explicit processor the node reduces through its first endpoint; a code
+    # pointer registered first must not become the prompt processor of an LLM fan-out.
+    node = Url4Node("t")
+    node.endpoint("/combine", rds=True)(lambda request: "code")
+    node.endpoint("/model")(lambda request: "prompt")
+    assert node.default_route() == "/model"

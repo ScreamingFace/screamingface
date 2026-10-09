@@ -234,7 +234,7 @@ Errors come back as JSON: `{"error": {"code": "...", "message": "..."}}`.
 |---|---|
 | 400 | parse error / unbound reference / unsupported intent mode (`unsupported_mode`) |
 | 404 | unknown route |
-| 422 | a code pointer is missing or failed (`intent_error`) |
+| 422 | a code pointer is missing, failed, or sent to an endpoint registered without `rds=True` (`intent_error`) |
 | 502 | command exited non-zero |
 | 503 | over `--max-inflight` |
 | 504 | request exceeded `--timeout` |

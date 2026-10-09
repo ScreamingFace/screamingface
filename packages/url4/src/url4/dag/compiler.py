@@ -24,7 +24,7 @@ are strictly left-to-right, so compiled graphs are cycle-free by construction.
 
 Extensibility: :class:`LoweringRegistry` maps parse-tree node types to lowering
 functions (Registry / Abstract Factory) — replace how any surface form lowers
-without touching the lowering module.
+without touching the lowering modules (``url4.dag._lowering*``).
 """
 
 from __future__ import annotations
