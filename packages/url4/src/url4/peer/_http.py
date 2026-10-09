@@ -9,12 +9,14 @@ Everything here builds on the ASGI primitives of :mod:`url4.peer._asgi` and the
 standard library only — uvicorn is imported lazily inside :func:`serve`, so the
 core import graph stays framework-free (see tests/unit/test_import_isolation.py).
 The node is consumed through the :class:`~url4.io.layer.IOLayer` port alone
-(``fetch``), the same port every adapter implements.
+(``fetch``), the same port every adapter implements. Stdlib logging is used for
+adapter failures outside a run; in-run events go through :mod:`url4.observe`.
 """
 
 from __future__ import annotations
 
 import importlib
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 
 from url4.core.errors import ErrorCode, ResolutionError, Url4Error
@@ -22,6 +24,8 @@ from url4.io.layer import IOLayer
 from url4.peer._asgi import lifespan as _lifespan
 from url4.peer._asgi import send as _send
 from url4.peer._asgi import send_error as _send_error
+
+_logger = logging.getLogger(__name__)
 
 # HTTP status by spec error code; unlisted codes fall back by exception shape.
 # Keyed by ErrorCode members but typed ``dict[str, int]``: ``Url4Error.code`` is a
@@ -79,6 +83,16 @@ async def handle_http(node: IOLayer, scope: Mapping, send) -> None:
         body = await node.fetch(target, relative=True)
     except Url4Error as exc:
         await _send_error(send, status_for(exc), exc.code, str(exc))
+        return
+    except Exception:
+        # WHY: Spec C §13.5.2 registry row internal_error; the client gets the generic
+        # message only (error privacy, cf. §13.5.1), the traceback goes to the log.
+        # node.fetch returns before any byte is sent, so the response has not started
+        # and a JSON error body can still be written. A handler's own TimeoutError is
+        # not a Url4Error, so it lands here too: a handler that means "timeout" must
+        # raise a Url4Error with code timeout.
+        _logger.exception("unhandled error serving %s", scope["path"])
+        await _send_error(send, 500, ErrorCode.INTERNAL_ERROR, "internal error")
         return
     await _send(send, 200, [(b"content-type", b"text/plain; charset=utf-8")], body.encode())
 

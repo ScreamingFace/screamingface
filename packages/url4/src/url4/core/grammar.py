@@ -249,6 +249,8 @@ def _parse_attrib_chain(head: str) -> _Descriptor:
     first = True
     while True:
         rest = rest.strip()
+        if not rest:
+            raise ParseError(f"empty data binding after ':' in descriptor {head!r} (spec §4.3)")
         if rest.startswith("src="):
             d.value = _parse_value(rest[4:])
             return d
