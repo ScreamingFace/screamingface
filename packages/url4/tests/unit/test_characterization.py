@@ -13,6 +13,7 @@ import pytest
 from conftest import RecordingIOLayer
 
 from url4 import StaticIOLayer
+from url4.core.errors import ParseError
 from url4.core.grammar import parse as grammar_parse
 from url4.core.parser import build
 from url4.core.render import render
@@ -50,15 +51,16 @@ async def test_relative_expression_encodes_context_and_intent_in_query() -> None
 
 
 @pytest.mark.asyncio
-async def test_broadcast_intent_resolved_exactly_once() -> None:
-    # The !* intent (here a URL) is resolved a single time and shared across
-    # every per-source application — not re-fetched per source.
+async def test_broadcast_non_url4_intent_is_unsupported_mode() -> None:
+    # WHY: url4 2.0 — an https:// intent is refused before any fetch, broadcast or not
+    # (PRD row 3, CH10 flips). The 1.5.1 once-per-run intent fetch is gone.
     resolver = RecordingIOLayer(
         fetch_map={"https://a": "A", "https://b": "B", "https://instr": "TAG"}
     )
-    result = await run("(https://a, https://b)!*https://instr", resolver)
-    assert [row["result"] for row in json.loads(result)] == ["TAG\n\nA", "TAG\n\nB"]
-    assert resolver.fetches.count("https://instr") == 1
+    with pytest.raises(ParseError) as err:
+        await run("(https://a, https://b)!*https://instr", resolver)
+    assert err.value.code == "unsupported_mode"
+    assert resolver.fetches == []
 
 
 @pytest.mark.asyncio

@@ -36,6 +36,7 @@ from dataclasses import dataclass, replace
 
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import parse as grammar_parse
+from url4.core.intent import CodePointer, IntentMode, classify_intent
 from url4.core.nodes import (
     Binding,
     Expression,
@@ -533,7 +534,26 @@ def _intent_from_ast(atom: Node | None, registry: LoweringRegistry) -> _Intent |
     if isinstance(atom, Text):
         value = atom.value
         return _Intent(lambda edges: TextNode(value, deps=dict(edges)), text=value)
-    return _Intent(lambda edges: registry.lower(atom, edges))
+    return _Intent(lambda edges: registry.lower(atom, edges), pointer=_code_pointer_of(atom))
+
+
+def _code_pointer_of(atom: Node) -> CodePointer | None:
+    """The code pointer a URI intent names (PRD §2.5), or None for any other intent.
+
+    WHY: only the grammar's URI productions can be code pointers. Every other intent
+    (a variable, a struct, a nested expression, a bare token) keeps its 1.5.1 lowering.
+    """
+    if not isinstance(atom, RelUrl | Url):
+        return None
+    cls = classify_intent(atom)
+    if cls.mode is IntentMode.UNSUPPORTED:
+        raise ParseError(
+            f"intent {atom.value!r} is not a url4 code pointer — a URI intent must be a "
+            "/path or a url4:// reference (unsupported_mode)",
+            code=ErrorCode.UNSUPPORTED_MODE,
+            permanent=True,
+        )
+    return cls.pointer
 
 
 def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:

@@ -35,6 +35,7 @@ from url4.dag.semantics.ensemble import (
     substitute_item,
 )
 from url4.io.layer import FetchRequest, fetch_result
+from url4.wire.rds import RdsValue
 from url4.wire.subrequest import strip_transport_params
 
 from url4.dag.node import (  # isort: skip
@@ -115,6 +116,11 @@ def _maybe_json(text: str):
         return text
 
 
+def _row_value(row: str) -> object:
+    """One row's typed value: a visibly structured row is parsed, prose stays text."""
+    return _maybe_json(row) if row[:1] in "[{" else row
+
+
 def _rows_to_json(rows: list[str]) -> str:
     """Serialize iteration rows as the protocol-default JSON array (spec §5.3.8).
 
@@ -124,7 +130,19 @@ def _rows_to_json(rows: list[str]) -> str:
     visibly structured. Shared by :class:`CollectNode` and :class:`ReduceNode`
     so both consumers of a :class:`MapNode`'s rows type them identically.
     """
-    return json.dumps([_maybe_json(r) if r[:1] in "[{" else r for r in rows])
+    return json.dumps([_row_value(r) for r in rows])
+
+
+class JsonText(str):
+    """A payload whose text is a JSON document that an expression built.
+
+    WHY: an RDS input document needs the expression's shape, not only its text. An
+    iteration, a broadcast, a struct and a named expansion are arrays or objects, while
+    a fetched body that happens to hold JSON stays a string (contracts C1). A plain
+    ``str`` cannot say which one it is, so the nodes that build JSON mark their output
+    with this subtype, as :class:`FetchedText` marks a body's media type. It is a
+    ``str`` in every other respect.
+    """
 
 
 class FetchedText(str):
@@ -199,6 +217,45 @@ EVERY listed source contributes to the packed context — name-only descriptors
 (``a: v`` / ``a=v``) included. The bool marks a scalar-``weight 0.0``
 INSTRUMENTAL source: resolved and ``$name``-referenceable, excluded from the
 packed sources (the replacement for the old reference-only-Binding concept)."""
+
+
+def _gather_rds(
+    inputs: Mapping[str, Payload], slots: tuple[SlotSpec, ...]
+) -> tuple[dict[str, RdsValue], int]:
+    """The RDS input document's ``inputs`` for a group, and how many values resolved.
+
+    The walk matches :func:`_gather`: a failed source is skipped, and a list (a
+    ``;expand`` source) splices its elements. ``k`` is the 1-based position after
+    expansion, and it names an unnamed value ``$k`` (PRD D3, D6). A named list is one
+    array under its name.
+    """
+    values: dict[str, RdsValue] = {}
+    k = 0
+    for i, (name, _instrumental) in enumerate(slots):
+        # INVARIANT: weight 0.0 (instrumental) is attribution metadata, not delivery
+        # (ans:Q2), so an instrumental slot is an input like any other.
+        value = inputs[f"src:{i}"]
+        if isinstance(value, SourceFailure):
+            continue
+        if isinstance(value, list):
+            if name is not None:
+                values[name] = [_row_value(element) for element in value]
+                k += len(value)
+                continue
+            for element in value:
+                k += 1
+                values[f"${k}"] = element
+            continue
+        k += 1
+        values[name if name is not None else f"${k}"] = _rds_value(value)
+    return values, k
+
+
+def _rds_value(value: str) -> RdsValue:
+    """A payload's typed RDS value: a JsonText is parsed, any other text stays a string."""
+    if isinstance(value, JsonText):
+        return json.loads(value)
+    return str(value)
 
 
 @dataclass

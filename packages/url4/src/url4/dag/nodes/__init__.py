@@ -23,6 +23,7 @@ here:
 - :mod:`.guard` — :class:`GuardNode` (``;optional``/``;t=``/``;retry=``);
 - :mod:`.iteration` — :class:`ExpandNode`, :class:`MapNode`,
   :class:`ReduceNode`;
+- :mod:`.code_pointer` — :class:`CodePointerNode`, the RDS code-pointer call;
 - :mod:`._shared` — the helpers every family consumes (substitution, the
   reference-edge scope frame, the gather machinery, fetch plumbing, row
   serialization). Private to the package: a node module may import it, never
@@ -42,7 +43,8 @@ construction.
 
 from __future__ import annotations
 
-from url4.dag.nodes._shared import DEFAULT_MAP_CONCURRENCY, SlotSpec
+from url4.dag.nodes._shared import DEFAULT_MAP_CONCURRENCY, JsonText, SlotSpec
+from url4.dag.nodes.code_pointer import CodePointerNode
 from url4.dag.nodes.fetch import (
     HoldingsNode,
     RelUrlNode,
@@ -72,6 +74,7 @@ __all__ = [
     "BarrierNode",
     "BindingNode",
     "BroadcastCollectNode",
+    "CodePointerNode",
     "CollectNode",
     "ExpandNode",
     "FanoutReduceNode",
@@ -80,6 +83,7 @@ __all__ = [
     "HoldingsNode",
     "InlineCollectionNode",
     "JoinNode",
+    "JsonText",
     "LazyExprNode",
     "MapNode",
     "MergeNode",

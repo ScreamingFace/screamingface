@@ -17,7 +17,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from url4.core.errors import ParseError
+from url4.core.errors import ErrorCode, ParseError
+from url4.core.intent import CodePointer
 from url4.core.nodes import Params
 
 from url4.dag.node import DagNode  # isort: skip
@@ -25,6 +26,7 @@ from url4.dag.nodes import (  # isort: skip
     BarrierNode,
     BindingNode,
     BroadcastCollectNode,
+    CodePointerNode,
     FanoutReduceNode,
     GatherNode,
     GuardNode,
@@ -61,10 +63,13 @@ class _Intent:
     ``text`` carries the raw template for the broadcast path, which substitutes
     per source (with ``$current`` bound) instead of once, shared. It is set iff
     the intent is text — ``text is not None`` *is* the "is this text?" test.
+    ``pointer`` is set iff the intent is an RDS code pointer (PRD §2.5): the group
+    then becomes one :class:`CodePointerNode` call, and ``make`` is not used there.
     """
 
     make: Callable[[Edges], DagNode]
     text: str | None = None
+    pointer: CodePointer | None = None
 
 
 def _quorum_of(params: Params) -> int | None:
@@ -113,6 +118,21 @@ def _slot_specs(slots: list[_Slot]) -> tuple[SlotSpec, ...]:
     return tuple((slot.name, slot.instrumental) for slot in slots)
 
 
+def _reject_duplicate_names(slots: list[_Slot]) -> None:
+    """WHY: an RDS input document cannot hold two equal keys, and the code would see only one."""
+    seen: set[str] = set()
+    for slot in slots:
+        if slot.name is None:
+            continue
+        if slot.name in seen:
+            raise ParseError(
+                f"duplicate source name {slot.name!r} in a code-pointer group — each named "
+                "source is one input of the code, so names must be unique",
+                code=ErrorCode.MALFORMED_SOURCE,
+            )
+        seen.add(slot.name)
+
+
 def _compile_group(
     slots: list[_Slot],
     intent: _Intent | None,
@@ -120,6 +140,34 @@ def _compile_group(
     *,
     from_list: bool,
     quorum: int | None = None,
+) -> DagNode:
+    if intent is not None and intent.pointer is not None:
+        _reject_duplicate_names(slots)
+        # AIDEV-NOTE: Task 4b — a broadcast code pointer (one call per resolved source)
+        # replaces the broadcast path in _group_graph. Until then it runs as today's broadcast.
+        if not broadcast:
+            return _code_pointer_graph(slots, intent.pointer, quorum)
+    return _group_graph(slots, intent, broadcast, from_list=from_list, quorum=quorum)
+
+
+def _code_pointer_graph(slots: list[_Slot], pointer: CodePointer, quorum: int | None) -> DagNode:
+    """``(sources)!/code`` — one code-pointer call over the group's resolved sources."""
+    built = _build_slots(slots)
+    return CodePointerNode(
+        pointer,
+        _slot_specs(slots),
+        quorum,
+        deps={f"src:{i}": node for i, node in enumerate(built)},
+    )
+
+
+def _group_graph(
+    slots: list[_Slot],
+    intent: _Intent | None,
+    broadcast: bool,
+    *,
+    from_list: bool,
+    quorum: int | None,
 ) -> DagNode:
     if broadcast:
         return _broadcast_graph(slots, intent)

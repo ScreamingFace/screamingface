@@ -14,8 +14,8 @@ from url4.core.grammar import parse_group_root
 from url4.core.nodes import ForeachDirectives, Text, Url
 from url4.dag import (
     DEFAULT_MAP_CONCURRENCY,
-    BarrierNode,
     BindingNode,
+    CodePointerNode,
     ExecutionContext,
     ExpandNode,
     FanoutReduceNode,
@@ -436,50 +436,22 @@ async def test_run_rejects_ctx_combined_with_io_or_processor_or_process() -> Non
         await run("https://x!go", ctx=ctx, process=lambda s, i, sc: None)  # type: ignore[arg-type]
 
 
-@pytest.mark.asyncio
-async def test_fetch_intent_over_base_group_uses_barrier_and_merges() -> None:
-    # F2: a non-text (fetch) top-level intent over a parenthesised group — an
-    # absolute URL or a bare /path — lowers through compiler._base_graph's
-    # non-text-intent branch (the BarrierNode path), which is otherwise uncovered.
-    # Pin the structural contract (a BarrierNode carrying `inner` + `wait:*` deps
-    # that ARE the source nodes) and the observable result (the fetched intent
-    # merges with the resolved sources via default_process). The barrier is
-    # structural: ProcessNode already waits on the sources, so it does not
-    # serialize the intent fetch against them — it makes the fetch-intent node
-    # structurally depend on every source, matching the reference engine.
-    io = RecordingIOLayer(fetch_map={"https://a": "A", "https://b": "B", "https://instr": "INSTR"})
-    graph = compile_expression("(https://a, https://b)!https://instr")
-
-    sink = graph.sink
-    assert isinstance(sink, ProcessNode)
-    intent = sink.deps["intent"]
-    assert isinstance(intent, BarrierNode)
-    # The barrier's inner is the fetch node; its waits are exactly the sources.
-    assert isinstance(intent.deps["inner"], WebFetchNode)
-    assert intent.deps["inner"].url == "https://instr"
-    assert {intent.deps[f"wait:{i}"] for i in range(2)} == {
-        sink.deps["src:0"],
-        sink.deps["src:1"],
-    }
-
-    # The fetched intent value is merged with the sources, and fetched once.
-    result = await run(graph, io)
-    assert result == "INSTR\n\nA\nB"
-    assert io.fetches.count("https://instr") == 1
+def test_a_non_url4_intent_over_a_base_group_is_unsupported_mode() -> None:
+    # WHY: url4 2.0 — an https:// intent is not a code pointer, so it is refused at compile
+    # before any source resolves (PRD row 3, E7). The 1.5.1 barrier-and-merge is gone.
+    with pytest.raises(ParseError) as err:
+        compile_expression("(https://a, https://b)!https://instr")
+    assert err.value.code == "unsupported_mode"
+    assert err.value.permanent is True
 
 
 @pytest.mark.asyncio
-async def test_relative_url_intent_is_a_data_read_through_barrier() -> None:
-    # F2: a /path top-level intent classifies as a RelUrl (data read, not an
-    # expression), so it ALSO goes through the Barrier path — inner is a
-    # RelUrlNode with is_expr=False. Pin that shape so the barrier branch stays
-    # covered for the relative-URL form too.
+async def test_relative_url_intent_lowers_to_a_code_pointer_node() -> None:
+    # WHY: url4 2.0 — a /path intent is a code pointer, so the group is one CodePointerNode
+    # over its sources (PRD row 9, CH9 flips).
     graph = compile_expression("(https://a)!/doc")
-    intent = graph.sink.deps["intent"]
-    assert isinstance(intent, BarrierNode)
-    inner = intent.deps["inner"]
-    assert isinstance(inner, RelUrlNode)
-    assert inner.is_expr is False
+    assert isinstance(graph.sink, CodePointerNode)
+    assert graph.sink.pointer.path == "/doc"
 
 
 # --- coverage: nodes.py private helpers, reached through node/graph shapes ------

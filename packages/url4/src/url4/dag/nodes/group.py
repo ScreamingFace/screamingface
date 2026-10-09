@@ -25,6 +25,7 @@ from url4.dag.node import (  # isort: skip
 
 
 from url4.dag.nodes._shared import (  # isort: skip
+    JsonText,
     SlotSpec,
     _as_text,
     _check_quorum,
@@ -213,7 +214,7 @@ class BroadcastCollectNode:
             for i, role in enumerate(self.deps)
             if not isinstance(inputs[role], SourceFailure)
         ]
-        return json.dumps(rows)
+        return JsonText(json.dumps(rows))
 
 
 @dataclass(eq=False)
@@ -249,7 +250,7 @@ class CollectNode:
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         rows = inputs["rows"]
         rows = rows if isinstance(rows, list) else [_as_text(rows)]
-        return _rows_to_json(rows)
+        return JsonText(_rows_to_json(rows))
 
 
 @dataclass(eq=False)

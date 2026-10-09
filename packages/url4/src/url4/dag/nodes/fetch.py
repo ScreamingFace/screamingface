@@ -26,6 +26,7 @@ from url4.dag.node import (  # isort: skip
 
 
 from url4.dag.nodes._shared import (  # isort: skip
+    JsonText,
     SlotSpec,
     _as_text,
     _fetch,
@@ -228,7 +229,7 @@ class StructNode:
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         scope = _frame(inputs, ctx)
-        return json.dumps(_decode_struct(self.raw, scope, ctx))
+        return JsonText(json.dumps(_decode_struct(self.raw, scope, ctx)))
 
 
 def _decode_struct(raw: str, scope: Context, ctx: ExecutionContext) -> dict:
