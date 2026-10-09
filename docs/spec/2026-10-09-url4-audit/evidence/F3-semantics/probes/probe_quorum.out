@@ -1,0 +1,10 @@
+fan-out, 1/3 ok, quorum=3:
+   'REDUCER<<[Response 1]\nA-said\n\n[Instruction]\nmerge>>'
+local group, 1/3 ok, quorum=3:
+   'RAISED ResolutionError: quorum_not_met quorum not met: 1 of 3 required sources resolved'
+broadcast, 1/3 ok, quorum=3:
+   '[{"source_position": 1, "source_name": null, "result": "merge\\n\\nOK"}, {"source_position": 2, "source_name": null, "result": "merge"}, {"source_position": 3, "source_name": null, "result": "merge"}]'
+expand counts elements: 1 source + expand(3), quorum=4:
+   'merge\n\nr1\nr2\nr3'
+fan-out $$a escape:
+   'REDUCER<<a:\nA-said\n\n[Response 2]\nA-said\n\n[Instruction]\nliteral A-said and ref A-said>>'

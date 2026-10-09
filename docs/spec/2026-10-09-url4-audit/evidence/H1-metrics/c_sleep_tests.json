@@ -1,0 +1,138 @@
+{
+  "kind": "custom",
+  "total": 11,
+  "hits": [
+    {
+      "file": "packages/url4/tests/unit/test_dag.py",
+      "line": 75,
+      "text": "await asyncio.sleep(0)",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 86.37240313738309,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-15"
+    },
+    {
+      "file": "packages/url4/tests/unit/test_dag.py",
+      "line": 101,
+      "text": "await asyncio.sleep(0)",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 86.37240313738309,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-15"
+    },
+    {
+      "file": "packages/url4/tests/unit/test_dag.py",
+      "line": 189,
+      "text": "await asyncio.sleep(0)",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 86.37240313738309,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-15"
+    },
+    {
+      "file": "packages/url4/tests/unit/test_dag.py",
+      "line": 212,
+      "text": "await asyncio.sleep(0)",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 86.37240313738309,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-15"
+    },
+    {
+      "file": "packages/url4/tests/unit/test_dag.py",
+      "line": 251,
+      "text": "await asyncio.sleep(30)",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 86.37240313738309,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-15"
+    },
+    {
+      "file": "packages/url4/tests/unit/test_dag.py",
+      "line": 655,
+      "text": "await asyncio.sleep(10)",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 86.37240313738309,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-15"
+    },
+    {
+      "file": "packages/url4/tests/unit/test_serve_app.py",
+      "line": 111,
+      "text": "await asyncio.sleep(0.1)  # let the first request enter and hold the only slot",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 78.406141563309,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-23"
+    },
+    {
+      "file": "packages/url4/tests/unit/test_serve_app.py",
+      "line": 124,
+      "text": "await asyncio.sleep(5)",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 78.406141563309,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-23"
+    },
+    {
+      "file": "packages/url4/tests/unit/test_serve_backends.py",
+      "line": 43,
+      "text": "handler = make_command_handler([\"python3\", \"-c\", \"import time; time.sleep(5)\"], timeout=0.",
+      "marker": "time.sleep",
+      "key": "time.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 78.406141563309,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-23"
+    },
+    {
+      "file": "packages/url4/tests/unit/test_usage_sink.py",
+      "line": 67,
+      "text": "await asyncio.sleep(self.delay)",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41841008182753,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/tests/unit/test_response_sink.py",
+      "line": 82,
+      "text": "await asyncio.sleep(self.delay)",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 66.29654665590161,
+      "author": "Sergey Bershadsky",
+      "date": "2026-08-04"
+    }
+  ]
+}

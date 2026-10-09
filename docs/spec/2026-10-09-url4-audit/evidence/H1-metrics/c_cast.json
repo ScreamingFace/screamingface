@@ -1,0 +1,54 @@
+{
+  "kind": "custom",
+  "total": 4,
+  "hits": [
+    {
+      "file": "packages/url4/src/url4/core/_annotations.py",
+      "line": 225,
+      "text": "return cast(OnErrorPolicy, result)",
+      "marker": "cast(",
+      "key": "cast(",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.323646581677927,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    },
+    {
+      "file": "packages/url4/src/url4/core/builders.py",
+      "line": 434,
+      "text": "on_error=cast(OnErrorPolicy, on_error) if on_error is not None else \"collect\",",
+      "marker": "cast(",
+      "key": "cast(",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.323646581677927,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    },
+    {
+      "file": "packages/url4/src/url4/dag/_lowering.py",
+      "line": 401,
+      "text": "return cast(raw)",
+      "marker": "cast(",
+      "key": "cast(",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.323646581677927,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    },
+    {
+      "file": "packages/url4/src/url4/dag/_run.py",
+      "line": 72,
+      "text": "return compile_expression(cast(\"str | AstNode\", target), registry=registry).sink",
+      "marker": "cast(",
+      "key": "cast(",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.323646581677927,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    }
+  ]
+}
