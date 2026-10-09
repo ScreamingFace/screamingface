@@ -35,7 +35,8 @@ from url4.observe import (
     Usage,
     _bind_node_sinks,
 )
-from url4.peer._dispatch import _text, call_endpoint, call_rds, data_route, rds_call
+from url4.peer._code_pointer import call_rds, rds_call
+from url4.peer._dispatch import _text, call_endpoint, data_route
 from url4.peer._http import status_for_code
 from url4.wire.subrequest import extract_expression_params
 

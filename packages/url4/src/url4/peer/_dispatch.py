@@ -30,47 +30,22 @@ Dispatch contract (mirrors the engine's wire conventions):
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Mapping
-from dataclasses import dataclass
-from inspect import isawaitable
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
-from url4.core._annotations import read_query_tail
-from url4.core.errors import ErrorCode, ResolutionError, Url4Error
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.layer import FetchRequest, FetchResult, fetch_result, resolve_shelf
-from url4.wire.rds import RdsValue, decode_q_payload, decode_rds_document
+from url4.peer._code_pointer import call_rds, rds_call
+from url4.peer._request import Request, _text
 from url4.wire.subrequest import (
     TRANSPORT_ONLY_PARAMS,
     decode_expression_http,
     decode_subrequest_http,
     extract_expression_params,
-    split_expression_query,
 )
 
 if TYPE_CHECKING:  # the node type only — this module never constructs one
     from url4.peer.server import Url4Node, _DataRoute
-
-
-@dataclass(frozen=True)
-class Request:
-    """One decoded intent-processor call: ``GET <path>?[params&]q=(context)!intent``.
-
-    ``context`` is opaque resolved data (see the module contract); ``params``
-    are the decoded protocol params that preceded ``q=``.
-
-    In RDS mode (``mode == "rds"``, a code-pointer call with no ``!`` tail): ``context`` is the
-    input document's JSON text exactly as received, ``intent`` is ``""`` (the path is the code
-    pointer), ``params`` are the query-tail params, and ``inputs`` is the document's ``inputs``.
-    """
-
-    path: str
-    context: str
-    intent: str
-    params: Mapping[str, str]
-    # WHY: the default keeps every 1.x handler working; only an RDS call sets the new fields.
-    mode: Literal["llm", "rds"] = "llm"
-    # INVARIANT: `inputs` is set if and only if `mode == "rds"` (contracts C1 `inputs`).
-    inputs: Mapping[str, RdsValue] | None = None
 
 
 # Transport-level query params a node consumes itself rather than re-attaching
@@ -202,75 +177,6 @@ async def call_endpoint(node: Url4Node, path: str, q: str, params: Mapping[str, 
     return await _text(node._endpoints[path](request))
 
 
-def rds_call(query_string: str) -> tuple[dict[str, str], str, dict[str, RdsValue]] | None:
-    """The RDS call a query string carries, as ``(params, document text, inputs)``, else ``None``.
-
-    A request is RDS when its ``q=`` payload has no ``!`` tail and decodes to a valid v1 document
-    (contracts C2 step 3). Any other request is an LLM call, and the caller keeps today's path.
-    The query-tail params are read from the raw text before ``q=``, so the author's bytes reach
-    :func:`~url4.core._annotations.read_query_tail` unchanged.
-    """
-    raw_params, raw_q = split_expression_query(query_string)
-    document = None if raw_q is None else decode_q_payload(raw_q)
-    inputs = None if document is None else decode_rds_document(document)
-    if document is None or inputs is None:
-        return None
-    return read_query_tail(_raw_query_tail(raw_params)), document, inputs
-
-
-def _raw_query_tail(raw_params: list[tuple[str, str | None]]) -> str:
-    """The query-tail text, rebuilt from the raw pairs ``split_expression_query`` returned.
-
-    INVARIANT: each pair keeps the author's bytes (a flag is ``k``, a valued param is ``k=v``), so
-    the join is the query-tail as written and ``read_query_tail`` reads it unchanged.
-    """
-    return "&".join(key if value is None else f"{key}={value}" for key, value in raw_params)
-
-
-async def call_rds(
-    node: Url4Node,
-    path: str,
-    params: Mapping[str, str],
-    document: str,
-    inputs: Mapping[str, RdsValue],
-) -> str:
-    """Call the code pointer at ``path`` once with an RDS document — the one RDS owner.
-
-    Both :func:`dispatch` and :func:`~url4.peer.direct.dispatch_direct` call this, so the RDS rules
-    exist in one place. INVARIANT: an RDS request runs only a registered endpoint. A path with no
-    endpoint is ``intent_error``, never the eval path and never a data route.
-    """
-    if path not in node._endpoints:
-        raise ResolutionError(
-            f"node {node.name!r} has no code pointer at {path!r}",
-            code=ErrorCode.INTENT_ERROR,
-            permanent=True,
-        )
-    request = Request(
-        path=path, context=document, intent="", params=params, mode="rds", inputs=inputs
-    )
-    try:
-        result = await _text(node._endpoints[path](request))
-    except Url4Error:
-        raise
-    except Exception as exc:
-        # WHY: a failure inside the code pointer is the author's input failing, so it is permanent
-        # and keeps the chained cause. Only a url4 error keeps its own code (contracts C7). The
-        # message names the exception type only: its text can carry the author's data (SF7).
-        raise ResolutionError(
-            f"code pointer {path!r} failed: {type(exc).__name__}",
-            code=ErrorCode.INTENT_ERROR,
-            permanent=True,
-        ) from exc
-    if not isinstance(result, str):
-        raise ResolutionError(
-            f"code pointer {path!r} returned {type(result).__name__}, not text",
-            code=ErrorCode.INTENT_ERROR,
-            permanent=True,
-        )
-    return result
-
-
 # --- helpers ------------------------------------------------------------------------------
 
 
@@ -287,7 +193,3 @@ def reassemble(q: str, params: Mapping[str, str]) -> str:
         if key not in _TRANSPORT_PARAMS:
             text += f";{key}" if value == "" else f";{key}={value}"
     return text
-
-
-async def _text(result: str | Awaitable[str]) -> str:
-    return await result if isawaitable(result) else result
