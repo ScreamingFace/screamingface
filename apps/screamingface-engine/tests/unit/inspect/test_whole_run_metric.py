@@ -453,11 +453,12 @@ def test_no_published_row_opts_in_so_no_revision_moves() -> None:
     assert all(benchmarks._whole_run_metric_pins(spec) == () for spec in BENCHMARKS)
 
 
-def _spec(**overrides: Any) -> BenchmarkSpec:
-    """gsm8k's real row with overrides; the benchmark caches are patched per test."""
+def _spec(key: str = "gsm8k", **overrides: Any) -> BenchmarkSpec:
+    """A real row (gsm8k's unless named) with overrides; the benchmark caches are patched per
+    test. gsm8k drops its Sample metadata; aime24 keeps it."""
 
-    gsm8k: BenchmarkSpec = next(spec for spec in BENCHMARKS if spec.key == "gsm8k")
-    return replace(gsm8k, **overrides)
+    row: BenchmarkSpec = next(spec for spec in BENCHMARKS if spec.key == key)
+    return replace(row, **overrides)
 
 
 def _assembled(spec: BenchmarkSpec, monkeypatch: pytest.MonkeyPatch) -> ImportedBenchmark:
@@ -468,9 +469,10 @@ def _assembled(spec: BenchmarkSpec, monkeypatch: pytest.MonkeyPatch) -> Imported
 
 
 def test_naming_a_metric_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -> None:
-    plain: str = _assembled(_spec(), monkeypatch).benchmark.revision
+    # WHY aime24: a row honouring a metric must keep its Sample metadata, and aime24 does.
+    plain: str = _assembled(_spec("aime24"), monkeypatch).benchmark.revision
     honoured: ImportedBenchmark = _assembled(
-        _spec(whole_run_metric="inspect_evals.hle.metrics:accuracy"), monkeypatch
+        _spec("aime24", whole_run_metric="inspect_evals.hle.metrics:accuracy"), monkeypatch
     )
 
     assert honoured.benchmark.revision != plain
@@ -499,6 +501,19 @@ def test_a_metric_beside_a_grade_rewrite_is_refused_at_assembly(
     spec: BenchmarkSpec = _spec(whole_run_metric="inspect_evals.hle.metrics:accuracy", **overrides)
 
     with pytest.raises(ValueError, match=f"gsm8k: whole_run_metric .*{words}"):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_metric_on_a_row_that_drops_sample_metadata_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WHY: gsm8k was imported without its Sample metadata, so a metric reading it would see
+    an empty dict, and one written with ``.get(key, default)`` would publish a wrong number.
+    A hand edit adding the metric is refused; re-importing with honour keeps the metadata."""
+
+    spec: BenchmarkSpec = _spec(whole_run_metric="inspect_evals.hle.metrics:accuracy")
+
+    with pytest.raises(ValueError, match="gsm8k: whole_run_metric needs keep_sample_metadata"):
         _assembled(spec, monkeypatch)
 
 

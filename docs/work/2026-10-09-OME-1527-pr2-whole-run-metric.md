@@ -91,6 +91,8 @@ re-importable again with their published rows unchanged.
     reviewer confirms the metric is higher-is-better up to 1 (inspect metrics declare
     neither range nor direction). The tally refuses a headline above 1 or non-finite.
   - `whole_run_metric` with `inverted_grade` or `verdict_grades` is refused at assembly.
+  - `whole_run_metric` without `keep_sample_metadata=True` is refused at assembly; an honour
+    import keeps the metadata, so a metric never reads an empty dict.
 - **Deviations:**
   - The keep-the-mean Named Deviation is a comment, not a revision pin (CONTEXT.md says a
     Named Deviation is included in the Revision); pinning it would move five published

@@ -3972,6 +3972,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     _check_whole_run_metric(spec)
     cases_spec: TaskReplayCasesSpec = _cases_declaration(spec.key)
     _check_answer_key_opt_in(spec, cases_spec)
+    _check_whole_run_metric_keeps_metadata(spec, cases_spec)
     identity_pins: tuple[str, ...] = _task_replay_pins(cases_spec)
     prepare: Callable[[Path], dict[str, Any]] = partial(
         prepare_replayed_cases, cases_spec, benchmark_key=spec.key
@@ -4072,6 +4073,25 @@ def _check_whole_run_metric(spec: BenchmarkSpec) -> None:
         raise ValueError(
             f"{spec.key}: whole_run_metric reads the eval's own grades, which "
             f"{' and '.join(rewrites)} rewrite; keep the mean for this row"
+        )
+
+
+def _check_whole_run_metric_keeps_metadata(
+    spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec
+) -> None:
+    """Refuse a row that honours the eval's whole-run metric but drops the Sample metadata.
+
+    WHY: the metric may read answer-key facts from the Sample metadata (an F1 over "has a
+    clause"). Without it the metric reads an empty dict: one that indexes it fails the run,
+    but one written with ``.get(key, default)`` publishes a wrong number under the eval's
+    name. The importer keeps the metadata for an honour import; a hand edit that adds the
+    metric to a row imported without it is refused here, so it is re-imported instead.
+    """
+
+    if spec.whole_run_metric is not None and not cases_spec.keep_sample_metadata:
+        raise ValueError(
+            f"{spec.key}: whole_run_metric needs keep_sample_metadata=True, because the "
+            "metric may read the Sample metadata; re-import with --whole-run-metric honour"
         )
 
 
