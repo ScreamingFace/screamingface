@@ -28,12 +28,16 @@ _HoldingsPort = Callable[[str | None], str | Awaitable[str]]
 class _HoldingsRegistration:
     """The node's own ``@`` holdings and ``@identity`` registries (spec §5.6).
 
-    A mixin: the attributes below are declared here for the methods that write them;
-    ``Url4Node.__init__`` assigns them.
+    A mixin that owns its state: the host's ``__init__`` calls :meth:`_init_holdings` once,
+    so every class that mixes it in starts with empty registries.
     """
 
     _self_holdings: dict[str | None, _HoldingsPort]
     _identities: dict[str, _HoldingsPort]
+
+    def _init_holdings(self) -> None:
+        self._self_holdings = {}
+        self._identities = {}
 
     @overload
     def holdings(self, collection: HoldingsHandler) -> HoldingsHandler: ...

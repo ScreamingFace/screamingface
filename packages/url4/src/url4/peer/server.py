@@ -83,8 +83,7 @@ class Url4Node(_HoldingsRegistration):
         self._endpoints: dict[str, EndpointHandler] = {}
         self._rds_endpoints: set[str] = set()
         self._data: dict[str, _DataRoute] = {}
-        self._self_holdings = {}
-        self._identities = {}
+        self._init_holdings()
         for path, provider in (data or {}).items():
             self.data(path, provider)
 

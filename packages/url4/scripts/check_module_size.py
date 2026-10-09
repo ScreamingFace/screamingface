@@ -7,8 +7,9 @@ Run from the package root (CI does)::
 Line counts are a proxy, not a quality measure. This gate exists to keep the
 reviewed hotspot splits — the DAG node vocabulary (``dag/nodes/``), the DAG
 lowering, the executor/run composition split (``dag/executor.py`` +
-``dag/_run.py``), the serve config and adapter, and the peer server + its
-dispatch half (``peer/server.py`` + ``peer/_dispatch.py``) — from
+``dag/_run.py``), the serve config and adapter, the peer server + its
+dispatch half (``peer/server.py`` + ``peer/_dispatch.py``), and the url4 2.0 splits
+listed together at the end of ``BASELINE`` — from
 silently regrowing: a module that earned a split must not creep back over its
 cap one import at a time. The stable grammar/render entries hold the largest
 modules at their reviewed size for the same reason.
@@ -51,14 +52,18 @@ BASELINE: dict[str, int] = {
     "dag/nodes/_shared.py": 211,
     "dag/nodes/iteration.py": 183,
     "peer/_dispatch.py": 195,
-    # The modules split out of dag/_lowering.py, dag/nodes/_shared.py and peer/_dispatch.py
-    # (url4 2.0, 2026-10-09): a split guards its parts, or the code regrows where the cap is not.
+    # Every module split out in url4 2.0 (2026-10-09) — of dag/_lowering.py, dag/nodes/_shared.py,
+    # dag/nodes/iteration.py, peer/_dispatch.py and peer/server.py — whatever its size: a split
+    # guards all its parts, or the code regrows in the part that has no cap.
     "dag/_lowering_nodes.py": 368,
     "dag/_lowering_intent.py": 204,
     "dag/_lowering_text.py": 198,
+    "dag/_lowering_registry.py": 43,
     "dag/nodes/_gather.py": 107,
+    "dag/nodes/reduce.py": 72,
     "peer/_code_pointer.py": 103,
     "peer/_holdings.py": 103,
+    "peer/_request.py": 42,
     "cli/_serve.py": 340,
     "cli/_config.py": 341,
 }

@@ -89,6 +89,7 @@ transport.
 | the in-memory test adapter | `io/static.py` | io |
 | the httpx adapter | `io/http.py` | io |
 | the node's registration or dispatch order | `peer/server.py`, `peer/_dispatch.py` | node |
+| `@` holdings or `@identity` registration (§5.6) | `peer/_holdings.py` (a mixin of `Url4Node`) | node |
 | a code-pointer (RDS) call: the receiver's decode, opt-in and errors | `peer/_code_pointer.py`, `peer/_request.py` | node |
 | the requestor `Client` | `peer/client.py` | node |
 | `url4.toml` or the `serve` flags | `cli/_config.py`, `cli/_serve.py` | node |
