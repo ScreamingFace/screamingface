@@ -18,7 +18,7 @@ sf.Url4("(candidate='…compiled url4…')!'$model_0'")`
 const remix = `plan = report.candidates["frontier-trio"].url4   # or any url4 string you were given
 
 plan.to_python()    # editable sf.Model / sf.Fusion / sf.Pipeline code, no spend
-sf.evaluate(plan)   # or replay it exactly as it ran, benchmark included`
+sf.evaluate(plan)   # or run it again exactly as it ran, benchmark included`
 
 const ops = `c = report.candidates.only
 len(c.operations), [o.kind for o in c.operations]`
@@ -283,8 +283,8 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
       it. <code>to_python()</code> reconstructs the <code>sf.Model</code>, <code>sf.Fusion</code>,
       and <code>sf.Pipeline</code> calls, nested as they originally were, so you can edit one part
       and run the result as your own next attempt. It costs nothing, since it is a local
-      transformation rather than a run. Passing the expression to
-      <code>sf.evaluate()</code> instead replays it as it stands, which does spend.
+      transformation rather than a run. Passing the expression to <code>sf.evaluate()</code> instead
+      runs it again as it stands, which can spend.
     </p>
 
     <div class="not-prose">
@@ -331,16 +331,18 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <h2>What "reproduce" means here</h2>
 
     <p>
-      A url4 pins the run's <strong>definition</strong>. Replay it against the hosted ScreamingFace
-      engine and you get a <strong>cache hit</strong>: the engine already ran that exact expression,
-      so it returns the identical score at <strong>$0</strong> rather than paying to run it again.
+      A url4 pins the run's <strong>definition</strong>. Pass it to <code>sf.evaluate()</code> and
+      you start a new run. That run goes through the cache like any other. A call that the cache
+      already holds is a hit and costs nothing, and the other calls are paid. A run that bypasses
+      the cache asks the same models the same questions under the same protocol. Models are not
+      deterministic, so a fresh run can diverge slightly.
     </p>
 
     <p>
-      Bypass the cache and it genuinely reruns, asking the same models the same questions under the
-      same protocol. Models are not deterministic, so a fresh run can diverge slightly. A cached
-      replay reproduces the number exactly; a bypassed rerun reproduces the experiment, and the
-      score may move a little.
+      To check a published score, use <code>sf.reproduce(score)</code> instead. It runs the url4
+      against the frozen copy that the original run made. See the
+      <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> and the
+      <RouterLink to="/learn/caching">caching page</RouterLink>.
     </p>
 
     <h2>Links</h2>

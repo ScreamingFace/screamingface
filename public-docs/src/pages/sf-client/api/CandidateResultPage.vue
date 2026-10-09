@@ -157,6 +157,31 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>datetime</code> / <code>int</code></td>
           <td>When it ran and for how long.</td>
         </tr>
+        <tr>
+          <td><code>answer_seed</code></td>
+          <td><code>int&nbsp;|&nbsp;None</code></td>
+          <td>
+            The answer seed the run used. <code>None</code> for an unseeded run. <code>submit</code>
+            sends it with the score, and a reproduction runs with it.
+          </td>
+        </tr>
+        <tr>
+          <td><code>frozen_copy_id</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            The id of the frozen copy that the run opened. <code>None</code> when the run was not
+            captured (for example, <code>capture=False</code>) or the copy did not open.
+          </td>
+        </tr>
+        <tr>
+          <td><code>capture_status</code></td>
+          <td><code>"complete"&nbsp;|&nbsp;"partial"&nbsp;|&nbsp;None</code></td>
+          <td>
+            Whether the copy holds the whole run. <code>None</code> means unknown, not partial.
+            <code>submit</code> sends both fields with the score. See
+            <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
+          </td>
+        </tr>
       </tbody>
     </table>
 

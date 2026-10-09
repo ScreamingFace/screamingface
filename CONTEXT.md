@@ -183,6 +183,22 @@ _Avoid_: Leaderboard Score when referring specifically to the write request
 The ranked projection of a Leaderboard Score shown on a Leaderboard.
 _Avoid_: Score Submission
 
+**Frozen Copy**:
+The permanent record of every model answer and web-tool result of one captured run. The AI gateway
+keeps it, and the Engine seals it when the run ends.
+_Avoid_: Cache, snapshot, cache version
+
+**Capture Status**:
+Whether a Frozen Copy holds the whole run: complete or partial. A Candidate Result carries it, and a
+Leaderboard Score stores it.
+_Avoid_: Verified (that is the separate `verified_by_screamingface` mark), Partial Report
+
+**Reproduction**:
+A replay of a Leaderboard Score against its Frozen Copy, run with its Candidate URL4 and stored
+answer seed. It is exact when it gives the stored score and case count on the same Benchmark
+Revision.
+_Avoid_: Re-run, fresh run, verification, replay alone
+
 **Aggregation**:
 The phase that combines Case grades into a Candidate’s Benchmark metrics.
 _Avoid_: Reduction
