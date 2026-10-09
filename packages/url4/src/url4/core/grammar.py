@@ -504,10 +504,10 @@ def _parse_quoted_value(token: str) -> Text:
 def _find_iteration_star(token: str) -> int | None:
     """The depth-0 ``*(`` iteration operator's position, if present (§5.3.3).
 
-    Source-initial ``*`` (position 0) is the expansion prefix, not iteration —
-    it is consumed in :func:`_parse_source` before value detection begins.
+    A source-initial ``*`` (the first non-space character) is the expansion
+    prefix, not iteration — :func:`iter_iteration_stars` never yields it.
     """
-    return next(iter_iteration_stars(token, skip_leading=True), None)
+    return next(iter_iteration_stars(token), None)
 
 
 # --- iteration (§5.3) ---------------------------------------------------------------

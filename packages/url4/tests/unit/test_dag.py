@@ -8,7 +8,7 @@ import json
 import pytest
 from conftest import RecordingIOLayer
 
-from url4.core.errors import CollectionError, CycleError, ParseError, ResolutionError
+from url4.core.errors import CollectionError, CycleError, ErrorCode, ParseError, ResolutionError
 from url4.core.grammar import parse as grammar_parse
 from url4.core.grammar import parse_group_root
 from url4.core.nodes import ForeachDirectives, Text, Url
@@ -851,18 +851,15 @@ async def test_group_binding_rhs_lowers_to_lazy_binding_thunk() -> None:
     assert result == "combine\n\ng: label\n\nX\nuse label\n\nX"
 
 
-@pytest.mark.asyncio
-async def test_empty_collection_text_lowers_to_empty_text_node() -> None:
-    # compiler.py _collection_dag(): an empty-string collection (e.g. "*(x)"
-    # with no source before the "*") lowers to TextNode(""), so iteration sees
-    # zero rows (spec §5.3.9).
-    graph = compile_expression("*(r=x)!'$r'")
-    map_node = graph.sink.deps["rows"]
-    collection = map_node.deps["collection"]
-    assert isinstance(collection, TextNode)
-    assert collection.template == ""
-    result = await run(graph, StaticIOLayer())
-    assert json.loads(result) == []
+def test_leading_star_group_is_rejected_at_compile_time() -> None:
+    # B2 (audit §4.B): a leading "*(" is the expansion prefix (§5.2 rule 9), not
+    # the iteration operator. At top level the "!" takes the intent, so the group
+    # after "*" has none, and the text compile path rejects it with MISSING_INTENT.
+    # It no longer reaches _collection_dag with an empty collection, so the
+    # TextNode("") branch there is now unreachable from text.
+    with pytest.raises(ParseError, match="a leading '\\*' expands a source") as error:
+        compile_expression("*(r=x)!'$r'")
+    assert error.value.code == ErrorCode.MISSING_INTENT
 
 
 def test_refs_of_ast_extracts_relexpr_context_and_struct_references() -> None:

@@ -182,20 +182,20 @@ def find_unquoted(text: str, chars: str, start: int = 0) -> int | None:
     return None
 
 
-def iter_iteration_stars(text: str, *, skip_leading: bool = False) -> Iterator[int]:
+def iter_iteration_stars(text: str) -> Iterator[int]:
     """Yield the index of every depth-0 ``*`` immediately followed by ``(``.
 
     THE single definition of how the §5.3.3 iteration operator is recognised.
     Callers differ in what they do with a hit — take the first, slice the body,
     split around it — but not in what counts as one.
 
-    ``skip_leading`` excludes position 0, where a ``*`` is the *expansion*
-    prefix rather than iteration (§5.2 rule 9). Value-position callers set it;
-    envelope-level callers, which have already consumed any expansion prefix,
-    do not.
+    A ``*`` at the first non-space character is never yielded. There it is the
+    *expansion* prefix (§5.2 rule 9), not iteration. No caller consumes that
+    prefix before it scans, so every caller gets this exclusion.
     """
+    head = len(text) - len(text.lstrip())
     for i, ch in iter_top_level(text):
-        if ch == "*" and text[i + 1 : i + 2] == "(" and not (skip_leading and i == 0):
+        if ch == "*" and text[i + 1 : i + 2] == "(" and i != head:
             yield i
 
 

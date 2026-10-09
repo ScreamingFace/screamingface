@@ -124,6 +124,16 @@ def test_split_collection_iteration_absent() -> None:
     assert split_collection_iteration("(a, b)") == (None, None)
 
 
+def test_split_collection_iteration_ignores_leading_star() -> None:
+    # B2: a leading "*(" is the expansion prefix (§5.2 rule 9), not iteration.
+    assert split_collection_iteration("*(a)!x") == (None, None)
+
+
+def test_split_collection_iteration_ignores_leading_star_after_space() -> None:
+    # The expansion prefix is the first non-space character (F5).
+    assert split_collection_iteration("  *(a)!x") == (None, None)
+
+
 # strip_one_paren_layer, reimplemented over the shared balanced_body scanner
 # (see url4._scan). Pinning the full behavior matrix here since it previously
 # had only indirect coverage via decode_envelope.

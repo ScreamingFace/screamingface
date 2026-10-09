@@ -301,6 +301,14 @@ def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
                 code=ErrorCode.MISSING_INTENT,
             )
         return envelope
+    if raw_intent is not None and source_expr.lstrip().startswith("*("):
+        # B2 / F4: "*(...)" at top level. The "!" belongs to the outer expression,
+        # so the group after "*" has no intent of its own.
+        raise ParseError(
+            f"a leading '*' expands a source inside a group; at top level the '!' "
+            f"belongs to the outer expression in {stripped!r}",
+            code=ErrorCode.MISSING_INTENT,
+        )
     if require_intent and raw_intent is None and strip_one_paren_layer(source_expr) is not None:
         # INVARIANT: expression = "(" source-list ")" intent-op intent — a
         # parenthesized envelope with no intent has no grammar form (`OME-508`).
@@ -340,11 +348,13 @@ def _decode_iteration(
     # ``raw_intent`` reduces across rows. A *descriptored* inner collection
     # (``(name:w:src*(body)…)!intent``) is NOT this shape — per §5.3.10 the
     # descriptor attributes the iteration as a source of the enclosing
-    # expression, so the group route (the grammar) must handle it.
+    # expression, so the group route (the grammar) must handle it. So does a leading
+    # "*" expansion inner source (B2): it is never a collection.
     if (
         raw_intent is not None
         and (inner := strip_one_paren_layer(source_expr)) is not None
         and not _is_source_list(inner)
+        and not inner.lstrip().startswith("*")
     ):
         inner_clean, _, inner_directives = split_expr_params(inner)
         inner_src, per_row_intent, _ = split_intent(inner_clean)
