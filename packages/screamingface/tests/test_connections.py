@@ -518,3 +518,32 @@ def test_provider_keys_require_https_outside_loopback() -> None:
         client.connect("openrouter", api_key=SECRET)
 
     assert failure.value.code == "secure_transport_required"
+
+
+def test_connection_catalog_decodes_unavailable_distinct_from_error() -> None:
+    # FEATURE (OME-1250, step 1 of 2): `unavailable` = the credential authenticates but cannot
+    # be served right now (402 / quota); `error` = the credential was rejected. The SDK must
+    # accept the new value before the gateway emits it, and keep the two apart.
+    rows = [
+        _row(status="unavailable"),
+        {**_row(status="error"), "provider": "anthropic", "display_name": "Anthropic"},
+    ]
+    client = _sync_client(lambda _: httpx.Response(200, json={"object": "list", "data": rows}))
+
+    with client:
+        listed = client.connections.list()
+
+    assert [(row.provider, row.status) for row in listed] == [
+        ("openrouter", "unavailable"),
+        ("anthropic", "error"),
+    ]
+
+
+def test_an_unknown_status_beyond_unavailable_is_still_refused() -> None:
+    # INVARIANT (owner decision 2026-10-02, STRICT): one new value, no lenient decoder.
+    client = _sync_client(lambda _: httpx.Response(200, json=_list(_row(status="degraded"))))
+
+    with client, pytest.raises(sf.ProviderConnectionError) as failure:
+        client.connections.list()
+
+    assert failure.value.code == "invalid_connection_response"

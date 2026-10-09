@@ -1457,3 +1457,27 @@ def test_no_cancel_is_offered_while_the_login_blocks() -> None:
     # Only the Authorize link is offered while the wait is in progress.
     assert during == [[]]
     root.close()
+
+
+def test_hosted_unavailable_projects_to_unavailable_without_the_available_source() -> None:
+    # FEATURE (OME-1250): a credential that authenticates but cannot serve reads Unavailable
+    # in the hosted panel, never "Available via ScreamingFace".
+    connection = sf.Connection(
+        provider="openrouter",
+        display_name="OpenRouter",
+        auth_methods=("api_key",),
+        status="unavailable",
+        auth_method=None,
+        account_label=None,
+    )
+    panel = _hosted_panel(connection)
+    root = panel.widget()
+
+    expected_cell = (
+        "<div class='sf-connections__status unavailable'><i class='sq'></i>Unavailable</div>"
+    )
+    assert _text(root).count(expected_cell) == 1
+    assert panel._repr_html_().count(expected_cell) == 1
+    assert "Available via ScreamingFace" not in panel._repr_html_()
+    assert "openrouter=unavailable" in repr(panel)
+    root.close()

@@ -803,7 +803,7 @@
       },
       "ConnectionStatus": {
         "kind": "type alias",
-        "value": "typing.Literal['not_connected', 'pending', 'connected', 'needs_reauth', 'error']"
+        "value": "typing.Literal['not_connected', 'pending', 'connected', 'needs_reauth', 'error', 'unavailable']"
       },
       "OAuthFlow": {
         "kind": "class",
