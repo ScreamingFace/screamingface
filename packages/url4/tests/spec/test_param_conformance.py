@@ -31,6 +31,7 @@ from url4.core.errors import ParseError
 from url4.core.grammar import parse
 from url4.core.nodes import RelExpr
 from url4.core.parser import build
+from url4.peer.server import Url4Node
 from url4.wire.subrequest import extract_expression_params
 
 # --- param-key: no "-" -----------------------------------------------------------
@@ -160,3 +161,14 @@ def test_flag_key_is_still_charset_checked() -> None:
     # The key is a `param-key` whether or not a value follows it.
     with pytest.raises(ParseError, match="param"):
         extract_expression_params("we-ird&q=(a)!'go'")
+
+
+# --- CH7: the eval path refuses `@` in a protocol param (characterization) ---------
+
+
+@pytest.mark.asyncio
+async def test_char_eval_path_refuses_at_in_a_protocol_param() -> None:
+    node = Url4Node("t")
+    with pytest.raises(ParseError) as err:
+        await node.fetch("/v1?tone=a@b&q=(x='1')!'go'", relative=True)
+    assert err.value.code == "malformed_source"
