@@ -97,10 +97,12 @@ async def test_parse_error_maps_to_400() -> None:
 
 async def test_over_max_inflight_returns_503() -> None:
     node = Url4Node("t", eval_path="/v1")
+    entered = asyncio.Event()
     gate = asyncio.Event()
 
     @node.endpoint("/slow")
     async def slow(request) -> str:  # noqa: ARG001 - handler contract
+        entered.set()  # the first request now holds the only slot
         await gate.wait()
         return "done"
 
@@ -108,7 +110,7 @@ async def test_over_max_inflight_returns_503() -> None:
     app = build_asgi_app(node, config)
     async with _driver(app) as http:
         first = asyncio.create_task(http.get("/v1", params={"q": "(r=/slow(x)!'go')!'$r'"}))
-        await asyncio.sleep(0.1)  # let the first request enter and hold the only slot
+        await entered.wait()
         second = await http.get("/v1", params={"q": "(r=/slow(x)!'go')!'$r'"})
         assert second.status_code == 503
         assert second.headers["retry-after"] == "1"

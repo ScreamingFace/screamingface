@@ -22,8 +22,6 @@ from typing import Literal, cast
 
 import pytest
 
-pytest.importorskip("pydantic")
-
 from url4.dag._context import _ObsState
 from url4.observe import NullObserver
 from url4.streaming.interfaces import (
