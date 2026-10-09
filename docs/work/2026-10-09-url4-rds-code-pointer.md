@@ -10,10 +10,11 @@ finished:
 
 ## Intent
 
-Write the repo spec for a url4 package change: a relative-URI or `url4://` intent becomes an RDS
-code-pointer call that receives the group's sources as structured data (URL4 Spec B §6). Documents
-only. Code starts after the user approves the spec in plain words and Kevin McDonough confirms the
-proposed wire shape (overview §6, K1–K9).
+Spec, plan and build a url4 package change: a relative-URI or `url4://` intent becomes an RDS
+code-pointer call that receives the group's sources as structured data (URL4 Spec B §6).
+2026-10-09: the user approved the spec in plain words and chose "plan + code on the K1–K9
+defaults; stop before the PR". Kevin McDonough confirms K1–K9 in parallel. Version: join the
+pending 2.0.0 (release PR #852 merges after this PR).
 
 ## Planned changes
 
@@ -22,10 +23,22 @@ proposed wire shape (overview §6, K1–K9).
 - `docs/spec/2026-10-09-url4-rds-code-pointer/contracts.md`
 - `docs/spec/2026-10-09-url4-rds-code-pointer/test-plan.md`
 - this ledger
+- `docs/plan/2026-10-09-url4-rds-code-pointer.md` (Tasks 0–6)
+- code, `packages/url4/src/url4/`: `core/errors.py`, `core/_annotations.py`, `core/intent.py`
+  (new), `wire/rds.py` (new), `wire/subrequest.py`, `peer/_dispatch.py`, `peer/direct.py`,
+  `peer/_http.py`, `dag/nodes/_shared.py`, `dag/nodes/group.py`, `dag/nodes/fetch.py`,
+  `dag/nodes/code_pointer.py` (new), `dag/nodes/iteration.py`, `dag/_wiring.py`,
+  `dag/_lowering.py`, `io/http.py`, package exports
+- tests, `packages/url4/tests/`: `spec/test_rds_code_pointer.py`, `unit/test_intent_classifier.py`,
+  `unit/test_rds_document.py`, `unit/test_rds_dispatch.py`, `unit/test_http_remote_errors.py`
+  (new); appends to `spec/test_param_conformance.py`; approved flips CH8–CH10 in
+  `unit/test_dag.py` and `unit/test_characterization.py`
+- `packages/url4/README.md` ("Migrating to 2.0"), `docs/spec/2026-07-11-url4-package-v1-spec.md`
 
 ## Test plan
 
-Documents only. The PRD §7 TDD rows and the test-plan lanes apply when code starts.
+PRD §7 rows CH1–CH11 and 1–29, in the plan's task order (CHAR first). Gates:
+`run_gates.py url4`. Regression: the Engine unit suite and the SDK suite with no test edits.
 
 ## Notes
 
