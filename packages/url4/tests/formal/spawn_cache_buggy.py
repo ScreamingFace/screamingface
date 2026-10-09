@@ -9,11 +9,10 @@
 # regression the INVARIANT comment in ``spawn_hook`` exists to forbid, twin of
 # the ``Executor._run`` memo bug model.
 #
-# Check:  python3 ~/Documents/skills/concepts/formal-modeling/bin/fm.py check spawn_cache_buggy.py
+# Check:  fm check spawn_cache_buggy.py   (the formal-modeling skill, bin/fm.py)
 #         (expect a violation + counterexample)
 #
-# The code this mirrors: packages/url4/src/url4/dag/executor.py, the
-# ``spawn_hook`` closure in ``_wire_spawn``.
+# SOURCE: packages/url4/src/url4/dag/executor.py:_wire_spawn.spawn_hook (lines 261-276)
 
 """spawn_hook compile cache — WRONG: an await inserted between get and store.
 
@@ -25,6 +24,9 @@ to machine-check: the memo model proved this class of invariant for
 """
 
 NAME = "spawn_hook compile cache - get and store split by an await (bug)"
+
+# FAILURE_ACTIONS: none. The model covers only the check-and-store interleaving, not errors.
+FAILURE_ACTIONS = []
 
 
 def init():

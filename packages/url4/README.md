@@ -181,10 +181,22 @@ this, declaring a command or data route under it is a config error.
 uv run --extra server url4 serve --config url4.toml
 ```
 
-Flags override env vars (`URL4_HOST`, `URL4_PORT`, `URL4_DEFAULT_ROUTE`, `URL4_EVAL_PATH`,
-`URL4_CONFIG`, ...) which override the TOML file, which overrides built-in defaults. An
+Flags override env vars, which override the TOML file, which overrides built-in defaults. An
 **empty** env var counts as unset: `URL4_HOST=` in a `.env`/compose file falls through to the
 TOML value, then the default, exactly as an absent variable would.
+
+Every environment variable the package reads:
+
+| Variable | What it sets | Default |
+|---|---|---|
+| `URL4_CONFIG` | Path to the `url4.toml` file, used when `--config` is not given. | `./url4.toml` if it exists |
+| `URL4_HOST` | Bind address (`--host`). | `127.0.0.1` |
+| `URL4_PORT` | Bind port (`--port`). | `4404` |
+| `URL4_DEFAULT_ROUTE` | Reduce route for fan-out (`--default-route`). | the first declared `[commands]` route |
+| `URL4_EVAL_PATH` | Eval endpoint path (`--eval-path`). | `/v1` |
+| `URL4_CONCURRENCY` | Run-wide I/O cap (`--concurrency`). | `32` |
+| `URL4_MAX_INFLIGHT` | Maximum concurrent evals (`--max-inflight`). | `16` |
+| `URL4_TIMEOUT` | Per-request timeout in seconds (`--timeout`). | `120` |
 
 ### Binding & exposure
 

@@ -63,11 +63,10 @@ class Request:
 
 
 # Transport-level query params a node consumes itself rather than re-attaching
-# to the expression (spec §11.6.3); `processor` is expression-bearing and its
-# delegation semantics (§27.3) are not implemented yet.
-# The ingress set is broader than the spec's transport-only rule: it also drops
-# params this node consumes itself (delivery/cb/meta/v) and `processor`, whose
-# §27.3 delegation semantics are not implemented yet (see `OME-506`).
+# to the expression (spec §11.6.3). The ingress set is broader than the spec's
+# transport-only rule: it also drops params this node consumes itself
+# (delivery/cb/meta/v) and `processor`. The eval path consumes `processor` for
+# its §27.3 delegation; endpoint calls drop it.
 # INVARIANT: _TRANSPORT_PARAMS is DERIVED from TRANSPORT_ONLY_PARAMS, so the two
 # can never disagree about resume/rid.
 _TRANSPORT_PARAMS = TRANSPORT_ONLY_PARAMS | frozenset({"delivery", "cb", "meta", "v", "processor"})
