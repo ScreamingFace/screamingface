@@ -536,6 +536,10 @@ submission = sf.leaderboards.submit(
     authors=["alice@example.com", "bob@example.org"],
 )
 same_submission = sf.leaderboards.get_score(submission.id)
+
+# Add or fix the paper link and authors of a score you submitted, then read the edit log:
+sf.leaderboards.edit(submission.id, paper_url="https://arxiv.org/abs/2610.01234")
+edit_log = sf.leaderboards.metadata_events(submission.id)
 editable_python = same_submission.url4.to_python()
 replayed_report = sf.evaluate(same_submission.url4)
 ```
@@ -562,7 +566,14 @@ through the configured Engine. Submitting a limited or incompletely graded Candi
 notebook the Client displays a branded notice even when the score is assigned to a variable;
 headless callers receive `sf.EvaluationWarning` attributed to their submission line. If that
 warning category is configured as an error, submission stops before the Scoreboard is changed.
-A Scoreboard deployment may
+`submit(..., paper_url=...)` links a paper you have already published (an `http` or `https` link
+with a host and no user info or whitespace). Later, the submitter can call
+`edit(score_id, authors=..., paper_url=...)`: an argument you leave out stays unchanged,
+`paper_url=None` clears the link, and `authors=None` is refused (pass `[submitter]` to go back to
+the default). `edit` returns the updated `LeaderboardScore`, which carries `paper_url` and
+`metadata_updated_at`. `metadata_events(score_id)` returns the owner-only edit log as
+`ScoreMetadataEvent` rows with the old and new values. The SDK does not check that the paper exists
+or that the authors wrote it. A Scoreboard deployment may
 keep writes closed, in which case `submit()` raises a typed `LeaderboardError`. Explicit Clients
 expose the same interface at `client.leaderboards`; asynchronous Clients use `await`. The
 Scoreboard is the deployed data system, while a Leaderboard is the ranked domain resource returned
