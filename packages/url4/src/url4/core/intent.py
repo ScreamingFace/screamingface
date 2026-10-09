@@ -15,13 +15,16 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from url4.core._annotations import read_query_tail
-from url4.core.grammar import _DATA_PATH_RE
+from url4.core.errors import ErrorCode, ParseError
+from url4.core.grammar import parse_value
 from url4.core.nodes import (
     Expression,
     IdentityRef,
     Iteration,
     Node,
+    RelExpr,
     RelUrl,
+    RemoteExpr,
     SelfRef,
     StructObject,
     Text,
@@ -30,9 +33,6 @@ from url4.core.nodes import (
 )
 
 _URL4_SCHEME = "url4://"
-# WHY: the grammar does not validate `host` (it defines no hostname rule), so
-# only the characters that end an authority or open an expression are refused.
-_AUTHORITY_STOP = frozenset("(?#'")
 
 
 class IntentMode(StrEnum):
@@ -76,8 +76,9 @@ class IntentClass:
     pointer: CodePointer | None = None
 
 
-# The modes whose node type is enough. RelUrl and Url are not here: their text
-# decides (see `classify_intent`).
+# WHY: these node types decide the mode alone. `RelUrl` and `Url` are not here:
+# `intent_atom` gives them to any `/…` or `scheme://…` text, so their mode comes
+# from the production the grammar finds in that text (`classify_intent`).
 _MODE_BY_NODE: Mapping[type[object], IntentMode] = {
     Text: IntentMode.LLM,
     Expression: IntentMode.COMPUTED,
@@ -86,37 +87,61 @@ _MODE_BY_NODE: Mapping[type[object], IntentMode] = {
     StructObject: IntentMode.VALUE,
     SelfRef: IntentMode.VALUE,
     IdentityRef: IntentMode.VALUE,
+    RelExpr: IntentMode.LEGACY,
+    RemoteExpr: IntentMode.LEGACY,
 }
 
 
 def classify_intent(atom: Node) -> IntentClass:
     """Classify a parsed intent atom (``intent_atom`` output) into its mode.
 
-    # INVARIANT: the decision reads the ABNF production the atom's text matches,
-    # never the node type alone. `intent_atom` also places relative and remote
-    # EXPRESSIONS in `RelUrl` and `Url`, and those must stay LEGACY.
+    Raises:
+        ParseError: ``malformed_source`` for a URI intent the grammar refuses, for a
+            code pointer whose query leaves ``query-tail``, and for a ``url4://``
+            reference with no path.
     """
-    if isinstance(atom, RelUrl):
-        return _classify_path(atom.value, authority=None)
-    if isinstance(atom, Url):
-        return _classify_url(atom.value)
-    return IntentClass(_MODE_BY_NODE.get(type(atom), IntentMode.LEGACY))
-
-
-def _classify_url(value: str) -> IntentClass:
-    if not value.startswith(_URL4_SCHEME):
+    if isinstance(atom, Url) and not atom.value.startswith(_URL4_SCHEME):
         return IntentClass(IntentMode.UNSUPPORTED)
-    authority, _, rest = value[len(_URL4_SCHEME) :].partition("/")
-    if not authority or not _AUTHORITY_STOP.isdisjoint(authority):
-        return IntentClass(IntentMode.LEGACY)
-    return _classify_path("/" + rest, authority=authority)
+    if not isinstance(atom, RelUrl | Url):
+        return IntentClass(_MODE_BY_NODE.get(type(atom), IntentMode.LEGACY))
+    return _uri_class(atom.value)
 
 
-def _classify_path(text: str, authority: str | None) -> IntentClass:
+def _uri_class(text: str) -> IntentClass:
+    # INVARIANT (plan L7): the grammar owns the production rules (path charset,
+    # spec §8 rule 16, host and port). This module never re-derives them, so a
+    # text is a code pointer exactly when the grammar reads it as a bare URI.
+    production = _production(text)
+    if isinstance(production, RelUrl):
+        return _pointer(production.value, authority=None)
+    if isinstance(production, Url):
+        return _remote_pointer(production.value)
+    return IntentClass(_MODE_BY_NODE.get(type(production), IntentMode.LEGACY))
+
+
+def _production(text: str) -> Node | None:
+    try:
+        return parse_value(text)
+    except ParseError as exc:
+        # WHY: `/reduce()` is a call with no intent of its own, which the grammar
+        # refuses as a value. It is the 1.5.1 reducer-route form (`!/reduce()`), an
+        # expression, so it stays LEGACY. Every other refusal is the author's error.
+        if exc.code == ErrorCode.MISSING_INTENT:
+            return None
+        raise
+
+
+def _remote_pointer(value: str) -> IntentClass:
+    remainder = value[len(_URL4_SCHEME) :]
+    cut = min((i for i in (remainder.find("/"), remainder.find("?")) if i >= 0), default=-1)
+    if cut < 0 or remainder[cut] != "/":
+        raise ParseError(
+            f"code pointer {value!r} has no path — a url4:// intent names code on a "
+            "node, so it needs a path after the authority",
+        )
+    return _pointer(remainder[cut:], authority=remainder[:cut])
+
+
+def _pointer(text: str, authority: str | None) -> IntentClass:
     path, _, query = text.partition("?")
-    # WHY: a `(` in the path or the query makes the text an expression, not a
-    # code pointer, so `/p?q=(c)!x` stays LEGACY and is not read as a query.
-    if _DATA_PATH_RE.fullmatch(path) is None or "(" in query:
-        return IntentClass(IntentMode.LEGACY)
-    pointer = CodePointer(path, query, read_query_tail(query), authority)
-    return IntentClass(IntentMode.RDS, pointer)
+    return IntentClass(IntentMode.RDS, CodePointer(path, query, read_query_tail(query), authority))

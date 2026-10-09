@@ -143,8 +143,46 @@ def test_reader_refuses_and_names_the_key(query: str, name: str) -> None:
     assert repr(name) in str(err.value)
 
 
-@pytest.mark.parametrize("text", ["url4://n(c)/p", "url4:///p", "url4://n?x=1/p"])
-def test_url4_uri_without_a_plain_authority_is_legacy(text: str) -> None:
-    # INVARIANT: a `(`, `?`, `#` or `'` in the authority, or no authority, is not a
-    # remote reference, so 2.0 leaves the intent as it was (LEGACY), never RDS.
-    assert classify_intent(intent_atom(text)).mode is IntentMode.LEGACY
+@pytest.mark.parametrize(
+    "text",
+    [
+        "/p?a=(b)",  # a relative-uri whose query leaves query-tail
+        "url4://:80/p",  # the grammar finds no host
+        "url4://n:abc/p",  # the grammar refuses the port
+        "url4://n(c)/p",  # the grammar finds no path after the authority
+        "url4:///p",  # the grammar finds no host
+        "url4://n",  # a node, not code: a code pointer needs a path (plan L7)
+        "url4://n?x=1/p",  # the same, with a query
+    ],
+)
+def test_uri_intent_the_grammar_refuses_is_malformed(text: str) -> None:
+    # INVARIANT (plan L7): the grammar owns the production rules. A URI intent it
+    # refuses fails at compile time; it never silently keeps the 1.5.1 meaning.
+    with pytest.raises(ParseError) as raised:
+        classify_intent(intent_atom(text))
+    assert raised.value.code == ErrorCode.MALFORMED_SOURCE
+
+
+@pytest.mark.parametrize(
+    ("text", "mode"),
+    [
+        ("/rows*()!'R'", IntentMode.COMPUTED),  # an iteration in a path head
+        ("a*(x)!y", IntentMode.COMPUTED),
+        ("{a: 1}", IntentMode.VALUE),
+        ("@", IntentMode.VALUE),
+        ("@x", IntentMode.VALUE),
+        ("$b", IntentMode.LLM),  # a lone reference is Text (grammar.py intent_atom WHY)
+    ],
+)
+def test_intent_mode_of_the_remaining_productions(text: str, mode: IntentMode) -> None:
+    assert classify_intent(intent_atom(text)).mode is mode
+
+
+def test_bang_in_a_path_segment_is_part_of_the_code_pointer_path() -> None:
+    # WHY: `path-segment` admits "!", so `/p!x` is the code pointer `/p!x`, not `/p`
+    # with the intent `x`. `/p!'x'` is not a path at all and fails.
+    pointer = classify_intent(intent_atom("/p!x")).pointer
+    assert pointer is not None
+    assert pointer.path == "/p!x"
+    with pytest.raises(ParseError):
+        classify_intent(intent_atom("/p!'x'"))
