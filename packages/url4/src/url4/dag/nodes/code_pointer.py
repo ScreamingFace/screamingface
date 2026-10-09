@@ -16,7 +16,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from url4.core.errors import ErrorCode, ParseError, ResolutionError, Url4Error
+from url4.core.errors import ErrorCode, ParseError
+from url4.core.grammar import _DATA_PATH_RE
 from url4.core.intent import CodePointer
 from url4.io.layer import FetchRequest
 from url4.wire.rds import RdsValue, encode_rds_document, encode_rds_target
@@ -33,6 +34,7 @@ from url4.dag.nodes._shared import (  # isort: skip
     SlotSpec,
     _fetch,
     _gather_rds,
+    _raise_if_quorum_not_met,
     _substitute,
 )
 
@@ -61,28 +63,27 @@ async def call_code_pointer(
 ) -> str:
     """One call of a code pointer with its RDS ``inputs`` (contracts C2 and C4).
 
-    WHY: the group node and the iteration reducer both make this call, so the target, the
-    remote form and the endpoint-miss mapping are written once.
+    WHY: the group node and the iteration reducer both make this call, so the target and the
+    remote form are written once. A code-pointer miss is answered by the receiving node
+    (``intent_error``, E1), so the reply is passed through unchanged.
     """
     # WHY: the path resolves against the outer scope, as today's intent fetch does
     # (PRD §2.5), so a `$name` in the path is never a source.
     path = _substitute(pointer.path, ctx.scope, ctx)
+    # WHY: a substituted value is data, so the resolved path must still be a bare data path; a
+    # value that carries a query would otherwise make a second query-tail (contracts C2).
+    if "?" in path or _DATA_PATH_RE.fullmatch(path) is None:
+        raise ParseError(
+            f"code pointer path {path!r} is not a bare data path after substitution",
+            code=ErrorCode.MALFORMED_SOURCE,
+        )
     target = code_pointer_target(pointer, path, inputs)
     if pointer.authority is not None:
         return await _fetch(
             ctx,
             FetchRequest(f"url4://{pointer.authority}{target}", relative=False, kind="url4"),
         )
-    try:
-        return await ctx.io.fetch(target, relative=True)
-    except Url4Error as exc:
-        if exc.code != ErrorCode.ENDPOINT_NOT_FOUND:
-            raise
-        # WHY: an IO layer that is not a Url4Node reports the miss as endpoint_not_found;
-        # a code pointer that is missing is an intent failure (E1), so map it here.
-        raise ResolutionError(
-            f"no code pointer at {path!r}", code=ErrorCode.INTENT_ERROR, permanent=True
-        ) from exc
+    return await ctx.io.fetch(target, relative=True)
 
 
 @dataclass(eq=False)
@@ -109,9 +110,6 @@ class CodePointerNode:
         if self.broadcast_part and isinstance(inputs["src:0"], SourceFailure):
             return inputs["src:0"]
         values, resolved = _gather_rds(inputs, self.slots)
-        if self.quorum is not None and resolved < self.quorum:
-            raise ResolutionError(
-                f"quorum not met: {resolved} of {self.quorum} required sources resolved",
-                code=ErrorCode.QUORUM_NOT_MET,
-            )
+        # WHY: C7 — a code pointer's quorum miss is permanent: the same inputs fail the same way.
+        _raise_if_quorum_not_met(resolved, self.quorum, permanent=True)
         return await call_code_pointer(ctx, self.pointer, values)

@@ -53,6 +53,7 @@ def node(calls: list[Request]) -> Url4Node:
         return "CLAUDE"
 
     n.data("/rows", '["r1", "r2"]')
+    n.data("/rows3", '["r1", "r2", "r3"]')
     return n
 
 
@@ -142,15 +143,68 @@ async def test_2_0_remote_iteration_reducer_is_one_url4_fetch_with_the_row_array
     assert decode_rds_document(document) == {"$1": ["R r1", "R r2"]}
 
 
-@pytest.mark.asyncio
-async def test_2_0_unsupported_scheme_reducer_compiles_and_fails_at_run_time(
-    node: Url4Node,
-) -> None:
-    # WHY: url4 2.0 — an https:// reducer is refused with unsupported_mode (PRD P2). The
-    # iteration reducer is read at run time, so the graph still validates.
-    expr = "(/rows*()!'R $item')!https://x/reduce"
-    compile_expression(expr).validate()
+def test_2_0_unsupported_scheme_reducer_is_refused_at_compile() -> None:
+    # WHY: url4 2.0 — an https:// reducer is refused with unsupported_mode (PRD P2) when the
+    # group is compiled, before any row or source is resolved (contracts C7).
     with pytest.raises(ParseError) as err:
-        await run(expr, node)
+        compile_expression("(/rows*()!'R $item')!https://x/reduce")
     assert err.value.code == "unsupported_mode"
     assert err.value.permanent is True
+
+
+_BAD_REDUCERS = [
+    ("https://x/reduce", "unsupported_mode"),
+    ("/reduce?x=a,b", "malformed_source"),
+    ("url4://host", "malformed_source"),
+    ("/code!'agg'", "malformed_source"),
+]
+
+
+@pytest.mark.parametrize(("reducer", "code"), _BAD_REDUCERS)
+@pytest.mark.asyncio
+async def test_2_0_a_bad_code_pointer_reducer_is_refused_at_compile(
+    node: Url4Node, reducer: str, code: str, hook_calls: list[tuple[str, str | None]]
+) -> None:
+    # WHY: url4 2.0 — a reducer that names no valid code pointer fails at compile (C7), so the
+    # three-row collection is never resolved and the process hook never runs.
+    expr = f"(/rows3*()!'R $item')!{reducer}"
+    with pytest.raises(ParseError) as err:
+        compile_expression(expr)
+    assert err.value.code == code
+    with pytest.raises(ParseError):
+        await run(expr, node, process=_recording_process(hook_calls))
+    assert hook_calls == []
+
+
+@pytest.mark.parametrize("intent", ["https://x/y", "/code?x=a,b", "url4://host"])
+def test_2_0_a_bad_code_pointer_per_row_intent_is_refused_at_compile(intent: str) -> None:
+    # WHY: url4 2.0 — a per-row URI intent is refused at compile, once, not once per row (C7).
+    with pytest.raises(ParseError):
+        compile_expression(f"/rows3*()!{intent}")
+
+
+def test_2_0_a_per_row_intent_with_a_reference_is_not_checked_at_compile() -> None:
+    # WHY: url4 2.0 — a per-row intent holding a `$` reference is substituted once per row, so
+    # its URI cannot be judged before the row value exists; the compile check is skipped.
+    compile_expression("/rows3*()!https://x/$item")
+
+
+def test_2_0_reducer_with_a_legacy_expression_still_compiles() -> None:
+    # WHY: CH6 — `/reduce(all)!'agg'`-style reducers are expressions, not code pointers, and keep
+    # compiling as before.
+    compile_expression("(/rows3*()!'R $item')!/reduce(all)")
+
+
+def test_2_0_duplicate_names_in_a_broadcast_group_are_not_refused() -> None:
+    # WHY: url4 2.0 — a broadcast part sends only `current`, so a repeated source name is not a
+    # duplicate key of the code's input document (PRD D12, D7).
+    compile_expression("(a='1', a='2')!*/score")
+
+
+@pytest.mark.asyncio
+async def test_2_0_duplicate_names_in_a_broadcast_group_each_call_once(
+    node: Url4Node, calls: list[Request]
+) -> None:
+    # WHY: url4 2.0 — a repeated source name in a broadcast runs once per source (PRD D7).
+    await run("(a='1', a='2')!*/score", node)
+    assert _currents([c for c in calls if c.path == "/score"]) == ["1", "2"]

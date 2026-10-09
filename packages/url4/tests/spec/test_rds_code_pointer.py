@@ -14,10 +14,13 @@ from conftest import RecordingIOLayer
 
 from url4.core.context import Context
 from url4.core.errors import ErrorCode, ParseError, ResolutionError, Url4Error
+from url4.core.grammar import parse
 from url4.core.nodes import Expression, Text
 from url4.core.parser import build
 from url4.core.render import render
-from url4.dag import CodePointerNode, ProcessFn, compile_expression, run
+from url4.dag import CodePointerNode, ProcessFn, ProcessNode, compile_expression, run
+from url4.dag.node import ExecutionContext
+from url4.io.layer import FetchRequest, FetchResult
 from url4.observe import NodeStarted, ObservationEvent
 from url4.peer.server import Request, Url4Node
 from url4.wire.rds import encode_rds_document, encode_rds_target
@@ -502,3 +505,115 @@ async def test_a_url4_code_pointer_is_one_outbound_fetch_of_kind_url4() -> None:
     await run("(a='1')!url4://scorer.example/score/v1?k=2", io)
     document = encode_rds_document({"a": "1"})
     assert io.fetches == [f"url4://scorer.example{encode_rds_target('/score/v1', 'k=2', document)}"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["/p('ctx')!https://h/instr", "/p('ctx')!/code?x=a,b", "/p('ctx')!url4://host"],
+)
+def test_a_call_with_a_uri_intent_compiles_on_the_ast_path_as_on_the_text_path(text: str) -> None:
+    # WHY: PRD P16 — a call's own intent is out of scope for code-pointer classification, so the
+    # parse-tree path compiles the same texts the text path compiles.
+    compile_expression(parse(text))
+    compile_expression(text)
+
+
+@pytest.mark.asyncio
+async def test_a_substituted_code_pointer_path_with_a_query_is_malformed_source(
+    code: Url4Node, calls: list[Request]
+) -> None:
+    # WHY: C2 / F3 — a `$name` value that carries a query cannot turn the path into a second
+    # query-tail; the resolved path is checked before any call.
+    ctx = ExecutionContext(code, scope=Context.root().child(p="combine?reducer=evil&x"))
+    with pytest.raises(ParseError) as err:
+        await run("(a='1')!/$p?reducer=vote", ctx=ctx)
+    assert err.value.code == ErrorCode.MALFORMED_SOURCE
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_substituted_code_pointer_path_that_is_a_plain_path_is_called(
+    code: Url4Node, calls: list[Request]
+) -> None:
+    # WHY: C2 / F3 — a `$name` that resolves to a plain path still reaches its code pointer.
+    ctx = ExecutionContext(code, scope=Context.root().child(p="combine"))
+    assert await run("(a='1')!/$p?reducer=vote", ctx=ctx) == "COMBINED"
+    assert [request.mode for request in calls] == ["rds"]
+
+
+@pytest.mark.asyncio
+async def test_a_handler_endpoint_not_found_keeps_its_own_transient_code(code: Url4Node) -> None:
+    # WHY: F4 (C7) — a handler's own endpoint_not_found is transient; the call must not turn it
+    # into a permanent intent_error.
+    @code.endpoint("/inner")
+    async def inner(request: Request) -> str:
+        raise ResolutionError("inner", code=ErrorCode.ENDPOINT_NOT_FOUND, permanent=False)
+
+    with pytest.raises(ResolutionError) as err:
+        await run(f"({_MEMBERS})!/inner", code)
+    assert err.value.code == "endpoint_not_found"
+    assert err.value.permanent is False
+
+
+@pytest.mark.asyncio
+async def test_a_code_pointer_quorum_not_met_is_permanent(
+    code: Url4Node, calls: list[Request]
+) -> None:
+    # WHY: F6 (C7) — the same inputs fail the same way, so a quorum miss here is permanent.
+    with pytest.raises(ResolutionError) as err:
+        await run("(/nope;optional)!/combine;quorum=1", code)
+    assert err.value.code == "quorum_not_met"
+    assert err.value.permanent is True
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_2_0_combine_endpoint_request_is_rds_mode(
+    code: Url4Node, calls: list[Request]
+) -> None:
+    # WHY: N5 — a code-pointer call on a combine path reaches its handler as an rds request.
+    await run(f"({_MEMBERS})!/ensemble/combine/v1?reducer=vote", code)
+    (request,) = calls
+    assert request.mode == "rds"
+    assert request.params == {"reducer": "vote"}
+
+
+@pytest.mark.asyncio
+async def test_2_0_at_in_a_code_pointer_query_is_an_rds_param_value(
+    code: Url4Node, calls: list[Request]
+) -> None:
+    # WHY: N5 — `@` in a query-tail value reaches the handler intact, in rds mode.
+    await run(f"({_MEMBERS})!/ensemble/combine/v1?reducer=vote&extract=last_number@1", code)
+    (request,) = calls
+    assert request.mode == "rds"
+    assert request.params["extract"] == "last_number@1"
+
+
+class _KindRecordingIO(RecordingIOLayer):
+    """A recording layer that also records the request kind of every fetch (N5)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.kinds: list[str] = []
+
+    async def fetch_ex(self, request: FetchRequest) -> FetchResult:
+        self.kinds.append(request.kind)
+        return FetchResult(await self.fetch(request.target, relative=request.relative))
+
+
+@pytest.mark.asyncio
+async def test_a_url4_code_pointer_fetch_is_kind_url4() -> None:
+    # WHY: N5 — the remote code-pointer call is a url4-kind fetch, so URL4 rules apply to it.
+    io = _KindRecordingIO()
+    await run("(a='1')!url4://scorer.example/score/v1?k=2", io)
+    assert io.kinds == ["url4"]
+
+
+def test_a_group_with_a_legacy_path_intent_keeps_the_1_5_1_process_sink() -> None:
+    # WHY: N5 — `!/p(c)!x` is an expression, not a code pointer, so the group keeps 1.5.1's shape.
+    assert isinstance(compile_expression("(a='1', b='2')!/p(c)!x").sink, ProcessNode)
+
+
+def test_a_reducer_path_call_with_no_inputs_keeps_the_1_5_1_process_sink() -> None:
+    # WHY: N5 — `/reduce()` is an expression (LEGACY) intent, so the group keeps 1.5.1's shape.
+    assert isinstance(compile_expression("(a='1')!/reduce()").sink, ProcessNode)

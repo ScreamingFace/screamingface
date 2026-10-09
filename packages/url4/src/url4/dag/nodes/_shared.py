@@ -307,11 +307,20 @@ def _gather_expanded(
         g.sources.extend(elements)
 
 
-def _check_quorum(g: _Gathered, quorum: int | None) -> None:
-    # The contributing count IS len(sources) — every append above is a contribution.
-    resolved = len(g.sources)
+def _raise_if_quorum_not_met(resolved: int, quorum: int | None, *, permanent: bool = False) -> None:
+    """Raise ``quorum_not_met`` when fewer than ``quorum`` sources resolved (spec §9.1).
+
+    WHY: one definition for the LLM groups and the code pointer. Only the code pointer's miss is
+    permanent (contracts C7), so the flag is the caller's.
+    """
     if quorum is not None and resolved < quorum:
         raise ResolutionError(
             f"quorum not met: {resolved} of {quorum} required sources resolved",
             code=ErrorCode.QUORUM_NOT_MET,
+            permanent=permanent,
         )
+
+
+def _check_quorum(g: _Gathered, quorum: int | None) -> None:
+    # The contributing count IS len(sources) — every append above is a contribution.
+    _raise_if_quorum_not_met(len(g.sources), quorum)

@@ -142,9 +142,11 @@ def _compile_group(
     quorum: int | None = None,
 ) -> DagNode:
     if intent is not None and intent.pointer is not None:
-        _reject_duplicate_names(slots)
         if broadcast:
+            # WHY: a broadcast part sends only `current`, so a repeated source name is not a
+            # duplicate key of any input document and is not refused (PRD D7).
             return _code_pointer_broadcast_graph(slots, intent.pointer)
+        _reject_duplicate_names(slots)
         return _code_pointer_graph(slots, intent.pointer, quorum)
     return _group_graph(slots, intent, broadcast, from_list=from_list, quorum=quorum)
 

@@ -36,6 +36,7 @@ from dataclasses import dataclass, replace
 
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import parse as grammar_parse
+from url4.core.grammar import parse_value
 from url4.core.intent import CodePointer, IntentMode, classify_intent
 from url4.core.nodes import (
     Binding,
@@ -295,6 +296,7 @@ Ordinary AST references still retain `index`, which is only reserved inside iter
 
 def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     assert isinstance(node, Iteration)
+    _refuse_row_intent(node.intent)
     collection = _lower_collection(node.collection, edges, registry)
     map_node = MapNode(
         body=node.body,
@@ -309,8 +311,51 @@ def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> Da
         deps={"collection": collection, **_body_ref_edges(node.body, node.intent, edges)},
     )
     if node.reducer is not None:
-        return ReduceNode(node.reducer, deps={"rows": map_node})
+        return _reduce_node(node.reducer, map_node)
     return CollectNode(deps={"rows": map_node})
+
+
+def _refuse_row_intent(intent: str | None) -> None:
+    """Refuse a URI per-row intent at compile, once (contracts C7), not once per row.
+
+    WHY: a per-row intent is spawned for every row, so a bad URI would otherwise fail row by
+    row at run time. A `$` (a row reference such as `$item`, or any substitution) is resolved per
+    row, so the URI does not exist until a row does; the check is skipped for such an intent, and
+    the row's own compile judges it. The test is any `$`, not find_references, which skips `$item`.
+    """
+    if intent is None or "$" in intent:
+        return
+    _code_pointer_of(intent_atom(intent))
+
+
+def _reduce_node(reducer: str, rows: MapNode) -> ReduceNode:
+    return ReduceNode(reducer, deps={"rows": rows}, pointer=_reducer_pointer(reducer))
+
+
+def _reducer_pointer(reducer: str) -> CodePointer | None:
+    """The code pointer an iteration reducer names, classified once here (contracts C7).
+
+    WHY: a reducer that names no valid code pointer is refused at compile, as a per-row intent
+    is. A code-pointer reducer takes only the rows, so a `!` tail on it is refused rather than
+    dropped.
+    """
+    head, tail, _ = split_intent(reducer)
+    try:
+        parse_value(head)
+    except ParseError:
+        # WHY: a head the grammar cannot read as a value is a malformed expression, not a URI, so
+        # it is not classified here. validate() and the run refuse it as they do today
+        # (test_dag::test_validate_parses_reducer_instruction pins that).
+        return None
+    cls = classify_intent(intent_atom(head))
+    if cls.mode is IntentMode.UNSUPPORTED:
+        raise unsupported_intent_error(head)
+    if cls.pointer is not None and tail is not None:
+        raise ParseError(
+            f"a code-pointer reducer {head!r} takes no `!` intent — the rows are its only input",
+            code=ErrorCode.MALFORMED_SOURCE,
+        )
+    return cls.pointer
 
 
 def _body_intent_refs(body: str, intent: str | None) -> set[str]:
@@ -529,13 +574,16 @@ def _intent_from_raw(raw_intent: str | None, registry: LoweringRegistry) -> _Int
     return _intent_from_ast(intent_atom(raw_intent), registry)
 
 
-def _intent_from_ast(atom: Node | None, registry: LoweringRegistry) -> _Intent | None:
+def _intent_from_ast(
+    atom: Node | None, registry: LoweringRegistry, *, classify: bool = True
+) -> _Intent | None:
     if atom is None:
         return None
     if isinstance(atom, Text):
         value = atom.value
         return _Intent(lambda edges: TextNode(value, deps=dict(edges)), text=value)
-    return _Intent(lambda edges: registry.lower(atom, edges), pointer=_code_pointer_of(atom))
+    pointer = _code_pointer_of(atom) if classify else None
+    return _Intent(lambda edges: registry.lower(atom, edges), pointer=pointer)
 
 
 def _code_pointer_of(atom: Node) -> CodePointer | None:
@@ -578,6 +626,7 @@ def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
 def _map_from_text(
     collection: str, body: str, intent: str | None, directives, registry: LoweringRegistry
 ) -> MapNode:
+    _refuse_row_intent(intent)
     return MapNode(
         body=body,
         intent=intent,
@@ -631,7 +680,7 @@ def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool =
     if isinstance(env, IterationEnvelope):
         map_node = _map_from_text(env.collection, env.body, env.intent, env.directives, registry)
         if env.reducer is not None:
-            return ReduceNode(env.reducer, deps={"rows": map_node})
+            return _reduce_node(env.reducer, map_node)
         return CollectNode(deps={"rows": map_node})
     return _compile_group_text(env.source_expr, env.intent, env.broadcast, registry, env.params)
 
@@ -747,7 +796,9 @@ def _lower_top_level(target: Node, registry: LoweringRegistry) -> DagNode:
     """
     if isinstance(target, RelExpr) and target.intent is not None:
         rel = registry.lower(replace(target, intent=None), {})
-        intent = _intent_from_ast(target.intent, registry)
+        # WHY: a call's own intent is not a group's code pointer (PRD P16), so it is never
+        # classified here. The text path never classifies it either, so the two paths agree.
+        intent = _intent_from_ast(target.intent, registry, classify=False)
         assert intent is not None  # target.intent is not None
         assert isinstance(rel, RelUrlNode)  # _lower_rel_expr's output
         return _fold_intent_into_call(rel, intent)
