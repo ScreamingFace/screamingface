@@ -8,7 +8,8 @@ disagree, this file wins.
 
 ## 1. Summary
 
-A run can opt in to **capture**: `sf.evaluate(..., capture=True)`. The engine then opens a
+A run **captures** by default: `sf.evaluate(...)` has `capture=True` unless the caller passes
+`capture=False` (Q22). The engine then opens a
 **frozen copy** in the AI Gateway, and the gateway stores every chat request and its response in that
 copy, whether the answer came from the cache or from a live call. The engine also stores every
 web-tool result it feeds to the model. At the end of the run the engine **seals** the copy.
@@ -37,6 +38,7 @@ header, the revisions endpoint) is removed from the stack. There is no publish s
 | Q19 | Option name | `capture` (`evaluate(..., capture=True)`) |
 | Q20 | Answer seed | Kept: still stored and sent. |
 | Q21 | Remove the cache-revision mechanism from the stack | Yes. |
+| Q22 | Capture default (2026-10-09) | "consider the capture flag an optional flag and for it to be true, by default" |
 
 ## 3. Data model (AI Gateway, new)
 
@@ -188,7 +190,9 @@ present (pinned 2026-10-08, B3 review).
 
 ## 7. SDK behaviour
 
-- `evaluate(..., capture: bool = False)` (sync, async, module level). `True` sends `X-Capture: true`.
+- `evaluate(..., capture: bool = True)` (sync, async, module level). Capture is on by default (Q22).
+  `True` sends `X-Capture: true`. `capture=False` sends no header. `sf.reproduce` never sends
+  `X-Capture`.
 - `CandidateResult.frozen_copy_id` and `capture_status` (from the run summary; absent → `None`).
 - `submit` sends `frozen_copy_id`, `capture_status` and `answer_seed` when set.
 - `LeaderboardScore.frozen_copy_id`, `capture_status` replace `cache_revision`, `reproducible`.
