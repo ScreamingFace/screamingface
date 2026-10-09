@@ -72,6 +72,10 @@ class _HoldingsRegistration:
         self._self_holdings[collection] = _adapt_holdings(handler)
         return handler
 
+    def holdings_collections(self) -> frozenset[str | None]:
+        """Every registered self-holdings collection; ``None`` is the default shelf."""
+        return frozenset(self._self_holdings)
+
     def identity(self, name: str) -> Callable[[HoldingsHandler], HoldingsHandler]:
         """Register a principal's ``@name`` holdings (§5.6.2).
 

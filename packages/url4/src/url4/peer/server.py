@@ -97,6 +97,11 @@ class Url4Node(_HoldingsRegistration):
         listed = ", ".join(f"{n} {one if n == 1 else many}" for n, one, many in counts if n)
         return f"<Url4Node {self.name!r}: {listed or 'empty'}>"
 
+    @property
+    def eval_path(self) -> str:
+        """The path this node serves its eval expressions on (set by ``eval_path=``)."""
+        return self._eval_path
+
     # --- registration ----------------------------------------------------------
 
     def endpoint(
