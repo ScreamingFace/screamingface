@@ -21,8 +21,9 @@ here:
   :class:`ProcessNode`, :class:`MergeNode`, :class:`BroadcastCollectNode`,
   :class:`JoinNode`, :class:`CollectNode`, :class:`FanoutReduceNode`;
 - :mod:`.guard` — :class:`GuardNode` (``;optional``/``;t=``/``;retry=``);
-- :mod:`.iteration` — :class:`ExpandNode`, :class:`MapNode`,
-  :class:`ReduceNode`;
+- :mod:`.iteration` — :class:`ExpandNode`, :class:`MapNode`;
+- :mod:`.reduce` — :class:`ReduceNode`, the reduce step: a relative-expression reducer, a
+  code-pointer reducer, or the ``process`` hook;
 - :mod:`.code_pointer` — :class:`CodePointerNode`, the RDS code-pointer call, and the
   code-pointer gather (sources → the input document);
 - :mod:`._gather` — the LLM-mode gather (slots → packed sources, quorum), re-exported by
@@ -70,7 +71,8 @@ from url4.dag.nodes.group import (
     ProcessNode,
 )
 from url4.dag.nodes.guard import GuardNode
-from url4.dag.nodes.iteration import ExpandNode, MapNode, ReduceNode
+from url4.dag.nodes.iteration import ExpandNode, MapNode
+from url4.dag.nodes.reduce import ReduceNode
 
 __all__ = [
     "DEFAULT_MAP_CONCURRENCY",
