@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: studio frontend (apps/screamingface-studio/frontend; not on the sdlc card, gates per the plan)
-status: in_progress
+status: done
 started: 2026-10-09
-finished:
+finished: 2026-10-09
 ---
 
 # studio-engine-run-client — Studio's Engine run client, url4 linking and recipe fixes
@@ -57,7 +57,59 @@ All under `apps/screamingface-studio/frontend/`:
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
+- **Actual files:** as planned, all under `apps/screamingface-studio/frontend/`, plus:
+  `scripts/gen-run-frames.py` and `src/lib/engine/__fixtures__/frames.json` (frame fixtures);
+  `src/lib/engine/client.ts` (exports `problemDetail` for reuse); `src/app/(studio)/ensembles/page.tsx`
+  (import box) and `src/app/(studio)/models/page.tsx` + `page.test.tsx` (Compose link) — see
+  Deviations.
 - **Commits:**
-- **Gates:**
+  - 392421bb1 — feat(studio): link a candidate into a benchmark exactly as the SDK does
+  - 09d863a13 — fix(studio): render params in url4 query form and import exactly what Share url4 copies
+  - ad4e0621a — feat(studio): Engine run client for one benchmark run
+- **Gates:** `npm ci && npm run lint && npm run typecheck && npm test -- --coverage && npm run
+  build` all green. 14 files / 209 tests passed; coverage statements 95.63%, branches 90.77%,
+  functions 96.38%, lines 97.21% (threshold 80). `recipe.ts` 99.56% / 96.02% branches, `run.ts`
+  93.6% / 85.63% branches, `url4.ts` 100%. `next build` produced every route statically. Both
+  fixture scripts reproduce the committed JSON byte for byte; `uv run --frozen` left `uv.lock`
+  untouched.
 - **Deviations:**
+  - **Other producers of the old form.** The Models page's "Compose a Fusion" link and the
+    Ensembles page's import box also used `url4://name?models=`. Deleting that parser would have
+    broken Models → Compose, so the link now emits `recipeToUrl4(fusionOf(models))` (members =
+    the checked models, synthesizer unset, as the old import produced) and the import box
+    validates with `parseRecipe`. The leaderboard (still the mock) is unchanged: its Remix link
+    and copy still emit the old form, which now shows the import's rejection message. It goes
+    with the leaderboard un-mock.
+  - **Name and unknown models on import.** Canonical url4 carries no fusion name, so an imported
+    recipe is named `fusion-1` (the builder's default). A model the catalog lacks is left as an
+    unset model in place (structure kept) and named in the existing "Left out models" status,
+    instead of being removed. An unparseable `?recipe=` now shows its message in an alert.
+    Page tests reach their fusion through `recipeToUrl4(fusionOf(...))`; the "shared" name
+    assertions became the equivalent model-count assertions, and a new test covers the refused
+    old form.
+  - **Frames are generated, not captured.** No runtime was running here, so the run fixtures are
+    built with url4's own protocol models and codec (exact field names, aliases and the string
+    `sequence` + `sequencetype: "Integer"`), in the order and with the attributes of the live
+    IFEval check. The wire `sequence` is a positive-integer string; `run.ts` accepts a string or
+    a number.
+  - **Error mapping.** HTTP refusals (benchmark 404/422, start 4xx) reject as `failed` with
+    `code: "http_<status>"` and the Engine's detail. Any `ai.url4.error` frame (`invalid_frame`,
+    `unsupported`, `stream_reclaimed`, `stream_failed`) rejects as `stream_failed` with the
+    Engine's code. An unsequenced log (the SDK's "advisory" case) is reported at once.
+  - **Artifact redemption.** Fetched with the run's capability, as the plan says. The SDK mints a
+    fresh token for this because tokens once lived ~60 s; the Engine's capability lifetime is now
+    58 800 s (`config.py` `capability_lifetime_s`), so the run's token is valid. Size and sha256
+    are verified before decoding, as the SDK does.
+  - `deps` also takes `clearTimeout` and `engineUrl` (default `getEngineUrl()`); every dep is
+    optional. `RunEvent.cost.totalUsd` is a number parsed from the decimal-string
+    `cost.total_usd`; `started` carries no payload.
+  - Covering `recipe.ts` needed tests for its pre-existing helpers too (`convertKind`,
+    `describeRecipe*`, `memberSolos`, `rootSynthesizerSolo`, `fusionFromSlots`); added, none
+    changed.
+  - TDD order: the url4 tests were run RED first; the recipe and run tests were written with
+    their code and run together, not observed failing first.
+  - **Open, not fixed here:** `recipeToUrl4` collapses whitespace in prompts and does not double
+    `$`, while the SDK maps newlines to U+2028 and writes `$` as `$$` (`candidate.py`
+    `_url4_text`). A prompt containing `$` or a newline therefore differs from the SDK's text,
+    and a `$name` in a prompt would be read as a reference. The goldens avoid both; this needs
+    its own decision before slice C ships user prompts to the Engine.
