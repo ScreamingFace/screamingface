@@ -12,8 +12,10 @@ time; :mod:`url4.dag.node` re-exports every name here for compatibility.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import secrets
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from contextvars import ContextVar
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
@@ -142,16 +144,62 @@ class BoundedIOLayer:
             self.processor_routes = inner.processor_routes
 
     async def fetch(self, target: str, *, relative: bool) -> str:
-        async with self._sem:
+        async with self._admitted():
             return await self._inner.fetch(target, relative=relative)
 
     async def _bounded_fetch_ex(self, request: FetchRequest) -> FetchResult:
-        async with self._sem:
+        async with self._admitted():
             return await self._inner.fetch_ex(request)  # type: ignore[attr-defined]
 
     async def _bounded_fetch_holdings(self, identity: str | None, collection: str | None) -> str:
-        async with self._sem:
+        async with self._admitted():
             return await self._inner.fetch_holdings(identity, collection)  # type: ignore[attr-defined]
+
+    @contextlib.asynccontextmanager
+    async def _admitted(self) -> AsyncIterator[None]:
+        """Hold the permit, and tell a watching guard when the wait ends (report C2)."""
+        probe = IO_ADMISSION.get()
+        if probe is not None:
+            probe.mark(issued=False)
+        async with self._sem:
+            if probe is not None:
+                probe.mark(issued=True)
+            yield
+
+
+class IoAdmission:
+    """What the fetches of one ``;t=``-guarded resolve did with the run-wide I/O permit.
+
+    WHY: ``;t=`` deliberately covers the wait for a :class:`BoundedIOLayer` permit (a
+    guarded source must finish by its deadline), so a deadline can expire before any
+    request was sent. The guard reads this probe to tell that case (``admission_timeout``:
+    the run's own cap was the cause) from a source that answered too slowly (``timeout``).
+    Child tasks copy the context, so they share this one mutable probe; a nested guard
+    chains to its ``parent`` so the outer guard sees the inner fetches too. A run without
+    a bounded layer never marks it, so its timeouts stay plain ``timeout``.
+    """
+
+    __slots__ = ("issued", "parent", "waited")
+
+    def __init__(self, parent: IoAdmission | None) -> None:
+        self.parent = parent
+        self.waited = False
+        self.issued = False
+
+    def mark(self, *, issued: bool) -> None:
+        probe: IoAdmission | None = self
+        while probe is not None:
+            probe.waited = True
+            probe.issued = probe.issued or issued
+            probe = probe.parent
+
+    @property
+    def starved(self) -> bool:
+        """A fetch waited for the permit and no fetch got one."""
+        return self.waited and not self.issued
+
+
+IO_ADMISSION: ContextVar[IoAdmission | None] = ContextVar("url4_io_admission", default=None)
 
 
 def _declared_default_route(io: IOLayer) -> str | None:

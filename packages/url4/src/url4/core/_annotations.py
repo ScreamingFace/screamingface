@@ -13,10 +13,15 @@ definition so the two layers cannot drift:
 - :func:`classify_boundary` — the §8.1.2 desugaring algorithm: expression-level
   params are consumed greedily until the first *exclusively source-level* key;
   everything from that key on is a source-level execution annotation.
+
+It also holds the one range check for the guard values ``;t=`` and ``;retry=``
+(:func:`checked_timeout`, :func:`checked_retries`), shared by the builders, the
+engine's lowering and :class:`~url4.dag.nodes.GuardNode`.
 """
 
 from __future__ import annotations
 
+import math
 import re
 import warnings
 from typing import cast, get_args
@@ -255,8 +260,34 @@ def _parse_slice(value: str) -> tuple[int, int]:
     return start, end
 
 
+# --- guard values (§10.1 `;t=` / `;retry=`, Spec C §13.3) ---------------------------
+
+# WHY a cap: every retry is another request, so one expression could otherwise ask a
+# remote for an unbounded number of effects. Ten extra attempts already span minutes
+# under the §13.3 backoff (500 ms doubling, capped at 30 s), longer than any `;t=` a
+# source would set; a source that needs more is broken, not slow.
+MAX_RETRIES = 10
+
+
+def checked_timeout(t: float) -> float:
+    """``;t=`` seconds: finite and positive, else ``ValueError`` (``nan`` never fires)."""
+    if not math.isfinite(t) or t <= 0:
+        raise ValueError(f"per-source timeout t={t!r} must be a finite number > 0")
+    return t
+
+
+def checked_retries(retry: int) -> int:
+    """``;retry=`` count: an integer in ``0..MAX_RETRIES``, else ``ValueError``."""
+    if isinstance(retry, bool) or not isinstance(retry, int) or not 0 <= retry <= MAX_RETRIES:
+        raise ValueError(f"retry={retry!r} must be an integer from 0 to {MAX_RETRIES}")
+    return retry
+
+
 __all__ = [
     "EXPRESSION_BEARING_KEYS",
+    "MAX_RETRIES",
+    "checked_retries",
+    "checked_timeout",
     "validate_param",
     "validate_params",
     "EXCLUSIVE_SOURCE_KEYS",

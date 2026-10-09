@@ -8,9 +8,13 @@ instead of paying a fresh TCP+TLS handshake per fetch.
 
 from __future__ import annotations
 
+import time
+from email.utils import parsedate_to_datetime
+
 import httpx
 
 from url4.core.errors import ResolutionError
+from url4.io.idempotency import idempotency_key, mark_answered
 from url4.io.layer import FetchRequest, FetchResult
 
 
@@ -32,7 +36,12 @@ class HttpIOLayer:
     release it; :func:`~url4.run` closes the default adapter it creates. Pass
     your own ``client`` to control pooling, auth, or to inject a test transport —
     an injected client is used as-is and never closed here. Any HTTP failure
-    surfaces as :class:`~url4.core.errors.ResolutionError`.
+    surfaces as :class:`~url4.core.errors.ResolutionError`, permanent or transient
+    by the Spec C §13.2.1 status classes, so a ``;retry=`` guard retries only what
+    can succeed; a ``Retry-After`` is reported as ``ResolutionError.retry_after``.
+    Inside a retrying guard every request carries the guard's ``Idempotency-Key``
+    header, and every received response marks its target answered, so the next
+    request to it gets a new key (:mod:`url4.io.idempotency`, "reuse until answered").
     """
 
     def __init__(
@@ -74,9 +83,19 @@ class HttpIOLayer:
         return url
 
     async def _get(self, url: str) -> httpx.Response:
+        key = idempotency_key(url)
+        headers = {"Idempotency-Key": key} if key is not None else None
         try:
-            response = await self._get_client().get(url)
+            response = await self._get_client().get(url, headers=headers)
+            # A reply came back (any status): the next request to url is a new one.
+            mark_answered(url)
             response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ResolutionError(
+                f"GET {url!r} failed: {exc}",
+                permanent=_permanent_status(exc.response),
+                retry_after=_retry_after(exc.response),
+            ) from exc
         except (httpx.HTTPError, httpx.InvalidURL) as exc:
             # WHY: httpx.InvalidURL is not an HTTPError subclass; catch it too so a
             # malformed target (e.g. control chars in a reducer query) still
@@ -95,6 +114,46 @@ class HttpIOLayer:
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
+
+
+# Spec C §13.2.1: 4xx is permanent except these; 5xx is transient except the others.
+_TRANSIENT_4XX = frozenset({408, 409, 421, 423, 425, 429})
+_PERMANENT_5XX = frozenset({501, 505, 508})
+
+
+def _permanent_status(response: httpx.Response) -> bool:
+    """Whether retrying this failed response can never succeed (Spec C §13.2.1).
+
+    ``Retry-After`` on any response makes it transient. Anything else that is not a
+    4xx or 5xx (an unfollowed redirect) is transient, like a connection failure.
+    """
+    if "retry-after" in response.headers:
+        return False
+    status = response.status_code
+    if 400 <= status < 500:
+        return status not in _TRANSIENT_4XX
+    return status in _PERMANENT_5XX
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    """The ``Retry-After`` wait in seconds (delta-seconds or HTTP-date), else ``None``.
+
+    An unparseable value still made the failure transient; it just sets no minimum.
+    """
+    raw = response.headers.get("retry-after")
+    seconds = None if raw is None else _delta_seconds(raw)
+    return None if seconds is None else max(0.0, seconds)
+
+
+def _delta_seconds(raw: str) -> float | None:
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    try:
+        return parsedate_to_datetime(raw).timestamp() - time.time()
+    except (TypeError, ValueError):
+        return None
 
 
 __all__ = ["HttpIOLayer"]

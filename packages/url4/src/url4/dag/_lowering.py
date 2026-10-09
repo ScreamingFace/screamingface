@@ -34,6 +34,7 @@ import re
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 
+from url4.core._annotations import checked_retries, checked_timeout
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import (
@@ -387,20 +388,28 @@ def _guard_options(
 ) -> tuple[bool, float | None, int] | None:
     """Decode ``;optional`` / ``;t=`` / ``;retry=`` — None when no guard is needed."""
     optional = "optional" in ann
-    timeout = _annotation_number(ann.get("t"), "t", float, node)
-    retries = _annotation_number(ann.get("retry"), "retry", int, node) or 0
-    if not optional and timeout is None and retries == 0:
+    timeout = _annotation_number(ann.get("t"), "t", float, checked_timeout, node)
+    retries = _annotation_number(ann.get("retry"), "retry", int, checked_retries, node)
+    if not optional and timeout is None and not retries:
         return None
-    return optional, timeout, retries
+    return optional, timeout, retries or 0
 
 
-def _annotation_number(raw: str | None, key: str, cast: Callable, node: Source):
+def _annotation_number(raw: str | None, key: str, cast: Callable, check: Callable, node: Source):
+    """Cast and range-check one guard value (the shared rule in ``core._annotations``)."""
     if raw is None:
         return None
     try:
-        return cast(raw)
+        value = cast(raw)
     except ValueError:
-        raise ParseError(f"invalid ;{key}={raw!r} on source {node.name or node.value!r}") from None
+        value = None
+    where = node.name or node.value
+    try:
+        if value is None:
+            raise ValueError(f"must be {'an integer' if cast is int else 'a number'}")
+        return check(value)
+    except ValueError as exc:
+        raise ParseError(f"invalid ;{key}={raw!r} on source {where!r}: {exc}") from None
 
 
 def _push_label(inner: DagNode, node: Source, ann: dict[str, str | None]) -> None:

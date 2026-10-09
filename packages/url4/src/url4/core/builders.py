@@ -35,7 +35,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import cast
 
-from url4.core._annotations import _VALID_ON_ERROR
+from url4.core._annotations import _VALID_ON_ERROR, checked_retries, checked_timeout
 from url4.core.grammar import _IDENT_RE, _STRUCT_KEY_RE, intent_atom, parse, parse_value
 from url4.core.nodes import (
     Binding,
@@ -205,15 +205,11 @@ def _exec_annotations(
 
 
 def _timeout_text(t: float | int) -> str:
-    if t <= 0:
-        raise ValueError(f"per-source timeout t={t!r} must be positive")
-    return _format_number(t)
+    return _format_number(checked_timeout(t))
 
 
 def _retry_text(retry: int) -> str:
-    if retry < 0:
-        raise ValueError(f"retry={retry!r} must be >= 0")
-    return str(retry)
+    return str(checked_retries(retry))
 
 
 def _pairs(extra: ParamsLike) -> Params:

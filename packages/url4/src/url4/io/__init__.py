@@ -8,6 +8,8 @@ Owns
 - ``layer`` — the port (``IOLayer``, ``FetchRequest``/``FetchResult``) and the
   optional capability protocols (``SupportsFetchEx``, ``SupportsHoldings``, …).
   Standard library only, so the engine can name the port without a transport.
+- ``idempotency`` — the ``Idempotency-Key`` a retrying guard offers to adapters
+  ("reuse until answered"), carried in a context variable. Standard library only.
 - ``static`` — ``StaticIOLayer``: in-memory, deterministic; the test default.
 - ``http`` — ``HttpIOLayer``: the httpx adapter.
 

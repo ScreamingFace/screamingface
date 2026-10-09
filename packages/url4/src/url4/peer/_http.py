@@ -40,6 +40,9 @@ _STATUS_BY_CODE: dict[str, int] = {
     ErrorCode.IDENTITY_ACCESS_DENIED: 403,
     ErrorCode.CONSENT_REQUIRED: 403,
     ErrorCode.CONSENT_WITHHELD: 403,
+    # No request was sent: the node's own concurrency cap ran the deadline out, so the
+    # node is the one that is (temporarily) unavailable — not an upstream failure.
+    ErrorCode.ADMISSION_TIMEOUT: 503,
 }
 
 
@@ -112,6 +115,11 @@ def status_for_code(code: str | None, *, permanent: bool) -> int:
 
 
 def status_for(exc: Url4Error) -> int:
-    """The HTTP status for a :class:`Url4Error` (spec codes, then exception shape)."""
-    permanent = not isinstance(exc, ResolutionError) or exc.permanent
-    return status_for_code(exc.code, permanent=permanent)
+    """The HTTP status for a :class:`Url4Error` (spec codes, then exception shape).
+
+    An unlisted :class:`ResolutionError` is 502 whatever its class: a source this node
+    could not resolve is an upstream failure even when retrying cannot help (a 404
+    behind the node is still the upstream's 404, not this node's bug). Any other
+    unlisted error is the node's own: 500.
+    """
+    return status_for_code(exc.code, permanent=not isinstance(exc, ResolutionError))

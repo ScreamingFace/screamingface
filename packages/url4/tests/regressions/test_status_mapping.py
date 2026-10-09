@@ -25,3 +25,15 @@ def test_status_for_total_and_listed():
     # a non-Resolution Url4Error flagged transient is still 500 (spec §4.1 row 'any other')
     assert status_for(ParseError("x", permanent=False)) == 400
     assert status_for(Url4Error("x", code="resolution_failed", permanent=False)) == 500
+
+
+def test_unlisted_resolution_error_is_502_whatever_its_class():
+    # A source the node could not resolve is an upstream failure, even when it is permanent.
+    assert status_for(ResolutionError("x", code="x.unlisted", permanent=True)) == 502
+    assert status_for(ResolutionError("x", code="x.unlisted", permanent=False)) == 502
+    assert status_for(Url4Error("x", code="x.unlisted")) == 500
+
+
+def test_admission_timeout_is_503():
+    # No request was sent: this node's own concurrency cap is the cause.
+    assert status_for(ResolutionError("x", code=ErrorCode.ADMISSION_TIMEOUT)) == 503

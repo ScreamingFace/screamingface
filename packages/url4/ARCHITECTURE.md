@@ -37,7 +37,7 @@ layer. A layer imports only the layers below it.
 |---|---|---|---|
 | language | `url4.core` | url4 text ↔ AST. Pure, synchronous. | standard library |
 | wire | `url4.wire` | The `?q=(context)!intent` codec. One owner, shared below both consumers. | `core` |
-| engine | `url4.dag` | AST → typed DAG → concurrent execution. | `core`, `wire`, `io.layer`, `observe` |
+| engine | `url4.dag` | AST → typed DAG → concurrent execution. | `core`, `wire`, `io.layer`, `io.idempotency`, `observe` |
 | io port | `url4.io` | The `IOLayer` port and its adapters — the seam. | `core`, `wire` |
 | leaf | `url4.observe` | Observation events and context-local sinks. | standard library |
 | node | `url4.peer` | `Url4Node` (server), `Client` (requestor), dispatch. | `core`, `wire`, `dag`, `io`, `observe` |
@@ -50,10 +50,10 @@ layer. A layer imports only the layers below it.
 
 - `url4.core` imports the standard library only. It is a leaf of leaves.
 - `url4.wire` imports `core` only.
-- `url4.dag` may import `core`, `wire`, `io.layer`, and `observe`. It must not
+- `url4.dag` may import `core`, `wire`, `io.layer`, `io.idempotency`, and `observe`. It must not
   import `peer`, `cli`, or `streaming`.
 - `url4.io` must not import `dag`. The engine depends on the port, never the
-  reverse. `io.layer` is standard-library only, so the engine can name the port
+  reverse. `io.layer` and `io.idempotency` are standard-library only, so the engine can name the port
   without dragging in a transport.
 - `url4.observe` is a leaf. It imports no engine module and no transport.
 - `url4.peer` must not import `cli`. The CLI composes the node, not the reverse.
@@ -63,7 +63,9 @@ layer. A layer imports only the layers below it.
 function-local and `TYPE_CHECKING` imports too. A crossing import fails the test
 with the file and the module name.
 
-`io/layer.py` is the port. `io/static.py` and `io/http.py` are adapters. The
+`io/layer.py` is the port, and `io/idempotency.py` is the key a retrying guard
+offers through it (a context variable, so adapters opt in). `io/static.py` and
+`io/http.py` are adapters. The
 engine may name the port at module scope; a concrete adapter is imported lazily
 (the default `HttpIOLayer` in `dag/_run.py`), so `import url4.dag` names no
 transport.
@@ -86,6 +88,7 @@ transport.
 | collection parsing (JSON / CSV / JSONL) | `dag/semantics/collection.py` | engine |
 | `$name` / `$item` substitution | `dag/semantics/ensemble.py` | engine |
 | the port or a capability protocol | `io/layer.py` | io |
+| the guard's idempotency key ("reuse until answered") | `io/idempotency.py` | io |
 | the in-memory test adapter | `io/static.py` | io |
 | the httpx adapter | `io/http.py` | io |
 | the node's registration or dispatch order | `peer/server.py`, `peer/_dispatch.py` | node |
