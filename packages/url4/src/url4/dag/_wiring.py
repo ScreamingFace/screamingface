@@ -143,10 +143,9 @@ def _compile_group(
 ) -> DagNode:
     if intent is not None and intent.pointer is not None:
         _reject_duplicate_names(slots)
-        # AIDEV-NOTE: Task 4b — a broadcast code pointer (one call per resolved source)
-        # replaces the broadcast path in _group_graph. Until then it runs as today's broadcast.
-        if not broadcast:
-            return _code_pointer_graph(slots, intent.pointer, quorum)
+        if broadcast:
+            return _code_pointer_broadcast_graph(slots, intent.pointer)
+        return _code_pointer_graph(slots, intent.pointer, quorum)
     return _group_graph(slots, intent, broadcast, from_list=from_list, quorum=quorum)
 
 
@@ -159,6 +158,25 @@ def _code_pointer_graph(slots: list[_Slot], pointer: CodePointer, quorum: int | 
         quorum,
         deps={f"src:{i}": node for i, node in enumerate(built)},
     )
+
+
+def _code_pointer_broadcast_graph(slots: list[_Slot], pointer: CodePointer) -> DagNode:
+    """``(a, b)!*/code`` — one code-pointer call per resolved source (PRD D7).
+
+    Sources resolve under the outer scope with no sibling edges, as in
+    :func:`_broadcast_graph`. Each part's call gets its own source as ``current``.
+    """
+    parts = {
+        f"part:{i}": CodePointerNode(
+            pointer,
+            (("current", False),),
+            None,
+            deps={"src:0": slot.make({})},
+            broadcast_part=True,
+        )
+        for i, slot in enumerate(slots)
+    }
+    return BroadcastCollectNode(tuple(slot.name for slot in slots), deps=parts)
 
 
 def _group_graph(

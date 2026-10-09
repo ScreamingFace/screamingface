@@ -94,6 +94,7 @@ from url4.dag.nodes import (  # isort: skip
     TextNode,
     WebFetchNode,
 )
+from url4.dag.nodes.code_pointer import unsupported_intent_error  # isort: skip
 
 Lowerer = Callable[[Node, Edges, "LoweringRegistry"], DagNode]
 
@@ -547,12 +548,7 @@ def _code_pointer_of(atom: Node) -> CodePointer | None:
         return None
     cls = classify_intent(atom)
     if cls.mode is IntentMode.UNSUPPORTED:
-        raise ParseError(
-            f"intent {atom.value!r} is not a url4 code pointer — a URI intent must be a "
-            "/path or a url4:// reference (unsupported_mode)",
-            code=ErrorCode.UNSUPPORTED_MODE,
-            permanent=True,
-        )
+        raise unsupported_intent_error(atom.value)
     return cls.pointer
 
 

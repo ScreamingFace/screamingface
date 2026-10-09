@@ -4,10 +4,7 @@
 #
 # STORY: as a url4 author, a URI intent `!/path` is a code pointer that receives the
 # group's sources as JSON. The probe rows below were 1.5.1 instruction-text behavior;
-# rows 1 to 5 now pin the 2.0 behavior (PRD §7.1, CH11), and their names say so.
-#
-# AIDEV-NOTE: row 6 (the iteration reducer `/reduce`) still pins 1.5.1. It flips with
-# ReduceNode, which is Task 4b, not Task 4a. Do not "fix" it here before that change.
+# rows 1 to 6 now pin the 2.0 behavior (PRD §7.1, CH11), and their names say so.
 """
 
 from __future__ import annotations
@@ -118,13 +115,22 @@ async def test_2_0_named_sources_to_a_data_route_are_intent_error(
 
 
 @pytest.mark.asyncio
-async def test_char_1_5_1_relative_reducer_path_is_the_prompt(
+async def test_2_0_relative_reducer_path_is_one_code_pointer_call(
     node: Url4Node, hook_calls: list[tuple[str, str | None]]
 ) -> None:
-    # AIDEV-NOTE: flips in Task 4b with ReduceNode (an iteration reducer `/reduce` becomes one
-    # code-pointer call, PRD D8).
+    # WHY: url4 2.0 — an iteration reducer that is a relative URI is one code-pointer call with
+    # the row array as `$1` (PRD row 6 of CH11, D8). The reducer path is no longer a prompt.
+    seen: list[Request] = []
+
+    @node.endpoint("/reduce")
+    async def reduce(request: Request) -> str:
+        seen.append(request)
+        return "REDUCED"
+
     result = await run("(/rows*()!'R $item')!/reduce", node, process=_recording_process(hook_calls))
-    assert result == '/reduce\n\n["R r1", "R r2"]'
+    assert result == "REDUCED"
+    assert [(r.mode, r.inputs) for r in seen] == [("rds", {"$1": ["R r1", "R r2"]})]
+    assert all(intent != "/reduce" for _, intent in hook_calls)
 
 
 def test_char_1_5_1_quote_escapes_round_trip_and_a_doubled_quote_is_malformed() -> None:

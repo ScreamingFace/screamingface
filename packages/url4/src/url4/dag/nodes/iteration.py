@@ -9,7 +9,9 @@ from dataclasses import dataclass, field
 
 from url4.core.context import Context
 from url4.core.errors import CollectionError, ErrorCode
+from url4.core.grammar import intent_atom
 from url4.core.grammar import parse as grammar_parse
+from url4.core.intent import IntentMode, classify_intent
 from url4.core.nodes import IterationDirectives
 from url4.core.nodes import RelExpr as AstRelExpr
 from url4.core.parser import split_intent
@@ -36,6 +38,10 @@ from url4.dag.nodes._shared import (  # isort: skip
     _frame,
     _media_type_of,
     _rows_to_json,
+)
+from url4.dag.nodes.code_pointer import (  # isort: skip
+    call_code_pointer,
+    unsupported_intent_error,
 )
 
 
@@ -195,9 +201,10 @@ class MapNode:
 class ReduceNode:
     """``(src*(body))!reducer`` — reduce all rows through the reducer template.
 
-    The reducer is parsed lazily, here at resolve time: a relative-expression
-    reducer (``/reduce(all)``) is fetched with the JSON row array as its intent
-    (``/reduce?q=(all)!<array>``); any other reducer merges via ``ctx.process``
+    The reducer is classified lazily, here at resolve time. A URI reducer (``/reduce``
+    or ``url4://n/reduce``) is one code-pointer call with the rows as ``$1`` (PRD D8). A
+    relative-expression reducer (``/reduce(all)``) is fetched with the JSON row array as
+    its intent (``/reduce?q=(all)!<array>``); any other reducer merges via ``ctx.process``
     with the *raw* reducer text.
     """
 
@@ -209,6 +216,12 @@ class ReduceNode:
         rows = rows if isinstance(rows, list) else [_as_text(rows)]
         array_json = _rows_to_json(rows)
         reducer_src, _, _ = split_intent(self.reducer)
+        cls = classify_intent(intent_atom(reducer_src))
+        # WHY: a code pointer is set iff the mode is RDS (IntentClass), so the pointer decides.
+        if cls.pointer is not None:
+            return await call_code_pointer(ctx, cls.pointer, {"$1": json.loads(array_json)})
+        if cls.mode is IntentMode.UNSUPPORTED:
+            raise unsupported_intent_error(reducer_src)
         node = grammar_parse(reducer_src)
         if isinstance(node, AstRelExpr):
             return await self._dispatch(node, array_json, ctx)
