@@ -98,6 +98,16 @@ class JudgeTransport:
     benchmark_id: str | None = None
 
 
+class JudgeReplyBlank(RuntimeError):
+    """The judge's reply was blank — a successful call that carries no verdict at all.
+
+    WHY its own class: the redraw helper treats this one refusal as an unparseable reply
+    and asks again (judges do send blanks: DRACO's reply format names ``empty`` as a
+    rejection reason); every other provider error still propagates on the first ask. A
+    ``RuntimeError`` so existing catches still see it.
+    """
+
+
 _transport: contextvars.ContextVar[JudgeTransport | None] = contextvars.ContextVar(
     "screamingface_judge_transport", default=None
 )
@@ -241,7 +251,9 @@ class _GatewayJudgeModelAPI(ModelAPI):
         if not completion.strip():
             # A blank completion can never be a grade — refuse loudly; a scorer
             # coercing silence into a score is a silently wrong benchmark.
-            raise RuntimeError(f"the gateway judge at {self.model_name!r} returned an empty reply")
+            raise JudgeReplyBlank(
+                f"the gateway judge at {self.model_name!r} returned an empty reply"
+            )
         # Stage 4 — their output form, the text verbatim.
         return ModelOutput.from_content(model=self.model_name, content=completion)
 
@@ -343,6 +355,7 @@ def _message(message: ChatMessage) -> dict[str, str]:
 __all__ = [
     "PROVIDER_NAME",
     "JudgeFetch",
+    "JudgeReplyBlank",
     "JudgeTransport",
     "judge_filling_model_role",
     "bound_judge_transport",

@@ -6,9 +6,11 @@
 
 FEATURE: a Task scorer asks the judge again when its reply has no verdict, then fails the
 Case by name. INVARIANTS the suite defends: an unparseable reply never becomes "not met";
+a blank reply is unparseable too, and is redrawn like any other; only that error is redrawn;
 a redraw leaves BOTH caches (inspect's and the AI Gateway's exact-request cache), because a
 redraw sends identical bytes and a cache would hand back the same broken text; the redraw
-keeps the first ask's accounting key, so its cost lands on the same Case.
+keeps the first ask's accounting key, so its cost lands on the same Case; the redraw flag
+ends with the redraw, so a later judge call is cacheable again.
 
 Runs only with the `inspect` extra installed; the plain gate run skips it.
 """
@@ -36,6 +38,7 @@ from screamingface_engine.request_scope import (  # noqa: E402
     request_scope,
 )
 from screamingface_engine_inspect.judge_provider import (  # noqa: E402
+    JudgeFetch,
     JudgeTransport,
     bound_judge_transport,
 )
@@ -81,7 +84,7 @@ def run_scope() -> Iterator[RequestScope]:
         yield scope
 
 
-async def _judge_through_gateway(fetch: _ScriptedFetch) -> tuple[bool, int]:
+async def _judge_through_gateway(fetch: JudgeFetch) -> tuple[bool, int]:
     """Judge one rubric item through the real gateway provider; return verdict + redraws."""
 
     with bound_judge_transport(JudgeTransport(fetch=fetch, benchmark_id="bench")):
@@ -117,8 +120,52 @@ async def test_garbled_replies_past_the_redraw_budget_fail_the_item_by_name_neve
     with pytest.raises(JudgeReplyUnparseable, match="case 7 rubric r2") as raised:
         await _judge_through_gateway(fetch)
     assert len(fetch.targets) == 1 + MAX_JUDGE_REDRAWS
-    # The reply head rides the message as audit evidence for the Case's scorer_error.
+    # The reply head rides the message as audit evidence for the Case's judge_reply_invalid.
     assert GARBLED[:20] in str(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_a_blank_reply_is_redrawn_and_counted_like_a_garbled_one(
+    run_scope: RequestScope,
+) -> None:
+    """The provider refuses a blank completion before any parser sees it. Judges do send
+    blanks (DRACO's reply format names `empty` as a rejection reason), so a blank must cost
+    one redraw, not the Case."""
+
+    fetch: _ScriptedFetch = _ScriptedFetch("   ", "MET")
+    assert await _judge_through_gateway(fetch) == (True, 1)
+    assert fetch.participation == [None, False]
+
+
+@pytest.mark.asyncio
+async def test_blank_replies_past_the_redraw_budget_fail_the_item_by_name(
+    run_scope: RequestScope,
+) -> None:
+    """A judge that only ever sends blanks spends the same budget, then fails by name."""
+
+    fetch: _ScriptedFetch = _ScriptedFetch(*[""] * (1 + MAX_JUDGE_REDRAWS))
+    with pytest.raises(JudgeReplyUnparseable, match="case 7 rubric r2"):
+        await _judge_through_gateway(fetch)
+    assert len(fetch.targets) == 1 + MAX_JUDGE_REDRAWS
+
+
+@pytest.mark.asyncio
+async def test_a_failed_judge_call_is_not_redrawn(run_scope: RequestScope) -> None:
+    """Only a reply with no verdict is redrawn: a call that failed (here an upstream error,
+    raised as a plain RuntimeError like the blank refusal's parent) propagates on the first
+    ask, so a broken gateway never costs three calls per item."""
+
+    calls: list[str] = []
+
+    async def failing_fetch(target: str) -> str:
+        """Fail the way an upstream error does — a raise, not a reply."""
+
+        calls.append(target)
+        raise RuntimeError("upstream 502")
+
+    with pytest.raises(RuntimeError, match="upstream 502"):
+        await _judge_through_gateway(failing_fetch)
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio
@@ -153,6 +200,21 @@ async def test_a_redraw_opts_out_of_the_gateway_cache_because_it_sends_identical
     assert len(registry.keys_by_owner[owner]) == 1
     # INVARIANT: the opt-out is scoped to the one redraw — the run's policy is untouched.
     assert current_scope().cache.participate is None
+
+
+@pytest.mark.asyncio
+async def test_the_redraw_flag_ends_with_the_redraw_so_the_next_item_keeps_the_cache(
+    run_scope: RequestScope,
+) -> None:
+    """A scorer judges many items in one task. If the redraw flag outlived its redraw, every
+    later judge call in that scorer would skip the gateway cache — a re-run would pay again
+    for answers it already has."""
+
+    fetch: _ScriptedFetch = _ScriptedFetch(GARBLED, "MET", "UNMET")
+    assert await _judge_through_gateway(fetch) == (True, 1)
+    assert await _judge_through_gateway(fetch) == (False, 0)
+    # The second item's first ask is an ordinary judge call again.
+    assert fetch.participation == [None, False, None]
 
 
 # WHY the marker: the suite's autouse fixture binds a default scope; this test needs none.

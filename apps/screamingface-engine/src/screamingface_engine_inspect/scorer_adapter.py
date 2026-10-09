@@ -27,7 +27,9 @@ Stages, in execution order (see :func:`inspect_grade_case`):
               which scorer — still zero per-scorer branches.
     Stage 3 — await their scorer. A raise becomes the named failure code
               ``scorer_error`` with the exception's words as evidence, never a crash of
-              the whole aggregate.
+              the whole aggregate — except a judge that never gave a parseable verdict
+              (``JudgeReplyUnparseable``), which is ``judge_reply_invalid``: the judge's
+              fault, not our code's.
     Stage 4 — translate the Score: value → float (worked example: CORRECT "C" → 1.0,
               "P" → 0.5, ``0.25`` → 0.25, ``True`` → 1.0); an unmappable value (a list,
               an unknown string) → ``invalid_score_value``. A Benchmark whose judge
@@ -70,6 +72,7 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload
 from screamingface_engine.grading_call_scope import grading_call_scope
+from screamingface_engine_inspect.judge_redraw import JudgeReplyUnparseable
 
 #: Score string verdicts → floats, per inspect's own vocabulary: CORRECT / INCORRECT /
 #: PARTIAL / NOANSWER. Closed on purpose (see the module invariant).
@@ -98,7 +101,8 @@ def inspect_grade_case(
     Stage 1-2 — unpack our envelope, build their TaskState/Target once (the same forms go
                 to every examiner).
     Stage 3 — each examiner marks, in declaration order, under the Case's grading scope;
-                ANY raise fails the whole Case by name (``scorer_error``, naming the
+                ANY raise fails the whole Case by name (``scorer_error``, or
+                ``judge_reply_invalid`` when the judge never gave a verdict; naming the
                 examiner), never a half-graded Case.
     Stage 4 — copy their marks back onto our form: one named value per examiner (or one
                 per key of a dict-valued Score), the Headline Score first; ``score`` IS
@@ -166,7 +170,7 @@ def inspect_grade_case(
         except Exception as exc:  # noqa: BLE001 — WHY broad: the scorer is stranger
             # code from any of ~94 community evals; ANY raise must become this benchmark's
             # named failure, not an aborted aggregate for the other 49 Cases.
-            return _failure("scorer_error", f"{type(exc).__name__}: {exc}")
+            return _failure(_raise_code(exc), f"{type(exc).__name__}: {exc}")
         # Stage 4 — copy their mark back onto our form.
         if not names:
             return _outcome(
@@ -268,7 +272,7 @@ async def _named_outcome(
             with grading_call_scope(case_id):
                 marks.append(await extra(state, target))
         except Exception as exc:  # noqa: BLE001 — stranger code; a raise is a named failure
-            return _failure("scorer_error", f"{name}: {type(exc).__name__}: {exc}")
+            return _failure(_raise_code(exc), f"{name}: {type(exc).__name__}: {exc}")
     return _multi_outcome(marks, names, completion, inverted_grade, word_grades, case_insensitive)
 
 
@@ -560,6 +564,14 @@ def _json_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
             continue
         safe[key] = value
     return safe
+
+
+def _raise_code(exc: Exception) -> str:
+    """Name who is to blame for a scorer's raise: the judge, or the scorer code."""
+
+    # WHY judge_reply_invalid: the redraw budget ran out because the JUDGE never sent a
+    # verdict; ``scorer_error`` would send the reader hunting for a bug in our code.
+    return "judge_reply_invalid" if isinstance(exc, JudgeReplyUnparseable) else "scorer_error"
 
 
 def _failure(code: str, detail: str, score: Score | None = None) -> CaseGradeOutcome:

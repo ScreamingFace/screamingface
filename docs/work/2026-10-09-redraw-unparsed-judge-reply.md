@@ -30,7 +30,8 @@ migrations (R3 on `OME-1527`).
   subtree (`packages/url4/src/url4/dag/nodes/guard.py:66-75`), and the connector sends the run's
   own cache policy on every call (`screamingface_engine/world/connector.py:889`, `:955`). Its
   "fresh sample" comments (`healthbench/revision_inputs.py:30-35`, `gdpval/runtime.py:271-273`)
-  hold only on a cache miss. Reported, not fixed here (out of scope).
+  hold only on a cache miss. Not fixed here: PR #1324 (OME-1533) gives the hand-built retry the
+  same opt-out.
 - Existing mechanism reused: the connector already turns a request scope whose cache policy says
   `participate=False` into body field `{"cache": {"use-cache": false}}`
   (`screamingface_engine/world/cache.py:30-56`), read per call from `current_scope()`
@@ -78,12 +79,19 @@ migrations (R3 on `OME-1527`).
   (dispatch scoped this unit to relevant free tests; the pre-commit hook ran ruff).
 - **Deviations:** about 360 lines against a ~120 target, almost all docstrings (Feynman doc on
   the helper) and the 6 tests. The redraw opt-out reuses the request scope's existing
-  `CachePolicy` instead of a new transport flag the connector would have to learn. A blank judge
-  reply is NOT redrawn: the provider already raises on it before the parser sees it (unchanged).
-- **Finding, not fixed (out of scope):** the hand-built boards' `;retry=` has the same cache
-  problem — it re-sends identical bytes with the run's own cache policy, so on a gateway cache
-  hit every retry returns the same broken reply (see "Cache finding" above). Their "fresh sample"
-  comments hold only on a cache miss. Worth its own ticket if those boards are not migrated soon.
+  `CachePolicy` instead of a new transport flag the connector would have to learn.
+- **Review fixes (same PR):** an item whose redraws all fail now fails the Case as
+  `judge_reply_invalid` (already declared on both the Engine and SDK sides), not `scorer_error`:
+  the scorer adapter maps `JudgeReplyUnparseable` on the headline and every extra scorer. A blank
+  judge reply is now redrawn and counted: the provider raises it as its own `JudgeReplyBlank`
+  (still a `RuntimeError`), and the helper catches only that class. The helper's docstring says a
+  redraw at `temperature=0` can bring the same bad reply back. A test now pins that the redraw
+  flag ends with the redraw (fails with the flag reset removed). Checks: redraw 10, provider 15,
+  scorer adapter 36, named scores 16, failure-code conformance 1 — all passed; ruff and pyright
+  clean on the touched files.
+- **Hand-built retries:** the boards' `;retry=` has the same cache problem — it re-sends
+  identical bytes with the run's own cache policy, so on a gateway cache hit every retry returns
+  the same broken reply (see "Cache finding" above). PR #1324 (OME-1533) fixes that path.
 - **Owner-verify:** nothing to press; no Task uses the helper yet. The first consumer (FRAMES
   under `OME-1457`, or a rubric-board migration) proves it on a paid run: a redrawn item shows
   `cache: {"use-cache": false}` on its gateway request and its cost on the same Case.
