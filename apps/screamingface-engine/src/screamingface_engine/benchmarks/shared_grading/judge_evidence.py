@@ -304,6 +304,11 @@ def rubric_verdict_call(judge: object, *, case_id: str, rubric_id: str, route: s
     reference's own recovery loop (simple-evals ``grade_sample`` re-asks on bad JSON),
     bounded at ``retry`` attempts instead of forever.
 
+    The re-ask sends the same bytes as the garbled ask, and the AI Gateway's request cache
+    stored that garbled reply. It is fresh only because the connector runs a retry caused by
+    ``judge_reply_invalid`` opted out of that cache (OME-1533, ``world/fresh_judge_retry.py``);
+    the verdict route must keep RAISING that code for a malformed reply, or the retry is lost.
+
     INVARIANT: the judge never sees ``case_id`` or ``rubric_id`` — the Engine writes both
     into the verdict route's intent, so identity is stamped rather than echoed.
     """

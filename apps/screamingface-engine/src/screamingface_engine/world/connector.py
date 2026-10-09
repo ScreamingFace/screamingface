@@ -51,6 +51,7 @@ from screamingface_engine.world.cache_readback import (
 )
 from screamingface_engine.world.config import ModelSpec, WorldConfigError, provider_of, routes_for
 from screamingface_engine.world.errors import RunnerRequestError
+from screamingface_engine.world.fresh_judge_retry import scope_for_this_send
 from screamingface_engine.world.model_response import (
     Choice,
     parse_choice,
@@ -75,6 +76,7 @@ from screamingface_engine.world.web_tools import (
     truncate_tool_result,
 )
 from url4.core.errors import ResolutionError
+from url4.dag import GuardRetry, current_guard_retry
 from url4.io.static import StaticIOLayer
 from url4.observe import current_log_sink, current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
@@ -351,7 +353,13 @@ class _ModelEndpoint:
             # never held on `self`. Two concurrent callers through this one handler each observe
             # their own scope because each runs in its own context (AC2), and a spawned model
             # call inherits the scope of the task that created it (AC4).
-            scope = current_scope()
+            # OME-1533: a re-ask of a Judge whose last reply was unusable runs under the same
+            # scope opted out of the gateway cache, which would otherwise serve the stored
+            # garbled reply again; every other call keeps the caller's scope.
+            retry: GuardRetry | None = current_guard_retry()
+            scope = scope_for_this_send(
+                current_scope(), None if retry is None else retry.failure_code
+            )
             retrieval_policy = current_retrieval_policy()
             params = apply_retrieval_policy(request.params, retrieval_policy)
             # FEATURE (OME-1038): the run's declared answer seed, stamped AFTER the retrieval

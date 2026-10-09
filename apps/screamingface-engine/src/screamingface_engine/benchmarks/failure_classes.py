@@ -31,6 +31,9 @@ from url4.core.errors import ResolutionError
 # original spelling preserved in metadata — routine gateway churn must never crash a
 # paid run with a ValidationError mid-flight.
 UPSTREAM_FALLBACK_CODE = "upstream_error"
+# The code a verdict route raises when the Judge answered but the reply is not a usable verdict.
+# Named once because the connector keys its fresh-reply retry on it (world/fresh_judge_retry.py).
+JUDGE_REPLY_INVALID_CODE = "judge_reply_invalid"
 
 
 def benchmark_contract_error(detail: str) -> ResolutionError:
@@ -58,7 +61,7 @@ def judge_failure(detail: str) -> ResolutionError:
     (owner decision) replacing DRACO's ``no_valid_judge_verdict`` and rubric_check's
     unnamed path — one idea, one code.
     """
-    return ResolutionError(detail, code="judge_reply_invalid", permanent=False)
+    return ResolutionError(detail, code=JUDGE_REPLY_INVALID_CODE, permanent=False)
 
 
 # INVARIANT: a helper can never mint an undeclared code — checked at import time so a
@@ -72,6 +75,7 @@ if UPSTREAM_FALLBACK_CODE not in DECLARED_FAILURE_CODES:
 del _helper, _code  # the self-check's loop variables are not module surface
 
 __all__ = [
+    "JUDGE_REPLY_INVALID_CODE",
     "UPSTREAM_FALLBACK_CODE",
     "benchmark_contract_error",
     "benchmark_definition_error",

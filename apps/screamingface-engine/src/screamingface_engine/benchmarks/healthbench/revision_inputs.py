@@ -30,8 +30,9 @@ JUDGE_MODEL = "openrouter/openai/gpt-5.4"
 # WHY: NO temperature pin — the official judge's reasoning branch sends ONLY
 # reasoning={"effort":"low"} (not expressible through the gateway yet; named deviation),
 # never temperature or an output cap. Provider-default temperature is LOAD-BEARING:
-# ``;retry=`` re-sends identical bytes, so only a fresh sample can turn a malformed
-# reply into a parseable one (the reference retries forever on fresh samples; the July
+# ``;retry=`` re-sends identical bytes (opted out of the gateway cache since OME-1533, so the
+# judge is asked again rather than the stored reply returned), so only a fresh sample can turn
+# a malformed reply into a parseable one (the reference retries forever on fresh samples; the July
 # port pinned temp 0 and needed a byte-salt url4 cannot express).
 JUDGE_PARAMS = (
     # INVARIANT: Grading is retrieval-free even though the same route serves Candidates.

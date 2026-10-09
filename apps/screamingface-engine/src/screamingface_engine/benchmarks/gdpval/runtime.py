@@ -269,7 +269,9 @@ def _rubric_verdict(benchmark_id: str):
             raise _contract_error(str(exc)) from exc
         if record.get("valid") is not True:
             # WHY a transient error rather than a returned record: the expression's `;retry=` on
-            # this route re-resolves the NESTED judge call, so each re-ask draws a fresh sample.
+            # this route re-resolves the NESTED judge call, and that retry opts out of the gateway
+            # cache (OME-1533, world/fresh_judge_retry.py), so each re-ask draws a fresh sample
+            # instead of the stored garbled reply.
             # After the bounded retries the error propagates and the CASE fails loudly, keeping
             # the reply head as audit evidence.
             raw = str(record.get("raw_output") or "")
