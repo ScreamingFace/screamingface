@@ -13,6 +13,7 @@ from url4 import Iteration, Node, RelExpr, RelUrl, build, render
 from url4.core.errors import ParseError
 from url4.core.nodes import walk
 from url4.core.parser import split_top_level_commas
+from url4.peer import describe_routes
 from url4.peer.server import Url4Node
 
 BENCHMARK_ASSETS_ENV = "URL4_BENCHMARK_ASSETS"
@@ -84,12 +85,13 @@ def served_routes(node: Url4Node) -> frozenset[str]:
 def data_routes(node: Url4Node) -> frozenset[str]:
     """The node's data paths, which are servable relative targets too.
 
-    WHY read privately: `processor_routes()` lists endpoints only, and `Url4Node` publishes no
-    accessor for its data table — widening the engine's API is outside this landing's boundary.
-    Degrades to the endpoint-only check rather than rejecting a valid Benchmark.
+    Degrades to the endpoint-only check rather than rejecting a valid Benchmark: a non-`Url4Node`
+    layer (`StaticIOLayer` also answers `processor_routes()`) has no data table to report.
     """
 
-    return frozenset(getattr(node, "_data", {}))
+    if not isinstance(node, Url4Node):
+        return frozenset()
+    return frozenset(route.path for route in describe_routes(node) if route.kind == "data")
 
 
 # A path is only a route name while every segment is literal. url4's segment charset is

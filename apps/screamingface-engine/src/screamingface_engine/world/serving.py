@@ -206,9 +206,7 @@ def node_eval_path(node: Any) -> str:
     """
     if not isinstance(node, Url4Node):
         return DEFAULT_EVAL_PATH
-    # WHY the private `_eval_path` read: `Url4Node` exposes no public eval-path accessor, and
-    # widening url4's API is outside this landing's boundary.
-    return str(node._eval_path)
+    return node.eval_path
 
 
 def check_mount_collisions(node: Any, engine_routes: Iterable[str]) -> None:
@@ -327,12 +325,8 @@ def _warn_holdings_shadowed_by_engine_routes(
 def _holdings_collection_names(node: Url4Node) -> frozenset[str]:
     """Every NAMED ``[holdings]`` collection on ``node`` (the default shelf, keyed ``None``, is
     excluded — it names no path segment to collide with).
-
-    WHY read privately: like the data table (``benchmarks.registry.data_routes``), ``Url4Node``
-    publishes no accessor for its holdings registry — widening the engine's API is outside this
-    fix's scope. ``node`` is a known ``Url4Node``, so the attribute is read directly.
     """
-    return frozenset(name for name in node._self_holdings if name is not None)
+    return frozenset(name for name in node.holdings_collections() if name is not None)
 
 
 async def compose_serving_world(
