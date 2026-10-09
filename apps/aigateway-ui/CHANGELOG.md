@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0](https://github.com/ScreamingFace/screamingface/compare/aigateway-ui-v0.2.0...aigateway-ui-v0.3.0) (2026-10-09)
+
+
+### Features
+
+* **aigateway-ui:** log one server-side line per BFF error and wire LOG_LEVEL ([883a071](https://github.com/ScreamingFace/screamingface/commit/883a071d963dcad308c66089bd8f9e392cc8f3ac))
+* **aigateway-ui:** log one server-side line per BFF error and wire LOG_LEVEL (OME-943) ([e8d9ae3](https://github.com/ScreamingFace/screamingface/commit/e8d9ae32ea1aa4a7a712bc32962ea45c74d94aa0))
+* **aigateway:** remove saved profile defaults ([#1061](https://github.com/ScreamingFace/screamingface/issues/1061)) ([e8c7d26](https://github.com/ScreamingFace/screamingface/commit/e8c7d262262e63970eb88624d32cda81274f19f9))
+
+
+### Bug Fixes
+
+* **aigateway-ui:** remove stale X-Profile guidance ([#1210](https://github.com/ScreamingFace/screamingface/issues/1210)) ([57e78d7](https://github.com/ScreamingFace/screamingface/commit/57e78d71a9582b238ac4fe7cf0f682cb012c06a2))
+
 ## [0.2.0](https://github.com/OpenMined/screamingface/compare/aigateway-ui-v0.1.0...aigateway-ui-v0.2.0) (2026-08-04)
 
 
