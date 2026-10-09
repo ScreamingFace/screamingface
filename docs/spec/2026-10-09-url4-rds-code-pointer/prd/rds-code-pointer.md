@@ -415,7 +415,7 @@ same commit as the behavior (approved by ans:Q5), and the PR body lists it.
 | CH8 | `(https://a, https://b)!https://instr` → `INSTR\n\nA\nB` | unit | `[existing T/unit/test_dag.py:440-469]` | pass | **flips** to `unsupported_mode` (row 3) |
 | CH9 | `(https://a)!/doc` lowers to Barrier + data-read `RelUrlNode` | unit | `[existing T/unit/test_dag.py:472-483]` | pass | **flips** to `CodePointerNode` (row 9) |
 | CH10 | `!*https://instr` fetched once, rows `TAG\n\nA` | unit | `[existing T/unit/test_characterization.py:53-61]` | pass | **flips** to `unsupported_mode` (row 3) |
-| CH11 | the §2.3 probe table, one test per row (new file `T/spec/test_rds_code_pointer.py`, written first, marked flips where 2.0 changes the row) | integration | `[implied]` | pass | rows 1, 2, 4, 6 flip |
+| CH11 | the §2.3 probe table, one test per row (new file `T/spec/test_rds_code_pointer.py`, written first, marked flips where 2.0 changes the row) | integration | `[implied]` | pass | rows 1–6 flip (3 and 5: a data route is not code, E2) |
 
 ### 7.2 Delta rows
 

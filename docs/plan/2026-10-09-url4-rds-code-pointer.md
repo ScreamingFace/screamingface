@@ -23,7 +23,7 @@ the codec (Task 2) and its tests.
 | A1 | release 1.5.1 → 2.0.0 | `main` already has a breaking url4 change (#1085). Release PR #852 already proposes 2.0.0 | the user decided (2026-10-09): join 2.0.0. This PR merges before #852. The overview §10 says so |
 | A2 | C2 step 1: "today's splitter, without validating values yet" | `extract_expression_params` validates every param with `param-value` before dispatch knows the mode `[G/wire/subrequest.py:222,237]` | Task 3 splits it: `split_expression_query` (no validation) + the old function, which stays as split + validate |
 | A3 | D4: "an inline parenthesized collection" source is a JSON array | a bare `(a, b)` in source position fails with `missing_intent` `[G/dag/_lowering.py:447-462]`, so an inline collection is never a direct source | no work; the row-7 case uses an iteration over an inline collection |
-| A4 | the classifier reads the ABNF production | the grammar already has the `path-segment` matcher, `_DATA_PATH_RE` `[G/core/grammar.py:106]` | the classifier reuses it |
+| A4 | the classifier reads the ABNF production | the grammar's `parse_value` already makes the decision (path charset, §8 rule 16, host and port checks); a second set of rules disagreed with it (design review, 2026-10-09: `/p?a=(b)`, `url4://:80/p`, `/rows*()!'R'`) | the classifier runs `parse_value` on the atom text (L7) |
 | A5 | an `https://` intent fails "before any source resolves" | a lazy nested group compiles at spawn time `[G/dag/executor.py:261-287]` | top-level and AST groups fail at compile. A group inside a lazy fragment fails when the fragment compiles (still before its own sources resolve). `Graph.validate()` finds both |
 
 ## Decisions taken in this plan (the owner can change any of them before the PR)
@@ -35,6 +35,7 @@ the codec (Task 2) and its tests.
 | L3 | **`_Intent` gets a third field, `pointer: CodePointer \| None`.** `_compile_group` routes on it before broadcast, the fan-out gate and the fold | one routing point for the AST path and the text path (both reach `_intent_from_ast`) |
 | L4 | **A new node, `CodePointerNode`, in a new module `G/dag/nodes/code_pointer.py`.** Broadcast uses one `CodePointerNode` per source (in single-source mode) under the existing `BroadcastCollectNode` | no RDS branch inside `MergeNode`; the §6.1.4 rows come from the existing collector |
 | L5 | **The receiver decides RDS in `call_endpoint`**, so `dispatch` and `dispatch_direct` share it. An RDS request whose path has no endpoint fails with `intent_error` and never falls through to the eval path or a data route | E2: a data route is never code |
+| L7 | **The classifier runs the grammar's `parse_value` on the `RelUrl`/`Url` atom text.** `RelUrl` → RDS (then `read_query_tail`); `RelExpr`, `RemoteExpr`, or a `missing_intent` error (`/reduce()`) → LEGACY; `Iteration` → COMPUTED; a non-url4 scheme → UNSUPPORTED (not parsed); any other `ParseError` propagates (`malformed_source`); a `url4://` reference with no path (`url4://n`) → `malformed_source`, because it names a node, not code | one owner for the production rules: the grammar. The no-path refusal is our choice; the owner can change it to RDS on `/` |
 | L6 | **`ReduceNode` classifies its reducer text with `classify_intent(intent_atom(...))`.** RDS → one call with `{"$1": [rows]}` | D8 |
 
 ## Global constraints
@@ -46,6 +47,12 @@ the codec (Task 2) and its tests.
   app with `httpx.ASGITransport`, never the network.
 - **Gates** at the end of each task: `uv run .claude/scripts/run_gates.py url4` (from the repo
   root): ruff check, ruff format --check, pyright, pytest with `--cov-fail-under=95`.
+- **Append-only gate during Task 4.** `run_gates.py` compares with `HEAD` by default; the
+  pre-push hook compares with the merge base on `origin/main`. Task 4 runs
+  `run_gates.py url4 --base $(git merge-base origin/main HEAD)`. Its append-only check then
+  names only `T/unit/test_dag.py` and `T/unit/test_characterization.py` (CH8–CH10) until the
+  manifest exists at PR-open; confirm that list, then run the other gates with
+  `--skip-append-only`. Report it in the ledger.
 - **Tests are append-only.** The only prior tests that change are CH8, CH9 and CH10
   (`T/unit/test_dag.py:440-469`, `T/unit/test_dag.py:472-483`,
   `T/unit/test_characterization.py:53-61`). They change in the task that removes their behavior.
@@ -69,7 +76,8 @@ the codec (Task 2) and its tests.
   with endpoints `/a` → `"A says 4"`, `/b` → `"B says 5"`, `/ensemble/combine/v1`, a data route
   `/instr` → `"INSTRUCTION TEXT"`, a recording `process` hook, and a recording default route.
   Name the tests `test_char_1_5_1_<what>`. Put the comment `# AIDEV-NOTE: flips in Task 4` on
-  rows 1, 2, 4 and 6 (the probe rows that 2.0 changes).
+  rows 1, 2, 4 and 6. Rows 3 and 5 also flip (a data route is not code, E2), as the design
+  review found; Task 4 flips rows 1–6.
 - [ ] All green on today's code. Commit `test(url4): pin the 1.5.1 URI-intent behavior`.
 
 ## Task 1 — Core: error codes, query-tail reader, intent classifier (rows 1, 2, 4, 5, 27)
