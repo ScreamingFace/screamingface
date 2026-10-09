@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -31,10 +32,11 @@ from url4.dag.node import (  # isort: skip
 
 
 from url4.dag.nodes._shared import (  # isort: skip
+    JsonText,
     SlotSpec,
     _fetch,
-    _gather_rds,
     _raise_if_quorum_not_met,
+    _row_value,
     _substitute,
 )
 
@@ -84,6 +86,52 @@ async def call_code_pointer(
             FetchRequest(f"url4://{pointer.authority}{target}", relative=False, kind="url4"),
         )
     return await ctx.io.fetch(target, relative=True)
+
+
+async def call_reducer_code_pointer(
+    ctx: ExecutionContext, pointer: CodePointer, rows: list[str]
+) -> str:
+    """One reducer call through a code pointer: the rows, as ``$1`` (PRD D8)."""
+    return await call_code_pointer(ctx, pointer, {"$1": [_row_value(r) for r in rows]})
+
+
+def _gather_rds(
+    inputs: Mapping[str, Payload], slots: tuple[SlotSpec, ...]
+) -> tuple[dict[str, RdsValue], int]:
+    """The RDS input document's ``inputs`` for a group, and how many values resolved.
+
+    The walk matches :func:`_gather`: a failed source is skipped, and a list (a
+    ``;expand`` source) splices its elements. ``k`` is the 1-based position after
+    expansion, and it names an unnamed value ``$k`` (PRD D3, D6). A named list is one
+    array under its name.
+    """
+    values: dict[str, RdsValue] = {}
+    k = 0
+    for i, (name, _instrumental) in enumerate(slots):
+        # INVARIANT: weight 0.0 (instrumental) is attribution metadata, not delivery
+        # (ans:Q2), so an instrumental slot is an input like any other.
+        value = inputs[f"src:{i}"]
+        if isinstance(value, SourceFailure):
+            continue
+        if isinstance(value, list):
+            if name is not None:
+                values[name] = [_row_value(element) for element in value]
+                k += len(value)
+                continue
+            for element in value:
+                k += 1
+                values[f"${k}"] = element
+            continue
+        k += 1
+        values[name if name is not None else f"${k}"] = _rds_value(value)
+    return values, k
+
+
+def _rds_value(value: str) -> RdsValue:
+    """A payload's typed RDS value: a JsonText is parsed, any other text stays a string."""
+    if isinstance(value, JsonText):
+        return json.loads(value)
+    return str(value)
 
 
 @dataclass(eq=False)

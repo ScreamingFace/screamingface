@@ -2,7 +2,8 @@
 
 Split out of the former single-module vocabulary: the pieces every node family
 consumes — ``$`` substitution, the reference-edge scope frame, the group
-gather/flatten machinery, fetch plumbing, and row serialization — live here
+gather/flatten machinery (its own module, :mod:`url4.dag.nodes._gather`, which
+this module re-exports), fetch plumbing, and row serialization — live here
 once, and the node modules import them as ``from url4.dag.nodes._shared import
 ...``. Nothing here knows a concrete node type; a node module may import this
 one, never the reverse.
@@ -25,23 +26,29 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
 
 from url4.core.context import Context
-from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.nodes import Params
 from url4.dag.semantics.ensemble import (
     substitute_env_vars,
     substitute_item,
 )
 from url4.io.layer import FetchRequest, fetch_result
-from url4.wire.rds import RdsValue
 from url4.wire.subrequest import strip_transport_params
 
 from url4.dag.node import (  # isort: skip
     ExecutionContext,
     Payload,
     SourceFailure,
+)
+from url4.dag.nodes._gather import (  # isort: skip
+    SlotSpec as SlotSpec,
+    _check_quorum as _check_quorum,
+    _Gathered as _Gathered,
+    _gather as _gather,
+    _gather_expanded as _gather_expanded,
+    _maybe_json,
+    _raise_if_quorum_not_met as _raise_if_quorum_not_met,
 )
 
 
@@ -107,13 +114,6 @@ def _substitute(text: str, scope: Context, ctx: ExecutionContext) -> str:
     if index is not None:
         scope = scope.child(index=index)
     return substitute_env_vars(text, scope, strict=ctx.strict_fields)
-
-
-def _maybe_json(text: str):
-    try:
-        return json.loads(text)
-    except (json.JSONDecodeError, TypeError):
-        return text
 
 
 def _row_value(row: str) -> object:
@@ -209,118 +209,3 @@ def _wire_params(params: Params) -> list[tuple[str, str]]:
     """
     pairs = [(key, value if value is not None else "") for key, value in params]
     return strip_transport_params(pairs)
-
-
-SlotSpec = tuple[str | None, bool]
-"""One group slot: ``(name, instrumental)``. ABNF conformance (`OME-534`):
-EVERY listed source contributes to the packed context — name-only descriptors
-(``a: v`` / ``a=v``) included. The bool marks a scalar-``weight 0.0``
-INSTRUMENTAL source: resolved and ``$name``-referenceable, excluded from the
-packed sources (the replacement for the old reference-only-Binding concept)."""
-
-
-def _gather_rds(
-    inputs: Mapping[str, Payload], slots: tuple[SlotSpec, ...]
-) -> tuple[dict[str, RdsValue], int]:
-    """The RDS input document's ``inputs`` for a group, and how many values resolved.
-
-    The walk matches :func:`_gather`: a failed source is skipped, and a list (a
-    ``;expand`` source) splices its elements. ``k`` is the 1-based position after
-    expansion, and it names an unnamed value ``$k`` (PRD D3, D6). A named list is one
-    array under its name.
-    """
-    values: dict[str, RdsValue] = {}
-    k = 0
-    for i, (name, _instrumental) in enumerate(slots):
-        # INVARIANT: weight 0.0 (instrumental) is attribution metadata, not delivery
-        # (ans:Q2), so an instrumental slot is an input like any other.
-        value = inputs[f"src:{i}"]
-        if isinstance(value, SourceFailure):
-            continue
-        if isinstance(value, list):
-            if name is not None:
-                values[name] = [_row_value(element) for element in value]
-                k += len(value)
-                continue
-            for element in value:
-                k += 1
-                values[f"${k}"] = element
-            continue
-        k += 1
-        values[name if name is not None else f"${k}"] = _rds_value(value)
-    return values, k
-
-
-def _rds_value(value: str) -> RdsValue:
-    """A payload's typed RDS value: a JsonText is parsed, any other text stays a string."""
-    if isinstance(value, JsonText):
-        return json.loads(value)
-    return str(value)
-
-
-@dataclass
-class _Gathered:
-    """The flattened view of a group's slots after failures and expansion."""
-
-    positional: list[str]  # $N values, renumbered post-expansion
-    named: dict[str, str]  # $name values (RAW — scope substitution needs them unlabeled)
-    sources: list[str]  # the packed source values, in order (named → "name: value")
-
-
-def _gather(
-    inputs: Mapping[str, Payload], slots: tuple[SlotSpec, ...], prefix: str = "src"
-) -> _Gathered:
-    """Flatten group slots: skip failures, splice expansions, renumber positions.
-
-    WHY the ``name:`` label rides only ``sources``: the packed context a
-    processor sees keeps the author's key labels (`OME-534` owner decision),
-    while ``named`` feeds ``$name`` substitution and must stay the raw value.
-    ``prefix`` selects the dep-key family — ``src:i`` for group slots,
-    ``ctx:i`` for a call's context source-list (`OME-535`).
-    """
-    g = _Gathered([], {}, [])
-    for i, (name, instrumental) in enumerate(slots):
-        value = inputs[f"{prefix}:{i}"]
-        if isinstance(value, SourceFailure):
-            continue
-        if isinstance(value, list):
-            _gather_expanded(g, value, name, instrumental)
-            continue
-        g.positional.append(value)
-        if name is not None:
-            g.named[name] = value
-        if not instrumental:
-            g.sources.append(f"{name}: {value}" if name is not None else value)
-    return g
-
-
-def _gather_expanded(
-    g: _Gathered, elements: list[str], name: str | None, instrumental: bool
-) -> None:
-    """Expanded elements each take a position; the name binds the JSON array,
-    so a ``$name[i]`` field path selects one element (spec §5.3.12.5). The
-    elements pack BARE — the name labels the array binding, not each element."""
-    g.positional.extend(elements)
-    if name is not None:
-        g.named[name] = json.dumps([_maybe_json(e) for e in elements])
-    if not instrumental:
-        g.sources.extend(elements)
-
-
-def _raise_if_quorum_not_met(resolved: int, quorum: int | None, *, permanent: bool = False) -> None:
-    """Raise ``quorum_not_met`` when fewer than ``quorum`` sources resolved (spec §9.1).
-
-    WHY: one definition for the LLM groups and the code pointer. Only the code pointer's miss is
-    permanent (contracts C7), so the flag is the caller's.
-    """
-    if quorum is not None and resolved < quorum:
-        raise ResolutionError(
-            f"quorum not met: {resolved} of {quorum} required sources resolved",
-            code=ErrorCode.QUORUM_NOT_MET,
-            permanent=permanent,
-        )
-
-
-def _check_quorum(g: _Gathered, quorum: int | None) -> None:
-    # The contributing count IS len(sources) — every append above is a contribution.
-    _raise_if_quorum_not_met(len(g.sources), quorum)

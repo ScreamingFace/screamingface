@@ -15,9 +15,7 @@ from url4.core.nodes import IterationDirectives
 from url4.core.nodes import RelExpr as AstRelExpr
 from url4.core.parser import split_intent
 from url4.dag.semantics.collection import parse_collection
-from url4.dag.semantics.ensemble import (
-    substitute_env_vars,
-)
+from url4.dag.semantics.ensemble import substitute_env_vars
 from url4.wire.subrequest import encode_subrequest
 
 from url4.dag.node import (  # isort: skip
@@ -36,10 +34,9 @@ from url4.dag.nodes._shared import (  # isort: skip
     _error_payload,
     _frame,
     _media_type_of,
-    _row_value,
     _rows_to_json,
 )
-from url4.dag.nodes.code_pointer import call_code_pointer  # isort: skip
+from url4.dag.nodes.code_pointer import call_reducer_code_pointer  # isort: skip
 
 
 @dataclass(eq=False)
@@ -213,7 +210,7 @@ class ReduceNode:
         rows = inputs["rows"]
         rows = rows if isinstance(rows, list) else [_as_text(rows)]
         if self.pointer is not None:
-            return await call_code_pointer(ctx, self.pointer, {"$1": [_row_value(r) for r in rows]})
+            return await call_reducer_code_pointer(ctx, self.pointer, rows)
         array_json = _rows_to_json(rows)
         reducer_src, _, _ = split_intent(self.reducer)
         node = grammar_parse(reducer_src)
