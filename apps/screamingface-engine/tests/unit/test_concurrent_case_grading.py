@@ -171,13 +171,17 @@ async def test_the_first_raising_case_in_selected_order_leaves_and_no_grading_ou
         """Case 3 raises first in time, Case 2 first in selected order, Case 4 never ends."""
 
         try:
+            if request.case_id == 4:
+                # WHY wait_for: without the cancel, this would hang the suite instead
+                # of failing it; a timeout lands in `cancelled` as nothing, so it fails.
+                await asyncio.wait_for(asyncio.Event().wait(), _WAIT_S)
+            # WHY the yields: Case 4 is inside its judge wait before Case 3 raises.
+            await asyncio.sleep(0)
             if request.case_id == 3:
                 raise RuntimeError("case 3 broke")
             await asyncio.sleep(0)
             if request.case_id == 2:
                 raise RuntimeError("case 2 broke")
-            if request.case_id == 4:
-                await asyncio.Event().wait()
             return _SCORED
         except asyncio.CancelledError:
             cancelled.append(request.case_id)
@@ -186,3 +190,81 @@ async def test_the_first_raising_case_in_selected_order_leaves_and_no_grading_ou
     with pytest.raises(RuntimeError, match="case 2 broke"):
         await _aggregate(_marking_room(grade), _rows((1, 2, 3, 4)), (1, 2, 3, 4))
     assert cancelled == [4]
+
+
+@pytest.mark.asyncio
+async def test_a_raising_case_stops_later_cases_while_an_earlier_one_is_still_judged() -> None:
+    """INVARIANT: once a Case raises, no later Case starts a paid judge call.
+
+    WHY: the clerk reads results in roll-call order, so a raise at Case 2 is only read
+    after slow Case 1 finishes; without the stop, the free seats keep starting Cases
+    3, 4, 5 … 100, each paying for a judge call, and the aggregate fails anyway.
+    """
+
+    raised: asyncio.Event = asyncio.Event()
+    started_after_raise: list[Any] = []
+    cancelled: list[Any] = []
+
+    async def grade(request: GradeRequest) -> CaseGradeOutcome:
+        """Case 1 is a slow judge that outlives Case 2's raise; the rest score."""
+
+        if raised.is_set():
+            started_after_raise.append(request.case_id)
+        try:
+            if request.case_id == 1:
+                await asyncio.wait_for(raised.wait(), _WAIT_S)
+                # WHY the yields: a stand-in for Case 1's slow judge round trip; they
+                # hand the loop to the free seats for many turns after the raise.
+                for _ in range(50):
+                    await asyncio.sleep(0)
+                return _SCORED
+            await asyncio.sleep(0)
+            if request.case_id == 2:
+                raised.set()
+                raise RuntimeError("case 2 broke")
+            await asyncio.sleep(0)
+            return _SCORED
+        except asyncio.CancelledError:
+            cancelled.append(request.case_id)
+            raise
+
+    case_ids: tuple[int, ...] = tuple(range(1, 101))
+    with pytest.raises(RuntimeError, match="case 2 broke"):
+        await _aggregate(_marking_room(grade), _rows(case_ids), case_ids)
+    assert started_after_raise == []
+    # Cases 3 and 4 were already seated beside Cases 1 and 2; the raise cancels them.
+    assert sorted(cancelled) == [3, 4]
+
+
+@pytest.mark.asyncio
+async def test_cancelling_the_run_cancels_every_case_still_being_marked() -> None:
+    """INVARIANT (F4): a cancelled run leaves no Case marking, so no judge call outlives it."""
+
+    entered: list[Any] = []
+    all_seated: asyncio.Event = asyncio.Event()
+    cancelled: list[Any] = []
+
+    async def grade(request: GradeRequest) -> CaseGradeOutcome:
+        """Every Case hangs on its judge until the run is cancelled."""
+
+        entered.append(request.case_id)
+        if len(entered) == CASE_GRADING_CONCURRENCY:
+            all_seated.set()
+        try:
+            await asyncio.wait_for(asyncio.Event().wait(), _WAIT_S)
+            return _SCORED
+        except asyncio.CancelledError:
+            cancelled.append(request.case_id)
+            raise
+
+    case_ids: tuple[int, ...] = tuple(range(1, 2 * CASE_GRADING_CONCURRENCY + 1))
+    run: asyncio.Task[dict[str, Any]] = asyncio.create_task(
+        _aggregate(_marking_room(grade), _rows(case_ids), case_ids)
+    )
+    await asyncio.wait_for(all_seated.wait(), _WAIT_S)
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
+    assert set(range(1, CASE_GRADING_CONCURRENCY + 1)) <= set(cancelled)
+    # Every Case that reached the judge was cancelled: none is still being marked.
+    assert sorted(cancelled) == sorted(entered)

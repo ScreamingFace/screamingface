@@ -420,6 +420,11 @@ class BenchmarkAggregation:
         - On a raise, the first raising Case in roll-call order is the exception that
           leaves (the one serial marking would have raised), and every unfinished task is
           cancelled before it does.
+        - A raising Case cancels every Case after it at once, before it gives up its seat,
+          so no later Case starts a judge call while the clerk still waits on an earlier,
+          slow one: with Case 1 on a slow judge and Case 2 raising, Cases 3 and 4 (already
+          seated) are cancelled and Cases 5-100 never start. The outcome is unchanged:
+          the clerk raises at Case 2 or earlier and never reads a later Case.
         """
 
         # Stage 1-2 — validate and file every row first.
@@ -431,9 +436,18 @@ class BenchmarkAggregation:
             """Mark one Case once a seat is free — the same ladder as serial marking."""
 
             async with seats:
-                return await self.case_result(
-                    selected, index, indexed, grading_material, case_metadata
-                )
+                try:
+                    return await self.case_result(
+                        selected, index, indexed, grading_material, case_metadata
+                    )
+                except Exception:
+                    # WHY here, still seated: releasing the seat first would let the
+                    # next waiting Case in to start a paid judge call before any
+                    # cancel lands. `tasks` is complete by now — no task body runs
+                    # before the list below is built.
+                    for later in tasks[index + 1 :]:
+                        later.cancel()
+                    raise
 
         # Stage 4a — start every Case; the seats bound how many are marked at once.
         tasks: list[asyncio.Task[CaseResult | None]] = [
