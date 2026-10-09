@@ -30,7 +30,8 @@ One aggregate call = marking one class's benchmark.
         - a paper turned up but it's an error report, not an answer → case_error
         - Example: Case 7's row is an error case → it gets a case_error result and skips Stage 4.
 - Stage 4 — mark the survivors. For each Case that passed the ladder, call grade_case,
-    the one function the benchmark author writes. Answer + rubric in, grade out.
+    the one function the benchmark author writes. Answer + rubric in, grade out. The final
+    aggregate of a judged Benchmark marks several Cases at once (OME-1527).
     The hook can still fail a Case (e.g. the judge returned verdicts for only 3 of 5 rubric
     points → incomplete_verdicts), and the failure message text belongs to the benchmark,
     not the shared grading code.
@@ -59,6 +60,7 @@ import asyncio
 import contextvars
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -81,6 +83,16 @@ from screamingface_engine.benchmarks.shared_grading.case_grades import (
     CaseGradeReader,
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload, TextPayload
+
+#: How many Cases a judged Benchmark's final aggregate marks at once (OME-1527, R4).
+#: WHY 4: a judged Case's hook spends its time waiting on a judge call through the AI
+#: Gateway, which admits 4 calls per provider at a time (`AIGW_PROVIDER_MAX_CONCURRENCY`)
+#: and queues the rest. 4 Cases in flight keep that provider busy without piling a
+#: backlog that a second run's calls would wait behind — the same reasoning that sets a
+#: deployed run's I/O budget to 4 (`Settings.runner_io_concurrency`). Judge calls ride
+#: the node's own model route, not the run's bounded I/O layer, so this is the only
+#: bound on them.
+CASE_GRADING_CONCURRENCY: int = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +245,11 @@ class BenchmarkAggregation:
     # scored Case's `scores` must carry exactly these keys and its headline column must
     # equal `score` — checked HERE because this is where the row is known (plan D4).
     named_scores: Sequence[str] = ()
+    # FEATURE (OME-1527, R4): how many Cases the final aggregate marks at once. 1 keeps
+    # serial marking — every hand-built Benchmark, whose judge work is already in the
+    # row, so marking side by side would buy it nothing. A Benchmark whose hook calls a
+    # judge sets `CASE_GRADING_CONCURRENCY`.
+    case_grading_concurrency: int = 1
 
     def aggregate(
         self,
@@ -303,19 +320,33 @@ class BenchmarkAggregation:
         loop"), so the sync face's worker-thread loop cannot carry it. url4 awaits
         async endpoint handlers natively, so a judged aggregate registers an async
         handler over this face and no second loop ever exists.
+
+        Marking order: with ``case_grading_concurrency`` 1 the Cases are marked one
+        after another through :meth:`iter_case_results`; above 1, through
+        :meth:`_concurrent_case_results`. Either way results arrive, and progress is
+        published, in roll-call order.
         """
 
         with grading_progress(benchmark_id, benchmark_revision, scorer):
-            case_results = []
-            async for result in self.iter_case_results(
+            case_results: list[CaseResult] = []
+            marking: Callable[..., AsyncGenerator[CaseResult]] = (
+                self.iter_case_results
+                if self.case_grading_concurrency == 1
+                else self._concurrent_case_results
+            )
+            stream: AsyncGenerator[CaseResult] = marking(
                 raw_case_grades,
                 selected_cases=selected_cases,
                 grading_material=grading_material,
                 case_metadata=case_metadata,
-            ):
-                case_results.append(result)
-                # INVARIANT: publish only after canonical grading; observing never regrades.
-                completed_case(benchmark_id, benchmark_revision, result, scorer)
+            )
+            # WHY aclosing: a raise mid-stream must still run the stream's cleanup now
+            # (cancelling Cases still being marked), not whenever it is garbage-collected.
+            async with aclosing(stream):
+                async for result in stream:
+                    case_results.append(result)
+                    # INVARIANT: publish only after canonical grading; observing never regrades.
+                    completed_case(benchmark_id, benchmark_revision, result, scorer)
             # Stage 5 — fold the marks into the class results.
             finalized = finalize_candidate_result(
                 benchmark_id=benchmark_id,
@@ -349,6 +380,10 @@ class BenchmarkAggregation:
 
         FEATURE: OME-932's incremental consumer shares final aggregation's exact
         grade path. This does not move grade production earlier in the URL4 graph.
+
+        INVARIANT (OME-1527): this stream stays serial — one Case is marked per item
+        consumed, so a caller that stops early never pays for Cases it did not take.
+        Only :meth:`aggregate_async`, which always takes every Case, marks concurrently.
         """
         case_ids = tuple(int(selected.case_id) for selected in selected_cases)
         indexed = self.reader.index(raw_case_grades, case_ids)
@@ -358,6 +393,65 @@ class BenchmarkAggregation:
             )
             if result is not None:
                 yield result
+
+    async def _concurrent_case_results(
+        self,
+        raw_case_grades: str,
+        *,
+        selected_cases: Sequence[SelectedCase],
+        grading_material: Callable[[int], object | None],
+        case_metadata: Callable[[int], Mapping[str, Any]] | None = None,
+    ) -> AsyncGenerator[CaseResult]:
+        """Mark up to ``case_grading_concurrency`` Cases at once; yield in roll-call order.
+
+        Think of several examiners at one table handing marked scripts to a clerk who
+        files them strictly in roll-call order (OME-1527, R4):
+
+        - Stage 1-2 — every collected row is validated and filed before any Case is
+          marked (the same rule as :meth:`iter_case_results`).
+        - Stage 4a — one task per selected Case, all started in roll-call order; a seat
+          (the semaphore) caps how many are inside the hook at once. Each task runs in
+          its own copy of the caller's context, so the grading scope a hook raises
+          (``grading_call_scope``) is task-local and every judge call books to its own
+          Case.
+        - Stage 4b — the clerk awaits the tasks in roll-call order and yields each result
+          once it and every Case before it are marked: Cases [1, 2, 3] finishing 2, 3, 1
+          still yield 1, 2, 3.
+        - On a raise, the first raising Case in roll-call order is the exception that
+          leaves (the one serial marking would have raised), and every unfinished task is
+          cancelled before it does.
+        """
+
+        # Stage 1-2 — validate and file every row first.
+        case_ids: tuple[int, ...] = tuple(int(selected.case_id) for selected in selected_cases)
+        indexed: CaseGradeIndex = self.reader.index(raw_case_grades, case_ids)
+        seats: asyncio.Semaphore = asyncio.Semaphore(self.case_grading_concurrency)
+
+        async def seated(index: int, selected: SelectedCase) -> CaseResult | None:
+            """Mark one Case once a seat is free — the same ladder as serial marking."""
+
+            async with seats:
+                return await self.case_result(
+                    selected, index, indexed, grading_material, case_metadata
+                )
+
+        # Stage 4a — start every Case; the seats bound how many are marked at once.
+        tasks: list[asyncio.Task[CaseResult | None]] = [
+            asyncio.create_task(seated(index, selected))
+            for index, selected in enumerate(selected_cases)
+        ]
+        try:
+            # Stage 4b — hand results over in roll-call order.
+            for task in tasks:
+                result: CaseResult | None = await task
+                if result is not None:
+                    yield result
+        finally:
+            # WHY: a raise or a cancelled run must not leave Cases being marked (and
+            # judges being paid) after the aggregate has given up.
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def case_result(
         self,

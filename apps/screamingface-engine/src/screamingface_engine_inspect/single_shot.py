@@ -72,6 +72,7 @@ from screamingface_engine.benchmarks.protocol import (
 )
 from screamingface_engine.benchmarks.provenance import ProvenanceFields
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    CASE_GRADING_CONCURRENCY,
     BenchmarkAggregation,
     CaseGradeOutcome,
     GradeRequest,
@@ -211,6 +212,10 @@ class ImportedBenchmark:
             missing_material_code="missing_target_asset",
             inverted_grade=self.inverted_grade,
             named_scores=self.named_scores,
+            # WHY judged only (OME-1527, R4): a judged Case waits on a judge call, so
+            # marking Cases side by side shortens the run's tail; a judge-free scorer
+            # finishes at once and keeps serial marking.
+            case_grading_concurrency=CASE_GRADING_CONCURRENCY if self.judge is not None else 1,
         )
 
 
