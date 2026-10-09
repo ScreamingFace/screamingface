@@ -35,6 +35,9 @@ BENCHMARK = "(case:0.0:/sf/case-1($candidate)!'grade')!'$case'"
 
 ANSWER = "Answer the request."
 SYNTHESIZE = "Combine the member answers."
+MEMBER_TEXT = "Answer in $USD.\nShow the total on its own line."
+SYNTHESIS_TEXT = "Use $input and $$ literally;\nit's a \\ path."
+SOLO_TEXT = "Line one\nLine two with $input, '$model_1', $$5 and C:\\dir\\."
 
 
 def _studio_candidate(recipe: sf.Model | sf.Fusion | sf.Pipeline) -> str:
@@ -74,6 +77,16 @@ CASES: dict[str, sf.Model | sf.Fusion | sf.Pipeline] = {
             sf.Model("anthropic/claude-opus-4-5", prompt="Check the answer."),
         ]
     ),
+    # Prompt text the SDK transforms (`candidate.py` `_url4_text`): newlines become U+2028 and
+    # `$` becomes `$$`, so `$USD` / `$input` stay literal text, never url4 references.
+    "prompts_encoded": sf.Fusion(
+        members=[
+            sf.Model("openai/gpt-4o", prompt=MEMBER_TEXT),
+            sf.Model("anthropic/claude-opus-4-5", prompt=ANSWER),
+        ],
+        synthesizer=sf.Model("openai/gpt-4o", prompt=SYNTHESIS_TEXT),
+    ),
+    "solo_prompt_encoded": sf.Model("openai/gpt-4o", prompt=SOLO_TEXT),
     "solo_params": sf.Model(
         "openai/gpt-4o", prompt=ANSWER, params={"temperature": 0.7, "seed": 3}
     ),
