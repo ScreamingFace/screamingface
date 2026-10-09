@@ -23,9 +23,15 @@ class RuntimeConfig:
     gateway_port: int = 9105
     scoreboard_port: int = 9106
     engine_port: int = 9108
+    # FEATURE (spec D10): a separate, possibly read-only datasets folder — Studio points it at
+    # the bundle inside the signed app. None keeps the datasets under the data directory.
+    benchmark_assets_dir: Path | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_dir", self.data_dir.expanduser().resolve())
+        if self.benchmark_assets_dir is not None:
+            resolved = self.benchmark_assets_dir.expanduser().resolve()
+            object.__setattr__(self, "benchmark_assets_dir", resolved)
         selected = self.runner_config or bundled_runner_config()
         object.__setattr__(self, "runner_config", selected.expanduser().resolve())
         ports = (self.gateway_port, self.scoreboard_port, self.engine_port)
@@ -52,6 +58,10 @@ class RuntimeConfig:
 
     @property
     def assets_dir(self) -> Path:
+        # INVARIANT: only the datasets move with the override; state, logs and databases
+        # stay under data_dir.
+        if self.benchmark_assets_dir is not None:
+            return self.benchmark_assets_dir
         return self.data_dir / "benchmark-assets"
 
     @property

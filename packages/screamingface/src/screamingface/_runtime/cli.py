@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import importlib
 import importlib.metadata
@@ -42,12 +43,14 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     _add_data_dir(up)
     up.add_argument("--foreground", action="store_true")
     _add_port_options(up)
+    _add_benchmark_assets_dir(up)
     down = commands.add_parser("down", help="Stop the local runtime")
     _add_data_dir(down)
     restart = commands.add_parser("restart", help="Restart the local runtime")
     _add_data_dir(restart)
     restart.add_argument("--foreground", action="store_true")
     _add_port_options(restart)
+    _add_benchmark_assets_dir(restart)
     doctor = commands.add_parser("doctor", help="Diagnose the local runtime")
     _add_data_dir(doctor)
     status = commands.add_parser("status", help="Show local runtime status")
@@ -73,11 +76,15 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     prepare.add_argument("--all", action="store_true", dest="all_benchmarks")
     prepare.add_argument("--list", action="store_true", dest="list_benchmarks")
     prepare.add_argument("--force", action="store_true")
+    # WHY accepted only to be refused (in _config): a clear message beats argparse's
+    # "unrecognized arguments" for an option that exists on `up`.
+    _add_benchmark_assets_dir(prepare)
     serve = commands.add_parser("_serve", help=argparse.SUPPRESS)
     _add_data_dir(serve)
     serve.add_argument("--owner-token", required=True)
     serve.add_argument("--background", action="store_true")
     _add_port_options(serve)
+    _add_benchmark_assets_dir(serve)
     scoreboard = commands.add_parser("_scoreboard", help=argparse.SUPPRESS)
     _add_data_dir(scoreboard)
     scoreboard.add_argument("--scoreboard-port", type=int, default=9106)
@@ -94,6 +101,17 @@ def _add_data_dir(parser: argparse.ArgumentParser, *, default: Path | None = Non
         parser.add_argument("--data-dir", type=Path, default=argparse.SUPPRESS)
     else:
         parser.add_argument("--data-dir", type=Path, default=default)
+
+
+def _add_benchmark_assets_dir(parser: argparse.ArgumentParser) -> None:
+    # FEATURE (spec D10): Studio runs `screamingface --data-dir D up --benchmark-assets-dir P`
+    # with P the read-only datasets folder bundled inside the signed app.
+    parser.add_argument(
+        "--benchmark-assets-dir",
+        type=Path,
+        default=None,
+        help="Read benchmark datasets from this folder instead of <data-dir>/benchmark-assets",
+    )
 
 
 def _add_port_options(parser: argparse.ArgumentParser) -> None:
@@ -144,6 +162,13 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
 
 
 def _config(args: argparse.Namespace) -> RuntimeConfig:
+    if args.command == "prepare" and args.benchmark_assets_dir is not None:
+        # INVARIANT (spec D10): prepare writes only to <data-dir>/benchmark-assets — the
+        # override names a bundled folder that is read-only inside a signed app.
+        raise RuntimeError(
+            "prepare writes to <data-dir>/benchmark-assets and does not accept "
+            "--benchmark-assets-dir; pass --data-dir to choose where it writes"
+        )
     values: dict[str, int] = {}
     use_port_environment = args.command in {
         "up",
@@ -166,6 +191,7 @@ def _config(args: argparse.Namespace) -> RuntimeConfig:
         gateway_port=values["gateway"],
         scoreboard_port=values["scoreboard"],
         engine_port=values["engine"],
+        benchmark_assets_dir=getattr(args, "benchmark_assets_dir", None),
     )
 
 
@@ -183,6 +209,7 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     # mode — the operator must learn at `up` time, for free, that the variable will not
     # be honored, instead of after a paid run recorded into the wrong database.
     _refuse_foreign_gateway_database()
+    _require_benchmark_assets_dir(config)
     from screamingface._runtime.server import require_runtime_extra
 
     require_runtime_extra()
@@ -232,6 +259,7 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
         str(config.scoreboard_port),
         "--engine-port",
         str(config.engine_port),
+        *_benchmark_assets_arguments(config),
     ]
     process = subprocess.Popen(
         command,
@@ -253,6 +281,45 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     # servers came up (server.run), so by ready time it is there to print.
     _print_gateway_config(_read_state(config))
     _print_urls(config.services, config.log_path)
+
+
+def _require_benchmark_assets_dir(config: RuntimeConfig) -> None:
+    """Fail `up` before anything boots when the datasets override names no folder.
+
+    WHY here and not at run time: a missing folder otherwise surfaces only as every run
+    failing with `benchmark_unavailable`, far from the flag that caused it.
+    """
+    folder = config.benchmark_assets_dir
+    if folder is not None and not folder.is_dir():
+        raise RuntimeError(f"benchmark assets folder not found: {folder}")
+
+
+def _benchmark_assets_arguments(config: RuntimeConfig) -> list[str]:
+    """The option that hands the override to the background `_serve` child; none by default."""
+    if config.benchmark_assets_dir is None:
+        return []
+    return ["--benchmark-assets-dir", str(config.benchmark_assets_dir)]
+
+
+def _benchmark_assets_field(config: RuntimeConfig) -> dict[str, str]:
+    """The status/state key naming the override; empty by default so records are unchanged."""
+    if config.benchmark_assets_dir is None:
+        return {}
+    return {"benchmark_assets_dir": str(config.benchmark_assets_dir)}
+
+
+def _recorded_assets(
+    config: RuntimeConfig, state: dict[str, object] | None, *, owned: bool
+) -> RuntimeConfig:
+    """The config whose `assets_dir` is the folder the running stack actually serves.
+
+    INVARIANT: only an owned stack's record counts — a stale record describes nothing live.
+    Without a recorded folder the config is returned unchanged.
+    """
+    recorded = state.get("benchmark_assets_dir") if owned and state else None
+    if not isinstance(recorded, str):
+        return config
+    return dataclasses.replace(config, benchmark_assets_dir=Path(recorded))
 
 
 def _refuse_foreign_gateway_database() -> None:
@@ -354,6 +421,9 @@ def _serve_logged(config: RuntimeConfig, token: str) -> None:
         "services": config.services,
         "log_path": str(config.log_path),
         "source": runtime_source.state_record(runtime_source.resolve_source(os.environ)),
+        # WHY recorded: `status` and `doctor` run in other processes without the flag, and
+        # must report the folder the Engine serves.
+        **_benchmark_assets_field(config),
     }
     _write_state(config, state)
     control_thread = threading.Thread(target=control.serve_forever, daemon=True)
@@ -426,11 +496,17 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
                 if explicit is not None
                 else _environment_port(environment, stored.get(service, fallback))
             )
+        recorded = state.get("benchmark_assets_dir")
+        # WHY like the ports: restart keeps the recorded datasets folder unless given a new one.
+        assets = config.benchmark_assets_dir or (
+            Path(recorded) if isinstance(recorded, str) else None
+        )
         config = RuntimeConfig(
             data_dir=config.data_dir,
             gateway_port=values["gateway"],
             scoreboard_port=values["scoreboard"],
             engine_port=values["engine"],
+            benchmark_assets_dir=assets,
         )
     _down(config)
     _up(config, foreground=foreground)
@@ -454,6 +530,7 @@ def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
     else:
         label, code = "stopped", 1
     if json_output:
+        assets = _recorded_assets(config, state, owned=owned)
         payload = {
             "schema": "screamingface.runtime-status.v1",
             "status": label.replace(" ", "_"),
@@ -466,7 +543,8 @@ def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
                 name: {"url": url, "healthy": health[name]} for name, url in services.items()
             },
             "log_path": str(config.log_path),
-            "benchmarks": _benchmark_statuses(config),
+            "benchmarks": _benchmark_statuses(assets),
+            **_benchmark_assets_field(assets),
         }
         print(json.dumps(payload, separators=(",", ":"), sort_keys=True))
         return code
@@ -681,7 +759,10 @@ def _doctor(config: RuntimeConfig) -> int:  # noqa: C901, PLR0912, PLR0915
     else:
         checks.append(("warn", "API discovery", "Engine is not running"))
 
-    statuses = _benchmark_statuses(config)
+    assets = _recorded_assets(config, state, owned=owned)
+    if assets.benchmark_assets_dir is not None:
+        checks.append(("pass", "benchmark assets dir", str(assets.benchmark_assets_dir)))
+    statuses = _benchmark_statuses(assets)
     for name, status in statuses.items():
         severity = "pass" if status == "prepared" else "warn" if status == "missing" else "fail"
         checks.append((severity, f"{name} assets", status))
