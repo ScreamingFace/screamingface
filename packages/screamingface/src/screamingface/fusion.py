@@ -4,18 +4,26 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from screamingface.recipe import Recipe, _name, _recipe
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class Fusion(Recipe):
-    """Combine ordered parallel members through an explicit synthesizer Recipe."""
+    """Combine ordered parallel members through an explicit synthesizer Recipe.
+
+    ``quorum`` is the successful-member floor, checked after members finish.
+    Failures are tolerated only with ``optional_members=True``, which guards
+    each complete member Recipe. ``all`` requires every member; zero permits
+    synthesis with no successful member. The synthesizer itself stays required.
+    """
 
     name: str
     members: tuple[Recipe, ...]
     synthesizer: Recipe
+    quorum: int | Literal["all"]
+    optional_members: bool
 
     def __init__(
         self,
@@ -23,8 +31,14 @@ class Fusion(Recipe):
         *,
         name: str | None = None,
         synthesizer: str | Recipe,
+        quorum: int | Literal["all"] = "all",
+        optional_members: bool = False,
     ) -> None:
         selected_members = _members(members)
+        if not isinstance(optional_members, bool):
+            raise TypeError("Fusion optional_members must be a bool")
+        object.__setattr__(self, "quorum", _quorum(quorum, len(selected_members)))
+        object.__setattr__(self, "optional_members", optional_members)
         inferred_name = "+".join(member.name for member in selected_members)
         object.__setattr__(
             self,
@@ -45,6 +59,10 @@ class Fusion(Recipe):
         if self.name != inferred_name:
             arguments.append(f"name={self.name!r}")
         arguments.append(f"synthesizer={self.synthesizer!r}")
+        if self.quorum != "all":
+            arguments.append(f"quorum={self.quorum!r}")
+        if self.optional_members:
+            arguments.append("optional_members=True")
         return f"Fusion({', '.join(arguments)})"
 
     def _repr_html_(self) -> str:
@@ -53,6 +71,16 @@ class Fusion(Recipe):
         return fusion_card_html(self)
 
     __hash__: ClassVar[Any] = None
+
+
+def _quorum(value: object, member_count: int) -> int | Literal["all"]:
+    if value == "all":
+        return "all"
+    if type(value) is not int:
+        raise TypeError("Fusion quorum must be an integer or 'all'")
+    if value < 0 or value > member_count:
+        raise ValueError("Fusion quorum must be between zero and the member count")
+    return value
 
 
 def _members(values: object) -> tuple[Recipe, ...]:

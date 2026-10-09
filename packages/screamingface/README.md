@@ -155,6 +155,34 @@ uses the Engine's configured defaults. Benchmarks may still impose explicit exec
 their own URL4 protocol. Transport, routing, tool, and Benchmark-policy fields remain unavailable
 through Candidate `params`.
 
+### Fusion quorum and failed members
+
+A Fusion requires every member by default (`quorum="all"`, `optional_members=False`).
+To tolerate failed members, opt in on the Fusion itself:
+
+```python
+resilient = sf.Fusion(
+    [opus, gpt, careful],
+    synthesizer="openrouter/anthropic/claude-opus-4.8",
+    quorum=2,
+    optional_members=True,
+)
+```
+
+The compiler wraps each complete member with `;optional` and gates the member-only
+expression with `;quorum=2`, before running the synthesizer. This also isolates a
+Pipeline or nested Fusion member: its intermediate answers do not count toward quorum.
+The synthesizer receives JSON containing the original `input` and an `outputs` string
+with ordered `member_N: answer` sections for successful members only. Required-only
+Fusions using the default policy retain their existing outputs object.
+
+Quorum is a success floor checked after members finish, not an early response race.
+A required member still fails the Fusion even when a numeric quorum is met. With
+`optional_members=True`, `quorum="all"` still requires every member to succeed;
+`quorum=0` permits synthesis with no successful members. `None`, booleans, negative
+numbers, and numbers above the member count are rejected. These settings survive
+`Url4.to_python()` and replay.
+
 ### Serial and recursive composition
 
 Every complete `Recipe` accepts one input and returns one final answer. `Model` is atomic,

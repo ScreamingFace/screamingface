@@ -10,6 +10,8 @@ from typing import Literal, cast
 
 from url4 import Expression, Node, Source, Text, src
 
+from screamingface.fusion import _quorum
+
 _SCHEMA = "screamingface.recipe.v1"
 _SOURCE_NAME = "_sf_recipe"
 # A corrective loop nests its whole gated chain as one inner expression bound
@@ -31,6 +33,8 @@ class _RecipeTopology:
     members: tuple[_RecipeTopology, ...] = ()
     synthesizer: _RecipeTopology | None = None
     stages: tuple[_RecipeTopology, ...] = ()
+    quorum: int | Literal["all"] = "all"
+    optional_members: bool = False
     # Corrective-loop identity (OME-796): the judge role, the cost cap, the
     # check route compiled against (carries the benchmark revision), and the
     # loop protocol revision — run records self-describe with no new mechanism.
@@ -250,7 +254,11 @@ def _encode_self_corrective(value: _RecipeTopology) -> dict[str, object]:
 
 def _encode_fusion(value: _RecipeTopology) -> dict[str, object]:
     assert value.synthesizer is not None
+    policy = {}
+    if value.quorum != "all" or value.optional_members:
+        policy = {"quorum": value.quorum, "optional_members": value.optional_members}
     return {
+        **policy,
         "binding": value.binding,
         "kind": value.kind,
         "members": [_encode_node(member) for member in value.members],
@@ -334,7 +342,8 @@ def _decode_fusion(
     name: str,
     binding: str,
 ) -> _RecipeTopology:
-    if set(value) != {"binding", "kind", "members", "name", "synthesizer"}:
+    expected = {"binding", "kind", "members", "name", "synthesizer"}
+    if set(value) not in (expected, expected | {"quorum", "optional_members"}):
         raise ValueError("URL4 Candidate has invalid Fusion topology metadata")
     members_value = value["members"]
     if not isinstance(members_value, list):
@@ -343,7 +352,12 @@ def _decode_fusion(
     synthesizer = _decode_node(value["synthesizer"])
     if not members or binding != synthesizer.binding:
         raise ValueError("URL4 Candidate has invalid Fusion topology metadata")
+    optional_members = value.get("optional_members", False)
+    if not isinstance(optional_members, bool):
+        raise ValueError("URL4 Candidate has invalid Fusion topology metadata")
     return _RecipeTopology(
+        quorum=_quorum(value.get("quorum", "all"), len(members)),
+        optional_members=optional_members,
         kind="fusion",
         name=name,
         binding=binding,

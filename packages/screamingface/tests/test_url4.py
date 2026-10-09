@@ -536,3 +536,67 @@ def test_topology_bindings_separate_context_references_from_operation_edges() ->
     )
     with pytest.raises(ValueError, match="conflicting Recipe topology"):
         _topology_bindings(conflicting)
+
+
+@pytest.mark.parametrize("quorum", [0, 1, 2, "all"])
+def test_fusion_quorum_round_trips_through_editable_python(quorum: Any) -> None:
+    recipe = sf.Fusion(
+        ["provider/a", "provider/b"],
+        synthesizer="provider/synth",
+        quorum=quorum,
+        optional_members=True,
+    )
+    value = _url4(recipe)
+    emitted = 2 if quorum == "all" else quorum
+    assert f";quorum={emitted}" in value
+    assert value.count(";optional") == 2
+    namespace: dict[str, Any] = {}
+    exec(value.to_python(), namespace)
+    assert namespace["candidate"] == recipe
+    assert _url4(namespace["candidate"]) == value
+    recovered = _candidate_from_url4(_linked_url4(recipe))
+    assert recovered.models == ("provider/a", "provider/b", "provider/synth")
+    assert len(recovered.operations) == 3
+
+
+def test_nested_quorum_fusion_and_pipeline_synthesizer_round_trip() -> None:
+    inner = sf.Fusion(
+        ["provider/a", "provider/b"], synthesizer="provider/inner", quorum=1, optional_members=True
+    )
+    recipe = sf.Pipeline(
+        [
+            "provider/draft",
+            sf.Fusion(
+                [inner, sf.Pipeline(["provider/c", "provider/d"])],
+                synthesizer=sf.Pipeline(["provider/judge", "provider/writer"]),
+                quorum=1,
+                optional_members=True,
+            ),
+        ]
+    )
+    value = _url4(recipe)
+    namespace: dict[str, Any] = {}
+    exec(value.to_python(), namespace)
+    assert namespace["candidate"] == recipe
+    assert _url4(namespace["candidate"]) == value
+    recovered = _candidate_from_url4(_linked_url4(recipe))
+    assert len(recovered.operations) == 8
+
+
+@pytest.mark.parametrize("change", ["quorum", "optional"])
+def test_quorum_replay_rejects_executable_policy_that_disagrees_with_metadata(change: str) -> None:
+    value = _url4(
+        sf.Fusion(
+            ["provider/a", "provider/b"],
+            synthesizer="provider/synth",
+            quorum=1,
+            optional_members=True,
+        )
+    )
+    altered = (
+        value.replace(";quorum=1", ";quorum=2")
+        if change == "quorum"
+        else value.replace(";optional", ";required", 1)
+    )
+    with pytest.raises(ValueError, match="metadata"):
+        sf.Url4(altered).to_python()
