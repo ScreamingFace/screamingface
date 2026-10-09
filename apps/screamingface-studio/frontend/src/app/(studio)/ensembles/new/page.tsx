@@ -77,7 +77,9 @@ import {
   describeRecipe,
   fusionFromSlots,
   memberSolos,
+  parseRecipe,
   recipeToUrl4,
+  resolveModels,
   rootSynthesizerSolo,
 } from "@/lib/recipe";
 import { cn } from "@/lib/utils";
@@ -372,28 +374,6 @@ function ParamEditor({
       )}
     </div>
   );
-}
-
-function parseRecipe(raw: string, catalog: Model[]) {
-  const match = raw.match(/^url4:\/\/([^?]+)\?(.*)$/);
-  if (!match) return null;
-  const params = new URLSearchParams(match[2]);
-  const ids = (params.get("models") ?? "").split(/[+\s]+/).filter(Boolean);
-  const unknown = ids.filter((id) => !catalog.some((model) => model.id === id));
-  const slots = ids
-    .map((id) => catalog.find((model) => model.id === id))
-    .filter((model): model is Model => Boolean(model))
-    .map((model) => ({
-      id: createUuid(),
-      model,
-      systemPrompt: "",
-      weight: 0.5,
-    }));
-  return {
-    name: decodeURIComponent(match[1]).replace(/\s+/g, "-").toLowerCase(),
-    slots,
-    unknown,
-  };
 }
 
 function scoreForModel(modelId: string) {
@@ -2244,6 +2224,7 @@ function EnsembleComposer() {
   // model. A retry that succeeds re-runs the import.
   const catalogReady = catalogLoad === "ready";
   const [droppedModels, setDroppedModels] = useState<string[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
   const [loadedEnsembleId, setLoadedEnsembleId] = useState<string | null>(null);
   const recipeWaiting =
     Boolean(importedRecipe) && !requestedId && loadedEnsembleId !== ensembleId;
@@ -2285,9 +2266,11 @@ function EnsembleComposer() {
         const view = providers.find((provider) => provider.id === model.owned_by);
         return toSavedModel(model, view?.name);
       });
-    const parsed = importedRecipe ? parseRecipe(importedRecipe, catalog) : null;
+    const parsedRecipe = importedRecipe && !saved ? parseRecipe(importedRecipe) : null;
+    const parsed = parsedRecipe?.ok ? resolveModels(parsedRecipe.root, catalog) : null;
     const frame = window.requestAnimationFrame(() => {
-      setDroppedModels(!saved && parsed ? parsed.unknown : []);
+      setDroppedModels(parsed ? parsed.unknown : []);
+      setImportError(parsedRecipe && !parsedRecipe.ok ? parsedRecipe.error : null);
       if (saved) {
         const savedRunHistory = saved.runHistory ?? [];
         const nextRoot =
@@ -2304,8 +2287,8 @@ function EnsembleComposer() {
           JSON.stringify(buildDraft(ensembleId, saved.name, nextRoot, savedRunHistory)),
         );
       } else if (parsed) {
-        const nextRoot = fusionFromSlots(parsed.slots, null);
-        setName(parsed.name);
+        const nextRoot = parsed.root;
+        setName("fusion-1");
         setRoot(nextRoot);
         addLibraryModels(
           collectSolos(nextRoot)
@@ -2525,6 +2508,11 @@ function EnsembleComposer() {
               Retry
             </Button>
           </div>
+        )}
+        {importError && (
+          <p role="alert" className="mt-3 text-xs text-destructive">
+            {importError}
+          </p>
         )}
         {droppedModels.length > 0 && (
           <p role="status" className="mt-3 text-xs text-destructive">

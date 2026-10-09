@@ -24,6 +24,7 @@ vi.mock("@/lib/tauri", () => ({
 }));
 
 import { useModelStore } from "@/lib/model-store";
+import { type SoloNode, parseRecipe } from "@/lib/recipe";
 import ModelsPage from "./page";
 
 function connection(
@@ -296,5 +297,36 @@ describe("ModelsPage", () => {
         name: "Select openrouter/model-a for composing",
       }),
     ).toBeDisabled();
+  });
+  it("composes the checked models into a recipe the builder can import", async () => {
+    connections = [connection("openrouter", "OpenRouter", { status: "connected" })];
+    useModelStore.setState({
+      library: [
+        {
+          id: "openrouter/model-a",
+          name: "openrouter/model-a",
+          providerId: "openrouter",
+          providerName: "OpenRouter",
+        },
+      ],
+    });
+    const user = await openProvider("OpenRouter");
+    await user.click(screen.getByRole("button", { name: /^Starred/ }));
+    await user.click(
+      within(screen.getByRole("main")).getByRole("checkbox", {
+        name: "Select openrouter/model-a for composing",
+      }),
+    );
+
+    const link = screen.getByRole("link", { name: "Compose a Fusion" });
+    const recipe = new URL(link.getAttribute("href") ?? "", "http://studio").searchParams.get(
+      "recipe",
+    );
+    const parsed = parseRecipe(recipe ?? "");
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.root.kind !== "fusion") throw new Error("not a fusion");
+    expect(parsed.root.members.map((member) => (member as SoloNode).model?.id)).toEqual([
+      "openrouter/model-a",
+    ]);
   });
 });

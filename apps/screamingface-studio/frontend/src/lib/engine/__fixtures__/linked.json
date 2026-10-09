@@ -1,0 +1,32 @@
+{
+  "fusion": {
+    "candidate": "(model_1:0.0:/anthropic/claude-opus-4-5($input)!'Answer the request.', model_2:0.0:/openai/gpt-4o($input)!'Answer the request.', synthesis_1:0.0:/openai/gpt-4o({input: '$input', outputs: {member_1: '$model_1', member_2: '$model_2'}})!'Combine the member answers.')!'$synthesis_1'",
+    "benchmark": "(case:0.0:/sf/case-1($candidate)!'grade')!'$case'",
+    "linked": "(candidate:0.0:'(model_1:0.0:/anthropic/claude-opus-4-5($input)!\\'Answer the request.\\', model_2:0.0:/openai/gpt-4o($input)!\\'Answer the request.\\', synthesis_1:0.0:/openai/gpt-4o({input: \\'$input\\', outputs: {member_1: \\'$model_1\\', member_2: \\'$model_2\\'}})!\\'Combine the member answers.\\')!\\'$synthesis_1\\'', (case:0.0:/sf/case-1($candidate)!'grade')!'$case')!''"
+  },
+  "fusion_params": {
+    "candidate": "(model_1:0.0:/openai/gpt-4o?temperature=0.7&seed=3&q=($input)!'Answer the request.', model_2:0.0:/anthropic/claude-opus-4-5($input)!'Say it\\'s a \\\\ test.', synthesis_1:0.0:/openai/gpt-4o?temperature=0.2&q=({input: '$input', outputs: {member_1: '$model_1', member_2: '$model_2'}})!'Combine the member answers.')!'$synthesis_1'",
+    "benchmark": "(case:0.0:/sf/case-1($candidate)!'grade')!'$case'",
+    "linked": "(candidate:0.0:'(model_1:0.0:/openai/gpt-4o?temperature=0.7&seed=3&q=($input)!\\'Answer the request.\\', model_2:0.0:/anthropic/claude-opus-4-5($input)!\\'Say it\\\\\\'s a \\\\\\\\ test.\\', synthesis_1:0.0:/openai/gpt-4o?temperature=0.2&q=({input: \\'$input\\', outputs: {member_1: \\'$model_1\\', member_2: \\'$model_2\\'}})!\\'Combine the member answers.\\')!\\'$synthesis_1\\'', (case:0.0:/sf/case-1($candidate)!'grade')!'$case')!''"
+  },
+  "pipeline": {
+    "candidate": "(model_1:0.0:/openai/gpt-4o($input)!'Answer the request.', model_2:0.0:/anthropic/claude-opus-4-5($model_1)!'Check the answer.')!'$model_2'",
+    "benchmark": "(case:0.0:/sf/case-1($candidate)!'grade')!'$case'",
+    "linked": "(candidate:0.0:'(model_1:0.0:/openai/gpt-4o($input)!\\'Answer the request.\\', model_2:0.0:/anthropic/claude-opus-4-5($model_1)!\\'Check the answer.\\')!\\'$model_2\\'', (case:0.0:/sf/case-1($candidate)!'grade')!'$case')!''"
+  },
+  "prompts_encoded": {
+    "candidate": "(model_1:0.0:/openai/gpt-4o($input)!'Answer in $$USD. Show the total on its own line.', model_2:0.0:/anthropic/claude-opus-4-5($input)!'Answer the request.', synthesis_1:0.0:/openai/gpt-4o({input: '$input', outputs: {member_1: '$model_1', member_2: '$model_2'}})!'Use $$input and $$$$ literally; it\\'s a \\\\ path.')!'$synthesis_1'",
+    "benchmark": "(case:0.0:/sf/case-1($candidate)!'grade')!'$case'",
+    "linked": "(candidate:0.0:'(model_1:0.0:/openai/gpt-4o($input)!\\'Answer in $$USD. Show the total on its own line.\\', model_2:0.0:/anthropic/claude-opus-4-5($input)!\\'Answer the request.\\', synthesis_1:0.0:/openai/gpt-4o({input: \\'$input\\', outputs: {member_1: \\'$model_1\\', member_2: \\'$model_2\\'}})!\\'Use $$input and $$$$ literally; it\\\\\\'s a \\\\\\\\ path.\\')!\\'$synthesis_1\\'', (case:0.0:/sf/case-1($candidate)!'grade')!'$case')!''"
+  },
+  "solo_prompt_encoded": {
+    "candidate": "(model_1:0.0:/openai/gpt-4o($input)!'Line one Line two with $$input, \\'$$model_1\\', $$$$5 and C:\\\\dir\\\\.')!'$model_1'",
+    "benchmark": "(case:0.0:/sf/case-1($candidate)!'grade')!'$case'",
+    "linked": "(candidate:0.0:'(model_1:0.0:/openai/gpt-4o($input)!\\'Line one Line two with $$input, \\\\\\'$$model_1\\\\\\', $$$$5 and C:\\\\\\\\dir\\\\\\\\.\\')!\\'$model_1\\'', (case:0.0:/sf/case-1($candidate)!'grade')!'$case')!''"
+  },
+  "solo_params": {
+    "candidate": "(model_1:0.0:/openai/gpt-4o?temperature=0.7&seed=3&q=($input)!'Answer the request.')!'$model_1'",
+    "benchmark": "(case:0.0:/sf/case-1($candidate)!'grade')!'$case'",
+    "linked": "(candidate:0.0:'(model_1:0.0:/openai/gpt-4o?temperature=0.7&seed=3&q=($input)!\\'Answer the request.\\')!\\'$model_1\\'', (case:0.0:/sf/case-1($candidate)!'grade')!'$case')!''"
+  }
+}
