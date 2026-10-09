@@ -22,7 +22,8 @@ import asyncio
 import contextvars
 import hashlib
 import json
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+import math
+from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -179,9 +180,18 @@ class ImportedBenchmark:
     #: The keys of the Case's Named Scores, headline first (OME-1268); empty for every
     #: single-scorer benchmark. Hashed by the caller's pins.
     named_scores: tuple[str, ...] = ()
+    #: The eval's own whole-run metric as a lazy factory (OME-1527, R1); None tallies the
+    #: mean of the Case scores, as every published Benchmark does. Hashed by the caller's pins.
+    whole_run_metric_factory: Callable[[], Any] | None = None
 
-    def aggregation(self) -> BenchmarkAggregation:
-        """This benchmark's shared-grading binding — built on demand so the scorer stays lazy."""
+    def aggregation(
+        self, kept_scores: MutableMapping[int, Any] | None = None
+    ) -> BenchmarkAggregation:
+        """This benchmark's shared-grading binding — built on demand so the scorer stays lazy.
+
+        ``kept_scores`` is one run's private store of the graded Cases' inspect Scores, for
+        the tally of a row that honours the eval's whole-run metric; None keeps nothing.
+        """
 
         # WHY lazy: the scorer adapter imports inspect_ai (which drags in a web stack and the
         # OTel SDK). Benchmark REGISTRATION happens at engine import in every mode; the
@@ -203,6 +213,7 @@ class ImportedBenchmark:
                 multiple_correct=self.multiple_correct,
                 inverted_grade=self.inverted_grade,
                 verdict_grades=self.verdict_grades,
+                kept_scores=kept_scores,
             ),
             failure_messages=_FAILURE_MESSAGES,
             method="inspect_scorer",
@@ -243,6 +254,7 @@ def single_shot_benchmark(
     extra_scorer_factories: Sequence[Callable[[], Any]] = (),
     named_scores: Sequence[str] = (),
     origin: BenchmarkOrigin = "inspect_evals",
+    whole_run_metric_factory: Callable[[], Any] | None = None,
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -286,6 +298,9 @@ def single_shot_benchmark(
             carries them into ``revision_pins``.
         named_scores: the keys of the Case's Named Scores, headline first (OME-1268);
             empty on a single-scorer benchmark. The caller carries it into ``revision_pins``.
+        whole_run_metric_factory: zero-arg callable returning the eval's own inspect metric,
+            which then scores the whole run in place of the mean (OME-1527, R1); None keeps
+            the mean. The caller carries its reference into ``revision_pins``.
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -410,6 +425,7 @@ def single_shot_benchmark(
         verdict_grades=verdict_grades,
         extra_scorer_factories=tuple(extra_scorer_factories),
         named_scores=tuple(named_scores),
+        whole_run_metric_factory=whole_run_metric_factory,
     )
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept
@@ -714,8 +730,12 @@ async def benchmark_aggregate_async(
     *,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
+    # WHY one store per call: a run's Scores live exactly as long as its aggregate, so two
+    # runs (or a retried aggregate) never read each other's marks.
+    kept: dict[int, Any] = {}
+    metric_factory: Callable[[], Any] | None = benchmark.whole_run_metric_factory
     # WHY: Inspect scorers are already async; preserve their endpoint's log scope.
-    return await benchmark.aggregation().aggregate_async(
+    return await benchmark.aggregation(None if metric_factory is None else kept).aggregate_async(
         raw_case_grades,
         benchmark_id=benchmark.benchmark.id,
         benchmark_revision=benchmark.benchmark.revision,
@@ -726,7 +746,7 @@ async def benchmark_aggregate_async(
             error_type=AggregateError,
         ),
         grading_material=lambda case_id: _grading_material(root, case_id),
-        scorer=_accuracy,
+        scorer=_accuracy if metric_factory is None else _whole_run_tally(metric_factory(), kept),
     )
 
 
@@ -860,6 +880,92 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
         },
         scores=_column_means(graded),
     )
+
+
+def _whole_run_tally(
+    metric: Callable[[list[Any]], object], kept: Mapping[int, Any]
+) -> Callable[[Sequence[CaseResult]], CandidateScore]:
+    """The tally clerk with the eval's own tally sheet: its inspect metric over the run.
+
+    Think of grading as a marking room: the eval's scorer marks each Case, then the tally
+    turns the marks into one headline. :func:`_accuracy` adds and divides; this hands the
+    graded Cases' own inspect Scores to the eval's metric instead. Stages, in execution order:
+
+    Stage 1 — the graded Cases only (the finalizer passes exactly those; a failed Case
+              never reaches a metric, as with the mean). Each one's Score was filed by the
+              scorer adapter in ``kept`` under its Case id, already reduced the way inspect
+              reduces a Sample before any metric runs.
+    Stage 2 — call the metric: a plain function from the same package the scorer came
+              from. No ``eval()``, no solver, no model call.
+    Stage 3 — publish: a number becomes the Headline Score; a dict becomes the Headline
+              Score (its FIRST key, inspect's own headline rule) plus the Named Scores,
+              headline first. A float metric on a row with Named Scores keeps the column
+              means beside it, with the headline column carrying the metric's number.
+
+    Worked example (contracteval's shape): 10 Cases, 7 with no related clause, and the
+    Candidate always answers "no related clause". The mean is 7/10 = 0.7, because it is
+    right on every empty Case. F1 counts true positives (clauses found that exist): 0,
+    against 3 missed clauses, so F1 = 2·0 / (2·0 + 0 + 3) = 0.0, the eval's number.
+
+    Raises:
+        AggregateError: the headline is not a finite number up to 1, naming the metric and
+            what it returned. A Headline Score is higher-is-better up to 1, so xstest's
+            0..100 ``refusal_rate`` is refused, never clipped or rescaled.
+    """
+
+    # WHY the scorer helper: inspect's one registry names metrics and scorers alike, and the
+    # lazy import keeps inspect out of engine start-up (only an opted-in row reaches here).
+    from screamingface_engine_inspect.scorer_metrics import scorer_registry_name
+
+    name: str = scorer_registry_name(metric)
+
+    def tally(cases: Sequence[CaseResult]) -> CandidateScore:
+        # Stage 1 — the graded Cases' kept Scores, in roll-call order.
+        try:
+            samples: list[Any] = [kept[int(case.case_id)] for case in cases]
+        except KeyError as missing:
+            raise AggregateError(f"graded Case {missing} kept no Score for {name}") from None
+        # Stage 2 — the eval's own tally sheet.
+        value: object = metric(samples)
+        # Stage 3 — one number, or a dict whose first key heads it.
+        named: dict[str, object] = dict(value) if isinstance(value, Mapping) else {}
+        headline: object = next(iter(named.values()), None) if named else value
+        if not _is_headline(headline):
+            raise AggregateError(
+                f"the whole-run metric {name} returned {headline!r}; a Headline Score is a "
+                "finite number up to 1"
+            )
+        assert isinstance(headline, int | float)
+        score: float = round(float(headline), 4)
+        mean: CandidateScore = _accuracy(cases)
+        scores: dict[str, float | None] = (
+            {key: _named_value(item) for key, item in named.items()} if named else dict(mean.scores)
+        )
+        if scores and not named:
+            # INVARIANT: the headline column IS `score` (the Report shows them as one number).
+            scores[next(iter(scores))] = score
+        return CandidateScore(score=score, metrics=mean.metrics, scores=scores)
+
+    return tally
+
+
+def _is_headline(value: object) -> bool:
+    """True for a number a Candidate Result may publish as its Headline Score."""
+
+    return (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value <= 1.0
+    )
+
+
+def _named_value(value: object) -> float | None:
+    """One Named Score from a dict metric: a finite number, rounded; anything else unknown."""
+
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        return None
+    return round(float(value), 4)
 
 
 def _column_means(graded: Sequence[CaseGrade]) -> dict[str, float | None]:

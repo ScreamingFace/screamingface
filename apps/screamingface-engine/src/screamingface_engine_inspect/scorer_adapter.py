@@ -51,11 +51,11 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 
 from inspect_ai.model import ChatMessageUser, ModelOutput
-from inspect_ai.scorer import Score, Scorer, Target
+from inspect_ai.scorer import SampleScore, Score, Scorer, Target, mean_score
 from inspect_ai.solver import TaskState
 from inspect_ai.solver._multiple_choice import (
     parse_answers,
@@ -88,6 +88,7 @@ def inspect_grade_case(
     multiple_correct: bool = False,
     inverted_grade: bool = False,
     verdict_grades: Mapping[str, float] | None = None,
+    kept_scores: MutableMapping[int, SampleScore] | None = None,
 ) -> GradeCase:
     """Wrap one inspect scorer — or several — as this benchmark's ``grade_case`` hook.
 
@@ -124,6 +125,10 @@ def inspect_grade_case(
         verdict_grades: the Benchmark's own verdict word → grade map, for a judge that
             answers in words (coconot); replaces the C/I/P/N letters, matched ignoring
             case. None keeps the letters.
+        kept_scores: the run's private store for the tally of a row that honours the eval's
+            whole-run metric (OME-1527, R1): every graded Case files its headline Score here
+            under its own Case id. None (every other row) keeps nothing. Memory only, so it
+            never reaches the Report.
 
     Returns:
         The async hook the shared grading code calls once per gradeable Case.
@@ -168,21 +173,26 @@ def inspect_grade_case(
             # named failure, not an aborted aggregate for the other 49 Cases.
             return _failure("scorer_error", f"{type(exc).__name__}: {exc}")
         # Stage 4 — copy their mark back onto our form.
-        if not names:
-            return _outcome(
-                score, state.output.completion, inverted_grade, word_grades, case_insensitive
+        outcome: CaseGradeOutcome = (
+            _outcome(score, state.output.completion, inverted_grade, word_grades, case_insensitive)
+            if not names
+            else await _named_outcome(
+                request.case_id,
+                score,
+                state,
+                target,
+                names,
+                extras,
+                inverted_grade,
+                word_grades,
+                case_insensitive,
             )
-        return await _named_outcome(
-            request.case_id,
-            score,
-            state,
-            target,
-            names,
-            extras,
-            inverted_grade,
-            word_grades,
-            case_insensitive,
         )
+        if kept_scores is not None and outcome.failure_code is None and score is not None:
+            # INVARIANT: keyed by this Case's own id and written once, by this Case's own
+            # task, so Cases graded concurrently never overwrite each other.
+            kept_scores[int(request.case_id)] = _sample_score(score, state)
+        return outcome
 
     async def observed(request: GradeRequest) -> CaseGradeOutcome:
         report_case_grading(request.case_id, "started")
@@ -215,6 +225,24 @@ def _outcome(
         return _failure("invalid_score_value", repr(score.value), score)
     return CaseGradeOutcome(
         score=case_score, metrics={}, checks=[_check(score, grade, case_score, completion)]
+    )
+
+
+def _sample_score(score: Score, state: TaskState) -> SampleScore:
+    """File one Case's mark the way inspect hands it to a metric.
+
+    WHY reduce: inspect reduces every Sample's Score with its default ``mean`` reducer before
+    any metric runs, even at one epoch, so a metric sees ``1.0`` where the scorer said "C"
+    (xstest's ``refusal_rate`` calls ``as_float()`` on it). The importer refuses to honour a
+    Task with a reducer of its own, so inspect's default is the only one replayed here.
+    """
+
+    return SampleScore(
+        score=mean_score()([score]),
+        sample_id=state.sample_id,
+        # The Sample's metadata, from the private Grading Material: a metric may read
+        # answer-key facts there (contracteval's "has a clause") and none is published.
+        sample_metadata=state.metadata,
     )
 
 
