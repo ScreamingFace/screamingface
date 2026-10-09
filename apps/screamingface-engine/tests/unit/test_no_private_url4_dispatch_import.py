@@ -44,20 +44,23 @@ def test_no_module_imports_a_private_url4_peer_dispatch_module() -> None:
 _PRIVATE_PEER_PREFIX = "url4.peer._"
 
 
+def _is_private_peer_import(node: ast.AST) -> bool:
+    if isinstance(node, ast.Import):
+        return any(alias.name.startswith(_PRIVATE_PEER_PREFIX) for alias in node.names)
+    if not isinstance(node, ast.ImportFrom) or node.module is None:
+        return False
+    # WHY: `from url4.peer import _dispatch` loads the private submodule through the package,
+    # and `from url4.peer.server import _dispatch` reaches it through a name a module binds;
+    # both import a private `url4.peer` name without naming the module.
+    in_peer = node.module == "url4.peer" or node.module.startswith("url4.peer.")
+    return node.module.startswith(_PRIVATE_PEER_PREFIX) or (
+        in_peer and any(alias.name.startswith("_") for alias in node.names)
+    )
+
+
 def _imports_any_private_url4_peer(py_file: Path) -> bool:
     tree = ast.parse(py_file.read_text(), filename=str(py_file))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import) and any(
-            alias.name.startswith(_PRIVATE_PEER_PREFIX) for alias in node.names
-        ):
-            return True
-        if (
-            isinstance(node, ast.ImportFrom)
-            and node.module is not None
-            and node.module.startswith(_PRIVATE_PEER_PREFIX)
-        ):
-            return True
-    return False
+    return any(_is_private_peer_import(node) for node in ast.walk(tree))
 
 
 def test_no_module_imports_any_private_url4_peer_module() -> None:
