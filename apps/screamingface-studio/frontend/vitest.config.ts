@@ -20,6 +20,7 @@ export default defineConfig({
         "src/lib/tauri.ts",
         "src/lib/provider-presentation.ts",
         "src/lib/model-store.ts",
+        "src/lib/benchmark-*.ts",
         "src/app/*/models/**",
       ],
       exclude: ["**/*.test.{ts,tsx}"],

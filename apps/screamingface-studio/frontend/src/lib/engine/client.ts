@@ -1,5 +1,10 @@
 import { EngineError, kindForStatus } from "./errors";
-import type { Connection, EngineModel, OAuthAuthorization } from "./types";
+import type {
+  BenchmarkSummary,
+  Connection,
+  EngineModel,
+  OAuthAuthorization,
+} from "./types";
 
 export type EngineClient = {
   listConnections(): Promise<Connection[]>;
@@ -7,6 +12,7 @@ export type EngineClient = {
   startOAuth(provider: string): Promise<OAuthAuthorization>;
   disconnect(provider: string): Promise<Connection>;
   listModels(): Promise<EngineModel[]>;
+  listBenchmarks(): Promise<BenchmarkSummary[]>;
   health(): Promise<void>;
 };
 
@@ -111,6 +117,9 @@ export function createEngineClient(
     },
     async listModels() {
       return listData<EngineModel>(await request("/v1/models"));
+    },
+    async listBenchmarks() {
+      return listData<BenchmarkSummary>(await request("/v1/benchmarks"));
     },
     async health() {
       await request("/healthz");
