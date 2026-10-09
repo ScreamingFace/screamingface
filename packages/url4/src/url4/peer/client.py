@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -260,36 +260,67 @@ class Client:
         """
         target = node or self._node
         proto = _pairs(params)
-        # WHY check=False: the verified re-parse costs ~15x the render on this
-        # front-door path, and the trees rendered here are overwhelmingly parser- or
-        # builder-produced — the exact class the renderer's round-trip property tests
-        # pin. `rendered` keeps the tree `request` came from (None when the caller
-        # passed text), so _blaming_render below can buy the diagnostic back for the
-        # rest, on failure only.
-        rendered: Node | None
-        if target is None and not proto:
-            if isinstance(expression, str):
-                request, rendered = expression, None
-            else:
-                request, rendered = render(expression, check=False), expression
-        else:
+        if target is not None or proto:
             root = _as_composite(build(expression) if isinstance(expression, str) else expression)
             if target is None:
-                rendered = _with_params(root, proto)
+                expression = _with_params(root, proto)
             else:
-                rendered = _passthrough(_as_remote(root, target, path or self._path, proto))
-            request = render(rendered, check=False)
-        ctx = ExecutionContext(
+                expression = _passthrough(_as_remote(root, target, path or self._path, proto))
+        ctx = _front_door_context(
             self._effective_io(),
             processor=self._processor,
             process=self._process,
-            scope=Context(bindings=dict(env)) if env else None,
+            env=env,
             strict_fields=self._strict_fields,
         )
-        text = await _blaming_render(
-            rendered, request, run(request, ctx=ctx, concurrency=self._concurrency)
+        return await _evaluate_front_door(
+            expression, lambda request: run(request, ctx=ctx, concurrency=self._concurrency)
         )
-        return Url4Result(text=text, request=request)
+
+
+def _front_door_context(
+    io: IOLayer,
+    *,
+    processor: str | None,
+    process: ProcessFn,
+    env: Mapping[str, object] | None,
+    strict_fields: bool,
+    self_collection: str | None = None,
+) -> ExecutionContext:
+    """The run context both front doors build: ``env`` seeds the lexical scope."""
+    return ExecutionContext(
+        io,
+        processor=processor,
+        process=process,
+        scope=Context(bindings=dict(env)) if env else None,
+        strict_fields=strict_fields,
+        self_collection=self_collection,
+    )
+
+
+async def _evaluate_front_door(
+    expression: str | Node, run_text: Callable[[str], Awaitable[str]]
+) -> Url4Result:
+    """Render (when given a tree), run, and re-blame — THE front-door evaluation path.
+
+    Shared by :meth:`Client.evaluate` and :meth:`~url4.peer.server.Url4Node.evaluate`
+    so the two front doors cannot drift; ``run_text`` carries their real
+    differences (the client's io and context, the node's processor override and
+    ``self_collection``).
+    """
+    # WHY check=False: the verified re-parse costs ~15x the render on this
+    # front-door path, and the trees rendered here are overwhelmingly parser- or
+    # builder-produced — the exact class the renderer's round-trip property tests
+    # pin. `rendered` keeps the tree `request` came from (None when the caller
+    # passed text), so _blaming_render below can buy the diagnostic back for the
+    # rest, on failure only.
+    rendered: Node | None
+    if isinstance(expression, str):
+        request, rendered = expression, None
+    else:
+        request, rendered = render(expression, check=False), expression
+    text = await _blaming_render(rendered, request, run_text(request))
+    return Url4Result(text=text, request=request)
 
 
 async def _blaming_render(rendered: Node | None, request: str, run: Awaitable[str]) -> str:

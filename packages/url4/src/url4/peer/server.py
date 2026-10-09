@@ -25,18 +25,16 @@ from dataclasses import dataclass
 from inspect import signature
 from typing import overload
 
-from url4.core.context import Context
 from url4.core.grammar import _IDENTITY_NAME_RE
 from url4.core.nodes import Node
-from url4.core.render import render
-from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
+from url4.dag import DEFAULT_RUN_CONCURRENCY, ProcessFn, default_process, run
 from url4.io.layer import FetchRequest, FetchResult, IOLayer
 from url4.peer import _dispatch
 from url4.peer._dispatch import Request
 from url4.peer._http import asgi_app as _asgi_app
 from url4.peer._http import serve as _serve_node
 from url4.peer._owned import _OwnedIO
-from url4.peer.client import Url4Result, _blaming_render
+from url4.peer.client import Url4Result, _evaluate_front_door, _front_door_context
 
 EndpointHandler = Callable[[Request], str | Awaitable[str]]
 # handlers may take the requested collection or nothing at all
@@ -237,11 +235,11 @@ class Url4Node:
         # WHY the request's `processor=` wins: §27.3 lets a CALLER select the
         # processor for this evaluation. The node's own `default_processor` is
         # the fallback when the request names none.
-        ctx = ExecutionContext(
+        ctx = _front_door_context(
             self,
             processor=processor or self._processor,
             process=self._process,
-            scope=Context(bindings=dict(env)) if env else None,
+            env=env,
             strict_fields=self._strict_fields,
             self_collection=self_collection,
         )
@@ -261,14 +259,7 @@ class Url4Node:
         only once the run has already failed, so it costs nothing when the tree
         is sound.
         """
-        # WHY check=False: same front-door reasoning as Client.evaluate — the verify
-        # re-parse costs ~15x the render, and _blaming_render pays it only on failure.
-        if isinstance(expression, str):
-            request, rendered = expression, None
-        else:
-            request, rendered = render(expression, check=False), expression
-        text = await _blaming_render(rendered, request, self._run_text(request, env))
-        return Url4Result(text=text, request=request)
+        return await _evaluate_front_door(expression, lambda request: self._run_text(request, env))
 
     def asgi(self):
         """The node as a plain ASGI application (framework-free by construction)."""
