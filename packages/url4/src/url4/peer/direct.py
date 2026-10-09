@@ -35,7 +35,7 @@ from url4.observe import (
     Usage,
     _bind_node_sinks,
 )
-from url4.peer._dispatch import _text, call_endpoint, data_route
+from url4.peer._dispatch import _text, call_endpoint, call_rds, data_route, rds_call
 from url4.peer._http import status_for_code
 from url4.wire.subrequest import extract_expression_params
 
@@ -92,8 +92,9 @@ async def dispatch_direct(
 
     Raises:
         ResolutionError: ``direct_eval_refused`` for the eval path; ``missing_intent`` for an
-            endpoint called without ``q``; ``endpoint_not_found`` for any other path; and the
-            subrequest decode errors for a malformed ``q``. All permanent.
+            endpoint called without ``q``; ``endpoint_not_found`` for any other path;
+            ``intent_error`` for an RDS call whose path has no endpoint or whose handler fails;
+            and the subrequest decode errors for a malformed ``q``. All permanent.
     """
     if observer is None:
         return await _dispatch_direct(node, target)
@@ -160,6 +161,11 @@ async def _observed(
 
 async def _dispatch_direct(node: Url4Node, target: str) -> DirectResult:
     path, sep, query = target.partition("?")
+    # WHY: an RDS call is checked first, because its query tail (`extract=last_number@1`) is not a
+    # protocol param and must not reach the `param-value` rule. The same helper serves `dispatch`.
+    rds = rds_call(query) if sep else None
+    if rds is not None:
+        return DirectResult(await call_rds(node, path, *rds), None)
     params, q = extract_expression_params(query) if sep else ({}, None)
     # INVARIANT (D1): only a REGISTERED handler is ever called. The eval branch of `dispatch`
     # (`node._run_text`) is not reachable from here at all — not by an ordering rule, but

@@ -36,6 +36,8 @@ _STATUS_BY_CODE: dict[str, int] = {
     ErrorCode.IDENTITY_ACCESS_DENIED: 403,
     ErrorCode.CONSENT_REQUIRED: 403,
     ErrorCode.CONSENT_WITHHELD: 403,
+    ErrorCode.INTENT_ERROR: 422,
+    ErrorCode.UNSUPPORTED_MODE: 400,
 }
 
 

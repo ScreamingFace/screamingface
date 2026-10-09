@@ -181,24 +181,23 @@ def _split_decoded(text: str) -> tuple[str, str]:
     return context, rest[1:] if rest.startswith("!") else ""
 
 
-def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | None]:
-    """Split a full query string into ``(params, raw q value)`` — spec §3.3.1.
+def split_expression_query(
+    query_string: str,
+) -> tuple[list[tuple[str, str | None]], str | None]:
+    """Split a query string into ``(raw params, raw q value)`` — no validation, no decoding.
 
-    ``&`` separates parameters only at depth 0 outside quotes, so an ``&``
-    inside a nested expression (``q=(https://a?x=1&y=2)!go``) never terminates
-    the expression-bearing value.
+    The depth-0 split of :func:`extract_expression_params` and nothing else: ``&``
+    separates parameters only at depth 0 outside quotes, and ``q=`` closes the
+    query string (`OME-507`) — a depth-0 parameter after it raises
+    :class:`~url4.core.errors.ParseError`. Each param is ``(key, raw value)`` in
+    query order; a valueless segment is a flag with the value ``None``. The raw
+    ``q`` value is returned as written, or ``None`` when there is no ``q=``.
 
-    ``q=`` closes the query string (`OME-507`): a depth-0 parameter after it
-    raises :class:`~url4.core.errors.ParseError`. A query with NO ``q=`` is not an
-    error — that is a ``relative-uri`` data query, and the caller decides.
-
-    The expression-bearing values (``q``, and ``processor`` inside the params
-    dict) are returned RAW — percent-decoding them is the expression decoder's
-    job (:func:`decode_subrequest`), matching the spec's processing pipeline
-    (§7.4). All other param values are percent-decoded with ``unquote_plus``;
-    a bare valueless segment becomes a flag param with value ``""``.
+    The caller decides which rule judges the values: the expression rule
+    (:func:`extract_expression_params`) or the code-pointer rule
+    (:func:`url4.core._annotations.read_query_tail`).
     """
-    params: dict[str, str] = {}
+    params: list[tuple[str, str | None]] = []
     q: str | None = None
     for segment in split_query_segments(query_string):
         if not segment:
@@ -217,10 +216,39 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
             )
         key, sep, value = segment.partition("=")
         if not sep:
+            params.append((segment, None))
+        elif key == "q":
+            q = value
+        else:
+            params.append((key, value))
+    return params, q
+
+
+def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | None]:
+    """Split a full query string into ``(params, raw q value)`` — spec §3.3.1.
+
+    ``&`` separates parameters only at depth 0 outside quotes, so an ``&``
+    inside a nested expression (``q=(https://a?x=1&y=2)!go``) never terminates
+    the expression-bearing value.
+
+    ``q=`` closes the query string (`OME-507`): a depth-0 parameter after it
+    raises :class:`~url4.core.errors.ParseError`. A query with NO ``q=`` is not an
+    error — that is a ``relative-uri`` data query, and the caller decides.
+
+    The expression-bearing values (``q``, and ``processor`` inside the params
+    dict) are returned RAW — percent-decoding them is the expression decoder's
+    job (:func:`decode_subrequest`), matching the spec's processing pipeline
+    (§7.4). All other param values are percent-decoded with ``unquote_plus``;
+    a bare valueless segment becomes a flag param with value ``""``.
+    """
+    raw_params, q = split_expression_query(query_string)
+    params: dict[str, str] = {}
+    for key, value in raw_params:
+        if value is None:
             # A valueless flag: an accepted extension the grammar does not
             # define, so only its KEY is checked (`OME-507`, owner decision).
-            validate_param(segment, None)
-            params[segment] = ""
+            validate_param(key, None)
+            params[key] = ""
             continue
         # INVARIANT: validate the DECODED value (`OME-507`, owner decision).
         # Percent-encoding is transport beneath the grammar, so `tone=very%20
@@ -235,10 +263,7 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
                 "one character; omit the '=' for a valueless flag",
             )
         validate_param(key, decoded)
-        if key == "q":
-            q = value
-        else:
-            params[key] = decoded
+        params[key] = decoded
     return params, q
 
 
@@ -249,5 +274,6 @@ __all__ = [
     "decode_subrequest_http",
     "encode_subrequest",
     "extract_expression_params",
+    "split_expression_query",
     "strip_transport_params",
 ]
