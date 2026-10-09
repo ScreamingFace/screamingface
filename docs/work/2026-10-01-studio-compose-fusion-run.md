@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1553 (A), OME-1554 (B), OME-1555 (D1); C and D2 filed at their PR-open
 stack: repo
 status: planned
 started: 2026-10-01
