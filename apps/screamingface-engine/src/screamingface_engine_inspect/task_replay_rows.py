@@ -170,6 +170,8 @@ def _refuse_injectable_import(
         *imported.facts.named_scores,
         *imported.facts.dropped_scorers,
         *imported.facts.dropped_metrics,
+        imported.facts.whole_run_metric,
+        imported.facts.mean_instead_of,
     ]
     # WHY a looser rule for these: they land only inside comments; only a line break or
     # another control character could end the comment and start code.
@@ -360,6 +362,8 @@ def _benchmark_row_lines(
             dropped_scorers=facts.dropped_scorers,
             headline_differs=facts.headline_differs,
             dropped_metrics=facts.dropped_metrics,
+            whole_run_metric=facts.whole_run_metric,
+            mean_instead_of=facts.mean_instead_of,
         )
     )
     lines.append("    ),")

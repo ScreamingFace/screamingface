@@ -43,7 +43,7 @@ import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 # WHY a runtime import is safe here: provenance_facts imports only the stdlib and yaml,
 # never this module, so no cycle (OME-1455).
@@ -144,9 +144,20 @@ class ScorerFacts:
     dropped_scorers: tuple[str, ...] = ()
     headline_differs: bool = False
     dropped_metrics: tuple[str, ...] = ()
+    #: The eval's own whole-run metric the row honours (OME-1527, R1), by dotted reference.
+    whole_run_metric: str | None = None
+    #: The eval's whole-run metric the row does NOT honour, keeping the mean: a Named
+    #: Deviation the row states in a comment.
+    mean_instead_of: str | None = None
 
 
-def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
+#: The importing agent's per-Benchmark choice for a headline metric that is not a plain mean.
+type WholeRunMetricChoice = Literal["honour", "mean"]
+
+
+def _scorer_facts(
+    task: Any, module: Any, whole_run_metric: WholeRunMetricChoice | None = None
+) -> ScorerFacts:
     """Every scorer the Task declares, kept or dropped by name (OME-1268).
 
     Stage 1 — list the declared scorers; none is a refusal.
@@ -155,8 +166,10 @@ def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
               judged one cannot be seated (only a single-scorer row pins a judge), so it is
               written to ``dropped_scorers`` by name. None kept is a refusal.
     Stage 4 — the tripwire: the headline scorer's first declared metric must be a plain mean
-              (``accuracy`` / ``mean``), or the row would publish the wrong headline; any
-              other metric on a kept scorer is noted as not reproduced.
+              (``accuracy`` / ``mean``), or the row would publish the wrong headline, unless
+              the importing agent chose for this Benchmark (``whole_run_metric``): honour the
+              eval's metric, or keep the mean under a Named Deviation (OME-1527). Any other
+              metric on a kept scorer is noted as not reproduced.
     """
 
     from screamingface_engine_inspect.scorer_metrics import (
@@ -194,15 +207,26 @@ def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
     # REPLACES each scorer's whole-run metric list with the Task's (resolve_scorer_metrics);
     # per-Case marking is untouched. So xstest's ``Task(metrics=[refusal_rate()])`` reads
     # here as the scorer's headline (OME-1527).
+    honoured: str | None = None
+    kept_mean: str | None = None
     if headline_metric_kind(headline_scorer) != "mean":
         metric: str | None = headline_metric_name(headline_scorer)
+        if whole_run_metric is None:
+            raise ImporterError(
+                f"headline metric {metric or '<none>'} of scorer {headline_name} is not a plain "
+                "mean; the Benchmark would publish the wrong headline. A Task-level "
+                "metrics=[...] is checked here too, because inspect puts it in place of each "
+                "scorer's own whole-run metrics. Choose for this Benchmark (OME-1527 (R1)): "
+                "--whole-run-metric honour scores the run with the eval's own metric, "
+                "--whole-run-metric mean keeps the mean under a Named Deviation"
+            )
+        honoured, kept_mean = _whole_run_choice(
+            task, headline_scorer, metric or "<none>", whole_run_metric
+        )
+    elif whole_run_metric is not None:
         raise ImporterError(
-            f"headline metric {metric or '<none>'} of scorer {headline_name} is not a plain "
-            "mean; the Benchmark would publish the wrong headline. A Task-level metrics=[...] "
-            "is checked here too, because inspect puts it in place of each scorer's own whole-run "
-            "metrics. Whole-run "
-            "metrics other than the mean are coming with OME-1527 (R1); until then add the "
-            "row by hand"
+            f"--whole-run-metric {whole_run_metric} was given, but the headline is already a "
+            "plain mean; drop the flag"
         )
     if len(declared) == 1:
         return ScorerFacts(
@@ -210,6 +234,8 @@ def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
             scorer_kwargs=headline_kwargs,
             scorer_name=headline_name,
             dropped_metrics=extra_metric_names(headline_scorer),
+            whole_run_metric=honoured,
+            mean_instead_of=kept_mean,
         )
     _check_kept_scorers(declared, resolved, kept)
     dropped_metrics: list[str] = []
@@ -226,7 +252,41 @@ def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
         ),
         headline_differs=kept[0] != 0,
         dropped_metrics=tuple(dropped_metrics),
+        whole_run_metric=honoured,
+        mean_instead_of=kept_mean,
     )
+
+
+def _whole_run_choice(
+    task: Any, scorer: Any, metric: str, choice: WholeRunMetricChoice
+) -> tuple[str | None, str | None]:
+    """The row's ``(whole_run_metric, mean_instead_of)`` for the agent's choice on a non-mean
+    headline, or a named refusal.
+
+    ``mean`` always imports: the row keeps the mean and says so. ``honour`` names the metric
+    for the tally (OME-1527, R1), refused for what the tally cannot replay faithfully: a
+    metric the row cannot name, or a Task with its own epoch reducer (the tally reduces
+    each Case with inspect's default mean, as inspect does when a Task names none).
+    """
+
+    from inspect_ai.scorer._reducer.registry import reducer_log_names
+
+    from screamingface_engine_inspect.scorer_metrics import headline_metric_reference
+
+    if choice == "mean":
+        return None, metric
+    reducers: list[Any] | None = getattr(task, "epochs_reducer", None)
+    if reducers:
+        names: list[str] = reducer_log_names(reducers) or ["<unnamed>"]
+        raise ImporterError(
+            f"cannot honour {metric}: the task declares its own epoch reducer "
+            f"{', '.join(names)}, which the tally does not replay; use --whole-run-metric mean"
+        )
+    try:
+        reference: str = headline_metric_reference(scorer)
+    except ValueError as exc:
+        raise ImporterError(f"cannot honour {metric}: {exc}; use --whole-run-metric mean") from None
+    return reference, None
 
 
 def _check_kept_scorers(
@@ -334,6 +394,8 @@ def _scorer_lines(
     dropped_scorers: tuple[str, ...] = (),
     headline_differs: bool = False,
     dropped_metrics: tuple[str, ...] = (),
+    whole_run_metric: str | None = None,
+    mean_instead_of: str | None = None,
 ) -> list[str]:
     """The scorer, metric, judge and check-surface lines of a BenchmarkSpec row.
 
@@ -358,11 +420,17 @@ def _scorer_lines(
             extra_scorers, named_scores, dropped_scorers, headline_differs, dropped_metrics
         )
     )
+    benchmark_lines.extend(_whole_run_metric_lines(whole_run_metric, mean_instead_of))
+    # WHY the headline metric too: honouring it or keeping the mean is already said above.
+    stated: set[str] = {
+        *dropped_metrics,
+        *(name for name in (mean_instead_of, _metric_of(whole_run_metric)) if name is not None),
+    }
     for metric_name in custom_metrics:
         # WHY skip a dropped metric: inspect puts Task-level metrics in place of the scorer's, so
         # _named_score_lines already wrote its "not reproduced" note; a TODO beside it
         # would ask for the same deviation twice (OME-1527).
-        if metric_name.rpartition("/")[2] in dropped_metrics:
+        if metric_name.rpartition("/")[2] in stated:
             continue
         benchmark_lines.append(
             f"        # TODO(review): the eval reports its own metric {metric_name}, but the"
@@ -433,6 +501,41 @@ def _named_score_lines(
         )
         lines.append("        # name it in the description.")
     return lines
+
+
+#: What the importer writes in front of an honoured metric's reference: assembly refuses it,
+#: so a reviewer must delete it, and that deletion is the human claim the row needs.
+WHOLE_RUN_METRIC_UNREVIEWED: str = "TODO:"
+
+
+def _whole_run_metric_lines(whole_run_metric: str | None, mean_instead_of: str | None) -> list[str]:
+    """The row's whole-run-metric choice (OME-1527): an honoured metric's reference behind a
+    review gate, or the kept mean as a Named Deviation; nothing when there was no choice."""
+
+    if mean_instead_of is not None:
+        return [
+            f"        # NAMED DEVIATION: the eval scores the whole run with {mean_instead_of};",
+            "        # this Benchmark reports the mean per-Case score instead (chosen at import,",
+            "        # OME-1527). Name it, and how the two differ, in the description.",
+        ]
+    if whole_run_metric is None:
+        return []
+    name: str = _metric_of(whole_run_metric) or whole_run_metric
+    # WHY a gate, not a note: inspect metrics declare neither range nor direction, and a
+    # Headline Score is higher-is-better up to 1 (xstest's refusal_rate is 0..100, lower is
+    # better on xstest_safe). Only a reviewer reading the metric can make that claim.
+    return [
+        f"        # TODO(review): confirm {name} is higher-is-better up to 1, as a Headline Score",
+        f'        # must be; then delete "{WHOLE_RUN_METRIC_UNREVIEWED}" below. If it is not,',
+        "        # re-import with --whole-run-metric mean.",
+        f'        whole_run_metric="{WHOLE_RUN_METRIC_UNREVIEWED}{whole_run_metric}",',
+    ]
+
+
+def _metric_of(reference: str | None) -> str | None:
+    """The metric's name from its dotted ``module:constructor`` reference."""
+
+    return None if reference is None else reference.rpartition(":")[2]
 
 
 def _tuple_literal(items: tuple[str, ...]) -> str:
@@ -557,6 +660,7 @@ class TaskReplayImporter(Protocol):
         shuffle_seed: int | None,
         choice_shuffle_seed: int | None,
         keep_sample_metadata: bool,
+        whole_run_metric: WholeRunMetricChoice | None = None,
     ) -> TaskReplayImport:
         """Seal the Cases by two replays, as import_replay.import_by_task_replay does."""
         ...
@@ -648,6 +752,14 @@ def _add_task_replay_arguments(parser: argparse.ArgumentParser) -> None:
         help="keep the Sample metadata although the scorer is inspect's own, because a "
         "Judge template reads it (coconot's rubric)",
     )
+    parser.add_argument(
+        "--whole-run-metric",
+        choices=("honour", "mean"),
+        default=None,
+        help="for a Task whose headline metric is not a plain mean: honour scores the run with "
+        "the eval's own metric (the row names it, behind a review gate), mean keeps the mean "
+        "per-Case score under a Named Deviation (OME-1527)",
+    )
 
 
 def _import_by_task_replay_cli(
@@ -682,6 +794,9 @@ def _import_by_task_replay_cli(
         shuffle_seed=args.shuffle_seed,
         choice_shuffle_seed=args.choice_shuffle_seed,
         keep_sample_metadata=args.keep_sample_metadata,
+        # WHY only when given: absence stays absence, so a command without the flag passes
+        # the import exactly the options it always did.
+        **({} if args.whole_run_metric is None else {"whole_run_metric": args.whole_run_metric}),
     )
     card: CardLicense = card_license_of(
         imported.case_sources, dataset_info=dataset_info or _hub_dataset_info

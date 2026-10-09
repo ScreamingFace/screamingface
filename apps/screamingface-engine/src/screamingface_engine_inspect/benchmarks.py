@@ -146,6 +146,13 @@ class BenchmarkSpec:
     #: changes per-Case values cannot keep a published Revision (OME-1268). Empty on every
     #: other row, so no published revision moves.
     scorer_dependencies: tuple[str, ...] = ()
+    #: The eval's own whole-run inspect ``@metric``, as a dotted ``module:constructor``
+    #: reference called with no arguments (``inspect_evals.hle.metrics:accuracy``). Set, it
+    #: scores the run in place of the mean of the Case scores (OME-1527, R1): its number is the
+    #: Headline Score (a dict is refused at tally). OPT-IN per Benchmark, never a default: a
+    #: reviewer confirms the metric's headline is higher-is-better up to 1, as a Headline
+    #: Score must be. Benchmark identity when set.
+    whole_run_metric: str | None = None
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -3962,8 +3969,10 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     _check_judge_declaration(spec)
     _check_verdict_grades(spec)
     _check_named_scores(spec)
+    _check_whole_run_metric(spec)
     cases_spec: TaskReplayCasesSpec = _cases_declaration(spec.key)
     _check_answer_key_opt_in(spec, cases_spec)
+    _check_whole_run_metric_keeps_metadata(spec, cases_spec)
     identity_pins: tuple[str, ...] = _task_replay_pins(cases_spec)
     prepare: Callable[[Path], dict[str, Any]] = partial(
         prepare_replayed_cases, cases_spec, benchmark_key=spec.key
@@ -3983,6 +3992,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             + _verdict_grades_pins(spec)
             + _named_score_pins(spec)
             + _scorer_dependency_pins(spec)
+            + _whole_run_metric_pins(spec)
         ),
         scorer_factory=_scorer_factory(spec),
         extra_scorer_factories=_extra_scorer_factories(spec),
@@ -3995,6 +4005,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         inverted_grade=spec.inverted_grade,
         verdict_grades=spec.verdict_grades,
         origin=spec.origin,
+        whole_run_metric_factory=_whole_run_metric_factory(spec),
         **_provenance_of(spec),
     )
 
@@ -4029,6 +4040,58 @@ def _check_named_scores(spec: BenchmarkSpec) -> None:
         raise ValueError(
             f"{spec.key}: dropped_scorers {sorted(declared_and_dropped)} are also declared "
             "in named_scores; a scorer is kept or dropped, never both"
+        )
+
+
+def _check_whole_run_metric(spec: BenchmarkSpec) -> None:
+    """Refuse a row that both honours the eval's whole-run metric and rewrites its grades.
+
+    WHY: the metric reads the eval's own grades. The Inverted Grade flip changes what a Case
+    score means, and a verdict map stands in for the eval's own reducer (coconot's), which
+    the tally does not replay; either would feed the metric numbers the eval never made.
+    """
+
+    if spec.whole_run_metric is None:
+        return
+    # WHY: the importer writes an honoured metric behind this prefix; deleting it is the
+    # reviewer's claim that the metric is higher-is-better up to 1, which inspect metrics
+    # never declare (as the TODO judge model, it never ships unreviewed).
+    if spec.whole_run_metric.startswith("TODO:"):
+        raise ValueError(
+            f"{spec.key}: whole_run_metric is unreviewed — confirm the metric is "
+            'higher-is-better up to 1 and delete "TODO:", or keep the mean'
+        )
+    rewrites: list[str] = [
+        name
+        for name, rewritten in (
+            ("inverted_grade", spec.inverted_grade),
+            ("verdict_grades", spec.verdict_grades is not None),
+        )
+        if rewritten
+    ]
+    if rewrites:
+        raise ValueError(
+            f"{spec.key}: whole_run_metric reads the eval's own grades, which "
+            f"{' and '.join(rewrites)} rewrite; keep the mean for this row"
+        )
+
+
+def _check_whole_run_metric_keeps_metadata(
+    spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec
+) -> None:
+    """Refuse a row that honours the eval's whole-run metric but drops the Sample metadata.
+
+    WHY: the metric may read answer-key facts from the Sample metadata (an F1 over "has a
+    clause"). Without it the metric reads an empty dict: one that indexes it fails the run,
+    but one written with ``.get(key, default)`` publishes a wrong number under the eval's
+    name. The importer keeps the metadata for an honour import; a hand edit that adds the
+    metric to a row imported without it is refused here, so it is re-imported instead.
+    """
+
+    if spec.whole_run_metric is not None and not cases_spec.keep_sample_metadata:
+        raise ValueError(
+            f"{spec.key}: whole_run_metric needs keep_sample_metadata=True, because the "
+            "metric may read the Sample metadata; re-import with --whole-run-metric honour"
         )
 
 
@@ -4420,6 +4483,15 @@ def _scorer_dependency_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     return tuple(pins)
 
 
+def _whole_run_metric_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """The eval's whole-run metric as Benchmark identity — a pin only when set, so no
+    published revision moves (OME-1527)."""
+
+    # WHY: the metric decides the published number; switching a row from the mean to the
+    # eval's metric must never keep a revision its members' published scores hang off.
+    return () if spec.whole_run_metric is None else (f"whole_run_metric={spec.whole_run_metric}",)
+
+
 def _verdict_grades_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     """The verdict map as Benchmark identity — a pin only when set, so no published
     revision moves (OME-1371)."""
@@ -4436,6 +4508,20 @@ def _scorer_factory(spec: BenchmarkSpec) -> Callable[[], Any]:
 
     def factory() -> Any:
         return _constructor(spec.scorer)(**dict(spec.scorer_kwargs))
+
+    return factory
+
+
+def _whole_run_metric_factory(spec: BenchmarkSpec) -> Callable[[], Any] | None:
+    """Resolve the eval's whole-run metric from the row's dotted reference, lazily; None
+    when the row keeps the mean."""
+
+    reference: str | None = spec.whole_run_metric
+    if reference is None:
+        return None
+
+    def factory() -> Any:
+        return _constructor(reference)()
 
     return factory
 
