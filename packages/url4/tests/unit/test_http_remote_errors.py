@@ -56,11 +56,33 @@ async def test_a_remote_intent_error_keeps_its_code_and_is_permanent() -> None:
 
 @pytest.mark.asyncio
 async def test_a_remote_5xx_with_a_known_code_keeps_the_code_and_is_transient() -> None:
-    io = _mock_io(503, json_body=_error_body("timeout"))
+    io = _mock_io(503, json_body=_error_body("quorum_not_met"))
 
     with pytest.raises(ResolutionError) as exc:
         await io.fetch("url4://t/score/v1", relative=False)
-    assert exc.value.code == "timeout"
+    assert exc.value.code == "quorum_not_met"
+    assert exc.value.permanent is False
+
+
+@pytest.mark.asyncio
+async def test_a_remote_quorum_not_met_is_permanent_when_the_server_sends_500() -> None:
+    """F6/F5: the server answers a permanent unmapped code with 500 (peer/_http status_for_code)."""
+    io = _mock_io(500, json_body=_error_body("quorum_not_met"))
+
+    with pytest.raises(ResolutionError) as exc:
+        await io.fetch("url4://t/score/v1", relative=False)
+    assert exc.value.code == "quorum_not_met"
+    assert exc.value.permanent is True
+
+
+@pytest.mark.asyncio
+async def test_a_remote_code_outside_the_code_pointer_set_is_not_adopted() -> None:
+    """SF6: `timeout` is reserved for the engine's boundary, so a remote body cannot inject it."""
+    io = _mock_io(404, json_body=_error_body("timeout"))
+
+    with pytest.raises(ResolutionError) as exc:
+        await io.fetch("url4://t/score/v1", relative=False)
+    assert exc.value.code == "resolution_failed"
     assert exc.value.permanent is False
 
 

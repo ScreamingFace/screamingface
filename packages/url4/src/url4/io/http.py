@@ -14,7 +14,17 @@ from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.layer import FetchRequest, FetchResult
 
 _URL4_SCHEME = "url4://"
-_KNOWN_ERROR_CODES = frozenset(member.value for member in ErrorCode)
+# WHY: the codes a code-pointer call produces. The Engine reserves the rest for its own
+# boundary (timeout, unbound_reference, cycle_detected, unknown_identity): a remote body must
+# not inject them.
+_CODE_POINTER_ERROR_CODES = frozenset(
+    {
+        ErrorCode.INTENT_ERROR,
+        ErrorCode.UNSUPPORTED_MODE,
+        ErrorCode.MALFORMED_SOURCE,
+        ErrorCode.QUORUM_NOT_MET,
+    }
+)
 
 
 class HttpIOLayer:
@@ -116,7 +126,7 @@ class HttpIOLayer:
 def _remote_error(exc: httpx.HTTPStatusError) -> tuple[str, str, bool] | None:
     """The remote node's ``(code, message, permanent)`` from an RDS error response, else None.
 
-    Only a body of ``{"error": {"code": <known spec code>}}`` qualifies. Any other body keeps
+    Only a body of ``{"error": {"code": <code-pointer code>}}`` qualifies. Any other body keeps
     the transient error that the caller raises.
     """
     try:
@@ -126,11 +136,14 @@ def _remote_error(exc: httpx.HTTPStatusError) -> tuple[str, str, bool] | None:
     error = body.get("error") if isinstance(body, dict) else None
     error = error if isinstance(error, dict) else {}
     code = error.get("code")
-    if not isinstance(code, str) or code not in _KNOWN_ERROR_CODES:
+    if not isinstance(code, str) or code not in _CODE_POINTER_ERROR_CODES:
         return None
     message = error.get("message")
     status = exc.response.status_code
-    return code, (message if isinstance(message, str) else str(exc)), 400 <= status < 500
+    # WHY: a permanent code the server does not map is answered 500 and a transient one 502
+    # (url4.peer._http.status_for_code), so 500 is permanent, 4xx is permanent, other 5xx is not.
+    permanent = status == 500 or 400 <= status < 500
+    return code, (message if isinstance(message, str) else str(exc)), permanent
 
 
 __all__ = ["HttpIOLayer"]

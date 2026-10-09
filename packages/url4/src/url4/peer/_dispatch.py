@@ -36,7 +36,6 @@ from inspect import isawaitable
 from typing import TYPE_CHECKING, Literal
 
 from url4.core._annotations import read_query_tail
-from url4.core._scan import iter_top_level
 from url4.core.errors import ErrorCode, ResolutionError, Url4Error
 from url4.io.layer import FetchRequest, FetchResult, fetch_result, resolve_shelf
 from url4.wire.rds import RdsValue, decode_q_payload, decode_rds_document
@@ -211,24 +210,21 @@ def rds_call(query_string: str) -> tuple[dict[str, str], str, dict[str, RdsValue
     The query-tail params are read from the raw text before ``q=``, so the author's bytes reach
     :func:`~url4.core._annotations.read_query_tail` unchanged.
     """
-    _raw_params, raw_q = split_expression_query(query_string)
+    raw_params, raw_q = split_expression_query(query_string)
     document = None if raw_q is None else decode_q_payload(raw_q)
     inputs = None if document is None else decode_rds_document(document)
     if document is None or inputs is None:
         return None
-    return read_query_tail(_raw_query_tail(query_string)), document, inputs
+    return read_query_tail(_raw_query_tail(raw_params)), document, inputs
 
 
-def _raw_query_tail(query_string: str) -> str:
-    """The raw text before the depth-0 ``q=`` segment, without the ``&`` that separates them.
+def _raw_query_tail(raw_params: list[tuple[str, str | None]]) -> str:
+    """The query-tail text, rebuilt from the raw pairs ``split_expression_query`` returned.
 
-    INVARIANT: ``q=`` is the last non-empty segment (`split_expression_query` refuses anything
-    after it), so the separator before it is the last depth-0 ``&`` once trailing empty segments
-    are dropped. The slice is by position, never by re-joining the parsed pairs.
+    INVARIANT: each pair keeps the author's bytes (a flag is ``k``, a valued param is ``k=v``), so
+    the join is the query-tail as written and ``read_query_tail`` reads it unchanged.
     """
-    body = query_string.rstrip("&")
-    separators = [index for index, ch in iter_top_level(body) if ch == "&"]
-    return query_string[: separators[-1]] if separators else ""
+    return "&".join(key if value is None else f"{key}={value}" for key, value in raw_params)
 
 
 async def call_rds(
@@ -259,9 +255,10 @@ async def call_rds(
         raise
     except Exception as exc:
         # WHY: a failure inside the code pointer is the author's input failing, so it is permanent
-        # and keeps the chained cause. Only a url4 error keeps its own code (contracts C7).
+        # and keeps the chained cause. Only a url4 error keeps its own code (contracts C7). The
+        # message names the exception type only: its text can carry the author's data (SF7).
         raise ResolutionError(
-            f"code pointer {path!r} failed: {exc}",
+            f"code pointer {path!r} failed: {type(exc).__name__}",
             code=ErrorCode.INTENT_ERROR,
             permanent=True,
         ) from exc

@@ -251,3 +251,17 @@ async def test_dispatch_direct_rds_call_to_a_missing_path_is_intent_error() -> N
         await dispatch_direct(Url4Node("t"), encode_rds_target("/nope", "", _DOC))
     assert exc.value.code == ErrorCode.INTENT_ERROR
     assert exc.value.permanent is True
+
+
+@pytest.mark.asyncio
+async def test_an_rds_call_whose_code_pointer_raises_value_error_does_not_echo_its_detail() -> None:
+    """SF7: the 422 body names the exception type, never the handler's message text."""
+
+    async def combine(request: Request) -> str:
+        raise ValueError("secret-detail")
+
+    async with _http(_node_with(combine)) as http:
+        response = await http.get(encode_rds_target("/combine", "", _DOC))
+    assert response.status_code == 422
+    assert "secret-detail" not in response.text
+    assert "ValueError" in response.json()["error"]["message"]
