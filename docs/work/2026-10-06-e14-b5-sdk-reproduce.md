@@ -144,7 +144,7 @@ their names were read from their code (`X-Capture`, `X-Replay-Frozen-Copy`, `cap
 
 ### Changes
 
-- `evaluate(..., capture: bool = False)` on `Client`, `AsyncClient` and `sf.evaluate`. It is threaded
+- `evaluate(..., capture: bool = True)` on `Client`, `AsyncClient` and `sf.evaluate`. It is threaded
   like `answer_seed`: `client.py` to `_evaluation/url4.py` (url4 path) and `_evaluation/runner.py`
   (Recipe path) to `Candidate.capture` through `_stamped`, then the transport sends `X-Capture: true`
   only when true.
@@ -255,3 +255,11 @@ their names were read from their code (`X-Capture`, `X-Replay-Frozen-Copy`, `cap
   it, never merged by hand.
 - Gates for stack `screamingface` pass against `e14-a2-sdk-metadata` (`--skip-append-only`; the
   approved test edits are unchanged).
+
+## Capture on by default (2026-10-09)
+
+- The owner made `capture` default to `True` (design Q22). `capture=False` turns it off.
+- Only the public signatures changed. `sf.reproduce` passes `capture=False` explicitly, and the transport refuses capture with a replay.
+- A capturing run (the default) that the Engine did not capture warns, and the warning says how to turn capture off.
+- Tests: renamed `test_the_client_does_not_capture_by_default` to `test_the_client_captures_by_default`, `test_module_level_evaluate_does_not_capture_by_default` to `test_module_level_evaluate_captures_by_default`, and `test_a_normal_evaluation_leaves_capture_and_replay_unset` to `test_capture_false_leaves_capture_and_replay_unset`. Added `test_capture_false_sends_no_capture_header` and `test_capture_and_a_replay_start_refuse_to_build_together`. The default-path call in `test_the_client_captures_by_default` asserts its warning. The two Recipe-path tests pass `capture=False` on their first run. Snapshot regenerated (3 signature lines). The review round changed no public signature.
+- Gates: `run_gates.py screamingface --base OME-1436-e14-a2-sdk-metadata --skip-append-only` is ALL GATES GREEN (ruff check, ruff format, pyright, pytest with coverage gate, notebooks, build, distribution).

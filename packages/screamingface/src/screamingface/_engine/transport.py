@@ -1281,9 +1281,12 @@ def _answer_seed_header(answer_seed: int | None) -> dict[str, str]:
 def _frozen_copy_headers(capture: bool, replay_frozen_copy: str | None) -> dict[str, str]:
     """The frozen-copy mode as start headers; nothing for a normal run.
 
-    INVARIANT (OME-1307): absence is the default, as for the answer seed. `X-Capture` is sent only
-    when true, and `X-Replay-Frozen-Copy` only for `reproduce`; the Engine refuses both together.
+    INVARIANT (OME-1307): absence is the transport default; the public `evaluate` turns capture on
+    (Q22). `X-Capture` is sent only when true, and `X-Replay-Frozen-Copy` only for `reproduce`; the
+    Engine refuses both together, so this helper refuses to build both.
     """
+    if capture and replay_frozen_copy is not None:
+        raise ValueError("capture and replay_frozen_copy are mutually exclusive")
     headers: dict[str, str] = {}
     if capture:
         headers[_CAPTURE] = "true"

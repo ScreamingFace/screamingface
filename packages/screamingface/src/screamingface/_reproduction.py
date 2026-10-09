@@ -137,6 +137,8 @@ def _replayed_sync(client: Client, score: LeaderboardScore) -> Reproduction:
             None,
             None,
             answer_seed=score.answer_seed,
+            # The Engine refuses X-Capture with X-Replay-Frozen-Copy.
+            capture=False,
             replay_frozen_copy=score.frozen_copy_id,
         )
     except ExecutionError as exc:
@@ -191,6 +193,8 @@ async def _replayed_async(client: AsyncClient, score: LeaderboardScore) -> Repro
             None,
             None,
             answer_seed=score.answer_seed,
+            # The Engine refuses X-Capture with X-Replay-Frozen-Copy.
+            capture=False,
             replay_frozen_copy=score.frozen_copy_id,
         )
     except ExecutionError as exc:

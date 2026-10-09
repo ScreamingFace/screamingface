@@ -214,7 +214,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = False,
+        capture: bool = True,
     ) -> Report: ...
 
     @overload
@@ -227,7 +227,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = False,
+        capture: bool = True,
     ) -> Report: ...
 
     def evaluate(
@@ -239,13 +239,14 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = False,
+        capture: bool = True,
     ) -> Report:
         """Evaluate Recipes, or replay one complete evaluation URL4 unchanged.
 
-        `capture=True` asks the Engine to store every model and web-tool result of each run in a
-        frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later. An
-        Engine that did not capture a run is reported with an `EvaluationWarning`.
+        `capture` is on by default: the Engine stores every model and web-tool result of each run
+        in a frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
+        `capture=False` turns it off. An Engine that did not capture a run is reported with an
+        `EvaluationWarning`.
         """
 
         from screamingface._evaluation.runner import evaluate_sync
@@ -574,7 +575,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = False,
+        capture: bool = True,
     ) -> Report: ...
 
     @overload
@@ -587,7 +588,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = False,
+        capture: bool = True,
     ) -> Report: ...
 
     async def evaluate(
@@ -599,13 +600,14 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = False,
+        capture: bool = True,
     ) -> Report:
         """Asynchronously evaluate Recipes, or replay one complete evaluation URL4.
 
-        `capture=True` asks the Engine to store every model and web-tool result of each run in a
-        frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later. An
-        Engine that did not capture a run is reported with an `EvaluationWarning`.
+        `capture` is on by default: the Engine stores every model and web-tool result of each run
+        in a frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
+        `capture=False` turns it off. An Engine that did not capture a run is reported with an
+        `EvaluationWarning`.
         """
 
         from screamingface._evaluation.runner import evaluate_async
