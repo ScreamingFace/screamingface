@@ -255,6 +255,8 @@ def _render_topology(
         lines = _render_corrective_topology(value, calls, indent=indent)
     else:
         lines = _render_fusion_topology(value, calls, indent=indent)
+    if value.optional:
+        lines.insert(-1, f"{' ' * indent}    optional=True,")
     return lines
 
 
@@ -337,8 +339,6 @@ def _render_fusion_topology(
     lines.extend(synthesizer)
     if value.quorum != "all":
         lines.append(f"{prefix}    quorum={value.quorum!r},")
-    if value.optional_members:
-        lines.append(f"{prefix}    optional_members=True,")
     lines.append(f"{prefix})")
     return lines
 
@@ -369,7 +369,7 @@ def _validate_topology(
 
 
 def _has_fusion_policy(value: _RecipeTopology) -> bool:
-    if value.quorum != "all" or value.optional_members:
+    if value.quorum != "all" or value.optional:
         return True
     children = (*value.members, *value.stages)
     if value.synthesizer is not None:
@@ -426,11 +426,13 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
             name=value.name if value.named else None,
             prompt=call.prompt,
             params=_editable_params(call),
+            optional=value.optional,
         )
     elif value.kind == "pipeline":
         selected = Pipeline(
             [_recipe_from_topology(stage, calls) for stage in value.stages],
             name=value.name if value.named else None,
+            optional=value.optional,
         )
     elif value.kind == "fusion":
         assert value.synthesizer is not None
@@ -440,7 +442,7 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
             name=value.name if value.name != inferred_name else None,
             synthesizer=_recipe_from_topology(value.synthesizer, calls),
             quorum=value.quorum,
-            optional_members=value.optional_members,
+            optional=value.optional,
         )
     elif value.kind == "self_corrective":
         assert value.max_rounds is not None

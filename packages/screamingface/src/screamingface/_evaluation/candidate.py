@@ -97,6 +97,8 @@ class _CandidateCompiler:
         self._check_surface = check_surface
 
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
+        if getattr(recipe, "optional", False):
+            raise ValueError("optional=True is only supported on Fusion members")
         # Corrective loops are ROOT-ONLY by construction (member/judge positions
         # reject them), so this dispatch is the single loop entry point.
         if isinstance(recipe, CorrectiveLoop | SelfCorrective):
@@ -190,7 +192,7 @@ class _CandidateCompiler:
     def _compile_fusion(
         self, fusion: Fusion, input_context: str, input_dependencies: tuple[str, ...]
     ) -> _ResolvedRecipe:
-        if fusion.quorum == "all" and not fusion.optional_members:
+        if fusion.quorum == "all" and not any(member.optional for member in fusion.members):
             members = tuple(
                 self._recipe(
                     member, input_context=input_context, input_dependencies=input_dependencies
@@ -215,7 +217,7 @@ class _CandidateCompiler:
                 expr(*sources, intent=Text(member.reference)),
                 name=f"member_{index}",
                 weight=1.0,
-                required=not fusion.optional_members,
+                required=not fusion.members[index - 1].optional,
             )
             for index, (member, sources) in enumerate(captured, 1)
         )
@@ -272,6 +274,7 @@ class _CandidateCompiler:
             models=(route,),
             topology=_RecipeTopology(
                 kind="model",
+                optional=model.optional,
                 name=model.name,
                 binding=binding,
                 named=model._sample_id is not None,
@@ -330,7 +333,7 @@ class _CandidateCompiler:
                 topology=_RecipeTopology(
                     kind="fusion",
                     quorum=fusion.quorum,
-                    optional_members=fusion.optional_members,
+                    optional=fusion.optional,
                     name=fusion.name,
                     binding=binding,
                     members=tuple(_required_topology(member) for member in members),
@@ -364,7 +367,7 @@ class _CandidateCompiler:
             topology=_RecipeTopology(
                 kind="fusion",
                 quorum=fusion.quorum,
-                optional_members=fusion.optional_members,
+                optional=fusion.optional,
                 name=fusion.name,
                 binding=resolved_synthesizer.reference.removeprefix("$"),
                 members=tuple(_required_topology(member) for member in members),
@@ -406,6 +409,7 @@ class _CandidateCompiler:
             models=models,
             topology=_RecipeTopology(
                 kind="pipeline",
+                optional=pipeline.optional,
                 name=pipeline.name,
                 binding=resolved.reference.removeprefix("$"),
                 named=pipeline._is_named,

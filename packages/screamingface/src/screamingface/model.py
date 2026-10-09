@@ -9,7 +9,7 @@ from typing import Any, ClassVar
 from screamingface._candidate_policy import GenerationParams
 from screamingface._candidate_policy import params as _generation_params
 from screamingface._candidate_policy import prompt as _generation_prompt
-from screamingface.recipe import Recipe, _model_route, _name
+from screamingface.recipe import Recipe, _model_route, _name, _optional
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -18,6 +18,7 @@ class Model(Recipe):
 
     model: str
     name: str
+    optional: bool
     prompt: str | None
     _params: GenerationParams
     _sample_id: str | None
@@ -29,7 +30,9 @@ class Model(Recipe):
         name: str | None = None,
         prompt: str | None = None,
         params: Mapping[str, str | int | float | bool] | None = None,
+        optional: bool = False,
     ) -> None:
+        object.__setattr__(self, "optional", _optional(optional))
         route = _model_route(model)
         inferred_name = route.rsplit("/", 1)[-1]
         explicit_name = None if name is None else _name(name, "model name")
@@ -57,6 +60,8 @@ class Model(Recipe):
             arguments.append(f"prompt={self.prompt!r}")
         if self.params:
             arguments.append(f"params={dict(self.params)!r}")
+        if self.optional:
+            arguments.append("optional=True")
         return f"Model({', '.join(arguments)})"
 
     def _repr_html_(self) -> str:

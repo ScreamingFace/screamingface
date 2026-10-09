@@ -157,31 +157,39 @@ through Candidate `params`.
 
 ### Fusion quorum and failed members
 
-A Fusion requires every member by default (`quorum="all"`, `optional_members=False`).
-To tolerate failed members, opt in on the Fusion itself:
+A Fusion requires every member by default (`quorum="all"`). Mark individual members
+with `optional=True` to tolerate their failures:
 
 ```python
 resilient = sf.Fusion(
-    [opus, gpt, careful],
-    synthesizer="openrouter/anthropic/claude-opus-4.8",
+    [
+        sf.Model("provider/a", optional=True),
+        sf.Model("provider/b", optional=True),
+        "provider/c",  # required
+    ],
+    synthesizer="provider/synth",
     quorum=2,
-    optional_members=True,
 )
 ```
 
-The compiler wraps each complete member with `;optional` and gates the member-only
-expression with `;quorum=2`, before running the synthesizer. This also isolates a
-Pipeline or nested Fusion member: its intermediate answers do not count toward quorum.
+The compiler wraps optional members with URL4's `;optional` and gates the member-only
+expression with `;quorum=2`, before running the synthesizer. Required members always
+have to succeed, even if other successes already meet the quorum. Strings and Recipes
+without `optional=True` remain required. `Pipeline(..., optional=True)` and
+`Fusion(..., optional=True)` guard a complete composite when used as a member of another
+Fusion; their intermediate answers do not count toward the containing Fusion's quorum.
+Optional Recipes are only valid as Fusion members, not standalone Candidates, pipeline
+stages, or synthesizers.
+
 The synthesizer receives JSON containing the original `input` and an `outputs` string
-with ordered `member_N: answer` sections for successful members only. Required-only
-Fusions using the default policy retain their existing outputs object.
+with ordered `member_N: answer` sections for successful members only. Fusions using the
+default quorum and only required members retain their existing outputs object.
 
 Quorum is a success floor checked after members finish, not an early response race.
-A required member still fails the Fusion even when a numeric quorum is met. With
-`optional_members=True`, `quorum="all"` still requires every member to succeed;
-`quorum=0` permits synthesis with no successful members. `None`, booleans, negative
-numbers, and numbers above the member count are rejected. These settings survive
-`Url4.to_python()` and replay.
+`quorum="all"` still requires every member to succeed, including optional members;
+`quorum=0` permits synthesis with no successful members when every member is optional.
+`None`, booleans, negative numbers, and numbers above the member count are rejected.
+Quorum and per-member optional settings survive `Url4.to_python()` and replay.
 
 ### Serial and recursive composition
 

@@ -26,14 +26,14 @@ def test_fusion_rejects_quorum_outside_member_count(quorum: int) -> None:
 
 
 def test_fusion_policy_is_immutable_and_visible_in_repr() -> None:
-    fusion = sf.Fusion(["a", "b"], synthesizer="synth", quorum=0, optional_members=True)
+    fusion = sf.Fusion([sf.Model("a", optional=True), "b"], synthesizer="synth", quorum=0)
     assert "quorum=0" in repr(fusion)
-    assert "optional_members=True" in repr(fusion)
+    assert "optional=True" in repr(fusion.members[0])
     assert fusion != sf.Fusion(["a", "b"], synthesizer="synth")
     with pytest.raises(AttributeError):
         setattr(fusion, "quorum", 1)
-    with pytest.raises(TypeError, match="optional_members"):
-        sf.Fusion(["a"], synthesizer="synth", optional_members=1)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="optional"):
+        sf.Model("a", optional=1)  # type: ignore[arg-type]
 
 
 def _context(seen: list[dict], *, a: bool = True, b: bool = True) -> ExecutionContext:
@@ -52,7 +52,9 @@ def _context(seen: list[dict], *, a: bool = True, b: bool = True) -> ExecutionCo
 
 @pytest.mark.asyncio
 async def test_quorum_tolerates_one_failure_and_synthesizes_successful_members() -> None:
-    fusion = sf.Fusion(["a", "b", "missing"], synthesizer="synth", quorum=2, optional_members=True)
+    fusion = sf.Fusion(
+        ["a", "b", sf.Model("missing", optional=True)], synthesizer="synth", quorum=2
+    )
     seen: list[dict] = []
     assert await run(compile_candidate(fusion).url4, ctx=_context(seen)) == "synthesized"
     assert len(seen) == 1
@@ -66,7 +68,9 @@ async def test_quorum_tolerates_one_failure_and_synthesizes_successful_members()
 @pytest.mark.asyncio
 @pytest.mark.parametrize("quorum", [2, "all"])
 async def test_unmet_quorum_prevents_synthesis(quorum: Any) -> None:
-    fusion = sf.Fusion(["a", "missing"], synthesizer="synth", quorum=quorum, optional_members=True)
+    fusion = sf.Fusion(
+        ["a", sf.Model("missing", optional=True)], synthesizer="synth", quorum=quorum
+    )
     seen: list[dict] = []
     with pytest.raises(ResolutionError) as exc:
         await run(compile_candidate(fusion).url4, ctx=_context(seen))
@@ -76,7 +80,7 @@ async def test_unmet_quorum_prevents_synthesis(quorum: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_zero_quorum_can_synthesize_without_successful_members() -> None:
-    fusion = sf.Fusion(["missing"], synthesizer="synth", quorum=0, optional_members=True)
+    fusion = sf.Fusion([sf.Model("missing", optional=True)], synthesizer="synth", quorum=0)
     seen: list[dict] = []
     assert await run(compile_candidate(fusion).url4, ctx=_context(seen)) == "synthesized"
     assert seen == [{"input": "the question", "outputs": ""}]
@@ -94,9 +98,64 @@ async def test_required_member_failure_is_not_tolerated_by_numeric_quorum() -> N
 @pytest.mark.asyncio
 async def test_optional_composite_member_failure_is_isolated() -> None:
     fusion = sf.Fusion(
-        ["a", sf.Pipeline(["b", "missing"])], synthesizer="synth", quorum=1, optional_members=True
+        ["a", sf.Pipeline(["b", "missing"], optional=True)], synthesizer="synth", quorum=1
     )
     seen: list[dict] = []
     assert await run(compile_candidate(fusion).url4, ctx=_context(seen)) == "synthesized"
     assert "member_2" not in seen[0]["outputs"]
     assert "B" not in seen[0]["outputs"]
+
+
+@pytest.mark.asyncio
+async def test_mixed_members_still_require_the_required_member() -> None:
+    fusion = sf.Fusion(
+        [sf.Model("a", optional=True), sf.Model("b", optional=True), "missing"],
+        synthesizer="synth",
+        quorum=2,
+    )
+    seen: list[dict] = []
+    with pytest.raises(ResolutionError):
+        await run(compile_candidate(fusion).url4, ctx=_context(seen))
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_optional_nested_fusion_is_one_member() -> None:
+    inner = sf.Fusion(["b", "missing"], synthesizer="synth", optional=True)
+    outer = sf.Fusion(["a", inner], synthesizer="synth", quorum=1)
+    seen: list[dict] = []
+    assert await run(compile_candidate(outer).url4, ctx=_context(seen)) == "synthesized"
+    assert len(seen) == 1
+    assert "member_2" not in seen[0]["outputs"]
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    [
+        sf.Model("a", optional=True),
+        sf.Pipeline(["a", "b"], optional=True),
+        sf.Fusion(["a", "b"], synthesizer="synth", optional=True),
+    ],
+)
+def test_optional_is_only_valid_in_a_fusion_member_position(recipe: sf.Recipe) -> None:
+    with pytest.raises(ValueError, match="Fusion members"):
+        compile_candidate(recipe)
+    with pytest.raises(ValueError, match="Fusion members"):
+        sf.Pipeline([recipe, "final"])
+    with pytest.raises(ValueError, match="Fusion members"):
+        sf.Fusion(["a"], synthesizer=recipe)
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "true"])
+def test_optional_requires_a_boolean_on_every_member_kind(value: Any) -> None:
+    with pytest.raises(TypeError, match="optional"):
+        sf.Model("a", optional=value)
+    with pytest.raises(TypeError, match="optional"):
+        sf.Pipeline(["a"], optional=value)
+    with pytest.raises(TypeError, match="optional"):
+        sf.Fusion(["a"], synthesizer="synth", optional=value)
+
+
+def test_optional_members_flag_is_removed() -> None:
+    with pytest.raises(TypeError, match="optional_members"):
+        sf.Fusion(["a"], synthesizer="synth", optional_members=True)  # type: ignore[call-arg]

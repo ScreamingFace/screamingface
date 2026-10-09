@@ -541,15 +541,15 @@ def test_topology_bindings_separate_context_references_from_operation_edges() ->
 @pytest.mark.parametrize("quorum", [0, 1, 2, "all"])
 def test_fusion_quorum_round_trips_through_editable_python(quorum: Any) -> None:
     recipe = sf.Fusion(
-        ["provider/a", "provider/b"],
+        [sf.Model("provider/a", optional=True), "provider/b"],
         synthesizer="provider/synth",
         quorum=quorum,
-        optional_members=True,
     )
     value = _url4(recipe)
     emitted = 2 if quorum == "all" else quorum
     assert f";quorum={emitted}" in value
-    assert value.count(";optional") == 2
+    assert value.count(";optional") == 1
+    assert value.count(";required") == 1
     namespace: dict[str, Any] = {}
     exec(value.to_python(), namespace)
     assert namespace["candidate"] == recipe
@@ -561,16 +561,18 @@ def test_fusion_quorum_round_trips_through_editable_python(quorum: Any) -> None:
 
 def test_nested_quorum_fusion_and_pipeline_synthesizer_round_trip() -> None:
     inner = sf.Fusion(
-        ["provider/a", "provider/b"], synthesizer="provider/inner", quorum=1, optional_members=True
+        [sf.Model("provider/a", optional=True), "provider/b"],
+        synthesizer="provider/inner",
+        quorum=1,
+        optional=True,
     )
     recipe = sf.Pipeline(
         [
             "provider/draft",
             sf.Fusion(
-                [inner, sf.Pipeline(["provider/c", "provider/d"])],
+                [inner, sf.Pipeline(["provider/c", "provider/d"], optional=True)],
                 synthesizer=sf.Pipeline(["provider/judge", "provider/writer"]),
                 quorum=1,
-                optional_members=True,
             ),
         ]
     )
@@ -587,10 +589,9 @@ def test_nested_quorum_fusion_and_pipeline_synthesizer_round_trip() -> None:
 def test_quorum_replay_rejects_executable_policy_that_disagrees_with_metadata(change: str) -> None:
     value = _url4(
         sf.Fusion(
-            ["provider/a", "provider/b"],
+            [sf.Model("provider/a", optional=True), "provider/b"],
             synthesizer="provider/synth",
             quorum=1,
-            optional_members=True,
         )
     )
     altered = (
