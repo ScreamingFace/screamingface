@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import pytest
 
+from url4.core._annotations import validate_param
 from url4.core.errors import ParseError
 from url4.core.grammar import parse
 from url4.core.nodes import RelExpr
@@ -172,3 +173,16 @@ async def test_char_eval_path_refuses_at_in_a_protocol_param() -> None:
     with pytest.raises(ParseError) as err:
         await node.fetch("/v1?tone=a@b&q=(x='1')!'go'", relative=True)
     assert err.value.code == "malformed_source"
+
+
+# --- the query-tail reader (C6) does not loosen the protocol params (rows 5, 27) ---
+
+
+def test_validate_param_still_refuses_at() -> None:
+    with pytest.raises(ParseError, match="param"):
+        validate_param("tone", "a@b")
+
+
+def test_eval_path_param_still_refuses_at_after_the_reader_exists() -> None:
+    with pytest.raises(ParseError, match="param"):
+        extract_expression_params("extract=last_number@1&q=(a)!'go'")

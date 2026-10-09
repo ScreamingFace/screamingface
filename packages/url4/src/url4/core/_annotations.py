@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 import warnings
 from typing import cast, get_args
+from urllib.parse import unquote
 
 from url4.core._scan import skip_quoted
 from url4.core.errors import ParseError
@@ -146,6 +147,45 @@ def validate_params(params: Params) -> None:
         validate_param(key, value)
 
 
+# query-tail = *( ALPHA / DIGIT / unreserved / ":" / "@" / "/" / "?" / "+" / "&" / "=" )
+# WHY: "&" is the part separator and "=" the key separator, so neither can appear in
+# a decoded part; the reader splits before it decodes, and checks "=" in the key.
+_QUERY_TAIL_CHAR_RE = re.compile(r"[A-Za-z0-9\-._~:@/?+=]*", re.ASCII)
+
+
+def read_query_tail(query: str) -> dict[str, str]:
+    """A code pointer's ``?query-tail`` as params (U3a, contracts C6). Raise ParseError.
+
+    Both the classifier (the author's intent text) and dispatch (the received
+    query) read a code pointer's params through this one rule. The split is on
+    ``&`` and each part splits at its first ``=``; a part with no ``=`` is a flag
+    with the value ``""``. A key or value decodes with ``unquote``, never
+    ``unquote_plus``: ``+`` is a literal query-tail character.
+    """
+    params: dict[str, str] = {}
+    for segment in query.split("&"):
+        if not segment:
+            continue
+        raw_key, eq, raw_value = segment.partition("=")
+        key = unquote(raw_key)
+        value = unquote(raw_value) if eq else ""
+        if not key or "=" in key or _QUERY_TAIL_CHAR_RE.fullmatch(key) is None:
+            raise ParseError(
+                f"invalid query-tail key {key!r} — a key takes the query-tail characters and no '='"
+            )
+        if key == "q":
+            raise ParseError("query-tail key 'q' is reserved for the transport (q=(…))")
+        if key in params:
+            raise ParseError(f"duplicate query-tail key {key!r}")
+        if _QUERY_TAIL_CHAR_RE.fullmatch(value) is None:
+            raise ParseError(
+                f"invalid query-tail value {value!r} for {key!r} — the value takes the "
+                "query-tail characters"
+            )
+        params[key] = value
+    return params
+
+
 def is_source_level_key(key: str) -> bool:
     """True for keys that are exclusively source-level (§8.1.3 boundary set)."""
     return key in EXCLUSIVE_SOURCE_KEYS or key.startswith(("coord.", "iteration.", "foreach."))
@@ -259,6 +299,7 @@ __all__ = [
     "EXPRESSION_BEARING_KEYS",
     "validate_param",
     "validate_params",
+    "read_query_tail",
     "EXCLUSIVE_SOURCE_KEYS",
     "classify_boundary",
     "extract_directives",

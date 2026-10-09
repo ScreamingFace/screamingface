@@ -57,6 +57,11 @@ class ErrorCode(StrEnum):
     DIRECT_EVAL_REFUSED = "direct_eval_refused"
     """A direct call (one handler, `url4.peer.dispatch_direct`) targeted the eval path, which
     evaluates an expression — the one thing a direct call must never do."""
+    INTENT_ERROR = "intent_error"
+    """A code pointer's call failed: no endpoint at the path, or a handler returned a non-text
+    result or raised a non-url4 error."""
+    UNSUPPORTED_MODE = "unsupported_mode"
+    """An intent names a scheme url4 does not run (`https://`, `http://`, `s3://`, …)."""
 
 
 class Url4Error(Exception):
