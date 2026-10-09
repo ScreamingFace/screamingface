@@ -896,11 +896,13 @@ def _whole_run_tally(
               scorer adapter in ``kept`` under its Case id, already reduced the way inspect
               reduces a Sample before any metric runs.
     Stage 2 — call the metric: a plain function from the same package the scorer came
-              from. No ``eval()``, no solver, no model call.
-    Stage 3 — publish: a number becomes the Headline Score; a dict becomes the Headline
-              Score (its FIRST key, inspect's own headline rule) plus the Named Scores,
-              headline first. A float metric on a row with Named Scores keeps the column
-              means beside it, with the headline column carrying the metric's number.
+              from. No ``eval()``, no solver, no model call. It is third-party code, so
+              anything it raises (a metadata key the Cases lack) fails the tally by the
+              metric's name, never as a bare exception.
+    Stage 3 — publish: the number becomes the Headline Score. A row with Named Scores
+              keeps the column means beside it, with the headline column carrying the
+              metric's number. A dict is refused: a Named Score is the mean of a column
+              every graded Case carries, and a dict's keys are columns no Case has.
 
     Worked example (contracteval's shape): 10 Cases, 7 with no related clause, and the
     Candidate always answers "no related clause". The mean is 7/10 = 0.7, because it is
@@ -908,16 +910,28 @@ def _whole_run_tally(
     against 3 missed clauses, so F1 = 2·0 / (2·0 + 0 + 3) = 0.0, the eval's number.
 
     Raises:
-        AggregateError: the headline is not a finite number up to 1, naming the metric and
-            what it returned. A Headline Score is higher-is-better up to 1, so xstest's
-            0..100 ``refusal_rate`` is refused, never clipped or rescaled.
+        AggregateError: naming the metric, when it asks inspect for unreduced Scores (the
+            store holds reduced ones, so it would read numbers inspect never hands it), when
+            it raises, when it returns a dict, or when its headline is not a finite number
+            up to 1. A Headline Score is higher-is-better up to 1, so xstest's 0..100
+            ``refusal_rate`` is refused, never clipped or rescaled.
     """
 
     # WHY the scorer helper: inspect's one registry names metrics and scorers alike, and the
     # lazy import keeps inspect out of engine start-up (only an opted-in row reaches here).
-    from screamingface_engine_inspect.scorer_metrics import scorer_registry_name
+    from screamingface_engine_inspect.scorer_metrics import (
+        reads_unreduced_scores,
+        scorer_registry_name,
+    )
 
     name: str = scorer_registry_name(metric)
+    # WHY refuse before grading: inspect hands an "unreduced" metric each Sample's raw Score
+    # ("C"), and the store keeps the reduced one (1.0); the importer refuses it too.
+    if reads_unreduced_scores(metric):
+        raise AggregateError(
+            f"the whole-run metric {name} asks for unreduced Scores, which the tally does "
+            "not keep; keep the mean for this row"
+        )
 
     def tally(cases: Sequence[CaseResult]) -> CandidateScore:
         # Stage 1 — the graded Cases' kept Scores, in roll-call order.
@@ -925,23 +939,31 @@ def _whole_run_tally(
             samples: list[Any] = [kept[int(case.case_id)] for case in cases]
         except KeyError as missing:
             raise AggregateError(f"graded Case {missing} kept no Score for {name}") from None
-        # Stage 2 — the eval's own tally sheet.
-        value: object = metric(samples)
-        # Stage 3 — one number, or a dict whose first key heads it.
-        named: dict[str, object] = dict(value) if isinstance(value, Mapping) else {}
-        headline: object = next(iter(named.values()), None) if named else value
-        if not _is_headline(headline):
+        # Stage 2 — the eval's own tally sheet. WHY catch everything: the metric is the
+        # eval's code, and a bare KeyError after every Candidate call is paid names nothing.
+        try:
+            value: object = metric(samples)
+        except Exception as exc:
             raise AggregateError(
-                f"the whole-run metric {name} returned {headline!r}; a Headline Score is a "
+                f"the whole-run metric {name} failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        # Stage 3 — one number. A dict's keys are Named Scores no Case carries.
+        if isinstance(value, Mapping):
+            raise AggregateError(
+                f"the whole-run metric {name} returned a dict ({', '.join(map(str, value))}); "
+                "a Named Score is the mean of a column every graded Case carries, so only a "
+                "number can be published"
+            )
+        if not _is_headline(value):
+            raise AggregateError(
+                f"the whole-run metric {name} returned {value!r}; a Headline Score is a "
                 "finite number up to 1"
             )
-        assert isinstance(headline, int | float)
-        score: float = round(float(headline), 4)
+        assert isinstance(value, int | float)
+        score: float = round(float(value), 4)
         mean: CandidateScore = _accuracy(cases)
-        scores: dict[str, float | None] = (
-            {key: _named_value(item) for key, item in named.items()} if named else dict(mean.scores)
-        )
-        if scores and not named:
+        scores: dict[str, float | None] = dict(mean.scores)
+        if scores:
             # INVARIANT: the headline column IS `score` (the Report shows them as one number).
             scores[next(iter(scores))] = score
         return CandidateScore(score=score, metrics=mean.metrics, scores=scores)
@@ -958,14 +980,6 @@ def _is_headline(value: object) -> bool:
         and math.isfinite(value)
         and value <= 1.0
     )
-
-
-def _named_value(value: object) -> float | None:
-    """One Named Score from a dict metric: a finite number, rounded; anything else unknown."""
-
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
-        return None
-    return round(float(value), 4)
 
 
 def _column_means(graded: Sequence[CaseGrade]) -> dict[str, float | None]:

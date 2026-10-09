@@ -33,7 +33,15 @@ pytest.importorskip("inspect_evals")
 
 from inspect_ai import Epochs, Task  # noqa: E402
 from inspect_ai.dataset import MemoryDataset, Sample  # noqa: E402
-from inspect_ai.scorer import accuracy, grouped, match, stderr  # noqa: E402
+from inspect_ai.scorer import (  # noqa: E402
+    Metric,
+    SampleScore,
+    accuracy,
+    grouped,
+    match,
+    metric,
+    stderr,
+)
 from test_importer_refuses_task_metrics import fake_eval  # noqa: E402, F401 — the fixture
 
 from screamingface_engine_inspect import importer as importer_module  # noqa: E402
@@ -167,6 +175,36 @@ def test_honouring_writes_the_metrics_reference_and_a_review_todo() -> None:
     assert row.whole_run_metric == "TODO:inspect_evals.xstest.xstest:refusal_rate"
     assert "# TODO(review): confirm refusal_rate is higher-is-better up to 1" in text
     assert "NAMED DEVIATION" not in text
+
+
+def test_honouring_keeps_the_sample_metadata_the_metric_may_read() -> None:
+    """WHY: under one of inspect's own scorers the importer drops the Sample metadata, but an
+    honoured metric may read it (an F1 over "has a clause"); without it the metric reads an
+    empty dict and crashes, or a ``.get(key, default)`` publishes a wrong number."""
+
+    hle: Any = _module("hle.scorers")
+
+    honoured: TaskReplayFacts = _facts(_task(list(hle.HLE_METRICS)), "honour")
+    kept_mean: TaskReplayFacts = _facts(_task(list(hle.HLE_METRICS)), "mean")
+
+    assert honoured.keep_sample_metadata is True
+    # INVARIANT: keeping the mean shapes no Case, so a published row's Case Digest holds.
+    assert kept_mean.keep_sample_metadata is False
+
+
+@metric(scores="unreduced")
+def raw_rate() -> Metric:
+    """A metric that reads each Sample's raw Score, as inspect's ``frequency`` does."""
+
+    def compute(scores: list[SampleScore]) -> float:
+        return 0.0
+
+    return compute
+
+
+def test_honouring_a_metric_asking_for_unreduced_scores_is_refused_by_name() -> None:
+    with pytest.raises(ImporterError, match="cannot honour raw_rate: it asks for unreduced"):
+        _facts(_task([raw_rate()]), "honour")
 
 
 def test_honouring_a_metric_built_with_arguments_is_refused_by_name() -> None:

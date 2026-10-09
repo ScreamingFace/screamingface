@@ -253,7 +253,12 @@ def _facts_of(
         custom_metrics=_custom_metrics(task),
         # WHY (D11): an eval's own scorer may read state.metadata (chembench), and the
         # metadata sits inside the Case Digest, so it is decided here, never by a hand edit.
-        keep_sample_metadata=not scorers.scorer.startswith(INSPECT_SCORER_PREFIX),
+        # An honoured whole-run metric may read it too (an F1 over "has a clause"), even
+        # under one of inspect's own scorers (OME-1527); only an honour import moves.
+        keep_sample_metadata=(
+            not scorers.scorer.startswith(INSPECT_SCORER_PREFIX)
+            or scorers.whole_run_metric is not None
+        ),
         extra_scorers=scorers.extra_scorers,
         named_scores=scorers.named_scores,
         dropped_scorers=scorers.dropped_scorers,

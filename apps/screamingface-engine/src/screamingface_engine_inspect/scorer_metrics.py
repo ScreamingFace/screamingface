@@ -89,7 +89,9 @@ def headline_metric_reference(scorer: Any) -> str:
     Raises ``ValueError`` saying why the row cannot name it: a grouped metric block or an
     unregistered metric has no constructor; one built with arguments (bbeh's
     ``grouped(accuracy(), group_key="task")``) is a metric OBJECT the row cannot rebuild from
-    a name; one whose module does not export its constructor cannot be imported back.
+    a name; one whose module does not export its constructor cannot be imported back; one
+    declared ``@metric(scores="unreduced")`` reads each Sample's raw Score, where the tally
+    hands it the reduced one.
     """
 
     from importlib import import_module
@@ -99,6 +101,8 @@ def headline_metric_reference(scorer: Any) -> str:
     headline: Any | None = _headline_metric(scorer)
     if headline is None:
         raise ValueError("a grouped metric block or an unregistered metric has no constructor")
+    if reads_unreduced_scores(headline):
+        raise ValueError("it asks for unreduced Scores, which the tally does not keep")
     name: str = _metric_name(headline)
     params: dict[str, Any] = dict(registry_params(headline))
     if params:
@@ -111,6 +115,15 @@ def headline_metric_reference(scorer: Any) -> str:
     if not hasattr(import_module(module_name), name):
         raise ValueError(f"{module_name} does not export its constructor")
     return f"{module_name}:{name}"
+
+
+def reads_unreduced_scores(metric: Any) -> bool:
+    """True for a metric declared ``@metric(scores="unreduced")``: inspect hands it each
+    Sample's raw Score ("C"), never the reduced one (1.0) the whole-run tally keeps."""
+
+    from inspect_ai.scorer._metric import metric_scores
+
+    return metric_scores(metric) == "unreduced"
 
 
 def scorer_registry_name(scorer: Any) -> str:

@@ -32,6 +32,8 @@ pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
 from inspect_ai.scorer import (  # noqa: E402
+    CORRECT,
+    INCORRECT,
     Metric,
     SampleScore,
     Score,
@@ -109,8 +111,18 @@ def clause_f1() -> Metric:
 
 
 @metric
+def found_rate() -> Metric:
+    """The share of graded Cases whose clause was found: shows how many Cases the tally saw."""
+
+    def compute(scores: list[SampleScore]) -> float:
+        return sum(sample.score.as_float() for sample in scores) / len(scores)
+
+    return compute
+
+
+@metric
 def clause_counts() -> Metric:
-    """A dict-valued stand-in: the first key is the headline, the rest Named Scores."""
+    """A dict-valued stand-in, as inspect allows: keys that no Case carries."""
 
     def compute(scores: list[SampleScore]) -> dict[str, float]:
         found: float = sum(sample.score.as_float() for sample in scores)
@@ -159,8 +171,13 @@ def _row(case_id: int, answer: str) -> dict[str, object]:
     )
 
 
-def _benchmark(key: str, metric_factory: Callable[[], Any] | None) -> ImportedBenchmark:
-    """A stand-in Benchmark graded by ``clause_match``, with or without a whole-run metric."""
+def _benchmark(
+    key: str,
+    metric_factory: Callable[[], Any] | None,
+    scorer_factory: Callable[[], Any] = clause_match,
+) -> ImportedBenchmark:
+    """A stand-in Benchmark graded by ``clause_match`` (or another scorer), with or without a
+    whole-run metric."""
 
     return single_shot_benchmark(
         benchmark_key=key,
@@ -170,7 +187,7 @@ def _benchmark(key: str, metric_factory: Callable[[], Any] | None) -> ImportedBe
         dataset_url="https://example.test/contracts",
         case_count=10,
         revision_pins=("stand-in",),
-        scorer_factory=clause_match,
+        scorer_factory=scorer_factory,
         prepare=lambda out: {},
         install=lambda node, assets: None,
         with_check_surface=False,
@@ -234,24 +251,87 @@ async def test_finding_every_clause_scores_one_as_f1(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_dict_metric_gives_the_headline_and_named_scores_headline_first(
-    tmp_path: Path,
-) -> None:
-    answers: list[str] = ["clause 1"] + ["wrong"] * 3
+async def test_a_dict_metric_is_refused_by_name(tmp_path: Path) -> None:
+    """WHY: a Named Score is the mean of a column every graded Case carries (the SDK's
+    promise); a dict's ``found_rate`` and ``cases`` are columns no Case has, so publishing
+    them would show numbers no Case Grade explains."""
+
+    with pytest.raises(
+        AggregateError, match=r"clause_counts returned a dict \(found_rate, cases\)"
+    ):
+        await _aggregate(
+            _benchmark("clause-dict", clause_counts), tmp_path, [True] * 2, ["clause 1"] * 2
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_metric_reading_metadata_the_cases_lack_is_named(tmp_path: Path) -> None:
+    """WHY: the metric is the eval's code and runs after every Candidate call is paid; a bare
+    KeyError would name neither the metric nor what it missed."""
+
+    cases: list[PreparedCase] = _cases([True, False])
+    for case in cases:
+        del case["grading_material"]["metadata"]
+    _write_cases(cases, tmp_path)
+    rows: str = json.dumps([_row(1, "clause 1"), _row(2, _NONE)])
+
+    with pytest.raises(AggregateError, match="clause_f1 failed: KeyError: 'has_clause'"):
+        await benchmark_aggregate_async(
+            _benchmark("clause-no-metadata", clause_f1), rows, tmp_path, case_ids=(1, 2)
+        )
+
+
+@scorer(metrics=[accuracy()])
+def letter_match() -> Scorer:
+    """Marks in inspect's letters, as most of its own scorers do: "C" or "I"."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        return Score(value=CORRECT if target.text in state.output.completion else INCORRECT)
+
+    return score
+
+
+@pytest.mark.asyncio
+async def test_a_letter_mark_reaches_the_metric_as_a_number(tmp_path: Path) -> None:
+    """WHY: inspect reduces each Sample's Score before any metric runs, so "C" arrives as 1.0;
+    without that step ``as_float()`` on "C" raises, and found_rate could not run."""
 
     result: dict[str, Any] = await _aggregate(
-        _benchmark("clause-dict", clause_counts), tmp_path, [True] * 4, answers
+        _benchmark("clause-letters", found_rate, letter_match),
+        tmp_path,
+        [True] * 2,
+        ["clause 1", "wrong"],
     )
 
-    assert result["score"] == 0.25
-    assert list(result["scores"].items()) == [("found_rate", 0.25), ("cases", 4.0)]
+    assert result["score"] == 0.5
+
+
+@metric(scores="unreduced")
+def raw_found_rate() -> Metric:
+    """found_rate declared to read each Sample's raw Score, as inspect's ``frequency`` does."""
+
+    def compute(scores: list[SampleScore]) -> float:
+        return sum(sample.score.as_float() for sample in scores) / len(scores)
+
+    return compute
+
+
+@pytest.mark.asyncio
+async def test_a_metric_asking_for_unreduced_scores_is_refused_by_name(tmp_path: Path) -> None:
+    """WHY: inspect hands such a metric the raw "C"; the store keeps the reduced 1.0, so the
+    metric would read numbers inspect never gives it."""
+
+    with pytest.raises(AggregateError, match="raw_found_rate asks for unreduced Scores"):
+        await _aggregate(
+            _benchmark("clause-unreduced", raw_found_rate), tmp_path, [True] * 2, ["x"] * 2
+        )
 
 
 @pytest.mark.asyncio
 async def test_a_failed_case_stays_out_of_the_tally(tmp_path: Path) -> None:
     """A Case with no row never reaches the metric: 3 graded Cases, 1 found → 1/3."""
 
-    benchmark: ImportedBenchmark = _benchmark("clause-missing", clause_counts)
+    benchmark: ImportedBenchmark = _benchmark("clause-missing", found_rate)
     _write_cases(_cases([True] * 4), tmp_path)
     rows: str = json.dumps([_row(1, "clause 1"), _row(2, "x"), _row(3, "y")])
 
@@ -260,7 +340,7 @@ async def test_a_failed_case_stays_out_of_the_tally(tmp_path: Path) -> None:
     )
 
     assert result["coverage"] == 0.75
-    assert result["scores"]["cases"] == 3.0
+    # 1/3, not 1/4: the metric saw the 3 graded Cases only.
     assert result["score"] == round(1 / 3, 4)
 
 

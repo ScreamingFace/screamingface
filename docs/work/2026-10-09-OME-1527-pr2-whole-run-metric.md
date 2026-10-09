@@ -43,8 +43,8 @@ re-importable again with their published rows unchanged.
 ## Test plan
 
 - The tally: a contracteval-shaped fake Task whose metric is F1; "no related clause" on a
-  70%-no-clause run scores 0.7 as the mean and 0.0 as F1. A dict metric gives the headline
-  plus Named Scores, headline first. Failed Cases stay out. A non-finite or above-1 headline
+  70%-no-clause run scores 0.7 as the mean and 0.0 as F1. A dict metric, a raising metric and an
+  unreduced metric are refused by name. Failed Cases stay out. A non-finite or above-1 headline
   is refused by name.
 - The store: concurrent grading (asyncio.gather) keeps each Case's own Score; a failed Case
   leaves nothing; no store means nothing is kept.

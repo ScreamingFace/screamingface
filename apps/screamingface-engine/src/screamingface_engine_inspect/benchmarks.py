@@ -148,10 +148,10 @@ class BenchmarkSpec:
     scorer_dependencies: tuple[str, ...] = ()
     #: The eval's own whole-run inspect ``@metric``, as a dotted ``module:constructor``
     #: reference called with no arguments (``inspect_evals.hle.metrics:accuracy``). Set, it
-    #: scores the run in place of the mean of the Case scores (OME-1527, R1): a number is the
-    #: Headline Score, a dict the Headline Score (first key) plus Named Scores. OPT-IN per
-    #: Benchmark, never a default: a reviewer confirms the metric's headline is
-    #: higher-is-better up to 1, as a Headline Score must be. Benchmark identity when set.
+    #: scores the run in place of the mean of the Case scores (OME-1527, R1): its number is the
+    #: Headline Score (a dict is refused at tally). OPT-IN per Benchmark, never a default: a
+    #: reviewer confirms the metric's headline is higher-is-better up to 1, as a Headline
+    #: Score must be. Benchmark identity when set.
     whole_run_metric: str | None = None
 
 
