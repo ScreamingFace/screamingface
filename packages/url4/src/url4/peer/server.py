@@ -13,6 +13,9 @@ lives in :mod:`url4.peer._dispatch` (the second review's F2 split, made when
 the module-size cap fired): this module owns what a request CAN resolve to
 (registration) and the evaluation facade; that module owns the dispatch order.
 
+The ``@`` holdings and ``@identity`` registration (spec §5.6) lives in
+:mod:`url4.peer._holdings`, a mixin that :class:`Url4Node` inherits.
+
 Deferred by design: response envelopes, streaming delivery, requestor
 authentication and consent hooks (they need the URL4-Auth-Token / Part C
 transport spec); identity handlers may raise the spec error codes themselves.
@@ -22,16 +25,15 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from inspect import signature
 from typing import overload
 
 from url4.core.context import Context
-from url4.core.grammar import _IDENTITY_NAME_RE
 from url4.core.nodes import Node
 from url4.core.render import render
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
 from url4.io.layer import FetchRequest, FetchResult, IOLayer
 from url4.peer import _dispatch
+from url4.peer._holdings import HoldingsHandler, _HoldingsRegistration
 from url4.peer._http import asgi_app as _asgi_app
 from url4.peer._http import serve as _serve_node
 from url4.peer._owned import _OwnedIO
@@ -39,9 +41,6 @@ from url4.peer._request import Request
 from url4.peer.client import Url4Result, _blaming_render
 
 EndpointHandler = Callable[[Request], str | Awaitable[str]]
-# handlers may take the requested collection or nothing at all
-HoldingsHandler = Callable[[str | None], str | Awaitable[str]] | Callable[[], str | Awaitable[str]]
-_HoldingsPort = Callable[[str | None], str | Awaitable[str]]
 DataCallable = Callable[[], str | Awaitable[str]]
 DataProvider = str | DataCallable
 
@@ -54,7 +53,7 @@ class _DataRoute:
     media_type: str | None = None
 
 
-class Url4Node:
+class Url4Node(_HoldingsRegistration):
     """A url4 protocol node: endpoint/holdings/identity registries + dispatch.
 
     ``outbound`` is the IOLayer for absolute (``https://``, ``url4://``, …)
@@ -84,8 +83,8 @@ class Url4Node:
         self._endpoints: dict[str, EndpointHandler] = {}
         self._rds_endpoints: set[str] = set()
         self._data: dict[str, _DataRoute] = {}
-        self._self_holdings: dict[str | None, _HoldingsPort] = {}
-        self._identities: dict[str, _HoldingsPort] = {}
+        self._self_holdings = {}
+        self._identities = {}
         for path, provider in (data or {}).items():
             self.data(path, provider)
 
@@ -145,55 +144,6 @@ class Url4Node:
         def register(fn: DataCallable) -> DataCallable:
             self._data[path] = _DataRoute(fn, media_type)
             return fn
-
-        return register
-
-    @overload
-    def holdings(self, collection: HoldingsHandler) -> HoldingsHandler: ...
-
-    @overload
-    def holdings(
-        self, collection: str | None = None
-    ) -> Callable[[HoldingsHandler], HoldingsHandler]: ...
-
-    def holdings(
-        self, collection: str | HoldingsHandler | None = None
-    ) -> Callable[[HoldingsHandler], HoldingsHandler] | HoldingsHandler:
-        """Register the node's own ``@`` holdings (optionally per collection).
-
-        Use bare (``@node.holdings``), default (``@node.holdings()``), or per
-        shelf (``@node.holdings("science")``). Handlers may take the requested
-        collection or nothing at all.
-        """
-        if callable(collection):  # bare @node.holdings
-            return self._register_holdings(None, collection)
-
-        def register(handler: HoldingsHandler) -> HoldingsHandler:
-            return self._register_holdings(collection, handler)
-
-        return register
-
-    def _register_holdings(
-        self, collection: str | None, handler: HoldingsHandler
-    ) -> HoldingsHandler:
-        if collection in self._self_holdings:
-            raise ValueError(f"holdings for collection {collection!r} already registered")
-        self._self_holdings[collection] = _adapt_holdings(handler)
-        return handler
-
-    def identity(self, name: str) -> Callable[[HoldingsHandler], HoldingsHandler]:
-        """Register a principal's ``@name`` holdings (§5.6.2).
-
-        The handler takes the requested collection (or nothing) and may raise
-        :class:`~url4.core.errors.ResolutionError` with the spec's codes
-        (``identity_access_denied``, ``consent_required``, …) to gate access.
-        """
-        if not _IDENTITY_NAME_RE.fullmatch(name) or name in self._identities:
-            raise ValueError(f"invalid or duplicate identity name {name!r}")
-
-        def register(handler: HoldingsHandler) -> HoldingsHandler:
-            self._identities[name] = _adapt_holdings(handler)
-            return handler
 
         return register
 
@@ -299,24 +249,6 @@ class Url4Node:
 
     def _outbound_io(self) -> IOLayer:
         return self._owned.outbound()
-
-
-# --- module helpers ------------------------------------------------------------------
-
-
-def _adapt_holdings(handler: Callable[..., str | Awaitable[str]]) -> _HoldingsPort:
-    """Normalize a holdings/identity handler to the one-arg port shape.
-
-    Zero-arg handlers are common (most holdings don't branch on the requested
-    collection); detect them by signature and drop the argument for them.
-    """
-    try:
-        signature(handler).bind(None)
-    except TypeError:
-        return lambda _collection: handler()
-    except ValueError:  # no introspectable signature — assume the port shape
-        return handler
-    return handler
 
 
 __all__ = ["DataProvider", "EndpointHandler", "HoldingsHandler", "Request", "Url4Node"]
