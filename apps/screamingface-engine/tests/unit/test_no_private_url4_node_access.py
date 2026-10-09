@@ -26,10 +26,11 @@ _STRING_ACCESSORS = frozenset({"getattr", "hasattr", "setattr"})
 
 
 def _private_url4_node_attributes() -> frozenset[str]:
-    node = Url4Node("probe")
-    return frozenset(
-        name for name in vars(node) if name.startswith("_") and not name.startswith("__")
-    )
+    # WHY both sources: `vars()` of a live node gives the private fields its `__init__` sets,
+    # and `dir()` of the class gives the private methods and class attributes (`_run_text`,
+    # `_check_routable`, the holdings mixin's members), which `vars()` never lists.
+    names = set(vars(Url4Node("probe"))) | set(dir(Url4Node))
+    return frozenset(name for name in names if name.startswith("_") and not name.startswith("__"))
 
 
 def _offending_lines(py_file: Path, private: frozenset[str]) -> list[int]:
