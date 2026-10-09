@@ -19,6 +19,11 @@ from collections.abc import Iterator
 _OPENERS = "({"
 _CLOSERS = ")}"
 
+# Framing whitespace for the wire codec is ASCII only (audit finding E4).
+# ``str.strip()`` would also remove U+00A0, U+0085 and U+3000, which are intent
+# text: a trailing ideographic space at the end of an intent is part of it.
+ASCII_WHITESPACE = " \t\n\r\x0b\x0c"
+
 
 def skip_quoted(text: str, i: int) -> int:
     """Return the index just past the quote run opening at ``i``.
@@ -221,14 +226,33 @@ def find_top_level(expr: str, chars: str) -> int | None:
     return None
 
 
+def _split_depth0(text: str, sep: str, strip_chars: str | None) -> list[str]:
+    """Split ``text`` on ``sep`` at depth 0 outside quotes; parts are stripped.
+
+    ``strip_chars`` is the character set passed to :meth:`str.strip` (``None``
+    means Unicode whitespace). Empty or all-stripped input yields ``[]``.
+    """
+    if not text.strip(strip_chars):
+        return []
+    parts: list[str] = []
+    last = 0
+    for i, ch in iter_top_level(text):
+        if ch == sep:
+            parts.append(text[last:i])
+            last = i + 1
+    parts.append(text[last:])
+    return [p.strip(strip_chars) for p in parts]
+
+
 def split_query_segments(text: str) -> list[str]:
     """Split a query string on its depth-0, unquoted ``&`` separators.
 
     THE single definition of the §3.3.1 query-segment rule: an ``&`` nested
     inside ``(…)``/``{…}`` or a ``'…'`` quote belongs to its enclosing value,
-    never to the parameter list. Parts are stripped; empty input yields ``[]``.
+    never to the parameter list. Parts are stripped of ASCII whitespace only
+    (:data:`ASCII_WHITESPACE`); empty input yields ``[]``.
     """
-    return split_top_level(text, "&")
+    return _split_depth0(text, "&", ASCII_WHITESPACE)
 
 
 def split_top_level(expr: str, sep: str) -> list[str]:
@@ -237,19 +261,11 @@ def split_top_level(expr: str, sep: str) -> list[str]:
     Empty (or whitespace-only) input yields ``[]``, so callers can treat "no
     segments" and "no input" uniformly.
     """
-    if not expr.strip():
-        return []
-    parts: list[str] = []
-    last = 0
-    for i, ch in iter_top_level(expr):
-        if ch == sep:
-            parts.append(expr[last:i])
-            last = i + 1
-    parts.append(expr[last:])
-    return [p.strip() for p in parts]
+    return _split_depth0(expr, sep, None)
 
 
 __all__ = [
+    "ASCII_WHITESPACE",
     "balanced_body",
     "balanced_braces",
     "find_top_level",
