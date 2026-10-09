@@ -178,6 +178,11 @@ class MergeNode:
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"source": …, ["intent": …]}
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        # WHY: Spec B §6.1.3 — broadcast applies across resolved sources, so a failed optional
+        # source gets no process call and no row (BroadcastCollectNode omits its part). This
+        # mirrors CodePointerNode(broadcast_part=True) in dag/nodes/code_pointer.py.
+        if isinstance(inputs["source"], SourceFailure):
+            return inputs["source"]
         source = _as_text(inputs["source"])
         scope = Context(bindings={"current": source}, parent=ctx.scope)
         if self.intent_template is not None:
