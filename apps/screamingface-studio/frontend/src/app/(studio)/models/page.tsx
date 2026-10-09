@@ -28,14 +28,14 @@ import {
   GROUP_ORDER,
   providerPresentation,
 } from "@/lib/provider-presentation";
+import { fusionOf, recipeToUrl4 } from "@/lib/recipe";
 import { cn } from "@/lib/utils";
 
 const STARRED_VIEW = "__starred__";
 
+// A fusion of the selected models, in the form the builder's `?recipe=` import reads.
 function buildRecipe(models: SavedModel[]) {
-  return `url4://ensemble-${models.length}?models=${models
-    .map((model) => model.id)
-    .join("+")}&reduce=majority_vote&loop=parallel`;
+  return recipeToUrl4(fusionOf(models));
 }
 
 function errorDetail(error: unknown) {
