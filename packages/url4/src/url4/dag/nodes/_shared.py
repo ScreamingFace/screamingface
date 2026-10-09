@@ -245,8 +245,14 @@ def _gather_expanded(
 
 
 def _check_quorum(g: _Gathered, quorum: int | None) -> None:
-    # The contributing count IS len(sources) — every append above is a contribution.
-    resolved = len(g.sources)
+    # WHY: Spec C §12.2 and Spec B §5.3.12.7 count every resolved source after
+    # expansion, instrumental (weight 0.0) sources included — so `positional`,
+    # not `sources` (which omits instrumental slots).
+    _require_quorum(len(g.positional), quorum)
+
+
+def _require_quorum(resolved: int, quorum: int | None) -> None:
+    """Raise QUORUM_NOT_MET when fewer than ``quorum`` sources resolved (Spec C §12.2)."""
     if quorum is not None and resolved < quorum:
         raise ResolutionError(
             f"quorum not met: {resolved} of {quorum} required sources resolved",

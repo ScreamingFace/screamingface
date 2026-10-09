@@ -29,6 +29,7 @@ from url4.dag.nodes._shared import (  # isort: skip
     _check_quorum,
     _frame,
     _gather,
+    _require_quorum,
     _rows_to_json,
     _substitute,
 )
@@ -85,7 +86,8 @@ class GatherNode:
     intent, so this node is reached via hand-built ``Expression(intent=None)``
     trees and the engine's own internal wrappers, never from user text.
     A pure-instrumental group falls back to joining every slot value.
-    ``quorum`` (spec §9.1) gates on the post-expansion resolved-source count.
+    ``quorum`` (spec §9.1) gates on the post-expansion resolved-source count; the
+    broadcast route also uses this node as its quorum gate (§6.1.2).
     """
 
     slots: tuple[SlotSpec, ...] = ()
@@ -214,6 +216,7 @@ class FanoutReduceNode:
     """
 
     meta: tuple[tuple[str | None, float | None], ...] = ()
+    quorum: int | None = None
     intent_template: str | None = None
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {["intent": …], "call:i": …}
 
@@ -223,6 +226,7 @@ class FanoutReduceNode:
             for i, (name, weight) in enumerate(self.meta)
             if not isinstance(inputs[f"call:{i}"], SourceFailure)
         ]
+        _require_quorum(len(entries), self.quorum)  # §12.2: instrumental calls count too
         scope = _frame(inputs, ctx)
         # Responses are the sibling frame: they shadow outer names (spec §6.2).
         response_scope = Context(bindings=response_bindings(entries), parent=scope)

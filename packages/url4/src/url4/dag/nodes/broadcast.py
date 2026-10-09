@@ -39,9 +39,13 @@ class MergeNode:
     """
 
     intent_template: str | None = None
-    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"source": …, ["intent": …]}
+    # {"source": …, ["intent": …], ["quorum": gate]} — the gate's value is unused;
+    # depending on it orders the intent after quorum (§6.1.2).
+    deps: Mapping[str, DagNode] = field(default_factory=dict)
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        if isinstance(inputs["source"], SourceFailure):
+            return inputs["source"]  # A3: a failed source runs no intent (§6.1.3)
         source = _as_text(inputs["source"])
         scope = Context(bindings={"current": source}, parent=ctx.scope)
         if self.intent_template is not None:
@@ -61,7 +65,8 @@ class BroadcastCollectNode:
     A JSON array of ``{"source_position", "source_name", "result"}`` objects,
     ordered by source position (1-based). A failed optional source's part is
     omitted — broadcast applies across *resolved* sources (§6.1.3) — while the
-    surviving parts keep their original positions.
+    surviving parts keep their original positions. Quorum (§12.2) is not checked
+    here: a gate before every :class:`MergeNode` holds the intents until it is met.
     """
 
     names: tuple[str | None, ...] = ()

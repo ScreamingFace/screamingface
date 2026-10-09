@@ -34,6 +34,7 @@ from url4.dag.nodes import (  # isort: skip
     RelUrlNode,
     SlotSpec,
 )
+from url4.dag.nodes._shared import _require_quorum  # isort: skip
 
 Edges = Mapping[str, DagNode]
 
@@ -124,7 +125,7 @@ def _compile_group(
     quorum: int | None = None,
 ) -> DagNode:
     if broadcast:
-        return _broadcast_graph(slots, intent)
+        return _broadcast_graph(slots, intent, quorum)
     built = _build_slots(slots)
     if intent is None:
         return GatherNode(
@@ -179,8 +180,11 @@ def _reduce_graph(
         and all(_fanout_call(node) is not None for node in built)
         and any(not slot.instrumental for slot in slots)
     ):
-        return _fanout_graph(built, intent)
+        return _fanout_graph(built, intent, quorum)
     if not from_list and len(built) == 1 and isinstance(built[0], RelUrlNode) and built[0].is_expr:
+        # One source: a quorum above 1 can never be met (Spec C §13.6), so fail now
+        # rather than fold the quorum away.
+        _require_quorum(1, quorum)
         return _fold_intent_into_call(built[0], intent)
     return _base_graph(built, slots, intent, quorum)
 
@@ -207,7 +211,7 @@ def _fold_intent_into_call(node: RelUrlNode, intent: _Intent) -> DagNode:
     )
 
 
-def _broadcast_graph(slots: list[_Slot], intent: _Intent | None) -> DagNode:
+def _broadcast_graph(slots: list[_Slot], intent: _Intent | None, quorum: int | None) -> DagNode:
     """``!*`` — apply the intent once per source (spec §6.1).
 
     Sources resolve under the *outer* scope (no sibling reference edges,
@@ -224,16 +228,29 @@ def _broadcast_graph(slots: list[_Slot], intent: _Intent | None) -> DagNode:
         template = intent.text
     else:
         intent_node = intent.make({})
+    sources = [slot.make({}) for slot in slots]
+    # WHY a gate, not a check in the collector: §6.1.2 runs the intent only once
+    # quorum is met, so every MergeNode waits on it and none runs when it fails.
+    # The gate counts like the local route (post-expansion, instrumental included).
+    gate = None
+    if quorum is not None:
+        gate = GatherNode(_slot_specs(slots), quorum, deps=_src_deps(sources))
     parts: dict[str, DagNode] = {}
-    for i, slot in enumerate(slots):
-        deps: dict[str, DagNode] = {"source": slot.make({})}
+    for i, source in enumerate(sources):
+        deps: dict[str, DagNode] = {"source": source}
         if intent_node is not None:
             deps["intent"] = intent_node
+        if gate is not None:
+            deps["quorum"] = gate
         parts[f"part:{i}"] = MergeNode(intent_template=template, deps=deps)
     return BroadcastCollectNode(tuple(slot.name for slot in slots), deps=parts)
 
 
-def _fanout_graph(built: list[DagNode], intent: _Intent) -> DagNode:
+def _src_deps(sources: list[DagNode]) -> dict[str, DagNode]:
+    return {f"src:{i}": node for i, node in enumerate(sources)}
+
+
+def _fanout_graph(built: list[DagNode], intent: _Intent, quorum: int | None) -> DagNode:
     """All-relative-expression group: parallel fetches + a reducer fetch.
 
     The instruction resolves under the outer scope (no slot edges), matching the
@@ -251,7 +268,7 @@ def _fanout_graph(built: list[DagNode], intent: _Intent) -> DagNode:
         assert unwrapped is not None  # gated by _reduce_graph
         call, label = unwrapped
         meta.append((label or call.name, call.weight))
-    return FanoutReduceNode(tuple(meta), intent_template=intent.text, deps=deps)
+    return FanoutReduceNode(tuple(meta), quorum, intent_template=intent.text, deps=deps)
 
 
 def _base_graph(
