@@ -37,7 +37,7 @@ rows); integration rows for each group site and each transport; one e2e row (29)
   `T/unit/test_characterization.py:53-61`). They change in the same commit as rows 3 and 9, and
   the PR body lists them. All other existing url4 tests stay as they are. `[stated ans:Q5]`
 - **No hypothesis dependency.** Corpus rows use a seeded `random.Random`, as
-  `T/unit/test_characterization.py` already does. `[existing packages/url4/pyproject.toml:92-94]`
+  `T/unit/test_characterization.py` already does. `[existing T/unit/test_characterization.py:177-192]`
 - New spec-level tests go in `T/spec/test_rds_code_pointer.py`; codec and reader unit tests go in
   `T/unit/test_rds_document.py` and `T/spec/test_param_conformance.py` (append). `[proposed]`
 

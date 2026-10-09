@@ -84,7 +84,7 @@ Group sites:
   `[existing G/dag/nodes/group.py:280]`. The reducer input goes to `ctx.processor` as
   `processor?q=()!<input>` `[existing G/dag/nodes/group.py:282-298]`. With no processor route the
   group fails `[existing G/dag/nodes/group.py:286-290]`. The Engine sets that route to its default
-  model `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:464]`.
+  model `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:465]`.
 - **Base merge.** Any other group with a fetch intent waits on a barrier, then calls the
   `process` hook with the packed sources and the fetched text
   `[existing G/dag/_wiring.py:263-268]`, `[existing G/dag/nodes/group.py:152-162]`. The default
@@ -364,7 +364,8 @@ call per group (per source under broadcast), so no new race exists.
   grows only by its spaces and reserved characters. A measurement of the limit for `url4 serve` is
   a task in the implementation plan. `[proposed]`
 - **Observability.** The new node appears as `node_kind == "CodePointerNode"` in `NodeStarted`
-  `[existing G/observe.py:45-50]`. That is the in-package `intent_mode = "rds"` signal. The
+  `[existing G/observe.py:45-50]`. That is the signal this package gives for RDS mode; no
+  `intent_mode` field exists. The
   Spec C envelope field `intent_mode` is out of scope (the package has no envelope). `[proposed]`
 - **Security.** A relative code pointer resolves only against the node's own registered endpoints.
   A data route is never executed as code. A non-url4 scheme is refused (P2). `[proposed]`

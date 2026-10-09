@@ -113,6 +113,7 @@ recommended default, and the docs follow the default until Kevin answers.
 | O3 | Spec B §6 reads a bare-token intent as a "Named job / command identifier". url4 treats it as prompt text. | keep; revisit with Part G |
 | O4 | Spec A §1.4.1 says a computed intent "must ultimately resolve" to a prompt or a code pointer. url4 always uses the computed result as prompt text. | keep; revisit with Part G |
 | O5 | U4 call identity for attribution (deferred, ans:Q4). The document's `v` field leaves room. | future issue |
+| O6 | An LLM-mode broadcast (`(a, b;optional)!*'…'`) calls the `process` hook with `""` for a failed optional source and keeps a row with an empty result, so the collector's skip never fires (found while building D7, 2026-10-09). The RDS broadcast does not do this. | separate `bug` issue (Triage) |
 
 ## 8. Real users of URI intents (monorepo search, 2026-10-09)
 
@@ -124,7 +125,7 @@ those are **sources** with quoted intents (`/route(ctx)!'text'`), not URI intent
 
 | Area | Hit | Effect of 2.0 |
 |---|---|---|
-| Engine (`apps/screamingface-engine/src`) | none live. `world/connector.py:464` sets `default_processor` (used by text-intent fan-outs; unchanged). `benchmarks/registry.py:97` mentions `!/reduce()` in a comment about route collection. | none |
+| Engine (`apps/screamingface-engine/src`) | none live. `world/connector.py:465` sets `default_processor` (used by text-intent fan-outs; unchanged). `benchmarks/registry.py:97` mentions `!/reduce()` in a comment about route collection. | none |
 | Engine fixtures (`tests/unit/data/*corrective*.url4`) | none (no `)!/`) | none |
 | SDK (`packages/screamingface/src`) | none; it builds `RelExpr` calls with `Text` intents | none |
 | Studio (`apps/screamingface-studio/frontend/src/lib/recipe.ts:221,243`) | source calls `name:0.0:/path(ctx)!intent` and a quoted root `'$ref'` | none |
@@ -162,8 +163,10 @@ No production changes. These productions get new or confirmed execution meaning.
 
 ## 10. Release, migration and filing
 
-- **Version.** 1.5.1 → 2.0.0 through release-please (`release-please-config.json` →
-  `packages/url4`). The squash commit is `feat(url4)!: run URI intents as RDS code-pointer calls`
+- **Version.** 1.5.1 → 2.0.0 through release-please. `main` already holds a breaking url4
+  change (#1085), and release PR #852 proposes 2.0.0 for it. The user decided (2026-10-09) that
+  this change joins 2.0.0: it merges before #852, and #852 then lists both. The
+  release-please entry is `release-please-config.json` → `packages/url4`. The squash commit is `feat(url4)!: run URI intents as RDS code-pointer calls`
   with a `BREAKING CHANGE:` footer; release-please writes the CHANGELOG entry. `[stated ans:Q5]`
 - **Footer text (draft).** "A relative-URI or `url4://` intent is now an RDS code pointer: the node
   calls it once with the group's sources as a JSON input document, instead of fetching it as

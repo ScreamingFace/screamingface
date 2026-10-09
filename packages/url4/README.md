@@ -60,6 +60,9 @@ The execution engine (DAG compilation, executor, lowering) lives one level down:
   concurrently.
 - **Inverted I/O**: all side effects go through the `IOLayer` port (`StaticIOLayer` for
   tests/offline, HTTP for real fetches), keeping the core pure and deterministic.
+- **Code pointers (RDS mode)**: a URI intent, `(a:…, b:…)!/combine?k=v` or
+  `!url4://node/combine`, calls that code once with the sources as a JSON input document.
+  No model sees the inputs. See [Migrating to 2.0](#migrating-to-20).
 - **Fully typed**: passes `pyright`; type hints ship to consumers.
 
 ## Iteration position
@@ -229,8 +232,9 @@ Errors come back as JSON: `{"error": {"code": "...", "message": "..."}}`.
 
 | Status | Cause |
 |---|---|
-| 400 | parse error / unbound reference |
+| 400 | parse error / unbound reference / unsupported intent mode (`unsupported_mode`) |
 | 404 | unknown route |
+| 422 | a code pointer is missing or failed (`intent_error`) |
 | 502 | command exited non-zero |
 | 503 | over `--max-inflight` |
 | 504 | request exceeded `--timeout` |
@@ -240,6 +244,48 @@ Errors come back as JSON: `{"error": {"code": "...", "message": "..."}}`.
 ```bash
 uv run url4 eval "(/upper(hi)!'go')"
 ```
+
+## Migrating to 2.0
+
+url4 2.0 gives a URI intent the meaning that URL4 Spec B §6 gives it: a **code pointer**.
+
+| Intent | 1.x | 2.0 |
+|---|---|---|
+| `!'…'` (quoted text) | a prompt | a prompt (no change) |
+| `!/path?k=v` | fetch `/path` as instruction text, then reduce with the default processor | call the code at `/path` once, with the sources as a JSON input document |
+| `!url4://node/path` | fetch as instruction text | call the code at `/path` on `node` |
+| `!https://…`, other schemes | fetch as instruction text | refused at compile time: `unsupported_mode` |
+
+The code receives one `Request` with `mode == "rds"`:
+
+```python
+@node.endpoint("/ensemble/combine/v1")
+def combine(request: Request) -> str:
+    assert request.mode == "rds"
+    request.inputs  # {"member_1": "…", "member_2": "…", "extract_pattern": "…"}
+    request.params  # {"reducer": "vote", "extract": "last_number@1"}
+    ...
+```
+
+- `inputs` has one key per resolved source: its name, or `$k` (the 1-based position) for an
+  unnamed source. A weight-`0.0` source is delivered. A failed `;optional` source is absent.
+- A value is the source's text, exactly. It is a JSON array only for a collection (an
+  iteration, a broadcast group, a named `;expand` source), and a JSON object only for a
+  `{k: v}` struct.
+- `params` is the pointer's query, read by the grammar's `query-tail` rule, so `@` is allowed.
+- On the wire, the call is `GET /path?k=v&q=(<percent-encoded {"v":1,"inputs":{…}}>)` with no
+  `!` tail.
+
+To migrate:
+
+1. If a URI intent held instruction text, write that text as a quoted intent (`!'…'`). This
+   keeps the 1.x fan-out path exactly.
+2. If the text must stay remote, bind it as a weight-`0.0` source and reference it in a quoted
+   intent: `(member_1:…, instr:0.0:/instr)!'$instr'`. A group that is not all calls takes the
+   base merge (the `process` hook), not the fan-out reduce.
+3. To run code, register it at the path with `@node.endpoint` and read `request.inputs` and
+   `request.params` when `request.mode == "rds"`.
+4. Replace an `https://` intent with a url4 endpoint or a `url4://` reference.
 
 ## Development
 

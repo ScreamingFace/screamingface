@@ -92,8 +92,9 @@ Worked example (from `(member_1:/a(…)!'P', member_2:/b(…)!'P', extract_patte
 **Receiver (dispatch).** `_dispatch.dispatch` `[existing G/peer/_dispatch.py:137-152]` changes in
 this order:
 
-1. Split the query at depth 0 and find the raw `q` value (today's splitter,
-   `[existing G/wire/subrequest.py:184-242]`, without validating values yet).
+1. Split the query at depth 0 and find the raw `q` value. Today's splitter
+   `[existing G/wire/subrequest.py:184-242]` also validates every value with `param-value`, so
+   the split moves into its own function (`split_expression_query`) that does not validate.
 2. Decode the `q` payload. Raw convention (a raw `(` is present): it must be `(` + body + `)`; one
    `unquote` of the body. Fully-encoded convention (`_fully_encoded`,
    `[existing G/wire/subrequest.py:159-171]`): one `unquote_plus`, then strip the outer parens. Do

@@ -261,13 +261,13 @@ lets an expression fan out to sub-expressions that are themselves only parsed on
 | `LazyExprNode` | Virtual Proxy over an unparsed fragment (compiled on resolve) |
 | `GuardNode` | per-source disposition: `;optional`/`;t=`/`;retry=` (isolation boundary) |
 | `ExpandNode` | `*source`/`;expand` → `list[str]` spliced into sibling positions |
-| `BarrierNode` | make a fetch-intent structurally depend on all sources |
+| `BarrierNode` | make a fetch-intent structurally depend on all sources (url4 2.0: a URI intent is a `CodePointerNode` instead; see `docs/spec/2026-10-09-url4-rds-code-pointer/`) |
 | `GatherNode` | internal gather-join of an intent-less group (AST-only carrier — no surface form, `OME-508`) |
 | `InlineCollectionNode` | `(e1,e2,…)` as a real ordered element list for `*` |
 | `ProcessNode` | `(sources)!intent` base merge via the `process` hook |
 | `MergeNode` | one broadcast application (`$current` bound) |
 | `BroadcastCollectNode` | assemble broadcast results into the §6.1.4 JSON array |
-| `FanoutReduceNode` | label N parallel responses, reduce via `ctx.processor` |
+| `FanoutReduceNode` | label N parallel responses, reduce via `ctx.processor` (url4 2.0: only for a quoted-text or computed intent; a URI intent is a `CodePointerNode`) |
 | `MapNode` | `src*(body)` per-row evaluation (concurrency/on_error/slice) |
 | `CollectNode` / `ReduceNode` | serialize rows to JSON array / reduce the array |
 | `JoinNode` | join ordered parts, flattening `list[str]` |
@@ -328,6 +328,9 @@ semaphore is built — `Semaphore(0)` would hang every fetch forever.
 
 `_compile_group` picks the resolution strategy from the shape:
 
+- **code pointer** (`CodePointerNode`, url4 2.0) — checked first: a relative-URI or `url4://`
+  intent calls that code once with the sources as a JSON input document, and the strategies
+  below do not apply (`docs/spec/2026-10-09-url4-rds-code-pointer/`).
 - **base** (`ProcessNode`) — sources gather, then the intent merges via `ctx.process`. A
   *text* intent substitutes **post-gather** (so `$N` positions renumbered by expansion are
   correct, §5.3.12.4); a *fetch* intent sits behind a `BarrierNode` to preserve
