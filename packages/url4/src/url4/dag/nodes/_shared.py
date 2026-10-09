@@ -30,10 +30,7 @@ from dataclasses import dataclass
 from url4.core.context import Context
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.nodes import Params
-from url4.dag.semantics.ensemble import (
-    substitute_env_vars,
-    substitute_item,
-)
+from url4.dag.semantics.ensemble import interpolate
 from url4.io.layer import FetchRequest, fetch_result
 from url4.wire.subrequest import strip_transport_params
 
@@ -90,22 +87,19 @@ def _current_item(scope: Context) -> str | None:
 
 
 def _substitute(text: str, scope: Context, ctx: ExecutionContext) -> str:
-    """Resolve a leaf's ``$item`` (row) then ``$name``/``$N`` (scope) references.
+    """Resolve a leaf's ``$item`` (row), ``$name``/``$N`` (scope) and ``$$`` references.
 
-    ``$item`` is applied first so its ``$$item`` escape still sees the raw
-    template and so a row value is treated as opaque data, not re-scanned for
-    ``$name``. Outside a map (no bound row) this is just
-    :func:`substitute_env_vars`. ``ctx.strict_fields`` selects the spec
-    §5.3.4.1 field-path error mode.
+    One scan over the template (:func:`~url4.dag.semantics.ensemble.interpolate`,
+    spec §8.2.5): a row value or a bound value is opaque data, never re-scanned
+    for references, and ``$$`` collapses exactly once. ``ctx.strict_fields``
+    selects the spec §5.3.4.1 field-path error mode.
     """
     item = _current_item(scope)
-    if item is not None:
-        text = substitute_item(text, item, strict=ctx.strict_fields)
     # INVARIANT: the native row index wins over author bindings only inside a map.
     index = scope.get(_INDEX_KEY)
     if index is not None:
         scope = scope.child(index=index)
-    return substitute_env_vars(text, scope, strict=ctx.strict_fields)
+    return interpolate(text, scope, item=item, strict=ctx.strict_fields)
 
 
 def _maybe_json(text: str):

@@ -7,9 +7,13 @@ executable nodes in :mod:`url4.dag` compose them with the
 
 Variable substitution
 ----------------------
-- ``$name`` / ``$N`` — replaced from the :class:`~url4.core.context.Context`
-  (:func:`substitute_env_vars`). Unknown names are left verbatim.
-- ``$item`` — replaced per collection row (:func:`substitute_item`).
+One interpolation scan (spec §8.2.5, :func:`interpolate`) over the original
+template resolves every reference. An inserted value is opaque data: it is never
+scanned again, so a ``$`` inside a row, a bound value, or a response stays text.
+
+- ``$name`` / ``$N`` — replaced from the :class:`~url4.core.context.Context`.
+  Unknown names are left verbatim.
+- ``$item`` — replaced from the current collection row, when one is bound.
 - Field paths (spec §5.3.4 / §6.2 / §8.2): every reference accepts nested dot
   segments and ``[N]`` index segments (``$data.author.name``,
   ``$item.tags[0]``, ``$1.reviews[0].text``). Traversal is left-to-right over
@@ -17,15 +21,15 @@ Variable substitution
   (spec §5.3.4.1): the lenient/LLM default substitutes ``""`` for a missing
   field, type error, or out-of-bounds index; ``strict=True`` (RDS mode) raises
   :class:`~url4.core.errors.ScopeError` with code ``malformed_source``.
-- ``$$`` → literal ``$``. Handled once, in :func:`substitute_env_vars`; the
-  ``(?<!\\$)`` lookbehind in :func:`substitute_item` keeps ``$$item`` from being
-  captured as ``$item`` before the escape collapses.
+- ``$$`` → literal ``$``, collapsed in the same scan (spec §6.2), so it
+  collapses exactly once.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from url4.core._scan import iter_non_string_chars
@@ -40,15 +44,10 @@ from url4.core.errors import ErrorCode, ScopeError
 # (`OME-504`).
 _PATH = r"(?:\.[a-zA-Z_]\w*|\[(?:0|[1-9]\d*)\])"
 
-# $$ (escape) | $name (letter-led binding) or $N (1-based positional slot),
-# each with an optional field path.
+# The interpolation scanner (spec §8.2.5): $$ (escape) | $name (letter-led
+# binding, `$item` included) or $N (1-based positional slot), each with an
+# optional field path.
 _ENV_VAR_RE = re.compile(rf"\$\$|\$([a-zA-Z_]\w*|[0-9]+)({_PATH}*)", re.ASCII)
-# $name only, no path — the fan-out reducer instruction's reference form.
-_NAME_ONLY_RE = re.compile(r"\$\$|\$([a-zA-Z_]\w*)", re.ASCII)
-# $item with a non-empty field path ($item.f, $item[0], $item.a[1].b …).
-_ITEM_PATH_RE = re.compile(rf"(?<!\$)\$item({_PATH}+)", re.ASCII)
-# Bare $item: not a longer identifier ($items) nor the head of a field path.
-_ITEM_BARE_RE = re.compile(rf"(?<!\$)\$item(?!\w)(?!{_PATH})", re.ASCII)
 _SEGMENT_RE = re.compile(r"\.([a-zA-Z_]\w*)|\[(\d+)\]", re.ASCII)
 
 
@@ -196,29 +195,9 @@ def _response_header(entry: FanoutResponse, index: int, has_labels: bool) -> str
     return f"{entry.name}:"
 
 
-def substitute_response_vars(instruction: str, entries: list[FanoutResponse]) -> str:
-    """Replace ``$name`` in ``instruction`` with each named response's text.
-
-    A single regex pass (mirroring :func:`substitute_env_vars`) so a name that is
-    a prefix of another (``$claude`` vs ``$claude2``) can't corrupt the longer
-    reference, and values landing inside a ``{...}`` JSON blob are escaped.
-    Response texts are opaque prose, so field paths are not interpreted here —
-    a ``.suffix`` after a name stays literal text.
-    """
-    if not instruction or "$" not in instruction:
-        return instruction
-    by_name = {e.name: e.text.strip() for e in entries if e.name is not None}
-    if not by_name:
-        return instruction
-    blob_spans = _json_blob_spans(instruction)
-
-    def _replace(m: re.Match) -> str:
-        name = m.group(1)
-        if name is None or name not in by_name:  # "$$" or unknown name → verbatim
-            return m.group(0)
-        return _escape_for_json(by_name[name], m.start(), blob_spans)
-
-    return _NAME_ONLY_RE.sub(_replace, instruction)
+def response_bindings(entries: list[FanoutResponse]) -> dict[str, str]:
+    """The ``$name`` → response text map for the named fan-out responses."""
+    return {e.name: e.text.strip() for e in entries if e.name is not None}
 
 
 # --- reference discovery + substitution -----------------------------------------------
@@ -229,9 +208,9 @@ def find_references(text: str) -> set[str]:
 
     Field-path suffixes are stripped (``$data.tags[0]`` → ``data``) — the DAG
     compiler derives dependency edges from base names; traversal happens at
-    substitution time. ``$$`` escapes, ``$item`` (owned by
-    :func:`substitute_item`), and ``$current`` (bound per broadcast merge) are
-    not references.
+    substitution time. ``$$`` escapes, ``$item`` (the current collection row,
+    resolved by :func:`interpolate` from the map's bound row), and ``$current``
+    (bound per broadcast merge) are not references.
     """
     if "$" not in text:
         return set()
@@ -242,13 +221,19 @@ def find_references(text: str) -> set[str]:
     }
 
 
-def substitute_env_vars(text: str, context: Context | None, *, strict: bool = False) -> str:
-    """Replace ``$name[.path]`` from ``context`` and collapse ``$$`` → ``$``.
+# Resolve one reference (base name, field-path suffix) to its text, or None to
+# leave the reference verbatim.
+_Lookup = Callable[[str, str], str | None]
 
-    ``$item`` is left untouched (owned by :func:`substitute_item`). Unknown names
-    are left verbatim so the model sees them as literal text. A value landing
-    inside a ``{...}`` blob is JSON-escaped so it can't break a later json.loads.
-    Field paths traverse per :func:`resolve_field_path` under ``strict``.
+
+def _scan(text: str, lookup: _Lookup, *, collapse_escape: bool) -> str:
+    """The one interpolation scan (spec §8.2.5) over ``text``.
+
+    INVARIANT: every match is resolved against the ORIGINAL ``text`` — blob
+    spans are computed once, before any insertion, and ``re.sub`` never scans
+    its own replacements — so an inserted value is opaque data (a ``$`` or a
+    ``{`` inside it is text, not a reference or a blob boundary). A value
+    landing inside a ``{...}`` blob is JSON-escaped.
     """
     if not text or "$" not in text:
         return text
@@ -257,19 +242,54 @@ def substitute_env_vars(text: str, context: Context | None, *, strict: bool = Fa
     def _replace(m: re.Match) -> str:
         name = m.group(1)
         if name is None:  # matched "$$"
-            return "$"
-        value = _lookup_or_none(name, context)
-        if value is None:
-            return m.group(0)
-        resolved = resolve_field_path(value, m.group(2), strict=strict, ref=f"${name}")
-        return _escape_for_json(resolved, m.start(), blob_spans)
+            return "$" if collapse_escape else m.group(0)
+        value = lookup(name, m.group(2))
+        return m.group(0) if value is None else _escape_for_json(value, m.start(), blob_spans)
 
     return _ENV_VAR_RE.sub(_replace, text)
 
 
+def interpolate(
+    text: str,
+    context: Context | None,
+    *,
+    item: str | None = None,
+    strict: bool = False,
+) -> str:
+    """Resolve every ``$`` reference in ``text`` in one scan; ``$$`` → ``$``.
+
+    ``$item[.path]`` reads the bound collection row ``item`` (verbatim outside a
+    map); ``$name[.path]`` and ``$N[.path]`` read ``context``. Unknown names stay
+    verbatim. Field paths traverse per :func:`resolve_field_path` under
+    ``strict`` — identically for every reference form (spec §6.2).
+    """
+
+    def lookup(name: str, path: str) -> str | None:
+        if name == "item":
+            return (
+                None if item is None else resolve_field_path(item, path, strict=strict, ref="$item")
+            )
+        value = _lookup_or_none(name, context)
+        return (
+            None
+            if value is None
+            else resolve_field_path(value, path, strict=strict, ref=f"${name}")
+        )
+
+    return _scan(text, lookup, collapse_escape=True)
+
+
+def substitute_env_vars(text: str, context: Context | None, *, strict: bool = False) -> str:
+    """Replace ``$name[.path]`` from ``context`` and collapse ``$$`` → ``$``.
+
+    ``$item`` is left untouched. See :func:`interpolate`.
+    """
+    return interpolate(text, context, strict=strict)
+
+
 def _lookup_or_none(name: str, context: Context | None) -> str | None:
-    """Return the stringified binding for ``name``, or None if unresolved/reserved."""
-    if name == "item" or context is None:
+    """Return the stringified binding for ``name``, or None if unresolved."""
+    if context is None:
         return None
     try:
         value = context.lookup(name)
@@ -283,33 +303,24 @@ def substitute_item(template: str, item_json: str, *, strict: bool = False) -> s
 
     ``$item`` → the full row; a field path traverses the JSON-decoded row per
     :func:`resolve_field_path` (lenient ``""`` by default, ``strict=True``
-    raises — spec §5.3.4.1).
+    raises — spec §5.3.4.1). ``$$`` and every other reference stay verbatim.
     """
-    if "$item" not in template:  # skip the regex scan + per-row JSON parse
-        return template
-    blob_spans = _json_blob_spans(template)
 
-    def _path_replacer(match: re.Match) -> str:
-        value = resolve_field_path(item_json, match.group(1), strict=strict, ref="$item")
-        return _escape_for_json(value, match.start(), blob_spans)
+    def lookup(name: str, path: str) -> str | None:
+        if name != "item":
+            return None
+        return resolve_field_path(item_json, path, strict=strict, ref="$item")
 
-    result = _ITEM_PATH_RE.sub(_path_replacer, template)
-    if "$item" not in result:
-        return result
-    # Bare $item substitutes the whole row; it needs the same in-blob escaping as
-    # a path reference, and its blob spans are recomputed on `result` because path
-    # substitution above shifted positions. Callable replacement keeps backslash
-    # sequences in the data from being re-processed as regex escapes.
-    result_spans = _json_blob_spans(result)
-    return _ITEM_BARE_RE.sub(lambda m: _escape_for_json(item_json, m.start(), result_spans), result)
+    return _scan(template, lookup, collapse_escape=False)
 
 
 __all__ = [
     "FanoutResponse",
     "build_reducer_input",
     "find_references",
+    "interpolate",
     "resolve_field_path",
+    "response_bindings",
     "substitute_env_vars",
     "substitute_item",
-    "substitute_response_vars",
 ]

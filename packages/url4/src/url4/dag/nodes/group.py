@@ -12,7 +12,7 @@ from url4.dag.processor import resolve_processor_target
 from url4.dag.semantics.ensemble import (
     FanoutResponse,
     build_reducer_input,
-    substitute_response_vars,
+    response_bindings,
 )
 from url4.wire.subrequest import encode_subrequest
 
@@ -180,10 +180,9 @@ class MergeNode:
         source = _as_text(inputs["source"])
         scope = Context(bindings={"current": source}, parent=ctx.scope)
         if self.intent_template is not None:
-            # WHY: _substitute (not bare substitute_env_vars) so a broadcast intent
-            # nested inside an iteration resolves $item too, exactly as the
-            # non-broadcast ProcessNode path does — $current still resolves via
-            # the substitute_env_vars pass _substitute ends with.
+            # WHY: _substitute so a broadcast intent nested inside an iteration
+            # resolves $item too, exactly as the non-broadcast ProcessNode path
+            # does; $current resolves from `scope` in the same scan.
             intent = _substitute(self.intent_template, scope, ctx)
         else:
             intent = _as_text(inputs["intent"]) if "intent" in inputs else ""
@@ -262,10 +261,15 @@ class FanoutReduceNode:
     from the configured ``ctx.processor`` route as ``processor?q=()!<input>`` —
     the reduce step is itself a localhost fetch. A failed optional call is
     excluded from the reducer input (it is not a resolved response).
+
+    A text instruction is the raw ``intent_template``, substituted in one scan
+    with the response names and the outer scope (audit A4: no double ``$$``
+    collapse, no re-scan of bound values). A fetched instruction is data.
     """
 
     meta: tuple[tuple[str | None, float | None], ...] = ()
-    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …, "call:i": …}
+    intent_template: str | None = None
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {["intent": …], "call:i": …}
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         entries = [
@@ -273,7 +277,14 @@ class FanoutReduceNode:
             for i, (name, weight) in enumerate(self.meta)
             if not isinstance(inputs[f"call:{i}"], SourceFailure)
         ]
-        instruction = substitute_response_vars(_as_text(inputs.get("intent", "")), entries)
+        scope = _frame(inputs, ctx)
+        # Responses are the sibling frame: they shadow outer names (spec §6.2).
+        response_scope = Context(bindings=response_bindings(entries), parent=scope)
+        instruction = (
+            _substitute(self.intent_template, response_scope, ctx)
+            if self.intent_template is not None
+            else _as_text(inputs.get("intent", ""))
+        )
         # ABNF conformance (`OME-534`): a scalar weight 0.0 marks the call
         # INSTRUMENTAL — its response is $name-substitutable above but forms no
         # labeled section of the reducer input.
@@ -290,7 +301,6 @@ class FanoutReduceNode:
             )
         # §27.3: the processor may be an id, a URI, a route path, or an
         # expression that computes one — url4.dag.processor owns that classification.
-        scope = _frame(inputs, ctx)
         base, relative = await resolve_processor_target(
             ctx.processor, io=ctx.io, spawn=lambda text: ctx.spawn(text, scope)
         )

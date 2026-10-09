@@ -12,9 +12,6 @@ from url4.core._scan import skip_quoted, split_top_level
 from url4.core.context import Context
 from url4.core.errors import CollectionError, ErrorCode, ResolutionError
 from url4.core.nodes import Params
-from url4.dag.semantics.ensemble import (
-    substitute_env_vars,
-)
 from url4.io.layer import FetchRequest, SupportsHoldings
 from url4.wire.subrequest import encode_subrequest
 
@@ -114,11 +111,10 @@ class RelUrlNode:
             request = FetchRequest(path, relative=True, kind="relative", accept=self.accept)
             return await _fetch(ctx, request)
         context = _resolved_context(self.context, self.ctx_slots, inputs, scope, ctx)
-        intent = (
-            substitute_env_vars(_as_text(inputs["intent"]), scope, strict=ctx.strict_fields)
-            if "intent" in inputs
-            else None
-        )
+        # The intent dep's output is final: a TextNode already substituted its
+        # template once, and a fetched or nested result is data, never
+        # interpolated (spec B §8.2.1 phase ordering; audit A4).
+        intent = _as_text(inputs["intent"]) if "intent" in inputs else None
         target = encode_subrequest(path, context, intent, params=_wire_params(self.params))
         request = FetchRequest(target, relative=True, kind="relative", accept=self.accept)
         return await _fetch(ctx, request)
@@ -168,11 +164,10 @@ class RemoteFetchNode:
         # never resolves it. Caller-side source-list resolution applies only
         # to RELATIVE calls, where the caller IS the evaluating node.
         context = _substitute(self.context or "", scope, ctx)
-        intent = (
-            substitute_env_vars(_as_text(inputs["intent"]), scope, strict=ctx.strict_fields)
-            if "intent" in inputs
-            else None
-        )
+        # The intent dep's output is final: a TextNode already substituted its
+        # template once, and a fetched or nested result is data, never
+        # interpolated (spec B §8.2.1 phase ordering; audit A4).
+        intent = _as_text(inputs["intent"]) if "intent" in inputs else None
         rel = encode_subrequest(self.path, context, intent, params=_wire_params(self.params))
         request = FetchRequest(f"url4://{self.authority}{rel}", relative=False, kind="url4")
         return await _fetch(ctx, request)

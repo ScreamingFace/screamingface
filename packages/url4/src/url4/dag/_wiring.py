@@ -58,8 +58,10 @@ class _Slot:
 class _Intent:
     """The classified intent: ``make(edges)`` builds it; only text substitutes.
 
-    ``text`` carries the raw template for the broadcast path, which substitutes
-    per source (with ``$current`` bound) instead of once, shared. It is set iff
+    ``text`` carries the raw template for the paths that substitute it at the
+    consuming node, in one scan with the scope that only that node has: the
+    broadcast path (per source, ``$current`` bound), the base path (the
+    post-gather scope) and the fan-out path (the response names). It is set iff
     the intent is text — ``text is not None`` *is* the "is this text?" test.
     """
 
@@ -235,18 +237,21 @@ def _fanout_graph(built: list[DagNode], intent: _Intent) -> DagNode:
     """All-relative-expression group: parallel fetches + a reducer fetch.
 
     The instruction resolves under the outer scope (no slot edges), matching the
-    reference engine's fan-out path. ``meta`` labels come from the (possibly
-    guard-wrapped) call nodes' descriptors.
+    reference engine's fan-out path; a text instruction travels as a raw
+    template so it substitutes once, together with the response names.
+    ``meta`` labels come from the (possibly guard-wrapped) call nodes'
+    descriptors.
     """
-    deps: dict[str, DagNode] = {"intent": intent.make({})}
-    deps.update({f"call:{i}": node for i, node in enumerate(built)})
+    deps: dict[str, DagNode] = {f"call:{i}": node for i, node in enumerate(built)}
+    if intent.text is None:
+        deps["intent"] = intent.make({})
     meta = []
     for node in built:
         unwrapped = _fanout_call(node)
         assert unwrapped is not None  # gated by _reduce_graph
         call, label = unwrapped
         meta.append((label or call.name, call.weight))
-    return FanoutReduceNode(tuple(meta), deps=deps)
+    return FanoutReduceNode(tuple(meta), intent_template=intent.text, deps=deps)
 
 
 def _base_graph(
