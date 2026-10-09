@@ -122,3 +122,28 @@ PRD §7 rows CH1–CH11 and 1–29, in the plan's task order (CHAR first). Gates
   `.claude/test-change-approvals/OME-N.json` for CH8–CH10; mirror in `docs/tasks/`; the PR body
   says #852 merges after this PR; squash title `feat(url4)!: run URI intents as RDS
   code-pointer calls` with the `BREAKING CHANGE:` footer.
+
+## Follow-ups in this PR (2026-10-09, ans:Q6–Q8)
+
+- Plan: "Follow-ups in this PR" (U1, U2, U3). Three `implementer` agents built them in parallel
+  in three worktrees (`url4-rds-fu-o6`, `-o7`, `-size`, removed after cherry-pick).
+- U1 O6 (`d57f0de2a`): a failed optional source in an LLM broadcast makes no `process` call and
+  no row.
+- U2 O7 (`ffc649cc2`, `933fb301c`): `@node.endpoint(path, rds=True)`; a code-pointer call to
+  any other endpoint fails with `intent_error` before the handler runs. `Request`/`_text` moved
+  to the leaf `peer/_request.py` (plan amended: the planned move made an import cycle).
+- U3 (`195f42003`): `_lowering.py` 805 → 110 (facade + `_lowering_registry/nodes/text/intent`),
+  gather family → `dag/nodes/_gather.py`, code-pointer gather → `code_pointer.py`. Pure move
+  (AST-identical, design review).
+- Card fix (`9827e897e`): the url4 card now runs `scripts/check_module_size.py` (CI already did;
+  four modules were over their caps with every local gate green).
+- Design review U1–U3: no structural finding. Fixed in `<this branch, "fix(url4): keep
+  code-only endpoints…">`: `default_route()` skips `rds=True` endpoints; the H3 test no longer
+  opts the model route `/claude` in; baselines for the split-off modules; imports via
+  `_request`; doc drift. Open: O8 (Engine guard test), and `peer/server.py` (322/322) and
+  `dag/nodes/iteration.py` (228/228) are at their caps — the next edit there needs a split.
+- Regression on the merged branch: Engine 4638 passed (no edits); SDK 2296 passed (with
+  `--extra notebook`). url4: all card gates green incl. the size gate; append-only against the
+  merge base names only the CH8–CH10 files.
+- Components touched: `packages/url4` only (the Engine is unchanged), so one issue under
+  OME-500 at PR-open.
