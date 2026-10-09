@@ -358,7 +358,7 @@ CH8, CH9, CH10 change in place.
 
 - Design review against this plan and the spec (`design-reviewer`), then `sf-code-review`.
 - The PR is **not** opened in this session. At PR-open: confirm the issue text with the user,
-  file one issue under OME-500, rename the branch to `OME-N-url4-rds-code-pointer`, write the
+  file one issue under OME-500 (filed instead under OME-1289 as OME-1567 and OME-1568: OME-500 was Done), rename the branch to `OME-N-url4-rds-code-pointer`, write the
   approval manifest for CH8–CH10, mirror in `docs/tasks/`, and say in the PR body that #852
   must merge after this PR.
 

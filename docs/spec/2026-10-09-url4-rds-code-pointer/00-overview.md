@@ -192,5 +192,5 @@ No production changes. These productions get new or confirmed execution meaning.
   (`apps/screamingface-engine/pyproject.toml:111`), so it moves to 2.0 in the same merge. Its CI
   lane must stay green with no test edits (test-plan §3).
 - **Linear.** No issue now. At PR time, after the user confirms, one issue goes under the url4
-  grammar conformance epic **OME-500**, mirrored in `docs/tasks/`; the branch is renamed
+  grammar conformance epic **OME-500**, mirrored in `docs/tasks/`. Filed 2026-10-09: OME-500 was already Done, so the user chose the E4a epic **OME-1289**: **OME-1567** (url4) and **OME-1568** (Engine); the branch is renamed
   `OME-N-url4-rds-code-pointer`, and the PR body carries `Refs: OME-N`. `[stated prompt]`

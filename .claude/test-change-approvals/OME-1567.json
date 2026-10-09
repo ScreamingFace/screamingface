@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1567",
+  "branch": "OME-1567-url4-rds-code-pointer",
+  "approver": "Ionesio Junior (branch owner; approved the flips in the spec, ans:Q5)",
+  "date": "2026-10-09",
+  "scope": "url4 2.0 breaking change: the three prior tests that pinned the 1.x meaning of a URI intent (CH8-CH10 in docs/spec/2026-10-09-url4-rds-code-pointer/prd/rds-code-pointer.md section 7.1), plus one comment in test_characterization.py that names the module the parity note moved to.",
+  "reason": "url4 2.0 makes a URI intent a code-pointer call (Spec B section 6). CH8 and CH10 (`!https://...` fetched as instruction text) now fail with unsupported_mode; CH9 (`!/doc` lowered to a Barrier + data read) now lowers to a CodePointerNode. Each flipped test keeps its scenario and asserts the 2.0 behavior; no other prior test changes.",
+  "files": {
+    "packages/url4/tests/unit/test_dag.py": {
+      "base_blob": "e08ee635fefb16a2b125a660af95103711a40dac",
+      "approved_blob": "ffc8907655fcd4437ae0e84ade4a9fd819e3f218"
+    },
+    "packages/url4/tests/unit/test_characterization.py": {
+      "base_blob": "0b1e65adeb701a7f564efd7f38b2685673d7cff6",
+      "approved_blob": "d99fe402f20146aa3280e021965a4f5aa37140f0"
+    }
+  }
+}

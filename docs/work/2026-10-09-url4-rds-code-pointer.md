@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open (under OME-500)
+ticket: OME-1567   # also OME-1568 (Engine); both under the E4a epic OME-1289
 stack: repo
 status: in_progress   # planned | in_progress | done | blocked — built; waits for PR-open (user) and K1–K9 (Kevin)
 started: 2026-10-09
@@ -164,3 +164,19 @@ PRD §7 rows CH1–CH11 and 1–29, in the plan's task order (CHAR first). Gates
   the CH8–CH10 files). Regression: Engine 4639 passed, SDK 2296 passed.
 - Components touched now: `packages/url4` and `apps/screamingface-engine` (one test file), so two
   issues under OME-500 at PR-open.
+
+## Filing (2026-10-09)
+
+- OME-500 (named in the spec) was already Done. The user chose the E4a epic **OME-1289** (the change
+  unblocks the E4a deterministic combine).
+- Filed with `linear-cli` at the user's direct instruction (the repo default is the Linear MCP; the
+  MCP connector was not authenticated in this session):
+  - **OME-1567** — Run URI intents as code-pointer calls in url4 2.0 (`url4-engine`, agentic,
+    autonomous, High, In Progress, assigned to the user).
+  - **OME-1568** — Read url4 node state through public url4 APIs only (`screamingface-engine`,
+    agentic, autonomous, Medium, In Progress, assigned to the user).
+  - Both in project "😱 ScreamingFace Q4" (the epic's project; the card's "V1" name is stale).
+- Third round: O9 fixed in this PR (`43cd0916d`, `65f341e92`, guard fix `01df421f8`); design review
+  found no structural problem. Rebased on `origin/main` (clean); url4, Engine and SDK all green.
+- Test-change approval manifest for CH8–CH10: `.claude/test-change-approvals/OME-1567.json`, approver
+  the user (approved the flips in the spec, ans:Q5).
