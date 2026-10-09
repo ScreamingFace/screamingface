@@ -18,8 +18,10 @@ route-facing stage). This module keeps only the router and the request orchestra
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
@@ -40,6 +42,15 @@ from litellm.exceptions import (
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.credential_blob import DispatchObservation
+from ..core.credential_blob.store import CredentialBlobMutationConflict
+from ..core.frozen_copy.headers import CAPTURE_HEADER, COPY_HEADER, publish_capture_headers
+from ..core.frozen_copy.models import STATUS_OPEN, FrozenCopy
+from ..core.frozen_copy.store import (
+    FrozenCopySealed,
+    FrozenCopyStore,
+    frozen_copy_store_for,
+    log_capture_failure,
+)
 from ..core.parameter_projection import (
     IncompatibleParametersError,
     UnsupportedParametersError,
@@ -55,8 +66,8 @@ from ..core.provider_access import (
     provider_access_for,
 )
 from ..core.registry import ProviderRegistry
-from ..core.request_cache.global_controls import parse_global_cache_controls
-from ..core.request_hardening import chat_body_shape_error, strip_dispatch_controls
+from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
+from ..unhandled_errors import generic_detail
 from .chat_accounting import (
     accounting_handler,
     attach_hit_metadata,
@@ -253,6 +264,117 @@ async def _dispatch_and_finalize_accounting(
     return result
 
 
+def _error_view(exc: Exception) -> tuple[int, Any]:
+    """The status and detail a client receives for an exception that ends a captured call.
+
+    INVARIANT: each branch mirrors what the app renders for that exception, so a frozen copy
+    replays the error a live call produced. ``HTTPException`` is its own status and detail;
+    ``CredentialBlobMutationConflict`` is the 503 of ``main._profile_index_conflict``; anything
+    else is the fixed sanitized 500 of ``unhandled_errors`` (never the exception's message).
+    """
+    if isinstance(exc, HTTPException):
+        return exc.status_code, exc.detail
+    if isinstance(exc, CredentialBlobMutationConflict):
+        return 503, {
+            "code": "profile_index_conflict",
+            "message": "Profile metadata update conflicted. Try again.",
+        }
+    return 500, generic_detail()
+
+
+class _Capture:
+    """One chat call's frozen-copy capture (OME-1307, design §4.2).
+
+    # INVARIANT: best effort. Nothing here raises into the route: a failed insert, an unreadable
+    # copy or a body that cannot be stored becomes the ``failed`` outcome, and the call is served
+    # exactly as it would be without the header.
+    # INVARIANT: a caller that sent no header gets an inert capture: no outcome, no header, no
+    # insert, and no change to any exception it passes through.
+    """
+
+    def __init__(
+        self,
+        store: FrozenCopyStore,
+        request: dict[str, Any],
+        copy_row: FrozenCopy | None,
+        outcome: str | None,
+    ) -> None:
+        self._store = store
+        self._request = request
+        self._copy = copy_row
+        self.outcome = outcome
+
+    @property
+    def headers(self) -> dict[str, str]:
+        """The response header; empty for a caller that sent no ``X-AIGW-Frozen-Copy``."""
+        return {} if self.outcome is None else {CAPTURE_HEADER: self.outcome}
+
+    async def record(self, response_json: Any, status_code: int) -> None:
+        if self._copy is None:
+            return
+        try:
+            if status_code == 200 and not isinstance(response_json, dict):
+                raise TypeError("a success body must be a JSON object")
+            await self._store.capture(self._copy, "chat", self._request, response_json, status_code)
+        except FrozenCopySealed:
+            self.outcome = "refused"
+        except Exception as exc:
+            self.outcome = "failed"
+            log_capture_failure("chat", exc, copy_id=self._copy.id, request=self._request)
+        else:
+            self.outcome = "stored"
+
+    async def finish(self, response: Response, body: Any) -> Any:
+        """Capture the body the caller is about to receive, stamp the header, return the body."""
+        await self.record(body, 200)
+        response.headers.update(self.headers)
+        return body
+
+    async def record_exception(self, request: Request, exc: Exception) -> None:
+        """Capture the error that ends the call, and stamp its response with the outcome.
+
+        The exception is never changed except for the header: an ``HTTPException`` carries it,
+        and any other exception is rendered by an app-level handler that reads what is published
+        on ``request.state``.
+        """
+        status_code, detail = _error_view(exc)
+        await self.record({"detail": detail}, status_code)
+        if not self.headers:
+            return
+        if isinstance(exc, HTTPException):
+            exc.headers = {**(exc.headers or {}), **self.headers}
+        else:
+            publish_capture_headers(request, self.headers)
+
+
+async def _begin_capture(
+    request: Request, current_id: UUID, *, snapshot: dict[str, Any] | None, streaming: bool
+) -> _Capture:
+    """Check the copy named by ``X-AIGW-Frozen-Copy``.
+
+    Valid means: the copy exists, belongs to the caller, is ``open``, and the call is not a
+    stream (the gateway has no assembled body for a stream). Anything else, an empty or malformed
+    id included, is ``refused``.
+    """
+    raw = request.headers.get(COPY_HEADER)
+    store = frozen_copy_store_for(request.app)
+    if raw is None or snapshot is None:
+        return _Capture(store, {}, None, None)
+    if streaming:
+        return _Capture(store, snapshot, None, "refused")
+    try:
+        copy_row = await store.get(UUID(raw))
+    except ValueError:
+        return _Capture(store, snapshot, None, "refused")
+    except Exception as exc:
+        log_capture_failure("chat", exc)
+        return _Capture(store, snapshot, None, "failed")
+    if copy_row is None or copy_row.account_id != current_id or copy_row.status != STATUS_OPEN:
+        return _Capture(store, snapshot, None, "refused")
+    # ``failed`` until an insert succeeds: a call that ends without recording stored nothing.
+    return _Capture(store, snapshot, copy_row, "failed")
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
     # INVARIANT: authentication has already succeeded before this route-level boundary parses every
@@ -278,18 +400,15 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # opt-in all participate. `ttl`, `s-maxage`, `no-cache` and `no-store` bypass as
     # `unsupported_control` rather than being silently honoured.
     try:
-        cache_controls = parse_global_cache_controls(body)
-        # The gateway owns upstream routing and credentials. Caller-supplied
-        # LiteLLM control-plane fields (api_key/api_base/base_url/fallbacks/
-        # model_list/...) would let LiteLLM send the injected credential to an
-        # arbitrary host or bend dispatch behavior (SF-244 audit F03, OME-428 D6).
-        # Providers that need an api_base (ollama) set their own in
-        # prepare_chat_body; the gateway credential is injected after this strip.
-        body = strip_dispatch_controls(body)
+        body, cache_controls = prepare_ingress_body(body)
     except HTTPException:
         if not streaming:
             begin_accounting(request, plugin=None, provider="unresolved", model="")
         raise
+    # FEATURE: OME-1307 — the request a frozen copy digests is the body AS IT IS HERE. Later stages
+    # may rewrite or add to it (provider controls, projection, credentials), so a copy of it is
+    # held, and only for a caller that named a copy.
+    capture_snapshot = copy.deepcopy(body) if request.headers.get(COPY_HEADER) is not None else None
 
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
@@ -358,177 +477,190 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # describe different requests.
     account_id = str(current.id)
     access = provider_access_for(request.app)
-    # AIDEV-NOTE: do not wrap this in ``in_transaction()``. On Postgres, a failed
-    # cache SELECT or hit-metadata UPDATE aborts the outer transaction even though
-    # this stage converts the failure to a bypass, poisoning later route statements.
-    cache_outcome = await look_up_global_cache(
-        request, body=body, plugin=plugin, controls=cache_controls
+    # FEATURE: OME-1307 — the frozen-copy check, BEFORE the cache stage so a hit is captured too.
+    # Refusals above (bad JSON, bad shape, unknown provider) are not captured; everything that
+    # raises below is. A caller that sent no header gets an inert `capture`.
+    capture = await _begin_capture(
+        request, current.id, snapshot=capture_snapshot, streaming=streaming
     )
-    if accounting is not None:
-        accounting.cache_status = cache_outcome.status
-    if cache_outcome.is_hit and cache_outcome.response is not None:
-        # ACCEPTED CONSEQUENCE (decision 2): a hit skips the auth-mode-specific
-        # parameter validation a miss would run. Deliberate and approved — the
-        # auth-INDEPENDENT half (schema validity, unknown fields, mode-restricted
-        # paths) is enforced inside the key builder, so what a hit skips is only the
-        # per-mode validation, and the response being served was produced by a real
-        # dispatch of this exact call. Do not add a credential read here to "check"
-        # it: that would defeat the entire purpose of the inversion.
-        # "This exact call" is the caller's own body (OME-1323, D2): no stored Profile
-        # default is merged, so the key describes everything the provider is asked.
-        set_global_cache_headers(response, cache_outcome)
-        # OME-303: a hit dispatched nothing, so `attempts` is empty and
-        # `observed_new_attempts` is 0. Limited cached-final-response evidence is
-        # explicitly not current spend. Metadata goes on a COPY:
-        # `cache_outcome.response` is the store's replayed row.
-        cached_response = request.app.state.taxonomy_plugin.sanitize_provider_response(
-            cache_outcome.response
+    try:
+        # AIDEV-NOTE: do not wrap this in ``in_transaction()``. On Postgres, a failed
+        # cache SELECT or hit-metadata UPDATE aborts the outer transaction even though
+        # this stage converts the failure to a bypass, poisoning later route statements.
+        cache_outcome = await look_up_global_cache(
+            request, body=body, plugin=plugin, controls=cache_controls
         )
-        # C4/ERD §5.5: the stored block travels with the hit. ``attach_hit_metadata``
-        # prefers it and falls back to the provider's own mapper when it is absent.
-        return attach_hit_metadata(
-            cached_response,
-            accounting,
+        if accounting is not None:
+            accounting.cache_status = cache_outcome.status
+        if cache_outcome.is_hit and cache_outcome.response is not None:
+            # ACCEPTED CONSEQUENCE (decision 2): a hit skips the auth-mode-specific
+            # parameter validation a miss would run. Deliberate and approved — the
+            # auth-INDEPENDENT half (schema validity, unknown fields, mode-restricted
+            # paths) is enforced inside the key builder, so what a hit skips is only the
+            # per-mode validation, and the response being served was produced by a real
+            # dispatch of this exact call. Do not add a credential read here to "check"
+            # it: that would defeat the entire purpose of the inversion.
+            # "This exact call" is the caller's own body (OME-1323, D2): no stored Profile
+            # default is merged, so the key describes everything the provider is asked.
+            set_global_cache_headers(response, cache_outcome)
+            # OME-303: a hit dispatched nothing, so `attempts` is empty and
+            # `observed_new_attempts` is 0. Limited cached-final-response evidence is
+            # explicitly not current spend. Metadata goes on a COPY:
+            # `cache_outcome.response` is the store's replayed row.
+            cached_response = request.app.state.taxonomy_plugin.sanitize_provider_response(
+                cache_outcome.response
+            )
+            # C4/ERD §5.5: the stored block travels with the hit. ``attach_hit_metadata``
+            # prefers it and falls back to the provider's own mapper when it is absent.
+            hit_body = attach_hit_metadata(
+                cached_response,
+                accounting,
+                plugin=plugin,
+                entry_metadata=cache_outcome.metadata,
+            )
+            return await capture.finish(response, hit_body)
+
+        # ==================================================================
+        # STAGE 2 — a miss or a bypass: resolve identity and dispatch.
+        # ==================================================================
+        # AIDEV-NOTE: this stays HERE, after the cache stage. It raises 404/409/401, so
+        # hoisting it would let those preempt a cache hit. The target's historical
+        # ``defaults`` are NOT merged (OME-1323, D2): the dispatch must be the request the
+        # key describes.
+        target, auth_mode = await _resolve_credential_target(
+            access, account_id=account_id, provider=provider, selector=selector, plugin=plugin
+        )
+
+        # OME-479 §4.5: classify every optional parameter against the provider's enabled
+        # rule set for the REAL (never caller-declared) auth mode, and project accepted
+        # fields into a fresh normalized body. This runs before provider normalization,
+        # cache planning, and (crucially) credential injection — so unknown, disabled,
+        # wrong-auth, malformed and duplicate-channel parameters fail closed with
+        # HTTP-safe paths before any credential is read or any provider is dispatched.
+        rules = tuple(plugin.chat_parameter_rules(model=model, auth_type=auth_mode))
+        try:
+            body = classify_and_project_chat_parameters(
+                body,
+                rules=rules,
+                auth_mode=auth_mode,
+            )
+        except UnsupportedParametersError as exc:
+            # Every classified path is the caller's own (OME-1323, D2), so the rejection is
+            # reported whole. Reason codes only — the classifier never carries raw values.
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "unsupported_parameters",
+                    "provider": provider,
+                    "rejected": exc.rejected,
+                    "message": (
+                        "one or more parameters are not enabled for this model; "
+                        "see the model parameter contract"
+                    ),
+                },
+            ) from None
+
+        # OME-640: a per-path rule cannot say "these two accepted fields cannot travel
+        # together on THIS model under THIS auth mode", so the provider gets one seam
+        # to say it — on the projected body, still ahead of provider preparation,
+        # cache planning, credential access and dispatch. The default accepts
+        # everything, so a provider that states no cross-field constraint is unaffected.
+        try:
+            plugin.validate_chat_parameter_combination(body, model=model, auth_mode=auth_mode)
+        except IncompatibleParametersError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "incompatible_parameters",
+                    "provider": provider,
+                    "conflict": list(exc.paths),
+                    "message": exc.reason,
+                },
+            ) from None
+
+        # INVARIANT: provider
+        # reconstruction failures precede ALL cache planning. Stage 1 runs BEFORE
+        # `prepare_chat_body`, so that ordering is now upheld inside the projection
+        # instead: OpenRouter's `global_cache_projection` calls the same
+        # `build_provider_policy` reconstruction and returns `CacheBypass` when it raises,
+        # so a body whose routing policy cannot be rebuilt performs no read and no write
+        # and reaches its existing 503 rather than being answered 200 from cache.
+        body = plugin.prepare_chat_body(body)
+
+        if streaming and not plugin.supports_chat_streaming():
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "streaming_not_supported",
+                    "provider": provider,
+                    "message": f"{provider} does not support streaming through this gateway yet",
+                },
+            )
+
+        observation: DispatchObservation | None = None
+        if not streaming and _supports_operational_outcome_classification(plugin):
+            operational_access = operational_access_for(request.app)
+            if operational_access is not None:
+                with refusals_as_http():
+                    observation = await operational_access.begin_dispatch(
+                        target, plugin=plugin, provider=provider
+                    )
+
+        await _authorize_and_seal(access, target, plugin=plugin, provider=provider, body=body)
+
+        # NOTE: overload retry covers the non-streaming path only; streaming responses
+        # commit a 200 status before dispatch, so a mid-stream 429/503 cannot be retried.
+        if streaming:
+            # INVARIANT: reaching here means ``stream`` is truthy, and a truthy ``stream``
+            # is a structural bypass in the eligibility layer — so the outcome is always a
+            # bypass and no write can follow. The headers therefore come from the SAME
+            # outcome the non-streaming path publishes rather than being hand-spelled;
+            # The old dispatch-side cache hardcoded ``bypass`` here with an ``or "stream"``
+            # fallback, not distinguish "streaming" from "the operator disabled the cache".
+            return StreamingResponse(
+                _stream(plugin, body, provider=provider),
+                media_type="text/event-stream",
+                headers={**global_cache_headers(cache_outcome), **capture.headers},
+            )
+
+        # OME-303: inject the gateway's observed LiteLLM client for an accounted request
+        # whose provider declared `litellm_async_http`; then normalize each observed
+        # send's OWN raw provider evidence before success OR error metadata can render.
+        result = await _dispatch_and_finalize_accounting(
+            request,
             plugin=plugin,
-            entry_metadata=cache_outcome.metadata,
+            provider=provider,
+            body=body,
+            accounting=accounting,
+            account_id=account_id,
+            profile_name=selector.name,
+            target=target,
+            observation=observation,
         )
+        result = request.app.state.taxonomy_plugin.sanitize_provider_response(result)
 
-    # ==================================================================
-    # STAGE 2 — a miss or a bypass: resolve identity and dispatch.
-    # ==================================================================
-    # AIDEV-NOTE: this stays HERE, after the cache stage. It raises 404/409/401, so
-    # hoisting it would let those preempt a cache hit. The target's historical
-    # ``defaults`` are NOT merged (OME-1323, D2): the dispatch must be the request the
-    # key describes.
-    target, auth_mode = await _resolve_credential_target(
-        access, account_id=account_id, provider=provider, selector=selector, plugin=plugin
-    )
-
-    # OME-479 §4.5: classify every optional parameter against the provider's enabled
-    # rule set for the REAL (never caller-declared) auth mode, and project accepted
-    # fields into a fresh normalized body. This runs before provider normalization,
-    # cache planning, and (crucially) credential injection — so unknown, disabled,
-    # wrong-auth, malformed and duplicate-channel parameters fail closed with
-    # HTTP-safe paths before any credential is read or any provider is dispatched.
-    rules = tuple(plugin.chat_parameter_rules(model=model, auth_type=auth_mode))
-    try:
-        body = classify_and_project_chat_parameters(
-            body,
-            rules=rules,
-            auth_mode=auth_mode,
+        # STAGE 3 — fill the global entry this request missed on.
+        # INVARIANT: only a MISS on an eligible request writes (``should_store``). A
+        # bypass never writes, and neither does a read that failed — see
+        # ``GlobalCacheOutcome.should_store``.
+        # INVARIANT: the write cannot fail this request. ``store_global_response`` never
+        # raises, and a lost race leaves the FIRST stored response in place, so the value
+        # returned to this caller is always the one their own dispatch produced.
+        write_status = None
+        if cache_outcome.should_store:
+            write_status = await store_global_response(
+                request, outcome=cache_outcome, result=result, accounting=accounting
+            )
+        set_global_cache_headers(response, cache_outcome, write_status=write_status)
+        # OME-303 INVARIANT (§6): metadata is attached to a COPY, and STRICTLY AFTER the
+        # store above. The cache row must stay provider-compatible for every future replay,
+        # and `store_global_response` measures `response_size_bytes` against what it is
+        # handed — attaching first could push an otherwise cacheable response over the cap.
+        if not isinstance(result, dict):
+            return await capture.finish(response, result)
+        return await capture.finish(
+            response, attach_success_metadata(result, accounting, cache_status=cache_outcome.status)
         )
-    except UnsupportedParametersError as exc:
-        # Every classified path is the caller's own (OME-1323, D2), so the rejection is
-        # reported whole. Reason codes only — the classifier never carries raw values.
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "unsupported_parameters",
-                "provider": provider,
-                "rejected": exc.rejected,
-                "message": (
-                    "one or more parameters are not enabled for this model; "
-                    "see the model parameter contract"
-                ),
-            },
-        ) from None
-
-    # OME-640: a per-path rule cannot say "these two accepted fields cannot travel
-    # together on THIS model under THIS auth mode", so the provider gets one seam
-    # to say it — on the projected body, still ahead of provider preparation,
-    # cache planning, credential access and dispatch. The default accepts
-    # everything, so a provider that states no cross-field constraint is unaffected.
-    try:
-        plugin.validate_chat_parameter_combination(body, model=model, auth_mode=auth_mode)
-    except IncompatibleParametersError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "incompatible_parameters",
-                "provider": provider,
-                "conflict": list(exc.paths),
-                "message": exc.reason,
-            },
-        ) from None
-
-    # INVARIANT: provider
-    # reconstruction failures precede ALL cache planning. Stage 1 runs BEFORE
-    # `prepare_chat_body`, so that ordering is now upheld inside the projection
-    # instead: OpenRouter's `global_cache_projection` calls the same
-    # `build_provider_policy` reconstruction and returns `CacheBypass` when it raises,
-    # so a body whose routing policy cannot be rebuilt performs no read and no write
-    # and reaches its existing 503 rather than being answered 200 from cache.
-    body = plugin.prepare_chat_body(body)
-
-    if streaming and not plugin.supports_chat_streaming():
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "streaming_not_supported",
-                "provider": provider,
-                "message": f"{provider} does not support streaming through this gateway yet",
-            },
-        )
-
-    observation: DispatchObservation | None = None
-    if not streaming and _supports_operational_outcome_classification(plugin):
-        operational_access = operational_access_for(request.app)
-        if operational_access is not None:
-            with refusals_as_http():
-                observation = await operational_access.begin_dispatch(
-                    target, plugin=plugin, provider=provider
-                )
-
-    await _authorize_and_seal(access, target, plugin=plugin, provider=provider, body=body)
-
-    # NOTE: overload retry covers the non-streaming path only; streaming responses
-    # commit a 200 status before dispatch, so a mid-stream 429/503 cannot be retried.
-    if streaming:
-        # INVARIANT: reaching here means ``stream`` is truthy, and a truthy ``stream``
-        # is a structural bypass in the eligibility layer — so the outcome is always a
-        # bypass and no write can follow. The headers therefore come from the SAME
-        # outcome the non-streaming path publishes rather than being hand-spelled;
-        # The old dispatch-side cache hardcoded ``bypass`` here with an ``or "stream"`` fallback,
-        # not distinguish "streaming" from "the operator disabled the cache".
-        return StreamingResponse(
-            _stream(plugin, body, provider=provider),
-            media_type="text/event-stream",
-            headers=global_cache_headers(cache_outcome),
-        )
-
-    # OME-303: inject the gateway's observed LiteLLM client for an accounted request
-    # whose provider declared `litellm_async_http`; then normalize each observed
-    # send's OWN raw provider evidence before success OR error metadata can render.
-    result = await _dispatch_and_finalize_accounting(
-        request,
-        plugin=plugin,
-        provider=provider,
-        body=body,
-        accounting=accounting,
-        account_id=account_id,
-        profile_name=selector.name,
-        target=target,
-        observation=observation,
-    )
-    result = request.app.state.taxonomy_plugin.sanitize_provider_response(result)
-
-    # STAGE 3 — fill the global entry this request missed on.
-    # INVARIANT: only a MISS on an eligible request writes (``should_store``). A
-    # bypass never writes, and neither does a read that failed — see
-    # ``GlobalCacheOutcome.should_store``.
-    # INVARIANT: the write cannot fail this request. ``store_global_response`` never
-    # raises, and a lost race leaves the FIRST stored response in place, so the value
-    # returned to this caller is always the one their own dispatch produced.
-    write_status = None
-    if cache_outcome.should_store:
-        write_status = await store_global_response(
-            request, outcome=cache_outcome, result=result, accounting=accounting
-        )
-    set_global_cache_headers(response, cache_outcome, write_status=write_status)
-    # OME-303 INVARIANT (§6): metadata is attached to a COPY, and STRICTLY AFTER the
-    # store above. The cache row must stay provider-compatible for every future replay,
-    # and `store_global_response` measures `response_size_bytes` against what it is
-    # handed — attaching first could push an otherwise cacheable response over the cap.
-    if not isinstance(result, dict):
-        return result
-    return attach_success_metadata(result, accounting, cache_status=cache_outcome.status)
+    except Exception as exc:
+        await capture.record_exception(request, exc)
+        raise
