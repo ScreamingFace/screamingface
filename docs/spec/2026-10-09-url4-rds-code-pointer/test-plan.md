@@ -38,7 +38,9 @@ rows); integration rows for each group site and each transport; one e2e row (29)
   the PR body lists them. All other existing url4 tests stay as they are. `[stated ans:Q5]`
 - **No hypothesis dependency.** Corpus rows use a seeded `random.Random`, as
   `T/unit/test_characterization.py` already does. `[existing T/unit/test_characterization.py:177-192]`
-- New spec-level tests go in `T/spec/test_rds_code_pointer.py`; codec and reader unit tests go in
+- New spec-level tests go in `T/spec/test_rds_code_pointer.py` (group path),
+  `T/spec/test_rds_code_pointer_sites.py` (broadcast, reducer) and
+  `T/spec/test_rds_code_pointer_http.py` (HTTP, E2E); codec and reader unit tests go in
   `T/unit/test_rds_document.py` and `T/spec/test_param_conformance.py` (append). `[proposed]`
 
 ## 3. Lanes
@@ -46,8 +48,8 @@ rows); integration rows for each group site and each transport; one e2e row (29)
 | Lane | Runs | Command (from `packages/url4`) |
 |---|---|---|
 | url4 unit + spec | every row except 24, 26, 29 | `uv run pytest tests/unit tests/spec` |
-| url4 HTTP | rows 24, 26 (ASGI app + httpx ASGI transport; no network) | `uv run pytest tests/spec/test_rds_code_pointer.py -k http` |
-| url4 e2e | row 29 (the E4a 3-model vote url4 against a stub combine) | `uv run pytest tests/spec/test_rds_code_pointer.py -k e4a_vote` |
+| url4 HTTP | rows 24, 26 (ASGI app + httpx ASGI transport; no network) | `uv run pytest tests/spec/test_rds_code_pointer_http.py tests/unit/test_http_remote_errors.py -k "http or remote"` |
+| url4 e2e | row 29 (the E4a 3-model vote url4 against a stub combine) | `uv run pytest tests/spec/test_rds_code_pointer_http.py -k e4a_vote` |
 | url4 gates | lint, types, coverage | the package's existing CI job (`url4-tests.yml`) |
 | Engine regression | the Engine suite against the new url4 (editable path dependency, `apps/screamingface-engine/pyproject.toml:111`) | the Engine's existing CI job |
 | SDK regression | the `packages/screamingface` suite (it imports url4, `packages/screamingface/src/screamingface/url4.py:10`) | the SDK's existing CI job |
