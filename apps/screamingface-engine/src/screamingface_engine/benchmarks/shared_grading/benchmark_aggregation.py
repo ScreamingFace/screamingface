@@ -457,7 +457,10 @@ class BenchmarkAggregation:
         try:
             # Stage 4b — hand results over in roll-call order.
             for task in tasks:
-                result: CaseResult | None = await task
+                # WHY shield: a bare await hands a run's cancel to this one task first,
+                # which frees its seat to the next waiting Case before the `finally`
+                # below cancels the rest; shielded, the `finally` cancels them together.
+                result: CaseResult | None = await asyncio.shield(task)
                 if result is not None:
                     yield result
         finally:

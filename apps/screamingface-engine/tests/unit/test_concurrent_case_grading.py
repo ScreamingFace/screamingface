@@ -265,6 +265,8 @@ async def test_cancelling_the_run_cancels_every_case_still_being_marked() -> Non
     run.cancel()
     with pytest.raises(asyncio.CancelledError):
         await run
-    assert set(range(1, CASE_GRADING_CONCURRENCY + 1)) <= set(cancelled)
+    seated: list[int] = list(range(1, CASE_GRADING_CONCURRENCY + 1))
+    # No Case enters the hook after the run is cancelled: a freed seat seats no one.
+    assert sorted(entered) == seated
     # Every Case that reached the judge was cancelled: none is still being marked.
-    assert sorted(cancelled) == sorted(entered)
+    assert sorted(cancelled) == seated
