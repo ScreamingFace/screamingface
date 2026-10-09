@@ -9,7 +9,8 @@ FEATURE (OME-1268): a Benchmark's Headline Score is the mean of its headline col
 the graded Cases. A scorer whose FIRST declared metric is not a plain mean (SimpleQA's
 ``simpleqa_metric``, a formula over the column means) would have its headline published
 as ``mean(correct)`` by that reducer — the wrong number. The importer (PR 4 of 5) reads
-this and refuses such a Task by name until whole-run metrics land (OME-1527, R1).
+this and refuses such a Task unless the importing agent chooses, per Benchmark, to honour
+the eval's own metric or to keep the mean under a Named Deviation (OME-1527, R1).
 
 Mental model: ask the scorer "what number do you put at the top of your results
 column?" — if the answer is "inspect's own average, unmodified", we can reproduce it;
@@ -79,6 +80,37 @@ def headline_metric_name(scorer: Any) -> str | None:
 
     headline: Any | None = _headline_metric(scorer)
     return None if headline is None else _metric_name(headline)
+
+
+def headline_metric_reference(scorer: Any) -> str:
+    """The dotted ``module:constructor`` reference a row writes to honour the scorer's
+    headline metric (``inspect_evals.xstest.xstest:refusal_rate``), called with no arguments.
+
+    Raises ``ValueError`` saying why the row cannot name it: a grouped metric block or an
+    unregistered metric has no constructor; one built with arguments (bbeh's
+    ``grouped(accuracy(), group_key="task")``) is a metric OBJECT the row cannot rebuild from
+    a name; one whose module does not export its constructor cannot be imported back.
+    """
+
+    from importlib import import_module
+
+    from inspect_ai._util.registry import registry_params
+
+    headline: Any | None = _headline_metric(scorer)
+    if headline is None:
+        raise ValueError("a grouped metric block or an unregistered metric has no constructor")
+    name: str = _metric_name(headline)
+    params: dict[str, Any] = dict(registry_params(headline))
+    if params:
+        raise ValueError(f"it is created with arguments {sorted(params)}")
+    qualified: str = str(_qualified_name(headline))
+    # WHY: inspect's own metrics are defined in private modules and exported here.
+    module_name: str = (
+        "inspect_ai.scorer" if qualified.startswith("inspect_ai/") else headline.__module__
+    )
+    if not hasattr(import_module(module_name), name):
+        raise ValueError(f"{module_name} does not export its constructor")
+    return f"{module_name}:{name}"
 
 
 def scorer_registry_name(scorer: Any) -> str:
