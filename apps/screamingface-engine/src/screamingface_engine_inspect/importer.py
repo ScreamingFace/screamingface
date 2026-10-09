@@ -92,6 +92,41 @@ def _custom_metrics(task: Any) -> tuple[str, ...]:
     return tuple(names)
 
 
+#: inspect's reducer when a Task declares epochs but names none (``Epochs`` docstring).
+_INSPECT_DEFAULT_REDUCER: str = "mean"
+
+
+def _refuse_several_epochs(task: Any) -> None:
+    """Refuse a Task that asks each Sample more than once, naming its epochs and reducer.
+
+    FEATURE: several Attempts per Case (OME-1458). ``epochs=N`` runs every Sample N times
+    and folds the N scores with a reducer (MBPP: 5, ``pass_at_1``); our Benchmark asks
+    each Case once, so the import would publish a one-Attempt score as the eval's number.
+
+    INVARIANT: refused whatever the reducer, until the Engine runs several Attempts per
+    Case (spec ``docs/spec/2026-10-07-OME-1458-attempts-per-case.md`` D12). One epoch is
+    one Attempt, so ``Epochs(1, "mode")`` (lab_bench) imports as before.
+    AIDEV-NOTE: the build replaces this refusal with a mapping: any-match reducers
+    (``max``, ``at_least_1``, ``pass_at_N``) become ``attempts=N``; every other reducer
+    stays refused by name (spec §2.6).
+    """
+
+    from inspect_ai.scorer._reducer.registry import reducer_log_names
+
+    epochs: int | None = getattr(task, "epochs", None)
+    if epochs is None or epochs <= 1:
+        return
+    reducers: list[Any] | None = getattr(task, "epochs_reducer", None)
+    names: list[str] = (reducer_log_names(reducers) if reducers else None) or [
+        _INSPECT_DEFAULT_REDUCER
+    ]
+    raise ImporterError(
+        f"the task declares epochs={epochs} with reducer {', '.join(names)}: a Benchmark "
+        "that asks each Case several times is not supported yet (OME-1458), and importing "
+        "it would publish a one-Attempt score"
+    )
+
+
 @dataclass(frozen=True)
 class ScorerFacts:
     """What the Task declares about its scorers, read off the built Task (OME-1268).
