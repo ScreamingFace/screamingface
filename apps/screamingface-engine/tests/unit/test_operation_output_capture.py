@@ -436,3 +436,45 @@ async def test_a_fusion_invocation_carries_every_member_and_synthesis_output() -
         ("provider/beta", 4, 2, 1),
         ("provider/alpha", 4, 2, 1),
     ]
+
+
+def test_quorum_panel_retains_nested_member_outputs_and_accounting() -> None:
+    from url4 import Expression, build
+
+    original = build(_fusion_expression())
+    assert isinstance(original, Expression)
+    panel = src(
+        expr(
+            src(
+                expr(original.sources[0], intent=text("$model_1")),
+                weight=1.0,
+                name="member_1",
+                required=True,
+            ),
+            src(
+                expr(original.sources[1], intent=text("$model_2")),
+                weight=1.0,
+                name="member_2",
+                required=False,
+            ),
+            intent=text(""),
+            params={"quorum": 1},
+        ),
+        name="panel_1",
+        weight=0.0,
+    )
+    candidate = render(expr(panel, original.sources[2], intent=text("$synthesis_1")))
+    calls = [
+        _call("/provider/alpha", (("temperature", "0.0"),), "A", accounting=_accounting()),
+        _call("/provider/alpha", (("temperature", "0.5"),), "F", accounting=_accounting()),
+    ]
+    operations = attribute_operation_outputs(candidate, calls)
+    assert operations is not None
+    assert [(op.operation_id, op.output) for op in operations] == [
+        ("op_model_1", "A"),
+        ("op_model_2", None),
+        ("op_synthesis_1", "F"),
+    ]
+    assert operations[0].accounting is not None
+    assert operations[1].accounting is None
+    assert operations[2].accounting is not None

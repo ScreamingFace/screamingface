@@ -4,9 +4,15 @@
 
 ### Fixes
 
+* Show optional Model, Pipeline, and Fusion members in `Fusion` repr so member failure policy is visible (`OME-1557`). Required members retain their compact name-only representation.
+
+* Preserve upstream answers across composed quorum panels and reject executable quorum/member policy that disagrees with default-valued Recipe metadata during export and replay (`OME-1557`). Composed quorum Recipes require an Engine containing the patched URL4 runtime; deploy the Engine operation-reporting update as well to retain member outputs and accounting.
+
 * Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
 
 ### Features
+
+* **screamingface:** add `Fusion(..., quorum=N)` and per-member `optional=True` on Model, Pipeline, and Fusion Recipes (`OME-1557`). Optional complete members can fail without stopping synthesis when enough members succeed; required members must still succeed. Defaults require every member, `all` includes optional members, and zero allows an empty panel when all members are optional. Quorum is checked after members finish. Gated Fusions pass ordered successful `member_N: answer` sections in the synthesizer JSON's `outputs` string. Optional policy is only valid in Fusion member positions. Quorum and optional settings survive editable Python and replay, which validates the executable policy against recipe metadata.
 
 * **screamingface:** carry each Benchmark's provenance and saturation verdict from the Engine catalogue. `Benchmark.provenance` is a `BenchmarkProvenance` (paper, authors, citation, inspect porters as GitHub handles, website, harness pinned to a commit or tag, licence with any note, content warning, a `PublishedScore` human baseline and frontier score, the SDK notebook that runs it) and `Benchmark.saturation` is the Engine's derived verdict (`saturated` / `open` / `unknown`). An Engine that predates them serves neither: `provenance` reads `None` and `saturation` reads `unknown`. The local Scoreboard seed emits the same keys, so a local board shows what a deployed one shows.
 

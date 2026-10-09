@@ -14,6 +14,7 @@ class Recipe(ABC):
     """Non-constructible umbrella type for answer-producing Recipe values."""
 
     name: str
+    optional: bool
 
     def then(self, next_recipe: str | Recipe) -> Pipeline:
         """Return an immutable serial Pipeline ending in ``next_recipe``.
@@ -32,6 +33,12 @@ class Recipe(ABC):
         """Keep Recipe non-constructible without adding public behavior."""
 
 
+def _optional(value: object) -> bool:
+    if not isinstance(value, bool):
+        raise TypeError("optional must be a bool")
+    return value
+
+
 def _name(value: object, label: str) -> str:
     text = _text(value, label).strip()
     if any(unicodedata.category(char).startswith("C") for char in text):
@@ -43,7 +50,7 @@ def _model_route(value: object) -> str:
     return _name(value, "model route")
 
 
-def _recipe(value: object, label: str) -> Recipe:
+def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recipe:
     """Normalize the one intentional shorthand at every Recipe-valued position."""
 
     if isinstance(value, str):
@@ -53,6 +60,8 @@ def _recipe(value: object, label: str) -> Recipe:
     if not _is_supported_recipe(value):
         raise TypeError(f"{label} must be a model route or sf.Model, sf.Fusion, or sf.Pipeline")
     assert isinstance(value, Recipe)
+    if value.optional and not allow_optional:
+        raise ValueError("optional=True is only supported on Fusion members")
     return value
 
 

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from screamingface.recipe import Recipe, _name, _recipe
+from screamingface.recipe import Recipe, _name, _optional, _recipe
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -14,6 +14,7 @@ class Pipeline(Recipe):
     """Pass one input through an ordered sequence of Recipe stages."""
 
     name: str
+    optional: bool
     stages: tuple[Recipe, ...]
     _is_named: bool
 
@@ -22,7 +23,9 @@ class Pipeline(Recipe):
         stages: Sequence[str | Recipe],
         *,
         name: str | None = None,
+        optional: bool = False,
     ) -> None:
+        object.__setattr__(self, "optional", _optional(optional))
         selected_stages = _stages(stages)
         inferred_name = "->".join(stage.name for stage in selected_stages)
         object.__setattr__(
@@ -47,6 +50,8 @@ class Pipeline(Recipe):
         # hide unequal values.
         if self._is_named:
             arguments.append(f"name={self.name!r}")
+        if self.optional:
+            arguments.append("optional=True")
         return f"Pipeline({', '.join(arguments)})"
 
     def _repr_html_(self) -> str:

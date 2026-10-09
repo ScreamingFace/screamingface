@@ -356,9 +356,11 @@
       "Fusion": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, name: 'str | None' = None, synthesizer: 'str | Recipe') -> 'None'",
+          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, name: 'str | None' = None, synthesizer: 'str | Recipe', quorum: \"int | Literal['all']\" = 'all', optional: 'bool' = False) -> 'None'",
           "members": "field",
           "name": "field",
+          "optional": "field",
+          "quorum": "field",
           "synthesizer": "field",
           "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
         }
@@ -477,9 +479,10 @@
       "Model": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, model: 'str', *, name: 'str | None' = None, prompt: 'str | None' = None, params: 'Mapping[str, str | int | float | bool] | None' = None) -> 'None'",
+          "__init__": "method (self, model: 'str', *, name: 'str | None' = None, prompt: 'str | None' = None, params: 'Mapping[str, str | int | float | bool] | None' = None, optional: 'bool' = False) -> 'None'",
           "model": "field",
           "name": "field",
+          "optional": "field",
           "params": "property",
           "prompt": "field",
           "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
@@ -610,8 +613,9 @@
       "Pipeline": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, stages: 'Sequence[str | Recipe]', *, name: 'str | None' = None) -> 'None'",
+          "__init__": "method (self, stages: 'Sequence[str | Recipe]', *, name: 'str | None' = None, optional: 'bool' = False) -> 'None'",
           "name": "field",
+          "optional": "field",
           "stages": "field",
           "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
         }
