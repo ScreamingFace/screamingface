@@ -1,7 +1,7 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open (under OME-500)
 stack: repo
-status: in_progress   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked — built; waits for PR-open (user) and K1–K9 (Kevin)
 started: 2026-10-09
 finished:
 ---
@@ -94,3 +94,31 @@ PRD §7 rows CH1–CH11 and 1–29, in the plan's task order (CHAR first). Gates
   fires. The RDS path does not have this bug (no call, no row, PRD D7).
 - Owner decisions still open: L7 (`url4://n` with no path → `malformed_source`), and Kevin's
   K1–K9.
+
+## Outcome (2026-10-09; the PR is not open)
+
+- **Actual files:** as planned, plus `tests/spec/test_rds_code_pointer_sites.py` and
+  `tests/spec/test_rds_code_pointer_http.py` (split for the file-size limit). `wire/__init__.py`
+  has no re-exports (callers import submodules). `dag/_lowering.py` grew to 805 lines (it was
+  over the 450 limit before this branch): follow-up to split it.
+- **Commits:** `bb62875bf` plan · `a111734a4` CHAR · `c5be3be1a`, `1c23ee93f`, `642664416`
+  classifier · `95c36b0cb`, `cbc4023b1` codec · `6e89be938` dispatch · `5b742cff2`
+  `feat(url4)!` group path · `8a1f907e5`, `10b4d8d90` broadcast + reducer · `0d192610f` remote
+  error code · `bf3f64148` HTTP + E4a rows · `6c9584779`, `c910b3807` review-fix round ·
+  `597146a2a`, `65ab7f69a`, `f270b4ea6` + this commit docs.
+- **Gates:** `run_gates.py url4 --skip-append-only` ALL GREEN (1543 tests, coverage ≥ 95%).
+  `--base <merge-base>` append-only names only `tests/unit/test_dag.py` and
+  `tests/unit/test_characterization.py` (CH8–CH10; manifest at PR-open).
+- **Regression:** Engine `tests/unit` 4638 passed, no test edits (run twice, the second after
+  the fix round). SDK 2221 passed + 159 notebook-widget tests with `--extra notebook` (the 14
+  first-run failures were the missing extra, not url4).
+- **Reviews:** `design-reviewer` ×2 and `sf-code-review`: no open STRUCTURAL finding; every
+  FIX applied (plan "Review round" R1–R6). Kept by decision: a reducer head the grammar cannot
+  parse still fails at `validate()`/run time (1.5.1 behavior, `test_validate_parses_reducer_instruction`).
+- **Deviations:** see the build log above; new owner items O6, O7; new input for Kevin on K2
+  and K5.
+- **Before the PR:** rebase on `origin/main`; the user confirms the issue text; file one issue
+  under OME-500; rename the branch `OME-N-url4-rds-code-pointer`; write
+  `.claude/test-change-approvals/OME-N.json` for CH8–CH10; mirror in `docs/tasks/`; the PR body
+  says #852 merges after this PR; squash title `feat(url4)!: run URI intents as RDS
+  code-pointer calls` with the `BREAKING CHANGE:` footer.

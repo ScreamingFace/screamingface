@@ -38,6 +38,20 @@ the codec (Task 2) and its tests.
 | L7 | **The classifier runs the grammar's `parse_value` on the `RelUrl`/`Url` atom text.** `RelUrl` → RDS (then `read_query_tail`); `RelExpr`, `RemoteExpr`, or a `missing_intent` error (`/reduce()`) → LEGACY; `Iteration` → COMPUTED; a non-url4 scheme → UNSUPPORTED (not parsed); any other `ParseError` propagates (`malformed_source`); a `url4://` reference with no path (`url4://n`) → `malformed_source`, because it names a node, not code | one owner for the production rules: the grammar. The no-path refusal is our choice; the owner can change it to RDS on `/` |
 | L6 | **`ReduceNode` classifies its reducer text with `classify_intent(intent_atom(...))`.** RDS → one call with `{"$1": [rows]}` | D8 |
 
+## Review round (2026-10-09, after Task 6)
+
+`design-reviewer` (Tasks 3–6) and `sf-code-review` (whole branch) found no structural problem.
+The fix round changes these plan points:
+
+| # | Was | Now |
+|---|---|---|
+| R1 | Task 4 step 5: the reducer is classified at resolve time | at lowering (contracts C7 "compile"): no per-row call runs before the refusal. The per-row intent of an iteration is checked at lowering too, unless it holds a `$` reference |
+| R2 | (not stated) a code-pointer reducer with a `!` tail | `malformed_source`; the tail is never dropped |
+| R3 | Task 4 step 2: map `endpoint_not_found` from the fetch to `intent_error` | removed: a `Url4Node` already answers an RDS miss with `intent_error`, and the mapping corrupted a handler's own error |
+| R4 | Task 5: adopt any known code; permanent iff 4xx | adopt only `intent_error`, `unsupported_mode`, `malformed_source`, `quorum_not_met` (the Engine reserves some codes); permanent for 4xx and 500 (url4's server sends 500 for a permanent unmapped code) |
+| R5 | Task 4 step 2: RDS quorum error as `_check_quorum` | permanent (C7), through one shared helper; LLM groups unchanged |
+| R6 | — | a call's own folded intent on the AST path is not classified (P16); the substituted code-pointer path is re-checked; the handler's exception text stays off the wire; duplicate names are allowed in a broadcast |
+
 ## Global constraints
 
 - **Worktree:** this one (`.claude/worktrees/url4-rds-code-pointer`, branch `url4-rds-code-pointer`).

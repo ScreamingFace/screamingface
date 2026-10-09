@@ -75,9 +75,14 @@ existing `@node.endpoint(path)` `[existing G/peer/server.py:103-112]`. No new de
   substitution, §2.5 of the PRD). The node does not re-encode them. `[proposed]`
 - `q=` is the last parameter, as the grammar requires
   `[existing G/wire/subrequest.py:207-217]`. `[implied]`
-- **No `!` tail.** Every LLM-mode call has a `!intent` tail (OME-508; the fan-out reduce sends
-  `q=()!<input>` `[existing G/dag/nodes/group.py:297]`). The missing tail plus a valid v1 document
-  is the RDS marker. Kevin confirms (K2). `[proposed]` (P8)
+- **No `!` tail.** The missing tail plus a valid v1 document is the RDS marker. Kevin confirms
+  (K2). `[proposed]` (P8). Correction (code review, 2026-10-09): not every LLM-mode call has a
+  `!intent` tail. `encode_subrequest(path, ctx, None)` sends a context-only `q=(ctx)`
+  `[existing G/wire/subrequest.py:58-75]`, and the Engine judge uses it
+  (`judge_provider.py:196`). Such a call is read as RDS only when its context is itself a valid
+  v1 document; the Engine judge's envelope (`schema`, `messages`) is not. Also, a 1.x node that
+  receives a 2.0 RDS target runs it as an LLM call (context = the document, intent `""`) and
+  answers 200. Both facts are input for K2.
 - **Escaping.** Percent-encode the UTF-8 document, keeping raw only RFC 3986 unreserved characters
   and `! $ * , ; : @ / ? =`. So `( ) ' % & # + " { } [ ] \`, space, control characters and
   non-ASCII are escaped. `+` is escaped because a fully-encoded decode reads a raw `+` as a space.

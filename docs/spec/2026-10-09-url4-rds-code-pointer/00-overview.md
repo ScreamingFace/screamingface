@@ -95,10 +95,10 @@ recommended default, and the docs follow the default until Kevin answers.
 | # | Question | Recommended default |
 |---|---|---|
 | K1 | Is the RDS input document `{"v": 1, "inputs": {…}}` with exact-string values (P3, P5), and `Request.mode` / `Request.inputs` (P7), the delivery shape you want for code pointers? | yes, as written |
-| K2 | Is "no `!` tail + valid v1 document in `q=`" an acceptable marker for an RDS call over HTTP GET, and is the escape set right (P8)? | yes; alternative is a separate `@node.code_pointer` registry, rejected because it splits the routing table |
+| K2 | Is "no `!` tail + valid v1 document in `q=`" an acceptable marker for an RDS call over HTTP GET, and is the escape set right (P8)? Two facts from code review (contracts C2): a context-only LLM call (`q=(ctx)`, used by the Engine judge) whose context is a v1 document reads as RDS; and a 1.x node runs a 2.0 RDS call silently as an LLM call. | yes; alternative is a separate `@node.code_pointer` registry, rejected because it splits the routing table |
 | K3 | Should `https://` (and other non-url4 schemes) as an intent be refused with `unsupported_mode` until §26 exists (P2)? | yes |
 | K4 | In broadcast, is the per-call key `current` right, or do you want the source's own key (P10)? | `current` (Spec B §6.1.2) |
-| K5 | For a named `;expand` source, one array under the name, or `name[i]` keys per Spec B §5.3.12.5 (P4)? | one array |
+| K5 | For a named `;expand` source, one array under the name, or `name[i]` keys per Spec B §5.3.12.5 (P4)? And: `$k` counts resolved sources (as a template's `$k` does), so in `(/a, /missing;optional, /c)!/code` the third source arrives as `$2`. Should `$k` be the written position instead (`$2` absent), or should an RDS group with an unnamed `;optional` source require names? | one array; `$k` as the template counts (as built) |
 | K6 | For an unknown code pointer, is `intent_error` right, or do you want a dedicated `x.` code (P12)? | `intent_error` |
 | K7 | Should v1 carry per-input metadata (weight, content type for the Spec C §13.2.3 content check), or wait for Part D/E (P6)? | wait |
 | K8 | With every source optional and failed and `quorum=all`, call with `{}` (Spec C §12.2 read literally) or refuse (P11)? | call with `{}` |
@@ -113,6 +113,7 @@ recommended default, and the docs follow the default until Kevin answers.
 | O3 | Spec B §6 reads a bare-token intent as a "Named job / command identifier". url4 treats it as prompt text. | keep; revisit with Part G |
 | O4 | Spec A §1.4.1 says a computed intent "must ultimately resolve" to a prompt or a code pointer. url4 always uses the computed result as prompt text. | keep; revisit with Part G |
 | O5 | U4 call identity for attribution (deferred, ans:Q4). The document's `v` field leaves room. | future issue |
+| O7 | A handler that never reads `Request.mode` accepts an RDS call. The Engine's model routes (`_ModelEndpoint`, `connector.py:345`) would send the document JSON, weight-0.0 sources included, to a model: `(a, b)!/<model-route>` failed with `endpoint_not_found` in 1.5.1 and is a paid call in 2.0 (code review, 2026-10-09). | Engine follow-up issue: model routes refuse `mode == "rds"` with `intent_error` |
 | O6 | An LLM-mode broadcast (`(a, b;optional)!*'…'`) calls the `process` hook with `""` for a failed optional source and keeps a row with an empty result, so the collector's skip never fires (found while building D7, 2026-10-09). The RDS broadcast does not do this. | separate `bug` issue (Triage) |
 
 ## 8. Real users of URI intents (monorepo search, 2026-10-09)
