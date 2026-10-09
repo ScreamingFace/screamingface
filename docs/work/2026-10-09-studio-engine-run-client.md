@@ -66,7 +66,11 @@ All under `apps/screamingface-studio/frontend/`:
   - 392421bb1 — feat(studio): link a candidate into a benchmark exactly as the SDK does
   - 09d863a13 — fix(studio): render params in url4 query form and import exactly what Share url4 copies
   - ad4e0621a — feat(studio): Engine run client for one benchmark run
-- **Gates:** `npm ci && npm run lint && npm run typecheck && npm test -- --coverage && npm run
+  - 619b09edc — fix(studio): encode prompt text as url4 text the way the SDK does
+- **Gates (after the prompt-encoding fix):** lint, typecheck, `npm test -- --coverage`
+  (14 files / 225 tests; statements 95.64%, branches 90.77%, functions 96.39%, lines 97.22%;
+  `recipe.ts` 99.56%) and `npm run build` green.
+- **Gates (first three commits):** `npm ci && npm run lint && npm run typecheck && npm test -- --coverage && npm run
   build` all green. 14 files / 209 tests passed; coverage statements 95.63%, branches 90.77%,
   functions 96.38%, lines 97.21% (threshold 80). `recipe.ts` 99.56% / 96.02% branches, `run.ts`
   93.6% / 85.63% branches, `url4.ts` 100%. `next build` produced every route statically. Both
@@ -108,8 +112,19 @@ All under `apps/screamingface-studio/frontend/`:
     changed.
   - TDD order: the url4 tests were run RED first; the recipe and run tests were written with
     their code and run together, not observed failing first.
-  - **Open, not fixed here:** `recipeToUrl4` collapses whitespace in prompts and does not double
-    `$`, while the SDK maps newlines to U+2028 and writes `$` as `$$` (`candidate.py`
-    `_url4_text`). A prompt containing `$` or a newline therefore differs from the SDK's text,
-    and a `$name` in a prompt would be read as a reference. The goldens avoid both; this needs
-    its own decision before slice C ships user prompts to the Engine.
+  - **Prompt encoding (fixed in 619b09edc, approved follow-up; TDD order followed).** The SDK
+    goldens gained prompts with a newline, `$USD`, `$input`, `$$`, `'` and `\` (fusion member,
+    synthesizer, solo); those tests and the round-trip tests were run and seen failing (10
+    failures) before the fix. Rules now implemented, from source:
+    - encode = SDK `_url4_text`, `packages/screamingface/src/screamingface/_evaluation/candidate.py:436-447`:
+      CR LF and CR → LF (:437); LF → U+2028, tab → space (:438); other control characters
+      (< U+0020, U+007F) are refused by the SDK (:439-446) and dropped by Studio; `$` → `$$`
+      (:447). Then url4 `_quote`, `packages/url4/src/url4/core/render.py:367-368`: `\` → `\\`,
+      then `'` → `\'`.
+    - decode = SDK `_python_text`, `packages/screamingface/src/screamingface/url4.py:446-447`:
+      U+2028 → LF, `$$` → `$`; the Engine collapses `$$` the same way when it substitutes
+      (`packages/url4/src/url4/dag/semantics/ensemble.py:20,45`).
+    - Behaviour change for prompts without those characters: runs of spaces and leading or
+      trailing spaces are no longer collapsed or trimmed (the SDK keeps them); a blank prompt
+      renders the default prompt (it used to render `''`). Tabs, CRs and a literal U+2028 in a
+      prompt do not survive a round trip, exactly as in the SDK.
