@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1554
 stack: studio frontend (apps/screamingface-studio/frontend; not on the sdlc card, gates per the plan)
 status: done
 started: 2026-10-09
