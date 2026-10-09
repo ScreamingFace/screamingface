@@ -208,3 +208,87 @@ def _assert_quorum_result(result, calls, judge_model, quorum, failure):
         assert operations[name]["accounting"] is not None
     assert operations["op_model_3"]["output"] == ("" if failure == "refusal" else None)
     assert (operations["op_synthesis_1"]["output"] == "Answer") == met
+
+
+def _scope_transport(seen):
+    def respond(request):
+        payload = json.loads(request.content)
+        seen.append(payload)
+        answers = {"draft": "DRAFT", "good-a": "A", "good-b": "B"}
+        answer = answers.get(payload["model"], "Answer")
+        if payload["model"] == "openrouter/openai/gpt-5.4":
+            answer = "VERDICT: 10"
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": answer}, "finish_reason": "stop"}]}
+        )
+
+    return httpx.MockTransport(respond)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("composition", ["pipeline", "synthesizer"])
+async def test_frontierscience_quorum_preserves_upstream_request_contents(tmp_path, composition):
+    from pathlib import Path
+
+    # WHY: a fixed successful fake reply lets grading pass even when model
+    # requests contain literal compiler bindings. Check the actual gateway body.
+    candidate = (
+        (Path(__file__).parents[1] / "data" / f"fusion_quorum_{composition}.url4")
+        .read_text()
+        .strip()
+    )
+    benchmark = _benchmark(tmp_path, "research")
+    seen = []
+    async with httpx.AsyncClient(
+        base_url="http://gateway", transport=_scope_transport(seen)
+    ) as client:
+        world = await build_aigateway_world(
+            AigatewayConfig(
+                base_url="http://gateway",
+                default_model="good-a",
+                models=tuple(
+                    ModelSpec(id=name)
+                    for name in (
+                        "draft",
+                        "good-a",
+                        "good-b",
+                        "synth",
+                        "inner",
+                        "openrouter/openai/gpt-5.4",
+                    )
+                ),
+                allow_outbound=False,
+            ),
+            client=client,
+        )
+        install_candidate_invocation(world.node)
+        benchmark.benchmark.install(world.node, tmp_path)
+        observations = RunObservations((ActivityObserver,))
+        try:
+            with observations.bind():
+                result = json.loads(
+                    await execute(
+                        link_candidate(candidate, benchmark.benchmark.protocol(1)), io=world.node
+                    )
+                )
+        finally:
+            await observations.aclose()
+            await world.aclose()
+    assert result["cases"][0]["status"] == "scored"
+    _assert_scope_requests(seen, composition)
+
+
+def _assert_scope_requests(seen, composition):
+    requests = {payload["model"]: payload for payload in seen}
+    inputs = {
+        name: next(
+            message["content"] for message in payload["messages"] if message["role"] == "user"
+        )
+        for name, payload in requests.items()
+    }
+    if composition == "pipeline":
+        assert [payload["model"] for payload in seen].count("draft") == 1
+        assert inputs["draft"] == "Explain."
+        assert inputs["good-a"] == inputs["good-b"] == "DRAFT"
+    else:
+        assert json.loads(inputs["good-b"]) == {"input": "Explain.", "outputs": "member_1: A"}

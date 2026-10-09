@@ -360,12 +360,24 @@ def _validate_topology(
     for name, binding in bindings.items():
         if calls[name].dependencies != binding.context_dependencies:
             raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
-    if _has_fusion_policy(value):
+    # INVARIANT: default-valued metadata cannot conceal executable policy.
+    if _has_fusion_policy(value) or _has_executable_fusion_policy(candidate):
         from screamingface._evaluation.candidate import compile_candidate
 
         expected = compile_candidate(_recipe_from_topology(value, calls)).url4
         if render(candidate) != expected:
             raise ValueError("URL4 Candidate does not match its Recipe metadata")
+
+
+def _has_executable_fusion_policy(candidate: Expression) -> bool:
+    return any(
+        (isinstance(node, Expression) and any(key == "quorum" for key, _ in node.params))
+        or (
+            isinstance(node, Source)
+            and any(key in {"optional", "required"} for key, _ in node.annotations)
+        )
+        for node in _executable_nodes(candidate)
+    )
 
 
 def _has_fusion_policy(value: _RecipeTopology) -> bool:
