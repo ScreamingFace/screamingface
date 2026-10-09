@@ -15,13 +15,25 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..credential_strategy_cache import credential_strategy_cache
-from ..errors import AuthError, CredentialNotFoundError
+from ..errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore
 from ..plugin_base import credential_strategy_from
 from ..profile_index import ProfileIndexStore, ProfileTransitionConflict
 from ..profile_models import AuthType, Profile
-from .types import Authorization, CredentialTarget, TargetReauthRequired, UnsupportedAuthMode
+from .refresh_guard import (
+    ConnectionRefreshOwner,
+    ProfileRefreshOwner,
+    RefreshOwner,
+    guard_refresh,
+)
+from .types import (
+    Authorization,
+    CredentialTarget,
+    TargetReauthRequired,
+    UnsupportedAuthMode,
+    WriteConflict,
+)
 
 
 def reauth_url_for(
@@ -86,14 +98,48 @@ def _strategy_for(app: Any, plugin: Any, provider: str, target: CredentialTarget
         provider=provider,
         auth_type=target.auth_type,
         credential_name=name,
-        build=lambda: credential_strategy_from(
-            plugin,
-            name,
-            auth_type=target.auth_type,
-            credential_store=app.state.credential_store,
-            http_client_factory=getattr(app.state, f"{provider}_http_factory", None),
+        build=lambda: _guarded(
+            app,
+            credential_strategy_from(
+                plugin,
+                name,
+                auth_type=target.auth_type,
+                credential_store=app.state.credential_store,
+                http_client_factory=getattr(app.state, f"{provider}_http_factory", None),
+            ),
+            target,
+            provider=provider,
         ),
     )
+
+
+def _refresh_owner(app: Any, target: CredentialTarget, *, provider: str) -> RefreshOwner | None:
+    profile, connection = backing_rows(target)
+    if connection is not None:
+        return ConnectionRefreshOwner(str(connection.account_id), provider, connection.id)
+    if profile is not None:
+        index = app.state.profile_index
+        return ProfileRefreshOwner(profile.account_id, provider, profile.id, index)
+    return None
+
+
+def _guarded(app: Any, strategy: Any, target: CredentialTarget, *, provider: str) -> Any:
+    """A dispatch-triggered refresh publishes only while its owner and credential hold (§5.3)."""
+    owner = _refresh_owner(app, target, provider=provider)
+    return strategy if owner is None else guard_refresh(strategy, owner)
+
+
+def _superseded(app: Any, target: CredentialTarget, *, plugin: Any, provider: str) -> WriteConflict:
+    """A refresh whose credential moved under it: evict, mark nothing (§5.3)."""
+    credential_name = str(target.credential_name)
+    credential_strategy_cache(app).evict(credential_name)
+    invalidate_session(plugin, credential_name)
+    profile, _connection = backing_rows(target)
+    if profile is not None:
+        return WriteConflict(
+            "superseded", subject="profile", provider=provider, requested=profile.name
+        )
+    return WriteConflict("superseded", subject="connection", provider=provider)
 
 
 def _reauth_url(target: CredentialTarget) -> str:
@@ -149,6 +195,8 @@ async def authorize(
         )
     try:
         raw_headers = await strategy.get_authorization_header()
+    except RefreshSuperseded as exc:
+        raise _superseded(app, target, plugin=plugin, provider=provider) from exc
     except (CredentialNotFoundError, AuthError) as exc:
         raise await _refuse_unusable(
             app, target, plugin=plugin, provider=provider, exc=exc

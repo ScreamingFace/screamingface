@@ -205,7 +205,7 @@ class CodexOAuth(BaseOAuthStrategy):
             raise AuthError("OAuth refresh response is not a JSON object")
 
         refreshed = _normalize_token_response(data, creds)
-        await self._write_to_store(refreshed)
+        # WHY no write here (OME-1497, G0 §5.3): the strategy base publishes under the guard.
         return refreshed
 
     async def _write_to_store(self, creds: dict) -> None:

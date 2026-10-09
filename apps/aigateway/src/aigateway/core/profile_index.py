@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
+from .credential_blob.model import CredentialBlob
 from .credential_blob.store import CredentialBlobStore, ORMStore
 from .profile_models import AuthType, Profile, ProfileDefaults, ProfileIndex, ProfileState
 
@@ -20,6 +21,23 @@ class ProfileTransitionConflict(RuntimeError):
 
 def _index_account_for(account_id: str) -> str:
     return f"{_INDEX_ACCOUNT_PREFIX}{account_id}"
+
+
+async def lock_account_index(account_id: str) -> None:
+    """Row-lock the account's index blob until the enclosing transaction ends; absent: no-op.
+
+    # WHY (OME-1497, G0 §5.3): the account index is the serialization point every legacy Profile
+    # writer passes before its credential blob, so a Profile-owned refresh publication that holds
+    # it either commits before such a writer or sees what that writer committed.
+    # AIDEV-NOTE: call inside `in_transaction()`; FOR UPDATE needs a model-returning query.
+    """
+    await (
+        CredentialBlob.filter(
+            service=INDEX_CREDENTIAL_SERVICE, account=_index_account_for(account_id)
+        )
+        .select_for_update()
+        .first()
+    )
 
 
 def _account_id_from_profile_id(profile_id: str) -> str:
@@ -83,6 +101,42 @@ class ProfileIndexStore:
                 _index_account_for(profile.account_id),
                 mutate,
             )
+
+    async def stamp_refreshed(self, profile_id: str) -> Profile:
+        """Mark the CURRENT entry refreshed now; the stamped entry, or `ProfileTransitionConflict`.
+
+        # INVARIANT (OME-1497, G0 §5.3): only `state` and `last_refreshed_at` change, on the entry
+        # as committed now — never a snapshot read before the provider round trip, which would
+        # revert a key replacement or re-auth that committed meanwhile.
+        # AIDEV-NOTE: deliberately WITHOUT the process `_lock`: the refresh guard calls this while
+        # its transaction holds the index row, and a same-process upsert holding `_lock` may be
+        # waiting on that row — taking `_lock` here would deadlock. The CAS stays the serializer.
+        """
+        account_id = _account_id_from_profile_id(profile_id)
+        legacy_seed = await self._read_legacy_account_index(account_id)
+        stamped: list[Profile] = []
+
+        def mutate(raw: str | None) -> str:
+            idx = legacy_seed if raw is None else ProfileIndex.model_validate_json(raw)
+            current = next((p for p in idx.profiles if p.id == profile_id), None)
+            if current is None:
+                raise ProfileTransitionConflict("profile was concurrently deleted")
+            # INVARIANT (§5.3): a re-auth started during the refresh window left the entry PENDING;
+            # promoting it would turn that re-auth's callback into a false 409.
+            state = (
+                current.state
+                if current.state == ProfileState.PENDING
+                else ProfileState.AUTHENTICATED
+            )
+            updated = current.model_copy(
+                update={"state": state, "last_refreshed_at": datetime.now(UTC)}
+            )
+            stamped[:] = [updated]
+            idx.profiles = [p for p in idx.profiles if p.id != profile_id] + [updated]
+            return idx.model_dump_json()
+
+        await self._store.mutate(INDEX_CREDENTIAL_SERVICE, _index_account_for(account_id), mutate)
+        return stamped[0]
 
     async def begin_pending(self, profile: Profile) -> int:
         """Publish ``profile`` as pending and claim a fresh ownership generation.
