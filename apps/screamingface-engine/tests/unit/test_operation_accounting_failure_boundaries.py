@@ -122,8 +122,20 @@ async def _evaluate(body: dict[str, object]):
 
 async def _evaluate_rounds(bodies: list[dict[str, object]]):
     remaining = iter(bodies)
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v1/retrieval/tavily/cache/"):
+            # OME-1045: the retrieval-cache routes are answered, and never counted as chat calls.
+            return httpx.Response(
+                200,
+                json={"outcome": "stored"}
+                if request.url.path.endswith("/entries")
+                else {"status": "miss", "reason": None, "result": None},
+            )
+        return httpx.Response(200, json=next(remaining))
+
     client = httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=next(remaining))),
+        transport=httpx.MockTransport(answer),
         base_url="http://aigateway.test",
     )
     tavily = httpx.AsyncClient(

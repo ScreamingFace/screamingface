@@ -18,6 +18,12 @@ from screamingface_engine.retrieval_policy import RetrievalPolicy
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.errors import RunnerRequestError
 from screamingface_engine.world.request_parameters import WEB_SEARCH_PARAM, caller_exclusions
+from screamingface_engine.world.tavily_retrieval_cache import (
+    TavilyLookup,
+    TavilyRetrievalCache,
+    fetch_description,
+    search_description,
+)
 
 WEB_TOOLS = [
     {
@@ -80,6 +86,8 @@ class WebToolRuntime:
     config: WebToolConfig
     api_key: str
     excluded_domains: tuple[str, ...]
+    # FEATURE: OME-1045 — the gateway retrieval cache. `None` leaves every Tavily call as it was.
+    cache: TavilyRetrievalCache | None = None
 
 
 def tavily_key(raw: str | None) -> str | None:
@@ -117,6 +125,7 @@ def build_runtime(
     config: WebToolConfig,
     policy: RetrievalPolicy | None,
     params: Mapping[str, str],
+    cache: TavilyRetrievalCache | None = None,
 ) -> WebToolRuntime | None:
     """Resolve tool availability before the first paid model request."""
     if not wants_search or not spec.uses_web_tools:
@@ -128,7 +137,7 @@ def build_runtime(
         # exclusion list is the worst failure mode for a privacy control, because it looks like
         # it was honoured.
         return (
-            WebToolRuntime(tavily_http, config, tavily_api_key, caller_exclusions(params))
+            WebToolRuntime(tavily_http, config, tavily_api_key, caller_exclusions(params), cache)
             if tavily_http is not None and tavily_api_key is not None
             else None
         )
@@ -142,7 +151,7 @@ def build_runtime(
             ),
             permanent=True,
         )
-    return WebToolRuntime(tavily_http, config, tavily_api_key, caller_exclusions(params))
+    return WebToolRuntime(tavily_http, config, tavily_api_key, caller_exclusions(params), cache)
 
 
 async def append_tool_results(
@@ -231,6 +240,15 @@ async def _tavily_search(runtime: WebToolRuntime, args: dict) -> str:
     query = args.get("query")
     if not isinstance(query, str) or not query:
         raise ValueError("web_search requires a non-empty 'query'")
+    description = search_description(
+        query,
+        runtime.config.tavily_search_depth,
+        runtime.config.tavily_max_results,
+        runtime.excluded_domains,
+    )
+    lookup = await _cache_lookup(runtime, description)
+    if lookup.status == "hit" and lookup.result is not None:
+        return lookup.result
     payload: dict[str, object] = {
         "query": query,
         "search_depth": runtime.config.tavily_search_depth,
@@ -252,11 +270,13 @@ async def _tavily_search(runtime: WebToolRuntime, args: dict) -> str:
     ]
     if not results:
         return "no results"
-    return "\n\n".join(
+    text = "\n\n".join(
         f"Title: {r.get('title', '')}\nURL: {r.get('url', '')}\nContent: {r.get('content', '')}"
         for r in results
         if isinstance(r, dict)
     )
+    await _cache_fill(runtime, lookup, description, text)
+    return text
 
 
 async def _tavily_extract(runtime: WebToolRuntime, args: dict) -> str:
@@ -265,22 +285,58 @@ async def _tavily_extract(runtime: WebToolRuntime, args: dict) -> str:
         raise ValueError("web_fetch requires a non-empty 'url'")
     if _is_blocked(url, runtime.excluded_domains):
         raise ValueError("web_fetch URL is blocked by Benchmark retrieval policy")
+    description = fetch_description(url, runtime.excluded_domains)
+    lookup = await _cache_lookup(runtime, description)
+    if lookup.status == "hit" and lookup.result is not None:
+        return lookup.result
     response = await runtime.client.post(
         "/extract",
         headers=_tavily_headers(runtime.api_key),
         json={"urls": url, "format": "markdown", "extract_depth": "advanced"},
     )
     response.raise_for_status()
-    data = response.json()
+    text, extracted = _extraction(response.json(), url)
+    if extracted:
+        await _cache_fill(runtime, lookup, description, text)
+    return text
+
+
+def _extraction(data: dict, url: str) -> tuple[str, bool]:
+    """The tool result for one extract response, and whether it is a success worth caching."""
     results = data.get("results") or []
     if results and isinstance(results[0], dict) and results[0].get("raw_content"):
-        return str(results[0]["raw_content"])
+        return str(results[0]["raw_content"]), True
     failed = data.get("failed_results") or []
     if failed and isinstance(failed[0], dict):
         failed_url = failed[0].get("url", url)
         failed_error = failed[0].get("error", "unknown")
-        return f"{failed_url} could not be extracted: {failed_error}"
-    return "no content extracted"
+        return f"{failed_url} could not be extracted: {failed_error}", False
+    return "no content extracted", False
+
+
+async def _cache_lookup(runtime: WebToolRuntime, description: Mapping[str, object]) -> TavilyLookup:
+    """Ask the gateway cache first. With no cache configured the answer is a `bypass`, so the
+    caller calls Tavily and never fills — byte-identical to a world without the cache."""
+    if runtime.cache is None:
+        return TavilyLookup("bypass", None, {})
+    return await runtime.cache.lookup(description)
+
+
+async def _cache_fill(
+    runtime: WebToolRuntime,
+    lookup: TavilyLookup,
+    description: Mapping[str, object],
+    result: str,
+) -> str | None:
+    """Store a result just paid for. Returns the gateway outcome, or `None` when no fill was made
+    or it failed.
+
+    INVARIANT: only a `miss` is followed by a fill. A `bypass` means the gateway store failed to
+    read (or the lookup itself failed), and a write would go to the store that just failed.
+    """
+    if runtime.cache is not None and lookup.status == "miss":
+        return await runtime.cache.fill(description, result)
+    return None
 
 
 def _search_result_allowed(result: Mapping[str, object], exclusions: Sequence[str]) -> bool:
