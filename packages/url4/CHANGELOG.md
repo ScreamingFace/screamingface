@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.0](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.1...url4-v2.0.0) (2026-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **engine:** one executor for every engine request; remove the node tier ([#1085](https://github.com/ScreamingFace/screamingface/issues/1085))
+
+### Refactors
+
+* **engine:** one executor for every engine request; remove the node tier ([#1085](https://github.com/ScreamingFace/screamingface/issues/1085)) ([d64d5e9](https://github.com/ScreamingFace/screamingface/commit/d64d5e942b37fab45ce14f95a015ee9a2e44a775))
+* **engine:** remove retired profile carrier ([#1231](https://github.com/ScreamingFace/screamingface/issues/1231)) ([641601f](https://github.com/ScreamingFace/screamingface/commit/641601f37a7c40ea6cf96abda187a565a2108df8))
+
 ## [1.5.1](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.0...url4-v1.5.1) (2026-08-27)
 
 
