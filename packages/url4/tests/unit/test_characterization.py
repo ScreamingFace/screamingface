@@ -121,7 +121,7 @@ async def test_bare_relexpr_text_path_matches_ast_path() -> None:
 )
 async def test_nested_group_text_path_matches_ast_path(expr: str) -> None:
     # Result parity for the NESTED-GROUP shapes, extending the bare-relexpr
-    # test above as the parity note in dag/_lowering.py prescribes. The two
+    # test above as the parity note in dag/_lowering_text.py prescribes. The two
     # paths build legitimately different graphs (a lazy thunk vs eager
     # expansion), so parity is asserted on the RESOLVED STRING — never on
     # graph structure — which is the observable contract a caller holds.

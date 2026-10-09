@@ -50,7 +50,7 @@ BASELINE: dict[str, int] = {
     "dag/nodes/fetch.py": 285,
     "dag/nodes/_shared.py": 211,
     "dag/nodes/iteration.py": 218,
-    "peer/_dispatch.py": 204,
+    "peer/_dispatch.py": 195,
     "cli/_serve.py": 340,
     "cli/_config.py": 341,
 }
