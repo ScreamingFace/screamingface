@@ -125,6 +125,16 @@ def test_a_capture_start_needs_no_echo() -> None:
     _start_sync(_http([], echo=None), TOKEN, URL4, capture=True)
 
 
+def test_capture_and_a_replay_start_refuse_to_build_together() -> None:
+    # INVARIANT: the Engine refuses both headers together, so no start is sent with both.
+    seen: list[httpx.Request] = []
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        _start_sync(_http(seen), TOKEN, URL4, capture=True, replay_frozen_copy=COPY)
+
+    assert seen == []
+
+
 def test_the_transport_sends_the_capture_header_from_the_candidate() -> None:
     plans = {url4_of("capture"): RunPlan()}
     with isolation_engine(plans) as engine:

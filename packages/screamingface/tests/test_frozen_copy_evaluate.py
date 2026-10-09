@@ -75,10 +75,10 @@ def test_capture_is_stamped_on_the_candidate_beside_the_seed() -> None:
     assert transport.candidate.answer_seed == 7
 
 
-def test_a_normal_evaluation_leaves_capture_and_replay_unset() -> None:
+def test_capture_false_leaves_capture_and_replay_unset() -> None:
     transport = _ReplayTransport()
 
-    evaluate_url4_sync(transport, REPLAY_URL4, None, False, answer_seed=7)
+    evaluate_url4_sync(transport, REPLAY_URL4, None, False, answer_seed=7, capture=False)
 
     assert transport.candidate is not None
     assert transport.candidate.capture is False
@@ -100,18 +100,32 @@ def test_the_client_threads_capture_to_the_transport() -> None:
     assert (result.frozen_copy_id, result.capture_status) == (COPY, "complete")
 
 
-def test_the_client_does_not_capture_by_default() -> None:
+def test_the_client_captures_by_default() -> None:
     transport = _ReplayTransport()
     with sf.Client(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_engine),
         run_transport=transport,
     ) as client:
-        client.evaluate(REPLAY_URL4, progress=False)
+        with pytest.warns(sf.EvaluationWarning, match="did not capture"):
+            client.evaluate(REPLAY_URL4, progress=False)
+
+    assert transport.candidate is not None
+    assert transport.candidate.capture is True
+    assert transport.candidate.replay_frozen_copy is None
+
+
+def test_capture_false_sends_no_capture_header() -> None:
+    transport = _ReplayTransport()
+    with sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_engine),
+        run_transport=transport,
+    ) as client:
+        client.evaluate(REPLAY_URL4, progress=False, capture=False)
 
     assert transport.candidate is not None
     assert transport.candidate.capture is False
-    assert transport.candidate.replay_frozen_copy is None
 
 
 @pytest.mark.asyncio
@@ -141,7 +155,10 @@ def test_recipe_evaluation_stamps_capture_on_every_compiled_candidate() -> None:
 
     with client:
         client.evaluate(
-            sf.Model("anthropic/claude-haiku-4-5", name="haiku"), benchmark="draco", limit=1
+            sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            benchmark="draco",
+            limit=1,
+            capture=False,
         )
         with pytest.warns(sf.EvaluationWarning, match="did not capture"):
             client.evaluate(
@@ -175,7 +192,10 @@ async def test_the_async_recipe_path_stamps_capture_on_every_compiled_candidate(
 
     async with client:
         await client.evaluate(
-            sf.Model("anthropic/claude-haiku-4-5", name="haiku"), benchmark="draco", limit=1
+            sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            benchmark="draco",
+            limit=1,
+            capture=False,
         )
         with pytest.warns(sf.EvaluationWarning, match="did not capture"):
             await client.evaluate(
@@ -192,7 +212,7 @@ async def test_the_async_recipe_path_stamps_capture_on_every_compiled_candidate(
 def test_every_evaluate_door_takes_capture_and_none_takes_a_replay(target: object) -> None:
     parameters = inspect.signature(target).parameters  # type: ignore[arg-type]
 
-    assert parameters["capture"].default is False
+    assert parameters["capture"].default is True
     assert "replay_frozen_copy" not in parameters
     assert "frozen_copy_id" not in parameters
 
@@ -221,7 +241,7 @@ def test_module_level_evaluate_forwards_capture_on_both_branches(
     assert [kwargs["capture"] for _, kwargs in fake.calls] == [capture, capture]
 
 
-def test_module_level_evaluate_does_not_capture_by_default(
+def test_module_level_evaluate_captures_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake = _RecordingDefaultClient()
@@ -230,7 +250,7 @@ def test_module_level_evaluate_does_not_capture_by_default(
     sf.evaluate(REPLAY_URL4)
     sf.evaluate(sf.Model("provider/opus"), benchmark="draco")
 
-    assert [kwargs["capture"] for _, kwargs in fake.calls] == [False, False]
+    assert [kwargs["capture"] for _, kwargs in fake.calls] == [True, True]
 
 
 # --- a capture the Engine did not make ------------------------------------------------------------

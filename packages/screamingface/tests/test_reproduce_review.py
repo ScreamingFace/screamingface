@@ -543,7 +543,8 @@ def test_a_complete_score_without_a_copy_id_starts_no_run() -> None:
 
 def test_a_replay_start_sends_the_copy_id_header_and_no_capture_header() -> None:
     # The real transport against a stub Engine that honours replay: `X-Replay-Frozen-Copy` goes
-    # out, `X-Capture` never does (the Engine refuses both together).
+    # out, `X-Capture` never does (the Engine refuses both together). The public default is
+    # capture on, so this proves reproduce passes `capture=False` explicitly.
     plans = {REPLAY_URL4: _honouring_plan()}
     with isolation_engine(plans) as engine:
         client = sf.Client(

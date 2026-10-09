@@ -104,7 +104,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = False,
+    capture: bool = True,
 ) -> Report: ...
 
 
@@ -117,7 +117,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = False,
+    capture: bool = True,
 ) -> Report: ...
 
 
@@ -129,7 +129,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = False,
+    capture: bool = True,
 ) -> Report:
     """Evaluate Recipes or a complete URL4 through the lazy default Client.
 
