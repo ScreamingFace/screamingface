@@ -153,6 +153,7 @@ def _benchmark(entry: _BenchmarkEntry) -> Benchmark:
         interaction=entry.interaction,
         difficulty=entry.difficulty,
         inverted_grade=entry.inverted_grade,
+        attempts=entry.attempts,
         provenance=entry.provenance,
         saturation=entry.saturation,
     )

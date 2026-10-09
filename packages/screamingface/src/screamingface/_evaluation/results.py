@@ -14,6 +14,7 @@ from screamingface._report_primitives import CaseId
 from screamingface._report_primitives import _case_id as _validate_case_id
 from screamingface.accounting import member_usage
 from screamingface.case_result import (
+    CaseAttempt,
     CaseOperation,
     CaseStatus,
     StopReason,
@@ -337,12 +338,16 @@ def _case_result(value: object) -> CaseResult:
         # WHY: `operations` (OME-843 member-output capture) is optional so pre-capture
         # Engines keep decoding; tolerance is for the key's absence only — present
         # content still decodes strictly below.
-        optional={"operations"},
+        # WHY: `attempts` (OME-1458) is optional the same way — present only when the
+        # Benchmark declares more than one Attempt per Case.
+        optional={"operations", "attempts"},
         label="Case Result",
     )
     case_id = _case_id(raw.get("case_id"), "Case Result case_id")
     operations_value = raw.get("operations")
     operations = None if operations_value is None else _case_operations(operations_value)
+    attempts_value = raw.get("attempts")
+    attempts = None if attempts_value is None else _case_attempts(attempts_value)
     grade_value = _required(raw, "grade", "Case Result")
     grade = None if grade_value is None else _case_grade(grade_value)
     failures = _failures(_required(raw, "failures", "Case Result"), "Case Result failures")
@@ -367,9 +372,46 @@ def _case_result(value: object) -> CaseResult:
             failures=failures,
             metadata=_mapping(_required(raw, "metadata", "Case Result"), "Case Result metadata"),
             operations=operations,
+            attempts=attempts,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Case Result is invalid: {exc}") from exc
+
+
+def _case_attempts(value: object) -> tuple[CaseAttempt, ...]:
+    return tuple(_case_attempt(item) for item in _sequence(value, "Case Result attempts"))
+
+
+def _case_attempt(value: object) -> CaseAttempt:
+    """Decode one Attempt strictly: an unknown key is refused, as on the Case Result."""
+
+    raw = _mapping(value, "Case Attempt")
+    _keys(
+        raw,
+        required={"attempt", "status", "output", "finish_reason", "refusal", "grade", "failures"},
+        optional={"operations"},
+        label="Case Attempt",
+    )
+    grade_value = raw.get("grade")
+    finish_reason_value = raw.get("finish_reason")
+    operations_value = raw.get("operations")
+    try:
+        return CaseAttempt(
+            attempt=_positive_integer(raw.get("attempt"), "Case Attempt attempt"),
+            status=_case_status(raw.get("status")),
+            output=_optional_string(raw.get("output"), "Case Attempt output"),
+            finish_reason=(
+                None
+                if finish_reason_value is None
+                else _text(finish_reason_value, "Case Attempt finish_reason")
+            ),
+            refusal=_optional_text(raw.get("refusal"), "Case Attempt refusal"),
+            grade=None if grade_value is None else _case_grade(grade_value),
+            failures=_failures(raw.get("failures"), "Case Attempt failures"),
+            operations=(None if operations_value is None else _case_operations(operations_value)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ExecutionError(f"Case Attempt is invalid: {exc}") from exc
 
 
 def _case_operations(value: object) -> tuple[CaseOperation, ...]:

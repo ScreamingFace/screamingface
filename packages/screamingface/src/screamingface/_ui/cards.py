@@ -285,6 +285,27 @@ def inverted_grade_chip_html(benchmark: Benchmark) -> str:
     )
 
 
+def attempts_meaning(attempts: int) -> str:
+    """The one phrase every view uses for a Benchmark's Attempts rule (OME-1458).
+
+    WHY "any of N", never "pass@N": inspect's `pass_at` names an estimator, a different
+    number. The cost half is there because N Attempts is N Candidate Invocations per Case.
+    """
+
+    return f"any of {attempts} Attempts · {attempts} Candidate Invocations per Case"
+
+
+def attempts_chip_html(benchmark: Benchmark) -> str:
+    """The listing's mark for a Benchmark that asks each Case several times; nothing otherwise."""
+
+    if benchmark.attempts == 1:
+        return ""
+    return (
+        f"<span class='sf-chip' title='{escape(attempts_meaning(benchmark.attempts))}'>"
+        f"any of {benchmark.attempts} Attempts</span>"
+    )
+
+
 def benchmarks_rows_html(records: Sequence[Benchmark]) -> str:
     if not records:
         return "<div class='sf-catalog__empty'>No benchmarks match.</div>"
@@ -296,6 +317,7 @@ def benchmarks_rows_html(records: Sequence[Benchmark]) -> str:
             + _chip(f"{record.case_count} cases")
             + origin_chip_html(record.origin)
             + inverted_grade_chip_html(record)
+            + attempts_chip_html(record)
         )
         + f"<div class='sf-card__hint'>{escape(record.description)}</div></div>"
         for record in records
@@ -313,6 +335,11 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
         + (
             _field("grading", escape(f"Inverted: {INVERTED_GRADE_MEANING}"), wide=True)
             if benchmark.inverted_grade
+            else ""
+        )
+        + (
+            _field("attempts", escape(attempts_meaning(benchmark.attempts)), wide=True)
+            if benchmark.attempts > 1
             else ""
         )
         + _field("description", escape(benchmark.description), wide=True)

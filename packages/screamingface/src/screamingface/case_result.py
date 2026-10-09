@@ -321,6 +321,69 @@ class CaseOperation:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class CaseAttempt:
+    """One Attempt at a Case: the answer the Candidate gave that time, and its own grade.
+
+    FEATURE (OME-1458): a Benchmark that declares N Attempts asks each Case N times and
+    marks a Check met if any Attempt met it. The Case Result's own ``output`` and ``grade``
+    are the folded view (the shown answer and the per-Check fold); this value keeps what
+    each Attempt actually said and scored, so a reader can see which Attempt earned a point.
+
+    ``operations`` are this Attempt's own cost records. Under Attempts the Case carries none
+    of its own, so every model call is billed exactly once, on the Attempt that made it.
+    The Attempt's outcome rules are the Case Result's (scored needs a numeric grade, failed
+    needs failures); the owning `CaseResult` checks them, because it knows the Case id.
+    """
+
+    attempt: int
+    status: CaseStatus
+    output: str | None
+    finish_reason: str | None
+    refusal: str | None
+    grade: CaseGrade | None
+    failures: tuple[Failure, ...]
+    operations: tuple[CaseOperation, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.attempt, bool) or not isinstance(self.attempt, int) or self.attempt < 1:
+            raise ValueError("Case Attempt attempt must be a positive integer")
+        if self.status not in {"scored", "failed"}:
+            raise ValueError("Case Attempt status must be 'scored' or 'failed'")
+        if self.output is not None and not isinstance(self.output, str):
+            raise TypeError("Case Attempt output must be text or None")
+        for name in ("finish_reason", "refusal"):
+            value: object = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _nonblank_text(value, f"Case Attempt {name}"))
+        if self.grade is not None and not isinstance(self.grade, CaseGrade):
+            raise TypeError("Case Attempt grade must be an sf.CaseGrade or None")
+        object.__setattr__(
+            self, "failures", _typed_values(self.failures, Failure, "Case Attempt failures")
+        )
+        if self.operations is not None:
+            object.__setattr__(
+                self,
+                "operations",
+                _typed_values(self.operations, CaseOperation, "Case Attempt operations"),
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        selected: dict[str, object] = {
+            "attempt": self.attempt,
+            "status": self.status,
+            "output": self.output,
+            "finish_reason": self.finish_reason,
+            "refusal": self.refusal,
+            "grade": None if self.grade is None else self.grade.to_dict(),
+            "failures": [failure.to_dict() for failure in self.failures],
+        }
+        # INVARIANT: absence stays absence, as on the Case Result (OME-843).
+        if self.operations is not None:
+            selected["operations"] = [operation.to_dict() for operation in self.operations]
+        return selected
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class CaseResult:
     """The complete retained result for one selected Benchmark Case."""
@@ -336,6 +399,7 @@ class CaseResult:
     grade: CaseGrade | None
     failures: tuple[Failure, ...]
     operations: tuple[CaseOperation, ...] | None
+    attempts: tuple[CaseAttempt, ...] | None
     _metadata: Mapping[str, object] = field(repr=False)
 
     def __init__(
@@ -353,6 +417,7 @@ class CaseResult:
         stop_reason: StopReason | None = None,
         rounds_executed: int | None = None,
         operations: Sequence[CaseOperation] | None = None,
+        attempts: Sequence[CaseAttempt] | None = None,
     ) -> None:
         case_id = _case_id(case_id)
         input = _nonempty_text(input, "Case Result input")
@@ -373,6 +438,7 @@ class CaseResult:
             not isinstance(item, CaseOperation) for item in selected_operations
         ):
             raise TypeError("Case Result operations must contain CaseOperation values")
+        selected_attempts = _validated_attempts(attempts, case_id, selected_operations)
         status = _validate_case_outcome(
             status,
             case_id,
@@ -393,6 +459,7 @@ class CaseResult:
             "grade": grade,
             "failures": selected_failures,
             "operations": selected_operations,
+            "attempts": selected_attempts,
             "_metadata": freeze_mapping(metadata, "Case Result metadata"),
         }
         for name, value in values.items():
@@ -485,7 +552,48 @@ class CaseResult:
         # export byte-identically, so the key appears only when the Engine attributed.
         if self.operations is not None:
             selected["operations"] = [operation.to_dict() for operation in self.operations]
+        # INVARIANT (OME-1458): a Benchmark without Attempts exports byte-identically.
+        if self.attempts is not None:
+            selected["attempts"] = [attempt.to_dict() for attempt in self.attempts]
         return selected
+
+
+def _typed_values[T](values: Sequence[T], kind: type[T], label: str) -> tuple[T, ...]:
+    """Freeze a sequence into a tuple, refusing any item that is not a ``kind``."""
+
+    selected: tuple[T, ...] = tuple(values)
+    if any(not isinstance(item, kind) for item in selected):
+        raise TypeError(f"{label} must contain {kind.__name__} values")
+    return selected
+
+
+def _validated_attempts(
+    attempts: Sequence[CaseAttempt] | None,
+    case_id: CaseId,
+    operations: tuple[CaseOperation, ...] | None,
+) -> tuple[CaseAttempt, ...] | None:
+    """Check a Case's Attempts are numbered 1..N, N ≥ 2, each a valid outcome of this Case.
+
+    WHY N ≥ 2: one Attempt is spelled by absence, so a report has one shape per meaning.
+    WHY no Case-level operations beside Attempts: each Attempt carries its own cost records,
+    and a second copy at Case level would bill the same model call twice.
+    """
+
+    if attempts is None:
+        return None
+    selected: tuple[CaseAttempt, ...] = tuple(attempts)
+    if any(not isinstance(item, CaseAttempt) for item in selected):
+        raise TypeError("Case Result attempts must contain CaseAttempt values")
+    numbers: list[int] = [item.attempt for item in selected]
+    if len(selected) < 2 or numbers != list(range(1, len(selected) + 1)):
+        raise ValueError("Case Result attempts must be numbered 1..N with N of at least 2")
+    if operations is not None:
+        raise ValueError("Case Result operations live on each Attempt when the Case has Attempts")
+    for item in selected:
+        _validate_case_outcome(
+            item.status, case_id, item.refusal, item.grade, item.output, item.failures
+        )
+    return selected
 
 
 def _decode_candidate_envelope(value: object) -> tuple[tuple[str, str], ...] | None:

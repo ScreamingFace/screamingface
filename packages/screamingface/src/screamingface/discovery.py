@@ -383,12 +383,17 @@ class Benchmark:
     # the verdict as an open-set word, "unknown" when the Engine served none.
     provenance: BenchmarkProvenance | None = None
     saturation: str = "unknown"
+    # FEATURE: Attempts per Case (OME-1458) — the Engine asks each Case this many times and
+    # marks a Check met if any Attempt met it; 1 = an ordinary Benchmark.
+    # WHY last: the dataclass is positional, so a new field goes after every existing one.
+    attempts: int = 1
 
     def __post_init__(self) -> None:
         if not isinstance(self.inverted_grade, bool):
             raise TypeError("Benchmark inverted_grade must be a boolean")
         if self.provenance is not None and not isinstance(self.provenance, BenchmarkProvenance):
             raise TypeError("Benchmark provenance must be a BenchmarkProvenance")
+        _require_attempts(self.attempts)
         object.__setattr__(self, "id", _benchmark_id(self.id))
         for name in ("title", "description", "revision", "origin", "saturation"):
             object.__setattr__(self, name, _nonblank(getattr(self, name), f"Benchmark {name}"))
@@ -407,6 +412,15 @@ class Benchmark:
         from screamingface._ui.cards import benchmark_card_html
 
         return benchmark_card_html(self)
+
+
+def _require_attempts(value: object) -> None:
+    """Refuse an Attempts count that is not a whole number of at least 1 (OME-1458)."""
+
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("Benchmark attempts must be an integer")
+    if value < 1:
+        raise ValueError("Benchmark attempts must be at least 1")
 
 
 def _nonblank(value: object, label: str) -> str:

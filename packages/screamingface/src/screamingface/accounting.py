@@ -13,7 +13,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
 from screamingface._report_primitives import CaseId, Usage
-from screamingface.case_result import CaseResult
+from screamingface.case_result import CaseGrade, CaseOperation, CaseResult
 from screamingface.operation_accounting import OperationAccounting, OperationCache
 
 if TYPE_CHECKING:
@@ -140,14 +140,38 @@ def summarize(values: Sequence[OperationAccounting | None]) -> AccountingSummary
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _BilledAnswer:
+    """One answer the Candidate was billed for: its model calls and the grade marking it."""
+
+    operations: tuple[CaseOperation, ...] | None
+    grade: CaseGrade | None
+
+
+def _billed_answers(case: CaseResult) -> tuple[_BilledAnswer, ...]:
+    """The answers a Case paid for: the Case itself, or each of its Attempts.
+
+    WHY (OME-1458): a Case with Attempts carries its cost records on each Attempt and none
+    of its own, and its folded grade's evidence is a view of an Attempt's evidence. Reading
+    the Attempts, never the Case-level fields, bills every model call exactly once.
+    Worked example: two Attempts, each one call costing $0.01 → two generation rows, $0.02
+    for the Case; the folded Check's judge evidence is not counted a third time.
+    """
+
+    if case.attempts is None:
+        return (_BilledAnswer(case.operations, case.grade),)
+    return tuple(_BilledAnswer(item.operations, item.grade) for item in case.attempts)
+
+
 def member_usage(cases: Sequence[CaseResult], operation_id: str) -> Usage | None:
-    """Use exact operation identity in every Case; never infer subtree ownership."""
+    """Use exact operation identity in every answer; never infer subtree ownership."""
     records: list[OperationAccounting] = []
     for case in cases:
-        matches = [op for op in case.operations or () if op.operation_id == operation_id]
-        if len(matches) != 1 or matches[0].accounting is None:
-            return None
-        records.append(matches[0].accounting)
+        for answer in _billed_answers(case):
+            matches = [op for op in answer.operations or () if op.operation_id == operation_id]
+            if len(matches) != 1 or matches[0].accounting is None:
+                return None
+            records.append(matches[0].accounting)
     return _usage_sum([v.usage for v in records]) if records else None
 
 
@@ -160,7 +184,7 @@ def _declared_operation_models(candidate: CandidateResult) -> dict[str, str]:
         declarations[candidate.operations[0].id] = list(candidate.models)
     models = {key: values[0] for key, values in declarations.items() if len(values) == 1}
     for case in candidate.cases:
-        for op in case.operations or ():
+        for op in (op for answer in _billed_answers(case) for op in answer.operations or ()):
             if op.accounting is not None and op.accounting.request_model != models.get(
                 op.operation_id
             ):
@@ -172,8 +196,9 @@ def _declared_judge_models(candidate: CandidateResult) -> dict[str, str]:
     evidence = [
         item
         for case in candidate.cases
-        if case.grade is not None
-        for check in case.grade.checks
+        for answer in _billed_answers(case)
+        if answer.grade is not None
+        for check in answer.grade.checks
         for item in check.evidence
         if item.producer.type == "model"
     ]
@@ -185,11 +210,14 @@ def _declared_judge_models(candidate: CandidateResult) -> dict[str, str]:
 
 
 def _candidate_rows(
-    candidate: CandidateResult, case: CaseResult, models: Mapping[str, str]
+    candidate: CandidateResult,
+    case: CaseResult,
+    answer: _BilledAnswer,
+    models: Mapping[str, str],
 ) -> list[AccountingRow]:
     operations = {op.id: op for op in candidate.operations}
-    retained = {op.operation_id: op for op in case.operations or ()}
-    if len(retained) != len(case.operations or ()):
+    retained = {op.operation_id: op for op in answer.operations or ()}
+    if len(retained) != len(answer.operations or ()):
         raise ValueError("duplicate accounting operation")
     if set(retained) - operations.keys():
         raise ValueError("unknown accounting operation")
@@ -214,11 +242,13 @@ def _candidate_rows(
     return rows
 
 
-def _grading_rows(case: CaseResult, models: Mapping[str, str]) -> list[AccountingRow]:
+def _grading_rows(
+    case: CaseResult, grade: CaseGrade | None, models: Mapping[str, str]
+) -> list[AccountingRow]:
     rows = []
-    if case.grade is None:
+    if grade is None:
         return rows
-    for check in case.grade.checks:
+    for check in grade.checks:
         for evidence in check.evidence:
             value = evidence.accounting
             # WHY: deterministic checks make no model call. A missing model observation
@@ -246,10 +276,11 @@ def _rows(candidate: CandidateResult) -> tuple[AccountingRow, ...]:
     judge_models = _declared_judge_models(candidate)
     rows = []
     for case in candidate.cases:
-        # INVARIANT: loop internals are not attributable by this retained contract.
-        if candidate.kind not in {"corrective_loop", "self_corrective"}:
-            rows.extend(_candidate_rows(candidate, case, operation_models))
-        rows.extend(_grading_rows(case, judge_models))
+        for answer in _billed_answers(case):
+            # INVARIANT: loop internals are not attributable by this retained contract.
+            if candidate.kind not in {"corrective_loop", "self_corrective"}:
+                rows.extend(_candidate_rows(candidate, case, answer, operation_models))
+            rows.extend(_grading_rows(case, answer.grade, judge_models))
     return tuple(rows)
 
 

@@ -788,13 +788,64 @@ def _pane_html(candidate: CandidateResult, case: CaseResult, cost_html: str) -> 
             "<div class='sf-pane__q'>input unavailable — "
             "the case failed before it was recorded</div>"
         )
-    body = f"{answer_html}{refusal_html}{_case_failures_html(case)}{checks_head}{checks}"
+    body = (
+        f"{answer_html}{refusal_html}{_attempts_html(case)}{_case_failures_html(case)}"
+        f"{checks_head}{checks}"
+    )
     return (
         "<div class='sf-pane'><div class='sf-pane__h'>"
         f"<span class='sf-report__case-id'>case {escape(str(case.case_id))} · "
-        f"{escape(candidate.name)}</span>{verdict}{finish_html}{rounds_html}</div>{tags_html}"
+        f"{escape(candidate.name)}</span>{verdict}{finish_html}{rounds_html}"
+        f"{_attempt_badges_html(case)}</div>{tags_html}"
         f"{question}{case_tabs(body, cost_html)}</div>"
     )
+
+
+def _attempt_badges_html(case: CaseResult) -> str:
+    """Say the Case was asked N times, and how many of those Attempts failed, in the pane header.
+
+    FEATURE (OME-1458): a Benchmark that asks each Case N times marks a Check met if any
+    Attempt met it. Absent for a Case without Attempts, so every other pane renders
+    byte-identically.
+
+    WHY no per-Attempt verdict here: credit is per Check, not per Attempt. An ARC task with
+    grids A and B, A right in Attempt 1 and B right in Attempt 2, passes with score 1.0 while
+    neither Attempt has full marks; "0 of 2 Attempts matched" beside that pass would read as
+    a contradiction. The verdict badge carries the folded result; the Attempts list below
+    carries each Attempt's own score.
+    """
+
+    if case.attempts is None:
+        return ""
+    total: int = len(case.attempts)
+    failed: int = sum(1 for attempt in case.attempts if attempt.status == "failed")
+    badges: str = _badge(
+        f"any of {total} Attempts",
+        good=True,
+        title="A Check is met if any Attempt met it; each Attempt's own score is listed below.",
+    )
+    if failed:
+        badges += _badge(f"{failed} of {total} Attempts failed", good=False, warn=True)
+    return badges
+
+
+def _attempts_html(case: CaseResult) -> str:
+    """List each Attempt's own answer and score, so a reader sees which one earned a point."""
+
+    if case.attempts is None:
+        return ""
+    rows: list[str] = []
+    for attempt in case.attempts:
+        score: float | None = None if attempt.grade is None else attempt.grade.score
+        outcome: str = (
+            f"score {score:g}" if attempt.status == "scored" and score is not None else "failed"
+        )
+        said: str | None = attempt.output if attempt.output is not None else attempt.refusal
+        answer: str = f"<pre class='sf-report__pre'>{escape(_clip(said))}</pre>" if said else ""
+        rows.append(
+            f"<div class='sf-detail__k'>Attempt {attempt.attempt} · {escape(outcome)}</div>{answer}"
+        )
+    return "".join(rows)
 
 
 def _case_failures_html(case: CaseResult) -> str:

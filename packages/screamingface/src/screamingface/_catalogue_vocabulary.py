@@ -28,5 +28,8 @@ SATURATION_VERDICTS: tuple[str, ...] = ("saturated", "open", "unknown")
 #: the engine's SCORES_KEY, letter for letter. The Engine omits it unless the Benchmark
 #: declares several scorers; report.json always writes it (`{}` when absent).
 SCORES_KEY: str = "scores"
+#: The wire key of a Benchmark's Attempts per Case (OME-1458) on the catalogue entry — the
+#: engine's BenchmarkDeclaration field, letter for letter. The Engine omits it at one Attempt.
+ATTEMPTS_KEY: str = "attempts"
 
 __all__: list[str] = []
