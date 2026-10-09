@@ -5,7 +5,7 @@ the boundary does not erode silently. The rule is:
 
     url4.core       LANGUAGE  text <-> AST.   Imports nothing above it.
     url4.wire       shared    the ?q= codec.   Imports core only.
-    url4.dag        ENGINE    AST -> execute.  May import core, wire, observe, and io.
+    url4.dag        ENGINE    AST -> execute.  May import core, wire, observe, and io.layer.
     url4.io         PORT      + adapters.      Imports core and wire only.
     url4.observe    leaf      Standard library only (plus url4._log_attributes).
     url4.peer       NODE      server + client. Imports core, wire, dag, io, observe.
@@ -50,9 +50,6 @@ _LAYER_FOR_PREFIX = {
 _FORBIDDEN: dict[str, set[str]] = {
     "core": {"wire", "dag", "io", "observe", "peer", "cli", "streaming"},
     "wire": {"dag", "io", "observe", "peer", "cli", "streaming"},
-    # NOT ENFORCED: url4.dag may name url4.io only through url4.io.layer, but
-    # dag/_run.py lazily imports url4.io.http for the default IO layer, so this
-    # rule does not hold yet. Add it only after that import moves or is allowed.
     "dag": {"peer", "cli", "streaming"},
     "io": {"dag", "observe", "peer", "cli", "streaming"},
     "observe": {"core", "wire", "dag", "io", "peer", "cli", "streaming"},
@@ -113,6 +110,18 @@ def _imported_modules(path: Path) -> set[str]:
     return found
 
 
+# The one documented exception to "dag reaches io only through url4.io.layer":
+# dag/_run.py lazily imports the default HttpIOLayer when the caller passes no io.
+_DAG_IO_EXCEPTION = ("dag/_run.py", "url4.io.http")
+
+
+def _bypasses_io_layer(source_layer: str, path: Path, module: str) -> bool:
+    """True when the engine names url4.io somewhere other than url4.io.layer."""
+    if source_layer != "dag" or _layer_of(module) != "io" or module == "url4.io.layer":
+        return False
+    return (path.relative_to(_SRC).as_posix(), module) != _DAG_IO_EXCEPTION
+
+
 def _offenders(source_layer: str) -> list[str]:
     """Every import in ``source_layer`` that crosses into a forbidden layer."""
     forbidden = _FORBIDDEN[source_layer]
@@ -121,7 +130,7 @@ def _offenders(source_layer: str) -> list[str]:
         if _importer_layer(path) != source_layer:
             continue
         for module in sorted(_imported_modules(path)):
-            if _layer_of(module) in forbidden:
+            if _layer_of(module) in forbidden or _bypasses_io_layer(source_layer, path, module):
                 result.append(f"{path.relative_to(_SRC)} imports {module}")
     return result
 
