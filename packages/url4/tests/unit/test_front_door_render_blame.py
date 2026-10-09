@@ -1,15 +1,15 @@
 """The SDK front doors blame the caller's TREE, not the text they never wrote.
 
 ``Client.evaluate`` and ``Url4Node.evaluate`` render a caller-supplied ``Node`` with
-``check=False`` — the round-trip re-parse costs ~15x the render, and every tree the
-library itself produces is already pinned by the renderer's property tests. The cost of
-skipping it is diagnostic: a tree the grammar cannot faithfully carry (spec §8.1.2) used
-to fail downstream as a ``ParseError`` quoting rendered text the caller never saw.
+``check=False``: the round-trip re-parse costs 1.6-2.5x the guarded render, and the
+render guards already refuse every tree they know would be misread. What they let
+through is text that does not parse at all, which would fail downstream as a
+``ParseError`` quoting rendered text the caller never saw.
 
-``_blaming_render`` buys the diagnostic back without the happy-path cost: it verifies the
-round-trip only once the run has already raised ``ParseError``. These tests pin both
-halves — the unfaithful tree is blamed, and a parse failure that is genuinely the run's
-is left alone.
+``_evaluate_front_door`` buys the diagnostic back without the happy-path cost: it
+verifies the round-trip only once the run has already raised ``ParseError``. These tests
+pin both halves — the unfaithful tree is blamed, and a parse failure that is genuinely
+the run's is left alone.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from url4.core.errors import ParseError, RenderError
 from url4.core.nodes import Expression, Node, RelUrl, Text
 from url4.core.parser import build
 from url4.io.static import StaticIOLayer
-from url4.peer.client import Client, _blaming_render
+from url4.peer.client import Client, _evaluate_front_door
 from url4.peer.server import Url4Node
 
 # A tree the grammar cannot carry: the space in the path renders bare, and the rendered
@@ -79,7 +79,7 @@ async def test_a_parse_failure_from_inside_the_run_is_left_alone() -> None:
         raise ParseError("malformed sub-expression fetched mid-run")
 
     with pytest.raises(ParseError, match="mid-run"):
-        await _blaming_render(faithful, "(/data/a.json)!'summarize'", run())
+        await _evaluate_front_door(faithful, lambda _request: run())
 
 
 @pytest.mark.asyncio
@@ -88,7 +88,7 @@ async def test_a_text_request_skips_verification_entirely() -> None:
         raise ParseError("from inside the run")
 
     with pytest.raises(ParseError, match="from inside the run"):
-        await _blaming_render(None, "(/data/a.json)!'summarize'", run())
+        await _evaluate_front_door("(/data/a.json)!'summarize'", lambda _request: run())
 
 
 # --- the happy path is untouched -----------------------------------------------------
@@ -105,8 +105,9 @@ async def test_a_faithful_tree_evaluates_without_verification() -> None:
 
 
 @pytest.mark.asyncio
-async def test_blaming_render_returns_the_run_result_unchanged() -> None:
+async def test_the_front_door_returns_the_run_result_unchanged() -> None:
     async def run() -> str:
         return "done"
 
-    assert await _blaming_render(UNFAITHFUL, "irrelevant", run()) == "done"
+    result = await _evaluate_front_door(build("(/data/a.json)!'summarize'"), lambda _r: run())
+    assert (result.text, result.request) == ("done", "(/data/a.json)!'summarize'")

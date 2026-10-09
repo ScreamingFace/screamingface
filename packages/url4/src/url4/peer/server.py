@@ -27,14 +27,14 @@ from typing import overload
 
 from url4.core.grammar import _IDENTITY_NAME_RE
 from url4.core.nodes import Node
-from url4.dag import DEFAULT_RUN_CONCURRENCY, ProcessFn, default_process, run
+from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
 from url4.io.layer import FetchRequest, FetchResult, IOLayer
 from url4.peer import _dispatch
 from url4.peer._dispatch import Request
 from url4.peer._http import asgi_app as _asgi_app
 from url4.peer._http import serve as _serve_node
 from url4.peer._owned import _OwnedIO
-from url4.peer.client import Url4Result, _evaluate_front_door, _front_door_context
+from url4.peer.client import Url4Result, _evaluate_front_door, _scope
 
 EndpointHandler = Callable[[Request], str | Awaitable[str]]
 # handlers may take the requested collection or nothing at all
@@ -235,11 +235,11 @@ class Url4Node:
         # WHY the request's `processor=` wins: §27.3 lets a CALLER select the
         # processor for this evaluation. The node's own `default_processor` is
         # the fallback when the request names none.
-        ctx = _front_door_context(
+        ctx = ExecutionContext(
             self,
             processor=processor or self._processor,
             process=self._process,
-            env=env,
+            scope=_scope(env),
             strict_fields=self._strict_fields,
             self_collection=self_collection,
         )
@@ -253,11 +253,11 @@ class Url4Node:
         """Evaluate a url4 expression in-process, with this node as its world.
 
         A tree passed as ``Node`` is rendered with the round-trip re-parse
-        skipped (``check=False``, ~15x the render). A tree the grammar cannot
-        faithfully carry (spec §8.1.2) is still reported as
-        :class:`~url4.core.errors.RenderError` naming the tree — the check runs
-        only once the run has already failed, so it costs nothing when the tree
-        is sound.
+        skipped (``check=False``). It is still never run as another
+        expression: the render guards refuse a tree the grammar cannot
+        faithfully carry (spec §8.1.2) with :class:`~url4.core.errors.RenderError`,
+        and text that fails to parse at all is re-blamed on the tree once the
+        run has failed (see ``_evaluate_front_door``).
         """
         return await _evaluate_front_door(expression, lambda request: self._run_text(request, env))
 

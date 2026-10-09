@@ -352,20 +352,18 @@ def test_overdeep_struct_budget_raises():
         render(node)
 
 
-def test_iteration_source_with_intent_hazards():
-    # "(A*(b)!'p', B)!'r'" would reparse as reduce-over-iteration, swallowing B.
+def test_iteration_source_with_intent_round_trips():
+    # "(A*(b)!'p', B)!'r'" once reparsed as reduce-over-iteration, swallowing B;
+    # the envelope's source-list check now keeps it a group. Bare, wrapped, first
+    # or later — every placement round-trips.
     it = Iteration(collection=Url("https://x"), body="a=$item", intent="'p'")
-    with pytest.raises(RenderError, match="reduce-over-iteration"):
-        render(Expression(sources=(it, Url("https://y")), intent=Text("r")))
-    # a NON-first wrapped iteration source: the collection prefix spans commas
-    with pytest.raises(RenderError, match="reduce-over-iteration"):
-        render(
-            Expression(sources=(Url("https://y"), Source(value=it, weight=0.5)), intent=Text("r"))
-        )
-    # first-position, descriptor-wrapped: the decode rejects the descriptored
-    # collection prefix and falls through to the group route — representable.
-    ok = Expression(sources=(Source(value=it, weight=0.5), Url("https://y")), intent=Text("r"))
-    assert build(render(ok)) == ok
+    for e in (
+        Expression(sources=(it, Url("https://y")), intent=Text("r")),
+        Expression(sources=(Url("https://y"), Source(value=it, weight=0.5)), intent=Text("r")),
+        Expression(sources=(Source(value=it, weight=0.5), Url("https://y")), intent=Text("r")),
+    ):
+        assert build(render(e)) == e
+        assert build(render(e, check=False)) == e
 
 
 def test_iteration_reducer_in_value_position_raises():
@@ -553,11 +551,10 @@ def test_iteration_intent_depth0_semicolon_raises():
 
 
 def test_nested_reduce_over_iteration_in_value_position_raises():
-    # Distinct from test_iteration_reducer_in_value_position_raises above: that
-    # case trips the TOP-LEVEL decode-hazard guard before the iteration is even
-    # rendered. Here the reducer'd iteration is a bare source of a NESTED
-    # (non-top) Expression, which skips the hazard check entirely and reaches
-    # _check_value_iteration's own reducer guard.
+    # Companion to test_iteration_reducer_in_value_position_raises above, one
+    # level deeper: the reducer'd iteration is a bare source of a NESTED
+    # (non-top) Expression, and _check_value_iteration's own reducer guard
+    # refuses it there too.
     inner_it = Iteration(collection=Url("https://x"), body="a=$item", intent="'p'", reducer="'r'")
     nested = Expression(sources=(inner_it,), intent=Text("go"))
     outer = Expression(sources=(nested,), intent=Text("outer"))

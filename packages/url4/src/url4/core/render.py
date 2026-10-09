@@ -8,6 +8,11 @@ roots). ``render(check=True)`` (the default) re-parses its own output and
 compares ASTs, so a value returned from this module is a *certified*
 round-trip — wire text can never silently drift from the tree it encodes.
 
+``render(check=False)`` is still faithful or loud (law L3s): the guards in
+:mod:`url4.core._render_guards` refuse every shape that would re-parse as a
+different tree, and re-run the top-level envelope split (string scanning
+only), so an unchecked render never runs as another expression.
+
 Values the grammar cannot carry raise :class:`~url4.core.errors.RenderError`
 instead of degrading: a bare URI with a depth-0 ``, ; ! '`` or unbalanced
 parens (quoting it would change the node type to Text, spec §7.2), a negative
@@ -33,6 +38,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from math import isfinite
 
+from url4.core import _render_guards as guard
 from url4.core._annotations import is_source_level_key
 
 # WHY: these regexes ARE the grammar's character classes; re-declaring them
@@ -76,11 +82,13 @@ def render(node: Node, *, check: bool = True) -> str:
 
     With ``check=True`` (the default) the output is re-parsed and compared to
     ``node`` — a mismatch raises :class:`RenderError`, so a returned string is
-    guaranteed to round-trip. Pass ``check=False`` only in hot paths that
-    render parser- or builder-produced trees already covered by the property
-    tests.
+    guaranteed to round-trip. With ``check=False`` the render guards still
+    refuse every tree they know would re-parse differently; the residue is text
+    that fails to parse at all (loud), which :func:`verify` can re-attribute.
     """
-    text = _render_top(node)
+    # WHY no envelope guard under check=True: verify() re-parses the whole text,
+    # which subsumes the string-level envelope re-split.
+    text = _render_top(node, envelope=not check)
     if check:
         verify(node, text)
     return text
@@ -91,7 +99,7 @@ def verify(node: Node, text: str) -> None:
 
     What ``render(check=True)`` does, exposed so a caller that rendered with
     ``check=False`` can pay for the check only once something downstream has
-    already failed — see :func:`url4.peer.client._blaming_render`. Returns
+    already failed — see :func:`url4.peer.client._evaluate_front_door`. Returns
     normally when the tree is faithful, leaving the blame with the run.
     """
     from url4.core.parser import build  # runtime-only: parser is a higher layer
@@ -108,26 +116,38 @@ def verify(node: Node, text: str) -> None:
         )
 
 
-def _render_top(node: Node) -> str:
+def _render_top(node: Node, *, envelope: bool) -> str:
+    """Render a root; ``envelope`` re-runs the top-level split as a guard."""
     if isinstance(node, Expression):
-        result = _render_expression(node, top=True)
+        result = _render_expression(node, top=True, envelope=envelope)
     elif isinstance(node, Iteration):
-        result = _render_top_iteration(node)
+        result = _render_top_iteration(node, envelope=envelope)
     elif isinstance(node, (Binding, Source, RelExpr, RemoteExpr)):
         # WHY: a composite source renders as a bare fragment root — the old
         # paren wrap became an intent-less group, which the grammar rejects
-        # (`OME-508`). Shapes whose fragment form reparses differently (an
-        # inline `!` or a hoistable tail) fail verify() and raise RenderError.
-        result = _render_source(node)
+        # (`OME-508`). Shapes whose fragment form the envelope would split (an
+        # inline `!` or a hoistable tail) raise RenderError in the guard.
+        result = _render_fragment(node)
+        if envelope:
+            guard.check_fragment_envelope(result)
     else:
         result = _render_value(node)
     return result
 
 
+def _render_fragment(node: Binding | Source | RelExpr | RemoteExpr) -> str:
+    # A bare call's intent is the text's tail: the top-level intent rule applies.
+    if isinstance(node, RelExpr):
+        return _render_relexpr(node, top=True)
+    if isinstance(node, RemoteExpr):
+        return _render_remoteexpr(node, top=True)
+    return _render_source(node)
+
+
 # --- expressions ---------------------------------------------------------------
 
 
-def _render_expression(e: Expression, *, top: bool = False) -> str:
+def _render_expression(e: Expression, *, top: bool = False, envelope: bool = False) -> str:
     if e.intent is None and e.broadcast:
         raise RenderError("broadcast (!*) requires an intent")
     if e.intent is None:
@@ -139,37 +159,12 @@ def _render_expression(e: Expression, *, top: bool = False) -> str:
             "an Expression without an intent has no surface form — a "
             "parenthesized source group must carry !intent (or !*intent)"
         )
-    if top and _iteration_decode_hazard(e):
-        # AIDEV-NOTE: the TOP-LEVEL envelope's reduce-over-iteration decode is
-        # greedy — in "(…, A*(b)!'p')!'r'" it takes everything before the first
-        # depth-0 '*(' as the collection (spanning commas!) and misdecodes
-        # unless that prefix parses as one descriptored source. Only a
-        # FIRST-position, Source/Binding-wrapped iteration source is provably
-        # safe. Nested expressions parse via the grammar and are unaffected.
-        raise RenderError(
-            "at top level, an Iteration source in an intent-bearing group is only "
-            "representable when it is descriptor-wrapped and first — otherwise the "
-            "text reparses as reduce-over-iteration; wrap it in its own group "
-            "(Expression(sources=(iteration,))) or reorder the sources"
-        )
-    out = "(" + ", ".join(_render_source(s) for s in e.sources) + ")"
-    out += ("!*" if e.broadcast else "!") + _render_intent(e.intent)
-    return out + _render_params(e.params, top=top)
-
-
-def _iteration_decode_hazard(e: Expression) -> bool:
-    """True when a source's ``*(`` would trip the reduce-over-iteration decode.
-
-    The first iteration-valued source decides: bare → hazard anywhere; wrapped
-    (Source/Binding, hence a descriptored collection prefix the decode rejects)
-    → safe only at index 0, and its ``*(`` then shadows any later ones.
-    """
-    for i, s in enumerate(e.sources):
-        if isinstance(s, Iteration):
-            return True
-        if isinstance(s, (Source, Binding)) and isinstance(s.value, Iteration):
-            return i > 0
-    return False
+    sources = "(" + ", ".join(_render_source(s) for s in e.sources) + ")"
+    intent = _render_intent(e.intent, top=top)
+    out = sources + ("!*" if e.broadcast else "!") + intent + _render_params(e.params, top=top)
+    if envelope:
+        guard.check_group_envelope(out, sources, intent, broadcast=e.broadcast, params=e.params)
+    return out
 
 
 def _render_params(params: Params, *, top: bool) -> str:
@@ -189,14 +184,14 @@ def _render_param(key: str, value: str | None, *, top: bool) -> str:
             f"param {key!r} is exclusively source-level (§8.1.3) — on reparse it "
             "would leave the nested expression and become a source annotation"
         )
-    _check_token(key, "param key", extra_allowed="._")
+    guard.check_param(key, value)
     if value is None:
         return f";{key}"
-    _check_no_structural(value, "param value", allow_comma=top)
+    guard.check_no_structural(value, "param value", top=top)
     return f";{key}={value}"
 
 
-def _render_intent(node: Node) -> str:
+def _render_intent(node: Node, *, top: bool = False) -> str:
     # INVARIANT: this must stay in lockstep with `grammar.intent_atom` —
     # anything intent_atom can PRODUCE, this must render back, or a parseable
     # expression becomes unrenderable and render() stops being parse()'s
@@ -204,10 +199,16 @@ def _render_intent(node: Node) -> str:
     if isinstance(node, Text):
         return _quote(node.value)
     if isinstance(node, (Url, RelUrl)):
-        text = node.value if isinstance(node, Url) else _relurl_intent(node)
-        if isinstance(node, Url):
-            _scan_uri(text, allow_parens=True, forbid="';")
-        return text
+        # A top-level absolute-URL intent is the text's tail: Spec B §8
+        # `bare-value`. Elsewhere, and for a `/path` code pointer (whose
+        # balanced parens, `/reduce()`, are legal), a depth-0 `!` or `,` would
+        # split the intent, a `;` would split off params, and an unbalanced `(`
+        # would swallow what follows.
+        if top and isinstance(node, Url):
+            guard.check_tail_uri(node.value)
+        else:
+            guard.scan_uri(node.value, allow_parens=True, forbid="',;!")
+        return node.value
     if isinstance(node, VarRef):
         # INVARIANT: `intent_atom` does not produce a VarRef (see its
         # `_INTENT_VALUE_HEADS`), so rendering one would emit `$a`, which reparses
@@ -218,16 +219,9 @@ def _render_intent(node: Node) -> str:
         )
     # The widened value forms (nested expression, iteration, struct object,
     # self/identity ref) share the value renderers.
-    return _render_value(node)
-
-
-def _relurl_intent(node: RelUrl) -> str:
-    # An intent starting with '/' is consumed verbatim by intent_atom — parens
-    # are legal here (a code-pointer path), but a depth-0 ';' would be split
-    # off as expression params on reparse.
-    if find_top_level(node.value, ";") is not None:
-        raise RenderError(f"intent {node.value!r} contains a depth-0 ';'")
-    return node.value
+    text = _render_value(node)
+    guard.check_structured_intent(node, text)
+    return text
 
 
 # --- source descriptors -----------------------------------------------------------
@@ -243,6 +237,7 @@ def _render_source(node: Node) -> str:
 
 
 def _render_binding(node: Binding) -> str:
+    guard.check_binding_name(node.name)
     value, tail = _source_value_and_tail(node.value)
     if node.kind == "=":
         return f"{node.name}={value}{tail}"
@@ -271,8 +266,9 @@ def _render_descriptor(node: Source) -> str:
             "an expression source list — give the source a name (spec §4.1.1.2)"
         )
     _guard_annotation_boundary(node)
+    guard.check_annotations(node.annotations, node.value)
     chain = _descriptor_chain(node)
-    chain.append(_data_binding(value))
+    chain.append(_data_binding(value, after_colon=bool(chain)))
     out = ":".join(chain) + tail + _render_annotations(node.annotations)
     return ("*" + out) if node.expand else out
 
@@ -318,11 +314,10 @@ def _guard_annotation_boundary(node: Source) -> None:
 def _render_annotations(annotations: Params) -> str:
     parts: list[str] = []
     for key, value in annotations:
-        _check_token(key, "annotation key", extra_allowed="._")
         if value is None:
             parts.append(f";{key}")
         else:
-            _check_no_structural(value, "annotation value", allow_comma=False)
+            guard.check_no_structural(value, "annotation value", top=False)
             parts.append(f";{key}={value}")
     return "".join(parts)
 
@@ -340,9 +335,18 @@ def _source_value_and_tail(value: Node) -> tuple[str, str]:
     return _render_value(value), ""
 
 
-def _data_binding(value_text: str) -> str:
-    """The attribution chain's final segment; ``src=`` when not value-shaped."""
-    return value_text if _is_value_shaped_text(value_text) else f"src={value_text}"
+def _data_binding(value_text: str, *, after_colon: bool = True) -> str:
+    """The attribution chain's final segment; ``src=`` when not value-shaped.
+
+    After a ``:`` a value starting ``//`` also takes ``src=``: ``name:`` plus
+    ``//…`` forms ``name://…``, which the parser reads as one bare URI.
+    """
+    double_slash = after_colon and value_text.startswith("//")
+    return (
+        value_text
+        if _is_value_shaped_text(value_text) and not double_slash
+        else f"src={value_text}"
+    )
 
 
 def _is_value_shaped_text(text: str) -> bool:
@@ -371,7 +375,7 @@ def _quote(content: str) -> str:
 def _render_url(node: Url) -> str:
     if _SCHEME_RE.match(node.value) is None:
         raise RenderError(f"Url value {node.value!r} has no scheme:// prefix")
-    _scan_uri(node.value, allow_parens=True, forbid="',;!")
+    guard.scan_uri(node.value, allow_parens=True, forbid="',;!")
     return node.value
 
 
@@ -380,35 +384,12 @@ def _render_relurl(node: RelUrl) -> str:
         raise RenderError(f"RelUrl value {node.value!r} must start with '/'")
     # WHY: any '(' would reparse as a sugar-form RelExpr; ',;!' split at depth
     # 0. Quoting is no escape hatch — it would change the node type to Text.
-    _scan_uri(node.value, allow_parens=False, forbid="',;!()")
+    guard.scan_uri(node.value, allow_parens=False, forbid="',;!()")
     return node.value
 
 
-def _scan_uri(text: str, *, allow_parens: bool, forbid: str) -> None:
-    depth = 0
-    for i, ch in enumerate(text):
-        if ch == "(" and allow_parens:
-            depth += 1
-        elif ch == ")" and allow_parens:
-            depth -= 1
-        elif depth == 0 and (ch in forbid or _starts_iteration(text, i, ch)):
-            raise RenderError(
-                f"URI {text!r} cannot be carried bare: {ch!r} at offset {i} "
-                "is structural at depth 0 (quote-as-Text changes semantics)"
-            )
-        if depth < 0:
-            raise RenderError(f"URI {text!r} has unbalanced parentheses")
-    if depth != 0:
-        raise RenderError(f"URI {text!r} has unbalanced parentheses")
-
-
-def _starts_iteration(text: str, i: int, ch: str) -> bool:
-    return ch == "*" and text[i + 1 : i + 2] == "("
-
-
 def _render_varref(node: VarRef) -> str:
-    if not (_IDENT_RE.fullmatch(node.name) or node.name.isdigit()):
-        raise RenderError(f"invalid variable name {node.name!r}")
+    guard.check_varref_name(node.name)
     out = f"${node.name}"
     for seg in node.path:
         if isinstance(seg, int):
@@ -427,9 +408,7 @@ def _render_identity(node: IdentityRef) -> str:
         raise RenderError(f"invalid identity name {node.name!r}")
     if node.collection is None:
         return f"@{node.name}"
-    segments = node.collection.split("/")
-    if not all(seg and " " not in seg for seg in segments):
-        raise RenderError(f"invalid identity collection {node.collection!r}")
+    guard.check_identity_collection(node.collection)
     return f"@{node.name}/{node.collection}"
 
 
@@ -457,17 +436,19 @@ def _braces_end(text: str) -> int | None:
 # --- relative / remote expressions ------------------------------------------------------
 
 
-def _render_relexpr(node: RelExpr) -> str:
-    return _render_target_expr("", node.path, node)
+def _render_relexpr(node: RelExpr, *, top: bool = False) -> str:
+    return _render_target_expr("", node.path, node, top=top)
 
 
-def _render_remoteexpr(node: RemoteExpr) -> str:
+def _render_remoteexpr(node: RemoteExpr, *, top: bool = False) -> str:
     if not node.authority or any(ch in node.authority for ch in "/?('"):
         raise RenderError(f"invalid remote authority {node.authority!r}")
-    return _render_target_expr(f"url4://{node.authority}", node.path, node)
+    return _render_target_expr(f"url4://{node.authority}", node.path, node, top=top)
 
 
-def _render_target_expr(prefix: str, path: str, node: RelExpr | RemoteExpr) -> str:
+def _render_target_expr(
+    prefix: str, path: str, node: RelExpr | RemoteExpr, *, top: bool = False
+) -> str:
     if node.intent is None:
         # INVARIANT: every call production carries `intent-op intent`
         # (`OME-508`) — an intent-less RelExpr/RemoteExpr has no surface form.
@@ -478,7 +459,7 @@ def _render_target_expr(prefix: str, path: str, node: RelExpr | RemoteExpr) -> s
         )
     _check_path(path)
     context = _checked_context(node.context)
-    intent = "!" + _render_intent(node.intent)
+    intent = "!" + _render_intent(node.intent, top=top)
     if not node.params:
         return f"{prefix}{path}({context}){intent}"
     query = "&".join(_render_query_param(k, v) for k, v in node.params)
@@ -502,34 +483,42 @@ def _checked_context(context: str | None) -> str:
 
 
 def _render_query_param(key: str, value: str | None) -> str:
-    _check_token(key, "query param key", extra_allowed="._")
+    guard.check_param(key, value)
     if value is None:
         return key
     # WHY: no comma exemption here — a rel/remote token always ends up inside
     # a comma-split source list (top-level renders wrap it in parens too).
-    _check_no_structural(value, "query param value", allow_comma=False, forbid_extra="&")
+    guard.check_no_structural(value, "query param value", top=False, forbid_extra="&")
     return f"{key}={value}"
 
 
 # --- iteration ---------------------------------------------------------------------------
 
 
-def _render_top_iteration(node: Iteration) -> str:
-    inner = _render_iteration_core(node) + _render_directives(node.directives)
-    if node.reducer is None:
-        return inner
+def _render_top_iteration(node: Iteration, *, envelope: bool) -> str:
+    collection = _render_collection(node.collection)
+    inner = _join_iteration(node, collection, top=True) + _render_directives(node.directives)
+    out = inner if node.reducer is None else _render_reduce(node, inner, node.reducer)
+    if envelope:
+        guard.check_iteration_envelope(out, node, collection)
+    return out
+
+
+def _render_reduce(node: Iteration, inner: str, reducer: str) -> str:
     if isinstance(node.collection, (Source, Binding)):
         # The reduce-over-iteration decode rejects descriptored collections
         # (§5.3.10 — the descriptor attributes the iteration in the enclosing
         # expression), so this shape has no faithful text form.
         raise RenderError("reduce-over-iteration cannot carry a descriptored collection")
-    if find_top_level(node.reducer, ";") is not None:
-        raise RenderError(f"reducer {node.reducer!r} contains a depth-0 ';'")
-    return f"({inner})!{node.reducer}"
+    guard.check_raw_tail(reducer, "reducer", top=True)
+    return f"({inner})!{reducer}"
 
 
 def _render_iteration_core(node: Iteration) -> str:
-    collection = _render_collection(node.collection)
+    return _join_iteration(node, _render_collection(node.collection), top=False)
+
+
+def _join_iteration(node: Iteration, collection: str, *, top: bool) -> str:
     if isinstance(node.collection, Iteration):
         raise RenderError("an iteration cannot be another iteration's collection")
     if balanced_body(f"({node.body})", 1) != node.body:
@@ -542,8 +531,7 @@ def _render_iteration_core(node: Iteration) -> str:
             "an Iteration without a per-row intent has no surface form — the "
             "expression after '*' must carry !intent (src*(body)!intent)"
         )
-    if find_top_level(node.intent, ";") is not None:
-        raise RenderError(f"iteration intent {node.intent!r} contains a depth-0 ';'")
+    guard.check_raw_tail(node.intent, "iteration intent", top=top)
     return f"{collection}*({node.body})!{node.intent}"
 
 
@@ -592,7 +580,7 @@ def _render_directives(d: IterationDirectives) -> str:
     if d.slice is not None:
         parts.append(f";iteration.slice={d.slice[0]}:{d.slice[1]}")
     if d.fmt_result is not None:
-        _check_token(d.fmt_result, "iteration.fmt_result", extra_allowed="._-")
+        guard.check_token(d.fmt_result, "iteration.fmt_result", extra_allowed="._-")
         parts.append(f";iteration.fmt_result={d.fmt_result}")
     return "".join(parts)
 
@@ -611,7 +599,7 @@ def _render_budget_value(value: str | dict | int | float) -> str:
         return _render_struct_annotation(value, nested=False)
     if isinstance(value, (int, float)):
         return _format_number(value)
-    _check_token(value, "budget value", extra_allowed="._-")
+    guard.check_token(value, "budget value", extra_allowed="._-")
     return value
 
 
@@ -659,22 +647,6 @@ def _format_number(value: float | int) -> str:
     if not _NUMBER_RE.fullmatch(text) or float(text) != value:
         raise RenderError(f"number {value!r} cannot be written as an unsigned decimal")
     return text
-
-
-# --- shared character guards ----------------------------------------------------------------
-
-
-def _check_token(text: str, what: str, *, extra_allowed: str) -> None:
-    if not text or not all(ch.isalnum() or ch in extra_allowed for ch in text):
-        raise RenderError(f"invalid {what} {text!r}")
-
-
-def _check_no_structural(
-    text: str, what: str, *, allow_comma: bool, forbid_extra: str = ""
-) -> None:
-    forbidden = "';()" + forbid_extra + ("" if allow_comma else ",")
-    if any(ch in forbidden for ch in text):
-        raise RenderError(f"{what} {text!r} contains a structural character")
 
 
 _VALUE_RENDERERS: dict[type, Callable] = {

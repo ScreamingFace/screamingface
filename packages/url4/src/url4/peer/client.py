@@ -252,11 +252,11 @@ class Client:
         merged onto the expression.
 
         A tree passed as ``Node`` is rendered with the round-trip re-parse
-        skipped (``check=False``, ~15x the render). A tree the grammar cannot
-        faithfully carry (spec §8.1.2) is still reported as
-        :class:`~url4.core.errors.RenderError` naming the tree — the check runs
-        only once the run has already failed, so it costs nothing when the tree
-        is sound.
+        skipped (``check=False``). It is still never run as another
+        expression: the render guards refuse a tree the grammar cannot
+        faithfully carry (spec §8.1.2) with :class:`~url4.core.errors.RenderError`,
+        and text that fails to parse at all is re-blamed on the tree once the
+        run has failed (see ``_evaluate_front_door``).
         """
         target = node or self._node
         proto = _pairs(params)
@@ -266,11 +266,11 @@ class Client:
                 expression = _with_params(root, proto)
             else:
                 expression = _passthrough(_as_remote(root, target, path or self._path, proto))
-        ctx = _front_door_context(
+        ctx = ExecutionContext(
             self._effective_io(),
             processor=self._processor,
             process=self._process,
-            env=env,
+            scope=_scope(env),
             strict_fields=self._strict_fields,
         )
         return await _evaluate_front_door(
@@ -278,24 +278,9 @@ class Client:
         )
 
 
-def _front_door_context(
-    io: IOLayer,
-    *,
-    processor: str | None,
-    process: ProcessFn,
-    env: Mapping[str, object] | None,
-    strict_fields: bool,
-    self_collection: str | None = None,
-) -> ExecutionContext:
-    """The run context both front doors build: ``env`` seeds the lexical scope."""
-    return ExecutionContext(
-        io,
-        processor=processor,
-        process=process,
-        scope=Context(bindings=dict(env)) if env else None,
-        strict_fields=strict_fields,
-        self_collection=self_collection,
-    )
+def _scope(env: Mapping[str, object] | None) -> Context | None:
+    """The lexical scope a front door seeds from ``env`` (None when empty)."""
+    return Context(bindings=dict(env)) if env else None
 
 
 async def _evaluate_front_door(
@@ -307,41 +292,35 @@ async def _evaluate_front_door(
     so the two front doors cannot drift; ``run_text`` carries their real
     differences (the client's io and context, the node's processor override and
     ``self_collection``).
+
+    A caller tree renders with ``check=False``. The render guards make that
+    faithful or loud (law L3s): a tree that would re-parse as another expression
+    raises :class:`~url4.core.errors.RenderError` here, before anything runs.
+    What is left is text that does not parse at all. Its
+    :class:`~url4.core.errors.ParseError` would quote text the caller never
+    wrote, so on that failure the round trip is verified and the
+    :class:`~url4.core.errors.RenderError` names their tree instead. A parse
+    failure from inside the run (a malformed fetched sub-expression, say) has a
+    faithful tree behind it; ``verify`` then returns and the error propagates
+    untouched.
     """
-    # WHY check=False: the verified re-parse costs ~15x the render on this
-    # front-door path, and the trees rendered here are overwhelmingly parser- or
-    # builder-produced — the exact class the renderer's round-trip property tests
-    # pin. `rendered` keeps the tree `request` came from (None when the caller
-    # passed text), so _blaming_render below can buy the diagnostic back for the
-    # rest, on failure only.
-    rendered: Node | None
+    # WHY check=False: on realistic front-door trees check=True costs 1.6-2.5x
+    # the guarded render (measured 2026-10-09; the guarded render itself is
+    # ~30-60 us). The guards already refuse every tree they know would be
+    # misread; the re-parse would only add the loud residue, which the except
+    # arm below recovers on failure.
+    rendered: Node | None = None
     if isinstance(expression, str):
-        request, rendered = expression, None
+        request = expression
     else:
         request, rendered = render(expression, check=False), expression
-    text = await _blaming_render(rendered, request, run_text(request))
-    return Url4Result(text=text, request=request)
-
-
-async def _blaming_render(rendered: Node | None, request: str, run: Awaitable[str]) -> str:
-    """Await ``run``, re-attributing a parse failure to ``rendered`` when it is at fault.
-
-    The front doors render caller-supplied trees with ``check=False``, so an unfaithful
-    tree does not fail at the render — it surfaces downstream as a
-    :class:`~url4.core.errors.ParseError` naming rendered text the caller never wrote.
-    Verifying the round-trip only on that failure restores the
-    :class:`~url4.core.errors.RenderError` ``check=True`` would have raised, naming their
-    tree, while a parse failure raised from inside the run (a malformed fetched
-    sub-expression, say) is left to propagate untouched. Shared by
-    :meth:`Client.evaluate` and :meth:`~url4.peer.server.Url4Node.evaluate` so the two
-    front doors cannot drift.
-    """
     try:
-        return await run
+        text = await run_text(request)
     except ParseError:
         if rendered is not None:
             verify(rendered, request)
         raise
+    return Url4Result(text=text, request=request)
 
 
 # --- the sync convenience ---------------------------------------------------------

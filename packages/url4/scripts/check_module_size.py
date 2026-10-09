@@ -38,10 +38,11 @@ HEADROOM = 10
 BASELINE: dict[str, int] = {
     "core/grammar.py": 907,
     "dag/_lowering.py": 678,
-    "core/render.py": 687,
+    "core/render.py": 666,
+    "core/_render_guards.py": 215,
     "dag/_run.py": 261,
     "dag/executor.py": 302,
-    "peer/server.py": 312,
+    "peer/server.py": 305,
     "io/layer.py": 197,
     "observe.py": 483,
     "core/parser.py": 353,

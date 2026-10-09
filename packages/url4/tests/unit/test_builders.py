@@ -26,7 +26,6 @@ from url4.core.builders import (
     struct,
     text,
 )
-from url4.core.errors import RenderError
 from url4.core.nodes import (
     Binding,
     Expression,
@@ -301,13 +300,13 @@ def test_iterate_validation():
 
 def test_expr_keeps_bare_iteration_sources():
     # `OME-508`: the old shield wrapped the iteration in an intent-less group,
-    # which has no surface form — the source stays as authored, and the
-    # renderer's decode-hazard guard reports the unrepresentable placement.
+    # which has no surface form — the source stays as authored. The envelope's
+    # source-list check (`parser._is_source_list`) keeps a sibling source out of
+    # the reduce-over-iteration decode, so the placement round-trips.
     it = iterate("https://d/rows", "x=$item", intent="p")
     e = expr(it, "https://y", intent="r")
     assert e.sources[0] is it
-    with pytest.raises(RenderError, match="reduce-over-iteration"):
-        render(e)
+    assert build(render(e)) == e
 
 
 def test_expr_rewrites_reducer_iteration_sources():
@@ -321,17 +320,17 @@ def test_expr_rewrites_reducer_iteration_sources():
     assert build(render(e)) == e
 
 
-def test_late_descriptored_iteration_is_top_level_only_hazard():
+def test_late_descriptored_iteration_round_trips_at_any_position():
     it = iterate("https://d/rows", "x=$item", intent="p")
     wrapped = src(it, name="scores", weight=0.0)
     # first position is fine at top level (the corpus shape)…
     ok = expr(wrapped, "https://y", intent="Aggregate $scores")
     assert build(render(ok)) == ok
-    # …a later position cannot be carried at TOP level (envelope greediness)…
+    # …a later position round-trips too: the envelope reads a sibling source as a
+    # source list, not as reduce-over-iteration…
     late = expr("https://y", wrapped, intent="Aggregate $scores")
-    with pytest.raises(RenderError, match="first"):
-        render(late)
-    # …but nested inside another group it parses via the grammar and is fine.
+    assert build(render(late)) == late
+    # …and nested inside another group it parses via the grammar.
     outer = expr(late, intent="report")
     assert build(render(outer)) == outer
 
