@@ -27,7 +27,9 @@ Stages, in execution order (see :meth:`_GatewayJudgeModelAPI.generate`):
     Stage 3 — encode the sub-request URL (``/<model>?[params&]q=(envelope)``,
               the wire codec's own encoder) and fetch it through the transport.
               The route is the model name's tail verbatim: ``screamingface/x/y``
-              calls route ``/x/y`` — no second mapping to drift.
+              calls route ``/x/y`` — no second mapping to drift. Inside
+              :func:`fresh_judge_draw` (a redraw), the fetch runs under a request
+              scope that opts out of the gateway's exact-request cache.
     Stage 4 — return the completion text as inspect's ``ModelOutput``. Errors
               propagate: the scorer adapter's Stage-3 catch turns them into the Case's
               named ``scorer_error``, never an aborted aggregate.
@@ -42,8 +44,8 @@ from __future__ import annotations
 import contextvars
 import json
 from collections.abc import Awaitable, Callable, Iterator, Sequence
-from contextlib import contextmanager
-from dataclasses import dataclass
+from contextlib import AbstractContextManager, contextmanager, nullcontext
+from dataclasses import dataclass, replace
 from typing import Any
 
 from inspect_ai.model import (
@@ -62,6 +64,8 @@ from inspect_ai.model._model import init_model_roles
 from inspect_ai.tool import ToolChoice, ToolInfo
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
+from screamingface_engine.request_scope import RequestScope, current_scope, request_scope
+from url4.streaming.protocol import CachePolicy
 from url4.wire.subrequest import encode_subrequest
 
 #: One in-process node fetch: a relative sub-request URL in, the completion text out.
@@ -112,6 +116,41 @@ def bound_judge_transport(transport: JudgeTransport) -> Iterator[None]:
         yield
     finally:
         _transport.reset(token)
+
+
+#: Set inside :func:`fresh_judge_draw`: the judge call in flight is a redraw.
+_fresh_draw: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "screamingface_judge_fresh_draw", default=False
+)
+
+
+@contextmanager
+def fresh_judge_draw() -> Iterator[None]:
+    """Mark the enclosed judge calls as redraws, each a fresh sample from the judge.
+
+    WHY: a redraw sends the same bytes as the ask before it, and the AI Gateway's
+    exact-request cache (on by default) would answer it with the same unparseable text.
+    Inside this block the provider sends its fetch under a request scope whose cache
+    policy opts out, which the connector writes as ``cache: {"use-cache": false}``
+    (``world/cache.py``). Neither the wire request nor its accounting key changes, so the
+    redraw's cost still lands on its Case (OME-1527 R3).
+    """
+
+    token: contextvars.Token[bool] = _fresh_draw.set(True)
+    try:
+        yield
+    finally:
+        _fresh_draw.reset(token)
+
+
+def _gateway_cache_opt_out() -> AbstractContextManager[RequestScope]:
+    """Rebind the run's request scope with one change: this call skips the gateway cache.
+
+    INVARIANT: no bound scope raises ``RequestScopeError`` — a redraw that cannot opt out
+    would re-read the cached broken reply, so it refuses instead of pretending to redraw.
+    """
+
+    return request_scope(replace(current_scope(), cache=CachePolicy(participate=False)))
 
 
 @contextmanager
@@ -197,7 +236,8 @@ class _GatewayJudgeModelAPI(ModelAPI):
             "/" + self.model_name, context, None, tuple(transport.params)
         )
         _register_against_the_case(transport, "/" + self.model_name, context)
-        completion: str = await transport.fetch(target)
+        with _gateway_cache_opt_out() if _fresh_draw.get() else nullcontext():
+            completion: str = await transport.fetch(target)
         if not completion.strip():
             # A blank completion can never be a grade — refuse loudly; a scorer
             # coercing silence into a score is a silently wrong benchmark.
@@ -306,4 +346,5 @@ __all__ = [
     "JudgeTransport",
     "judge_filling_model_role",
     "bound_judge_transport",
+    "fresh_judge_draw",
 ]
