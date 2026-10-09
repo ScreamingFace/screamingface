@@ -1,7 +1,15 @@
 """ScreamingFace — evaluate composable Candidate Recipes on research Benchmarks."""
 
 from screamingface import benchmarks, connections, events, leaderboards, models
-from screamingface._default_client import close, configure, connect, disconnect, evaluate
+from screamingface._default_client import (
+    close,
+    configure,
+    connect,
+    disconnect,
+    evaluate,
+    reproduce,
+)
+from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._ui.connections import ConnectionPanel
 from screamingface._version import resolve_version
 from screamingface.client import AsyncClient, Client
@@ -87,6 +95,7 @@ __all__ = [
     "ExecutionError",
     "EvaluationWarning",
     "evaluate",
+    "reproduce",
     "Failure",
     "Fusion",
     "Leaderboard",
@@ -110,6 +119,8 @@ __all__ = [
     "ProviderConnectionError",
     "Recipe",
     "Report",
+    "Reproduction",
+    "ReproductionOutcome",
     "ScoreMetadataEvent",
     "ScreamingFaceError",
     "SelfCorrective",

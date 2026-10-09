@@ -11,6 +11,7 @@ from os import PathLike
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, cast, overload
+from uuid import UUID
 
 from screamingface._client_provenance import client_version as _client_version
 from screamingface._evaluation.model import _canonical_url4
@@ -26,6 +27,7 @@ from screamingface._report_primitives import (
     _duration,
     _nonblank,
     _usage,
+    capture_status_value,
 )
 from screamingface.accounting import AccountingBreakdown, accounting_breakdown
 from screamingface.case_result import (
@@ -182,6 +184,33 @@ def _answer_seed(value: object) -> int | None:
     return value
 
 
+def _capture(
+    frozen_copy_id: object, capture_status: object
+) -> tuple[str | None, Literal["complete", "partial"] | None]:
+    """Validate the frozen copy pair; stricter than the Scoreboard on the spelling of the id.
+
+    INVARIANT: a copy id is a canonical (lower-case, hyphenated) UUID string, and a copy id never
+    travels without its status. The board refuses the pair without a status. It also accepts other
+    spellings of a UUID and normalises them; the Client refuses those instead, so the id it stores
+    and sends is exactly the id the Engine stated.
+    """
+    if frozen_copy_id is not None and (
+        not isinstance(frozen_copy_id, str) or not _is_canonical_uuid(frozen_copy_id)
+    ):
+        raise ValueError("Candidate frozen_copy_id must be a UUID string or None")
+    status = capture_status_value(capture_status)
+    if frozen_copy_id is not None and status is None:
+        raise ValueError("Candidate frozen_copy_id requires capture_status")
+    return frozen_copy_id, status
+
+
+def _is_canonical_uuid(value: str) -> bool:
+    try:
+        return str(UUID(value)) == value
+    except ValueError:
+        return False
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class CandidateResult:
     """One independently executed Candidate outcome; a higher score is always better."""
@@ -226,6 +255,10 @@ class CandidateResult:
     # FEATURE (OME-1463): the Engine run summary's count of hits with no price at all; None when no
     # summary arrived. Only 0 lets a cached run be published as `complete`.
     cache_unpriced_hits: int | None
+    # FEATURE (OME-1307): the frozen copy this run captured (`capture=True`) and whether it holds
+    # every call of the run. None is "not captured" or "unknown" (an older Engine), never `partial`.
+    frozen_copy_id: str | None
+    capture_status: Literal["complete", "partial"] | None
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
     # FEATURE (OME-1268): the Benchmark's Named Scores for this Candidate, each the mean of
     # its column over the graded Cases, headline first; `score` IS the headline. Empty on a
@@ -260,6 +293,8 @@ class CandidateResult:
         cache_saved_cost_archive_usd: Decimal | str | None = None,
         cache_unpriced_hits: int | None = None,
         scores: Mapping[str, float | None] | None = None,
+        frozen_copy_id: str | None = None,
+        capture_status: Literal["complete", "partial"] | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
@@ -271,6 +306,7 @@ class CandidateResult:
             or cache_unpriced_hits < 0
         ):
             raise ValueError("Candidate cache_unpriced_hits must be a non-negative integer or None")
+        selected_copy, selected_capture = _capture(frozen_copy_id, capture_status)
         selected_score = _optional_number(score, "Candidate score")
         selected_coverage = _coverage(coverage)
         metric_items = _metrics(metrics)
@@ -351,6 +387,8 @@ class CandidateResult:
             "cache_hits": cache_hits,
             "cache_saved_cost_archive_usd": selected_archive,
             "cache_unpriced_hits": cache_unpriced_hits,
+            "frozen_copy_id": selected_copy,
+            "capture_status": selected_capture,
             "_metric_items": metric_items,
             "_scores": selected_scores,
         }
@@ -430,6 +468,9 @@ class CandidateResult:
                 else str(self.cache_saved_cost_archive_usd)
             ),
             "cache_unpriced_hits": self.cache_unpriced_hits,
+            # OME-1307: always emitted (null = not captured or unknown), like the cache fields.
+            "frozen_copy_id": self.frozen_copy_id,
+            "capture_status": self.capture_status,
         }
 
 

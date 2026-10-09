@@ -20,6 +20,7 @@ from uuid import UUID
 
 import httpx
 
+from screamingface._report_primitives import capture_status_value
 from screamingface._scoreboard.submission_notice import (
     display_submission_notice,
     prepare_submission_notice,
@@ -55,9 +56,12 @@ _MAX_MODEL_LENGTH = 255
 _MAX_MODELS_BYTES = 4096
 # FEATURE: OME-1307 — mirrors the Scoreboard's `paper_url` bound (http(s), 1 to 2048 characters).
 _MAX_PAPER_URL_LENGTH = 2048
+# FEATURE: OME-1307 — the width of the board's `score_reproductions.client_version` column.
+_MAX_RECORD_CLIENT_VERSION = 64
 _SUBMIT_OPERATION = "submit a score to"
 _EDIT_OPERATION = "edit a score on"
 _EVENTS_OPERATION = "read score metadata events from"
+_RECORD_OPERATION = "record a reproduction on"
 # WHY a 409 is retryable on these two and not elsewhere: the board answers it when it changed under
 # the request (a resubmit race, or its visibility flipping), and a retry sees one consistent view.
 _CONFLICT_HINTS = {_SUBMIT_OPERATION: "Retry the submission.", _EDIT_OPERATION: "Retry the edit."}
@@ -78,6 +82,14 @@ _STATUS_CODES: dict[str, dict[int, str]] = {
     _EVENTS_OPERATION: {
         401: "scoreboard_authentication_required",
         403: "score_events_forbidden",
+    },
+    # FEATURE (OME-1307): the 409s (`not_reproducible`, `run_id_conflict`, a visibility change)
+    # and the 422 `not_exact` keep their own words in the error text through `_detail_text`.
+    _RECORD_OPERATION: {
+        401: "scoreboard_authentication_required",
+        403: "reproduction_forbidden",
+        409: "reproduction_conflict",
+        422: "invalid_reproduction",
     },
 }
 
@@ -205,6 +217,31 @@ class Leaderboards:
             )
         )
 
+    def _record_reproduction(
+        self,
+        score_id: UUID | str,
+        *,
+        run_id: str,
+        score: float,
+        total_questions: int,
+        frozen_copy_id: str | None,
+        client: Mapping[str, object],
+    ) -> None:
+        """Record one exact replay. Internal: `reproduce` maps any error to `record_error`."""
+        selected = _score_id(score_id)
+        _sync_json(
+            self._request,
+            self._scoreboard_url,
+            "POST",
+            f"{_SCORES_PATH}/{selected}/reproductions",
+            json=_reproduction_payload(run_id, score, total_questions, frozen_copy_id, client),
+            # WHY safe to re-send: the board keys a record by (score, run_id) and answers a repeat
+            # with the first row, so a retried POST cannot count twice.
+            replay_safe=True,
+            missing=("unknown_score", f"Score {str(selected)!r} was not found"),
+            operation=_RECORD_OPERATION,
+        )
+
 
 class AsyncLeaderboards:
     """Asynchronous public Leaderboards bound to one AsyncClient."""
@@ -317,6 +354,31 @@ class AsyncLeaderboards:
                 missing=("unknown_score", f"Score {str(selected)!r} was not found"),
                 operation=_EVENTS_OPERATION,
             )
+        )
+
+    async def _record_reproduction(
+        self,
+        score_id: UUID | str,
+        *,
+        run_id: str,
+        score: float,
+        total_questions: int,
+        frozen_copy_id: str | None,
+        client: Mapping[str, object],
+    ) -> None:
+        """Record one exact replay. Internal: `reproduce` maps any error to `record_error`."""
+        selected = _score_id(score_id)
+        await _async_json(
+            self._request,
+            self._scoreboard_url,
+            "POST",
+            f"{_SCORES_PATH}/{selected}/reproductions",
+            json=_reproduction_payload(run_id, score, total_questions, frozen_copy_id, client),
+            # WHY safe to re-send: the board keys a record by (score, run_id) and answers a repeat
+            # with the first row, so a retried POST cannot count twice.
+            replay_safe=True,
+            missing=("unknown_score", f"Score {str(selected)!r} was not found"),
+            operation=_RECORD_OPERATION,
         )
 
 
@@ -522,6 +584,21 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             metadata_updated_at=_optional_timestamp(
                 root.get("metadata_updated_at"), "Leaderboard score metadata_updated_at"
             ),
+            frozen_copy_id=_optional_text(
+                root.get("frozen_copy_id"), "Leaderboard score frozen_copy_id"
+            ),
+            capture_status=capture_status_value(root.get("capture_status")),
+            answer_seed=_optional_integer(root.get("answer_seed"), "Leaderboard score answer_seed"),
+            # An older board omits the count, and an omitted count reads as 0.
+            reproduction_count=_integer(
+                root.get("reproduction_count", 0), "Leaderboard score reproduction_count"
+            ),
+            last_reproduced_at=_optional_timestamp(
+                root.get("last_reproduced_at"), "Leaderboard score last_reproduced_at"
+            ),
+            benchmark_revision=_optional_text(
+                root.get("benchmark_revision"), "Leaderboard score benchmark_revision"
+            ),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
@@ -654,11 +731,7 @@ def _submission(
         # status, so sending a mismatched pair only moves a 422 from submit time into the field.
         # `_run_cost_status` on the result already enforces the same rule at construction.
         **_published_cost(candidate_result),
-        "client": {
-            "name": "screamingface",
-            "version": _package_version(),
-            "platform": platform.system().lower() or None,
-        },
+        "client": _client_info(),
         "metadata": {
             "benchmark_revision": candidate_result.benchmark.revision,
             "candidate_kind": candidate_result.kind,
@@ -685,7 +758,54 @@ def _submission(
         payload["cache_saved_cost_archive_usd"] = _cost_text(
             candidate_result.cache_saved_cost_archive_usd
         )
+    payload.update(_capture_fields(candidate_result))
     return payload
+
+
+def _client_info() -> dict[str, object]:
+    """This client as the board records it, on a submission and on a reproduction."""
+    return {
+        "name": "screamingface",
+        "version": _package_version(),
+        "platform": platform.system().lower() or None,
+    }
+
+
+def _reproduction_payload(
+    run_id: str,
+    score: float,
+    total_questions: int,
+    frozen_copy_id: str | None,
+    client: Mapping[str, object],
+) -> dict[str, object]:
+    selected = dict(client)
+    # WHY drop and not truncate: the board stores a reproduction's `client_version` in a 64
+    # character column and refuses nothing it can drop, so a long version (a local build tag) must
+    # not turn an exact replay into a 500 that is never recorded. Only the record path does this.
+    version = selected.get("version")
+    if isinstance(version, str) and len(version) > _MAX_RECORD_CLIENT_VERSION:
+        del selected["version"]
+    return {
+        "run_id": run_id,
+        "score": score,
+        "total_questions": total_questions,
+        "frozen_copy_id": frozen_copy_id,
+        "client": selected,
+    }
+
+
+def _capture_fields(candidate_result: CandidateResult) -> dict[str, object]:
+    """The frozen copy and the sitting, only the parts the run has.
+
+    INVARIANT (OME-1307): omitted rather than null, so a board that predates the fields 422s
+    nothing a run without capture data submits. A zero seed is a sitting and is sent.
+    """
+    known = {
+        "frozen_copy_id": candidate_result.frozen_copy_id,
+        "capture_status": candidate_result.capture_status,
+        "answer_seed": candidate_result.answer_seed,
+    }
+    return {name: value for name, value in known.items() if value is not None}
 
 
 def _submission_models(models: Sequence[str]) -> list[str]:

@@ -10,11 +10,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from screamingface import events
 from screamingface._client_provenance import valid_client_version
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
+from screamingface._report_primitives import capture_status_value
 from screamingface.errors import ExecutionError
 from screamingface.report import Usage as AccountingUsage
 
@@ -306,6 +307,7 @@ class _RunState:
             raise ExecutionError("SF Engine terminated before the root Run started")
         cache_hits = max(self._summary_cache_hits, self._hit_spans)
         saved, saved_archive, unpriced = self._cache_evidence(cache_hits)
+        summary = self._cache_summary
         return _Accepted(
             event=event,
             outcome=_RunOutcome(
@@ -319,6 +321,9 @@ class _RunState:
                 cache_saved_cost_archive_usd=saved_archive,
                 cache_hits=cache_hits,
                 cache_unpriced_hits=unpriced,
+                frozen_copy_id=None if summary is None else summary.frozen_copy_id,
+                capture_status=None if summary is None else summary.capture_status,
+                capture_replay=None if summary is None else summary.capture_replay,
                 artifact=self._result[2],
                 client_version=None if self._version_conflict else self._client_version,
             ),
@@ -335,11 +340,20 @@ _REPORTED_HITS = "cache.saved_cost.reported_hits"
 _ARCHIVE_HITS = "cache.saved_cost.archive_hits"
 _SAVED_COST_USD = "cache.saved_cost_usd"
 _SAVED_COST_ARCHIVE_USD = "cache.saved_cost_archive_usd"
+# FEATURE (OME-1307): the frozen copy of the run (`capture_outcomes.CaptureTally.attributes`:
+# `capture.frozen_copy_id` and `capture.status` of a capture run, `capture.replay` of a run that
+# honoured `X-Replay-Frozen-Copy`). They ride on the same summary line as the cache tally.
+_CAPTURE_FROZEN_COPY_ID = "capture.frozen_copy_id"
+_CAPTURE_STATUS = "capture.status"
+_CAPTURE_REPLAY = "capture.replay"
 
 
 @dataclass(frozen=True, slots=True)
 class _CacheSummary:
-    """One engine run summary's cache tally: hits, coverage by provenance, and the two totals."""
+    """One engine run summary: the cache tally and the `capture.*` attributes on the same line.
+
+    The tally is hits, coverage by provenance, and the two totals.
+    """
 
     hits: int
     reported_hits: int | None
@@ -347,6 +361,9 @@ class _CacheSummary:
     unpriced_hits: int | None
     saved_cost_usd: Decimal | None
     saved_cost_archive_usd: Decimal | None
+    frozen_copy_id: str | None = None
+    capture_status: Literal["complete", "partial"] | None = None
+    capture_replay: str | None = None
 
     @classmethod
     def parse(cls, attributes: Mapping[str, object]) -> _CacheSummary:
@@ -360,6 +377,9 @@ class _CacheSummary:
             unpriced_hits=count(_UNPRICED_HITS),
             saved_cost_usd=_summary_amount(attributes, _SAVED_COST_USD),
             saved_cost_archive_usd=_summary_amount(attributes, _SAVED_COST_ARCHIVE_USD),
+            frozen_copy_id=_summary_copy_id(attributes, _CAPTURE_FROZEN_COPY_ID),
+            capture_status=_summary_capture_status(attributes),
+            capture_replay=_summary_copy_id(attributes, _CAPTURE_REPLAY),
         )
 
     def is_consistent(self) -> bool:
@@ -391,6 +411,26 @@ def _summary_amount(attributes: Mapping[str, object], key: str) -> Decimal | Non
     if not isinstance(value, str):
         raise ExecutionError(f"SF Engine cache summary {key} must be a decimal string")
     return _decimal(value, f"cache summary {key}")
+
+
+def _summary_copy_id(attributes: Mapping[str, object], key: str) -> str | None:
+    """A summary's frozen copy id, absent when the key is absent, or a refusal."""
+    if key not in attributes:
+        return None
+    value = attributes[key]
+    if not isinstance(value, str) or not value:
+        raise ExecutionError(f"SF Engine capture summary {key} must be a non-empty string")
+    return value
+
+
+def _summary_capture_status(
+    attributes: Mapping[str, object],
+) -> Literal["complete", "partial"] | None:
+    """`complete` or `partial`, absent when the key is absent (unknown), or a refusal."""
+    try:
+        return capture_status_value(attributes.get(_CAPTURE_STATUS))
+    except ValueError as exc:
+        raise ExecutionError(f"SF Engine capture summary {_CAPTURE_STATUS} is invalid") from exc
 
 
 def _cache_hit_count(value: object, attribute: str = _CACHE_HITS) -> int:

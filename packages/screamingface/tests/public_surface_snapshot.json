@@ -45,6 +45,8 @@
       "ProviderConnectionError",
       "Recipe",
       "Report",
+      "Reproduction",
+      "ReproductionOutcome",
       "ScoreMetadataEvent",
       "ScreamingFaceError",
       "SelfCorrective",
@@ -60,7 +62,8 @@
       "evaluate",
       "events",
       "leaderboards",
-      "models"
+      "models",
+      "reproduce"
     ],
     "exports": {
       "AsyncClient": {
@@ -74,9 +77,10 @@
           "connect": "method (self, provider: 'str', *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | AsyncOAuthFlow'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool' = True) -> 'Report'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
+          "reproduce": "method (self, score: 'LeaderboardScore | UUID | str', *, record: 'bool' = True) -> 'Reproduction'",
           "scoreboard_url": "property"
         }
       },
@@ -135,7 +139,7 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None, frozen_copy_id: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None) -> 'None'",
           "accounting": "property",
           "answer_seed": "field",
           "benchmark": "field",
@@ -143,12 +147,14 @@
           "cache_saved_cost_archive_usd": "field",
           "cache_saved_cost_usd": "field",
           "cache_unpriced_hits": "field",
+          "capture_status": "field",
           "cases": "field",
           "client_version": "field",
           "completed_at": "field",
           "coverage": "field",
           "duration_ms": "property",
           "failures": "field",
+          "frozen_copy_id": "field",
           "kind": "field",
           "members": "field",
           "metrics": "property",
@@ -228,9 +234,10 @@
           "connect": "method (self, provider: 'str | None' = None, *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | ConnectionPanel | OAuthFlow'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool' = True) -> 'Report'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
+          "reproduce": "method (self, score: 'LeaderboardScore | UUID | str', *, record: 'bool' = True) -> 'Reproduction'",
           "scoreboard_url": "property"
         }
       },
@@ -438,20 +445,26 @@
       "LeaderboardScore": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None, paper_url: 'str | None' = None, metadata_updated_at: 'datetime | None' = None) -> None",
+          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None, paper_url: 'str | None' = None, metadata_updated_at: 'datetime | None' = None, frozen_copy_id: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, answer_seed: 'int | None' = None, reproduction_count: 'int' = 0, last_reproduced_at: 'datetime | None' = None, benchmark_revision: 'str | None' = None) -> None",
+          "answer_seed": "field",
           "authors": "field",
           "benchmark_id": "field",
+          "benchmark_revision": "field",
+          "capture_status": "field",
           "client_name": "field",
           "client_platform": "field",
           "client_version": "field",
           "correct_questions": "field",
+          "frozen_copy_id": "field",
           "id": "field",
+          "last_reproduced_at": "field",
           "metadata": "field",
           "metadata_updated_at": "field",
           "paper_url": "field",
           "ran_at_local": "field",
           "ran_with_providers": "field",
           "ranking_notice": "field",
+          "reproduction_count": "field",
           "score": "field",
           "scoreboard_url": "field",
           "spec_id": "field",
@@ -667,6 +680,22 @@
           "usage": "property"
         }
       },
+      "Reproduction": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, outcome: 'ReproductionOutcome', reason: 'str | None' = None, missed_cases: 'tuple[CaseId, ...]' = (), result: 'CandidateResult | None' = None, recorded: 'bool' = False, record_error: 'str | None' = None) -> None",
+          "missed_cases": "field",
+          "outcome": "field",
+          "reason": "field",
+          "record_error": "field",
+          "recorded": "field",
+          "result": "field"
+        }
+      },
+      "ReproductionOutcome": {
+        "kind": "type alias",
+        "value": "typing.Literal['exact', 'failed', 'not_reproducible']"
+      },
       "ScoreMetadataEvent": {
         "kind": "class",
         "members": {
@@ -751,7 +780,7 @@
       },
       "evaluate": {
         "kind": "function",
-        "signature": "(candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None) -> 'Report'"
+        "signature": "(candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool' = True) -> 'Report'"
       },
       "events": {
         "kind": "module",
@@ -764,6 +793,10 @@
       "models": {
         "kind": "module",
         "module": "screamingface.models"
+      },
+      "reproduce": {
+        "kind": "function",
+        "signature": "(score: 'LeaderboardScore | UUID | str', *, record: 'bool' = True) -> 'Reproduction'"
       }
     }
   },
@@ -1052,7 +1085,7 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None, frozen_copy_id: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None) -> 'None'",
           "accounting": "property",
           "answer_seed": "field",
           "benchmark": "field",
@@ -1060,12 +1093,14 @@
           "cache_saved_cost_archive_usd": "field",
           "cache_saved_cost_usd": "field",
           "cache_unpriced_hits": "field",
+          "capture_status": "field",
           "cases": "field",
           "client_version": "field",
           "completed_at": "field",
           "coverage": "field",
           "duration_ms": "property",
           "failures": "field",
+          "frozen_copy_id": "field",
           "kind": "field",
           "members": "field",
           "metrics": "property",

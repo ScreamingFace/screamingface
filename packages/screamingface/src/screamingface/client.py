@@ -20,16 +20,19 @@ from screamingface._engine.identity import engine_headers
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from uuid import UUID
 
     import httpx
 
     from screamingface._core.ports import AsyncRunTransport, SyncRunTransport
     from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels, Benchmarks, Models
     from screamingface._engine.connections import AsyncConnections, Connections
+    from screamingface._reproduction import Reproduction
     from screamingface._scoreboard.leaderboards import AsyncLeaderboards, Leaderboards
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
     from screamingface.events import Event
+    from screamingface.leaderboard import LeaderboardScore
     from screamingface.recipe import Recipe
 from screamingface._evaluation.model import _answer_seed_value
 from screamingface.report import Report
@@ -211,6 +214,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = True,
     ) -> Report: ...
 
     @overload
@@ -223,6 +227,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = True,
     ) -> Report: ...
 
     def evaluate(
@@ -234,8 +239,15 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = True,
     ) -> Report:
-        """Evaluate Recipes, or replay one complete evaluation URL4 unchanged."""
+        """Evaluate Recipes, or replay one complete evaluation URL4 unchanged.
+
+        `capture` is on by default: the Engine stores every model and web-tool result of each run
+        in a frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
+        `capture=False` turns it off. An Engine that did not capture a run is reported with an
+        `EvaluationWarning`.
+        """
 
         from screamingface._evaluation.runner import evaluate_sync
         from screamingface._evaluation.url4 import evaluate_url4_sync
@@ -252,6 +264,7 @@ class Client:
                 on_event,
                 progress,
                 answer_seed=selected_seed,
+                capture=capture,
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
@@ -266,7 +279,25 @@ class Client:
             on_event,
             progress,
             answer_seed=selected_seed,
+            capture=capture,
         )
+
+    def reproduce(
+        self,
+        score: LeaderboardScore | UUID | str,
+        *,
+        record: bool = True,
+    ) -> Reproduction:
+        """Run a submitted score again from its frozen copy and judge the replay.
+
+        Returns `exact` when the replay gives the stored score. An exact replay is recorded on the
+        Scoreboard unless `record=False`. A score with no complete frozen copy starts no run.
+        """
+
+        from screamingface._reproduction import reproduce_sync
+
+        self._require_open()
+        return reproduce_sync(self, score, record)
 
     @overload
     def connect(
@@ -544,6 +575,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = True,
     ) -> Report: ...
 
     @overload
@@ -556,6 +588,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = True,
     ) -> Report: ...
 
     async def evaluate(
@@ -567,8 +600,15 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        capture: bool = True,
     ) -> Report:
-        """Asynchronously evaluate Recipes, or replay one complete evaluation URL4."""
+        """Asynchronously evaluate Recipes, or replay one complete evaluation URL4.
+
+        `capture` is on by default: the Engine stores every model and web-tool result of each run
+        in a frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
+        `capture=False` turns it off. An Engine that did not capture a run is reported with an
+        `EvaluationWarning`.
+        """
 
         from screamingface._evaluation.runner import evaluate_async
         from screamingface._evaluation.url4 import evaluate_url4_async
@@ -584,6 +624,7 @@ class AsyncClient:
                 on_event,
                 progress,
                 answer_seed=selected_seed,
+                capture=capture,
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
@@ -598,7 +639,21 @@ class AsyncClient:
             on_event,
             progress,
             answer_seed=selected_seed,
+            capture=capture,
         )
+
+    async def reproduce(
+        self,
+        score: LeaderboardScore | UUID | str,
+        *,
+        record: bool = True,
+    ) -> Reproduction:
+        """Asynchronously run a submitted score again from its frozen copy."""
+
+        from screamingface._reproduction import reproduce_async
+
+        self._require_open()
+        return await reproduce_async(self, score, record)
 
     @overload
     async def connect(

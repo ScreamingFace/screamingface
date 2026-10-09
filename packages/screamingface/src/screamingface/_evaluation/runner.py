@@ -29,6 +29,7 @@ from screamingface._evaluation.model import (
     _Evaluation,
     _validate_limit,
     _with_answer_seed,
+    _with_capture,
 )
 from screamingface._evaluation.model_parameters import preflight_async, preflight_sync
 from screamingface._evaluation.outcome import (
@@ -70,6 +71,7 @@ def evaluate_sync(
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
     answer_seed: int | None = None,
+    capture: bool = False,
 ) -> Report:
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
@@ -82,9 +84,12 @@ def evaluate_sync(
     resource = load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
-    # FEATURE (OME-1193): stamp the declared sitting onto every compiled Candidate ONCE,
-    # so the transport, the progress observer and the report all see the same objects.
-    selected_candidates = _seeded_candidates(tuple(evaluation.candidates), answer_seed)
+    # FEATURE (OME-1193, OME-1307): stamp the declared sitting (`answer_seed`) and the capture
+    # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
+    # observer and the report all see the same objects.
+    selected_candidates = _captured_candidates(
+        _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
+    )
     catalog = load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
     # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
@@ -112,7 +117,7 @@ def evaluate_sync(
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
-    _reconcile_event_observer(observer, report)
+    _conclude_evaluation(observer, report, capture)
     return report
 
 
@@ -127,6 +132,7 @@ async def evaluate_async(
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
     answer_seed: int | None = None,
+    capture: bool = False,
 ) -> Report:
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
@@ -139,9 +145,11 @@ async def evaluate_async(
     resource = await load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
-    # FEATURE (OME-1193): see the sync twin — one stamped tuple for transport,
-    # observer and report alike.
-    selected_candidates = _seeded_candidates(tuple(evaluation.candidates), answer_seed)
+    # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
+    # transport, observer and report alike.
+    selected_candidates = _captured_candidates(
+        _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
+    )
     catalog = await load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
     # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
@@ -169,7 +177,7 @@ async def evaluate_async(
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
-    _reconcile_event_observer(observer, report)
+    _conclude_evaluation(observer, report, capture)
     return report
 
 
@@ -438,6 +446,15 @@ def _reconcile_event_observer(observer: object, report: Report) -> None:
         observer.reconcile(report)
 
 
+def _conclude_evaluation(observer: object, report: Report, capture: bool) -> None:
+    """Reconcile the progress observer with the finished report, then say what capture missed."""
+    from screamingface._evaluation.results import _warn_if_not_captured
+
+    _reconcile_event_observer(observer, report)
+    if capture:
+        _warn_if_not_captured(report)
+
+
 def _abort_event_observer(observer: object, exc: BaseException) -> None:
     if isinstance(observer, (_SyncEventObserver, _AsyncEventObserver)):
         observer.abort(exc)
@@ -518,6 +535,19 @@ def _seeded_candidates(
     if answer_seed is None:
         return candidates
     return tuple(_with_answer_seed(candidate, answer_seed) for candidate in candidates)
+
+
+def _captured_candidates(
+    candidates: tuple[Candidate, ...],
+    capture: bool,
+) -> tuple[Candidate, ...]:
+    """Stamp the request to capture a frozen copy onto each compiled Candidate — identity when off.
+
+    FEATURE (OME-1307): each Candidate's run opens its own copy, so each result names its own.
+    """
+    if not capture:
+        return candidates
+    return tuple(_with_capture(candidate) for candidate in candidates)
 
 
 def _run_candidates_sync(

@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from screamingface._immutable_json import freeze_mapping
+from screamingface._report_primitives import capture_status_value
 from screamingface.url4 import Url4
 
 
@@ -144,6 +145,15 @@ class LeaderboardScore:
     # FEATURE: OME-1307 — absent on a board that predates the field; decoded as None.
     paper_url: str | None = None
     metadata_updated_at: datetime | None = None
+    # FEATURE: OME-1307 — the frozen copy of the run and its reproductions. An older board leaves
+    # them absent: None, and a count of 0. A null `capture_status` means "unknown".
+    frozen_copy_id: str | None = None
+    capture_status: Literal["complete", "partial"] | None = None
+    answer_seed: int | None = None
+    reproduction_count: int = 0
+    last_reproduced_at: datetime | None = None
+    # The revision of the benchmark the score ran on, which a reproduction must match.
+    benchmark_revision: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
@@ -167,6 +177,7 @@ class LeaderboardScore:
             "client_platform",
             "scoreboard_url",
             "paper_url",
+            "benchmark_revision",
         )
         for name in optional_fields:
             object.__setattr__(
@@ -185,6 +196,7 @@ class LeaderboardScore:
         )
         _optional_aware_datetime(self.ran_at_local, "Leaderboard score ran_at_local")
         _optional_aware_datetime(self.metadata_updated_at, "Leaderboard score metadata_updated_at")
+        _reproduction_fields(self)
         if not isinstance(self.verified_by_screamingface, bool):
             raise TypeError("Leaderboard score verified_by_screamingface must be a boolean")
         if self.metadata is not None:
@@ -372,6 +384,33 @@ def _aware_datetime(value: object, label: str) -> None:
 def _optional_aware_datetime(value: object, label: str) -> None:
     if value is not None:
         _aware_datetime(value, label)
+
+
+def _reproduction_fields(score: LeaderboardScore) -> None:
+    """Validate the OME-1307 frozen copy fields; the text ones go through the loop above.
+
+    INVARIANT: a copy id is normalised as the board does (`str(UUID(value))`) and an invalid one is
+    refused here, so `reproduce` never sends a malformed `X-Replay-Frozen-Copy` header.
+    """
+    object.__setattr__(score, "frozen_copy_id", _frozen_copy_id(score.frozen_copy_id))
+    _optional_aware_datetime(score.last_reproduced_at, "Leaderboard score last_reproduced_at")
+    capture_status_value(score.capture_status)
+    if score.answer_seed is not None and (
+        isinstance(score.answer_seed, bool) or not isinstance(score.answer_seed, int)
+    ):
+        raise TypeError("Leaderboard score answer_seed must be an integer or None")
+    _nonnegative_int(score.reproduction_count, "Leaderboard score reproduction_count")
+
+
+def _frozen_copy_id(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError("Leaderboard score frozen_copy_id must be a string or None")
+    try:
+        return str(UUID(value))
+    except ValueError:
+        raise ValueError("Leaderboard score frozen_copy_id must be a UUID") from None
 
 
 def _names(values: object, label: str) -> tuple[str, ...]:

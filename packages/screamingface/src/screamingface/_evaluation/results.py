@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
@@ -33,6 +34,25 @@ from screamingface.report import (
     RunCostStatus,
     Usage,
 )
+from screamingface.warnings import EvaluationWarning
+
+
+def _warn_if_not_captured(report: Report) -> None:
+    """Tell the caller of a capturing run (the default) about each uncaptured Candidate.
+
+    FEATURE (OME-1307): an Engine that ignores `X-Capture` runs the Candidate normally, and its
+    summary has no `capture.status`. The result keeps `frozen_copy_id` and `capture_status` as
+    None, so nothing else says that the run cannot be reproduced.
+    """
+    for result in report.candidates:
+        if result.capture_status is None:
+            warnings.warn(
+                "the Engine did not capture this run; it cannot be reproduced "
+                f"(Candidate {result.name!r}); pass capture=False to skip capture",
+                EvaluationWarning,
+                stacklevel=5,
+            )
+
 
 # The marker pre-OME-892 Engines glued onto a cut result body. Recognized here so a run
 # against an OLD Engine fails with the real cause instead of the generic "must be JSON".
@@ -181,6 +201,9 @@ def _candidate_result(
             # reported one or to the spend; the board sums the parts.
             cache_saved_cost_archive_usd=outcome.cache_saved_cost_archive_usd,
             cache_unpriced_hits=outcome.cache_unpriced_hits,
+            # OME-1307: the frozen copy, as the Engine's run summary stated it (None = unknown).
+            frozen_copy_id=outcome.frozen_copy_id,
+            capture_status=outcome.capture_status,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"SF Engine Candidate result is invalid: {exc}") from exc

@@ -111,6 +111,21 @@ def is_declared_failure_code(code: str) -> bool:
     return code in DECLARED_FAILURE_CODES or _AIGATEWAY_HTTP_CODE.fullmatch(code) is not None
 
 
+def capture_status_value(value: object) -> Literal["complete", "partial"] | None:
+    """The one narrowing of a run's capture status: `complete`, `partial`, or None (unknown).
+
+    INVARIANT (OME-1307): a null status means "unknown", never `partial`. Anything else is a
+    ValueError, which each caller re-raises in the error type of its own boundary.
+    """
+    if value is None:
+        return None
+    if value == "complete":
+        return "complete"
+    if value == "partial":
+        return "partial"
+    raise ValueError("capture_status must be 'complete', 'partial' or None")
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Usage:
     """Observed token and monetary accounting for one execution subtree."""
