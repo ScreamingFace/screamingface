@@ -6,7 +6,7 @@ These views never serialize another accounting truth or recompute a score.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Hashable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from types import MappingProxyType
@@ -140,15 +140,34 @@ def summarize(values: Sequence[OperationAccounting | None]) -> AccountingSummary
     )
 
 
-def member_usage(cases: Sequence[CaseResult], operation_id: str) -> Usage | None:
-    """Use exact operation identity in every Case; never infer subtree ownership."""
-    records: list[OperationAccounting] = []
+def member_usage(cases: Iterable[CaseResult], operation_id: str) -> Usage | None:
+    """Stream exact operation observations; retain only nullable field totals."""
+    totals = Usage(
+        input_tokens=0,
+        output_tokens=0,
+        cache_read_tokens=0,
+        cache_creation_tokens=0,
+        reasoning_tokens=0,
+        cost_usd=Decimal(0),
+    )
+    seen = False
     for case in cases:
-        matches = [op for op in case.operations or () if op.operation_id == operation_id]
-        if len(matches) != 1 or matches[0].accounting is None:
+        matches = (op for op in case.operations or () if op.operation_id == operation_id)
+        match = next(matches, None)
+        if match is None or match.accounting is None or next(matches, None) is not None:
             return None
-        records.append(matches[0].accounting)
-    return _usage_sum([v.usage for v in records]) if records else None
+        usage = match.accounting.usage
+        # INVARIANT: a missing observation poisons only its field; known zero stays zero.
+        totals = Usage(
+            input_tokens=_add(totals.input_tokens, usage.input_tokens),
+            output_tokens=_add(totals.output_tokens, usage.output_tokens),
+            cache_read_tokens=_add(totals.cache_read_tokens, usage.cache_read_tokens),
+            cache_creation_tokens=_add(totals.cache_creation_tokens, usage.cache_creation_tokens),
+            reasoning_tokens=_add(totals.reasoning_tokens, usage.reasoning_tokens),
+            cost_usd=_add(totals.cost_usd, usage.cost_usd),
+        )
+        seen = True
+    return totals if seen else None
 
 
 def _declared_operation_models(candidate: CandidateResult) -> dict[str, str]:
@@ -272,3 +291,7 @@ def accounting_breakdown(candidate: CandidateResult) -> AccountingBreakdown:
         # INVARIANT: bookkeeping cannot fail a Report; diagnostics contain no payload.
         _LOG.warning("completed accounting projection unavailable: ValueError")
         return AccountingBreakdown((), None, consistent=False)
+
+
+def _add[T: (int, Decimal)](left: T | None, right: T | None) -> T | None:
+    return None if left is None or right is None else left + right
