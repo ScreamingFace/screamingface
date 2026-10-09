@@ -82,6 +82,7 @@ class Url4Node:
         self._concurrency = concurrency
         self._strict_fields = strict_fields
         self._endpoints: dict[str, EndpointHandler] = {}
+        self._rds_endpoints: set[str] = set()
         self._data: dict[str, _DataRoute] = {}
         self._self_holdings: dict[str | None, _HoldingsPort] = {}
         self._identities: dict[str, _HoldingsPort] = {}
@@ -100,12 +101,19 @@ class Url4Node:
 
     # --- registration ----------------------------------------------------------
 
-    def endpoint(self, path: str) -> Callable[[EndpointHandler], EndpointHandler]:
-        """Register an intent processor at ``path`` (decorator)."""
+    def endpoint(
+        self, path: str, *, rds: bool = False
+    ) -> Callable[[EndpointHandler], EndpointHandler]:
+        """Register an intent processor at ``path`` (decorator).
+
+        ``rds=True`` opts in to code-pointer calls; LLM calls are delivered either way (ans:Q7).
+        """
         self._check_routable(path)
 
         def register(handler: EndpointHandler) -> EndpointHandler:
             self._endpoints[path] = handler
+            if rds:
+                self._rds_endpoints.add(path)
             return handler
 
         return register

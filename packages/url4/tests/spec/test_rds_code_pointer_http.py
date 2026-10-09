@@ -44,7 +44,7 @@ async def test_http_rds_inputs_are_byte_exact_and_ordered_over_an_asgi_hop() -> 
     seen: list[Request] = []
     scorer = Url4Node("scorer")
 
-    @scorer.endpoint("/score/v1")
+    @scorer.endpoint("/score/v1", rds=True)
     async def score(request: Request) -> str:
         seen.append(request)
         return "OK"
@@ -108,7 +108,7 @@ async def test_e4a_vote_runs_three_members_then_one_combine_call_with_exact_inpu
     async def member_3(request: Request) -> str:
         return _M3
 
-    @node.endpoint("/ensemble/combine/v1")
+    @node.endpoint("/ensemble/combine/v1", rds=True)
     async def combine(request: Request) -> str:
         combine_calls.append(request)
         return "4"

@@ -60,12 +60,21 @@ async def call_rds(
     """Call the code pointer at ``path`` once with an RDS document — the one RDS owner.
 
     Both :func:`dispatch` and :func:`~url4.peer.direct.dispatch_direct` call this, so the RDS rules
-    exist in one place. INVARIANT: an RDS request runs only a registered endpoint. A path with no
-    endpoint is ``intent_error``, never the eval path and never a data route.
+    exist in one place. INVARIANT: an RDS request runs only a registered endpoint that opted in with
+    ``rds=True``. A path with no endpoint is ``intent_error``, never the eval path and never a data
+    route.
     """
     if path not in node._endpoints:
         raise ResolutionError(
             f"node {node.name!r} has no code pointer at {path!r}",
+            code=ErrorCode.INTENT_ERROR,
+            permanent=True,
+        )
+    # INVARIANT: a handler written for prompts (a model route, for one) never sees a JSON document
+    # of sources. Only an endpoint registered with `rds=True` takes a code-pointer call (ans:Q7).
+    if path not in node._rds_endpoints:
+        raise ResolutionError(
+            f"endpoint {path!r} does not take code-pointer calls",
             code=ErrorCode.INTENT_ERROR,
             permanent=True,
         )

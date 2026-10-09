@@ -259,7 +259,7 @@ url4 2.0 gives a URI intent the meaning that URL4 Spec B §6 gives it: a **code 
 The code receives one `Request` with `mode == "rds"`:
 
 ```python
-@node.endpoint("/ensemble/combine/v1")
+@node.endpoint("/ensemble/combine/v1", rds=True)
 def combine(request: Request) -> str:
     assert request.mode == "rds"
     request.inputs  # {"member_1": "…", "member_2": "…", "extract_pattern": "…"}
@@ -283,8 +283,9 @@ To migrate:
 2. If the text must stay remote, bind it as a weight-`0.0` source and reference it in a quoted
    intent: `(member_1:…, instr:0.0:/instr)!'$instr'`. A group that is not all calls takes the
    base merge (the `process` hook), not the fan-out reduce.
-3. To run code, register it at the path with `@node.endpoint` and read `request.inputs` and
-   `request.params` when `request.mode == "rds"`.
+3. To run code, register it at the path with `@node.endpoint("/path", rds=True)` and read
+   `request.inputs` and `request.params` when `request.mode == "rds"`. An endpoint registered
+   without `rds=True` refuses code-pointer calls with `intent_error`.
 4. Replace an `https://` intent with a url4 endpoint or a `url4://` reference.
 
 ## Development

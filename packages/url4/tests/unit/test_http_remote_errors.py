@@ -43,7 +43,7 @@ async def test_a_remote_intent_error_keeps_its_code_and_is_permanent() -> None:
         raise ValueError("bad input")
 
     node = Url4Node("t")
-    node.endpoint("/score/v1")(score)
+    node.endpoint("/score/v1", rds=True)(score)
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=node.asgi()), base_url="http://t")
     io = HttpIOLayer(client=client)
     target = "url4://t" + encode_rds_target("/score/v1", "", _DOC)

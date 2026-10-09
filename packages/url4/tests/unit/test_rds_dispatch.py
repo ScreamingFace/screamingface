@@ -32,7 +32,7 @@ _DOC = encode_rds_document(_INPUTS)
 
 def _node_with(handler: EndpointHandler) -> Url4Node:
     node = Url4Node("t")
-    node.endpoint("/combine")(handler)
+    node.endpoint("/combine", rds=True)(handler)
     return node
 
 

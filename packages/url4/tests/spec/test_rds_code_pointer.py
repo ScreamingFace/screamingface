@@ -48,11 +48,11 @@ def node(wire: list[Request]) -> Url4Node:
     async def member_b(request: Request) -> str:
         return "B says 5"
 
-    @n.endpoint("/ensemble/combine/v1")
+    @n.endpoint("/ensemble/combine/v1", rds=True)
     async def combine(request: Request) -> str:
         return "COMBINED"
 
-    @n.endpoint("/claude")
+    @n.endpoint("/claude", rds=True)
     async def claude(request: Request) -> str:
         wire.append(request)
         return "CLAUDE"
@@ -125,7 +125,7 @@ async def test_2_0_relative_reducer_path_is_one_code_pointer_call(
     # the row array as `$1` (PRD row 6 of CH11, D8). The reducer path is no longer a prompt.
     seen: list[Request] = []
 
-    @node.endpoint("/reduce")
+    @node.endpoint("/reduce", rds=True)
     async def reduce(request: Request) -> str:
         seen.append(request)
         return "REDUCED"
@@ -157,12 +157,12 @@ def _code_node(calls: list[Request]) -> Url4Node:
     async def member_b(request: Request) -> str:
         return "B says 5"
 
-    @n.endpoint("/combine")
+    @n.endpoint("/combine", rds=True)
     async def combine(request: Request) -> str:
         calls.append(request)
         return "COMBINED"
 
-    @n.endpoint("/ensemble/combine/v1")
+    @n.endpoint("/ensemble/combine/v1", rds=True)
     async def vote(request: Request) -> str:
         calls.append(request)
         return "COMBINED"
@@ -424,7 +424,7 @@ async def test_an_unknown_code_pointer_path_is_intent_error(code: Url4Node) -> N
 @pytest.mark.asyncio
 async def test_a_handler_value_error_is_intent_error(code: Url4Node) -> None:
     # WHY: PRD row 18 (E3) — a handler that raises a non-url4 error is intent_error, permanent.
-    @code.endpoint("/bad")
+    @code.endpoint("/bad", rds=True)
     async def bad(request: Request) -> str:
         raise ValueError("bad input")
 
@@ -437,7 +437,7 @@ async def test_a_handler_value_error_is_intent_error(code: Url4Node) -> None:
 @pytest.mark.asyncio
 async def test_a_handler_url4_error_keeps_its_own_code_and_permanence(code: Url4Node) -> None:
     # WHY: PRD row 18 (E3) — a handler's own Url4Error passes through with its code and permanence.
-    @code.endpoint("/custom")
+    @code.endpoint("/custom", rds=True)
     async def custom(request: Request) -> str:
         raise Url4Error("custom failure", code="x.custom", permanent=False)
 
@@ -545,7 +545,7 @@ async def test_a_substituted_code_pointer_path_that_is_a_plain_path_is_called(
 async def test_a_handler_endpoint_not_found_keeps_its_own_transient_code(code: Url4Node) -> None:
     # WHY: F4 (C7) — a handler's own endpoint_not_found is transient; the call must not turn it
     # into a permanent intent_error.
-    @code.endpoint("/inner")
+    @code.endpoint("/inner", rds=True)
     async def inner(request: Request) -> str:
         raise ResolutionError("inner", code=ErrorCode.ENDPOINT_NOT_FOUND, permanent=False)
 

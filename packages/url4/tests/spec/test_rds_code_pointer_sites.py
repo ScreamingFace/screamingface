@@ -37,12 +37,12 @@ def hook_calls() -> list[tuple[str, str | None]]:
 def node(calls: list[Request]) -> Url4Node:
     n = Url4Node("t", default_processor="/claude")
 
-    @n.endpoint("/score")
+    @n.endpoint("/score", rds=True)
     async def score(request: Request) -> str:
         calls.append(request)
         return f"score:{(request.inputs or {})['current']}"
 
-    @n.endpoint("/reduce")
+    @n.endpoint("/reduce", rds=True)
     async def reduce(request: Request) -> str:
         calls.append(request)
         return "REDUCED"
