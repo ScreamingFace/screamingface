@@ -41,7 +41,7 @@ BASELINE: dict[str, int] = {
     "core/render.py": 687,
     "dag/_run.py": 261,
     "dag/executor.py": 302,
-    "peer/server.py": 312,
+    "peer/server.py": 254,
     "io/layer.py": 197,
     "observe.py": 483,
     "core/parser.py": 471,
@@ -49,7 +49,7 @@ BASELINE: dict[str, int] = {
     "dag/nodes/group.py": 298,
     "dag/nodes/fetch.py": 285,
     "dag/nodes/_shared.py": 211,
-    "dag/nodes/iteration.py": 218,
+    "dag/nodes/iteration.py": 183,
     "peer/_dispatch.py": 195,
     # The modules split out of dag/_lowering.py, dag/nodes/_shared.py and peer/_dispatch.py
     # (url4 2.0, 2026-10-09): a split guards its parts, or the code regrows where the cap is not.
@@ -58,6 +58,7 @@ BASELINE: dict[str, int] = {
     "dag/_lowering_text.py": 198,
     "dag/nodes/_gather.py": 107,
     "peer/_code_pointer.py": 103,
+    "peer/_holdings.py": 103,
     "cli/_serve.py": 340,
     "cli/_config.py": 341,
 }

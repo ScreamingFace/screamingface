@@ -10,6 +10,10 @@ Owns
   uses for mount calls; it refuses the eval path (spec D1).
 - ``_dispatch`` / ``_http`` / ``_asgi`` / ``_owned`` — the dispatch order and
   the framework-free ASGI adapter.
+- ``_request`` — ``Request``, the handler contract for every endpoint call.
+- ``_code_pointer`` — the receiver of a code-pointer (RDS) call: decode, opt-in, errors.
+- ``_holdings`` — the ``@`` holdings and ``@identity`` registration (§5.6), a mixin of
+  ``Url4Node``.
 
 May import: everything below it — ``url4.core``, ``url4.wire``, ``url4.dag``,
 ``url4.io``, ``url4.observe``.
