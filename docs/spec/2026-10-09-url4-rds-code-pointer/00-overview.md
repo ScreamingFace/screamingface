@@ -61,6 +61,9 @@ The user gave these decisions with the task. They are closed.
 | Q3 | U3a / U3b params | U3a: a code pointer's `?query-tail` reaches the handler as params by the grammar's `query-tail` rule, not by `param-value`; `@` passes. Protocol params of a url4 URI's own query string keep `param-value`. U3b is not url4 work: free-text args travel as named quoted sources, a convention of the consuming endpoint. |
 | Q4 | U4 call identity | Deferred; future work. |
 | Q5 | Release | Breaking semantic change: 1.5.1 → 2.0.0, with a CHANGELOG entry and a migration note. Search the monorepo for real users of URI intents and list them. |
+| Q6 | Version and no-path pointer (2026-10-09, after the build) | This change joins 2.0.0; release PR #852 merges after it. A `url4://node` intent with no path is `malformed_source` (plan L7). |
+| Q7 | O7 (2026-10-09) | url4 opt-in, default refuse: an endpoint receives code-pointer calls only when it registers with `@node.endpoint(path, rds=True)`. A code-pointer call to any other endpoint fails with `intent_error` before the handler runs. The Engine needs no change. |
+| Q8 | Follow-ups (2026-10-09) | O6, O7 and the module-size splits ship in this PR (plan, "Follow-ups"). |
 | — | Sources of truth | The URL4 grammar (ABNF) is the source of truth; Spec B and C explain it. Kevin's IFEval contract is a reference, not the truth. `[stated prompt]` |
 
 ## 5. Proposed decisions (ours; tagged `[proposed]` in the docs)
@@ -113,8 +116,8 @@ recommended default, and the docs follow the default until Kevin answers.
 | O3 | Spec B §6 reads a bare-token intent as a "Named job / command identifier". url4 treats it as prompt text. | keep; revisit with Part G |
 | O4 | Spec A §1.4.1 says a computed intent "must ultimately resolve" to a prompt or a code pointer. url4 always uses the computed result as prompt text. | keep; revisit with Part G |
 | O5 | U4 call identity for attribution (deferred, ans:Q4). The document's `v` field leaves room. | future issue |
-| O7 | A handler that never reads `Request.mode` accepts an RDS call. The Engine's model routes (`_ModelEndpoint`, `connector.py:345`) would send the document JSON, weight-0.0 sources included, to a model: `(a, b)!/<model-route>` failed with `endpoint_not_found` in 1.5.1 and is a paid call in 2.0 (code review, 2026-10-09). | Engine follow-up issue: model routes refuse `mode == "rds"` with `intent_error` |
-| O6 | An LLM-mode broadcast (`(a, b;optional)!*'…'`) calls the `process` hook with `""` for a failed optional source and keeps a row with an empty result, so the collector's skip never fires (found while building D7, 2026-10-09). The RDS broadcast does not do this. | separate `bug` issue (Triage) |
+| O7 | A handler that never reads `Request.mode` accepts an RDS call. The Engine's model routes (`_ModelEndpoint`, `connector.py:345`) would send the document JSON, weight-0.0 sources included, to a model: `(a, b)!/<model-route>` failed with `endpoint_not_found` in 1.5.1 and is a paid call in 2.0 (code review, 2026-10-09). | in this PR, in url4 (ans:Q7, plan U2): endpoints opt in with `rds=True`; the Engine needs no change |
+| O6 | An LLM-mode broadcast (`(a, b;optional)!*'…'`) calls the `process` hook with `""` for a failed optional source and keeps a row with an empty result, so the collector's skip never fires (found while building D7, 2026-10-09). The RDS broadcast does not do this. | in this PR (ans:Q8, plan U1) |
 
 ## 8. Real users of URI intents (monorepo search, 2026-10-09)
 

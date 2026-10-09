@@ -77,6 +77,10 @@ stacks:
       - uv run ruff format --check
       - uv run pyright
       - uv run pytest --cov=url4 --cov-fail-under=95 -q
+      # url4-tests.yml runs this ratchet too; without it here, a branch can pass every local
+      # gate and fail CI on a module that regrew past its reviewed size (found 2026-10-09 on
+      # url4-rds-code-pointer: four modules over their caps, all local gates green).
+      - uv run python scripts/check_module_size.py
   - name: screamingface
     root: packages/screamingface
     skill: sdlc-python

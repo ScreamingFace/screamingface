@@ -361,3 +361,79 @@ CH8, CH9, CH10 change in place.
   file one issue under OME-500, rename the branch to `OME-N-url4-rds-code-pointer`, write the
   approval manifest for CH8–CH10, mirror in `docs/tasks/`, and say in the PR body that #852
   must merge after this PR.
+
+## Follow-ups in this PR (ans:Q7, ans:Q8 — 2026-10-09)
+
+Three units, built in parallel in three worktrees branched from `bd20bea3d`, each committed
+there and then cherry-picked onto this branch. **File ownership is disjoint** (below); a unit
+never edits a file another unit owns. Gates per unit: `run_gates.py url4` (the card now also
+runs `scripts/check_module_size.py`, which `url4-tests.yml` already ran in CI) with the same
+append-only rule as Task 4 (only the CH8–CH10 files may be named).
+
+Found while planning: `check_module_size.py` fails on this branch for four modules
+(`dag/_lowering.py` 805/747, `dag/nodes/_shared.py` 326/267, `dag/nodes/iteration.py` 231/228,
+`peer/_dispatch.py` 293/214). The script's rule: split by reason to change; never raise a
+baseline; lower a baseline when its module shrinks for good. U2 and U3 fix all four.
+
+### U1 — O6: a failed optional source in an LLM broadcast makes no call and no row
+
+- **Owns:** `G/dag/nodes/group.py` (`MergeNode` only); new `T/spec/test_broadcast_optional.py`.
+- **Change:** `MergeNode.resolve` returns `inputs["source"]` unchanged when it is a
+  `SourceFailure`, before any substitution or `ctx.process` call. `BroadcastCollectNode`
+  already drops a `SourceFailure` part (`group.py:215`). This mirrors the code-pointer
+  broadcast (`CodePointerNode(broadcast_part=True)`). Spec B §6.1.3: broadcast applies across
+  resolved sources.
+- **Tests (RED first):** `(a='1', b=/nope;optional, c='3')!*'T $current'` → `process` called
+  twice (not with `""`), result rows for positions 1 and 3 only; a required failure still fails
+  the run; a fetch/computed broadcast intent (`!*($x)` or a var-ref intent — whichever form
+  still uses `MergeNode`) behaves the same. No existing test pins the old behavior (scout,
+  2026-10-09); no production code builds `!*` with `;optional`.
+
+### U2 — O7: endpoints opt in to code-pointer calls
+
+- **Owns:** `G/peer/server.py`, `G/peer/_dispatch.py`, new `G/peer/_code_pointer.py`,
+  `G/peer/direct.py`, `G/peer/_http.py` (only if needed); tests `T/unit/test_rds_dispatch.py`,
+  `T/spec/test_rds_code_pointer.py`, `T/spec/test_rds_code_pointer_sites.py`,
+  `T/spec/test_rds_code_pointer_http.py`, `T/unit/test_http_remote_errors.py`, and new
+  `T/unit/test_rds_opt_in.py`; `packages/url4/README.md` ("Migrating to 2.0" step 3 and the
+  example).
+- **Change:** `Url4Node.endpoint(path, *, rds: bool = False)` (and any registration sugar that
+  forwards to it — read `server.py`); the node keeps the set of opted-in paths beside
+  `_endpoints`. The code-pointer branch of dispatch (`rds_call`, `call_rds`, `_raw_query_tail`)
+  moves to `G/peer/_code_pointer.py` (one owner; `_dispatch.py` and `direct.py` import it), and
+  refuses a path that is an endpoint without `rds=True` with
+  `ResolutionError("endpoint {path!r} does not take code-pointer calls", code=INTENT_ERROR,
+  permanent=True)` before the handler runs. An LLM call to an `rds=True` endpoint is still
+  delivered. `_dispatch.py` must end ≤ its cap (214); lower its `BASELINE` entry only if U3 has
+  not touched the file — U3 owns `scripts/check_module_size.py`, so U2 reports the new line
+  count instead and the main loop updates the entry at merge.
+- **Tests:** every test on this branch that registers a code-pointer endpoint adds
+  `rds=True`; new tests: a model-like endpoint registered without the flag receives no call and
+  the caller gets `intent_error` permanent (in-process, `dispatch_direct`, and HTTP 422); an
+  LLM call to an `rds=True` endpoint still works with `mode="llm"`.
+- **Engine:** no code change; its suite must stay green (no Engine handler sends or serves
+  code-pointer calls — scout, 2026-10-09).
+
+### U3 — module-size splits (behavior unchanged)
+
+- **Owns:** `G/dag/_lowering.py` and new `G/dag/_lowering_*.py` modules, `G/dag/compiler.py`,
+  `G/dag/nodes/_shared.py` and a new `G/dag/nodes/` module for the code-pointer gather,
+  `G/dag/nodes/iteration.py`, `G/dag/nodes/code_pointer.py`, `scripts/check_module_size.py`.
+  Must NOT edit `group.py`, `fetch.py` or any test (if a test imports a moved private name,
+  keep a re-export and report it).
+- **`_lowering.py` split** (scout proposal, by reason to change; the facade keeps the import
+  path `url4.dag._lowering`, which only `compiler.py` imports):
+  facade (`Lowerer`, `LoweringRegistry` — or a leaf `_lowering_registry.py` to avoid a cycle —
+  `default_registry`, `Graph`, `compile_expression`, `_lower_top_level`);
+  `_lowering_nodes.py` (default lowerers, context-slot wiring, iteration, collection/source);
+  `_lowering_text.py` (the text path); `_lowering_intent.py` (intent, reducer and row-intent
+  classification, `_slot_identity`, `_refs_of_ast`). Every module ≤ 450 lines; no import
+  cycle; module docstrings in the `_wiring.py` style ("split out of …, one-directional").
+- **`_shared.py` / `iteration.py`:** move the code-pointer responsibilities out (`JsonText`
+  may stay if `group.py`/`fetch.py` import it from `_shared`; `_gather_rds` and its helpers move
+  to a new `G/dag/nodes/_rds_gather.py` or into `code_pointer.py`); move the reducer's
+  code-pointer call into a helper in `code_pointer.py`. Both end within their caps.
+- **Baselines:** lower `dag/_lowering.py`, `dag/nodes/_shared.py`, `dag/nodes/iteration.py`
+  entries to their new counts (they shrank for good); add entries for the new modules only if
+  the script's convention lists comparable modules (read it); never raise one.
+- **Tests:** none new (pure move); the full suite, pyright and the layering test prove it.

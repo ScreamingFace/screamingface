@@ -110,6 +110,12 @@ this order:
    `validate_param` (`param-value`). `[stated ans:Q3]`
 5. Match the endpoint by exact path, as today `[existing G/peer/_dispatch.py:164]`.
 
+**Opt-in (ans:Q7).** An endpoint receives code-pointer calls only when it is registered with
+`@node.endpoint(path, rds=True)` (default `False`). A code-pointer call to an endpoint without
+the flag fails with `intent_error`, permanent, and the handler does not run: a handler written
+for prompts (a model route) never sees a JSON document of sources. An LLM call to an
+`rds=True` endpoint is still delivered (`mode="llm"`). `[stated ans:Q7]`
+
 **Handler shape.** `Request` `[existing G/peer/_dispatch.py:51-62]` gains two fields with defaults,
 so every 1.x handler keeps working:
 
