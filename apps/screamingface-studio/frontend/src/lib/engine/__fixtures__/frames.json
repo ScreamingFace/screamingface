@@ -1,0 +1,504 @@
+{
+  "happyPath": [
+    {
+      "specversion": "1.0",
+      "id": "evt-0001",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "1",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.started",
+      "data": {
+        "url4": "(candidate:0.0:'…', …)!''"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "evt-0002",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "2",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.span",
+      "data": {
+        "name": "chat openai/gpt-4o",
+        "kind": "client",
+        "gen_ai.operation.name": "chat",
+        "gen_ai.provider.name": "openai",
+        "gen_ai.request.model": "openai/gpt-4o",
+        "gen_ai.response.model": null,
+        "gen_ai.usage.input_tokens": 31,
+        "gen_ai.usage.output_tokens": 19,
+        "gen_ai.response.finish_reasons": null,
+        "refusal": null,
+        "cache_status": null,
+        "cache_reason": null,
+        "cache_saved_cost_usd": null,
+        "cache_saved_cost_archive_usd": null,
+        "start": "2026-10-05T12:00:00Z",
+        "end": "2026-10-05T12:00:00Z",
+        "status": "ok"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "evt-0003",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "3",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.log",
+      "data": {
+        "severity_number": 9,
+        "severity_text": "INFO",
+        "body": "Loading cases started",
+        "attributes": {
+          "sf.activity.schema": "screamingface.activity.v1",
+          "sf.activity.kind": "case_loading",
+          "sf.activity.state": "started",
+          "sf.activity.id": "case_loading-1",
+          "sf.activity.revision": 1,
+          "sf.activity.elapsed_ms": 0,
+          "sf.activity.observed_at_ms": 1791201600000,
+          "sf.activity.benchmark_id": "ifeval"
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "evt-0004",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "4",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.log",
+      "data": {
+        "severity_number": 9,
+        "severity_text": "INFO",
+        "body": "Loading cases completed",
+        "attributes": {
+          "sf.activity.schema": "screamingface.activity.v1",
+          "sf.activity.kind": "case_loading",
+          "sf.activity.state": "completed",
+          "sf.activity.id": "case_loading-1",
+          "sf.activity.revision": 2,
+          "sf.activity.elapsed_ms": 840,
+          "sf.activity.observed_at_ms": 1791201600000,
+          "sf.activity.benchmark_id": "ifeval",
+          "sf.activity.loaded_count": 541,
+          "sf.activity.selected_count": 1
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "evt-0005",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "5",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.log",
+      "data": {
+        "severity_number": 9,
+        "severity_text": "INFO",
+        "body": "Answering started",
+        "attributes": {
+          "sf.activity.schema": "screamingface.activity.v1",
+          "sf.activity.kind": "answering",
+          "sf.activity.state": "started",
+          "sf.activity.id": "answering-1",
+          "sf.activity.revision": 1,
+          "sf.activity.elapsed_ms": 0,
+          "sf.activity.observed_at_ms": 1791201600000,
+          "sf.activity.case_id": 1000
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "evt-0006",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "6",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.log",
+      "data": {
+        "severity_number": 9,
+        "severity_text": "INFO",
+        "body": "Model call started",
+        "attributes": {
+          "sf.activity.schema": "screamingface.activity.v1",
+          "sf.activity.kind": "model_call",
+          "sf.activity.state": "started",
+          "sf.activity.id": "model_call-1",
+          "sf.activity.revision": 1,
+          "sf.activity.elapsed_ms": 0,
+          "sf.activity.observed_at_ms": 1791201600000,
+          "sf.activity.case_id": 1000,
+          "sf.activity.model_id": "openai/gpt-4o",
+          "sf.activity.provider": "openai",
+          "sf.activity.attempt": 1
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "evt-0007",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "7",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.log",
+      "data": {
+        "severity_number": 9,
+        "severity_text": "INFO",
+        "body": "Model call completed",
+        "attributes": {
+          "sf.activity.schema": "screamingface.activity.v1",
+          "sf.activity.kind": "model_call",
+          "sf.activity.state": "completed",
+          "sf.activity.id": "model_call-1",
+          "sf.activity.revision": 2,
+          "sf.activity.elapsed_ms": 840,
+          "sf.activity.observed_at_ms": 1791201600000,
+          "sf.activity.case_id": 1000,
+          "sf.activity.model_id": "openai/gpt-4o",
+          "sf.activity.provider": "openai",
+          "sf.activity.attempt": 1,
+          "sf.activity.finish_reason": "stop"
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "evt-0008",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "8",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.log",
+      "data": {
+        "severity_number": 9,
+        "severity_text": "INFO",
+        "body": "Answering completed",
+        "attributes": {
+          "sf.activity.schema": "screamingface.activity.v1",
+          "sf.activity.kind": "answering",
+          "sf.activity.state": "completed",
+          "sf.activity.id": "answering-1",
+          "sf.activity.revision": 2,
+          "sf.activity.elapsed_ms": 840,
+          "sf.activity.observed_at_ms": 1791201600000,
+          "sf.activity.case_id": 1000
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "evt-0009",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "9",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.log",
+      "data": {
+        "severity_number": 9,
+        "severity_text": "INFO",
+        "body": "Benchmark progress",
+        "attributes": {
+          "sf.progress.schema": "screamingface.benchmark-progress.v1",
+          "sf.progress.benchmark": "ifeval",
+          "sf.progress.benchmark_revision": "ifeval-2023-11.r1",
+          "sf.progress.revision": 1,
+          "sf.progress.completed": 1,
+          "sf.progress.graded": 1,
+          "sf.progress.score": 1.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "evt-0010",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "10",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.cost.usage",
+      "data": {
+        "scope": "subtree",
+        "gen_ai.provider.name": "openai",
+        "gen_ai.response.model": "gpt-4o-2024-08-06",
+        "pricing_version": "2026-10-01",
+        "usage": {
+          "gen_ai.usage.input_tokens": 31,
+          "gen_ai.usage.output_tokens": 19,
+          "gen_ai.usage.cache_read_tokens": 0,
+          "gen_ai.usage.cache_creation_tokens": 0,
+          "gen_ai.usage.reasoning_tokens": 0
+        },
+        "cost": {
+          "input_usd": "0.0000775",
+          "output_usd": "0.00019",
+          "cache_read_usd": "0",
+          "cache_creation_usd": "0",
+          "reasoning_usd": "0",
+          "total_usd": "0.0002675"
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "evt-0011",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "11",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.result",
+      "data": {
+        "body": "{\"schema\":\"screamingface.candidate-result.v1\",\"benchmark_id\":\"ifeval\",\"benchmark_revision\":\"ifeval-2023-11.r1\",\"case_count\":1,\"score\":1.0,\"coverage\":1.0,\"metrics\":{\"prompt_level_strict_accuracy\":1.0},\"cases\":[{\"status\":\"scored\",\"case_id\":1000,\"input\":\"Write a haiku about the sea. Do not use any commas.\",\"output\":\"Waves fold into foam\\nsalt wind carries gull voices\\nthe tide keeps its time\",\"finish_reason\":\"stop\",\"refusal\":null,\"grade\":{\"method\":\"ifeval\",\"score\":1.0,\"metrics\":{\"prompt_level_strict\":true},\"checks\":[{\"type\":\"instruction\",\"id\":\"punctuation:no_comma\",\"label\":\"No commas\",\"outcome\":\"MET\",\"score\":1.0,\"evidence\":[],\"metadata\":{}}]},\"failures\":[],\"metadata\":{},\"operations\":[{\"operation_id\":\"op_model_1\",\"output\":\"Waves fold into foam\\u2026\",\"finish_reason\":\"stop\",\"accounting\":{\"provider\":\"openai\",\"request_model\":\"openai/gpt-4o\",\"response_model\":\"gpt-4o-2024-08-06\",\"usage\":{\"input_tokens\":31,\"output_tokens\":19,\"cache_read_tokens\":0,\"cache_creation_tokens\":0,\"reasoning_tokens\":0,\"cost_usd\":\"0.0002675\"},\"provider_latency_ms\":812,\"provider_attempts\":1,\"cache\":{\"hits\":0,\"misses\":1,\"bypasses\":0,\"unknown\":0}}}]}],\"failures\":[]}",
+        "media_type": "application/json"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "evt-0012",
+      "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+      "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "time": "2026-10-05T12:00:00Z",
+      "datacontenttype": "application/json",
+      "dataschema": null,
+      "sequence": "12",
+      "sequencetype": "Integer",
+      "traceparent": null,
+      "tracestate": null,
+      "type": "ai.url4.terminated",
+      "data": {
+        "status": "succeeded",
+        "error": null
+      }
+    }
+  ],
+  "candidateResult": {
+    "schema": "screamingface.candidate-result.v1",
+    "benchmark_id": "ifeval",
+    "benchmark_revision": "ifeval-2023-11.r1",
+    "case_count": 1,
+    "score": 1.0,
+    "coverage": 1.0,
+    "metrics": {
+      "prompt_level_strict_accuracy": 1.0
+    },
+    "cases": [
+      {
+        "status": "scored",
+        "case_id": 1000,
+        "input": "Write a haiku about the sea. Do not use any commas.",
+        "output": "Waves fold into foam\nsalt wind carries gull voices\nthe tide keeps its time",
+        "finish_reason": "stop",
+        "refusal": null,
+        "grade": {
+          "method": "ifeval",
+          "score": 1.0,
+          "metrics": {
+            "prompt_level_strict": true
+          },
+          "checks": [
+            {
+              "type": "instruction",
+              "id": "punctuation:no_comma",
+              "label": "No commas",
+              "outcome": "MET",
+              "score": 1.0,
+              "evidence": [],
+              "metadata": {}
+            }
+          ]
+        },
+        "failures": [],
+        "metadata": {},
+        "operations": [
+          {
+            "operation_id": "op_model_1",
+            "output": "Waves fold into foam…",
+            "finish_reason": "stop",
+            "accounting": {
+              "provider": "openai",
+              "request_model": "openai/gpt-4o",
+              "response_model": "gpt-4o-2024-08-06",
+              "usage": {
+                "input_tokens": 31,
+                "output_tokens": 19,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+                "reasoning_tokens": 0,
+                "cost_usd": "0.0002675"
+              },
+              "provider_latency_ms": 812,
+              "provider_attempts": 1,
+              "cache": {
+                "hits": 0,
+                "misses": 1,
+                "bypasses": 0,
+                "unknown": 0
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "failures": []
+  },
+  "heartbeat": {
+    "specversion": "1.0",
+    "id": "evt-0900",
+    "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+    "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "time": "2026-10-05T12:00:00Z",
+    "datacontenttype": "application/json",
+    "dataschema": null,
+    "sequence": null,
+    "sequencetype": null,
+    "traceparent": null,
+    "tracestate": null,
+    "type": "ai.url4.heartbeat",
+    "data": {}
+  },
+  "artifactResult": {
+    "specversion": "1.0",
+    "id": "evt-0011",
+    "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+    "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "time": "2026-10-05T12:00:00Z",
+    "datacontenttype": "application/json",
+    "dataschema": null,
+    "sequence": "11",
+    "sequencetype": "Integer",
+    "traceparent": null,
+    "tracestate": null,
+    "type": "ai.url4.result",
+    "data": {
+      "body": null,
+      "media_type": null,
+      "artifact": {
+        "id": "c5b8323aca7a4561a119ada99967c1405fd10534348964cd1b33dc91f11b0eca",
+        "size_bytes": 1144,
+        "sha256": "c5b8323aca7a4561a119ada99967c1405fd10534348964cd1b33dc91f11b0eca"
+      }
+    }
+  },
+  "artifactBody": "{\"schema\":\"screamingface.candidate-result.v1\",\"benchmark_id\":\"ifeval\",\"benchmark_revision\":\"ifeval-2023-11.r1\",\"case_count\":1,\"score\":1.0,\"coverage\":1.0,\"metrics\":{\"prompt_level_strict_accuracy\":1.0},\"cases\":[{\"status\":\"scored\",\"case_id\":1000,\"input\":\"Write a haiku about the sea. Do not use any commas.\",\"output\":\"Waves fold into foam\\nsalt wind carries gull voices\\nthe tide keeps its time\",\"finish_reason\":\"stop\",\"refusal\":null,\"grade\":{\"method\":\"ifeval\",\"score\":1.0,\"metrics\":{\"prompt_level_strict\":true},\"checks\":[{\"type\":\"instruction\",\"id\":\"punctuation:no_comma\",\"label\":\"No commas\",\"outcome\":\"MET\",\"score\":1.0,\"evidence\":[],\"metadata\":{}}]},\"failures\":[],\"metadata\":{},\"operations\":[{\"operation_id\":\"op_model_1\",\"output\":\"Waves fold into foam\\u2026\",\"finish_reason\":\"stop\",\"accounting\":{\"provider\":\"openai\",\"request_model\":\"openai/gpt-4o\",\"response_model\":\"gpt-4o-2024-08-06\",\"usage\":{\"input_tokens\":31,\"output_tokens\":19,\"cache_read_tokens\":0,\"cache_creation_tokens\":0,\"reasoning_tokens\":0,\"cost_usd\":\"0.0002675\"},\"provider_latency_ms\":812,\"provider_attempts\":1,\"cache\":{\"hits\":0,\"misses\":1,\"bypasses\":0,\"unknown\":0}}}]}],\"failures\":[]}",
+  "terminatedBenchmarkUnavailable": {
+    "specversion": "1.0",
+    "id": "evt-0003",
+    "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+    "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "time": "2026-10-05T12:00:00Z",
+    "datacontenttype": "application/json",
+    "dataschema": null,
+    "sequence": "3",
+    "sequencetype": "Integer",
+    "traceparent": null,
+    "tracestate": null,
+    "type": "ai.url4.terminated",
+    "data": {
+      "status": "failed",
+      "error": {
+        "code": "benchmark_unavailable",
+        "message": "Benchmark 'ifeval' is not prepared on this Engine",
+        "permanent": true
+      }
+    }
+  },
+  "terminatedStopped": {
+    "specversion": "1.0",
+    "id": "evt-0004",
+    "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+    "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "time": "2026-10-05T12:00:00Z",
+    "datacontenttype": "application/json",
+    "dataschema": null,
+    "sequence": "4",
+    "sequencetype": "Integer",
+    "traceparent": null,
+    "tracestate": null,
+    "type": "ai.url4.terminated",
+    "data": {
+      "status": "stopped",
+      "error": null
+    }
+  },
+  "errorInvalidFrame": {
+    "specversion": "1.0",
+    "id": "evt-0901",
+    "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n0",
+    "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "time": "2026-10-05T12:00:00Z",
+    "datacontenttype": "application/json",
+    "dataschema": null,
+    "sequence": null,
+    "sequencetype": null,
+    "traceparent": null,
+    "tracestate": null,
+    "type": "ai.url4.error",
+    "data": {
+      "code": "invalid_frame",
+      "message": "from_sequence must be >= 1",
+      "ref_id": null
+    }
+  }
+}

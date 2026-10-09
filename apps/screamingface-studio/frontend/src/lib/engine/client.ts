@@ -28,7 +28,7 @@ function redact(text: string | undefined, secret: string | undefined) {
   return text.split(secret).join("[redacted]");
 }
 
-async function problemDetail(response: Response): Promise<string | undefined> {
+export async function problemDetail(response: Response): Promise<string | undefined> {
   // WHY only problem+json / JSON: a proxy's HTML error page is noise, not a message for the user.
   const type = response.headers.get("content-type") ?? "";
   if (!type.includes("json")) return undefined;
