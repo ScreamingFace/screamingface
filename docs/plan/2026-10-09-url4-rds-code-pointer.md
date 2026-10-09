@@ -461,3 +461,21 @@ modules, never raise).
   (the reducer carries the code-pointer call; expand and map stay). Import paths through
   `url4.dag.nodes` unchanged; keep `url4.dag.nodes.iteration.ReduceNode` importable if anything
   imports it there. Pure move.
+
+## Third round — O9 in this PR (user, 2026-10-09: "fix it … it must also be covered in this PR")
+
+- **W1 (one implementer, url4 then Engine, this worktree):** the Engine reads three private
+  fields of a url4 node, each with a "url4 publishes no accessor" WHY:
+  `node._self_holdings` (`world/serving.py:335`), `node._eval_path` (`world/serving.py:211`),
+  `getattr(node, "_data", {})` (`benchmarks/registry.py:92`).
+  - url4: `Url4Node.eval_path` (read-only property, `peer/server.py`) and
+    `holdings_collections() -> frozenset[str | None]` on the holdings mixin
+    (`peer/_holdings.py`); tests in a new `T/unit/test_node_accessors.py`.
+  - Engine: use `node.eval_path`, `node.holdings_collections()` and
+    `url4.peer.describe_routes(node)` (kind `"data"`) instead; delete the three private-read
+    WHY comments; behavior unchanged (existing Engine tests stay green unedited).
+  - Engine guard (new test): no Engine module reads a private attribute of a url4 node. The
+    attribute names come from a live `Url4Node` (`vars(...)` keys starting with `_`), so the
+    list cannot go stale; the scan flags `x.<name>` (any `x` except `self`/`cls`) and
+    `getattr(x, "<name>", …)`. Mutation-checked.
+- Then: rebase on `origin/main`, gates and regression, design review, PR-open steps.
