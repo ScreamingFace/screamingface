@@ -456,7 +456,9 @@ def retained_operation_accounting(
                 cache_read_tokens=0,
                 cache_creation_tokens=0,
                 reasoning_tokens=0,
-                cost_usd="0",
+                # INVARIANT (OME-1220): the same rule as the live Usage — after a possibly billed
+                # retry the row hit may be the one the lost attempt paid for and wrote.
+                cost_usd=None if cache.retried else "0",
             ),
             provider_latency_ms=0,
             # A hit performs no current provider dispatch, so zero attempts is the exact
@@ -491,9 +493,11 @@ def retained_operation_accounting(
                 call.cache_creation_tokens if complete and call is not None else None
             ),
             reasoning_tokens=call.reasoning_tokens if complete and call is not None else None,
+            # INVARIANT (OME-1220): a possibly billed retry leaves spend nobody reported; the
+            # gateway's figure covers only the attempt that answered. Tokens stay a lower bound.
             cost_usd=(
                 format(call.cost_usd, "f")
-                if complete and call is not None and call.cost_usd is not None
+                if complete and call is not None and call.cost_usd is not None and not cache.retried
                 else None
             ),
         ),

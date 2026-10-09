@@ -94,6 +94,16 @@ logger = logging.getLogger("screamingface_engine.runner.connector")
 # (url4) remains a second layer for HTTP-status failures and for a sustained outage.
 _GATEWAY_RESPONSE_MARGIN_S = 5.0
 _TRANSPORT_RETRIES = 1  # one retry → two attempts; url4's retry= adds more if needed
+# INVARIANT (OME-1220): the transport failures that prove no request byte left the Engine.
+# httpcore raises these only while opening the connection (TCP connect, TLS handshake) or while
+# waiting for a pooled one; the request is written strictly after. A retry that follows one of
+# them is the only billed attempt, so its price is exact. Every other failure is ambiguous:
+# httpcore swallows a mid-request `WriteError` and surfaces the outcome as a read-side error,
+# so only "connect phase vs the rest" separates sent from unsent, never "write vs read".
+# AIDEV-NOTE: `_post_attempt`'s own `asyncio.timeout` raises `ReadTimeout` whatever the phase —
+# deliberately conservative: it may report a never-sent request as possibly billed, never the
+# reverse.
+_NEVER_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 _TRANSPORT_BACKOFF_BASE_S = 0.5
 _TRANSPORT_BACKOFF_MAX_S = 8.0
 _TRANSPORT_BACKOFF_JITTER_S = 0.25
@@ -549,10 +559,10 @@ def _report_served_from_cache(model: str, call: CallAccounting | None, *, retrie
     opposite confidences about one ambiguous fact, and the zero is the more misleading half —
     a run total sums it in as certainty. `_fold_usage` latches the run UNPRICED on it instead.
 
-    AIDEV-NOTE: scoped to the HIT path deliberately. A retried MISS carries the gateway's own
-    attempt accounting and keeps its provider-authored price; that figure is a lower bound rather
-    than a false zero, and widening the withdrawal to every retried round trip would cost every
-    run its cost total on a single transport blip. Revisit only with that trade stated.
+    AIDEV-NOTE (OME-1220): a retried MISS is unpriced too — `_report_usage` applies the same
+    rule. Its figure covers only the attempt that answered, and the owner chose "unknown" over a
+    confident undercount. The trade this note once guarded against (one transport blip costs a
+    run its total) is bounded by `_NEVER_SENT`: a connect-phase failure keeps the exact price.
 
     AIDEV-NOTE: hit-ness is decided by the caller from the published `CacheOutcome` (the response
     headers), NOT from `_aigw`. That is deliberate — an older gateway emits the header and no
@@ -627,7 +637,10 @@ def _report_usage(
         cache_read_tokens=call.cache_read_tokens if call is not None else None,
         cache_creation_tokens=call.cache_creation_tokens if call is not None else None,
         reasoning_tokens=call.reasoning_tokens if call is not None else None,
-        cost_usd=call.cost_usd if call is not None else None,
+        # INVARIANT (OME-1220): a round trip retried after a possibly billed failure is unpriced.
+        # The gateway's figure covers only the attempt that answered; the lost one may have been
+        # billed in full upstream, and nobody on this side learns that price. Tokens stay.
+        cost_usd=(None if (cache is not None and cache.retried) or call is None else call.cost_usd),
     )
 
 
@@ -641,12 +654,14 @@ async def _post_completion(
 
     Other HTTP errors remain owned by the caller's declared URL4 retry policy.
     The caller deadline bounds each attempt and must fit a full attempt before retry.
-    The bool marks a lost transport reply, which may have been billed. A known
-    queue refusal never dispatched and must not make subsequent usage unknown.
+    The bool marks a retry that followed a failure which may have reached the gateway, and so
+    may have been billed. A known queue refusal never dispatched and must not make subsequent
+    usage unknown; neither does a connect-phase failure (`_NEVER_SENT`).
     """
     deadline = _current_deadline()
     configured = _transport_budget(http_client, headers)
     last: httpx.TransportError | None = None
+    possibly_billed = False
     for attempt in range(_TRANSPORT_RETRIES + 1):
         timeout = _attempt_timeout(deadline, configured, last)
         try:
@@ -655,6 +670,7 @@ async def _post_completion(
             )
         except httpx.TransportError as exc:
             last = exc
+            possibly_billed = possibly_billed or not isinstance(exc, _NEVER_SENT)
             if isinstance(exc, httpx.TimeoutException) and _deadline_bound(timeout, configured):
                 raise _deadline_exceeded(exc) from exc
             if attempt < _TRANSPORT_RETRIES:
@@ -663,7 +679,7 @@ async def _post_completion(
         if _queue_timeout(response) and attempt < _TRANSPORT_RETRIES:
             if await _retry_queue(response, attempt, deadline, configured):
                 continue
-        return response, last is not None
+        return response, possibly_billed
     assert last is not None
     raise ResolutionError(
         f"aigateway request failed at the transport layer: {_transport_detail(last)}",
@@ -893,7 +909,9 @@ async def _fetch_completion(
         body={**body, **policy_to_body_field(CachePolicy(participate=False))},
     )
     _raise_for_status(resp)
-    return resp, read_cache_outcome(resp.headers, retried=reissue_retried)
+    # INVARIANT (OME-1220): a possibly billed attempt lost on the FIRST round trip is still spend
+    # this call cannot price, even though the re-issue that replaced it ran cleanly.
+    return resp, read_cache_outcome(resp.headers, retried=retried or reissue_retried)
 
 
 async def _chat_completion_loop(
