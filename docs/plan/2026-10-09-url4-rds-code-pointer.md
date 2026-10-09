@@ -391,7 +391,9 @@ baseline; lower a baseline when its module shrinks for good. U2 and U3 fix all f
 
 ### U2 — O7: endpoints opt in to code-pointer calls
 
-- **Owns:** `G/peer/server.py`, `G/peer/_dispatch.py`, new `G/peer/_code_pointer.py`,
+- **Owns:** `G/peer/server.py`, `G/peer/_dispatch.py`, new `G/peer/_code_pointer.py`, new
+  `G/peer/_request.py` (amended 2026-10-09: `Request` and `_text` move to this leaf; moving only
+  the code-pointer functions would make an import cycle and leave `_dispatch.py` at 225/214),
   `G/peer/direct.py`, `G/peer/_http.py` (only if needed); tests `T/unit/test_rds_dispatch.py`,
   `T/spec/test_rds_code_pointer.py`, `T/spec/test_rds_code_pointer_sites.py`,
   `T/spec/test_rds_code_pointer_http.py`, `T/unit/test_http_remote_errors.py`, and new
