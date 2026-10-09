@@ -10,12 +10,13 @@ generically: the retry number and the failure's code. It knows nothing about cac
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 
 import pytest
 from conftest import RecordingIOLayer
 
 from url4.core.errors import ResolutionError
-from url4.dag import GuardNode, GuardRetry, current_guard_retry, run
+from url4.dag import ExecutionContext, GuardNode, GuardRetry, Payload, current_guard_retry, run
 
 
 class _RecordingRetries:
@@ -100,11 +101,32 @@ async def test_a_nested_guards_own_retry_replaces_the_outer_one() -> None:
 @pytest.mark.asyncio
 async def test_the_retry_is_unbound_again_once_the_guard_returns() -> None:
     # WHY: the retry is scoped to the guarded subtree; leaking it past the guard would make the
-    # guard's later siblings look like retries.
-    inner = _RecordingRetries("upstream_error")
+    # code that runs after the guard look like a retry.
+    class ReadsAfterTheGuard:
+        """A node that awaits a guard inline, then reads the retry from the same task.
 
-    await run(GuardNode(inner, retries=1), RecordingIOLayer())
-    assert current_guard_retry() is None
+        The read must share the guard's task: run() evaluates every node in its own task, so a
+        read from this test's task (or a sibling node's) can never see a leak, reset or not.
+        """
+
+        deps: dict = {}
+
+        def __init__(self, guard: GuardNode) -> None:
+            self._guard: GuardNode = guard
+            self.after: GuardRetry | None = GuardRetry(number=0, failure_code="never read")
+
+        async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+            """Run the guard in this task, then record what code after it would read."""
+            answer: Payload = await self._guard.resolve(inputs, ctx)
+            self.after = current_guard_retry()
+            return answer
+
+    inner = _RecordingRetries("upstream_error")
+    reader = ReadsAfterTheGuard(GuardNode(inner, retries=1))
+
+    assert await run(reader, RecordingIOLayer()) == "answer"
+    assert inner.seen == [None, GuardRetry(number=1, failure_code="upstream_error")]
+    assert reader.after is None
 
 
 @pytest.mark.asyncio

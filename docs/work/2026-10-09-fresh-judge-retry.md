@@ -71,7 +71,9 @@ existing per-request opt-out (`CachePolicy(participate=False)` → body
   `apps/screamingface-engine/tests/unit/test_fresh_judge_retry.py` (15). No prior test edited.
 - **Commits:** `571c58a05` feat(url4): tell a guarded subtree which retry it runs and why;
   `81e121c06` fix(screamingface-engine): give a judge retry after an unparseable reply a fresh
-  reply; plus the docs commit that closes this ledger and the mirror.
+  reply; plus the docs commit that closes this ledger and the mirror, and a review follow-up
+  that makes the guard's reset test read from the guard's own task (it passed with the reset
+  removed, because `run()` evaluates every node in its own task).
 - **Gates:** `run_gates.py url4` ALL GATES GREEN (1367 passed, cov ≥ 95%);
   `run_gates.py screamingface-engine` ALL GATES GREEN (4691 passed, 86 skipped). Free e2e
   replays (Docker, prepared assets): `test_boards` golden replays for draco-3pass,
@@ -93,6 +95,26 @@ existing per-request opt-out (`CachePolicy(participate=False)` → body
   - The url4 read sits in `connector.py`, not the new module: only Runner adapters may import
     the url4 engine (`test_only_engine_extensions_import_url4`), so the connector reads the
     retry and hands its code to the Engine-owned policy.
+  - No `<retry_attempt>` marker. The corrective loop's rubric check varies its retry by
+    appending that marker to a prompt its own Python loop binds per attempt. Here url4
+    re-sends a Judge call rendered into the Benchmark's expression, so a marker would have to
+    go into the expression (every revision moves and every golden goes stale) or be spliced
+    into the message by the connector (the accounting request key, built from the message,
+    moves, and the Judge reads a non-canonical prompt).
+- **Known limitations:**
+  - Cache-backed reruns are no longer deterministic for a rubric item whose stored first
+    reply is garbled. The fresh retry reply is never stored (`participate` is both
+    directions), so every rerun on a full cache redraws it, and two reruns can score the same
+    healthbench or gdpval-text Case differently.
+  - A paid recording in which any healthbench or gdpval-text Judge reply was garbled and
+    retried cannot be blessed as a golden. The dump holds the garbled reply but not the
+    fresh one; in the keyless replay the opted-out retry skips the cache, dies at credential
+    resolution (`profile_not_found`), and the replay no longer matches the report, so the
+    bless refuses. Today's three goldens contain no such item (they replay and match).
+    Re-record when that happens.
+  - PR #1321 (OME-1527) writes the same `replace(scope, cache=CachePolicy(participate=False))`
+    inline in `judge_provider.py`. Whichever PR lands second switches both to one shared
+    helper.
 - **Owner-verify:** the first paid run of healthbench or gdpval-text after merge, with the
   hosted cache on, should show no Case failing `judge_reply_invalid` with the same reply echoed
   across all three tries; a retry after a garbled reply shows up as a gateway cache bypass
