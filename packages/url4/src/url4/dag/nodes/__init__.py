@@ -18,8 +18,9 @@ here:
   struct decoding they own;
 - :mod:`.group` — :class:`BindingNode`, :class:`LazyExprNode`,
   :class:`BarrierNode`, :class:`GatherNode`, :class:`InlineCollectionNode`,
-  :class:`ProcessNode`, :class:`MergeNode`, :class:`BroadcastCollectNode`,
-  :class:`JoinNode`, :class:`CollectNode`, :class:`FanoutReduceNode`;
+  :class:`ProcessNode`, :class:`JoinNode`, :class:`CollectNode`,
+  :class:`FanoutReduceNode`;
+- :mod:`.broadcast` — :class:`MergeNode`, :class:`BroadcastCollectNode`;
 - :mod:`.guard` — :class:`GuardNode` (``;optional``/``;t=``/``;retry=``);
 - :mod:`.iteration` — :class:`ExpandNode`, :class:`MapNode`,
   :class:`ReduceNode`;
@@ -43,6 +44,7 @@ construction.
 from __future__ import annotations
 
 from url4.dag.nodes._shared import DEFAULT_MAP_CONCURRENCY, SlotSpec
+from url4.dag.nodes.broadcast import BroadcastCollectNode, MergeNode
 from url4.dag.nodes.fetch import (
     HoldingsNode,
     RelUrlNode,
@@ -54,14 +56,12 @@ from url4.dag.nodes.fetch import (
 from url4.dag.nodes.group import (
     BarrierNode,
     BindingNode,
-    BroadcastCollectNode,
     CollectNode,
     FanoutReduceNode,
     GatherNode,
     InlineCollectionNode,
     JoinNode,
     LazyExprNode,
-    MergeNode,
     ProcessNode,
 )
 from url4.dag.nodes.guard import GuardNode

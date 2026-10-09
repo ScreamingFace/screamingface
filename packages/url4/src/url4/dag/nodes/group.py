@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -160,59 +159,6 @@ class ProcessNode:
         else:
             intent = _as_text(inputs["intent"])
         return await ctx.process("\n".join(g.sources), intent, scope)
-
-
-@dataclass(eq=False)
-class MergeNode:
-    """One broadcast application (spec §6.1.2): merge a single source with the intent.
-
-    ``$current`` is bound to this source's resolved data in the scope handed to
-    ``process``. A *text* intent arrives as ``intent_template`` and is
-    substituted here — once per source, with ``current`` in scope — rather than
-    as a shared pre-substituted node; a *fetch* intent stays a shared ``intent``
-    dependency (resolved exactly once) and carries no ``$current``.
-    """
-
-    intent_template: str | None = None
-    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"source": …, ["intent": …]}
-
-    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        source = _as_text(inputs["source"])
-        scope = Context(bindings={"current": source}, parent=ctx.scope)
-        if self.intent_template is not None:
-            # WHY: _substitute so a broadcast intent nested inside an iteration
-            # resolves $item too, exactly as the non-broadcast ProcessNode path
-            # does; $current resolves from `scope` in the same scan.
-            intent = _substitute(self.intent_template, scope, ctx)
-        else:
-            intent = _as_text(inputs["intent"]) if "intent" in inputs else ""
-        return await ctx.process(source, intent, scope)
-
-
-@dataclass(eq=False)
-class BroadcastCollectNode:
-    """Assemble per-source broadcast results into the §6.1.4 collection shape.
-
-    A JSON array of ``{"source_position", "source_name", "result"}`` objects,
-    ordered by source position (1-based). A failed optional source's part is
-    omitted — broadcast applies across *resolved* sources (§6.1.3) — while the
-    surviving parts keep their original positions.
-    """
-
-    names: tuple[str | None, ...] = ()
-    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"part:i": node}
-
-    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        rows = [
-            {
-                "source_position": i + 1,
-                "source_name": self.names[i] if i < len(self.names) else None,
-                "result": _as_text(inputs[role]),
-            }
-            for i, role in enumerate(self.deps)
-            if not isinstance(inputs[role], SourceFailure)
-        ]
-        return json.dumps(rows)
 
 
 @dataclass(eq=False)
