@@ -23,6 +23,19 @@ it — the in-process runner's tasks begin as soon as they are created — repor
 acceptance on, because that is the first state it can distinguish. Callers must not read
 ``running`` as proof that execution has begun on such a substrate, nor wait for a
 ``scheduled`` frame that its runner can never emit.
+
+The transitions :meth:`JobRunner.status` may show between two reads of one topic — any other
+change is an adapter bug:
+
+- ``not_found → scheduled | running`` — accepted (``running`` on a substrate that starts at once);
+- ``scheduled → running``;
+- ``scheduled → stopped`` — stopped before it started (the queue runner's tombstone);
+- ``scheduled → not_found`` — the run's capability expired while it was still queued;
+- ``not_found → stopped`` — a tombstone written after that expiry, before it is pruned;
+- ``running → succeeded | failed | stopped | timed_out``;
+- ``{succeeded | failed | stopped | timed_out} → not_found`` — history evicted or forgotten.
+
+A terminal status never changes to another status except ``not_found``.
 """
 
 

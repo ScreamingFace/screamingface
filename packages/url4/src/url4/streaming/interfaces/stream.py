@@ -33,6 +33,15 @@ class EventPublisher(ABC):
 
         Raises when a PREVIOUSLY deferred publish has since failed, so a broken transport
         stops a run promptly instead of after the whole in-flight window drains.
+
+        INVARIANT: a publish that RAISES wrote nothing. The lifecycle consumes a sequence
+        number only when this returns and gives a refused frame's number to the next frame,
+        so the stream stays gap-free; an adapter that writes and then raises (a lost
+        response) makes that number collide with the frame it wrote.
+
+        INVARIANT: this and :meth:`flush` let ``CancelledError`` through unchanged. The
+        lifecycle tells a stop or a deadline from a transport failure by it, so an adapter
+        whose client converts cancellation into its own error must convert it back.
         """
 
     async def flush(self) -> None:

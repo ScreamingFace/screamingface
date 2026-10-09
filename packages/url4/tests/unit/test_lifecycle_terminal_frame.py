@@ -161,8 +161,12 @@ async def test_timeout_exit_emits_exactly_one_terminal_frame() -> None:
 
 def test_sequencer_numbers_are_gap_free_and_monotonic() -> None:
     seq = _Sequencer(TOPIC, "root")
-
-    numbers = [int(seq.next("00-trace")["sequence"]) for _ in range(5)]
+    numbers = []
+    for _ in range(5):
+        env = seq.peek("00-trace")
+        assert seq.peek("00-trace")["sequence"] == env["sequence"]  # peeking consumes nothing
+        seq.commit(env)
+        numbers.append(int(env["sequence"]))
 
     assert numbers == [1, 2, 3, 4, 5]
 
