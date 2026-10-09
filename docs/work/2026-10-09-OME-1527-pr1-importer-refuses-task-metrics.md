@@ -14,8 +14,9 @@ Work order #1 of OME-1527 (R2). PR 1 of 20.
 
 The ticket's R2 said a Task's own `metrics=[...]` only got a review TODO, so an imported
 Benchmark would publish the plain mean silently. Building the refusal showed that this is not
-true at the pinned inspect (0.3.263): inspect copies a Task's `metrics=[...]` onto every scorer
-when it builds the Task (`resolve_scorer_metrics`), so the importer's existing scorer-level
+true at the pinned inspect (0.3.263): when inspect builds the Task it replaces each scorer's
+whole-run metric list with the Task's `metrics=[...]` (`resolve_scorer_metrics`; per-Case
+marking is untouched), so the importer's existing scorer-level
 headline check (OME-1268, 0ba6587f1) already sees Task-level metrics and refuses a non-mean
 headline. What was left: the check's message pointed at "declare a reducer (OME-1268)", which
 never existed, and a Task-level extra metric after a plain-mean headline (worldsense's

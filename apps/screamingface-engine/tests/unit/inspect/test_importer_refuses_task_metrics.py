@@ -7,8 +7,10 @@ FEATURE: Imported Benchmarks, whole-run metrics. An inspect Task may score the w
 with its own metric, declared on the Task (xstest: ``Task(metrics=[refusal_rate()])``). A
 Benchmark publishes the mean of its Cases.
 
-Mental model: inspect copies a Task's ``metrics=[...]`` onto every scorer when it builds the
-Task, so the importer's scorer-level headline check already sees Task-level metrics. Three
+Mental model: a scorer marks each Case; its metrics tally the whole run. When inspect builds
+the Task it REPLACES each scorer's whole-run metric list with the Task's ``metrics=[...]``
+(per-Case marking is untouched), so the importer's scorer-level headline check already sees
+Task-level metrics. Three
 invariants follow, each pinned below with the published Benchmarks' own declarations:
 
 1. A Task-level headline that is not a plain mean (xstest, coconot, bbeh) is refused, so its
@@ -143,8 +145,8 @@ def test_the_refusal_says_task_metrics_reach_it_and_where_whole_run_metrics_land
 
 
 #: A stand-in eval whose Task declares a whole-run rate (xstest's shape) on an exact-match
-#: scorer. It proves inspect's copy onto the scorer happens in the real import child too,
-#: not how any real eval loads its Samples.
+#: scorer. It proves inspect's swap of the scorer's metric list happens in the real import
+#: child too, not how any real eval loads its Samples.
 FAKE_EVAL: str = textwrap.dedent(
     """
     import os
