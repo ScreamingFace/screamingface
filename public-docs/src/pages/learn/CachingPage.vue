@@ -69,9 +69,11 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <p>
-      <code>sf.evaluate(..., capture=True)</code> makes the copy. A leaderboard submission keeps the
-      copy id and the capture status. <code>sf.reproduce(score)</code> then runs the score's
-      <RouterLink to="/learn/url4">url4</RouterLink> and answer seed against the copy. The
+      <code>sf.evaluate</code> makes a frozen copy of each run by default. Pass
+      <code>capture=False</code> to turn this off. A leaderboard submission keeps the copy id and
+      the capture status. <code>sf.reproduce(score)</code> then runs the score's
+      <RouterLink to="/learn/url4">url4</RouterLink> and answer seed against the copy.
+      <code>sf.reproduce</code> never makes a copy. The
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
       calls and the outcomes.
     </p>
@@ -79,7 +81,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <h3>Make a frozen copy</h3>
 
     <p>
-      With <code>capture=True</code>, the Engine opens a frozen copy in the
+      When capture is on (the default), the Engine opens a frozen copy in the
       <RouterLink to="/learn/ai-gateway">AI gateway</RouterLink> when the run starts. The gateway
       stores each model answer. It stores the answer that the caller got, whether the answer came
       from the cache or from a live call. Model calls of the benchmark's judges are stored too. The
@@ -96,14 +98,15 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <p>
       Keep one thing in mind. The copy id is part of a published score. Any authenticated gateway
       account that has the id and sends the exact request can read the stored answer. No
-      private-board rule limits this. Capture only a run that you are willing to publish.
+      private-board rule limits this. Capture is on by default. If you do not want to share the
+      answers of a run, pass <code>capture=False</code> to that run.
     </p>
 
     <h3>Local runs</h3>
 
     <p>
-      The local runtime starts a real AI gateway with its own SQLite database. A local run made with
-      <code>capture=True</code> can be <code>complete</code>. Its copy lives only in that local
+      The local runtime starts a real AI gateway with its own SQLite database. A local run that
+      captures (the default) can be <code>complete</code>. Its copy lives only in that local
       gateway. Only the same local setup can replay it. A hosted reproduction of that score gets
       <code>frozen_copy_unavailable</code>. To upload a local copy to the hosted gateway is a
       planned follow-up.
@@ -190,8 +193,9 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       A run that is not captured has no <code>capture_status</code> (<code>None</code>), and no
-      frozen copy id. <code>None</code> means unknown, not partial. If you asked for capture and the
-      Engine did not capture the run (an older Engine), the Client emits an
+      frozen copy id. A run is not captured when you pass <code>capture=False</code>, or when the
+      Engine did not capture it. <code>None</code> means unknown, not partial. If capture is on and
+      the Engine did not capture the run (an older Engine), the Client emits an
       <code>EvaluationWarning</code>, and the result keeps <code>None</code>. A score from a
       leaderboard that predates frozen copies has no status too. <code>sf.reproduce</code> reports
       each such score as <code>not_reproducible</code> with the reason <code>unknown</code>. It does

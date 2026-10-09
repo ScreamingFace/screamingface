@@ -175,14 +175,16 @@ client.close()`
           <td>
             <code
               >sf.evaluate(candidates, *, benchmark, limit=None, on_event=None, progress=None,
-              answer_seed=None, capture=False)</code
+              answer_seed=None, capture=True)</code
             >
           </td>
           <td>
             Runs one or more candidates against a benchmark's protocol concurrently, returning a
             single <code>sf.Report</code>. Validates everything before the first paid request.
-            <code>capture=True</code> makes a frozen copy of each run, so a score can be
+            Capture is on by default, so each run makes a frozen copy and a score can be
             <RouterLink to="/learn/caching">reproduced</RouterLink> later.
+            <code>capture=False</code>
+            turns capture off.
           </td>
         </tr>
         <tr>

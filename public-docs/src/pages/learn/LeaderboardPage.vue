@@ -47,9 +47,9 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
     </p>
 
     <p>
-      A run made with <code>capture=True</code> keeps a frozen copy of its model answers and
-      web-tool results, and <code>sf.reproduce(score)</code> replays a submission against that copy.
-      The <RouterLink to="/learn/caching">caching page</RouterLink> explains how.
+      A captured run (the default) keeps a frozen copy of its model answers and web-tool results,
+      and <code>sf.reproduce(score)</code> replays a submission against that copy. The
+      <RouterLink to="/learn/caching">caching page</RouterLink> explains how.
     </p>
 
     <h2>How a rank happens</h2>

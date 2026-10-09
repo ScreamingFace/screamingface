@@ -31,7 +31,7 @@ const evaluateSig = `Client.evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = False,
+    capture: bool = True,
 ) -> Report`
 
 const reproduceSig = `Client.reproduce(
@@ -231,8 +231,9 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td><code>capture</code></td>
           <td><code>bool</code></td>
           <td>
-            <code>True</code> asks the engine to make a frozen copy of each run, so the score can be
-            reproduced later. Best effort. Read <code>capture_status</code> on each
+            On by default. <code>False</code> turns capture off. When capture is on, the engine
+            makes a frozen copy of each run, so the score can be reproduced later. Best effort. Read
+            <code>capture_status</code> on each
             <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink>. See
             <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
           </td>
