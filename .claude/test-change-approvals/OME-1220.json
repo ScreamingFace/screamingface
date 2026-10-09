@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1220",
+  "branch": "OME-1220-retried-call-cost-unpriced",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-09",
+  "scope": "one test flipped: a miss retried after a possibly billed transport failure now reports an unknown cost instead of the answering attempt's price",
+  "reason": "owner decision D1 on OME-1220: a lost reply may have been billed in full upstream, so the retried miss's price is unknown; reporting the second attempt's figure understated spend",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_cache_hit_retry_pricing.py": {
+      "base_blob": "d784d74b455f633a77143f595b81c185c89b9887",
+      "approved_blob": "457d53aefad91e8f76666d965a259412a1f1786c"
+    }
+  }
+}
