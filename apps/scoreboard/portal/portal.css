@@ -304,9 +304,13 @@ table .btn { white-space: nowrap; }
 /* ---- Weights line in the Backends cell --------------------------------- */
 /* The SFDS .status recipe at full tone WITHOUT its .on state: .on is success green, and green
    means verified, which an open-weights verdict is not. The square stays
-   ink; the word says open. Closed uses the recipe's own whisper off-state unchanged. */
+   ink; the word says open. Closed keeps the recipe's muted square, but its word is data, so it
+   takes full --ink-2 instead of the whisper off-state, which misses WCAG AA in the light theme.
+   Both rules carry :not(.on) so they out-rank style.css's .status:not(.on) by specificity, not
+   by load order. */
 .weights-line { display: block; margin-top: var(--space-1); white-space: nowrap; }
-.status.status--open { color: var(--ink); }
+.status.status--open:not(.on) { color: var(--ink); }
+.status.status--closed:not(.on) { color: var(--ink-2); }
 .status.status--open .sq { background: var(--ink); }
 
 /* ---- mark column ----------------------------------------------------- */
