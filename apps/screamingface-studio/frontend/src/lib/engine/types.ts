@@ -1,5 +1,6 @@
 // Wire shapes of the SF Engine's provider-connection and catalog routes
-// (`screamingface_engine/rest/connections.py`, `rest/catalog.py`). Only the fields Studio reads.
+// (`screamingface_engine/rest/connections.py`, `rest/catalog.py`, `rest/benchmarks.py`). Only the
+// fields Studio reads.
 
 export type AuthMethod = "api_key" | "oauth";
 
@@ -33,4 +34,22 @@ export type EngineModel = {
   owned_by: string;
   supported_parameters?: string[];
   supported_tools?: string[];
+};
+
+// One row of `GET /v1/benchmarks` (`benchmarks/definition.py` `catalog_entry`). The catalog says
+// nothing about judges or web search; Studio's `benchmark-presentation.ts` fills that gap.
+export type BenchmarkSummary = {
+  object?: "benchmark";
+  id: string;
+  title: string;
+  description: string;
+  revision: string;
+  case_count: number;
+  origin: string;
+  focus?: string;
+  difficulty: string;
+  interaction: string;
+  failure_policy: string;
+  dataset_url?: string;
+  href: string;
 };
