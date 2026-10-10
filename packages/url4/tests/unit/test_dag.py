@@ -309,14 +309,14 @@ async def test_lowering_registry_override() -> None:
 
 def test_collect_captures_errors_but_propagates_cancellation() -> None:
     node = MapNode(body="x")
-    ctx = ExecutionContext(StaticIOLayer())
-    # A regular error is captured as a per-row data result...
-    out = node._collect([ResolutionError("boom"), "ok"], ctx)
-    assert ctx.collected_errors == 1
+    kept: list[int] = []
+    # A regular error is captured as a per-row data result (and counted for the map)...
+    out = node._collect([ResolutionError("boom"), "ok"], kept)
+    assert kept == [1]
     assert '"error"' in out[0] and out[1] == "ok"
     # ...but a CancelledError is a control-flow signal, never a row: it propagates.
     with pytest.raises(asyncio.CancelledError):
-        node._collect([asyncio.CancelledError()], ctx)
+        node._collect([asyncio.CancelledError()], kept)
 
 
 def test_skip_omits_errors_but_propagates_cancellation() -> None:

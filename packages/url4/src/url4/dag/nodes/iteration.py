@@ -98,11 +98,17 @@ class MapNode:
         # the spawn cache key and would otherwise be re-concatenated and
         # re-hashed len(items) times.
         expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
+        # A7: each kept row adds its captured-error count; a failed map adds none.
+        kept: list[int] = []
         if self.directives.on_error == "fail":
-            return await self._run_all(items, expr, sem, ctx, frame)
-        rows = [self._row((index, item), expr, sem, ctx, frame) for index, item in enumerate(items)]
-        raw = await asyncio.gather(*rows, return_exceptions=True)
-        return self._skip(raw) if self.directives.on_error == "skip" else self._collect(raw, ctx)
+            results = await self._run_all(items, expr, sem, ctx, frame, kept)
+        else:
+            rows = [self._row(row, expr, sem, ctx, frame, kept) for row in enumerate(items)]
+            raw = await asyncio.gather(*rows, return_exceptions=True)
+            skip = self.directives.on_error == "skip"
+            results = self._skip(raw) if skip else self._collect(raw, kept)
+        ctx.record_collected_error(sum(kept))
+        return results
 
     def _items(self, collection: Payload) -> list[str]:
         # An inline parenthesized collection (§5.3.11) arrives pre-materialized as
@@ -125,14 +131,13 @@ class MapNode:
         sem: asyncio.Semaphore,
         ctx: ExecutionContext,
         frame: Context,
+        kept: list[int],
     ) -> list[str]:
         # TaskGroup so the first failing row cancels its in-flight siblings.
         try:
             async with asyncio.TaskGroup() as tg:
-                tasks = [
-                    tg.create_task(self._row((index, item), expr, sem, ctx, frame))
-                    for index, item in enumerate(items)
-                ]
+                rows = [self._row(row, expr, sem, ctx, frame, kept) for row in enumerate(items)]
+                tasks = [tg.create_task(row) for row in rows]
         except BaseExceptionGroup as group:
             reraise_first(group)
         return [task.result() for task in tasks]
@@ -144,6 +149,7 @@ class MapNode:
         sem: asyncio.Semaphore,
         ctx: ExecutionContext,
         frame: Context,
+        kept: list[int],
     ) -> str:
         # WHY: the body is spawned verbatim (with $item still in it) and the row is
         # bound into scope, so arbitrary row data never enters the re-parse.
@@ -153,8 +159,11 @@ class MapNode:
         # INVARIANT: numbering happens after slicing and before concurrent scheduling.
         index, item = row
         scope = Context(bindings={_ITEM_KEY: item, _INDEX_KEY: str(index)}, parent=frame)
+        row_ctx = ctx.row_scoped()
         async with sem:
-            return await ctx.spawn(expr, scope)
+            result = await row_ctx.spawn(expr, scope)
+        kept.append(row_ctx.collected_errors)
+        return result
 
     def _skip(self, raw: list) -> list[str]:
         # skip omits failed elements (spec §5.3.6); control-flow signals
@@ -168,7 +177,7 @@ class MapNode:
                 results.append(item)
         return results
 
-    def _collect(self, raw: list, ctx: ExecutionContext) -> list[str]:
+    def _collect(self, raw: list, kept: list[int]) -> list[str]:
         results: list[str] = []
         for item in raw:
             # collect captures per-row *errors* as data; control-flow signals
@@ -176,7 +185,7 @@ class MapNode:
             if isinstance(item, BaseException) and not isinstance(item, Exception):
                 raise item
             if isinstance(item, Exception):
-                ctx.record_collected_error()
+                kept.append(1)
                 results.append(json.dumps(_error_payload(item)))
             else:
                 results.append(item)

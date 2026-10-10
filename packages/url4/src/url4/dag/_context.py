@@ -230,7 +230,10 @@ class ExecutionContext:
 
     Contexts are per-run — no state is shared across runs — but ``child``
     frames share the run's error tally so ``collected_errors`` totals
-    per-row failures captured under ``;iteration.on_error=collect``.
+    per-row failures captured under ``;iteration.on_error=collect``. A map row
+    counts on its own tally (:meth:`row_scoped`); the map adds a row's count
+    only when it keeps the row, so the total matches the error objects the
+    caller sees (audit A7).
     """
 
     def __init__(
@@ -275,8 +278,18 @@ class ExecutionContext:
         """Per-row failures captured under ``;iteration.on_error=collect`` this run."""
         return self._tally.count
 
-    def record_collected_error(self) -> None:
-        self._tally.count += 1
+    def record_collected_error(self, count: int = 1) -> None:
+        self._tally.count += count
+
+    def row_scoped(self) -> ExecutionContext:
+        """The same context with its own error tally, for one map row.
+
+        The row's captured errors stay off the run count until the map keeps the
+        row and adds them with :meth:`record_collected_error`.
+        """
+        row = self._clone(scope=self.scope, span_id=self._current_span_id)
+        row._tally = _ErrorTally()
+        return row
 
     def _clone(self, *, scope: Context, span_id: str | None) -> ExecutionContext:
         """A copy of this context differing only in ``scope`` and the current
