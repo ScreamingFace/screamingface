@@ -95,10 +95,10 @@ names no transport.
 | canonical rendering / the round-trip check | `core/render.py` | language |
 | the Python builders (`src`, `expr`, `iterate`) | `core/builders.py` | language |
 | the lexical scope (`$name` resolution) | `core/context.py` | language |
-| the `?q=` escaping or decoding | `wire/subrequest.py` | wire |
+| the `?q=` escaping or decoding, or how a forwarded prompt is quoted | `wire/subrequest.py`, `core/quoted.py` | wire |
 | how text lowers to a DAG node | `dag/_lowering.py`, `dag/_wiring.py` | engine |
 | how a source descriptor lowers (label, expand, guard) | `dag/_descriptor.py` | engine |
-| how a code-pointer group lowers (RDS mode: one `CodeCallNode` at every group site) | `dag/_code_wiring.py`, `dag/nodes/code.py` | engine |
+| how a code-pointer or named-job group lowers (RDS mode: one `CodeCallNode` at every group site) | `dag/_code_wiring.py`, `dag/nodes/code.py` | engine |
 | code-group binding, expansion and the gate (`quorum=majority` too) | `dag/semantics/code_binding.py` | engine |
 | the public `run()` entry | `dag/_run.py` | engine |
 | the scheduler or the exactly-once memo | `dag/executor.py` | engine |

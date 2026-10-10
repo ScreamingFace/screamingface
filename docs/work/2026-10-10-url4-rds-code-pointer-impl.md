@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # filed at PR-open under OME-500 after the user confirms (one PR for the branch)
 stack: url4
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-10
-finished:
+finished: 2026-10-10
 ---
 
 # url4-rds-code-pointer-impl — run relative code-pointer intents as RDS calls (P1 + P2)
@@ -143,15 +143,22 @@ status default and exact C6 strictness. Planned commits, in order:
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned, plus `core/_call_head.py` (path validators moved out of
-  the capped grammar), `dag/_code_wiring.py`, `dag/semantics/code_binding.py`,
-  `peer/_code.py`, `tests/unit/test_code_binding.py`, `tests/unit/test_code_mounts.py`,
-  `tests/unit/test_code_types.py`. `io/layer.py` is unchanged (see `SupportsCode`).
-- **Commits:** 650d9f6b8 (CH11), 1389629ef (types, query-tail, codes), e41abf20c (P1
-  classifier), and the P2 commit that carries this ledger.
-- **Gates:** url4 ruff, format, pyright, 1871 passed / 17 xfailed, coverage 98.83%,
-  module size, suppressions 5/5; Engine 4678 passed + layering OK; SDK green (the 12
-  widget failures need the `notebook` extra: 159 passed with it); `lake build` green.
-- **Flipped tests:** CH9 (`test_dag.py::test_relative_url_intent_lowers_to_one_code_call`),
-  CH11 rows 1–7, 9, 10 (`tests/spec/test_rds_code_pointer.py`). Row 8 stays (D2).
-- **Deviations:** see "Notes and deviations" above. Open for the owner: the C8 class
-  default (unlisted permanent → 422). P3 (named jobs) is not started.
+  the capped grammar), `core/quoted.py`, `dag/_code_wiring.py`,
+  `dag/semantics/code_binding.py`, `peer/_code.py`, `tests/unit/test_code_binding.py`,
+  `tests/unit/test_code_mounts.py`, `tests/unit/test_code_types.py`; unit 2 edits about
+  30 url4 test files and 6 Engine test files (flips), and one Engine comment.
+  `io/layer.py` is unchanged (see `SupportsCode`).
+- **Commits:** 650d9f6b8 (CH11), 1389629ef (types, query-tail, codes), e41abf20c (P1),
+  3d73eb0c6 (P2), 2146516a0 (spec: all in 2.0.0), 715a0845f (render fix, found by
+  Hypothesis), 50966e6a2 (C8 422 default), 5afb5326f (C6 nearest group), 03aea897b
+  (P3 named jobs + A5 quoted forwarded prompts), and the commit that carries this ledger.
+- **Gates (final):** url4 ruff, format, pyright, 1908 passed / 17 xfailed, coverage
+  98.74%, module size, suppressions 5/5; Engine 4681 passed + layering OK; SDK 2296
+  passed (with the `notebook` extra); `lake build` green.
+- **Flipped tests:** CH9; CH11 rows 1–7, 9, 10; the status pins (C8); the forwarded-wire
+  and decoder pins (A5); every test that used a one-word bare intent as a prompt (P3).
+  Row 8 stays (D2).
+- **Deviations still open (recorded above):** preflight in `CodeCallNode.resolve` (no
+  IO at compile time); one node for `!*`; `SupportsCode` in `core/code.py`;
+  remote-expression intents stay refused by the parser (spec §4: no acceptance change);
+  absolute URIs stay prompts (D2, owner Q1).
