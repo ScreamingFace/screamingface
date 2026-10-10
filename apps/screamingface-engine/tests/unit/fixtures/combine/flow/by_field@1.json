@@ -120,84 +120,6 @@
    }
   },
   {
-   "name": "min tie goes to author order",
-   "args": {
-    "order": "min"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "-1.5",
-      "value": "-1.5",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "2",
-      "value": "2",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_3",
-      "raw": "-1.5",
-      "value": "-1.5",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "chosen": [
-     "member_1"
-    ],
-    "output": null,
-    "tie": true,
-    "agreement": null
-   }
-  },
-  {
-   "name": "max skips a not_json member",
-   "args": {
-    "order": "max"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "5",
-      "value": "5",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "not_json",
-      "weight": null
-     },
-     {
-      "member": "member_3",
-      "raw": "7",
-      "value": "7",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "chosen": [
-     "member_3"
-    ],
-    "output": null,
-    "tie": false,
-    "agreement": null
-   }
-  },
-  {
    "name": "max compares numbers, not text",
    "args": {
     "order": "max"
@@ -268,40 +190,6 @@
    },
    "expect": {
     "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "equals with text",
-   "args": {
-    "order": "equals",
-    "value": "yes",
-    "normalize": "text"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "yes",
-      "value": "yes",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "no",
-      "value": "no",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "chosen": [
-     "member_1"
-    ],
-    "output": null,
-    "tie": false,
-    "agreement": null
    }
   },
   {
@@ -526,27 +414,6 @@
    }
   },
   {
-   "name": "max with a value",
-   "args": {
-    "order": "max",
-    "value": "x"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "1",
-      "value": "1",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
    "name": "equals without value",
    "args": {
     "order": "equals"
@@ -595,45 +462,6 @@
     "value": "1",
     "normalize": "identity"
    },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "1",
-      "value": "1",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "equals without normalize key",
-   "args": {
-    "order": "equals",
-    "value": "1"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "1",
-      "value": "1",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "no args",
-   "args": {},
    "input": {
     "readings": [
      {

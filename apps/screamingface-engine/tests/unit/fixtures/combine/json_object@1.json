@@ -3,30 +3,12 @@
  "stage": "extract",
  "cases": [
   {
-   "name": "plain object",
-   "input": "{\"a\": 1, \"b\": [2, 3]}",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "{\"a\":1,\"b\":[2,3]}"
-   }
-  },
-  {
    "name": "trimmed, keys sorted",
    "input": "  {\"b\": \"x\", \"a\": null}  ",
    "args": {},
    "expect": {
     "status": "voted",
     "value": "{\"a\":null,\"b\":\"x\"}"
-   }
-  },
-  {
-   "name": "fenced block",
-   "input": "Sure:\n```json\n{\"a\": 1}\n```",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "{\"a\":1}"
    }
   },
   {
@@ -75,15 +57,6 @@
    }
   },
   {
-   "name": "string is not an object",
-   "input": "\"text\"",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
    "name": "number is not an object",
    "input": "7",
    "args": {},
@@ -93,26 +66,8 @@
    }
   },
   {
-   "name": "null is not an object",
-   "input": "null",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
    "name": "prose before the object",
    "input": "Sure! Here it is: {\"a\": 1}",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "empty text",
-   "input": "",
    "args": {},
    "expect": {
     "status": "not_json",

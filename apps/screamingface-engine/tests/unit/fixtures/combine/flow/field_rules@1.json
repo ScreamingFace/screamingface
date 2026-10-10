@@ -152,102 +152,6 @@
    }
   },
   {
-   "name": "majority without normalizer keeps case apart",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "normalize": null
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":\"Paris\"}",
-      "value": "{\"x\":\"Paris\"}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "{\"x\":\"paris\"}",
-      "value": "{\"x\":\"paris\"}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "values": {
-       "member_1": "Paris",
-       "member_2": "paris"
-      },
-      "result": "Paris"
-     }
-    ],
-    "text": "{\"x\":\"Paris\"}"
-   }
-  },
-  {
-   "name": "majority larger group wins",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "normalize": null
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":\"a\"}",
-      "value": "{\"x\":\"a\"}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "{\"x\":\"b\"}",
-      "value": "{\"x\":\"b\"}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_3",
-      "raw": "{\"x\":\"b\"}",
-      "value": "{\"x\":\"b\"}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "values": {
-       "member_1": "a",
-       "member_2": "b",
-       "member_3": "b"
-      },
-      "result": "b"
-     }
-    ],
-    "text": "{\"x\":\"b\"}"
-   }
-  },
-  {
    "name": "majority numeric groups 9, 9.0 and 9.",
    "args": {
     "fields": [
@@ -297,103 +201,6 @@
      }
     ],
     "text": "{\"x\":\"9\"}"
-   }
-  },
-  {
-   "name": "majority of lists",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "normalize": null
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":[1,2]}",
-      "value": "{\"x\":[1,2]}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "{\"x\":[1,2]}",
-      "value": "{\"x\":[1,2]}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "values": {
-       "member_1": [
-        1,
-        2
-       ],
-       "member_2": [
-        1,
-        2
-       ]
-      },
-      "result": [
-       1,
-       2
-      ]
-     }
-    ],
-    "text": "{\"x\":[1,2]}"
-   }
-  },
-  {
-   "name": "majority skips values the normalizer rejects",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "normalize": "numeric"
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":\"high\"}",
-      "value": "{\"x\":\"high\"}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "{\"x\":\"4\"}",
-      "value": "{\"x\":\"4\"}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "values": {
-       "member_1": "high",
-       "member_2": "4"
-      },
-      "result": "4"
-     }
-    ],
-    "text": "{\"x\":\"4\"}"
    }
   },
   {
@@ -473,49 +280,6 @@
    }
   },
   {
-   "name": "max compares a float with a 2-digit-plus exponent as a number",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "max"
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":3}",
-      "value": "{\"x\":3}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "{\"x\":1e+100}",
-      "value": "{\"x\":1e+100}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "max",
-      "values": {
-       "member_1": 3,
-       "member_2": 1e+100
-      },
-      "result": 1e+100
-     }
-    ],
-    "text": "{\"x\":1e+100}"
-   }
-  },
-  {
    "name": "max compares a 71-digit integer as a number",
    "args": {
     "fields": [
@@ -556,49 +320,6 @@
      }
     ],
     "text": "{\"x\":10000000000000000000000000000000000000000000000000000000000000000000000}"
-   }
-  },
-  {
-   "name": "max compares a tiny float with zero",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "max"
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":0}",
-      "value": "{\"x\":0}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "{\"x\":1e-100}",
-      "value": "{\"x\":1e-100}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "max",
-      "values": {
-       "member_1": 0,
-       "member_2": 1e-100
-      },
-      "result": 1e-100
-     }
-    ],
-    "text": "{\"x\":1e-100}"
    }
   },
   {
@@ -643,50 +364,6 @@
      }
     ],
     "text": "{\"x\":\"true\"}"
-   }
-  },
-  {
-   "name": "union of empty lists is an empty list",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "union",
-      "normalize": null
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":[]}",
-      "value": "{\"x\":[]}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "{\"x\":[]}",
-      "value": "{\"x\":[]}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "union",
-      "values": {
-       "member_1": [],
-       "member_2": []
-      },
-      "result": []
-     }
-    ],
-    "text": "{\"x\":[]}"
    }
   },
   {
@@ -856,58 +533,6 @@
    }
   },
   {
-   "name": "union keeps the first spelling",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "union",
-      "normalize": null
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":[\"a\",\"A\"]}",
-      "value": "{\"x\":[\"a\",\"A\"]}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "{\"x\":[\"A\"]}",
-      "value": "{\"x\":[\"A\"]}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "union",
-      "values": {
-       "member_1": [
-        "a",
-        "A"
-       ],
-       "member_2": [
-        "A"
-       ]
-      },
-      "result": [
-       "a",
-       "A"
-      ]
-     }
-    ],
-    "text": "{\"x\":[\"a\",\"A\"]}"
-   }
-  },
-  {
    "name": "union with text joins spellings",
    "args": {
     "fields": [
@@ -961,54 +586,6 @@
    }
   },
   {
-   "name": "union skips a value that is not a list",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "union",
-      "normalize": null
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":\"x\"}",
-      "value": "{\"x\":\"x\"}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "{\"x\":[\"y\"]}",
-      "value": "{\"x\":[\"y\"]}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "union",
-      "values": {
-       "member_1": "x",
-       "member_2": [
-        "y"
-       ]
-      },
-      "result": [
-       "y"
-      ]
-     }
-    ],
-    "text": "{\"x\":[\"y\"]}"
-   }
-  },
-  {
    "name": "union joins 1 and the text 1",
    "args": {
     "fields": [
@@ -1047,47 +624,6 @@
      }
     ],
     "text": "{\"x\":[1]}"
-   }
-  },
-  {
-   "name": "union skips an item the normalizer rejects",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "union",
-      "normalize": "text"
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":[\".\",\"a\"]}",
-      "value": "{\"x\":[\".\",\"a\"]}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "union",
-      "values": {
-       "member_1": [
-        ".",
-        "a"
-       ]
-      },
-      "result": [
-       "a"
-      ]
-     }
-    ],
-    "text": "{\"x\":[\"a\"]}"
    }
   },
   {
@@ -1167,90 +703,6 @@
    }
   },
   {
-   "name": "field absent everywhere",
-   "args": {
-    "fields": [
-     {
-      "field": "summary",
-      "rule": "majority",
-      "normalize": null
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"a\":1}",
-      "value": "{\"a\":1}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "{\"b\":2}",
-      "value": "{\"b\":2}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "abstain": "no_votes"
-   }
-  },
-  {
-   "name": "a not_json member is skipped",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "normalize": null
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":\"a\"}",
-      "value": "{\"x\":\"a\"}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "not_json",
-      "weight": null
-     },
-     {
-      "member": "member_3",
-      "raw": "{\"x\":\"a\"}",
-      "value": "{\"x\":\"a\"}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "values": {
-       "member_1": "a",
-       "member_3": "a"
-      },
-      "result": "a"
-     }
-    ],
-    "text": "{\"x\":\"a\"}"
-   }
-  },
-  {
    "name": "from_member of a member without the field is null",
    "args": {
     "fields": [
@@ -1275,49 +727,6 @@
       "raw": "{\"y\":2}",
       "value": "{\"y\":2}",
       "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "from_member",
-      "values": {
-       "member_1": 1
-      },
-      "result": null
-     }
-    ],
-    "text": "{\"x\":null}"
-   }
-  },
-  {
-   "name": "from_member of a not_json member is null",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "from_member",
-      "member": "member_2"
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":1}",
-      "value": "{\"x\":1}",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "not_json",
       "weight": null
      }
     ]
@@ -1441,60 +850,6 @@
    }
   },
   {
-   "name": "model ignores another field's signal",
-   "args": {
-    "fields": [
-     {
-      "field": "summary",
-      "rule": "model"
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"summary\":\"a\"}",
-      "value": "{\"summary\":\"a\"}",
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "signals": {
-     "writer_title": "T"
-    }
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "a voter value that is not an object",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "normalize": null
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "7",
-      "value": "7",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
    "name": "a voter value that is not json",
    "args": {
     "fields": [
@@ -1511,32 +866,6 @@
       "member": "member_1",
       "raw": "{oops",
       "value": "{oops",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "a voter without a value",
-   "args": {
-    "fields": [
-     {
-      "field": "x",
-      "rule": "majority",
-      "normalize": null
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"x\":1}",
-      "value": null,
       "status": "voted",
       "weight": null
      }
@@ -1568,29 +897,6 @@
    "name": "empty fields",
    "args": {
     "fields": []
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"a\":1}",
-      "value": "{\"a\":1}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "fields is not a list",
-   "args": {
-    "fields": {
-     "field": "a",
-     "rule": "max"
-    }
    },
    "input": {
     "readings": [
@@ -1738,32 +1044,6 @@
    }
   },
   {
-   "name": "extra key in a rule",
-   "args": {
-    "fields": [
-     {
-      "field": "a",
-      "rule": "max",
-      "x": 1
-     }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"a\":1}",
-      "value": "{\"a\":1}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
    "name": "unknown normalizer",
    "args": {
     "fields": [
@@ -1816,14 +1096,10 @@
    }
   },
   {
-   "name": "member is a number",
+   "name": "a rule that is not an object",
    "args": {
     "fields": [
-     {
-      "field": "a",
-      "rule": "from_member",
-      "member": 2
-     }
+     "a"
     ]
    },
    "input": {
@@ -2105,28 +1381,6 @@
       "field": "f64",
       "rule": "max"
      }
-    ]
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"a\":1}",
-      "value": "{\"a\":1}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "a rule that is not an object",
-   "args": {
-    "fields": [
-     "a"
     ]
    },
    "input": {

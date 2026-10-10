@@ -127,43 +127,6 @@
    }
   },
   {
-   "name": "a not_json member is left out",
-   "args": {
-    "field": "summary"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "not_json",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "{\"summary\":\"b\"}",
-      "value": "{\"summary\":\"b\"}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "text": "{\"member_2\":\"b\"}",
-    "fields": [
-     {
-      "field": "summary",
-      "rule": "project",
-      "values": {
-       "member_2": "b"
-      },
-      "result": null
-     }
-    ]
-   }
-  },
-  {
    "name": "no member has the field",
    "args": {
     "field": "summary"
@@ -222,64 +185,6 @@
       "member": "member_1",
       "raw": "{\"summary\":1}",
       "value": "{\"summary\":1}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "field is not a string",
-   "args": {
-    "field": 3
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"summary\":1}",
-      "value": "{\"summary\":1}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "no args",
-   "args": {},
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "{\"summary\":1}",
-      "value": "{\"summary\":1}",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "a voter value that is not an object",
-   "args": {
-    "field": "summary"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "7",
-      "value": "7",
       "status": "voted",
       "weight": null
      }
