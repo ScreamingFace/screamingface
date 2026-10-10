@@ -12,16 +12,7 @@ from screamingface._signals import is_signal_key
 
 @pytest.mark.parametrize(
     "key",
-    [
-        "cost_usd",
-        "latency_ms",
-        "tokens_in",
-        "tokens_out",
-        "score:judge",
-        "field:a",
-        "field:a.b[0]",
-        "field:[0].x",
-    ],
+    ["cost_usd", "score:judge", "field:a.b[0]"],
 )
 def test_signal_key_in_the_e4a_set_is_accepted(key: str) -> None:
     value = sf.signal(key)

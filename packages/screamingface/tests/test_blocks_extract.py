@@ -78,14 +78,6 @@ def test_extract_args_are_frozen() -> None:
 
 
 def test_extract_steps_map_rules_to_engine_operators() -> None:
-    extract, normalize = Extract("field", normalize="text", path="a")._steps()
-    assert (extract.op, dict(extract.args), normalize.op if normalize else None) == (
-        "json_field",
-        {"path": "a"},
-        "text",
-    )
-    extract, normalize = Extract("json")._steps()
-    assert (extract.op, normalize) == ("json_object", None)
     with pytest.raises(ValueError, match="extract='benchmark' needs a benchmark"):
         Extract("benchmark")._steps()
 

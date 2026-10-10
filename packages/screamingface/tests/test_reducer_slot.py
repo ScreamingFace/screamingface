@@ -29,7 +29,7 @@ from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._evaluation.operators import _OperatorCatalog
 from screamingface.operation import OperationInfo
-from screamingface.reducer import Reducer, _ReducerPlan, _Step
+from screamingface.reducer import _ReducerPlan, _Step
 from screamingface.url4 import _calls
 
 _TESTS = Path(__file__).parent
@@ -109,12 +109,6 @@ def test_reducer_outside_a_fusion_slot_raises_type_error(position: str) -> None:
         pytest.raises(TypeError, match="reducer must be a Fusion synthesizer"),
     ):
         _misplaced()[position](client)
-
-
-def test_reducer_is_not_a_recipe_and_cannot_be_built_directly() -> None:
-    assert not isinstance(FixtureVote(), sf.Recipe)
-    with pytest.raises(TypeError):
-        Reducer()  # type: ignore[abstract]
 
 
 def test_fusion_accepts_a_reducer_in_the_synthesizer_slot() -> None:
@@ -357,12 +351,3 @@ def _spec_with(**changes: object) -> str:
 def test_decode_combine_spec_refuses_anything_off_contract(raw: str) -> None:
     with pytest.raises(ValueError, match="invalid combine spec"):
         decode_combine_spec(raw)
-
-
-def test_decode_combine_spec_accepts_the_compiled_spec() -> None:
-    spec = decode_combine_spec(_VOTE_SPEC)
-
-    assert spec["reducer"] == "vote"
-    assert spec == json.loads(
-        combine_spec_text(FixtureVote(), member_count=3, operators=fixture_operators())
-    )

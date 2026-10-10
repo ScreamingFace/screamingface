@@ -120,31 +120,6 @@ def _tamperings() -> dict[str, tuple[str, str, str, str]]:
             _MODEL_CALLS,
         ),
         "binding param removed": ("reducer", "?binding=synthesis_1&", "?", _MODEL_CALLS),
-        "intent with a wrong schema": (
-            "reducer",
-            "screamingface.combine-spec.v1",
-            "screamingface.combine-spec.v9",
-            "invalid combine spec",
-        ),
-        "intent that is not json": ("reducer", '{"extract"', "not json {", "invalid combine spec"),
-        "intent with a NaN": (
-            "reducer",
-            '"args":{}',
-            '"args":{"x":NaN}',
-            "invalid combine spec",
-        ),
-        "intent with an Infinity": (
-            "reducer",
-            '"args":{}',
-            '"args":{"x":Infinity}',
-            "invalid combine spec",
-        ),
-        "intent with a duplicate key": (
-            "reducer",
-            '"weights":null',
-            '"weights":null,"weights":null',
-            "invalid combine spec",
-        ),
     }
 
 

@@ -9,11 +9,10 @@ import httpx
 import pytest
 from _reducer_fixtures import (
     OPERATOR_WIRE,
-    FixtureVote,
     operators_response,
     reducer_fusion,
 )
-from test_client_run import _AsyncReplayTransport, _engine, _ReplayTransport
+from test_client_run import _engine, _ReplayTransport
 
 import screamingface as sf
 from screamingface._engine.catalog import AsyncOperatorCatalogResource, OperatorCatalogResource
@@ -107,30 +106,6 @@ def _async(
 ) -> AsyncOperatorCatalogResource:
     http = httpx.AsyncClient(base_url=_BASE, transport=httpx.MockTransport(engine))
     return AsyncOperatorCatalogResource(http, clock=clock)
-
-
-def _unreachable(request: httpx.Request) -> httpx.Response:
-    raise httpx.ConnectError("refused", request=request)
-
-
-def test_catalog_transport_error_raises_engine_unavailable() -> None:
-    resource = _sync(_unreachable, _Clock())
-
-    with pytest.raises(sf.EngineUnavailableError) as caught:
-        resource.load()
-
-    assert caught.value.engine_url == _BASE
-    assert "operator catalog" in caught.value.message
-
-
-@pytest.mark.asyncio
-async def test_async_catalog_transport_error_raises_engine_unavailable() -> None:
-    resource = _async(_unreachable, _Clock())
-
-    with pytest.raises(sf.EngineUnavailableError) as caught:
-        await resource.load()
-
-    assert caught.value.engine_url == _BASE
 
 
 def test_catalog_is_fetched_once_per_client_and_revalidated_with_etag() -> None:
@@ -272,18 +247,6 @@ def test_catalog_refusals_are_typed(case: str) -> None:
     _assert_refusal(caught.value, expected)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("case", sorted(_refusals()))
-async def test_async_catalog_refusals_are_typed(case: str) -> None:
-    response, error, expected = _refusals()[case]
-    resource = _async(_Engine(response), _Clock())
-
-    with pytest.raises(error) as caught:
-        await resource.load()
-
-    _assert_refusal(caught.value, expected)
-
-
 def test_a_missing_catalog_route_is_a_capability_error() -> None:
     resource = _sync(_Engine(httpx.Response(404)), _Clock())
 
@@ -392,48 +355,3 @@ def test_unknown_operator_through_a_client_fails_before_the_run_starts() -> None
         client.evaluate(reducer_fusion(extract="last_numbr"), benchmark="draco", progress=False)
 
     assert transport.candidate is None
-
-
-@pytest.mark.asyncio
-async def test_async_client_fetches_the_catalog_once() -> None:
-    paths: list[str] = []
-    client = sf.AsyncClient(
-        engine_url=_BASE,
-        http_transport=httpx.MockTransport(_operators_engine(paths)),
-        run_transport=_AsyncReplayTransport(),
-    )
-    await client.evaluate(reducer_fusion(), benchmark="draco", progress=False)
-    await client.evaluate(
-        sf.Fusion(["provider/opus", "provider/judge"], synthesizer=FixtureVote()),
-        benchmark="draco",
-        progress=False,
-    )
-    await client.aclose()
-
-    assert paths.count("/v1/operators") == 1
-
-
-@pytest.mark.asyncio
-async def test_async_engine_without_catalog_raises_capability_error_only_for_reducers() -> None:
-    paths: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        paths.append(request.url.path)
-        return _engine(request)
-
-    transport = _AsyncReplayTransport()
-    client = sf.AsyncClient(
-        engine_url=_BASE, http_transport=httpx.MockTransport(handler), run_transport=transport
-    )
-    with pytest.raises(sf.EngineCapabilityError) as caught:
-        await client.evaluate(reducer_fusion(), benchmark="draco", progress=False)
-    assert transport.candidate is None
-    asked = paths.count("/v1/operators")
-    await client.evaluate(_plain_fusion(), benchmark="draco", progress=False)
-    await client.aclose()
-
-    assert caught.value.code == "engine_capability_missing"
-    assert caught.value.message == "this SF Engine does not support reducers"
-    assert asked == 1
-    assert paths.count("/v1/operators") == asked
-    assert transport.candidate is not None

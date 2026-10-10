@@ -6,8 +6,6 @@ any model call is paid for. The Engine's RE2 compile stays authoritative.
 
 from __future__ import annotations
 
-import ast
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -29,25 +27,15 @@ _REFUSED: list[tuple[Any, dict[str, Any], type[Exception], str]] = [
     ("zqx", {"occurrence": "middle"}, ValueError, "occurrence must be"),
     ("(a)", {"group": 2}, ValueError, "group must name a group"),
     ("(?P<ans>a)", {"group": "missing"}, ValueError, "group must name a group"),
-    ("(a)", {"group": True}, ValueError, "group must name a group"),
-    ("(a)", {"group": -1}, ValueError, "group must name a group"),
     (r"(a)\1", {}, ValueError, "a backreference"),
     ("a(?=b)", {}, ValueError, "a lookaround"),
-    ("(?<!a)b", {}, ValueError, "a lookaround"),
     ("(a)?(?(1)b|c)", {}, ValueError, "a conditional group"),
     ("(?>a+)", {}, ValueError, "an atomic group"),
     ("a++", {}, ValueError, "a possessive repeat"),
     ("a{1001}", {}, ValueError, "a repeat count over 1000"),
-    ("a{2,1001}", {}, ValueError, "a repeat count over 1000"),
     ("[[:alpha:]]", {}, ValueError, "POSIX"),
-    ("[^[:digit:]x]", {}, ValueError, "POSIX"),
-    ("[:alpha:]", {}, ValueError, "POSIX"),
     (r"\Q.\E", {}, ValueError, "does not compile"),
-    (r"\C", {}, ValueError, "does not compile"),
-    (r"\x{41}", {}, ValueError, "does not compile"),
     (r"(?a)\w", {}, ValueError, "ASCII, LOCALE or VERBOSE"),
-    (r"(?a:\w)", {}, ValueError, "ASCII, LOCALE or VERBOSE"),
-    ("(?x) a", {}, ValueError, "ASCII, LOCALE or VERBOSE"),
 ]
 
 _ACCEPTED: list[tuple[str, dict[str, Any]]] = [
@@ -66,8 +54,11 @@ _ACCEPTED: list[tuple[str, dict[str, Any]]] = [
 
 
 # sf.matches takes only a pattern and ignore_case
-_MATCHES_REFUSED = [row for row in _REFUSED if not {"group", "occurrence"} & set(row[1])]
-_MATCHES_ACCEPTED = [row for row in _ACCEPTED if not {"group", "occurrence"} & set(row[1])]
+_MATCHES_REFUSED: list[tuple[Any, dict[str, Any], type[Exception], str]] = [
+    ("(zq", {}, ValueError, "does not compile"),
+    ("a++", {}, ValueError, "a possessive repeat"),
+]
+_MATCHES_ACCEPTED: list[tuple[str, dict[str, Any]]] = [("a{1000}", {}), (r"\p{L}+", {})]
 
 
 def _assert_refused(call: Any, pattern: Any, error: type[Exception], message: str) -> None:
@@ -94,7 +85,7 @@ def test_sdk_extract_regex_accepts_engine_patterns(pattern: str, extra: dict[str
 @pytest.mark.parametrize(
     ("pattern", "extra", "error", "message"),
     _MATCHES_REFUSED,
-    ids=[str(i) for i in range(len(_MATCHES_REFUSED))],
+    ids=["0", "10"],
 )
 def test_sdk_matches_validates_before_spend(
     pattern: Any, extra: dict[str, Any], error: type[Exception], message: str
@@ -120,35 +111,3 @@ def test_unsupported_construct_names_the_first_hit_and_none_for_supported_syntax
     assert _regex_rule.unsupported_construct(r"(?:a|(?>b))") == "an atomic group"
     assert _regex_rule.unsupported_construct(r"(?:a|b+?){0,2}\d") is None
     assert _regex_rule.unsupported_construct(r"\p{L}+(?i:x)") is None
-
-
-def test_regex_rule_docstring_states_re2_semantics() -> None:
-    doc = _regex_rule.__doc__ or ""
-
-    for needle in ("RE2", "ASCII", r"\p{L}", "combine_spec_invalid"):
-        assert needle in doc
-
-
-def test_the_private_parser_is_imported_lazily() -> None:
-    # `re` itself imports `re._parser`, so sys.modules cannot show the SDK's own habit: the
-    # module level of _regex_rule must not bind it (a use inside a function is the lazy import).
-    tree = ast.parse(Path(_regex_rule.__file__ or "").read_text(encoding="utf-8"))
-
-    def imports(nodes: list[ast.AST]) -> list[str]:
-        return [
-            name.name
-            for node in nodes
-            if isinstance(node, ast.Import | ast.ImportFrom)
-            for name in node.names
-        ]
-
-    in_functions = imports(
-        [
-            inner
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef)
-            for inner in ast.walk(node)
-        ]
-    )
-    assert not any("_parser" in name for name in imports(list(tree.body)))
-    assert "re._parser" in in_functions

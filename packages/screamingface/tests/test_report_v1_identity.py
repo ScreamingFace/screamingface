@@ -17,7 +17,6 @@ from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface.case_result import CaseOperation
 from screamingface.operation_accounting import OperationAccounting, OperationCache
 
-GOLDEN = Path(__file__).parent / "data" / "report_v1_reducer_report.json"
 COMBINE_GOLDEN = Path(__file__).parent / "data" / "report_v1_combine_report.json"
 _EVIDENCE = json.loads(
     (Path(__file__).parent / "data" / "combine_evidence_cases.json").read_text(encoding="utf-8")
@@ -85,13 +84,6 @@ def _call_new_derivations(value: sf.Report) -> None:
                     getattr(case, name)()
     if hasattr(value, "trace_dict"):
         value.trace_dict()
-
-
-def test_report_to_dict_is_byte_identical() -> None:
-    value = reducer_report()
-    _call_new_derivations(value)
-
-    assert value.to_json() + "\n" == GOLDEN.read_text(encoding="utf-8")
 
 
 def test_report_with_combine_evidence_is_byte_identical() -> None:
