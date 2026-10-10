@@ -55,8 +55,11 @@ class HttpIOLayer:
         self._timeout = timeout
         self._client = client
         self._owned: httpx.AsyncClient | None = None  # lazily created when no client is injected
+        self._closed = False
 
     def _get_client(self) -> httpx.AsyncClient:
+        if self._closed:
+            raise RuntimeError("HttpIOLayer is closed")
         if self._client is not None:
             return self._client
         if self._owned is None:
@@ -104,10 +107,14 @@ class HttpIOLayer:
         return response
 
     async def aclose(self) -> None:
-        """Close the internally created client, if any (an injected client is left alone)."""
-        if self._owned is not None:
-            await self._owned.aclose()
-            self._owned = None
+        """Close the internally created client, if any (an injected client is left alone).
+
+        After ``aclose`` the adapter is closed for good; a later fetch raises.
+        """
+        self._closed = True
+        owned, self._owned = self._owned, None
+        if owned is not None:
+            await owned.aclose()
 
     async def __aenter__(self) -> HttpIOLayer:
         return self

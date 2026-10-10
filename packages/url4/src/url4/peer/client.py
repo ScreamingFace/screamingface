@@ -144,7 +144,10 @@ class Client:
     # --- lifecycle -----------------------------------------------------------
 
     async def aclose(self) -> None:
-        """Close the lazily-owned io adapter, if any (injected io is left alone)."""
+        """Close the lazily-owned io adapter, if any (injected io is left alone).
+
+        Closing is final: a later call raises RuntimeError.
+        """
         await self._owned.aclose()
 
     async def __aenter__(self) -> Client:

@@ -1,8 +1,9 @@
-"""Close is idempotent and safe under concurrency (regression safety net, F5 audit).
+"""Closing is final, and close is idempotent and safe under concurrency (E8, F5 audit).
 
-Ported from ``evidence/F5-transport/test_lifecycle.py``. Only the two close laws that
-hold on the current code are kept. The tests that pin resurrection after close and the
-raw RuntimeError during close are not ported: they pin buggy behaviour.
+Closing an adapter is final (E8): after ``aclose`` a fetch or ``outbound()`` raises
+RuntimeError and never builds a new client or adapter. The RuntimeError is deliberate:
+use after close is a caller bug, not a ResolutionError. Close is also idempotent and
+safe under concurrency. The F5 tests are ported from ``evidence/F5-transport/test_lifecycle.py``.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import pytest
 
 import url4.io.http as http_mod
 from url4.io.http import HttpIOLayer
+from url4.io.static import StaticIOLayer
 from url4.peer._owned import _OwnedIO
 
 
@@ -55,6 +57,42 @@ async def test_double_close_is_harmless(mock_owned_client):
 
 
 @pytest.mark.asyncio
+async def test_double_close_then_fetch_raises(mock_owned_client):
+    io = HttpIOLayer()
+    assert await io.fetch("https://x/", relative=False) == "BODY"
+    await io.aclose()
+    await io.aclose()
+    with pytest.raises(RuntimeError, match="HttpIOLayer is closed"):
+        await io.fetch("https://x/", relative=False)
+    assert io._owned is None
+    assert len(mock_owned_client) == 1  # no new client was built after close
+
+
+@pytest.mark.asyncio
+async def test_injected_client_is_not_closed_and_fetch_after_close_raises():
+    client = httpx.AsyncClient(transport=httpx.MockTransport(_ok))
+    io = HttpIOLayer(client=client)
+    await io.aclose()
+    with pytest.raises(RuntimeError, match="HttpIOLayer is closed"):
+        await io.fetch("https://x/", relative=False)
+    assert not client.is_closed  # closed is final for the adapter, not the client
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_fetch_during_aclose_raises(mock_owned_client):
+    io = HttpIOLayer()
+    assert await asyncio.wait_for(io.fetch("https://x/", relative=False), 5) == "BODY"
+    closing = asyncio.create_task(io.aclose())
+    await asyncio.sleep(0)  # aclose runs up to its await in the slow transport close
+    assert not closing.done()  # the close is still awaiting its 50 ms drain
+    with pytest.raises(RuntimeError, match="HttpIOLayer is closed"):
+        await asyncio.wait_for(io.fetch("https://x/", relative=False), 5)
+    await asyncio.wait_for(closing, 5)
+    assert mock_owned_client[0].is_closed
+
+
+@pytest.mark.asyncio
 async def test_owned_io_concurrent_aclose_is_safe(mock_owned_client):
     owned = _OwnedIO(None)
     io = owned.outbound()
@@ -63,3 +101,20 @@ async def test_owned_io_concurrent_aclose_is_safe(mock_owned_client):
     assert owned._owned is None
     assert len(mock_owned_client) == 1
     assert mock_owned_client[0].is_closed
+
+
+@pytest.mark.asyncio
+async def test_owned_outbound_after_close_raises():
+    owned = _OwnedIO(None)
+    owned.outbound()
+    await owned.aclose()
+    with pytest.raises(RuntimeError, match="its owned IO adapter was closed"):
+        owned.outbound()
+
+
+@pytest.mark.asyncio
+async def test_injected_outbound_after_close_is_still_returned():
+    injected = StaticIOLayer()
+    owned = _OwnedIO(injected)
+    await owned.aclose()
+    assert owned.outbound() is injected

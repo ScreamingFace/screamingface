@@ -270,7 +270,7 @@ class Url4Node:
         _serve_node(self, host=host, port=port, **uvicorn_kwargs)
 
     async def aclose(self) -> None:
-        """Close the lazily-owned outbound adapter (injected outbound is left alone)."""
+        """Close the owned outbound adapter. Closing is final: a later call raises RuntimeError."""
         await self._owned.aclose()
 
     async def __aenter__(self) -> Url4Node:
