@@ -94,7 +94,7 @@ async def test_direct_eval_path_without_q_is_refused_by_name(path: str) -> None:
     assert http_status("direct_eval_refused", permanent=True) == 404
 
 
-def test_data_route_under_eval_path_is_refused() -> None:
+async def test_data_route_under_eval_path_is_refused() -> None:
     node = Url4Node("d5")
     with pytest.raises(ValueError, match="eval path"):
         node.data("/v1", "x")
