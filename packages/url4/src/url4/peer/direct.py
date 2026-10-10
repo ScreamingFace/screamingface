@@ -68,11 +68,6 @@ def describe_routes(node: Url4Node) -> list[RouteInfo]:
     return sorted(routes, key=lambda route: route.path)
 
 
-def is_eval_path(node: Url4Node, path: str) -> bool:
-    """Whether ``path`` is ``node``'s eval path, bare or collection-qualified."""
-    return node._is_eval_path(path)
-
-
 async def dispatch_direct(
     node: Url4Node,
     target: str,
@@ -215,5 +210,4 @@ __all__ = [
     "describe_routes",
     "dispatch_direct",
     "http_status",
-    "is_eval_path",
 ]
