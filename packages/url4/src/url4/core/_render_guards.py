@@ -15,9 +15,10 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from url4.core._annotations import validate_exec_annotations, validate_param
+from url4.core._lexical import _IDENT_RE, _PATH_SEGMENT_RE, _VARREF_HEAD_RE
 from url4.core._scan import find_top_level
 from url4.core.errors import ParseError, RenderError
-from url4.core.grammar import _IDENT_RE, _PATH_SEGMENT_RE, _VARREF_HEAD_RE, intent_atom
+from url4.core.grammar import intent_atom
 from url4.core.nodes import Iteration, Node, Params
 
 # Annotation keys a Source must not carry as plain pairs: the parser folds them

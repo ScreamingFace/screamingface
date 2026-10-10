@@ -36,7 +36,8 @@ from dataclasses import replace
 from typing import cast
 
 from url4.core._annotations import _VALID_ON_ERROR, checked_retries, checked_timeout
-from url4.core.grammar import _IDENT_RE, _STRUCT_KEY_RE, intent_atom, parse, parse_value
+from url4.core._lexical import _IDENT_RE, _STRUCT_KEY_RE
+from url4.core.grammar import intent_atom, parse, parse_value
 from url4.core.nodes import (
     Binding,
     Expression,

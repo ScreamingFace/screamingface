@@ -43,6 +43,19 @@ from url4.core._call_head import (
     _find_expression_param,
     is_call_head,
 )
+from url4.core._lexical import (
+    _BUDGET_KEY_RE,
+    _FIELD_SEG_RE,
+    _IDENT_RE,
+    _IDENTITY_RE,
+    _INDEX_SEG_RE,
+    _NUMBER_RE,
+    _PATH_SEGMENT_RE,
+    _SCHEME_RE,
+    _VARREF_HEAD_RE,
+    _unquote,
+)
+from url4.core._lexical import _IDENTITY_NAME_RE as _IDENTITY_NAME_RE
 from url4.core._scan import (
     balanced_body,
     balanced_braces,
@@ -52,6 +65,11 @@ from url4.core._scan import (
     one_paren_layer,
     skip_quoted,
     split_top_level,
+)
+from url4.core._struct_values import (
+    _classify_weight_group,
+    _parse_budget_value,
+    _parse_weight_value,
 )
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.nodes import (
@@ -72,29 +90,6 @@ from url4.core.nodes import (
     Url,
     VarRef,
 )
-
-# INVARIANT: the ABNF's ALPHA is ASCII. Python's `\w` is Unicode-aware by
-# default, so every identifier pattern here compiles with re.ASCII — otherwise
-# `$café` / `@bób` / `articleé=…` parse as identifiers the grammar does not
-# admit (`OME-504`).
-_IDENT_RE = re.compile(r"[A-Za-z_]\w*", re.ASCII)
-_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?", re.ASCII)
-_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://")
-# identity-name = name-part / 1*DIGIT — a digit-led name followed by letters
-# (`@9lives`) is NEITHER alternative and must not parse.
-_IDENTITY_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", re.ASCII)
-_IDENTITY_RE = re.compile(rf"@({_IDENTITY_NAME_RE.pattern})", re.ASCII)
-_VARREF_HEAD_RE = re.compile(r"\$([A-Za-z_]\w*|\d+)", re.ASCII)
-_FIELD_SEG_RE = re.compile(r"[A-Za-z_]\w*", re.ASCII)
-# path-segment (§ identity-collection) — the ABNF's explicit character class.
-_PATH_SEGMENT_RE = re.compile(r"[A-Za-z0-9\-_.~:@!$&+=]+", re.ASCII)
-# INVARIANT: budget-key = 1*( ALPHA / "_" ) — digits are deliberately excluded.
-_BUDGET_KEY_RE = re.compile(r"[A-Za-z_]+", re.ASCII)
-# scalar-budget-value = 1*( ALPHA / DIGIT / "." / "-" / "_" )
-_SCALAR_BUDGET_RE = re.compile(r"[A-Za-z0-9.\-_]+", re.ASCII)
-_INDEX_SEG_RE = re.compile(r"(0|[1-9]\d*)\]")
-_STRUCT_KEY_RE = re.compile(r"[A-Za-z0-9_]+")
-_STRUCT_TOKEN_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 
 # `relative-uri`'s `path-segment` — the WIDE charset.
 # WHY: it admits "$", which is what makes a variable-bearing data reference like
@@ -286,132 +281,6 @@ def _classify_segment(seg: str, first: bool, d: _Descriptor, head: str) -> None:
         d.budgets.append((key, _parse_budget_value(val)))
     else:
         raise ParseError(f"cannot classify descriptor segment {seg!r} in {head!r}")
-
-
-# --- structured annotation values (§4.1.1) --------------------------------------
-
-
-def _classify_weight_group(rest: str) -> tuple[dict, str] | None:
-    """Classify ``(`` in the weight position; parse a structured weight on commit.
-
-    Returns ``(weight_mapping, remainder_after_colon)`` when the group is a
-    structured annotation, or ``None`` when it begins an expression source list
-    (§4.1.1.4). A committed group whose later entries violate the struct-pair
-    production raises ``malformed_source`` — commitment, not a heuristic.
-    """
-    body = balanced_body(rest, 1)
-    if body is None:
-        raise ParseError(f"unclosed '(' in {rest!r}")
-    if not _commits_to_struct(body):
-        return None
-    # INVARIANT: structured-weight is FLAT. `struct-val` is terminal, so only
-    # `structured-budget-value` may nest (and only two deep, §24.4.6). Passing
-    # nested=True makes any inner "(" a malformed_source (`OME-504`).
-    weight = _parse_struct_entries(body, nested=True)
-    after = rest[len(body) + 2 :]
-    if not after.startswith(":"):
-        raise ParseError(f"structured weight must be followed by ':<data-binding>' in {rest!r}")
-    return weight, after[1:]
-
-
-def _commits_to_struct(body: str) -> bool:
-    """§4.1.1.4 first-entry classification (True = structured annotation)."""
-    entries = split_top_level(body, ",")
-    if not entries or not entries[0]:
-        return False
-    first = entries[0]
-    m = _IDENT_RE.match(first)
-    if m is None or first[m.end() : m.end() + 1] != ":":
-        return False  # rules 1–4, 6–7: quoted, nested, '/', '@', digit, other
-    value = first[m.end() + 1 :].strip()
-    if value.startswith("/"):
-        result = False  # rules 5a/5b: URI scheme or relative path after ':'
-    elif value.startswith("'"):
-        result = all(_is_struct_pair(e) for e in entries)  # rule 5d: all-entries
-    else:
-        result = _is_simple_struct_value(value)  # rule 5c: commit
-    return result
-
-
-def _is_simple_struct_value(value: str) -> bool:
-    if _NUMBER_RE.fullmatch(value) or _IDENT_RE.fullmatch(value):
-        return True
-    return value.startswith("(") and balanced_body(value, 1) == value[1:-1]
-
-
-def _is_struct_pair(entry: str) -> bool:
-    m = _STRUCT_KEY_RE.match(entry)
-    if m is None or entry[m.end() : m.end() + 1] != ":":
-        return False
-    value = entry[m.end() + 1 :].strip()
-    if value.startswith("'"):
-        return skip_quoted(value, 0) == len(value) != 1
-    return _is_simple_struct_value(value)
-
-
-def _parse_struct_entries(body: str, *, nested: bool) -> dict:
-    """Parse committed struct entries; violations are ``malformed_source``."""
-    result: dict[str, object] = {}
-    for entry in split_top_level(body, ","):
-        m = _STRUCT_KEY_RE.match(entry)
-        if m is None or entry[m.end() : m.end() + 1] != ":":
-            raise ParseError(f"malformed structured annotation entry {entry!r} (spec §4.1.1.4)")
-        result[m.group()] = _parse_struct_val(entry[m.end() + 1 :].strip(), nested=nested)
-    if not result:
-        raise ParseError("empty structured annotation value")
-    return result
-
-
-def _parse_struct_val(val: str, *, nested: bool) -> object:
-    result: object
-    if _NUMBER_RE.fullmatch(val):
-        result = float(val) if "." in val else int(val)
-    elif val.startswith("'"):
-        result = _unquote(val)
-    elif val.startswith("("):
-        result = _parse_nested_struct_val(val, nested=nested)
-    elif _STRUCT_TOKEN_RE.fullmatch(val):
-        result = val
-    else:
-        raise ParseError(f"malformed structured annotation value {val!r} (spec §4.1.1.4)")
-    return result
-
-
-def _parse_nested_struct_val(val: str, *, nested: bool) -> dict:
-    # WHY well-formedness is checked BEFORE the depth rule: `(b:1)x` is malformed
-    # whatever the depth budget is, and reporting it as "nested too deep" would
-    # send the reader looking for the wrong defect.
-    inner = balanced_body(val, 1)
-    if inner is None or len(inner) + 2 != len(val):
-        raise ParseError(f"malformed structured annotation value {val!r}")
-    if nested:
-        # §24.4.6 — at most scope → domain → scalar. Also the flat-only rule for
-        # structured-weight, which passes nested=True at the top level.
-        raise ParseError(f"structured annotation nested too deep at {val!r}")
-    return _parse_struct_entries(inner, nested=True)
-
-
-def _parse_weight_value(val: str) -> float | dict:
-    """The ``weight=`` reserved key: scalar or structured (§4.1.1.3)."""
-    if _NUMBER_RE.fullmatch(val):
-        return float(val)
-    if val.startswith("("):
-        inner = balanced_body(val, 1)
-        if inner is not None and len(inner) + 2 == len(val):
-            # flat only — see _classify_weight_group
-            return _parse_struct_entries(inner, nested=True)
-    raise ParseError(f"malformed weight value {val!r}")
-
-
-def _parse_budget_value(val: str) -> str | dict:
-    if val.startswith("("):
-        inner = balanced_body(val, 1)
-        if inner is not None and len(inner) + 2 == len(val):
-            return _parse_struct_entries(inner, nested=False)
-        raise ParseError(f"malformed structured budget value {val!r}")
-    if not _SCALAR_BUDGET_RE.fullmatch(val):
-        raise ParseError(f"malformed scalar budget value {val!r} (spec §4.1.1.3)")
-    return val
 
 
 # --- execution-chain routing (§4.2, §8.1.2) --------------------------------------
@@ -703,44 +572,6 @@ def _parse_remote(token: str) -> Node:
 
 
 # --- leaf values (§5.2 rules 4–10) -------------------------------------------------
-
-
-def _unquote(token: str) -> str:
-    """Decode a fully-quoted ``'…'`` token to its content (``\\'``/``\\\\``)."""
-    end = skip_quoted(token, 0)
-    if end == 1:
-        raise ParseError(f"unterminated quote in {token!r}", position=0)
-    if end != len(token):
-        raise ParseError(f"unexpected text after quoted value in {token!r}", position=end)
-    return _unescape(token[1:-1])
-
-
-def _unescape(content: str) -> str:
-    """Decode a quoted body: the ``\\'`` and ``\\\\`` escapes, no raw control chars.
-
-    # INVARIANT: exactly two escapes are defined. A backslash before anything
-    # else is rejected, as is a raw control character (< %x20, or DEL) — httpx
-    # rejects those in a URL anyway.
-    """
-    out: list[str] = []
-    i = 0
-    while i < len(content):
-        char = content[i]
-        if char == "\\":
-            nxt = content[i + 1] if i + 1 < len(content) else ""
-            if nxt not in ("\\", "'"):
-                raise ParseError(
-                    f"undefined escape {'\\' + nxt!r} in quoted text — the grammar "
-                    r"defines only \' and \\"
-                )
-            out.append(nxt)
-            i += 2
-            continue
-        if char < " " or char == "\x7f":
-            raise ParseError(f"raw control character {char!r} in quoted text (spec quoted-char)")
-        out.append(char)
-        i += 1
-    return "".join(out)
 
 
 def _parse_struct_object(token: str) -> StructObject:
