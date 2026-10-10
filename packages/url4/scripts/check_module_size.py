@@ -43,20 +43,25 @@ BASELINE: dict[str, int] = {
     "dag/_run.py": 261,
     "dag/executor.py": 302,
     "peer/server.py": 305,
-    "io/layer.py": 197,
+    "io/layer.py": 194,
     "observe.py": 483,
     "core/parser.py": 257,
     "core/builders.py": 468,
     "dag/nodes/group.py": 254,
     "dag/nodes/broadcast.py": 80,
     "dag/nodes/broadcast_result.py": 52,
-    "dag/nodes/fetch.py": 285,
+    "dag/nodes/fetch.py": 280,
     "dag/nodes/_shared.py": 257,
     "dag/nodes/iteration.py": 187,
     "dag/nodes/reduce.py": 48,
     "peer/_dispatch.py": 204,
     "cli/_serve.py": 312,
     "cli/_config.py": 341,
+    # Capped at their size when the audit found them uncapped (HY-5, 2026-10-10).
+    "peer/client.py": 457,
+    "dag/_context.py": 445,
+    "core/nodes.py": 336,
+    "dag/semantics/ensemble.py": 326,
 }
 
 _SRC_DIR = Path(__file__).resolve().parent.parent / "src" / "url4"
