@@ -21,6 +21,7 @@ from url4.core.nodes import (
     Expression,
     IdentityRef,
     Iteration,
+    IterationDirectives,
     RelExpr,
     RelUrl,
     RemoteExpr,
@@ -752,3 +753,11 @@ def test_random_ast_roundtrip():
         )
         rendered = render(root)  # check=True certifies the round-trip
         assert build(rendered) == root, f"case {i}: {rendered!r}"
+
+
+def test_a_quoted_collection_is_unrenderable() -> None:
+    # Found by test_roundtrip_laws (Hypothesis): `''*(x=$item)!go` does not reparse, because
+    # `collection-ref` has no quoted-text form. render refuses it instead of emitting it.
+    tree = Expression((), Iteration(Text(""), "x=$item", "'go'", None, IterationDirectives()))
+    with pytest.raises(RenderError):
+        render(tree)

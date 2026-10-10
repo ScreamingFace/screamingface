@@ -518,7 +518,12 @@ def _render_reduce(node: Iteration, inner: str, reducer: str) -> str:
 
 
 def _render_iteration_core(node: Iteration) -> str:
-    return _join_iteration(node, _render_collection(node.collection), top=False)
+    collection = _render_collection(node.collection)
+    if collection.startswith("'"):
+        # Only the top-level envelope reads a quoted collection back; a nested one is
+        # `unexpected text after quoted value` (found by test_roundtrip_laws).
+        raise RenderError(f"a nested iteration cannot take the quoted collection {collection}")
+    return _join_iteration(node, collection, top=False)
 
 
 def _join_iteration(node: Iteration, collection: str, *, top: bool) -> str:
