@@ -33,10 +33,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
+from functools import partial
 
 from url4.core.descriptor_head import deferrable_group, is_processed_group
 from url4.core.errors import ParseError
 from url4.core.grammar import parse as grammar_parse
+from url4.core.intent import parse_code_pointer
 from url4.core.nodes import (
     Binding,
     Expression,
@@ -65,13 +67,12 @@ from url4.core.parser import (
 )
 from url4.dag.semantics.ensemble import find_references
 
-from url4.dag._descriptor import _lower_source  # isort: skip
+from url4.dag._descriptor import _lower_source, slot_identity  # isort: skip
+from url4.dag._code_wiring import call_intent, compile_group, reduce_rows  # isort: skip
 from url4.dag._wiring import (  # isort: skip
     Edges,
-    _compile_group,
     _inline_collection,
     _Intent,
-    _quorum_of,
     _ref_edges,
     _Slot,
     _slot_specs,
@@ -147,7 +148,7 @@ def _lower_rel_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> Dag
     if node.intent is not None:
         # The call's OWN intent is lowered as a plain leaf; quotes were already
         # stripped by the grammar (quotes are delimiters, spec §5.1).
-        deps["intent"] = registry.lower(node.intent, edges)
+        deps["intent"] = call_intent(node.intent, edges, registry.lower)
     deps.update(edges)
     ctx_slots = _wire_context_slots(node.context, deps, edges, registry)
     return RelUrlNode(
@@ -164,7 +165,7 @@ def _lower_remote_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> 
     assert isinstance(node, RemoteExpr)
     deps: dict[str, DagNode] = {}
     if node.intent is not None:
-        deps["intent"] = registry.lower(node.intent, edges)
+        deps["intent"] = call_intent(node.intent, edges, registry.lower)
     deps.update(edges)
     # No context slots here (`OME-535`): the remote q= is an EXPRESSION the
     # remote node evaluates; only RELATIVE calls resolve context caller-side.
@@ -272,9 +273,7 @@ def _lower_expression(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     intent = _intent_from_ast(node.intent, registry)
     # An Expression is always a parenthesised group (bare relative expressions
     # parse to RelExpr and lower via _lower_rel_expr), so it is a list source.
-    return _compile_group(
-        slots, intent, node.broadcast, from_list=True, quorum=_quorum_of(node.params)
-    )
+    return compile_group(slots, intent, node.broadcast, from_list=True, params=node.params)
 
 
 _ROW_NAMES = frozenset({"item", "current", "index"})
@@ -301,7 +300,7 @@ def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> Da
         deps={"collection": collection, **_body_ref_edges(node.body, node.intent, edges)},
     )
     if node.reducer is not None:
-        return ReduceNode(node.reducer, deps={"rows": map_node})
+        return reduce_rows(node.reducer, map_node)
     return CollectNode(deps={"rows": map_node})
 
 
@@ -390,35 +389,17 @@ def _slot_from_text(segment: str, registry: LoweringRegistry) -> _Slot:
     if deferred is not None:
         name, kind, group = deferred
         if name is None:
-            return _Slot(None, refs, lambda edges: LazyExprNode(group, deps=dict(edges)))
+            return _Slot(
+                None, refs, lambda edges: LazyExprNode(group, deps=dict(edges)), form=group
+            )
         # ABNF (`OME-534`): a deferred name=(group) binding CONTRIBUTES like
         # any named source — only weight 0.0 marks a source instrumental,
         # and the binding forms carry no weight.
-        return _Slot(name, refs, _make_binding_thunk(name, kind, group))
+        return _Slot(name, refs, _make_binding_thunk(name, kind, group), form=group)
     ast = grammar_parse(segment)
-    name, instrumental = _slot_identity(ast)
-    return _Slot(name, refs, lambda edges: registry.lower(ast, edges), instrumental=instrumental)
-
-
-def _slot_identity(ast: Node) -> tuple[str | None, bool]:
-    """The slot's ``(name, instrumental)`` — ABNF contribution semantics.
-
-    WHY Binding is never instrumental (`OME-534`): the name-only forms
-    (``a: v`` / ``a=v``) are contributing sources under the ABNF; the ONLY
-    instrumental marker is an explicit scalar ``weight 0.0`` on a Source.
-    """
-    if isinstance(ast, Binding):
-        return ast.name, False
-    if isinstance(ast, Source):
-        return ast.name, _is_instrumental_weight(ast.weight)
-    return None, False
-
-
-def _is_instrumental_weight(weight: object) -> bool:
-    """True for the explicit scalar ``0.0`` (structured weights never qualify)."""
-    return (
-        isinstance(weight, (int, float)) and not isinstance(weight, bool) and float(weight) == 0.0
-    )
+    name, instrumental, weight = slot_identity(ast)
+    make = partial(registry.lower, ast)
+    return _Slot(name, refs, make, instrumental=instrumental, weight=weight, form=ast)
 
 
 def _make_binding_thunk(name: str, kind: str, rhs: str) -> Callable[[Edges], DagNode]:
@@ -440,7 +421,9 @@ def _intent_from_ast(atom: Node | None, registry: LoweringRegistry) -> _Intent |
     if isinstance(atom, Text):
         value = atom.value
         return _Intent(lambda edges: TextNode(value, deps=dict(edges)), text=value)
-    return _Intent(lambda edges: registry.lower(atom, edges), refs=frozenset(_refs_of_ast(atom)))
+    code = parse_code_pointer(atom.value) if isinstance(atom, RelUrl) else None
+    make: Callable[[Edges], DagNode] = partial(registry.lower, atom)
+    return _Intent(make, refs=frozenset(_refs_of_ast(atom)), code=code)
 
 
 def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
@@ -491,13 +474,8 @@ def _compile_group_text(
     else:
         segments = [source_expr] if source_expr.strip() else []
     slots = [_slot_from_text(segment, registry) for segment in segments]
-    return _compile_group(
-        slots,
-        _intent_from_raw(raw_intent, registry),
-        broadcast,
-        from_list=from_list,
-        quorum=_quorum_of(params),
-    )
+    intent = _intent_from_raw(raw_intent, registry)
+    return compile_group(slots, intent, broadcast, from_list=from_list, params=params)
 
 
 def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool = False) -> DagNode:
@@ -522,7 +500,7 @@ def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool =
     if isinstance(env, IterationEnvelope):
         map_node = _map_from_text(env.collection, env.body, env.intent, env.directives, registry)
         if env.reducer is not None:
-            return ReduceNode(env.reducer, deps={"rows": map_node})
+            return reduce_rows(env.reducer, map_node)
         return CollectNode(deps={"rows": map_node})
     return _compile_group_text(env.source_expr, env.intent, env.broadcast, registry, env.params)
 
@@ -531,12 +509,14 @@ def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool =
 
 
 def _slot_from_ast(source: Node, registry: LoweringRegistry) -> _Slot:
-    name, instrumental = _slot_identity(source)
+    name, instrumental, weight = slot_identity(source)
     return _Slot(
         name,
         frozenset(_refs_of_ast(source)),
         lambda edges: registry.lower(source, edges),
         instrumental=instrumental,
+        weight=weight,
+        form=source,
     )
 
 

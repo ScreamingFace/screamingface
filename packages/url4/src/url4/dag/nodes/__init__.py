@@ -47,6 +47,7 @@ from __future__ import annotations
 from url4.dag.nodes._shared import DEFAULT_MAP_CONCURRENCY, SlotSpec
 from url4.dag.nodes.broadcast import MergeNode
 from url4.dag.nodes.broadcast_result import BroadcastCollectNode
+from url4.dag.nodes.code import CodeCallNode, CodeSourcesNode
 from url4.dag.nodes.fetch import (
     HoldingsNode,
     RelUrlNode,
@@ -75,6 +76,8 @@ __all__ = [
     "BarrierNode",
     "BindingNode",
     "BroadcastCollectNode",
+    "CodeCallNode",
+    "CodeSourcesNode",
     "CollectNode",
     "ExpandNode",
     "FanoutReduceNode",

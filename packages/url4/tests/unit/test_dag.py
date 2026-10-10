@@ -8,7 +8,14 @@ import json
 import pytest
 from conftest import RecordingIOLayer
 
-from url4.core.errors import CollectionError, CycleError, ErrorCode, ParseError, ResolutionError
+from url4.core.errors import (
+    CollectionError,
+    CycleError,
+    ErrorCode,
+    ParseError,
+    ResolutionError,
+    Url4Error,
+)
 from url4.core.grammar import parse as grammar_parse
 from url4.core.grammar import parse_group_root
 from url4.core.nodes import ForeachDirectives, Text, Url
@@ -32,6 +39,7 @@ from url4.dag import (
     default_registry,
     run,
 )
+from url4.dag.nodes import CodeCallNode
 from url4.io.static import StaticIOLayer
 
 
@@ -469,17 +477,19 @@ async def test_fetch_intent_over_base_group_uses_barrier_and_merges() -> None:
 
 
 @pytest.mark.asyncio
-async def test_relative_url_intent_is_a_data_read_through_barrier() -> None:
-    # F2: a /path top-level intent classifies as a RelUrl (data read, not an
-    # expression), so it ALSO goes through the Barrier path — inner is a
-    # RelUrlNode with is_expr=False. Pin that shape so the barrier branch stays
-    # covered for the relative-URL form too.
+async def test_relative_url_intent_lowers_to_one_code_call() -> None:
+    # FLIPPED (url4 2.0, CH9): a /path top-level intent is a relative code pointer, so it
+    # lowers to ONE CodeCallNode whose sources sit behind its preflight (an attribute,
+    # not an edge — no source starts before the mount is checked). The run on an IO
+    # without the pointer mounted fails with intent_error and never fetches the source.
     graph = compile_expression("(https://a)!/doc")
-    intent = graph.sink.deps["intent"]
-    assert isinstance(intent, BarrierNode)
-    inner = intent.deps["inner"]
-    assert isinstance(inner, RelUrlNode)
-    assert inner.is_expr is False
+    assert isinstance(graph.sink, CodeCallNode)
+    assert graph.sink.pointer.path == "/doc"
+    assert dict(graph.sink.deps) == {}
+    # An empty fetch map: had the source run first, the error would be resolution_failed.
+    with pytest.raises(Url4Error) as info:
+        await run("(https://a)!/doc", StaticIOLayer({}))
+    assert info.value.code == ErrorCode.INTENT_ERROR
 
 
 # --- coverage: nodes.py private helpers, reached through node/graph shapes ------

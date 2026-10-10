@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from url4.core._annotations import checked_retries, checked_timeout
 from url4.core.errors import ParseError
-from url4.core.nodes import Node, Source
+from url4.core.nodes import Binding, Node, Source
 
 from url4.dag.node import DagNode  # isort: skip
 from url4.dag.nodes import ExpandNode, GuardNode, RelUrlNode, WebFetchNode  # isort: skip
@@ -92,3 +92,24 @@ def _scalar_weight(weight: float | dict | None) -> float | None:
         default = weight.get("_default")
         return float(default) if isinstance(default, (int, float)) else None
     return weight
+
+
+def slot_identity(ast: Node) -> tuple[str | None, bool, float | dict | None]:
+    """The slot's ``(name, instrumental, weight)`` — ABNF contribution semantics.
+
+    WHY Binding is never instrumental (`OME-534`): the name-only forms
+    (``a: v`` / ``a=v``) are contributing sources under the ABNF; the ONLY
+    instrumental marker is an explicit scalar ``weight 0.0`` on a Source.
+    """
+    if isinstance(ast, Binding):
+        return ast.name, False, None
+    if isinstance(ast, Source):
+        return ast.name, _is_instrumental_weight(ast.weight), ast.weight
+    return None, False, None
+
+
+def _is_instrumental_weight(weight: object) -> bool:
+    """True for the explicit scalar ``0.0`` (structured weights never qualify)."""
+    return (
+        isinstance(weight, (int, float)) and not isinstance(weight, bool) and float(weight) == 0.0
+    )

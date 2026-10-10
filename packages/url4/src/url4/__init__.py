@@ -74,6 +74,7 @@ from url4.core.builders import (
     struct,
     text,
 )
+from url4.core.code import CodeCall, CodeHandler, CodeInput, SupportsCode
 from url4.core.errors import (
     CollectionError,
     CycleError,
@@ -139,6 +140,9 @@ def __getattr__(name: str) -> object:
 __all__ = [
     "Binding",
     "Client",
+    "CodeCall",
+    "CodeHandler",
+    "CodeInput",
     "CollectionError",
     "CycleError",
     "Expression",
@@ -165,6 +169,7 @@ __all__ = [
     "StaticIOLayer",
     "StructObject",
     "SupportsClose",
+    "SupportsCode",
     "SupportsDefaultRoute",
     "SupportsFetchEx",
     "SupportsHoldings",

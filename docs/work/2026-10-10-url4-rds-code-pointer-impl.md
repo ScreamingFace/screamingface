@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # filed at PR-open under OME-500 after the user confirms (one PR for the branch)
 stack: url4
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-10
-finished:
+finished: 2026-10-10
 ---
 
 # url4-rds-code-pointer-impl — run relative code-pointer intents as RDS calls (P1 + P2)
@@ -55,9 +55,69 @@ behavior (each listed in the PR body).
 - Engine and SDK suites green with no test edits.
 - `cd docs/spec/2026-10-10-url4-rds-code-pointer/formal && lake build` green.
 
+## Notes and deviations (running)
+
+- **Preflight lives in `CodeCallNode.resolve`, not a `FailNode`.** Compilation has no IO
+  (`compile_expression` runs before `ctx` exists), so the C5 `FailNode` branch cannot be
+  chosen at lowering. `CodeCallNode` holds its sources off-edge (the `GuardNode`
+  isolation pattern) and checks the code port and the static mount before it starts
+  them. Same observable rule (Lean `evalGroup_unsupported` / `evalGroup_unmounted`):
+  no source of a group that cannot run ever starts. CH9 asserts the new shape.
+- **`SupportsCode` is in `core/code.py`, not `io/layer.py`** (C10a). `io/layer.py` is
+  pinned to the standard library (`test_layering`), and the protocol names `CodeCall`.
+  `BoundedIOLayer` forwards it like `processor_routes`.
+- **Remote-expression intents stay refused by the parser** (`url4://n/p(c)!x`).
+  `classify_intent` names them `EXPRESSION`; the spec keeps parser acceptance out of
+  scope (overview §4), so P1 changes only `/…` intents.
+- **A computed intent now reads the group's sources** (H7): the base graph wires the
+  intent's `$name`/`$N` edges to the group's built sources.
+- **Iteration reducers with `(`** (`/reduce()`, `/reduce(all)!'agg'`, malformed ones)
+  stay on the 1.5.1 `ReduceNode` path (A4). A plain `/reduce` reducer is a code pointer.
+- **Strictness scope (C6):** a context variable makes every `$` substitution inside a
+  code group's source subtree strict, nested LLM groups inside it included. The spec
+  keys strictness on the NEAREST group; a nested prompt group under a code group is
+  therefore stricter than the spec asks. Recorded, not fixed: exact nesting needs a
+  per-leaf lowering flag.
+- **Expansion elements:** objects and arrays decode; scalar elements stay `str`
+  (the collection parser hands elements over as strings, and JSON-encodes structured
+  ones, so a string element `"[1,2]"` also decodes). Reducer rows (`kind="rows"`) stay
+  exact strings. An iteration used as a SOURCE arrives as its §5.3.8 serialization
+  decoded, so a row that is visibly JSON is decoded there.
+- **One `CodeCallNode` for `!*`** (C5 sketches one node per source plus a
+  `BroadcastCollectNode`): the calls run inside the one node, so `NodeStarted` fires once.
+- **`SupportsCode.invoke_code` returns `object`** (C2 says `str`): the RDS node checks
+  the type (C §13.6), so a non-`str` return is `intent_error`, not a type lie.
+- **Unbound references fail in RDS scopes** (B §6.3, C8): a reference the scope does not
+  bind raises `unbound_reference`, including quoted text in a code group's sources
+  (`'costs $5'` needs `$$5`). LLM scopes are unchanged.
+- **Value kind (C3) is read from the source's parse form** (`_Slot.form`), so the text
+  and AST paths type a value alike; a bare `$name`/`$N` to an earlier sibling inherits
+  its kind; a `$ref` with a field path is `text`.
+- **`peer/_code.py` mixin**: `server.py` is at its size cap (315/315), so the code table
+  lives in a mixin. `has_code`/`invoke_code` share `invoke_mounted` with `StaticIOLayer`.
+- **Design review (design-reviewer, 2026-10-10):** 0 high, 5 medium, 9 low. Fixed: M1
+  (a handler's transient `intent_error` is made permanent), M2 (kind from form), M3,
+  M4 (rows), M5 (one quorum parser; `majority` refused for LLM groups), L1, L2, L6–L9,
+  T1–T4. Recorded above: L4, L5.
+- **Status table (C8):** explicit rows `intent_error → 422`, `unsupported_mode → 501`.
+  The C8 class default (unlisted permanent → 422) is NOT applied: three pinned regression
+  tests (`test_status_mapping.py`, `test_direct_dispatch.py`) assert "any other → 500"
+  and cite the spec. Owner decision needed.
+- **TDD order:** the P1 classifier and parts of P2 were written before their tests
+  (probe-driven); CH11 was written and green first.
+
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus `core/_call_head.py` (path validators moved out of
+  the capped grammar), `dag/_code_wiring.py`, `dag/semantics/code_binding.py`,
+  `peer/_code.py`, `tests/unit/test_code_binding.py`, `tests/unit/test_code_mounts.py`,
+  `tests/unit/test_code_types.py`. `io/layer.py` is unchanged (see `SupportsCode`).
+- **Commits:** 650d9f6b8 (CH11), 1389629ef (types, query-tail, codes), e41abf20c (P1
+  classifier), and the P2 commit that carries this ledger.
+- **Gates:** url4 ruff, format, pyright, 1871 passed / 17 xfailed, coverage 98.83%,
+  module size, suppressions 5/5; Engine 4678 passed + layering OK; SDK green (the 12
+  widget failures need the `notebook` extra: 159 passed with it); `lake build` green.
+- **Flipped tests:** CH9 (`test_dag.py::test_relative_url_intent_lowers_to_one_code_call`),
+  CH11 rows 1–7, 9, 10 (`tests/spec/test_rds_code_pointer.py`). Row 8 stays (D2).
+- **Deviations:** see "Notes and deviations" above. Open for the owner: the C8 class
+  default (unlisted permanent → 422). P3 (named jobs) is not started.

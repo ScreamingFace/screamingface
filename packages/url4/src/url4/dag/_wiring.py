@@ -18,7 +18,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from url4.core.errors import ParseError
-from url4.core.nodes import Params
+from url4.core.intent import CodePointer
+from url4.core.nodes import Node, Params
+from url4.dag.semantics.code_binding import code_quorum
 
 from url4.dag.node import DagNode  # isort: skip
 from url4.dag.nodes import (  # isort: skip
@@ -53,6 +55,10 @@ class _Slot:
     refs: frozenset[str]
     make: Callable[[Edges], DagNode]
     instrumental: bool = False
+    weight: float | dict | None = None  # the declared weight; a code group delivers it (C3)
+    # The source's parse form (its tree, or a deferred group's text): a code group reads
+    # the C3 value kind and `;optional` from it, where the form is still known.
+    form: Node | str | None = None
 
 
 @dataclass
@@ -70,20 +76,22 @@ class _Intent:
     text: str | None = None
     # The `$name`/`$N` a computed intent mentions (B §6.2: the group's own sources).
     refs: frozenset[str] = frozenset()
+    # Set iff the intent is a relative code pointer: the group runs as an RDS call (C5).
+    code: CodePointer | None = None
 
 
 def _quorum_of(params: Params) -> int | None:
-    """The expression's ``quorum=N`` param; ``all`` (the default) is None."""
-    for key, value in params:
-        if key != "quorum":
-            continue
-        if value is None or value == "all":
-            return None
-        try:
-            return int(value)
-        except ValueError:
-            raise ParseError(f"invalid quorum={value!r}; expected an integer or 'all'") from None
-    return None
+    """An LLM group's ``quorum=N``; ``all`` (the default) is None.
+
+    One parser for both modes (:func:`~url4.dag.semantics.code_binding.code_quorum`);
+    ``quorum=majority`` is a url4 2.0 code-group gate only.
+    """
+    quorum = code_quorum(params)
+    if quorum == "majority":
+        raise ParseError(
+            "quorum=majority is supported only for a code-pointer intent; write an integer"
+        )
+    return quorum
 
 
 def _ref_edges(

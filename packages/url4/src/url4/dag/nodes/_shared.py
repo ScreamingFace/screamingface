@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 from url4.core.context import Context
@@ -81,6 +82,11 @@ _INDEX_KEY = "\x00index"
 DEFAULT_MAP_CONCURRENCY = 8
 
 
+# WHY a context variable: an RDS scope is strict (B §5.3.4.1, §6.3; contracts C6). A
+# CodeCallNode sets it around its isolated source subtree; every task there copies it.
+RDS_STRICT: ContextVar[bool] = ContextVar("url4_rds_strict", default=False)
+
+
 def _current_item(scope: Context) -> str | None:
     """The row bound by an enclosing :class:`MapNode`, or None outside a map."""
     return scope.get(_ITEM_KEY)
@@ -99,7 +105,8 @@ def _substitute(text: str, scope: Context, ctx: ExecutionContext) -> str:
     index = scope.get(_INDEX_KEY)
     if index is not None:
         scope = scope.child(index=index)
-    return interpolate(text, scope, item=item, strict=ctx.strict_fields)
+    rds = RDS_STRICT.get()
+    return interpolate(text, scope, item=item, strict=ctx.strict_fields or rds, bound=rds)
 
 
 def _maybe_json(text: str):

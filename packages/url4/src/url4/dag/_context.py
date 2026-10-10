@@ -19,6 +19,7 @@ from contextvars import ContextVar
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
+from url4.core.code import CodeCall, SupportsCode
 from url4.core.context import Context
 from url4.io.layer import (
     FetchRequest,
@@ -130,6 +131,8 @@ class BoundedIOLayer:
     fetch_ex: Callable[[FetchRequest], Awaitable[FetchResult]]
     fetch_holdings: Callable[[str | None, str | None], Awaitable[str]]
     processor_routes: Callable[[], Sequence[str]]
+    has_code: Callable[[str], bool]
+    invoke_code: Callable[[CodeCall], Awaitable[object]]
 
     def __init__(self, inner: IOLayer, limit: int) -> None:
         self._inner = inner
@@ -142,6 +145,9 @@ class BoundedIOLayer:
             # Not bounded: declaring routes is not I/O. Forwarded so a
             # `processor=` id still resolves through the wrapper (§27.3).
             self.processor_routes = inner.processor_routes
+        if isinstance(inner, SupportsCode):
+            # Not bounded either: in-process code is not I/O (url4 2.0 code mounts).
+            self.has_code, self.invoke_code = inner.has_code, inner.invoke_code
 
     async def fetch(self, target: str, *, relative: bool) -> str:
         async with self._admitted():

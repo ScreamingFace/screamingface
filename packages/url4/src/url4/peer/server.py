@@ -25,11 +25,13 @@ from dataclasses import dataclass
 from inspect import signature
 from typing import overload
 
+from url4.core.code import CodeHandler
 from url4.core.grammar import _IDENTITY_NAME_RE
 from url4.core.nodes import Node
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
 from url4.io.layer import FetchRequest, FetchResult, IOLayer
 from url4.peer import _dispatch
+from url4.peer._code import CodeMounts
 from url4.peer._dispatch import Request
 from url4.peer._http import asgi_app as _asgi_app
 from url4.peer._http import serve as _serve_node
@@ -52,7 +54,7 @@ class _DataRoute:
     media_type: str | None = None
 
 
-class Url4Node:
+class Url4Node(CodeMounts):
     """A url4 protocol node: endpoint/holdings/identity registries + dispatch.
 
     ``outbound`` is the IOLayer for absolute (``https://``, ``url4://``, …)
@@ -81,6 +83,7 @@ class Url4Node:
         self._strict_fields = strict_fields
         self._endpoints: dict[str, EndpointHandler] = {}
         self._data: dict[str, _DataRoute] = {}
+        self._code: dict[str, CodeHandler] = {}
         self._self_holdings: dict[str | None, _HoldingsPort] = {}
         self._identities: dict[str, _HoldingsPort] = {}
         for path, provider in (data or {}).items():
@@ -92,6 +95,7 @@ class Url4Node:
             (len(self._self_holdings), "holdings shelf", "holdings shelves"),
             (len(self._identities), "identity", "identities"),
             (len(self._data), "data route", "data routes"),
+            (len(self._code), "code mount", "code mounts"),
         )
         listed = ", ".join(f"{n} {one if n == 1 else many}" for n, one, many in counts if n)
         return f"<Url4Node {self.name!r}: {listed or 'empty'}>"
@@ -209,7 +213,7 @@ class Url4Node:
             raise ValueError(f"route path {path!r} must start with '/'")
         if path == self._eval_path:
             raise ValueError(f"{path!r} is the eval path — it is dispatched by the node itself")
-        if path in self._endpoints or path in self._data:
+        if path in self._endpoints or path in self._data or path in self._code:
             raise ValueError(f"path {path!r} is already registered")
 
     def _is_eval_path(self, path: str) -> bool:

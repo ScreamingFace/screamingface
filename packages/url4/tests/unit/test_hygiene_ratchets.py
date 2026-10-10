@@ -36,9 +36,9 @@ BASELINE = {
 
 # Exact ``__all__`` size of every package that declares one (H2: the public surface).
 EXPORTS = {
-    "url4": 54,
+    "url4": 58,
     "url4.dag": 36,
-    "url4.dag.nodes": 23,
+    "url4.dag.nodes": 25,
     "url4.peer": 5,
     "url4.streaming.interfaces": 17,
     "url4.streaming.protocol": 34,

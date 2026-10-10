@@ -255,21 +255,24 @@ def interpolate(
     *,
     item: str | None = None,
     strict: bool = False,
+    bound: bool = False,
 ) -> str:
     """Resolve every ``$`` reference in ``text`` in one scan; ``$$`` → ``$``.
 
     ``$item[.path]`` reads the bound collection row ``item`` (verbatim outside a
     map); ``$name[.path]`` and ``$N[.path]`` read ``context``. Unknown names stay
-    verbatim. Field paths traverse per :func:`resolve_field_path` under
-    ``strict`` — identically for every reference form (spec §6.2).
+    verbatim — unless ``bound`` (an RDS scope, Spec B §6.3: references are
+    mechanically required), where one raises ``unbound_reference``. Field paths
+    traverse per :func:`resolve_field_path` under ``strict`` — identically for
+    every reference form (spec §6.2).
     """
 
     def lookup(name: str, path: str) -> str | None:
-        if name == "item":
-            return (
-                None if item is None else resolve_field_path(item, path, strict=strict, ref="$item")
-            )
-        value = _lookup_or_none(name, context)
+        if name == "item" and item is not None:
+            return resolve_field_path(item, path, strict=strict, ref="$item")
+        value = None if name == "item" else _lookup_or_none(name, context)
+        if value is None and bound:
+            raise ScopeError(f"unbound reference ${name} in an RDS scope (Spec B §6.3)")
         return (
             None
             if value is None

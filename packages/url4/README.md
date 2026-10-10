@@ -60,7 +60,45 @@ The execution engine (DAG compilation, executor, lowering) lives one level down:
   concurrently.
 - **Inverted I/O**: all side effects go through the `IOLayer` port (`StaticIOLayer` for
   tests/offline, HTTP for real fetches), keeping the core pure and deterministic.
+- **Code-pointer intents (RDS mode)**: `(sources)!/code?k=v` runs a handler the node
+  mounted with `@node.code("/code")` once, in-process, with the sources bound by position
+  and name (`CodeCall`, `CodeInput`). No model runs. See "Migrating to 2.0".
 - **Fully typed**: passes `pyright`; type hints ship to consumers.
+
+## Migrating to 2.0
+
+url4 2.0 reads the intent's form (Spec B §6): a quoted intent is a prompt, and a
+**relative URI intent is a code pointer** that runs on this node. An absolute URI intent
+(`https://…`, `url4://…`) and a bare word are still prompts, as in 1.5.
+
+```python
+@node.code("/ensemble/combine/v1")
+def combine(call: CodeCall) -> str:
+    votes = [item.value for item in call.inputs]  # by position; call.input("member_1") by name
+    return pick(votes, reducer=call.params["reducer"])
+```
+
+`(member_1:/a($input)!'P', member_2:/b($input)!'P')!/ensemble/combine/v1?reducer=vote` runs
+`/a` and `/b`, then `combine` once. A failed `;optional` source has no input; a
+weight-`0.0` source is delivered with its weight. `;quorum=N` and `;quorum=majority` gate
+the call.
+
+What changes for you:
+
+1. A URI intent that held instruction text (`(…)!/instr`) is now code. Write the text as a
+   quoted intent, or bind it as a weight-`0.0` source and reference it:
+   `(…, instr:0.0:/instr)!'$instr'`.
+2. Code that ran behind an `@node.endpoint` as a reducer → register it with `@node.code`
+   and read `call.inputs` and `call.params`. A code mount is never an HTTP endpoint.
+3. To run code on another node, send the whole expression to that node, as the top-level
+   request (`url4://n/v1?q=(…)!/code`) or as a source (`(r:url4://n/v1(…)!/code)!'…'`).
+   An absolute-URI *intent* is still a prompt source.
+4. A relative-expression intent (`/w?q=($1)!'Write'`) is now evaluated, with the group's
+   `$` references; 1.5 read it as data.
+5. Errors: an unmounted pointer or a failing handler is `intent_error` (HTTP 422,
+   permanent); an IO layer with no code mounts (for example a client-side `HttpIOLayer`)
+   gives `unsupported_mode` (HTTP 501). Inside a code group, field paths are strict
+   (Spec B §5.3.4.1).
 
 ## Iteration position
 

@@ -89,6 +89,8 @@ names no transport.
 | what is a call head (`/p(`, `/p?…q=(`, `url4://`) | `core/_call_head.py` | language |
 | what a source head is (value, `src=`, `n=`, `n:` chain) | `core/descriptor_head.py` | language |
 | the envelope split (`!intent`, `;params`, `src*(body)`) | `core/parser.py`, `core/_splitters.py`, `core/_iteration_envelope.py` | language |
+| an intent's form or mode (prompt, code pointer, computed) | `core/intent.py` | language |
+| the code-pointer types (`CodeCall`, `CodeInput`, `SupportsCode`) | `core/code.py` | language |
 | the AST node shape | `core/nodes.py` | language |
 | canonical rendering / the round-trip check | `core/render.py` | language |
 | the Python builders (`src`, `expr`, `iterate`) | `core/builders.py` | language |
@@ -96,6 +98,8 @@ names no transport.
 | the `?q=` escaping or decoding | `wire/subrequest.py` | wire |
 | how text lowers to a DAG node | `dag/_lowering.py`, `dag/_wiring.py` | engine |
 | how a source descriptor lowers (label, expand, guard) | `dag/_descriptor.py` | engine |
+| how a code-pointer group lowers (RDS mode: one `CodeCallNode` at every group site) | `dag/_code_wiring.py`, `dag/nodes/code.py` | engine |
+| code-group binding, expansion and the gate (`quorum=majority` too) | `dag/semantics/code_binding.py` | engine |
 | the public `run()` entry | `dag/_run.py` | engine |
 | the scheduler or the exactly-once memo | `dag/executor.py` | engine |
 | the `DagNode` protocol or `ExecutionContext` | `dag/node.py`, `dag/_context.py` | engine |
@@ -107,6 +111,7 @@ names no transport.
 | the in-memory test adapter | `io/static.py` | io |
 | the httpx adapter | `io/http.py` | io |
 | the node's registration or dispatch order | `peer/server.py`, `peer/_dispatch.py` | node |
+| the node's code mounts (`@node.code`) | `peer/_code.py` | node |
 | the requestor `Client` | `peer/client.py` | node |
 | `url4.toml` or the `serve` flags | `cli/_config.py`, `cli/_serve.py` | node |
 | observation events or sinks | `observe.py` | leaf |

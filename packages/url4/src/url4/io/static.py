@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from inspect import isawaitable
 
+from url4.core.code import CodeCall, CodeHandler, invoke_mounted
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.layer import FetchRequest, FetchResult
 from url4.wire.subrequest import decode_subrequest, extract_expression_params
@@ -32,7 +33,8 @@ class StaticIOLayer:
     collection qualifier, ``"name"`` for ``@name``, ``"name/coll"`` for
     ``@name/coll``; omitting it makes this adapter behave like a non-URL4
     source (spec §5.6.6). ``media_types`` maps a target to the media type
-    ``fetch_ex`` reports for it. Missing keys raise
+    ``fetch_ex`` reports for it. ``code`` maps a code path to a handler: the test
+    double for a node's ``@node.code`` mounts. Missing keys raise
     :class:`~url4.core.errors.ResolutionError`.
     """
 
@@ -43,11 +45,13 @@ class StaticIOLayer:
         *,
         holdings: Mapping[str, str] | None = None,
         media_types: Mapping[str, str] | None = None,
+        code: Mapping[str, CodeHandler] | None = None,
     ) -> None:
         self._fetch = dict(fetch_map or {})
         self._routes = dict(routes or {})
         self._holdings = dict(holdings) if holdings is not None else None
         self._media_types = dict(media_types or {})
+        self._code = dict(code or {})
 
     async def fetch(self, target: str, *, relative: bool) -> str:
         # Routes accept the full canonical form "/path?[params&]q=…" (spec
@@ -100,6 +104,14 @@ class StaticIOLayer:
                 f"unknown identity {identity!r}", code=ErrorCode.UNKNOWN_IDENTITY, permanent=True
             )
         raise ResolutionError(f"no self holdings for collection {collection!r}")
+
+    def has_code(self, pointer: str) -> bool:
+        """Whether a code handler is mounted at ``pointer`` (exact path)."""
+        return pointer in self._code
+
+    async def invoke_code(self, call: CodeCall) -> object:
+        """Run the handler mounted at ``call.pointer``; its raw result."""
+        return await invoke_mounted(self._code, call)
 
 
 def _holdings_key(identity: str | None, collection: str | None) -> str:
