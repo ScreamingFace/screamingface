@@ -244,8 +244,8 @@ def test_intent_forms():
         == "(https://x)!https://code.com/score.py"
     )
     assert render(build("(https://x)!/score.py")) == "(https://x)!/score.py"
-    # a bare-token intent normalizes to the quoted form (same Text AST)
-    assert render(build("(https://x)!Summarize")) == "(https://x)!'Summarize'"
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert render(build("(https://x)!Summarize")) == "(https://x)!Summarize"
 
 
 # --- relative / remote expressions ---------------------------------------------------

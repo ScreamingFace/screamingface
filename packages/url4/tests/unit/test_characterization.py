@@ -12,7 +12,7 @@ import random
 import pytest
 from conftest import RecordingIOLayer
 
-from url4 import StaticIOLayer
+from url4 import CodeCall, StaticIOLayer
 from url4.core.grammar import parse as grammar_parse
 from url4.core.parser import build
 from url4.core.render import render
@@ -35,7 +35,7 @@ async def test_non_binding_source_sees_later_binding() -> None:
     # Bindings resolve in a first phase regardless of position, so a
     # non-binding source may reference a binding declared AFTER it.
     resolver = StaticIOLayer(fetch_map={"https://x": "X"})
-    result = await run("(use $a, a=https://x)!go", resolver)
+    result = await run("(use $a, a=https://x)!'go'", resolver)
     assert result == "go\n\nuse X\na: X"  # `OME-534`: the named source packs too
 
 
@@ -46,7 +46,8 @@ async def test_relative_expression_encodes_context_and_intent_in_query() -> None
     resolver = RecordingIOLayer()
     await run("/solve()!it costs $$9", resolver)
     # Spaces wire-escape as %20 (spec §7.3); $ stays raw, $$ collapsed once.
-    assert resolver.fetches == ["/solve?q=()!it%20costs%20$9"]
+    # url4 2.0 (A5): a forwarded prompt travels quoted.
+    assert resolver.fetches == ["/solve?q=()!%27it%20costs%20$9%27"]
 
 
 @pytest.mark.asyncio
@@ -66,7 +67,7 @@ async def test_single_relative_expression_group_takes_fanout_path() -> None:
     # A group whose only source is a relative expression still goes through the
     # fan-out reducer (the reducer fetch runs even for one response).
     resolver = RecordingIOLayer()
-    await run("(/solve(x)!go)!merge", resolver, processor="/claude")
+    await run("(/solve(x)!'go')!'merge'", resolver, processor="/claude")
     paths = [target.split("?q=")[0] for target in resolver.fetches]
     assert paths == ["/solve", "/claude"]
     # Decode the wire-escaped reducer sub-request back to its readable input.
@@ -85,7 +86,8 @@ async def test_bare_relative_expression_is_a_single_call_intent_folded() -> None
     await run("/claude(https://n)!'sum'", resolver)
     # `OME-535`: the context URL is a SOURCE — fetched first, its content
     # dispatched — still one folded call, never a fan-out reducer.
-    assert resolver.fetches == ["https://n", "/claude?q=(<https://n>)!sum"]
+    # url4 2.0 (A5): a forwarded prompt travels quoted.
+    assert resolver.fetches == ["https://n", "/claude?q=(<https://n>)!%27sum%27"]
 
 
 @pytest.mark.asyncio
@@ -97,7 +99,8 @@ async def test_bare_relexpr_text_path_matches_ast_path() -> None:
     await run(expr, text_io)  # text path (string target)
     await run(grammar_parse(expr), ast_io)  # AST path (parsed node)
     # `OME-535`: both paths fetch the context source, then dispatch its content
-    assert text_io.fetches == ast_io.fetches == ["https://n", "/claude?q=(<https://n>)!sum"]
+    # url4 2.0 (A5): a forwarded prompt travels quoted.
+    assert text_io.fetches == ast_io.fetches == ["https://n", "/claude?q=(<https://n>)!%27sum%27"]
 
 
 @pytest.mark.asyncio
@@ -107,14 +110,14 @@ async def test_bare_relexpr_text_path_matches_ast_path() -> None:
         # a nested group beside a plain source — the shape the compiler's own
         # parity note names: text path defers it to a LazyExprNode thunk, AST
         # path expands it eagerly
-        "(https://a, (/solve(https://n)!'go')!merge)!'top'",
+        "(https://a, (/solve(https://n)!'go')!'merge')!'top'",
         # a nested group beside an expression source
-        "(/proc('x')!'p1', (/solve(https://n)!'go')!merge)!'top'",
+        "(/proc('x')!'p1', (/solve(https://n)!'go')!'merge')!'top'",
         # nesting two deep
-        "(https://a, (/proc('x')!'p1', (/solve(https://n)!'go')!merge)!'mid')!'top'",
+        "(https://a, (/proc('x')!'p1', (/solve(https://n)!'go')!'merge')!'mid')!'top'",
         # broadcast and outer params ride the same envelope
-        "(https://a, (/solve(https://n)!'go')!merge)!*'top'",
-        "(https://a, (/solve(https://n)!'go')!merge)!'top';quorum=1",
+        "(https://a, (/solve(https://n)!'go')!'merge')!*'top'",
+        "(https://a, (/solve(https://n)!'go')!'merge')!'top';quorum=1",
     ],
 )
 async def test_nested_group_text_path_matches_ast_path(expr: str) -> None:
@@ -158,8 +161,14 @@ _PARITY_SEED = 0x5EED_2026  # pinned — a new seed is a new corpus and needs re
 _PARITY_SAMPLES = 150
 _PARITY_ROWS = json.dumps([{"q": "r0", "answer": "a0"}, {"q": "r1", "answer": "a1"}])
 
+# url4 2.0 (P3): the unquoted `go` / `row` are named jobs, mounted in _parity_io, so the
+# text and parse-tree paths are both checked on the named-job form too.
 _INTENTS = ("'top'", "'go'", "go", "'sum'", "'mid'")
 _ROW_INTENTS = ("'row'", "row", "'R $item'")
+
+
+def _job(call: CodeCall) -> str:
+    return f"JOB[{call.pointer}|" + "|".join(str(item.value) for item in call.inputs) + "]"
 
 
 def _parity_io() -> StaticIOLayer:
@@ -171,6 +180,7 @@ def _parity_io() -> StaticIOLayer:
             "/proc": lambda context, intent: f"PROC[{context}]/{intent}",
             "/reduce": lambda context, intent: f"REDUCE[{context}]/{intent}",
         },
+        code={"go": _job, "row": _job},
     )
 
 

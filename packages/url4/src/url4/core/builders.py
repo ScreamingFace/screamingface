@@ -49,6 +49,7 @@ from url4.core.nodes import (
     IdentityRef,
     Iteration,
     IterationDirectives,
+    NamedJob,
     Node,
     Params,
     RelUrl,
@@ -327,11 +328,11 @@ def _intent_node(intent: str | Node) -> Node:
                 f"(Spec B §8); pass text({intent!r}) to send it as literal prompt text"
             )
         return intent_atom(intent)
-    if isinstance(intent, (Text, Url, RelUrl)):
+    if isinstance(intent, (Text, NamedJob, Url, RelUrl)):
         return intent
     raise TypeError(
         f"{type(intent).__name__} cannot be an intent — the grammar's intent forms "
-        "are text (prompt) and URIs (code pointers), §6"
+        "are text (prompt), named jobs and URIs (code pointers), §6"
     )
 
 

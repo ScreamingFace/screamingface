@@ -20,8 +20,10 @@ from url4.core.intent import (
     intent_mode,
     parse_code_pointer,
 )
+from url4.core.nodes import Text
 from url4.core.parser import build, intent_atom
 from url4.core.render import render
+from url4.wire.subrequest import decode_subrequest, quote_prompt, unquote_prompt
 
 # One case per C1 detection row, plus the C1 traps (TDD row 1).
 _FORMS = [
@@ -51,7 +53,9 @@ _FORMS = [
     ("$rows*(x)!'R'", IntentForm.EXPRESSION),
     ("rows*()!x", IntentForm.EXPRESSION),
     ("score_v1", IntentForm.BARE_TOKEN),
-    ("summarize this", IntentForm.BARE_TOKEN),
+    # url4 2.0 (P3): unquoted text with a space is not one bare-value token.
+    ("summarize this", IntentForm.PROSE),
+    ("Summarize $a", IntentForm.PROSE),
 ]
 
 
@@ -81,6 +85,7 @@ _SPEC_MODE = {
     IntentForm.SELF_REF: IntentMode.COMPUTED,
     IntentForm.IDENTITY_REF: IntentMode.COMPUTED,
     IntentForm.STRUCT_OBJECT: IntentMode.COMPUTED,
+    IntentForm.PROSE: IntentMode.LLM,  # url4 leniency outside the ABNF
 }
 
 
@@ -155,3 +160,30 @@ def test_parse_code_pointer_refuses_with_malformed_source(text: str) -> None:
     with pytest.raises(ParseError) as info:
         parse_code_pointer(text)
     assert info.value.code == ErrorCode.MALFORMED_SOURCE
+
+
+# --- the forwarded-prompt quoting (C9, the A5 fix) ----------------------------------------
+
+
+@pytest.mark.parametrize("text", ["Answer", "it's", "a\\b", "café", "'x'", "", "two words"])
+def test_quote_prompt_round_trips(text: str) -> None:
+    quoted = quote_prompt(text)
+    assert quoted.startswith("'")
+    assert intent_atom(quoted) == Text(text)  # an eval-path receiver reads the prompt
+    assert unquote_prompt(quoted) == text  # an endpoint handler gets the text itself
+
+
+def test_a_prompt_with_a_control_character_is_not_quoted() -> None:
+    # `quoted-char` is %x20-7E: the parser refuses a raw newline inside quotes.
+    assert quote_prompt("two\nlines") == "two\nlines"
+    assert unquote_prompt("'two\nlines'") == "'two\nlines'"
+
+
+@pytest.mark.parametrize("text", ["plain", "'unterminated", "'a' b"])
+def test_unquote_prompt_leaves_anything_else_alone(text: str) -> None:
+    assert unquote_prompt(text) == text
+
+
+def test_decode_subrequest_unquotes_a_forwarded_prompt() -> None:
+    assert decode_subrequest("(ctx)!%27it%5C%27s%27") == ("ctx", "it's")
+    assert decode_subrequest("(ctx)!score_v1") == ("ctx", "score_v1")

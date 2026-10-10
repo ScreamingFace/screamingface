@@ -33,7 +33,7 @@ class StaticIOLayer:
     collection qualifier, ``"name"`` for ``@name``, ``"name/coll"`` for
     ``@name/coll``; omitting it makes this adapter behave like a non-URL4
     source (spec §5.6.6). ``media_types`` maps a target to the media type
-    ``fetch_ex`` reports for it. ``code`` maps a code path to a handler: the test
+    ``fetch_ex`` reports for it. ``code`` maps a code path or name to a handler: the test
     double for a node's ``@node.code`` mounts. Missing keys raise
     :class:`~url4.core.errors.ResolutionError`.
     """
@@ -106,7 +106,7 @@ class StaticIOLayer:
         raise ResolutionError(f"no self holdings for collection {collection!r}")
 
     def has_code(self, pointer: str) -> bool:
-        """Whether a code handler is mounted at ``pointer`` (exact path)."""
+        """Whether a code handler is mounted at ``pointer`` (exact path or name key)."""
         return pointer in self._code
 
     async def invoke_code(self, call: CodeCall) -> object:

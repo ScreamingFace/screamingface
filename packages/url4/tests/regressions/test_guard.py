@@ -211,7 +211,7 @@ async def test_nested_guards_share_the_outer_keys(delays: list[float]) -> None:
 
 async def test_each_guarded_resolve_gets_its_own_key(delays: list[float]) -> None:
     io = EffectIO()
-    await run("(https://x.test/a;retry=1, https://x.test/b;retry=1)!join", io=io)
+    await run("(https://x.test/a;retry=1, https://x.test/b;retry=1)!'join'", io=io)
     first, second = io.keys
     assert first is not None and second is not None
     assert first != second
@@ -222,7 +222,7 @@ async def test_each_guarded_resolve_gets_its_own_key(delays: list[float]) -> Non
 
 async def test_sibling_of_a_retrying_guard_gets_no_key(delays: list[float]) -> None:
     io = EffectIO()
-    await run("(https://x.test/a;retry=1, https://x.test/b)!join", io=io)
+    await run("(https://x.test/a;retry=1, https://x.test/b)!'join'", io=io)
     keys = dict(zip(io.effects, io.keys, strict=True))
     assert keys["https://x.test/a"] is not None
     assert keys["https://x.test/b"] is None
@@ -230,7 +230,7 @@ async def test_sibling_of_a_retrying_guard_gets_no_key(delays: list[float]) -> N
 
 async def test_no_key_outside_a_retrying_guard() -> None:
     io = EffectIO()
-    await run("(https://x.test/a, https://x.test/b;t=5)!join", io=io)
+    await run("(https://x.test/a, https://x.test/b;t=5)!'join'", io=io)
     assert io.keys == [None, None]
 
 
@@ -353,7 +353,7 @@ async def test_retry_after_beyond_t_raises_the_answer_at_once(delays: list[float
 
 async def test_admission_timeout_has_its_own_code() -> None:
     io = EffectIO(delays={"https://x.test/slow": 0.3})
-    expression = "(https://x.test/slow, https://x.test/fast;t=0.05;retry=3)!join"
+    expression = "(https://x.test/slow, https://x.test/fast;t=0.05;retry=3)!'join'"
     with pytest.raises(ResolutionError) as exc_info:
         await run(expression, io=io, concurrency=1)
     # Spec C §13.5.2: an implementation code carries the `x.` prefix.
@@ -389,7 +389,7 @@ async def test_inner_timeout_error_is_not_the_guard_deadline() -> None:
 async def test_bad_guard_values_are_parse_errors(annotation: str) -> None:
     io = EffectIO()
     with pytest.raises(ParseError):
-        await run(f"(https://x.test/a;{annotation}, https://x.test/b)!join", io=io)
+        await run(f"(https://x.test/a;{annotation}, https://x.test/b)!'join'", io=io)
     assert io.effects == {}
 
 

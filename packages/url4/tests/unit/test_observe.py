@@ -83,7 +83,7 @@ async def test_run_emits_started_node_pairs_then_finished_in_order() -> None:
     # Behavior 1: RunStarted -> (NodeStarted/NodeFinished pairs) -> RunFinished.
     io = StaticIOLayer(fetch_map={"https://a": "A"})
     rec = RecordingObserver()
-    result = await run("https://a!go", io, observer=rec)
+    result = await run("https://a!'go'", io, observer=rec)
     assert result == "go\n\nA"
 
     assert isinstance(rec.events[0], RunStarted)
@@ -105,14 +105,18 @@ async def test_run_emits_started_node_pairs_then_finished_in_order() -> None:
 @pytest.mark.asyncio
 async def test_run_without_observer_is_behaviorally_unchanged() -> None:
     # Behavior 2: no observer -> identical result AND identical error behavior.
-    baseline = await run("https://a!go", StaticIOLayer(fetch_map={"https://a": "A"}))
-    observed = await run("https://a!go", StaticIOLayer(fetch_map={"https://a": "A"}), observer=None)
+    baseline = await run("https://a!'go'", StaticIOLayer(fetch_map={"https://a": "A"}))
+    observed = await run(
+        "https://a!'go'",
+        StaticIOLayer(fetch_map={"https://a": "A"}),
+        observer=None,
+    )
     assert observed == baseline
 
     with pytest.raises(ResolutionError) as exc_baseline:
-        await run("https://missing!go", StaticIOLayer())
+        await run("https://missing!'go'", StaticIOLayer())
     with pytest.raises(ResolutionError) as exc_observed:
-        await run("https://missing!go", StaticIOLayer(), observer=None)
+        await run("https://missing!'go'", StaticIOLayer(), observer=None)
     assert exc_baseline.value.code == exc_observed.value.code
     assert str(exc_baseline.value) == str(exc_observed.value)
 
@@ -159,7 +163,7 @@ async def test_optional_guard_failure_is_reported_but_run_still_succeeds() -> No
     # for the failed subtree, and run() still returns a value.
     io = StaticIOLayer()  # no mapping for https://x -> the source fetch fails
     rec = RecordingObserver()
-    result = await run("(a=https://x;optional, use $a)!go", io, observer=rec)
+    result = await run("(a=https://x;optional, use $a)!'go'", io, observer=rec)
     assert result == "go\n\nuse $a"
 
     errors = [e for e in rec.events if isinstance(e, NodeFinished) and e.status == "error"]
@@ -279,7 +283,7 @@ async def test_run_accepts_trace_id_and_root_span_id_overrides() -> None:
     root_span_id = "b" * 16
 
     result = await run(
-        "https://a!go", io, observer=rec, trace_id=trace_id, root_span_id=root_span_id
+        "https://a!'go'", io, observer=rec, trace_id=trace_id, root_span_id=root_span_id
     )
     assert result == "go\n\nA"
 

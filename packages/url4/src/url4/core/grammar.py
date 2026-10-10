@@ -48,6 +48,7 @@ from url4.core._call_head import (
     remote_path_offset,
 )
 from url4.core._lexical import (
+    _BARE_VALUE_RE,
     _BUDGET_KEY_RE,
     _FIELD_SEG_RE,
     _IDENT_RE,
@@ -83,6 +84,7 @@ from url4.core.nodes import (
     IdentityRef,
     Iteration,
     IterationDirectives,
+    NamedJob,
     Node,
     Params,
     RelExpr,
@@ -641,8 +643,8 @@ def intent_atom(intent: str) -> Node:
     pointer, url4 2.0); any ``scheme://…`` → :class:`~url4.core.nodes.Url`. Otherwise
     ``intent = value`` applies and the token runs through full value detection,
     so a nested expression, an iteration, a struct object or a self/identity ref
-    keeps its structure. Anything else is natural-language
-    :class:`~url4.core.nodes.Text`.
+    keeps its structure. One `bare-value` token is a :class:`~url4.core.nodes.NamedJob`
+    (url4 2.0, P3); anything else is natural-language :class:`~url4.core.nodes.Text`.
 
     # WHY value detection matters here: the DAG compiler dispatches lowering by
     # node type, so an intent flattened to `Text` is never compiled into a
@@ -685,7 +687,10 @@ def _intent_value_or_text(text: str) -> Node:
     # is allowed to say.
     """
     if text[:1] not in _INTENT_VALUE_HEADS and _find_iteration_star(text) is None:
-        return Text(text)
+        # url4 2.0 (P3, Q6): one `bare-value` token is a named job; a `$` ref stays Text
+        # (see _INTENT_VALUE_HEADS); prose with a space stays a prompt (url4 leniency).
+        bare = _BARE_VALUE_RE.fullmatch(text) and text[:1] != "$" and "://" not in text
+        return NamedJob(text) if bare else Text(text)
     try:
         return _parse_value(text)
     except ParseError:

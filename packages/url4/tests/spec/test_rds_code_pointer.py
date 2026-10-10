@@ -17,9 +17,19 @@ from typing import cast
 import pytest
 from conftest import RecordingIOLayer
 
-from url4 import CodeCall, CodeHandler, CodeInput, StaticIOLayer, Url4Node
+from url4 import (
+    CodeCall,
+    CodeHandler,
+    CodeInput,
+    NamedJob,
+    StaticIOLayer,
+    Url4Node,
+    expr,
+)
+from url4 import text as literal_text
 from url4.core.errors import ErrorCode, ParseError, Url4Error
 from url4.core.parser import build
+from url4.core.render import render
 from url4.dag import compile_expression, run
 from url4.io.http import HttpIOLayer
 from url4.observe import NodeStarted
@@ -155,7 +165,8 @@ async def test_ch11_row7_relative_expression_intent_is_evaluated() -> None:
     calls: list[tuple[str, str | None]] = []
     io = RecordingIOLayer({}, {"/w": lambda context, intent: f"W<{context}|{intent}>"})
     result = await run("((x='hi')!'S')!/w?q=($1)!'Write'", io, process=_recording_process(calls))
-    assert io.fetches == ["/w?q=(PROCESSED[S|x:%20hi])!Write"]
+    # url4 2.0 (A5): a forwarded prompt travels quoted.
+    assert io.fetches == ["/w?q=(PROCESSED[S|x:%20hi])!%27Write%27"]
     assert calls[-1][1] == "W<PROCESSED[S|x: hi]|Write>"
     assert result.startswith("PROCESSED[W<PROCESSED[S|x: hi]|Write>|")
 
@@ -175,7 +186,8 @@ async def test_ch11_row9_canonical_expression_with_protocol_params_is_evaluated(
     calls: list[tuple[str, str | None]] = []
     io = RecordingIOLayer({}, {"/claude": lambda context, intent: f"C<{context}|{intent}>"})
     result = await run("(x='1')!/claude?t=90&q=(y)!'go'", io, process=_recording_process(calls))
-    assert io.fetches == ["/claude?t=90&q=(y)!go"]
+    # url4 2.0 (A5): a forwarded prompt travels quoted (`go` was written quoted: a prompt).
+    assert io.fetches == ["/claude?t=90&q=(y)!%27go%27"]
     assert calls == [("x: 1", "C<y|go>")]
     assert result == "PROCESSED[C<y|go>|x: 1]"
 
@@ -699,11 +711,14 @@ async def test_d12_forwarded_remote_code_pointer_travels_verbatim() -> None:
     assert "q=(ctx)!/code" in io.fetches[0]
 
 
-async def test_d12_forwarded_quoted_intent_keeps_the_1_5_1_wire() -> None:
-    # D12 (A5, C9): a forwarded quoted intent keeps today's wire.
-    io = RecordingIOLayer({}, {"/p": lambda context, intent: "P"})
+async def test_d12_forwarded_quoted_intent_travels_quoted() -> None:
+    # FLIPPED (row 28, A5 fixed in 2.0, C9): a forwarded prompt keeps its quotes on the
+    # wire, and the endpoint still receives the unquoted prompt.
+    seen: list[str] = []
+    io = RecordingIOLayer({}, {"/p": lambda context, intent: seen.append(intent) or "P"})
     await run("(s=/p(ctx)!'Answer')!'$s'", io)
-    assert io.fetches[0] == "/p?q=(ctx)!Answer"
+    assert io.fetches[0] == "/p?q=(ctx)!%27Answer%27"
+    assert seen[0] == "Answer"  # (the outer group then reduces through /p, the only route)
 
 
 async def test_d13_dollar_in_the_pointer_is_interpolated_or_refused() -> None:
@@ -917,3 +932,113 @@ async def test_a_code_group_nested_in_a_prompt_group_is_strict() -> None:
     with pytest.raises(Url4Error) as info:
         await run("(cfg={k: 'v'}, r=(t='$cfg.missing')!/c)!'$r'", io)
     assert info.value.code == ErrorCode.MALFORMED_SOURCE
+
+
+# --- P3: named jobs (row 26, owner decisions Q6, Q10) ------------------------------------
+
+
+async def test_named_job_runs_the_code_mounted_by_name() -> None:
+    # Row 26 (B §6 "named job"): a one-word bare intent runs the name-keyed code mount.
+    calls: list[CodeCall] = []
+    io = StaticIOLayer(code={"score_v1": _recorder(calls)})
+    assert await run("(a='1')!score_v1", io) == "COMBINED"
+    assert calls[0].pointer == "score_v1"
+    assert dict(calls[0].params) == {}
+    assert calls[0].inputs == (CodeInput(1, "a", "1", None),)
+
+
+async def test_named_job_without_a_mount_is_intent_error() -> None:
+    with pytest.raises(Url4Error) as info:
+        await run("(a='1')!score_v1", StaticIOLayer(code={"/score_v1": _recorder([])}))
+    assert info.value.code == ErrorCode.INTENT_ERROR  # the path key is not the name key (Q6)
+
+
+async def test_a_path_pointer_does_not_find_a_name_key() -> None:
+    with pytest.raises(Url4Error) as info:
+        await run("(a='1')!/score_v1", StaticIOLayer(code={"score_v1": _recorder([])}))
+    assert info.value.code == ErrorCode.INTENT_ERROR
+
+
+@pytest.mark.parametrize("expr", ["(a='1')!'go'", "(a='1')!summarize this"])
+async def test_quoted_and_multi_word_intents_stay_prompts(expr: str) -> None:
+    # Row 26: only one bare-value token is a named job; quoted text and prose are prompts.
+    calls: list[CodeCall] = []
+    io = StaticIOLayer(code={"go": _recorder(calls), "summarize": _recorder(calls)})
+    result = await run(expr, io)
+    assert calls == []
+    assert result.endswith("a: 1")
+
+
+async def test_named_job_renders_back_bare() -> None:
+    assert render(build("(a)!go")) == "('a')!go"
+    assert render(build("(a)!'go'")) == "('a')!'go'"
+
+
+async def test_named_job_group_is_strict() -> None:
+    # C6 / row 31: a named job runs code, so its group is an RDS scope.
+    with pytest.raises(Url4Error) as info:
+        await run(
+            "(cfg={k: 'v'}, t='$cfg.missing')!score_v1",
+            StaticIOLayer(code={"score_v1": _recorder([])}),
+        )
+    assert info.value.code == ErrorCode.MALFORMED_SOURCE
+
+
+async def test_named_job_as_broadcast_and_iteration_reducer() -> None:
+    calls: list[CodeCall] = []
+    io = StaticIOLayer({"/rows": '["r1","r2"]'}, code={"agg": _recorder(calls)})
+    rows = json.loads(await run("(a='1', b='2')!*agg", io))
+    assert [row["source_name"] for row in rows] == ["a", "b"]
+    await run("(/rows*()!'R $item')!agg", io)
+    assert calls[-1].inputs[0].value == ["R r1", "R r2"]
+
+
+async def test_forwarded_named_job_travels_verbatim() -> None:
+    # C9: a named job of a forwarded call goes unquoted, for the receiving node to run.
+    io = RecordingIOLayer({}, {"/p": lambda context, intent: "P"})
+    await run("(s=/p(ctx)!score_v1)!'$s'", io)
+    assert io.fetches[0] == "/p?q=(ctx)!score_v1"
+
+
+async def test_builder_string_intent_is_url4_syntax() -> None:
+    # A builder string intent is parsed like text: one word is a named job.
+    assert expr("a", intent="go").intent == NamedJob("go")
+    assert expr("a", intent=literal_text("go")).intent != NamedJob("go")
+
+
+# --- A5 fixed: forwarded prompts keep their quotes (row 28) -------------------------------
+
+
+class _RemoteNodes:
+    """An IO that serves `url4://n/...` by the node `n` itself, in-process."""
+
+    def __init__(self, nodes: dict[str, Url4Node]) -> None:
+        self.nodes = nodes
+        self.fetches: list[str] = []
+
+    async def fetch(self, target: str, *, relative: bool) -> str:
+        self.fetches.append(target)
+        authority, _, rest = target.removeprefix("url4://").partition("/")
+        return await self.nodes[authority].fetch("/" + rest, relative=True)
+
+
+async def test_a_forwarded_one_word_prompt_stays_a_prompt_on_the_remote_eval_path() -> None:
+    # Row 28: `!'go'` reaches node n's eval path quoted, so n reads a prompt, not a
+    # named job (n has no `go` mount; a named-job reading would be intent_error).
+    remote = Url4Node("n", outbound=StaticIOLayer({}))
+    io = _RemoteNodes({"n": remote})
+    result = await run("(s=url4://n/v1(x='1')!'go')!'$s'", io)
+    assert io.fetches[0] == "url4://n/v1?q=(x=%271%27)!%27go%27"
+    # The remote node merged `go` as a PROMPT (default process: intent, then sources).
+    assert result == "go\n\nx: 1\n\ns: go\n\nx: 1"
+
+
+async def test_a_forwarded_prompt_with_a_newline_travels_unquoted() -> None:
+    # Row 28 limit: `quoted-char` has no control character, so this prompt goes raw.
+    seen: list[str] = []
+    io = RecordingIOLayer(
+        {"/nl": "two\nlines"}, {"/p": lambda context, intent: seen.append(intent) or "P"}
+    )
+    await run("(t=/nl, s=/p(ctx)!'$t')!'$s'", io)
+    assert "/p?q=(ctx)!two%0Alines" in io.fetches
+    assert seen[0] == "two\nlines"

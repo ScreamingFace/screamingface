@@ -63,6 +63,7 @@ from url4.core.nodes import (
     IdentityRef,
     Iteration,
     IterationDirectives,
+    NamedJob,
     Node,
     Params,
     RelExpr,
@@ -199,8 +200,8 @@ def _render_intent(node: Node, *, top: bool = False) -> str:
     # anything intent_atom can PRODUCE, this must render back, or a parseable
     # expression becomes unrenderable and render() stops being parse()'s
     # inverse.
-    if isinstance(node, Text):
-        return _quote(node.value)
+    if isinstance(node, (Text, NamedJob)):  # a prompt renders quoted, a named job bare (P3)
+        return _quote(node.value) if isinstance(node, Text) else guard.check_named_job(node.value)
     if isinstance(node, (Url, RelUrl)):
         # A top-level absolute-URL intent is the text's tail: Spec B §8
         # `bare-value`. Elsewhere, and for a `/path` code pointer (whose
@@ -520,7 +521,7 @@ def _render_reduce(node: Iteration, inner: str, reducer: str) -> str:
 def _render_iteration_core(node: Iteration) -> str:
     collection = _render_collection(node.collection)
     if collection.startswith("'"):
-        # Only the top-level envelope reads a quoted collection back; a nested one is
+        # WHY: only the top-level envelope reads a quoted collection back; nested, it is
         # `unexpected text after quoted value` (found by test_roundtrip_laws).
         raise RenderError(f"a nested iteration cannot take the quoted collection {collection}")
     return _join_iteration(node, collection, top=False)

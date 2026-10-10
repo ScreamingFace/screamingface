@@ -38,7 +38,7 @@ from functools import partial
 from url4.core.descriptor_head import deferrable_group, is_processed_group
 from url4.core.errors import ParseError
 from url4.core.grammar import parse as grammar_parse
-from url4.core.intent import parse_code_pointer
+from url4.core.intent import code_pointer_of
 from url4.core.nodes import (
     Binding,
     Expression,
@@ -68,7 +68,12 @@ from url4.core.parser import (
 from url4.dag.semantics.ensemble import find_references
 
 from url4.dag._descriptor import _lower_source, slot_identity  # isort: skip
-from url4.dag._code_wiring import call_intent, compile_group, reduce_rows  # isort: skip
+from url4.dag._code_wiring import (  # isort: skip
+    call_intent,
+    compile_group,
+    is_verbatim_intent,
+    reduce_rows,
+)
 from url4.dag._wiring import (  # isort: skip
     Edges,
     _inline_collection,
@@ -157,6 +162,7 @@ def _lower_rel_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> Dag
         is_expr=True,
         params=node.params,
         ctx_slots=ctx_slots,
+        verbatim_intent=is_verbatim_intent(node.intent),
         deps=deps,
     )
 
@@ -174,6 +180,7 @@ def _lower_remote_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> 
         node.path,
         context=node.context,
         params=node.params,
+        verbatim_intent=is_verbatim_intent(node.intent),
         deps=deps,
     )
 
@@ -421,7 +428,7 @@ def _intent_from_ast(atom: Node | None, registry: LoweringRegistry) -> _Intent |
     if isinstance(atom, Text):
         value = atom.value
         return _Intent(lambda edges: TextNode(value, deps=dict(edges)), text=value)
-    code = parse_code_pointer(atom.value) if isinstance(atom, RelUrl) else None
+    code = code_pointer_of(atom)
     make: Callable[[Edges], DagNode] = partial(registry.lower, atom)
     return _Intent(make, refs=frozenset(_refs_of_ast(atom)), code=code)
 

@@ -21,6 +21,7 @@ from url4.core.nodes import (
     Expression,
     IdentityRef,
     Iteration,
+    NamedJob,
     RelUrl,
     SelfRef,
     StructObject,
@@ -45,7 +46,7 @@ def test_nested_expression_intent_is_executed_not_prompted() -> None:
             fetched.append(target)
             return "body"
 
-    asyncio.run(run("(https://src)!(https://a, https://b)!agg", _Recorder()))
+    asyncio.run(run("(https://src)!(https://a, https://b)!'agg'", _Recorder()))
     assert "https://a" in fetched, "nested-expression intent was never compiled/executed"
     assert "https://b" in fetched
 
@@ -76,7 +77,8 @@ def test_nested_expression_intent_keeps_its_structure() -> None:
     intent = _intent_of("(a,b)!(c,d)!agg")
     assert isinstance(intent, Expression)
     assert len(intent.sources) == 2
-    assert intent.intent == Text("agg")
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert intent.intent == NamedJob(value="agg")
 
 
 # --- preservation: the shapes that already worked must not move ---------------------
@@ -85,7 +87,7 @@ def test_nested_expression_intent_keeps_its_structure() -> None:
 @pytest.mark.parametrize(
     ("expression", "expected_type"),
     [
-        pytest.param("(a,b)!summarize", Text, id="bare-text"),
+        pytest.param("(a,b)!summarize", NamedJob, id="bare-text"),
         pytest.param("(a,b)!'quoted intent'", Text, id="quoted-text"),
         pytest.param("(a,b)!https://x.com/i", Url, id="scheme-uri"),
         pytest.param("(a,b)!/reduce()", RelUrl, id="reducer-route"),

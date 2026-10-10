@@ -75,7 +75,8 @@ def _decode(raw: Payload) -> list[SlotResult]:
 
 @dataclass(eq=False)
 class CodeCallNode:
-    """A relative code-pointer group: preflight, sources, gate, bind, one call (C5).
+    """A code group (a relative code pointer or a named job): preflight, sources, gate,
+    bind, one call (C5).
 
     ``sources`` is an attribute, not an edge: the preflight (is there a code port, is the
     static pointer mounted?) must fail the group before its sources start (Lean

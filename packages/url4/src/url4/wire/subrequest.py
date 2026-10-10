@@ -21,6 +21,7 @@ from urllib.parse import unquote_plus
 from url4.core._annotations import EXPRESSION_BEARING_KEYS, validate_param
 from url4.core._scan import ASCII_WHITESPACE, balanced_body, split_query_segments
 from url4.core.errors import ParseError
+from url4.core.quoted import quote_text, unquote_text
 
 # Characters that cannot appear raw inside a context/intent payload:
 #   ( )  would desync the balanced-paren scan that delimits the context;
@@ -58,8 +59,31 @@ def _wire_escape(text: str) -> str:
     return _WIRE_UNSAFE.sub(lambda m: f"%{ord(m.group()):02X}", text)
 
 
+def quote_prompt(text: str) -> str:
+    """A forwarded call's prompt intent as it goes in ``q=``: one quoted literal (C9).
+
+    WHY (the A5 fix, owner decision Q10): unquoted, a one-word prompt would read as a
+    named job and ``/x`` as a code pointer on an eval-path receiver. A text with a
+    control character has no quoted form, so it travels raw, as in url4 1.5; it is never
+    one `bare-value` token, so a receiver still reads it as a prompt.
+    """
+    quoted = quote_text(text)
+    return text if quoted is None else quoted
+
+
+def unquote_prompt(text: str) -> str:
+    """The inverse of :func:`quote_prompt`: what an endpoint handler receives."""
+    content = unquote_text(text)
+    return text if content is None else content
+
+
 def encode_subrequest(
-    path: str, context: str, intent: str | None, params: Sequence[tuple[str, str]] = ()
+    path: str,
+    context: str,
+    intent: str | None,
+    params: Sequence[tuple[str, str]] = (),
+    *,
+    quote: bool = False,
 ) -> str:
     """Build the ``/path?[params&]q=(context)!intent`` relative sub-request URL.
 
@@ -74,6 +98,8 @@ def encode_subrequest(
     paren scan.
     """
     query = f"({_wire_escape(context)})"
+    if intent is not None and quote:
+        intent = quote_prompt(intent)  # a forwarded call's prompt (C9)
     if intent is not None:
         query += f"!{_wire_escape(intent)}"
     # A valueless flag is emitted BARE (`?broadcast&…`), never as `key=`:
@@ -102,12 +128,14 @@ def decode_subrequest(query: str) -> tuple[str, str]:
     """
     text = query.strip(ASCII_WHITESPACE)
     if not text.startswith("("):
-        return "", unquote_plus(text)
+        return "", unquote_prompt(unquote_plus(text))
     context = balanced_body(text, 1)
     if context is None:
         raise _unclosed(query)
     intent = _intent_tail(text[len(context) + 2 :])
-    return unquote_plus(context), unquote_plus(intent)
+    # WHY unquote: a forwarded prompt travels as quoted text (contracts C9, the A5 fix);
+    # an endpoint handler gets the prompt itself, as in url4 1.5.1.
+    return unquote_plus(context), unquote_prompt(unquote_plus(intent))
 
 
 def _unclosed(payload: str) -> ParseError:
@@ -143,7 +171,8 @@ def decode_subrequest_http(query: str) -> tuple[str, str]:
     """
     if not _fully_encoded(query):
         return decode_subrequest(query)
-    return _split_decoded(unquote_plus(query))
+    context, intent = _split_decoded(unquote_plus(query))
+    return context, unquote_prompt(intent)  # both conventions hand over the prompt (C9)
 
 
 def decode_expression_http(query: str) -> str:
@@ -275,5 +304,7 @@ __all__ = [
     "decode_subrequest_http",
     "encode_subrequest",
     "extract_expression_params",
+    "quote_prompt",
     "strip_transport_params",
+    "unquote_prompt",
 ]

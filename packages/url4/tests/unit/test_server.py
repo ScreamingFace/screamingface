@@ -349,8 +349,10 @@ async def test_dual_wire_conventions_are_codec_owned():
 
     raw = "(a=https://x)!'go'"
     encoded = "%28a%3Dhttps%3A%2F%2Fx%29%21%27go%27"
-    assert decode_subrequest_http(raw) == ("a=https://x", "'go'")
-    assert decode_subrequest_http(encoded) == ("a=https://x", "'go'")
+    # FLIPPED (url4 2.0, A5 / C9): the sub-request decode hands an endpoint the prompt
+    # itself — a quoted-text intent is unquoted; the eval path keeps the raw expression.
+    assert decode_subrequest_http(raw) == ("a=https://x", "go")
+    assert decode_subrequest_http(encoded) == ("a=https://x", "go")
     assert decode_expression_http(raw) == raw
     assert decode_expression_http(encoded) == raw
 

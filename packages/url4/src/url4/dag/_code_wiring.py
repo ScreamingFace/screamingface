@@ -15,11 +15,12 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from url4.core.intent import CodePointer, parse_code_pointer
+from url4.core.intent import CodePointer, code_pointer_of
 from url4.core.nodes import (
     Binding,
     Expression,
     Iteration,
+    NamedJob,
     Node,
     Params,
     RelUrl,
@@ -74,9 +75,9 @@ def reduce_rows(reducer: str, rows: DagNode) -> DagNode:
     # `/reduce(all)!'agg'`, a malformed `/reduce((bad`) is the relative-expression
     # reducer shape A4 keeps, and Graph.validate() parses it there. AIDEV-NOTE: this is
     # the one place a RELATIVE_URI (`classify_intent("/reduce()")`) does not run code.
-    if "(" in reducer or not isinstance(intent_atom(reducer), RelUrl):
+    pointer = None if "(" in reducer else code_pointer_of(intent_atom(reducer))
+    if pointer is None:
         return ReduceNode(reducer, deps={"rows": rows})
-    pointer = parse_code_pointer(reducer)
     slot = CodeSlot(name=None, weight=None, required=True, kind="rows")
     return CodeCallNode(pointer, (slot,), None, CodeSourcesNode(deps={"src:0": rows}))
 
@@ -84,15 +85,21 @@ def reduce_rows(reducer: str, rows: DagNode) -> DagNode:
 def call_intent(intent: Node, edges: Edges, lower: Callable[[Node, Edges], DagNode]) -> DagNode:
     """The intent of a FORWARDED call (``/p(ctx)!/code``, ``url4://n/v1(ctx)!/code``).
 
-    C9 (Spec C §11.6.2 rule 3): a relative code pointer travels VERBATIM in the child's
-    ``q=`` — the caller neither fetches nor interpolates it; the receiving node decides
-    what ``/code`` means. ``$`` doubles to ``$$`` so the TextNode's one substitution pass
-    yields the pointer text unchanged. Every other intent keeps its 1.5.1 lowering
-    (deviation A5 for prompts).
+    C9 (Spec C §11.6.2 rule 3): a relative code pointer or a named job travels VERBATIM
+    in the child's ``q=`` — the caller neither fetches nor interpolates it; the receiving
+    node decides what ``/code`` or ``score_v1`` means. ``$`` doubles to ``$$`` so the
+    TextNode's one substitution pass yields the text unchanged. Every other intent is
+    resolved by the caller and travels as a quoted prompt (the A5 fix,
+    :func:`~url4.wire.subrequest.quote_prompt`).
     """
-    if isinstance(intent, RelUrl):
+    if isinstance(intent, (RelUrl, NamedJob)) and is_verbatim_intent(intent):
         return TextNode(intent.value.replace("$", "$$"))
     return lower(intent, edges)
+
+
+def is_verbatim_intent(intent: Node | None) -> bool:
+    """A forwarded call's intent that travels as written: a code pointer or named job (C9)."""
+    return isinstance(intent, (RelUrl, NamedJob))
 
 
 def _code_slots(slots: list[_Slot]) -> tuple[CodeSlot, ...]:
@@ -162,4 +169,4 @@ def _lazy_kind(text: str) -> SlotKind:
     return "json" if envelope.broadcast else "text"
 
 
-__all__ = ["call_intent", "compile_group", "reduce_rows"]
+__all__ = ["call_intent", "compile_group", "is_verbatim_intent", "reduce_rows"]

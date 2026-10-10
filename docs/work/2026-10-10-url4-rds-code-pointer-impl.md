@@ -72,6 +72,22 @@ status default and exact C6 strictness. Planned commits, in order:
    2026-10-10 probe: url4 224 with call intents counted, Engine 166 on `!go`/`!probe`;
    SDK 0).
 
+## Unit 2 notes
+
+- The 2026-10-10 probe over-counted (it also hit forwarded-call intents). Actual flips:
+  url4 112 tests (rule A quote a prompt 82 sites, rule B `Text`→`NamedJob` 28, rule C
+  quoted wire 4) plus the decoder pin in `test_server.py`; Engine 18 tests (16 sites,
+  rule A only) plus the C8 rows added to `test_mount_routes.py`.
+- `x_y://z` (a bad scheme) stays prose, not a named job: a token holding `://` is never
+  a named job (contracts C1, "contains `://`").
+- `$`, `$x-y`, `$5off` classify as `PROSE` (text with an embedded reference); behavior is
+  the same `TextNode` as `VARIABLE_REF`.
+- Quoting lives in the wire codec (`quote_prompt`/`unquote_prompt` in
+  `wire/subrequest.py`, `encode_subrequest(…, quote=True)`), over `core/quoted.py`.
+- Design review (unit 2): 0 high, 4 medium, 11 low. Fixed: M1 (codec owns quoting), M2
+  (one `is_named_job`), M3 (corpus keeps named jobs), M4 (this ledger), L5 (`.value`),
+  L6, L7, L9–L11, L13, L15. Recorded: L8 (above), L12 (C6 note above), L14 (no effect).
+
 ## Notes and deviations (running)
 
 - **Preflight lives in `CodeCallNode.resolve`, not a `FailNode`.** Compilation has no IO
@@ -90,11 +106,12 @@ status default and exact C6 strictness. Planned commits, in order:
   intent's `$name`/`$N` edges to the group's built sources.
 - **Iteration reducers with `(`** (`/reduce()`, `/reduce(all)!'agg'`, malformed ones)
   stay on the 1.5.1 `ReduceNode` path (A4). A plain `/reduce` reducer is a code pointer.
-- **Strictness scope (C6):** a context variable makes every `$` substitution inside a
-  code group's source subtree strict, nested LLM groups inside it included. The spec
-  keys strictness on the NEAREST group; a nested prompt group under a code group is
-  therefore stricter than the spec asks. Recorded, not fixed: exact nesting needs a
-  per-leaf lowering flag.
+- **Strictness scope (C6):** unit 1 used one context variable for a code group's whole
+  source subtree. Unit 2 (5afb5326f) makes it exact: a group node declares `rds_scope`
+  (True for a code group, False for a prompt group), and the executor sets `RDS_STRICT`
+  before it starts the node's dependencies; each task copies it. A forwarded call has no
+  `rds_scope`, so its context substitutes with the strictness of the group around it
+  (decision recorded: the call's own intent is resolved by the receiver).
 - **Expansion elements:** objects and arrays decode; scalar elements stay `str`
   (the collection parser hands elements over as strings, and JSON-encodes structured
   ones, so a string element `"[1,2]"` also decodes). Reducer rows (`kind="rows"`) stay

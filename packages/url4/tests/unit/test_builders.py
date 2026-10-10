@@ -32,6 +32,7 @@ from url4.core.nodes import (
     IdentityRef,
     Iteration,
     IterationDirectives,
+    NamedJob,
     RelExpr,
     RelUrl,
     SelfRef,
@@ -117,7 +118,7 @@ def test_src_full_descriptor_golden():
         retry=2,
         required=True,
     )
-    assert render(expr(node, intent="go")) == (
+    assert render(expr(node, intent=text("go"))) == (
         "(medical:0.5:tokens=8000:influence=0.6:https://hospital.org/api/patient/42"
         ";mode=agent;t=120;retry=2;required)!'go'"
     )
@@ -127,14 +128,14 @@ def test_src_spec_examples():
     # spec §4.5: unnamed, weighted, with execution annotations (builders emit
     # typed annotations before flags; order is semantically irrelevant, §4.2)
     node = src(text("Supplementary AMA guidelines"), weight=0.2, required=False, retry=3)
-    assert render(expr(node, intent="go")) == (
+    assert render(expr(node, intent=text("go"))) == (
         "(0.2:'Supplementary AMA guidelines';retry=3;optional)!'go'"
     )
     # structured weight requires a name (token-initial '(' is value-shaped)
     weighted = src(
         "https://x", name="claude", weight={"science": 0.85, "math": 0.64, "_default": 0.4}
     )
-    assert render(expr(weighted, intent="go")) == (
+    assert render(expr(weighted, intent=text("go"))) == (
         "(claude:(science:0.85,math:0.64,_default:0.4):https://x)!'go'"
     )
     # scoped budget (§24.4)
@@ -144,7 +145,7 @@ def test_src_spec_examples():
         weight=0.6,
         budgets={"tokens": {"_each": 4000, "_total": 5000000}},
     )
-    assert render(expr(budgeted, intent="go")) == (
+    assert render(expr(budgeted, intent=text("go"))) == (
         "(claude:0.6:tokens=(_each:4000,_total:5000000):https://x)!'go'"
     )
 
@@ -152,18 +153,22 @@ def test_src_spec_examples():
 def test_src_accepts_expression_values():
     inner = expr(src("https://allrecipes.com"), intent="Find recipes")
     node = src(inner, name="chef", weight=0.4, mode="agent", t=120)
-    assert render(expr(node, intent="go")) == (
+    assert render(expr(node, intent=text("go"))) == (
         "(chef:0.4:(https://allrecipes.com)!'Find recipes';mode=agent;t=120)!'go'"
     )
 
 
 def test_src_required_is_tristate():
     # §10.1 — True marks ;required, False marks ;optional, None marks nothing
-    assert render(expr(src("https://x", required=True), intent="go")) == "(https://x;required)!'go'"
     assert (
-        render(expr(src("https://x", required=False), intent="go")) == "(https://x;optional)!'go'"
+        render(expr(src("https://x", required=True), intent=text("go")))
+        == "(https://x;required)!'go'"
     )
-    assert render(expr(src("https://x"), intent="go")) == "(https://x)!'go'"
+    assert (
+        render(expr(src("https://x", required=False), intent=text("go")))
+        == "(https://x;optional)!'go'"
+    )
+    assert render(expr(src("https://x"), intent=text("go"))) == "(https://x)!'go'"
 
 
 def test_src_validation():
@@ -196,7 +201,8 @@ def test_expr_string_sources_use_full_descriptor_grammar():
 
 
 def test_expr_intent_forms():
-    assert expr("https://x", intent="Summarize").intent == Text("Summarize")
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert expr("https://x", intent="Summarize").intent == NamedJob(value="Summarize")
     assert expr("https://x", intent="https://code.com/s.py").intent == Url("https://code.com/s.py")
     assert expr("https://x", intent="/score.py").intent is not None
     assert render(expr("https://x", intent=text("go"))) == "(https://x)!'go'"
@@ -205,9 +211,9 @@ def test_expr_intent_forms():
 
 
 def test_expr_params():
-    e = expr("https://x", intent="go", params={"quorum": 2, "t": 60})
+    e = expr("https://x", intent=text("go"), params={"quorum": 2, "t": 60})
     assert render(e) == "(https://x)!'go';quorum=2;t=60"
-    flags = expr("https://x", intent="go", params=[("meta", "full"), ("stream", None)])
+    flags = expr("https://x", intent=text("go"), params=[("meta", "full"), ("stream", None)])
     assert render(flags) == "(https://x)!'go';meta=full;stream"
 
 
@@ -314,7 +320,8 @@ def test_expr_rewrites_reducer_iteration_sources():
     e = expr(it, intent="r")
     inner = e.sources[0]
     assert isinstance(inner, Expression)
-    assert inner.intent == Text("agg")
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert inner.intent == NamedJob(value="agg")
     assert isinstance(inner.sources[0], Iteration)
     assert inner.sources[0].reducer is None
     assert build(render(e)) == e
@@ -344,7 +351,7 @@ def test_expand_forms():
     )
     named = expand(src("https://feed.com/items", name="articles", weight=0.5))
     assert named.expand is True and named.name == "articles"
-    assert render(expr(named, "https://o.com", intent="Summarize")) == (
+    assert render(expr(named, "https://o.com", intent=text("Summarize"))) == (
         "(*articles:0.5:https://feed.com/items, https://o.com)!'Summarize'"
     )
     # a Binding expands to a named Source (mirrors the grammar's _mark_expand)

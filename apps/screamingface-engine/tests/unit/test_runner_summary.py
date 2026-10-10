@@ -58,7 +58,7 @@ async def test_a_completed_run_records_an_exact_summary() -> None:
     io = StaticIOLayer(fetch_map={"https://a": "A"})
     executor = Url4Executor(io)
 
-    async for _ in executor.execute("https://a!go", trace=TRACE):
+    async for _ in executor.execute("https://a!'go'", trace=TRACE):
         pass
 
     summary = executor.last_summary()
@@ -133,7 +133,7 @@ async def test_the_wrapper_delegates_last_summary_to_the_inner_executor() -> Non
     io = StaticIOLayer(fetch_map={"https://a": "A"})
     wrapper = OperationCapturingExecutor(Url4Executor(io))
 
-    async for _ in wrapper.execute("https://a!go", trace=TRACE):
+    async for _ in wrapper.execute("https://a!'go'", trace=TRACE):
         pass
 
     summary = wrapper.last_summary()

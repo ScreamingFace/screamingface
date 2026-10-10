@@ -9,10 +9,11 @@ RDS mode it is a code pointer. :func:`classify_intent` names the intent's *form*
 of the form, so it is known from the parse tree alone (B §8.2.1 runs interpolation before
 resolution, and B §5.3.4.1 makes field paths strict in RDS mode only).
 
-url4 2.0 acts on two forms differently from the spec table (overview §6, the Lean ``v1``
-profile): an absolute URI keeps the 1.5.1 fetch-as-prompt meaning (deviation D2, owner
-decision Q1), and a bare token stays a prompt (deviation D1, until phase P3). So only a
-``RELATIVE_URI`` intent ever runs code.
+url4 2.0 acts on one form group differently from the spec table (overview §6, the Lean
+``v1`` profile): an absolute URI keeps the 1.5.1 fetch-as-prompt meaning (deviation D2,
+owner decision Q1). So a ``RELATIVE_URI`` (a code pointer) and a ``BARE_TOKEN`` (a named
+job, Q6) are the only intents that run code, and only on this node. ``PROSE`` — unquoted
+text with a space — is not ABNF; url4 keeps it a prompt.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from url4.core.nodes import (
     Expression,
     IdentityRef,
     Iteration,
+    NamedJob,
     Node,
     RelExpr,
     RelUrl,
@@ -54,6 +56,7 @@ class IntentForm(StrEnum):
     SELF_REF = "self_ref"  # rule 7.1
     IDENTITY_REF = "identity_ref"  # rule 7.2
     STRUCT_OBJECT = "struct_object"  # rule 6
+    PROSE = "prose"  # unquoted text that is not one bare-value token (url4 leniency)
 
 
 class IntentMode(StrEnum):
@@ -76,12 +79,14 @@ _MODE_OF_FORM: Mapping[IntentForm, IntentMode] = MappingProxyType(
         IntentForm.SELF_REF: IntentMode.COMPUTED,
         IntentForm.IDENTITY_REF: IntentMode.COMPUTED,
         IntentForm.STRUCT_OBJECT: IntentMode.COMPUTED,
+        IntentForm.PROSE: IntentMode.LLM,
     }
 )
 
 _FORM_OF_NODE: Mapping[type[Node], IntentForm] = MappingProxyType(
     {
         RelUrl: IntentForm.RELATIVE_URI,
+        NamedJob: IntentForm.BARE_TOKEN,
         Url: IntentForm.ABSOLUTE_URI,
         RelExpr: IntentForm.EXPRESSION,
         Expression: IntentForm.EXPRESSION,
@@ -123,10 +128,10 @@ def classify_intent(text: str) -> IntentForm:
 
 
 def _text_form(text: str) -> IntentForm:
-    """A Text intent: unquoted, and no value rule claimed it (B §5.2 rules 8, 10)."""
+    """A Text intent: unquoted and not one token — a `$` reference or prose (B §5.2 r. 8)."""
     if _VARIABLE_REF_RE.fullmatch(text):
         return IntentForm.VARIABLE_REF
-    return IntentForm.BARE_TOKEN
+    return IntentForm.PROSE
 
 
 def _remote_form(text: str) -> IntentForm:
@@ -167,11 +172,35 @@ def parse_code_pointer(text: str) -> CodePointer:
     return CodePointer(path, MappingProxyType(parse_query_tail(query)))
 
 
+def code_pointer_of(intent: Node | None) -> CodePointer | None:
+    """The code an intent runs on this node, or None for a prompt or computed intent.
+
+    A relative URI is a code pointer (C1); a bare token is a named job (P3, Q6) — its
+    pointer is the token itself, one key of the same code table, with no params.
+    """
+    if isinstance(intent, RelUrl):
+        return parse_code_pointer(intent.value)
+    if isinstance(intent, NamedJob):
+        return CodePointer(intent.value, MappingProxyType({}))
+    return None
+
+
+def is_named_job(text: str) -> bool:
+    """Whether ``text`` reads back as one named-job token (P3): THE test for render guards
+    and code-mount names, derived from the grammar so the three cannot drift."""
+    try:
+        return intent_atom(text) == NamedJob(text)
+    except ParseError:
+        return False
+
+
 __all__ = [
     "CodePointer",
     "IntentForm",
     "IntentMode",
     "classify_intent",
+    "code_pointer_of",
     "intent_mode",
+    "is_named_job",
     "parse_code_pointer",
 ]

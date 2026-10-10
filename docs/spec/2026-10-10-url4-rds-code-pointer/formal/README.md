@@ -77,3 +77,8 @@ definition breaks the build. They do not prove anything about the Python code.
 - Values: the model keeps `V` abstract. The C3 typing table is tested in Python.
 - Weight splitting over expansions (`W / N`) and structured weights.
 - Concurrency, cancellation and deadlines (the DAG executor's existing guarantees).
+
+**Outside the ABNF.** url4 also accepts unquoted intent text that is not one `bare-value`
+token (it has a space, a `%`, a comma, …). The implementation names it `IntentForm.PROSE`
+and keeps it a prompt (LLM mode). It is not a Spec B form, so the model has no
+`IntentForm` for it; it is a leniency, not a deviation.

@@ -213,6 +213,7 @@ class Executor:
 
 def _enter_rds_scope(node: DagNode) -> None:
     """C6: a group's ``rds_scope`` sets strictness for its deps (each task copies it)."""
+    # INVARIANT: a shared node takes its first parent's scope; it never crosses a code group.
     if (scope := getattr(node, "rds_scope", None)) is not None:
         RDS_STRICT.set(scope)
 

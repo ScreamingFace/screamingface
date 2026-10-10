@@ -67,9 +67,10 @@ The execution engine (DAG compilation, executor, lowering) lives one level down:
 
 ## Migrating to 2.0
 
-url4 2.0 reads the intent's form (Spec B §6): a quoted intent is a prompt, and a
-**relative URI intent is a code pointer** that runs on this node. An absolute URI intent
-(`https://…`, `url4://…`) and a bare word are still prompts, as in 1.5.
+url4 2.0 reads the intent's form (Spec B §6): a quoted intent is a prompt; a **relative
+URI intent is a code pointer** and a **one-word bare intent is a named job**, and both run
+code on this node. An absolute URI intent (`https://…`, `url4://…`) and unquoted text with
+a space are still prompts, as in 1.5.
 
 ```python
 @node.code("/ensemble/combine/v1")
@@ -83,6 +84,13 @@ def combine(call: CodeCall) -> str:
 weight-`0.0` source is delivered with its weight. `;quorum=N` and `;quorum=majority` gate
 the call.
 
+Mount code by path or by name — one table, separate keys:
+
+```python
+@node.code("score_v1")  # runs for `(…)!score_v1`
+def score(call: CodeCall) -> str: ...
+```
+
 What changes for you:
 
 1. A URI intent that held instruction text (`(…)!/instr`) is now code. Write the text as a
@@ -93,9 +101,19 @@ What changes for you:
 3. To run code on another node, send the whole expression to that node, as the top-level
    request (`url4://n/v1?q=(…)!/code`) or as a source (`(r:url4://n/v1(…)!/code)!'…'`).
    An absolute-URI *intent* is still a prompt source.
-4. A relative-expression intent (`/w?q=($1)!'Write'`) is now evaluated, with the group's
+4. A one-word bare intent (`(a, b)!summarize`) is now a named job. Register
+   `@node.code("summarize")`, or quote it (`!'summarize'`) to keep it a prompt. The same
+   holds for every string intent passed to the Python API — `expr(…, intent="go")`,
+   `Client.query`, `broadcast`, `iterate` — use `text("go")` (or `"'go'"`) for a prompt.
+5. A forwarded call's prompt now travels quoted: `/p(ctx)!'Answer'` sends
+   `q=(ctx)!'Answer'` (escaped `%27Answer%27`), so a remote eval path reads a prompt, not a
+   named job. An endpoint handler still receives `Answer`. A prompt with a newline still
+   travels unquoted. Mixed versions: a url4 1.5 endpoint that receives a 2.0 caller's
+   forwarded prompt sees the quotes (`'Answer'`); upgrade receivers first.
+6. A relative-expression intent (`/w?q=($1)!'Write'`) is now evaluated, with the group's
    `$` references; 1.5 read it as data.
-5. Errors: an unmounted pointer or a failing handler is `intent_error` (HTTP 422,
+7. Errors: an unlisted permanent error code now answers HTTP 422 (was 500). An
+   unmounted pointer or a failing handler is `intent_error` (HTTP 422,
    permanent); an IO layer with no code mounts (for example a client-side `HttpIOLayer`)
    gives `unsupported_mode` (HTTP 501). Inside a code group, field paths are strict
    (Spec B §5.3.4.1).

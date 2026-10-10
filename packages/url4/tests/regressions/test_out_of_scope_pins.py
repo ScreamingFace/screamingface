@@ -256,7 +256,7 @@ async def test_C4_shared_node_is_fetched_once():
 )
 @pytest.mark.asyncio
 async def test_C5_reused_executor_does_not_raise_cancelled():
-    graph = compile_expression("(https://x.test/bad, https://x.test/good)!join")
+    graph = compile_expression("(https://x.test/bad, https://x.test/good)!'join'")
     ex = Executor(ExecutionContext(_FailingIO()))
     with pytest.raises(Url4Error):
         await ex.execute(graph.sink)

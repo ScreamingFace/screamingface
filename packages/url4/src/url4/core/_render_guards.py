@@ -19,6 +19,7 @@ from url4.core._lexical import _IDENT_RE, _PATH_SEGMENT_RE, _VARREF_HEAD_RE
 from url4.core._scan import find_top_level
 from url4.core.errors import ParseError, RenderError
 from url4.core.grammar import intent_atom
+from url4.core.intent import is_named_job
 from url4.core.nodes import Iteration, Node, Params
 
 # Annotation keys a Source must not carry as plain pairs: the parser folds them
@@ -110,6 +111,13 @@ def check_raw_tail(text: str, what: str, *, top: bool) -> None:
     for ch in ";" if top else ";,":
         if find_top_level(text, ch) is not None:
             raise RenderError(f"{what} {text!r} contains a depth-0 {ch!r}")
+
+
+def check_named_job(name: str) -> str:
+    """A named job renders bare, so it must read back as itself (P3): one token."""
+    if not is_named_job(name):
+        raise RenderError(f"named job {name!r} is not one bare-value token")
+    return name
 
 
 def check_structured_intent(node: Node, text: str) -> None:

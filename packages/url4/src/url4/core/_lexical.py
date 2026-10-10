@@ -28,6 +28,12 @@ _VARREF_HEAD_RE = re.compile(r"\$([A-Za-z_]\w*|\d+)", re.ASCII)
 _FIELD_SEG_RE = re.compile(r"[A-Za-z_]\w*", re.ASCII)
 # path-segment (§ identity-collection) — the ABNF's explicit character class.
 _PATH_SEGMENT_RE = re.compile(r"[A-Za-z0-9\-_.~:@!$&+=]+", re.ASCII)
+
+# B §8 `quoted-char = %x20-7E`: the one control-character class (url4 also takes non-ASCII).
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+# B §8 `bare-value` as a whole intent: one token, no space and no control character.
+_BARE_VALUE_RE = re.compile(r"[A-Za-z0-9\-._~$=*:@/?+&]+", re.ASCII)
 # INVARIANT: budget-key = 1*( ALPHA / "_" ) — digits are deliberately excluded.
 _BUDGET_KEY_RE = re.compile(r"[A-Za-z_]+", re.ASCII)
 # scalar-budget-value = 1*( ALPHA / DIGIT / "." / "-" / "_" )
@@ -68,7 +74,7 @@ def _unescape(content: str) -> str:
             out.append(nxt)
             i += 2
             continue
-        if char < " " or char == "\x7f":
+        if _CONTROL_CHAR_RE.match(char):
             raise ParseError(f"raw control character {char!r} in quoted text (spec quoted-char)")
         out.append(char)
         i += 1

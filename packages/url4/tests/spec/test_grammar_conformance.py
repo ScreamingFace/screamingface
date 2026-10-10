@@ -17,7 +17,7 @@ import pytest
 
 from url4.core.grammar import parse as grammar_parse
 from url4.core.grammar import parse_value
-from url4.core.nodes import Expression, Iteration, RelExpr, Text
+from url4.core.nodes import Expression, Iteration, NamedJob, RelExpr, Text
 from url4.core.parser import build
 from url4.dag import run
 from url4.io.static import StaticIOLayer
@@ -62,7 +62,8 @@ def test_intent_bearing_collection_keeps_its_own_intent() -> None:
     assert isinstance(node, Iteration)
     # the collection is the local-expr `(a)!y` — its intent belongs to IT
     assert isinstance(node.collection, Expression)
-    assert node.collection.intent == Text("y")
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert node.collection.intent == NamedJob(value="y")
     assert node.body == "'b'"
     assert node.intent == "x"
 
@@ -107,7 +108,8 @@ def test_nested_query_params_split_only_at_depth_zero() -> None:
     assert isinstance(node, RelExpr)
     assert node.path == "/summarize"
     assert node.context == "article"
-    assert node.intent == Text("condense")
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert node.intent == NamedJob(value="condense")
     assert dict(node.params) == {"processor": "(/x?a=1&b=2&q=(y)!z)!route"}
 
 
@@ -170,4 +172,4 @@ def test_static_io_route_still_serves_a_relative_expression() -> None:
     # REGRESSION: the shared filter sits in the sub-request codec; the ordinary
     # route path must keep working.
     io = StaticIOLayer(routes={"/echo": lambda context, intent: f"{context}|{intent}"})
-    assert asyncio.run(run("(/echo(hi)!there)!outer", io))
+    assert asyncio.run(run("(/echo(hi)!'there')!'outer'", io))

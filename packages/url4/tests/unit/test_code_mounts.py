@@ -90,7 +90,6 @@ def test_has_code_is_false_for_unknown_endpoint_and_data_paths() -> None:
         "/cm",
         "/v1",
         "/v1/x",
-        "ensemble",
         "/c?x=1",
         "/c/$x",
         "/reduce()",
@@ -180,3 +179,21 @@ async def test_static_io_layer_unmounted_pointer_is_an_intent_error() -> None:
 
 def test_default_static_io_layer_has_no_code_mounts() -> None:
     assert not StaticIOLayer().has_code("/c")
+
+
+# --- name keys (row 29, owner decision Q6) ----------------------------------------------
+
+
+def test_code_registers_a_name_key() -> None:
+    node = Url4Node("t", outbound=StaticIOLayer({}))
+    node.code("score_v1")(_combine)
+    assert node.has_code("score_v1")
+    assert not node.has_code("/score_v1")
+
+
+@pytest.mark.parametrize("name", ["two words", "a$b", "x!y", "'q'", "score_v1"])
+def test_code_refuses_an_invalid_or_taken_name(name: str) -> None:
+    node = Url4Node("t", outbound=StaticIOLayer({}))
+    node.code("score_v1")(_combine)
+    with pytest.raises(ValueError):
+        node.code(name)

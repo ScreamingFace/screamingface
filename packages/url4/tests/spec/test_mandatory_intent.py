@@ -149,7 +149,7 @@ def test_processor_expression_form_still_resolves_via_bindings() -> None:
         }
     )
     result = asyncio.run(
-        run("(/claude(a)!x, /gpt4(b)!y)!combine", io, processor="(p:0:'/gpt4')!'$p'")
+        run("(/claude(a)!'x', /gpt4(b)!'y')!'combine'", io, processor="(p:0:'/gpt4')!'$p'")
     )
     assert result.startswith("gpt4:")
 

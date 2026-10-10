@@ -18,7 +18,7 @@ from url4 import build, render
 from url4.core._call_head import is_call_head
 from url4.core.errors import ParseError, ResolutionError
 from url4.core.grammar import parse
-from url4.core.nodes import Expression, RelExpr, RemoteExpr, Text
+from url4.core.nodes import Expression, NamedJob, RelExpr, RemoteExpr, Text
 from url4.dag import run
 from url4.dag.nodes import guard as guard_module
 from url4.io.static import StaticIOLayer
@@ -43,8 +43,8 @@ def _both(text: str) -> tuple[str, str]:
 @pytest.mark.parametrize(
     ("canonical", "sugar"),
     [
-        ("/p?q=(x)!go", "/p(x)!go"),
-        ("/p?t=90&q=(x)!go", "/p(x)!go"),
+        ("/p?q=(x)!'go'", "/p(x)!'go'"),
+        ("/p?t=90&q=(x)!'go'", "/p(x)!'go'"),
     ],
 )
 def test_B7_top_level_canonical_call_is_the_sugar_call(canonical: str, sugar: str) -> None:
@@ -72,7 +72,8 @@ def test_B7_canonical_call_keeps_its_query_params() -> None:
 def test_B7_remote_canonical_call_is_a_call() -> None:
     call = _only_source("url4://h.io/p?q=(x)!go")
     assert isinstance(call, RemoteExpr)
-    assert (call.authority, call.path, call.intent) == ("h.io", "/p", Text("go"))
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert (call.authority, call.path, call.intent) == ("h.io", "/p", NamedJob(value="go"))
 
 
 class _RecordingIO:
@@ -120,7 +121,7 @@ def test_B7_a_parenthesized_param_does_not_take_the_calls_bang(text: str, proces
     assert isinstance(call, RelExpr)
     assert (call.context, call.intent, call.params) == (
         "x",
-        Text("go"),
+        NamedJob(value="go"),
         (("processor", processor),),
     )
 
@@ -130,7 +131,8 @@ def test_B7_the_q_expression_is_the_last_query_param() -> None:
     # last, so text after the intent is part of the intent, not another param.
     call = _only_source("/p?q=(x)!go&t=1")
     assert isinstance(call, RelExpr)
-    assert (call.intent, call.params) == (Text("go&t=1"), ())
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert (call.intent, call.params) == (NamedJob(value="go&t=1"), ())
 
 
 _HEAD = st.lists(
@@ -167,7 +169,9 @@ def test_B7_is_call_head_agrees_with_the_grammar(head: str) -> None:
         node = None
     is_call = isinstance(node, (RelExpr, RemoteExpr))
     if is_call_head(head):
-        assert node is None or (is_call and node.context == "x" and node.intent == Text("go"))
+        assert node is None or (
+            is_call and node.context == "x" and node.intent == NamedJob(value="go")
+        )
     else:
         assert not is_call
 
@@ -175,7 +179,8 @@ def test_B7_is_call_head_agrees_with_the_grammar(head: str) -> None:
 def test_B7_a_query_without_q_is_still_a_data_uri() -> None:
     # Spec B §8 rule 16: no `q=(` in the query → the rewind rule, a relative URI.
     tree = build("/api?limit=10!go")
-    assert isinstance(tree, Expression) and tree.intent == Text("go")
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert isinstance(tree, Expression) and tree.intent == NamedJob(value="go")
 
 
 @pytest.mark.parametrize(
@@ -239,11 +244,11 @@ def test_B1_chained_call_intent_is_a_parse_error_in_the_grammar(text: str) -> No
 
 
 def test_B1_a_grouped_call_is_processed_on_both_paths_alike() -> None:
-    lazy, eager = _both("(/p(x)!a)!b")
+    lazy, eager = _both("(/p(x)!'a')!'b'")
     assert lazy == eager == "P[|[Response 1]\nP[x|a]\n\n[Instruction]\nb]"
 
 
-@pytest.mark.parametrize("text", ["('a', 'b')!('c', 'd')!agg", "('a')!'b!c'"])
+@pytest.mark.parametrize("text", ["('a', 'b')!('c', 'd')!'agg'", "('a')!'b!c'"])
 def test_B1_an_expression_intent_or_a_quoted_bang_is_not_a_chain(text: str) -> None:
     build(text)
     lazy, eager = _both(text)
@@ -335,10 +340,10 @@ def test_item9_retry_on_a_nested_group_is_applied_on_both_paths(
 @pytest.mark.parametrize(
     "text",
     [
-        "/p(x)!('a')!b",
-        "/p(x)!('a', 'b')!c",
-        "(/p(x)!('a')!b, 'c')!k",
-        "(/p(x)!('a', 'b')!c, 'd')!k",
+        "/p(x)!('a')!'b'",
+        "/p(x)!('a', 'b')!'c'",
+        "(/p(x)!('a')!'b', 'c')!'k'",
+        "(/p(x)!('a', 'b')!'c', 'd')!'k'",
     ],
 )
 def test_review1_a_call_with_an_expression_intent_reads_alike(text: str) -> None:
@@ -350,7 +355,8 @@ def test_review1_a_call_with_an_expression_intent_reads_alike(text: str) -> None
 def test_review1_a_call_with_an_expression_intent_parses_as_one_call() -> None:
     call = _only_source("/p(x)!('a', 'b')!c")
     assert isinstance(call, RelExpr)
-    assert call.intent == Expression(sources=(Text("a"), Text("b")), intent=Text("c"))
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert call.intent == Expression(sources=(Text("a"), Text("b")), intent=NamedJob(value="c"))
     assert parse("/p(x)!('a', 'b')!c") == call
 
 

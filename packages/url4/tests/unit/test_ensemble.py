@@ -46,7 +46,7 @@ async def test_fanout_reduce_builds_weighted_reducer_input() -> None:
 async def test_broadcast_applies_intent_per_source() -> None:
     # Spec §6.1.4 — a JSON collection of per-source results, 1-based positions.
     io = StaticIOLayer(fetch_map={"https://a": "A", "https://b": "B"})
-    result = await run("(https://a, https://b)!*tag", io)
+    result = await run("(https://a, https://b)!*'tag'", io)
     assert json.loads(result) == [
         {"source_position": 1, "source_name": None, "result": "tag\n\nA"},
         {"source_position": 2, "source_name": None, "result": "tag\n\nB"},
