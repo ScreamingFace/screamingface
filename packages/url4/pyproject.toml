@@ -15,6 +15,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
 dependencies = [
@@ -38,7 +39,11 @@ server = ["uvicorn>=0.30"]
 # install a wire-format library for a subsystem they never touch, which is the same doctrine
 # `observe.py` states for itself — the engine core does not gain a transport dependency because
 # an embedder wants to watch a run. `apps/screamingface-engine` depends on `url4[streaming]`.
-streaming = ["pydantic>=2.13.4"]
+#
+# WHY >=2.12: ResultSignal.artifact uses Field(exclude_if=...), added in pydantic 2.12. An older
+# pydantic ignores it with a warning and writes "artifact": null on the wire. The suite passes on
+# 2.12.0 and fails on 2.11.7 (test_result_signal.py).
+streaming = ["pydantic>=2.12"]
 
 # The `url4` CLI: `url4 serve` (HTTP node) and `url4 eval` (network-free one-shot).
 # `serve` additionally needs the `server` extra (uvicorn) at runtime.
