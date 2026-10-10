@@ -125,9 +125,11 @@ class Url4Node:
         ``@node.data("/api/rows")`` decorates a provider function. ``media_type``
         declares the route's Content-Type so a collection served here parses by
         its declared type (spec §5.3.7) rather than being sniffed — the node's
-        :meth:`fetch_ex` reports it when it serves this route.
+        :meth:`fetch_ex` reports it. A path under the eval path raises ``ValueError``.
         """
         self._check_routable(path)
+        if self._is_eval_path(path.partition("?")[0]):
+            raise ValueError(f"data route {path!r} is under the eval path {self._eval_path!r}")
         if provider is not None:
             self._data[path] = _DataRoute(provider, media_type)
             return None
@@ -209,6 +211,10 @@ class Url4Node:
             raise ValueError(f"{path!r} is the eval path — it is dispatched by the node itself")
         if path in self._endpoints or path in self._data:
             raise ValueError(f"path {path!r} is already registered")
+
+    def _is_eval_path(self, path: str) -> bool:
+        """Whether ``path`` is the eval path, bare or collection-qualified (§5.6.1)."""
+        return path == self._eval_path or path.startswith(f"{self._eval_path}/")
 
     # --- the IOLayer ports (a node IS an io layer) ----------------------------------
     # Thin delegates: the dispatch order lives in url4.peer._dispatch (the F2

@@ -121,9 +121,9 @@ class ServeConfig:
         _require(not overlap, f"data paths clash with command routes {sorted(overlap)}")
         # INVARIANT: `{eval_path}/…` is the self-holdings qualifier namespace
         # (spec §5.6.3.1) — `GET /v1/science?q=(@)!'…'` scopes `@` to the
-        # "science" shelf. A command or data route declared under it would
-        # shadow every qualifier below that path (endpoints match first in
-        # `_dispatch`), so reject it here rather than let one silently win.
+        # "science" shelf, so no config route is mounted there. Url4Node.data is
+        # the one authority for data routes; this check reports the same
+        # refusal as a ConfigError before bind.
         prefix = f"{self.eval_path}/"
         shadowed = sorted(p for p in (*self.commands, *self.data) if p.startswith(prefix))
         _require(

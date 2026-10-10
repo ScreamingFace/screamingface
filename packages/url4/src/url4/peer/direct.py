@@ -35,7 +35,7 @@ from url4.observe import (
     Usage,
     _bind_node_sinks,
 )
-from url4.peer._dispatch import _text, call_endpoint, data_route
+from url4.peer._dispatch import call_endpoint, data_route, missing_intent, serve_data
 from url4.peer._http import status_for_code
 from url4.wire.subrequest import extract_expression_params
 
@@ -70,7 +70,7 @@ def describe_routes(node: Url4Node) -> list[RouteInfo]:
 
 def is_eval_path(node: Url4Node, path: str) -> bool:
     """Whether ``path`` is ``node``'s eval path, bare or collection-qualified."""
-    return path == node._eval_path or path.startswith(f"{node._eval_path}/")
+    return node._is_eval_path(path)
 
 
 async def dispatch_direct(
@@ -163,23 +163,18 @@ async def _dispatch_direct(node: Url4Node, target: str) -> DirectResult:
     params, q = extract_expression_params(query) if sep else ({}, None)
     # INVARIANT (D1): only a REGISTERED handler is ever called. The eval branch of `dispatch`
     # (`node._run_text`) is not reachable from here at all — not by an ordering rule, but
-    # because this function has no path to it. Endpoints and data routes win by exact
-    # registration, which is why a mount UNDER the eval path (`/v1/chat/completions`) is
-    # served, while `/v1` itself or an unregistered `/v1/<x>` is refused by name.
+    # because this function has no path to it. Exact registration wins, which is why an
+    # endpoint mounted UNDER the eval path (`/v1/chat/completions`) is served, while `/v1`
+    # itself or an unregistered `/v1/<x>` is refused by name.
     if path in node._endpoints:
         if q is None:
-            raise ResolutionError(
-                f"endpoint {path!r} needs q=(context)!intent",
-                code=ErrorCode.MISSING_INTENT,
-                permanent=True,
-            )
+            raise missing_intent(path, "q=(context)!intent")
         return DirectResult(await call_endpoint(node, path, q, params), None)
     route = data_route(node, target, path)
     if route is not None:
-        provider = route.provider
-        body = await _text(provider() if callable(provider) else provider)
-        return DirectResult(body, route.media_type)
-    if is_eval_path(node, path):
+        result = await serve_data(route)
+        return DirectResult(result.body, result.media_type)
+    if node._is_eval_path(path):
         raise ResolutionError(
             f"a direct call may not target the eval path {node._eval_path!r}",
             code=ErrorCode.DIRECT_EVAL_REFUSED,
@@ -193,11 +188,10 @@ async def _dispatch_direct(node: Url4Node, target: str) -> DirectResult:
 
 
 _DIRECT_STATUS: dict[str, int] = {
-    ErrorCode.MISSING_INTENT: 400,
     ErrorCode.DIRECT_EVAL_REFUSED: 404,
 }
-"""What a direct call adds to the node's spec table: an endpoint called without ``q`` is the
-caller's error, and the eval path has no direct handler (as if the route did not exist)."""
+"""What a direct call adds to the node's spec table: the eval path has no direct handler (as if
+the route did not exist), so a direct call to it is refused with ``direct_eval_refused``."""
 
 
 def http_status(code: str | None, *, permanent: bool) -> int:

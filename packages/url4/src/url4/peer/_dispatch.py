@@ -16,14 +16,17 @@ Dispatch contract (mirrors the engine's wire conventions):
   calls the registered handler with :class:`Request` — ``context`` is *opaque,
   already-resolved data*. AIDEV-NOTE: engine-internal dispatches wire-escape
   resolved text, so re-evaluating it would mis-parse — handlers never receive
-  unresolved expressions.
+  unresolved expressions. No ``q`` on an endpoint is 400 ``missing_intent``.
 - **The eval path is the protocol surface** (default ``/v1``). Its ``q=`` is a
   full url4 expression: the node reconstructs it, re-attaches non-transport
   protocol params as the ``;``-chain (so ``broadcast``/``quorum`` keep their
   spec meaning, §6.1.1/§9), and evaluates it against itself — sources resolve
   HERE (§5.6.3 pass-through), the intent dispatches to the node's default
   route (explicit ``default_processor``, else its first registered endpoint).
+  No ``q`` on the eval path is 400 ``missing_intent``. The direct path never
+  evaluates, so it refuses the eval path by name (:mod:`url4.peer.direct`).
 - **Data routes** serve plain reads (`/api/rows`) for sources and collections.
+  A data route cannot live under the eval path: the node evaluates there.
 - **GET is the only verb.** WHY: url4-engine doctrine N1 — the expression is the
   address, so the transactional call is an idempotent, cacheable GET.
 """
@@ -86,19 +89,8 @@ async def fetch(node: Url4Node, target: str, *, relative: bool) -> str:
 
 async def fetch_ex(node: Url4Node, request: FetchRequest) -> FetchResult:
     if request.relative or request.target.startswith("/"):
-        body = await dispatch(node, request.target)
-        return FetchResult(body, data_media_type(node, request.target))
+        return await dispatch_result(node, request.target)
     return await fetch_result(node._outbound_io(), request)
-
-
-def data_media_type(node: Url4Node, target: str) -> str | None:
-    """The declared Content-Type of the data route serving ``target``, if any.
-
-    Mirrors ``dispatch``'s exact-target-then-path data lookup; endpoint and
-    eval-path dispatches have no declared media type and report None.
-    """
-    route = node._data.get(target) or node._data.get(target.partition("?")[0])
-    return route.media_type if route is not None else None
 
 
 async def fetch_holdings(node: Url4Node, identity: str | None, collection: str | None) -> str:
@@ -134,35 +126,27 @@ def data_route(node: Url4Node, target: str, path: str) -> _DataRoute | None:
     return None
 
 
-async def dispatch(node: Url4Node, target: str) -> str:
+async def serve_data(route: _DataRoute) -> FetchResult:
+    """Read one data route: its provider's body, with the media type the route declares."""
+    provider = route.provider
+    body = await _text(provider() if callable(provider) else provider)
+    return FetchResult(body, route.media_type)
+
+
+async def dispatch_result(node: Url4Node, target: str) -> FetchResult:
+    """Run the one branch ``target`` names, and report the media type that branch declares.
+
+    Branches run in order: an endpoint (exact path), the eval path (bare or
+    ``/<collection>``), then a data route. A data path that carries its own
+    ``?q=`` is neither an endpoint nor under the eval path, so it is still
+    served as data, with that data route's declared media type.
+    """
     path, sep, query = target.partition("?")
     params, q = extract_expression_params(query) if sep else ({}, None)
-    if q is not None:
-        expression_result = await dispatch_expression(node, path, q, params)
-        if expression_result is not None:
-            return expression_result
-    route = data_route(node, target, path)
-    if route is not None:
-        provider = route.provider
-        return await _text(provider() if callable(provider) else provider)
-    raise ResolutionError(
-        f"node {node.name!r} has no endpoint, eval path, or data route at {path!r}",
-        code=ErrorCode.ENDPOINT_NOT_FOUND,
-        permanent=True,
-    )
-
-
-async def dispatch_expression(
-    node: Url4Node, path: str, q: str, params: Mapping[str, str]
-) -> str | None:
-    """Route an expression-bearing request, or ``None`` if ``path`` bears none.
-
-    Returning ``None`` (rather than raising) lets :func:`dispatch` fall
-    through to the data routes, so a data path carrying its own ``?q=…``
-    query is still served as data.
-    """
     if path in node._endpoints:
-        return await call_endpoint(node, path, q, params)
+        if q is None:
+            raise missing_intent(path, "q=(context)!intent")
+        return FetchResult(await call_endpoint(node, path, q, params), None)
     # Spec §5.6.1/§5.6.3.1 — `{eval_path}/<qualifier>` evaluates the
     # expression with `@` scoped to that self-holdings collection:
     # `GET /v1/science?q=(@)!'…'`. Multi-segment qualifiers join with "/"
@@ -170,16 +154,30 @@ async def dispatch_expression(
     # (§5.6.2); the bare eval path yields "" -> None, the default shelf.
     # Endpoints are matched first, so a command route still wins its exact
     # path; `_check_routable` keeps the two from overlapping.
-    if path == node._eval_path or path.startswith(f"{node._eval_path}/"):
+    if node._is_eval_path(path):
+        if q is None:
+            raise missing_intent(path, "q=<expression>")
         collection = path[len(node._eval_path) + 1 :]
         # AIDEV-NOTE: `processor` is consumed here, not re-attached by
         # `reassemble` — it selects this run's processor, not an expression param.
-        return await node._run_text(
+        text = await node._run_text(
             reassemble(q, params),
             self_collection=collection or None,
             processor=params.get("processor"),
         )
-    return None
+        return FetchResult(text, None)
+    route = data_route(node, target, path)
+    if route is not None:
+        return await serve_data(route)
+    raise ResolutionError(
+        f"node {node.name!r} has no endpoint, eval path, or data route at {path!r}",
+        code=ErrorCode.ENDPOINT_NOT_FOUND,
+        permanent=True,
+    )
+
+
+async def dispatch(node: Url4Node, target: str) -> str:
+    return (await dispatch_result(node, target)).body
 
 
 async def call_endpoint(node: Url4Node, path: str, q: str, params: Mapping[str, str]) -> str:
@@ -189,6 +187,11 @@ async def call_endpoint(node: Url4Node, path: str, q: str, params: Mapping[str, 
 
 
 # --- helpers ------------------------------------------------------------------------------
+
+
+def missing_intent(path: str, needs: str) -> ResolutionError:
+    """The permanent 400 for a call to ``path`` that carries no ``q=``; ``needs`` names the form."""
+    return ResolutionError(f"{path!r} needs {needs}", code=ErrorCode.MISSING_INTENT, permanent=True)
 
 
 def reassemble(q: str, params: Mapping[str, str]) -> str:

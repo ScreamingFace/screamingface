@@ -34,6 +34,7 @@ _logger = logging.getLogger(__name__)
 _STATUS_BY_CODE: dict[str, int] = {
     ErrorCode.MALFORMED_SOURCE: 400,
     ErrorCode.UNBOUND_REFERENCE: 400,
+    ErrorCode.MISSING_INTENT: 400,
     ErrorCode.ENDPOINT_NOT_FOUND: 404,
     ErrorCode.UNKNOWN_IDENTITY: 404,
     ErrorCode.IDENTITY_UNAVAILABLE: 404,
