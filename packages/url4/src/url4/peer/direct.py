@@ -193,7 +193,8 @@ def http_status(code: str | None, *, permanent: bool) -> int:
     """The HTTP status for a failed direct call with error ``code``.
 
     The node's own spec table (``url4.peer._http``) plus the direct-call codes; an unlisted
-    code falls back by its shape, as the node does: 502 when transient, 500 when permanent.
+    code falls back by its shape, as the node does: 502 when transient, 422 when permanent
+    (500 with no code).
     WHY public: a host that runs direct calls elsewhere (queued) still answers the caller over
     HTTP, and must answer as the node would have.
     """

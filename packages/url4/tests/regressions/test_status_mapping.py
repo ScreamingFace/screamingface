@@ -22,16 +22,18 @@ def test_status_for_total_and_listed():
             assert 400 <= status_for(exc) <= 599
     # node vs direct tables never disagree on a code both list
     assert not (set(_STATUS_BY_CODE) & set(_DIRECT_STATUS))
-    # a non-Resolution Url4Error flagged transient is still 500 (spec §4.1 row 'any other')
+    # FLIPPED (url4 2.0, contracts C8): a non-Resolution Url4Error keeps its own class —
+    # transient → 502 (was 500, which a Spec C §13.2.1 caller cannot tell apart).
     assert status_for(ParseError("x", permanent=False)) == 400
-    assert status_for(Url4Error("x", code="resolution_failed", permanent=False)) == 500
+    assert status_for(Url4Error("x", code="resolution_failed", permanent=False)) == 502
 
 
 def test_unlisted_resolution_error_is_502_whatever_its_class():
     # A source the node could not resolve is an upstream failure, even when it is permanent.
     assert status_for(ResolutionError("x", code="x.unlisted", permanent=True)) == 502
     assert status_for(ResolutionError("x", code="x.unlisted", permanent=False)) == 502
-    assert status_for(Url4Error("x", code="x.unlisted")) == 500
+    # FLIPPED (url4 2.0, contracts C8): an unlisted permanent code → 422 (was 500).
+    assert status_for(Url4Error("x", code="x.unlisted")) == 422
 
 
 def test_admission_timeout_is_503():
@@ -61,3 +63,14 @@ def test_internal_error_is_500():
 def test_existing_rows_are_unchanged():
     assert status_for_code(ErrorCode.MALFORMED_SOURCE, permanent=True) == 400
     assert status_for_code(ErrorCode.ENDPOINT_NOT_FOUND, permanent=True) == 404
+
+
+def test_unlisted_permanent_code_is_422():
+    # C8 (row 30): a permanent code with no row must not read as transient (500).
+    assert status_for_code(ErrorCode.QUORUM_NOT_MET, permanent=True) == 422
+    assert status_for(Url4Error("x", code=ErrorCode.EXPANSION_NOT_ITERABLE)) == 422
+
+
+def test_internal_and_codeless_failures_stay_500():
+    assert status_for_code(ErrorCode.INTERNAL_ERROR, permanent=True) == 500
+    assert status_for_code(None, permanent=True) == 500
