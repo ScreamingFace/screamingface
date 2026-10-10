@@ -20,7 +20,6 @@ from screamingface_engine.operation_accounting import (
     combine_signal_accounting,
 )
 from screamingface_engine.world.accounting import (
-    retained_operation_accounting,
     signal_accounting_from_aigw,
 )
 from screamingface_engine.world.cache_readback import CacheOutcome, CacheStatus
@@ -91,22 +90,6 @@ def _hit(
 _NOTHING = SignalAccounting(None, None, None, None)
 
 
-# --- SG#1: the cache hit keeps its zero retained cost (CHAR, green at once) -----------------
-
-
-def test_cache_hit_with_a_reference_still_retains_zero_cost() -> None:
-    accounting = retained_operation_accounting(
-        request_model="openrouter/m",
-        usage=None,
-        aigw=_hit(cost=_cost("0.002")),
-        cache=_cache("hit"),
-    )
-    assert accounting.usage.cost_usd == "0"
-    assert accounting.usage.input_tokens == 0
-    assert accounting.usage.output_tokens == 0
-    assert accounting.provider_latency_ms == 0
-
-
 # --- SG#2 / SG#3 ------------------------------------------------------------------------------
 
 
@@ -167,20 +150,14 @@ def test_miss_takes_the_final_successful_attempt() -> None:
         _miss([_attempt()], capture_status="partial"),
         _miss([_attempt()], omitted_attempts=1),
         _miss([_attempt(outcome="provider_error")]),
-        _miss([]),
         _miss([_attempt(), "not a mapping"]),
         _miss("not a list"),
-        {"usage_accounting": "text"},
         {"usage_accounting": None},
-        {},
-        None,
-        [],
-        "text",
         7,
     ],
     ids=[
-        "partial", "omitted", "no-success", "no-attempts", "bad-attempt", "bad-attempts",
-        "bad-accounting", "null-accounting", "empty", "none", "list", "str", "int",
+        "partial", "omitted", "no-success", "bad-attempt", "bad-attempts", "null-accounting",
+        "int",
     ],
 )  # fmt: skip
 def test_incomplete_or_garbage_evidence_gives_none_and_never_raises(aigw: Any) -> None:

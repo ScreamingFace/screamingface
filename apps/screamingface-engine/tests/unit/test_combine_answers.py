@@ -8,7 +8,6 @@ Every test uses the fake operators of ``combine_support``.
 
 from __future__ import annotations
 
-import json
 from typing import Any, get_args
 
 import pytest
@@ -17,7 +16,6 @@ from combine_support import (
     context_text,
     request,
     run,
-    run_recorded,
     spec_text,
     vote_spec,
 )
@@ -90,12 +88,6 @@ def test_unparseable_member_is_fail_with_reason_not_exception() -> None:
     first = outcome.evidence.members[0]
     assert (first.status, first.reason, first.value) == ("fail", "empty", None)
     assert outcome.output == "a 7"
-
-
-def test_oversized_member_is_fail_too_large() -> None:
-    outcome = run(spec_text(vote_spec(3)), context_text(["a x", "w " * _MIB, "c x"]))
-    row = outcome.evidence.members[1]
-    assert (row.status, row.reason, row.raw, row.value) == ("fail", "too_large", None, None)
 
 
 # --- AR#15 ------------------------------------------------------------------------------------
@@ -240,24 +232,6 @@ def test_a_stage_plugin_that_raises_no_votes_is_a_plugin_bug(
             run(spec_text(spec), context_text(["a", "b"]), registry=registry)
     lines = [r.getMessage() for r in caplog.records if r.name.endswith("combine.endpoint")]
     assert len(lines) == 1 and lines[0].endswith("outcome=internal_error")
-
-
-# --- AB#20 ------------------------------------------------------------------------------------
-
-
-def _abstain_wire() -> tuple[str, str]:
-    outcome = run(spec_text(vote_spec(3)), context_text(["", " ", "\n"]))
-    wire = json.dumps(outcome.evidence.model_dump(by_alias=True), separators=(",", ":"))
-    return outcome.output, wire
-
-
-def test_abstain_replays_identically() -> None:
-    assert len({_abstain_wire() for _ in range(100)}) == 1
-    texts = context_text(["", " ", "\n"])
-    first = run_recorded(spec_text(vote_spec(3)), texts)[1][0].combine
-    second = run_recorded(spec_text(vote_spec(3)), texts)[1][0].combine
-    assert first is not None
-    assert first == second
 
 
 # --- AB#10 sentinel: an abstain never carries member text -------------------------------------

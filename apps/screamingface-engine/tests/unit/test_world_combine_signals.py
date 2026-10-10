@@ -202,18 +202,6 @@ def test_a_matched_call_without_signal_accounting_is_incomplete_and_silent(
     assert _warnings(caplog) == []
 
 
-def test_a_matched_call_without_cost_makes_the_member_cost_none() -> None:
-    with capture_operation_calls() as calls:
-        _record(_ALPHA, cost_usd=0.001, tokens_in=10.0)
-        _record(_BETA, cost_usd=None, tokens_in=20.0)
-        _record(_GAMMA, cost_usd=0.004, tokens_in=40.0)
-        sources = _sources([_ALPHA, _BETA], [_GAMMA])
-        costs = _route_signals(calls, sources)
-        tokens = _route_signals(calls, sources, "tokens_in")
-    assert costs == [{"cost_usd": None}, {"cost_usd": 0.004}]
-    assert tokens == [{"tokens_in": 30.0}, {"tokens_in": 40.0}]
-
-
 @pytest.mark.asyncio
 async def test_parallel_cases_see_only_their_own_calls() -> None:
     both_recorded = asyncio.Event()

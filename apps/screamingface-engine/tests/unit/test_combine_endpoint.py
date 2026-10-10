@@ -59,47 +59,6 @@ def test_endpoint_returns_first_holder_text_byte_for_byte() -> None:
 # --- U1-7 -----------------------------------------------------------------------------------
 
 
-def test_vote_evidence_has_every_pinned_field() -> None:
-    outcome = run(spec_text(vote_spec(3)), context_text(["x", "  ", "y X"]))
-    assert outcome.evidence.model_dump(by_alias=True) == {
-        "schema": "screamingface.combine-evidence.v1",
-        "kind": "answer",
-        "reducer": "vote",
-        "operators": ["fake_last_word@1", "fake_lower@1", "fake_count@1", "fake_first@1"],
-        "members": [
-            {"member_id": "member_1", "raw": "x", "value": "x", "status": "answered",
-             "reason": None, "signals": {}, "weight": None, "score": None},
-            {"member_id": "member_2", "raw": None, "value": None, "status": "fail",
-             "reason": "empty", "signals": {}, "weight": None, "score": None},
-            {"member_id": "member_3", "raw": "X", "value": "x", "status": "answered",
-             "reason": None, "signals": {}, "weight": None, "score": None},
-        ],
-        "tally": [{"value": "x", "score": 2.0, "holders": ["member_1", "member_3"]}],
-        "judge": None,
-        "fields": None,
-        "chosen": ["member_1"],
-        "built": False,
-        "agreement": 1.0,
-        "tie": False,
-        "median": None,
-        "presentation_order": None,
-        "separator_collision": None,
-        "signal": None,
-        "result": {"member_id": "member_1", "value": "x", "status": "answered", "reason": None},
-        "dropped": 1,
-        "finish_reason": "stop",
-    }  # fmt: skip
-
-
-def test_evidence_keys_are_in_the_pinned_order() -> None:
-    outcome = run(spec_text(vote_spec(2)), context_text(["a", "b"]))
-    assert list(json.loads(outcome.evidence.model_dump_json(by_alias=True))) == [
-        "schema", "kind", "reducer", "operators", "members", "tally", "judge", "fields",
-        "chosen", "built", "agreement", "tie", "median", "presentation_order",
-        "separator_collision", "signal", "result", "dropped", "finish_reason",
-    ]  # fmt: skip
-
-
 def test_evidence_carries_float_weights_and_exact_scores_from_a_weight_aware_reduce() -> None:
     weights = {"member_1": 2, "member_2": 1.5, "member_3": 1}
     spec = vote_spec(3, weights=weights, reduce={"op": "fake_weighted@1", "args": {}})

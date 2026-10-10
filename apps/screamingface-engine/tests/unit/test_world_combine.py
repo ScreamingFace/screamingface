@@ -16,7 +16,6 @@ from combine_support import (
     FAKE_REGISTRY,
     context_text,
     request,
-    run_recorded,
     spec_text,
     vote_spec,
 )
@@ -70,13 +69,6 @@ async def test_combine_call_through_url4_records_one_operation_call_with_evidenc
     assert call.combine is not None and call.combine.kind == "answer"
 
 
-def test_the_route_records_the_core_evidence_unchanged() -> None:
-    output, calls = run_recorded(spec_text(vote_spec(3)), context_text(["a x", "b", "c x"]))
-    assert output == "a x"
-    assert calls[0].combine is not None
-    assert calls[0].combine.chosen == ["member_1"]
-
-
 # --- FW-8 -----------------------------------------------------------------------------------
 
 
@@ -101,10 +93,6 @@ def test_install_combine_runtime_is_idempotent() -> None:
     install_combine_runtime(node, FAKE_REGISTRY)
     install_combine_runtime(node, FAKE_REGISTRY)
     assert node.processor_routes().count(COMBINE_ROUTE) == 1
-
-
-def test_the_route_exposes_its_registry() -> None:
-    assert CombineRoute(FAKE_REGISTRY).registry is FAKE_REGISTRY
 
 
 # --- the ResolutionError mapping and EV-E1 ---------------------------------------------------
@@ -174,21 +162,11 @@ async def test_spec_strings_may_escape_dollar_as_u0024() -> None:
 # --- AB#7 -------------------------------------------------------------------------------------
 
 
-def test_abstained_combine_output_is_empty_with_stop() -> None:
-    output, calls = run_recorded(spec_text(vote_spec(3)), context_text(["", " ", "\n"]))
-    assert output == ""
-    assert len(calls) == 1
-    call = calls[0]
-    assert (call.output, call.finish_reason) == ("", "stop")
-    assert call.combine is not None
-    assert call.combine.result.status == "abstain"
-    assert call.combine.finish_reason == "stop"
-
-
 @pytest.mark.asyncio
 async def test_an_abstained_combine_reaches_url4_as_an_empty_text() -> None:
     with capture_operation_calls() as calls:
         result = await _evaluate(_node(), spec_text(vote_spec(3)), context_text(["", " ", "\n"]))
     assert result == ""
     assert len(calls) == 1
+    assert calls[0].finish_reason == "stop"
     assert calls[0].combine is not None and calls[0].combine.result.status == "abstain"

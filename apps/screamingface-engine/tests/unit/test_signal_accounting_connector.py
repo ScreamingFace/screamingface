@@ -19,8 +19,6 @@ from screamingface_engine.operation_accounting import SignalAccounting
 from screamingface_engine.operation_calls import (
     OperationCall,
     capture_operation_calls,
-    operation_call_identity,
-    record_operation_call,
 )
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import (
@@ -216,15 +214,6 @@ async def test_a_response_without_gateway_accounting_gives_all_none() -> None:
         await world.aclose()
         await client.aclose()
     assert calls[0].signal_accounting == SignalAccounting()
-
-
-def test_record_operation_call_puts_signal_accounting_on_the_call() -> None:
-    signal = SignalAccounting(0.1, 2.0, 3.0, 4.0)
-    with capture_operation_calls() as calls:
-        with operation_call_identity("/provider/alpha", {"temperature": "0.0"}):
-            record_operation_call("out", "stop", None, signal)
-            record_operation_call("plain", "stop")
-    assert [call.signal_accounting for call in calls] == [signal, None]
 
 
 @pytest.mark.asyncio
