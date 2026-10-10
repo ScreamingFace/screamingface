@@ -9,7 +9,7 @@ FEATURE (OME-1268): a Benchmark's Headline Score is the mean of its headline col
 the graded Cases. A scorer whose FIRST declared metric is not a plain mean (SimpleQA's
 ``simpleqa_metric``, a formula over the column means) would have its headline published
 as ``mean(correct)`` by that reducer — the wrong number. The importer (PR 4 of 5) reads
-this and refuses such a Task by name until the row declares a reducer.
+this and refuses such a Task by name until whole-run metrics land (OME-1527, R1).
 
 Mental model: ask the scorer "what number do you put at the top of your results
 column?" — if the answer is "inspect's own average, unmodified", we can reproduce it;
