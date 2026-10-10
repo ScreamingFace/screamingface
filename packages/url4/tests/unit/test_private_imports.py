@@ -48,23 +48,27 @@ def _is_private(segment: str) -> bool:
     return segment.startswith("_") and not segment.startswith("__")
 
 
-def _absolute(node: ast.ImportFrom, path: Path) -> str | None:
+def _absolute(node: ast.ImportFrom, rel: str) -> str | None:
     if node.level == 0:
         return node.module
-    package = ["url4", *path.relative_to(_SRC).parts[:-1]]
+    package = ["url4", *rel.split("/")[:-1]]
     base = package[: len(package) - (node.level - 1)]
     return ".".join([*base, node.module] if node.module else base)
 
 
 def _crossings(path: Path, layer: str) -> list[str]:
     """Every private crossing in ``path``, as ``file: module[.name]``."""
-    rel = path.relative_to(_SRC).as_posix()
+    return _crossings_in(path.read_text(encoding="utf-8"), path.relative_to(_SRC).as_posix(), layer)
+
+
+def _crossings_in(source: str, rel: str, layer: str) -> list[str]:
+    """Every private crossing in ``source``, the text of the module at ``rel`` in ``layer``."""
     found: list[str] = []
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+    for node in ast.walk(ast.parse(source, filename=rel)):
         if isinstance(node, ast.Import):
             targets = [(alias.name, None) for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
-            module = _absolute(node, path)
+            module = _absolute(node, rel)
             targets = [(module, alias.name) for alias in node.names] if module else []
         else:
             continue
@@ -87,9 +91,21 @@ def _all_crossings() -> list[str]:
     return found
 
 
-def test_the_walk_sees_a_known_crossing() -> None:
-    # Without this, a bug in the walk would make the ratchet pass vacuously forever.
-    assert any("cli/_config.py: url4.core.grammar._IDENTITY_NAME_RE" in c for c in _all_crossings())
+def test_the_walk_sees_every_kind_of_crossing() -> None:
+    # Without this, a bug in the walk would make the ratchet pass vacuously forever. A
+    # synthetic module keeps the check stable when a real crossing is promoted away.
+    source = (
+        "from url4.core.grammar import _NAME, public\n"
+        "from ..core import _helper\n"
+        "import url4.peer._asgi\n"
+        "from url4.dag import _same_layer\n"
+        "from ._sibling import thing\n"
+    )
+    assert _crossings_in(source, "dag/x.py", "dag") == [
+        "dag/x.py: url4.core.grammar._NAME",
+        "dag/x.py: url4.core._helper",
+        "dag/x.py: url4.peer._asgi",
+    ]
 
 
 def test_cross_package_private_imports_do_not_grow() -> None:
