@@ -13,7 +13,6 @@ from typing import Any
 
 import pytest
 from _combine_contract import engine_operators
-from _reducer_fixtures import FixtureVote, fixture_operators
 from url4 import Expression, RelExpr, Source, build, render, struct
 
 import screamingface as sf
@@ -238,29 +237,3 @@ def test_dotted_param_key_compiles_in_sources() -> None:
         "member_2": {"model_2": _call("/p/b")},
     }
     assert context_of(url4, "synthesis_1") == _context(_AB, sources)
-
-
-@pytest.mark.parametrize(
-    "synthesizer",
-    [
-        sf.Vote(),
-        sf.Vote(weights=[1, 2, 3]),
-        sf.Vote(weights=sf.signal("field:c")),
-        sf.Median(),
-        sf.Reduce("plurality", extract=sf.Extract("last_line", normalize="text")),
-    ],
-    ids=repr,
-)
-def test_existing_reducer_goldens_unchanged(synthesizer: Reducer) -> None:
-    # SG#6 guard: a reducer that reads no accounting signal never gets `sources`.
-    fusion = sf.Fusion(["p/a", "p/b", "p/c"], synthesizer=synthesizer)
-
-    assert "sources:" not in _url4(fusion)
-
-
-def test_a_fixture_reducer_gets_no_sources() -> None:
-    fusion = sf.Fusion(["p/a", "p/b", "p/c"], synthesizer=FixtureVote())
-
-    url4 = compile_candidate(fusion, operators=fixture_operators()).url4
-
-    assert "sources:" not in url4

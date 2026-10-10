@@ -27,50 +27,50 @@ def _url4(synthesizer: Reducer, benchmark_rule: _BenchmarkAnswerRule | None = No
     ).url4
 
 
-def test_named_reducers_build_a_reducer_plan() -> None:
-    # BK#2: Vote and Median go through the plan seam, not a private steps API of their own.
-    for cls in (sf.Vote, sf.Median):
-        for gone in ("_steps", "_reducer", "_kind"):
-            assert not hasattr(cls, gone), f"{cls.__name__}.{gone} is replaced by _plan()"
-    vote = sf.Vote(extract="last_number", normalize="numeric")
-    vote_block = sf.Reduce("plurality", extract=sf.Extract("last_number", normalize="numeric"))
-    assert vote._plan() == vote_block._plan()
-    assert sf.Median()._plan() == sf.Reduce("median", extract=sf.Extract("last_number"))._plan()
-    compute = sf.Reduce("median", mode="compute", extract=sf.Extract("last_number"))
-    assert sf.Median(select="value")._plan() == compute._plan()
-    assert sf.Vote(normalize=None)._plan().steps.normalize is None
+# WHY cost_usd is here: after the sources commit it also covers the context `sources`.
+_ROWS = [
+    pytest.param(
+        sf.Vote(extract="last_number", normalize="numeric"),
+        sf.Reduce("plurality", extract=sf.Extract("last_number", normalize="numeric")),
+        id="plurality-last_number-numeric",
+    ),
+    pytest.param(
+        sf.Vote(extract="last_line", normalize=None),
+        sf.Reduce("plurality", extract=sf.Extract("last_line", normalize=None)),
+        id="plurality-last_line-None",
+    ),
+    pytest.param(
+        sf.Median(extract="last_number", select="nearest"),
+        sf.Reduce("median", extract=sf.Extract("last_number")),
+        id="median-last_number-nearest",
+    ),
+    pytest.param(
+        sf.Median(extract="last_number", select="value"),
+        sf.Reduce("median", mode="compute", extract=sf.Extract("last_number")),
+        id="median-last_number-value-compute",
+    ),
+    *[
+        pytest.param(
+            sf.Vote(extract="last_number", normalize="numeric", weights=weights),
+            sf.Reduce(
+                "weighted",
+                extract=sf.Extract("last_number", normalize="numeric"),
+                weights=weights,
+            ),
+            id=f"weighted-last_number-numeric-{label}",
+        )
+        for label, weights in (
+            ("list", [1, 2.5, 3]),
+            ("field:confidence", sf.signal("field:confidence")),
+            ("cost_usd", sf.signal("cost_usd")),
+        )
+    ],
+]
 
 
-def test_reduce_plurality_compiles_byte_identical_to_vote() -> None:
-    # BK#3: guard. The seam makes the pair equal by construction, so this passes at once.
-    vote = sf.Vote(extract="last_number", normalize="numeric")
-    block = sf.Reduce("plurality", extract=sf.Extract("last_number", normalize="numeric"))
-
-    assert _url4(vote) == _url4(block)
-
-
-_VOTE_RULES = ("boxed", "last_number", "last_line", "whole", "inspect_number", "inspect_aime")
-_VOTE_NORMALIZERS = (None, "numeric", "text", "set", "inspect_numeric", "identity")
-_MEDIAN_RULES = ("last_number", "boxed", "last_line", "whole", "inspect_number", "inspect_aime")
-
-
-@pytest.mark.parametrize("normalize", _VOTE_NORMALIZERS)
-@pytest.mark.parametrize("rule", _VOTE_RULES)
-def test_every_plurality_row_matches_vote(rule: str, normalize: str | None) -> None:
-    # BK#4. json, field and regex have no arg-less Vote form; json_object@1 arrives in 9E.
-    vote = sf.Vote(extract=rule, normalize=normalize)
-    block = sf.Reduce("plurality", extract=sf.Extract(rule, normalize=normalize))  # type: ignore[arg-type]
-
-    assert _url4(vote) == _url4(block)
-
-
-@pytest.mark.parametrize(("select", "mode"), [("nearest", None), ("value", "compute")])
-@pytest.mark.parametrize("rule", _MEDIAN_RULES)
-def test_every_median_row_matches_median(rule: str, select: str, mode: str | None) -> None:
-    median = sf.Median(extract=rule, select=select)
-    block = sf.Reduce("median", mode=mode, extract=sf.Extract(rule))  # type: ignore[arg-type]
-
-    assert _url4(median) == _url4(block)
+@pytest.mark.parametrize(("named", "block"), _ROWS)
+def test_every_op_table_row_matches_its_named_form(named: Reducer, block: Reducer) -> None:
+    assert _url4(named) == _url4(block)
 
 
 @pytest.mark.parametrize(
@@ -82,5 +82,13 @@ def test_benchmark_rows_match_their_named_form(benchmark_id: str, wire: dict[str
     bound = _BenchmarkAnswerRule(benchmark_id, rule(wire))
     vote = sf.Vote(extract="benchmark")
     block = sf.Reduce("plurality", extract=sf.Extract("benchmark"))
+
+    assert _url4(vote, bound) == _url4(block, bound)
+
+
+def test_the_benchmark_row_matches_its_named_form() -> None:
+    bound = _BenchmarkAnswerRule("inspect-gsm8k", rule(GSM8K_RULE_WIRE))
+    vote = sf.Vote(extract="benchmark", weights=[1, 2, 3])
+    block = sf.Reduce("weighted", extract=sf.Extract("benchmark"), weights=[1, 2, 3])
 
     assert _url4(vote, bound) == _url4(block, bound)

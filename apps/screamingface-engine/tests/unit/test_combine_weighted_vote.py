@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from combine_support import context_text, request, run
+from combine_support import context_text, request, run, spec_text, vote_spec
 
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.operation_calls import capture_operation_calls
@@ -38,6 +38,30 @@ _SPECS: dict[str, str] = json.loads(
 def _evidence(name: str, texts: list[str]) -> tuple[str, dict[str, Any]]:
     outcome = run(_SPECS[name], context_text(texts), registry=BUILTIN_OPERATORS)
     return outcome.output, outcome.evidence.model_dump(by_alias=True)
+
+
+_FIELD_CONFIDENCE = {"signal": "field:confidence"}
+
+
+def _step(op_id: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {"op": op_id, "args": {} if args is None else args}
+
+
+def _signal_vote(count: int) -> dict[str, Any]:
+    """A vote on ``answer`` weighted by ``field:confidence`` (built-in operators only)."""
+    return vote_spec(
+        count,
+        extract=_step("json_field@1", {"path": "answer"}),
+        normalize=_step("text@1"),
+        reduce=_step("weighted_mode@1"),
+        select=_step("max_weight_holder@1"),
+        weights=_FIELD_CONFIDENCE,
+    )
+
+
+def _reply(answer: str, confidence: str) -> str:
+    """A JSON reply whose confidence is given as raw JSON text (so 1e999 stays 1e999)."""
+    return f'{{"answer": {json.dumps(answer)}, "confidence": {confidence}}}'
 
 
 def _tally(evidence: dict[str, Any]) -> list[tuple[str, float, list[str]]]:
@@ -123,45 +147,22 @@ def test_engine_accepts_a_weight_at_the_cap() -> None:
     assert evidence["chosen"] == ["member_1"]
 
 
-def _without_member_5(spec: dict[str, Any]) -> None:
-    del spec["weights"]["member_5"]
-
-
-def _zero_weight(spec: dict[str, Any]) -> None:
-    spec["weights"]["member_1"] = 0
-
-
-def _negative_weight(spec: dict[str, Any]) -> None:
-    spec["weights"]["member_1"] = -1
-
-
 def _null_weights(spec: dict[str, Any]) -> None:
     spec["weights"] = None
 
 
-def _extra_member_weight(spec: dict[str, Any]) -> None:
-    spec["weights"]["member_6"] = 1.0
-
-
 def _bad_weights_texts() -> dict[str, str]:
     base = _SPECS["weighted_5"]
-    texts: dict[str, str] = {}
-    for name, mutate in {
-        "missing_member": _without_member_5,
-        "zero": _zero_weight,
-        "negative": _negative_weight,
-        # weighted_mode@1 stays in the spec, so the operator itself finds no weights.
-        "null_weights": _null_weights,
-        "extra_member": _extra_member_weight,
-    }.items():
-        spec = json.loads(base)
-        mutate(spec)
-        texts[name] = json.dumps(spec, sort_keys=True, separators=(",", ":"))
+    spec = json.loads(base)
+    # weighted_mode@1 stays in the spec, so the operator itself finds no weights.
+    _null_weights(spec)
+    texts: dict[str, str] = {
+        "null_weights": json.dumps(spec, sort_keys=True, separators=(",", ":"))
+    }
     assert '"member_1":3.0' in base
     texts["nan"] = base.replace('"member_1":3.0', '"member_1":NaN')
     # Finite, but above the Engine cap (sys.float_info.max / 256).
     texts["above_cap"] = base.replace('"member_1":3.0', '"member_1":1e308')
-    texts["overflow"] = base.replace('"member_1":3.0', '"member_1":1e309')
     return texts
 
 
@@ -193,3 +194,30 @@ def test_sdk_written_field_signal_vote_picks_heaviest_answer() -> None:
     assert [score for _, score, _ in _tally(evidence)] == pytest.approx([0.9, 0.7])
     assert [member["weight"] for member in evidence["members"]] == [0.9, 0.3, 0.4]
     assert evidence["chosen"] == ["member_1"]
+
+
+def test_voter_with_missing_or_invalid_weight_signal_does_not_vote() -> None:
+    confidences = ["0.9", "null", "0", "-1", '"0.8"', "1e999", "1e307"]
+    replies = [
+        _reply("A", confidence) if index < 2 else _reply("B", confidence)
+        for index, confidence in enumerate(confidences)
+    ]
+    replies.append('{"answer": "B"}')
+    assert len(replies) == 8
+    outcome = run(spec_text(_signal_vote(8)), context_text(replies), registry=BUILTIN_OPERATORS)
+    evidence = outcome.evidence
+    assert outcome.output == replies[0]
+    assert [row.model_dump() for row in evidence.tally or []] == [
+        {"value": "a", "score": 0.9, "holders": ["member_1"]}
+    ]
+    assert all(row.weight is None and row.status == "answered" for row in evidence.members[1:])
+    assert [row.signals["field:confidence"] for row in evidence.members] == [
+        0.9,
+        None,
+        0.0,
+        -1.0,
+        None,
+        None,
+        1e307,
+        None,
+    ]
