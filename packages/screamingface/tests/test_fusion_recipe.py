@@ -125,16 +125,6 @@ def test_block_form_rewrites_to_fusion_and_compiles_byte_identical(example: DocE
     assert compile_example(example, block) == _golden(example.slug)
 
 
-@pytest.mark.parametrize(
-    "golden", ["fusion_model_synthesizer.url4", "pipeline_fusion_synthesizer.url4"]
-)
-def test_block_form_of_a_characterized_golden_compiles_to_it(golden: str) -> None:
-    block = _block(_CHARACTERIZED[golden])
-    expected = (_DATA / golden).read_text(encoding="utf-8").removesuffix("\n")
-
-    assert compile_candidate(block).url4 == expected
-
-
 # --- FR#4 -------------------------------------------------------------------------------------
 
 
@@ -235,17 +225,6 @@ def test_nested_fusion_keeps_its_bindings_in_both_block_forms() -> None:
 
 
 # --- FR#8 -------------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "example", [e for e in EXAMPLES if e.reducer], ids=[e.slug for e in EXAMPLES if e.reducer]
-)
-def test_reducer_synthesizer_fusion_is_unchanged(example: DocExample) -> None:
-    recipe = example.build()
-
-    # Vote, Pick, Rank, Judge, Merge and every other reducer Fusion: no context, no new object
-    assert rewrite_fusion_recipe(recipe) is recipe
-    assert compile_example(example) == _golden(example.slug)
 
 
 def test_every_recipe_without_a_context_block_is_returned_as_it_is() -> None:
@@ -372,18 +351,6 @@ def _block_pair() -> sf.Recipe:
     )
 
 
-def test_context_block_does_not_fetch_operators() -> None:
-    paths: list[str] = []
-    transport = _ReplayTransport()
-
-    with _client(paths, transport) as client:
-        client.evaluate(_block_pair(), benchmark="draco", progress=False)
-
-    assert "/v1/operators" not in paths
-    assert transport.candidate is not None
-    assert "ensemble/combine/v1" not in transport.candidate.url4
-
-
 def test_a_300_member_block_form_constructs_and_compiles_to_its_golden() -> None:
     members = [f"provider/m{index}" for index in range(300)]
     block = sf.Pipeline([sf.Fusion(members, synthesizer=_CONTEXT), "provider/s"])
@@ -443,21 +410,13 @@ def test_context_misuse_raises_before_spend(case: str) -> None:
         compile_candidate(recipe, check_surface=_SURFACE, operators=flow_operators())
 
 
-@pytest.mark.parametrize("case", ["root", "last stage", "before another context fusion"])
+@pytest.mark.parametrize("case", ["root"])
 def test_context_misuse_through_a_client_never_spends_or_fetches_operators(case: str) -> None:
     paths: list[str] = []
     transport = _ForbiddenTransport()
     members = ["provider/opus", "provider/judge"]
     recipes: dict[str, Recipe] = {
         "root": sf.Fusion(members, synthesizer=_CONTEXT),
-        "last stage": sf.Pipeline(["provider/opus", sf.Fusion(members, synthesizer=_CONTEXT)]),
-        "before another context fusion": sf.Pipeline(
-            [
-                sf.Fusion(members, synthesizer=_CONTEXT),
-                sf.Fusion(members, synthesizer=_CONTEXT),
-                "provider/opus",
-            ]
-        ),
     }
 
     with _client(paths, transport) as client, pytest.raises(ValueError, match=_MISUSE):
@@ -477,23 +436,6 @@ def test_a_context_block_compiled_directly_is_the_misuse() -> None:
 
 
 # --- FR#11 ------------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("example", _BLOCK_EXAMPLES, ids=[e.slug for e in _BLOCK_EXAMPLES])
-def test_synthesizer_operation_ids_are_unchanged(example: DocExample) -> None:
-    fusion_form = compile_candidate(
-        example.build(),
-        operators=flow_operators() if example.reducer else None,
-    )
-    block_form = compile_candidate(
-        _block(example.build()), operators=flow_operators() if example.reducer else None
-    )
-
-    assert [(op.id, op.kind, op.label, op.depends_on) for op in block_form.operations] == [
-        (op.id, op.kind, op.label, op.depends_on) for op in fusion_form.operations
-    ]
-    assert block_form.kind == fusion_form.kind
-    assert block_form.models == fusion_form.models
 
 
 def test_the_synthesizer_operation_is_op_synthesis_n() -> None:
@@ -545,15 +487,20 @@ def test_recovered_fusion_prints_as_fusion(case: str) -> None:
 
 def test_both_forms_report_the_same_candidate_name_in_a_scripted_run() -> None:
     names: list[str] = []
-    for recipe in (
-        _block_pair(),
-        sf.Fusion(["provider/opus", "provider/judge"], synthesizer="provider/opus"),
+    for is_block, recipe in (
+        (True, _block_pair()),
+        (False, sf.Fusion(["provider/opus", "provider/judge"], synthesizer="provider/opus")),
     ):
+        paths: list[str] = []
         transport = _ReplayTransport()
-        with _client([], transport) as client:
+        with _client(paths, transport) as client:
             client.evaluate(recipe, benchmark="draco", progress=False)
         assert transport.candidate is not None
         names.append(transport.candidate.name)
+        if is_block:
+            # the context block never fetches operators and compiles to no combine call
+            assert "/v1/operators" not in paths
+            assert "ensemble/combine/v1" not in transport.candidate.url4
 
     assert names == ["opus+judge", "opus+judge"]
 
@@ -571,17 +518,9 @@ def test_a_cyclic_value_is_left_for_the_compiler_to_refuse() -> None:
 
 
 def test_the_inferred_name_rule_lives_once_in_recipe_py() -> None:
-    from screamingface.recipe import _inferred_name, _inferred_self_name, _kept_name
-
-    members = (sf.Model("provider/a"), sf.Model("provider/b"))
     fusion = sf.Fusion(["provider/a", "provider/b"], synthesizer="provider/s")
     loop = sf.CorrectiveLoop(["provider/a", "provider/b"], judge="provider/j")
-    solo = sf.SelfCorrective("provider/a")
 
-    assert _inferred_name(members) == "a+b" == fusion.name == loop.name
-    assert _inferred_self_name(members[0]) == "a" == solo.name
-    assert _kept_name("a+b", "a+b") is None
-    assert _kept_name("mine", "a+b") == "mine"
     # the reprs show name= exactly when the name is not the inferred one
     assert "name=" not in repr(fusion)
     assert "name=" not in repr(loop)

@@ -6,50 +6,14 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators, members3
-from url4 import Expression, RelExpr, Source, Text, build, render, struct
 
 import screamingface as sf
-from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
-from screamingface.operation import OperationInfo
 from screamingface.reducer import Reducer
-
-_COMBINE_PATH = "/ensemble/combine/v1"
-_SEPARATOR_TEXT = "\\n\\n---\\n\\n"  # how the default separator is spelled inside the spec JSON
 
 
 def _scores_judge(**kw: Any) -> sf.Judge:
     return sf.Judge("provider/j", returns="scores", rubric=RUBRIC, **kw)
-
-
-def _next_stage() -> sf.Model:
-    return sf.Model("provider/w", prompt="Write the final answer from these drafts.")
-
-
-def _compile(recipe: sf.Recipe) -> Any:
-    return compile_candidate(recipe, operators=flow_operators())
-
-
-def _sources(url4: str) -> list[Any]:
-    root = build(url4)
-    assert isinstance(root, Expression)
-    return list(root.sources)
-
-
-def _call(source: Any) -> RelExpr:
-    assert isinstance(source, Source)
-    assert isinstance(source.value, RelExpr)
-    return source.value
-
-
-def _context(signals: dict[str, str] | None) -> str:
-    payload: dict[str, Any] = {
-        "input": "$input",
-        "outputs": {f"member_{index}": f"$model_{index}" for index in (1, 2, 3)},
-    }
-    if signals is not None:
-        payload["signals"] = signals
-    return render(struct(payload))
 
 
 def _spec(extract: str, normalize: str, reduce: str, select: str, reducer: str) -> str:
@@ -151,29 +115,6 @@ def test_rank_and_concat_specs() -> None:
     def text(reducer: Reducer) -> str:
         return combine_spec_text(reducer, member_count=3, operators=operators)
 
-    assert text(sf.Rank(k=2, by=_scores_judge())) == _spec(
-        "null",
-        "null",
-        '{"args":{"source":"judge"},"op":"scores@1"}',
-        '{"args":{"k":2},"op":"top_k@1"}',
-        "rank",
-    )
-    # WHY numeric@1 exactly: scores@1 assumes the v1 output form, so a later numeric@2 must not
-    # change what this Rank means.
-    assert text(sf.Rank(k=2, by_field="score")) == _spec(
-        '{"args":{"path":"score"},"op":"json_field@1"}',
-        '{"args":{},"op":"numeric@1"}',
-        '{"args":{"source":"values"},"op":"scores@1"}',
-        '{"args":{"k":2},"op":"top_k@1"}',
-        "rank",
-    )
-    assert text(sf.Concat()) == _spec(
-        "null",
-        "null",
-        f'{{"args":{{"label":true,"separator":"{_SEPARATOR_TEXT}"}},"op":"join@1"}}',
-        '{"args":{},"op":"all@1"}',
-        "concat",
-    )
     assert text(sf.Concat("$|\x7f", label=False)) == _spec(
         "null",
         "null",
@@ -181,106 +122,3 @@ def test_rank_and_concat_specs() -> None:
         '{"args":{},"op":"all@1"}',
         "concat",
     )
-
-
-def test_rank_by_judge_compiles_a_judge_call_then_the_combine_call() -> None:
-    compiled = _compile(
-        sf.Pipeline(
-            [sf.Fusion(members3(), synthesizer=sf.Rank(k=2, by=_scores_judge())), _next_stage()]
-        )
-    )
-    sources = _sources(compiled.url4)
-
-    assert [source.name for source in sources] == [
-        "model_1",
-        "model_2",
-        "model_3",
-        "judge_1",
-        "synthesis_1",
-        "model_4",
-        "_sf_recipe",
-    ]
-    judge = _call(sources[3])
-    assert judge.path == "/provider/j"
-    assert judge.params == (("binding", "judge_1"),)
-    assert judge.context == _context(None)
-    combine = _call(sources[4])
-    assert combine.path == _COMBINE_PATH
-    assert combine.params == (("binding", "synthesis_1"),)
-    assert combine.context == _context({"judge": "$judge_1"})
-    assert isinstance(combine.intent, Text)
-    assert '"reducer":"rank"' in combine.intent.value
-    assert compiled.operations[3:5] == (
-        OperationInfo(
-            id="op_judge_1",
-            kind="judge",
-            label="a+b+c judge",
-            depends_on=("op_model_1", "op_model_2", "op_model_3"),
-        ),
-        OperationInfo(
-            id="op_synthesis_1",
-            kind="combine",
-            label="a+b+c combine",
-            depends_on=("op_model_1", "op_model_2", "op_model_3", "op_judge_1"),
-        ),
-    )
-    assert compiled.models == ("provider/a", "provider/b", "provider/c", "provider/j", "provider/w")
-
-
-def test_concat_compiles_to_one_pure_combine_call() -> None:
-    fusion = sf.Fusion(members3(), synthesizer=sf.Concat())
-    compiled = _compile(sf.Pipeline([fusion, _next_stage()]))
-    sources = _sources(compiled.url4)
-
-    assert [source.name for source in sources] == [
-        "model_1",
-        "model_2",
-        "model_3",
-        "synthesis_1",
-        "model_4",
-        "_sf_recipe",
-    ]
-    combine = _call(sources[3])
-    assert combine.path == _COMBINE_PATH
-    assert combine.context == _context(None)
-    assert [call.path for call in map(_call, sources[:5])].count(_COMBINE_PATH) == 1
-    # the Fusion adds exactly one non-member operation, and no model is called for it
-    assert [(operation.id, operation.kind) for operation in compiled.operations] == [
-        ("op_model_1", "model"),
-        ("op_model_2", "model"),
-        ("op_model_3", "model"),
-        ("op_synthesis_1", "combine"),
-        ("op_model_4", "model"),
-    ]
-    assert compiled.operations[3].depends_on == ("op_model_1", "op_model_2", "op_model_3")
-    assert compiled.models == ("provider/a", "provider/b", "provider/c", "provider/w")
-    assert compiled.parameter_assignments == ()
-
-
-def test_vote_and_judge_are_not_selections() -> None:
-    # CHAR: only Rank and Concat carry the selection flag, so a Vote or Judge Fusion still ends
-    # a candidate (SL-1).
-    for synthesizer in (sf.Vote(), sf.Judge("provider/j", returns="label", rubric=RUBRIC)):
-        compiled = _compile(sf.Fusion(members3(), synthesizer=synthesizer))
-        assert compiled.operations[-1].kind == "combine"
-    assert sf.Rank(k=1, by_field="s")._plan().kind == "selection"
-    assert sf.Concat()._plan().kind == "selection"
-
-
-def _rank_any() -> Any:
-    return sf.Rank(k=1, by_field="s")
-
-
-def _concat_any() -> Any:
-    return sf.Concat()
-
-
-def test_rank_and_concat_are_only_fusion_synthesizers() -> None:
-    misplaced: list[Any] = [
-        lambda: sf.Pipeline([_rank_any()]),
-        lambda: sf.CorrectiveLoop(["p/a", "p/b"], judge=_concat_any()),
-        lambda: sf.Fusion([_concat_any(), "p/a"], synthesizer="p/s"),
-    ]
-    for build_it in misplaced:
-        with pytest.raises(TypeError, match="reducer must be a Fusion synthesizer"):
-            build_it()

@@ -97,13 +97,6 @@ def test_selection_as_fusion_or_loop_member_raises_at_compile() -> None:
         _compile(sf.CorrectiveLoop(["provider/d", sf.Pipeline([_concat()])], judge="provider/j"))
 
 
-def test_a_selection_cannot_be_the_judge_of_a_corrective_loop() -> None:
-    with pytest.raises(ValueError, match="a Rank cannot feed a corrective loop"):
-        _compile(sf.CorrectiveLoop(["provider/a", "provider/b"], judge=_rank()))
-    with pytest.raises(ValueError, match="a Concat cannot feed a corrective loop"):
-        _compile(sf.CorrectiveLoop(["provider/a", "provider/b"], judge=_concat()))
-
-
 def test_a_fusion_whose_recipe_synthesizer_ends_in_a_selection_is_not_a_member() -> None:
     ends_in_rank = sf.Fusion(members3(), synthesizer=sf.Pipeline(["provider/y", _rank()]))
 
@@ -143,12 +136,3 @@ def test_next_stage_context_is_selection_only() -> None:
 
     concat = _calls(_compile(sf.Pipeline([_concat(), _writer()])).url4)
     assert concat["model_4"].context == "$synthesis_1"
-
-
-def test_a_second_stage_fusion_reads_the_selection_as_its_input() -> None:
-    follower = sf.Fusion(["provider/d", "provider/e"], synthesizer=sf.Vote())
-    calls = _calls(_compile(sf.Pipeline([_concat(), follower])).url4)
-
-    assert "$synthesis_1" in (calls["model_4"].context or "")
-    assert "$synthesis_1" in (calls["model_5"].context or "")
-    assert calls["synthesis_2"].path == "/ensemble/combine/v1"

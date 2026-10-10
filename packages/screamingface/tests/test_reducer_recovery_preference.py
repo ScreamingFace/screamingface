@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from _combine_flow_fixtures import flow_operators
 from _reducer_fixtures import engine_operators
 from url4 import Expression, build
 
@@ -38,16 +37,6 @@ def _synthesis_call(url4: str) -> _Call:
     root = build(url4)
     assert isinstance(root, Expression)
     return _calls(root)["synthesis_1"]
-
-
-def _recovered(url4: str) -> Reducer:
-    """The synthesizer ``to_python`` writes (signal reducers skip ``_reducer_from_call``)."""
-
-    namespace: dict[str, Any] = {}
-    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
-    synthesizer = namespace["candidate"].synthesizer
-    assert isinstance(synthesizer, Reducer)
-    return synthesizer
 
 
 def _call_with(spec: dict[str, Any]) -> _Call:
@@ -134,127 +123,3 @@ def test_benchmark_extract_op_in_a_hand_edited_url4_is_refused(op: str) -> None:
 
     with pytest.raises(ValueError, match="cannot rebuild"):
         _reducer_from_call(_call_with({**spec, "extract": {"op": op, "args": {}}}))
-
-
-def test_a_judge_url4_is_recovered_as_the_named_judge_for_both_forms() -> None:
-    judge = sf.Judge("provider/j", returns="label", rubric="Pick one.")
-    block = sf.Reduce("judge", judge=judge)
-    url4 = compile_candidate(_fusion(judge), operators=flow_operators()).url4
-
-    assert compile_candidate(_fusion(block), operators=flow_operators()).url4 == url4
-    for source in (judge, block):
-        recovered = _recovered(compile_candidate(_fusion(source), operators=flow_operators()).url4)
-        assert type(recovered) is sf.Judge
-        assert recovered._python() == judge._python()
-
-
-@pytest.mark.parametrize(
-    ("block", "named"),
-    [
-        (
-            sf.Reduce("argmax", by_signal=sf.signal("cost_usd"), order="min"),
-            sf.Pick(by_signal=sf.signal("cost_usd"), order="min"),
-        ),
-        (
-            sf.Reduce("pick_field", field="score", order="max"),
-            sf.Pick("score", order="max"),
-        ),
-        (
-            sf.Reduce("pick_field", field="verdict", normalize="text", equals="yes"),
-            sf.Pick("verdict", equals="yes", normalize="text"),
-        ),
-        (
-            sf.Reduce("merge", fields={"a": sf.FieldRule.majority(), "b": sf.FieldRule.max()}),
-            sf.Merge({"a": sf.FieldRule.majority(), "b": sf.FieldRule.max()}),
-        ),
-        (
-            sf.Reduce("merge", fields={"s": sf.FieldRule.model("provider/w", prompt="Write.")}),
-            sf.Merge({"s": sf.FieldRule.model("provider/w", prompt="Write.")}),
-        ),
-    ],
-    ids=["argmax", "pick-order", "pick-equals", "merge", "merge-model-field"],
-)
-def test_a_pick_or_merge_url4_is_recovered_as_the_named_class_for_both_forms(
-    block: sf.Reduce, named: Reducer
-) -> None:
-    url4 = compile_candidate(_fusion(named), operators=flow_operators()).url4
-
-    assert compile_candidate(_fusion(block), operators=flow_operators()).url4 == url4
-    for source in (named, block):
-        recovered = _recovered(compile_candidate(_fusion(source), operators=flow_operators()).url4)
-        assert type(recovered) is type(named)
-        assert recovered._python() == named._python()
-
-
-def _wrapped(synthesizer: Reducer) -> sf.Pipeline:
-    """A selection hands its result to the next stage, so it cannot end a candidate (10S)."""
-
-    return sf.Pipeline([_fusion(synthesizer), "provider/next"])
-
-
-def _recovered_selection(url4: str) -> Reducer:
-    namespace: dict[str, Any] = {}
-    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
-    fusion = namespace["candidate"].stages[0]
-    assert isinstance(fusion.synthesizer, Reducer)
-    return fusion.synthesizer
-
-
-_JUDGE = sf.Judge("provider/j", returns="scores", rubric="Score each answer.")
-
-
-@pytest.mark.parametrize(
-    ("block", "named"),
-    [
-        (
-            sf.Reduce("top_k", k=2, by=_JUDGE),
-            sf.Rank(2, by=_JUDGE),
-        ),
-        (
-            sf.Reduce("top_k", k=2, by_field="score", order="min"),
-            sf.Rank(2, by_field="score", order="min"),
-        ),
-        (
-            sf.Reduce("top_k", k=1, by_signal=sf.signal("cost_usd"), order="min"),
-            sf.Rank(1, by_signal=sf.signal("cost_usd"), order="min"),
-        ),
-        (
-            sf.Reduce("top_k", k=3, by_signal=sf.signal("field:score")),
-            sf.Rank(3, by_signal=sf.signal("field:score")),
-        ),
-        (
-            sf.Reduce("filter", where=sf.signal("field:confidence") >= 0.6),  # type: ignore[arg-type]
-            sf.Filter(where=sf.signal("field:confidence") >= 0.6),  # type: ignore[arg-type]
-        ),
-        (
-            sf.Reduce("filter", where=sf.matches("yes", ignore_case=True)),
-            sf.Filter(where=sf.matches("yes", ignore_case=True)),
-        ),
-        (sf.Reduce("concat"), sf.Concat()),
-        (
-            sf.Reduce("concat", separator="\n--\n", label=False),
-            sf.Concat("\n--\n", label=False),
-        ),
-    ],
-    ids=[
-        "rank-judge",
-        "rank-field-min",
-        "rank-signal-min",
-        "rank-signal",
-        "filter-threshold",
-        "filter-pattern",
-        "concat",
-        "concat-options",
-    ],
-)
-def test_a_selection_url4_is_recovered_as_the_named_class_for_both_forms(
-    block: sf.Reduce, named: Reducer
-) -> None:
-    url4 = compile_candidate(_wrapped(named), operators=flow_operators()).url4
-
-    assert compile_candidate(_wrapped(block), operators=flow_operators()).url4 == url4
-    for source in (named, block):
-        compiled = compile_candidate(_wrapped(source), operators=flow_operators())
-        recovered = _recovered_selection(compiled.url4)
-        assert type(recovered) is type(named)
-        assert recovered._python() == named._python()

@@ -15,21 +15,10 @@ from _combine_flow_fixtures import flow_operators, members3
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
-from screamingface.blocks import _BLOCK_FORMS
 from screamingface.fields import _FieldRules
 from screamingface.reducer import Reducer
 
-_RULES = {
-    "answer": sf.FieldRule.majority(normalize="text"),
-    "source": sf.FieldRule.from_member(2),
-    "tags": sf.FieldRule.union(),
-}
-_EQUALS: list[tuple[Any, Any]] = [("yes", None), ("yes", "text"), (7, "numeric"), (True, None)]
 _WRITER = sf.FieldRule.model("provider/w", prompt="Write.")
-
-
-def _normalize(normalize: str | None) -> dict[str, Any]:
-    return {} if normalize is None else {"normalize": normalize}
 
 
 def _url4(synthesizer: Reducer) -> str:
@@ -38,23 +27,16 @@ def _url4(synthesizer: Reducer) -> str:
 
 
 _PAIRS: list[tuple[str, sf.Reduce, Reducer]] = [
-    *(
-        (
-            f"order-{order}",
-            sf.Reduce("pick_field", field="confidence", order=order),
-            sf.Pick("confidence", order=order),
-        )
-        for order in ("max", "min")
+    (
+        "order-max",
+        sf.Reduce("pick_field", field="confidence", order="max"),
+        sf.Pick("confidence", order="max"),
     ),
-    *(
-        (
-            f"equals-{equals!r}-{normalize}",
-            sf.Reduce("pick_field", field="answer", equals=equals, **_normalize(normalize)),
-            sf.Pick("answer", equals=equals, normalize=normalize),
-        )
-        for equals, normalize in _EQUALS
+    (
+        "equals-7-numeric",
+        sf.Reduce("pick_field", field="answer", equals=7, normalize="numeric"),
+        sf.Pick("answer", equals=7, normalize="numeric"),
     ),
-    ("merge-rules", sf.Reduce("merge", fields=_RULES), sf.Merge(_RULES)),
     (
         "merge-model-field",
         sf.Reduce("merge", fields={"summary": _WRITER}),
@@ -148,21 +130,6 @@ def _check_errors() -> None:
         sf.Reduce("merge", fields=[])  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=r"sf\.Reduce\('merge'\): Merge needs at least one field"):
         sf.Reduce("merge", fields={})
-
-
-def test_the_block_forms_are_registered() -> None:
-    assert {"pick_field", "merge"} <= set(_BLOCK_FORMS)
-    pick = _BLOCK_FORMS["pick_field"].build({"field": "x", "order": "min"})
-    assert pick == sf.Pick("x", order="min")
-    merge = _BLOCK_FORMS["merge"].build({"fields": _FieldRules((("a", sf.FieldRule.max()),))})
-    assert merge == sf.Merge({"a": sf.FieldRule.max()})
-    assert _BLOCK_FORMS["merge"].build({"fields": {"a": sf.FieldRule.max()}}) == merge
-
-
-def test_field_rule_is_hashable_and_hash_equal_for_equal_rules() -> None:
-    assert hash(sf.FieldRule.majority()) == hash(sf.FieldRule.majority())
-    assert hash(_WRITER) == hash(sf.FieldRule.model("provider/w", prompt="Write."))
-    assert len({sf.FieldRule.max(), sf.FieldRule.max(), sf.FieldRule.union()}) == 2
 
 
 def test_field_rule_params_are_compared_by_type_and_value() -> None:

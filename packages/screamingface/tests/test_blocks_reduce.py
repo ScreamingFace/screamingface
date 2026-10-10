@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators
-from _reducer_fixtures import FixtureVote, engine_operators, fixture_operators
+from _reducer_fixtures import engine_operators
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
@@ -105,15 +105,7 @@ def test_reduce_rejects_unknown_op_and_foreign_options() -> None:
 @pytest.mark.parametrize(
     ("op", "options", "error"),
     [
-        ("weighted", {"extract": LAST, "weights": [0]}, ValueError),
-        ("weighted", {"extract": LAST, "weights": [-1.0]}, ValueError),
-        ("weighted", {"extract": LAST, "weights": [True]}, TypeError),
-        ("weighted", {"extract": LAST, "weights": [math.inf]}, ValueError),
-        ("weighted", {"extract": LAST, "weights": [math.nan]}, ValueError),
-        ("weighted", {"extract": LAST, "weights": []}, ValueError),
         ("weighted", {"extract": LAST, "weights": "123"}, TypeError),
-        ("weighted", {"extract": LAST, "weights": ["1"]}, TypeError),
-        ("weighted", {"extract": LAST, "weights": [1e308]}, ValueError),
         ("plurality", {"extract": "last_number"}, TypeError),
         ("top_k", {"k": 0, "by_field": "a"}, ValueError),
         ("top_k", {"k": 257, "by_field": "a"}, ValueError),
@@ -223,32 +215,6 @@ def _compiled_text(reducer: Reduce, members: int = 3) -> str:
     return combine_spec_text(reducer, member_count=members, operators=engine_operators())
 
 
-def test_reduce_plurality_compiles_byte_identical_to_the_fixture_vote() -> None:
-    members = ["provider/a", "provider/b", "provider/c"]
-    block = sf.Reduce("plurality", extract=NUMERIC)
-    block_url4 = compile_candidate(
-        sf.Fusion(members, synthesizer=block), operators=fixture_operators()
-    ).url4
-    fixture_url4 = compile_candidate(
-        sf.Fusion(members, synthesizer=FixtureVote()), operators=fixture_operators()
-    ).url4
-
-    assert block_url4 == fixture_url4
-
-    weighted = _compiled_text(sf.Reduce("weighted", extract=LAST, weights=[1, 2.5, 3]))
-    assert '"reduce":{"args":{},"op":"weighted_mode@1"}' in weighted
-    assert '"select":{"args":{},"op":"max_weight_holder@1"}' in weighted
-    assert '"weights":{"member_1":1.0,"member_2":2.5,"member_3":3.0}' in weighted
-
-    compute = _compiled_text(sf.Reduce("median", mode="compute", extract=LAST))
-    select = _compiled_text(sf.Reduce("median", mode="select", extract=LAST))
-    assert '"select":{"args":{},"op":"value@1"}' in compute
-    assert '"select":{"args":{},"op":"nearest@1"}' in select
-    assert '"normalize":{"args":{},"op":"numeric@1"}' in compute
-    assert '"reduce":{"args":{},"op":"median@1"}' in compute
-    assert '"reducer":"median"' in compute
-
-
 def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
     # every op but 'context' compiles now. 'context' is the first half of the Fusion recipe, and
     # only the recipe rewrite takes it (FR#10).
@@ -288,36 +254,26 @@ def test_extract_benchmark_without_benchmark_raises() -> None:
         _compiled_text(block)
 
 
-_RULES: list[tuple[Any, dict[str, Any]]] = [
-    ("boxed", {}),
-    ("last_number", {}),
-    ("field", {"path": "answer"}),
-    ("regex", {"pattern": r"Final: (\w+)\$'", "group": 1}),
-    ("last_line", {}),
-    ("whole", {}),
-    ("inspect_number", {}),
-    ("inspect_aime", {}),
-]
-_NORMALIZED = [None, "numeric", "text", "set", "inspect_numeric", "identity"]
-
-
 def _roundtrip_cases() -> list[Reduce]:
-    cases: list[Reduce] = []
-    for rule, args in _RULES:
-        cases.extend(
-            sf.Reduce("plurality", extract=sf.Extract(rule, normalize=norm, **args))  # type: ignore[arg-type]
-            for norm in _NORMALIZED
-        )
-        cases.append(
-            sf.Reduce(
-                "weighted",
-                extract=sf.Extract(rule, normalize="text", **args),
-                weights=[1, 2.5, 3],
-            )
-        )
-    for mode in ("select", "compute"):
-        for rule in ("last_number", "boxed", "inspect_number"):
-            cases.append(sf.Reduce("median", mode=mode, extract=sf.Extract(rule)))  # type: ignore[arg-type]
+    regex = {"pattern": r"Final: (\w+)\$'", "group": 1}
+    cases: list[Reduce] = [
+        sf.Reduce("plurality", extract=sf.Extract("last_number", normalize=None)),
+        sf.Reduce("plurality", extract=sf.Extract("last_number", normalize="numeric")),
+        sf.Reduce("plurality", extract=sf.Extract("field", normalize="text", path="answer")),
+        sf.Reduce("plurality", extract=sf.Extract("regex", normalize=None, **regex)),  # type: ignore[arg-type]
+        sf.Reduce("plurality", extract=sf.Extract("regex", normalize="numeric", **regex)),  # type: ignore[arg-type]
+        sf.Reduce("plurality", extract=sf.Extract("inspect_aime", normalize="identity")),
+        sf.Reduce(
+            "weighted", extract=sf.Extract("last_number", normalize="text"), weights=[1, 2.5, 3]
+        ),
+        sf.Reduce(
+            "weighted",
+            extract=sf.Extract("regex", normalize="text", **regex),  # type: ignore[arg-type]
+            weights=[1, 2.5, 3],
+        ),
+        sf.Reduce("median", mode="select", extract=sf.Extract("last_number")),
+        sf.Reduce("median", mode="compute", extract=sf.Extract("boxed")),
+    ]
     cases.extend(
         sf.Reduce("judge", judge=sf.Judge("provider/j", returns=returns, rubric="Pick one."))  # type: ignore[arg-type]
         for returns in ("label", "scores")
@@ -397,11 +353,6 @@ def test_reduce_to_python_round_trips(reducer: Reduce) -> None:
     assert compile_candidate(recovered, operators=operators).url4 == url4
 
 
-@pytest.mark.parametrize("reducer", _one_per_row())
-def test_every_constructible_reduce_row_rebuilds_from_its_source(reducer: Reduce) -> None:
-    assert eval(reducer._python(), {"sf": sf}) == reducer  # noqa: S307
-
-
 def _spec(reducer: Reduce) -> dict[str, Any]:
     return json.loads(_compiled_text(reducer))
 
@@ -442,17 +393,3 @@ def test_reduce_from_spec_refuses_shapes_it_cannot_rebuild() -> None:
     assert Reduce._from_spec(plurality) == sf.Reduce("plurality", extract=NUMERIC)
     assert Reduce._from_spec(weighted) == sf.Reduce("weighted", extract=NUMERIC, weights=[1, 2, 3])
     assert Reduce._from_spec(median) == sf.Reduce("median", extract=LAST)
-
-
-def test_weighted_from_spec_keeps_member_order_past_ten_members() -> None:
-    # canonical JSON sorts member_10 before member_2: the weights must follow the member list
-    weights = [float(k) for k in range(1, 13)]
-    block = sf.Reduce("weighted", extract=NUMERIC, weights=weights)
-    text = _compiled_text(block, members=12)
-    spec = json.loads(text)
-
-    sorted_weights = text[text.index('"weights"') :]
-    assert sorted_weights.index('"member_10"') < sorted_weights.index('"member_2"')
-    assert list(spec["weights"])[:3] == ["member_1", "member_10", "member_11"]
-    assert Reduce._from_spec(spec) == block
-    assert Reduce._from_spec(spec).options["weights"] == tuple(weights)

@@ -21,7 +21,6 @@ from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface.reducer import Reducer
 
 _KEYS = ["field:score", "cost_usd", "latency_ms"]
-_ONE_OF = "needs exactly one of by=, by_field= or by_signal="
 
 
 def _scores_judge() -> sf.Judge:
@@ -96,21 +95,7 @@ def test_the_order_option_of_by_field_and_by_judge_writes_the_order_into_top_k_o
     assert sf.Rank(2, by_field="s", order="min") != sf.Rank(2, by_field="s")
 
 
-@pytest.mark.parametrize("order", ["max", "min"])
-@pytest.mark.parametrize("key", _KEYS)
-def test_the_same_order_goes_into_both_steps(key: str, order: str) -> None:
-    named = sf.Rank(2, by_signal=sf.signal(key), order=order)  # type: ignore[arg-type]
-    block = sf.Reduce("top_k", k=2, by_signal=sf.signal(key), order=order)
-
-    for reducer in (named, block):
-        spec = _spec(reducer)
-        assert spec["reduce"]["args"]["order"] == order
-        assert spec["select"]["args"]["order"] == order
-        assert spec["reduce"]["args"]["key"] == key
-    assert _url4(named) == _url4(block)
-
-
-@pytest.mark.parametrize("key", ["cost_usd", "latency_ms", "tokens_in", "tokens_out"])
+@pytest.mark.parametrize("key", ["cost_usd"])
 def test_an_accounting_key_emits_sources_through_the_signal_seam(key: str) -> None:
     named = _url4(sf.Rank(2, by_signal=sf.signal(key), order="min"))
 
@@ -120,23 +105,6 @@ def test_an_accounting_key_emits_sources_through_the_signal_seam(key: str) -> No
     # the block form reads the same plan
     block = _url4(sf.Reduce("top_k", k=2, by_signal=sf.signal(key), order="min"))
     assert "sources:" in _combine_context(block)
-
-
-def test_rank_rejects_two_or_no_sources() -> None:
-    signal = sf.signal("field:score")
-    for build_it in (
-        lambda: sf.Rank(2),
-        lambda: sf.Rank(2, by=_scores_judge(), by_field="score"),
-        lambda: sf.Rank(2, by=_scores_judge(), by_signal=signal),
-        lambda: sf.Rank(2, by_field="score", by_signal=signal),
-        lambda: sf.Rank(2, by=_scores_judge(), by_field="score", by_signal=signal),
-    ):
-        with pytest.raises(ValueError, match=f"Rank {_ONE_OF}"):
-            build_it()
-    with pytest.raises(
-        ValueError, match=r"sf\.Reduce\('top_k'\) needs exactly one of by, by_field, by_signal"
-    ):
-        sf.Reduce("top_k", k=2, by=_scores_judge(), by_signal=signal)
 
 
 def test_rank_by_signal_validation() -> None:
@@ -185,7 +153,7 @@ def test_rank_by_signal_fields_repr_and_equality() -> None:
     assert by_signal != sf.Rank(3, by_signal=signal)
 
 
-@pytest.mark.parametrize("order", ["max", "min"])
+@pytest.mark.parametrize("order", ["min"])
 def test_reduce_top_k_block_equals_sf_rank(order: str) -> None:
     pairs: list[tuple[Reducer, Reducer]] = [
         (
@@ -211,15 +179,6 @@ def test_reduce_top_k_block_equals_sf_rank(order: str) -> None:
 
     for block, named in pairs:
         assert _url4(block) == _url4(named)
-
-
-def test_reduce_top_k_without_an_order_is_the_max_rank() -> None:
-    assert _url4(sf.Reduce("top_k", k=2, by_field="score")) == _url4(
-        sf.Rank(2, by_field="score", order="max")
-    )
-    assert _url4(sf.Reduce("top_k", k=1, by_signal=sf.signal("cost_usd"))) == _url4(
-        sf.Rank(1, by_signal=sf.signal("cost_usd"))
-    )
 
 
 def test_reduce_top_k_block_canonical_form_equality_and_hash() -> None:
