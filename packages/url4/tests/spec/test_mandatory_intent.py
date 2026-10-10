@@ -144,8 +144,8 @@ def test_processor_expression_form_still_resolves_via_bindings() -> None:
 
     io = StaticIOLayer(
         routes={
-            "/claude": lambda context, intent: f"claude:{intent}",  # noqa: ARG005
-            "/gpt4": lambda context, intent: f"gpt4:{intent}",  # noqa: ARG005
+            "/claude": lambda context, intent: f"claude:{intent}",
+            "/gpt4": lambda context, intent: f"gpt4:{intent}",
         }
     )
     result = asyncio.run(

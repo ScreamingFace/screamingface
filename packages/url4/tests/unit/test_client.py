@@ -244,7 +244,7 @@ async def test_query_seeds_env(io):
 
 async def test_client_accepts_a_node_target_string():
     async with Client("url4://node.ai/v1") as client:
-        assert client._node == "url4://node.ai/v1"  # noqa: SLF001 — facade contract
+        assert client._node == "url4://node.ai/v1"  # facade contract
     with pytest.raises(ValueError, match="once"):
         Client("url4://node.ai", node="url4://other.ai")
 

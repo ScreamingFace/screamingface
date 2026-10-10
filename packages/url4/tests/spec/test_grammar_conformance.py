@@ -133,7 +133,7 @@ class _RecordingIO:
     def __init__(self) -> None:
         self.targets: list[str] = []
 
-    async def fetch(self, target: str, *, relative: bool) -> str:  # noqa: ARG002
+    async def fetch(self, target: str, *, relative: bool) -> str:
         self.targets.append(target)
         return "ok"
 

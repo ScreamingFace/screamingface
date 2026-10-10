@@ -168,7 +168,7 @@ class ServeConfig:
         return next(iter(self.commands))
 
 
-def _require(ok: bool, message: str) -> None:  # noqa: FBT001 - tiny internal guard
+def _require(ok: bool, message: str) -> None:  # tiny internal guard
     if not ok:
         raise ConfigError(message)
 

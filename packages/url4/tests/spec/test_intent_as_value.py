@@ -41,7 +41,7 @@ def test_nested_expression_intent_is_executed_not_prompted() -> None:
     fetched: list[str] = []
 
     class _Recorder:
-        async def fetch(self, target: str, *, relative: bool) -> str:  # noqa: ARG002
+        async def fetch(self, target: str, *, relative: bool) -> str:
             fetched.append(target)
             return "body"
 

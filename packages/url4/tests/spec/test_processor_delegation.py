@@ -33,8 +33,8 @@ class _RecordingIO:
 def _routes_io() -> StaticIOLayer:
     return StaticIOLayer(
         routes={
-            "/claude": lambda context, intent: f"claude:{intent}",  # noqa: ARG005
-            "/gpt4": lambda context, intent: f"gpt4:{intent}",  # noqa: ARG005
+            "/claude": lambda context, intent: f"claude:{intent}",
+            "/gpt4": lambda context, intent: f"gpt4:{intent}",
         }
     )
 

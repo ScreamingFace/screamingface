@@ -57,7 +57,7 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702"]
+select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702", "RUF100"]
 # PLR1702 (too-many-nested-blocks) is preview-gated in ruff; enable preview but
 # scope it to explicitly-selected rules so ONLY PLR1702 activates — not ruff's
 # broad preview behavior. Without this the rule silently does nothing.
