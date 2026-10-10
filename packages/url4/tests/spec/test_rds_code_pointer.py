@@ -120,12 +120,15 @@ async def test_ch11_row6_iteration_reducer_path_is_the_prompt_itself() -> None:
     assert calls[-1][0] == '["PROCESSED[R r1|]", "PROCESSED[R r2|]"]'
 
 
-async def test_ch11_row7_relative_expression_intent_is_a_data_read() -> None:
-    # flips (P1): the intent is a relative expression and is evaluated (H7).
+async def test_ch11_row7_relative_expression_intent_is_evaluated() -> None:
+    # FLIPPED (P1, H7): the intent is a relative expression. `/w` is called once, with the
+    # group's `$1` substituted, and its answer is the prompt of the outer group.
+    calls: list[tuple[str, str | None]] = []
     io = RecordingIOLayer({}, {"/w": lambda context, intent: f"W<{context}|{intent}>"})
-    result = await run("((x='hi')!'S')!/w?q=($1)!'Write'", io)
-    assert io.fetches == ["/w?q=($1)!'Write'"]  # one raw fetch: `$1` was never substituted
-    assert result.startswith("W<$1|'Write'>")
+    result = await run("((x='hi')!'S')!/w?q=($1)!'Write'", io, process=_recording_process(calls))
+    assert io.fetches == ["/w?q=(PROCESSED[S|x:%20hi])!Write"]
+    assert calls[-1][1] == "W<PROCESSED[S|x: hi]|Write>"
+    assert result.startswith("PROCESSED[W<PROCESSED[S|x: hi]|Write>|")
 
 
 async def test_ch11_row8_absolute_uri_intent_is_fetched_as_the_prompt() -> None:
@@ -137,13 +140,15 @@ async def test_ch11_row8_absolute_uri_intent_is_fetched_as_the_prompt() -> None:
     assert result == "PROCESSED[SCORE|x: 1]"
 
 
-async def test_ch11_row9_canonical_expression_with_protocol_params_is_a_data_read() -> None:
-    # flips (P1): `/claude?t=90&q=(y)!'go'` is a relative expression (C1 detection row 4).
+async def test_ch11_row9_canonical_expression_with_protocol_params_is_evaluated() -> None:
+    # FLIPPED (P1, H7): `/claude?t=90&q=(y)!'go'` is a relative expression (C1 detection
+    # row 4); its protocol params travel before `q=`.
     calls: list[tuple[str, str | None]] = []
-    io = StaticIOLayer({"/claude?t=90&q=(y)!'go'": "DATA"})
+    io = RecordingIOLayer({}, {"/claude": lambda context, intent: f"C<{context}|{intent}>"})
     result = await run("(x='1')!/claude?t=90&q=(y)!'go'", io, process=_recording_process(calls))
-    assert calls == [("x: 1", "DATA")]
-    assert result == "PROCESSED[DATA|x: 1]"
+    assert io.fetches == ["/claude?t=90&q=(y)!go"]
+    assert calls == [("x: 1", "C<y|go>")]
+    assert result == "PROCESSED[C<y|go>|x: 1]"
 
 
 async def test_ch11_row10_forwarded_code_pointer_intent_is_resolved_by_the_caller() -> None:

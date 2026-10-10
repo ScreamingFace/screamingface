@@ -440,7 +440,7 @@ def _intent_from_ast(atom: Node | None, registry: LoweringRegistry) -> _Intent |
     if isinstance(atom, Text):
         value = atom.value
         return _Intent(lambda edges: TextNode(value, deps=dict(edges)), text=value)
-    return _Intent(lambda edges: registry.lower(atom, edges))
+    return _Intent(lambda edges: registry.lower(atom, edges), refs=frozenset(_refs_of_ast(atom)))
 
 
 def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:

@@ -68,6 +68,8 @@ class _Intent:
 
     make: Callable[[Edges], DagNode]
     text: str | None = None
+    # The `$name`/`$N` a computed intent mentions (B §6.2: the group's own sources).
+    refs: frozenset[str] = frozenset()
 
 
 def _quorum_of(params: Params) -> int | None:
@@ -271,7 +273,11 @@ def _base_graph(
     if intent.text is not None:
         return ProcessNode(_slot_specs(slots), quorum, intent_template=intent.text, deps=deps)
     waits = {f"wait:{i}": node for i, node in enumerate(built)}
-    deps["intent"] = BarrierNode(deps={"inner": intent.make({}), **waits})
+    # WHY the group edges: a computed intent (`/w?q=($1)!'Write'`) reads the group's
+    # sources (B §6.2), so its `$1` must reach the same node the group gathers.
+    by_name = {slot.name: node for slot, node in zip(slots, built, strict=True) if slot.name}
+    edges = _ref_edges(intent.refs, by_name, dict(enumerate(built, start=1)))
+    deps["intent"] = BarrierNode(deps={"inner": intent.make(edges), **waits})
     return ProcessNode(_slot_specs(slots), quorum, deps=deps)
 
 
