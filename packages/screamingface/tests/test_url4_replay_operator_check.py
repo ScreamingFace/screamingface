@@ -14,7 +14,7 @@ import pytest
 from _combine_contract import requires_engine_app
 from _reducer_fixtures import fixture_operators, operators_response, reducer_fusion
 from test_client_run import _AsyncReplayTransport, _ReplayTransport
-from test_corrective_vote_contract_fixture import corrective_vote_url4
+from test_engine_url4_contract_fixtures import corrective_vote_url4
 from url4 import expr, render, src, text
 
 import screamingface as sf
