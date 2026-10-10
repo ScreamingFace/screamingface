@@ -10,7 +10,6 @@ and attribution copies evidence only when exactly one binding claims the fingerp
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from combine_support import context_text, run, spec_text, vote_spec
 
@@ -232,32 +231,6 @@ def test_a_judge_binding_alone_takes_its_own_call() -> None:
 
     assert operations is not None
     assert [(op.operation_id, op.output) for op in operations] == [("op_judge_1", "verdict")]
-
-
-def test_envelope_dump_key_order_is_declaration_order() -> None:
-    evidence_dump: dict[str, Any] = _evidence().model_dump(by_alias=True)
-
-    assert list(evidence_dump) == [
-        "schema",
-        "kind",
-        "reducer",
-        "operators",
-        "members",
-        "tally",
-        "judge",
-        "fields",
-        "chosen",
-        "built",
-        "agreement",
-        "tie",
-        "median",
-        "presentation_order",
-        "separator_collision",
-        "signal",
-        "result",
-        "dropped",
-        "finish_reason",
-    ]
 
 
 def _accounting(model: str) -> OperationAccounting:

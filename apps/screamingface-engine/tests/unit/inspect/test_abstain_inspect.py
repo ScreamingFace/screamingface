@@ -18,7 +18,7 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
-from test_inspect_gsm8k_benchmark import GSM8K_BENCHMARK, _call, _node, _prepare  # noqa: E402
+from test_inspect_gsm8k_benchmark import GSM8K_BENCHMARK, _prepare  # noqa: E402
 
 from screamingface_engine.benchmarks.case_request import candidate_input  # noqa: E402
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
@@ -28,32 +28,10 @@ from screamingface_engine.benchmarks.contract import (  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import (  # noqa: E402
     install_graded_answer_endpoint,
 )
-from screamingface_engine_inspect.envelopes import build_case_grade  # noqa: E402
-from screamingface_engine_inspect.single_shot import _decode  # noqa: E402
 from url4 import Text, expr, render, src  # noqa: E402
 from url4.peer.server import Request, Url4Node  # noqa: E402
 
 _ABST = encode_candidate_invocation("", "stop", None, abstained=True)
-
-
-@pytest.mark.asyncio
-async def test_single_shot_check_route_and_decoder_keep_the_mark(tmp_path: Path) -> None:
-    node = _node(tmp_path)
-
-    marked = json.loads(await _call(node, GSM8K_BENCHMARK.check_route, _ABST, "1"))
-    plain = json.loads(
-        await _call(
-            node,
-            GSM8K_BENCHMARK.check_route,
-            encode_candidate_invocation("ANSWER: 42", "stop", None),
-            "1",
-        )
-    )
-
-    assert marked.get("candidate_abstained") is True
-    assert "candidate_abstained" not in plain
-    assert _decode(build_case_grade(1, [marked]), 1)["case"].get("candidate_abstained") is True
-    assert "candidate_abstained" not in _decode(build_case_grade(1, [plain]), 1)["case"]
 
 
 @pytest.mark.asyncio

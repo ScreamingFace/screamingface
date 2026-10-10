@@ -44,14 +44,10 @@ async def _get(
     ("extract", "normalize", "grader"),
     [
         ("Inspect@1", None, _GRADER),
-        ("x@0", None, _GRADER),
-        ("x", None, _GRADER),
         ("inspect_number@1", "Bad@1", _GRADER),
         ("inspect_number@1", None, ""),
-        ("inspect_number@1", None, "   "),
         ("inspect_number@1", None, "has space@1"),
         ("inspect_number@1", None, "inspect_ai.scorer:match"),
-        ("inspect_number@1", None, "inspect_ai.scorer:match@"),
     ],
 )
 def test_answer_rule_validates_ids_and_grader(

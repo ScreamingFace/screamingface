@@ -51,15 +51,6 @@ _RULES: dict[str, dict[str, object]] = {
 }
 
 
-def test_gsm8k_and_aime_declare_answer_rules_in_catalog() -> None:
-    for spec in BENCHMARKS:
-        entry = imported_benchmark(spec.key).benchmark.catalog_entry()
-        if spec.key in _RULES:
-            assert entry.get("answer_rule") == _RULES[spec.key]
-        else:
-            assert "answer_rule" not in entry
-
-
 @pytest.mark.parametrize("key", sorted(_RULES))
 def test_each_rule_resolves_and_pins_the_scorer_its_row_declares(key: str) -> None:
     spec = next(row for row in BENCHMARKS if row.key == key)

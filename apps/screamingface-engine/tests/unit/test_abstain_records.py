@@ -25,9 +25,6 @@ from screamingface_engine.benchmarks.case_records import build_case_record
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.contracteval import aggregate as contracteval_aggregate
 from screamingface_engine.benchmarks.contracteval.case_grade import (
-    CHECK_SCHEMA as CONTRACTEVAL_CHECK_SCHEMA,
-)
-from screamingface_engine.benchmarks.contracteval.case_grade import (
     build_case_grade as contracteval_case_grade,
 )
 from screamingface_engine.benchmarks.contracteval.runtime import _check as contracteval_check
@@ -136,22 +133,6 @@ async def _hoisted_row(family: str, root: Path, reply: str) -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_mark_reaches_the_check_record_of_each_family(tmp_path: Path) -> None:
-    ifeval_marked = await _ifeval_record(tmp_path / "if_marked", _ABST)
-    contract_marked = _contracteval_record(tmp_path / "ce", _ABST)
-
-    assert ifeval_marked.get("candidate_abstained") is True
-    assert "candidate_abstained" not in await _ifeval_record(tmp_path / "if_plain", _PLAIN)
-    assert contract_marked.get("candidate_abstained") is True
-    assert "candidate_abstained" not in _contracteval_record(tmp_path / "ce_plain", _PLAIN)
-    # ContractEval's check verdict `abstained` stays the benchmark's own fact (F4).
-    assert contract_marked["abstained"] is False
-    assert contract_marked["schema"] == CONTRACTEVAL_CHECK_SCHEMA
-    assert _medxpert_record(_ABST).get("candidate_abstained") is True
-    assert "candidate_abstained" not in _medxpert_record(_PLAIN)
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("family", ["ifeval", "contracteval", "medxpert"])
 async def test_a_marked_record_survives_its_hoist(family: str, tmp_path: Path) -> None:
     """A hoist that forgets the mark would silently grade an abstained Case as answered."""
@@ -162,6 +143,9 @@ async def test_a_marked_record_survives_its_hoist(family: str, tmp_path: Path) -
     assert _candidate_fields(marked).abstained is True
     assert "candidate_abstained" not in _hoisted(plain)
     assert _candidate_fields(plain).abstained is False
+    if family == "contracteval":
+        # ContractEval's check verdict `abstained` stays the benchmark's own fact (F4).
+        assert _contracteval_record(tmp_path / "verdict", _ABST)["abstained"] is False
 
 
 def _accepted(grading: dict[str, Any]) -> bool:

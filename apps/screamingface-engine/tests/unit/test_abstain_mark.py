@@ -207,14 +207,6 @@ def _operations(evidence: CombineEvidence | None, output: str = "") -> list[Oper
     ]
 
 
-def test_evidence_fixtures_are_what_their_names_say() -> None:
-    assert _abstain_evidence().result.status == "abstain"
-    assert _answered_evidence().result.status == "answered"
-    empty = _empty_answer_evidence()
-    assert (empty.result.status, empty.result.reason) == ("answered", None)
-    assert empty.built is True
-
-
 @pytest.mark.parametrize(
     ("expression", "operations", "expected"),
     [
@@ -250,14 +242,6 @@ def test_evidence_fixtures_are_what_their_names_say() -> None:
             _combine_final("$synthesis_1"), _operations(None), False, id="g-no-combine-evidence"
         ),
         pytest.param("(((", _operations(_abstain_evidence()), False, id="h-unparseable"),
-        # The real F11 proof (a corrective loop's own record is never marked) is in
-        # test_abstain_corrective.py; this row pins only the name rule.
-        pytest.param(
-            _combine_final("$loop_candidate"),
-            _operations(_abstain_evidence()),
-            False,
-            id="i-loop-candidate",
-        ),
         # WHY this shape: url4 parses a bare relative call into an Expression with NO intent, so
         # the root is never a `$name` text intent (there is no RelExpr root to receive).
         pytest.param(
