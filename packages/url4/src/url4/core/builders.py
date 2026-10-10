@@ -428,7 +428,7 @@ def _directives(
         concurrency=concurrency,
         # The membership check above is the runtime proof; the cast records it
         # for the type system, which cannot see through the `in` test.
-        on_error=cast(OnErrorPolicy, on_error) if on_error is not None else "collect",
+        on_error=cast(OnErrorPolicy, on_error) if on_error not in (None, "collect") else None,
         slice=slice,
         fmt_result=fmt_result,
     )

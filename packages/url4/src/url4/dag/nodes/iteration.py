@@ -100,12 +100,12 @@ class MapNode:
         expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
         # A7: each kept row adds its captured-error count; a failed map adds none.
         error_counts: list[int] = []
-        if self.directives.on_error == "fail":
+        if self.directives.on_error_policy == "fail":
             results = await self._run_all(items, expr, sem, ctx, frame, error_counts)
         else:
             rows = [self._row(row, expr, sem, ctx, frame, error_counts) for row in enumerate(items)]
             raw = await asyncio.gather(*rows, return_exceptions=True)
-            skip = self.directives.on_error == "skip"
+            skip = self.directives.on_error_policy == "skip"
             results = self._skip(raw) if skip else self._collect(raw, error_counts)
         ctx.record_collected_errors(sum(error_counts))
         return results

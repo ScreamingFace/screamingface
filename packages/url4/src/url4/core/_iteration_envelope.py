@@ -60,12 +60,12 @@ def _decode_iteration(
         collection, body = split_collection_iteration(inner_src)
         if collection is not None and body is not None and not _is_descriptored(collection):
             merged = _merge_directives(inner_directives, directives)
-            return IterationEnvelope(collection, body, per_row_intent, raw_intent, merged)
+            return IterationEnvelope(collection, body, per_row_intent, raw_intent, merged.settled())
 
     # Plain iteration: ``src*(body)``; a top-level ``raw_intent`` reduces per row.
     collection, body = split_collection_iteration(source_expr)
     if collection is not None and body is not None:
-        return IterationEnvelope(collection, body, raw_intent, None, directives)
+        return IterationEnvelope(collection, body, raw_intent, None, directives.settled())
     return None
 
 
@@ -101,7 +101,7 @@ def _is_descriptored(collection: str) -> bool:
 def _merge_directives(
     primary: IterationDirectives, secondary: IterationDirectives
 ) -> IterationDirectives:
-    """Field-wise merge: an explicitly non-default ``primary`` field wins.
+    """Field-wise merge: a ``primary`` field that was given wins.
 
     The order is intentional and the merge is therefore NOT commutative — the
     result depends on which argument is ``primary``. That is correct while both
@@ -109,10 +109,9 @@ def _merge_directives(
     order). If two independent sources ever supply directives, this function
     needs a defined conflict rule instead.
     """
-    default = IterationDirectives()
     return IterationDirectives(
         concurrency=primary.concurrency or secondary.concurrency,
-        on_error=primary.on_error if primary.on_error != default.on_error else secondary.on_error,
+        on_error=primary.on_error if primary.on_error is not None else secondary.on_error,
         slice=primary.slice or secondary.slice,
         fmt_result=primary.fmt_result or secondary.fmt_result,
     )

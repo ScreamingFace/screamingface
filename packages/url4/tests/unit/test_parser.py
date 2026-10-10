@@ -202,7 +202,8 @@ def test_split_expr_params_defaults() -> None:
     assert clean == "body"
     assert params == ()
     assert directives.concurrency is None
-    assert directives.on_error == "collect"  # §5.3.6 default
+    assert directives.on_error is None  # not given
+    assert directives.on_error_policy == "collect"  # §5.3.6 default
 
 
 def test_split_expr_params_preserves_protocol_keys() -> None:

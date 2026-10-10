@@ -302,7 +302,7 @@ def _fold_directives(
     value: Iteration, annotations: Params
 ) -> tuple[Params, IterationDirectives | None]:
     rest, directives = extract_directives(annotations)
-    return rest, directives if len(rest) != len(annotations) else None
+    return rest, directives.settled() if len(rest) != len(annotations) else None
 
 
 # --- value detection (§5.2) -------------------------------------------------------

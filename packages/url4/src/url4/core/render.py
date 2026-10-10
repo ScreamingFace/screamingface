@@ -578,7 +578,7 @@ def _render_directives(d: IterationDirectives) -> str:
     parts: list[str] = []
     if d.concurrency is not None:
         parts.append(f";iteration.concurrency={d.concurrency}")
-    if d.on_error != _DEFAULT_DIRECTIVES.on_error:
+    if d.on_error is not None:
         parts.append(f";iteration.on_error={d.on_error}")
     if d.slice is not None:
         parts.append(f";iteration.slice={d.slice[0]}:{d.slice[1]}")
