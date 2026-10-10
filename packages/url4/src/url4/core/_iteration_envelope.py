@@ -12,7 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from url4.core._annotations import DirectiveFields, directives_from_fields
-from url4.core._descriptor_head import classify_head, name_and_value
 from url4.core._lexical import _IDENT_RE, reject_chained_intent
 from url4.core._splitters import (
     _split_at_iteration_body,
@@ -22,6 +21,7 @@ from url4.core._splitters import (
     split_top_level_commas,
     strip_one_paren_layer,
 )
+from url4.core.descriptor_head import classify_head, name_and_value
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import parse
 from url4.core.nodes import Binding, IterationDirectives, Source

@@ -34,7 +34,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 
-from url4.core._descriptor_head import deferrable_group, is_processed_group
+from url4.core.descriptor_head import deferrable_group, is_processed_group
 from url4.core.errors import ParseError
 from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import (
@@ -381,7 +381,7 @@ def default_registry() -> LoweringRegistry:
 def _slot_from_text(segment: str, registry: LoweringRegistry) -> _Slot:
     """One source segment: a group the grammar lets us defer, else the eager grammar parse.
 
-    The classification is the grammar's (:func:`~url4.core._descriptor_head.deferrable_group`),
+    The classification is the grammar's (:func:`~url4.core.descriptor_head.deferrable_group`),
     so a reserved ``src``, a guard on the ``;`` chain or a weight reads the same
     here as on the parse-tree path.
     """

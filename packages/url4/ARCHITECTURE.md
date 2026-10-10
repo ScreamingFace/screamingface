@@ -87,6 +87,7 @@ names no transport.
 | character classes or quoted-text decoding | `core/_lexical.py` | language |
 | structured weights and budgets (`(k:v)`) | `core/_struct_values.py` | language |
 | what is a call head (`/p(`, `/p?…q=(`, `url4://`) | `core/_call_head.py` | language |
+| what a source head is (value, `src=`, `n=`, `n:` chain) | `core/descriptor_head.py` | language |
 | the envelope split (`!intent`, `;params`, `src*(body)`) | `core/parser.py`, `core/_splitters.py`, `core/_iteration_envelope.py` | language |
 | the AST node shape | `core/nodes.py` | language |
 | canonical rendering / the round-trip check | `core/render.py` | language |

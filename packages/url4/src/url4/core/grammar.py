@@ -46,7 +46,6 @@ from url4.core._call_head import (
     find_expression_param,
     remote_path_offset,
 )
-from url4.core._descriptor_head import classify_head, first_colon, is_value_shaped
 from url4.core._lexical import (
     _BUDGET_KEY_RE,
     _FIELD_SEG_RE,
@@ -75,6 +74,7 @@ from url4.core._struct_values import (
     _parse_budget_value,
     _parse_weight_value,
 )
+from url4.core.descriptor_head import classify_head, first_colon, is_value_shaped
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.nodes import (
     Binding,
@@ -192,7 +192,7 @@ def _mark_expand(node: Node) -> Source:
 def _parse_head(head: str) -> _Descriptor:
     """Decode the pre-``;`` part: bare value, ``src=`` value, ``name=`` sugar, or chain.
 
-    The classification is :func:`~url4.core._descriptor_head.classify_head`,
+    The classification is :func:`~url4.core.descriptor_head.classify_head`,
     the one owner the DAG text path shares.
     """
     form, name, value = classify_head(head)
