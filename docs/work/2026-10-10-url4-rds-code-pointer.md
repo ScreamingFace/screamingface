@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # one issue per phase under OME-500, filed at PR-open after the user confirms
+ticket: OME-1569
 stack: repo
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-10
