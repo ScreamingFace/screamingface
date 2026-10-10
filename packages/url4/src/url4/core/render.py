@@ -34,16 +34,16 @@ from collections.abc import Callable
 from math import isfinite
 
 from url4.core._annotations import is_source_level_key
-from url4.core._scan import balanced_body, find_top_level, skip_quoted
-from url4.core.errors import ParseError, RenderError
 
 # WHY: these regexes ARE the grammar's character classes; re-declaring them
 # here would let the two modules drift. Private-name import is deliberate.
+from url4.core._call_head import _PATH_RE
+from url4.core._scan import balanced_body, find_top_level, skip_quoted
+from url4.core.errors import ParseError, RenderError
 from url4.core.grammar import (
     _IDENT_RE,
     _IDENTITY_NAME_RE,
     _NUMBER_RE,
-    _PATH_RE,
     _SCHEME_RE,
     _STRUCT_KEY_RE,
     _STRUCT_TOKEN_RE,

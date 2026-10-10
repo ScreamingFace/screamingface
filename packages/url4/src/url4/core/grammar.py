@@ -36,7 +36,12 @@ from url4.core._annotations import (
     extract_directives,
     split_annotation_pairs,
     validate_exec_annotations,
-    validate_param,
+)
+from url4.core._call_head import (
+    _PATH_RE,
+    _decode_query_params,
+    _find_expression_param,
+    is_call_head,
 )
 from url4.core._scan import (
     balanced_body,
@@ -46,7 +51,6 @@ from url4.core._scan import (
     iter_top_level,
     one_paren_layer,
     skip_quoted,
-    split_query_segments,
     split_top_level,
 )
 from url4.core.errors import ErrorCode, ParseError
@@ -91,13 +95,6 @@ _SCALAR_BUDGET_RE = re.compile(r"[A-Za-z0-9.\-_]+", re.ASCII)
 _INDEX_SEG_RE = re.compile(r"(0|[1-9]\d*)\]")
 _STRUCT_KEY_RE = re.compile(r"[A-Za-z0-9_]+")
 _STRUCT_TOKEN_RE = re.compile(r"[A-Za-z0-9_.\-]+")
-
-# §8 `path = segment *( "/" segment )`, `segment = *( ALPHA / DIGIT / "-" /
-# "_" / "." / "~" )` — the NARROW charset, for expression-bearing paths
-# (relative-expr / remote-expr).
-# WHY: `render._check_path` reads this same pattern — keeps parse and render
-# from drifting (`OME-507`).
-_PATH_RE = re.compile(r"(?:/[A-Za-z0-9\-_.~]*)+", re.ASCII)
 
 # `relative-uri`'s `path-segment` — the WIDE charset.
 # WHY: it admits "$", which is what makes a variable-bearing data reference like
@@ -647,42 +644,6 @@ def _parse_expr_canonical(token: str, qmark: int) -> RelUrl | RelExpr:
     )
 
 
-def _find_expression_param(token: str, qmark: int) -> int | None:
-    """The offset of ``q=(`` as a query parameter after ``qmark``, or None.
-
-    # INVARIANT: ``&`` separates query parameters only at depth 0 outside
-    # quotes — the same rule :func:`url4.wire.subrequest.extract_expression_params`
-    # applies on the wire. A quote-only scan mistook an ``&`` nested inside a
-    # parenthesized expression-bearing value (``processor=(/x?a=1&b=2&q=(y)!z)``)
-    # for a parameter boundary and locked onto the INNER ``q=(`` (`OME-501`).
-    """
-    start = qmark + 1
-    if token[start : start + 3] == "q=(":
-        return start
-    rest = token[start:]
-    for i, ch in iter_top_level(rest):
-        if ch == "&":
-            candidate = start + i + 1
-            if token[candidate : candidate + 3] == "q=(":
-                return candidate
-    return None
-
-
-def _decode_query_params(params_text: str) -> Params:
-    # INVARIANT: same depth-0 rule as _find_expression_param — a nested ``&``
-    # belongs to its enclosing value, not to this parameter list.
-    if not params_text:
-        return ()
-    pairs: list[tuple[str, str | None]] = []
-    for segment in split_query_segments(params_text):
-        if segment:
-            key, eq, value = segment.partition("=")
-            decoded = value if eq else None
-            validate_param(key, decoded)
-            pairs.append((key, decoded))
-    return tuple(pairs)
-
-
 def _parse_expr_intent(after: str, token: str) -> Node:
     """The mandatory ``!intent`` tail of a relative/remote expression.
 
@@ -943,4 +904,4 @@ def _intent_value_or_text(text: str) -> Node:
         return Text(text)
 
 
-__all__ = ["intent_atom", "parse", "parse_value"]
+__all__ = ["intent_atom", "is_call_head", "parse", "parse_value"]

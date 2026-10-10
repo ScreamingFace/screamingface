@@ -10,19 +10,14 @@ protocol parameters (spec §9.2, including the ``iteration.*`` directives of
 
 from __future__ import annotations
 
-import re
 import warnings
 
 from url4.core._annotations import extract_directives, split_annotation_pairs
+from url4.core._call_head import is_call_head
 from url4.core._scan import balanced_body, find_unquoted, iter_iteration_stars, one_paren_layer
 from url4.core._scan import iter_top_level as _iter_top_level
 from url4.core._scan import split_top_level as _split_top_level
 from url4.core.nodes import IterationDirectives, Params
-
-# The `path` production (§8): "/" segment *( "/" segment ), segment charset
-# ALPHA / DIGIT / "-" / "_" / "." / "~". Anchored ASCII, like every other
-# grammar pattern (`OME-504`).
-_CALL_PATH_RE = re.compile(r"(?:/[A-Za-z0-9\-_.~]*)+", re.ASCII)
 
 
 def split_intent(expr: str) -> tuple[str, str | None, bool]:
@@ -52,28 +47,30 @@ def _is_backend_call_tail(expr: str, bang: int) -> bool:
     disagreeing with ``grammar.parse``, which has always read the whole token
     as one RelExpr (the disagreement ``_fold_intent_into_call`` exists to undo).
 
-    The discriminator: the FIRST depth-0 ``(`` closes immediately before the
-    ``!``, and everything before it is a call target (``/path`` or
-    ``url4://authority/path``). So ``()!intent`` (empty source list) and
+    The discriminator: the depth-0 ``(…)`` group that closes immediately before
+    the ``!``, and everything before it is a call head — the grammar decides
+    that (:func:`~url4.core.grammar.is_call_head`), for the sugar forms
+    (``/path``, ``url4://authority/path``) and the canonical forms
+    (``/path?[params&]q=``). So ``()!intent`` (empty source list) and
     ``src*()!intent`` (iteration body) still split — their head is not a call
-    target — and ``https://x!go`` still splits, since no ``)`` precedes it.
+    head — and ``https://x!go`` still splits, since no ``)`` precedes it.
     """
     if bang < 1 or expr[bang - 1] != ")":
         return False
+    opener = _depth0_opener(expr, bang - 1)
+    return opener is not None and is_call_head(expr[:opener])
+
+
+def _depth0_opener(expr: str, close: int) -> int | None:
+    """The ``(`` of the depth-0 group whose ``)`` sits at ``close``, or None."""
     opener = find_unquoted(expr, "(")
-    body = None if opener is None else balanced_body(expr, opener + 1)
-    if opener is None or body is None or opener + 1 + len(body) != bang - 1:
-        return False
-    return _is_call_target(expr[:opener])
-
-
-def _is_call_target(head: str) -> bool:
-    """True when ``head`` is a relative or remote call's ``/path`` prefix."""
-    if head.startswith("url4://"):
-        rest = head[len("url4://") :]
-        slash = rest.find("/")
-        return slash > 0 and _CALL_PATH_RE.fullmatch(rest[slash:]) is not None
-    return _CALL_PATH_RE.fullmatch(head) is not None
+    while opener is not None:  # walk the depth-0 groups left to right
+        body = balanced_body(expr, opener + 1)
+        end = None if body is None else opener + 1 + len(body)
+        if end is None or end >= close:
+            return opener if end == close else None
+        opener = find_unquoted(expr, "(", end + 1)
+    return None
 
 
 def split_expr_params(expr: str) -> tuple[str, Params, IterationDirectives]:

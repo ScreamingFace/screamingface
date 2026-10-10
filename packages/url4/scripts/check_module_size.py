@@ -36,7 +36,7 @@ HEADROOM = 10
 # size. Lower an entry when its module shrinks; never raise it to make CI pass
 # — HEADROOM is what absorbs ordinary edits.
 BASELINE: dict[str, int] = {
-    "core/grammar.py": 944,
+    "core/grammar.py": 907,
     "dag/_lowering.py": 678,
     "core/render.py": 687,
     "dag/_run.py": 261,
