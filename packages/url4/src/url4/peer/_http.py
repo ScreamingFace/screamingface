@@ -44,6 +44,12 @@ _STATUS_BY_CODE: dict[str, int] = {
     # No request was sent: the node's own concurrency cap ran the deadline out, so the
     # node is the one that is (temporarily) unavailable — not an upstream failure.
     ErrorCode.ADMISSION_TIMEOUT: 503,
+    # url4 2.0 code pointers (contracts C8). A caller applying Spec C §13.2.1 to the
+    # status recovers the class: 501 is exactly `unsupported_mode`; `intent_error` has
+    # no §13.2.1 row, so 422 keeps it permanent (500 would read as transient) and the
+    # JSON body carries the exact code.
+    ErrorCode.UNSUPPORTED_MODE: 501,
+    ErrorCode.INTENT_ERROR: 422,
 }
 
 
@@ -112,6 +118,9 @@ def status_for_code(code: str | None, *, permanent: bool) -> int:
         status = _STATUS_BY_CODE.get(code)
         if status is not None:
             return status
+    # AIDEV-NOTE: contracts C8 proposes 422 for an unlisted PERMANENT code (500 reads as
+    # transient to a §13.2.1 caller). That conflicts with the pinned "any other → 500"
+    # regression rows, so it waits for the owner; the code-pointer codes have rows above.
     return 500 if permanent else 502
 
 

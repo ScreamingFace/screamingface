@@ -71,6 +71,11 @@ _PARAM_KEY_RE = re.compile(r"[A-Za-z0-9._]+", re.ASCII)
 # values (iteration.slice=1:3, accept=application/json) fit without quoting.
 _PARAM_VALUE_RE = re.compile(r"[A-Za-z0-9.\-_,:/]+", re.ASCII)
 
+# `query-tail` (contracts C7) — the code-pointer query, read by parse_query_tail. Its
+# own charset, not param-value: `+`, `@`, `?` and `=` are legal here. An empty tail
+# matches too, and parse_query_tail maps it to no params.
+_QUERY_TAIL_RE = re.compile(r"[A-Za-z0-9\-._~:@/?+&=]*", re.ASCII)
+
 # WHY: `nested-param-value = param-value / processor-value`, and a processor-value
 # may be a whole expression body — which can never satisfy param-value. These
 # keys are expression-bearing, so their values are validated by their own
@@ -149,6 +154,31 @@ def validate_params(params: Params) -> None:
     """Validate every pair in a decoded parameter list."""
     for key, value in params:
         validate_param(key, value)
+
+
+def parse_query_tail(text: str) -> dict[str, str]:
+    """Read a code pointer's query tail (Spec B §8, contracts C7) into its params.
+
+    The tail takes its own charset, not ``param-value``: ``+``, ``@``, ``?`` and ``=``
+    are allowed. Nothing is percent-decoded (the expression text is already decoded, and
+    ``%`` is refused). No key is reserved, and a key that appears twice is refused.
+    """
+    if not _QUERY_TAIL_RE.fullmatch(text):
+        raise ParseError(
+            f"invalid query tail {text!r} — `query-tail` takes ALPHA / DIGIT / '-' '.' '_' "
+            "'~' ':' '@' '/' '?' '+' '&' '=' (no percent-encoding)"
+        )
+    if not text:
+        return {}
+    params: dict[str, str] = {}
+    for segment in text.split("&"):
+        key, _, value = segment.partition("=")
+        if not key:
+            raise ParseError(f"empty key or segment in query tail {text!r}")
+        if key in params:
+            raise ParseError(f"duplicate key {key!r} in query tail {text!r}")
+        params[key] = value
+    return params
 
 
 def is_source_level_key(key: str) -> bool:
@@ -317,6 +347,7 @@ __all__ = [
     "MAX_RETRIES",
     "checked_retries",
     "checked_timeout",
+    "parse_query_tail",
     "validate_param",
     "validate_params",
     "EXCLUSIVE_SOURCE_KEYS",

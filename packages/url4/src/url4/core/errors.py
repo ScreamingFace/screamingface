@@ -59,6 +59,8 @@ class ErrorCode(StrEnum):
     IDENTITY_ACCESS_DENIED = "identity_access_denied"
     CONSENT_REQUIRED = "consent_required"
     CONSENT_WITHHELD = "consent_withheld"
+    INTENT_ERROR = "intent_error"
+    UNSUPPORTED_MODE = "unsupported_mode"
     DIRECT_EVAL_REFUSED = "direct_eval_refused"
     """A direct call (one handler, `url4.peer.dispatch_direct`) targeted the eval path, which
     evaluates an expression — the one thing a direct call must never do."""
