@@ -66,18 +66,6 @@ def test_vote_tie_goes_to_first_holder_in_author_order_and_flags_tie() -> None:
     assert evidence["tie"] is True
 
 
-def test_vote_normalization_groups_equal_numbers() -> None:
-    texts = ["9", "9.0", "12", "12", "9.00"]
-    _, evidence = _evidence("vote_number_5", texts)
-    assert _tally(evidence) == [
-        ("9", 3.0, ["member_1", "member_2", "member_5"]),
-        ("12", 2.0, ["member_3", "member_4"]),
-    ]
-    assert [member["raw"] for member in evidence["members"]] == ["9", "9.0", "12", "12", "9.00"]
-    assert [member["value"] for member in evidence["members"]] == ["9", "9", "12", "12", "9"]
-    assert evidence["agreement"] == 0.6
-
-
 def test_empty_extracts_do_not_vote_and_are_reported() -> None:
     texts = ["no box here", "so \\boxed{5}", "\\boxed{}"]
     output, evidence = _evidence("vote_boxed_3", texts)

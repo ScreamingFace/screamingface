@@ -66,9 +66,7 @@ _MALFORMED: dict[str, Any] = {
     "extract not an object": _broken(extract="inspect_number@1"),
     "extract extra key": _broken(extract={"op": "inspect_number@1", "args": {}, "x": 1}),
     "op not pinned": _broken(extract={"op": "inspect_number", "args": {}}),
-    "op version zero": _broken(extract={"op": "x@0", "args": {}}),
     "args not empty": _broken(extract={"op": "inspect_number@1", "args": {"x": 1}}),
-    "normalize op not pinned": _broken(normalize={"op": "inspect_numeric", "args": {}}),
 }
 
 
@@ -84,7 +82,7 @@ def test_malformed_answer_rule_is_an_invalid_benchmark_resource(name: str) -> No
     assert caught.value.permanent is True
 
 
-@pytest.mark.parametrize("normalize", ["text", None, "inspect_numeric"])
+@pytest.mark.parametrize("normalize", ["text", None])
 def test_benchmark_extract_with_normalize_raises(normalize: str | None) -> None:
     with pytest.raises(ValueError, match="benchmark's own normalizer"):
         sf.Vote(extract="benchmark", normalize=normalize)

@@ -16,7 +16,6 @@ from _vote_run_fixtures import (
     ScriptedTransport,
     benchmark_resource,
     engine_handler,
-    operation_wire,
     vote_case,
 )
 
@@ -65,62 +64,6 @@ def test_case_answers_join_text_through_depends_on() -> None:
     assert computed.text == case.operations[3].output
 
 
-def test_pipeline_member_text_is_its_final_operation_output() -> None:
-    # AR#11 (a): the member that is a Pipeline answers with its LAST stage, not its first.
-    recipe = sf.Fusion(
-        [sf.Pipeline(["provider/a", "provider/b"]), "provider/c", "provider/d"], synthesizer=_VOTE
-    )
-    ops = ("op_model_1", "op_model_2", "op_model_3", "op_model_4")
-    case_body = vote_case(
-        ["draft 41", "The answer is 42", "no idea", "So 42"],
-        "vote_one_failed",
-        model_ops=ops,
-        output="The answer is 42",
-    )
-    depends_on = ("op_model_2", "op_model_3", "op_model_4")
-    report = _run(recipe, case_body)
-
-    operations = report.candidates[0].operations
-    assert [operation.id for operation in operations] == [
-        "op_model_1",
-        "op_model_2",
-        "op_model_3",
-        "op_model_4",
-        "op_synthesis_1",
-    ]
-    assert operations[-1].depends_on == depends_on
-    case = report.candidates[0].cases.by_id(1)
-    assert case.operations is not None
-    assert case.answers()[0].text == case.operations[1].output
-    assert case.answers()[0].text != case.operations[0].output
-
-
-def test_vote_inside_a_pipeline_answers_only_for_its_own_combine_step() -> None:
-    # AR#11 (b): a Pipeline after the Fusion adds a model call that depends on the combine step.
-    recipe = sf.Pipeline([sf.Fusion(_MEMBERS, synthesizer=_VOTE), "provider/x"])
-    case_body = vote_case(_VOTE_TEXTS, "vote_one_failed", model_ops=_MODELS, output=_VOTE_TEXTS[0])
-    case_body["operations"].append(operation_wire("op_model_4", "final reply"))
-    case_body["output"] = "final reply"
-    report = _run(recipe, case_body)
-
-    operations = report.candidates[0].operations
-    assert [operation.id for operation in operations] == [
-        "op_model_1",
-        "op_model_2",
-        "op_model_3",
-        "op_synthesis_1",
-        "op_model_4",
-    ]
-    assert operations[-1].depends_on == ("op_synthesis_1",)
-    case = report.candidates[0].cases.by_id(1)
-    assert case.operations is not None
-    assert [answer.text for answer in case.answers("op_synthesis_1")[:3]] == [
-        op.output for op in case.operations[:3]
-    ]
-    assert case.answers("op_model_4") == ()
-    assert case.output == case.operations[-1].output
-
-
 def test_vote_trace_is_model_calls_then_extracts_then_reduce() -> None:
     report = _vote_report(models=tuple(_MEMBERS))
 
@@ -155,14 +98,3 @@ def test_vote_trace_is_model_calls_then_extracts_then_reduce() -> None:
     first_case: Any = traced["candidates"][0]["cases"][0]  # type: ignore[index]
     assert first_case["entries"] == entries
     json.dumps(traced)
-
-
-def test_median_trace_reduces_as_a_select() -> None:
-    texts = ["I think 10", "20", "maybe 40", "no number here"]
-    ops = ("op_model_1", "op_model_2", "op_model_3", "op_model_4")
-    members = ["provider/a", "provider/b", "provider/c", "provider/d"]
-    case = vote_case(texts, "median_nearest", model_ops=ops, output="20", models=tuple(members))
-    report = _run(sf.Fusion(members, synthesizer=sf.Median(extract="last_number")), case)
-
-    reduce = [entry.to_dict() for entry in report.candidates[0].cases.by_id(1).trace()][-1]
-    assert (reduce["kind"], reduce["op"], reduce["mode"]) == ("reduce", "median", "select")

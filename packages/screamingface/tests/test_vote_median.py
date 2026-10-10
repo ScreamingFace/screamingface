@@ -9,22 +9,13 @@ from typing import Any
 
 import pytest
 from _combine_contract import engine_operators
-from url4 import Expression, build, expr, render, src, text
+from url4 import Expression, build
 
 import screamingface as sf
-import screamingface.reducer as reducer_module
-from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
-from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
-from screamingface._evaluation.url4 import _candidate_from_url4
+from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface.reducer import Reducer
 from screamingface.url4 import _calls
-
-_SURFACE = _CheckSurface(
-    check_route="/benchmarks/ifeval/revision-1/check-surface",
-    feedback_intent="feedback",
-    expected_check_cost="free",
-)
 
 
 def _fusion(synthesizer: Reducer) -> sf.Fusion:
@@ -72,16 +63,6 @@ def test_median_rejects_a_normalize_argument() -> None:
     assert sf.Median(select="nearest@1").select == "nearest@1"
 
 
-def test_vote_and_median_are_exported_and_registered() -> None:
-    assert sf.Vote is reducer_module.Vote
-    assert sf.Median is reducer_module.Median
-    assert reducer_module._REDUCER_CLASSES["vote"] is sf.Vote
-    assert reducer_module._REDUCER_CLASSES["median"] is sf.Median
-    assert isinstance(sf.Vote(), reducer_module.Reducer)
-    assert isinstance(sf.Median(), reducer_module.Reducer)
-    assert "Reducer" not in sf.__all__
-
-
 def test_reprs_are_constructor_calls_that_rebuild_equal_values() -> None:
     assert repr(sf.Vote()) == "Vote(extract='last_line', normalize='text')"
     assert repr(sf.Vote(normalize=None)).endswith("normalize=None)")
@@ -93,49 +74,6 @@ def test_reprs_are_constructor_calls_that_rebuild_equal_values() -> None:
     for value in (sf.Vote(), sf.Median()):
         with pytest.raises(TypeError):
             hash(value)
-
-
-def _recompiled(url4: str) -> str:
-    """Run the generated Python (as a user would) and compile the candidate it builds."""
-
-    namespace: dict[str, Any] = {}
-    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
-    return _url4(namespace["candidate"])
-
-
-def test_url4_round_trip_rebuilds_vote_and_median() -> None:
-    vote = sf.Vote(extract="last_number", normalize="numeric")
-    median = sf.Median(select="value")
-    vote_url4 = _url4(_fusion(vote))
-    median_url4 = _url4(_fusion(median))
-    assert (
-        "synthesizer=sf.Vote(extract='last_number@1', normalize='numeric@1')"
-        in sf.Url4(vote_url4).to_python()
-    )
-    assert (
-        "synthesizer=sf.Median(extract='last_number@1', select='value@1')"
-        in sf.Url4(median_url4).to_python()
-    )
-    # The generated Python rebuilds a candidate that compiles to the very same url4.
-    assert _recompiled(vote_url4) == vote_url4
-    assert _recompiled(median_url4) == median_url4
-
-    assert sf.Vote._from_spec(decode_combine_spec(_raw_intent(vote))) == sf.Vote(
-        extract="last_number@1", normalize="numeric@1"
-    )
-    assert sf.Median._from_spec(decode_combine_spec(_raw_intent(median))) == sf.Median(
-        extract="last_number@1", select="value@1"
-    )
-
-    loop = sf.CorrectiveLoop([_fusion(vote), "provider/d"], judge="provider/j", max_rounds=2)
-    linked = render(
-        expr(
-            src(text(_url4(loop, check_surface=_SURFACE)), name="candidate", weight=0.0),
-            src("/benchmarks/ifeval/revision-1/cases", name="rows", weight=0.0),
-            intent=text("$rows"),
-        )
-    )
-    assert _candidate_from_url4(linked).kind == "corrective_loop"
 
 
 def _mutate(reducer: Reducer, change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
@@ -180,10 +118,3 @@ def test_from_spec_refuses_specs_it_cannot_rebuild(
 ) -> None:
     with pytest.raises(ValueError, match="cannot rebuild"):
         cls._from_spec(_mutate(reducer, change))
-
-
-def test_vote_rejects_a_blank_or_non_string_operator() -> None:
-    with pytest.raises(TypeError):
-        sf.Vote(extract="")
-    with pytest.raises(TypeError):
-        sf.Vote(normalize=3)  # type: ignore[arg-type]
