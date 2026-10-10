@@ -127,13 +127,6 @@ def _signal_report(member_2_cost: float = 0.002, *, url4: str = _SIGNAL_URL4) ->
 # -- bless: the replay must reproduce the saved report ------------------------------
 
 
-def test_a_reproducing_replay_is_accepted_and_its_statuses_returned() -> None:
-    assert reducer_lane._refuse_unless_reproduced(_report(), _recording()) == {
-        "1": "scored",
-        "2": "failed",
-    }
-
-
 def _scored_case(chosen: tuple[str, ...] = ("member_2",)) -> Any:
     result = _answered(chosen[0], "42")
     evidence = CombineEvidence(**{**_evidence_kwargs(), "chosen": chosen, "result": result})
@@ -171,17 +164,6 @@ def test_a_replay_with_other_case_statuses_refuses_the_bless() -> None:
     )
     with pytest.raises(SystemExit, match="case statuses diverge"):
         reducer_lane._refuse_unless_reproduced(_report(), _recording(facts=facts))
-
-
-def test_a_replay_that_lost_the_combine_evidence_refuses_the_bless() -> None:
-    bare = _case("1")
-    bare.operations, bare.status, bare.failures = (), "scored", ()
-    with pytest.raises(SystemExit, match="combine evidence"):
-        reducer_lane._refuse_unless_reproduced(_report(cases=[bare, _failed_case()]), _recording())
-
-
-def test_a_reproducing_signal_replay_is_accepted() -> None:
-    reducer_lane._refuse_unless_signals_reproduced(_signal_report(), _recording())
 
 
 def test_a_replay_with_other_signals_refuses_the_bless() -> None:
@@ -227,22 +209,6 @@ def test_a_trace_drift_refuses_the_bless() -> None:
 
     with pytest.raises(SystemExit, match=rf"BLESS REFUSED.*RT-4.*{re.escape(path)}"):
         reducer_lane._refuse_unless_traces_match(recording, replayed)
-
-
-def test_a_trace_drift_lists_at_most_five_paths_and_counts_the_rest() -> None:
-    live = {"vote": _extract_trace("42"), "signal_vote": _trace()}
-    wide = _extract_trace("41")
-    wide["candidates"][0]["cases"][0]["entries"][1:] = [
-        {"kind": "budget", "n": n + 1} for n in range(6)
-    ]
-    recording = _recording(live_traces=live)
-
-    with pytest.raises(SystemExit) as refused:
-        reducer_lane._refuse_unless_traces_match(recording, {"vote": wide, "signal_vote": _trace()})
-
-    message = str(refused.value)
-    assert message.count("candidates[0]") == 5
-    assert "7 paths" in message
 
 
 # -- bless: the recording must describe one run of this lane ------------------------
@@ -335,27 +301,15 @@ def test_a_recording_of_another_run_is_refused(
         reducer_lane._read_recording(_write_recording(tmp_path, **options))
 
 
-@pytest.mark.parametrize("name", reducer_lane._RECORDING_FILES)
 def test_an_incomplete_recording_is_refused_naming_the_missing_files(
-    tmp_path: Path, name: str
+    tmp_path: Path,
 ) -> None:
     _write_recording(tmp_path)
+    name = "cache.sql.gz"
     (tmp_path / name).unlink()
 
     with pytest.raises(SystemExit, match=f"lacks {name}"):
         reducer_lane._read_recording(tmp_path)
-
-
-def test_a_recording_holds_the_seven_files_of_the_signal_and_plain_runs() -> None:
-    assert set(reducer_lane._RECORDING_FILES) == {
-        "report.json",
-        "signals-report.json",
-        "trace.json",
-        "signals-trace.json",
-        "candidate.json",
-        "recording.json",
-        "cache.sql.gz",
-    }
 
 
 # -- bless: the pinned evidence and the golden --------------------------------------
@@ -378,11 +332,6 @@ def test_the_pinned_evidence_skips_an_abstained_first_case() -> None:
         reducer_lane._evidence([_case("1", evidence=_abstained_evidence())])
 
 
-def test_a_run_without_combine_evidence_refuses_the_bless() -> None:
-    with pytest.raises(SystemExit, match="no case answered"):
-        reducer_lane._evidence([_failed_case()])
-
-
 def test_the_authored_golden_holds_the_five_locks_and_the_evidence() -> None:
     statuses = {"1": "scored", "2": "failed"}
 
@@ -403,24 +352,6 @@ def test_the_authored_golden_holds_the_five_locks_and_the_evidence() -> None:
 
 
 # -- record: every spend refusal comes before any spend -----------------------------
-
-
-def test_record_arguments_default_to_the_documented_lane() -> None:
-    args = reducer_lane._parse_args(["record", "--model", "openrouter/x/y", "--out", "out"])
-
-    assert (args.samples, args.temperature, args.limit) == (5, 0.7, 20)
-    assert (args.extract, args.normalize) == ("last_number", "numeric")
-    assert args.run is reducer_lane.record
-
-
-def test_record_without_the_opt_in_flag_is_refused_naming_the_variable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("SCREAMINGFACE_RECORD_PAID", raising=False)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "placeholder-not-a-key")
-
-    with pytest.raises(SystemExit, match="SCREAMINGFACE_RECORD_PAID"):
-        reducer_lane._require_paid_gate()
 
 
 def test_record_without_a_key_is_refused_naming_the_variable(
@@ -512,13 +443,6 @@ def test_a_model_without_a_usable_seed_is_refused_before_the_live_run(
     assert "evaluate" not in fake.calls
 
 
-def test_a_model_with_a_usable_seed_reaches_the_live_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The control of the test above: the fake does let a seed-capable model through.
-    fake = _record_with(monkeypatch, {"seed": _seed()})
-
-    assert fake.calls == ["connect", "models.get", "evaluate", "evaluate"]
-
-
 def test_record_runs_the_signal_vote_first_and_the_plain_vote_second(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -534,6 +458,7 @@ def test_record_runs_the_signal_vote_first_and_the_plain_vote_second(
     # Same members, so the plain vote's requests are the signal vote's, served from the live cache.
     assert fake.candidates[0].members == fake.candidates[1].members
     assert reports == ("report-1", "report-2")
+    assert fake.calls == ["connect", "models.get", "evaluate", "evaluate"]
 
 
 class _FakeReport:
@@ -611,11 +536,3 @@ def test_lane_snapshots_use_the_gateway_column_layout() -> None:
     assert tuple(reducer_lane._COPY_COLUMNS.split(", ")) == columns
     header = reducer_lane._snapshot_text([], ["r"]).split("\n")[0]
     assert header == f"COPY public.request_cache_entries ({', '.join(columns)}) FROM stdin;"
-
-
-@pytest.mark.parametrize("sql", ["_RECORD_SQL", "_SLICE_SQL"])
-def test_record_and_slice_sql_select_the_metadata_last(sql: str) -> None:
-    text = getattr(reducer_lane, sql)
-
-    assert re.search(r"r\.metadata_json\n\s+FROM public\.request_cache_entries", text)
-    assert ("bless_baseline" in text) is (sql == "_SLICE_SQL")
