@@ -19,9 +19,11 @@ class BroadcastCollectNode:
     """Assemble per-source broadcast results into the §6.1.4 collection shape.
 
     A JSON array of ``{"source_position", "source_name", "result"}`` objects,
-    ordered by source position (1-based). A failed optional source's part is
-    omitted — broadcast applies across *resolved* sources (§6.1.3) — while the
-    surviving parts keep their original positions. Quorum (§12.2) is not checked
+    ordered by source position (1-based). An expanded source's elements take
+    consecutive positions and the names ``name[i]`` / ``src[i]`` (§5.3.12.4-5).
+    A failed optional source's part is omitted — broadcast applies across
+    *resolved* sources (§6.1.3) — while the surviving parts keep their original
+    positions. Quorum (§12.2) is not checked
     here: a gate before every :class:`MergeNode` holds the intents until it is met.
     """
 
@@ -29,13 +31,21 @@ class BroadcastCollectNode:
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"part:i": node}
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        rows = [
-            {
-                "source_position": i + 1,
-                "source_name": self.names[i] if i < len(self.names) else None,
-                "result": _as_text(inputs[role]),
-            }
-            for i, role in enumerate(self.deps)
-            if not isinstance(inputs[role], SourceFailure)
-        ]
+        rows: list[dict[str, object]] = []
+        position = 0
+        for i, role in enumerate(self.deps):
+            part, name = inputs[role], self.names[i] if i < len(self.names) else None
+            # An expanded source's elements are sources `name[j]` / `src[j]` (§5.3.12.5).
+            parts = enumerate(part) if isinstance(part, list) else [(None, part)]
+            for j, result in parts:
+                position += 1
+                if isinstance(result, SourceFailure):
+                    continue
+                rows.append(
+                    {
+                        "source_position": position,
+                        "source_name": name if j is None else f"{name or 'src'}[{j}]",
+                        "result": _as_text(result),
+                    }
+                )
         return json.dumps(rows)

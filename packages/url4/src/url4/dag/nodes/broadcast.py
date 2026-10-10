@@ -8,6 +8,7 @@ changes with the result format, not with how an intent is applied. Split out of
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -44,9 +45,14 @@ class MergeNode:
     deps: Mapping[str, DagNode] = field(default_factory=dict)
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        if isinstance(inputs["source"], SourceFailure):
-            return inputs["source"]  # A3: a failed source runs no intent (§6.1.3)
-        source = _as_text(inputs["source"])
+        source, fetched = inputs["source"], inputs.get("intent")
+        if isinstance(source, SourceFailure):
+            return source  # A3: a failed source runs no intent (§6.1.3)
+        if isinstance(source, list):  # each expanded element is a source (§5.3.12.4)
+            return list(await asyncio.gather(*(self._apply(e, fetched, ctx) for e in source)))
+        return await self._apply(source, fetched, ctx)
+
+    async def _apply(self, source: str, fetched: Payload | None, ctx: ExecutionContext) -> str:
         scope = Context(bindings={"current": source}, parent=ctx.scope)
         if self.intent_template is not None:
             # WHY: _substitute so a broadcast intent nested inside an iteration
@@ -54,5 +60,5 @@ class MergeNode:
             # does; $current resolves from `scope` in the same scan.
             intent = _substitute(self.intent_template, scope, ctx)
         else:
-            intent = _as_text(inputs["intent"]) if "intent" in inputs else ""
+            intent = _as_text(fetched) if fetched is not None else ""
         return await ctx.process(source, intent, scope)
