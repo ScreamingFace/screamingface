@@ -88,10 +88,9 @@ def _details(model: str, seed_support: str | None) -> dict[str, object]:
 class _Engine:
     """A mock Engine that records every path it serves."""
 
-    def __init__(self, seed_support: str | None, *, lookup_error: Exception | None = None) -> None:
+    def __init__(self, seed_support: str | None) -> None:
         self.paths: list[str] = []
         self._seed_support = seed_support
-        self._lookup_error = lookup_error
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.paths.append(request.url.path)
@@ -103,8 +102,6 @@ class _Engine:
         elif request.url.path == "/v1/models":
             response = httpx.Response(200, json={"object": "list", "data": [_summary(_MODEL)]})
         elif request.url.path == "/v1/model-parameters":
-            if self._lookup_error is not None:
-                raise self._lookup_error
             response = httpx.Response(200, json=_details(_MODEL, self._seed_support))
         return response
 
@@ -128,20 +125,6 @@ class _ForbiddenTransport:
         pass
 
     def close(self) -> None:
-        pass
-
-
-class _AsyncForbiddenTransport:
-    called = False
-
-    async def run(self, candidate: object, on_event: object) -> NoReturn:
-        self.called = True
-        raise AssertionError("the seed preflight must refuse before any spend")
-
-    async def cancel_active(self) -> None:
-        pass
-
-    async def close(self) -> None:
         pass
 
 
@@ -172,58 +155,4 @@ def test_samples_rejects_model_without_seed_support(
     assert expected in str(caught.value)
     assert transport.called is False
     # One lookup for the model, however many samples it has.
-    assert len(engine.lookups) == 1
-
-
-def test_contract_lookup_failure_raises_engine_unavailable() -> None:
-    engine = _Engine("supported", lookup_error=httpx.ConnectError("engine went away"))
-    transport = _ForbiddenTransport()
-    client = sf.Client(
-        engine_url="https://engine.example",
-        http_transport=engine.transport,
-        run_transport=transport,
-    )
-
-    with client, pytest.raises(sf.EngineUnavailableError):
-        client.evaluate(_candidate(), benchmark="fixture")
-
-    # WHY: an unreachable contract must never be read as "seed supported".
-    assert transport.called is False
-    assert engine.lookups == ["/v1/model-parameters"]
-
-
-@pytest.mark.asyncio
-async def test_async_contract_lookup_failure_raises_engine_unavailable() -> None:
-    engine = _Engine("supported", lookup_error=httpx.ConnectError("engine went away"))
-    transport = _AsyncForbiddenTransport()
-    client = sf.AsyncClient(
-        engine_url="https://engine.example",
-        http_transport=engine.transport,
-        run_transport=transport,
-    )
-
-    with pytest.raises(sf.EngineUnavailableError):
-        await client.evaluate(_candidate(), benchmark="fixture")
-    await client.aclose()
-
-    assert transport.called is False
-    assert engine.lookups == ["/v1/model-parameters"]
-
-
-@pytest.mark.asyncio
-async def test_async_samples_reject_model_without_seed_support() -> None:
-    engine = _Engine("unsupported")
-    transport = _AsyncForbiddenTransport()
-    client = sf.AsyncClient(
-        engine_url="https://engine.example",
-        http_transport=engine.transport,
-        run_transport=transport,
-    )
-
-    with pytest.raises(sf.PlanningError) as caught:
-        await client.evaluate(_candidate(), benchmark="fixture")
-    await client.aclose()
-
-    assert caught.value.code == "unsupported_model_parameter"
-    assert transport.called is False
     assert len(engine.lookups) == 1

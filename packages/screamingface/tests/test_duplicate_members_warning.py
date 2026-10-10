@@ -30,6 +30,7 @@ def test_duplicate_members_in_reducer_fusion_warn() -> None:
     assert len(recorded) == 1
     assert "sf.samples()" in str(recorded[0].message)
     assert isinstance(recorded[0].message, sf.EvaluationWarning)
+    assert recorded[0].filename == __file__
 
 
 def test_three_equal_members_name_all_three_positions() -> None:
@@ -53,16 +54,6 @@ def test_two_groups_of_duplicates_warn_once_each() -> None:
         "1 and 3",
         "2 and 4",
     ]
-
-
-def test_names_do_not_hide_a_duplicate() -> None:
-    fusion = sf.Fusion(
-        [sf.Model("provider/a", name="x"), sf.Model("provider/a", name="y")],
-        synthesizer=FixtureVote(),
-    )
-
-    with pytest.warns(sf.DuplicateMembersWarning, match=r"members 1 and 2"):
-        _compile(fusion)
 
 
 @pytest.mark.parametrize(
@@ -124,16 +115,11 @@ def _linked(candidate: str) -> str:
     )
 
 
-def test_a_two_round_corrective_loop_warns_once_per_fusion_object() -> None:
-    with pytest.warns(sf.DuplicateMembersWarning) as recorded:
-        _compile_loop()
-
-    assert len(recorded) == 1
-
-
 def test_url4_recovery_never_repeats_the_warning() -> None:
-    with pytest.warns(sf.DuplicateMembersWarning):
+    with pytest.warns(sf.DuplicateMembersWarning) as recorded:
         compiled = _compile_loop()
+
+    assert len(recorded) == 1  # once per fusion object, not once per round
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", sf.DuplicateMembersWarning)
@@ -142,15 +128,6 @@ def test_url4_recovery_never_repeats_the_warning() -> None:
 
     assert "Fusion" in python
     assert recovered.kind == "corrective_loop"
-
-
-def test_the_warning_points_at_the_callers_line() -> None:
-    fusion = sf.Fusion(["provider/a", "provider/a"], synthesizer=FixtureVote())
-
-    with pytest.warns(sf.DuplicateMembersWarning) as recorded:
-        _compile(fusion)
-
-    assert recorded[0].filename == __file__
 
 
 def _pair(first: sf.Model, second: sf.Model) -> sf.Fusion:
@@ -170,8 +147,9 @@ def _pair(first: sf.Model, second: sf.Model) -> sf.Fusion:
             sf.Model("provider/a", params={"top_p": 0.9, "max_tokens": 8}),
             sf.Model("provider/a", params={"max_tokens": 8, "top_p": 0.9}),
         ),
+        _pair(sf.Model("provider/a", name="x"), sf.Model("provider/a", name="y")),
     ],
-    ids=["default-prompt", "leading-slash", "param-spelling", "param-order"],
+    ids=["default-prompt", "leading-slash", "param-spelling", "param-order", "names"],
 )
 def test_spellings_that_send_the_same_request_warn(fusion: sf.Fusion) -> None:
     with pytest.warns(sf.DuplicateMembersWarning, match="members 1 and 2"):

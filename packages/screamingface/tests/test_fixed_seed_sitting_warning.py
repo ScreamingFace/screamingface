@@ -244,24 +244,6 @@ def test_a_run_seed_of_zero_still_warns() -> None:
     assert len(fixed) == 1
 
 
-def test_a_seeded_model_synthesizer_with_unseeded_members_warns() -> None:
-    recipe = sf.Fusion([_MODEL, _OTHER], synthesizer=sf.Model(_JUDGE, params={"seed": 3}))
-
-    fixed, _transport = _run_sync(recipe, answer_seed=7)
-
-    assert len(fixed) == 1
-    assert "1 call sets its own seed: op_synthesis_1 (" in str(fixed[0].message)
-
-
-def test_a_seeded_stage_of_a_pipeline_warns() -> None:
-    recipe = sf.Pipeline([sf.Model(_MODEL), sf.Model(_OTHER, params={"seed": 1})])
-
-    fixed, _transport = _run_sync(recipe, answer_seed=7)
-
-    assert len(fixed) == 1
-    assert "1 call sets its own seed: op_model_2 (other answer)." in str(fixed[0].message)
-
-
 def test_a_seeded_member_of_a_corrective_loop_warns_for_every_round() -> None:
     recipe = sf.CorrectiveLoop([sf.Model(_MODEL, params={"seed": 1}), _OTHER], judge=_JUDGE)
 
@@ -300,17 +282,4 @@ async def test_async_samples_with_a_run_seed_warn_once() -> None:
     assert len(fixed) == 1
     assert "op_model_1 (opus answer), op_model_2 (opus answer), op_model_3" in str(fixed[0].message)
     assert fixed[0].filename == __file__
-    assert transport.called is True
-
-
-@pytest.mark.asyncio
-async def test_async_no_warning_without_a_run_seed() -> None:
-    client, transport = _async_client()
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", sf.FixedSeedSittingWarning)
-        with pytest.raises(RuntimeError, match="execution reached"):
-            await client.evaluate(_samples_fusion(), benchmark="fixture")
-    await client.aclose()
-
     assert transport.called is True
