@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from url4.dag.node import DagNode, ExecutionContext, Payload, SourceFailure  # isort: skip
 from url4.dag.nodes._shared import _as_text  # isort: skip
@@ -26,6 +27,8 @@ class BroadcastCollectNode:
     positions. Quorum (§12.2) is not checked here: a gate before every
     :class:`MergeNode` holds the intents until it is met.
     """
+
+    rds_scope: ClassVar[bool] = False  # a prompt group: lenient (C6)
 
     names: tuple[str | None, ...] = ()
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"part:i": node}

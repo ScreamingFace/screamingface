@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import RelExpr as AstRelExpr
@@ -24,6 +25,8 @@ class ReduceNode:
     (``/reduce?q=(all)!<array>``); any other reducer merges via ``ctx.process``
     with the *raw* reducer text.
     """
+
+    rds_scope: ClassVar[bool] = False  # a prompt group: lenient (C6)
 
     reducer: str
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"rows": MapNode}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from url4.core.context import Context
 from url4.core.errors import ResolutionError
@@ -145,6 +146,8 @@ class ProcessNode:
     *fetch* intent stays an ``intent`` dependency behind the barrier.
     """
 
+    rds_scope: ClassVar[bool] = False  # a prompt group: lenient (C6)
+
     slots: tuple[SlotSpec, ...] = ()
     quorum: int | None = None
     intent_template: str | None = None
@@ -214,6 +217,8 @@ class FanoutReduceNode:
     with the response names and the outer scope (audit A4: no double ``$$``
     collapse, no re-scan of bound values). A fetched instruction is data.
     """
+
+    rds_scope: ClassVar[bool] = False  # a prompt group: lenient (C6)
 
     meta: tuple[tuple[str | None, float | None], ...] = ()
     quorum: int | None = None

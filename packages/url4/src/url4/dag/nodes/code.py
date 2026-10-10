@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from url4.core.code import CodeCall, CodeInput, SupportsCode
 from url4.core.context import Context
@@ -38,7 +39,7 @@ from url4.dag.node import (  # isort: skip
     gather_or_cancel,
 )
 
-from url4.dag.nodes._shared import _INDEX_KEY, RDS_STRICT, _current_item  # isort: skip
+from url4.dag.nodes._shared import _INDEX_KEY, _current_item  # isort: skip
 
 
 @dataclass(eq=False)
@@ -80,8 +81,10 @@ class CodeCallNode:
     static pointer mounted?) must fail the group before its sources start (Lean
     ``evalGroup_unsupported``, ``evalGroup_unmounted``), so the subtree runs on its own
     sub-executor once the preflight passed — the GuardNode isolation pattern. Inside it
-    every ``$``-reference substitutes strictly (B §5.3.4.1, C6).
+    every ``$``-reference substitutes strictly (B §5.3.4.1, C6), up to the next group.
     """
+
+    rds_scope: ClassVar[bool] = True  # a code group: strict (C6)
 
     pointer: CodePointer
     slots: tuple[CodeSlot, ...]
@@ -100,11 +103,9 @@ class CodeCallNode:
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         port = _code_port(ctx.io, self.pointer)
-        token = RDS_STRICT.set(True)
-        try:
-            results = _decode(await ctx.execute_node(self.sources, ctx.scope))
-        finally:
-            RDS_STRICT.reset(token)
+        # INVARIANT: the executor set RDS_STRICT (rds_scope) before this resolve, so the
+        # sub-executor of the source subtree inherits a strict scope.
+        results = _decode(await ctx.execute_node(self.sources, ctx.scope))
         settled = expand(self.slots, results)
         if not gate_open(settled, self.quorum):
             raise _gate_closed(settled, self.quorum)

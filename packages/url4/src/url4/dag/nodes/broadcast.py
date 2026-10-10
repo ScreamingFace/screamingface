@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from url4.core.context import Context
 
@@ -42,6 +43,8 @@ class MergeNode:
     source (§5.3.12.4), applied under the map concurrency bound, fail-fast. Any other
     list is one source: an iteration resolves to a single value (§5.3.8).
     """
+
+    rds_scope: ClassVar[bool] = False  # a prompt group: lenient (C6)
 
     intent_template: str | None = None
     expanded: bool = False

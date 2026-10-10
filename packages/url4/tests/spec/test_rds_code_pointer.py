@@ -885,3 +885,35 @@ async def test_majority_quorum_is_refused_for_an_llm_group() -> None:
     with pytest.raises(ParseError) as info:
         compile_expression("(a='1', b='2')!'go';quorum=majority")
     assert "code-pointer intent" in str(info.value)
+
+
+# --- C6: the nearest enclosing group decides strictness (row 31) -------------------------
+
+
+@pytest.mark.parametrize("parse", [False, True])
+async def test_prompt_group_nested_in_a_code_group_is_lenient(parse: bool) -> None:
+    # C6: the nested prompt group is the NEAREST group of `$c.missing`, so it substitutes
+    # leniently (empty), on both compilation paths.
+    calls: list[CodeCall] = []
+    expr = "(cfg={k: 'v'}, s=(c=$cfg)!'S[$c.missing]')!/c"
+    io = StaticIOLayer(code={"/c": _recorder(calls)})
+    await run(build(expr) if parse else expr, io)
+    value = calls[0].input("s").value
+    assert isinstance(value, str)
+    assert value.startswith("S[]")
+
+
+async def test_a_direct_source_of_a_code_group_is_strict() -> None:
+    # C6: the code group is the nearest group of `$cfg.missing` → malformed_source.
+    io = StaticIOLayer(code={"/c": _recorder([])})
+    with pytest.raises(Url4Error) as info:
+        await run("(cfg={k: 'v'}, t='$cfg.missing')!/c", io)
+    assert info.value.code == ErrorCode.MALFORMED_SOURCE
+
+
+async def test_a_code_group_nested_in_a_prompt_group_is_strict() -> None:
+    # C6, the other way round: strictness follows the inner code group.
+    io = StaticIOLayer(code={"/c": _recorder([])})
+    with pytest.raises(Url4Error) as info:
+        await run("(cfg={k: 'v'}, r=(t='$cfg.missing')!/c)!'$r'", io)
+    assert info.value.code == ErrorCode.MALFORMED_SOURCE

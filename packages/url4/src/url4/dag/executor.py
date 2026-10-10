@@ -37,6 +37,7 @@ from url4.observe import (
 
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.node import (  # isort: skip
+    RDS_STRICT,
     DagNode,
     ExecutionContext,
     Payload,
@@ -170,6 +171,7 @@ class Executor:
             # path each scheduled task runs its single ``resolve``, so a count of
             # 2 means the ``_run`` memo let a shared node schedule twice.
             self._resolve_counts[id(node)] = self._resolve_counts.get(id(node), 0) + 1
+        _enter_rds_scope(node)
         obs = self._ctx._obs
         roles = list(node.deps)  # insertion order → deterministic scheduling
         if obs is None:
@@ -207,6 +209,12 @@ class Executor:
             raise
         obs.emit(NodeFinished(span_id, "ok", obs.next_seq()))
         return result
+
+
+def _enter_rds_scope(node: DagNode) -> None:
+    """C6: a group's ``rds_scope`` sets strictness for its deps (each task copies it)."""
+    if (scope := getattr(node, "rds_scope", None)) is not None:
+        RDS_STRICT.set(scope)
 
 
 def _detail(node: DagNode) -> str:

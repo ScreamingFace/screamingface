@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from contextvars import ContextVar
 from dataclasses import dataclass
 
 from url4.core.context import Context
@@ -36,6 +35,7 @@ from url4.io.layer import FetchRequest, fetch_result
 from url4.wire.subrequest import strip_transport_params
 
 from url4.dag.node import (  # isort: skip
+    RDS_STRICT,
     ExecutionContext,
     Payload,
     SourceFailure,
@@ -80,11 +80,6 @@ _INDEX_KEY = "\x00index"
 # currently no "explicitly unbounded" escape hatch — name one if a real use case
 # needs it.
 DEFAULT_MAP_CONCURRENCY = 8
-
-
-# WHY a context variable: an RDS scope is strict (B §5.3.4.1, §6.3; contracts C6). A
-# CodeCallNode sets it around its isolated source subtree; every task there copies it.
-RDS_STRICT: ContextVar[bool] = ContextVar("url4_rds_strict", default=False)
 
 
 def _current_item(scope: Context) -> str | None:
