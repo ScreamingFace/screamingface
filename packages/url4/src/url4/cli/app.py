@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from url4 import __version__
+from url4.cli._config import SERVE_DEFAULTS as _D
 from url4.core.errors import Url4Error
 
 # INVARIANT: only genuine loopback addresses belong here — a host in this set skips
@@ -60,19 +61,28 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _add_serve_parser(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("serve", help="run the node as an HTTP server (foreground)")
-    parser.add_argument("--host", help="bind address (default 127.0.0.1)")
-    parser.add_argument("--port", type=int, help="bind port (default 4404)")
+    parser.add_argument("--host", help=f"bind address (default {_D.host})")
+    parser.add_argument("--port", type=int, help=f"bind port (default {_D.port})")
     parser.add_argument(
         "--default-route",
         dest="default_route",
         help="reduce route (default: first declared [commands] route); must be a declared command",
     )
-    parser.add_argument("--eval-path", dest="eval_path", help="eval endpoint path (default /v1)")
-    parser.add_argument("--concurrency", type=int, help="run-wide I/O cap (default 32)")
     parser.add_argument(
-        "--max-inflight", dest="max_inflight", type=int, help="max concurrent evals (default 16)"
+        "--eval-path", dest="eval_path", help=f"eval endpoint path (default {_D.eval_path})"
     )
-    parser.add_argument("--timeout", type=float, help="per-request timeout seconds (default 120)")
+    parser.add_argument(
+        "--concurrency", type=int, help=f"run-wide I/O cap (default {_D.concurrency})"
+    )
+    parser.add_argument(
+        "--max-inflight",
+        dest="max_inflight",
+        type=int,
+        help=f"max concurrent evals (default {_D.max_inflight})",
+    )
+    parser.add_argument(
+        "--timeout", type=float, help=f"per-request timeout seconds (default {_D.timeout:g})"
+    )
     parser.add_argument("--config", help="url4.toml path (default ./url4.toml if present)")
 
 
@@ -128,6 +138,8 @@ def _overrides(args: argparse.Namespace) -> dict[str, object]:
 
 
 def _config_path(args: argparse.Namespace) -> Path | None:
+    # URL4_CONFIG picks the file the other settings come from, so it is read here,
+    # before resolve(); it is not a ServeConfig field. An empty value is unset, as in _pick.
     explicit = args.config or os.environ.get("URL4_CONFIG")
     if explicit:
         return Path(explicit)
