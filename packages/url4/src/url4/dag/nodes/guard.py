@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -17,6 +18,47 @@ from url4.dag.node import (  # isort: skip
 )
 
 from url4.dag.nodes._shared import _frame  # isort: skip
+
+
+@dataclass(frozen=True, slots=True)
+class GuardRetry:
+    """This run of a guarded subtree is a retry: which one, and the failure that caused it.
+
+    Think of it as the "second notice" stamp on a re-sent letter, naming why the first one
+    bounced. A ``;retry=`` re-runs the guarded subtree with nothing changed, so this is the ONLY
+    way code inside it can tell a retry from the first send — and a retry after one kind of
+    failure from a retry after another. url4 says what happened; what a retry should do
+    differently is the reader's business (the guard knows nothing about caches or models).
+
+    Worked example: ``;retry=2`` whose first send fails ``judge_reply_invalid`` and first retry
+    fails ``upstream_error`` runs the subtree under: nothing (the first send),
+    ``GuardRetry(1, "judge_reply_invalid")``, ``GuardRetry(2, "upstream_error")``.
+
+    Args (as fields):
+        number: 1 for the first retry, k for the k-th.
+        failure_code: the ``Url4Error.code`` of the failure that ended the send before this one.
+    """
+
+    number: int
+    failure_code: str
+
+
+# INVARIANT: bound only around one retry's `_once`, and reset after it, so it is visible to the
+# guarded subtree (whose tasks copy this context) and to nothing else. A first send binds
+# nothing, so it reads exactly like unguarded code — including inside an OUTER guard's retry,
+# which stays visible to a nested guard's first send (it is still a re-send of that subtree).
+_current_retry: contextvars.ContextVar[GuardRetry | None] = contextvars.ContextVar(
+    "url4_guard_retry", default=None
+)
+
+
+def current_guard_retry() -> GuardRetry | None:
+    """The retry this code runs under, or None on a first send and outside any guard.
+
+    Nearest wins: a nested guard's own retry replaces an outer one for its subtree, because the
+    nested guard is the one re-running it and its failure is the one that caused the re-run.
+    """
+    return _current_retry.get()
 
 
 @dataclass(eq=False)
@@ -65,16 +107,30 @@ class GuardNode:
             return SourceFailure(code, str(exc) or type(exc).__name__)
 
     async def _attempt(self, scope: Context, ctx: ExecutionContext) -> Payload:
-        last: Exception | None = None
-        for _ in range(self.retries + 1):
+        last: Url4Error | None = None
+        for number in range(self.retries + 1):
             try:
-                return await self._once(scope, ctx)
+                return await self._send(scope, ctx, number, last)
             except Url4Error as exc:
                 if exc.permanent:
                     raise
                 last = exc
         assert last is not None  # the loop always runs at least once
         raise last
+
+    async def _send(
+        self, scope: Context, ctx: ExecutionContext, number: int, last: Url4Error | None
+    ) -> Payload:
+        """Run the subtree once; a retry runs it with its GuardRetry published (see there)."""
+        if last is None:
+            return await self._once(scope, ctx)
+        token: contextvars.Token[GuardRetry | None] = _current_retry.set(
+            GuardRetry(number, last.code)
+        )
+        try:
+            return await self._once(scope, ctx)
+        finally:
+            _current_retry.reset(token)
 
     async def _once(self, scope: Context, ctx: ExecutionContext) -> Payload:
         if self.timeout is None:
