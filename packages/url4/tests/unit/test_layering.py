@@ -237,6 +237,11 @@ def test_io_layer_imports_only_the_standard_library() -> None:
     assert _outside_stdlib(_SRC / "io" / "layer.py", ()) == []
 
 
+def test_io_idempotency_imports_only_the_standard_library() -> None:
+    # The engine names this module at module scope, so it must not drag in a transport.
+    assert _outside_stdlib(_SRC / "io" / "idempotency.py", ()) == []
+
+
 def test_peer_does_not_import_the_cli() -> None:
     assert _offenders("peer") == []
 

@@ -68,8 +68,8 @@ source of truth: when this document and the test disagree, the test is right.
 It sees function-local and `TYPE_CHECKING` imports too. A crossing import fails
 the test with the file and the module name.
 
-`url4.dag` reaches `url4.io` only through `url4.io.layer`. One exception is
-documented: `dag/_run.py` lazily imports `url4.io.http` for the default IO layer
+`url4.dag` reaches `url4.io` only through the port modules, `url4.io.layer` and
+`url4.io.idempotency`. One exception is documented: `dag/_run.py` lazily imports `url4.io.http` for the default IO layer
 when the caller passes no `io`. The test allows that import from that file and
 no other.
 
