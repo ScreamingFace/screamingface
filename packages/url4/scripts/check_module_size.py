@@ -37,7 +37,7 @@ HEADROOM = 10
 # — HEADROOM is what absorbs ordinary edits.
 BASELINE: dict[str, int] = {
     "core/grammar.py": 738,
-    "dag/_lowering.py": 678,
+    "dag/_lowering.py": 662,
     "core/render.py": 666,
     "core/_render_guards.py": 215,
     "dag/_run.py": 261,

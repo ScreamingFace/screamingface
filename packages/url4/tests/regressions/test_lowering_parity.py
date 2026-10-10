@@ -193,3 +193,57 @@ def test_B7_render_round_trips_a_canonical_call_with_params(outer: str) -> None:
     text = render(call, check=False)
     assert parse(text) == call
     assert _only_source(text) == call
+
+
+# --- B1 / D-1b: a chained intent is a parse error on every path (Spec B §8) ------------
+# `bare-value` stops at an unquoted `!`, and nothing may follow an intent but `;` params.
+# A call carries its own intent, so `/p(x)!a!b` has no reading: wrap the call in a
+# group, `(/p(x)!a)!b`, to process its result.
+
+CHAINED = [
+    "/p(x)!a!b",
+    "/p(x)!go!r",
+    "/p?q=(x)!go!r",
+    "/p(x)!'a'!'b'",
+    "/p(x)!a;t=5!b",
+    "/p?q=(x)!a!b",
+    "url4://h.io/p(x)!a!b",
+    "(/p(x)!a!b, 'c')!k",
+    "('a')!b!c",
+    "https://a.io!b!c",
+    "https://a.io*(/p($item)!a)!b!c",
+    "(https://a.io*(/p($item)!a)!b)!r!s",
+]
+
+
+@pytest.mark.parametrize("text", CHAINED)
+def test_B1_chained_intent_is_a_parse_error_on_build(text: str) -> None:
+    with pytest.raises(ParseError):
+        build(text)
+
+
+@pytest.mark.parametrize("text", CHAINED)
+def test_B1_chained_intent_is_a_parse_error_on_the_text_path(text: str) -> None:
+    with pytest.raises(ParseError):
+        asyncio.run(run(text, _io()))
+
+
+@pytest.mark.parametrize(
+    "text", ["/p(x)!go!r", "/p?q=(x)!go!r", "/p?t=1&q=(x)!go!r", "url4://h.io/p(x)!go!r"]
+)
+def test_B1_chained_call_intent_is_a_parse_error_in_the_grammar(text: str) -> None:
+    # The third reading the audit found: grammar.parse took the intent 'go!r'.
+    with pytest.raises(ParseError):
+        parse(text)
+
+
+def test_B1_a_grouped_call_is_processed_on_both_paths_alike() -> None:
+    lazy, eager = _both("(/p(x)!a)!b")
+    assert lazy == eager == "P[|[Response 1]\nP[x|a]\n\n[Instruction]\nb]"
+
+
+@pytest.mark.parametrize("text", ["('a', 'b')!('c', 'd')!agg", "('a')!'b!c'"])
+def test_B1_an_expression_intent_or_a_quoted_bang_is_not_a_chain(text: str) -> None:
+    build(text)
+    lazy, eager = _both(text)
+    assert lazy == eager

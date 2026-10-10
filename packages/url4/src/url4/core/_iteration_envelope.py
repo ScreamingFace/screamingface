@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from url4.core._lexical import reject_chained_intent
 from url4.core._splitters import (
     _split_at_iteration_body,
     split_collection_iteration,
@@ -19,7 +20,7 @@ from url4.core._splitters import (
     split_top_level_commas,
     strip_one_paren_layer,
 )
-from url4.core.errors import ParseError
+from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import parse
 from url4.core.nodes import Binding, IterationDirectives, Source
 
@@ -115,3 +116,20 @@ def _merge_directives(
         slice=primary.slice or secondary.slice,
         fmt_result=primary.fmt_result or secondary.fmt_result,
     )
+
+
+def check_iteration_envelope(
+    envelope: IterationEnvelope, stripped: str, require_intent: bool
+) -> None:
+    for tail in (envelope.intent, envelope.reducer):
+        if tail is not None:
+            reject_chained_intent(tail)
+    if envelope.intent is None and require_intent:
+        # INVARIANT: iteration-expr takes a full expression after "*", and
+        # an expression's intent is mandatory (`OME-508`) — the cross-row
+        # shape spells it `(src*(body)!peri)!reducer`.
+        raise ParseError(
+            f"iteration {stripped!r} has no per-row intent — the expression "
+            "after '*' must carry !intent (src*(body)!intent)",
+            code=ErrorCode.MISSING_INTENT,
+        )

@@ -17,6 +17,7 @@ from url4.core._call_head import is_call_head
 from url4.core._scan import balanced_body, find_unquoted, iter_iteration_stars, one_paren_layer
 from url4.core._scan import iter_top_level as _iter_top_level
 from url4.core._scan import split_top_level as _split_top_level
+from url4.core.errors import ParseError
 from url4.core.nodes import IterationDirectives, Params
 
 
@@ -37,6 +38,11 @@ def split_intent(expr: str) -> tuple[str, str | None, bool]:
     return expr, None, False
 
 
+def owns_call_intent(expr: str) -> bool:
+    """True when ``expr`` holds a call's own ``!intent`` at depth 0 (``/p(x)!a``)."""
+    return any(ch == "!" and _is_backend_call_tail(expr, i) for i, ch in _iter_top_level(expr))
+
+
 def _is_backend_call_tail(expr: str, bang: int) -> bool:
     """True if the ``!`` at ``bang`` closes a leading relative/remote CALL.
 
@@ -46,7 +52,7 @@ def _is_backend_call_tail(expr: str, bang: int) -> bool:
     envelope. Splitting it off produced a ``RelExpr(intent=None)`` that the
     grammar cannot derive and the renderer cannot emit — and left the text path
     disagreeing with ``grammar.parse``, which has always read the whole token
-    as one RelExpr (the disagreement ``_fold_intent_into_call`` exists to undo).
+    as one RelExpr.
 
     The discriminator: the depth-0 ``(…)`` group that closes immediately before
     the ``!``, and everything before it is a call head — the grammar decides
@@ -145,3 +151,22 @@ def strip_one_paren_layer(expr: str) -> str | None:
     over unstripped segments); the shared primitive itself is strip-free.
     """
     return one_paren_layer(expr.strip())
+
+
+def split_envelope_intent(stripped: str) -> tuple[str, str | None, bool]:
+    """The envelope's ``(source_expr, raw_intent, broadcast)``, iteration body first."""
+    head, tail = _split_at_iteration_body(stripped)
+    if head is not None:
+        # Only the text AFTER the iteration body can carry the envelope's own
+        # ``!intent`` / ``;params``; everything up to and including the body is
+        # the source side.
+        tail_src, raw_intent, broadcast = split_intent(tail) if tail else ("", None, False)
+        return head + tail_src, raw_intent, broadcast
+    source_expr, raw_intent, broadcast = split_intent(stripped)
+    if raw_intent is not None and owns_call_intent(source_expr):
+        # D-1b: a call carries its own intent, so `/p(x)!a!b` has no reading.
+        raise ParseError(
+            f"chained intent in {stripped!r} — a call carries its own intent and only "
+            "';' params may follow it; group the call to process its result: (/p(x)!a)!b"
+        )
+    return source_expr, raw_intent, broadcast

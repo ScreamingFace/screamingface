@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from url4.core._scan import skip_quoted
+from url4.core._scan import iter_iteration_stars, iter_top_level, skip_quoted
 from url4.core.errors import ParseError
 
 # INVARIANT: the ABNF's ALPHA is ASCII. Python's `\w` is Unicode-aware by
@@ -73,3 +73,26 @@ def _unescape(content: str) -> str:
         out.append(char)
         i += 1
     return "".join(out)
+
+
+def reject_chained_intent(intent: str) -> None:
+    """Refuse a second ``!`` after an intent (owner decision D-1b, Spec B §8).
+
+    ``intent = value``, and ``bare-value`` / ``quoted-text`` end at an unquoted
+    ``!``: nothing may follow an intent but ``;`` params. So ``a!b`` and
+    ``'a'!'b'`` are not intents, and ``/p(x)!a!b`` has no reading. A
+    value-shaped intent (a group, a struct, a holdings ref, a ``/path``, an
+    iteration) carries its own ``!`` inside its own production, so it is left
+    to that production.
+    """
+    text = intent.strip()
+    if text[:1] in "({@/" or next(iter_iteration_stars(text), None) is not None:
+        return
+    for i, ch in iter_top_level(text):
+        if ch == "!":
+            raise ParseError(
+                f"chained intent {text!r} — an intent is one value and only ';' params "
+                "may follow it; quote a literal '!', or group a call to process its "
+                "result: (/p(x)!a)!b",
+                position=i,
+            )

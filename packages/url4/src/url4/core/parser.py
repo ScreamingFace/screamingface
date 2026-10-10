@@ -26,11 +26,16 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from url4.core._annotations import validate_params
-from url4.core._iteration_envelope import IterationEnvelope, _decode_iteration, _merge_directives
+from url4.core._iteration_envelope import (
+    IterationEnvelope,
+    _decode_iteration,
+    _merge_directives,
+    check_iteration_envelope,
+)
 from url4.core._scan import balanced_body
 from url4.core._splitters import (
-    _split_at_iteration_body,
     split_collection_iteration,
+    split_envelope_intent,
     split_expr_params,
     split_foreach_annotations,
     split_intent,
@@ -120,15 +125,7 @@ def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
     # agreement.
     """
     stripped = text.strip()
-    head, tail = _split_at_iteration_body(stripped)
-    if head is None:
-        source_expr, raw_intent, broadcast = split_intent(stripped)
-    else:
-        # Only the text AFTER the iteration body can carry the envelope's own
-        # ``!intent`` / ``;params``; everything up to and including the body is
-        # the source side.
-        tail_src, raw_intent, broadcast = split_intent(tail) if tail else ("", None, False)
-        source_expr = head + tail_src
+    source_expr, raw_intent, broadcast = split_envelope_intent(stripped)
     source_expr, src_params, src_directives = _split_source_side(source_expr)
     params: Params = src_params
     directives = src_directives
@@ -148,16 +145,15 @@ def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
 
     envelope = _decode_iteration(source_expr, raw_intent, directives)
     if envelope is not None:
-        if envelope.intent is None and require_intent:
-            # INVARIANT: iteration-expr takes a full expression after "*", and
-            # an expression's intent is mandatory (`OME-508`) — the cross-row
-            # shape spells it `(src*(body)!peri)!reducer`.
-            raise ParseError(
-                f"iteration {stripped!r} has no per-row intent — the expression "
-                "after '*' must carry !intent (src*(body)!intent)",
-                code=ErrorCode.MISSING_INTENT,
-            )
+        check_iteration_envelope(envelope, stripped, require_intent)
         return envelope
+    _check_group_envelope(source_expr, raw_intent, stripped, require_intent)
+    return GroupEnvelope(source_expr, raw_intent, broadcast, params)
+
+
+def _check_group_envelope(
+    source_expr: str, raw_intent: str | None, stripped: str, require_intent: bool
+) -> None:
     if raw_intent is not None and source_expr.lstrip().startswith("*("):
         # B2 / F4: "*(...)" at top level. The "!" belongs to the outer expression,
         # so the group after "*" has no intent of its own.
@@ -176,7 +172,6 @@ def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
             "source group must be followed by !intent (or !*intent)",
             code=ErrorCode.MISSING_INTENT,
         )
-    return GroupEnvelope(source_expr, raw_intent, broadcast, params)
 
 
 def _split_source_side(source_expr: str) -> tuple[str, Params, IterationDirectives]:

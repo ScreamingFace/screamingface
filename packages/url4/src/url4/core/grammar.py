@@ -55,6 +55,7 @@ from url4.core._lexical import (
     _SCHEME_RE,
     _VARREF_HEAD_RE,
     _unquote,
+    reject_chained_intent,
 )
 from url4.core._lexical import _IDENTITY_NAME_RE as _IDENTITY_NAME_RE
 from url4.core._scan import (
@@ -388,6 +389,7 @@ def _parse_iteration(token: str, star: int) -> Iteration:
     intent: str | None = None
     if after.startswith("!"):
         intent = after[1:].strip() or None
+        reject_chained_intent(after[1:])
     elif after.strip():
         raise ParseError(f"unexpected text after iteration body: {after!r}")
     if intent is None:
@@ -709,6 +711,7 @@ def intent_atom(intent: str) -> Node:
     # the model as a prompt instead of evaluating it.
     """
     text = intent.strip()
+    reject_chained_intent(text)
     if text.startswith("'"):
         node: Node = Text(_unquote(text))
     elif _SCHEME_RE.match(text) is not None:

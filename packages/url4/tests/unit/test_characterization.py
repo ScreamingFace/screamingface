@@ -91,7 +91,7 @@ async def test_bare_relative_expression_is_a_single_call_intent_folded() -> None
 @pytest.mark.asyncio
 async def test_bare_relexpr_text_path_matches_ast_path() -> None:
     # The lazy text path and the eager AST path must not diverge: both compile a
-    # bare relative expression to the same single folded call.
+    # bare relative expression to the same single call.
     expr = "/claude(https://n)!'sum'"
     text_io, ast_io = RecordingIOLayer(), RecordingIOLayer()
     await run(expr, text_io)  # text path (string target)

@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import parse as grammar_parse
@@ -70,7 +70,6 @@ from url4.dag._descriptor import _lower_source  # isort: skip
 from url4.dag._wiring import (  # isort: skip
     Edges,
     _compile_group,
-    _fold_intent_into_call,
     _inline_collection,
     _Intent,
     _quorum_of,
@@ -545,7 +544,7 @@ def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool =
     ``(a, (b, c)!x)!go`` becomes a :class:`~url4.dag.nodes.LazyExprNode` thunk
     here (compiled only when the executor reaches it) but is fully expanded
     up front on the parse-tree path (:func:`_lower_expression` /
-    :func:`_lower_top_level`, which see an already-built AST with nothing left
+    :func:`compile_expression` on a tree, which see an already-built AST with nothing left
     to defer). ``test_bare_relexpr_text_path_matches_ast_path`` pins result
     parity for the shapes it covers; it is not evidence the two paths build the
     same graph. Extending that test to a nested-group shape should assert on
@@ -660,19 +659,4 @@ def compile_expression(
     registry = registry if registry is not None else default_registry()
     if isinstance(target, str):
         return Graph(_compile_text(target, registry, bare_root_ok=bare_root_ok), registry=registry)
-    return Graph(_lower_top_level(target, registry), registry=registry)
-
-
-def _lower_top_level(target: Node, registry: LoweringRegistry) -> DagNode:
-    """Lower a top-level parse-tree node, keeping the text and AST paths in step.
-
-    A *top-level* relative expression's intent is a top-level intent — folded
-    into the call, exactly as the text path treats it after ``split_intent``.
-    """
-    if isinstance(target, RelExpr) and target.intent is not None:
-        rel = registry.lower(replace(target, intent=None), {})
-        intent = _intent_from_ast(target.intent, registry)
-        assert intent is not None  # target.intent is not None
-        assert isinstance(rel, RelUrlNode)  # _lower_rel_expr's output
-        return _fold_intent_into_call(rel, intent)
-    return registry.lower(target, {})
+    return Graph(registry.lower(target, {}), registry=registry)

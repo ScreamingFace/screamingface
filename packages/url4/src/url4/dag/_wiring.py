@@ -35,7 +35,6 @@ from url4.dag.nodes import (  # isort: skip
     RelUrlNode,
     SlotSpec,
 )
-from url4.dag.nodes._shared import _require_quorum  # isort: skip
 
 Edges = Mapping[str, DagNode]
 
@@ -166,10 +165,8 @@ def _reduce_graph(
     # WHY: fan-out + reduce is a LIST operation — it needs a parenthesised group of
     # relative-expression sources, mirroring the reference engine's fan-out gate
     # (``_is_fanout and raw_intent``: the source must be a list AND carry a
-    # top-level intent). A *bare* single relative expression with a top-level
-    # intent is not a list: its intent folds into that one call — matching the
-    # eager AST path's :func:`_lower_rel_expr` — instead of spawning a spurious
-    # reducer call to "combine" a single response.
+    # top-level intent). A bare call followed by a top-level intent has no
+    # reading (D-1b: ``/p(x)!a!b`` is a ParseError), so only a list fans out.
     # INVARIANT (`OME-534`): fan-out additionally needs at least one
     # CONTRIBUTING call — instrumental (weight 0.0) members are not panel
     # members, so an all-instrumental call group has nothing to reduce and
@@ -182,34 +179,7 @@ def _reduce_graph(
         and any(not slot.instrumental for slot in slots)
     ):
         return _fanout_graph(built, intent, quorum)
-    if not from_list and len(built) == 1 and isinstance(built[0], RelUrlNode) and built[0].is_expr:
-        # One source: a quorum above 1 can never be met (Spec C §13.6), so fail now
-        # rather than fold the quorum away.
-        _require_quorum(1, quorum)
-        return _fold_intent_into_call(built[0], intent)
     return _base_graph(built, slots, intent, quorum)
-
-
-def _fold_intent_into_call(node: RelUrlNode, intent: _Intent) -> DagNode:
-    """Attach a top-level intent to a single relative-expression call.
-
-    ``/p(ctx)`` + an outer ``!intent`` become one ``/p?q=(ctx)!intent`` fetch,
-    the exact node :func:`_lower_rel_expr` builds for the eager-AST twin — so the
-    lazy text path and the AST path stay in lock-step for this shape.
-    """
-    deps: dict[str, DagNode] = {"intent": intent.make({})}
-    deps.update(node.deps)  # carries the ctx:i context-slot deps too (`OME-535`)
-    return RelUrlNode(
-        node.path,
-        context=node.context,
-        is_expr=True,
-        name=node.name,
-        weight=node.weight,
-        params=node.params,
-        accept=node.accept,
-        ctx_slots=node.ctx_slots,
-        deps=deps,
-    )
 
 
 def _broadcast_graph(slots: list[_Slot], intent: _Intent | None, quorum: int | None) -> DagNode:
