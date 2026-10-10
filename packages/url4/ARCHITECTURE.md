@@ -69,8 +69,8 @@ It sees function-local and `TYPE_CHECKING` imports too. A crossing import fails
 the test with the file and the module name.
 
 `url4.dag` reaches `url4.io` only through the port modules, `url4.io.layer` and
-`url4.io.idempotency`. One exception is documented: `dag/_run.py` lazily imports `url4.io.http` for the default IO layer
-when the caller passes no `io`. The test allows that import from that file and
+`url4.io.idempotency`. One exception is documented: `dag/_run.py` lazily imports
+`url4.io.http` for the default IO layer when the caller passes no `io`. The test allows that import from that file and
 no other.
 
 `io/layer.py` is the port, and `io/idempotency.py` is the key a retrying guard

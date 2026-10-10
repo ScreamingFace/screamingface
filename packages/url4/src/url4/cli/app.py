@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from url4 import __version__
-from url4.cli._config import SERVE_DEFAULTS as _D
+from url4.cli._config import SERVE_DEFAULTS
 from url4.core.errors import Url4Error
 
 # INVARIANT: only genuine loopback addresses belong here — a host in this set skips
@@ -61,27 +61,31 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _add_serve_parser(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("serve", help="run the node as an HTTP server (foreground)")
-    parser.add_argument("--host", help=f"bind address (default {_D.host})")
-    parser.add_argument("--port", type=int, help=f"bind port (default {_D.port})")
+    parser.add_argument("--host", help=f"bind address (default {SERVE_DEFAULTS.host})")
+    parser.add_argument("--port", type=int, help=f"bind port (default {SERVE_DEFAULTS.port})")
     parser.add_argument(
         "--default-route",
         dest="default_route",
         help="reduce route (default: first declared [commands] route); must be a declared command",
     )
     parser.add_argument(
-        "--eval-path", dest="eval_path", help=f"eval endpoint path (default {_D.eval_path})"
+        "--eval-path",
+        dest="eval_path",
+        help=f"eval endpoint path (default {SERVE_DEFAULTS.eval_path})",
     )
     parser.add_argument(
-        "--concurrency", type=int, help=f"run-wide I/O cap (default {_D.concurrency})"
+        "--concurrency", type=int, help=f"run-wide I/O cap (default {SERVE_DEFAULTS.concurrency})"
     )
     parser.add_argument(
         "--max-inflight",
         dest="max_inflight",
         type=int,
-        help=f"max concurrent evals (default {_D.max_inflight})",
+        help=f"max concurrent evals (default {SERVE_DEFAULTS.max_inflight})",
     )
     parser.add_argument(
-        "--timeout", type=float, help=f"per-request timeout seconds (default {_D.timeout:g})"
+        "--timeout",
+        type=float,
+        help=f"per-request timeout seconds (default {SERVE_DEFAULTS.timeout:g})",
     )
     parser.add_argument("--config", help="url4.toml path (default ./url4.toml if present)")
 

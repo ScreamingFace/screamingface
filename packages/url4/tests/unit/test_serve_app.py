@@ -101,7 +101,7 @@ async def test_over_max_inflight_returns_503() -> None:
     gate = asyncio.Event()
 
     @node.endpoint("/slow")
-    async def slow(request) -> str:
+    async def slow(_request) -> str:
         entered.set()  # the first request now holds the only slot
         await gate.wait()
         return "done"
@@ -122,7 +122,7 @@ async def test_request_timeout_returns_504() -> None:
     node = Url4Node("t", eval_path="/v1")
 
     @node.endpoint("/slow")
-    async def slow(request) -> str:
+    async def slow(_request) -> str:
         await asyncio.sleep(5)
         return "done"
 

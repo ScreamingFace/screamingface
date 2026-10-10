@@ -18,6 +18,16 @@ from url4.core._lexical import _IDENT_RE, reject_chained_intent
 from url4.core._scan import balanced_body, iter_top_level, split_top_level
 from url4.core._splitters import split_intent
 
+__all__ = [
+    "HeadForm",
+    "classify_head",
+    "deferrable_group",
+    "first_colon",
+    "is_processed_group",
+    "is_value_shaped",
+    "name_and_value",
+]
+
 HeadForm = Literal["value", "src", "sugar", "chain"]
 
 

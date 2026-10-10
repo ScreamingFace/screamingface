@@ -168,7 +168,7 @@ class ServeConfig:
 SERVE_DEFAULTS = ServeConfig()  # INVARIANT: the one source of the serve defaults
 
 
-def _require(ok: bool, message: str) -> None:  # tiny internal guard
+def _require(ok: bool, message: str) -> None:
     if not ok:
         raise ConfigError(message)
 
