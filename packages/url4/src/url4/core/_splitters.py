@@ -24,9 +24,10 @@ def split_intent(expr: str) -> tuple[str, str | None, bool]:
     """Split ``expr`` on the outermost ``!`` / ``!*`` (outside nesting/quotes).
 
     Returns ``(source_expression, intent, broadcast)``. ``broadcast`` is True
-    for the ``!*`` operator (apply intent per source). A ``!`` immediately
-    preceded by ``()`` belongs to a relative expression's intent tail
-    (``/path()!``) and is skipped.
+    for the ``!*`` operator (apply intent per source). A ``!`` that closes a
+    call's context belongs to that call and is skipped: the sugar forms
+    (``/path(ctx)!``, ``url4://node/path(ctx)!``) and the canonical forms
+    (``/path?[params&]q=(ctx)!``, ``url4://node/path?…q=(ctx)!``).
     """
     for i, ch in _iter_top_level(expr):
         if ch == "!" and not _is_backend_call_tail(expr, i):
@@ -49,7 +50,7 @@ def _is_backend_call_tail(expr: str, bang: int) -> bool:
 
     The discriminator: the depth-0 ``(…)`` group that closes immediately before
     the ``!``, and everything before it is a call head — the grammar decides
-    that (:func:`~url4.core.grammar.is_call_head`), for the sugar forms
+    that (:func:`~url4.core._call_head.is_call_head`), for the sugar forms
     (``/path``, ``url4://authority/path``) and the canonical forms
     (``/path?[params&]q=``). So ``()!intent`` (empty source list) and
     ``src*()!intent`` (iteration body) still split — their head is not a call

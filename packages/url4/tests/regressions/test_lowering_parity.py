@@ -11,8 +11,12 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from url4 import build, render
+from url4.core._call_head import is_call_head
+from url4.core.errors import ParseError
 from url4.core.grammar import parse
 from url4.core.nodes import Expression, RelExpr, RemoteExpr, Text
 from url4.dag import run
@@ -68,6 +72,103 @@ def test_B7_remote_canonical_call_is_a_call() -> None:
     call = _only_source("url4://h.io/p?q=(x)!go")
     assert isinstance(call, RemoteExpr)
     assert (call.authority, call.path, call.intent) == ("h.io", "/p", Text("go"))
+
+
+class _RecordingIO:
+    """Records every fetch target; answers each one with a fixed body."""
+
+    def __init__(self) -> None:
+        self.targets: list[str] = []
+
+    async def fetch(self, target: str, *, relative: bool) -> str:
+        self.targets.append(target)
+        return "OUT"
+
+
+@pytest.mark.parametrize(
+    ("text", "sent"),
+    [
+        ("/p?t=90&q=(x)!go", "/p?t=90&q=(x)!go"),
+        ("url4://h.io/p?t=1&q=(x)!go", "url4://h.io/p?t=1&q=(x)!go"),
+    ],
+)
+def test_B7_canonical_params_reach_the_request(text: str, sent: str) -> None:
+    for target in (text, build(text)):
+        io = _RecordingIO()
+        assert asyncio.run(run(target, io=io)) == "OUT"
+        assert io.targets == [sent]
+
+
+def test_B7_remote_canonical_call_keeps_its_query_params() -> None:
+    call = _only_source("url4://h.io/p?t=1&q=(x)!go")
+    assert isinstance(call, RemoteExpr)
+    assert call.params == (("t", "1"),)
+
+
+@pytest.mark.parametrize(
+    ("text", "processor"),
+    [
+        ("/p?processor=(a)&q=(x)!go", "(a)"),
+        ("/p?processor=(/x?a=1&q=(y)!z)&q=(x)!go", "(/x?a=1&q=(y)!z)"),
+    ],
+)
+def test_B7_a_parenthesized_param_does_not_take_the_calls_bang(text: str, processor: str) -> None:
+    # The depth-0 group that closes right before the '!' is the q=( context, not
+    # the first group: the call keeps its intent and its processor= value.
+    call = _only_source(text)
+    assert isinstance(call, RelExpr)
+    assert (call.context, call.intent, call.params) == (
+        "x",
+        Text("go"),
+        (("processor", processor),),
+    )
+
+
+def test_B7_the_q_expression_is_the_last_query_param() -> None:
+    # Spec B §8: `query-string = *( query-param "&" ) "q=" expression-body` — q= is
+    # last, so text after the intent is part of the intent, not another param.
+    call = _only_source("/p?q=(x)!go&t=1")
+    assert isinstance(call, RelExpr)
+    assert (call.intent, call.params) == (Text("go&t=1"), ())
+
+
+_HEAD = st.lists(
+    st.sampled_from(
+        [
+            "/",
+            "p",
+            "a",
+            ".",
+            "?",
+            "q=",
+            "t=1",
+            "&",
+            "(a)",
+            "url4://",
+            "h.io",
+            ":",
+            "x",
+            "processor=",
+        ]
+    ),
+    max_size=8,
+).map("".join)
+
+
+@settings(max_examples=400, deadline=None)
+@given(head=_HEAD)
+def test_B7_is_call_head_agrees_with_the_grammar(head: str) -> None:
+    # One owner decides "is this a call head"; the grammar must read the same
+    # text as a call exactly when the splitter's question says so.
+    try:
+        node = parse(head + "(x)!go")
+    except ParseError:
+        node = None
+    is_call = isinstance(node, (RelExpr, RemoteExpr))
+    if is_call_head(head):
+        assert node is None or (is_call and node.context == "x" and node.intent == Text("go"))
+    else:
+        assert not is_call
 
 
 def test_B7_a_query_without_q_is_still_a_data_uri() -> None:

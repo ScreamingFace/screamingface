@@ -41,9 +41,12 @@ from math import isfinite
 from url4.core import _render_guards as guard
 from url4.core._annotations import is_source_level_key
 
+# WHY: the `path` production has one owner (core/_call_head) — re-declaring it
+# here would let parse and render drift.
+from url4.core._call_head import PATH_RE
+
 # WHY: these regexes ARE the grammar's character classes; re-declaring them
 # here would let the two modules drift. Private-name import is deliberate.
-from url4.core._call_head import _PATH_RE
 from url4.core._lexical import (
     _IDENT_RE,
     _IDENTITY_NAME_RE,
@@ -470,7 +473,7 @@ def _check_path(path: str) -> None:
     # §8 `path = segment *( "/" segment )`. Reads the GRAMMAR's pattern rather
     # than re-deriving the charset — the parse side enforces the same one, so
     # anything that parses re-renders (`OME-507` closed that asymmetry).
-    if not _PATH_RE.fullmatch(path):
+    if not PATH_RE.fullmatch(path):
         raise RenderError(f"invalid expression path {path!r}")
 
 

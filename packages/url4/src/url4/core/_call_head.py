@@ -1,9 +1,10 @@
 """Call heads: where a relative or remote call's context opens (Spec B §8 rules 7a–7d).
 
 Split out of :mod:`url4.core.grammar` (module-size cap). One owner for "is
-this text a call target": the `path` production, the canonical-form ``q=(``
-scan with its depth-0 ``&`` rule, and the query-parameter decode before it.
-The grammar parses calls with these, and the envelope splitter
+this text a call target": the ``path`` production, the ``url4://`` authority
+split, and the canonical-form query helpers (the ``q=(`` scan with its depth-0
+``&`` rule, and the query-parameter decode before it). The grammar parses
+calls with these, and the envelope splitter
 (:mod:`url4.core._splitters`) asks :func:`is_call_head` before it splits a
 top-level ``!``, so the two cannot disagree about which ``!`` a call owns.
 """
@@ -21,7 +22,16 @@ from url4.core.nodes import Params
 # (relative-expr / remote-expr).
 # WHY: `render._check_path` reads this same pattern — keeps parse and render
 # from drifting (`OME-507`).
-_PATH_RE = re.compile(r"(?:/[A-Za-z0-9\-_.~]*)+", re.ASCII)
+PATH_RE = re.compile(r"(?:/[A-Za-z0-9\-_.~]*)+", re.ASCII)
+
+
+REMOTE_SCHEME = "url4://"
+
+
+def remote_path_offset(token: str) -> int | None:
+    """The offset of the path's ``/`` in ``url4://authority/path…``, or None."""
+    slash = token.find("/", len(REMOTE_SCHEME))
+    return None if slash == -1 else slash
 
 
 def is_call_head(head: str) -> bool:
@@ -34,24 +44,23 @@ def is_call_head(head: str) -> bool:
     stays with the call (`OME-508`).
     """
     target = head
-    if head.startswith("url4://"):
-        rest = head[len("url4://") :]
-        slash = rest.find("/")
-        if slash < 1:
+    if head.startswith(REMOTE_SCHEME):
+        slash = remote_path_offset(head)
+        if slash is None or slash == len(REMOTE_SCHEME):  # no path, or no authority
             return False
-        target = rest[slash:]
+        target = head[slash:]
     qmark = target.find("?")
     if qmark == -1:
-        return _PATH_RE.fullmatch(target) is not None
-    # Canonical: the head must end in the `q=` that `_find_expression_param` locks onto.
+        return PATH_RE.fullmatch(target) is not None
+    # Canonical: the head must end in the `q=` that `find_expression_param` locks onto.
     opened = target + "("
     return (
-        _PATH_RE.fullmatch(target[:qmark]) is not None
-        and _find_expression_param(opened, qmark) == len(target) - 2
+        PATH_RE.fullmatch(target[:qmark]) is not None
+        and find_expression_param(opened, qmark) == len(target) - 2
     )
 
 
-def _find_expression_param(token: str, qmark: int) -> int | None:
+def find_expression_param(token: str, qmark: int) -> int | None:
     """The offset of ``q=(`` as a query parameter after ``qmark``, or None.
 
     # INVARIANT: ``&`` separates query parameters only at depth 0 outside
@@ -72,8 +81,8 @@ def _find_expression_param(token: str, qmark: int) -> int | None:
     return None
 
 
-def _decode_query_params(params_text: str) -> Params:
-    # INVARIANT: same depth-0 rule as _find_expression_param — a nested ``&``
+def decode_query_params(params_text: str) -> Params:
+    # INVARIANT: same depth-0 rule as find_expression_param — a nested ``&``
     # belongs to its enclosing value, not to this parameter list.
     if not params_text:
         return ()

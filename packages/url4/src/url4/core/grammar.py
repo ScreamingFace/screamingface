@@ -38,10 +38,11 @@ from url4.core._annotations import (
     validate_exec_annotations,
 )
 from url4.core._call_head import (
-    _PATH_RE,
-    _decode_query_params,
-    _find_expression_param,
-    is_call_head,
+    PATH_RE,
+    REMOTE_SCHEME,
+    decode_query_params,
+    find_expression_param,
+    remote_path_offset,
 )
 from url4.core._lexical import (
     _BUDGET_KEY_RE,
@@ -106,7 +107,7 @@ _PORT_RE = re.compile(r"[0-9]+", re.ASCII)
 
 def _check_expr_path(path: str, token: str) -> None:
     """Validate an expression-bearing path against `path` / `segment`."""
-    if not _PATH_RE.fullmatch(path):
+    if not PATH_RE.fullmatch(path):
         raise ParseError(
             f"invalid expression path {path!r} in {token!r} — a path segment takes "
             "ALPHA / DIGIT / '-' / '_' / '.' / '~'",
@@ -494,7 +495,7 @@ def _parse_expr_canonical(token: str, qmark: int) -> RelUrl | RelExpr:
     ``?`` without a ``q=(`` parameter is the rewind rule (§8 parse rule 16):
     the whole token is a relative data URI with a query string.
     """
-    qstart = _find_expression_param(token, qmark)
+    qstart = find_expression_param(token, qmark)
     if qstart is None or token[qstart + 2 : qstart + 3] != "(":
         # §8 parse rule 16 rewind — this is a `relative-uri`, not an expression.
         _check_data_path(token)
@@ -509,7 +510,7 @@ def _parse_expr_canonical(token: str, qmark: int) -> RelUrl | RelExpr:
         path=token[:qmark],
         context=body.strip() or None,
         intent=_parse_expr_intent(after, token),
-        params=_decode_query_params(token[qmark + 1 : qstart].rstrip("&")),
+        params=decode_query_params(token[qmark + 1 : qstart].rstrip("&")),
     )
 
 
@@ -551,19 +552,19 @@ def _check_authority(authority: str, token: str) -> None:
 
 
 def _parse_remote(token: str) -> Node:
-    rest = token[len("url4://") :]
-    slash = rest.find("/")
-    paren = find_unquoted(rest, "(")
-    if paren is not None and (slash == -1 or paren < slash):
+    slash = remote_path_offset(token)
+    paren = find_unquoted(token, "(", len(REMOTE_SCHEME))
+    if paren is not None and (slash is None or paren < slash):
         raise ParseError(f"remote expression requires a path: {token!r}")
-    if slash == -1:
+    if slash is None:
         return Url(token)
-    _check_authority(rest[:slash], token)
-    inner = _parse_relative(rest[slash:])
+    authority = token[len(REMOTE_SCHEME) : slash]
+    _check_authority(authority, token)
+    inner = _parse_relative(token[slash:])
     if isinstance(inner, RelUrl):
         return Url(token)  # §5.2 rule 3.3 — bare remote reference
     return RemoteExpr(
-        authority=rest[:slash],
+        authority=authority,
         path=inner.path,
         context=inner.context,
         intent=inner.intent,
@@ -735,4 +736,4 @@ def _intent_value_or_text(text: str) -> Node:
         return Text(text)
 
 
-__all__ = ["intent_atom", "is_call_head", "parse", "parse_value"]
+__all__ = ["intent_atom", "parse", "parse_value"]

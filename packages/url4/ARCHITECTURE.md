@@ -84,12 +84,17 @@ names no transport.
 | I want to change… | Start here | Layer |
 |---|---|---|
 | the grammar or a parse error | `core/grammar.py` | language |
+| character classes or quoted-text decoding | `core/_lexical.py` | language |
+| structured weights and budgets (`(k:v)`) | `core/_struct_values.py` | language |
+| what is a call head (`/p(`, `/p?…q=(`, `url4://`) | `core/_call_head.py` | language |
+| the envelope split (`!intent`, `;params`, `src*(body)`) | `core/parser.py`, `core/_splitters.py`, `core/_iteration_envelope.py` | language |
 | the AST node shape | `core/nodes.py` | language |
 | canonical rendering / the round-trip check | `core/render.py` | language |
 | the Python builders (`src`, `expr`, `iterate`) | `core/builders.py` | language |
 | the lexical scope (`$name` resolution) | `core/context.py` | language |
 | the `?q=` escaping or decoding | `wire/subrequest.py` | wire |
 | how text lowers to a DAG node | `dag/_lowering.py`, `dag/_wiring.py` | engine |
+| how a source descriptor lowers (label, expand, guard) | `dag/_descriptor.py` | engine |
 | the public `run()` entry | `dag/_run.py` | engine |
 | the scheduler or the exactly-once memo | `dag/executor.py` | engine |
 | the `DagNode` protocol or `ExecutionContext` | `dag/node.py`, `dag/_context.py` | engine |
@@ -107,8 +112,9 @@ names no transport.
 | the CloudEvents wire contract | `streaming/protocol/` | streaming |
 
 Note: `dag/compiler.py` is the public facade only. The implementation is
-`dag/_lowering.py` (the `LoweringRegistry` and the per-node lowerers) plus
-`dag/_wiring.py` (the group-wiring strategy).
+`dag/_lowering.py` (the `LoweringRegistry` and the per-node lowerers),
+`dag/_descriptor.py` (the source-descriptor lowering) and `dag/_wiring.py`
+(the group-wiring strategy).
 
 ## The two side axes
 
