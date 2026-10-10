@@ -45,7 +45,7 @@ reference in a value position parses structurally, as :class:`VarRef`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Literal
 
 # The closed set of per-row failure policies (§5.3.6). The surface validator
@@ -205,25 +205,9 @@ class IterationDirectives:
     """
 
     concurrency: int | None = None
-    # None = not given. Kept apart from an explicit "collect" so a merge can tell
-    # the two apart (audit A8); `on_error_policy` applies the default.
-    on_error: OnErrorPolicy | None = None
+    on_error: OnErrorPolicy = "collect"
     slice: tuple[int, int] | None = None
     fmt_result: str | None = None
-
-    @property
-    def on_error_policy(self) -> OnErrorPolicy:
-        """The per-row failure policy in force: ``on_error``, else ``collect`` (§5.3.6)."""
-        return self.on_error if self.on_error is not None else "collect"
-
-    def settled(self) -> IterationDirectives:
-        """The form a parse tree holds: an explicit ``collect`` reads as not given.
-
-        Only the parser's directive merge needs "explicit collect" apart from
-        "not given"; once merged, one canonical tree (and one canonical text)
-        keeps render byte-stable and ``build(render(t)) == t``.
-        """
-        return replace(self, on_error=None) if self.on_error == "collect" else self
 
 
 # The pre-0.2 directive name; importable for one more minor version.

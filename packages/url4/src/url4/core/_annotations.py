@@ -173,6 +173,14 @@ def classify_boundary(pairs: Params) -> tuple[Params, Params]:
     return tuple(expr_params), tuple(source_ann)
 
 
+DirectiveFields = dict[str, object]
+"""The directive fields an expression GAVE, by field name — absent keys were not given.
+
+Kept apart from :class:`IterationDirectives`, whose defaults cannot tell an
+explicit ``collect`` from no policy at all: the parser merges these dicts
+(audit A8) and builds the directives once, from the merged result."""
+
+
 def extract_directives(pairs: Params) -> tuple[Params, IterationDirectives]:
     """Pull ``iteration.*`` / deprecated ``foreach.*`` keys out of ``pairs``.
 
@@ -180,15 +188,26 @@ def extract_directives(pairs: Params) -> tuple[Params, IterationDirectives]:
     ``iteration.<key>`` names are ignored (forward compatibility), matching the
     pre-0.2 tolerance for unknown ``foreach.*`` keys.
     """
+    rest, fields = extract_directive_fields(pairs)
+    return rest, directives_from_fields(fields)
+
+
+def extract_directive_fields(pairs: Params) -> tuple[Params, DirectiveFields]:
+    """:func:`extract_directives`, keeping only the fields that were given."""
     rest: list[tuple[str, str | None]] = []
-    fields: dict[str, object] = {}
+    fields: DirectiveFields = {}
     for key, value in pairs:
         name = _directive_name(key)
         if name is None:
             rest.append((key, value))
         elif name in ("concurrency", "on_error", "slice", "fmt_result"):
             fields[name] = _parse_directive(name, value or "")
-    return tuple(rest), IterationDirectives(**fields)  # type: ignore[arg-type]
+    return tuple(rest), fields
+
+
+def directives_from_fields(fields: DirectiveFields) -> IterationDirectives:
+    """The directives for the given fields; every other field keeps its default."""
+    return IterationDirectives(**fields)  # type: ignore[arg-type]
 
 
 def _directive_name(key: str) -> str | None:

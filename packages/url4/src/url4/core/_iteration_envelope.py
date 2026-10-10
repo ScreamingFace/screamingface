@@ -11,11 +11,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from url4.core._annotations import DirectiveFields, directives_from_fields
 from url4.core._lexical import _IDENT_RE, reject_chained_intent
 from url4.core._splitters import (
     _split_at_iteration_body,
     split_collection_iteration,
-    split_expr_params,
+    split_directive_fields,
     split_intent,
     split_top_level_commas,
     strip_one_paren_layer,
@@ -40,7 +41,7 @@ class IterationEnvelope:
 
 
 def _decode_iteration(
-    source_expr: str, raw_intent: str | None, directives: IterationDirectives
+    source_expr: str, raw_intent: str | None, directives: DirectiveFields
 ) -> IterationEnvelope | None:
     # Reduce over iteration: ``(src*(body)[!peri];iteration.*)!reducer``. The
     # inner paren layer wraps its own directives + per-row intent;
@@ -55,17 +56,21 @@ def _decode_iteration(
         and not _is_source_list(inner)
         and not inner.lstrip().startswith("*")
     ):
-        inner_clean, _, inner_directives = split_expr_params(inner)
+        inner_clean, _, inner_directives = split_directive_fields(inner)
         inner_src, per_row_intent, _ = split_intent(inner_clean)
         collection, body = split_collection_iteration(inner_src)
         if collection is not None and body is not None and not _is_descriptored(collection):
             merged = _merge_directives(inner_directives, directives)
-            return IterationEnvelope(collection, body, per_row_intent, raw_intent, merged.settled())
+            return IterationEnvelope(
+                collection, body, per_row_intent, raw_intent, directives_from_fields(merged)
+            )
 
     # Plain iteration: ``src*(body)``; a top-level ``raw_intent`` reduces per row.
     collection, body = split_collection_iteration(source_expr)
     if collection is not None and body is not None:
-        return IterationEnvelope(collection, body, raw_intent, None, directives.settled())
+        return IterationEnvelope(
+            collection, body, raw_intent, None, directives_from_fields(directives)
+        )
     return None
 
 
@@ -98,10 +103,9 @@ def _is_descriptored(collection: str) -> bool:
     return isinstance(node, (Source, Binding))
 
 
-def _merge_directives(
-    primary: IterationDirectives, secondary: IterationDirectives
-) -> IterationDirectives:
-    """Field-wise merge: a ``primary`` field that was given wins.
+def _merge_directives(primary: DirectiveFields, secondary: DirectiveFields) -> DirectiveFields:
+    """Field-wise merge: a field ``primary`` GAVE wins (audit A8 — an explicit inner
+    ``iteration.on_error=collect`` beats the outer policy).
 
     The order is intentional and the merge is therefore NOT commutative — the
     result depends on which argument is ``primary``. That is correct while both
@@ -109,12 +113,7 @@ def _merge_directives(
     order). If two independent sources ever supply directives, this function
     needs a defined conflict rule instead.
     """
-    return IterationDirectives(
-        concurrency=primary.concurrency or secondary.concurrency,
-        on_error=primary.on_error if primary.on_error is not None else secondary.on_error,
-        slice=primary.slice or secondary.slice,
-        fmt_result=primary.fmt_result or secondary.fmt_result,
-    )
+    return {**secondary, **primary}
 
 
 def check_iteration_envelope(

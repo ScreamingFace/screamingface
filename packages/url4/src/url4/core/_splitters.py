@@ -12,7 +12,12 @@ from __future__ import annotations
 
 import warnings
 
-from url4.core._annotations import extract_directives, split_annotation_pairs
+from url4.core._annotations import (
+    DirectiveFields,
+    directives_from_fields,
+    extract_directive_fields,
+    split_annotation_pairs,
+)
 from url4.core._call_head import is_call_head
 from url4.core._scan import balanced_body, find_unquoted, iter_iteration_stars, one_paren_layer
 from url4.core._scan import iter_top_level as _iter_top_level
@@ -88,11 +93,17 @@ def split_expr_params(expr: str) -> tuple[str, Params, IterationDirectives]:
     :class:`~url4.core.nodes.IterationDirectives`, every other key is preserved
     verbatim in ``params`` (flags carry a None value).
     """
+    clean, params, fields = split_directive_fields(expr)
+    return clean, params, directives_from_fields(fields)
+
+
+def split_directive_fields(expr: str) -> tuple[str, Params, DirectiveFields]:
+    """:func:`split_expr_params`, keeping only the directive fields that were given."""
     parts = _split_top_level(expr, ";")
     if len(parts) <= 1:
-        return expr.strip(), (), IterationDirectives()
-    params, directives = extract_directives(split_annotation_pairs(parts[1:]))
-    return parts[0], params, directives
+        return expr.strip(), (), {}
+    params, fields = extract_directive_fields(split_annotation_pairs(parts[1:]))
+    return parts[0], params, fields
 
 
 def split_foreach_annotations(expr: str) -> tuple[str, IterationDirectives]:

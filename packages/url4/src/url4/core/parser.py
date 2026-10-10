@@ -25,7 +25,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from url4.core._annotations import validate_params
+from url4.core._annotations import DirectiveFields, validate_params
 from url4.core._iteration_envelope import (
     IterationEnvelope,
     _decode_iteration,
@@ -36,6 +36,7 @@ from url4.core._lexical import _SCHEME_RE, check_tail_url_intent
 from url4.core._scan import balanced_body
 from url4.core._splitters import (
     split_collection_iteration,
+    split_directive_fields,
     split_envelope_intent,
     split_expr_params,
     split_foreach_annotations,
@@ -131,7 +132,7 @@ def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
     params: Params = src_params
     directives = src_directives
     if raw_intent is not None:
-        raw_intent, tail_params, tail_directives = split_expr_params(raw_intent)
+        raw_intent, tail_params, tail_directives = split_directive_fields(raw_intent)
         params += tail_params
         directives = _merge_directives(directives, tail_directives)
     broadcast = broadcast or any(key == "broadcast" for key, _ in params)
@@ -177,7 +178,7 @@ def _check_group_envelope(
         )
 
 
-def _split_source_side(source_expr: str) -> tuple[str, Params, IterationDirectives]:
+def _split_source_side(source_expr: str) -> tuple[str, Params, DirectiveFields]:
     """Strip a trailing ``;`` chain from the source side — but only when it
     belongs to the envelope (an iteration or a parenthesized group).
 
@@ -186,13 +187,13 @@ def _split_source_side(source_expr: str) -> tuple[str, Params, IterationDirectiv
     stripping it here would silently re-scope per-source annotations to the
     expression.
     """
-    clean, params, directives = split_expr_params(source_expr)
+    clean, params, directives = split_directive_fields(source_expr)
     if clean == source_expr.strip():
         return clean, params, directives
     is_iteration = split_collection_iteration(clean) != (None, None)
     if is_iteration or clean.startswith("("):
         return clean, params, directives
-    return source_expr.strip(), (), IterationDirectives()
+    return source_expr.strip(), (), {}
 
 
 def build(text: str) -> Node:

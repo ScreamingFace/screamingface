@@ -1,22 +1,22 @@
-"""Audit A8 — an explicit `;iteration.on_error=collect` is not the same as "not given".
+"""Audit A8 — an explicit inner `;iteration.on_error=collect` beats the outer policy.
 
-Spec B §5.3.6: `collect` is the default policy. The directive must still tell an
-explicit `collect` from an absent one, so an explicit inner policy wins over the
-outer one when the two merge, and render writes back what the author wrote.
+Spec B §5.3.6: `collect` is the default policy. When a reduce-over-iteration merges
+its inner and outer directives, the merge must tell an explicit inner `collect`
+from no inner policy, or the outer policy wins by mistake. The parser tracks which
+directive fields were GIVEN for that merge; the public `IterationDirectives` keeps
+`on_error="collect"` as its plain default.
 Report: docs/spec/2026-10-09-url4-audit/report.md §4.A (A8).
 """
 
 from __future__ import annotations
 
 from url4 import build, render
-from url4.core.nodes import Iteration, IterationDirectives
+from url4.core.nodes import Iteration, IterationDirectives, Url
 from url4.core.parser import IterationEnvelope, decode_envelope
 
 
-def test_A8_no_directive_means_not_given_and_the_policy_is_collect() -> None:
-    directives = IterationDirectives()
-    assert directives.on_error is None
-    assert directives.on_error_policy == "collect"
+def test_A8_the_default_policy_is_collect() -> None:
+    assert IterationDirectives().on_error == "collect"
 
 
 def test_A8_explicit_inner_collect_wins_over_the_outer_policy() -> None:
@@ -24,7 +24,7 @@ def test_A8_explicit_inner_collect_wins_over_the_outer_policy() -> None:
         "(https://a.io*(/p($item)!x)!'per';iteration.on_error=collect)!'all';iteration.on_error=fail"
     )
     assert isinstance(env, IterationEnvelope)
-    assert env.directives.on_error_policy == "collect"
+    assert env.directives.on_error == "collect"
 
 
 def test_A8_an_absent_inner_policy_takes_the_outer_one() -> None:
@@ -33,18 +33,20 @@ def test_A8_an_absent_inner_policy_takes_the_outer_one() -> None:
     assert env.directives.on_error == "fail"
 
 
-def test_A8_render_keeps_the_canonical_text_for_an_explicit_collect() -> None:
-    # The canonical text omits the default policy, explicit or not, so canonical
-    # bytes (and the benchmark hashes pinned on them) do not change.
+def test_A8_explicit_collect_and_the_default_are_one_tree_and_one_text() -> None:
     explicit = build("https://a.io*(/p($item)!x)!'per';iteration.on_error=collect")
     implicit = build("https://a.io*(/p($item)!x)!'per'")
-    assert explicit == implicit  # a parse tree holds the settled directives
-    assert isinstance(explicit, Iteration) and explicit.directives.on_error_policy == "collect"
+    assert explicit == implicit
     assert render(explicit) == render(implicit)
 
 
-def test_A8_render_writes_no_policy_when_none_was_given() -> None:
-    tree = build("https://a.io*(/p($item)!x)!'per'")
-    assert isinstance(tree, Iteration)
-    assert tree.directives.on_error is None
-    assert "on_error" not in render(tree)
+def test_A8_a_hand_built_collect_tree_renders_and_round_trips() -> None:
+    tree = Iteration(
+        collection=Url("https://a.io"),
+        body="/p($item)!x",
+        intent="'per'",
+        directives=IterationDirectives(concurrency=4, on_error="collect"),
+    )
+    text = render(tree)
+    assert "on_error" not in text
+    assert build(text) == tree

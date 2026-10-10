@@ -29,14 +29,13 @@ def test_iteration_directives_parse() -> None:
         build("https://x*(b)!'i';iteration.concurrency=10;iteration.on_error=collect")
     )
     assert node.directives.concurrency == 10
-    assert node.directives.on_error_policy == "collect"
+    assert node.directives.on_error == "collect"
 
 
 def test_on_error_default_is_collect() -> None:
     # §5.3.6 — default `collect`
     node = _iteration(build("https://x*(b)!'i'"))
-    assert node.directives.on_error is None  # not given
-    assert node.directives.on_error_policy == "collect"
+    assert node.directives.on_error == "collect"
 
 
 def test_on_error_skip_parses() -> None:
