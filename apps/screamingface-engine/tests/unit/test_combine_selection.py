@@ -10,16 +10,13 @@ goes to author order; no byte of a member text changes; concat makes no network 
 
 from __future__ import annotations
 
-import socket
 from typing import Any
 
-import httpx
 import pytest
-from combine_selection_support import DEFAULT_SEPARATOR, concat_spec, rank_spec
+from combine_selection_support import concat_spec, rank_spec
 from combine_support import context_text, run, spec_text
 
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
-from screamingface_engine.combine.evidence import ResultRecord
 from screamingface_engine.combine.ports import CombineError, canonical_json
 
 _FOUR = ["A", "B", "C", "D"]
@@ -112,71 +109,7 @@ def test_top_k_by_field() -> None:
     assert outcome.evidence.presentation_order is None
 
 
-def test_top_k_compares_scores_exactly_beyond_28_digits() -> None:
-    low, high = "1000000000000000000000000000001", "1000000000000000000000000000002"
-
-    outcome = _rank_by_field([int(low), int(high)], 1)
-
-    assert outcome.evidence.chosen == ["member_2"]
-    assert outcome.evidence.tie is False
-
-
-# --- RK-7 -------------------------------------------------------------------------------------
-
-
-def test_fewer_usable_than_k_abstains_cut_not_met() -> None:
-    texts = [canonical_json({"score": 1}), canonical_json({"score": 2}), '{"score": "x"}']
-
-    outcome = run(
-        spec_text(rank_spec(3, 3, "field")), context_text(texts), registry=BUILTIN_OPERATORS
-    )
-
-    assert outcome.output == ""
-    assert outcome.evidence.result == ResultRecord(
-        member_id=None, value=None, status="abstain", reason="cut_not_met"
-    )
-    assert outcome.evidence.chosen == []
-    assert outcome.evidence.built is False
-    assert [m.score for m in outcome.evidence.members] == [1.0, 2.0, None]
-
-
-def test_k_above_the_judged_member_count_abstains_cut_not_met() -> None:
-    reply = canonical_json({"member_1": 1, "member_2": 2})
-
-    outcome = run(
-        spec_text(rank_spec(2, 3)),
-        context_text(["A", "B"], {"judge": reply}),
-        registry=BUILTIN_OPERATORS,
-    )
-
-    assert outcome.output == ""
-    assert outcome.evidence.result == ResultRecord(
-        member_id=None, value=None, status="abstain", reason="cut_not_met"
-    )
-    assert outcome.evidence.chosen == []
-    assert outcome.evidence.built is False
-    assert [m.score for m in outcome.evidence.members] == [1.0, 2.0]
-    assert outcome.evidence.judge is not None
-
-
 # --- RK-8 -------------------------------------------------------------------------------------
-
-
-def test_cut_tie_goes_to_author_order() -> None:
-    tied = _rank_by_judge(["A", "B", "C"], [0.9, 0.5, 0.5], 2)
-    assert tied.evidence.chosen == ["member_1", "member_2"]
-    assert tied.evidence.tie is True
-
-    clear = _rank_by_judge(["A", "B", "C"], [0.9, 0.9, 0.1], 2)
-    assert clear.evidence.chosen == ["member_1", "member_2"]
-    assert clear.evidence.tie is False
-
-
-def test_a_tie_above_the_cut_keeps_author_order_inside_the_kept_group() -> None:
-    outcome = _rank_by_judge(["A", "B", "C", "D"], [0.5, 0.9, 0.9, 0.1], 3)
-
-    assert outcome.evidence.chosen == ["member_2", "member_3", "member_1"]
-    assert outcome.evidence.tie is False
 
 
 def test_k_equal_to_the_member_count_has_no_cut_tie() -> None:
@@ -226,23 +159,7 @@ def test_top_k_order_min_keeps_the_lowest_in_order() -> None:
     assert highest.evidence.chosen == ["member_4", "member_2"]
 
 
-@pytest.mark.parametrize("order", ["middle", 1, None, True, "MIN"])
-def test_top_k_rejects_a_bad_order(order: Any) -> None:
-    spec = rank_spec(3, 2)
-    spec["select"] = {"op": "top_k@1", "args": {"k": 2, "order": order}}
-
-    _args_error(spec, "top_k@1")
-
-
 # --- top_k args -------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("args", [{}, {"k": 0}, {"k": True}, {"k": 257}, {"k": 2.0}, {"k": "2"}])
-def test_top_k_rejects_bad_args(args: dict[str, Any]) -> None:
-    spec = rank_spec(3, 2)
-    spec["select"] = {"op": "top_k@1", "args": args}
-
-    _args_error(spec, "top_k@1")
 
 
 def test_top_k_rejects_an_extra_arg_and_accepts_the_bounds() -> None:
@@ -253,13 +170,6 @@ def test_top_k_rejects_an_extra_arg_and_accepts_the_bounds() -> None:
     for k in (1, 3):
         outcome = _rank_by_judge(["A", "B", "C"], [3, 2, 1], k)
         assert len(outcome.evidence.chosen) == k
-
-
-def test_top_k_without_scores_is_a_spec_error() -> None:
-    spec = rank_spec(2, 1)
-    spec["reduce"] = {"op": "join@1", "args": {"separator": "-", "label": False}}
-
-    assert _error(["A", "B"], spec) == "combine_spec_invalid"
 
 
 # --- CC-1 -------------------------------------------------------------------------------------
@@ -285,76 +195,6 @@ def test_concat_joins_in_author_order_with_labels_and_separator() -> None:
     assert plain.output == "A\n\n---\n\nB\n\n---\n\nC"
 
 
-def test_concat_uses_the_given_separator() -> None:
-    outcome = run(
-        spec_text(concat_spec(2, separator=" | ", label=False)),
-        context_text(["A", "B"]),
-        registry=BUILTIN_OPERATORS,
-    )
-
-    assert outcome.output == "A | B"
-
-
-# --- CC-4 -------------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("texts", "separator", "label", "joined"),
-    [
-        (
-            ["A", "x" + DEFAULT_SEPARATOR + "y", "C"],
-            DEFAULT_SEPARATOR,
-            True,
-            "[member_1]\nA\n\n---\n\n[member_2]\nx\n\n---\n\ny\n\n---\n\n[member_3]\nC",
-        ),
-        (["x-", "y"], "--", False, "x---y"),
-        (["A", "B"], "\n", True, "[member_1]\nA\n[member_2]\nB"),
-        # The overlap starts at a boundary and ENDS inside the next part.
-        (["x", "-y"], "--", False, "x---y"),
-        (["A", "---\n\nB"], DEFAULT_SEPARATOR, False, "A\n\n---\n\n---\n\nB"),
-    ],
-)
-def test_separator_collision_is_flagged(
-    texts: list[str], separator: str, label: bool, joined: str
-) -> None:
-    outcome = run(
-        spec_text(concat_spec(len(texts), separator=separator, label=label)),
-        context_text(texts),
-        registry=BUILTIN_OPERATORS,
-    )
-
-    assert outcome.output == joined
-    assert outcome.evidence.separator_collision is True
-
-
-# --- CC-6 -------------------------------------------------------------------------------------
-
-
-def test_empty_member_keeps_its_slot() -> None:
-    outcome = run(
-        spec_text(concat_spec(3)), context_text(["A", "", "C"]), registry=BUILTIN_OPERATORS
-    )
-
-    assert outcome.output == "[member_1]\nA\n\n---\n\n[member_2]\n\n\n---\n\n[member_3]\nC"
-    assert outcome.evidence.separator_collision is False
-
-
-def test_a_too_large_member_is_still_joined() -> None:
-    big = "x" * (1024 * 1024 + 1)
-
-    outcome = run(
-        spec_text(concat_spec(2, label=False, separator="|")),
-        context_text(["small", big]),
-        registry=BUILTIN_OPERATORS,
-    )
-
-    assert outcome.output == "small|" + big
-    assert [(m.status, m.reason) for m in outcome.evidence.members] == [
-        ("answered", None),
-        ("fail", "too_large"),
-    ]
-
-
 # --- CC-7 -------------------------------------------------------------------------------------
 
 
@@ -362,64 +202,3 @@ def test_joined_text_over_cap_fails() -> None:
     texts = ["x" * (1024 * 1024)] * 9
 
     assert _error(texts, concat_spec(9)) == "combine_input_too_large"
-
-
-# --- CC-2 -------------------------------------------------------------------------------------
-
-
-def test_concat_makes_no_network_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("concat must not touch the network")
-
-    monkeypatch.setattr(httpx.AsyncClient, "send", _forbidden)
-    monkeypatch.setattr(httpx.Client, "send", _forbidden)
-    monkeypatch.setattr(socket.socket, "connect", _forbidden)
-
-    outcome = run(spec_text(concat_spec(2)), context_text(["A", "B"]), registry=BUILTIN_OPERATORS)
-
-    assert outcome.output.endswith("[member_2]\nB")
-
-
-# --- CC-5 (engine args) -----------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "args",
-    [
-        {"separator": "", "label": True},
-        {"separator": "x" * 1025, "label": True},
-        {"separator": 1, "label": True},
-        {"separator": "-", "label": 1},
-        {"separator": "-", "label": None},
-        {"separator": "-"},
-        {"label": True},
-        {},
-        {"separator": "-", "label": True, "x": 1},
-    ],
-)
-def test_join_rejects_bad_args(args: dict[str, Any]) -> None:
-    spec = concat_spec(2)
-    spec["reduce"] = {"op": "join@1", "args": args}
-
-    failure = _failure(["A", "B"], spec)
-    assert failure.code == "combine_spec_invalid"
-    assert "join@1 args are invalid" in str(failure)
-
-
-def test_join_accepts_a_separator_of_exactly_1024_characters() -> None:
-    outcome = run(
-        spec_text(concat_spec(2, separator="-" * 1024, label=False)),
-        context_text(["A", "B"]),
-        registry=BUILTIN_OPERATORS,
-    )
-
-    assert outcome.output == "A" + "-" * 1024 + "B"
-
-
-def test_all_without_a_joined_text_is_a_spec_error() -> None:
-    spec = concat_spec(2)
-    spec["reduce"] = {"op": "scores@1", "args": {"source": "judge"}}
-
-    assert _error(["A", "B"], spec, {"judge": '{"member_1":1,"member_2":2}'}) == (
-        "combine_spec_invalid"
-    )

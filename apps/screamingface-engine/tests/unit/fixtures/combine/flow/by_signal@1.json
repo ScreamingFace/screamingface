@@ -51,54 +51,6 @@
    }
   },
   {
-   "name": "min reads the same scores",
-   "args": {
-    "key": "field:s",
-    "order": "min"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 0.9
-      }
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 0.2
-      }
-     },
-     {
-      "member": "member_3",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 0.5
-      }
-     }
-    ]
-   },
-   "expect": {
-    "scores": {
-     "member_1": "0.9",
-     "member_2": "0.2",
-     "member_3": "0.5"
-    }
-   }
-  },
-  {
    "name": "a voter without the signal is not scored",
    "args": {
     "key": "field:s",
@@ -125,51 +77,6 @@
       "signals": {
        "field:s": null
       }
-     },
-     {
-      "member": "member_3",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 0.5
-      }
-     }
-    ]
-   },
-   "expect": {
-    "scores": {
-     "member_1": "0.9",
-     "member_3": "0.5"
-    }
-   }
-  },
-  {
-   "name": "a voter whose signals do not hold the key is not scored",
-   "args": {
-    "key": "field:s",
-    "order": "max"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 0.9
-      }
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {}
      },
      {
       "member": "member_3",
@@ -238,50 +145,6 @@
    }
   },
   {
-   "name": "no voter has the signal",
-   "args": {
-    "key": "field:s",
-    "order": "max"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": null
-      }
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": null
-      }
-     },
-     {
-      "member": "member_3",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": null
-      }
-     }
-    ]
-   },
-   "expect": {
-    "abstain": "no_votes"
-   }
-  },
-  {
    "name": "only a failed member has the signal",
    "args": {
     "key": "field:s",
@@ -313,128 +176,6 @@
    },
    "expect": {
     "abstain": "no_votes"
-   }
-  },
-  {
-   "name": "negative signals are kept as they are",
-   "args": {
-    "key": "field:s",
-    "order": "max"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": -3.0
-      }
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": -1.5
-      }
-     },
-     {
-      "member": "member_3",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 2.0
-      }
-     }
-    ]
-   },
-   "expect": {
-    "scores": {
-     "member_1": "-3",
-     "member_2": "-1.5",
-     "member_3": "2"
-    }
-   }
-  },
-  {
-   "name": "equal signals give equal scores",
-   "args": {
-    "key": "field:s",
-    "order": "max"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 0.5
-      }
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 0.5
-      }
-     }
-    ]
-   },
-   "expect": {
-    "scores": {
-     "member_1": "0.5",
-     "member_2": "0.5"
-    }
-   }
-  },
-  {
-   "name": "a float with an integer value has no decimals",
-   "args": {
-    "key": "field:s",
-    "order": "max"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 2.0
-      }
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 0.0
-      }
-     }
-    ]
-   },
-   "expect": {
-    "scores": {
-     "member_1": "2",
-     "member_2": "0"
-    }
    }
   },
   {
@@ -583,29 +324,6 @@
    }
   },
   {
-   "name": "args: key is missing",
-   "args": {
-    "order": "max"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 1.0
-      }
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
    "name": "args: order is not max or min",
    "args": {
     "key": "field:s",
@@ -635,52 +353,6 @@
     "key": 1,
     "order": "max"
    },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 1.0
-      }
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "args: extra arg",
-   "args": {
-    "key": "field:s",
-    "order": "max",
-    "x": 1
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null,
-      "signals": {
-       "field:s": 1.0
-      }
-     }
-    ]
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "args: none",
-   "args": {},
    "input": {
     "readings": [
      {

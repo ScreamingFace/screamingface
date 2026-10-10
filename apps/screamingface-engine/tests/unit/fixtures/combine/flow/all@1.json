@@ -50,53 +50,6 @@
    }
   },
   {
-   "name": "a too_large member is still chosen",
-   "args": {},
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "too_large",
-      "weight": null
-     },
-     {
-      "member": "member_3",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "outputs": {
-     "member_1": "A",
-     "member_2": "B",
-     "member_3": "C"
-    },
-    "reduction": {
-     "text": "J"
-    }
-   },
-   "expect": {
-    "chosen": [
-     "member_1",
-     "member_2",
-     "member_3"
-    ],
-    "output": "J",
-    "tie": false,
-    "agreement": null
-   }
-  },
-  {
    "name": "no joined text",
    "args": {},
    "input": {

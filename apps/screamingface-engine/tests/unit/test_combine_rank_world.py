@@ -19,14 +19,11 @@ import pytest
 from combine_selection_support import concat_spec, rank_spec
 from combine_support import spec_text
 
-from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE
 from screamingface_engine.combine.ports import canonical_json
-from screamingface_engine.config import Settings
-from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world.combine import install_combine_runtime
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
@@ -233,29 +230,3 @@ async def test_concat_makes_no_model_call_and_next_stage_sees_the_joined_text_on
     assert combine.separator_collision is False
     assert combine.judge is None
     assert combine.presentation_order is None
-
-
-async def _get(app: Any, path: str) -> httpx.Response:
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
-    ) as client:
-        return await client.get(path)
-
-
-@pytest.mark.asyncio
-async def test_catalog_lists_the_selection_operators() -> None:
-    app = create_app(Settings(jwt_secret="s"), stream=InMemoryEventStream())
-
-    listed = (await _get(app, "/v1/operators")).json()["data"]
-
-    by_id = {entry["id"]: entry for entry in listed}
-    assert {"top_k@1": "select", "join@1": "reduce", "all@1": "select"}.items() <= {
-        op_id: entry["stage"] for op_id, entry in by_id.items()
-    }.items()
-    assert by_id["top_k@1"]["args_schema"]["properties"] == {
-        "k": {"type": "integer", "minimum": 1, "maximum": 256},
-        "order": {"enum": ["max", "min"]},
-    }
-    assert by_id["top_k@1"]["args_schema"]["required"] == ["k"]
-    assert by_id["join@1"]["args_schema"]["required"] == ["separator", "label"]
-    assert by_id["all@1"]["args_schema"] == {}

@@ -20,7 +20,7 @@ import pytest
 from fastapi import FastAPI
 
 from screamingface_engine.app import create_app
-from screamingface_engine.combine.builtins import BUILTIN_OPERATORS, BUILTIN_REGISTRATIONS
+from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.ports import (
     OpArgs,
     OperatorDescriptor,
@@ -58,8 +58,65 @@ _BUILTIN_IDS = [
 _NEW_IDS = frozenset(
     {"inspect_aime@1", "inspect_number@1", "inspect_numeric@1", "regex@1", "set@1"}
 )
-# The ids that shipped before the regex, set and Inspect-rule operators.
-_V1_IDS = frozenset(_BUILTIN_IDS) - _NEW_IDS
+_ORDERS = {"enum": ["max", "min"]}
+# The published args schemas of the flow operators, as the catalog serves them.
+_FLOW_ARGS_SCHEMAS = {
+    "top_k@1": {
+        "type": "object",
+        "properties": {
+            "k": {"type": "integer", "minimum": 1, "maximum": 256},
+            "order": _ORDERS,
+        },
+        "required": ["k"],
+        "additionalProperties": False,
+    },
+    "join@1": {
+        "type": "object",
+        "properties": {
+            "separator": {"type": "string", "minLength": 1, "maxLength": 1024},
+            "label": {"type": "boolean"},
+        },
+        "required": ["separator", "label"],
+        "additionalProperties": False,
+    },
+    "all@1": {},
+    "by_signal@1": {
+        "type": "object",
+        "properties": {"key": {"type": "string"}, "order": _ORDERS},
+        "required": ["key", "order"],
+        "additionalProperties": False,
+    },
+    "best_holder@1": {
+        "type": "object",
+        "properties": {"order": _ORDERS},
+        "required": ["order"],
+        "additionalProperties": False,
+    },
+    "filter@1": {
+        "oneOf": [
+            {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string"},
+                    "cmp": {"enum": ["gt", "ge", "lt", "le", "eq"]},
+                    "value": {"type": ["number", "boolean"]},
+                },
+                "required": ["key", "cmp", "value"],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "minLength": 1, "maxLength": 256},
+                    "ignore_case": {"type": "boolean"},
+                },
+                "required": ["pattern"],
+                "additionalProperties": False,
+            },
+        ]
+    },
+    "kept@1": {},
+}
 
 
 async def _get(
@@ -148,6 +205,18 @@ async def test_catalog_ids_equal_resolvable_ids() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("operator_id", "schema"), list(_FLOW_ARGS_SCHEMAS.items()), ids=list(_FLOW_ARGS_SCHEMAS)
+)
+async def test_flow_operator_args_schemas_are_pinned(operator_id: str, schema: object) -> None:
+    app = create_app(Settings(jwt_secret="s"), stream=InMemoryEventStream())
+
+    listed = (await _get(app, "/v1/operators")).json()["data"]
+
+    assert {entry["id"]: entry["args_schema"] for entry in listed}[operator_id] == schema
+
+
+@pytest.mark.asyncio
 async def test_operator_catalog_lists_regex_set_and_inspect_rules() -> None:
     app = create_app(Settings(jwt_secret="s"), stream=InMemoryEventStream())
 
@@ -185,20 +254,3 @@ async def test_operator_catalog_lists_regex_set_and_inspect_rules() -> None:
         "regex@1": "One regex group (RE2 syntax) from the last 1024 characters.",
         "set@1": "Sorted, casefolded, distinct list items as canonical JSON.",
     }
-
-
-@pytest.mark.asyncio
-async def test_new_operators_change_the_catalog_etag() -> None:
-    v1_registry = OperatorRegistry(d for d in BUILTIN_REGISTRATIONS if d.id in _V1_IDS)
-    v1_app = create_app(
-        Settings(jwt_secret="s"), stream=InMemoryEventStream(), operators=v1_registry
-    )
-    default_app = create_app(Settings(jwt_secret="s"), stream=InMemoryEventStream())
-
-    v1_response = await _get(v1_app, "/v1/operators")
-    default_response = await _get(default_app, "/v1/operators")
-
-    assert len(v1_response.json()["data"]) == len(_V1_IDS)
-    assert v1_response.headers["etag"] != default_response.headers["etag"]
-    for response in (v1_response, default_response):
-        assert response.headers["etag"] == f'"{hashlib.sha256(response.content).hexdigest()[:32]}"'

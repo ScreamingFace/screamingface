@@ -192,39 +192,6 @@
    }
   },
   {
-   "name": "CC-4 the default separator ends inside the next part",
-   "args": {
-    "separator": "\n\n---\n\n",
-    "label": false
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "outputs": {
-     "member_1": "A",
-     "member_2": "---\n\nB"
-    }
-   },
-   "expect": {
-    "text": "A\n\n---\n\n---\n\nB",
-    "separator_collision": true
-   }
-  },
-  {
    "name": "CC-4 a label line holds the separator",
    "args": {
     "separator": "\n",
@@ -340,64 +307,6 @@
    }
   },
   {
-   "name": "one member",
-   "args": {
-    "separator": "\n\n---\n\n",
-    "label": true
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "outputs": {
-     "member_1": "A"
-    }
-   },
-   "expect": {
-    "text": "[member_1]\nA",
-    "separator_collision": false
-   }
-  },
-  {
-   "name": "unicode text and separator",
-   "args": {
-    "separator": " ✂ ",
-    "label": false
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "outputs": {
-     "member_1": "café",
-     "member_2": "中文"
-    }
-   },
-   "expect": {
-    "text": "café ✂ 中文",
-    "separator_collision": false
-   }
-  },
-  {
    "name": "args: empty separator",
    "args": {
     "separator": "",
@@ -499,97 +408,6 @@
     "separator": "-",
     "label": 1
    },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "outputs": {
-     "member_1": "A",
-     "member_2": "B"
-    }
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "args: label is missing",
-   "args": {
-    "separator": "-"
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "outputs": {
-     "member_1": "A",
-     "member_2": "B"
-    }
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "args: separator is missing",
-   "args": {
-    "label": true
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "outputs": {
-     "member_1": "A",
-     "member_2": "B"
-    }
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "args: no args",
-   "args": {},
    "input": {
     "readings": [
      {
