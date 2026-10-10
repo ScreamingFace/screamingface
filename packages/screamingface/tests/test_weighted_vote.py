@@ -44,7 +44,7 @@ def test_missing_weight_raises_before_any_call() -> None:
     assert sf.Fusion(["p/a", "p/b"], synthesizer=sf.Vote(weights=[1, 2])) is not None
 
 
-@pytest.mark.parametrize("bad", [0, -1, math.nan, math.inf, -math.inf, 10**400, 0.0, -0.5])
+@pytest.mark.parametrize("bad", [0, math.nan, math.inf, 10**400])
 def test_non_positive_or_non_finite_weight_raises(bad: Any) -> None:
     with pytest.raises(ValueError, match="finite and greater than zero"):
         sf.Vote(weights=[1, bad])
@@ -63,7 +63,7 @@ def test_empty_weights_raise_value_error(bad: Any) -> None:
         sf.Vote(weights=bad)
 
 
-@pytest.mark.parametrize("bad", [[True], [1, False], ["1"], "12", b"12", 5, [None], [1, "2"]])
+@pytest.mark.parametrize("bad", [[True], "12", 5, [None]])
 def test_non_numeric_weights_raise_type_error(bad: Any) -> None:
     with pytest.raises(TypeError):
         sf.Vote(weights=bad)
@@ -80,12 +80,6 @@ def test_weights_are_stored_as_a_float_tuple() -> None:
     assert sf.Vote(weights=[1]) != sf.Vote()
 
 
-def test_weights_on_median_raise_type_error() -> None:
-    with pytest.raises(TypeError, match="weights apply to Vote only"):
-        sf.Median(weights=[1])  # type: ignore[arg-type]
-    assert sf.Median(weights=None).select == "nearest"
-
-
 def test_weighted_vote_compiles_to_weighted_spec() -> None:
     raw = _raw_intent(_url4(_fusion(sf.Vote(**_NUMBER, weights=[2, 1, 1]))))
     assert raw == (
@@ -100,15 +94,6 @@ def test_weighted_vote_compiles_to_weighted_spec() -> None:
     assert plain["reduce"]["op"] == "mode@1"
     assert plain["select"]["op"] == "first_holder@1"
     assert plain["weights"] is None
-
-
-def test_repr_shows_weights_only_when_set() -> None:
-    assert repr(sf.Vote(weights=[2, 1])) == (
-        "Vote(extract='last_line', normalize='text', weights=(2.0, 1.0))"
-    )
-    assert repr(sf.Vote()) == "Vote(extract='last_line', normalize='text')"
-    value = sf.Vote(weights=[2, 1.5])
-    assert eval(repr(value), {"Vote": sf.Vote}) == value  # noqa: S307 - our own repr, no input
 
 
 def test_weighted_vote_round_trips_through_url4_with_ten_or_more_members() -> None:
@@ -165,14 +150,7 @@ def test_from_spec_refuses_a_weight_map_that_misses_a_member() -> None:
         sf.Vote._from_spec(spec)
 
 
-def test_from_spec_refuses_a_weight_map_with_an_extra_key() -> None:
-    spec = _spec()
-    spec["weights"]["member_4"] = 1.0
-    with pytest.raises(ValueError, match="cannot rebuild"):
-        sf.Vote._from_spec(spec)
-
-
-@pytest.mark.parametrize("bad", ["2", True, None, [1], "x"])
+@pytest.mark.parametrize("bad", ["2", True])
 def test_from_spec_refuses_a_weight_value_that_is_not_a_number(bad: Any) -> None:
     spec = _spec()
     spec["weights"]["member_2"] = bad

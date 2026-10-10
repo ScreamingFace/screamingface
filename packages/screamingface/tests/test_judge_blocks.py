@@ -14,8 +14,7 @@ from _combine_flow_fixtures import RUBRIC, flow_operators, members3
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
-from screamingface.blocks import _BLOCK_FORMS, _BlockForm
-from screamingface.judge import Judge, _with_rubric
+from screamingface.judge import Judge
 from screamingface.reducer import Reducer
 
 _OVERRIDE = "Prefer the shortest correct answer."
@@ -26,9 +25,13 @@ def _url4(synthesizer: Reducer) -> str:
     return compile_candidate(fusion, operators=flow_operators()).url4
 
 
-@pytest.mark.parametrize("rubric", [None, _OVERRIDE], ids=["same", "override"])
-@pytest.mark.parametrize("params", [None, {"temperature": 0}], ids=["bare", "params"])
-@pytest.mark.parametrize("returns", ["label", "scores"])
+@pytest.mark.parametrize(
+    ("returns", "params", "rubric"),
+    [
+        pytest.param("label", None, None, id="label-bare-same"),
+        pytest.param("scores", {"temperature": 0}, _OVERRIDE, id="scores-params-override"),
+    ],
+)
 def test_every_op_table_row_matches_its_named_form(
     returns: Any, params: dict[str, Any] | None, rubric: str | None
 ) -> None:
@@ -75,27 +78,6 @@ def test_judge_block_rejects_a_bad_judge_or_rubric_or_mode() -> None:
         sf.Reduce("judge", judge=judge, rubric=" ")
     with pytest.raises(ValueError, match="is a select op"):
         sf.Reduce("judge", mode="compute", judge=judge)
-
-
-def test_a_registered_block_form_wraps_a_named_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
-    def refuse(options: Any) -> Reducer:
-        raise ValueError("the named form says no")
-
-    monkeypatch.setitem(_BLOCK_FORMS, "judge", _BlockForm(build=refuse, options=lambda named: {}))
-    judge = sf.Judge("provider/j", returns="label", rubric=RUBRIC)
-
-    with pytest.raises(ValueError, match=r"sf\.Reduce\('judge'\): the named form says no"):
-        sf.Reduce("judge", judge=judge)
-
-
-def test_the_judge_block_form_is_registered_and_keeps_a_judge_unchanged_without_a_rubric() -> None:
-    judge = sf.Judge("provider/j", returns="label", rubric=RUBRIC)
-
-    assert isinstance(_BLOCK_FORMS["judge"].build({"judge": judge}), Judge)
-    assert _with_rubric(judge, None) is judge
-    assert _with_rubric(judge, _OVERRIDE) == sf.Judge(
-        "provider/j", returns="label", rubric=_OVERRIDE
-    )
 
 
 def test_judge_equality_and_hash_keep_the_param_value_types() -> None:

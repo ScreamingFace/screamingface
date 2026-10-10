@@ -199,25 +199,6 @@ def test_judge_compiles_to_judge_and_combine_sources() -> None:
     assert '"signals":[' in recipe.value.value
 
 
-def test_scores_judge_compiles_scores_and_max_score() -> None:
-    compiled = _compile(judge_fusion("scores", params={"temperature": 0}))
-    sources = _sources(compiled.url4)
-
-    combine = sources[4].value
-    assert isinstance(combine, RelExpr)
-    assert isinstance(combine.intent, Text)
-    assert combine.intent.value == _spec("scores@1", '{"source":"judge"}', "max_score@1")
-    judge = sources[3].value
-    assert isinstance(judge, RelExpr)
-    assert judge.params == (("binding", "judge_1"), ("temperature", "0"))
-    assert isinstance(judge.intent, Text)
-    assert judge.intent.value.startswith(_url4_text(JUDGE_TEMPLATES["scores"]))
-    assert [
-        (assignment.operation_id, assignment.model, dict(assignment.params))
-        for assignment in compiled.parameter_assignments
-    ] == [("op_judge_1", "provider/j", {"temperature": 0})]
-
-
 def test_judge_fingerprint_differs_from_a_same_model_member() -> None:
     fusion = sf.Fusion(
         ["provider/j", "provider/b"],

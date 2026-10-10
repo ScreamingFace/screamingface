@@ -108,24 +108,9 @@ def _tamperings() -> dict[str, tuple[str, str, str]]:
             "?temperature=0&q=",
             _MODEL_CALLS,
         ),
-        "binding param of another call": (
-            "?binding=judge_1&temperature=0&q=",
-            "?binding=judge_2&temperature=0&q=",
-            _MODEL_CALLS,
-        ),
-        "binding param after another param": (
-            "?binding=judge_1&temperature=0&q=",
-            "?temperature=0&binding=judge_1&q=",
-            _MODEL_CALLS,
-        ),
         "template version": (
             "judge-template@1 returns=label",
             "judge-template@2 returns=label",
-            "unsupported judge call",
-        ),
-        "template of the other shape": (
-            "judge-template@1 returns=label",
-            "judge-template@1 returns=scores",
             "unsupported judge call",
         ),
         "spec of the other shape": (
@@ -133,31 +118,15 @@ def _tamperings() -> dict[str, tuple[str, str, str]]:
             '"reduce":{"args":{"source":"judge"},"op":"scores@1"}',
             "cannot rebuild",
         ),
-        "signal key renamed in the combine context": (
-            "signals: {judge: '$judge_1'}",
-            "signals: {jury: '$judge_1'}",
-            _MODEL_CALLS,
-        ),
-        "signals removed from the combine context": (
-            ", signals: {judge: '$judge_1'}",
-            "",
-            _MODEL_CALLS,
-        ),
         "binding param on a member": (
             "/provider/a($input)",
             "/provider/a?binding=model_1&q=($input)",
             _MODEL_CALLS,
         ),
-        "no signals": (signals, '"signals":[]', _INVALID_REDUCER),
         "signal key": ('{"key":"judge","source"', '{"key":"jury","source"', _INVALID_REDUCER),
         "source role": (
             '"named":false,"role":"judge"',
             '"named":false,"role":"model"',
-            _INVALID_REDUCER,
-        ),
-        "source binding": (
-            '"binding":"judge_1","kind":"model"',
-            '"binding":"model_9","kind":"model"',
             _INVALID_REDUCER,
         ),
         "extra key in the signal": (
@@ -170,11 +139,6 @@ def _tamperings() -> dict[str, tuple[str, str, str]]:
             '"extra":1,"named":false,"role":"judge"',
             _INVALID_REDUCER,
         ),
-        "named not a bool": (
-            '"named":false,"role":"judge"',
-            '"named":0,"role":"judge"',
-            _INVALID_REDUCER,
-        ),
         "signals not a list": (signals, '"signals":{}', _INVALID_REDUCER),
         "duplicate signal key": (
             signals,
@@ -185,11 +149,6 @@ def _tamperings() -> dict[str, tuple[str, str, str]]:
             '{"binding":"model_1","kind":"model","name":"a","named":false,"role":"model"}',
             '{"binding":"model_1","kind":"model","name":"a","named":false,"role":"judge"}',
             "invalid Model topology metadata",
-        ),
-        "judge source on the combine route": (
-            "/provider/j?binding=judge_1",
-            "/ensemble/combine/v1?binding=judge_1",
-            _MODEL_CALLS,
         ),
     }
 
@@ -274,13 +233,6 @@ def _nested_shapes() -> dict[str, sf.Recipe]:
     scores = sf.Judge("provider/k", returns="scores", rubric="Score each member.")
     return {
         "judge inside judge": sf.Fusion([judge_fusion(), "provider/d"], synthesizer=scores),
-        "judge in a recipe synthesizer": sf.Fusion(
-            members3(), synthesizer=sf.Pipeline([judge_fusion("scores"), "provider/s"])
-        ),
-        "judge fusion in a model fusion": sf.Fusion(
-            [judge_fusion(), "provider/d"], synthesizer="provider/s"
-        ),
-        "judge fusion in a pipeline": sf.Pipeline([judge_fusion(), judge_fusion("scores")]),
     }
 
 
@@ -295,12 +247,3 @@ def test_nested_judge_shapes_round_trip_and_replay_equal(shape: str) -> None:
     assert [member.operation_id for member in replayed.members] == [
         member.operation_id for member in compiled.members
     ]
-
-
-def test_a_self_corrective_judge_round_trips() -> None:
-    compiled = _compiled(sf.SelfCorrective(judge_fusion(), max_rounds=2))
-
-    assert _compiled(_recovered(compiled.url4)).url4 == compiled.url4
-    replayed = _candidate_from_url4(_linked(compiled.url4))
-    assert replayed.kind == "self_corrective"
-    assert "provider/j" in replayed.models

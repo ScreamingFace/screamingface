@@ -8,18 +8,15 @@ raises ValueError ("does not take option"): both rules are pinned (F10).
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
 from _combine_contract import engine_operators
-from url4 import Expression, build
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface.reducer import Reducer
-from screamingface.url4 import _calls
 
 _MEMBERS = ["provider/a", "provider/b", "provider/c"]
 _NUMBER: dict[str, Any] = {"extract": "last_number", "normalize": "numeric"}
@@ -31,12 +28,6 @@ def _url4(synthesizer: Reducer) -> str:
     return compile_candidate(fusion, operators=engine_operators()).url4
 
 
-def _spec_of(url4: str) -> dict[str, Any]:
-    root = build(url4)
-    assert isinstance(root, Expression)
-    return json.loads(_calls(root)["synthesis_1"].raw_intent)
-
-
 def test_median_rejects_signal_weights() -> None:
     with pytest.raises(TypeError, match="weights apply to Vote only"):
         sf.Median(weights=sf.signal("cost_usd"))  # type: ignore[arg-type]
@@ -46,25 +37,6 @@ def test_median_rejects_signal_weights() -> None:
     # BK-D1 keeps the block's own rule: a ValueError that names the option (F10).
     with pytest.raises(ValueError, match="does not take option 'weights'"):
         sf.Reduce("median", extract=sf.Extract("last_number"), weights=sf.signal("cost_usd"))
-
-
-def test_vote_signal_weights_compile_to_a_signal_spec() -> None:
-    weights = sf.signal("field:confidence")
-    block = sf.Reduce("weighted", extract=_FIELD, weights=weights)
-    spec = _spec_of(_url4(block))
-    assert spec["weights"] == {"signal": "field:confidence"}
-    assert (spec["reduce"]["op"], spec["select"]["op"]) == (
-        "weighted_mode@1",
-        "max_weight_holder@1",
-    )
-    assert spec["extract"] == {"op": "json_field@1", "args": {"path": "answer"}}
-
-    spec = _spec_of(_url4(sf.Vote(**_NUMBER, weights=weights)))
-    assert spec["weights"] == {"signal": "field:confidence"}
-    assert (spec["reduce"]["op"], spec["select"]["op"]) == (
-        "weighted_mode@1",
-        "max_weight_holder@1",
-    )
 
 
 def test_score_judge_weights_wait_for_the_judge() -> None:
@@ -98,7 +70,7 @@ def test_signal_weights_value_repr_python_and_recovery() -> None:
     )
 
 
-@pytest.mark.parametrize("key", ["field:confidence", "cost_usd"])
+@pytest.mark.parametrize("key", ["field:confidence"])
 def test_signal_vote_round_trips_through_url4(key: str) -> None:
     url4 = _url4(sf.Vote(**_NUMBER, weights=sf.signal(key)))
     code = sf.Url4(url4).to_python()

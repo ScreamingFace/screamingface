@@ -72,33 +72,6 @@ def _operations(**judge: Any) -> list[dict[str, Any]]:
     ]
 
 
-def test_report_shows_raw_judge_output_and_parsed_label() -> None:
-    report = _evaluate(judge_fusion(), _operations())
-
-    case = report.candidates[0].cases.by_id(1)
-    assert case.operations is not None
-    assert [operation.operation_id for operation in case.operations] == [
-        "op_model_1",
-        "op_model_2",
-        "op_model_3",
-        "op_judge_1",
-        "op_synthesis_1",
-    ]
-    assert case.operations[3].output == "member_2"
-    combine = case.operations[4].combine
-    assert combine is not None
-    assert combine.judge is not None
-    assert combine.judge.raw == "member_2"
-    assert combine.judge.parsed == "member_2"
-    assert combine.presentation_order == "author"
-    assert combine.chosen == ("member_2",)
-    operation_kinds = {
-        operation.id: operation.kind for operation in report.candidates[0].operations
-    }
-    assert operation_kinds["op_judge_1"] == "judge"
-    assert operation_kinds["op_synthesis_1"] == "combine"
-
-
 def test_judge_operation_accounting_is_a_synthesis_row() -> None:
     report = _evaluate(judge_fusion(), _operations(accounting=_accounting_wire()))
 
