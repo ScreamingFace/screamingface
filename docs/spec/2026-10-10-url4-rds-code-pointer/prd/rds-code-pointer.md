@@ -214,9 +214,10 @@ Cancel: the run's cancellation cancels the call's task. Concurrency: one call pe
 
 ## 5. Out of scope
 
-Bare-token named jobs (P3), absolute URIs as code (Q1, Q2), computed intents that
+Absolute URIs as code (Q1, Q2), computed intents that
 resolve to code (Q3), content-type checks (Q7), envelope and capabilities fields,
-the adjacent deviations A1–A4, any grammar or renderer change.
+the adjacent deviations A1–A4, any change to what the parser accepts. (The renderer gains
+the `NamedJob` form, P3.)
 
 ## 6. TDD plan
 
@@ -275,9 +276,13 @@ behavior, and the PR body lists it.
 | 24 | `NodeStarted.node_kind == "CodeCallNode"` | unit | L×M |
 | 25 | E2E: the E4a 3-model vote against a stub combine gets the three member texts byte-exact plus the params | e2e | H×M |
 
-### 6.4 Phase P3 — named jobs (later)
+### 6.4 Phase P3 — named jobs and quoted forwarded prompts (2.0.0, Q10)
 
 | # | Test | Level |
 |---|---|---|
-| 26 | a bare-token intent with a code mount named by the token runs it; without one → `intent_error` | integration |
-| 27 | P2 emits a `DeprecationWarning` for a bare-token intent | unit |
+| 26 | a bare-token intent with a code mount named by the token runs it; without one → `intent_error`; multi-word unquoted text stays a prompt (`PROSE`); `render(build("(a)!go")) == "('a')!go"` | integration |
+| 27 | ~~P2 emits a `DeprecationWarning`~~ — dropped: no deprecation release (Q10) | — |
+| 28 | a forwarded prompt intent travels quoted (`q=(ctx)!'Answer'`, escaped), an endpoint handler receives the unquoted text, an eval-path receiver reads a prompt; a prompt with a newline travels unquoted | integration |
+| 29 | `@node.code("score_v1")` registers a name key; `!/score_v1` does not find it and `!score_v1` does not find `/score_v1`; an invalid name raises | unit |
+| 30 | C8 default: an unlisted permanent code → 422; `internal_error` and a code-less failure → 500 | unit |
+| 31 | C6: a prompt group nested in a code group's sources is lenient; a named-job group is strict | integration |

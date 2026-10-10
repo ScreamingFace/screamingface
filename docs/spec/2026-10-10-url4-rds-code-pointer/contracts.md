@@ -20,6 +20,7 @@ class IntentForm(StrEnum):
     SELF_REF = "self_ref"                # rule 7.1
     IDENTITY_REF = "identity_ref"        # rule 7.2
     STRUCT_OBJECT = "struct_object"      # rule 6
+    PROSE = "prose"                      # unquoted text that is not a bare-value (url4 leniency)
 
 class IntentMode(StrEnum):
     LLM = "llm"; RDS = "rds"; COMPUTED = "computed"
@@ -44,7 +45,8 @@ def intent_mode(form: IntentForm) -> IntentMode: ...     # the B §6 table, tota
 | `@` alone / `@` + name | `SELF_REF` / `IDENTITY_REF` |
 | `$` + name or digit | `VARIABLE_REF` (or `EXPRESSION` when `*(` follows: iteration) |
 | contains `://` | `ABSOLUTE_URI` |
-| otherwise | `BARE_TOKEN` (or `EXPRESSION` when `*(` follows) |
+| otherwise, one `bare-value` token (B §8: no space, no control character) | `BARE_TOKEN` (or `EXPRESSION` when `*(` follows) |
+| otherwise (unquoted text with a space or a control character) | `PROSE` — not ABNF; url4 keeps it a prompt for compatibility |
 
 The canonical test reuses the parser's own scan (`find_expression_param`, used by
 `_parse_expr_canonical`), so the classifier and the parser cannot disagree.
@@ -62,12 +64,17 @@ changes in the same commit; the round-trip tests stay green.
 | `QUOTED` | LLM | prompt (unchanged) |
 | `RELATIVE_URI` | RDS | **invoke the code mount** (C2–C5) |
 | `URL4_REFERENCE`, `ABSOLUTE_URI` | RDS | **fetch, use the content as the prompt** (the 1.5.1 path, unchanged): **deviation D2**, owner decision Q1 |
-| `BARE_TOKEN` | RDS | prompt: **deviation D1** (deprecation warning in P2; code mount by name in P3) |
+| `BARE_TOKEN` | RDS | **invoke the named job** (the code mount with that name key, Q6; P3) |
+| `PROSE` | LLM | prompt (unchanged; outside the ABNF) |
 | `EXPRESSION`, `VARIABLE_REF`, `SELF_REF`, `IDENTITY_REF`, `STRUCT_OBJECT` | computed | evaluate; the result text is the prompt (Q3) |
 
-Lean: `v1_not_conforms_iff` (D1 and D2 are the only deviations),
-`v1_act_eq_invokeLocal_iff` (only a relative URI runs code), `target_conformant`
-(the full B §6 profile, for when D1 and D2 close).
+Lean: `v1_not_conforms_iff` (D2 is the only deviation), `v1_act_eq_invokeLocal_iff`
+(only a relative URI or a named job runs code, on this node), `target_conformant` (the
+full B §6 profile, for when D2 closes).
+
+**Named jobs (P3, Q6).** A `BARE_TOKEN` intent is a code pointer whose `pointer` is the
+token itself, with no params. The parser builds a `NamedJob` node for it (not `Text`), so
+`render` writes it back bare and the round trip keeps the mode.
 
 Traps for the tests (TDD row 1): `/p(c)!x`, `/p?q=(c)!x`, `/p?t=1&q=(c)!x`,
 `url4://n/p(c)!x`, `url4://n/p?t=1&q=(c)!x` → `EXPRESSION`; `/api?q=hi`, `/p?x=1&y=2`
@@ -118,6 +125,7 @@ Rules:
 
 | Rule | Why |
 |---|---|
+| `Url4Node.code(key)` takes a path (`/score/v1`) or a name (`score_v1`, one `bare-value` token without `$`). One table, own keys (Q6): `!score_v1` finds only the name key, `!/score/v1` only the path key. A name is never routable. |
 | `Url4Node.code(path)` registers in a **separate** table. A path is an endpoint, a data route or a code mount, never two of them; registration raises `ValueError` on overlap. A code mount may not be at or under the eval path (as data routes today). The endpoint rule is unchanged (only the exact eval path is refused). | A code mount has an input contract (A §1.1). An endpoint is a model route and `processor_routes()` returns all endpoints (`G/peer/server.py:192`), so a code handler registered as an endpoint would become a processor candidate. |
 | A code mount is **not** reachable as an HTTP endpoint. `GET /ensemble/combine/v1?…` → 404 `endpoint_not_found`, as today. | Code runs only as an intent. R5: no new wire. |
 | Lookup is by exact path, after `$`-interpolation. | Same rule as endpoints. |
@@ -228,9 +236,12 @@ B §5.3.4.1: in RDS mode, a missing field, a type error or an out-of-bounds inde
 fail with `malformed_source`. LLM mode substitutes `null` or empty.
 
 - A `$`-reference is interpolated **strictly** when the node runs the nearest enclosing
-  group's intent as code (action `invokeLocal`). This covers the group's source values
-  and the pointer path. A bare-token group runs as a prompt in 2.0 (D1), so it stays
-  lenient. Lean: `v1_strictFields_iff`, `specMode_eq_rds_of_strictFields`.
+  group's intent as code (action `invokeLocal`: a relative code pointer or a named job).
+  This covers the group's source values and the pointer path. A prompt group nested
+  inside a code group's sources is lenient again (the nearest group decides). Lean:
+  `v1_strictFields_iff`, `specMode_eq_rds_of_strictFields`.
+- In a strict scope a reference with no binding is `unbound_reference` (B §6.3:
+  references are mechanically required); in an LLM scope it stays verbatim.
 - The run option `strict_fields` stays. It forces strictness in LLM scopes too, and it
   never relaxes an RDS scope.
 
@@ -278,6 +289,8 @@ Sources that resolved stay resolved after an intent failure (C §13.6).
 applies C §13.2.1 to our status recovers the class of our code, and the exact code when
 §13.2.1 has one. `status_for_code` (`G/peer/_http.py`) keeps its explicit rows and gets
 a class default: an unlisted **permanent** code → 422, an unlisted transient code → 502.
+`internal_error` keeps an explicit 500 row, and a failure with no code (an internal bug)
+stays 500.
 Today an unlisted permanent code (for example `quorum_not_met`,
 `expansion_not_iterable`) gets 500, which a conformant caller reads as transient and
 retries. 501 ↔ `unsupported_mode` is exact. `intent_error` has no status in
@@ -301,9 +314,18 @@ no intent dependency and sends the pointer text unchanged: `/p?q=(ctx)!/code`. T
 at `/p` decides what `/code` means. An absolute-URI intent of a forwarded call keeps
 today's path (the caller fetches it; D2).
 
-Quoted and computed intents of forwarded calls keep today's wire (caller-resolved text,
-quotes removed). That is deviation A5 (overview §8). Its fix changes the wire for every
-forwarded call, so it is a separate issue.
+A named-job intent (`/p(ctx)!score_v1`) travels the same way: verbatim, unquoted.
+
+**Prompt intents (A5 fix, owner decision Q10).** A quoted or computed intent of a
+forwarded call is resolved by the caller, as before, and is then sent as a
+`quoted-text` literal: `'` + the text with `\` → `\\` and `'` → `\'` + `'`
+(`q=(ctx)!'Answer the question'`). So an eval-path receiver reads a prompt, never a
+named job or a code pointer. `decode_subrequest` (endpoint dispatch, `StaticIOLayer`
+routes) unquotes a quoted-text intent, so an endpoint handler's `Request.intent` is the
+same text as in 1.5.1. Limit: `quoted-char` is `%x20-7E` and url4 refuses a raw control
+character in quoted text, so a resolved prompt that holds one (a newline) is sent
+unquoted, as in 1.5.1; such a text is never a `bare-value`, so a receiver still reads it
+as `PROSE`, unless it starts with a value head (`/`, `(`, `{`, `@`, a scheme).
 
 ## C10 — Remote code pointers (deferred; design for Part G)
 

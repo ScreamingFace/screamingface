@@ -34,7 +34,7 @@ Each property test names its theorem in the docstring.
 | `evalGroup_unsupported`, `evalGroup_unmounted`, `evalGroup_exec`, `evalGroup_ne_exec_of_gate_false` | preflight and gate integration | 4, 17, 19 |
 | `exists_intentError_of_toOutcome_eq_failed` | handler-failure mapping | 18 |
 | `cls_inbound_statusOf`, `inbound_statusOf` | status table test | 23 |
-| `v1_strictFields_iff`, `specMode_eq_rds_of_strictFields` | strict-scope tests (bare-token groups stay lenient) | 21 |
+| `v1_strictFields_iff`, `specMode_eq_rds_of_strictFields` | strict-scope tests (code and named-job groups strict, nested prompt groups lenient) | 21, 31 |
 
 A reference implementation of `bind` and `gate` in the test module (a direct transcription
 of the Lean definitions, about 30 lines) is the oracle for rows 9 and 10.
@@ -44,7 +44,9 @@ of the Lean definitions, about 30 lines) is the oracle for rows 9 and 10.
 - RED first: run each new test and see it fail on an assertion.
 - CHAR first: write CH11 before any delta row, and run it green on today's code.
 - Flips: CH9 and the CH11 rows marked *flips* change in the commit that changes the
-  behavior. All other existing url4 tests stay as they are.
+  behavior. P3 (Q10) also flips every test that used a one-word bare intent as a prompt
+  (it is quoted), every test that pins the unquoted forwarded-prompt wire (A5), and the
+  three status tests that pinned "unlisted permanent → 500" (C8). Each commit lists them.
 - New files: `T/spec/test_rds_code_pointer.py` (spec level), `T/unit/test_intent_classify.py`,
   `T/unit/test_code_binding.py` (properties). The `query-tail` cases append to
   `T/spec/test_param_conformance.py`.
@@ -53,7 +55,7 @@ of the Lean definitions, about 30 lines) is the oracle for rows 9 and 10.
 
 | Lane | Runs | Command (from `packages/url4`) |
 |---|---|---|
-| url4 unit + spec | rows 1–24 | `uv run pytest tests/unit tests/spec` |
+| url4 unit + spec | rows 1–24, 26, 28–31 | `uv run pytest tests/unit tests/spec` |
 | url4 e2e | row 25 | `uv run pytest tests/spec/test_rds_code_pointer.py -k e4a_vote` |
 | url4 gates | ruff, pyright, coverage, module size, suppressions, layering, ratchets | the package CI job |
 | Formal model | `lake build` (fails on any `sorry` or extra axiom through `#assert_axioms`) | `cd formal && lake build` |

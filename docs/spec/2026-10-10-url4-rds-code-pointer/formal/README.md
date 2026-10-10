@@ -18,7 +18,7 @@ a `theorem bogus : 1 = 2 := sorry` gives `bogus depends on axiom sorryAx`.
 
 | File | Models | Spec |
 |---|---|---|
-| `Intent.lean` | intent forms, the B §6 mode table, node profiles (`v1` = owner decisions, `target` = full Spec B §6) | B §5.2, §6; A §1.4.1; C §13.5.2 |
+| `Intent.lean` | intent forms, the B §6 mode table, node profiles (`v1` = url4 2.0 with the owner decisions, `target` = full Spec B §6) | B §5.2, §6; A §1.4.1; C §13.5.2 |
 | `Binding.lean` | sources → inputs (position, name, weight, value) | A §1.1; B §6.2, §5.3.10.3 |
 | `Gate.lean` | required + quorum gate; call count for `!` and `!*` | C §12.2, §13.6; B §6.1.2 |
 | `Expansion.lean` | `*source` / `;expand`, naming, counts | B §5.3.12 |
@@ -31,10 +31,10 @@ a `theorem bogus : 1 = 2 := sorry` gives `bogus depends on axiom sorryAx`.
 | Theorem | Says | Rule |
 |---|---|---|
 | `target_conformant` | the target profile gives every form an action its spec mode allows | R1 |
-| `v1_not_conforms_iff` | url4 2.0 breaks Spec B §6 on bare tokens (D1) and absolute URIs (D2) only | R1 |
-| `v1_act_eq_invokeLocal_iff` | only a relative URI runs code in 2.0 (no foreign code ever runs) | R1 |
+| `v1_not_conforms_iff` | url4 2.0 breaks Spec B §6 on absolute URIs (D2) only | R1 |
+| `v1_act_eq_invokeLocal_iff` | only a relative URI or a named job runs code in 2.0, on this node (no foreign code ever runs) | R1 |
 | `v1_act_eq_target_act` | wherever 2.0 conforms, it acts as the full Spec B profile | R1 |
-| `v1_strictFields_iff` | in 2.0, field paths are strict only for relative code pointers | C6 |
+| `v1_strictFields_iff` | in 2.0, field paths are strict only for code pointers and named jobs | C6 |
 | `specMode_eq_rds_of_strictFields` | in any conformant profile, a strict scope is an RDS scope (LLM stays lenient) | C6 |
 | `length_bind` | one input per resolved source | R3 |
 | `find?_pos_bind` | the input at position `p` is exactly source `p`'s value; a failed source has none | R3 |

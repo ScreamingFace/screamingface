@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # filed at PR-open under OME-500 after the user confirms (one PR for the branch)
 stack: url4
-status: done   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-10
-finished: 2026-10-10
+finished:
 ---
 
 # url4-rds-code-pointer-impl — run relative code-pointer intents as RDS calls (P1 + P2)
@@ -54,6 +54,23 @@ behavior (each listed in the PR body).
   coverage), plus the module-size, suppression, layering and parity ratchets.
 - Engine and SDK suites green with no test edits.
 - `cd docs/spec/2026-10-10-url4-rds-code-pointer/formal && lake build` green.
+
+## Unit 2 — everything else in 2.0.0 (owner decision Q10, 2026-10-10)
+
+The owner moved the rest of the spec into 2.0.0: P3 named jobs, the A5 wire fix, the C8
+status default and exact C6 strictness. Planned commits, in order:
+
+1. C8 default: unlisted permanent → 422; `internal_error` and code-less failures stay 500
+   (flips `test_status_mapping.py` ×2 and `test_direct_dispatch.py` ×1). Row 30.
+2. C6 nearest-group strictness: a prompt group nested in a code group's sources is
+   lenient again. Row 31.
+3. A5: forwarded prompt intents travel as `quoted-text`; `decode_subrequest` unquotes
+   them for endpoint handlers. Row 28. Flips tests that pin the unquoted wire.
+4. P3: `NamedJob` AST node, `intent_atom`, `render`, `IntentForm.PROSE`, lowering,
+   name keys in `@node.code` and `StaticIOLayer(code=…)`. Rows 26, 29. Flips every test
+   that used a one-word bare intent as a prompt (url4 and Engine, about 390 tests by the
+   2026-10-10 probe: url4 224 with call intents counted, Engine 166 on `!go`/`!probe`;
+   SDK 0).
 
 ## Notes and deviations (running)
 
