@@ -2,95 +2,35 @@
  "op": "inspect_number@1",
  "stage": "extract",
  "cases": [
-  {
-   "name": "currency and thousands separator",
+  {"name": "currency and thousands separator", "args": {},
    "input": "The total is $1,200.",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1200"
-   }
-  },
-  {
-   "name": "assignment is not a number word",
+   "expect": {"status": "voted", "value": "1200"}},
+  {"name": "assignment is not a number word", "args": {},
    "input": "x=42",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "enclosing parentheses are kept",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "enclosing parentheses are kept", "args": {},
    "input": "(42)",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "(42)"
-   }
-  },
-  {
-   "name": "the last number word wins",
+   "expect": {"status": "voted", "value": "(42)"}},
+  {"name": "the last number word wins", "args": {},
    "input": "12 apples, then 7 more",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "7"
-   }
-  },
-  {
-   "name": "no number",
+   "expect": {"status": "voted", "value": "7"}},
+  {"name": "no number", "args": {},
    "input": "no number here",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "trailing period",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "trailing period", "args": {},
    "input": "9.",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "9"
-   }
-  },
-  {
-   "name": "markdown emphasis",
+   "expect": {"status": "voted", "value": "9"}},
+  {"name": "markdown emphasis", "args": {},
    "input": "**42**",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "42"
-   }
-  },
-  {
-   "name": "unicode minus",
+   "expect": {"status": "voted", "value": "42"}},
+  {"name": "unicode minus", "args": {},
    "input": "−5",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "−5"
-   }
-  },
-  {
-   "name": "full-width digits",
+   "expect": {"status": "voted", "value": "−5"}},
+  {"name": "full-width digits", "args": {},
    "input": "１２",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "１２"
-   }
-  },
-  {
-   "name": "too large for a float",
+   "expect": {"status": "voted", "value": "１２"}},
+  {"name": "too large for a float", "args": {},
    "input": "1e999",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  }
+   "expect": {"status": "empty", "value": null}}
  ]
 }

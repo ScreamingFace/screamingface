@@ -2,68 +2,26 @@
  "op": "inspect_aime@1",
  "stage": "extract",
  "cases": [
-  {
-   "name": "last line answer",
+  {"name": "last line answer", "args": {},
    "input": "Reasoning\nANSWER: 70",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "70"
-   }
-  },
-  {
-   "name": "boxed on its own line between display delimiters",
+   "expect": {"status": "voted", "value": "70"}},
+  {"name": "boxed on its own line between display delimiters", "args": {},
    "input": "$$\n\\boxed{70}\n$$",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "70"
-   }
-  },
-  {
-   "name": "leading zeros kept",
+   "expect": {"status": "voted", "value": "70"}},
+  {"name": "leading zeros kept", "args": {},
    "input": "ANSWER: 070",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "070"
-   }
-  },
-  {
-   "name": "empty completion",
+   "expect": {"status": "voted", "value": "070"}},
+  {"name": "empty completion", "args": {},
    "input": "",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "boxed inside the answer line",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "boxed inside the answer line", "args": {},
    "input": "ANSWER: \\boxed{204}",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "204"
-   }
-  },
-  {
-   "name": "thousands separator",
+   "expect": {"status": "voted", "value": "204"}},
+  {"name": "thousands separator", "args": {},
    "input": "ANSWER: 1,000",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1000"
-   }
-  },
-  {
-   "name": "assignment is not a number word",
+   "expect": {"status": "voted", "value": "1000"}},
+  {"name": "assignment is not a number word", "args": {},
    "input": "ANSWER: x=5",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  }
+   "expect": {"status": "empty", "value": null}}
  ]
 }

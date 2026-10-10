@@ -2,167 +2,59 @@
  "op": "numeric@1",
  "stage": "normalize",
  "cases": [
-  {
-   "name": "nine point zero",
+  {"name": "nine point zero", "args": {},
    "input": "9.0",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "9"
-   }
-  },
-  {
-   "name": "nine with period",
+   "expect": {"status": "voted", "value": "9"}},
+  {"name": "nine with period", "args": {},
    "input": "9.",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "9"
-   }
-  },
-  {
-   "name": "exponent 3",
+   "expect": {"status": "voted", "value": "9"}},
+  {"name": "exponent 3", "args": {},
    "input": "1e3",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1000"
-   }
-  },
-  {
-   "name": "negative zero",
+   "expect": {"status": "voted", "value": "1000"}},
+  {"name": "negative zero", "args": {},
    "input": "-0",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "0"
-   }
-  },
-  {
-   "name": "dollar grouped",
+   "expect": {"status": "voted", "value": "0"}},
+  {"name": "dollar grouped", "args": {},
    "input": "$1,200",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1200"
-   }
-  },
-  {
-   "name": "pound with space",
+   "expect": {"status": "voted", "value": "1200"}},
+  {"name": "pound with space", "args": {},
    "input": "\u00a3 3.50",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "3.5"
-   }
-  },
-  {
-   "name": "unicode minus",
+   "expect": {"status": "voted", "value": "3.5"}},
+  {"name": "unicode minus", "args": {},
    "input": "\u22123",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "-3"
-   }
-  },
-  {
-   "name": "fullwidth digit",
+   "expect": {"status": "voted", "value": "-3"}},
+  {"name": "fullwidth digit", "args": {},
    "input": "\uff13",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  },
-  {
-   "name": "word",
+   "expect": {"status": "not_numeric", "value": null}},
+  {"name": "word", "args": {},
    "input": "twelve",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  },
-  {
-   "name": "bad grouping 1,23",
+   "expect": {"status": "not_numeric", "value": null}},
+  {"name": "bad grouping 1,23", "args": {},
    "input": "1,23",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  },
-  {
-   "name": "indian grouping",
+   "expect": {"status": "not_numeric", "value": null}},
+  {"name": "indian grouping", "args": {},
    "input": "1,00,000",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  },
-  {
-   "name": "grouped decimals",
+   "expect": {"status": "not_numeric", "value": null}},
+  {"name": "grouped decimals", "args": {},
    "input": "1,200.50",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1200.5"
-   }
-  },
-  {
-   "name": "two trailing periods drop one",
+   "expect": {"status": "voted", "value": "1200.5"}},
+  {"name": "two trailing periods drop one", "args": {},
    "input": "9..",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "9"
-   }
-  },
-  {
-   "name": "currency inside digits is removed",
+   "expect": {"status": "voted", "value": "9"}},
+  {"name": "currency inside digits is removed", "args": {},
    "input": "5$3",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "53"
-   }
-  },
-  {
-   "name": "plus sign",
+   "expect": {"status": "voted", "value": "53"}},
+  {"name": "plus sign", "args": {},
    "input": "+7",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "7"
-   }
-  },
-  {
-   "name": "leading dot",
+   "expect": {"status": "voted", "value": "7"}},
+  {"name": "leading dot", "args": {},
    "input": ".5",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "0.5"
-   }
-  },
-  {
-   "name": "exponent of 3 digits",
+   "expect": {"status": "voted", "value": "0.5"}},
+  {"name": "exponent of 3 digits", "args": {},
    "input": "1e100",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  },
-  {
-   "name": "65 digits",
+   "expect": {"status": "not_numeric", "value": null}},
+  {"name": "65 digits", "args": {},
    "input": "11111111111111111111111111111111111111111111111111111111111111111",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  }
+   "expect": {"status": "not_numeric", "value": null}}
  ]
 }

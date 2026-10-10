@@ -2,14 +2,8 @@
  "op": "identity@1",
  "stage": "normalize",
  "cases": [
-  {
-   "name": "keeps spaces",
+  {"name": "keeps spaces", "args": {},
    "input": " x ",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": " x "
-   }
-  }
+   "expect": {"status": "voted", "value": " x "}}
  ]
 }

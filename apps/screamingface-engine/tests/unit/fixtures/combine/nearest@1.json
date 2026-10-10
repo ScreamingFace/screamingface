@@ -2,109 +2,14 @@
  "op": "nearest@1",
  "stage": "select",
  "cases": [
-  {
-   "name": "3 9 9 12 median 9",
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "3",
-      "value": "3",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "9",
-      "value": "9",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_3",
-      "raw": "9",
-      "value": "9",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_4",
-      "raw": "12",
-      "value": "12",
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "reduction": {
-     "tally": null,
-     "statistic": "9"
-    }
-   },
-   "args": {},
-   "expect": {
-    "chosen": [
-     "member_2"
-    ],
-    "output": null,
-    "tie": false,
-    "agreement": 0.5
-   }
-  },
-  {
-   "name": "2 4 median 3",
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "2",
-      "value": "2",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "4",
-      "value": "4",
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "reduction": {
-     "tally": null,
-     "statistic": "3"
-    }
-   },
-   "args": {},
-   "expect": {
-    "chosen": [
-     "member_1"
-    ],
-    "output": null,
-    "tie": true,
-    "agreement": 0.5
-   }
-  },
-  {
-   "name": "statistic null",
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "1",
-      "value": "1",
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "reduction": {
-     "tally": null,
-     "statistic": null
-    }
-   },
-   "args": {},
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  }
+  {"name": "3 9 9 12 median 9", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "3", "value": "3", "status": "voted", "weight": null}, {"member": "member_2", "raw": "9", "value": "9", "status": "voted", "weight": null}, {"member": "member_3", "raw": "9", "value": "9", "status": "voted", "weight": null}, {"member": "member_4", "raw": "12", "value": "12", "status": "voted", "weight": null}], "reduction": {"tally": null, "statistic": "9"}},
+   "expect": {"chosen": ["member_2"], "output": null, "tie": false, "agreement": 0.5}},
+  {"name": "2 4 median 3", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "2", "value": "2", "status": "voted", "weight": null}, {"member": "member_2", "raw": "4", "value": "4", "status": "voted", "weight": null}], "reduction": {"tally": null, "statistic": "3"}},
+   "expect": {"chosen": ["member_1"], "output": null, "tie": true, "agreement": 0.5}},
+  {"name": "statistic null", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "1", "value": "1", "status": "voted", "weight": null}], "reduction": {"tally": null, "statistic": null}},
+   "expect": {"error": "combine_spec_invalid"}}
  ]
 }

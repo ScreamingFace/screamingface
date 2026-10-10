@@ -2,245 +2,68 @@
  "op": "regex@1",
  "stage": "extract",
  "cases": [
-  {
-   "name": "last match wins by default",
+  {"name": "last match wins by default", "args": {"pattern": "Final: (\\w+)", "group": 1},
    "input": "Final: A\nFinal: B",
-   "args": {
-    "pattern": "Final: (\\w+)",
-    "group": 1
-   },
-   "expect": {
-    "status": "voted",
-    "value": "B"
-   }
-  },
-  {
-   "name": "first occurrence on request",
+   "expect": {"status": "voted", "value": "B"}},
+  {"name": "first occurrence on request", "args": {"pattern": "Final: (\\w+)", "group": 1, "occurrence": "first"},
    "input": "Final: A\nFinal: B",
-   "args": {
-    "pattern": "Final: (\\w+)",
-    "group": 1,
-    "occurrence": "first"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "A"
-   }
-  },
-  {
-   "name": "group 0 is the whole match",
+   "expect": {"status": "voted", "value": "A"}},
+  {"name": "group 0 is the whole match", "args": {"pattern": "Final: (\\w+)"},
    "input": "Final: A\nFinal: B",
-   "args": {
-    "pattern": "Final: (\\w+)"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "Final: B"
-   }
-  },
-  {
-   "name": "no match",
+   "expect": {"status": "voted", "value": "Final: B"}},
+  {"name": "no match", "args": {"pattern": "Final: (\\w+)", "group": 1},
    "input": "no marker here",
-   "args": {
-    "pattern": "Final: (\\w+)",
-    "group": 1
-   },
-   "expect": {
-    "status": "no_match",
-    "value": null
-   }
-  },
-  {
-   "name": "window drops the first character of the match",
+   "expect": {"status": "no_match", "value": null}},
+  {"name": "window drops the first character of the match", "args": {"pattern": "Final: ([A-Z])", "group": 1},
    "input": "Final: ABxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-   "args": {
-    "pattern": "Final: ([A-Z])",
-    "group": 1
-   },
-   "expect": {
-    "status": "no_match",
-    "value": null
-   }
-  },
-  {
-   "name": "window keeps the last 1024 characters",
+   "expect": {"status": "no_match", "value": null}},
+  {"name": "window keeps the last 1024 characters", "args": {"pattern": "Final: ([A-Z])", "group": 1},
    "input": "Final: Axxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-   "args": {
-    "pattern": "Final: ([A-Z])",
-    "group": 1
-   },
-   "expect": {
-    "status": "voted",
-    "value": "A"
-   }
-  },
-  {
-   "name": "named group",
+   "expect": {"status": "voted", "value": "A"}},
+  {"name": "named group", "args": {"pattern": "(?P<ans>[A-D])\\)", "group": "ans"},
    "input": "C) because",
-   "args": {
-    "pattern": "(?P<ans>[A-D])\\)",
-    "group": "ans"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "C"
-   }
-  },
-  {
-   "name": "blank group is empty",
+   "expect": {"status": "voted", "value": "C"}},
+  {"name": "blank group is empty", "args": {"pattern": "A:(\\s*)", "group": 1},
    "input": "A:   ",
-   "args": {
-    "pattern": "A:(\\s*)",
-    "group": 1
-   },
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "group that did not take part is empty",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "group that did not take part is empty", "args": {"pattern": "(a)|b", "group": 1},
    "input": "b",
-   "args": {
-    "pattern": "(a)|b",
-    "group": 1
-   },
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "empty pattern",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "empty pattern", "args": {"pattern": ""},
    "input": "a",
-   "args": {
-    "pattern": ""
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "group out of range",
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "group out of range", "args": {"pattern": "(a)", "group": 2},
    "input": "a",
-   "args": {
-    "pattern": "(a)",
-    "group": 2
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "unknown group name",
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "unknown group name", "args": {"pattern": "(a)", "group": "name"},
    "input": "a",
-   "args": {
-    "pattern": "(a)",
-    "group": "name"
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "unknown arg",
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "unknown arg", "args": {"pattern": "a", "flags": "i"},
    "input": "a",
-   "args": {
-    "pattern": "a",
-    "flags": "i"
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "letter property reads Unicode",
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "letter property reads Unicode", "args": {"pattern": "(\\p{L}+)$", "group": 1},
    "input": "name Ü",
-   "args": {
-    "pattern": "(\\p{L}+)$",
-    "group": 1
-   },
-   "expect": {
-    "status": "voted",
-    "value": "Ü"
-   }
-  },
-  {
-   "name": "digit class is ASCII",
+   "expect": {"status": "voted", "value": "Ü"}},
+  {"name": "digit class is ASCII", "args": {"pattern": "(\\d+)", "group": 1},
    "input": "total １２",
-   "args": {
-    "pattern": "(\\d+)",
-    "group": 1
-   },
-   "expect": {
-    "status": "no_match",
-    "value": null
-   }
-  },
-  {
-   "name": "ignore case folds unicode",
+   "expect": {"status": "no_match", "value": null}},
+  {"name": "ignore case folds unicode", "args": {"pattern": "(ü)", "group": 1, "ignore_case": true},
    "input": "Ü",
-   "args": {
-    "pattern": "(ü)",
-    "group": 1,
-    "ignore_case": true
-   },
-   "expect": {
-    "status": "voted",
-    "value": "Ü"
-   }
-  },
-  {
-   "name": "nested quantifier runs in linear time",
+   "expect": {"status": "voted", "value": "Ü"}},
+  {"name": "nested quantifier runs in linear time", "args": {"pattern": "(a+){10}$"},
    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!",
-   "args": {
-    "pattern": "(a+){10}$"
-   },
-   "expect": {
-    "status": "no_match",
-    "value": null
-   }
-  },
-  {
-   "name": "quantified alternation runs in linear time",
+   "expect": {"status": "no_match", "value": null}},
+  {"name": "quantified alternation runs in linear time", "args": {"pattern": "(a|aa)+$"},
    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!",
-   "args": {
-    "pattern": "(a|aa)+$"
-   },
-   "expect": {
-    "status": "no_match",
-    "value": null
-   }
-  },
-  {
-   "name": "backreference does not compile",
+   "expect": {"status": "no_match", "value": null}},
+  {"name": "backreference does not compile", "args": {"pattern": "(a)\\1"},
    "input": "a",
-   "args": {
-    "pattern": "(a)\\1"
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "lookahead does not compile",
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "lookahead does not compile", "args": {"pattern": "(?=a)"},
    "input": "a",
-   "args": {
-    "pattern": "(?=a)"
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "repeat over the RE2 limit does not compile",
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "repeat over the RE2 limit does not compile", "args": {"pattern": "a{1,9999}"},
    "input": "a",
-   "args": {
-    "pattern": "a{1,9999}"
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  }
+   "expect": {"error": "combine_spec_invalid"}}
  ]
 }

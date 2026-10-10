@@ -2,104 +2,38 @@
  "op": "last_number@1",
  "stage": "extract",
  "cases": [
-  {
-   "name": "final boxed twelve",
+  {"name": "final boxed twelve", "args": {},
    "input": "\u2026 so x = 9, final \\boxed{12}",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "12"
-   }
-  },
-  {
-   "name": "dollar thousands",
+   "expect": {"status": "voted", "value": "12"}},
+  {"name": "dollar thousands", "args": {},
    "input": "The total is $1,200.",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1,200"
-   }
-  },
-  {
-   "name": "unicode minus kept raw",
+   "expect": {"status": "voted", "value": "1,200"}},
+  {"name": "unicode minus kept raw", "args": {},
    "input": "fell to \u22123 degrees",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "\u22123"
-   }
-  },
-  {
-   "name": "last of fraction",
+   "expect": {"status": "voted", "value": "\u22123"}},
+  {"name": "last of fraction", "args": {},
    "input": "about 3.14159 or 22/7",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "7"
-   }
-  },
-  {
-   "name": "no digits",
+   "expect": {"status": "voted", "value": "7"}},
+  {"name": "no digits", "args": {},
    "input": "no digits",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "trailing period dropped",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "trailing period dropped", "args": {},
    "input": "answer: 9.",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "9"
-   }
-  },
-  {
-   "name": "bad grouping keeps the whole run",
+   "expect": {"status": "voted", "value": "9"}},
+  {"name": "bad grouping keeps the whole run", "args": {},
    "input": "1,23",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1,23"
-   }
-  },
-  {
-   "name": "grouped decimals",
+   "expect": {"status": "voted", "value": "1,23"}},
+  {"name": "grouped decimals", "args": {},
    "input": "1,200.50",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1,200.50"
-   }
-  },
-  {
-   "name": "exponent reads its digits as a number",
+   "expect": {"status": "voted", "value": "1,200.50"}},
+  {"name": "exponent reads its digits as a number", "args": {},
    "input": "3.5e10",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "10"
-   }
-  },
-  {
-   "name": "sign belongs to its own token",
+   "expect": {"status": "voted", "value": "10"}},
+  {"name": "sign belongs to its own token", "args": {},
    "input": "-5 and 6",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "6"
-   }
-  },
-  {
-   "name": "window of 128 chars",
+   "expect": {"status": "voted", "value": "6"}},
+  {"name": "window of 128 chars", "args": {},
    "input": "99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
-   }
-  }
+   "expect": {"status": "voted", "value": "99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"}}
  ]
 }

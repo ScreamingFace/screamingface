@@ -2,122 +2,44 @@
  "op": "inspect_numeric@1",
  "stage": "normalize",
  "cases": [
-  {
-   "name": "plain integer",
+  {"name": "plain integer", "args": {},
    "input": "1200",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1200"
-   }
-  },
-  {
-   "name": "currency and thousands separator",
+   "expect": {"status": "voted", "value": "1200"}},
+  {"name": "currency and thousands separator", "args": {},
    "input": "$1,200.",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1200"
-   }
-  },
-  {
-   "name": "five significant digits",
+   "expect": {"status": "voted", "value": "1200"}},
+  {"name": "five significant digits", "args": {},
    "input": "123456",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1.2346e+05"
-   }
-  },
-  {
-   "name": "five significant digits, next integer",
+   "expect": {"status": "voted", "value": "1.2346e+05"}},
+  {"name": "five significant digits, next integer", "args": {},
    "input": "123457",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1.2346e+05"
-   }
-  },
-  {
-   "name": "vulgar fraction",
+   "expect": {"status": "voted", "value": "1.2346e+05"}},
+  {"name": "vulgar fraction", "args": {},
    "input": "½",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "0.5"
-   }
-  },
-  {
-   "name": "parentheses trimmed",
+   "expect": {"status": "voted", "value": "0.5"}},
+  {"name": "parentheses trimmed", "args": {},
    "input": "(42)",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "42"
-   }
-  },
-  {
-   "name": "comma grouping",
+   "expect": {"status": "voted", "value": "42"}},
+  {"name": "comma grouping", "args": {},
    "input": "1,23",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "123"
-   }
-  },
-  {
-   "name": "leading point",
+   "expect": {"status": "voted", "value": "123"}},
+  {"name": "leading point", "args": {},
    "input": ".5",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "0.5"
-   }
-  },
-  {
-   "name": "exponent form",
+   "expect": {"status": "voted", "value": "0.5"}},
+  {"name": "exponent form", "args": {},
    "input": "3.5e10",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "3.5e+10"
-   }
-  },
-  {
-   "name": "not a number",
+   "expect": {"status": "voted", "value": "3.5e+10"}},
+  {"name": "not a number", "args": {},
    "input": "abc",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  },
-  {
-   "name": "assignment is not a number",
+   "expect": {"status": "not_numeric", "value": null}},
+  {"name": "assignment is not a number", "args": {},
    "input": "x=42",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  },
-  {
-   "name": "empty",
+   "expect": {"status": "not_numeric", "value": null}},
+  {"name": "empty", "args": {},
    "input": "",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  },
-  {
-   "name": "too large for a float",
+   "expect": {"status": "not_numeric", "value": null}},
+  {"name": "too large for a float", "args": {},
    "input": "1e999",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  }
+   "expect": {"status": "not_numeric", "value": null}}
  ]
 }

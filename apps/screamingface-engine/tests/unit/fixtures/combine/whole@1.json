@@ -2,23 +2,11 @@
  "op": "whole@1",
  "stage": "extract",
  "cases": [
-  {
-   "name": "kept as is",
+  {"name": "kept as is", "args": {},
    "input": "  Paris. ",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "  Paris. "
-   }
-  },
-  {
-   "name": "blank",
+   "expect": {"status": "voted", "value": "  Paris. "}},
+  {"name": "blank", "args": {},
    "input": "   \n",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  }
+   "expect": {"status": "empty", "value": null}}
  ]
 }

@@ -2,50 +2,20 @@
  "op": "text@1",
  "stage": "normalize",
  "cases": [
-  {
-   "name": "trim casefold period",
+  {"name": "trim casefold period", "args": {},
    "input": "  Paris. ",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "paris"
-   }
-  },
-  {
-   "name": "collapse whitespace",
+   "expect": {"status": "voted", "value": "paris"}},
+  {"name": "collapse whitespace", "args": {},
    "input": "  A   B\tC  ",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "a b c"
-   }
-  },
-  {
-   "name": "casefold sharp s",
+   "expect": {"status": "voted", "value": "a b c"}},
+  {"name": "casefold sharp s", "args": {},
    "input": "Stra\u00dfe",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "strasse"
-   }
-  },
-  {
-   "name": "only a period",
+   "expect": {"status": "voted", "value": "strasse"}},
+  {"name": "only a period", "args": {},
    "input": ".",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "double period strips one",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "double period strips one", "args": {},
    "input": "end..",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "end."
-   }
-  }
+   "expect": {"status": "voted", "value": "end."}}
  ]
 }

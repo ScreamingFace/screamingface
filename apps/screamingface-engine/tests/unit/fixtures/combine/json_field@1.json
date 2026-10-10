@@ -2,148 +2,44 @@
  "op": "json_field@1",
  "stage": "extract",
  "cases": [
-  {
-   "name": "nested object",
+  {"name": "nested object", "args": {"path": "answer.value"},
    "input": "{\"answer\":{\"value\":7}}",
-   "args": {
-    "path": "answer.value"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "7"
-   }
-  },
-  {
-   "name": "array index",
+   "expect": {"status": "voted", "value": "7"}},
+  {"name": "array index", "args": {"path": "a[1].b"},
    "input": "{\"a\":[{\"b\":1},{\"b\":\"x\"}]}",
-   "args": {
-    "path": "a[1].b"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "x"
-   }
-  },
-  {
-   "name": "last fence wins",
+   "expect": {"status": "voted", "value": "x"}},
+  {"name": "last fence wins", "args": {"path": "answer"},
    "input": "```json\n{\"answer\": 1}\n```\nrather\n```json\n{\"answer\": 2}\n```",
-   "args": {
-    "path": "answer"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "2"
-   }
-  },
-  {
-   "name": "not json",
+   "expect": {"status": "voted", "value": "2"}},
+  {"name": "not json", "args": {"path": "answer"},
    "input": "answer: 7",
-   "args": {
-    "path": "answer"
-   },
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "field missing",
+   "expect": {"status": "not_json", "value": null}},
+  {"name": "field missing", "args": {"path": "answer"},
    "input": "{\"other\":1}",
-   "args": {
-    "path": "answer"
-   },
-   "expect": {
-    "status": "field_missing",
-    "value": null
-   }
-  },
-  {
-   "name": "json null",
+   "expect": {"status": "field_missing", "value": null}},
+  {"name": "json null", "args": {"path": "a"},
    "input": "{\"a\":null}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "json blank string",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "json blank string", "args": {"path": "a"},
    "input": "{\"a\":\"  \"}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "float 7.50",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "float 7.50", "args": {"path": "a"},
    "input": "{\"a\":7.50}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "7.5"
-   }
-  },
-  {
-   "name": "object value sorts keys",
+   "expect": {"status": "voted", "value": "7.5"}},
+  {"name": "object value sorts keys", "args": {"path": "a"},
    "input": "{\"a\":{\"z\":1,\"b\":2}}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "{\"b\":2,\"z\":1}"
-   }
-  },
-  {
-   "name": "depth 65 is not json",
+   "expect": {"status": "voted", "value": "{\"b\":2,\"z\":1}"}},
+  {"name": "depth 65 is not json", "args": {"path": "[0]"},
    "input": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
-   "args": {
-    "path": "[0]"
-   },
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "NaN is not json",
+   "expect": {"status": "not_json", "value": null}},
+  {"name": "NaN is not json", "args": {"path": "a"},
    "input": "{\"a\":NaN}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "number too big for a float",
+   "expect": {"status": "not_json", "value": null}},
+  {"name": "number too big for a float", "args": {"path": "a"},
    "input": "{\"a\":1e999}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "large float keeps python exponent form",
+   "expect": {"status": "not_json", "value": null}},
+  {"name": "large float keeps python exponent form", "args": {"path": "a"},
    "input": "{\"a\":1e20}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "1e+20"
-   }
-  }
+   "expect": {"status": "voted", "value": "1e+20"}}
  ]
 }

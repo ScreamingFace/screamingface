@@ -2,95 +2,35 @@
  "op": "boxed@1",
  "stage": "extract",
  "cases": [
-  {
-   "name": "last of two",
+  {"name": "last of two", "args": {},
    "input": "\\boxed{1} then \\boxed{2}",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "2"
-   }
-  },
-  {
-   "name": "nested frac",
+   "expect": {"status": "voted", "value": "2"}},
+  {"name": "nested frac", "args": {},
    "input": "\\boxed{\\frac{1}{2}}",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "\\frac{1}{2}"
-   }
-  },
-  {
-   "name": "empty box",
+   "expect": {"status": "voted", "value": "\\frac{1}{2}"}},
+  {"name": "empty box", "args": {},
    "input": "\\boxed{}",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "unclosed",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "unclosed", "args": {},
    "input": "\\boxed{12",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "no box",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "no box", "args": {},
    "input": "no box",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "depth 8 total",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "depth 8 total", "args": {},
    "input": "\\boxed{{{{{{{{x}}}}}}}}",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "{{{{{{{x}}}}}}}"
-   }
-  },
-  {
-   "name": "depth 9 total",
+   "expect": {"status": "voted", "value": "{{{{{{{x}}}}}}}"}},
+  {"name": "depth 9 total", "args": {},
    "input": "\\boxed{{{{{{{{{x}}}}}}}}}",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
-   "name": "spaces kept",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "spaces kept", "args": {},
    "input": "\\boxed{ 5 }",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": " 5 "
-   }
-  },
-  {
-   "name": "backslash does not escape a brace",
+   "expect": {"status": "voted", "value": " 5 "}},
+  {"name": "backslash does not escape a brace", "args": {},
    "input": "\\boxed{a\\}b}",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "a\\"
-   }
-  },
-  {
-   "name": "unclosed last box beats closed earlier",
+   "expect": {"status": "voted", "value": "a\\"}},
+  {"name": "unclosed last box beats closed earlier", "args": {},
    "input": "\\boxed{1} \\boxed{2",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  }
+   "expect": {"status": "empty", "value": null}}
  ]
 }
