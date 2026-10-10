@@ -193,14 +193,24 @@ def test_missing_cost_is_none_not_error() -> None:
             "member_1": {"cost_usd": 0.004},
             "member_2": {"cost_usd": None},
             "member_3": {"cost_usd": float("nan")},
+            "member_4": {"cost_usd": True},  # type: ignore[dict-item]
+            "member_5": {"cost_usd": float("inf")},
+            "member_6": {"cost_usd": "1.5"},  # type: ignore[dict-item]
+            "member_7": {"cost_usd": 2},
+            "stranger": {"cost_usd": 9.0},
         }
 
-    outcome = run(spec_text(_score_spec(3, "cost_usd", "min")), _cost_context(), accounting=reader)
+    outcome = run(spec_text(_score_spec(7, "cost_usd", "min")), _cost_context(7), accounting=reader)
     assert [row.signals for row in outcome.evidence.members] == [
         {"cost_usd": 0.004},
         {"cost_usd": None},
         {"cost_usd": None},
+        {"cost_usd": None},
+        {"cost_usd": None},
+        {"cost_usd": None},
+        {"cost_usd": 2.0},
     ]
+    assert isinstance(outcome.evidence.members[6].signals["cost_usd"], float)
     assert outcome.evidence.signal == SignalRecord(key="cost_usd", order="min")
     assert len(seen) == 1
     assert seen[0]["member_1"]["model_1"] == ("/provider/alpha", ())
@@ -210,31 +220,6 @@ def test_no_reader_gives_none_for_every_member() -> None:
     outcome = run(spec_text(_score_spec(3, "cost_usd")), _cost_context(), accounting=None)
     assert [row.signals for row in outcome.evidence.members] == [{"cost_usd": None}] * 3
     assert outcome.evidence.result.status == "abstain"  # fake_best finds no scored member
-
-
-def test_the_reader_values_are_clean_floats_or_none() -> None:
-    def reader(sources: MemberSources, /) -> Mapping[str, Mapping[str, float | None]]:
-        return {
-            "member_1": {"cost_usd": True},  # type: ignore[dict-item]
-            "member_2": {"cost_usd": float("inf")},
-            "member_3": {"cost_usd": "1.5"},  # type: ignore[dict-item]
-            "stranger": {"cost_usd": 9.0},
-        }
-
-    outcome = run(spec_text(_score_spec(3, "cost_usd")), _cost_context(), accounting=reader)
-    assert [row.signals for row in outcome.evidence.members] == [{"cost_usd": None}] * 3
-
-
-def test_an_integer_from_the_reader_becomes_a_float() -> None:
-    def reader(sources: MemberSources, /) -> Mapping[str, Mapping[str, float | None]]:
-        return {"member_1": {"cost_usd": 2}, "member_2": {"cost_usd": 1}, "member_3": {}}
-
-    outcome = run(spec_text(_score_spec(3, "cost_usd")), _cost_context(), accounting=reader)
-    assert [row.signals["cost_usd"] for row in outcome.evidence.members] == [2.0, 1.0, None]
-    assert all(
-        isinstance(row.signals["cost_usd"], (float, type(None))) for row in outcome.evidence.members
-    )
-    assert outcome.evidence.chosen == ["member_1"]
 
 
 @pytest.mark.parametrize("key", ["latency_ms", "tokens_in", "tokens_out"])

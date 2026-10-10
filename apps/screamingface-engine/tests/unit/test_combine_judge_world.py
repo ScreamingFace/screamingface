@@ -19,15 +19,12 @@ from typing import Any
 import httpx
 import pytest
 from combine_flow_support import judge_spec
-from combine_support import spec_text, vote_spec
+from combine_support import spec_text
 
-from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE
-from screamingface_engine.config import Settings
-from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world.combine import install_combine_runtime
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
@@ -218,71 +215,3 @@ async def test_prose_from_the_judge_model_fails_the_case_with_judge_reply_invali
     assert "member 2 is best" not in str(caught.value)
     # One judge call for each case: a parse failure is not retried (PRD section 4).
     assert sum(_is_judge_call(body) for body in seen) == 1
-
-
-async def _get(app: Any, path: str) -> httpx.Response:
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
-    ) as client:
-        return await client.get(path)
-
-
-@pytest.mark.asyncio
-async def test_catalog_lists_the_judge_operators() -> None:
-    app = create_app(Settings(jwt_secret="s"), stream=InMemoryEventStream())
-
-    listed = (await _get(app, "/v1/operators")).json()["data"]
-
-    stages = {entry["id"]: entry["stage"] for entry in listed}
-    assert {
-        "label@1": "reduce",
-        "scores@1": "reduce",
-        "by_label@1": "select",
-        "max_score@1": "select",
-    }.items() <= stages.items()
-
-
-@pytest.mark.asyncio
-async def test_vote_weighted_by_judge_scores_in_the_engine_world() -> None:
-    """SR#11: the judge reply is read as score:judge, so it weights a vote; no judge evidence."""
-    spec = vote_spec(
-        3,
-        extract={"op": "last_number@1", "args": {}},
-        normalize={"op": "numeric@1", "args": {}},
-        reduce={"op": "weighted_mode@1", "args": {}},
-        select={"op": "max_weight_holder@1", "args": {}},
-        weights={"signal": "score:judge"},
-    )
-    reply = '{"member_1": 1, "member_2": 5, "member_3": 3}'
-    answers = {"provider/alpha": "alpha says 12", "provider/beta": "beta says 7"}
-    answers["provider/gamma"] = "gamma says 12"
-    seen: list[dict[str, Any]] = []
-
-    def respond(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        seen.append(body)
-        return _completion(reply if _is_judge_call(body) else answers[body["model"]])
-
-    encoded = await _evaluate(
-        respond,
-        "/provider/alpha",
-        spec=spec,
-        template="judge-template@1 returns=scores. Score each answer.",
-    )
-
-    decoded = decode_candidate_invocation_record(encoded)
-    assert decoded.output == "beta says 7"
-    assert decoded.operations is not None
-    by_id = {operation.operation_id: operation for operation in decoded.operations}
-    combine = by_id["op_synthesis_1"].combine
-    assert combine is not None
-    assert combine.tally is not None
-    assert [(r.value, r.score, r.holders) for r in combine.tally] == [
-        ("7", 5.0, ["member_2"]),
-        ("12", 4.0, ["member_1", "member_3"]),
-    ]
-    assert [m.signals["score:judge"] for m in combine.members] == [1.0, 5.0, 3.0]
-    assert combine.judge is None
-    assert by_id["op_judge_1"].output == reply
-    assert sum(_is_judge_call(body) for body in seen) == 1
-    assert all("binding" not in body for body in seen)

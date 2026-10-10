@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 
 from combine_flow_support import find_builtin, load_flow_fixtures, run_flow_case
+from combine_golden_support import find, load_fixtures, run_case
 
 from screamingface_engine.combine import operators
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
@@ -22,16 +23,22 @@ _MUTABLE = (list, dict, set, bytearray)
 
 
 def test_flow_operator_calls_share_no_state() -> None:
+    # WHY both folders: the v1 operators (fixtures/combine/) and the flow operators (flow/) share
+    # one concurrency check.
     jobs = [
-        (find_builtin(op_id), case)
+        (run_case, find(op_id), case)
+        for op_id, fixture in sorted(load_fixtures().items())
+        for case in fixture["cases"]
+    ] + [
+        (run_flow_case, find_builtin(op_id), case)
         for op_id, fixture in sorted(load_flow_fixtures().items())
         for case in fixture["cases"]
     ]
     assert jobs
-    sequential = [run_flow_case(descriptor, case) for descriptor, case in jobs]
+    sequential = [run(descriptor, case) for run, descriptor, case in jobs]
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = [
-            pool.submit(lambda job=job: run_flow_case(*job)) for _ in range(_ROUNDS) for job in jobs
+            pool.submit(lambda job=job: job[0](*job[1:])) for _ in range(_ROUNDS) for job in jobs
         ]
         parallel = [future.result() for future in futures]
     assert parallel == sequential * _ROUNDS

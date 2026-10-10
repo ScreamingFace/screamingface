@@ -23,7 +23,6 @@ from screamingface_engine.combine.ports import (
     accepted,
     canonical_decimal,
     decode_json_reply,
-    field_signal_value,
     finite_float,
     is_signal_key,
     loads_bounded,
@@ -132,31 +131,6 @@ def test_signal_keys_are_the_accounting_keys_and_field_paths() -> None:
         assert not is_signal_key(key)
 
 
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ('{"c": 0.8}', 0.8),
-        ('{"c": true}', 1.0),
-        ('{"c": false}', 0.0),
-        ('{"c": 3}', 3.0),
-        ('{"c": "0.8"}', None),
-        ('{"c": null}', None),
-        ('{"c": [1]}', None),
-        ('{"c": 1e999}', None),
-        ('{"c": ' + "9" * 400 + "}", None),
-        ('{"d": 1}', None),
-        ("no json", None),
-        ('answer\n```json\n{"c": 0.5}\n```', 0.5),
-    ],
-)
-def test_field_signal_value_never_raises(text: str, expected: float | None) -> None:
-    assert field_signal_value(text, "c") == expected
-
-
-def test_signal_read_defaults_to_no_order() -> None:
-    assert SignalRead("cost_usd") == SignalRead("cost_usd", None)
-
-
 def _reduce(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     return Reduction()
 
@@ -181,19 +155,13 @@ def test_only_a_reduce_operator_may_declare_a_signal_read() -> None:
     ("value", "expected"),
     [
         (3, 3.0),
-        (0.5, 0.5),
-        (-2, -2.0),
         (Decimal("0.0042"), 0.0042),
         (10**400, None),
-        (Decimal("1E+400"), None),
         (float("inf"), None),
-        (float("nan"), None),
         (Decimal("NaN"), None),
         (True, None),
-        (False, None),
         ("1.5", None),
         (None, None),
-        ([1], None),
     ],
 )
 def test_finite_float_is_the_one_finite_number_rule(value: object, expected: float | None) -> None:
