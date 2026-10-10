@@ -1,7 +1,7 @@
 """The broadcast result envelope (Spec B §6.1.4): the parts as one JSON collection.
 
-Split from :mod:`.broadcast`: the envelope changes with the result format, while
-:class:`~.broadcast.MergeNode` changes with how one intent is applied.
+Split from :mod:`.broadcast` to keep that module under its size cap; the result
+envelope is this module's whole content.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ class BroadcastCollectNode:
     consecutive positions and the names ``name[i]`` / ``src[i]`` (§5.3.12.4-5).
     A failed optional source's part is omitted — broadcast applies across
     *resolved* sources (§6.1.3) — while the surviving parts keep their original
-    positions. Quorum (§12.2) is not checked
-    here: a gate before every :class:`MergeNode` holds the intents until it is met.
+    positions. Quorum (§12.2) is not checked here: a gate before every
+    :class:`MergeNode` holds the intents until it is met.
     """
 
     names: tuple[str | None, ...] = ()
@@ -35,7 +35,8 @@ class BroadcastCollectNode:
         position = 0
         for i, role in enumerate(self.deps):
             part, name = inputs[role], self.names[i] if i < len(self.names) else None
-            # An expanded source's elements are sources `name[j]` / `src[j]` (§5.3.12.5).
+            # Only an expanded MergeNode returns a list (one result per element);
+            # its elements are the sources `name[j]` / `src[j]` (§5.3.12.5).
             parts = enumerate(part) if isinstance(part, list) else [(None, part)]
             for j, result in parts:
                 position += 1

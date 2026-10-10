@@ -16,7 +16,7 @@ from url4.dag.node import (  # isort: skip
     DagNode,
     ExecutionContext,
     Payload,
-    reraise_first,
+    gather_or_cancel,
 )
 
 
@@ -99,15 +99,15 @@ class MapNode:
         # re-hashed len(items) times.
         expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
         # A7: each kept row adds its captured-error count; a failed map adds none.
-        kept: list[int] = []
+        error_counts: list[int] = []
         if self.directives.on_error == "fail":
-            results = await self._run_all(items, expr, sem, ctx, frame, kept)
+            results = await self._run_all(items, expr, sem, ctx, frame, error_counts)
         else:
-            rows = [self._row(row, expr, sem, ctx, frame, kept) for row in enumerate(items)]
+            rows = [self._row(row, expr, sem, ctx, frame, error_counts) for row in enumerate(items)]
             raw = await asyncio.gather(*rows, return_exceptions=True)
             skip = self.directives.on_error == "skip"
-            results = self._skip(raw) if skip else self._collect(raw, kept)
-        ctx.record_collected_error(sum(kept))
+            results = self._skip(raw) if skip else self._collect(raw, error_counts)
+        ctx.record_collected_errors(sum(error_counts))
         return results
 
     def _items(self, collection: Payload) -> list[str]:
@@ -131,16 +131,11 @@ class MapNode:
         sem: asyncio.Semaphore,
         ctx: ExecutionContext,
         frame: Context,
-        kept: list[int],
+        error_counts: list[int],
     ) -> list[str]:
-        # TaskGroup so the first failing row cancels its in-flight siblings.
-        try:
-            async with asyncio.TaskGroup() as tg:
-                rows = [self._row(row, expr, sem, ctx, frame, kept) for row in enumerate(items)]
-                tasks = [tg.create_task(row) for row in rows]
-        except BaseExceptionGroup as group:
-            reraise_first(group)
-        return [task.result() for task in tasks]
+        # The first failing row cancels its in-flight siblings.
+        rows = (self._row(row, expr, sem, ctx, frame, error_counts) for row in enumerate(items))
+        return await gather_or_cancel(rows)
 
     async def _row(
         self,
@@ -149,7 +144,7 @@ class MapNode:
         sem: asyncio.Semaphore,
         ctx: ExecutionContext,
         frame: Context,
-        kept: list[int],
+        error_counts: list[int],
     ) -> str:
         # WHY: the body is spawned verbatim (with $item still in it) and the row is
         # bound into scope, so arbitrary row data never enters the re-parse.
@@ -162,7 +157,7 @@ class MapNode:
         row_ctx = ctx.row_scoped()
         async with sem:
             result = await row_ctx.spawn(expr, scope)
-        kept.append(row_ctx.collected_errors)
+        error_counts.append(row_ctx.collected_errors)
         return result
 
     def _skip(self, raw: list) -> list[str]:
@@ -177,7 +172,7 @@ class MapNode:
                 results.append(item)
         return results
 
-    def _collect(self, raw: list, kept: list[int]) -> list[str]:
+    def _collect(self, raw: list, error_counts: list[int]) -> list[str]:
         results: list[str] = []
         for item in raw:
             # collect captures per-row *errors* as data; control-flow signals
@@ -185,7 +180,7 @@ class MapNode:
             if isinstance(item, BaseException) and not isinstance(item, Exception):
                 raise item
             if isinstance(item, Exception):
-                kept.append(1)
+                error_counts.append(1)
                 results.append(json.dumps(_error_payload(item)))
             else:
                 results.append(item)

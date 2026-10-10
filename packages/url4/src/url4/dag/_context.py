@@ -278,23 +278,24 @@ class ExecutionContext:
         """Per-row failures captured under ``;iteration.on_error=collect`` this run."""
         return self._tally.count
 
-    def record_collected_error(self, count: int = 1) -> None:
-        self._tally.count += count
+    def record_collected_errors(self, n: int) -> None:
+        self._tally.count += n
 
     def row_scoped(self) -> ExecutionContext:
         """The same context with its own error tally, for one map row.
 
         The row's captured errors stay off the run count until the map keeps the
-        row and adds them with :meth:`record_collected_error`.
+        row and adds them with :meth:`record_collected_errors`.
         """
-        row = self._clone(scope=self.scope, span_id=self._current_span_id)
-        row._tally = _ErrorTally()
-        return row
+        return self._clone(scope=self.scope, span_id=self._current_span_id, tally=_ErrorTally())
 
-    def _clone(self, *, scope: Context, span_id: str | None) -> ExecutionContext:
+    def _clone(
+        self, *, scope: Context, span_id: str | None, tally: _ErrorTally | None = None
+    ) -> ExecutionContext:
         """A copy of this context differing only in ``scope`` and the current
         observation span; every other field — io, processor, hooks, strictness,
-        self-collection, the shared error tally — is carried over."""
+        self-collection, the shared error tally (unless ``tally`` replaces it) —
+        is carried over."""
         return ExecutionContext(
             self.io,
             processor=self.processor,
@@ -302,7 +303,7 @@ class ExecutionContext:
             scope=scope,
             strict_fields=self.strict_fields,
             self_collection=self.self_collection,
-            _tally=self._tally,
+            _tally=tally if tally is not None else self._tally,
             _spawn_hook=self._spawn_hook,
             _execute_node_hook=self._execute_node_hook,
             _obs=self._obs,

@@ -41,9 +41,9 @@ this module re-exports them unchanged — they are part of the public surface, a
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import NoReturn, Protocol, runtime_checkable
+from typing import Any, NoReturn, Protocol, runtime_checkable
 
 from url4.core.context import Context
 
@@ -156,6 +156,21 @@ def reraise_first(group: BaseExceptionGroup) -> NoReturn:
     raise error from None
 
 
+async def gather_or_cancel[T](coros: Iterable[Coroutine[Any, Any, T]]) -> list[T]:
+    """Await every coroutine; the first failure cancels the rest and re-raises plainly.
+
+    A TaskGroup plus :func:`reraise_first`, results in input order: the fail-fast
+    fan-out that :class:`~url4.dag.nodes.MapNode` (``on_error=fail``) and an
+    expanded broadcast source (:class:`~url4.dag.nodes.MergeNode`) share.
+    """
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(coro) for coro in coros]
+    except BaseExceptionGroup as group:
+        reraise_first(group)
+    return [task.result() for task in tasks]
+
+
 __all__ = [
     "DEFAULT_RUN_CONCURRENCY",
     "BoundedIOLayer",
@@ -168,5 +183,6 @@ __all__ = [
     "SpawnFn",
     "default_process",
     "first_error",
+    "gather_or_cancel",
     "reraise_first",
 ]

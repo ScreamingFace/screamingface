@@ -25,6 +25,7 @@ from url4.dag.nodes import (  # isort: skip
     BarrierNode,
     BindingNode,
     BroadcastCollectNode,
+    ExpandNode,
     FanoutReduceNode,
     GatherNode,
     GuardNode,
@@ -242,8 +243,22 @@ def _broadcast_graph(slots: list[_Slot], intent: _Intent | None, quorum: int | N
             deps["intent"] = intent_node
         if gate is not None:
             deps["quorum"] = gate
-        parts[f"part:{i}"] = MergeNode(intent_template=template, deps=deps)
+        expanded = _is_expansion(source)
+        parts[f"part:{i}"] = MergeNode(intent_template=template, expanded=expanded, deps=deps)
     return BroadcastCollectNode(tuple(slot.name for slot in slots), deps=parts)
+
+
+def _is_expansion(node: DagNode) -> bool:
+    """Whether ``node`` is an ``;expand`` source, through a label or a guard (§5.3.12).
+
+    Only an expansion splits into per-element broadcast sources; an iteration
+    source resolves to a single value (§5.3.8) and stays one source.
+    """
+    if isinstance(node, BindingNode):
+        node = node.deps["value"]
+    if isinstance(node, GuardNode):
+        node = node.inner
+    return isinstance(node, ExpandNode)
 
 
 def _src_deps(sources: list[DagNode]) -> dict[str, DagNode]:

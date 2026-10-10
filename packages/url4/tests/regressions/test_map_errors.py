@@ -84,7 +84,6 @@ async def _run(body: str, on_error: OnErrorPolicy) -> tuple[str | None, int]:
 @pytest.mark.asyncio
 async def test_failed_map_leaves_no_count():
     # Row A's nested map captures an error; row B's collection is missing, so the map fails.
-    io_body = "/coll/$item*(/s($item)!'g')!'p'"
     ctx = ExecutionContext(
         StaticIOLayer(
             fetch_map={"https://outer": '["A","B"]', "/coll/A": '["x","bad"]'},
@@ -93,7 +92,7 @@ async def test_failed_map_leaves_no_count():
     )
     node = Iteration(
         collection=Url("https://outer"),
-        body=io_body,
+        body=_NESTED,
         directives=IterationDirectives(on_error="fail", concurrency=1),
     )
     with pytest.raises(ResolutionError):
