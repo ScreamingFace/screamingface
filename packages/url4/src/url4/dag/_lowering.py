@@ -31,11 +31,11 @@ without touching this module.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 
-from url4.core.errors import ErrorCode, ParseError
+from url4.core._descriptor_head import deferrable_group, is_processed_group
+from url4.core.errors import ParseError
 from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import (
     Binding,
@@ -57,7 +57,6 @@ from url4.core.nodes import (
 from url4.core.nodes import walk as ast_walk
 from url4.core.parser import (
     IterationEnvelope,
-    balanced_body,
     decode_envelope,
     intent_atom,
     split_intent,
@@ -94,10 +93,6 @@ from url4.dag.nodes import (  # isort: skip
 )
 
 Lowerer = Callable[[Node, Edges, "LoweringRegistry"], DagNode]
-
-# ``name=(…`` / ``name:(…`` — a binding whose RHS is a group, which stays lazy
-# on the text path (the grammar would eagerly parse the nested group).
-_GROUP_BINDING_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)([=:])\(")
 
 
 class LoweringRegistry:
@@ -383,50 +378,23 @@ def default_registry() -> LoweringRegistry:
 # --- the text (string) path ---------------------------------------------------
 
 
-def _reject_bare_group(segment: str) -> None:
-    """WHY: reject an intent-less ``(…)`` in source position EAGERLY (`OME-508`).
-
-    Lazy deferral would postpone the error to spawn time — and the spawn
-    boundary compiles permissively (the engine's own wrappers legally arrive
-    intent-less), so a user's bare group would silently execute instead of
-    failing as the grammar demands. Iteration collections never pass through
-    here (``_collection_dag`` owns that legal position).
-    """
-    if strip_one_paren_layer(segment) is not None:
-        raise ParseError(
-            f"expression group {segment!r} has no intent — a parenthesized "
-            "source group must be followed by !intent (or !*intent)",
-            code=ErrorCode.MISSING_INTENT,
-        )
-
-
-def _is_lazy_group(segment: str) -> bool:
-    """True for ``(…)`` and ``(…)!tail`` shapes, which defer to a thunk."""
-    if strip_one_paren_layer(segment) is not None:
-        return True
-    if not segment.startswith("("):
-        return False
-    body = balanced_body(segment, 1)
-    return body is not None and segment[len(body) + 2 :].startswith("!")
-
-
 def _slot_from_text(segment: str, registry: LoweringRegistry) -> _Slot:
+    """One source segment: a group the grammar lets us defer, else the eager grammar parse.
+
+    The classification is the grammar's (:func:`~url4.core._descriptor_head.deferrable_group`),
+    so a reserved ``src``, a guard on the ``;`` chain or a weight reads the same
+    here as on the parse-tree path.
+    """
     refs = frozenset(find_references(segment))
-    group_binding = _GROUP_BINDING_RE.match(segment)
-    if group_binding is not None:
-        rhs = segment[len(group_binding.group(1)) + 1 :]
-        # Only a group-shaped RHS defers; ``name:(k:v):data`` is a structured
-        # weight (§4.1.1.4) and must reach the grammar's classifier instead.
-        if _is_lazy_group(rhs):
-            _reject_bare_group(rhs)
-            name, kind = group_binding.group(1), group_binding.group(2)
-            # ABNF (`OME-534`): a deferred name=(group) binding CONTRIBUTES like
-            # any named source — only weight 0.0 marks a source instrumental,
-            # and the binding forms carry no weight.
-            return _Slot(name, refs, _make_binding_thunk(name, kind, rhs))
-    if _is_lazy_group(segment):
-        _reject_bare_group(segment)
-        return _Slot(None, refs, lambda edges: LazyExprNode(segment, deps=dict(edges)))
+    deferred = deferrable_group(segment)
+    if deferred is not None:
+        name, kind, group = deferred
+        if name is None:
+            return _Slot(None, refs, lambda edges: LazyExprNode(group, deps=dict(edges)))
+        # ABNF (`OME-534`): a deferred name=(group) binding CONTRIBUTES like
+        # any named source — only weight 0.0 marks a source instrumental,
+        # and the binding forms carry no weight.
+        return _Slot(name, refs, _make_binding_thunk(name, kind, group))
     ast = grammar_parse(segment)
     name, instrumental = _slot_identity(ast)
     return _Slot(name, refs, lambda edges: registry.lower(ast, edges), instrumental=instrumental)
@@ -493,7 +461,7 @@ def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
     # its body is parsed by content type at iteration time (§5.3.7).
     return (
         LazyExprNode(collection)
-        if _is_lazy_group(collection)
+        if is_processed_group(collection)
         else registry.lower(grammar_parse(collection), {})
     )
 

@@ -16,10 +16,11 @@ from hypothesis import strategies as st
 
 from url4 import build, render
 from url4.core._call_head import is_call_head
-from url4.core.errors import ParseError
+from url4.core.errors import ParseError, ResolutionError
 from url4.core.grammar import parse
 from url4.core.nodes import Expression, RelExpr, RemoteExpr, Text
 from url4.dag import run
+from url4.dag.nodes import guard as guard_module
 from url4.io.static import StaticIOLayer
 
 FETCHES = {"https://a.io": "AIO", "https://x/a": "A", "https://x/b": "B"}
@@ -247,3 +248,80 @@ def test_B1_an_expression_intent_or_a_quoted_bang_is_not_a_chain(text: str) -> N
     build(text)
     lazy, eager = _both(text)
     assert lazy == eager
+
+
+# --- B4: a nested ';broadcast' is the broadcast flag (Spec B §6.1.1, §8 expr-param) -------
+
+
+@pytest.mark.parametrize("text", ["(()!'h';broadcast)!'t'", "(('a', 'b')!'h';broadcast)!'t'"])
+def test_B4_nested_broadcast_param_is_the_flag_on_both_paths(text: str) -> None:
+    tree = build(text)
+    assert isinstance(tree, Expression)
+    (inner,) = tree.sources
+    assert isinstance(inner, Expression)
+    assert inner.broadcast and inner.params == ()
+    assert build(render(tree)) == tree
+    lazy, eager = _both(text)
+    assert lazy == eager
+
+
+# --- B5: the text path classifies a source head the way the grammar does (Spec B §4.3) ---
+# `src` is reserved (`name-part` must not be "src"): `src=(…)` is an explicit,
+# unnamed data binding, and `src:` is not a name.
+
+
+def test_B5_src_equals_is_an_unnamed_binding_on_both_paths() -> None:
+    lazy, eager = _both("(src=(https://a.io)!'i', $src)!'k'")
+    assert lazy == eager == "k\n\ni\n\nAIO\n$src"
+
+
+def test_B5_src_colon_is_refused_on_both_paths() -> None:
+    text = "(src:(https://a.io)!'i')!'k'"
+    with pytest.raises(ParseError):
+        build(text)
+    with pytest.raises(ParseError):
+        asyncio.run(run(text, _io()))
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["(n=(https://a.io)!'i', $n)!'k'", "(n:(https://a.io)!'i', $n)!'k'"],
+)
+def test_B5_a_named_group_binds_alike_on_both_paths(text: str) -> None:
+    lazy, eager = _both(text)
+    assert lazy == eager
+
+
+# --- item 9: an exec annotation on a nested group reaches its guard (Spec B §8.1.2) -------
+
+
+class _FlakyIO:
+    """Fails the first fetch of every `bad` target with a transient error."""
+
+    def __init__(self) -> None:
+        self.calls: dict[str, int] = {}
+
+    async def fetch(self, target: str, *, relative: bool) -> str:
+        self.calls[target] = self.calls.get(target, 0) + 1
+        if "bad" in target and self.calls[target] == 1:
+            raise ResolutionError("blip")
+        return target.rsplit("/", 1)[-1].upper()
+
+
+def test_item9_optional_on_a_nested_group_is_applied_on_both_paths() -> None:
+    text = "((https://x/missing)!'j';optional, 'z')!'k'"
+    lazy, eager = _both(text)
+    assert lazy == eager == "k\n\nz"
+
+
+def test_item9_retry_on_a_nested_group_is_applied_on_both_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(guard_module, "_BACKOFF_BASE_S", 0.0)
+    monkeypatch.setattr(guard_module, "_jitter", lambda low, high: 0.0)
+    text = "((https://x/bad, https://x/b)!'j';retry=1, 'z')!'k'"
+    for target in (text, build(text)):
+        io = _FlakyIO()
+        out = asyncio.run(run(target, io=io))
+        assert out == "k\n\nj\n\nBAD\nB\nz"
+        assert io.calls["https://x/bad"] == 2

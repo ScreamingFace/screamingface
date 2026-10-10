@@ -44,6 +44,7 @@ from url4.core._call_head import (
     find_expression_param,
     remote_path_offset,
 )
+from url4.core._descriptor_head import _first_colon, _is_value_shaped, classify_head
 from url4.core._lexical import (
     _BUDGET_KEY_RE,
     _FIELD_SEG_RE,
@@ -63,7 +64,6 @@ from url4.core._scan import (
     balanced_braces,
     find_unquoted,
     iter_iteration_stars,
-    iter_top_level,
     one_paren_layer,
     skip_quoted,
     split_top_level,
@@ -188,52 +188,15 @@ def _mark_expand(node: Node) -> Source:
 
 
 def _parse_head(head: str) -> _Descriptor:
-    """Decode the pre-``;`` part: bare value, ``name=`` sugar, or attrib chain.
+    """Decode the pre-``;`` part: bare value, ``src=`` value, ``name=`` sugar, or chain.
 
-    The sugar test runs before the bare-value test so ``article=https://x``
-    binds ``article`` (§4.5) — the ``://`` inside the *value* must not promote
-    the whole token to a bare URI.
+    The classification is :func:`~url4.core._descriptor_head.classify_head`,
+    the one owner the DAG text path shares.
     """
-    if head.startswith("src="):
-        result = _Descriptor(value=_parse_value(head[4:]))
-    elif (sugar := _match_sugar(head)) is not None:
-        result = _Descriptor(value=_parse_value(sugar[1]), name=sugar[0], kind="=")
-    # The top-level colon scan is shared: _is_value_shaped needs it, and its
-    # absence is itself the "no descriptor chain" test. Scanning once keeps
-    # _parse_head linear in the token rather than walking it twice.
-    elif (colon := _first_colon(head)) is None or _is_value_shaped(head, colon):
-        result = _Descriptor(value=_parse_value(head))
-    else:
-        result = _parse_attrib_chain(head)
-    return result
-
-
-def _is_value_shaped(text: str, colon: int | None = None) -> bool:
-    """§4.3 disambiguation — a token that is a bare data value, no descriptor.
-
-    ``colon`` is the precomputed top-level colon index, for callers that already
-    scanned for it; omitted, it is computed here.
-    """
-    if text[0] in "'(/@{$":
-        return True
-    if colon is None:
-        colon = _first_colon(text)
-    return colon is not None and text[colon : colon + 3] == "://"
-
-
-def _first_colon(text: str) -> int | None:
-    for i, ch in iter_top_level(text):
-        if ch == ":":
-            return i
-    return None
-
-
-def _match_sugar(head: str) -> tuple[str, str] | None:
-    """``name=value`` with no ``:`` before the ``=`` (§4.3 sugar form)."""
-    m = _IDENT_RE.match(head)
-    if m is None or head[m.end() : m.end() + 1] != "=" or len(head) == m.end() + 1:
-        return None
-    return m.group(), head[m.end() + 1 :]
+    form, name, value = classify_head(head)
+    if form == "chain":
+        return _parse_attrib_chain(head)
+    return _Descriptor(value=_parse_value(value), name=name, kind="=")
 
 
 def _parse_attrib_chain(head: str) -> _Descriptor:
@@ -322,6 +285,11 @@ def _attach_tail(d: _Descriptor, tail: Params) -> Node:
 def _add_expr_params(
     value: RelExpr | RemoteExpr | Expression, params: Params
 ) -> RelExpr | RemoteExpr | Expression:
+    # B4: on a local expression ';broadcast' IS the '!*' flag (§6.1.1), exactly as
+    # the envelope folds it; a call keeps it as a param its node decodes.
+    if isinstance(value, Expression) and any(key == "broadcast" for key, _ in params):
+        value = replace(value, broadcast=True)
+        params = tuple(pair for pair in params if pair[0] != "broadcast")
     return value if not params else replace(value, params=value.params + params)
 
 
