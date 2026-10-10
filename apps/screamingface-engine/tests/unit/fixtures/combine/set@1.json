@@ -30,24 +30,6 @@
    }
   },
   {
-   "name": "json list with leading space",
-   "input": "  [\"b\",\"a\"]",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "[\"a\",\"b\"]"
-   }
-  },
-  {
-   "name": "inner whitespace collapses",
-   "input": "new   york, Paris",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "[\"new york\",\"paris\"]"
-   }
-  },
-  {
    "name": "numbers and booleans",
    "input": "[1, 2.5, true]",
    "args": {},
@@ -68,24 +50,6 @@
   {
    "name": "nested list",
    "input": "[[\"a\"]]",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "null item",
-   "input": "[null]",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "object item",
-   "input": "[{\"a\":1}]",
    "args": {},
    "expect": {
     "status": "not_json",

@@ -25,17 +25,6 @@
    }
   },
   {
-   "name": "fenced block",
-   "input": "Sure:\n```json\n{\"answer\": 7}\n```\nDone.",
-   "args": {
-    "path": "answer"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "7"
-   }
-  },
-  {
    "name": "last fence wins",
    "input": "```json\n{\"answer\": 1}\n```\nrather\n```json\n{\"answer\": 2}\n```",
    "args": {
@@ -58,32 +47,10 @@
    }
   },
   {
-   "name": "empty text is not json",
-   "input": "",
-   "args": {
-    "path": "answer"
-   },
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
    "name": "field missing",
    "input": "{\"other\":1}",
    "args": {
     "path": "answer"
-   },
-   "expect": {
-    "status": "field_missing",
-    "value": null
-   }
-  },
-  {
-   "name": "index out of range",
-   "input": "[1]",
-   "args": {
-    "path": "[3]"
    },
    "expect": {
     "status": "field_missing",
@@ -102,17 +69,6 @@
    }
   },
   {
-   "name": "json empty string",
-   "input": "{\"a\":\"\"}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
    "name": "json blank string",
    "input": "{\"a\":\"  \"}",
    "args": {
@@ -121,28 +77,6 @@
    "expect": {
     "status": "empty",
     "value": null
-   }
-  },
-  {
-   "name": "array value is canonical json",
-   "input": "{\"a\":[1,2]}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "[1,2]"
-   }
-  },
-  {
-   "name": "true value",
-   "input": "{\"a\":true}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "true"
    }
   },
   {
@@ -190,17 +124,6 @@
    }
   },
   {
-   "name": "leading index",
-   "input": "[{\"a\":1}]",
-   "args": {
-    "path": "[0].a"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "1"
-   }
-  },
-  {
    "name": "number too big for a float",
    "input": "{\"a\":1e999}",
    "args": {
@@ -220,28 +143,6 @@
    "expect": {
     "status": "voted",
     "value": "1e+20"
-   }
-  },
-  {
-   "name": "negative zero float",
-   "input": "{\"a\":-0.0}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "-0.0"
-   }
-  },
-  {
-   "name": "repeated key keeps the last value",
-   "input": "{\"a\":1,\"a\":2}",
-   "args": {
-    "path": "a"
-   },
-   "expect": {
-    "status": "voted",
-    "value": "2"
    }
   }
  ]

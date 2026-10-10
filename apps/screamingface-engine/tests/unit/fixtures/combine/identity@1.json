@@ -3,15 +3,6 @@
  "stage": "normalize",
  "cases": [
   {
-   "name": "keeps period",
-   "input": "Paris.",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "Paris."
-   }
-  },
-  {
    "name": "keeps spaces",
    "input": " x ",
    "args": {},

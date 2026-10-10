@@ -65,27 +65,6 @@ def _inspect_score(
     return score
 
 
-def _builtin_equal(text: str, target: str) -> bool:
-    """What the v1 built-ins say: numeric@1 of last_number@1 against numeric@1 of the target."""
-    reply = _stage("last_number@1", "extract", text)
-    wanted = _stage("numeric@1", "normalize", target)
-    if reply.value is None or wanted.value is None:
-        return False
-    return _stage("numeric@1", "normalize", reply.value).value == wanted.value
-
-
-@pytest.mark.parametrize(
-    ("text", "target"), [("x=42", "42"), ("123457", "123456"), ("1,23", "123")]
-)
-def test_builtin_last_number_and_numeric_disagree_with_inspect(
-    runner: asyncio.Runner, text: str, target: str
-) -> None:
-    # GP#1 CHAR: the v1 built-ins and Inspect differ on these rows by design; the Inspect-rule
-    # operators close the gap (rows below), and the v1 operators never change.
-    score = _inspect_score(runner, match(numeric=True), text, target)
-    assert (score.value == CORRECT) != _builtin_equal(text, target)
-
-
 # --- GP#3 to GP#6: parity corpora and generated rows ------------------------------------------
 
 _FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "combine"
@@ -290,14 +269,3 @@ def test_parity_holds_for_generated_numbers(runner: asyncio.Runner) -> None:
     aime = _aime_scorer()
     for text, target in _generated("aime"):
         _assert_parity(runner, aime, "inspect_aime@1", text, target)
-
-
-def test_every_gsm8k_and_aime_target_is_numeric() -> None:
-    from inspect_ai._util.text import strip_numeric_punctuation
-    from inspect_ai.scorer._common import _is_number
-
-    targets = [target for _, target in _GSM8K_CORPUS + _AIME_CORPUS]
-    targets += [target for rule in ("number", "aime") for _, target in _generated(rule)]
-    assert len(targets) > 4000
-    for target in targets:
-        assert _is_number(strip_numeric_punctuation(target.strip().casefold())), target

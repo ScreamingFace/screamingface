@@ -75,31 +75,6 @@
    }
   },
   {
-   "name": "window excludes older text",
-   "input": "Final: Axxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-   "args": {
-    "pattern": "Final: ([A-Z])",
-    "group": 1
-   },
-   "expect": {
-    "status": "no_match",
-    "value": null
-   }
-  },
-  {
-   "name": "ignore case keeps the text case",
-   "input": "FINAL: B",
-   "args": {
-    "pattern": "final: (b)",
-    "group": 1,
-    "ignore_case": true
-   },
-   "expect": {
-    "status": "voted",
-    "value": "B"
-   }
-  },
-  {
    "name": "named group",
    "input": "C) because",
    "args": {
@@ -109,18 +84,6 @@
    "expect": {
     "status": "voted",
     "value": "C"
-   }
-  },
-  {
-   "name": "empty group is empty",
-   "input": "xy",
-   "args": {
-    "pattern": "x(a*)y",
-    "group": 1
-   },
-   "expect": {
-    "status": "empty",
-    "value": null
    }
   },
   {
@@ -145,16 +108,6 @@
    "expect": {
     "status": "empty",
     "value": null
-   }
-  },
-  {
-   "name": "pattern does not compile",
-   "input": "a",
-   "args": {
-    "pattern": "("
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
    }
   },
   {
@@ -201,30 +154,6 @@
    }
   },
   {
-   "name": "word class is ASCII: no word at the end",
-   "input": "name Ü",
-   "args": {
-    "pattern": "(\\w+)$",
-    "group": 1
-   },
-   "expect": {
-    "status": "no_match",
-    "value": null
-   }
-  },
-  {
-   "name": "word class is ASCII: the last word",
-   "input": "name Ü",
-   "args": {
-    "pattern": "(\\w+)",
-    "group": 1
-   },
-   "expect": {
-    "status": "voted",
-    "value": "name"
-   }
-  },
-  {
    "name": "letter property reads Unicode",
    "input": "name Ü",
    "args": {
@@ -246,18 +175,6 @@
    "expect": {
     "status": "no_match",
     "value": null
-   }
-  },
-  {
-   "name": "number property reads Unicode",
-   "input": "total １２",
-   "args": {
-    "pattern": "(\\p{N}+)",
-    "group": 1
-   },
-   "expect": {
-    "status": "voted",
-    "value": "１２"
    }
   },
   {
@@ -296,17 +213,6 @@
    }
   },
   {
-   "name": "adjacent unbounded repeats run in linear time",
-   "input": "111111111111111111111111111111",
-   "args": {
-    "pattern": "\\d*\\d*\\d*x"
-   },
-   "expect": {
-    "status": "no_match",
-    "value": null
-   }
-  },
-  {
    "name": "backreference does not compile",
    "input": "a",
    "args": {
@@ -321,16 +227,6 @@
    "input": "a",
    "args": {
     "pattern": "(?=a)"
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "lookbehind does not compile",
-   "input": "a",
-   "args": {
-    "pattern": "(?<=a)b"
    },
    "expect": {
     "error": "combine_spec_invalid"

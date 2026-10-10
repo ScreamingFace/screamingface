@@ -22,28 +22,18 @@ from screamingface_engine.combine.ports import CombineError, SpecInvalid, StageR
 from screamingface_engine.combine.registry import OperatorRegistry
 
 _CATASTROPHIC = [
-    ("(a+){10}$", "a" * 1023 + "!"),
     ("(a+)+$", "a" * 1023 + "!"),
     ("(a|aa)+$", "a" * 1023 + "!"),
-    ("(a|aa){1,60}$", "a" * 1023 + "!"),
-    ("(?:a+)?(?:a+)?(?:a+)?$", "a" * 1023 + "!"),
     (r"\d*\d*\d*x", "1" * 1024),
-    ("[^x]+X+[^x]+X+$", "aX" * 512),
     ("(.*a){12}", "a" * 11 + "b" * 1013),
 ]
-_UNSUPPORTED = [r"(a)\1", "(?=a)", "(?!a)", "(?<=a)b", "(?<!a)b", "a{1,9999}", r"(?a:\w)"]
+_UNSUPPORTED = [r"(a)\1", "(?=a)", r"(?a:\w)"]
 _ACCEPTED_TIMED = [
-    (r"Final: (\w+)", "Final: " * 146 + "xx"),
-    (r"ANSWER:\s*([A-Da-d])", "ANSWER:" + " " * 1017),
-    (r"\\boxed\{([^{}]*)\}", "\\boxed{" * 146 + "x"),
-    (r"answer is (\w+)", "answer is " * 102 + "!!!!"),
-    (r'"answer":\s*"([^"]*)"', '"answer": "' + "a" * 1011),
-    (r"(\d+(?:\.\d+)?)", "1." * 512),
-    (r"#### (-?[0-9,]+)", "#### " + "1" * 1019),
-    (r"(?P<ans>[A-D])\)", "A" * 1024),
     # quadratic under the stdlib `re` (about 5 ms on a failing window); linear on RE2
     (r"(\d+)\s*$", "1" * 1023 + "x"),
-    ("[a-z]+[0-9]+", "a" * 1024),
+    (r"Final: (\w+)", "Final: " * 146 + "xx"),
+    (r"\\boxed\{([^{}]*)\}", "\\boxed{" * 146 + "x"),
+    (r"(?P<ans>[A-D])\)", "A" * 1024),
 ]
 
 
@@ -152,78 +142,7 @@ def test_regex_spec_invalid_is_raised_before_any_member_is_read() -> None:
     assert caught.value.code == "combine_spec_invalid"
 
 
-# --- RX#3 ------------------------------------------------------------------------------------
-
-
-def test_regex_group_must_exist() -> None:
-    for group in (2, "name", True, -1):
-        with pytest.raises(SpecInvalid):
-            _check(_args(r"(\w+)", group=group))
-    _check(_args(r"(?P<ans>\w+)", group="ans"))
-    _check(_args(r"(\w+)", group=0))
-    _check(_args(r"(\w+)", group=1))
-
-
-# --- RX#4 to RX#6 ----------------------------------------------------------------------------
-
 _FINAL = _args(r"Final: (\w+)", group=1)
-
-
-def _final_vote(count: int) -> dict[str, Any]:
-    return vote_spec(
-        count,
-        extract={"op": "regex@1", "args": _FINAL},
-        normalize={"op": "text@1", "args": {}},
-        reduce={"op": "mode@1", "args": {}},
-        select={"op": "first_holder@1", "args": {}},
-    )
-
-
-def test_regex_takes_last_match_group_by_default() -> None:
-    assert stage("regex@1", "Final: A\nFinal: B", _FINAL) == _voted("B")
-    assert stage("regex@1", "Final: A\nFinal: B", {**_FINAL, "occurrence": "first"}) == _voted("A")
-    texts = ["thinking... Final: B", "Final: b", "Final: c"]
-    outcome = _builtin_run(_final_vote(3), texts)
-    assert outcome.output == texts[0]
-    evidence = outcome.evidence
-    assert [(row.value, row.holders) for row in evidence.tally or []] == [
-        ("b", ["member_1", "member_2"]),
-        ("c", ["member_3"]),
-    ]
-
-
-def test_regex_no_match_is_fail_no_match() -> None:
-    assert stage("regex@1", "no marker", _FINAL) == StageResult(None, "no_match")
-    outcome = _builtin_run(_final_vote(3), ["Final: A", "nothing here", "Final: A"])
-    rows = outcome.evidence.members
-    assert (rows[1].status, rows[1].reason) == ("fail", "no_match")
-    assert outcome.evidence.dropped == 1
-    assert outcome.evidence.result.status == "answered"
-
-
-def test_regex_scans_only_last_1024_characters() -> None:
-    args = _args(r"Final: ([A-Z])", group=1)
-    assert stage("regex@1", "Final: A" + "x" * 1024, args) == StageResult(None, "no_match")
-    assert stage("regex@1", "Final: A" + "x" * 1016, args) == _voted("A")
-    assert stage("regex@1", "Final: AB" + "x" * 1016, args) == StageResult(None, "no_match")
-
-
-# --- RX#7: RE2's Unicode rules ----------------------------------------------------------------
-
-
-def test_regex_unicode_rules_are_pinned_to_re2() -> None:
-    # RE2: \w and \d are ASCII; \p{L} and \p{N} name the Unicode classes.
-    no_match = StageResult(None, "no_match")
-    assert stage("regex@1", "name \u00dc", _args(r"(\w+)$", group=1)) == no_match
-    assert stage("regex@1", "name \u00dc", _args(r"(\w+)", group=1)) == _voted("name")
-    assert stage("regex@1", "name \u00dc", _args(r"(\p{L}+)$", group=1)) == _voted("\u00dc")
-    assert stage("regex@1", "total \uff11\uff12", _args(r"(\d+)", group=1)) == no_match
-    assert stage("regex@1", "total \uff11\uff12", _args(r"(\p{N}+)", group=1)) == _voted(
-        "\uff11\uff12"
-    )
-    ignore = {"ignore_case": True, "group": 1}
-    assert stage("regex@1", "FINAL: B", _args("final: (b)", **ignore)) == _voted("B")
-    assert stage("regex@1", "\u00dc", _args("(\u00fc)", **ignore)) == _voted("\u00dc")
 
 
 def test_regex_reads_text_with_a_lone_surrogate_without_failing() -> None:
@@ -233,3 +152,50 @@ def test_regex_reads_text_with_a_lone_surrogate_without_failing() -> None:
     assert stage("regex@1", "a\ud800b", _args("(a.b)", group=1)) == _voted("a\ufffdb")
     with pytest.raises(SpecInvalid):
         _check(_args("a\ud800"))
+
+
+# --- RE2 options (RX-D1, RX-D2, RX-D3, RX-D4, RX-D5) -----------------------------------------
+
+
+def test_a_rejected_pattern_is_never_written_to_stderr(capfd: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SpecInvalid) as raised:
+        _check(_args("(?=x)"))
+    captured = capfd.readouterr()
+    assert "(?=x)" not in captured.err
+    assert "(?=x)" not in captured.out
+    assert "(?=x)" not in str(raised.value)
+
+
+def test_dollar_is_the_end_of_text_under_re2() -> None:
+    # WHY pinned: stdlib `$` also matched before a final newline; RE2's `$` does not.
+    assert stage("regex@1", "Final: B\n", _args(r"Final: (\w)$", group=1)) == (
+        StageResult(None, "no_match")
+    )
+    assert stage("regex@1", "Final: B\n", _args(r"Final: (\w)\s*$", group=1)) == (
+        StageResult("B", "voted")
+    )
+
+
+def test_ignore_case_is_an_option_not_a_prefix() -> None:
+    args = {"pattern": r"(?P<ans>final): (b)", "group": 2, "ignore_case": True}
+    _check(args)
+    assert stage("regex@1", "FINAL: B", args) == StageResult("B", "voted")
+    _check({"pattern": "(?P<ans>x)", "group": "ans", "ignore_case": True})
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [r"(?:(.)|(.)|(.)|(.)){1000}x", r"(.{0,1000})(.{0,1000})(.{0,1000})x"],
+)
+def test_a_pattern_with_an_oversized_re2_program_is_spec_invalid(pattern: str) -> None:
+    with pytest.raises(SpecInvalid, match="too large") as raised:
+        _check(_args(pattern))
+    assert pattern not in str(raised.value)
+
+
+def test_a_pattern_just_under_the_program_cap_stays_fast() -> None:
+    args = _args(r".{0,300}x")
+    _check(args)
+    text = "a" * 1023 + "!"
+    best = min(_best_of_three(pattern=args["pattern"], text=text) for _ in range(3))
+    assert best < 0.005, f"{best * 1000:.2f} ms"

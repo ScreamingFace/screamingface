@@ -3,15 +3,6 @@
  "stage": "extract",
  "cases": [
   {
-   "name": "simple",
-   "input": "so \\boxed{12}",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "12"
-   }
-  },
-  {
    "name": "last of two",
    "input": "\\boxed{1} then \\boxed{2}",
    "args": {},

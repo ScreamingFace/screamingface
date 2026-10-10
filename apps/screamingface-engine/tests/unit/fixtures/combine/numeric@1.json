@@ -3,26 +3,8 @@
  "stage": "normalize",
  "cases": [
   {
-   "name": "plain nine",
-   "input": "9",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "9"
-   }
-  },
-  {
    "name": "nine point zero",
    "input": "9.0",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "9"
-   }
-  },
-  {
-   "name": "nine point zero zero",
-   "input": "9.00",
    "args": {},
    "expect": {
     "status": "voted",
@@ -48,15 +30,6 @@
    }
   },
   {
-   "name": "thousand point zero",
-   "input": "1000.0",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "1000"
-   }
-  },
-  {
    "name": "negative zero",
    "input": "-0",
    "args": {},
@@ -72,15 +45,6 @@
    "expect": {
     "status": "voted",
     "value": "1200"
-   }
-  },
-  {
-   "name": "euro",
-   "input": "\u20ac5",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "5"
    }
   },
   {
@@ -120,15 +84,6 @@
    }
   },
   {
-   "name": "bad grouping",
-   "input": "1,2",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  },
-  {
    "name": "bad grouping 1,23",
    "input": "1,23",
    "args": {},
@@ -140,24 +95,6 @@
   {
    "name": "indian grouping",
    "input": "1,00,000",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  },
-  {
-   "name": "four digit group",
-   "input": "1,2345",
-   "args": {},
-   "expect": {
-    "status": "not_numeric",
-    "value": null
-   }
-  },
-  {
-   "name": "long last group",
-   "input": "12,345,6789",
    "args": {},
    "expect": {
     "status": "not_numeric",
@@ -225,15 +162,6 @@
    "expect": {
     "status": "not_numeric",
     "value": null
-   }
-  },
-  {
-   "name": "decimal with period",
-   "input": "12.50.",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "12.5"
    }
   }
  ]

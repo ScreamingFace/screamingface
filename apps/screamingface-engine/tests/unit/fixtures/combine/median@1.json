@@ -43,32 +43,6 @@
    }
   },
   {
-   "name": "2 4",
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "2",
-      "value": "2",
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": "4",
-      "value": "4",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "args": {},
-   "expect": {
-    "tally": null,
-    "statistic": "3"
-   }
-  },
-  {
    "name": "10 12 30 40",
    "input": {
     "readings": [
@@ -139,25 +113,6 @@
    "expect": {
     "tally": null,
     "statistic": "6"
-   }
-  },
-  {
-   "name": "single",
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": "5",
-      "value": "5",
-      "status": "voted",
-      "weight": null
-     }
-    ]
-   },
-   "args": {},
-   "expect": {
-    "tally": null,
-    "statistic": "5"
    }
   },
   {

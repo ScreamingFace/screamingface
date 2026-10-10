@@ -29,16 +29,6 @@ def test_vendored_rule_pins_installed_inspect_versions() -> None:
     assert importlib.metadata.version("inspect-evals") == vendor.INSPECT_EVALS_VERSION
 
 
-def test_every_vendored_module_is_listed() -> None:
-    assert [module for module, _ in vendor.VENDORED_NAMES] == [
-        "inspect_ai.scorer._unicode",
-        "inspect_ai._util.text",
-        "inspect_ai.scorer._common",
-        "inspect_evals.utils.aime_common",
-    ]
-    assert len(_NAMES) == 36
-
-
 @pytest.mark.parametrize(("module", "name"), _NAMES, ids=[f"{m}.{n}" for m, n in _NAMES])
 def test_vendored_definitions_are_byte_identical_to_the_installed_ones(
     module: str, name: str

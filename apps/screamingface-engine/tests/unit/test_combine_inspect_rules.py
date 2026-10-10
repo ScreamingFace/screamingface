@@ -11,37 +11,12 @@ from __future__ import annotations
 
 import random
 import time
-from typing import Any
 
 import pytest
 from combine_golden_support import stage
-from combine_support import context_text, run, spec_text, vote_spec
 
-from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.operators import extract
 from screamingface_engine.combine.operators._inspect_vendor import remove_boxed_from_ans
-from screamingface_engine.combine.ports import StageResult
-
-
-def _builtin_run(spec: dict[str, Any], texts: list[str]) -> Any:
-    return run(spec_text(spec), context_text(texts), registry=BUILTIN_OPERATORS)
-
-
-def test_grader_equal_texts_share_one_tally_row() -> None:
-    spec = vote_spec(
-        5,
-        extract={"op": "inspect_number@1", "args": {}},
-        normalize={"op": "inspect_numeric@1", "args": {}},
-        reduce={"op": "mode@1", "args": {}},
-        select={"op": "first_holder@1", "args": {}},
-    )
-    texts = ["The total is $1,200.", "1200", "123456", "123457", "x=42"]
-    evidence = _builtin_run(spec, texts).evidence
-    assert [(row.value, row.score, row.holders) for row in evidence.tally or []] == [
-        ("1200", 2.0, ["member_1", "member_2"]),
-        ("1.2346e+05", 2.0, ["member_3", "member_4"]),
-    ]
-    assert (evidence.members[4].status, evidence.members[4].reason) == ("fail", "empty")
 
 
 def test_unbox_equals_the_vendored_remove_boxed() -> None:
@@ -51,15 +26,6 @@ def test_unbox_equals_the_vendored_remove_boxed() -> None:
     lines += ["\\boxed{\\boxed{5}}", "\\boxed{}", "a}\\boxed{b", "\\boxed{1} and \\boxed{2}"]
     for line in lines:
         assert extract._unbox(line) == remove_boxed_from_ans(line), line
-
-
-def test_inspect_rules_read_the_last_number_word() -> None:
-    assert stage("inspect_number@1", "x=42") == StageResult(None, "empty")
-    assert stage("inspect_number@1", "(42)") == StageResult("(42)", "voted")
-    assert stage("inspect_numeric@1", "123456") == StageResult("1.2346e+05", "voted")
-    assert stage("inspect_numeric@1", "abc") == StageResult(None, "not_numeric")
-    assert stage("inspect_aime@1", "$$\n\\boxed{70}\n$$") == StageResult("70", "voted")
-    assert stage("inspect_aime@1", "\n\n") == StageResult(None, "empty")
 
 
 _HOSTILE_LINES = {

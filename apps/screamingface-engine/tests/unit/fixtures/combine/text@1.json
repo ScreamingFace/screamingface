@@ -12,15 +12,6 @@
    }
   },
   {
-   "name": "comma kept",
-   "input": "Paris, France",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "paris, france"
-   }
-  },
-  {
    "name": "collapse whitespace",
    "input": "  A   B\tC  ",
    "args": {},

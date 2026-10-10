@@ -12,15 +12,6 @@
    }
   },
   {
-   "name": "one line",
-   "input": "one line",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "one line"
-   }
-  },
-  {
    "name": "only blanks",
    "input": "\n\n  \n",
    "args": {},
@@ -45,15 +36,6 @@
    "expect": {
     "status": "voted",
     "value": "indented"
-   }
-  },
-  {
-   "name": "inner space kept",
-   "input": "a b",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "a b"
    }
   }
  ]

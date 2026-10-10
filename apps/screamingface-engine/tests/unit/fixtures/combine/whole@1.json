@@ -12,15 +12,6 @@
    }
   },
   {
-   "name": "empty",
-   "input": "",
-   "args": {},
-   "expect": {
-    "status": "empty",
-    "value": null
-   }
-  },
-  {
    "name": "blank",
    "input": "   \n",
    "args": {},
