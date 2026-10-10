@@ -22,8 +22,8 @@ here:
   :class:`FanoutReduceNode`;
 - :mod:`.broadcast` — :class:`MergeNode`, :class:`BroadcastCollectNode`;
 - :mod:`.guard` — :class:`GuardNode` (``;optional``/``;t=``/``;retry=``);
-- :mod:`.iteration` — :class:`ExpandNode`, :class:`MapNode`,
-  :class:`ReduceNode`;
+- :mod:`.iteration` — :class:`ExpandNode`, :class:`MapNode`;
+- :mod:`.reduce` — :class:`ReduceNode`;
 - :mod:`._shared` — the helpers every family consumes (substitution, the
   reference-edge scope frame, the gather machinery, fetch plumbing, row
   serialization). Private to the package: a node module may import it, never
@@ -65,7 +65,8 @@ from url4.dag.nodes.group import (
     ProcessNode,
 )
 from url4.dag.nodes.guard import GuardNode
-from url4.dag.nodes.iteration import ExpandNode, MapNode, ReduceNode
+from url4.dag.nodes.iteration import ExpandNode, MapNode
+from url4.dag.nodes.reduce import ReduceNode
 
 __all__ = [
     "DEFAULT_MAP_CONCURRENCY",
