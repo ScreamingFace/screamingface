@@ -2,113 +2,41 @@
  "op": "json_object@1",
  "stage": "extract",
  "cases": [
-  {
-   "name": "trimmed, keys sorted",
+  {"name": "trimmed, keys sorted", "args": {},
    "input": "  {\"b\": \"x\", \"a\": null}  ",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "{\"a\":null,\"b\":\"x\"}"
-   }
-  },
-  {
-   "name": "last fence wins",
+   "expect": {"status": "voted", "value": "{\"a\":null,\"b\":\"x\"}"}},
+  {"name": "last fence wins", "args": {},
    "input": "```json\n{\"a\": 1}\n```\nrather\n```json\n{\"a\": 2}\n```",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "{\"a\":2}"
-   }
-  },
-  {
-   "name": "empty object",
+   "expect": {"status": "voted", "value": "{\"a\":2}"}},
+  {"name": "empty object", "args": {},
    "input": "{}",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "{}"
-   }
-  },
-  {
-   "name": "unicode kept",
+   "expect": {"status": "voted", "value": "{}"}},
+  {"name": "unicode kept", "args": {},
    "input": "{\"\u00e9\": \"\u00fc\"}",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "{\"\u00e9\":\"\u00fc\"}"
-   }
-  },
-  {
-   "name": "duplicate key keeps the last",
+   "expect": {"status": "voted", "value": "{\"\u00e9\":\"\u00fc\"}"}},
+  {"name": "duplicate key keeps the last", "args": {},
    "input": "{\"a\":1,\"a\":2}",
-   "args": {},
-   "expect": {
-    "status": "voted",
-    "value": "{\"a\":2}"
-   }
-  },
-  {
-   "name": "array is not an object",
+   "expect": {"status": "voted", "value": "{\"a\":2}"}},
+  {"name": "array is not an object", "args": {},
    "input": "[1, 2]",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "number is not an object",
+   "expect": {"status": "not_json", "value": null}},
+  {"name": "number is not an object", "args": {},
    "input": "7",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "prose before the object",
+   "expect": {"status": "not_json", "value": null}},
+  {"name": "prose before the object", "args": {},
    "input": "Sure! Here it is: {\"a\": 1}",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "NaN is not json",
+   "expect": {"status": "not_json", "value": null}},
+  {"name": "NaN is not json", "args": {},
    "input": "{\"a\": NaN}",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "float overflow is not json",
+   "expect": {"status": "not_json", "value": null}},
+  {"name": "float overflow is not json", "args": {},
    "input": "{\"a\": 1e999}",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "depth 65 is not json",
+   "expect": {"status": "not_json", "value": null}},
+  {"name": "depth 65 is not json", "args": {},
    "input": "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  },
-  {
-   "name": "array in a fence is not an object",
+   "expect": {"status": "not_json", "value": null}},
+  {"name": "array in a fence is not an object", "args": {},
    "input": "```json\n[1]\n```",
-   "args": {},
-   "expect": {
-    "status": "not_json",
-    "value": null
-   }
-  }
+   "expect": {"status": "not_json", "value": null}}
  ]
 }
