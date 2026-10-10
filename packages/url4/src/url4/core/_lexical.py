@@ -96,3 +96,18 @@ def reject_chained_intent(intent: str) -> None:
                 "result: (/p(x)!a)!b",
                 position=i,
             )
+
+
+def check_tail_url_intent(intent: str) -> None:
+    """A top-level absolute-URL intent is ``bare-value`` (Spec B §8): no ``(`` ``)`` ``'``.
+
+    Nested, a call's URL intent sits inside its own production; at the top
+    level it is the text's tail, where the renderer has no way to write these
+    characters back. Percent-encode them (``%28`` ``%29`` ``%27``).
+    """
+    for ch in "()'":
+        if ch in intent:
+            raise ParseError(
+                f"intent {intent!r} is not a bare value (Spec B §8): a top-level URL "
+                f"intent cannot hold {ch!r}; percent-encode it"
+            )

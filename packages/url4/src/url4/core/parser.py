@@ -32,6 +32,7 @@ from url4.core._iteration_envelope import (
     _merge_directives,
     check_iteration_envelope,
 )
+from url4.core._lexical import _SCHEME_RE, check_tail_url_intent
 from url4.core._scan import balanced_body
 from url4.core._splitters import (
     split_collection_iteration,
@@ -162,6 +163,8 @@ def _check_group_envelope(
             f"belongs to the outer expression in {stripped!r}",
             code=ErrorCode.MISSING_INTENT,
         )
+    if raw_intent is not None and _SCHEME_RE.match(raw_intent.strip()):
+        check_tail_url_intent(raw_intent.strip())
     if require_intent and raw_intent is None and strip_one_paren_layer(source_expr) is not None:
         # INVARIANT: expression = "(" source-list ")" intent-op intent — a
         # parenthesized envelope with no intent has no grammar form (`OME-508`).

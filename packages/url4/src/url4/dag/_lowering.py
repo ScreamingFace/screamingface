@@ -444,8 +444,8 @@ def _intent_from_ast(atom: Node | None, registry: LoweringRegistry) -> _Intent |
 
 
 def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
-    if not collection:
-        return TextNode("")
+    # INVARIANT: never empty — the envelope refuses an iteration with no
+    # collection (core._iteration_envelope._check_collection_ref).
     inner = strip_one_paren_layer(collection)
     if inner is not None:
         # WHY: a bare parenthesized group ``(e1, …)`` is an inline collection (§5.3.11):

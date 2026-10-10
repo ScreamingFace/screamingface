@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from url4.core._lexical import reject_chained_intent
+from url4.core._lexical import _IDENT_RE, reject_chained_intent
 from url4.core._splitters import (
     _split_at_iteration_body,
     split_collection_iteration,
@@ -120,6 +120,7 @@ def _merge_directives(
 def check_iteration_envelope(
     envelope: IterationEnvelope, stripped: str, require_intent: bool
 ) -> None:
+    _check_collection_ref(envelope.collection, stripped)
     for tail in (envelope.intent, envelope.reducer):
         if tail is not None:
             reject_chained_intent(tail)
@@ -131,4 +132,26 @@ def check_iteration_envelope(
             f"iteration {stripped!r} has no per-row intent — the expression "
             "after '*' must carry !intent (src*(body)!intent)",
             code=ErrorCode.MISSING_INTENT,
+        )
+
+
+def _check_collection_ref(collection: str, stripped: str) -> None:
+    """A collection-ref is a value (Spec B §8 ``iteration-expr``); refuse what is not.
+
+    The envelope scan never yields an empty collection (a leading ``*`` is the
+    expansion prefix, never iteration), so that case is an invariant, checked here.
+    """
+    text = collection.strip()
+    if not text:
+        raise ParseError(f"iteration {stripped!r} has no collection before '*('")
+    if text.startswith("*"):
+        raise ParseError(
+            f"a collection cannot start with '*' in {stripped!r} — '*' marks a source for "
+            "expansion inside a group; a collection is a value"
+        )
+    if text[-1] in "=:" and _IDENT_RE.fullmatch(text[:-1]):
+        # Spec B §8 rule 5: `n=*(…)` is the sugar form, and its value cannot start with '*'.
+        raise ParseError(
+            f"{text!r} is a name-only descriptor, not a collection, in {stripped!r} — a "
+            "value cannot start with '*'; expand a named source with '*name=(…)!intent'"
         )
