@@ -2,132 +2,14 @@
  "op": "all@1",
  "stage": "select",
  "cases": [
-  {
-   "name": "every member with the joined text",
-   "args": {},
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_3",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "outputs": {
-     "member_1": "A",
-     "member_2": "B",
-     "member_3": "C"
-    },
-    "reduction": {
-     "text": "J"
-    }
-   },
-   "expect": {
-    "chosen": [
-     "member_1",
-     "member_2",
-     "member_3"
-    ],
-    "output": "J",
-    "tie": false,
-    "agreement": null
-   }
-  },
-  {
-   "name": "no joined text",
-   "args": {},
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_3",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "outputs": {
-     "member_1": "A",
-     "member_2": "B",
-     "member_3": "C"
-    },
-    "reduction": {}
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  },
-  {
-   "name": "args: extra arg",
-   "args": {
-    "x": 1
-   },
-   "input": {
-    "readings": [
-     {
-      "member": "member_1",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_2",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     },
-     {
-      "member": "member_3",
-      "raw": null,
-      "value": null,
-      "status": "voted",
-      "weight": null
-     }
-    ],
-    "outputs": {
-     "member_1": "A",
-     "member_2": "B",
-     "member_3": "C"
-    },
-    "reduction": {
-     "text": "J"
-    }
-   },
-   "expect": {
-    "error": "combine_spec_invalid"
-   }
-  }
+  {"name": "every member with the joined text", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "outputs": {"member_1": "A", "member_2": "B", "member_3": "C"}, "reduction": {"text": "J"}},
+   "expect": {"chosen": ["member_1", "member_2", "member_3"], "output": "J", "tie": false, "agreement": null}},
+  {"name": "no joined text", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "outputs": {"member_1": "A", "member_2": "B", "member_3": "C"}, "reduction": {}},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "args: extra arg", "args": {"x": 1},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "outputs": {"member_1": "A", "member_2": "B", "member_3": "C"}, "reduction": {"text": "J"}},
+   "expect": {"error": "combine_spec_invalid"}}
  ]
 }
