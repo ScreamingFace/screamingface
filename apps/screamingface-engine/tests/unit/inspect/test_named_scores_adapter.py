@@ -29,6 +29,7 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
     GradeRequest,
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
+from screamingface_engine_inspect.judge_redraw import JudgeReplyUnparseable  # noqa: E402
 from screamingface_engine_inspect.scorer_adapter import inspect_grade_case  # noqa: E402
 
 
@@ -155,6 +156,21 @@ async def test_one_failing_scorer_fails_the_case_naming_it() -> None:
     assert outcome.failure_code == "scorer_error"
     assert "exact" in str(outcome.checks)
     assert "second scorer exploded" in str(outcome.checks)
+
+
+@pytest.mark.asyncio
+async def test_a_second_scorer_whose_judge_never_parsed_fails_as_judge_reply_invalid() -> None:
+    # The judge, not our code, is to blame on every scorer, not just the headline one.
+    async def judge_never_parsed(state: TaskState, target: Target) -> Score:
+        raise JudgeReplyUnparseable("the judge gave no parseable reply for case 7 rubric r2")
+
+    hook = inspect_grade_case(
+        _returning("C"), extra_scorers=[judge_never_parsed], named_scores=("f1", "exact")
+    )
+    outcome = await hook(_request())
+
+    assert outcome.failure_code == "judge_reply_invalid"
+    assert "exact" in str(outcome.checks)
 
 
 @pytest.mark.asyncio

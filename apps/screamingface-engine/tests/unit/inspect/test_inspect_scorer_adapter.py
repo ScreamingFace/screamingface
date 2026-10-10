@@ -31,6 +31,7 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
     GradeRequest,
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
+from screamingface_engine_inspect.judge_redraw import JudgeReplyUnparseable  # noqa: E402
 from screamingface_engine_inspect.scorer_adapter import inspect_grade_case  # noqa: E402
 
 
@@ -100,6 +101,19 @@ async def test_scorer_exception_becomes_scorer_error() -> None:
     assert outcome.failure_code == "scorer_error"
     # The cause is audit material — the exception's own words ride the evidence.
     assert "judge exploded mid-call" in str(outcome.checks)
+
+
+@pytest.mark.asyncio
+async def test_a_judge_that_never_gave_a_verdict_fails_as_judge_reply_invalid() -> None:
+    # WHY not scorer_error: the redraw budget is spent because the JUDGE never answered
+    # with a verdict, not because our scorer code broke — the code must blame the judge.
+    async def judge_never_parsed(state: TaskState, target: Target) -> Score:
+        raise JudgeReplyUnparseable("the judge gave no parseable reply for case 7 rubric r2")
+
+    outcome = await _graded(judge_never_parsed, _request())
+    assert outcome.score is None
+    assert outcome.failure_code == "judge_reply_invalid"
+    assert "case 7 rubric r2" in str(outcome.checks)
 
 
 @pytest.mark.asyncio
