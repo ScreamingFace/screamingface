@@ -13,8 +13,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from url4.core._annotations import classify_boundary, split_annotation_pairs
-from url4.core._lexical import _IDENT_RE
+from url4.core._annotations import (
+    classify_boundary,
+    fold_broadcast,
+    split_annotation_pairs,
+    validate_params,
+)
+from url4.core._lexical import _IDENT_RE, reject_chained_intent
 from url4.core._scan import balanced_body, iter_top_level, split_top_level
 
 HeadForm = Literal["value", "src", "sugar", "chain"]
@@ -33,10 +38,10 @@ def classify_head(head: str) -> tuple[HeadForm, str | None, str]:
     elif (sugar := _match_sugar(head)) is not None:
         result = ("sugar", sugar[0], sugar[1])
     else:
-        # The top-level colon scan is shared: _is_value_shaped needs it, and its
+        # The top-level colon scan is shared: is_value_shaped needs it, and its
         # absence is itself the "no descriptor chain" test.
-        colon = _first_colon(head)
-        shaped = colon is None or _is_value_shaped(head, colon)
+        colon = first_colon(head)
+        shaped = colon is None or is_value_shaped(head, colon)
         result = ("value" if shaped else "chain", None, head)
     return result
 
@@ -46,18 +51,34 @@ def deferrable_group(segment: str) -> tuple[str | None, str, str] | None:
 
     Only a bare or name-only group WITH an intent qualifies (``(…)!x``,
     ``n=(…)!x``, ``n:(…)!x``), and only when its ``;`` chain holds expression
-    params alone (§8.1.2). Anything that carries a source annotation (a guard,
-    ``;expand``, a weight or budget) or that the grammar would refuse returns
-    None, so the caller parses it eagerly and gets the grammar's reading.
+    params alone (§8.1.2). A source with a source annotation (a guard,
+    ``;expand``, a weight or budget), an expansion ``*``, or any other head
+    returns None, and the caller parses it eagerly with the grammar.
+
+    For a group it does defer, it checks at once what the deferred compile
+    would only find at run time: the group's own intent must be one value
+    (D-1b) and its params must be well-formed. Those raise ``ParseError``
+    here. The group's sources are NOT parsed here; they stay lazy.
     """
     head, *chain = split_top_level(segment, ";")
-    if segment.startswith("*") or (chain and classify_boundary(split_annotation_pairs(chain))[1]):
+    pairs = split_annotation_pairs(chain)
+    if segment.startswith("*") or classify_boundary(pairs)[1]:
         return None
     binding = _name_and_value(head)
     if binding is None or not is_processed_group(binding[2]):
         return None
     name, kind, value = binding
+    reject_chained_intent(_group_intent(value))
+    validate_params(fold_broadcast(pairs)[1])
     return name, kind, ";".join([value, *chain])
+
+
+def _group_intent(group: str) -> str:
+    """The intent text after a processed group's ``)!`` (or ``)!*``)."""
+    body = balanced_body(group, 1)
+    assert body is not None  # is_processed_group checked it
+    after = group[len(body) + 2 :]
+    return after[2:] if after.startswith("!*") else after[1:]
 
 
 def _name_and_value(head: str) -> tuple[str | None, str, str] | None:
@@ -65,7 +86,7 @@ def _name_and_value(head: str) -> tuple[str | None, str, str] | None:
     form, name, value = classify_head(head)
     if form != "chain":
         return name, "=", value
-    colon = _first_colon(head)
+    colon = first_colon(head)
     assert colon is not None  # a chain has a top-level colon
     name = head[:colon].strip()
     if not _IDENT_RE.fullmatch(name) or name == "src":
@@ -81,7 +102,7 @@ def is_processed_group(text: str) -> bool:
     return body is not None and text[len(body) + 2 :].startswith("!")
 
 
-def _is_value_shaped(text: str, colon: int | None = None) -> bool:
+def is_value_shaped(text: str, colon: int | None = None) -> bool:
     """§4.3 disambiguation — a token that is a bare data value, no descriptor.
 
     ``colon`` is the precomputed top-level colon index, for callers that already
@@ -90,11 +111,11 @@ def _is_value_shaped(text: str, colon: int | None = None) -> bool:
     if text[0] in "'(/@{$":
         return True
     if colon is None:
-        colon = _first_colon(text)
+        colon = first_colon(text)
     return colon is not None and text[colon : colon + 3] == "://"
 
 
-def _first_colon(text: str) -> int | None:
+def first_colon(text: str) -> int | None:
     for i, ch in iter_top_level(text):
         if ch == ":":
             return i

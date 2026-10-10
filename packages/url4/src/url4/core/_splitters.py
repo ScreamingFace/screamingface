@@ -22,7 +22,6 @@ from url4.core._call_head import is_call_head
 from url4.core._scan import balanced_body, find_unquoted, iter_iteration_stars, one_paren_layer
 from url4.core._scan import iter_top_level as _iter_top_level
 from url4.core._scan import split_top_level as _split_top_level
-from url4.core.errors import ParseError
 from url4.core.nodes import IterationDirectives, Params
 
 
@@ -175,9 +174,8 @@ def split_envelope_intent(stripped: str) -> tuple[str, str | None, bool]:
         return head + tail_src, raw_intent, broadcast
     source_expr, raw_intent, broadcast = split_intent(stripped)
     if raw_intent is not None and owns_call_intent(source_expr):
-        # D-1b: a call carries its own intent, so `/p(x)!a!b` has no reading.
-        raise ParseError(
-            f"chained intent in {stripped!r} — a call carries its own intent and only "
-            "';' params may follow it; group the call to process its result: (/p(x)!a)!b"
-        )
+        # A call carries its own `intent-op intent`, so a later '!' is part of that
+        # intent: the grammar reads `/p(x)!(a)!b` (an expression intent) and refuses
+        # `/p(x)!a!b` (D-1b, a bare value ends at '!'). Hand it the whole token.
+        return stripped, None, False
     return source_expr, raw_intent, broadcast

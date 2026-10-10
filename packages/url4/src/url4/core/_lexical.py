@@ -75,37 +75,40 @@ def _unescape(content: str) -> str:
     return "".join(out)
 
 
-def reject_chained_intent(intent: str) -> None:
-    """Refuse a second ``!`` after an intent (owner decision D-1b, Spec B §8).
+def chained_bang(intent: str) -> int | None:
+    """The offset of an unquoted depth-0 ``!`` after a bare intent value, or None.
 
     ``intent = value``, and ``bare-value`` / ``quoted-text`` end at an unquoted
-    ``!``: nothing may follow an intent but ``;`` params. So ``a!b`` and
-    ``'a'!'b'`` are not intents, and ``/p(x)!a!b`` has no reading. A
-    value-shaped intent (a group, a struct, a holdings ref, a ``/path``, an
-    iteration) carries its own ``!`` inside its own production, so it is left
-    to that production.
+    ``!`` (Spec B §8, owner decision D-1b). A value-shaped intent (a group, a
+    struct, a holdings ref, a ``/path``, an iteration) carries its own ``!``
+    inside its own production, so it never has one here.
     """
     text = intent.strip()
     if text[:1] in "({@/" or next(iter_iteration_stars(text), None) is not None:
-        return
-    for i, ch in iter_top_level(text):
-        if ch == "!":
-            raise ParseError(
-                f"chained intent {text!r} — an intent is one value and only ';' params "
-                "may follow it; quote a literal '!', or group a call to process its "
-                "result: (/p(x)!a)!b",
-                position=i,
-            )
+        return None
+    return next((i for i, ch in iter_top_level(text) if ch == "!"), None)
+
+
+def reject_chained_intent(intent: str) -> None:
+    """Refuse a second ``!`` after an intent: nothing may follow it but ``;`` params."""
+    bang = chained_bang(intent)
+    if bang is not None:
+        raise ParseError(
+            f"chained intent {intent.strip()!r} — an intent is one value and only ';' "
+            "params may follow it; quote a literal '!', or group a call to process its "
+            "result: (/p(x)!a)!b",
+            position=bang,
+        )
 
 
 def check_tail_url_intent(intent: str) -> None:
-    """A top-level absolute-URL intent is ``bare-value`` (Spec B §8): no ``(`` ``)`` ``'``.
+    """A top-level absolute-URL intent is ``bare-value`` (Spec B §8): no ``(`` ``)`` ``'`` ``,``.
 
     Nested, a call's URL intent sits inside its own production; at the top
     level it is the text's tail, where the renderer has no way to write these
-    characters back. Percent-encode them (``%28`` ``%29`` ``%27``).
+    characters back. Percent-encode them (``%28`` ``%29`` ``%27`` ``%2C``).
     """
-    for ch in "()'":
+    for ch in "()',":
         if ch in intent:
             raise ParseError(
                 f"intent {intent!r} is not a bare value (Spec B §8): a top-level URL "

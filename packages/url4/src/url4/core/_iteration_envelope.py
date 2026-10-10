@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from url4.core._annotations import DirectiveFields, directives_from_fields
+from url4.core._descriptor_head import classify_head, first_colon
 from url4.core._lexical import _IDENT_RE, reject_chained_intent
 from url4.core._splitters import (
     _split_at_iteration_body,
@@ -119,6 +120,12 @@ def _merge_directives(primary: DirectiveFields, secondary: DirectiveFields) -> D
 def check_iteration_envelope(
     envelope: IterationEnvelope, stripped: str, require_intent: bool
 ) -> None:
+    """Refuse a decoded iteration the grammar has no reading for (Spec B §8).
+
+    The collection must be a value, the per-row intent and the reducer must be
+    single intents (D-1b), and — unless the caller is the engine's own spawn
+    boundary (``require_intent=False``) — the per-row intent must be present.
+    """
     _check_collection_ref(envelope.collection, stripped)
     for tail in (envelope.intent, envelope.reducer):
         if tail is not None:
@@ -138,19 +145,34 @@ def _check_collection_ref(collection: str, stripped: str) -> None:
     """A collection-ref is a value (Spec B §8 ``iteration-expr``); refuse what is not.
 
     The envelope scan never yields an empty collection (a leading ``*`` is the
-    expansion prefix, never iteration), so that case is an invariant, checked here.
+    expansion prefix, never iteration), so that case is an asserted invariant.
     """
     text = collection.strip()
-    if not text:
-        raise ParseError(f"iteration {stripped!r} has no collection before '*('")
+    assert text, "the envelope scan never yields an empty collection"
     if text.startswith("*"):
         raise ParseError(
             f"a collection cannot start with '*' in {stripped!r} — '*' marks a source for "
             "expansion inside a group; a collection is a value"
         )
-    if text[-1] in "=:" and _IDENT_RE.fullmatch(text[:-1]):
-        # Spec B §8 rule 5: `n=*(…)` is the sugar form, and its value cannot start with '*'.
+    value = _descriptor_value(text)
+    if value is not None and (not value or value.startswith("*")):
+        # Spec B §8 rule 5: `n=…` / `n:…` is a descriptor, and its value (here the
+        # text before the iteration '*(') can neither be empty nor start with '*'.
         raise ParseError(
-            f"{text!r} is a name-only descriptor, not a collection, in {stripped!r} — a "
-            "value cannot start with '*'; expand a named source with '*name=(…)!intent'"
+            f"{text!r} is a descriptor whose value cannot start with '*' in {stripped!r} — "
+            "expand a named source with '*name=(…)!intent'"
         )
+
+
+def _descriptor_value(text: str) -> str | None:
+    """The value after a name-only head (``n=``/``n:``), or None when there is no such head."""
+    form, _, value = classify_head(text)
+    colon = first_colon(text)
+    result: str | None = None
+    if text[-1] in "=:" and _IDENT_RE.fullmatch(text[:-1]):
+        result = ""
+    elif form == "sugar":
+        result = value.strip()
+    elif form == "chain" and colon is not None and _IDENT_RE.fullmatch(text[:colon].strip()):
+        result = text[colon + 1 :].strip()
+    return result

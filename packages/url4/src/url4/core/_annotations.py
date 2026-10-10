@@ -173,6 +173,16 @@ def classify_boundary(pairs: Params) -> tuple[Params, Params]:
     return tuple(expr_params), tuple(source_ann)
 
 
+def fold_broadcast(params: Params) -> tuple[bool, Params]:
+    """Take the ``;broadcast`` flag out of expression params: ``(flag, rest)``.
+
+    On an expression, ``;broadcast`` IS the ``!*`` operator (Spec B §6.1.1). The
+    envelope and the grammar's local expressions both fold it here, so they agree.
+    """
+    rest = tuple(pair for pair in params if pair[0] != "broadcast")
+    return len(rest) != len(params), rest
+
+
 DirectiveFields = dict[str, object]
 """The directive fields an expression GAVE, by field name — absent keys were not given.
 

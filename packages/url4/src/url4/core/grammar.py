@@ -34,8 +34,10 @@ from dataclasses import dataclass, field, replace
 from url4.core._annotations import (
     classify_boundary,
     extract_directives,
+    fold_broadcast,
     split_annotation_pairs,
     validate_exec_annotations,
+    validate_params,
 )
 from url4.core._call_head import (
     PATH_RE,
@@ -44,7 +46,7 @@ from url4.core._call_head import (
     find_expression_param,
     remote_path_offset,
 )
-from url4.core._descriptor_head import _first_colon, _is_value_shaped, classify_head
+from url4.core._descriptor_head import classify_head, first_colon, is_value_shaped
 from url4.core._lexical import (
     _BUDGET_KEY_RE,
     _FIELD_SEG_RE,
@@ -220,10 +222,10 @@ def _parse_attrib_chain(head: str) -> _Descriptor:
             d.weight, rest = struct
             first = False
             continue
-        if _is_value_shaped(rest):
+        if is_value_shaped(rest):
             d.value = _parse_value(rest)
             return d
-        colon = _first_colon(rest)
+        colon = first_colon(rest)
         if colon is None:
             raise ParseError(
                 f"bare-token data binding requires 'src=' in descriptor {head!r} (spec §4.3)"
@@ -256,6 +258,8 @@ def _attach_tail(d: _Descriptor, tail: Params) -> Node:
     value = d.value
     if isinstance(value, (RelExpr, RemoteExpr, Expression)):
         expr_params, source_ann = classify_boundary(tail)
+        # `expr-param = param-key "=" param-value`: the rule the envelope applies.
+        validate_params(expr_params)
         value = _add_expr_params(value, expr_params)
     else:
         source_ann = tail
@@ -285,11 +289,11 @@ def _attach_tail(d: _Descriptor, tail: Params) -> Node:
 def _add_expr_params(
     value: RelExpr | RemoteExpr | Expression, params: Params
 ) -> RelExpr | RemoteExpr | Expression:
-    # B4: on a local expression ';broadcast' IS the '!*' flag (§6.1.1), exactly as
-    # the envelope folds it; a call keeps it as a param its node decodes.
-    if isinstance(value, Expression) and any(key == "broadcast" for key, _ in params):
-        value = replace(value, broadcast=True)
-        params = tuple(pair for pair in params if pair[0] != "broadcast")
+    # B4: on a local expression ';broadcast' IS the '!*' flag (one owner,
+    # `fold_broadcast`); a call keeps it as a param its node decodes.
+    if isinstance(value, Expression):
+        flag, params = fold_broadcast(params)
+        value = replace(value, broadcast=True) if flag else value
     return value if not params else replace(value, params=value.params + params)
 
 
@@ -381,6 +385,12 @@ def _parse_collection(token: str) -> Node:
     strict local-expr path.
     """
     stripped = token.strip()
+    if stripped.startswith("*"):
+        # A collection-ref is a value, and a value never starts with '*' (the
+        # expansion prefix marks a source): `n=*x*(b)!i` has no reading (§8 rule 5).
+        raise ParseError(
+            f"a collection cannot start with '*' in {token!r} — a collection is a value"
+        )
     if (body := one_paren_layer(stripped)) is not None:
         return Expression(sources=_parse_group_sources(body))
     return _parse_value(token)

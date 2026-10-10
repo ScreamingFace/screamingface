@@ -115,10 +115,11 @@ def check_raw_tail(text: str, what: str, *, top: bool) -> None:
 def check_structured_intent(node: Node, text: str) -> None:
     """A nested-expression / iteration / struct / reference intent must read back as itself.
 
-    WHY a local re-parse: ``grammar.intent_atom`` turns ANY intent it cannot
-    parse into natural-language ``Text`` — by design, an intent is prose first —
-    so a sub-tree that would fail loudly as a source fails silently here. Only
-    these structured intents pay for it (prompt text, URLs and paths do not).
+    WHY a local re-parse: ``grammar.intent_atom`` turns a value-shaped intent it
+    cannot parse into natural-language ``Text`` — by design, an intent is prose
+    first (only a chained ``!`` is refused outright, D-1b) — so a sub-tree that
+    would fail loudly as a source fails silently here. Only these structured
+    intents pay for it (prompt text, URLs and paths do not).
     """
     for ch in ";,":
         # The enclosing chain/list would split it off first (params hoisted).

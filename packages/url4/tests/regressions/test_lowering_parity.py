@@ -325,3 +325,39 @@ def test_item9_retry_on_a_nested_group_is_applied_on_both_paths(
         out = asyncio.run(run(target, io=io))
         assert out == "k\n\nj\n\nBAD\nB\nz"
         assert io.calls["https://x/bad"] == 2
+
+
+# --- G10 review 1: a call's intent may be an expression (Spec B §8 intent = value) --------
+# `/p(x)!(a)!b` is ONE call whose intent is the local expression `(a)!b`; only a
+# bare-value intent ends at '!'.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "/p(x)!('a')!b",
+        "/p(x)!('a', 'b')!c",
+        "(/p(x)!('a')!b, 'c')!k",
+        "(/p(x)!('a', 'b')!c, 'd')!k",
+    ],
+)
+def test_review1_a_call_with_an_expression_intent_reads_alike(text: str) -> None:
+    build(text)
+    lazy, eager = _both(text)
+    assert lazy == eager
+
+
+def test_review1_a_call_with_an_expression_intent_parses_as_one_call() -> None:
+    call = _only_source("/p(x)!('a', 'b')!c")
+    assert isinstance(call, RelExpr)
+    assert call.intent == Expression(sources=(Text("a"), Text("b")), intent=Text("c"))
+    assert parse("/p(x)!('a', 'b')!c") == call
+
+
+def test_review1_render_writes_a_call_with_an_expression_intent() -> None:
+    call = RelExpr(
+        path="/p", context="x", intent=Expression(sources=(Text("a"),), intent=Text("b"))
+    )
+    text = render(call)
+    assert parse(text) == call
+    assert _only_source(text) == call

@@ -16,7 +16,7 @@ import pytest
 from url4 import build
 from url4.core.errors import ParseError
 from url4.core.parser import decode_envelope
-from url4.dag import run
+from url4.dag import compile_expression, run
 from url4.io.static import StaticIOLayer
 
 
@@ -31,7 +31,7 @@ def _refused_everywhere(text: str, match: str) -> None:
     "text", ["(n=*(https://a.io)!'i')!'k'", "n=*(https://a.io)!'i'", "n:*(https://a.io)!'i'"]
 )
 def test_a_name_only_descriptor_is_not_a_collection(text: str) -> None:
-    _refused_everywhere(text, "name-only descriptor")
+    _refused_everywhere(text, "descriptor whose value cannot start with")
 
 
 def test_an_expanded_source_is_not_a_collection() -> None:
@@ -43,9 +43,7 @@ def test_an_expanded_source_is_not_a_collection() -> None:
 def test_an_iteration_with_no_collection_never_decodes(text: str) -> None:
     # The lowering's empty-collection branch is dead: no envelope yields one.
     with pytest.raises(ParseError):
-        env = decode_envelope(text)
-        assert getattr(env, "collection", "x") != ""
-        build(text)
+        decode_envelope(text)
 
 
 @pytest.mark.parametrize(
@@ -62,3 +60,30 @@ def test_a_top_level_url_intent_is_a_bare_value(text: str) -> None:
 )
 def test_bare_value_url_intents_still_parse(text: str) -> None:
     build(text)
+
+
+@pytest.mark.parametrize("text", ["n=*x*(b)!i", "n:*x*(b)!i", "(n=*x*(b)!i)!k"])
+def test_a_descriptor_value_cannot_start_with_star(text: str) -> None:
+    # Spec B §8 rule 5: `n=…` is the sugar form, and a value never starts with '*'.
+    _refused_everywhere(text, "cannot start with '\\*'")
+
+
+def test_a_top_level_url_intent_ends_at_a_comma() -> None:
+    _refused_everywhere("('a')!https://w.org/a,b", "bare value")
+
+
+def _refused_at_parse_time(text: str, match: str) -> None:
+    # compile_expression lowers the text path without running it.
+    with pytest.raises(ParseError, match=match):
+        build(text)
+    with pytest.raises(ParseError, match=match):
+        compile_expression(text)
+
+
+@pytest.mark.parametrize("text", ["((('a')!b!c), 'd')!k", "(('a')!b!c, 'd')!k"])
+def test_a_deferred_group_with_a_chained_intent_fails_at_parse_time(text: str) -> None:
+    _refused_at_parse_time(text, "chained intent")
+
+
+def test_a_deferred_group_with_a_malformed_param_fails_at_parse_time() -> None:
+    _refused_at_parse_time("(('a')!b;bad key, 'd')!k", "param")

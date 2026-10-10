@@ -25,7 +25,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from url4.core._annotations import DirectiveFields, validate_params
+from url4.core._annotations import DirectiveFields, fold_broadcast, validate_params
 from url4.core._iteration_envelope import (
     IterationEnvelope,
     _decode_iteration,
@@ -83,7 +83,7 @@ def _collection_node(source: str) -> Node:
     A bare paren-collection is legal in this position (`paren-collection` is
     its own intent-less production), so this goes through ``parse_group_root``.
     """
-    return parse_group_root(source) if source else Expression(sources=())
+    return parse_group_root(source)
 
 
 @dataclass(frozen=True)
@@ -135,8 +135,8 @@ def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
         raw_intent, tail_params, tail_directives = split_directive_fields(raw_intent)
         params += tail_params
         directives = _merge_directives(directives, tail_directives)
-    broadcast = broadcast or any(key == "broadcast" for key, _ in params)
-    params = tuple(pair for pair in params if pair[0] != "broadcast")
+    flag, params = fold_broadcast(params)
+    broadcast = broadcast or flag
     # `expr-param = param-key "=" param-value` — the SAME two productions the
     # query sites use, so one validator serves all three (`OME-507`). It runs
     # here, on the resolved expression params, rather than inside
