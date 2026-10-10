@@ -20,7 +20,8 @@ here:
   :class:`BarrierNode`, :class:`GatherNode`, :class:`InlineCollectionNode`,
   :class:`ProcessNode`, :class:`JoinNode`, :class:`CollectNode`,
   :class:`FanoutReduceNode`;
-- :mod:`.broadcast` — :class:`MergeNode`, :class:`BroadcastCollectNode`;
+- :mod:`.broadcast` — :class:`MergeNode`;
+- :mod:`.broadcast_result` — :class:`BroadcastCollectNode`;
 - :mod:`.guard` — :class:`GuardNode` (``;optional``/``;t=``/``;retry=``);
 - :mod:`.iteration` — :class:`ExpandNode`, :class:`MapNode`;
 - :mod:`.reduce` — :class:`ReduceNode`;
@@ -44,7 +45,8 @@ construction.
 from __future__ import annotations
 
 from url4.dag.nodes._shared import DEFAULT_MAP_CONCURRENCY, SlotSpec
-from url4.dag.nodes.broadcast import BroadcastCollectNode, MergeNode
+from url4.dag.nodes.broadcast import MergeNode
+from url4.dag.nodes.broadcast_result import BroadcastCollectNode
 from url4.dag.nodes.fetch import (
     HoldingsNode,
     RelUrlNode,

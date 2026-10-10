@@ -1,13 +1,13 @@
 """The broadcast route (Spec B §6.1): one intent application per resolved source.
 
-:class:`MergeNode` runs the intent once for one source; :class:`BroadcastCollectNode`
-assembles the surviving parts into the §6.1.4 collection. Split out of
+:class:`MergeNode` runs the intent once for one source. The §6.1.4 result
+envelope that assembles the parts lives in :mod:`.broadcast_result`, because it
+changes with the result format, not with how an intent is applied. Split out of
 :mod:`.group` (its size cap) because broadcast is its own route.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -56,30 +56,3 @@ class MergeNode:
         else:
             intent = _as_text(inputs["intent"]) if "intent" in inputs else ""
         return await ctx.process(source, intent, scope)
-
-
-@dataclass(eq=False)
-class BroadcastCollectNode:
-    """Assemble per-source broadcast results into the §6.1.4 collection shape.
-
-    A JSON array of ``{"source_position", "source_name", "result"}`` objects,
-    ordered by source position (1-based). A failed optional source's part is
-    omitted — broadcast applies across *resolved* sources (§6.1.3) — while the
-    surviving parts keep their original positions. Quorum (§12.2) is not checked
-    here: a gate before every :class:`MergeNode` holds the intents until it is met.
-    """
-
-    names: tuple[str | None, ...] = ()
-    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"part:i": node}
-
-    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        rows = [
-            {
-                "source_position": i + 1,
-                "source_name": self.names[i] if i < len(self.names) else None,
-                "result": _as_text(inputs[role]),
-            }
-            for i, role in enumerate(self.deps)
-            if not isinstance(inputs[role], SourceFailure)
-        ]
-        return json.dumps(rows)
