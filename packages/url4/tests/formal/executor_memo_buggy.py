@@ -11,14 +11,14 @@
 # Check:  fm check executor_memo_buggy.py   (the formal-modeling skill, bin/fm.py)
 #         (expect a violation + 5-step counterexample)
 #
-# SOURCE: packages/url4/src/url4/dag/executor.py:Executor._run (lines 134-151)
+# SOURCE: packages/url4/src/url4/dag/executor.py:Executor._run (its INVARIANT comment)
 
 """Executor._run memo — WRONG: an await inserted between check and store.
 
 Same shape as the fixed model, but the check and the store are SEPARATE
 actions (a yield point). Both parents can miss the memo before either stores,
 so the shared child gets two eval tasks. This is the exact regression the
-INVARIANT comment at executor.py:134-151 exists to forbid.
+INVARIANT comment in executor.py:Executor._run exists to forbid.
 """
 
 NAME = "Executor._run memo - check and store split by an await (bug)"
