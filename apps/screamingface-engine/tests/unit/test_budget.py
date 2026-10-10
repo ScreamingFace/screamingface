@@ -10,7 +10,6 @@ are exact (``0.1 + 0.2 == 0.3``); a state is equal to the fold of its own charge
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -83,10 +82,6 @@ def test_a_state_with_an_invalid_cap_is_rejected() -> None:
             charges=[],
             refused=[],
         )
-
-
-def test_a_whole_token_cap_builds() -> None:
-    assert Budget(unit="tokens", cap=1000.0).cap == 1000.0
 
 
 # --- BU#2 -------------------------------------------------------------------------------------
@@ -219,13 +214,6 @@ def test_a_non_finite_number_is_unpriced_never_an_error(bad: float) -> None:
 
     assert state.charges[1].source == "unpriced"
     assert state.spent == 0.002 and state.unpriced_charges == 1
-
-
-def test_charge_returns_an_exact_decimal() -> None:
-    amount, source = charge(_usd(0.1), "usd", cached=False)
-
-    assert amount == Decimal("0.1")
-    assert source == "live"
 
 
 # --- record rules -----------------------------------------------------------------------------

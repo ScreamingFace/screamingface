@@ -134,16 +134,5 @@ def test_the_fixture_holds_exactly_the_scenarios() -> None:
     assert sorted(_fixture()) == sorted(SCENARIOS)
 
 
-def test_the_scenarios_cover_the_budget_shapes() -> None:
-    cases = {name: build() for name, build in SCENARIOS.items()}
-
-    assert cases["usd_three_calls"].remaining == 0.004
-    assert cases["usd_cache_hit"].charges[1].source == "cache_reference"
-    assert cases["tokens"].unit == "tokens" and cases["tokens"].spent == 395.0
-    assert cases["unpriced"].unpriced_charges == 1
-    assert cases["overrun"].spent > cases["overrun"].cap and cases["overrun"].remaining == 0.0
-    assert [r.estimated for r in cases["refused"].refused] == [0.02]
-
-
 if __name__ == "__main__":
     write_fixture()

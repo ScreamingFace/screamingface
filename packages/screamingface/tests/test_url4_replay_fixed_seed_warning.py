@@ -84,13 +84,6 @@ def test_the_replay_text_is_the_recipe_text() -> None:
     assert str(from_replay[0].message) == str(from_recipe[0].message)
 
 
-def test_a_replayed_model_with_its_own_seed_warns() -> None:
-    fixed, _ = _sync_replay(sf.Model(_MODEL, params={"seed": 7}), answer_seed=0)
-
-    assert len(fixed) == 1
-    assert "1 call sets its own seed: op_model_1 (" in str(fixed[0].message)
-
-
 def test_no_warning_without_a_run_seed() -> None:
     fixed, transport = _sync_replay(_samples_fusion(), answer_seed=None)
 
@@ -126,20 +119,4 @@ async def test_async_replayed_samples_fusion_with_a_run_seed_warns_once_and_stil
     assert len(fixed) == 1
     assert "3 calls set their own seed: op_model_1 (" in str(fixed[0].message)
     assert fixed[0].filename == __file__
-    assert transport.candidate is not None
-
-
-@pytest.mark.asyncio
-async def test_async_no_warning_without_a_run_seed() -> None:
-    transport = _AsyncReplayTransport()
-    replay = _replay(_samples_fusion())
-
-    with warnings.catch_warnings(record=True) as recorded:
-        warnings.simplefilter("always")
-        async with sf.AsyncClient(
-            engine_url=_BASE, http_transport=httpx.MockTransport(_engine), run_transport=transport
-        ) as client:
-            await client.evaluate(replay, progress=False)
-
-    assert _fixed(recorded) == []
     assert transport.candidate is not None

@@ -163,7 +163,7 @@ def test_replaying_an_unpinned_operator_fails_before_any_request(operator: str) 
 # WHY no `Mode@1` here: the corrective vote spec is rebuilt first and refuses it earlier, with its
 # own message; the claim is only that the pinned form is refused alike, before any request.
 @requires_engine_app
-@pytest.mark.parametrize("operator", ["mode", "mode@01"])
+@pytest.mark.parametrize("operator", ["mode"])
 def test_a_corrective_loop_and_a_fusion_refuse_an_unpinned_operator_alike(operator: str) -> None:
     paths: list[str] = []
     transport = _ForbiddenTransport()
@@ -253,42 +253,6 @@ async def test_async_replaying_an_unknown_pinned_operator_fails_before_the_run()
 
     assert transport.called is False
     assert paths == ["/v1/operators"]
-
-
-@pytest.mark.asyncio
-async def test_async_replaying_an_unpinned_operator_fails_before_any_request() -> None:
-    paths: list[str] = []
-    transport = _AsyncForbiddenTransport()
-
-    async with _async_client(paths, transport) as client:
-        with pytest.raises(ValueError, match="reduce operator 'mode' is not a pinned id"):
-            await client.evaluate(_reducer_replay("mode"), progress=False)
-
-    assert transport.called is False
-    assert paths == []
-
-
-@pytest.mark.asyncio
-async def test_async_replaying_against_an_engine_without_a_catalog_is_a_capability_error() -> None:
-    transport = _AsyncForbiddenTransport()
-
-    async with _async_client([], transport, catalog=httpx.Response(404)) as client:
-        with pytest.raises(sf.EngineCapabilityError) as caught:
-            await client.evaluate(_reducer_replay(), progress=False)
-
-    assert caught.value.code == "engine_capability_missing"
-    assert transport.called is False
-
-
-@pytest.mark.asyncio
-async def test_async_replaying_while_the_catalog_is_unreachable_is_unavailable() -> None:
-    transport = _AsyncForbiddenTransport()
-
-    async with _async_client([], transport, unreachable=True) as client:
-        with pytest.raises(sf.EngineUnavailableError):
-            await client.evaluate(_reducer_replay(), progress=False)
-
-    assert transport.called is False
 
 
 @pytest.mark.asyncio

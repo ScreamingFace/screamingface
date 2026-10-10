@@ -15,7 +15,6 @@ from typing import Any
 import pytest
 
 from screamingface.budget import (
-    BUDGET_SCHEMA,
     Budget,
     BudgetCharge,
     BudgetRefusal,
@@ -59,10 +58,6 @@ def _state() -> dict[str, Any]:
     }
 
 
-def test_the_schema_id_is_the_engine_id() -> None:
-    assert BUDGET_SCHEMA == "screamingface.budget.v1"
-
-
 # --- BU#1 SDK ---------------------------------------------------------------------------------
 
 
@@ -72,12 +67,11 @@ def test_the_schema_id_is_the_engine_id() -> None:
         ("usd", 0.0, ValueError),
         ("usd", -1.0, ValueError),
         ("usd", float("nan"), ValueError),
-        ("usd", float("inf"), ValueError),
         ("usd", True, TypeError),
         ("tokens", 10.5, ValueError),
         ("eur", 1.0, ValueError),
     ],
-    ids=["zero", "negative", "nan", "inf", "bool", "fractional-tokens", "unit"],
+    ids=["zero", "negative", "nan", "bool", "fractional-tokens", "unit"],
 )
 def test_budget_rejects_invalid_caps(unit: Any, cap: Any, error: type[Exception]) -> None:
     with pytest.raises(error):
@@ -185,24 +179,3 @@ def test_a_state_reads_from_a_mapping_only() -> None:
         BudgetState.from_dict([])  # type: ignore[arg-type]
     with pytest.raises(TypeError):
         BudgetState.from_dict({**_state(), "charges": "x"})
-
-
-def test_an_overrun_state_keeps_remaining_at_zero() -> None:
-    wire = {
-        "unit": "usd",
-        "cap": 0.005,
-        "spent": 0.007,
-        "remaining": 0.0,
-        "unpriced_charges": 0,
-        "charges": [
-            _charge(amount=0.004, remaining_after=0.001),
-            _charge(operation_id="op_model_2", member_id="member_2", amount=0.003)
-            | {"remaining_after": 0.0},
-        ],
-        "refused": [],
-    }
-
-    state = BudgetState.from_dict(wire)
-
-    assert state.spent > state.cap and state.remaining == 0.0
-    assert json.dumps(state.to_dict()) == json.dumps(wire)

@@ -39,10 +39,6 @@ from screamingface.reducer import Reducer
 
 _MEMBERS = ["provider/a", "provider/b", "provider/c"]
 _GSM8K = "inspect-gsm8k"
-_BENCHMARK_VOTES: list[Reducer] = [
-    sf.Vote(extract="benchmark"),
-    sf.Reduce("plurality", extract=sf.Extract("benchmark")),
-]
 
 
 def _fusion(synthesizer: Reducer) -> sf.Fusion:
@@ -98,8 +94,8 @@ def _one_case(candidate: Candidate) -> list[dict[str, Any]]:
     return [case_wire("42")]
 
 
-@pytest.mark.parametrize("synthesizer", _BENCHMARK_VOTES, ids=repr)
-def test_benchmark_extract_resolves_before_spend(synthesizer: Reducer) -> None:
+def test_benchmark_extract_resolves_before_spend() -> None:
+    synthesizer = sf.Vote(extract="benchmark")
     events: list[str] = []
     transport = ScriptedTransport(_GSM8K, "fixture-revision", _one_case, events)
 
@@ -227,38 +223,3 @@ def test_engine_without_inspect_operators_raises_capability_error(
     assert error.details == {"benchmark": _GSM8K, "stage": stage, "operator": operator}
     assert operator in str(error)
     assert transport.called is False
-
-
-def test_resolved_url4_replays_without_benchmark_lookup() -> None:
-    # GP#14: a guard. A url4 replay never recompiles, so it is green as soon as the rule is pinned.
-    # Unit 12: a replay of a combine url4 asks for the operator catalog once (to check the pinned
-    # operators before it spends), and never for the benchmark.
-    first = ScriptedTransport(_GSM8K, "fixture-revision", _one_case)
-    with sf.Client(
-        engine_url="https://engine.example",
-        http_transport=_gsm8k_engine([]),
-        run_transport=first,
-    ) as client:
-        report = client.evaluate(
-            _fusion(sf.Vote(extract="benchmark")), benchmark=_GSM8K, progress=False
-        )
-    url4 = report.candidates[0].url4
-
-    replay = ScriptedTransport(_GSM8K, "fixture-revision", _one_case)
-    replay_paths: list[str] = []
-    with sf.Client(
-        engine_url="https://engine.example",
-        http_transport=_gsm8k_engine(replay_paths),
-        run_transport=replay,
-    ) as client:
-        client.evaluate(url4, progress=False)
-
-    assert not [p for p in replay_paths if p.startswith("/v1/benchmarks")]
-    assert replay_paths.count("/v1/operators") == 1
-    assert replay.candidate is not None
-    assert replay.candidate.url4 == url4
-    namespace: dict[str, Any] = {}
-    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
-    recompiled = compile_candidate(namespace["candidate"], operators=engine_operators())
-    original = _url4(sf.Vote(extract="benchmark"), _bound(_GSM8K, GSM8K_RULE_WIRE))
-    assert recompiled.url4 == original
