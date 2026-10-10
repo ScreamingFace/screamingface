@@ -62,9 +62,12 @@ def test_bare_value_url_intents_still_parse(text: str) -> None:
     build(text)
 
 
-@pytest.mark.parametrize("text", ["n=*x*(b)!i", "n:*x*(b)!i", "(n=*x*(b)!i)!k"])
+@pytest.mark.parametrize(
+    "text",
+    ["n=*x*(b)!i", "n:*x*(b)!i", "src=*x*(b)!i", "(n=*x*(b)!i)!k", "(src=*x*(b)!i)!k"],
+)
 def test_a_descriptor_value_cannot_start_with_star(text: str) -> None:
-    # Spec B §8 rule 5: `n=…` is the sugar form, and a value never starts with '*'.
+    # Spec B §8 rule 5: `src=…`, `n=…` and `n:…` are descriptors, and a value never starts with '*'.
     _refused_everywhere(text, "cannot start with '\\*'")
 
 

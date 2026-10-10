@@ -13,14 +13,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from url4.core._annotations import (
-    classify_boundary,
-    fold_broadcast,
-    split_annotation_pairs,
-    validate_params,
-)
+from url4.core._annotations import classify_boundary, split_annotation_pairs, validate_params
 from url4.core._lexical import _IDENT_RE, reject_chained_intent
 from url4.core._scan import balanced_body, iter_top_level, split_top_level
+from url4.core._splitters import split_intent
 
 HeadForm = Literal["value", "src", "sugar", "chain"]
 
@@ -64,24 +60,18 @@ def deferrable_group(segment: str) -> tuple[str | None, str, str] | None:
     pairs = split_annotation_pairs(chain)
     if segment.startswith("*") or classify_boundary(pairs)[1]:
         return None
-    binding = _name_and_value(head)
+    binding = name_and_value(head)
     if binding is None or not is_processed_group(binding[2]):
         return None
     name, kind, value = binding
-    reject_chained_intent(_group_intent(value))
-    validate_params(fold_broadcast(pairs)[1])
+    intent = split_intent(value)[1]
+    assert intent is not None  # is_processed_group checked the `)!`
+    reject_chained_intent(intent)
+    validate_params(pairs)
     return name, kind, ";".join([value, *chain])
 
 
-def _group_intent(group: str) -> str:
-    """The intent text after a processed group's ``)!`` (or ``)!*``)."""
-    body = balanced_body(group, 1)
-    assert body is not None  # is_processed_group checked it
-    after = group[len(body) + 2 :]
-    return after[2:] if after.startswith("!*") else after[1:]
-
-
-def _name_and_value(head: str) -> tuple[str | None, str, str] | None:
+def name_and_value(head: str) -> tuple[str | None, str, str] | None:
     """A head's ``(name, kind, value)`` when it names at most a name; None otherwise."""
     form, name, value = classify_head(head)
     if form != "chain":

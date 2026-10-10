@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from url4.core._annotations import DirectiveFields, directives_from_fields
-from url4.core._descriptor_head import classify_head, first_colon
+from url4.core._descriptor_head import classify_head, name_and_value
 from url4.core._lexical import _IDENT_RE, reject_chained_intent
 from url4.core._splitters import (
     _split_at_iteration_body,
@@ -165,14 +165,10 @@ def _check_collection_ref(collection: str, stripped: str) -> None:
 
 
 def _descriptor_value(text: str) -> str | None:
-    """The value after a name-only head (``n=``/``n:``), or None when there is no such head."""
-    form, _, value = classify_head(text)
-    colon = first_colon(text)
-    result: str | None = None
+    """The value after a descriptor head (``src=``, ``n=``, ``n:``), or None for a bare value."""
     if text[-1] in "=:" and _IDENT_RE.fullmatch(text[:-1]):
-        result = ""
-    elif form == "sugar":
-        result = value.strip()
-    elif form == "chain" and colon is not None and _IDENT_RE.fullmatch(text[:colon].strip()):
-        result = text[colon + 1 :].strip()
-    return result
+        return ""  # `n=` / `n:` with nothing after: classify_head reads these as bare values
+    if classify_head(text)[0] == "value":
+        return None
+    binding = name_and_value(text)
+    return None if binding is None else binding[2].strip()
