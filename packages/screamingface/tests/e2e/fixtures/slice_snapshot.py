@@ -439,8 +439,8 @@ def parse_candidate_spec(spec: Mapping[str, Any]) -> tuple[Any, Any, int]:
     if spec.get("kind") != "corrective_loop":
         raise SystemExit(
             f"candidate spec kind is {spec.get('kind')!r} — the fresh-dump mode "
-            f"replays corrective_loop candidates (single-model boards bless from "
-            f"--dump/--answers; fusions from --report)"
+            f"replays corrective_loop and model candidates (legacy single-model "
+            f"recordings bless from --dump/--answers; fusions from --report)"
         )
     try:
         member_specs = tuple(
@@ -458,6 +458,35 @@ def parse_candidate_spec(spec: Mapping[str, Any]) -> tuple[Any, Any, int]:
     if not isinstance(max_rounds, int) or isinstance(max_rounds, bool) or max_rounds < 1:
         raise SystemExit(f"candidate spec max_rounds must be an int >= 1, got {max_rounds!r}")
     return member_specs, judge_spec, max_rounds
+
+
+def fresh_candidate(spec: Mapping[str, Any]) -> tuple[Any, dict[str, Any]]:
+    """A fresh-dump candidate spec → ``(candidate, golden replay-input fields)``.
+
+    ``{"kind": "model", "model": "<id>"}`` rebuilds ``sf.Model`` — the shape
+    ``build_candidate`` replays for a single-model golden, so a board first blessed from
+    the legacy ``--dump/--answers`` recordings can be re-recorded fresh through THIS
+    checkout's gateway (url4 2.0: a protocol fix re-keyed draco-3pass's judge requests,
+    and no legacy recording holds the corrected prompts). Every other spec is the
+    ``corrective_loop`` shape :func:`parse_candidate_spec` guards.
+    """
+    if spec.get("kind") == "model":
+        model = spec.get("model")
+        if not isinstance(model, str) or not model.strip():
+            raise SystemExit('a "model" candidate spec needs a non-empty "model" id')
+        import screamingface as sf
+
+        return sf.Model(model), {"kind": "model", "model": model}
+    from harness.goldens import loop_candidate
+
+    member_specs, judge_spec, max_rounds = parse_candidate_spec(spec)
+    fields: dict[str, Any] = {
+        "kind": "corrective_loop",
+        "member_specs": [member.model_dump() for member in member_specs],
+        "judge_spec": judge_spec.model_dump(),
+        "max_rounds": max_rounds,
+    }
+    return loop_candidate(member_specs, judge_spec, max_rounds), fields
 
 
 def pin_report_expectations(args: argparse.Namespace, *, score: Any, coverage: float) -> None:
@@ -910,7 +939,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--candidate",
         type=Path,
-        help="fresh-dump mode: JSON spec of the recorded corrective_loop candidate — "
+        help="fresh-dump mode: JSON spec of the recorded candidate — "
+        '{"kind": "model", "model": "<id>"} for a single model, or '
         '{"kind": "corrective_loop", "members": [{"model", "prompt"?, "params"?}...], '
         '"judge": {...}, "max_rounds": N}. Prompts/params must match the recording '
         "verbatim: they render into the request bytes the recorded cache keys hash.",
@@ -1638,24 +1668,23 @@ def _bless_fresh_dump(args: argparse.Namespace) -> None:
         raise SystemExit("--dump-fresh needs --dump, --report AND --candidate")
 
     # Stage 1 — parse the recordings.
-    member_specs, judge_spec, max_rounds = parse_candidate_spec(
+    candidate, replay_fields = fresh_candidate(
         json.loads(args.candidate.read_text(encoding="utf-8"))
     )
     facts = parse_fresh_report(json.loads(args.report.read_text(encoding="utf-8")))
     if facts.board != args.board:
         raise SystemExit(f"the report describes board {facts.board!r}, not {args.board!r}")
-    if facts.kind != "corrective_loop":
+    if facts.kind != replay_fields["kind"]:
         raise SystemExit(
-            f"the report records a {facts.kind!r} run — the fresh-dump mode blesses "
-            f"corrective_loop recordings (see --dump/--answers and --report for the others)"
+            f"the report records a {facts.kind!r} run but the candidate spec is a "
+            f"{replay_fields['kind']!r} — the two must describe the same recording"
         )
     dump_sha = _dump_content_sha(args.dump)
     report_sha = hashlib.sha256(args.report.read_bytes()).hexdigest()
     print(
-        f"[parse] candidate: {len(member_specs)} members "
-        f"{[spec.model for spec in member_specs]}, judge {judge_spec.model!r}, "
-        f"max_rounds={max_rounds}; report: {len(facts.case_statuses)} cases, "
-        f"expected score={facts.expected_score} coverage={facts.expected_coverage}",
+        f"[parse] candidate: {replay_fields['kind']} {candidate!r}; report: "
+        f"{len(facts.case_statuses)} cases, expected score={facts.expected_score} "
+        f"coverage={facts.expected_coverage}",
         flush=True,
     )
 
@@ -1664,17 +1693,11 @@ def _bless_fresh_dump(args: argparse.Namespace) -> None:
 
     pin_report_expectations(args, score=facts.expected_score, coverage=facts.expected_coverage)
 
-    from harness.goldens import loop_candidate
-
-    candidate = loop_candidate(member_specs, judge_spec, max_rounds)
     evidence = _fresh_replay_and_slice(args, candidate, facts, assets_root)
     golden = author_golden(
         board=args.board,
         revision=evidence.revision,
-        kind="corrective_loop",
-        member_specs=[spec.model_dump() for spec in member_specs],
-        judge_spec=judge_spec.model_dump(),
-        max_rounds=max_rounds,
+        **replay_fields,
         limit=args.limit,
         rendered_url4=evidence.rendered_url4,
         final_score=evidence.final_score,
