@@ -15,7 +15,8 @@
   <!-- Privacy-friendly analytics by Plausible -->
   <script>
     // Team self-exclusion: ?plausible_ignore=1 sets Plausible's per-browser opt-out (localStorage.plausible_ignore), =0 clears it.
-    try { var ig = new URLSearchParams(location.search).get('plausible_ignore'); if (ig === '1') localStorage.setItem('plausible_ignore', 'true'); if (ig === '0') localStorage.removeItem('plausible_ignore'); } catch (e) {}
+    try { var q = new URLSearchParams(location.search), ig = q.get('plausible_ignore'); if (ig === '1') localStorage.setItem('plausible_ignore', 'true'); if (ig === '0') localStorage.removeItem('plausible_ignore');
+      if (ig !== null && q.get('hop') === '1') location.replace('https://docs.screamingface.ai/?plausible_ignore=' + ig + '&hop=1'); } catch (e) {}   // &hop=1: continue the opt-out to docs
   </script>
   <script async src="https://plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js"></script>
   <script>
