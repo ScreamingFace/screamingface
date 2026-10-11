@@ -29,7 +29,9 @@ Stages of one rehearsal, in execution order:
    an untaped model is ``fake_gateway_unmatched_request`` (the Tape contract —
    ``lookup`` returns the exchange or ``None``, and ``None`` surfaces as a loud error,
    deliberately no default response), any other route is ``fake_gateway_unroutable``.
-   Failure injection ONLY: the stand-in never invents an answer and never falls back
+   The frozen-copy routes (open, seal, tool-results) answer fixed bookkeeping replies so the
+   default capture path runs; they never invent a model answer. Failure injection ONLY: the
+   stand-in never invents an answer and never falls back
    to anything.
 
 WHY match by MODEL and not by the tape fingerprint: the fingerprint is the gateway's
@@ -50,6 +52,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Literal
@@ -60,6 +63,10 @@ from .tape import RecordedExchange, Tape
 _COMPLETIONS_PATH = "/v1/chat/completions"
 _HEALTH_PATH = "/healthz"
 _MODELS_PATH = "/v1/models"
+# The frozen-copy surface the engine uses on a default (capture=True) run — shapes match the
+# real gateway's routes (apps/aigateway routes/frozen_copies.py).
+_FROZEN_COPIES_PATH = "/v1/frozen-copies"
+_FAKE_COPY_ID = "00000000-0000-4000-8000-000000000001"
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +291,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler naming
         self.gateway._record_headers(dict(self.headers))
+        if self._serve_frozen_copy():
+            return
         if self.path != _COMPLETIONS_PATH:
             self._refuse_unroutable()
             return
@@ -297,6 +306,31 @@ class _Handler(BaseHTTPRequestHandler):
             bytes(exchange.response.body),
             exchange.response.media_type,
         )
+
+    def _serve_frozen_copy(self) -> bool:
+        """Answer the capture bookkeeping calls; chat calls stay taped (they add a header)."""
+        path = self.path
+        reply: Mapping[str, object]
+        if path == _FROZEN_COPIES_PATH:
+            status, reply = 201, {"id": _FAKE_COPY_ID, "status": "open"}
+        elif path.startswith(f"{_FROZEN_COPIES_PATH}/") and path.endswith("/seal"):
+            status, reply = 200, {"id": _FAKE_COPY_ID, "status": "sealed", "entries": 0}
+        elif path.startswith(f"{_FROZEN_COPIES_PATH}/") and path.endswith("/tool-results"):
+            status, reply = 200, {"outcome": "stored"}
+        else:
+            return False
+        self._drain_body()
+        self._reply(status, json.dumps(reply).encode(), "application/json")
+        return True
+
+    def _drain_body(self) -> None:
+        # Keep-alive hygiene: read the body so it is not parsed as the next request.
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length:
+                self.rfile.read(length)
+        except (ValueError, OSError):
+            pass
 
     # -- plumbing -------------------------------------------------------------------
     def _request_model(self) -> str | None:
