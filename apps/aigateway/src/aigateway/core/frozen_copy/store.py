@@ -22,6 +22,7 @@ from uuid import UUID
 
 from tortoise.transactions import in_transaction
 
+from aigateway.core.oauth.store import ensure_anonymous_account
 from aigateway.core.request_cache.canonical import canonical_digest
 
 from .models import STATUS_OPEN, STATUS_SEALED, FrozenCopy, FrozenCopyEntry
@@ -93,6 +94,9 @@ class FrozenCopyStore:
         return self._max_entry_bytes
 
     async def open(self, account_id: UUID) -> FrozenCopy:
+        # WHY: with auth disabled the caller is the unsaved anonymous account, and the copy names
+        # it by foreign key.
+        await ensure_anonymous_account(account_id)
         return await FrozenCopy.create(account_id=account_id)
 
     async def get(self, copy_id: UUID) -> FrozenCopy | None:

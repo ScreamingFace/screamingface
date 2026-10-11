@@ -71,3 +71,15 @@ TDD order from the plan (risk order):
 - **Review round (F-B1 design review):** a non-dict success is `failed` and stamped; a mutation conflict (503) and an unexpected exception (generic 500) are captured and re-raised unchanged, the header reaching the response through the two app handlers; a replayed error has `detail` plus the zero-cost `_aigw` block with `frozen_copy_replay`; an empty `X-AIGW-Frozen-Copy` is `refused`; an inert capture never touches `exc.headers`; entries are ordered by a per-copy `seq` (`frozen_copies.entry_seq` counter, advanced under the copy-row lock; migration 0014 edited in place); one store accessor (`frozen_copy_store_for`) and one log helper (`log_capture_failure`); `prepare_ingress_body` moved to `core/request_hardening`; relative imports in `routes/frozen_copies.py`; unused `KIND_*` constants removed; a store or database failure on tool-results is 200 `failed`; a malformed copy id on replay and tool lookup is 404 `frozen_copy_unavailable`; `frozen_copies.account_id` is indexed.
 - **Known limits:** the exclusive row lock on capture serialises inserts per copy (accepted). Entries are stored in JSON columns, so a `\u0000` character inside a request or response is not storable on Postgres: the capture is then `failed` and the run is `partial` (accepted).
 - **Deviations:** none from the design. Decisions inside the plan, all accepted by the orchestrator: migration FK spelling as in 0012; zero-cost hit `_aigw` with top-level `frozen_copy_replay`; `frozen_copy_not_found` 404 code; no capture header on refusals before the copy check; row lock in store capture and seal; always-present capture object in `chat_completions` to stay inside the 76-statement limit.
+
+## Rebase 2026-10-11
+
+- The stack was rebased onto origin/main 8e0c0a298 (url4 2.0, OME-1503). B1 had no conflicts.
+- CI `golden-replay` found a bug once capture became the default (B5). With auth disabled, the caller is the
+  unsaved anonymous account. `POST /v1/frozen-copies` then failed with a 500: the `frozen_copies.account_id`
+  foreign key names an account row that does not exist.
+- Fix: `FrozenCopyStore.open` calls the existing `ensure_anonymous_account` before it creates the copy, as
+  `writer_floor` does for the same case. New test:
+  `test_the_anonymous_account_opens_a_copy_without_a_foreign_key_failure` (red first, with the same
+  foreign key error).
+- Gates: ruff, ruff format, pyright, pytest (5436 passed, 97 skipped).

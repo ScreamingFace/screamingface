@@ -10,6 +10,8 @@ from typing import Any, cast
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
+from aigateway.core.auth.models import Account
 from aigateway.core.frozen_copy.models import FrozenCopyEntry
 from aigateway.core.frozen_copy.store import (
     FrozenCopyStore,
@@ -105,6 +107,23 @@ def test_one_accessor_gives_the_store_with_the_configured_cap(
     assert isinstance(first, FrozenCopyStore)
     assert first is second
     assert first.max_entry_bytes == app.state.settings.frozen_copy_max_entry_bytes  # type: ignore[attr-defined]
+
+
+async def _anonymous_account_stored() -> bool:
+    return await Account.filter(id=ANONYMOUS_ACCOUNT_ID).exists()
+
+
+def test_the_anonymous_account_opens_a_copy_without_a_foreign_key_failure(
+    authenticated_client: TestClient,
+) -> None:
+    """With auth disabled the caller is an unsaved anonymous account; opening a copy stores it."""
+    store = frozen_copy_store_for(authenticated_client.app)
+    assert not run_async(authenticated_client, _anonymous_account_stored)
+
+    copy = run_async(authenticated_client, lambda: store.open(ANONYMOUS_ACCOUNT_ID))
+
+    assert copy.account_id == ANONYMOUS_ACCOUNT_ID
+    assert run_async(authenticated_client, _anonymous_account_stored)
 
 
 def test_the_shared_log_helper_names_copy_kind_and_digest_prefix_only(caplog) -> None:
