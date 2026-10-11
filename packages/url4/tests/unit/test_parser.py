@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from url4.core.errors import ParseError
-from url4.core.nodes import Binding, Expression, Iteration, RelUrl, Text, Url
+from url4.core.nodes import Binding, Expression, Iteration, NamedJob, RelUrl, Text, Url
 from url4.core.parser import (
     GroupEnvelope,
     IterationEnvelope,
@@ -22,8 +22,9 @@ from url4.core.parser import (
 
 def test_build_group_with_intent() -> None:
     tree = Parser().build("(a, b)!summarize")
+    # url4 2.0 (P3): a bare one-word intent is a named job.
     assert tree == Expression(
-        sources=(Text("a"), Text("b")), intent=Text("summarize"), broadcast=False
+        sources=(Text("a"), Text("b")), intent=NamedJob(value="summarize"), broadcast=False
     )
 
 
@@ -36,7 +37,8 @@ def test_build_broadcast_flag() -> None:
     tree = Parser().build("(a, b)!*upper")
     assert isinstance(tree, Expression)
     assert tree.broadcast is True
-    assert tree.intent == Text("upper")
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert tree.intent == NamedJob(value="upper")
 
 
 def test_build_empty_source_list() -> None:
@@ -82,7 +84,8 @@ def test_build_broadcast_param_folds_into_flag() -> None:
 def test_walk_preorder() -> None:
     tree = Parser().build("(a, https://x)!go")
     kinds = [type(n).__name__ for n in Parser().walk(tree)]
-    assert kinds == ["Expression", "Text", "Url", "Text"]
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert kinds == ["Expression", "Text", "Url", "NamedJob"]
 
 
 def test_split_intent_basic() -> None:
@@ -122,6 +125,16 @@ def test_split_collection_iteration() -> None:
 
 def test_split_collection_iteration_absent() -> None:
     assert split_collection_iteration("(a, b)") == (None, None)
+
+
+def test_split_collection_iteration_ignores_leading_star() -> None:
+    # B2: a leading "*(" is the expansion prefix (§5.2 rule 9), not iteration.
+    assert split_collection_iteration("*(a)!x") == (None, None)
+
+
+def test_split_collection_iteration_ignores_leading_star_after_space() -> None:
+    # The expansion prefix is the first non-space character (F5).
+    assert split_collection_iteration("  *(a)!x") == (None, None)
 
 
 # strip_one_paren_layer, reimplemented over the shared balanced_body scanner

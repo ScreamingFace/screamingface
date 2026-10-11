@@ -1,0 +1,33 @@
+
+hotspots (since: 12 months; 37 candidate files)
+───────────────────────────────────────────────
+score  churn  lines  cmplx  dens  maxd  auth  fix  quadrant  file
+ 4464      9    270    496  1.84     5     4    2  ACTIVE    packages/url4/src/url4/dag/executor.py
+ 3400      8    393    425  1.08     4     4    1  ACTIVE    packages/url4/src/url4/observe.py
+ 3000      2    563   1500  2.66     8     1    0  DOCUMENT  packages/url4/src/url4/core/render.py
+ 2320      2    380   1160  3.05     8     1    0  DOCUMENT  packages/url4/src/url4/peer/client.py
+ 1960     10    140    196  1.40     8     4    1  ACTIVE    packages/url4/src/url4/dag/node.py
+ 1904      2    786    952  1.21     5     1    0  DOCUMENT  packages/url4/src/url4/core/grammar.py
+ 1644     12    170    137  0.81     3     3    0  ACTIVE    packages/url4/src/url4/__init__.py
+ 1562      2    377    781  2.07     6     1    0  DOCUMENT  packages/url4/src/url4/core/builders.py
+ 1554      2    611    777  1.27     4     2    0  OK        packages/url4/src/url4/dag/_lowering.py
+ 1311      3    392    437  1.11     4     2    1  OK        packages/url4/src/url4/core/parser.py
+ 1280      5    219    256  1.17     4     3    0  OK        packages/url4/src/url4/streaming/protocol/signals.py
+  956      2    219    478  2.18     8     1    0  OK        packages/url4/src/url4/core/_annotations.py
+  945      3    271    315  1.16     4     2    0  OK        packages/url4/src/url4/cli/_serve.py
+  816      3    215    272  1.27     3     1    0  OK        packages/url4/src/url4/streaming/lifecycle.py
+  794      2    261    397  1.52     6     1    0  OK        packages/url4/src/url4/core/nodes.py
+  772      2    253    386  1.53     3     1    0  OK        packages/url4/src/url4/peer/server.py
+  658      2    196    329  1.68     5     2    0  OK        packages/url4/src/url4/dag/nodes/iteration.py
+  620      2    167    310  1.86     6     1    0  OK        packages/url4/src/url4/peer/_dispatch.py
+  600      2    225    300  1.33     4     1    0  OK        packages/url4/src/url4/core/_scan.py
+  468      4     82    117  1.43     3     1    0  OK        packages/url4/src/url4/streaming/interfaces/stream.py
+  404      2    145    202  1.39     6     1    0  OK        packages/url4/src/url4/io/layer.py
+  366      2    207    183  0.88     3     2    0  OK        packages/url4/src/url4/dag/nodes/_shared.py
+  338      2     98    169  1.72     5     1    0  OK        packages/url4/src/url4/io/static.py
+  309      3    117    103  0.88     3     1    0  OK        packages/url4/src/url4/core/errors.py
+  268      4     76     67  0.88     2     2    1  OK        packages/url4/src/url4/streaming/interfaces/jobs.py
+
+REFACTOR = high churn + high complexity (the backlog, pre-prioritized)
+DOCUMENT = complex but stable — leave alone; ACTIVE = churning but simple.
+thresholds: p90 churn >= 8, p90 complexity >= 781  (37 candidate files)

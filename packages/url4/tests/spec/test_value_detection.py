@@ -5,27 +5,32 @@ from __future__ import annotations
 import pytest
 
 from url4.core.grammar import parse
-from url4.core.nodes import Binding, Expression, RelUrl, Text, Url
+from url4.core.nodes import Binding, Expression, NamedJob, RelUrl, Text, Url
 
 # --- rule 1: '(' → local expression -------------------------------------------
 
 
 def test_group_of_sources() -> None:
     # §5.2 rule 1; the intent is mandatory (`OME-508`)
+    # url4 2.0 (P3): a bare one-word intent is a named job.
     assert parse("(a, https://x)!go") == Expression(
-        sources=(Text("a"), Url("https://x")), intent=Text("go")
+        sources=(Text("a"), Url("https://x")), intent=NamedJob(value="go")
     )
 
 
 def test_group_with_intent() -> None:
     # §5.2 rule 1.1.1 — ')' followed by '!' → expression intent
-    assert parse("(a, b)!merge") == Expression(sources=(Text("a"), Text("b")), intent=Text("merge"))
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert parse("(a, b)!merge") == Expression(
+        sources=(Text("a"), Text("b")), intent=NamedJob(value="merge")
+    )
 
 
 def test_grouped_reduce_binding() -> None:
     # §5.2 rule 1 nested under a binding
+    # url4 2.0 (P3): a bare one-word intent is a named job.
     assert parse("consensus=(a, b)!merge") == Binding(
-        "consensus", Expression(sources=(Text("a"), Text("b")), intent=Text("merge")), "="
+        "consensus", Expression(sources=(Text("a"), Text("b")), intent=NamedJob(value="merge")), "="
     )
 
 
@@ -36,15 +41,19 @@ def test_relative_expression_canonical_form() -> None:
     # §5.2 rule 2.1 — '?q=(' before any stop char → canonical relative expression
     from url4.core.nodes import RelExpr
 
-    assert parse("/claude?q=(ctx)!go") == RelExpr(path="/claude", context="ctx", intent=Text("go"))
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert parse("/claude?q=(ctx)!go") == RelExpr(
+        path="/claude", context="ctx", intent=NamedJob(value="go")
+    )
 
 
 def test_relative_expression_canonical_with_params() -> None:
     # §5.2 rule 2.1 — chars between '?' and 'q=' are protocol params
     from url4.core.nodes import RelExpr
 
+    # url4 2.0 (P3): a bare one-word intent is a named job.
     assert parse("/claude?t=90&q=(ctx)!go") == RelExpr(
-        path="/claude", context="ctx", intent=Text("go"), params=(("t", "90"),)
+        path="/claude", context="ctx", intent=NamedJob(value="go"), params=(("t", "90"),)
     )
 
 
@@ -132,7 +141,10 @@ def test_quoted_text_escaped_backslash() -> None:
 def test_quoted_text_protects_structural_characters() -> None:
     # §7.2 — ',', '!', ';' inside quotes are content, not separators
     node = parse("('a, b!c;d', other)!go")
-    assert node == Expression(sources=(Text("a, b!c;d"), Text("other")), intent=Text("go"))
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert node == Expression(
+        sources=(Text("a, b!c;d"), Text("other")), intent=NamedJob(value="go")
+    )
 
 
 # --- rule 5: any scheme '://' → absolute URI -----------------------------------
@@ -217,8 +229,9 @@ def test_self_and_identity_in_group() -> None:
     # §5.6.5.1 "Self- + identity-reference"
     from url4.core.nodes import IdentityRef, SelfRef
 
+    # url4 2.0 (P3): a bare one-word intent is a named job.
     assert parse("(@, @emily)!go") == Expression(
-        sources=(SelfRef(), IdentityRef("emily")), intent=Text("go")
+        sources=(SelfRef(), IdentityRef("emily")), intent=NamedJob(value="go")
     )
 
 

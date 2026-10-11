@@ -28,7 +28,7 @@ def _node() -> tuple[Url4Node, list[str]]:
         response(finish_reason="stop", refusal=None)
         return '{"answer": 42}'
 
-    node.data("/v1/benchmarks/data/foo", '{"rows": 1}', media_type="application/json")
+    node.data("/benchmarks/data/foo", '{"rows": 1}', media_type="application/json")
 
     async def evaluate(*args: object, **kwargs: object) -> str:
         calls.append("EVAL")
@@ -75,7 +75,7 @@ async def test_direct_run_yields_span_and_cost_for_the_model_call() -> None:
 async def test_a_direct_data_route_keeps_its_media_type() -> None:
     """MC-D14: the handler's declared media type reaches the result frame."""
     node, _ = _node()
-    steps = await _steps(Url4Executor(node, run_shape="direct"), "/v1/benchmarks/data/foo")
+    steps = await _steps(Url4Executor(node, run_shape="direct"), "/benchmarks/data/foo")
     completed = steps[-1]
     assert isinstance(completed, Completed)
     assert completed.result.body == '{"rows": 1}'
@@ -124,4 +124,4 @@ async def test_a_direct_run_refuses_a_route_outside_the_recorded_mounts() -> Non
     # A recorded mount still runs, with or without a query.
     steps = await _steps(executor, encode_subrequest("/v1/chat/completions", "hi", "answer"))
     assert isinstance(steps[-1], Completed)
-    assert isinstance((await _steps(executor, "/v1/benchmarks/data/foo"))[-1], Completed)
+    assert isinstance((await _steps(executor, "/benchmarks/data/foo"))[-1], Completed)

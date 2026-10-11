@@ -1,0 +1,1448 @@
+
+=== L3_silent: 26 classes
+- [root.sources[i]: VarRef->Text]
+    (VarRef(name='١', path=()), '$١', Expression(sources=(Text(value='$١'),), intent=None, broadcast=False, params=()))
+- [root.sources[i]: Binding->Text]
+    (Binding(name='é', value=SelfRef(), kind='='), 'é=@', Expression(sources=(Text(value='é=@'),), intent=None, broadcast=False, params=()))
+- [root.sources[i].value: VarRef->Text]
+    (Binding(name='a', value=VarRef(name='١', path=()), kind='='), 'a=$١', Expression(sources=(Binding(name='a', value=Text(value='$١'), kind='='),), intent=None, broadcast=False, params=()))
+- [root.sources[i]: Binding->SelfRef]
+    (Binding(name='src', value=SelfRef(), kind='='), 'src=@', Expression(sources=(SelfRef(),), intent=None, broadcast=False, params=()))
+- [root.sources[i]: Binding->VarRef]
+    (Binding(name='src', value=VarRef(name='1', path=()), kind='='), 'src=$1', Expression(sources=(VarRef(name='1', path=()),), intent=None, broadcast=False, params=()))
+- [root: Expression->Iteration]
+    (Source(value=Expression(sources=(), intent=RelUrl(value='/&,$'), broadcast=False, params=()), name=None, weight=None, budgets=(), annotations=(), expand=True), '*()!/&,$', Iteration(collection=Expression(sources=(), intent=None, broadcast=False, params=()), body='', intent='/&,$', reducer=None, directives=IterationDirectives(concurrency=None, on_error='collect', slice=None, fmt_result=None)))
+- [root.sources[i].annotations]
+    (Source(value=SelfRef(), name=None, weight=None, budgets=(), annotations=(('expand', None),), expand=True), '*@;expand', Expression(sources=(Source(value=SelfRef(), name=None, weight=None, budgets=(), annotations=(), expand=True),), intent=None, broadcast=False, params=()))
+- [root.intent: IdentityRef->Text]
+    (Expression(sources=(), intent=IdentityRef(name='9', collection='x#y'), broadcast=True, params=()), '()!*@9/x#y', Expression(sources=(), intent=Text(value='@9/x#y'), broadcast=True, params=()))
+- [root.sources[i].intent.value]
+    (RelExpr(path='//', context='q=1', intent=RelUrl(value='/!.-'), params=()), '//(q=1)!/!.-', Expression(sources=(RelExpr(path='//', context='q=1', intent=RelUrl(value='/'), params=()),), intent=Text(value='.-'), broadcast=False, params=()))
+- [root.intent.value]
+    (Expression(sources=(SelfRef(),), intent=RelUrl(value='/('), broadcast=False, params=(('q', None), ('k', 'all'))), '(@)!/(;q;k=all', Expression(sources=(SelfRef(),), intent=RelUrl(value='/(;q;k=all'), broadcast=False, params=()))
+- [root.intent.params]
+    (Expression(sources=(), intent=Expression(sources=(), intent=StructObject(raw="{k: 'v'}"), broadcast=True, params=(('t', None), ('q', None))), broadcast=False, params=()), "()!()!*{k: 'v'};t;q", Expression(sources=(), intent=Expression(sources=(), intent=StructObject(raw="{k: 'v'}"), broadcast=True, params=()), broadcast=False, params=(('t', None), ('q', None))))
+- [root.sources]
+    (Source(value=Expression(sources=(), intent=RelUrl(value='/&,$'), broadcast=False, params=(('x2', 'all'),)), name=None, weight=None, budgets=(), annotations=(('mode', None),), expand=False), '()!/&,$;x2=all;mode', Expression(sources=(), intent=RelUrl(value='/&,$'), broadcast=False, params=(('x2', 'all'), ('mode', None))))
+- [root.sources[i]: Binding->Url]
+    (Expression(sources=(Binding(name='topic', value=RelExpr(path='//', context='a, b', intent=SelfRef(), params=()), kind=':'),), intent=RelUrl(value='/'), broadcast=True, params=()), '(topic://(a, b)!@)!*/', Expression(sources=(Url(value='topic://(a, b)!@'),), intent=RelUrl(value='/'), broadcast=True, params=()))
+- [root.sources[i]: Binding->StructObject]
+    (Binding(name='src', value=StructObject(raw='{a: 1, b: {c: 2}}'), kind='='), 'src={a: 1, b: {c: 2}}', Expression(sources=(StructObject(raw='{a: 1, b: {c: 2}}'),), intent=None, broadcast=False, params=()))
+- [root.sources[i].intent: Expression->Text]
+    (RelExpr(path='/p', context='q=1', intent=Expression(sources=(StructObject(raw="{k: 'v'}"), SelfRef()), intent=SelfRef(), broadcast=False, params=()), params=()), "/p(q=1)!({k: 'v'}, @)!@", Expression(sources=(RelExpr(path='/p', context='q=1', intent=Text(value="({k: 'v'}, @)"), params=()),), intent=SelfRef(), broadcast=False, params=()))
+- [root.sources[i]: RelExpr->RelUrl]
+    (RelExpr(path='/a-b.c~', context=None, intent=Text(value='$'), params=(('t', None), ('k', 'x!y'))), "/a-b.c~?t&k=x!y&q=()!'$'", Expression(sources=(RelUrl(value='/a-b.c~?t&k=x'),), intent=Text(value="y&q=()!'$'"), broadcast=False, params=()))
+- [root.sources[i].intent: IdentityRef->Text]
+    (RemoteExpr(authority='node.ai', path='/', context=None, intent=IdentityRef(name='9', collection='x#y'), params=()), 'url4://node.ai/()!@9/x#y', Expression(sources=(RemoteExpr(authority='node.ai', path='/', context=None, intent=Text(value='@9/x#y'), params=()),), intent=None, broadcast=False, params=()))
+- [root.sources[i]: Binding->IdentityRef]
+    (Expression(sources=(Binding(name='src', value=IdentityRef(name='emily', collection=None), kind='='),), intent=Url(value='https://h.io/'), broadcast=False, params=()), '(src=@emily)!https://h.io/', Expression(sources=(IdentityRef(name='emily', collection=None),), intent=Url(value='https://h.io/'), broadcast=False, params=()))
+- [root.sources[i].sources[i]: VarRef->Text]
+    (Expression(sources=(Expression(sources=(VarRef(name='١', path=()), VarRef(name='١', path=()), RelUrl(value='/&')), intent=StructObject(raw="{k: 'v'}"), broadcast=False, params=()),), intent=Text(value=''), broadcast=False, params=()), "(($١, $١, /&)!{k: 'v'})!''", Expression(sources=(Expression(sources=(Text(value='$١'), Text(value='$١'), RelUrl(value='/&')), intent=StructObject(raw="{k: 'v'}"), broadcast=False, params=()),), intent=Text(value=''), broadcast=False, params=()))
+- [root.sources[i].annotations[i][i]]
+    (Source(value=IdentityRef(name='emily', collection='notes'), name=None, weight=2.0, budgets=(('tokens', '1.5'),), annotations=(('x.y', 'x!y'),), expand=True), '*2.0:tokens=1.5:@emily/notes;x.y=x!y', Expression(sources=(Source(value=IdentityRef(name='emily', collection='notes'), name=None, weight=2.0, budgets=(('tokens', '1.5'),), annotations=(('x.y', 'x'),), expand=True),), intent=Text(value='y'), broadcast=False, params=()))
+- [root.sources[i]: RemoteExpr->Url]
+    (RemoteExpr(authority='node.ai', path='/a/b', context='a', intent=Text(value='\n*\né(!;'), params=(('x2', 'x!y'),)), "url4://node.ai/a/b?x2=x!y&q=(a)!'\n*\né(!;'", Expression(sources=(Url(value='url4://node.ai/a/b?x2=x'),), intent=Text(value="y&q=(a)!'\n*\né(!;'"), broadcast=False, params=()))
+- [root.collection: VarRef->Text]
+    (Iteration(collection=VarRef(name='١', path=('g1',)), body='x=$item', intent='go', reducer=None, directives=IterationDirectives(concurrency=None, on_error='fail', slice=None, fmt_result=None)), '$١.g1*(x=$item)!go;iteration.on_error=fail', Iteration(collection=Text(value='$١.g1'), body='x=$item', intent='go', reducer=None, directives=IterationDirectives(concurrency=None, on_error='fail', slice=None, fmt_result=None)))
+- [root.sources[i].value: RemoteExpr->Url]
+    (Binding(name='_n', value=RemoteExpr(authority='node.ai:80', path='/claude', context='https://x', intent=RelUrl(value='/._-'), params=(('t', 'x!y'),)), kind=':'), '_n:url4://node.ai:80/claude?t=x!y&q=(https://x)!/._-', Expression(sources=(Binding(name='_n', value=Url(value='url4://node.ai:80/claude?t=x'), kind=':'),), intent=Text(value='y&q=(https://x)!/._-'), broadcast=False, params=()))
+- [root.intent]
+    (Iteration(collection=Source(value=Url(value='https://h.io/'), name=None, weight=1e-07, budgets=(('tokens', '1.5'),), annotations=(('accept', None),), expand=True), body='x=$item', intent=' go', reducer=None, directives=IterationDirectives(concurrency=None, on_error='collect', slice=None, fmt_result=None)), '*0.0000001:tokens=1.5:https://h.io/;accept*(x=$item)! go', Iteration(collection=Source(value=Url(value='https://h.io/'), name=None, weight=1e-07, budgets=(('tokens', '1.5'),), annotations=(('accept', None),), expand=True), body='x=$item', intent='go', reducer=None, dire
+- [root.reducer]
+    (Iteration(collection=Text(value='/é'), body='$a', intent=' go', reducer=' go', directives=IterationDirectives(concurrency=None, on_error='skip', slice=(0, 2), fmt_result=None)), "('/é'*($a)! go;iteration.on_error=skip;iteration.slice=0:2)! go", Iteration(collection=Text(value='/é'), body='$a', intent=' go', reducer='go', directives=IterationDirectives(concurrency=None, on_error='skip', slice=(0, 2), fmt_result=None)))
+- [root: Iteration->Expression]
+    (Iteration(collection=RemoteExpr(authority='node.ai:80', path='/claude', context='a', intent=RelUrl(value='/:=-=_'), params=(('k', None),)), body=' $item ', intent='go', reducer='go', directives=IterationDirectives(concurrency=1, on_error='fail', slice=(0, 2), fmt_result=None)), '(url4://node.ai:80/claude?k&q=(a)!/:=-=_*( $item )!go;iteration.concurrency=1;iteration.on_error=fail;iteration.slice=0:2)!go', Expression(sources=(Iteration(collection=RemoteExpr(authority='node.ai:80', path='/claude', context='a', intent=RelUrl(value='/:=-=_'), params=(('k', None)
+
+=== L3_loud: 577 classes
+- [invalid data path '/' in '/']
+    (RelUrl(value='/'), '/')
+- [invalid data path '//' in '//']
+    (RelUrl(value='//'), '//')
+- [invalid data path '/*' in '/*']
+    (RelUrl(value='/*'), '/*')
+- [invalid data path '/b*' in '/b*']
+    (RelUrl(value='/b*'), '/b*')
+- [cannot classify descriptor segment 'é' in 'é:@']
+    (Binding(name='é', value=SelfRef(), kind=':'), 'é:@')
+- [raw control character '\t' in quoted text (spec quoted-char)]
+    (Text(value='/\t'), "'/\t'")
+- [raw control character '\n' in quoted text (spec quoted-char)]
+    (Text(value='\n!'), "'\n!'")
+- [cannot classify descriptor segment 'é' in "é:''"]
+    (Binding(name='é', value=Text(value=''), kind=':'), "é:''")
+- [invalid data path '/' in '/?']
+    (Binding(name='a', value=RelUrl(value='/?'), kind=':'), 'a:/?')
+- [invalid data path '/' in '/?:=']
+    (RelUrl(value='/?:='), '/?:=')
+- [invalid data path '/' in '/?=a']
+    (RelUrl(value='/?=a'), '/?=a')
+- [invalid data path '/' in '/?a?']
+    (RelUrl(value='/?a?'), '/?a?')
+- [invalid data path '//.' in '//.']
+    (Binding(name='a', value=RelUrl(value='//.'), kind='='), 'a=//.')
+- [invalid data path '/*b.a' in '/*b.a']
+    (RelUrl(value='/*b.a'), '/*b.a')
+- [cannot classify descriptor segment 'é' in 'é:/&-']
+    (Binding(name='é', value=RelUrl(value='/&-'), kind=':'), 'é:/&-')
+- [invalid data path '/&.a*' in '/&.a*']
+    (RelUrl(value='/&.a*'), '/&.a*')
+- [invalid data path '//:' in '//:']
+    (Binding(name='a', value=RelUrl(value='//:'), kind='='), 'a=//:')
+- [cannot classify descriptor segment 'src' in 'src:@']
+    (Binding(name='src', value=SelfRef(), kind=':'), 'src:@')
+- [cannot classify descriptor segment 'src' in 'src:/']
+    (Binding(name='src', value=RelUrl(value='/'), kind=':'), 'src:/')
+- [invalid identity reference '@9/x#y' (spec §5.6.2)]
+    (IdentityRef(name='9', collection='x#y'), '@9/x#y')
+- [cannot classify descriptor segment 'src' in 'src:/:']
+    (Binding(name='src', value=RelUrl(value='/:'), kind=':'), 'src:/:')
+- [cannot classify descriptor segment 'src' in 'src:@9']
+    (Binding(name='src', value=IdentityRef(name='9', collection=None), kind=':'), 'src:@9')
+- [cannot classify descriptor segment 'src' in 'src:/*']
+    (Binding(name='src', value=RelUrl(value='/*'), kind=':'), 'src:/*')
+- [cannot classify descriptor segment 'src' in 'src:$a']
+    (Binding(name='src', value=VarRef(name='a', path=()), kind=':'), 'src:$a')
+- [cannot classify descriptor segment 'src' in 'src:$١']
+    (Binding(name='src', value=VarRef(name='١', path=()), kind=':'), 'src:$١')
+- [invalid data path '/$*=' in '/$*=']
+    (Binding(name='x1', value=RelUrl(value='/$*='), kind=':'), 'x1:/$*=')
+- [cannot classify descriptor segment 'é' in 'é:$1.g1']
+    (Binding(name='é', value=VarRef(name='1', path=('g1',)), kind=':'), 'é:$1.g1')
+- [call '/p()' has no intent — a relative or remote expression ]
+    (Binding(name='b', value=RelExpr(path='/p', context=None, intent=RelUrl(value='/'), params=()), kind=':'), 'b:/p()!/')
+- [cannot classify descriptor segment 'é' in 'é:@emily']
+    (Binding(name='é', value=IdentityRef(name='emily', collection=None), kind=':'), 'é:@emily')
+- [expression group '()' has no intent — a parenthesized source]
+    (Binding(name='a', value=Expression(sources=(), intent=Text(value='._'), broadcast=False, params=()), kind='='), "a=()!'._'")
+- [cannot classify descriptor segment 'src' in "src:'&!*'"]
+    (Binding(name='src', value=Text(value='&!*'), kind=':'), "src:'&!*'")
+- [call '//()' has no intent — a relative or remote expression ]
+    (Binding(name='_n', value=RelExpr(path='//', context=None, intent=RelUrl(value='/'), params=()), kind='='), '_n=//()!/')
+- [invalid data path '/*_' in '/*_']
+    (Binding(name='topic', value=RelUrl(value='/*_'), kind='='), 'topic=/*_')
+- [invalid data path '/.*' in '/.*']
+    (Expression(sources=(RelUrl(value='/.*'),), intent=RelUrl(value='/.*'), broadcast=False, params=()), '(/.*)!/.*')
+- [call '/()' has no intent — a relative or remote expression m]
+    (Binding(name='src', value=RelExpr(path='/', context=None, intent=Text(value=''), params=()), kind='='), "src=/()!''")
+- [invalid identity reference '@emily/x#y' (spec §5.6.2)]
+    (IdentityRef(name='emily', collection='x#y'), '@emily/x#y')
+- [cannot classify descriptor segment 'é' in 'é:$1[1].g1']
+    (Binding(name='é', value=VarRef(name='1', path=(1, 'g1')), kind=':'), 'é:$1[1].g1')
+- [cannot classify descriptor segment 'é' in 'é:/a/b()']
+    (Binding(name='é', value=RelExpr(path='/a/b', context=None, intent=RelUrl(value='/'), params=()), kind=':'), 'é:/a/b()!/')
+- [cannot classify descriptor segment 'src' in 'src:$١.g1.f']
+    (Binding(name='src', value=VarRef(name='١', path=('g1', 'f')), kind=':'), 'src:$١.g1.f')
+- [cannot classify descriptor segment 't1=1.5' in "a:t1=1.5:''"]
+    (Source(value=Text(value=''), name='a', weight=None, budgets=(('t1', '1.5'),), annotations=(), expand=False), "a:t1=1.5:''")
+- [call '//?q&q=()' has no intent — a relative or remote expres]
+    (RelExpr(path='//', context=None, intent=RelUrl(value='/'), params=(('q', None),)), '//?q&q=()!/')
+- [cannot classify descriptor segment 'é' in "é:'\\'0($_:*'"]
+    (Binding(name='é', value=Text(value="'0($_:*"), kind=':'), "é:'\\'0($_:*'")
+- [invalid execution-annotation key 't2' — exec-key admits only]
+    (Source(value=SelfRef(), name=None, weight=1.0, budgets=(), annotations=(('t2', None), ('t2', None)), expand=True), '*1.0:@;t2;t2')
+- [invalid param value 'x!y' for 't' — `param-value` takes ALPH]
+    (Expression(sources=(), intent=Text(value=''), broadcast=True, params=(('t', 'x!y'),)), "()!*'';t=x!y")
+- [cannot classify descriptor segment 'é' in 'é:()']
+    (Binding(name='é', value=Expression(sources=(), intent=RelUrl(value='/,'), broadcast=True, params=(('t', None), ('q', None))), kind=':'), 'é:()!*/,;t;q')
+- [cannot classify descriptor segment 'src' in 'src:$١.g1.g1']
+    (Binding(name='src', value=VarRef(name='١', path=('g1', 'g1')), kind=':'), 'src:$١.g1.g1')
+- [cannot classify descriptor segment 'src' in "src:{k: 'v'}"]
+    (Binding(name='src', value=StructObject(raw="{k: 'v'}"), kind=':'), "src:{k: 'v'}")
+- [cannot classify descriptor segment 'src' in 'src:$a[0][3]']
+    (Binding(name='src', value=VarRef(name='a', path=(0, 3)), kind=':'), 'src:$a[0][3]')
+- [cannot classify descriptor segment 'src' in 'src:$a[3][3]']
+    (Binding(name='src', value=VarRef(name='a', path=(3, 3)), kind=':'), 'src:$a[3][3]')
+- [expression group '(@)' has no intent — a parenthesized sourc]
+    (Binding(name='topic', value=Expression(sources=(SelfRef(),), intent=RelUrl(value='/a'), broadcast=False, params=()), kind='='), 'topic=(@)!/a')
+- [cannot classify descriptor segment 'é' in "é:'@&*\\'(*a'"]
+    (Binding(name='é', value=Text(value="@&*'(*a"), kind=':'), "é:'@&*\\'(*a'")
+- [cannot classify descriptor segment 't1=100' in 'a:t1=100:$a']
+    (Source(value=VarRef(name='a', path=()), name='a', weight=None, budgets=(('t1', '100'),), annotations=(), expand=True), '*a:t1=100:$a')
+- [structured annotation nested too deep at '(d:1)']
+    (Source(value=SelfRef(), name='a', weight={'s': {'d': 1}}, budgets=(), annotations=(), expand=False), 'a:(s:(d:1)):@')
+- [invalid data path '/a:/-./' in '/a:/-./']
+    (Binding(name='topic', value=RelUrl(value='/a:/-./'), kind=':'), 'topic:/a:/-./')
+- [cannot classify descriptor segment 'src' in 'src:()']
+    (Binding(name='src', value=Expression(sources=(), intent=Text(value='b@é'), broadcast=True, params=()), kind=':'), "src:()!*'b@é'")
+- [cannot classify descriptor segment 't1=100' in '1.0:t1=100:@]
+    (Source(value=SelfRef(), name=None, weight=1.0, budgets=(('t1', '100'),), annotations=(), expand=True), '*1.0:t1=100:@')
+- [cannot classify descriptor segment 'é' in 'é:$item.g1[0]']
+    (Binding(name='é', value=VarRef(name='item', path=('g1', 0)), kind=':'), 'é:$item.g1[0]')
+- [cannot classify descriptor segment 'é' in 'é:$item[1][0]']
+    (Binding(name='é', value=VarRef(name='item', path=(1, 0)), kind=':'), 'é:$item[1][0]')
+- [cannot classify descriptor segment 'é' in 'é:$item[0][0]']
+    (Binding(name='é', value=VarRef(name='item', path=(0, 0)), kind=':'), 'é:$item[0][0]')
+- [call '/a/b?t&q=()' has no intent — a relative or remote expr]
+    (RelExpr(path='/a/b', context=None, intent=SelfRef(), params=(('t', None),)), '/a/b?t&q=()!@')
+- [cannot classify descriptor segment 't1=100' in 'a:t1=100:$a.]
+    (Source(value=VarRef(name='a', path=('f',)), name='a', weight=None, budgets=(('t1', '100'),), annotations=(), expand=False), 'a:t1=100:$a.f')
+- [call '/a/b?k&q=()' has no intent — a relative or remote expr]
+    (RelExpr(path='/a/b', context=None, intent=RelUrl(value='/='), params=(('k', None),)), '/a/b?k&q=()!/=')
+- [cannot classify descriptor segment 'src' in "src:',\\\\\nba-]
+    (Binding(name='src', value=Text(value=',\\\nba-;'), kind=':'), "src:',\\\\\nba-;'")
+- [cannot classify descriptor segment 'é' in 'é:@emily/notes']
+    (Binding(name='é', value=IdentityRef(name='emily', collection='notes'), kind=':'), 'é:@emily/notes')
+- [cannot classify descriptor segment 'é' in 'é:(@)']
+    (Binding(name='é', value=Expression(sources=(SelfRef(),), intent=SelfRef(), broadcast=False, params=(('quorum', None),)), kind=':'), 'é:(@)!@;quorum')
+- [invalid data path '/b$//&_' in '/b$//&_']
+    (Binding(name='weight', value=RelUrl(value='/b$//&_'), kind='='), 'weight=/b$//&_')
+- [call '//?t&t&q=()' has no intent — a relative or remote expr]
+    (RelExpr(path='//', context=None, intent=Text(value=')'), params=(('t', None), ('t', None))), "//?t&t&q=()!')'")
+- [call '/a-b.c~()' has no intent — a relative or remote expres]
+    (Binding(name='_n', value=RelExpr(path='/a-b.c~', context=None, intent=Text(value=''), params=()), kind='='), "_n=/a-b.c~()!''")
+- [cannot classify descriptor segment 'é' in "é:('')"]
+    (Binding(name='é', value=Expression(sources=(Text(value=''),), intent=SelfRef(), broadcast=False, params=(('quorum', None),)), kind=':'), "é:('')!@;quorum")
+- [call '//(a, b)' has no intent — a relative or remote express]
+    (Binding(name='item', value=RelExpr(path='//', context='a, b', intent=RelUrl(value='/'), params=()), kind='='), 'item=//(a, b)!/')
+- [call '//?x2&q=()' has no intent — a relative or remote expre]
+    (RelExpr(path='//', context=None, intent=RelUrl(value='/(_b&'), params=(('x2', None),)), '//?x2&q=()!/(_b&')
+- [invalid param value 'x!y' for 'k' — `param-value` takes ALPH]
+    (Expression(sources=(), intent=Text(value=''), broadcast=False, params=(('k', 'x!y'), ('mode', None))), "()!'';k=x!y;mode")
+- [cannot classify descriptor segment 'é' in 'é:(/, /)']
+    (Binding(name='é', value=Expression(sources=(RelUrl(value='/'), RelUrl(value='/')), intent=RelUrl(value='/,'), broadcast=True, params=(('t', None), ('t', None))), kind=':'), 'é:(/, /)!*/,;t;t')
+- [call '/a/b?k&k&q=()' has no intent — a relative or remote ex]
+    (RelExpr(path='/a/b', context=None, intent=RelUrl(value='/='), params=(('k', None), ('k', None))), '/a/b?k&k&q=()!/=')
+- [call '/a/b?mode&q=()' has no intent — a relative or remote e]
+    (RelExpr(path='/a/b', context=None, intent=SelfRef(), params=(('mode', None),)), '/a/b?mode&q=()!@')
+- [invalid port 'x' in 'url4://h:x/()!/:' — `port = 1*DIGIT`]
+    (RemoteExpr(authority='h:x', path='/', context=None, intent=RelUrl(value='/:'), params=()), 'url4://h:x/()!/:')
+- [cannot classify descriptor segment 'é' in 'é:https://h.io/_']
+    (Binding(name='é', value=Url(value='https://h.io/_'), kind=':'), 'é:https://h.io/_')
+- [invalid port 'x' in "url4://h:x/()!'('" — `port = 1*DIGIT`]
+    (RemoteExpr(authority='h:x', path='/', context=None, intent=Text(value='('), params=()), "url4://h:x/()!'('")
+- [unexpected '(' in bare value 'é=https://h.io/()']
+    (Binding(name='é', value=Url(value='https://h.io/()'), kind='='), 'é=https://h.io/()')
+- [call '/p?t&t&q=()' has no intent — a relative or remote expr]
+    (RelExpr(path='/p', context=None, intent=RelUrl(value='/??*:'), params=(('t', None), ('t', None))), '/p?t&t&q=()!/??*:')
+- [invalid port 'x' in 'url4://h:x/p()!//' — `port = 1*DIGIT`]
+    (RemoteExpr(authority='h:x', path='/p', context=None, intent=RelUrl(value='//'), params=()), 'url4://h:x/p()!//')
+- [invalid port 'x' in "url4://h:x//()!''" — `port = 1*DIGIT`]
+    (RemoteExpr(authority='h:x', path='//', context=None, intent=Text(value=''), params=()), "url4://h:x//()!''")
+- [call '/?t&t&q=()' has no intent — a relative or remote expre]
+    (RelExpr(path='/', context=None, intent=Text(value='\n\\*'), params=(('t', None), ('t', None))), "/?t&t&q=()!'\n\\\\*'")
+- [invalid port 'x' in "url4://h:x/()!'é'" — `port = 1*DIGIT`]
+    (RemoteExpr(authority='h:x', path='/', context=None, intent=Text(value='é'), params=()), "url4://h:x/()!'é'")
+- [invalid port 'x' in 'url4://h:x//()' — `port = 1*DIGIT`]
+    (Source(value=RemoteExpr(authority='h:x', path='//', context=None, intent=SelfRef(), params=()), name=None, weight=None, budgets=(), annotations=(), expand=True), '*url4://h:x//()!@')
+- [call '/(https://x)' has no intent — a relative or remote exp]
+    (Binding(name='_n', value=RelExpr(path='/', context='https://x', intent=SelfRef(), params=()), kind='='), '_n=/(https://x)!@')
+- [invalid param value 'a b' for 'quorum' — `param-value` takes]
+    (Expression(sources=(), intent=SelfRef(), broadcast=True, params=(('quorum', 'a b'), ('t', None))), '()!*@;quorum=a b;t')
+- [call '/p(a, b)' has no intent — a relative or remote express]
+    (Binding(name='topic', value=RelExpr(path='/p', context='a, b', intent=Text(value='@'), params=()), kind='='), "topic=/p(a, b)!'@'")
+- [call '/claude()' has no intent — a relative or remote expres]
+    (Binding(name='weight', value=RelExpr(path='/claude', context=None, intent=RelUrl(value='/'), params=()), kind=':'), 'weight:/claude()!/')
+- [call '/p?t&x2&q=()' has no intent — a relative or remote exp]
+    (RelExpr(path='/p', context=None, intent=Text(value='${}'), params=(('t', None), ('x2', None))), "/p?t&x2&q=()!'${}'")
+- [call '/?quorum=1&q=()' has no intent — a relative or remote ]
+    (RelExpr(path='/', context=None, intent=RelUrl(value='/*'), params=(('quorum', '1'),)), '/?quorum=1&q=()!/*')
+- [expression group '(@, @, @)' has no intent — a parenthesized]
+    (Binding(name='weight', value=Expression(sources=(SelfRef(), SelfRef(), SelfRef()), intent=SelfRef(), broadcast=False, params=()), kind='='), 'weight=(@, @, @)!@')
+- [call '/p?x2&q=(q=1)' has no intent — a relative or remote ex]
+    (RelExpr(path='/p', context='q=1', intent=RelUrl(value="/=b'"), params=(('x2', None),)), "/p?x2&q=(q=1)!/=b'")
+- [call '/claude?x2&q=()' has no intent — a relative or remote ]
+    (RelExpr(path='/claude', context=None, intent=Text(value=''), params=(('x2', None),)), "/claude?x2&q=()!''")
+- [call '/p?mode=all&q=()' has no intent — a relative or remote]
+    (RelExpr(path='/p', context=None, intent=RelUrl(value='//'), params=(('mode', 'all'),)), '/p?mode=all&q=()!//')
+- [call '/p?x2&x2&q=()' has no intent — a relative or remote ex]
+    (RelExpr(path='/p', context=None, intent=Text(value='${}'), params=(('x2', None), ('x2', None))), "/p?x2&x2&q=()!'${}'")
+- [call '/a-b.c~?q&q&q=()' has no intent — a relative or remote]
+    (RelExpr(path='/a-b.c~', context=None, intent=RelUrl(value='/a'), params=(('q', None), ('q', None))), '/a-b.c~?q&q&q=()!/a')
+- [invalid port 'x' in 'url4://h:x/a/b()!/(' — `port = 1*DIGIT`]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=RelUrl(value='/('), params=()), 'url4://h:x/a/b()!/(')
+- [expression group "('', '')" has no intent — a parenthesized ]
+    (Source(value=Expression(sources=(Text(value=''), Text(value='')), intent=RelUrl(value='/'), broadcast=False, params=()), name=None, weight=2.0, budgets=(), annotations=(('mode', None),), expand=False), "2.0:('', '')!/;mode")
+- [invalid port 'x' in 'url4://h:x//(a)!/$a' — `port = 1*DIGIT`]
+    (RemoteExpr(authority='h:x', path='//', context='a', intent=RelUrl(value='/$a'), params=()), 'url4://h:x//(a)!/$a')
+- [call '/p?k&k&q=()' has no intent — a relative or remote expr]
+    (RelExpr(path='/p', context=None, intent=RelUrl(value="/:=/'&:"), params=(('k', None), ('k', None))), "/p?k&k&q=()!/:=/'&:")
+- [call '/a/b?q&q&q=(q=1)' has no intent — a relative or remote]
+    (RelExpr(path='/a/b', context='q=1', intent=RelUrl(value='/?'), params=(('q', None), ('q', None))), '/a/b?q&q&q=(q=1)!/?')
+- [call '/p?t=a b&q=(a, b)' has no intent — a relative or remot]
+    (RelExpr(path='/p', context='a, b', intent=SelfRef(), params=(('t', 'a b'),)), '/p?t=a b&q=(a, b)!@')
+- [call '//?x2&q=a b&q=()' has no intent — a relative or remote]
+    (RelExpr(path='//', context=None, intent=Text(value='b'), params=(('x2', None), ('q', 'a b'))), "//?x2&q=a b&q=()!'b'")
+- [call '/a-b.c~?t&k&q=()' has no intent — a relative or remote]
+    (RelExpr(path='/a-b.c~', context=None, intent=Text(value='$'), params=(('t', None), ('k', None))), "/a-b.c~?t&k&q=()!'$'")
+- [call '/a-b.c~?t&t&q=()' has no intent — a relative or remote]
+    (RelExpr(path='/a-b.c~', context=None, intent=Text(value='$'), params=(('t', None), ('t', None))), "/a-b.c~?t&t&q=()!'$'")
+- [cannot classify descriptor segment 't1=100' in "x1:2.0:t1=10]
+    (Expression(sources=(Source(value=Text(value=''), name='x1', weight=2.0, budgets=(('t1', '100'),), annotations=(), expand=False),), intent=RelUrl(value='/'), broadcast=False, params=()), "(x1:2.0:t1=100:'')!/")
+- [unexpected '(' in bare value '1.0://()']
+    (Source(value=RelExpr(path='//', context=None, intent=Text(value='\\}\t@=(0'), params=()), name=None, weight=1.0, budgets=(), annotations=(), expand=True), "*1.0://()!'\\\\}\t@=(0'")
+- [call '/?quorum=a b&q=()' has no intent — a relative or remot]
+    (RelExpr(path='/', context=None, intent=Text(value=''), params=(('quorum', 'a b'),)), "/?quorum=a b&q=()!''")
+- [invalid port 'x' in 'url4://h:x/a/b()!/*?' — `port = 1*DIGIT]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=RelUrl(value='/*?'), params=()), 'url4://h:x/a/b()!/*?')
+- [call '/?mode&q=()' has no intent — a relative or remote expr]
+    (RelExpr(path='/', context=None, intent=Text(value="' \t\\"), params=(('mode', None),)), "/?mode&q=()!'\\' \t\\\\'")
+- [call '/a/b()' has no intent — a relative or remote expressio]
+    (Binding(name='x1', value=RelExpr(path='/a/b', context=None, intent=Text(value="-&'$/-a"), params=()), kind='='), "x1=/a/b()!'-&\\'$/-a'")
+- [call '/?mode&t&q=()' has no intent — a relative or remote ex]
+    (RelExpr(path='/', context=None, intent=Text(value='\n\\*'), params=(('mode', None), ('t', None))), "/?mode&t&q=()!'\n\\\\*'")
+- [call '/a/b?mode&k&q=()' has no intent — a relative or remote]
+    (RelExpr(path='/a/b', context=None, intent=Text(value='='), params=(('mode', None), ('k', None))), "/a/b?mode&k&q=()!'='")
+- [invalid port 'x' in 'url4://h:x/()!@9/x#y' — `port = 1*DIGIT]
+    (RemoteExpr(authority='h:x', path='/', context=None, intent=IdentityRef(name='9', collection='x#y'), params=()), 'url4://h:x/()!@9/x#y')
+- [invalid param value 'a b' for 'mode' — `param-value` takes A]
+    (Expression(sources=(), intent=SelfRef(), broadcast=True, params=(('t', 'a,b'), ('mode', 'a b'))), '()!*@;t=a,b;mode=a b')
+- [invalid port 'x' in "url4://h:x/a/b(a)!''" — `port = 1*DIGIT]
+    (RemoteExpr(authority='h:x', path='/a/b', context='a', intent=Text(value=''), params=()), "url4://h:x/a/b(a)!''")
+- [invalid port 'x' in 'url4://h:x//()!/,(b/=' — `port = 1*DIGI]
+    (RemoteExpr(authority='h:x', path='//', context=None, intent=RelUrl(value='/,(b/='), params=()), 'url4://h:x//()!/,(b/=')
+- [invalid param value 'a b' for 'k' — `param-value` takes ALPH]
+    (Expression(sources=(), intent=RelUrl(value='/_&aa/'), broadcast=True, params=(('k', 'a b'), ('mode', None))), '()!*/_&aa/;k=a b;mode')
+- [call '/a-b.c~?quorum&q=()' has no intent — a relative or rem]
+    (RelExpr(path='/a-b.c~', context=None, intent=RelUrl(value='/'), params=(('quorum', None),)), '/a-b.c~?quorum&q=()!/')
+- [call '//?q=all&q=(q=1)' has no intent — a relative or remote]
+    (RelExpr(path='//', context='q=1', intent=RelUrl(value='/!.-'), params=(('q', 'all'),)), '//?q=all&q=(q=1)!/!.-')
+- [invalid param value 'x!y' for 'quorum' — `param-value` takes]
+    (Source(value=Expression(sources=(), intent=Text(value='('), broadcast=False, params=(('quorum', 'x!y'),)), name=None, weight=2.0, budgets=(), annotations=(), expand=False), "2.0:()!'(';quorum=x!y")
+- [cannot classify descriptor segment 'src' in 'src:{a: 1, b: {]
+    (Binding(name='src', value=StructObject(raw='{a: 1, b: {c: 2}}'), kind=':'), 'src:{a: 1, b: {c: 2}}')
+- [call '/p?k=1&k&q=()' has no intent — a relative or remote ex]
+    (RelExpr(path='/p', context=None, intent=RelUrl(value="/:=/'&:"), params=(('k', '1'), ('k', None))), "/p?k=1&k&q=()!/:=/'&:")
+- [call '//?q&broadcast&q=()' has no intent — a relative or rem]
+    (RelExpr(path='//', context=None, intent=RelUrl(value='/'), params=(('q', None), ('broadcast', None))), '//?q&broadcast&q=()!/')
+- [call '/p?broadcast&q=()' has no intent — a relative or remot]
+    (RelExpr(path='/p', context=None, intent=Text(value='_'), params=(('broadcast', None),)), "/p?broadcast&q=()!'_'")
+- [call '/a/b?x2&q=()' has no intent — a relative or remote exp]
+    (RelExpr(path='/a/b', context=None, intent=Text(value="\\;,'_"), params=(('x2', None),)), "/a/b?x2&q=()!'\\\\;,\\'_'")
+- [invalid data path '//' in '//?x2=x']
+    (RelExpr(path='//', context=None, intent=RelUrl(value="/:._'&,"), params=(('x2', 'x!y'),)), "//?x2=x!y&q=()!/:._'&,")
+- [cannot classify descriptor segment 't1=100' in 'weight:t1=10]
+    (Source(value=IdentityRef(name='9', collection='notes'), name='weight', weight=None, budgets=(('t1', '100'),), annotations=(), expand=False), 'weight:t1=100:@9/notes')
+- [call '/p?x2=all&mode&q=()' has no intent — a relative or rem]
+    (RelExpr(path='/p', context=None, intent=RelUrl(value='//'), params=(('x2', 'all'), ('mode', None))), '/p?x2=all&mode&q=()!//')
+- [call '//?t&x2&q=()' has no intent — a relative or remote exp]
+    (RelExpr(path='//', context=None, intent=Text(value='0_b(:,{'), params=(('t', None), ('x2', None))), "//?t&x2&q=()!'0_b(:,{'")
+- [invalid port 'x' in 'url4://h:x/()' — `port = 1*DIGIT`]
+    (Source(value=RemoteExpr(authority='h:x', path='/', context=None, intent=Text(value=',,'), params=()), name=None, weight=0.5, budgets=(), annotations=(), expand=False), "0.5:url4://h:x/()!',,'")
+- [expression group "(@, ' b\\\\{}_', @)" has no intent — a par]
+    (Binding(name='a', value=Expression(sources=(SelfRef(), Text(value=' b\\{}_'), SelfRef()), intent=Text(value=''), broadcast=False, params=()), kind='='), "a=(@, ' b\\\\{}_', @)!''")
+- [expression group '(https://h.io/)' has no intent — a parenth]
+    (Binding(name='b', value=Expression(sources=(Url(value='https://h.io/'),), intent=RelUrl(value='/='), broadcast=False, params=(('k', None),)), kind=':'), 'b:(https://h.io/)!/=;k')
+- [invalid port 'x' in "url4://h:x//()!'@\\\\\n!'" — `port = 1*]
+    (RemoteExpr(authority='h:x', path='//', context=None, intent=Text(value='@\\\n!'), params=()), "url4://h:x//()!'@\\\\\n!'")
+- [invalid port 'x' in 'url4://h:x/p()!/.$::a' — `port = 1*DIGI]
+    (RemoteExpr(authority='h:x', path='/p', context=None, intent=RelUrl(value='/.$::a!'), params=()), 'url4://h:x/p()!/.$::a!')
+- [invalid port 'x' in "url4://h:x/claude(a)!''" — `port = 1*DI]
+    (RemoteExpr(authority='h:x', path='/claude', context='a', intent=Text(value=''), params=()), "url4://h:x/claude(a)!''")
+- [invalid port 'x' in "url4://h:x//()!'*0-é\t.'" — `port = 1*D]
+    (RemoteExpr(authority='h:x', path='//', context=None, intent=Text(value='*0-é\t.'), params=()), "url4://h:x//()!'*0-é\t.'")
+- [call '//?quorum=1&q=(a, b)' has no intent — a relative or re]
+    (RelExpr(path='//', context='a, b', intent=RelUrl(value='/_'), params=(('quorum', '1'),)), '//?quorum=1&q=(a, b)!/_')
+- [invalid port 'x' in 'url4://h:x//?q&q&q=()' — `port = 1*DIGI]
+    (RemoteExpr(authority='h:x', path='//', context=None, intent=SelfRef(), params=(('q', None), ('q', None))), 'url4://h:x//?q&q&q=()!@')
+- [call '/a-b.c~?k&k&q=(a, b)' has no intent — a relative or re]
+    (RelExpr(path='/a-b.c~', context='a, b', intent=RelUrl(value='/!'), params=(('k', None), ('k', None))), '/a-b.c~?k&k&q=(a, b)!/!')
+- [invalid port 'x' in "url4://h:x/a-b.c~(a)!''" — `port = 1*DI]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context='a', intent=Text(value=''), params=()), "url4://h:x/a-b.c~(a)!''")
+- [call '/p?k&k&q=(https://x)' has no intent — a relative or re]
+    (RelExpr(path='/p', context='https://x', intent=RelUrl(value='/)'), params=(('k', None), ('k', None))), '/p?k&k&q=(https://x)!/)')
+- [call '/?k=all&x2&q=()' has no intent — a relative or remote ]
+    (Binding(name='topic', value=RelExpr(path='/', context=None, intent=RelUrl(value='/'), params=(('k', 'all'), ('x2', None))), kind='='), 'topic=/?k=all&x2&q=()!/')
+- [call '/?t&q&q=(a, b)' has no intent — a relative or remote e]
+    (RelExpr(path='/', context='a, b', intent=StructObject(raw="{k: 'v'}"), params=(('t', None), ('q', None))), "/?t&q&q=(a, b)!{k: 'v'}")
+- [call '/?t&t&q=(a, b)' has no intent — a relative or remote e]
+    (RelExpr(path='/', context='a, b', intent=StructObject(raw="{k: 'v'}"), params=(('t', None), ('t', None))), "/?t&t&q=(a, b)!{k: 'v'}")
+- [invalid port 'x' in 'url4://h:x/p()!@9/notes' — `port = 1*DI]
+    (RemoteExpr(authority='h:x', path='/p', context=None, intent=IdentityRef(name='9', collection='notes'), params=()), 'url4://h:x/p()!@9/notes')
+- [call '//?mode&mode&q=()' has no intent — a relative or remot]
+    (RelExpr(path='//', context=None, intent=RelUrl(value="/(?'-"), params=(('mode', None), ('mode', None))), "//?mode&mode&q=()!/(?'-")
+- [call '/claude?mode&q=(a, b)' has no intent — a relative or r]
+    (RelExpr(path='/claude', context='a, b', intent=SelfRef(), params=(('mode', None),)), '/claude?mode&q=(a, b)!@')
+- [expression group '(https://h.io/=)' has no intent — a parent]
+    (Binding(name='b', value=Expression(sources=(Url(value='https://h.io/='),), intent=RelUrl(value='/='), broadcast=False, params=(('k', None),)), kind=':'), 'b:(https://h.io/=)!/=;k')
+- [call '/a-b.c~?t=all&q=()' has no intent — a relative or remo]
+    (RelExpr(path='/a-b.c~', context=None, intent=Text(value='!.)'), params=(('t', 'all'),)), "/a-b.c~?t=all&q=()!'!.)'")
+- [call '//?x2=a b&q=a b&q=()' has no intent — a relative or re]
+    (RelExpr(path='//', context=None, intent=Text(value='b'), params=(('x2', 'a b'), ('q', 'a b'))), "//?x2=a b&q=a b&q=()!'b'")
+- [call '//?quorum&q=()' has no intent — a relative or remote e]
+    (RelExpr(path='//', context=None, intent=Text(value='*_:a(-!'), params=(('quorum', None),)), "//?quorum&q=()!'*_:a(-!'")
+- [invalid data path '//' in '//?k=x']
+    (RelExpr(path='//', context='q=1', intent=Text(value='-/ aa'), params=(('k', 'x!y'),)), "//?k=x!y&q=(q=1)!'-/ aa'")
+- [call '/a/b?mode=1:3&t&q=()' has no intent — a relative or re]
+    (RelExpr(path='/a/b', context=None, intent=RelUrl(value='/a&'), params=(('mode', '1:3'), ('t', None))), '/a/b?mode=1:3&t&q=()!/a&')
+- [call '/?x2=all&x2&q=()' has no intent — a relative or remote]
+    (Binding(name='topic', value=RelExpr(path='/', context=None, intent=RelUrl(value='/'), params=(('x2', 'all'), ('x2', None))), kind='='), 'topic=/?x2=all&x2&q=()!/')
+- [call '/a/b?k&k&q=(q=1)' has no intent — a relative or remote]
+    (RelExpr(path='/a/b', context='q=1', intent=RelUrl(value='/*b=:?_'), params=(('k', None), ('k', None))), '/a/b?k&k&q=(q=1)!/*b=:?_')
+- [call '/?mode=1:3&t&q=()' has no intent — a relative or remot]
+    (RelExpr(path='/', context=None, intent=Text(value='\n\\*'), params=(('mode', '1:3'), ('t', None))), "/?mode=1:3&t&q=()!'\n\\\\*'")
+- [call '/a-b.c~?q&quorum&q=()' has no intent — a relative or r]
+    (RelExpr(path='/a-b.c~', context=None, intent=RelUrl(value='/a'), params=(('q', None), ('quorum', None))), '/a-b.c~?q&quorum&q=()!/a')
+- [cannot classify descriptor segment 't1=1.5' in "topic:0.5:t1]
+    (Source(value=Text(value=',@?\n'), name='topic', weight=0.5, budgets=(('t1', '1.5'),), annotations=(), expand=True), "*topic:0.5:t1=1.5:',@?\n'")
+- [expression group "('')" has no intent — a parenthesized sour]
+    (Binding(name='a', value=Expression(sources=(Text(value=''),), intent=StructObject(raw='{a: 1, b: {c: 2}}'), broadcast=False, params=()), kind=':'), "a:('')!{a: 1, b: {c: 2}}")
+- [call '/a/b?quorum=all&q=()' has no intent — a relative or re]
+    (Source(value=RelExpr(path='/a/b', context=None, intent=Text(value=''), params=(('quorum', 'all'),)), name=None, weight=None, budgets=(), annotations=(), expand=True), "*/a/b?quorum=all&q=()!''")
+- [invalid port 'x' in 'url4://h:x//(https://x)!@' — `port = 1*]
+    (RemoteExpr(authority='h:x', path='//', context='https://x', intent=SelfRef(), params=()), 'url4://h:x//(https://x)!@')
+- [invalid port 'x' in 'url4://h:x/a-b.c~()!/*$)*' — `port = 1*]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=RelUrl(value='/*$)*'), params=()), 'url4://h:x/a-b.c~()!/*$)*')
+- [call '//?broadcast&q=()' has no intent — a relative or remot]
+    (RelExpr(path='//', context=None, intent=Text(value='@&\n@,'), params=(('broadcast', None),)), "//?broadcast&q=()!'@&\n@,'")
+- [call '/a-b.c~?k&q=(q=1)' has no intent — a relative or remot]
+    (RelExpr(path='/a-b.c~', context='q=1', intent=RelUrl(value='/b-b:a_'), params=(('k', None),)), '/a-b.c~?k&q=(q=1)!/b-b:a_')
+- [call '/a-b.c~?t=1&k&q=(a, b)' has no intent — a relative or ]
+    (RelExpr(path='/a-b.c~', context='a, b', intent=RelUrl(value='/!'), params=(('t', '1'), ('k', None))), '/a-b.c~?t=1&k&q=(a, b)!/!')
+- [call '/a-b.c~?quorum&t&q=()' has no intent — a relative or r]
+    (RelExpr(path='/a-b.c~', context=None, intent=RelUrl(value='/,&'), params=(('quorum', None), ('t', None))), '/a-b.c~?quorum&t&q=()!/,&')
+- [invalid port 'x' in 'url4://h:x/a/b?q&q=()' — `port = 1*DIGI]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=RelUrl(value='/*?'), params=(('q', None),)), 'url4://h:x/a/b?q&q=()!/*?')
+- [call '//?quorum&mode&q=()' has no intent — a relative or rem]
+    (RelExpr(path='//', context=None, intent=RelUrl(value="/(?'-"), params=(('quorum', None), ('mode', None))), "//?quorum&mode&q=()!/(?'-")
+- [call '/a/b?t=1:3&t=all&q=()' has no intent — a relative or r]
+    (RelExpr(path='/a/b', context=None, intent=RelUrl(value="/?'"), params=(('t', '1:3'), ('t', 'all'))), "/a/b?t=1:3&t=all&q=()!/?'")
+- [call '/a/b?t=1:3&t=1:3&q=()' has no intent — a relative or r]
+    (RelExpr(path='/a/b', context=None, intent=RelUrl(value="/?'"), params=(('t', '1:3'), ('t', '1:3'))), "/a/b?t=1:3&t=1:3&q=()!/?'")
+- [invalid port 'x' in "url4://h:x/claude()!/*_'_" — `port = 1*]
+    (RemoteExpr(authority='h:x', path='/claude', context=None, intent=RelUrl(value="/*_'_"), params=()), "url4://h:x/claude()!/*_'_")
+- [call '//?q&q&q=(q=1)' has no intent — a relative or remote e]
+    (RelExpr(path='//', context='q=1', intent=Text(value='!/.,\\é?'), params=(('q', None), ('q', None))), "//?q&q&q=(q=1)!'!/.,\\\\é?'")
+- [invalid port 'x' in 'url4://h:x/a/b?q&q&q=()' — `port = 1*DI]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=RelUrl(value='/'), params=(('q', None), ('q', None))), 'url4://h:x/a/b?q&q&q=()!/')
+- [invalid port 'x' in 'url4://h:x/a/b()' — `port = 1*DIGIT`]
+    (Binding(name='_n', value=RemoteExpr(authority='h:x', path='/a/b', context=None, intent=Text(value=' ;é'), params=()), kind=':'), "_n:url4://h:x/a/b()!' ;é'")
+- [call '//?k=1:3&q=(https://x)' has no intent — a relative or ]
+    (RelExpr(path='//', context='https://x', intent=RelUrl(value='/&'), params=(('k', '1:3'),)), '//?k=1:3&q=(https://x)!/&')
+- [unexpected '(' in bare value '_n://?t=1:3&x2=all&q=()']
+    (Binding(name='_n', value=RelExpr(path='//', context=None, intent=SelfRef(), params=(('t', '1:3'), ('x2', 'all'))), kind=':'), '_n://?t=1:3&x2=all&q=()!@')
+- [invalid port 'x' in "url4://h:x/a-b.c~()!'?&\t?'" — `port = ]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=Text(value='?&\t?'), params=()), "url4://h:x/a-b.c~()!'?&\t?'")
+- [call '/a/b?mode=1:3&q=()' has no intent — a relative or remo]
+    (RelExpr(path='/a/b', context=None, intent=RelUrl(value='/.*b/*&'), params=(('mode', '1:3'),)), '/a/b?mode=1:3&q=()!/.*b/*&')
+- [expression group "({k: 'v'}, {k: 'v'})" has no intent — a pa]
+    (Binding(name='_n', value=Expression(sources=(StructObject(raw="{k: 'v'}"), StructObject(raw="{k: 'v'}")), intent=RelUrl(value='/'), broadcast=True, params=()), kind='='), "_n=({k: 'v'}, {k: 'v'})!*/")
+- [call '/p(https://x)' has no intent — a relative or remote ex]
+    (Binding(name='a', value=RelExpr(path='/p', context='https://x', intent=IdentityRef(name='emily', collection='a/b'), params=()), kind='='), 'a=/p(https://x)!@emily/a/b')
+- [call '//?x2&k=1:3&q=()' has no intent — a relative or remote]
+    (RelExpr(path='//', context=None, intent=Text(value=':=*\n&\té'), params=(('x2', None), ('k', '1:3'))), "//?x2&k=1:3&q=()!':=*\n&\té'")
+- [call '/p?x2=all&mode=all&q=()' has no intent — a relative or]
+    (RelExpr(path='/p', context=None, intent=RelUrl(value='//'), params=(('x2', 'all'), ('mode', 'all'))), '/p?x2=all&mode=all&q=()!//')
+- [cannot classify descriptor segment 'é' in 'é:(@emily, @emily]
+    (Binding(name='é', value=Expression(sources=(IdentityRef(name='emily', collection=None), IdentityRef(name='emily', collection=None)), intent=IdentityRef(name='emily', collection=None), broadcast=True, params=()), kind=':'), 'é:(@emily, @emily)!*@emily')
+- [invalid port 'x' in "url4://h:x//()!'*,'" — `port = 1*DIGIT`]
+    (Expression(sources=(RemoteExpr(authority='h:x', path='//', context=None, intent=Text(value='*,'), params=()),), intent=Text(value='*,'), broadcast=False, params=()), "(url4://h:x//()!'*,')!'*,'")
+- [call '/?t=1&t=1&q=(a, b)' has no intent — a relative or remo]
+    (RelExpr(path='/', context='a, b', intent=Text(value='&{a_!'), params=(('t', '1'), ('t', '1'))), "/?t=1&t=1&q=(a, b)!'&{a_!'")
+- [call '//?x2&q&q=(q=1)' has no intent — a relative or remote ]
+    (RelExpr(path='//', context='q=1', intent=Text(value='!/.,\\é?'), params=(('x2', None), ('q', None))), "//?x2&q&q=(q=1)!'!/.,\\\\é?'")
+- [invalid param value 'a b' for 't' — `param-value` takes ALPH]
+    (Binding(name='b', value=Expression(sources=(Url(value='https://h.io/='),), intent=RelUrl(value='/'), broadcast=False, params=(('t', 'a b'),)), kind=':'), 'b:(https://h.io/=)!/;t=a b')
+- [invalid port 'x' in 'url4://h:x/a/b?x2&q=(a)' — `port = 1*DI]
+    (RemoteExpr(authority='h:x', path='/a/b', context='a', intent=Text(value=''), params=(('x2', None),)), "url4://h:x/a/b?x2&q=(a)!''")
+- [invalid port 'x' in 'url4://h:x/claude(a)!///?(' — `port = 1]
+    (RemoteExpr(authority='h:x', path='/claude', context='a', intent=RelUrl(value='///?('), params=()), 'url4://h:x/claude(a)!///?(')
+- [unexpected '(' in bare value 'é=/claude()']
+    (Binding(name='é', value=RelExpr(path='/claude', context=None, intent=Url(value='https://h.io/$'), params=()), kind='='), 'é=/claude()!https://h.io/$')
+- [call '/a/b?q&q&q=()' has no intent — a relative or remote ex]
+    (RelExpr(path='/a/b', context=None, intent=Url(value='https://h.io/'), params=(('q', None), ('q', None))), '/a/b?q&q&q=()!https://h.io/')
+- [invalid port 'x' in "url4://h:x/p(https://x)!'.'" — `port = ]
+    (RemoteExpr(authority='h:x', path='/p', context='https://x', intent=Text(value='.'), params=()), "url4://h:x/p(https://x)!'.'")
+- [call '/(a)' has no intent — a relative or remote expression ]
+    (Binding(name='src', value=RemoteExpr(authority='node.ai', path='/', context='a', intent=Text(value='}&'), params=()), kind='='), "src=url4://node.ai/(a)!'}&'")
+- [invalid data path '//' in '//?quorum&q=x']
+    (RelExpr(path='//', context='a, b', intent=RelUrl(value='/_'), params=(('quorum', None), ('q', 'x!y'))), '//?quorum&q=x!y&q=(a, b)!/_')
+- [call '/claude?x2=all&q=(q=1)' has no intent — a relative or ]
+    (RelExpr(path='/claude', context='q=1', intent=RelUrl(value='/a??'), params=(('x2', 'all'),)), '/claude?x2=all&q=(q=1)!/a??')
+- [call '//?broadcast&q&q=()' has no intent — a relative or rem]
+    (RelExpr(path='//', context=None, intent=Text(value='@&\n@,'), params=(('broadcast', None), ('q', None))), "//?broadcast&q&q=()!'@&\n@,'")
+- [call '//(a)' has no intent — a relative or remote expression]
+    (Binding(name='x1', value=RemoteExpr(authority='node.ai:80', path='//', context='a', intent=SelfRef(), params=()), kind=':'), 'x1:url4://node.ai:80//(a)!@')
+- [call '//?broadcast=a b&q=(a, b)' has no intent — a relative ]
+    (RelExpr(path='//', context='a, b', intent=RelUrl(value='/'), params=(('broadcast', 'a b'),)), '//?broadcast=a b&q=(a, b)!/')
+- [call '/a/b?mode=1:3&mode&q=()' has no intent — a relative or]
+    (RelExpr(path='/a/b', context=None, intent=RelUrl(value='/a&'), params=(('mode', '1:3'), ('mode', None))), '/a/b?mode=1:3&mode&q=()!/a&')
+- [call '//?t=a b&q=1:3&q=(q=1)' has no intent — a relative or ]
+    (RelExpr(path='//', context='q=1', intent=Text(value='_!'), params=(('t', 'a b'), ('q', '1:3'))), "//?t=a b&q=1:3&q=(q=1)!'_!'")
+- [call '//?q=a b&q=1:3&q=(q=1)' has no intent — a relative or ]
+    (RelExpr(path='//', context='q=1', intent=Text(value='_!'), params=(('q', 'a b'), ('q', '1:3'))), "//?q=a b&q=1:3&q=(q=1)!'_!'")
+- [call '//?q=1:3&q=1:3&q=(q=1)' has no intent — a relative or ]
+    (RelExpr(path='//', context='q=1', intent=Text(value='_!'), params=(('q', '1:3'), ('q', '1:3'))), "//?q=1:3&q=1:3&q=(q=1)!'_!'")
+- [call '/a/b?t=1&q=()' has no intent — a relative or remote ex]
+    (Binding(name='x1', value=RelExpr(path='/a/b', context=None, intent=Text(value="-&'$/-a"), params=(('t', '1'),)), kind=':'), "x1:/a/b?t=1&q=()!'-&\\'$/-a'")
+- [invalid port 'x' in "url4://h:x/a-b.c~(a)!'{*b/'" — `port = ]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context='a', intent=Text(value='{*b/'), params=()), "url4://h:x/a-b.c~(a)!'{*b/'")
+- [invalid port 'x' in 'url4://h:x/p(a)!@9/x#y' — `port = 1*DIG]
+    (Source(value=RemoteExpr(authority='h:x', path='/p', context='a', intent=IdentityRef(name='9', collection='x#y'), params=()), name=None, weight=None, budgets=(), annotations=(('mode', None),), expand=False), 'url4://h:x/p(a)!@9/x#y;mode')
+- [invalid port 'x' in 'url4://h:x/(https://x)' — `port = 1*DIG]
+    (Binding(name='b', value=RemoteExpr(authority='h:x', path='/', context='https://x', intent=Text(value=''), params=()), kind='='), "b=url4://h:x/(https://x)!''")
+- [invalid data path '//' in '//?t=x']
+    (RelExpr(path='//', context=None, intent=Url(value='https://h.io/'), params=(('t', 'x!y'),)), '//?t=x!y&q=()!https://h.io/')
+- [invalid port 'x' in 'url4://h:x/p(a)' — `port = 1*DIGIT`]
+    (Binding(name='_n', value=RemoteExpr(authority='h:x', path='/p', context='a', intent=StructObject(raw="{k: 'v'}"), params=()), kind='='), "_n=url4://h:x/p(a)!{k: 'v'}")
+- [call '/p?x2=a b&q=(a, b)' has no intent — a relative or remo]
+    (Binding(name='topic', value=RelExpr(path='/p', context='a, b', intent=Text(value='@'), params=(('x2', 'a b'),)), kind='='), "topic=/p?x2=a b&q=(a, b)!'@'")
+- [call '/a-b.c~?k&q=(https://x)' has no intent — a relative or]
+    (RelExpr(path='/a-b.c~', context='https://x', intent=Text(value='_*'), params=(('k', None),)), "/a-b.c~?k&q=(https://x)!'_*'")
+- [invalid port 'x' in 'url4://h:x//()!https://h.io/' — `port =]
+    (RemoteExpr(authority='h:x', path='//', context=None, intent=Url(value='https://h.io/'), params=()), 'url4://h:x//()!https://h.io/')
+- [invalid port 'x' in 'url4://h:x/(https://x)!()' — `port = 1*]
+    (RemoteExpr(authority='h:x', path='/', context='https://x', intent=Expression(sources=(), intent=Text(value=''), broadcast=False, params=()), params=()), "url4://h:x/(https://x)!()!''")
+- [call '/p?mode=all&mode=all&q=()' has no intent — a relative ]
+    (RelExpr(path='/p', context=None, intent=RelUrl(value='//'), params=(('mode', 'all'), ('mode', 'all'))), '/p?mode=all&mode=all&q=()!//')
+- [call '/?x2=all&x2=all&q=()' has no intent — a relative or re]
+    (Binding(name='topic', value=RelExpr(path='/', context=None, intent=RelUrl(value='/'), params=(('x2', 'all'), ('x2', 'all'))), kind='='), 'topic=/?x2=all&x2=all&q=()!/')
+- [invalid execution-annotation value 'a b' for 'required' (spe]
+    (Source(value=SelfRef(), name='item', weight=None, budgets=(), annotations=(('retry', '1'), ('required', 'a b')), expand=True), '*item:@;retry=1;required=a b')
+- [invalid port 'x' in 'url4://h:x/a/b?k&k&q=(a)' — `port = 1*D]
+    (RemoteExpr(authority='h:x', path='/a/b', context='a', intent=RelUrl(value='/)='), params=(('k', None), ('k', None))), 'url4://h:x/a/b?k&k&q=(a)!/)=')
+- [invalid port 'x' in "url4://h:x/p(https://x)!/'.=" — `port =]
+    (RemoteExpr(authority='h:x', path='/p', context='https://x', intent=RelUrl(value="/'.="), params=()), "url4://h:x/p(https://x)!/'.=")
+- [cannot classify descriptor segment 't1=100' in '0.3000000000]
+    (Source(value=RelUrl(value='/'), name=None, weight=0.30000000000000004, budgets=(('t1', '100'),), annotations=(), expand=False), '0.30000000000000004:t1=100:/')
+- [invalid port 'x' in 'url4://h:x//?q=all&q=(a)' — `port = 1*D]
+    (RemoteExpr(authority='h:x', path='//', context='a', intent=RelUrl(value='/$a'), params=(('q', 'all'),)), 'url4://h:x//?q=all&q=(a)!/$a')
+- [call '/claude?mode&mode&q=(a, b)' has no intent — a relative]
+    (RelExpr(path='/claude', context='a, b', intent=RelUrl(value='/_'), params=(('mode', None), ('mode', None))), '/claude?mode&mode&q=(a, b)!/_')
+- [call '/claude?broadcast=1:3&q=()' has no intent — a relative]
+    (RelExpr(path='/claude', context=None, intent=RelUrl(value="/'"), params=(('broadcast', '1:3'),)), "/claude?broadcast=1:3&q=()!/'")
+- [call '//?quorum&quorum&q=()' has no intent — a relative or r]
+    (RelExpr(path='//', context=None, intent=Text(value='?\t* /'), params=(('quorum', None), ('quorum', None))), "//?quorum&quorum&q=()!'?\t* /'")
+- [call '//?broadcast&broadcast&q=()' has no intent — a relativ]
+    (RelExpr(path='//', context=None, intent=RelUrl(value='/'), params=(('broadcast', None), ('broadcast', None))), '//?broadcast&broadcast&q=()!/')
+- [invalid port 'x' in 'url4://h:x/p()!https://h.io/$' — `port ]
+    (RemoteExpr(authority='h:x', path='/p', context=None, intent=Url(value='https://h.io/$'), params=()), 'url4://h:x/p()!https://h.io/$')
+- [invalid param value 'x!y' for 'mode' — `param-value` takes A]
+    (Source(value=VarRef(name='a', path=(3, 3)), name='x1', weight=None, budgets=(), annotations=(('mode', 'x!y'), ('mode', 'x!y')), expand=False), 'x1:$a[3][3];mode=x!y;mode=x!y')
+- [call '//?iteration.slice=all&q=()' has no intent — a relativ]
+    (RelExpr(path='//', context=None, intent=SelfRef(), params=(('iteration.slice', 'all'),)), '//?iteration.slice=all&q=()!@')
+- [call '//?k=1:3&k=1:3&q=()' has no intent — a relative or rem]
+    (RelExpr(path='//', context=None, intent=Text(value=':=*\n&\té'), params=(('k', '1:3'), ('k', '1:3'))), "//?k=1:3&k=1:3&q=()!':=*\n&\té'")
+- [call '/a/b?k&quorum&q=(q=1)' has no intent — a relative or r]
+    (RelExpr(path='/a/b', context='q=1', intent=RelUrl(value='/*b=:?_'), params=(('k', None), ('quorum', None))), '/a/b?k&quorum&q=(q=1)!/*b=:?_')
+- [call '/?q&mode&q=()' has no intent — a relative or remote ex]
+    (RemoteExpr(authority='node.ai', path='/', context=None, intent=SelfRef(), params=(('q', None), ('mode', None))), 'url4://node.ai/?q&mode&q=()!@')
+- [invalid port 'x' in 'url4://h:x/p?x2&q=(a)' — `port = 1*DIGI]
+    (Source(value=RemoteExpr(authority='h:x', path='/p', context='a', intent=IdentityRef(name='9', collection='x#y'), params=(('x2', None),)), name=None, weight=None, budgets=(), annotations=(), expand=True), '*url4://h:x/p?x2&q=(a)!@9/x#y')
+- [cannot classify descriptor segment 't1=100' in '_n:t1=100:ht]
+    (Source(value=Url(value='https://h.io/_*.:&'), name='_n', weight=None, budgets=(('t1', '100'),), annotations=(), expand=True), '*_n:t1=100:https://h.io/_*.:&')
+- [invalid port 'x' in 'url4://h:x/()!https://h.io/a-' — `port ]
+    (RemoteExpr(authority='h:x', path='/', context=None, intent=Url(value='https://h.io/a-'), params=()), 'url4://h:x/()!https://h.io/a-')
+- [invalid port 'x' in 'url4://h:x/p?q=1&q=()' — `port = 1*DIGI]
+    (RemoteExpr(authority='h:x', path='/p', context=None, intent=RelUrl(value='/.$::a!'), params=(('q', '1'),)), 'url4://h:x/p?q=1&q=()!/.$::a!')
+- [call '/(a, b)' has no intent — a relative or remote expressi]
+    (Binding(name='topic', value=RelExpr(path='/', context='a, b', intent=Url(value='https://h.io/-$'), params=()), kind=':'), 'topic:/(a, b)!https://h.io/-$')
+- [call '/a-b.c~?broadcast=1&q=()' has no intent — a relative o]
+    (Binding(name='_n', value=RelExpr(path='/a-b.c~', context=None, intent=Text(value=''), params=(('broadcast', '1'),)), kind='='), "_n=/a-b.c~?broadcast=1&q=()!''")
+- [call '/p?x2&q=()' has no intent — a relative or remote expre]
+    (Source(value=RelExpr(path='/p', context=None, intent=Text(value='-:@$a{_'), params=(('x2', None),)), name=None, weight=1e-07, budgets=(), annotations=(), expand=False), "0.0000001:/p?x2&q=()!'-:@$a{_'")
+- [call '//?mode=1:3&q=()' has no intent — a relative or remote]
+    (RelExpr(path='//', context=None, intent=Url(value='https://h.io/'), params=(('mode', '1:3'),)), '//?mode=1:3&q=()!https://h.io/')
+- [call '//?quorum&q=(https://x)' has no intent — a relative or]
+    (RelExpr(path='//', context='https://x', intent=RelUrl(value="/.?'b/"), params=(('quorum', None),)), "//?quorum&q=(https://x)!/.?'b/")
+- [call '/a-b.c~?quorum&quorum&q=()' has no intent — a relative]
+    (RelExpr(path='/a-b.c~', context=None, intent=RelUrl(value='/,&'), params=(('quorum', None), ('quorum', None))), '/a-b.c~?quorum&quorum&q=()!/,&')
+- [call '//?x2=all&q&q=(q=1)' has no intent — a relative or rem]
+    (RelExpr(path='//', context='q=1', intent=Text(value='!/.,\\é?'), params=(('x2', 'all'), ('q', None))), "//?x2=all&q&q=(q=1)!'!/.,\\\\é?'")
+- [call '//?quorum=a b&q&q=()' has no intent — a relative or re]
+    (RelExpr(path='//', context=None, intent=Text(value='é{ é-)='), params=(('quorum', 'a b'), ('q', None))), "//?quorum=a b&q&q=()!'é{ é-)='")
+- [invalid data path '/' in '/?k=a b&k=x']
+    (RelExpr(path='/', context='a, b', intent=RelUrl(value='/!-?(-?'), params=(('k', 'a b'), ('k', 'x!y'))), '/?k=a b&k=x!y&q=(a, b)!/!-?(-?')
+- [invalid data path '/' in '/?k=x']
+    (RelExpr(path='/', context='a, b', intent=RelUrl(value='/!-?(-?'), params=(('k', 'x!y'), ('k', 'x!y'))), '/?k=x!y&k=x!y&q=(a, b)!/!-?(-?')
+- [call '//?t=a b&t&q=()' has no intent — a relative or remote ]
+    (RelExpr(path='//', context=None, intent=Url(value='https://h.io/?'), params=(('t', 'a b'), ('t', None))), '//?t=a b&t&q=()!https://h.io/?')
+- [unexpected '(' in bare value 'é=/claude(a, b)']
+    (Binding(name='é', value=RelExpr(path='/claude', context='a, b', intent=Url(value='https://h.io/!'), params=()), kind='='), 'é=/claude(a, b)!https://h.io/!')
+- [invalid port 'x' in 'url4://h:x/p(a)!https://h.io/:b' — `por]
+    (RemoteExpr(authority='h:x', path='/p', context='a', intent=Url(value='https://h.io/:b'), params=()), 'url4://h:x/p(a)!https://h.io/:b')
+- [call '/a-b.c~?k=1&quorum&q=()' has no intent — a relative or]
+    (RelExpr(path='/a-b.c~', context=None, intent=RelUrl(value='/:,?/,a'), params=(('k', '1'), ('quorum', None))), '/a-b.c~?k=1&quorum&q=()!/:,?/,a')
+- [call '/a-b.c~?t=all&t=a b&q=()' has no intent — a relative o]
+    (RelExpr(path='/a-b.c~', context=None, intent=RelUrl(value="/?./'_"), params=(('t', 'all'), ('t', 'a b'))), "/a-b.c~?t=all&t=a b&q=()!/?./'_")
+- [invalid port 'x' in 'url4://h:x//(https://x)!/&---a$' — `por]
+    (RemoteExpr(authority='h:x', path='//', context='https://x', intent=RelUrl(value='/&---a$'), params=()), 'url4://h:x//(https://x)!/&---a$')
+- [invalid port 'x' in 'url4://h:x/a/b?t&q=()' — `port = 1*DIGI]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=Text(value=':(@:!/b'), params=(('t', None),)), "url4://h:x/a/b?t&q=()!':(@:!/b'")
+- [invalid port 'x' in 'url4://h:x/p(a)!https://h.io/$$' — `por]
+    (RemoteExpr(authority='h:x', path='/p', context='a', intent=Url(value='https://h.io/$$'), params=()), 'url4://h:x/p(a)!https://h.io/$$')
+- [call '//?broadcast&q=all&q=()' has no intent — a relative or]
+    (RelExpr(path='//', context=None, intent=Text(value='@&\n@,'), params=(('broadcast', None), ('q', 'all'))), "//?broadcast&q=all&q=()!'@&\n@,'")
+- [call '/p?broadcast&k&q=(https://x)' has no intent — a relati]
+    (RelExpr(path='/p', context='https://x', intent=RelUrl(value='/)'), params=(('broadcast', None), ('k', None))), '/p?broadcast&k&q=(https://x)!/)')
+- [invalid port 'x' in 'url4://h:x/a-b.c~?t&mode&q=()' — `port ]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=RelUrl(value='/'), params=(('t', None), ('mode', None))), 'url4://h:x/a-b.c~?t&mode&q=()!/')
+- [call '/a/b?broadcast&q=()' has no intent — a relative or rem]
+    (RelExpr(path='/a/b', context=None, intent=Text(value="b&?_\\'_"), params=(('broadcast', None),)), "/a/b?broadcast&q=()!'b&?_\\\\\\'_'")
+- [invalid data path '/' in '/?x2=a b&k=x']
+    (RelExpr(path='/', context='a, b', intent=RelUrl(value='/!-?(-?'), params=(('x2', 'a b'), ('k', 'x!y'))), '/?x2=a b&k=x!y&q=(a, b)!/!-?(-?')
+- [invalid port 'x' in 'url4://h:x//(https://x)!/()/b/b' — `por]
+    (RemoteExpr(authority='h:x', path='//', context='https://x', intent=RelUrl(value='/()/b/b'), params=()), 'url4://h:x//(https://x)!/()/b/b')
+- [invalid port 'x' in "url4://h:x/p(https://x)!/(-_;='" — `por]
+    (RemoteExpr(authority='h:x', path='/p', context='https://x', intent=RelUrl(value="/(-_;='"), params=()), "url4://h:x/p(https://x)!/(-_;='")
+- [invalid port 'x' in 'url4://h:x/a/b()!https://h.io/?' — `por]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=Url(value='https://h.io/?'), params=()), 'url4://h:x/a/b()!https://h.io/?')
+- [call '//?mode&quorum&q=(https://x)' has no intent — a relati]
+    (RelExpr(path='//', context='https://x', intent=Text(value=''), params=(('mode', None), ('quorum', None))), "//?mode&quorum&q=(https://x)!''")
+- [call '/a/b?iteration.slice=1:3&q=()' has no intent — a relat]
+    (RelExpr(path='/a/b', context=None, intent=RelUrl(value='/?'), params=(('iteration.slice', '1:3'),)), '/a/b?iteration.slice=1:3&q=()!/?')
+- [call '//?t&broadcast&q=()' has no intent — a relative or rem]
+    (RelExpr(path='//', context=None, intent=Text(value="&\n'';'="), params=(('t', None), ('broadcast', None))), "//?t&broadcast&q=()!'&\n\\'\\';\\'='")
+- [call '/?k&k&q=(a)' has no intent — a relative or remote expr]
+    (RemoteExpr(authority='node.ai:80', path='/', context='a', intent=RelUrl(value='/:*'), params=(('k', None), ('k', None))), 'url4://node.ai:80/?k&k&q=(a)!/:*')
+- [call '/?t&q=()' has no intent — a relative or remote express]
+    (RelExpr(path='/', context=None, intent=Expression(sources=(VarRef(name='١', path=('f',)),), intent=Text(value='a_;éb\t$'), broadcast=False, params=(('quorum', None),)), params=(('t', None),)), "/?t&q=()!($١.f)!'a_;éb\t$';quorum")
+- [call '/a-b.c~?k&quorum&q=(a, b)' has no intent — a relative ]
+    (RelExpr(path='/a-b.c~', context='a, b', intent=IdentityRef(name='emily', collection=None), params=(('k', None), ('quorum', None))), '/a-b.c~?k&quorum&q=(a, b)!@emily')
+- [call '/?quorum&t&q=()' has no intent — a relative or remote ]
+    (RemoteExpr(authority='node.ai', path='/', context=None, intent=Text(value=''), params=(('quorum', None), ('t', None))), "url4://node.ai/?quorum&t&q=()!''")
+- [invalid port 'x' in 'url4://h:x/a/b(a)!https://h.io/,' — `po]
+    (RemoteExpr(authority='h:x', path='/a/b', context='a', intent=Url(value='https://h.io/,'), params=()), 'url4://h:x/a/b(a)!https://h.io/,')
+- [invalid port 'x' in 'url4://h:x/?t&q=(https://x)' — `port = ]
+    (Binding(name='b', value=RemoteExpr(authority='h:x', path='/', context='https://x', intent=Text(value=''), params=(('t', None),)), kind='='), "b=url4://h:x/?t&q=(https://x)!''")
+- [invalid port 'x' in 'url4://h:x/p(a)!https://h.io/b,&' — `po]
+    (RemoteExpr(authority='h:x', path='/p', context='a', intent=Url(value='https://h.io/b,&'), params=()), 'url4://h:x/p(a)!https://h.io/b,&')
+- [call '//?k=1:3&q=(a)' has no intent — a relative or remote e]
+    (RemoteExpr(authority='node.ai', path='//', context='a', intent=RelUrl(value='/?.'), params=(('k', '1:3'),)), 'url4://node.ai//?k=1:3&q=(a)!/?.')
+- [invalid data path '/' in '/?quorum=x']
+    (RemoteExpr(authority='node.ai', path='/', context=None, intent=SelfRef(), params=(('quorum', 'x!y'),)), 'url4://node.ai/?quorum=x!y&q=()!@')
+- [call '/a-b.c~?k=1&quorum=1&q=()' has no intent — a relative ]
+    (RelExpr(path='/a-b.c~', context=None, intent=RelUrl(value='/:,?/,a'), params=(('k', '1'), ('quorum', '1'))), '/a-b.c~?k=1&quorum=1&q=()!/:,?/,a')
+- [call '/claude?mode&mode=1:3&q=(a, b)' has no intent — a rela]
+    (RelExpr(path='/claude', context='a, b', intent=RelUrl(value='/_'), params=(('mode', None), ('mode', '1:3'))), '/claude?mode&mode=1:3&q=(a, b)!/_')
+- [call '/?x2&k&q=(a)' has no intent — a relative or remote exp]
+    (RemoteExpr(authority='node.ai:80', path='/', context='a', intent=RelUrl(value='/:*'), params=(('x2', None), ('k', None))), 'url4://node.ai:80/?x2&k&q=(a)!/:*')
+- [call '/a-b.c~?quorum=a b&q=()' has no intent — a relative or]
+    (RelExpr(path='/a-b.c~', context=None, intent=Text(value='*)__?;('), params=(('quorum', 'a b'),)), "/a-b.c~?quorum=a b&q=()!'*)__?;('")
+- [call '/claude?x2&x2&q=(https://x)' has no intent — a relativ]
+    (RelExpr(path='/claude', context='https://x', intent=Text(value='=\t/'), params=(('x2', None), ('x2', None))), "/claude?x2&x2&q=(https://x)!'=\t/'")
+- [call '/a/b?broadcast=1:3&t=all&q=()' has no intent — a relat]
+    (RelExpr(path='/a/b', context=None, intent=RelUrl(value="/?'"), params=(('broadcast', '1:3'), ('t', 'all'))), "/a/b?broadcast=1:3&t=all&q=()!/?'")
+- [call '/p?q&q&q=(q=1)' has no intent — a relative or remote e]
+    (RelExpr(path='/p', context='q=1', intent=Url(value='https://h.io/-$-.='), params=(('q', None), ('q', None))), '/p?q&q&q=(q=1)!https://h.io/-$-.=')
+- [call '/claude?quorum&t&q=(a, b)' has no intent — a relative ]
+    (RelExpr(path='/claude', context='a, b', intent=RelUrl(value='/&(:b&)'), params=(('quorum', None), ('t', None))), '/claude?quorum&t&q=(a, b)!/&(:b&)')
+- [invalid port 'x' in 'url4://h:x/a-b.c~()!https://h.io/' — `p]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=Url(value='https://h.io/'), params=()), 'url4://h:x/a-b.c~()!https://h.io/')
+- [call '/claude?k&q=()' has no intent — a relative or remote e]
+    (RelExpr(path='/claude', context=None, intent=Expression(sources=(), intent=Url(value='https://h.io/,'), broadcast=True, params=()), params=(('k', None),)), '/claude?k&q=()!()!*https://h.io/,')
+- [call '/p?x2=1:3&q=(q=1)' has no intent — a relative or remot]
+    (RelExpr(path='/p', context='q=1', intent=Url(value='https://h.io/&.'), params=(('x2', '1:3'),)), '/p?x2=1:3&q=(q=1)!https://h.io/&.')
+- [call '/p?k&q=(a)' has no intent — a relative or remote expre]
+    (RemoteExpr(authority='node.ai:80', path='/p', context='a', intent=Text(value='0!('), params=(('k', None),)), "url4://node.ai:80/p?k&q=(a)!'0!('")
+- [invalid port 'x' in 'url4://h:x/p(https://x)' — `port = 1*DI]
+    (Source(value=RemoteExpr(authority='h:x', path='/p', context='https://x', intent=RelUrl(value='/&?_'), params=()), name=None, weight=2.0, budgets=(), annotations=(), expand=True), '*2.0:url4://h:x/p(https://x)!/&?_')
+- [call '//?quorum&quorum&q=(https://x)' has no intent — a rela]
+    (RelExpr(path='//', context='https://x', intent=Text(value=''), params=(('quorum', None), ('quorum', None))), "//?quorum&quorum&q=(https://x)!''")
+- [invalid port 'x' in 'url4://h:x/a-b.c~(a)!()' — `port = 1*DI]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context='a', intent=Expression(sources=(), intent=Text(value='\n?:\\}\t,'), broadcast=False, params=()), params=()), "url4://h:x/a-b.c~(a)!()!'\n?:\\\\}\t,'")
+- [invalid data path '//' in '//?quorum=x']
+    (RelExpr(path='//', context=None, intent=Url(value='https://h.io/'), params=(('quorum', 'x!y'), ('t', None))), '//?quorum=x!y&t&q=()!https://h.io/')
+- [call '/claude?q=1:3&q=()' has no intent — a relative or remo]
+    (RemoteExpr(authority='node.ai', path='/claude', context=None, intent=SelfRef(), params=(('q', '1:3'),)), 'url4://node.ai/claude?q=1:3&q=()!@')
+- [invalid port 'x' in 'url4://h:x//?t=x' — `port = 1*DIGIT`]
+    (RemoteExpr(authority='h:x', path='//', context=None, intent=Expression(sources=(), intent=RelUrl(value="/?___/'"), broadcast=False, params=()), params=(('t', 'x!y'),)), "url4://h:x//?t=x!y&q=()!()!/?___/'")
+- [invalid port 'x' in 'url4://h:x/a-b.c~?mode&mode&q=()' — `po]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=RelUrl(value='/'), params=(('mode', None), ('mode', None))), 'url4://h:x/a-b.c~?mode&mode&q=()!/')
+- [call '/p?quorum&quorum&q=(q=1)' has no intent — a relative o]
+    (RelExpr(path='/p', context='q=1', intent=Text(value=',\té{/)$'), params=(('quorum', None), ('quorum', None))), "/p?quorum&quorum&q=(q=1)!',\té{/)$'")
+- [call '/claude?q&q=()' has no intent — a relative or remote e]
+    (RemoteExpr(authority='node.ai:80', path='/claude', context=None, intent=Text(value=''), params=(('q', None),)), "url4://node.ai:80/claude?q&q=()!''")
+- [invalid port 'x' in 'url4://h:x//?q=all&q=all&q=(a)' — `port]
+    (RemoteExpr(authority='h:x', path='//', context='a', intent=RelUrl(value='/$a'), params=(('q', 'all'), ('q', 'all'))), 'url4://h:x//?q=all&q=all&q=(a)!/$a')
+- [call '//?k=1&t&q=()' has no intent — a relative or remote ex]
+    (RemoteExpr(authority='node.ai', path='//', context=None, intent=Text(value='\\)?'), params=(('k', '1'), ('t', None))), "url4://node.ai//?k=1&t&q=()!'\\\\)?'")
+- [call '/a/b?quorum&iteration.slice&q=()' has no intent — a re]
+    (RelExpr(path='/a/b', context=None, intent=RelUrl(value='/'), params=(('quorum', None), ('iteration.slice', None))), '/a/b?quorum&iteration.slice&q=()!/')
+- [invalid port 'x' in 'url4://h:x/a-b.c~?x2=x' — `port = 1*DIG]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=RelUrl(value='/*$)*'), params=(('x2', 'x!y'),)), 'url4://h:x/a-b.c~?x2=x!y&q=()!/*$)*')
+- [call '/p?iteration.slice=a b&t&q=()' has no intent — a relat]
+    (RelExpr(path='/p', context=None, intent=RelUrl(value='/??*:'), params=(('iteration.slice', 'a b'), ('t', None))), '/p?iteration.slice=a b&t&q=()!/??*:')
+- [invalid iteration.concurrency='app/json'; expected a positiv]
+    (Source(value=VarRef(name='1', path=()), name='b', weight=None, budgets=(), annotations=(('iteration.concurrency', 'app/json'),), expand=False), 'b:$1;iteration.concurrency=app/json')
+- [call '/a-b.c~?broadcast=a b&q=()' has no intent — a relative]
+    (RelExpr(path='/a-b.c~', context=None, intent=StructObject(raw="{k: 'v'}"), params=(('broadcast', 'a b'),)), "/a-b.c~?broadcast=a b&q=()!{k: 'v'}")
+- [invalid iteration.concurrency='a b'; expected a positive int]
+    (Source(value=VarRef(name='_x', path=(2, 0)), name=None, weight=None, budgets=(), annotations=(('iteration.concurrency', 'a b'),), expand=False), '$_x[2][0];iteration.concurrency=a b')
+- [call '//?quorum=a b&quorum&q=()' has no intent — a relative ]
+    (RelExpr(path='//', context=None, intent=Text(value='é{ é-)='), params=(('quorum', 'a b'), ('quorum', None))), "//?quorum=a b&quorum&q=()!'é{ é-)='")
+- [invalid port 'x' in 'url4://h:x/p?t=1&q=(https://x)' — `port]
+    (RemoteExpr(authority='h:x', path='/p', context='https://x', intent=RelUrl(value="/'.="), params=(('t', '1'),)), "url4://h:x/p?t=1&q=(https://x)!/'.=")
+- [invalid port 'x' in 'url4://h:x//?q=1&mode=all&q=(a)' — `por]
+    (RemoteExpr(authority='h:x', path='//', context='a', intent=RelUrl(value='/$a'), params=(('q', '1'), ('mode', 'all'))), 'url4://h:x//?q=1&mode=all&q=(a)!/$a')
+- [call '/?broadcast&q=()' has no intent — a relative or remote]
+    (Binding(name='x1', value=RelExpr(path='/', context=None, intent=Url(value='https://h.io/,='), params=(('broadcast', None),)), kind='='), 'x1=/?broadcast&q=()!https://h.io/,=')
+- [call '/a/b?iteration.slice=1&q&q=(q=1)' has no intent — a re]
+    (RelExpr(path='/a/b', context='q=1', intent=RelUrl(value='/?'), params=(('iteration.slice', '1'), ('q', None))), '/a/b?iteration.slice=1&q&q=(q=1)!/?')
+- [call '/p?k&k&q=(a)' has no intent — a relative or remote exp]
+    (RemoteExpr(authority='node.ai:80', path='/p', context='a', intent=Text(value='0!('), params=(('k', None), ('k', None))), "url4://node.ai:80/p?k&k&q=(a)!'0!('")
+- [call '/?t&iteration.slice&q=()' has no intent — a relative o]
+    (RelExpr(path='/', context=None, intent=Expression(sources=(), intent=Text(value=''), broadcast=True, params=(('t', None), ('t', None))), params=(('t', None), ('iteration.slice', None))), "/?t&iteration.slice&q=()!()!*'';t;t")
+- [call '/claude?k&x2&q=(a)' has no intent — a relative or remo]
+    (RemoteExpr(authority='node.ai', path='/claude', context='a', intent=RelUrl(value='/)'), params=(('k', None), ('x2', None))), 'url4://node.ai/claude?k&x2&q=(a)!/)')
+- [invalid iteration.slice='2:1'; need 0 <= start <= end]
+    (Iteration(collection=Binding(name='b', value=SelfRef(), kind='='), body=' $item ', intent='$a', reducer=None, directives=IterationDirectives(concurrency=None, on_error='collect', slice=(2, 1), fmt_result=None)), 'b=@*( $item )!$a;iteration.slice=2:1')
+- [invalid port 'x' in 'url4://h:x/a-b.c~?quorum&q=()' — `port ]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=Text(value='?&\t?'), params=(('quorum', None),)), "url4://h:x/a-b.c~?quorum&q=()!'?&\t?'")
+- [call '/claude?mode=1&q=()' has no intent — a relative or rem]
+    (RelExpr(path='/claude', context=None, intent=Url(value='https://h.io/&!_'), params=(('mode', '1'),)), '/claude?mode=1&q=()!https://h.io/&!_')
+- [invalid port 'x' in 'url4://h:x/a/b()!https://h.io/' — `port]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=Url(value='https://h.io/!*!!_,'), params=()), 'url4://h:x/a/b()!https://h.io/!*!!_,')
+- [call '/a-b.c~?broadcast=1:3&q=(q=1)' has no intent — a relat]
+    (RelExpr(path='/a-b.c~', context='q=1', intent=Text(value='\t0;é'), params=(('broadcast', '1:3'),)), "/a-b.c~?broadcast=1:3&q=(q=1)!'\t0;é'")
+- [call '/a-b.c~?t=1:3&q=()' has no intent — a relative or remo]
+    (RelExpr(path='/a-b.c~', context=None, intent=StructObject(raw='{a: 1, b: {c: 2}}'), params=(('t', '1:3'),)), '/a-b.c~?t=1:3&q=()!{a: 1, b: {c: 2}}')
+- [invalid port 'x' in 'url4://h:x/?k=1&q=()' — `port = 1*DIGIT]
+    (Source(value=RemoteExpr(authority='h:x', path='/', context=None, intent=Text(value=',,'), params=(('k', '1'),)), name='_n', weight=None, budgets=(('usd', '1.5'),), annotations=(), expand=False), "_n:usd=1.5:url4://h:x/?k=1&q=()!',,'")
+- [call '/a/b?k&broadcast&q=(a, b)' has no intent — a relative ]
+    (Binding(name='src', value=RelExpr(path='/a/b', context='a, b', intent=IdentityRef(name='9', collection='x#y'), params=(('k', None), ('broadcast', None))), kind='='), 'src=/a/b?k&broadcast&q=(a, b)!@9/x#y')
+- [call '/a/b?broadcast&broadcast&q=(a, b)' has no intent — a r]
+    (RelExpr(path='/a/b', context='a, b', intent=RelUrl(value='/)'), params=(('broadcast', None), ('broadcast', None))), '/a/b?broadcast&broadcast&q=(a, b)!/)')
+- [call '/?quorum&q=()' has no intent — a relative or remote ex]
+    (Binding(name='_n', value=RemoteExpr(authority='node.ai:80', path='/', context=None, intent=Text(value=''), params=(('quorum', None),)), kind=':'), "_n:url4://node.ai:80/?quorum&q=()!''")
+- [call '/a-b.c~?quorum=a b&quorum=a b&q=()' has no intent — a ]
+    (RelExpr(path='/a-b.c~', context=None, intent=SelfRef(), params=(('quorum', 'a b'), ('quorum', 'a b'))), '/a-b.c~?quorum=a b&quorum=a b&q=()!@')
+- [call '/a/b?k=all&k=all&q=(a, b)' has no intent — a relative ]
+    (Binding(name='x1', value=RelExpr(path='/a/b', context='a, b', intent=Text(value='}:0&&'), params=(('k', 'all'), ('k', 'all'))), kind='='), "x1=/a/b?k=all&k=all&q=(a, b)!'}:0&&'")
+- [call '/claude?q&q&q=()' has no intent — a relative or remote]
+    (RemoteExpr(authority='node.ai:80', path='/claude', context=None, intent=Text(value=''), params=(('q', None), ('q', None))), "url4://node.ai:80/claude?q&q&q=()!''")
+- [invalid param value 'x!y' for 'expand' — `param-value` takes]
+    (Source(value=VarRef(name='a', path=()), name='topic', weight=1e-07, budgets=(), annotations=(('t2', 'x!y'), ('expand', 'x!y')), expand=False), 'topic:0.0000001:$a;t2=x!y;expand=x!y')
+- [call '/a/b?mode&broadcast&q=()' has no intent — a relative o]
+    (RelExpr(path='/a/b', context=None, intent=Text(value="b&?_\\'_"), params=(('mode', None), ('broadcast', None))), "/a/b?mode&broadcast&q=()!'b&?_\\\\\\'_'")
+- [call '/claude?t&t&q=(q=1)' has no intent — a relative or rem]
+    (RelExpr(path='/claude', context='q=1', intent=Url(value='https://h.io/*.-'), params=(('t', None), ('t', None))), '/claude?t&t&q=(q=1)!https://h.io/*.-')
+- [call '/claude?x2&x2&q=(a)' has no intent — a relative or rem]
+    (RemoteExpr(authority='node.ai', path='/claude', context='a', intent=RelUrl(value='/)'), params=(('x2', None), ('x2', None))), 'url4://node.ai/claude?x2&x2&q=(a)!/)')
+- [invalid port 'x' in 'url4://h:x/a-b.c~(https://x)!@9/notes' ]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context='https://x', intent=IdentityRef(name='9', collection='notes'), params=()), 'url4://h:x/a-b.c~(https://x)!@9/notes')
+- [call '/claude?t=a b&mode&q=()' has no intent — a relative or]
+    (Source(value=RelExpr(path='/claude', context=None, intent=RelUrl(value='/'), params=(('t', 'a b'), ('mode', None))), name='_n', weight=None, budgets=(), annotations=(('required', None),), expand=False), '_n:/claude?t=a b&mode&q=()!/;required')
+- [invalid port 'x' in 'url4://h:x/claude?quorum=a b&q=(a)' — `]
+    (RemoteExpr(authority='h:x', path='/claude', context='a', intent=Text(value=''), params=(('quorum', 'a b'),)), "url4://h:x/claude?quorum=a b&q=(a)!''")
+- [call '//?broadcast=a b&q=(https://x)' has no intent — a rela]
+    (RelExpr(path='//', context='https://x', intent=RelUrl(value="//-=)'"), params=(('broadcast', 'a b'),)), "//?broadcast=a b&q=(https://x)!//-=)'")
+- [call '/a-b.c~?k=all&mode&q=(https://x)' has no intent — a re]
+    (RelExpr(path='/a-b.c~', context='https://x', intent=Text(value='_*'), params=(('k', 'all'), ('mode', None))), "/a-b.c~?k=all&mode&q=(https://x)!'_*'")
+- [invalid port 'x' in 'url4://h:x/p?quorum=1:3&q=()' — `port =]
+    (RemoteExpr(authority='h:x', path='/p', context=None, intent=IdentityRef(name='9', collection='notes'), params=(('quorum', '1:3'),)), 'url4://h:x/p?quorum=1:3&q=()!@9/notes')
+- [call '/claude?quorum&x2&q=(https://x)' has no intent — a rel]
+    (RelExpr(path='/claude', context='https://x', intent=Text(value='=\t/'), params=(('quorum', None), ('x2', None))), "/claude?quorum&x2&q=(https://x)!'=\t/'")
+- [call '/p?quorum&broadcast&q=(q=1)' has no intent — a relativ]
+    (RelExpr(path='/p', context='q=1', intent=Text(value=',\té{/)$'), params=(('quorum', None), ('broadcast', None))), "/p?quorum&broadcast&q=(q=1)!',\té{/)$'")
+- [call '/p?x2&iteration.slice&q=()' has no intent — a relative]
+    (RelExpr(path='/p', context=None, intent=Text(value='_$! \\!?'), params=(('x2', None), ('iteration.slice', None))), "/p?x2&iteration.slice&q=()!'_$! \\\\!?'")
+- [invalid port 'x' in 'url4://h:x//?q=all&mode=all&q=(a)' — `p]
+    (RemoteExpr(authority='h:x', path='//', context='a', intent=RelUrl(value='/$a'), params=(('q', 'all'), ('mode', 'all'))), 'url4://h:x//?q=all&mode=all&q=(a)!/$a')
+- [invalid port 'x' in 'url4://h:x/claude?t&x2&q=()' — `port = ]
+    (RemoteExpr(authority='h:x', path='/claude', context=None, intent=Text(value=':}b_$.:'), params=(('t', None), ('x2', None))), "url4://h:x/claude?t&x2&q=()!':}b_$.:'")
+- [call '/a/b?q=1:3&t&q=()' has no intent — a relative or remot]
+    (RemoteExpr(authority='node.ai:80', path='/a/b', context=None, intent=Text(value='?'), params=(('q', '1:3'), ('t', None))), "url4://node.ai:80/a/b?q=1:3&t&q=()!'?'")
+- [call '/a/b?q=1:3&q&q=()' has no intent — a relative or remot]
+    (RemoteExpr(authority='node.ai:80', path='/a/b', context=None, intent=Text(value='?'), params=(('q', '1:3'), ('q', None))), "url4://node.ai:80/a/b?q=1:3&q&q=()!'?'")
+- [call '/a-b.c~?mode=1&q=()' has no intent — a relative or rem]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context=None, intent=SelfRef(), params=(('mode', '1'),)), 'url4://node.ai:80/a-b.c~?mode=1&q=()!@')
+- [call '/claude?broadcast&mode=1:3&q=(a, b)' has no intent — a]
+    (RelExpr(path='/claude', context='a, b', intent=RelUrl(value='/_'), params=(('broadcast', None), ('mode', '1:3'))), '/claude?broadcast&mode=1:3&q=(a, b)!/_')
+- [invalid port 'x' in 'url4://h:x/p?t&t&q=()' — `port = 1*DIGI]
+    (Source(value=RemoteExpr(authority='h:x', path='/p', context=None, intent=RelUrl(value='//-*'), params=(('t', None), ('t', None))), name=None, weight=None, budgets=(), annotations=(('retry', None), ('retry', None)), expand=False), 'url4://h:x/p?t&t&q=()!//-*;retry;retry')
+- [invalid port 'x' in 'url4://h:x/claude?q=a b&q=a b&q=(a)' — ]
+    (RemoteExpr(authority='h:x', path='/claude', context='a', intent=Text(value=''), params=(('q', 'a b'), ('q', 'a b'))), "url4://h:x/claude?q=a b&q=a b&q=(a)!''")
+- [call '/claude?x2=1&q=()' has no intent — a relative or remot]
+    (Binding(name='x1', value=RelExpr(path='/claude', context=None, intent=StructObject(raw='{a: 1, b: {c: 2}}'), params=(('x2', '1'),)), kind='='), 'x1=/claude?x2=1&q=()!{a: 1, b: {c: 2}}')
+- [invalid port 'x' in 'url4://h:x/p?k=1&k=1&q=(https://x)' — `]
+    (RemoteExpr(authority='h:x', path='/p', context='https://x', intent=Text(value='b'), params=(('k', '1'), ('k', '1'))), "url4://h:x/p?k=1&k=1&q=(https://x)!'b'")
+- [invalid port 'x' in 'url4://h:x/p?k=x' — `port = 1*DIGIT`]
+    (RemoteExpr(authority='h:x', path='/p', context=None, intent=Url(value='https://h.io/$'), params=(('k', 'x!y'),)), 'url4://h:x/p?k=x!y&q=()!https://h.io/$')
+- [call '/p?q&q=()' has no intent — a relative or remote expres]
+    (RemoteExpr(authority='node.ai', path='/p', context=None, intent=Url(value='https://h.io/*'), params=(('q', None),)), 'url4://node.ai/p?q&q=()!https://h.io/*')
+- [call '/claude?broadcast=1:3&q=(a, b)' has no intent — a rela]
+    (RelExpr(path='/claude', context='a, b', intent=RelUrl(value='/?)*b.('), params=(('broadcast', '1:3'),)), '/claude?broadcast=1:3&q=(a, b)!/?)*b.(')
+- [cannot classify descriptor segment 'é' in 'é:(@emily/notes, ]
+    (Binding(name='é', value=Expression(sources=(IdentityRef(name='emily', collection='notes'), IdentityRef(name='emily', collection='notes')), intent=IdentityRef(name='emily', collection=None), broadcast=True, params=()), kind=':'), 'é:(@emily/notes, @emily/notes)!*@emily')
+- [call '/p?quorum&q&q=(q=1)' has no intent — a relative or rem]
+    (RelExpr(path='/p', context='q=1', intent=Url(value='https://h.io/-$-.='), params=(('quorum', None), ('q', None))), '/p?quorum&q&q=(q=1)!https://h.io/-$-.=')
+- [cannot classify descriptor segment 'src' in 'src:url4://node]
+    (Binding(name='src', value=RemoteExpr(authority='node.ai', path='/a/b', context=None, intent=RelUrl(value='/,-$(a;'), params=(('x2', None),)), kind=':'), 'src:url4://node.ai/a/b?x2&q=()!/,-$(a;')
+- [invalid port 'x' in 'url4://h:x/a/b?k&broadcast=1&q=(a)' — `]
+    (RemoteExpr(authority='h:x', path='/a/b', context='a', intent=RelUrl(value='/)='), params=(('k', None), ('broadcast', '1'))), 'url4://h:x/a/b?k&broadcast=1&q=(a)!/)=')
+- [call '/a/b?quorum&k&q=()' has no intent — a relative or remo]
+    (RemoteExpr(authority='node.ai', path='/a/b', context=None, intent=Text(value='_\n*'), params=(('quorum', None), ('k', None))), "url4://node.ai/a/b?quorum&k&q=()!'_\n*'")
+- [invalid port 'x' in 'url4://h:x/claude?x2&x2&q=()' — `port =]
+    (RemoteExpr(authority='h:x', path='/claude', context=None, intent=Text(value=':}b_$.:'), params=(('x2', None), ('x2', None))), "url4://h:x/claude?x2&x2&q=()!':}b_$.:'")
+- [unexpected '(' in bare value 'é=(@emily/a/b, @emily/a/b)']
+    (Binding(name='é', value=Expression(sources=(IdentityRef(name='emily', collection='a/b'), IdentityRef(name='emily', collection='a/b')), intent=IdentityRef(name='emily', collection='a/b'), broadcast=True, params=()), kind='='), 'é=(@emily/a/b, @emily/a/b)!*@emily/a/b')
+- [invalid port 'x' in 'url4://h:x/a/b?k&k&q=()' — `port = 1*DI]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=Url(value='https://h.io/?'), params=(('k', None), ('k', None))), 'url4://h:x/a/b?k&k&q=()!https://h.io/?')
+- [call '/a-b.c~?k&q=()' has no intent — a relative or remote e]
+    (RemoteExpr(authority='node.ai', path='/a-b.c~', context=None, intent=Text(value='?;é-\\{b'), params=(('k', None),)), "url4://node.ai/a-b.c~?k&q=()!'?;é-\\\\{b'")
+- [invalid port 'x' in 'url4://h:x//?q&iteration.slice=1&q=()' ]
+    (RemoteExpr(authority='h:x', path='//', context=None, intent=SelfRef(), params=(('q', None), ('iteration.slice', '1'))), 'url4://h:x//?q&iteration.slice=1&q=()!@')
+- [invalid port 'x' in 'url4://h:x/a/b(https://x)!https://h.io/]
+    (RemoteExpr(authority='h:x', path='/a/b', context='https://x', intent=Url(value='https://h.io/'), params=()), 'url4://h:x/a/b(https://x)!https://h.io/')
+- [call '/claude?t&broadcast&q=(https://x)' has no intent — a r]
+    (RelExpr(path='/claude', context='https://x', intent=RelUrl(value='/!a,:'), params=(('t', None), ('broadcast', None))), '/claude?t&broadcast&q=(https://x)!/!a,:')
+- [call '/p?t&broadcast&q=()' has no intent — a relative or rem]
+    (RemoteExpr(authority='node.ai:80', path='/p', context=None, intent=Text(value=''), params=(('t', None), ('broadcast', None))), "url4://node.ai:80/p?t&broadcast&q=()!''")
+- [invalid port 'x' in 'url4://h:x/a/b?iteration.slice&q&q=()' ]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=RelUrl(value='/'), params=(('iteration.slice', None), ('q', None))), 'url4://h:x/a/b?iteration.slice&q&q=()!/')
+- [invalid port 'x' in "url4://h:x/claude(https://x)!',\\\\0-;(]
+    (RemoteExpr(authority='h:x', path='/claude', context='https://x', intent=Text(value=',\\0-;(.'), params=()), "url4://h:x/claude(https://x)!',\\\\0-;(.'")
+- [expression group '({a: 1, b: {c: 2}})' has no intent — a par]
+    (Binding(name='a', value=Expression(sources=(StructObject(raw='{a: 1, b: {c: 2}}'),), intent=StructObject(raw='{a: 1, b: {c: 2}}'), broadcast=False, params=()), kind=':'), 'a:({a: 1, b: {c: 2}})!{a: 1, b: {c: 2}}')
+- [call '/a-b.c~?broadcast&q=()' has no intent — a relative or ]
+    (RelExpr(path='/a-b.c~', context=None, intent=Url(value='https://h.io/?.$'), params=(('broadcast', None),)), '/a-b.c~?broadcast&q=()!https://h.io/?.$')
+- [invalid port 'x' in 'url4://h:x/a/b?x2&k&q=()' — `port = 1*D]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=Url(value='https://h.io/?'), params=(('x2', None), ('k', None))), 'url4://h:x/a/b?x2&k&q=()!https://h.io/?')
+- [invalid port 'x' in 'url4://h:x/a-b.c~()!https://h.io/*/:.&']
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=Url(value='https://h.io/*/:.&!'), params=()), 'url4://h:x/a-b.c~()!https://h.io/*/:.&!')
+- [invalid iteration.concurrency=0; must be >= 1]
+    (Iteration(collection=SelfRef(), body='$a', intent=' go', reducer=' go', directives=IterationDirectives(concurrency=0, on_error='collect', slice=None, fmt_result=None)), '(@*($a)! go;iteration.concurrency=0)! go')
+- [call '/a-b.c~(https://x)' has no intent — a relative or remo]
+    (Binding(name='_n', value=RemoteExpr(authority='node.ai', path='/a-b.c~', context='https://x', intent=Text(value='._'), params=()), kind='='), "_n=url4://node.ai/a-b.c~(https://x)!'._'")
+- [call '//?iteration.slice=a b&x2&q=(q=1)' has no intent — a r]
+    (RelExpr(path='//', context='q=1', intent=IdentityRef(name='9', collection='a/b'), params=(('iteration.slice', 'a b'), ('x2', None))), '//?iteration.slice=a b&x2&q=(q=1)!@9/a/b')
+- [call '/a-b.c~?q&q&q=(a)' has no intent — a relative or remot]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='a', intent=Text(value='_ {'), params=(('q', None), ('q', None))), "url4://node.ai:80/a-b.c~?q&q&q=(a)!'_ {'")
+- [call '/claude?q=1:3&q=1:3&q=()' has no intent — a relative o]
+    (RemoteExpr(authority='node.ai', path='/claude', context=None, intent=SelfRef(), params=(('q', '1:3'), ('q', '1:3'))), 'url4://node.ai/claude?q=1:3&q=1:3&q=()!@')
+- [invalid port 'x' in 'url4://h:x//(a)!()' — `port = 1*DIGIT`]
+    (RemoteExpr(authority='h:x', path='//', context='a', intent=Expression(sources=(), intent=StructObject(raw="{k: 'v'}"), broadcast=True, params=(('t', 'all'), ('q', 'x!y'))), params=()), "url4://h:x//(a)!()!*{k: 'v'};t=all;q=x!y")
+- [invalid port 'x' in 'url4://h:x/p?quorum=1&k&q=(https://x)' ]
+    (RemoteExpr(authority='h:x', path='/p', context='https://x', intent=Text(value='b'), params=(('quorum', '1'), ('k', None))), "url4://h:x/p?quorum=1&k&q=(https://x)!'b'")
+- [call '/p?quorum&quorum&q=()' has no intent — a relative or r]
+    (Source(value=RemoteExpr(authority='node.ai:80', path='/p', context=None, intent=SelfRef(), params=(('quorum', None), ('quorum', None))), name=None, weight=None, budgets=(), annotations=(), expand=True), '*url4://node.ai:80/p?quorum&quorum&q=()!@')
+- [call '/a-b.c~?q&mode=all&q=()' has no intent — a relative or]
+    (RemoteExpr(authority='node.ai', path='/a-b.c~', context=None, intent=Text(value=' '), params=(('q', None), ('mode', 'all'))), "url4://node.ai/a-b.c~?q&mode=all&q=()!' '")
+- [call '/p?mode&q=all&q=(a)' has no intent — a relative or rem]
+    (RemoteExpr(authority='node.ai', path='/p', context='a', intent=Text(value=')@0b{'), params=(('mode', None), ('q', 'all'))), "url4://node.ai/p?mode&q=all&q=(a)!')@0b{'")
+- [call '/claude(https://x)' has no intent — a relative or remo]
+    (Source(value=RemoteExpr(authority='node.ai', path='/claude', context='https://x', intent=RelUrl(value='/?a,=?.'), params=()), name=None, weight=None, budgets=(), annotations=(), expand=True), '*url4://node.ai/claude(https://x)!/?a,=?.')
+- [call '/a-b.c~?q&t&q=()' has no intent — a relative or remote]
+    (RemoteExpr(authority='node.ai', path='/a-b.c~', context=None, intent=Text(value="(-'!é\t."), params=(('q', None), ('t', None))), "url4://node.ai/a-b.c~?q&t&q=()!'(-\\'!é\t.'")
+- [call '/p?quorum=a b&broadcast&q=(q=1)' has no intent — a rel]
+    (RelExpr(path='/p', context='q=1', intent=Text(value=',\té{/)$'), params=(('quorum', 'a b'), ('broadcast', None))), "/p?quorum=a b&broadcast&q=(q=1)!',\té{/)$'")
+- [call '/a-b.c~?iteration.slice&quorum=a b&q=()' has no intent]
+    (RelExpr(path='/a-b.c~', context=None, intent=SelfRef(), params=(('iteration.slice', None), ('quorum', 'a b'))), '/a-b.c~?iteration.slice&quorum=a b&q=()!@')
+- [invalid port 'x' in 'url4://h:x/p?q=a b&q=(a)' — `port = 1*D]
+    (RemoteExpr(authority='h:x', path='/p', context='a', intent=Url(value='https://h.io/b,&'), params=(('q', 'a b'),)), 'url4://h:x/p?q=a b&q=(a)!https://h.io/b,&')
+- [call '/a-b.c~?iteration.slice=1&q=(q=1)' has no intent — a r]
+    (RelExpr(path='/a-b.c~', context='q=1', intent=RelUrl(value='/a)/&:b'), params=(('iteration.slice', '1'),)), '/a-b.c~?iteration.slice=1&q=(q=1)!/a)/&:b')
+- [call '/a/b?broadcast&broadcast&q=()' has no intent — a relat]
+    (RelExpr(path='/a/b', context=None, intent=Text(value="b&?_\\'_"), params=(('broadcast', None), ('broadcast', None))), "/a/b?broadcast&broadcast&q=()!'b&?_\\\\\\'_'")
+- [invalid port 'x' in 'url4://h:x/a/b?x2&x2&q=()' — `port = 1*]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=Url(value='https://h.io/__'), params=(('x2', None), ('x2', None))), 'url4://h:x/a/b?x2&x2&q=()!https://h.io/__')
+- [invalid port 'x' in 'url4://h:x/claude(https://x)' — `port =]
+    (Source(value=RemoteExpr(authority='h:x', path='/claude', context='https://x', intent=RelUrl(value='/((_('), params=()), name='_n', weight=0.0, budgets=(), annotations=(), expand=False), '_n:0.0:url4://h:x/claude(https://x)!/((_(')
+- [invalid port 'x' in 'url4://h:x/?x2&iteration.slice=all&q=()]
+    (RemoteExpr(authority='h:x', path='/', context=None, intent=SelfRef(), params=(('x2', None), ('iteration.slice', 'all'))), 'url4://h:x/?x2&iteration.slice=all&q=()!@')
+- [call '//(https://x)' has no intent — a relative or remote ex]
+    (Binding(name='topic', value=RemoteExpr(authority='node.ai:80', path='//', context='https://x', intent=Text(value='}*?'), params=()), kind='='), "topic=url4://node.ai:80//(https://x)!'}*?'")
+- [call '/p?t&q=(a)' has no intent — a relative or remote expre]
+    (RemoteExpr(authority='node.ai:80', path='/p', context='a', intent=Url(value='https://h.io/-'), params=(('t', None),)), 'url4://node.ai:80/p?t&q=(a)!https://h.io/-')
+- [invalid port 'x' in 'url4://h:x/claude?q=a b&broadcast&q=(a)]
+    (RemoteExpr(authority='h:x', path='/claude', context='a', intent=Text(value=''), params=(('q', 'a b'), ('broadcast', None))), "url4://h:x/claude?q=a b&broadcast&q=(a)!''")
+- [call '/p?q=all&q=all&q=(a)' has no intent — a relative or re]
+    (RemoteExpr(authority='node.ai', path='/p', context='a', intent=Text(value=')@0b{'), params=(('q', 'all'), ('q', 'all'))), "url4://node.ai/p?q=all&q=all&q=(a)!')@0b{'")
+- [call '/p?iteration.slice&q=(a, b)' has no intent — a relativ]
+    (RelExpr(path='/p', context='a, b', intent=Url(value='https://h.io/.'), params=(('iteration.slice', None),)), '/p?iteration.slice&q=(a, b)!https://h.io/.')
+- [invalid port 'x' in 'url4://h:x/claude?q=all&x2&q=(a)' — `po]
+    (RemoteExpr(authority='h:x', path='/claude', context='a', intent=Text(value="'*{\\\n"), params=(('q', 'all'), ('x2', None))), "url4://h:x/claude?q=all&x2&q=(a)!'\\'*{\\\\\n'")
+- [call '/claude?broadcast&q=()' has no intent — a relative or ]
+    (RelExpr(path='/claude', context=None, intent=Url(value='https://h.io/:$!,_-'), params=(('broadcast', None),)), '/claude?broadcast&q=()!https://h.io/:$!,_-')
+- [call '/a/b?iteration.slice&q=(https://x)' has no intent — a ]
+    (RelExpr(path='/a/b', context='https://x', intent=RelUrl(value='/ab-(-a'), params=(('iteration.slice', None),)), '/a/b?iteration.slice&q=(https://x)!/ab-(-a')
+- [cannot classify descriptor segment 't1=1.5' in 'topic:(scien]
+    (Source(value=SelfRef(), name='topic', weight={'science': 0.85, '_default': 0.4}, budgets=(('t1', '1.5'),), annotations=(), expand=True), '*topic:(science:0.85,_default:0.4):t1=1.5:@')
+- [invalid port 'x' in 'url4://h:x/p?quorum=1&k=1&q=(https://x)]
+    (RemoteExpr(authority='h:x', path='/p', context='https://x', intent=Text(value='b'), params=(('quorum', '1'), ('k', '1'))), "url4://h:x/p?quorum=1&k=1&q=(https://x)!'b'")
+- [invalid port 'x' in 'url4://h:x//?quorum=a b&quorum=x' — `po]
+    (RemoteExpr(authority='h:x', path='//', context='a', intent=Text(value=''), params=(('quorum', 'a b'), ('quorum', 'x!y'))), "url4://h:x//?quorum=a b&quorum=x!y&q=(a)!''")
+- [invalid port 'x' in 'url4://h:x//?quorum=a b&quorum=a b&q=(a]
+    (RemoteExpr(authority='h:x', path='//', context='a', intent=Text(value=''), params=(('quorum', 'a b'), ('quorum', 'a b'))), "url4://h:x//?quorum=a b&quorum=a b&q=(a)!''")
+- [invalid port 'x' in 'url4://h:x/p?quorum=1:3&k=1:3&q=()' — `]
+    (RemoteExpr(authority='h:x', path='/p', context=None, intent=IdentityRef(name='9', collection='notes'), params=(('quorum', '1:3'), ('k', '1:3'))), 'url4://h:x/p?quorum=1:3&k=1:3&q=()!@9/notes')
+- [call '/a-b.c~?q&q&q=(https://x)' has no intent — a relative ]
+    (RemoteExpr(authority='node.ai', path='/a-b.c~', context='https://x', intent=RelUrl(value='//?'), params=(('q', None), ('q', None))), 'url4://node.ai/a-b.c~?q&q&q=(https://x)!//?')
+- [invalid port 'x' in 'url4://h:x/claude?x2=all&x2&q=(a)' — `p]
+    (RemoteExpr(authority='h:x', path='/claude', context='a', intent=Text(value="'*{\\\n"), params=(('x2', 'all'), ('x2', None))), "url4://h:x/claude?x2=all&x2&q=(a)!'\\'*{\\\\\n'")
+- [invalid param value 'a b' for 'x2' — `param-value` takes ALP]
+    (Expression(sources=(Text(value='}0$&\t'), Text(value='{'), StructObject(raw="{k: 'v'}")), intent=Text(value='}é{*\t$/'), broadcast=False, params=(('k', None), ('x2', 'a b'))), "('}0$&\t', '{', {k: 'v'})!'}é{*\t$/';k;x2=a b")
+- [call '/p?k&broadcast&q=(a)' has no intent — a relative or re]
+    (RemoteExpr(authority='node.ai:80', path='/p', context='a', intent=Text(value='0!('), params=(('k', None), ('broadcast', None))), "url4://node.ai:80/p?k&broadcast&q=(a)!'0!('")
+- [cannot classify descriptor segment 't1=100' in "_n:100000000]
+    (Expression(sources=(Source(value=Text(value=''), name='_n', weight=1e+20, budgets=(('t1', '100'),), annotations=(), expand=False),), intent=Expression(sources=(RelUrl(value='/'),), intent=Text(value=''), broadcast=False, params=()), broadcast=True, params=()), "(_n:100000000000000000000:t1=100:'')!*(/)!''")
+- [cannot classify descriptor segment 't1=1.5' in '_n:t1=1.5:/c]
+    (Source(value=RelExpr(path='/claude', context=None, intent=RelUrl(value='/'), params=(('t', 'a b'), ('mode', None))), name='_n', weight=None, budgets=(('t1', '1.5'),), annotations=(('required', None),), expand=False), '_n:t1=1.5:/claude?t=a b&mode&q=()!/;required')
+- [call '/a-b.c~?mode&mode=all&q=()' has no intent — a relative]
+    (RemoteExpr(authority='node.ai', path='/a-b.c~', context=None, intent=Text(value=' '), params=(('mode', None), ('mode', 'all'))), "url4://node.ai/a-b.c~?mode&mode=all&q=()!' '")
+- [call '/a-b.c~?broadcast&iteration.slice&q=()' has no intent ]
+    (RelExpr(path='/a-b.c~', context=None, intent=RelUrl(value='/*$$*'), params=(('broadcast', None), ('iteration.slice', None))), '/a-b.c~?broadcast&iteration.slice&q=()!/*$$*')
+- [invalid port 'x' in 'url4://h:x//?k=a b&q=()' — `port = 1*DI]
+    (Source(value=RemoteExpr(authority='h:x', path='//', context=None, intent=SelfRef(), params=(('k', 'a b'),)), name=None, weight=1e-07, budgets=(('usd', '1.5'),), annotations=(), expand=True), '*0.0000001:usd=1.5:url4://h:x//?k=a b&q=()!@')
+- [call '//?k=1:3&broadcast=1&q=(a)' has no intent — a relative]
+    (RemoteExpr(authority='node.ai', path='//', context='a', intent=RelUrl(value='/?.'), params=(('k', '1:3'), ('broadcast', '1'))), 'url4://node.ai//?k=1:3&broadcast=1&q=(a)!/?.')
+- [call '//?quorum=a b&q=()' has no intent — a relative or remo]
+    (RelExpr(path='//', context=None, intent=Expression(sources=(SelfRef(), SelfRef(), SelfRef()), intent=Text(value='-,'), broadcast=False, params=(('k', '1'), ('quorum', None))), params=(('quorum', 'a b'),)), "//?quorum=a b&q=()!(@, @, @)!'-,';k=1;quorum")
+- [call '/claude?q&broadcast&q=()' has no intent — a relative o]
+    (RemoteExpr(authority='node.ai:80', path='/claude', context=None, intent=Text(value=''), params=(('q', None), ('broadcast', None))), "url4://node.ai:80/claude?q&broadcast&q=()!''")
+- [expression group '({a: 1, b: {c: 2}}, @9/a/b)' has no intent]
+    (Binding(name='item', value=Expression(sources=(StructObject(raw='{a: 1, b: {c: 2}}'), IdentityRef(name='9', collection='a/b')), intent=Text(value='\\$/;&_?'), broadcast=True, params=()), kind=':'), "item:({a: 1, b: {c: 2}}, @9/a/b)!*'\\\\$/;&_?'")
+- [invalid port 'x' in 'url4://h:x/a/b?x2&q=all&q=()' — `port =]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=Url(value='https://h.io/__'), params=(('x2', None), ('q', 'all'))), 'url4://h:x/a/b?x2&q=all&q=()!https://h.io/__')
+- [call '/claude?broadcast=all&mode=1&q=(a, b)' has no intent —]
+    (RelExpr(path='/claude', context='a, b', intent=IdentityRef(name='emily', collection=None), params=(('broadcast', 'all'), ('mode', '1'))), '/claude?broadcast=all&mode=1&q=(a, b)!@emily')
+- [call '/claude?broadcast&t&q=(q=1)' has no intent — a relativ]
+    (RelExpr(path='/claude', context='q=1', intent=Url(value='https://h.io/*.-'), params=(('broadcast', None), ('t', None))), '/claude?broadcast&t&q=(q=1)!https://h.io/*.-')
+- [invalid port 'x' in "url4://h:x//?iteration.slice&q=()!'\n!']
+    (Expression(sources=(RemoteExpr(authority='h:x', path='//', context=None, intent=Text(value='\n!'), params=(('iteration.slice', None),)),), intent=Text(value='\n!'), broadcast=False, params=()), "(url4://h:x//?iteration.slice&q=()!'\n!')!'\n!'")
+- [call '/p?iteration.slice&q=()' has no intent — a relative or]
+    (RemoteExpr(authority='node.ai', path='/p', context=None, intent=Text(value='}é/*\t'), params=(('iteration.slice', None),)), "url4://node.ai/p?iteration.slice&q=()!'}é/*\t'")
+- [invalid port 'x' in 'url4://h:x/?k&k&q=(https://x)' — `port ]
+    (RemoteExpr(authority='h:x', path='/', context='https://x', intent=Url(value='https://h.io/:*'), params=(('k', None), ('k', None))), 'url4://h:x/?k&k&q=(https://x)!https://h.io/:*')
+- [call '/a-b.c~?q&quorum&q=(a)' has no intent — a relative or ]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='a', intent=Text(value='_ {'), params=(('q', None), ('quorum', None))), "url4://node.ai:80/a-b.c~?q&quorum&q=(a)!'_ {'")
+- [invalid port 'x' in 'url4://h:x/?x2=1&broadcast=all&q=()' — ]
+    (RemoteExpr(authority='h:x', path='/', context=None, intent=Expression(sources=(), intent=IdentityRef(name='9', collection='x#y'), broadcast=False, params=()), params=(('x2', '1'), ('broadcast', 'all'))), 'url4://h:x/?x2=1&broadcast=all&q=()!()!@9/x#y')
+- [invalid port 'x' in 'url4://h:x/a/b?k=all&q=()' — `port = 1*]
+    (RemoteExpr(authority='h:x', path='/a/b', context=None, intent=Url(value='https://h.io/!*!!_,'), params=(('k', 'all'),)), 'url4://h:x/a/b?k=all&q=()!https://h.io/!*!!_,')
+- [call '/p?quorum&q=()' has no intent — a relative or remote e]
+    (RemoteExpr(authority='node.ai:80', path='/p', context=None, intent=Url(value='https://h.io/'), params=(('quorum', None),)), 'url4://node.ai:80/p?quorum&q=()!https://h.io/')
+- [invalid port 'x' in "url4://h:x//?iteration.slice&q=()!'*,'"]
+    (Expression(sources=(RemoteExpr(authority='h:x', path='//', context=None, intent=Text(value='*,'), params=(('iteration.slice', None),)),), intent=Text(value='*,'), broadcast=False, params=()), "(url4://h:x//?iteration.slice&q=()!'*,')!'*,'")
+- [invalid port 'x' in 'url4://h:x/a/b?broadcast&q=(a)' — `port]
+    (RemoteExpr(authority='h:x', path='/a/b', context='a', intent=Url(value='https://h.io/,'), params=(('broadcast', None),)), 'url4://h:x/a/b?broadcast&q=(a)!https://h.io/,')
+- [cannot classify descriptor segment 'src' in "src:'\\\\b@*b'"]
+    (Iteration(collection=Binding(name='src', value=Text(value='\\b@*b'), kind=':'), body='a, b', intent='/r(x)', reducer=None, directives=IterationDirectives(concurrency=None, on_error='collect', slice=(0, 2), fmt_result=None)), "src:'\\\\b@*b'*(a, b)!/r(x);iteration.slice=0:2")
+- [call '/a-b.c~?iteration.slice=1&t=a b&q=()' has no intent — ]
+    (RelExpr(path='/a-b.c~', context=None, intent=Text(value='a;)\ta?'), params=(('iteration.slice', '1'), ('t', 'a b'))), "/a-b.c~?iteration.slice=1&t=a b&q=()!'a;)\ta?'")
+- [call '//?broadcast&mode&q=()' has no intent — a relative or ]
+    (RemoteExpr(authority='node.ai:80', path='//', context=None, intent=RelUrl(value='/)a)?'), params=(('broadcast', None), ('mode', None))), 'url4://node.ai:80//?broadcast&mode&q=()!/)a)?')
+- [call '/p?quorum&quorum&q=(https://x)' has no intent — a rela]
+    (RemoteExpr(authority='node.ai', path='/p', context='https://x', intent=RelUrl(value='/'), params=(('quorum', None), ('quorum', None))), 'url4://node.ai/p?quorum&quorum&q=(https://x)!/')
+- [call '/p?quorum=1:3&quorum=a b&q=(a)' has no intent — a rela]
+    (RemoteExpr(authority='node.ai', path='/p', context='a', intent=RelUrl(value='/'), params=(('quorum', '1:3'), ('quorum', 'a b'))), 'url4://node.ai/p?quorum=1:3&quorum=a b&q=(a)!/')
+- [call '/p?quorum=a b&quorum=a b&q=(a)' has no intent — a rela]
+    (RemoteExpr(authority='node.ai', path='/p', context='a', intent=RelUrl(value='/'), params=(('quorum', 'a b'), ('quorum', 'a b'))), 'url4://node.ai/p?quorum=a b&quorum=a b&q=(a)!/')
+- [call '/a-b.c~?mode&q&q=()' has no intent — a relative or rem]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context=None, intent=Text(value='b:&=\\?'), params=(('mode', None), ('q', None))), "url4://node.ai:80/a-b.c~?mode&q&q=()!'b:&=\\\\?'")
+- [call '/p?iteration.slice=1&q=()' has no intent — a relative ]
+    (RemoteExpr(authority='node.ai', path='/p', context=None, intent=Text(value="'b0"), params=(('iteration.slice', '1'),)), "url4://node.ai/p?iteration.slice=1&q=()!'\\'b0'")
+- [call '/claude?q&broadcast=1&q=()' has no intent — a relative]
+    (RemoteExpr(authority='node.ai:80', path='/claude', context=None, intent=Text(value=''), params=(('q', None), ('broadcast', '1'))), "url4://node.ai:80/claude?q&broadcast=1&q=()!''")
+- [invalid port 'x' in 'url4://h:x/p?mode&mode&q=(a)' — `port =]
+    (RemoteExpr(authority='h:x', path='/p', context='a', intent=Url(value='https://h.io/,$=/'), params=(('mode', None), ('mode', None))), 'url4://h:x/p?mode&mode&q=(a)!https://h.io/,$=/')
+- [iteration '($_x*($a)!x*(y);iteration.on_error=skip)!x*(y)' h]
+    (Iteration(collection=VarRef(name='_x', path=()), body='$a', intent='x*(y)', reducer='x*(y)', directives=IterationDirectives(concurrency=None, on_error='skip', slice=None, fmt_result=None)), '($_x*($a)!x*(y);iteration.on_error=skip)!x*(y)')
+- [call '/p?k&iteration.slice&q=()' has no intent — a relative ]
+    (Binding(name='b', value=RemoteExpr(authority='node.ai:80', path='/p', context=None, intent=RelUrl(value='/'), params=(('k', None), ('iteration.slice', None))), kind='='), 'b=url4://node.ai:80/p?k&iteration.slice&q=()!/')
+- [call '//?t&q=(https://x)' has no intent — a relative or remo]
+    (Binding(name='topic', value=RemoteExpr(authority='node.ai:80', path='//', context='https://x', intent=Text(value='}*?'), params=(('t', None),)), kind='='), "topic=url4://node.ai:80//?t&q=(https://x)!'}*?'")
+- [call '/a/b?quorum=1:3&quorum&q=(https://x)' has no intent — ]
+    (RelExpr(path='/a/b', context='https://x', intent=Text(value=":&={}-'"), params=(('quorum', '1:3'), ('quorum', None))), "/a/b?quorum=1:3&quorum&q=(https://x)!':&={}-\\''")
+- [cannot classify descriptor segment 't1=1.5' in 'weight:(scie]
+    (Source(value=VarRef(name='item', path=()), name='weight', weight={'science': 0.85, '_default': 0.4}, budgets=(('t1', '1.5'),), annotations=(), expand=False), 'weight:(science:0.85,_default:0.4):t1=1.5:$item')
+- [invalid port 'x' in 'url4://h:x/?iteration.slice&q=(https://]
+    (RemoteExpr(authority='h:x', path='/', context='https://x', intent=Expression(sources=(), intent=Text(value=''), broadcast=False, params=()), params=(('iteration.slice', None),)), "url4://h:x/?iteration.slice&q=(https://x)!()!''")
+- [call '/claude?broadcast&broadcast&q=(https://x)' has no inte]
+    (RelExpr(path='/claude', context='https://x', intent=RelUrl(value='/!a,:'), params=(('broadcast', None), ('broadcast', None))), '/claude?broadcast&broadcast&q=(https://x)!/!a,:')
+- [call '/p?broadcast&broadcast&q=()' has no intent — a relativ]
+    (RemoteExpr(authority='node.ai:80', path='/p', context=None, intent=Text(value=''), params=(('broadcast', None), ('broadcast', None))), "url4://node.ai:80/p?broadcast&broadcast&q=()!''")
+- [call '/a-b.c~?q&k=a b&q=(https://x)' has no intent — a relat]
+    (RemoteExpr(authority='node.ai', path='/a-b.c~', context='https://x', intent=RelUrl(value='//?'), params=(('q', None), ('k', 'a b'))), 'url4://node.ai/a-b.c~?q&k=a b&q=(https://x)!//?')
+- [call '/a-b.c~?q&q=a b&q=(https://x)' has no intent — a relat]
+    (RemoteExpr(authority='node.ai', path='/a-b.c~', context='https://x', intent=RelUrl(value='//?'), params=(('q', None), ('q', 'a b'))), 'url4://node.ai/a-b.c~?q&q=a b&q=(https://x)!//?')
+- [invalid port 'x' in 'url4://h:x/claude?x2=all&x2=all&q=(a)' ]
+    (RemoteExpr(authority='h:x', path='/claude', context='a', intent=Text(value="'*{\\\n"), params=(('x2', 'all'), ('x2', 'all'))), "url4://h:x/claude?x2=all&x2=all&q=(a)!'\\'*{\\\\\n'")
+- [invalid data path '/' in '/?q=x']
+    (RemoteExpr(authority='node.ai:80', path='/', context=None, intent=Expression(sources=(), intent=RelUrl(value='/*('), broadcast=True, params=()), params=(('q', 'x!y'), ('quorum', 'x!y'))), 'url4://node.ai:80/?q=x!y&quorum=x!y&q=()!()!*/*(')
+- [call '/a-b.c~?x2=all&broadcast&q=()' has no intent — a relat]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context=None, intent=SelfRef(), params=(('x2', 'all'), ('broadcast', None))), 'url4://node.ai:80/a-b.c~?x2=all&broadcast&q=()!@')
+- [call '/a/b?x2=1&q=()' has no intent — a relative or remote e]
+    (RemoteExpr(authority='node.ai:80', path='/a/b', context=None, intent=Url(value='https://h.io/._?'), params=(('x2', '1'),)), 'url4://node.ai:80/a/b?x2=1&q=()!https://h.io/._?')
+- [call '/a-b.c~?broadcast&k&q=()' has no intent — a relative o]
+    (RemoteExpr(authority='node.ai', path='/a-b.c~', context=None, intent=Text(value='}\t.-!/;'), params=(('broadcast', None), ('k', None))), "url4://node.ai/a-b.c~?broadcast&k&q=()!'}\t.-!/;'")
+- [call '/claude?iteration.slice=a b&q&q=()' has no intent — a ]
+    (RelExpr(path='/claude', context=None, intent=Url(value='https://h.io/'), params=(('iteration.slice', 'a b'), ('q', None))), '/claude?iteration.slice=a b&q&q=()!https://h.io/')
+- [call '/a-b.c~?mode=all&mode=all&q=()' has no intent — a rela]
+    (RemoteExpr(authority='node.ai', path='/a-b.c~', context=None, intent=Text(value=' '), params=(('mode', 'all'), ('mode', 'all'))), "url4://node.ai/a-b.c~?mode=all&mode=all&q=()!' '")
+- [call '/?x2&mode&q=(https://x)' has no intent — a relative or]
+    (RemoteExpr(authority='node.ai:80', path='/', context='https://x', intent=RelUrl(value='/)(,)(b'), params=(('x2', None), ('mode', None))), 'url4://node.ai:80/?x2&mode&q=(https://x)!/)(,)(b')
+- [call '/a/b?q=1&q=()' has no intent — a relative or remote ex]
+    (RemoteExpr(authority='node.ai:80', path='/a/b', context=None, intent=StructObject(raw='{a: 1, b: {c: 2}}'), params=(('q', '1'),)), 'url4://node.ai:80/a/b?q=1&q=()!{a: 1, b: {c: 2}}')
+- [invalid port 'x' in 'url4://h:x/p?quorum&mode&q=(a)' — `port]
+    (RemoteExpr(authority='h:x', path='/p', context='a', intent=Url(value='https://h.io/,$=/'), params=(('quorum', None), ('mode', None))), 'url4://h:x/p?quorum&mode&q=(a)!https://h.io/,$=/')
+- [call '/p?k=1&iteration.slice&q=()' has no intent — a relativ]
+    (Binding(name='b', value=RemoteExpr(authority='node.ai:80', path='/p', context=None, intent=RelUrl(value='/'), params=(('k', '1'), ('iteration.slice', None))), kind='='), 'b=url4://node.ai:80/p?k=1&iteration.slice&q=()!/')
+- [call '/p?quorum&broadcast&q=(https://x)' has no intent — a r]
+    (RemoteExpr(authority='node.ai', path='/p', context='https://x', intent=RelUrl(value='/'), params=(('quorum', None), ('broadcast', None))), 'url4://node.ai/p?quorum&broadcast&q=(https://x)!/')
+- [invalid port 'x' in 'url4://h:x/?k=a b&k&q=(https://x)' — `p]
+    (RemoteExpr(authority='h:x', path='/', context='https://x', intent=Url(value='https://h.io/:*'), params=(('k', 'a b'), ('k', None))), 'url4://h:x/?k=a b&k&q=(https://x)!https://h.io/:*')
+- [call '/a-b.c~?broadcast&broadcast&q=()' has no intent — a re]
+    (RelExpr(path='/a-b.c~', context=None, intent=Url(value='https://h.io/b?&'), params=(('broadcast', None), ('broadcast', None))), '/a-b.c~?broadcast&broadcast&q=()!https://h.io/b?&')
+- [call '/p?quorum=1:3&broadcast=a b&q=(a)' has no intent — a r]
+    (RemoteExpr(authority='node.ai', path='/p', context='a', intent=RelUrl(value='/'), params=(('quorum', '1:3'), ('broadcast', 'a b'))), 'url4://node.ai/p?quorum=1:3&broadcast=a b&q=(a)!/')
+- [call '/p?quorum&iteration.slice&q=(a, b)' has no intent — a ]
+    (RelExpr(path='/p', context='a, b', intent=Url(value='https://h.io/.'), params=(('quorum', None), ('iteration.slice', None))), '/p?quorum&iteration.slice&q=(a, b)!https://h.io/.')
+- [call '/a-b.c~?broadcast=1:3&mode=1:3&q=()' has no intent — a]
+    (RelExpr(path='/a-b.c~', context=None, intent=Url(value='https://h.io/'), params=(('broadcast', '1:3'), ('mode', '1:3'))), '/a-b.c~?broadcast=1:3&mode=1:3&q=()!https://h.io/')
+- [call '/p?iteration.slice=1&x2&q=()' has no intent — a relati]
+    (RemoteExpr(authority='node.ai', path='/p', context=None, intent=Text(value="'b0"), params=(('iteration.slice', '1'), ('x2', None))), "url4://node.ai/p?iteration.slice=1&x2&q=()!'\\'b0'")
+- [invalid port 'x' in 'url4://h:x/p?q=1:3&broadcast&q=(a)' — `]
+    (RemoteExpr(authority='h:x', path='/p', context='a', intent=Url(value='https://h.io/:b'), params=(('q', '1:3'), ('broadcast', None))), 'url4://h:x/p?q=1:3&broadcast&q=(a)!https://h.io/:b')
+- [invalid port 'x' in 'url4://h:x/?k=a b&x2&q=(https://x)' — `]
+    (RemoteExpr(authority='h:x', path='/', context='https://x', intent=Url(value='https://h.io/:*'), params=(('k', 'a b'), ('x2', None))), 'url4://h:x/?k=a b&x2&q=(https://x)!https://h.io/:*')
+- [invalid port 'x' in 'url4://h:x//?iteration.slice&q=(https:/]
+    (RemoteExpr(authority='h:x', path='//', context='https://x', intent=RelUrl(value='/&---a$'), params=(('iteration.slice', None),)), 'url4://h:x//?iteration.slice&q=(https://x)!/&---a$')
+- [call '/a-b.c~?mode&q=(https://x)' has no intent — a relative]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='https://x', intent=RelUrl(value='/&&a)a'), params=(('mode', None),)), 'url4://node.ai:80/a-b.c~?mode&q=(https://x)!/&&a)a')
+- [call '/p?quorum&iteration.slice&q=()' has no intent — a rela]
+    (Source(value=RemoteExpr(authority='node.ai:80', path='/p', context=None, intent=SelfRef(), params=(('quorum', None), ('iteration.slice', None))), name=None, weight=None, budgets=(), annotations=(), expand=True), '*url4://node.ai:80/p?quorum&iteration.slice&q=()!@')
+- [iteration '($١.g1*(x=$item)!go;iteration.on_error=fail)!x*(y]
+    (Iteration(collection=VarRef(name='١', path=('g1',)), body='x=$item', intent='go', reducer='x*(y)', directives=IterationDirectives(concurrency=None, on_error='fail', slice=None, fmt_result=None)), '($١.g1*(x=$item)!go;iteration.on_error=fail)!x*(y)')
+- [call '/?x2&mode=1&q=(https://x)' has no intent — a relative ]
+    (RemoteExpr(authority='node.ai:80', path='/', context='https://x', intent=RelUrl(value='/)(,)(b'), params=(('x2', None), ('mode', '1'))), 'url4://node.ai:80/?x2&mode=1&q=(https://x)!/)(,)(b')
+- [call '/?mode&mode&q=(https://x)' has no intent — a relative ]
+    (RemoteExpr(authority='node.ai:80', path='/', context='https://x', intent=RelUrl(value='/)(,)(b'), params=(('mode', None), ('mode', None))), 'url4://node.ai:80/?mode&mode&q=(https://x)!/)(,)(b')
+- [call '/a-b.c~?iteration.slice&iteration.slice&q=()' has no i]
+    (RelExpr(path='/a-b.c~', context=None, intent=RelUrl(value='/*$$*'), params=(('iteration.slice', None), ('iteration.slice', None))), '/a-b.c~?iteration.slice&iteration.slice&q=()!/*$$*')
+- [call '/a-b.c~?mode&q=a b&q=()' has no intent — a relative or]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context=None, intent=Text(value='b:&=\\?'), params=(('mode', None), ('q', 'a b'))), "url4://node.ai:80/a-b.c~?mode&q=a b&q=()!'b:&=\\\\?'")
+- [call '/a-b.c~?mode&q=()' has no intent — a relative or remot]
+    (Binding(name='a', value=RemoteExpr(authority='node.ai', path='/a-b.c~', context=None, intent=Url(value='https://h.io/-&$'), params=(('mode', None),)), kind='='), 'a=url4://node.ai/a-b.c~?mode&q=()!https://h.io/-&$')
+- [call '/p?iteration.slice&iteration.slice&q=()' has no intent]
+    (RelExpr(path='/p', context=None, intent=Text(value='_$! \\!?'), params=(('iteration.slice', None), ('iteration.slice', None))), "/p?iteration.slice&iteration.slice&q=()!'_$! \\\\!?'")
+- [invalid port 'x' in 'url4://h:x/a-b.c~?iteration.slice&k&q=(]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=IdentityRef(name='emily', collection='x#y'), params=(('iteration.slice', None), ('k', None))), 'url4://h:x/a-b.c~?iteration.slice&k&q=()!@emily/x#y')
+- [invalid iteration.concurrency='x'; expected a positive integ]
+    (Source(value=IdentityRef(name='emily', collection='notes'), name=None, weight=2.0, budgets=(), annotations=(('iteration.concurrency', 'x!y'), ('x.y', 'x!y')), expand=True), '*2.0:@emily/notes;iteration.concurrency=x!y;x.y=x!y')
+- [call '/a-b.c~?quorum&q=(https://x)' has no intent — a relati]
+    (Binding(name='src', value=RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='https://x', intent=RelUrl(value='/'), params=(('quorum', None),)), kind='='), 'src=url4://node.ai:80/a-b.c~?quorum&q=(https://x)!/')
+- [call '/a/b?quorum=1:3&quorum=1:3&q=(https://x)' has no inten]
+    (RelExpr(path='/a/b', context='https://x', intent=Text(value=":&={}-'"), params=(('quorum', '1:3'), ('quorum', '1:3'))), "/a/b?quorum=1:3&quorum=1:3&q=(https://x)!':&={}-\\''")
+- [call '/p?iteration.slice=1&x2=1&q=()' has no intent — a rela]
+    (RemoteExpr(authority='node.ai', path='/p', context=None, intent=Text(value="'b0"), params=(('iteration.slice', '1'), ('x2', '1'))), "url4://node.ai/p?iteration.slice=1&x2=1&q=()!'\\'b0'")
+- [call '/claude?iteration.slice=a b&q=a b&q=()' has no intent ]
+    (RelExpr(path='/claude', context=None, intent=Url(value='https://h.io/'), params=(('iteration.slice', 'a b'), ('q', 'a b'))), '/claude?iteration.slice=a b&q=a b&q=()!https://h.io/')
+- [call '/a-b.c~?t=a b&q=(a)' has no intent — a relative or rem]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='a', intent=Url(value='https://h.io/,_'), params=(('t', 'a b'),)), 'url4://node.ai:80/a-b.c~?t=a b&q=(a)!https://h.io/,_')
+- [invalid data path '/' in '/?quorum=all&iteration.slice=x']
+    (RemoteExpr(authority='node.ai', path='/', context=None, intent=SelfRef(), params=(('quorum', 'all'), ('iteration.slice', 'x!y'))), 'url4://node.ai/?quorum=all&iteration.slice=x!y&q=()!@')
+- [invalid port 'x' in 'url4://h:x/a-b.c~?iteration.slice&q=(a)]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context='a', intent=Expression(sources=(), intent=Text(value='\n?:\\}\t,'), broadcast=False, params=()), params=(('iteration.slice', None),)), "url4://h:x/a-b.c~?iteration.slice&q=(a)!()!'\n?:\\\\}\t,'")
+- [iteration '($١.g1*(x=$item)!x*(y);iteration.on_error=fail)!x]
+    (Iteration(collection=VarRef(name='١', path=('g1',)), body='x=$item', intent='x*(y)', reducer='x*(y)', directives=IterationDirectives(concurrency=None, on_error='fail', slice=None, fmt_result=None)), '($١.g1*(x=$item)!x*(y);iteration.on_error=fail)!x*(y)')
+- [call '/a-b.c~?x2&x2&q=(https://x)' has no intent — a relativ]
+    (Binding(name='topic', value=RemoteExpr(authority='node.ai', path='/a-b.c~', context='https://x', intent=Text(value='é) '), params=(('x2', None), ('x2', None))), kind='='), "topic=url4://node.ai/a-b.c~?x2&x2&q=(https://x)!'é) '")
+- [call '/a-b.c~?quorum&mode&q=(https://x)' has no intent — a r]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='https://x', intent=RelUrl(value='/)'), params=(('quorum', None), ('mode', None))), 'url4://node.ai:80/a-b.c~?quorum&mode&q=(https://x)!/)')
+- [call '/a-b.c~?broadcast=1:3&broadcast=1:3&q=()' has no inten]
+    (RelExpr(path='/a-b.c~', context=None, intent=Url(value='https://h.io/'), params=(('broadcast', '1:3'), ('broadcast', '1:3'))), '/a-b.c~?broadcast=1:3&broadcast=1:3&q=()!https://h.io/')
+- [invalid port 'x' in 'url4://h:x/a/b?broadcast=1&t=1&q=(https]
+    (RemoteExpr(authority='h:x', path='/a/b', context='https://x', intent=IdentityRef(name='emily', collection='a/b'), params=(('broadcast', '1'), ('t', '1'))), 'url4://h:x/a/b?broadcast=1&t=1&q=(https://x)!@emily/a/b')
+- [call '/a-b.c~?broadcast=all&broadcast&q=()' has no intent — ]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context=None, intent=SelfRef(), params=(('broadcast', 'all'), ('broadcast', None))), 'url4://node.ai:80/a-b.c~?broadcast=all&broadcast&q=()!@')
+- [call '/a/b?quorum&q=(https://x)' has no intent — a relative ]
+    (RemoteExpr(authority='node.ai', path='/a/b', context='https://x', intent=Expression(sources=(Text(value=''), IdentityRef(name='emily', collection=None)), intent=Text(value=''), broadcast=False, params=()), params=(('quorum', None),)), "url4://node.ai/a/b?quorum&q=(https://x)!('', @emily)!''")
+- [invalid port 'x' in 'url4://h:x//?iteration.slice&mode&q=(ht]
+    (RemoteExpr(authority='h:x', path='//', context='https://x', intent=RelUrl(value='/&---a$'), params=(('iteration.slice', None), ('mode', None))), 'url4://h:x//?iteration.slice&mode&q=(https://x)!/&---a$')
+- [cannot classify descriptor segment 't1=100' in 'x1:(science:]
+    (Source(value=StructObject(raw='{a: 1, b: {c: 2}}'), name='x1', weight={'science': 0.85, '_default': 0.4}, budgets=(('t1', '100'),), annotations=(), expand=False), 'x1:(science:0.85,_default:0.4):t1=100:{a: 1, b: {c: 2}}')
+- [call '/a/b?mode&quorum&q=(a)' has no intent — a relative or ]
+    (RemoteExpr(authority='node.ai', path='/a/b', context='a', intent=Url(value='https://h.io/!,-:.'), params=(('mode', None), ('quorum', None))), 'url4://node.ai/a/b?mode&quorum&q=(a)!https://h.io/!,-:.')
+- [call '/a-b.c~?quorum&quorum&q=(https://x)' has no intent — a]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='https://x', intent=RelUrl(value='/)'), params=(('quorum', None), ('quorum', None))), 'url4://node.ai:80/a-b.c~?quorum&quorum&q=(https://x)!/)')
+- [invalid port 'x' in 'url4://h:x/claude?quorum=all&q=(https:/]
+    (Source(value=RemoteExpr(authority='h:x', path='/claude', context='https://x', intent=RelUrl(value='/((_('), params=(('quorum', 'all'),)), name='_n', weight=0.0, budgets=(), annotations=(), expand=False), '_n:0.0:url4://h:x/claude?quorum=all&q=(https://x)!/((_(')
+- [cannot classify descriptor segment 't1=1.5' in "topic:(scien]
+    (Source(value=StructObject(raw="{k: 'v'}"), name='topic', weight={'science': 0.85, '_default': 0.4}, budgets=(('t1', '1.5'),), annotations=(('quorum', None),), expand=False), "topic:(science:0.85,_default:0.4):t1=1.5:{k: 'v'};quorum")
+- [call '/?quorum&quorum=1:3&q=()' has no intent — a relative o]
+    (RemoteExpr(authority='node.ai', path='/', context=None, intent=StructObject(raw='{a: 1, b: {c: 2}}'), params=(('quorum', None), ('quorum', '1:3'))), 'url4://node.ai/?quorum&quorum=1:3&q=()!{a: 1, b: {c: 2}}')
+- [call '/claude?quorum=all&mode&q=(https://x)' has no intent —]
+    (RemoteExpr(authority='node.ai:80', path='/claude', context='https://x', intent=RelUrl(value='/='), params=(('quorum', 'all'), ('mode', None))), 'url4://node.ai:80/claude?quorum=all&mode&q=(https://x)!/=')
+- [call '/a/b?quorum&quorum&q=(a)' has no intent — a relative o]
+    (RemoteExpr(authority='node.ai', path='/a/b', context='a', intent=Url(value='https://h.io/!,-:.'), params=(('quorum', None), ('quorum', None))), 'url4://node.ai/a/b?quorum&quorum&q=(a)!https://h.io/!,-:.')
+- [call '/claude?q&q&q=(https://x)' has no intent — a relative ]
+    (RemoteExpr(authority='node.ai', path='/claude', context='https://x', intent=Url(value='https://h.io/&_aa'), params=(('q', None), ('q', None))), 'url4://node.ai/claude?q&q&q=(https://x)!https://h.io/&_aa')
+- [call '/a-b.c~?quorum&x2&q=(https://x)' has no intent — a rel]
+    (Binding(name='topic', value=RemoteExpr(authority='node.ai', path='/a-b.c~', context='https://x', intent=Text(value='é) '), params=(('quorum', None), ('x2', None))), kind=':'), "topic:url4://node.ai/a-b.c~?quorum&x2&q=(https://x)!'é) '")
+- [expression group '(@9)' has no intent — a parenthesized sour]
+    (Source(value=Expression(sources=(IdentityRef(name='9', collection=None),), intent=StructObject(raw="{k: 'v'}"), broadcast=True, params=()), name='topic', weight=None, budgets=(('tokens', '1.5'),), annotations=(('mode', 'app/json'), ('required', '1')), expand=True), "*topic:tokens=1.5:(@9)!*{k: 'v'};mode=app/json;required=1")
+- [call '/a-b.c~?iteration.slice=1&iteration.slice=1&q=()' has ]
+    (RelExpr(path='/a-b.c~', context=None, intent=Text(value='a;)\ta?'), params=(('iteration.slice', '1'), ('iteration.slice', '1'))), "/a-b.c~?iteration.slice=1&iteration.slice=1&q=()!'a;)\ta?'")
+- [invalid port 'x' in 'url4://h:x/p?broadcast=1:3&broadcast&q=]
+    (RemoteExpr(authority='h:x', path='/p', context='a', intent=Url(value='https://h.io/:b'), params=(('broadcast', '1:3'), ('broadcast', None))), 'url4://h:x/p?broadcast=1:3&broadcast&q=(a)!https://h.io/:b')
+- [invalid iteration.concurrency=''; expected a positive intege]
+    (Source(value=SelfRef(), name='_n', weight={'science': 0.85, '_default': 0.4}, budgets=(), annotations=(('t', '1'), ('iteration.concurrency', None)), expand=False), '_n:(science:0.85,_default:0.4):@;t=1;iteration.concurrency')
+- [invalid data path '//' in '//?iteration.slice=x']
+    (RemoteExpr(authority='node.ai:80', path='//', context='a', intent=RelUrl(value='/'), params=(('iteration.slice', 'x!y'), ('quorum', 'x!y'))), 'url4://node.ai:80//?iteration.slice=x!y&quorum=x!y&q=(a)!/')
+- [call '/a-b.c~?t=a b&t=a b&q=(a)' has no intent — a relative ]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='a', intent=Url(value='https://h.io/,_'), params=(('t', 'a b'), ('t', 'a b'))), 'url4://node.ai:80/a-b.c~?t=a b&t=a b&q=(a)!https://h.io/,_')
+- [call '/p?iteration.slice&iteration.slice&q=(a, b)' has no in]
+    (RelExpr(path='/p', context='a, b', intent=Url(value='https://h.io/.'), params=(('iteration.slice', None), ('iteration.slice', None))), '/p?iteration.slice&iteration.slice&q=(a, b)!https://h.io/.')
+- [invalid port 'x' in 'url4://h:x/claude?q&quorum=x' — `port =]
+    (Binding(name='x1', value=RemoteExpr(authority='h:x', path='/claude', context=None, intent=Url(value='https://h.io//_,&&-'), params=(('q', None), ('quorum', 'x!y'))), kind=':'), 'x1:url4://h:x/claude?q&quorum=x!y&q=()!https://h.io//_,&&-')
+- [invalid port 'x' in 'url4://h:x//?x2=x' — `port = 1*DIGIT`]
+    (RemoteExpr(authority='h:x', path='//', context=None, intent=Expression(sources=(Text(value=' {*'), Text(value=';;b.\\}'), SelfRef()), intent=RelUrl(value="/=a'b)_"), broadcast=True, params=()), params=(('x2', 'x!y'), ('x2', None))), "url4://h:x//?x2=x!y&x2&q=()!(' {*', ';;b.\\\\}', @)!*/=a'b)_")
+- [call '/claude?quorum=all&quorum&q=(https://x)' has no intent]
+    (RemoteExpr(authority='node.ai:80', path='/claude', context='https://x', intent=RelUrl(value='/='), params=(('quorum', 'all'), ('quorum', None))), 'url4://node.ai:80/claude?quorum=all&quorum&q=(https://x)!/=')
+- [call '//?iteration.slice&q=(https://x)' has no intent — a re]
+    (RemoteExpr(authority='node.ai:80', path='//', context='https://x', intent=Text(value='$!a(?/}'), params=(('iteration.slice', None),)), "url4://node.ai:80//?iteration.slice&q=(https://x)!'$!a(?/}'")
+- [invalid port 'x' in 'url4://h:x/a-b.c~?broadcast&quorum&q=()]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=Url(value='https://h.io/*/:.&!'), params=(('broadcast', None), ('quorum', None))), 'url4://h:x/a-b.c~?broadcast&quorum&q=()!https://h.io/*/:.&!')
+- [call '/?quorum=1:3&quorum=1:3&q=()' has no intent — a relati]
+    (RemoteExpr(authority='node.ai', path='/', context=None, intent=StructObject(raw='{a: 1, b: {c: 2}}'), params=(('quorum', '1:3'), ('quorum', '1:3'))), 'url4://node.ai/?quorum=1:3&quorum=1:3&q=()!{a: 1, b: {c: 2}}')
+- [invalid port 'x' in 'url4://h:x/a-b.c~?mode=all&mode=all&q=(]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=Url(value='https://h.io/._$,/='), params=(('mode', 'all'), ('mode', 'all'))), 'url4://h:x/a-b.c~?mode=all&mode=all&q=()!https://h.io/._$,/=')
+- [call '/a-b.c~?quorum&broadcast&q=(https://x)' has no intent ]
+    (Binding(name='src', value=RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='https://x', intent=RelUrl(value='/'), params=(('quorum', None), ('broadcast', None))), kind='='), 'src=url4://node.ai:80/a-b.c~?quorum&broadcast&q=(https://x)!/')
+- [invalid port 'x' in 'url4://h:x/claude()!(/b, {a: 1, b: {c: ]
+    (RemoteExpr(authority='h:x', path='/claude', context=None, intent=Expression(sources=(RelUrl(value='/b'), StructObject(raw='{a: 1, b: {c: 2}}')), intent=StructObject(raw='{a: 1, b: {c: 2}}'), broadcast=False, params=()), params=()), 'url4://h:x/claude()!(/b, {a: 1, b: {c: 2}})!{a: 1, b: {c: 2}}')
+- [invalid port 'x' in "url4://h:x/a-b.c~(a)!('\n?:\\\\}\t,', @]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context='a', intent=Expression(sources=(Text(value='\n?:\\}\t,'), IdentityRef(name='emily', collection='a/b'), IdentityRef(name='emily', collection='a/b')), intent=Text(value='é'), broadcast=False, params=()), params=()), "url4://h:x/a-b.c~(a)!('\n?:\\\\}\t,', @emily/a/b, @emily/a/b)!'é'")
+- [invalid port 'x' in 'url4://h:x/?iteration.slice=x' — `port ]
+    (RemoteExpr(authority='h:x', path='/', context='https://x', intent=Expression(sources=(), intent=Text(value=''), broadcast=False, params=()), params=(('iteration.slice', 'x!y'), ('broadcast', None))), "url4://h:x/?iteration.slice=x!y&broadcast&q=(https://x)!()!''")
+- [invalid port 'x' in 'url4://h:x/p?broadcast=1:3&broadcast=1:]
+    (RemoteExpr(authority='h:x', path='/p', context='a', intent=Url(value='https://h.io/:b'), params=(('broadcast', '1:3'), ('broadcast', '1:3'))), 'url4://h:x/p?broadcast=1:3&broadcast=1:3&q=(a)!https://h.io/:b')
+- [call '/a-b.c~?broadcast=a b&t&q=(a)' has no intent — a relat]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='a', intent=Url(value='https://h.io/,_'), params=(('broadcast', 'a b'), ('t', None))), 'url4://node.ai:80/a-b.c~?broadcast=a b&t&q=(a)!https://h.io/,_')
+- [call '/a/b?mode=a b&q=all&q=()' has no intent — a relative o]
+    (Source(value=RelExpr(path='/a/b', context=None, intent=SelfRef(), params=(('mode', 'a b'), ('q', 'all'))), name='weight', weight={'science': 0.85, '_default': 0.4}, budgets=(), annotations=(), expand=True), '*weight:(science:0.85,_default:0.4):/a/b?mode=a b&q=all&q=()!@')
+- [invalid port 'x' in 'url4://h:x/a-b.c~?broadcast&broadcast&q]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=Url(value='https://h.io/*/:.&!'), params=(('broadcast', None), ('broadcast', None))), 'url4://h:x/a-b.c~?broadcast&broadcast&q=()!https://h.io/*/:.&!')
+- [invalid port 'x' in 'url4://h:x/a/b?broadcast=1&broadcast=1&]
+    (RemoteExpr(authority='h:x', path='/a/b', context='https://x', intent=IdentityRef(name='emily', collection='a/b'), params=(('broadcast', '1'), ('broadcast', '1'))), 'url4://h:x/a/b?broadcast=1&broadcast=1&q=(https://x)!@emily/a/b')
+- [call '/claude?quorum=all&quorum=all&q=(https://x)' has no in]
+    (RemoteExpr(authority='node.ai:80', path='/claude', context='https://x', intent=RelUrl(value='/='), params=(('quorum', 'all'), ('quorum', 'all'))), 'url4://node.ai:80/claude?quorum=all&quorum=all&q=(https://x)!/=')
+- [call '/a/b?t=all&q=(q=1)' has no intent — a relative or remo]
+    (Iteration(collection=RelExpr(path='/a/b', context='q=1', intent=RelUrl(value='/=(?a'), params=(('t', 'all'),)), body='x=$item', intent="'go'", reducer=None, directives=IterationDirectives(concurrency=None, on_error='fail', slice=None, fmt_result=None)), "/a/b?t=all&q=(q=1)!/=(?a*(x=$item)!'go';iteration.on_error=fail")
+- [invalid data path '/' in '/?iteration.slice=x']
+    (RemoteExpr(authority='node.ai', path='/', context=None, intent=Expression(sources=(SelfRef(), VarRef(name='a', path=())), intent=Url(value='https://h.io/'), broadcast=True, params=()), params=(('iteration.slice', 'x!y'),)), 'url4://node.ai/?iteration.slice=x!y&q=()!(@, $a)!*https://h.io/')
+- [call '/p?iteration.slice=1&iteration.slice=1&q=()' has no in]
+    (RemoteExpr(authority='node.ai', path='/p', context=None, intent=Text(value="'b0"), params=(('iteration.slice', '1'), ('iteration.slice', '1'))), "url4://node.ai/p?iteration.slice=1&iteration.slice=1&q=()!'\\'b0'")
+- [invalid port 'x' in 'url4://h:x/a-b.c~?iteration.slice&itera]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=IdentityRef(name='emily', collection='x#y'), params=(('iteration.slice', None), ('iteration.slice', None))), 'url4://h:x/a-b.c~?iteration.slice&iteration.slice&q=()!@emily/x#y')
+- [invalid port 'x' in 'url4://h:x/claude?mode&mode&q=()' — `po]
+    (Source(value=RemoteExpr(authority='h:x', path='/claude', context=None, intent=StructObject(raw='{a: 1, b: {c: 2}}'), params=(('mode', None), ('mode', None))), name=None, weight=0.0, budgets=(('tokens', '100'),), annotations=(), expand=False), '0.0:tokens=100:url4://h:x/claude?mode&mode&q=()!{a: 1, b: {c: 2}}')
+- [call '//?x2=1&k&q=(https://x)' has no intent — a relative or]
+    (RemoteExpr(authority='node.ai', path='//', context='https://x', intent=Expression(sources=(StructObject(raw='{a: 1, b: {c: 2}}'),), intent=Text(value='):}\n'), broadcast=True, params=()), params=(('x2', '1'), ('k', None))), "url4://node.ai//?x2=1&k&q=(https://x)!({a: 1, b: {c: 2}})!*'):}\n'")
+- [invalid port 'x' in 'url4://h:x//?broadcast=x' — `port = 1*D]
+    (RemoteExpr(authority='h:x', path='//', context=None, intent=Expression(sources=(Text(value=' {*'), Text(value=';;b.\\}'), SelfRef()), intent=RelUrl(value="/=a'b)_"), broadcast=True, params=()), params=(('broadcast', 'x!y'), ('x2', None))), "url4://h:x//?broadcast=x!y&x2&q=()!(' {*', ';;b.\\\\}', @)!*/=a'b)_")
+- [unclosed '(' in '(/a/b?t=all&q=(q=1)!/=(?a*(x=$item)!go;iter]
+    (Iteration(collection=RelExpr(path='/a/b', context='q=1', intent=RelUrl(value='/=(?a'), params=(('t', 'all'),)), body='x=$item', intent='go', reducer='go', directives=IterationDirectives(concurrency=None, on_error='fail', slice=None, fmt_result=None)), '(/a/b?t=all&q=(q=1)!/=(?a*(x=$item)!go;iteration.on_error=fail)!go')
+- [call '/claude?iteration.slice=a b&iteration.slice=a b&q=()' ]
+    (RelExpr(path='/claude', context=None, intent=Url(value='https://h.io/'), params=(('iteration.slice', 'a b'), ('iteration.slice', 'a b'))), '/claude?iteration.slice=a b&iteration.slice=a b&q=()!https://h.io/')
+- [call '/a-b.c~?broadcast=a b&t=a b&q=(a)' has no intent — a r]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='a', intent=Url(value='https://h.io/,_'), params=(('broadcast', 'a b'), ('t', 'a b'))), 'url4://node.ai:80/a-b.c~?broadcast=a b&t=a b&q=(a)!https://h.io/,_')
+- [call '/a-b.c~?t=1&q=(https://x)' has no intent — a relative ]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='https://x', intent=Expression(sources=(), intent=Url(value='https://h.io/?!.'), broadcast=True, params=(('t', '1'),)), params=(('t', '1'),)), 'url4://node.ai:80/a-b.c~?t=1&q=(https://x)!()!*https://h.io/?!.;t=1')
+- [invalid param value 'x!y' for 'x2' — `param-value` takes ALP]
+    (Expression(sources=(RemoteExpr(authority='node.ai', path='/a-b.c~', context='a', intent=Text(value='!}$}?_{'), params=(('t', '1'),)),), intent=Url(value='https://h.io/'), broadcast=True, params=(('x2', 'x!y'), ('t', None))), "(url4://node.ai/a-b.c~?t=1&q=(a)!'!}$}?_{')!*https://h.io/;x2=x!y;t")
+- [expression group '({a: 1, b: {c: 2}}, {a: 1, b: {c: 2}}, $it]
+    (Binding(name='_n', value=Expression(sources=(StructObject(raw='{a: 1, b: {c: 2}}'), StructObject(raw='{a: 1, b: {c: 2}}'), VarRef(name='item', path=('g1', 'g1'))), intent=Url(value='https://h.io/'), broadcast=False, params=()), kind='='), '_n=({a: 1, b: {c: 2}}, {a: 1, b: {c: 2}}, $item.g1.g1)!https://h.io/')
+- [invalid param value 'x!y' for 'required' — `param-value` tak]
+    (Source(value=IdentityRef(name='9', collection='notes'), name='item', weight={'science': 0.85, '_default': 0.4}, budgets=(), annotations=(('required', 'x!y'), ('required', 'x!y')), expand=True), '*item:(science:0.85,_default:0.4):@9/notes;required=x!y;required=x!y')
+- [call '/a-b.c~?iteration.slice&iteration.slice&q=(a, b)' has ]
+    (RelExpr(path='/a-b.c~', context='a, b', intent=Url(value="https://h.io/(b')--"), params=(('iteration.slice', None), ('iteration.slice', None))), "/a-b.c~?iteration.slice&iteration.slice&q=(a, b)!https://h.io/(b')--")
+- [call '/?x2=a b&t&q=(https://x)' has no intent — a relative o]
+    (Source(value=RelExpr(path='/', context='https://x', intent=SelfRef(), params=(('x2', 'a b'), ('t', None))), name=None, weight=1e-07, budgets=(('usd', '100'),), annotations=(('iteration.concurrency', '30'),), expand=True), '*0.0000001:usd=100:/?x2=a b&t&q=(https://x)!@;iteration.concurrency=30')
+- [invalid port 'x' in 'url4://h:x/claude?mode&quorum=a b&q=()']
+    (Source(value=RemoteExpr(authority='h:x', path='/claude', context=None, intent=StructObject(raw='{a: 1, b: {c: 2}}'), params=(('mode', None), ('quorum', 'a b'))), name=None, weight=0.0, budgets=(('tokens', '100'),), annotations=(), expand=False), '0.0:tokens=100:url4://h:x/claude?mode&quorum=a b&q=()!{a: 1, b: {c: 2}}')
+- [call '/claude?q&iteration.slice&q=(https://x)' has no intent]
+    (RemoteExpr(authority='node.ai', path='/claude', context='https://x', intent=Url(value='https://h.io/&_aa'), params=(('q', None), ('iteration.slice', None))), 'url4://node.ai/claude?q&iteration.slice&q=(https://x)!https://h.io/&_aa')
+- [invalid port 'x' in 'url4://h:x/a-b.c~?mode=all&iteration.sl]
+    (RemoteExpr(authority='h:x', path='/a-b.c~', context=None, intent=Url(value='https://h.io/._$,/='), params=(('mode', 'all'), ('iteration.slice', 'all'))), 'url4://h:x/a-b.c~?mode=all&iteration.slice=all&q=()!https://h.io/._$,/=')
+- [unexpected '(' in bare value 'é=(url4://node.ai:80/claude?qu]
+    (Binding(name='é', value=Expression(sources=(RemoteExpr(authority='node.ai:80', path='/claude', context=None, intent=Url(value='https://h.io/'), params=(('quorum', '1'),)),), intent=Url(value='https://h.io/'), broadcast=True, params=()), kind='='), 'é=(url4://node.ai:80/claude?quorum=1&q=()!https://h.io/)!*https://h.io/')
+- [call '/a-b.c~?quorum=all&q=(https://x)' has no intent — a re]
+    (RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='https://x', intent=Expression(sources=(), intent=Url(value='https://h.io/?!.'), broadcast=True, params=(('t', None), ('t', None))), params=(('quorum', 'all'),)), 'url4://node.ai:80/a-b.c~?quorum=all&q=(https://x)!()!*https://h.io/?!.;t;t')
+- [expression group '({a: 1, b: {c: 2}}, {a: 1, b: {c: 2}}, {a:]
+    (Binding(name='_n', value=Expression(sources=(StructObject(raw='{a: 1, b: {c: 2}}'), StructObject(raw='{a: 1, b: {c: 2}}'), StructObject(raw='{a: 1, b: {c: 2}}')), intent=Url(value='https://h.io/'), broadcast=False, params=()), kind='='), '_n=({a: 1, b: {c: 2}}, {a: 1, b: {c: 2}}, {a: 1, b: {c: 2}})!https://h.io/')
+- [iteration "(()!*{k: 'v'}*(a, b)!a!b;iteration.on_error=skip;]
+    (Iteration(collection=Expression(sources=(), intent=StructObject(raw="{k: 'v'}"), broadcast=True, params=()), body='a, b', intent='a!b', reducer='x*(y)', directives=IterationDirectives(concurrency=None, on_error='skip', slice=(2, 1), fmt_result=None)), "(()!*{k: 'v'}*(a, b)!a!b;iteration.on_error=skip;iteration.slice=2:1)!x*(y)")
+- [iteration '(()!*/*$***($a)!x*(y);iteration.concurrency=0;ite]
+    (Iteration(collection=Expression(sources=(), intent=RelUrl(value='/*$**'), broadcast=True, params=()), body='$a', intent='x*(y)', reducer='x*(y)', directives=IterationDirectives(concurrency=0, on_error='fail', slice=None, fmt_result=None)), '(()!*/*$***($a)!x*(y);iteration.concurrency=0;iteration.on_error=fail)!x*(y)')
+- [iteration '($1.g1*(x=$item)!x*(y);iteration.concurrency=3;it]
+    (Iteration(collection=VarRef(name='1', path=('g1',)), body='x=$item', intent='x*(y)', reducer='x*(y)', directives=IterationDirectives(concurrency=3, on_error='fail', slice=None, fmt_result=None)), '($1.g1*(x=$item)!x*(y);iteration.concurrency=3;iteration.on_error=fail)!x*(y)')
+- [call '/?broadcast=all&broadcast=all&q=(https://x)' has no in]
+    (RemoteExpr(authority='node.ai:80', path='/', context='https://x', intent=Url(value='https://h.io/?.=:'), params=(('broadcast', 'all'), ('broadcast', 'all'))), 'url4://node.ai:80/?broadcast=all&broadcast=all&q=(https://x)!https://h.io/?.=:')
+- [cannot classify descriptor segment 'é' in 'é:(url4://node.ai]
+    (Binding(name='é', value=Expression(sources=(RemoteExpr(authority='node.ai:80', path='/claude', context=None, intent=Url(value='https://h.io/'), params=(('iteration.slice', '1'),)),), intent=Url(value='https://h.io/'), broadcast=True, params=()), kind=':'), 'é:(url4://node.ai:80/claude?iteration.slice=1&q=()!https://h.io/)!*https://h.io/')
+- [call '/a/b?mode=a b&q=a b&q=()' has no intent — a relative o]
+    (Source(value=RelExpr(path='/a/b', context=None, intent=SelfRef(), params=(('mode', 'a b'), ('q', 'a b'))), name='weight', weight={'science': 0.85, '_default': 0.4}, budgets=(), annotations=(('required', '30'), ('optional', '30')), expand=True), '*weight:(science:0.85,_default:0.4):/a/b?mode=a b&q=a b&q=()!@;required=30;optional=30')
+- [iteration "('b{'*($a)!'go';iteration.concurrency=1;iteration]
+    (Iteration(collection=Text(value='b{'), body='$a', intent="'go'", reducer='x*(y)', directives=IterationDirectives(concurrency=1, on_error='skip', slice=(2, 1), fmt_result=None)), "('b{'*($a)!'go';iteration.concurrency=1;iteration.on_error=skip;iteration.slice=2:1)!x*(y)")
+- [call '/p?quorum&mode=1:3&q=()' has no intent — a relative or]
+    (Source(value=RemoteExpr(authority='node.ai', path='/p', context=None, intent=Text(value='?!($'), params=(('quorum', None), ('mode', '1:3'))), name='a', weight={'science': 0.85, '_default': 0.4}, budgets=(), annotations=(('mode', None), ('required', '2')), expand=False), "a:(science:0.85,_default:0.4):url4://node.ai/p?quorum&mode=1:3&q=()!'?!($';mode;required=2")
+- [invalid port 'x' in 'url4://h:x/a-b.c~?mode&mode=x' — `port ]
+    (Source(value=RemoteExpr(authority='h:x', path='/a-b.c~', context='https://x', intent=RelUrl(value='/b*'), params=(('mode', None), ('mode', 'x!y'))), name='item', weight={'science': 0.85, '_default': 0.4}, budgets=(), annotations=(('required', None),), expand=False), 'item:(science:0.85,_default:0.4):url4://h:x/a-b.c~?mode&mode=x!y&q=(https://x)!/b*;required')
+- [iteration '({a: 1, b: {c: 2}}*(x=$item)!x*(y);iteration.on_e]
+    (Iteration(collection=StructObject(raw='{a: 1, b: {c: 2}}'), body='x=$item', intent='x*(y)', reducer='x*(y)', directives=IterationDirectives(concurrency=None, on_error='skip', slice=None, fmt_result='json')), '({a: 1, b: {c: 2}}*(x=$item)!x*(y);iteration.on_error=skip;iteration.fmt_result=json)!x*(y)')
+- [invalid port 'x' in 'url4://h:x/a-b.c~?mode=x' — `port = 1*D]
+    (Source(value=RemoteExpr(authority='h:x', path='/a-b.c~', context='https://x', intent=RelUrl(value='/b*'), params=(('mode', 'x!y'), ('mode', 'x!y'))), name='item', weight={'science': 0.85, '_default': 0.4}, budgets=(), annotations=(('required', None),), expand=False), 'item:(science:0.85,_default:0.4):url4://h:x/a-b.c~?mode=x!y&mode=x!y&q=(https://x)!/b*;required')
+- [iteration '($1*(x=$item)!x*(y);iteration.on_error=skip;itera]
+    (Iteration(collection=VarRef(name='1', path=()), body='x=$item', intent='x*(y)', reducer='x*(y)', directives=IterationDirectives(concurrency=None, on_error='skip', slice=(0, 2), fmt_result='json')), '($1*(x=$item)!x*(y);iteration.on_error=skip;iteration.slice=0:2;iteration.fmt_result=json)!x*(y)')
+- [invalid port 'x' in 'url4://h:x/p?broadcast&mode&q=()!//_' —]
+    (Iteration(collection=RemoteExpr(authority='h:x', path='/p', context=None, intent=RelUrl(value='//_'), params=(('broadcast', None), ('mode', None))), body='x=$item', intent='$a', reducer=None, directives=IterationDirectives(concurrency=2, on_error='fail', slice=None, fmt_result=None)), 'url4://h:x/p?broadcast&mode&q=()!//_*(x=$item)!$a;iteration.concurrency=2;iteration.on_error=fail')
+- [call '//?iteration.slice&iteration.slice&q=(https://x)' has ]
+    (Source(value=RemoteExpr(authority='node.ai:80', path='//', context='https://x', intent=RelUrl(value="/'"), params=(('iteration.slice', None), ('iteration.slice', None))), name=None, weight=0.30000000000000004, budgets=(('tokens', '100'),), annotations=(), expand=False), "0.30000000000000004:tokens=100:url4://node.ai:80//?iteration.slice&iteration.slice&q=(https://x)!/'")
+- [invalid port 'x' in 'url4://h:x/p?broadcast&broadcast&q=()!/]
+    (Iteration(collection=RemoteExpr(authority='h:x', path='/p', context=None, intent=RelUrl(value='//_'), params=(('broadcast', None), ('broadcast', None))), body='x=$item', intent='$a', reducer=None, directives=IterationDirectives(concurrency=2, on_error='fail', slice=None, fmt_result=None)), 'url4://h:x/p?broadcast&broadcast&q=()!//_*(x=$item)!$a;iteration.concurrency=2;iteration.on_error=fail')
+- [invalid port 'x' in 'url4://h:x//?q&broadcast&q=(a)!https://]
+    (Iteration(collection=RemoteExpr(authority='h:x', path='//', context='a', intent=Url(value='https://h.io/.,'), params=(('q', None), ('broadcast', None))), body='$a', intent='go', reducer='go', directives=IterationDirectives(concurrency=None, on_error='skip', slice=(0, 2), fmt_result=None)), '(url4://h:x//?q&broadcast&q=(a)!https://h.io/.,*($a)!go;iteration.on_error=skip;iteration.slice=0:2)!go')
+- [invalid iteration.concurrency='x!y'; expected a positive int]
+    (Expression(sources=(Source(value=SelfRef(), name='x1', weight={'s': {'d': 1}}, budgets=(), annotations=(('accept', None), ('x.y', 'a b')), expand=False), Binding(name='_n', value=SelfRef(), kind='='), Source(value=VarRef(name='a', path=('g1', 3)), name='a', weight=None, budgets=(('tokens', '1.5'),), annotations=(('mode', 'agent'), ('iteration.concurrency', 'x!y')), expand=True)), intent=RelUrl(value='/b_!$)-'), broadcast=False, params=()), '(x1:(s:(d:1)):@;accept;x.y=a b, _n=@, *a:tokens=1.5:$a.g1[3];mode=agent;iteration.con
+- [iteration "(url4://node.ai/a-b.c~()!https://h.io/$*(x=$item)]
+    (Iteration(collection=RemoteExpr(authority='node.ai', path='/a-b.c~', context=None, intent=Url(value='https://h.io/$'), params=()), body='x=$item', intent="'go'", reducer='x*(y)', directives=IterationDirectives(concurrency=None, on_error='collect', slice=(2, 1), fmt_result='json')), "(url4://node.ai/a-b.c~()!https://h.io/$*(x=$item)!'go';iteration.slice=2:1;iteration.fmt_result=json)!x*(y)")
+- [iteration '(url4://node.ai/a-b.c~()!https://h.io/$*(x=$item)]
+    (Iteration(collection=RemoteExpr(authority='node.ai', path='/a-b.c~', context=None, intent=Url(value='https://h.io/$'), params=()), body='x=$item', intent='x*(y)', reducer='x*(y)', directives=IterationDirectives(concurrency=None, on_error='collect', slice=(2, 1), fmt_result='json')), '(url4://node.ai/a-b.c~()!https://h.io/$*(x=$item)!x*(y);iteration.slice=2:1;iteration.fmt_result=json)!x*(y)')
+- [unclosed '(' in "(url4://node.ai:80/a-b.c~(https://x)!/-/,-(]
+    (Iteration(collection=RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='https://x', intent=RelUrl(value='/-/,-(/'), params=()), body=' $item ', intent="'go'", reducer='/r(x)', directives=IterationDirectives(concurrency=0, on_error='collect', slice=(0, 2), fmt_result=None)), "(url4://node.ai:80/a-b.c~(https://x)!/-/,-(/*( $item )!'go';iteration.concurrency=0;iteration.slice=0:2)!/r(x)")
+- [invalid param value 'a b' for 'required' — `param-value` tak]
+    (Source(value=RemoteExpr(authority='h:x', path='/a-b.c~', context='https://x', intent=RelUrl(value='/b*'), params=(('mode', 'x!y'), ('mode', 'x!y'))), name='item', weight={'science': 0.85, '_default': 0.4}, budgets=(('tokens', '1.5'),), annotations=(('required', 'a b'),), expand=True), '*item:(science:0.85,_default:0.4):tokens=1.5:url4://h:x/a-b.c~?mode=x!y&mode=x!y&q=(https://x)!/b*;required=a b')
+- [unclosed '(' in '(url4://node.ai:80/a-b.c~(https://x)!/-/,-(]
+    (Iteration(collection=RemoteExpr(authority='node.ai:80', path='/a-b.c~', context='https://x', intent=RelUrl(value='/-/,-(/'), params=()), body=' $item ', intent='/r(x)', reducer='/r(x)', directives=IterationDirectives(concurrency=0, on_error='collect', slice=(0, 2), fmt_result=None)), '(url4://node.ai:80/a-b.c~(https://x)!/-/,-(/*( $item )!/r(x);iteration.concurrency=0;iteration.slice=0:2)!/r(x)')
+- [iteration '(url4://node.ai:80/claude()!https://h.io/-_.bb*(a]
+    (Iteration(collection=RemoteExpr(authority='node.ai:80', path='/claude', context=None, intent=Url(value='https://h.io/-_.bb'), params=()), body='a, b', intent='x*(y)', reducer='x*(y)', directives=IterationDirectives(concurrency=None, on_error='fail', slice=None, fmt_result='json')), '(url4://node.ai:80/claude()!https://h.io/-_.bb*(a, b)!x*(y);iteration.on_error=fail;iteration.fmt_result=json)!x*(y)')
+- [iteration '($١[0]*(a, b)!$a;iteration.concurrency=1;iteratio]
+    (Iteration(collection=VarRef(name='١', path=(0,)), body='a, b', intent='$a', reducer='x*(y)', directives=IterationDirectives(concurrency=1, on_error='fail', slice=(2, 1), fmt_result='json')), '($١[0]*(a, b)!$a;iteration.concurrency=1;iteration.on_error=fail;iteration.slice=2:1;iteration.fmt_result=json)!x*(y)')
+- [invalid param value 'a b' for 'iteration.slice' — `param-val]
+    (Iteration(collection=RemoteExpr(authority='node.ai', path='/a/b', context=None, intent=Text(value=';'), params=(('iteration.slice', 'a b'), ('broadcast', None))), body='x=$item', intent='$a', reducer='$a', directives=IterationDirectives(concurrency=None, on_error='skip', slice=(0, 2), fmt_result=None)), "(url4://node.ai/a/b?iteration.slice=a b&broadcast&q=()!';'*(x=$item)!$a;iteration.on_error=skip;iteration.slice=0:2)!$a")
+- [iteration "(url4://node.ai/claude?iteration.slice=a b&iterat]
+    (Iteration(collection=RemoteExpr(authority='node.ai', path='/claude', context=None, intent=Text(value="=$)'"), params=(('iteration.slice', 'a b'), ('iteration.slice', 'a b'))), body='x=$item', intent='x*(y)', reducer='x*(y)', directives=IterationDirectives(concurrency=None, on_error='skip', slice=None, fmt_result=None)), "(url4://node.ai/claude?iteration.slice=a b&iteration.slice=a b&q=()!'=$)\\''*(x=$item)!x*(y);iteration.on_error=skip)!x*(y)")
+- [invalid iteration.concurrency='x!y, _n=@, *a:tokens=1.5:$a.g]
+    (Expression(sources=(Source(value=SelfRef(), name='x1', weight={'s': {'d': 1}}, budgets=(), annotations=(('mode', 'agent'), ('iteration.concurrency', 'x!y')), expand=False), Binding(name='_n', value=SelfRef(), kind='='), Source(value=VarRef(name='a', path=('g1', 3)), name='a', weight=None, budgets=(('tokens', '1.5'),), annotations=(('mode', 'agent'), ('iteration.concurrency', 'x!y')), expand=True)), intent=RelUrl(value='/b_!$)-'), broadcast=False, params=()), '(x1:(s:(d:1)):@;mode=agent;iteration.concurrency=x!y, _n=@, *a:tok
+- [invalid port 'x' in 'url4://h:x//?q=x!y&broadcast&q=(a)!http]
+    (Iteration(collection=RemoteExpr(authority='h:x', path='//', context='a', intent=Url(value='https://h.io/.,'), params=(('q', 'x!y'), ('broadcast', None))), body='$a', intent=' go', reducer=None, directives=IterationDirectives(concurrency=None, on_error='fail', slice=(0, 2), fmt_result='json')), 'url4://h:x//?q=x!y&broadcast&q=(a)!https://h.io/.,*($a)! go;iteration.on_error=fail;iteration.slice=0:2;iteration.fmt_result=json')
+
+=== L2prime: 111 classes
+- [an Expression without an intent has no surface form]
+    ''
+- [reparse: w control character '\x7f' in quoted text (spec quoted-char)]
+    '\x7f!D'
+- [reparse: raw control character '\t' in quoted text (spec quoted-char)]
+    '()!a\tb'
+- [reparse: w control character '\x12' in quoted text (spec quoted-char)]
+    'tb\U000c5979ß!¨週\x12ÿ'
+- [reparse: w control character '\x1d' in quoted text (spec quoted-char)]
+    'òX𫽱!\U000a12fc÷\U00094ed0\U0008864f\x1dhÁ\x87'
+- [param value "'a b'" contains a structural character]
+    "()!x;note='a b'"
+- [URI '/p?t=0&)q=()' cannot be carried bare: ')' at offset 7 is structur]
+    '*/p?t=0&)q=()!a\tb'
+- [rendered text '()!*()!@' reparses to a different tree]
+    '()!()!@;broadcast'
+- [URI '/p?t=9)0&)q=()' cannot be carried bare: ')' at offset 6 is struct]
+    '*/p?t=9)0&)q=()!a\tb'
+- [URI '/p?t=90&q=}@()' cannot be carried bare: '(' at offset 12 is struc]
+    '/p?t=90&q=}@()!data'
+- [URI '/p?t=90&q=@@()' cannot be carried bare: '(' at offset 12 is struc]
+    '/p?t=90&q=@@()!data'
+- [URI '/p?t=90&()' cannot be carried bare: '(' at offset 8 is structural]
+    '/p?t=90&()!s3://bk/d'
+- [rendered text '$a*(/p($item)!go)!*/r' reparses to a different tree]
+    '$a*(/p($item)!go)!**/r'
+- [rendered text "()!*()!'!';k=v" reparses to a different tree]
+    "()!()!'!';k=v;broadcast"
+- [URI '/p?t=90&=({a: 1, b: })' cannot be carried bare: '(' at offset 9 i]
+    '/p?t=90&=({a: 1, b: })!@'
+- [URI '/p?t=90&({a: 1, b: $})' cannot be carried bare: '(' at offset 8 i]
+    '/p?t=90&({a: 1, b: $})!@'
+- [URI '/p@em?ily/notes)' cannot be carried bare: ')' at offset 15 is str]
+    'x1=/p@em?ily/notes)!he{lo'
+- [URI '/p?t=90&=({a: 1, b: $a})' cannot be carried bare: '(' at offset 9]
+    '/p?t=90&=({a: 1, b: $a})!@'
+- [rendered text "(/claude()!'()')!*()!@" reparses to a different tree]
+    '/claude()!()!()!@;broadcast'
+- [rendered text "()!*()!'run fast';k=v" reparses to a different tree]
+    '()!()!run fast;broadcast;k=v'
+- [URI '/p?t=90& q}()' cannot be carried bare: '(' at offset 11 is struct]
+    "topic=/p?t=90& q}()!';\\\\===\\\\'"
+- [URI '/p?t=90&}q=()' cannot be carried bare: '(' at offset 11 is struct]
+    "topic=/p?t=90&}q=()!';\\\\===\\\\'"
+- [URI '/api/x?a=1(/p(.$item)!go)' cannot be carried bare: '(' at offset ]
+    '_n:/api/x?a=1(/p(.$item)!go)!/r'
+- [URI '/p?t=90& q=}()' cannot be carried bare: '(' at offset 12 is struc]
+    "topic=/p?t=90& q=}()!';\\\\===\\\\'"
+- [URI '/p?t=90&}q=}()' cannot be carried bare: '(' at offset 12 is struc]
+    "topic=/p?t=90&}q=}()!';\\\\===\\\\'"
+- [URI '/p?t=90&}}q=()' cannot be carried bare: '(' at offset 12 is struc]
+    "topic=/p?t=90&}}q=()!';\\\\===\\\\'"
+- [rendered text "(/claude()!'()')!*($item)!@" reparses to a different tr]
+    '/claude()!()!($item)!@;broadcast'
+- [URI '/p?t=90q=({a: 1=, b: $a})' cannot be carried bare: '(' at offset ]
+    "/p?t=90q=({a: 1=, b: $a})!' @: (('"
+- [rendered text '()!*()!https://a.io/$topic' reparses to a different tre]
+    '()!()!https://a.io/$topic;broadcast'
+- [rendered text '($a, $a)!*()!https://b.io/x' reparses to a different tr]
+    '($a, $a)!()!https://b.io/x;broadcast'
+- [rendered text "()!*()!()!'data';quorum=1;k=v" reparses to a different ]
+    '()!()!()!data;quorum=1;broadcast;k=v'
+- [at top level, an Iteration source in an intent-bearing group is only r]
+    "(https://a.io*($item)!go, a:()!'')!''"
+- [rendered text '()!*()!/reduce;quorum=1;t=30' reparses to a different t]
+    '()!()!/reduce;broadcast;quorum=1;t=30'
+- [rendered text '()!*()!*/reduce;quorum=1;t=30' reparses to a different ]
+    '()!()!*/reduce;broadcast;quorum=1;t=30'
+- [rendered text "('/')!*()!https://a.io/$topic" reparses to a different ]
+    "('/')!()!https://a.io/$topic;broadcast"
+- [rendered text "('/')!*()!*https://a.io/$topic" reparses to a different]
+    "('/')!()!*https://a.io/$topic;broadcast"
+- [URI "rl4://nd.ai/v1('b) ')!(a, b)" cannot be carried bare: "'" at offs]
+    "rl4://nd.ai/v1('b) ')!(a, b)*($item)!/r"
+- [URI "rl4://no.ai/v1('b) ')!(a, b)" cannot be carried bare: "'" at offs]
+    "rl4://no.ai/v1('b) ')!(a, b)*($item)!/r"
+- [URI "r4://nod.ai/v1('b) ')!(a, b)" cannot be carried bare: "'" at offs]
+    "r4://nod.ai/v1('b) ')!(a, b)*($item)!/r"
+- [URI "ur4://node.ai/v1('b) ')!(a, b)" cannot be carried bare: "'" at of]
+    "ur4://node.ai/v1('b) ')!(a, b)*($item)!/r"
+- [URI "rl4://node.ai/v1('b) ')!(a, b)" cannot be carried bare: "'" at of]
+    "rl4://node.ai/v1('b) ')!(a, b)*($item)!/r"
+- [rendered text '()!*()!()!https://b.io/x;quorum=1' reparses to a differ]
+    '()!()!()!https://b.io/x;broadcast;quorum=1'
+- [param 'broadcast' is non-canonical on an Expression]
+    "($1, ()!*data;broadcast, $1)!data;note='a b'"
+- [rendered text "(/claude('')!'(hello)')!*()!'sum';quorum=1" reparses to]
+    "/claude('')!(hello)!()!sum;quorum=1;broadcast"
+- [rendered text "('hello', /p?t=90&quorum=1&q=()!()!'a\tb')!'data';k=v" ]
+    '(hello, /p?t=90&q=()!()!a\tb;quorum=1)!data;k=v'
+- [rendered text '(https://b.io/x)!*()!*/reduce;quorum=1' reparses to a d]
+    '(https://b.io/x)!()!*/reduce;broadcast;quorum=1'
+- [rendered text "(/claude('$\\\\a*a')!'()')!*(*@)!*/reduce;k=v" reparses]
+    "/claude('$\\\\a*a')!()!(*@)!*/reduce;broadcast;k=v"
+- [rendered text "()!('a\tb')!*/data/$topic*(/p($item)!go)!'p'" reparses ]
+    "()!(a\tb)!*/data/$topic*(/p($item)!go)!'p';k=v;k=v"
+- [rendered text "(/claude('$\\\\a*a')!'(*@)')!*(*@)!*/reduce;k=v" repars]
+    "/claude('$\\\\a*a')!(*@)!(*@)!*/reduce;broadcast;k=v"
+- [rendered text "(/p(run fast)!'(\\'(\\', /api/x?a=1)')!*()!*@;k=v" repa]
+    "/p(run fast)!('(', /api/x?a=1)!()!*@;broadcast;k=v"
+- [rendered text "('hello', /p?t=90&quorum=1&q=()!()!'a\tb')!'data';quoru]
+    '(hello, /p?t=90&q=()!()!a\tb;quorum=1)!data;quorum=1'
+- [rendered text "(url4://node.ai/v1()!'(/data)')!*()!'';quorum=1" repars]
+    "url4://node.ai/v1()!(/data)!()!'';quorum=1;broadcast"
+- [rendered text '($a, topic:https://b.io/x)!*()!https://a.io' reparses t]
+    '($a, topic:https://b.io/x)!()!https://a.io;broadcast'
+- [rendered text "(/p(run fast)!'(/data, /api/x?a=1)')!*()!*@;k=v" repars]
+    '/p(run fast)!(/data, /api/x?a=1)!()!*@;broadcast;k=v'
+- [rendered text '($a, topic:https://b.io/x)!*()!*https://a.io' reparses ]
+    '($a, topic:https://b.io/x)!()!*https://a.io;broadcast'
+- [rendered text '($a, topic:https://b.io/x)!*()!https://b.io/x' reparses]
+    '($a, topic:https://b.io/x)!()!https://b.io/x;broadcast'
+- [rendered text '(_n=https://a.io/$topic)!*()!*/reduce;quorum=1' reparse]
+    '(_n=https://a.io/$topic)!()!*/reduce;broadcast;quorum=1'
+- [rendered text "/p?t=90&q=(/data/$topic)!('a\tb', {k: 'v'})!''*()!''" r]
+    "/p?t=90&q=(/data/$topic)!(a\tb, {k: 'v'})!*()!'';quorum=1"
+- [rendered text '()!*(/data/$topic;t=30, https://a.io, $a.f[0])!@' repar]
+    '()!(/data/$topic;t=30, https://a.io, $a.f[0])!@;broadcast'
+- [rendered text "(/p(run fast)!'(/data, /api/x?a=1)')!*()!*@" reparses t]
+    '/p(run fast)!(/data, /api/x?a=1)!()!*@;broadcast;broadcast'
+- [rendered text "(/data, https://b.io/x)!(/data, /data)!'a\tb';quorum=1;]
+    '(/data, https://b.io/x)!(/data, /data)!a\tb;quorum=1;quorum=1'
+- [rendered text "(url4://node.ai/v1(/data/$topic)!'()')!*()!*'';quorum=1]
+    "url4://node.ai/v1(/data/$topic)!()!()!*'';broadcast;quorum=1"
+- [query param value "'a b'" contains a structural character]
+    "(*/p?t=90&q=(@emily)!()!*/reduce;note='a b', */api/x?a=1)!''"
+- [reparse: raw control character '\n' in quoted text (spec quoted-char)]
+    'h\ntps://a.io/$topic*(/p($item)!go)!/r;iteration.on_error=skip'
+- [rendered text '(https://b.io/x)!*(https://b.io/x)!*/reduce;quorum=1' r]
+    '(https://b.io/x)!(https://b.io/x)!*/reduce;broadcast;quorum=1'
+- [URI "https://w.org/Fis'h_(animal)" cannot be carried bare: "'" at offs]
+    "https://w.org/Fis'h_(animal)*($item)!/;iteratin.on_error=skip"
+- [rendered text "(url4://node.ai/v1(/data/$topic)!'()')!*()!*', ';quorum]
+    "url4://node.ai/v1(/data/$topic)!()!()!*', ';broadcast;quorum=1"
+- [rendered text "(url4://node.ai/v1(/data/$topic)!'()')!*(@)!*', ';quoru]
+    "url4://node.ai/v1(/data/$topic)!()!(@)!*', ';broadcast;quorum=1"
+- [rendered text "(/data, https://b.io/x)!(/data, /data/$topic)!'a\tb';qu]
+    '(/data, https://b.io/x)!(/data, /data/$topic)!a\tb;quorum=1;quorum=1'
+- [rendered text "(x1:'\\';:b', *$item, @emily/notes)!*()!*https://b.io/x]
+    "(x1:'\\';:b', *$item, @emily/notes)!()!*https://b.io/x;broadcast;k=v"
+- [rendered text "(@emily/notes, *$item, @emily/notes)!*(x1:'')!''" repar]
+    "(@emily/notes, *$item, @emily/notes)!(x1:'')!'';broadcast;broadcast"
+- [rendered text "('/')!*(a=https://a.io/$topic, /api/x?a=1)!*https://b.i]
+    "('/')!(a=https://a.io/$topic, /api/x?a=1)!*https://b.io/x;broadcast"
+- [rendered text "(/data, https://b.io/x)!(/data, https://b.io/x)!'a\tb';]
+    '(/data, https://b.io/x)!(/data, https://b.io/x)!a\tb;quorum=1;quorum=1'
+- [param value "'a\\b'" contains a structural character]
+    "url4://node.ai/v1('')!($a.f[0])!https://w.org/Fsh_(animal);note='a\\b'"
+- [invalid query param key '']
+    "(opic:0:$a, {k: 'v'}, */p?t=90&q=(';=\\',@ ')!s3://bk/d;)!@;note='a b'"
+- [rendered text "('/')!*(a=https://a.io/$topic, /api/x?a=1)!*https://a.i]
+    "('/')!(a=https://a.io/$topic, /api/x?a=1)!*https://a.io/$topic;broadcast"
+- [rendered text "()!*(a=https://w.org/Fish_(animal), https://a.io, *()!']
+    '()!(a=https://w.org/Fish_(animal), https://a.io, *()!sum;k=v)!*@;broadcast'
+- [rendered text "(/p(run fast)!'(/data, /api/x?a=1)')!*(/data, /api/x?a=]
+    '/p(run fast)!(/data, /api/x?a=1)!(/data, /api/x?a=1)!*@;broadcast;broadcast'
+- [rendered text "(/p(run fast)!'(/data, /api/x?a=1)')!*(/api/x?a=1, /api]
+    '/p(run fast)!(/data, /api/x?a=1)!(/api/x?a=1, /api/x?a=1)!*@;broadcast;broadcast'
+- [rendered text "(url4://node.ai/v1({a: 1, b: $a})!'()')!*(*https://b.io]
+    'url4://node.ai/v1({a: 1, b: $a})!()!(*https://b.io/x)!https://a.io/$topic;broadcast'
+- [rendered text "b=/p?t=90&q=()!(url4://node.ai/v1(a=https://a.io, $a)!@]
+    'b=/p?t=90&q=()!(url4://node.ai/v1(a=https://a.io, $a)!@, *a\tb)!*https://a.io*($item)!go'
+- [URI "https://a.io/$topic*(/p($item)!go:!'p';no\nte='a b'" cannot be ca]
+    "/p(/api/x?a=1)!(b:'', x, /api/x?a=1)! https://a.io/$topic*(/p($item)!go:!'p';no\nte='a b'"
+- [rendered text "(/p?t=90&q=({a: 1, b: $a})!'sum')!*(/p?t=90&q=({a: 1, b]
+    '(/p?t=90&q=({a: 1, b: $a})!sum)!(/p?t=90&q=({a: 1, b: $a})!sum)!hello;broadcast;broadcast'
+- [rendered text "()!*(*('a', 'b')*(x=$item, $a)!go;iteration.on_error=sk]
+    '()!(*(a, b)*(x=$item, $a)!go;iteration.on_error=skip, /claude()!data, x1=@emily)!x;broadcast'
+- [rendered text "(/claude(/data/$topic)!'(/p?t=90&q=(@)!/reduce)')!(/cla]
+    "/claude(/data/$topic)!(/p?t=90&q=(@)!/reduce)!(/claude()!a\tb, /p()!/reduce, /claude()!a\tb)!*''"
+- [rendered text "(url4://node.ai/v1(https://a.io)!'(/data*(\\'$item\\')!]
+    "url4://node.ai/v1(https://a.io)!(/data*('$item')!/r;iteration.concurrency=2)!('')!*@;broadcast"
+- [rendered text "()!*('hello', */data*($item)!/r;iteration.concurrency=2]
+    '()!(hello, */data*($item)!/r;iteration.concurrency=2, https://a.io/$topic)!*/reduce;broadcast;k=v'
+- [rendered text "(x1:'\\';:b', *$item, @emily/notes)!*(x1:'\\';:b', *$it]
+    "(x1:'\\';:b', *$item, @emily/notes)!(x1:'\\';:b', *$item, @emily/notes)!*https://b.io/x;broadcast;k=v"
+- [rendered text "()!*(x1:url4://node.ai/v1()!/reduce, /data, */p?t=90&q=]
+    '()!(x1:url4://node.ai/v1()!/reduce, /data, */p?t=90&q=(@emily/notes)!/reduce)!run fast;broadcast;k=v'
+- [rendered text "(@emily/notes, *$item, @emily/notes)!*(x1:'\\';:b', *$i]
+    "(@emily/notes, *$item, @emily/notes)!(x1:'\\';:b', *$item, @emily/notes)!*https://b.io/x;broadcast;k=v"
+- [rendered text "(url4://node.ai/v1({a: 1, b: $a})!'(*https://b.io/x)')!]
+    'url4://node.ai/v1({a: 1, b: $a})!(*https://b.io/x)!(*https://b.io/x)!https://a.io/$topic;broadcast;broadcast'
+- [rendered text "(/claude({k: 'v'})!'($a*(/p($item)!go)!\\'p\\';iteratio]
+    "/claude({k: 'v'})!($a*(/p($item)!go)!'p';iteration.on_error=skip)!('b\\'))', @emily, a:/data)!*'';broadcast;quorum=1"
+- [rendered text "(/data, url4://node.ai/v1(s3://bk/d)!/reduce)!*(url4://]
+    "(/data, url4://node.ai/v1(s3://bk/d)!/reduce)!(url4://node.ai/v1(s3://bk/d)!hello;mode=agent)!'$;\\\\:;!';broadcast;k=v"
+- [rendered text "(/claude(/data/$topic)!'(/p?t=90&q=(@)!/reduce)')!*(/cl]
+    "/claude(/data/$topic)!(/p?t=90&q=(@)!/reduce)!(/claude()!a\tb, /p()!/reduce, x1=/p?t=90&q=(@)!/reduce)!*'@;b=b*';broadcast"
+- [URI 'rl4://node.ai/v1(go)!https://a.io' cannot be carried bare: '!' at]
+    '(rl4://node.ai/v1(go)!https://a.io, url4://node.ai/v1(go)!https://a.io, url4://node.ai/v1(go)!https://a.io)!https://b.io/x;k=v'
+- [rendered text "(/data, url4://node.ai/v1(https://w.org/Fish_(animal))!]
+    "(/data, url4://node.ai/v1(https://w.org/Fish_(animal))!/reduce)!(url4://node.ai/v1(x)!hello;mode=agent)!'$;\\\\:;!';broadcast;k=v"
+- [rendered text "(/claude(/data/$topic)!'(/p?t=90&q=(\\'$/*/$\\')!run fa]
+    "/claude(/data/$topic)!(/p?t=90&q=('$/*/$')!run fast)!(/claude()!a\tb, /p()!/reduce, x1=/p?t=90&q=(@)!/reduce)!*'@;b=b*';broadcast"
+- [rendered text "(/claude(hello)!'(*(https://b.io/x, $a.f[0])!*hello;not]
+    "/claude(hello)!(*(https://b.io/x, $a.f[0])!*hello;note='a b', 'b(*\\';\\'')!('b$:),a', https://b.io/x, *'\\'b@;@:')!*x;broadcast;k=v"
+- [rendered text "()!*((/data/$topic, a=/data/$topic, 'b*!')!'/!!';k=v, (]
+    "()!((/data/$topic, a=/data/$topic, 'b*!')!'/!!';k=v, (a, b)*('$item')!/r;optional, /claude($item)!/reduce)!/reduce;quorum=1;broadcast"
+- [rendered text "($a, */p?t=90&q=({k: 'v'})!',\\\\\\\\\\':)')!(/p?t=30&q]
+    "($a, */p?t=90&q=({k: 'v'})!',\\\\\\\\\\':)')!(/p(https://b.io/x)!/reduce;t=30, {a: 1, b: $a}, a\tb)!https://a.io;quorum=1;quorum=1;mode=agent;k=1"
+- [URI 'url://node.ai/v1(hello)!sum' cannot be carried bare: '!' at offse]
+    "(/p?t=90&q=(https://a.io/$topic)!'', htts://b.io/x, url://node.ai/v1(hello)!sum)!(@emily/notes, *@emily, a\tb)!*()!/r{educe;k=v;quorum=1;quorum=1"
+- [rendered text "(/data, /data, 'data')!*(*/api/x?a=1*($item)!'p';iterat]
+    "(/data, /data, data)!(*/api/x?a=1*($item)!'p';iteration.concurrency=2)!(/p?t=90&q=(s3://bk/d)!'*')!*https://a.io/$topic;quorum=1;quorum=1;broadcast"
+- [rendered text "(/p($a.f[0])!'()')!*({a: 1, b: $a}, /p(/data/$topic)!s3]
+    '/p($a.f[0])!()!({a: 1, b: $a}, /p(/data/$topic)!s3://bk/d*($item)!/r;iteration.on_error=skip;mode=agent, https://a.io/$topic)!@;broadcast;broadcast'
+- [rendered text "($a, */p?t=90&q=({k: 'v'})!',\\\\\\\\\\':)')!(/p(https:]
+    "($a, */p?t=90&q=({k: 'v'})!',\\\\\\\\\\':)')!(/p(https://b.io/x)!/reduce;mode=agent;k=1, {a: 1, b: $a}, a\tb)!https://a.io;quorum=1;quorum=1;mode=agent;k=1"
+- [rendered text "(/p?t=90&k=v&q=(https://a.io/$topic)!()!/redce, https:/]
+    '(/p?t=90&q=(https://a.io/$topic)!()!/redce;k=v, https:/b.io/x, url4://node.ai/v1(hello)!sum)!(@emily, *@emily, a\tb)!{*()!/reduce;k=v;quorum=1;quorum=1'
+- [rendered text "topic:0.5:tokens=100:url4://node.ai/v1({k: 'v'})!(@, x1]
+    "topic:0.5:tokens=100:url4://node.ai/v1({k: 'v'})!(@, x1=url4://node.ai/v1($a.f[0])!('bb)!!;', {k: 'v'})!*a\tb;quorum=1, @emily)!$a*(/p($item)!go)!/r;k=v"
+- [rendered text "(url4://node.ai/v1(/data/$topic)!'(https://a.io/$topic*]
+    "url4://node.ai/v1(/data/$topic)!(https://a.io/$topic*(x=$item, $a)!'p', x1:0.5:tokens=100:sum, *https://w.org/Fish_(animal))!(@)!*', ';broadcast;quorum=1"
+- [rendered text "()!*(https://w.org/Fish_(animal), s3://bk/d*(x=$item, $]
+    "()!(https://w.org/Fish_(animal), s3://bk/d*(x=$item, $a)!go;iteration.concurrency=2, _n:0.5:tokens=100:/claude({k: 'v'})!@)!*https://a.io/$topic;k=v;broadcast"
+- [rendered text "($a, https://a.io/$topic, *$a.f[0])!*('$,($a,';t=30, (']
+    "($a, https://a.io/$topic, *$a.f[0])!('$,($a,';t=30, ('a\\\\,', url4://node.ai/v1($a)!https://a.io;mode=agent;k=1)!*https://w.org/Fish_(animal);k=v, $item)!*' @*';quorum=1;broadcast"
+- [rendered text "($a, https://a.io/$topic, *url4://node.ai/v1($a)!https:]
+    "($a, https://a.io/$topic, *url4://node.ai/v1($a)!https://a.io)!('$,($a,';t=30, (' @*', url4://node.ai/v1($a)!https://a.io;mode=agent;k=1)!*https://w.org/Fish_(animal);k=v, $item)!*' @*';quorum=1;broadcast"
+- [intent '/reduce;k=v, https://b.io/x, url4://node.ai/v1(hello)!sum' con]
+    '(/p?t=90&q=(https://a.io/$topic)!()!/redce;k=v, https:/b.io/x, url4://node.ai/v1(hello)!sum)!(/p?t=90&q=(https://a.i{o/$topic)!()!/reduce;k=v, https://b.io/x, url4://node.ai/v1(hello)!sum)!*()!/reduce;k=v;quorum=1;quorum=1'
+
+=== F_crash: 4 classes
+- [build: IndexError at _is_value_shaped:223]
+    'b:!a.f0]='
+- [parse: IndexError at _is_value_shaped:223]
+    "(x1:(science:08):,{k: 'v'})!*($a*(x=$item, $;a)!'p';optional, topic:{a: 1, b: $a}, ($a.f[0], b=$item, /claude(x)!@)!()!*$a*(x=$item, $a)!/r;iteration.on_error=skip;quorum=1)!',(';broadcast;broadcast"
+- [parse_value: IndexError at _is_value_shaped:223]
+    "(x1:(science:08):,{k: 'v'})!*($a*(x=$item, $;a)!'p';optional, topic:{a: 1, b: $a}, ($a.f[0], b=$item, /claude(x)!@)!()!*$a*(x=$item, $a)!/r;iteration.on_error=skip;quorum=1)!',(';broadcast;broadcast"
+- [intent_atom: IndexError at _is_value_shaped:223]
+    "(x1:(science:08):,{k: 'v'})!*($a*(x=$item, $;a)!'p';optional, topic:{a: 1, b: $a}, ($a.f[0], b=$item, /claude(x)!@)!()!*$a*(x=$item, $a)!/r;iteration.on_error=skip;quorum=1)!',(';broadcast;broadcast"
+
+=== L2_fix: 1 classes
+- [render(build(s)) raises: an Expression without an intent has no surface for]
+    '@'

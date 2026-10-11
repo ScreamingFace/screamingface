@@ -1,0 +1,7 @@
+
+line age distribution
+─────────────────────
+year  lines     pct  bar
+2026  30833  100.0%  ####################
+
+median line age: 2mo

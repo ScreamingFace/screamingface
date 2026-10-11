@@ -13,10 +13,15 @@ definition so the two layers cannot drift:
 - :func:`classify_boundary` — the §8.1.2 desugaring algorithm: expression-level
   params are consumed greedily until the first *exclusively source-level* key;
   everything from that key on is a source-level execution annotation.
+
+It also holds the one range check for the guard values ``;t=`` and ``;retry=``
+(:func:`checked_timeout`, :func:`checked_retries`), shared by the builders, the
+engine's lowering and :class:`~url4.dag.nodes.GuardNode`.
 """
 
 from __future__ import annotations
 
+import math
 import re
 import warnings
 from typing import cast, get_args
@@ -65,6 +70,11 @@ _PARAM_KEY_RE = re.compile(r"[A-Za-z0-9._]+", re.ASCII)
 # ":" and "/" are admitted so URI-shaped values (cb=https://host/p) and typed
 # values (iteration.slice=1:3, accept=application/json) fit without quoting.
 _PARAM_VALUE_RE = re.compile(r"[A-Za-z0-9.\-_,:/]+", re.ASCII)
+
+# `query-tail` (contracts C7) — the code-pointer query, read by parse_query_tail. Its
+# own charset, not param-value: `+`, `@`, `?` and `=` are legal here. An empty tail
+# matches too, and parse_query_tail maps it to no params.
+_QUERY_TAIL_RE = re.compile(r"[A-Za-z0-9\-._~:@/?+&=]*", re.ASCII)
 
 # WHY: `nested-param-value = param-value / processor-value`, and a processor-value
 # may be a whole expression body — which can never satisfy param-value. These
@@ -146,6 +156,31 @@ def validate_params(params: Params) -> None:
         validate_param(key, value)
 
 
+def parse_query_tail(text: str) -> dict[str, str]:
+    """Read a code pointer's query tail (Spec B §8, contracts C7) into its params.
+
+    The tail takes its own charset, not ``param-value``: ``+``, ``@``, ``?`` and ``=``
+    are allowed. Nothing is percent-decoded (the expression text is already decoded, and
+    ``%`` is refused). No key is reserved, and a key that appears twice is refused.
+    """
+    if not _QUERY_TAIL_RE.fullmatch(text):
+        raise ParseError(
+            f"invalid query tail {text!r} — `query-tail` takes ALPHA / DIGIT / '-' '.' '_' "
+            "'~' ':' '@' '/' '?' '+' '&' '=' (no percent-encoding)"
+        )
+    if not text:
+        return {}
+    params: dict[str, str] = {}
+    for segment in text.split("&"):
+        key, _, value = segment.partition("=")
+        if not key:
+            raise ParseError(f"empty key or segment in query tail {text!r}")
+        if key in params:
+            raise ParseError(f"duplicate key {key!r} in query tail {text!r}")
+        params[key] = value
+    return params
+
+
 def is_source_level_key(key: str) -> bool:
     """True for keys that are exclusively source-level (§8.1.3 boundary set)."""
     return key in EXCLUSIVE_SOURCE_KEYS or key.startswith(("coord.", "iteration.", "foreach."))
@@ -168,6 +203,24 @@ def classify_boundary(pairs: Params) -> tuple[Params, Params]:
     return tuple(expr_params), tuple(source_ann)
 
 
+def fold_broadcast(params: Params) -> tuple[bool, Params]:
+    """Take the ``;broadcast`` flag out of expression params: ``(flag, rest)``.
+
+    On an expression, ``;broadcast`` IS the ``!*`` operator (Spec B §6.1.1). The
+    envelope and the grammar's local expressions both fold it here, so they agree.
+    """
+    rest = tuple(pair for pair in params if pair[0] != "broadcast")
+    return len(rest) != len(params), rest
+
+
+DirectiveFields = dict[str, object]
+"""The directive fields an expression GAVE, by field name — absent keys were not given.
+
+Kept apart from :class:`IterationDirectives`, whose defaults cannot tell an
+explicit ``collect`` from no policy at all: the parser merges these dicts
+(audit A8) and builds the directives once, from the merged result."""
+
+
 def extract_directives(pairs: Params) -> tuple[Params, IterationDirectives]:
     """Pull ``iteration.*`` / deprecated ``foreach.*`` keys out of ``pairs``.
 
@@ -175,15 +228,26 @@ def extract_directives(pairs: Params) -> tuple[Params, IterationDirectives]:
     ``iteration.<key>`` names are ignored (forward compatibility), matching the
     pre-0.2 tolerance for unknown ``foreach.*`` keys.
     """
+    rest, fields = extract_directive_fields(pairs)
+    return rest, directives_from_fields(fields)
+
+
+def extract_directive_fields(pairs: Params) -> tuple[Params, DirectiveFields]:
+    """:func:`extract_directives`, keeping only the fields that were given."""
     rest: list[tuple[str, str | None]] = []
-    fields: dict[str, object] = {}
+    fields: DirectiveFields = {}
     for key, value in pairs:
         name = _directive_name(key)
         if name is None:
             rest.append((key, value))
         elif name in ("concurrency", "on_error", "slice", "fmt_result"):
             fields[name] = _parse_directive(name, value or "")
-    return tuple(rest), IterationDirectives(**fields)  # type: ignore[arg-type]
+    return tuple(rest), fields
+
+
+def directives_from_fields(fields: DirectiveFields) -> IterationDirectives:
+    """The directives for the given fields; every other field keeps its default."""
+    return IterationDirectives(**fields)  # type: ignore[arg-type]
 
 
 def _directive_name(key: str) -> str | None:
@@ -255,8 +319,35 @@ def _parse_slice(value: str) -> tuple[int, int]:
     return start, end
 
 
+# --- guard values (§10.1 `;t=` / `;retry=`, Spec C §13.3) ---------------------------
+
+# WHY a cap: every retry is another request, so one expression could otherwise ask a
+# remote for an unbounded number of effects. Ten extra attempts already span minutes
+# under the §13.3 backoff (500 ms doubling, capped at 30 s), longer than any `;t=` a
+# source would set; a source that needs more is broken, not slow.
+MAX_RETRIES = 10
+
+
+def checked_timeout(t: float) -> float:
+    """``;t=`` seconds: finite and positive, else ``ValueError`` (``nan`` never fires)."""
+    if not math.isfinite(t) or t <= 0:
+        raise ValueError(f"per-source timeout t={t!r} must be a finite number > 0")
+    return t
+
+
+def checked_retries(retry: int) -> int:
+    """``;retry=`` count: an integer in ``0..MAX_RETRIES``, else ``ValueError``."""
+    if isinstance(retry, bool) or not isinstance(retry, int) or not 0 <= retry <= MAX_RETRIES:
+        raise ValueError(f"retry={retry!r} must be an integer from 0 to {MAX_RETRIES}")
+    return retry
+
+
 __all__ = [
     "EXPRESSION_BEARING_KEYS",
+    "MAX_RETRIES",
+    "checked_retries",
+    "checked_timeout",
+    "parse_query_tail",
     "validate_param",
     "validate_params",
     "EXCLUSIVE_SOURCE_KEYS",

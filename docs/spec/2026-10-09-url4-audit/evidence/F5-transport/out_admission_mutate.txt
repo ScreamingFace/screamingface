@@ -1,0 +1,85 @@
+
+fm mutate - url4 serve admission + subprocess reaping
+─────────────────────────────────────────────────────
+  each mutant is the model with ONE guard, clause, action or assumption
+  removed. A property that no mutant can break is not checking anything.
+  baseline   : clean, 58 states  (each mutant: up to 1000 states, 60s)
+  properties : inflight_nonneg, inflight_le_max, inflight_equals_active, released_at_most_once, done_means_released, live_children_le_inflight, no_child_outlives_its_request, slot_can_free
+
+  killed  (10)
+  the edit breaks a property - this guard or action is LOAD-BEARING
+    L64   guard→False    _finish: child == 'alive' and reap   [branch removed]
+          breaks no_child_outlives_its_request, live_children_le_inflight
+    L66   guard→True     _finish: exc and (not RELEASE_ON_EXCEPTION)   [guard removed]
+          breaks inflight_equals_active, done_means_released, slot_can_free
+    L66   drop clause 2  _finish: exc and (not RELEASE_ON_EXCEPTION)   [clause removed: not RELEASE_ON_EXCEPTION]
+          breaks inflight_equals_active, done_means_released, slot_can_free
+    L82   guard→True     actions: ph == 'idle' and (not s['shutdown'])   [guard removed]
+          breaks inflight_equals_active, done_means_released, released_at_most_once
+    L82   drop clause 1  actions: ph == 'idle' and (not s['shutdown'])   [clause removed: ph == 'idle']
+          breaks inflight_equals_active, done_means_released, released_at_most_once
+    L96   guard→True     actions: ph == 'admitted'   [guard removed]
+          breaks inflight_equals_active, live_children_le_inflight, inflight_nonneg, done_means_released, released_at_most_once
+    L110  guard→True     actions: ph == 'child' and ch == 'alive'   [guard removed]
+          breaks inflight_nonneg, inflight_equals_active, live_children_le_inflight, released_at_most_once, done_means_released
+    L115  guard→True     actions: ph in ('admitted', 'child')   [guard removed]
+          breaks inflight_nonneg, inflight_equals_active, live_children_le_inflight, released_at_most_once, done_means_released
+    L83   guard→False    actions: s['inflight'] >= MAX   [branch removed]
+          breaks inflight_le_max
+          assumption     RELEASE_ON_EXCEPTION=0 (1: the in-flight decrement is in a `finally` (_serve.py:304-305))
+          breaks inflight_equals_active, done_means_released, slot_can_free
+
+  survived  (37)
+  no property notices the edit
+    L64   guard→True     _finish: child == 'alive' and reap   [guard removed]
+    L64   drop clause 1  _finish: child == 'alive' and reap   [clause removed: child == 'alive']
+    L64   drop clause 2  _finish: child == 'alive' and reap   [clause removed: reap]
+    L66   guard→False    _finish: exc and (not RELEASE_ON_EXCEPTION)   [branch removed]
+    L66   drop clause 1  _finish: exc and (not RELEASE_ON_EXCEPTION)   [clause removed: exc]
+    L126  guard→True     actions: not s['shutdown']   [guard removed]
+    L126  guard→False    actions: not s['shutdown']   [branch removed]
+    L82   guard→False    actions: ph == 'idle' and (not s['shutdown'])   [branch removed]
+    L82   drop clause 2  actions: ph == 'idle' and (not s['shutdown'])   [clause removed: not s['shutdown']]
+    L96   guard→False    actions: ph == 'admitted'   [branch removed]
+    L110  guard→False    actions: ph == 'child' and ch == 'alive'   [branch removed]
+    L110  drop clause 1  actions: ph == 'child' and ch == 'alive'   [clause removed: ph == 'child']
+    L110  drop clause 2  actions: ph == 'child' and ch == 'alive'   [clause removed: ch == 'alive']
+    L115  guard→False    actions: ph in ('admitted', 'child')   [branch removed]
+    L122  guard→True     actions: ph == 'done' and ch == 'alive'   [guard removed]
+    L122  guard→False    actions: ph == 'done' and ch == 'alive'   [branch removed]
+    L122  drop clause 1  actions: ph == 'done' and ch == 'alive'   [clause removed: ph == 'done']
+    L122  drop clause 2  actions: ph == 'done' and ch == 'alive'   [clause removed: ch == 'alive']
+    L83   guard→True     actions: s['inflight'] >= MAX   [guard removed]
+    L113  guard→True     actions: INNER_TIMEOUT_FIRST   [guard removed]
+    L113  guard→False    actions: INNER_TIMEOUT_FIRST   [branch removed]
+          drop action    action 'admit_0' can never fire
+          drop action    action 'admit_1' can never fire
+          drop action    action 'child_exits_0' can never fire
+          drop action    action 'child_exits_1' can never fire
+          drop action    action 'handler_raises_0' can never fire
+          drop action    action 'handler_raises_1' can never fire
+          drop action    action 'lifespan_shutdown' can never fire
+          drop action    action 'outer_timeout_0' can never fire
+          drop action    action 'outer_timeout_1' can never fire
+          drop action    action 'reject503_0' can never fire
+          drop action    action 'reject503_1' can never fire
+          drop action    action 'spawn_0' can never fire
+          drop action    action 'spawn_1' can never fire
+          drop action    action 'task_cancelled_0' can never fire
+          drop action    action 'task_cancelled_1' can never fire
+          assumption     INNER_TIMEOUT_FIRST=1 (0 in url4 serve: _serve.py:252 passes config.timeout to the command and _serve.py:297 arms asyncio.timeout(config.timeout) EARLIER, so the outer deadline always fires first)
+
+  mutants that break each property
+    inflight_nonneg                       3
+    inflight_le_max                       1
+    inflight_equals_active                8
+    released_at_most_once                 5
+    done_means_released                   8
+    live_children_le_inflight             4
+    no_child_outlives_its_request         1
+    slot_can_free                         3
+
+✓ every property is broken by at least one edit
+  the model CAN fail, and the killed edits above are what keeps it green.
+
+  claim  Every property is falsifiable; 10 of 47 edits break one. Those edits are load-bearing - name the one your fix introduced. Guards only: a wrong state update is not tested.
