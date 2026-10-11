@@ -86,6 +86,12 @@ class DiskCases(Sequence[CaseResult]):
             for row in db.execute(query):
                 yield from (_failure(value) for value in json.loads(row[0]))
 
+    def identities(self) -> Iterator[CaseId]:
+        # INVARIANT: navigation reads compact identity columns, never Case payloads.
+        with closing(self._connect()) as db:
+            for row in db.execute("SELECT id FROM cases ORDER BY position"):
+                yield json.loads(row[0])
+
     def __repr__(self) -> str:
         return f"DiskCases(count={self._count}, path={str(self.path)!r})"
 
