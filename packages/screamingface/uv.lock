@@ -4018,6 +4018,7 @@ version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
+    { name = "ijson" },
     { name = "pynacl" },
     { name = "pyyaml" },
     { name = "websockets" },
@@ -4079,6 +4080,7 @@ requires-dist = [
     { name = "datasets", marker = "extra == 'runtime'", specifier = "==5.0.1" },
     { name = "fastapi", marker = "extra == 'runtime'", specifier = ">=0.141.1" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "ijson", specifier = ">=3.4,<4" },
     { name = "immutabledict", marker = "extra == 'runtime'", specifier = ">=4.2.0" },
     { name = "inspect-ai", marker = "extra == 'inspect'", specifier = "==0.3.263" },
     { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8.1" },

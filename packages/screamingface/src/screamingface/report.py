@@ -125,6 +125,14 @@ class _CaseResults(Sequence[CaseResult]):
     def __init__(self, values: Sequence[CaseResult]) -> None:
         if isinstance(values, str | bytes) or not isinstance(values, Sequence):
             raise TypeError("Candidate cases must be an ordered sequence")
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(values, DiskCases):
+            if not values:
+                raise ValueError("a Candidate Result requires at least one Case Result")
+            self._items = values
+            self._by_id = None
+            return
         items = tuple(values)
         if any(not isinstance(value, CaseResult) for value in items):
             raise TypeError("Candidate cases must contain sf.CaseResult values")
@@ -154,19 +162,38 @@ class _CaseResults(Sequence[CaseResult]):
         return iter(self._items)
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, _CaseResults):
-            return self._items == other._items
         if isinstance(other, Sequence):
-            return self._items == tuple(other)
+            return len(self) == len(other) and all(a == b for a, b in zip(self, other))
         return NotImplemented
 
     def __repr__(self) -> str:
         return repr(self._items)
 
+    def _gradeable_count(self) -> int:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases) and self._items.gradeable is not None:
+            return self._items.gradeable
+        return sum(case.grade is not None and case.grade.score is not None for case in self._items)
+
+    def _failures(self) -> Iterator[Failure]:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            yield from self._items.failures()
+        else:
+            for case in self._items:
+                yield from case.failures
+
     def by_id(self, case_id: CaseId) -> CaseResult:
         """Return the Case with this domain ID without treating integers as positions."""
 
         selected = _case_id(case_id)
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            return self._items.by_id(selected)
+        assert self._by_id is not None
         try:
             return self._by_id[selected]
         except KeyError:
@@ -504,8 +531,9 @@ class Report:
 
     @property
     def ok(self) -> bool:
-        return not self.failures and all(
-            candidate.score is not None for candidate in self.candidates
+        return all(
+            candidate.score is not None and next(_candidate_failures(candidate), None) is None
+            for candidate in self.candidates
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -645,8 +673,7 @@ def _candidate_failures(candidate: CandidateResult) -> Iterator[Failure]:
     for member in candidate.members:
         if member.failures is not None:
             yield from member.failures
-    for case in candidate.cases:
-        yield from case.failures
+    yield from candidate.cases._failures()
 
 
 def _failures(values: Sequence[Failure], label: str) -> tuple[Failure, ...]:
@@ -845,10 +872,12 @@ def _validate_candidate_outcome(
 ) -> None:
     """Independently enforce the Engine's Candidate Result wire invariants."""
 
-    gradeable = tuple(
-        case for case in cases if case.grade is not None and case.grade.score is not None
+    gradeable = (
+        cases._gradeable_count()
+        if isinstance(cases, _CaseResults)
+        else sum(case.grade is not None and case.grade.score is not None for case in cases)
     )
-    expected_coverage = round(len(gradeable) / len(cases), 4)
+    expected_coverage = round(gradeable / len(cases), 4)
     if coverage != expected_coverage:
         raise ValueError(
             "Candidate coverage must equal numeric Case grades / selected Cases "
