@@ -38,6 +38,7 @@ screamingface = "screamingface._runtime.cli:main"
 # entrypoint, so this extra stays limited to what renders the panel. Notebook-*authoring*
 # and test tooling belongs in the dev group below, not in a user-facing extra.
 notebook = [
+    "ipyevents>=2.0.2,<3",
     "ipywidgets>=8.1",
 ]
 # WHY exact ==: the .eval log contract is version-shaped, and the Engine's inspect extra

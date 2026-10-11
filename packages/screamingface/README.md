@@ -460,6 +460,25 @@ Every `CandidateResult` exposes the Engine-owned top-level `coverage` ratio. A p
 available alongside the Cases that could not be graded, and the notebook Report panel labels the
 result as partial rather than silently presenting it as a complete evaluation.
 
+### Browse completed Case results
+
+Install `screamingface[notebook]` and display a completed `report` in a live notebook to
+browse 25 Case results per page. Use Previous/Next, enter an exact Case ID in Go to case
+number, or filter by Candidate using the dropdown or a Candidate name. The answer/grading
+and cost views remain available for every result. Numeric and string Case IDs retain their
+original identity.
+
+Download prepares the complete report JSON on disk, including every Candidate and Case,
+then provides a notebook file link (or the saved path when no local server serves it).
+Export and page loading keep the live notebook responsive; failures leave the current
+page available and allow retry. `report.export('report.json')` also writes the complete
+portable artifact directly.
+
+Static HTML, including environments without the notebook extra, previews the first 25
+results and shortens oversized Case panes. Small JSON downloads remain inline; larger
+ones use explicit export. The complete retained data remains available through the Report
+and JSON export.
+
 ### Completed accounting breakdown
 
 Each Candidate exposes derived views of the Engine's retained operation and grading records:
@@ -662,5 +681,4 @@ full accounting breakdown. Notebook cost disclosures instead derive a compact co
 streaming Cases and cache that context beside a saved Case index on first use. Warm run-level
 disclosures reuse the cache without decoding Cases; missing, stale or malformed caches
 rebuild, and a read-only cache location still returns derived values. Per-Case HTML still
-materializes its rendered output. Notebook pagination and automatic lifecycle discovery
-remain separate follow-ups.
+materializes its rendered output. Automatic lifecycle discovery remains a separate follow-up.

@@ -169,6 +169,14 @@ class _CaseResults(Sequence[CaseResult]):
     def __repr__(self) -> str:
         return repr(self._items)
 
+    def _identities(self) -> Iterator[CaseId]:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            yield from self._items.identities()
+        else:
+            yield from (case.case_id for case in self._items)
+
     @property
     def _disk_path(self) -> Path | None:
         from screamingface._results.cases import DiskCases
@@ -637,6 +645,18 @@ class Report:
     def __repr__(self) -> str:
         candidates = ", ".join(repr(candidate.name) for candidate in self.candidates)
         return f"Report(benchmark={self.benchmark.id!r}, candidates=[{candidates}], ok={self.ok})"
+
+    def _ipython_display_(self) -> None:
+        from IPython.display import HTML, display
+
+        try:
+            from screamingface._ui.report_browser import ReportBrowser
+
+            browser = ReportBrowser(self)
+        except ImportError:
+            display(HTML(self._repr_html_()))
+            return
+        display(browser.widget)
 
     def _repr_html_(self) -> str:
         from screamingface._ui.report_view import report_html
