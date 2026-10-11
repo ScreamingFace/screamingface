@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
@@ -81,7 +81,12 @@ def report_operation(report: Report, state: Literal["exporting", "rendering"]) -
 
 @contextmanager
 def evaluation_operation(
-    paths: set[Path], state: str, handled_errors: tuple[type[BaseException], ...]
+    paths: set[Path],
+    state: str,
+    handled_errors: tuple[type[BaseException], ...],
+    *,
+    handled_error: Callable[[BaseException], bool] | None = None,
+    resolve_interruption: bool = False,
 ) -> Iterator[None]:
     token = object()
     keys = []
@@ -98,15 +103,19 @@ def evaluation_operation(
     try:
         yield
         settled = True
-    except handled_errors:
-        settled = True
+    except handled_errors as exc:
+        settled = handled_error(exc) if handled_error is not None else True
         raise
     finally:
-        _finish_operation(keys, token, state, settled)
+        _finish_operation(keys, token, state, settled, resolve_interruption)
 
 
 def _finish_operation(
-    keys: list[tuple[int, Path]], token: object, state: str, settled: bool
+    keys: list[tuple[int, Path]],
+    token: object,
+    state: str,
+    settled: bool,
+    resolve_interruption: bool,
 ) -> None:
     with _lock:
         for key in keys:
@@ -116,7 +125,7 @@ def _finish_operation(
                 del _active[key]
             if not settled:
                 _interrupted[key] = state
-            elif state == "running":
+            elif resolve_interruption:
                 # WHY: explicit recovery can resolve a prior interrupted operation;
                 # an unrelated successful export/display cannot hide that interruption.
                 _interrupted.pop(key, None)

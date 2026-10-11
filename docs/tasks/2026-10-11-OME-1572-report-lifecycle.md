@@ -17,3 +17,5 @@ Track evaluation, JSON export, notebook display and explicit recovery in saved m
 Preserve legacy silence, healthy/active/headless/inaccessible-owner silence, current partial reports and corrupt-sibling safeguards, overlapping operations and cancelled recovery across both stores. Optional metadata/display failures must not abort useful SDK operations, and marker paths cannot follow symlinks outside evaluations.
 
 Spec/plan/work: docs/{spec,plan,work}/2026-10-11-report-lifecycle.md. Before/after fixture screenshots: docs/screenshots/2026-10-11-report-lifecycle/. All SDK gates pass (96% coverage), 48 new regression cases pass, and both independent reviews have zero remaining findings. Draft prepared for owner review.
+
+Draft #1348 follow-up: keep the prepared evaluation scope active while saved Candidate recovery/export/display completes. Preserve candidates_failed settlement, cancellation/unexpected errors, transport cleanup and interrupted Candidate operations. Added 23 regressions; all 71 lifecycle/notice cases and full SDK gates pass (96.18% coverage), with zero remaining Standards/Spec review findings.

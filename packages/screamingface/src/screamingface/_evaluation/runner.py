@@ -815,7 +815,7 @@ __all__: list[str] = []
 
 @contextmanager
 def _prepared_results(transport, evaluation, candidates) -> Iterator[None]:
-    from screamingface._results.lifecycle import mark_evaluation
+    from screamingface._results.lifecycle import evaluation_operation
     from screamingface.errors import ExecutionError
 
     path = (
@@ -824,14 +824,16 @@ def _prepared_results(transport, evaluation, candidates) -> Iterator[None]:
         else None
     )
     try:
-        yield
-    except ExecutionError as exc:
-        if path is not None and exc.code == "candidates_failed":
-            mark_evaluation(path, "ready")
-        raise
-    else:
-        if path is not None:
-            mark_evaluation(path, "ready")
+        # INVARIANT: saved Candidate recovery/display/export cannot finish its Evaluation.
+        with evaluation_operation(
+            {path} if path is not None else set(),
+            "running",
+            (ExecutionError,),
+            handled_error=lambda exc: (
+                isinstance(exc, ExecutionError) and exc.code == "candidates_failed"
+            ),
+        ):
+            yield
     finally:
         # INVARIANT: cancellation retires membership for candidates never scheduled.
         finish = getattr(transport, "finish_results", None)

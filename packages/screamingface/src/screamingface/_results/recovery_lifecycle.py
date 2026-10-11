@@ -24,5 +24,5 @@ def recovery_operation(
     if source is not None and target is not None:
         copy_evaluation(source, target, "running")
     paths = {path for path in (source, target) if path is not None}
-    with evaluation_operation(paths, "running", (ExecutionError,)):
+    with evaluation_operation(paths, "running", (ExecutionError,), resolve_interruption=True):
         yield
