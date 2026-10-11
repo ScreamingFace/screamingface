@@ -169,6 +169,12 @@ class _CaseResults(Sequence[CaseResult]):
     def __repr__(self) -> str:
         return repr(self._items)
 
+    @property
+    def _disk_path(self) -> Path | None:
+        from screamingface._results.cases import DiskCases
+
+        return self._items.path if isinstance(self._items, DiskCases) else None
+
     def _gradeable_count(self) -> int:
         from screamingface._results.cases import DiskCases
 

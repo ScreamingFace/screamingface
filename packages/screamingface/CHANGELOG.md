@@ -4,6 +4,8 @@
 
 ### Fixes
 
+* Stream compact accounting attribution and cache saved-run disclosure context lazily, without retaining every Case payload or accounting row. Invalid or stale caches rebuild; public breakdowns and report JSON remain unchanged.
+
 * Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
 
 ### Features
