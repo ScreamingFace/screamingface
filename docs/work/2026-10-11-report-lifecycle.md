@@ -67,3 +67,18 @@ Recovery tracking now starts before Candidate selection. Sync/async all-corrupt 
 Added 14 append-only regression cases, with real subprocess owners and actual owner death. RED probes reproduced cross-process ownership replacement, stale cancellation resurrection, masked dead-owner discovery and older interrupted-marker loss before each correction. All 85 focused lifecycle/notice cases pass. Existing tests remain unchanged. Independent Standards and Spec reviews each have zero remaining actionable findings. Final stable-code SDK gates all pass: append-only tests, Ruff lint/format, Pyright, parallel full pytest (96.18% coverage), notebook checks, wheel/sdist build and distribution checks.
 
 Wisdom/confidence: a private ownership helper coordinates the existing tracker without dependencies or public error/API changes. Optional metadata remains best-effort, symlinked locks are rejected, and liveness remains conservative outside POSIX or for inaccessible owners. Tests assert retained ownership, actual notice discovery and error/settlement behavior. No UI changes; existing screenshots remain applicable. No deviations from the requested fixes. Commit: fix(screamingface): preserve shared-store lifecycle ownership (OME-1572).
+
+
+## Run-ID recovery alias follow-up
+
+Intent: fix the review reproduction on 8e35fed2 where supported run-ID lookup bypasses source/destination lifecycle tracking.
+
+Planned changes: resolve run-ID aliases through the existing store lookup only when lightweight evaluation-ID/saved-key membership has no match. Keep lightweight selection for corrupt candidates and preserve ambiguous/missing lookup errors. Register canonical evaluation paths before recovery selection/fetch. No public API or dependency changes.
+
+Test plan: append sync/async success and cancellation regressions using outcome.run_id with separate destination stores; assert both markers are running during recovery and settle ready on success or remain unfinished on cancellation. Verify identical report JSON and interruption discovery. Preserve existing corrupt-selection, ambiguous/missing alias and concurrency tests. New tests fail first, then full SDK gates and parallel Standards/Spec review before updating draft #1348.
+
+Outcome: reproduced the finding with four failing sync/async success/cancellation probes at 8e35fed2. The existing ResultStore.load unique-run lookup now resolves aliases only after lightweight membership finds no match, preserving evaluation-ID/saved-key corrupt-selection tracking. Missing/ambiguous aliases retain their existing errors and create no destination marker. No prior tests changed.
+
+Added eight append-only regressions. Source and destination markers are running before fetch, settle ready on successful identical-JSON recovery, and remain running on cancellation; dead-owner classification retains the interruption. Missing/ambiguous aliases are covered in both APIs. All 93 focused lifecycle cases and 18 inherited saved-run tests pass (111 total). Independent Standards/Spec reviews have zero actionable findings; each reran focused tests. Final SDK gates all pass: append-only tests, Ruff lint/format, Pyright, parallel full pytest (96.18% coverage), notebook checks, build and distribution validation.
+
+Wisdom/confidence: reuse the supported alias lookup instead of inventing another metadata resolver; preserve lightweight corrupt-selection precedence and public errors. Seven production lines in the private helper; no dependency, public API or UI changes. Existing screenshots remain applicable. No deviations. Commit: fix(screamingface): track recovery through run-ID aliases (OME-1572).

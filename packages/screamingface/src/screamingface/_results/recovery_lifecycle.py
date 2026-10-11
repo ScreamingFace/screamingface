@@ -18,6 +18,13 @@ def recovery_operation(
     else:
         identity, members = store.member_manifests(selected)
         report_id = identity if members else None
+        if not members:
+            # WHY: run-ID aliases use the existing unique-run lookup. Lightweight
+            # membership stays first so corrupt candidates still enter tracking.
+            try:
+                report_id = (store.load(selected).evaluation or {}).get("id")
+            except (KeyError, OSError, ExecutionError):
+                pass  # WHY: public selection retains its original lookup/error contract.
     source = evaluation_path(store.directory, report_id)
     target = (
         evaluation_path(Path(destination).expanduser(), report_id)
