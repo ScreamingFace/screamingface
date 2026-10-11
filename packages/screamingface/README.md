@@ -676,6 +676,14 @@ artifact needs downloading. They never start model runs. `destination='/another/
 lets recovery copy retained results to another location. Incomplete recovery raises the
 existing `candidates_failed` error with a `partial_report` and named Candidate failures.
 
+New saved evaluations track whether evaluation, notebook display or JSON export is in progress.
+When a POSIX notebook process exits unexpectedly, the next persisted Client for the same Engine
+shows an informational notice with an explicit `sf.reports.get(...)` command for retained completed
+results. It does not rerun models or recover automatically. Healthy, active and legacy results
+stay quiet; headless Clients do not scan results at startup. Owners that cannot be verified dead
+(including non-POSIX environments) are treated conservatively. Process-ID reuse can also suppress
+a notice; saved results remain available through `sf.reports.list()`.
+
 Local copies remain until explicit deletion. Deleting a report also makes existing
 Reports backed by its files unreadable. Recovery requires a saved completion record and
 either a valid local raw result or an unexpired Engine artifact. An unavailable artifact

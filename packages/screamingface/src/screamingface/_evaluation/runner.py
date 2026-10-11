@@ -815,10 +815,23 @@ __all__: list[str] = []
 
 @contextmanager
 def _prepared_results(transport, evaluation, candidates) -> Iterator[None]:
-    if isinstance(transport, _ResultPersistence):
+    from screamingface._results.lifecycle import mark_evaluation
+    from screamingface.errors import ExecutionError
+
+    path = (
         transport.prepare_results(evaluation, candidates)
+        if isinstance(transport, _ResultPersistence)
+        else None
+    )
     try:
         yield
+    except ExecutionError as exc:
+        if path is not None and exc.code == "candidates_failed":
+            mark_evaluation(path, "ready")
+        raise
+    else:
+        if path is not None:
+            mark_evaluation(path, "ready")
     finally:
         # INVARIANT: cancellation retires membership for candidates never scheduled.
         finish = getattr(transport, "finish_results", None)
@@ -827,5 +840,8 @@ def _prepared_results(transport, evaluation, candidates) -> Iterator[None]:
 
 
 def _returned_report(observer, report: Report) -> Report:
+    from screamingface._results.lifecycle import mark_report
+
     _reconcile_event_observer(observer, report)
+    mark_report(report, "ready")
     return report

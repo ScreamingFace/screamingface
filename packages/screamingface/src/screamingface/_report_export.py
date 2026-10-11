@@ -59,4 +59,7 @@ def write_report(report: Report, path: Path) -> None:
         for chunk in iter_report_json(report):
             stream.write(chunk.encode("utf-8"))
 
-    write_atomic(path, write)
+    from screamingface._results.lifecycle import report_operation
+
+    with report_operation(report, "exporting"):
+        write_atomic(path, write)

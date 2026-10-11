@@ -25,6 +25,7 @@ from screamingface._results.discovery import (
     unreadable_groups,
     unreadable_selection,
 )
+from screamingface._results.recovery_lifecycle import recovery_operation
 from screamingface._results.store import ResultStore, SavedRun, storage_error
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import ExecutionError, ScreamingFaceError
@@ -357,19 +358,20 @@ def get(
     """
     store = _store(directory)
     selected = _recovery_selection(store, _selected(store, report_id))
-    reports: builtins.list[Report] = []
-    runs, errors = _group(store, selected)
-    for run in runs:
-        try:
-            _validate_sibling(selected, run)
-            if destination is not None:
-                run = _store(destination).copy_run(run)
-            reports.append(_decode(run, _fetch(run)))
-        except (OSError, sqlite3.Error) as exc:
-            errors[run.candidate.name] = storage_error(exc, run.key)
-        except ScreamingFaceError as exc:
-            errors[run.candidate.name] = exc
-    return _finish(selected, reports, errors)
+    with recovery_operation(store, selected, destination):
+        reports: builtins.list[Report] = []
+        runs, errors = _group(store, selected)
+        for run in runs:
+            try:
+                _validate_sibling(selected, run)
+                if destination is not None:
+                    run = _store(destination).copy_run(run)
+                reports.append(_decode(run, _fetch(run)))
+            except (OSError, sqlite3.Error) as exc:
+                errors[run.candidate.name] = storage_error(exc, run.key)
+            except ScreamingFaceError as exc:
+                errors[run.candidate.name] = exc
+        return _finish(selected, reports, errors)
 
 
 async def get_async(
@@ -378,17 +380,18 @@ async def get_async(
     """Open a saved report asynchronously with the same local result contract."""
     store = _store(directory)
     selected = await asyncio.to_thread(_recovery_selection, store, _selected(store, report_id))
-    reports: builtins.list[Report] = []
-    runs, errors = await asyncio.to_thread(_group, store, selected)
-    for run in runs:
-        try:
-            _validate_sibling(selected, run)
-            if destination is not None:
-                run = await asyncio.to_thread(_store(destination).copy_run, run)
-            outcome = await _fetch_async(run)
-            reports.append(await asyncio.to_thread(_decode, run, outcome))
-        except (OSError, sqlite3.Error) as exc:
-            errors[run.candidate.name] = storage_error(exc, run.key)
-        except ScreamingFaceError as exc:
-            errors[run.candidate.name] = exc
-    return _finish(selected, reports, errors)
+    with recovery_operation(store, selected, destination):
+        reports: builtins.list[Report] = []
+        runs, errors = await asyncio.to_thread(_group, store, selected)
+        for run in runs:
+            try:
+                _validate_sibling(selected, run)
+                if destination is not None:
+                    run = await asyncio.to_thread(_store(destination).copy_run, run)
+                outcome = await _fetch_async(run)
+                reports.append(await asyncio.to_thread(_decode, run, outcome))
+            except (OSError, sqlite3.Error) as exc:
+                errors[run.candidate.name] = storage_error(exc, run.key)
+            except ScreamingFaceError as exc:
+                errors[run.candidate.name] = exc
+        return _finish(selected, reports, errors)

@@ -10,6 +10,8 @@
 
 ### Features
 
+* Track saved-report evaluation, display and JSON export lifecycles, and show notebook recovery guidance when the previous local owner process exited unexpectedly. Explicit recovery preserves interruption metadata across destination stores; healthy and legacy reports remain quiet.
+
 * Browse completed reports in live notebooks 25 Case results at a time, with Candidate filtering, exact Case-ID navigation and streamed full-report downloads. Static HTML shows a bounded first-page preview; install the notebook extra for live controls.
 
 * Retain completed evaluation results on disk before decoding and reopen them with `sf.reports.list()`, `get()`, `get_async()`, and explicit `delete()`. Public Clients save results by default; `save_results=False` retains in-memory collection. Verified incremental indexing preserves full Case data and provenance, while fusion-member totals retain nullable values with bounded auxiliary memory.
