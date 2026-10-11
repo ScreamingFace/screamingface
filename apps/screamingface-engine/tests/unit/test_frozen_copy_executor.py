@@ -47,7 +47,7 @@ from url4.io.static import StaticIOLayer
 from url4.streaming.interfaces import Traced
 from url4.streaming.protocol import LogData
 
-_EMPTY = "'hello'!go"
+_EMPTY = "'hello'!'go'"
 
 
 async def _run(
@@ -288,7 +288,7 @@ async def test_a_capture_run_with_an_unreachable_gateway_still_writes_its_summar
     executor = Url4Executor(StaticIOLayer(fetch_map={"https://a": "A"}))
     logs: list[LogData] = []
     with request_scope(capture_scope()):
-        async for step in executor.execute("https://a!go"):
+        async for step in executor.execute("https://a!'go'"):
             if isinstance(step, Traced) and isinstance(step.payload, LogData):
                 logs.append(step.payload)
 
@@ -323,7 +323,7 @@ async def test_a_replay_that_failed_every_call_still_publishes_capture_replay() 
 
         executor = Url4Executor(StaticIOLayer(routes={"/case": case}))
         with request_scope(replay_scope()):
-            async for step in executor.execute("/case(x)!go"):
+            async for step in executor.execute("/case(x)!'go'"):
                 if isinstance(step, Traced) and isinstance(step.payload, LogData):
                     logs.append(step.payload)
 

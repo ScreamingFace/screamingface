@@ -173,3 +173,11 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
   `X-AIGW-Replay-Occurrence`. Main now sends the gateway timeout headers on every chat call.
 - Gates for stack `screamingface-engine` pass against `e14-b2-engine-tavily-cache`
   (`--skip-append-only`; the approved test edits are unchanged).
+
+## Rebase 2026-10-11
+
+- The stack was rebased onto origin/main 8e0c0a298. That commit has url4 2.0.
+- In url4 2.0, an unquoted intent such as `!go` is a code pointer. It needs a code mount.
+  Two tests in `test_frozen_copy_executor.py` used `!go` and failed with `no code mount at 'go'`.
+- I quoted the intent (`!'go'`) in three expressions in that test file. Now `go` is a normal
+  model intent. No assertion changed. No B3 production code changed.
