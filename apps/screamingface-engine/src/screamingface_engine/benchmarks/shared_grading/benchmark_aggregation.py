@@ -748,7 +748,11 @@ class BenchmarkAggregation:
             "metrics": dict(outcome.metrics),
             "checks": list(outcome.checks),
         }
-        if self.named_scores:
+        if self.named_scores and fields.abstained:
+            # WHY every column is 0.0 (OME-1289 with OME-1268): the headline must equal the Case
+            # score, and a kept grader failure on an abstained Case has no columns to read.
+            grade["scores"] = dict.fromkeys(self.named_scores, 0.0)
+        elif self.named_scores:
             grade["scores"] = self._named_scores(outcome)
         elif outcome.scores:
             # WHY refuse, not publish: a column nobody declared would reach the wire under
