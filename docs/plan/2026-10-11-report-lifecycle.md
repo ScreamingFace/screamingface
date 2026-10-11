@@ -9,3 +9,9 @@
 ## Active evaluation follow-up
 
 Register the prepared evaluation itself in the shared tracker before yielding to execution. Classify handled errors by their existing candidates_failed code, rather than treating every ExecutionError as settled. Keep transport cleanup in finally. Add regressions for recovery/export/display finishing during execution, all settlement outcomes, and presentation surviving evaluation completion. Existing tests remain unchanged.
+
+## Shared-store ownership and early recovery failures
+
+Persist per-process operation snapshots and interrupted outcomes alongside the existing state/owner summary, merging them under a POSIX advisory lock before atomic replacement. Keep process-local bookkeeping for existing same-process overlaps and failed optional writes. Preserve foreign live operations, clear dead outcomes only on explicit recovery, and use the summarized owner/state for existing discovery. Destination copies bootstrap their own tracking rather than copying active source tokens.
+
+Enter recovery tracking before Candidate selection, using lightweight membership identity for either evaluation or saved key. Classify only candidates_failed selection errors as handled settlement. Add real subprocess and all-corrupt sync/async regressions first, then run all existing SDK gates and both review axes.

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 
 from screamingface._environment import running_in_notebook
 from screamingface._notices import ClientNotice
 from screamingface._results.lifecycle import evaluation_path
+from screamingface._results.ownership import owner_alive as _owner_alive
+from screamingface._results.ownership import recorded_owners
 from screamingface._results.store import ResultStore, SavedRun
 from screamingface._ui.notice_view import display_notebook_notice
 
@@ -30,27 +31,16 @@ def recovery_notice(report_id: str, directory: Path) -> ClientNotice:
     )
 
 
-def _owner_alive(pid: int) -> bool:
-    if pid == os.getpid() or os.name != "posix":
-        # WHY conservative off POSIX: Windows os.kill(pid, 0) can terminate the process.
-        return True
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except (PermissionError, OverflowError):
-        pass  # WHY: invalid/inaccessible owners cannot make optional discovery block startup.
-    return True
-
-
 def _is_interrupted(value: dict) -> bool:
-    pid = value.get("owner_pid")
-    return (
-        value.get("state") in {"running", "exporting", "rendering"}
+    owners = [(value.get("owner_pid"), value.get("state")), *recorded_owners(value)]
+    return any(
+        isinstance(state, str)
+        and state in {"running", "exporting", "rendering"}
         and isinstance(pid, int)
         and not isinstance(pid, bool)
         and pid > 0
         and not _owner_alive(pid)
+        for pid, state in owners
     )
 
 

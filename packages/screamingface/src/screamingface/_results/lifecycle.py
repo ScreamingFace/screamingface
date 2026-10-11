@@ -11,6 +11,7 @@ from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, Literal
 
+from screamingface._results.ownership import update_marker
 from screamingface._results.store import atomic_json
 
 if TYPE_CHECKING:
@@ -129,10 +130,14 @@ def _finish_operation(
                 # WHY: explicit recovery can resolve a prior interrupted operation;
                 # an unrelated successful export/display cannot hide that interruption.
                 _interrupted.pop(key, None)
-            mark_evaluation(key[1], "ready" if settled else state)
+            mark_evaluation(
+                key[1],
+                "ready" if settled else state,
+                resolve_interruption=settled and resolve_interruption,
+            )
 
 
-def mark_evaluation(path: Path, state: str) -> None:
+def mark_evaluation(path: Path, state: str, *, resolve_interruption: bool = False) -> None:
     if not _safe_marker(path):
         return
     try:
@@ -140,7 +145,7 @@ def mark_evaluation(path: Path, state: str) -> None:
             value = json.loads(path.read_text())
             if "owner_pid" not in value:
                 return  # WHY: legacy history must not be guessed to have crashed.
-            _write_marker(path, value, state)
+            _write_marker(path, value, state, resolve_interruption=resolve_interruption)
     except (OSError, ValueError, AttributeError, TypeError):
         # INVARIANT: optional lifecycle metadata cannot discard a usable Report.
         _logger.debug("Could not update saved-report lifecycle", exc_info=True)
@@ -155,16 +160,29 @@ def copy_evaluation(source: Path, destination: Path, state: str) -> None:
             value = json.loads(source.read_text())
             if "owner_pid" not in value:
                 return
+            # WHY: a destination tracks its own work, not source-process operation tokens.
+            value.update(owner_pid=os.getpid(), state=state)
+            value.pop("lifecycle_operations", None)
+            value.pop("lifecycle_interruptions", None)
             _write_marker(destination, value, state)
     except (OSError, ValueError, AttributeError, TypeError):
         _logger.debug("Could not copy saved-report lifecycle", exc_info=True)
 
 
-def _write_marker(path: Path, value: dict, state: str) -> None:
-    # INVARIANT: every marker writer preserves active presentation operations.
-    operations = _active.get((os.getpid(), path.resolve()), {})
-    pending = next(
-        reversed(operations.values()), _interrupted.get((os.getpid(), path.resolve()), state)
+def _write_marker(
+    path: Path, value: dict, state: str, *, resolve_interruption: bool = False
+) -> None:
+    key = (os.getpid(), path.resolve())
+    written = update_marker(
+        path,
+        value,
+        state,
+        _active.get(key, {}),
+        _interrupted.get(key),
+        resolve_interruption,
+        atomic_json,
     )
-    value.update(state=pending, owner_pid=os.getpid())
-    atomic_json(path, value)
+    if written:
+        # WHY: persisted interruptions are authoritative across processes; retain local
+        # pending state only when optional I/O failed, otherwise remote recovery can clear it.
+        _interrupted.pop(key, None)

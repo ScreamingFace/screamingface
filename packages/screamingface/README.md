@@ -682,7 +682,9 @@ shows an informational notice with an explicit `sf.reports.get(...)` command for
 results. It does not rerun models or recover automatically. Healthy, active and legacy results
 stay quiet; headless Clients do not scan results at startup. Owners that cannot be verified dead
 (including non-POSIX environments) are treated conservatively. Process-ID reuse can also suppress
-a notice; saved results remain available through `sf.reports.list()`.
+a notice; saved results remain available through `sf.reports.list()`. On POSIX, overlapping
+notebooks sharing the same directory preserve one another's unfinished work, including when
+a saved Candidate is recovered, displayed or exported from another process.
 
 Local copies remain until explicit deletion. Deleting a report also makes existing
 Reports backed by its files unreadable. Recovery requires a saved completion record and

@@ -357,8 +357,8 @@ def get(
     with ``partial_report`` and named failures when the evaluation is incomplete.
     """
     store = _store(directory)
-    selected = _recovery_selection(store, _selected(store, report_id))
-    with recovery_operation(store, selected, destination):
+    with recovery_operation(store, report_id, destination):
+        selected = _recovery_selection(store, _selected(store, report_id))
         reports: builtins.list[Report] = []
         runs, errors = _group(store, selected)
         for run in runs:
@@ -379,8 +379,8 @@ async def get_async(
 ) -> Report:
     """Open a saved report asynchronously with the same local result contract."""
     store = _store(directory)
-    selected = await asyncio.to_thread(_recovery_selection, store, _selected(store, report_id))
-    with recovery_operation(store, selected, destination):
+    with recovery_operation(store, report_id, destination):
+        selected = await asyncio.to_thread(_recovery_selection, store, _selected(store, report_id))
         reports: builtins.list[Report] = []
         runs, errors = await asyncio.to_thread(_group, store, selected)
         for run in runs:

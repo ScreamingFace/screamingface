@@ -11,9 +11,13 @@ from screamingface.errors import ExecutionError
 
 @contextmanager
 def recovery_operation(
-    store: ResultStore, selected: SavedRun, destination: str | Path | None
+    store: ResultStore, selected: SavedRun | str, destination: str | Path | None
 ) -> Iterator[None]:
-    report_id = (selected.evaluation or {}).get("id")
+    if isinstance(selected, SavedRun):
+        report_id = (selected.evaluation or {}).get("id")
+    else:
+        identity, members = store.member_manifests(selected)
+        report_id = identity if members else None
     source = evaluation_path(store.directory, report_id)
     target = (
         evaluation_path(Path(destination).expanduser(), report_id)
@@ -24,5 +28,13 @@ def recovery_operation(
     if source is not None and target is not None:
         copy_evaluation(source, target, "running")
     paths = {path for path in (source, target) if path is not None}
-    with evaluation_operation(paths, "running", (ExecutionError,), resolve_interruption=True):
+    with evaluation_operation(
+        paths,
+        "running",
+        (ExecutionError,),
+        resolve_interruption=True,
+        handled_error=lambda exc: (
+            isinstance(exc, ExecutionError) and exc.code == "candidates_failed"
+        ),
+    ):
         yield
