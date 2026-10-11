@@ -95,6 +95,16 @@ def _finish(saved: SavedRun, temporary: Path) -> _RunOutcome:
     return replace(saved.outcome, result_body=None, result_path=saved.path)
 
 
+def _require_identity(response: httpx.Response) -> None:
+    # WHY: HTTPX decompresses before chunking, so chunk_size cannot bound encoded responses.
+    if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
+        raise ExecutionError(
+            "SF Engine result artifact must use identity content encoding",
+            code="result_integrity_mismatch",
+            permanent=True,
+        )
+
+
 def _once_sync(http: httpx.Client, saved: SavedRun, token: str) -> _RunOutcome:
     artifact = saved.outcome.artifact
     assert artifact is not None
@@ -103,7 +113,9 @@ def _once_sync(http: httpx.Client, saved: SavedRun, token: str) -> _RunOutcome:
         try:
             writer = _Download(saved, stream.file)
             with http.stream(
-                "GET", _artifact_path(artifact), headers={"URL4-Capability": token}
+                "GET",
+                _artifact_path(artifact),
+                headers={"URL4-Capability": token, "Accept-Encoding": "identity"},
             ) as response:
                 if not response.is_success:
                     if response.status_code in (404, 410):
@@ -112,6 +124,7 @@ def _once_sync(http: httpx.Client, saved: SavedRun, token: str) -> _RunOutcome:
                         _response(_error_response(response, b""), saved)
                     body = next(response.iter_bytes(chunk_size=_ERROR_BODY_LIMIT), b"")
                     _response(_error_response(response, body), saved)
+                _require_identity(response)
                 for chunk in response.iter_bytes(chunk_size=65536):
                     writer.write(chunk)
             writer.finish()
@@ -130,7 +143,9 @@ async def _once_async(http: httpx.AsyncClient, saved: SavedRun, token: str) -> _
         try:
             writer = _Download(saved, stream.file)
             async with http.stream(
-                "GET", _artifact_path(artifact), headers={"URL4-Capability": token}
+                "GET",
+                _artifact_path(artifact),
+                headers={"URL4-Capability": token, "Accept-Encoding": "identity"},
             ) as response:
                 if not response.is_success:
                     if response.status_code in (404, 410):
@@ -139,6 +154,7 @@ async def _once_async(http: httpx.AsyncClient, saved: SavedRun, token: str) -> _
                         _response(_error_response(response, b""), saved)
                     body = await anext(response.aiter_bytes(chunk_size=_ERROR_BODY_LIMIT), b"")
                     _response(_error_response(response, body), saved)
+                _require_identity(response)
                 async for chunk in response.aiter_bytes(chunk_size=65536):
                     writer.write(chunk)
             writer.finish()

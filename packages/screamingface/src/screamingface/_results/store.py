@@ -13,7 +13,10 @@ from decimal import InvalidOperation
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from screamingface._atomic_file import _sync_directory, write_atomic
+from screamingface._client_connections import _engine_origin
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import Candidate
 from screamingface._results.codec import (
@@ -185,7 +188,14 @@ class ResultStore:
     def _load(self, path: Path) -> SavedRun:
         try:
             return self._decode_manifest(path)
-        except (ValueError, KeyError, TypeError, AttributeError, InvalidOperation) as exc:
+        except (
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            InvalidOperation,
+            httpx.InvalidURL,
+        ) as exc:
             raise ExecutionError(
                 "Invalid saved run metadata", code="result_metadata_invalid"
             ) from exc
@@ -194,6 +204,8 @@ class ResultStore:
         data = json.loads(path.read_text(encoding="utf-8"))
         if data["schema"] != "screamingface.saved-run.v1":
             raise ExecutionError("Unsupported saved run version")
+        # INVARIANT: bad saved origins settle before Client construction can hide healthy siblings.
+        httpx.URL(_engine_origin(data["engine_url"]))
         return SavedRun(
             path.parent.name,
             path.parent / "result.json",
