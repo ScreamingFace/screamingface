@@ -21,6 +21,7 @@ from ijson.common import ObjectBuilder
 from screamingface._report_primitives import CaseId
 from screamingface._results.index_integrity import digest, matches, publish, reusable
 from screamingface._results.store import sync_directory
+from screamingface._results.unicode_validation import validate_unicode
 from screamingface.case_result import CaseResult
 from screamingface.errors import ExecutionError
 
@@ -168,6 +169,8 @@ def _insert_cases(events: Iterator[Any], db: sqlite3.Connection) -> int:
 
 def index_result(source: Path) -> tuple[dict[str, object], DiskCases]:
     """Publish an index only after the entire JSON has parsed and validated."""
+    # INVARIANT: validate raw escapes even when reusing a pre-fix index.
+    validate_unicode(source)
     target = source.with_suffix(".sqlite3")
     source_digest = digest(source)
     # INVARIANT: raw results are authoritative; even readable altered indices are rebuilt.
