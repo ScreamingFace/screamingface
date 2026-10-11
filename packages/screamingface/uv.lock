@@ -4097,7 +4097,7 @@ requires-dist = [
     { name = "immutabledict", marker = "extra == 'runtime'", specifier = ">=4.2.0" },
     { name = "inspect-ai", marker = "extra == 'inspect'", specifier = "==0.3.263" },
     { name = "ipyevents", marker = "extra == 'notebook'", specifier = ">=2.0.2,<3" },
-    { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8.1" },
+    { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=7.7.1,<9" },
     { name = "langdetect", marker = "extra == 'runtime'", specifier = ">=1.0.9" },
     { name = "litellm", marker = "extra == 'runtime'", specifier = "==1.102.1" },
     { name = "nats-py", marker = "extra == 'runtime'", specifier = ">=2.9.0" },

@@ -738,6 +738,7 @@ def cases_page_html(
     accounting_contexts: Mapping[int, _AccountingContext] | None = None,
     selected: int = 0,
     navigation_mode: str | None = None,
+    click_handler: str = "",
 ) -> str:
     """Use the original rail and detail panes for one bounded page of cases."""
     if not entries:
@@ -762,7 +763,11 @@ def cases_page_html(
         inputs.append(
             f"<input class='sf-case-radio' type='radio' name='{group}' id='{item}'{checked}>"
         )
-        rail.append(_rail_item(item, candidate, case, len(report.candidates) > 1, navigation_mode))
+        rail.append(
+            _rail_item(
+                item, candidate, case, len(report.candidates) > 1, navigation_mode, click_handler
+            )
+        )
         renderer = bounded_pane if preview else _pane_html
         panes.append(renderer(candidate, case, costs[id(candidate)][case.case_id]))
     total = len(entries)
@@ -840,6 +845,7 @@ def _rail_item(
     case: CaseResult,
     show_who: bool,
     navigation_mode: str | None = None,
+    click_handler: str = "",
 ) -> str:
     state = _case_state(case)
     # WHY (OME-793): a failed case gets the warning mark, never the incorrect ✗ — the rail
@@ -862,9 +868,10 @@ def _rail_item(
     who = f" <span class='sf-rail__who'>{escape(candidate.name)}</span>" if show_who else ""
     if navigation_mode == "candidate":
         who = ""
+    click = f' onclick="{escape(click_handler, quote=True)}"' if click_handler else ""
     preview = _clip(case.prompt_preview, 90) if case.input is not None else "input unavailable"
     return (
-        f"<label class='sf-rail__item' id='{item}-row' for='{item}'>"
+        f"<label class='sf-rail__item' id='{item}-row' for='{item}'{click}>"
         f"<span class='{mark}' aria-hidden='true'>{glyph}</span>"
         f"<span class='sf-rail__id'>case {escape(str(case.case_id))}</span>{who}"
         f"<span class='sf-rail__q'>{escape(preview)}</span></label>"

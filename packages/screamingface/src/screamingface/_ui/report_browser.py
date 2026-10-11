@@ -11,6 +11,12 @@ from uuid import uuid4
 
 from screamingface._results.accounting import saved_accounting_context
 from screamingface._ui.case_navigation import CaseEntries, CaseNavigation
+from screamingface._ui.notebook_host import (
+    case_click_handler,
+    download_in_colab,
+    in_colab,
+    prepare_widgets,
+)
 from screamingface._ui.report_files import download_link
 from screamingface._ui.report_view import (
     _card_html,
@@ -69,6 +75,7 @@ class ReportBrowser:
     """Kernel-backed controls over the immutable Report, with bounded case access."""
 
     def __init__(self, report: Report) -> None:
+        prepare_widgets()
         import ipywidgets as widgets
 
         self.w = widgets
@@ -105,7 +112,6 @@ class ReportBrowser:
                 *((owner.name, index) for index, owner in enumerate(self.entries.owners)),
             ],
             value=-1,
-            tooltip="Filter candidates",
             layout=w.Layout(width="190px"),
             style={"description_width": "initial"},
         )
@@ -119,6 +125,7 @@ class ReportBrowser:
         # WHY: CSS selection stays instant; widget events synchronize only case identity.
         self._case_events = Event(source=self.cases, watched_events=["click"])
         self._case_events.on_dom_event(self._select_case)
+        self._case_click = case_click_handler(self._select_case)
         self.previous.on_click(lambda _: self._move(-1))
         self.next.on_click(lambda _: self._move(1))
 
@@ -264,6 +271,10 @@ class ReportBrowser:
         self._request_page(target, direction)
 
     def _request_page(self, target: int, direction: int = 1) -> None:
+        if in_colab():
+            # WHY: Colab publishes widget state while handling the comm callback.
+            self._render_requested_page(target)
+            return
         last = len(self.navigation.pages) - 1
         try:
             loop = asyncio.get_running_loop()
@@ -341,6 +352,7 @@ class ReportBrowser:
             accounting_contexts=self._accounting_contexts,
             selected=selected,
             navigation_mode="all" if self.navigation.selected == -1 else "candidate",
+            click_handler=self._case_click,
         )
 
     def _page_controls(self) -> None:
@@ -368,19 +380,27 @@ class ReportBrowser:
 
     def _export_json(self, change: Any = None) -> None:
         # INVARIANT: queued clicks cannot start concurrent or repeated exports of this Report.
-        if self._exporting or self._export_prepared:
+        if self._exporting:
+            return
+        if self._export_prepared:
+            if in_colab():
+                self._export_ready()
             return
         self._exporting = True
         self.export.disabled = True
         self.export.description = "Preparing…"
         self.export.icon = "spinner"
         self.notice.value = ""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
+        if in_colab():
+            # WHY: Colab's native download Javascript must belong to this click callback.
             self._write_export()
-            return
-        self._export_task = loop.create_task(self._export_async())
+        else:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                self._write_export()
+            else:
+                self._export_task = loop.create_task(self._export_async())
 
     async def _export_async(self) -> None:
         # WHY: keep the kernel event loop processing widget state and duplicate clicks.
@@ -407,8 +427,19 @@ class ReportBrowser:
         self.notice.value = f'<p role="alert">Download failed: {escape(str(exc))}</p>'
 
     def _export_ready(self) -> None:
+        # INVARIANT: delivery retries reuse the complete snapshot, including after failure.
         self._export_prepared = True
-        self.exports.value = self._snapshot_link()
+        try:
+            native = download_in_colab(self.snapshot)
+        except OSError as exc:
+            self._export_failed(exc)
+            return
         self.notice.value = ""
-        self.export_slot.children = (self.exports,)
+        if native:
+            self.export.disabled = False
+            self.export.description = "Download"
+            self.export.icon = ""
+        else:
+            self.exports.value = self._snapshot_link()
+            self.export_slot.children = (self.exports,)
         self._exporting = False

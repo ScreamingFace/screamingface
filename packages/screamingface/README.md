@@ -469,10 +469,20 @@ and cost views remain available for every result. Numeric and string Case IDs re
 original identity.
 
 Download prepares the complete report JSON on disk, including every Candidate and Case,
-then provides a notebook file link (or the saved path when no local server serves it).
-Export and page loading keep the live notebook responsive; failures leave the current
-page available and allow retry. `report.export('report.json')` also writes the complete
-portable artifact directly.
+then provides a Jupyter file link (or the saved path when no local server serves it).
+In Colab it uses the native browser download API; the button can download the saved file
+again without re-exporting it. Jupyter prepares exports and pages asynchronously. Colab
+publishes bounded page changes and streaming exports inside the click callback, as its
+widget transport requires. Failures leave the current page available and allow retry.
+`report.export('report.json')` also writes the complete portable artifact directly.
+
+Colab's custom widget manager is enabled automatically for this browser. The notebook extra
+accepts ipywidgets 7.7.1 and 8, preserving Colab's compatible preinstalled version. If you
+previously upgraded Colab to ipywidgets 8 and see a blank report, install
+`ipywidgets==7.7.1` and restart the Colab session before displaying the report. Ordinary
+Jupyter supports ipywidgets 8. Case clicks use Colab’s native callback API there and
+ipywidgets DOM events in Jupyter. This compatibility verification covers completed reports;
+older-widget live-progress accessibility has separate existing limitations.
 
 Static HTML, including environments without the notebook extra, previews the first 25
 results and shortens oversized Case panes. Small JSON downloads remain inline; larger

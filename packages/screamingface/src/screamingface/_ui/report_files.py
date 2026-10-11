@@ -7,9 +7,11 @@ from html import escape
 from pathlib import Path
 from urllib.parse import quote
 
+from screamingface._ui.notebook_host import in_colab
+
 
 def download_link(path: Path, label: str) -> str:
-    url = _served_url(path)
+    url = None if in_colab() else _served_url(path)
     if url is None:
         return f"<p>{escape(label)} saved to <code>{escape(str(path))}</code></p>"
     return (

@@ -39,7 +39,8 @@ screamingface = "screamingface._runtime.cli:main"
 # and test tooling belongs in the dev group below, not in a user-facing extra.
 notebook = [
     "ipyevents>=2.0.2,<3",
-    "ipywidgets>=8.1",
+    # WHY: preserve Colab's compatible preinstalled widgets; Jupyter also supports 8.
+    "ipywidgets>=7.7.1,<9",
 ]
 # WHY exact ==: the .eval log contract is version-shaped, and the Engine's inspect extra
 # (apps/screamingface-engine) already pins this exact version as revision identity — the
