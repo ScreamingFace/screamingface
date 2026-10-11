@@ -7,7 +7,8 @@ from html import escape
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from screamingface.accounting import AccountingRow, AccountingSummary, summarize
+from screamingface._results.accounting import saved_accounting_context
+from screamingface.accounting import AccountingRow, AccountingSummary, _iter_rows, summarize
 
 if TYPE_CHECKING:
     from screamingface._report_primitives import CaseId
@@ -61,7 +62,7 @@ def case_tabs(answer: str, cost: str) -> str:
 
 def run_accounting_note(candidate: CandidateResult) -> str:
     """A remainder belongs to the run, never to an individual Case by inference."""
-    view = candidate.accounting
+    view = saved_accounting_context(candidate)
     if not view.consistent:
         text = "Accounting breakdown unavailable: inconsistent records."
     elif view.unattributed_cost_usd == 0:
@@ -73,18 +74,20 @@ def run_accounting_note(candidate: CandidateResult) -> str:
 
 def case_accounting(candidate: CandidateResult) -> dict[CaseId, str]:
     """Group once per Candidate, retaining only the selected Case's actual owners."""
-    view = candidate.accounting
-    groups: dict[CaseId, list[AccountingRow]] = {case.case_id: [] for case in candidate.cases}
-    for row in view.rows:
-        groups[row.case_id].append(row)
-    return {
-        case_id: (
-            "".join(_activity(row) for row in rows)
-            if view.consistent and rows
-            else "<p>Accounting unavailable for this case. See the whole-run totals above.</p>"
+    view = saved_accounting_context(candidate)
+    # WHY: retain only one Case's row projection while producing the existing HTML.
+    groups: dict[CaseId, str] = {}
+    for case in candidate.cases:
+        rows = (
+            _iter_rows(candidate, (case,), view.operation_models, view.judge_models)
+            if view.consistent
+            else ()
         )
-        for case_id, rows in groups.items()
-    }
+        rendered = "".join(_activity(row) for row in rows)
+        groups[case.case_id] = rendered or (
+            "<p>Accounting unavailable for this case. See the whole-run totals above.</p>"
+        )
+    return groups
 
 
 def _activity(row: AccountingRow) -> str:

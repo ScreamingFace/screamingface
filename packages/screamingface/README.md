@@ -657,6 +657,10 @@ Only completion/result metadata is saved, never authentication credentials.
 Set `Client(save_results=False)` or `AsyncClient(save_results=False)` for the previous
 in-memory collection path. These options do not change a custom supplied `run_transport`.
 Calling `to_dict()`, `to_json()`, converting Cases to a list, or requesting a Case slice
-still materializes the requested data. Streamed atomic JSON export is the separate #1241
-slice; this recovery draft should land after it. Notebook pagination, compact accounting
-caches, and automatic lifecycle discovery remain separate follow-ups.
+still materializes the requested data. `CandidateResult.accounting` also materializes its
+full accounting breakdown. Notebook cost disclosures instead derive a compact context by
+streaming Cases and cache that context beside a saved Case index on first use. Warm run-level
+disclosures reuse the cache without decoding Cases; missing, stale or malformed caches
+rebuild, and a read-only cache location still returns derived values. Per-Case HTML still
+materializes its rendered output. Notebook pagination and automatic lifecycle discovery
+remain separate follow-ups.
