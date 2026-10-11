@@ -14,7 +14,7 @@ import httpx
 from _combine_contract import GSM8K_RULE_WIRE, engine_operators
 from _vote_run_fixtures import ScriptedTransport, benchmark_resource, case_wire, engine_handler
 from test_client_run import _engine
-from test_signal_vote_contract_fixture import signal_vote_url4
+from test_engine_url4_contract_fixtures import signal_vote_url4
 from url4 import build, render
 
 import screamingface as sf
