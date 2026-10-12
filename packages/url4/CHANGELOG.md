@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.6.0](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.1...url4-v1.6.0) (2026-10-12)
+
+
+### Features
+
+* **client:** support fusion quorum and per-member optional policy ([#1340](https://github.com/ScreamingFace/screamingface/issues/1340)) ([5e1d30c](https://github.com/ScreamingFace/screamingface/commit/5e1d30ccbc12e0645c6682777d27f129615c60ac))
+* **url4:** tell a guarded subtree which retry it runs and why ([571c58a](https://github.com/ScreamingFace/screamingface/commit/571c58a0523b2048460a940593f1f29a894123ca))
+
+
+### Bug Fixes
+
+* **url4, screamingface-engine:** give a hand-built judge retry a fresh reply instead of the cached garbled one (OME-1533) ([8acf81a](https://github.com/ScreamingFace/screamingface/commit/8acf81a023974ff42dc42c0d00d237e9bc7fca2b))
+
+
+### Refactors
+
+* **engine:** remove retired profile carrier ([#1231](https://github.com/ScreamingFace/screamingface/issues/1231)) ([641601f](https://github.com/ScreamingFace/screamingface/commit/641601f37a7c40ea6cf96abda187a565a2108df8))
+
 ## [1.5.1](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.0...url4-v1.5.1) (2026-08-27)
 
 
