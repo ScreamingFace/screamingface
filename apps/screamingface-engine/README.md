@@ -386,25 +386,31 @@ no model provider and no Tavily, and it costs nothing. Epic: OME-1307. Design:
   the echo. Only the run route honours the headers. A mount route and the local eval path answer
   `400` with `code: capture_unsupported` when either header is present, and run nothing.
 - **Capture.** Before the first step, the run opens a copy (`POST /v1/frozen-copies`). Each chat
-  call sends `X-AIGW-Frozen-Copy: <id>` and records the `X-AIGW-Capture` answer of the gateway.
-  Each web-tool result goes to the copy before the engine truncates it. After the last step, the
-  run seals the copy. The run seals the copy also when it failed. The run never seals the copy when
+  call and each web-tool result sends `X-AIGW-Frozen-Copy: <id>`, `X-AIGW-Call-Occurrence: <n>`
+  and, for a call that belongs to a Case, `X-AIGW-Case-Key: <key>`. The case key names the Case and
+  its Attempt. The occurrence counts the earlier calls of the same request in the same case key.
+  The chat call records the `X-AIGW-Capture` answer of the gateway. Each web-tool result goes to
+  the copy before the engine truncates it. After the last step, the run seals the copy and states
+  the engine version. The run seals the copy also when it failed. The run never seals the copy when
   it was cancelled, and a replay refuses an open copy.
 - **`capture.status`.** The run summary and the cache summary log line always carry
   `capture.frozen_copy_id`, `capture.status` (`complete` or `partial`) and `capture.partial.<reason>`
-  counts (`failed`, `refused`, `missing`, `open`, `seal`, `error`, `ambiguous`). A failed run
-  writes them too, as the only attributes of its summary (a failed run states no cache counts).
+  counts (`failed`, `refused`, `missing`, `open`, `seal`, `error`, `ambiguous`, `local`).
+  A failed run writes them too, as the only attributes of its summary (a failed run states no
+  cache counts).
   The status is `complete` only when the copy opened and was sealed, and every chat call and tool
-  result is `stored`. Only the final attempt of a logical call counts: a cancelled or crashed call
-  (`error`, chat or tool) is forgiven when a later call with the same request digest is `stored`.
-  A call that the engine re-issued under a `max-age` bound, or whose transport attempt was
-  retried, is `ambiguous`: it may have left a stored answer the model never used ahead of the one
-  it used. Nothing forgives `ambiguous`, so the run is `partial`. A gateway older than the frozen
-  copy sends no `X-AIGW-Capture`, so each call is `missing` and the run is `partial`.
-- **Replay.** Each chat call goes to `POST /v1/frozen-copies/{id}/chat/completions` with
-  `X-AIGW-Replay-Occurrence: <n>`. The engine reserves the next slot `n` of the request when it
-  sends the call, and gives the slot back if the call does not succeed. So identical requests with
-  different original answers come back in capture order, also when they run at the same time.
+  result is `stored`. No outcome is forgiven. A cancelled or crashed call (`error`, chat or tool)
+  leaves no entry at its key, so the run is `partial`. A call that the engine re-issued under a
+  `max-age` bound, or whose transport attempt was retried, is `ambiguous`: it may have left a stored
+  answer the model never used ahead of the one it used, so the run is `partial`. A gateway older
+  than the frozen copy sends no `X-AIGW-Capture`, so each call is `missing` and the run is
+  `partial`.
+  A capture on the local runtime is `partial` with reason `local`: its copy lives only in the local
+  gateway, so a hosted reproduction cannot replay it.
+- **Replay.** Each chat call goes to `POST /v1/frozen-copies/{id}/chat/completions` with the same
+  `X-AIGW-Case-Key` and `X-AIGW-Call-Occurrence` that its capture call sent. The engine takes the
+  occurrence when it first sends the logical call, and never gives it back. So a replay reads the
+  exact entry that its capture stored, also when identical calls of one Case run at the same time.
   The engine adds no cache field and makes no `max-age` re-issue. It accounts a found answer like
   a cache hit, at `$0`, and states no saved cost for it. Each web-tool call reads
   `…/tool-results/lookup`, so the run needs no Tavily key. The run path never asks the gateway
