@@ -153,7 +153,7 @@ def test_slots_are_reserved_in_order_and_given_back() -> None:
     tally = CaptureTally()
 
     assert [tally.reserve("chat", "a") for _ in range(3)] == [0, 1, 2]
-    tally.release("chat", "a")
+    tally.release("chat", "a", 2)
     assert tally.reserve("chat", "a") == 2
 
 
@@ -169,6 +169,31 @@ def test_slots_are_kept_per_lane_and_per_digest() -> None:
 def test_giving_back_a_slot_that_was_never_reserved_does_nothing() -> None:
     tally = CaptureTally()
 
-    tally.release("chat", "a")
+    tally.release("chat", "a", 0)
 
     assert tally.reserve("chat", "a") == 0
+
+
+def test_a_failed_slot_is_given_back_without_freeing_a_later_one() -> None:
+    # Two overlapping identical calls hold slots 0 and 1; slot 1 took its answer, slot 0 failed.
+    tally = CaptureTally()
+
+    assert [tally.reserve("chat", "a") for _ in range(2)] == [0, 1]
+    tally.release("chat", "a", 0)
+
+    assert tally.reserve("chat", "a") == 0
+    assert tally.reserve("chat", "a") == 2
+
+
+def test_given_back_slots_are_taken_again_lowest_first_then_trimmed() -> None:
+    tally = CaptureTally()
+
+    assert [tally.reserve("tool", "a") for _ in range(4)] == [0, 1, 2, 3]
+    tally.release("tool", "a", 2)
+    tally.release("tool", "a", 0)
+    assert tally.reserve("tool", "a") == 0
+    tally.release("tool", "a", 3)  # the top slot: 3 and the free 2 go back to the counter
+
+    assert tally.slots == {("tool", "a"): 2}
+    assert tally.freed == {}
+    assert tally.reserve("tool", "a") == 2

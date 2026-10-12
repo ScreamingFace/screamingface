@@ -173,3 +173,22 @@ async def test_a_tool_result_post_that_crashes_is_failed_not_raised() -> None:
     assert failure is None and answer == "done"
     assert [o.status for o in tally.outcomes if o.lane == "tool"] == ["failed"]
     assert len(gateway.calls(TOOL_RESULTS)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_call_whose_every_attempt_lost_its_reply_is_ambiguous_and_never_forgiven() -> None:
+    # Every attempt of the first call lost its reply, so the call failed. The gateway may still
+    # have stored those answers AHEAD of the one the next call stored and the model used.
+    lost: list[httpx.Response | BaseException] = [
+        httpx.ReadError("lost") for _ in range(connector._TRANSPORT_RETRIES + 1)
+    ]
+    gateway = Gateway([*lost, chat("consumed-answer", stored())])
+
+    tally, answer, failure = await run_call(
+        gateway, capture_scope(), web_search=False, expressions=[EXPRESSION] * 2
+    )
+
+    assert failure is None and answer == "consumed-answer"
+    assert [o.status for o in tally.outcomes] == ["ambiguous", "stored"]
+    assert tally.status() == "partial"
+    assert tally.attributes()["capture.partial.ambiguous"] == 1

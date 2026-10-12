@@ -757,12 +757,14 @@ async def _post_completion(
     headers: dict[str, str],
     body: dict,
     path: str = _COMPLETIONS_PATH,
+    probe: _CaptureProbe | None = None,
 ) -> tuple[httpx.Response, bool]:
     """Use one bounded retry policy for transport failures and explicit queue expiry.
 
     Other HTTP errors remain owned by the caller's declared URL4 retry policy.
     The caller deadline bounds each attempt and must fit a full attempt before retry.
-    The bool marks a lost transport reply, which may have been billed. A known
+    The bool marks a lost transport reply, which may have been billed. A capture ``probe`` learns
+    each lost reply as it happens, as the bool cannot say it when every attempt fails. A known
     queue refusal never dispatched and must not make subsequent usage unknown.
     """
     deadline = _current_deadline()
@@ -776,6 +778,9 @@ async def _post_completion(
             )
         except httpx.TransportError as exc:
             last = exc
+            if probe is not None:
+                # Told now, not at the answer: a call whose every attempt fails never gets one.
+                probe.lost_reply()
             if isinstance(exc, httpx.TimeoutException) and _deadline_bound(timeout, configured):
                 raise _deadline_exceeded(exc) from exc
             if attempt < _TRANSPORT_RETRIES:
@@ -1005,9 +1010,10 @@ async def _fetch_completion(
         # FEATURE (OME-1458): merged INTO an Attempt's `cache` object, never over it, so
         # Attempt 2+ keeps its number; for every other call this is exactly the old merge.
         body=with_cache_policy(body, cache),
+        probe=probe,
     )
     if probe is not None:
-        probe.read(resp, retried=retried)
+        probe.read(resp)
     _raise_for_status(resp)
     outcome = read_cache_outcome(resp.headers, retried=retried)
     if not requires_revalidation(cache, outcome):
@@ -1019,9 +1025,10 @@ async def _fetch_completion(
         http_client,
         headers=headers,
         body=with_cache_policy(body, CachePolicy(participate=False)),
+        probe=probe,
     )
     if probe is not None:
-        probe.read(resp, retried=reissue_retried)
+        probe.read(resp)
     _raise_for_status(resp)
     return resp, read_cache_outcome(resp.headers, retried=reissue_retried)
 
@@ -1031,7 +1038,9 @@ class _CaptureProbe:
     """What the last gateway response of one logical chat call said about its capture.
 
     Filled BEFORE `_raise_for_status`, so an error response still says what the gateway stored.
-    One per call: the run's tally is shared by concurrent calls, a field on it would race.
+    `lost_reply` is called by `_post_completion` at each lost transport reply, even when no
+    response follows. One per call: the run's tally is shared by concurrent calls, a field on it
+    would race.
     """
 
     responded: bool = False
@@ -1039,11 +1048,13 @@ class _CaptureProbe:
     responses: int = 0
     retried: bool = False
 
-    def read(self, resp: httpx.Response, *, retried: bool) -> None:
+    def read(self, resp: httpx.Response) -> None:
         self.responded = True
         self.header = resp.headers.get(CAPTURE_FIELD)
         self.responses += 1
-        self.retried = self.retried or retried
+
+    def lost_reply(self) -> None:
+        self.retried = True
 
     def status(self) -> Status:
         """What the gateway said, or `ambiguous` when more than one answer may have been stored.
@@ -1079,7 +1090,8 @@ async def _recorded_completion(
 
     FEATURE: OME-1307. A replay run is served by the copy and never by the normal route. A capture
     run names its copy and records, once per consumed response, what the gateway says it stored
-    (`X-AIGW-Capture`); a call that raises records an error unless a response said more (D1).
+    (`X-AIGW-Capture`); a call that raises records an error unless a response or a lost transport
+    reply said more (D1).
     A normal run passes straight through, byte-identical to a world without the copy.
     """
     if replay_frozen_copy is not None:
@@ -1101,12 +1113,11 @@ async def _recorded_completion(
         )
     except BaseException as exc:
         # A cancelled call left no answer the copy can serve (D1); an error response says itself.
+        # A lost transport reply may have been stored all the same, so it stays `ambiguous`, which
+        # no later call forgives (D2), cancelled or not.
         cancelled = isinstance(exc, asyncio.CancelledError)
-        record_capture_outcome(
-            CaptureOutcome(
-                "chat", probe.status() if probe.responded and not cancelled else "error", digest
-            )
-        )
+        said = probe.retried or (probe.responded and not cancelled)
+        record_capture_outcome(CaptureOutcome("chat", probe.status() if said else "error", digest))
         raise
     record_capture_outcome(CaptureOutcome("chat", probe.status(), digest))
     return resp, outcome
@@ -1145,7 +1156,7 @@ async def _fetch_replay(
         _raise_for_status(resp)
     except BaseException:
         if tally is not None:
-            tally.release("chat", digest)
+            tally.release("chat", digest, occurrence)
         raise
     return resp, _REPLAYED
 

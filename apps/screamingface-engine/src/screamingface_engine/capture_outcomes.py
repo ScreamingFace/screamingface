@@ -106,7 +106,9 @@ class CaptureTally:
     make a capture run complete."""
     outcomes: list[CaptureOutcome] = field(default_factory=list)
     slots: dict[tuple[Lane, str], int] = field(default_factory=dict)
-    """Replay: the occurrence slots taken per request, reserved at send, given back on failure."""
+    """Replay: per request, one past the highest occurrence slot handed out."""
+    freed: dict[tuple[Lane, str], set[int]] = field(default_factory=dict)
+    """Replay: per request, the slots below ``slots`` that a failed call gave back."""
 
     def status(self) -> Literal["complete", "partial"]:
         """``complete`` only for a capture run whose copy opened and sealed and whose every call
@@ -159,19 +161,44 @@ class CaptureTally:
         """Take the next occurrence slot of this request, when its call is SENT.
 
         Reserved at send, not counted at answer, so concurrent identical requests take distinct
-        slots and the gateway serves them distinct entries (design §5.3 item 1).
+        slots and the gateway serves them distinct entries (design §5.3 item 1). A slot a failed
+        call gave back is taken again first, lowest first, so no entry is skipped.
         """
-        slot = self.slots.get((lane, digest), 0)
-        self.slots[(lane, digest)] = slot + 1
+        key = (lane, digest)
+        freed = self.freed.get(key)
+        if freed:
+            slot = min(freed)
+            freed.remove(slot)
+            if not freed:
+                del self.freed[key]
+            return slot
+        slot = self.slots.get(key, 0)
+        self.slots[key] = slot + 1
         return slot
 
-    def release(self, lane: Lane, digest: str) -> None:
-        """Give a slot back: its call did not succeed, so no answer was taken from the copy."""
-        taken = self.slots.get((lane, digest), 0)
-        if taken > 1:
-            self.slots[(lane, digest)] = taken - 1
+    def release(self, lane: Lane, digest: str, slot: int) -> None:
+        """Give ONE slot back: its call did not succeed, so no answer was taken from the copy.
+
+        Only that slot. An overlapping call of the same request may hold a later slot and may have
+        taken its answer already; giving back the top slot instead would make the next call read
+        that answer a second time. Each reserved slot is given back at most once.
+        """
+        key = (lane, digest)
+        taken = self.slots.get(key, 0)
+        if slot >= taken:
+            return
+        freed = self.freed.setdefault(key, set())
+        freed.add(slot)
+        # Free slots at the top go back to the counter, so a run with no overlap keeps a plain one.
+        while taken and taken - 1 in freed:
+            taken -= 1
+            freed.remove(taken)
+        if taken:
+            self.slots[key] = taken
         else:
-            self.slots.pop((lane, digest), None)
+            self.slots.pop(key, None)
+        if not freed:
+            del self.freed[key]
 
 
 _tally: contextvars.ContextVar[CaptureTally | None] = contextvars.ContextVar(

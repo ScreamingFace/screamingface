@@ -108,7 +108,7 @@ async def test_capture_mode_sends_the_copy_header_on_every_chat_call_and_records
             "failed",
         ),
         (httpx.Response(400, json={"detail": {"code": "bad"}}), "missing"),
-        (httpx.ConnectError("down"), "error"),
+        (httpx.ConnectError("down"), "ambiguous"),
     ],
     ids=[
         "stored",

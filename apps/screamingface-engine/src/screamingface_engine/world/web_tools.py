@@ -144,7 +144,7 @@ class FrozenToolResults:
             return await self._read(description, occurrence)
         except BaseException:
             if tally is not None:
-                tally.release("tool", digest)
+                tally.release("tool", digest, occurrence)
             raise
 
     async def _read(self, description: Mapping[str, object], occurrence: int) -> str:
