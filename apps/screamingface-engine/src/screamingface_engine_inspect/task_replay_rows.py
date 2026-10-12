@@ -239,6 +239,10 @@ def _declaration_lines(
     if not declaration.has_answer_key:
         # WHY written: the empty keys are inside the Case Digest, as the metadata is (R19).
         lines.append("        has_answer_key=False,")
+    if declaration.empty_answer_key_allowed:
+        # WHY written: the empty keys are inside the Case Digest too; only when set, so no
+        # existing row's text moves (OME-1527, R5).
+        lines.append("        empty_answer_key_allowed=True,")
     if declaration.excluded_sample_ids:
         lines.extend(_excluded_id_lines(declaration.excluded_sample_ids))
     lines.extend(_fetch_pin_lines(declaration))

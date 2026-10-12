@@ -709,3 +709,76 @@ def test_an_import_seals_the_order_blind_digest_too(fake_eval: str) -> None:
 
     rebuilt: list[dict[str, dict[str, object]]] = replayed_cases(imported.declaration)
     assert imported.declaration.case_set_digest == case_set_digest(rebuilt)
+
+
+# --- OME-1527 R5: some Cases' empty key is their answer -------------------------------------
+
+#: A stand-in eval shaped like contracteval: each Sample's target is the list of clause spans
+#: a reply must quote, and an empty list means "no related clause", which its own scorer
+#: reads as "the right reply declines". It proves the opt-in reaches both replays and what
+#: they freeze; it does not prove contracteval's own data or scorer.
+PARTLY_KEYED_EVAL: str = textwrap.dedent(
+    """
+    import os
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import Sample, json_dataset
+    from inspect_ai.scorer import CORRECT, INCORRECT, Score, Target, accuracy, scorer
+    from inspect_ai.solver import TaskState
+
+    @scorer(metrics=[accuracy()])
+    def quotes_every_span():
+        async def score(state: TaskState, target: Target) -> Score:
+            reply = state.output.completion
+            if not target.target:
+                return Score(value=CORRECT if "no related clause" in reply else INCORRECT)
+            return Score(value=CORRECT if all(s in reply for s in target) else INCORRECT)
+
+        return score
+
+    @task
+    def clauses() -> Task:
+        return Task(dataset=json_dataset(os.environ["FAKE_PARTLY_KEYED_DATA"],
+                                         lambda row: Sample(input=row["q"], target=row["spans"],
+                                                            id=row["id"])),
+                    scorer=quotes_every_span())
+    """
+)
+
+
+@pytest.fixture
+def partly_keyed_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the contracteval-shaped stand-in and its two rows where the child can import them."""
+
+    (tmp_path / "fake_partly_keyed_eval.py").write_text(PARTLY_KEYED_EVAL, encoding="utf-8")
+    _write_rows(
+        tmp_path / "clauses.jsonl",
+        [
+            {"id": 1, "q": "Quote the governing-law clause.", "spans": ["laws of Delaware"]},
+            {"id": 2, "q": "Quote the non-compete clause.", "spans": []},
+        ],
+    )
+    monkeypatch.setenv("FAKE_PARTLY_KEYED_DATA", str(tmp_path / "clauses.jsonl"))
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_partly_keyed_eval"
+
+
+def test_a_partly_keyed_import_is_refused_unless_told_its_empty_keys_are_answers(
+    partly_keyed_eval: str,
+) -> None:
+    """R5: an empty key is a broken row by default; told otherwise, both replays accept it,
+    agree on the seal, and freeze the empty Case's key as the empty list the Sample held."""
+
+    with pytest.raises(ImporterError, match="sample target is empty"):
+        import_by_task_replay(f"{partly_keyed_eval}:clauses", None)
+
+    imported: TaskReplayImport = import_by_task_replay(
+        f"{partly_keyed_eval}:clauses", None, empty_answer_key_allowed=True
+    )
+
+    assert imported.declaration.empty_answer_key_allowed is True
+    assert imported.declaration.has_answer_key is True
+    rebuilt: list[dict[str, dict[str, object]]] = replayed_cases(imported.declaration)
+    assert [case["grading_material"]["target"] for case in rebuilt] == [["laws of Delaware"], []]

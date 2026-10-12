@@ -4345,9 +4345,13 @@ def _check_answer_key_opt_in(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpe
     prompts read it, so a judged row must pass its own ``template`` without it (xstest
     does). A custom judged scorer with no template kwarg is the reviewer's call, like every
     other judged row (OME-1269, OME-1371); so is the reply-only claim, which a per-row
-    grading test then checks.
+    grading test then checks. A third case keeps its key on some Cases and reads an empty
+    one as a fact (``empty_answer_key_allowed``, OME-1527 R5); it has its own check.
     """
 
+    if cases_spec.empty_answer_key_allowed:
+        _check_empty_answer_key_claim(spec, cases_spec)
+        return
     if not spec.scorer_reads_answer_key:
         _check_reply_only_claim(spec, cases_spec)
         return
@@ -4403,6 +4407,45 @@ def _check_reply_only_claim(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec
         raise ValueError(
             f"{spec.key}: scorer_reads_answer_key=False with a check surface; a reply-only "
             "benchmark offers no mid-run check (set with_check_surface=False)"
+        )
+
+
+def _check_empty_answer_key_claim(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec) -> None:
+    """Refuse ``empty_answer_key_allowed`` anywhere but beside the eval's own judge-free
+    scorer (OME-1527, R5).
+
+    INVARIANT: an empty key is accepted only where a row says so and only for a grader that
+    reads the emptiness as an answer (contracteval: no related clause, so abstain). A judge
+    decides key-reading by its prompt; inspect's built-ins would mark every reply wrong
+    against it; and the two key-less declarations say no Case has a key at all.
+    """
+
+    if not cases_spec.has_answer_key:
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed with has_answer_key=False; one says some "
+            "Cases have a key, the other that none has (keep one)"
+        )
+    if not spec.scorer_reads_answer_key:
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed with scorer_reads_answer_key=False; the "
+            "flag is for a scorer that reads the key, empty or not"
+        )
+    if spec.judge is not None:
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed on a judged benchmark; whether the judge "
+            "reads the key is decided by its prompt (declare has_answer_key=False instead)"
+        )
+    if spec.scorer.startswith(INSPECT_SCORER_PREFIX):
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed on inspect's built-in {spec.scorer}, "
+            "which would mark every reply wrong against an empty key"
+        )
+    if spec.with_check_surface:
+        # WHY: Draft Feedback over an empty key tells a fusion "no clause here" mid-run,
+        # which is the answer itself.
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed with a check surface; a mid-run check "
+            "over an empty key would leak the answer (set with_check_surface=False)"
         )
 
 

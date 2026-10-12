@@ -728,6 +728,7 @@ class TaskReplayImporter(Protocol):
         choice_shuffle_seed: int | None,
         keep_sample_metadata: bool,
         whole_run_metric: WholeRunMetricChoice | None = None,
+        empty_answer_key_allowed: bool = False,
     ) -> TaskReplayImport:
         """Seal the Cases by two replays, as import_replay.import_by_task_replay does."""
         ...
@@ -807,11 +808,20 @@ def _add_task_replay_arguments(parser: argparse.ArgumentParser) -> None:
         help="an upstream Sample id to leave out (repeatable), a Named Deviation whose "
         "reason the row must state, e.g. stages_full:14",
     )
-    parser.add_argument(
+    # WHY exclusive: one says no Sample has an answer key, the other that some do.
+    answer_key = parser.add_mutually_exclusive_group()
+    answer_key.add_argument(
         "--no-answer-key",
         action="store_true",
         help="the eval's Samples carry no answer key, so an empty one is accepted; the "
         "Benchmark row must then say who grades without it",
+    )
+    answer_key.add_argument(
+        "--empty-answer-key-allowed",
+        action="store_true",
+        help="some Samples have an empty answer key that is itself the answer, read by the "
+        "eval's own scorer (contracteval: no related clause, so the right reply declines); "
+        "Samples with a key are checked as usual",
     )
     parser.add_argument(
         "--keep-sample-metadata",
@@ -853,6 +863,9 @@ def _import_by_task_replay_cli(
         write_task_replay_rows,
     )
 
+    empty_key_option: dict[str, Any] = (
+        {"empty_answer_key_allowed": True} if args.empty_answer_key_allowed else {}
+    )
     imported: TaskReplayImport = (import_by_task_replay or replay_both_times)(
         args.task_ref,
         _parse_task_args(args.task_arg),
@@ -861,9 +874,10 @@ def _import_by_task_replay_cli(
         shuffle_seed=args.shuffle_seed,
         choice_shuffle_seed=args.choice_shuffle_seed,
         keep_sample_metadata=args.keep_sample_metadata,
-        # WHY only when given: absence stays absence, so a command without the flag passes
-        # the import exactly the options it always did.
+        # WHY only when given: absence stays absence, so a command without these flags
+        # passes the import exactly the options it always did.
         **({} if args.whole_run_metric is None else {"whole_run_metric": args.whole_run_metric}),
+        **empty_key_option,
     )
     card: CardLicense = card_license_of(
         imported.case_sources, dataset_info=dataset_info or _hub_dataset_info
