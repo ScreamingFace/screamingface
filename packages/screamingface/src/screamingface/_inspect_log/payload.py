@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from screamingface.case_result import CaseResult
+    from screamingface.case_result import CaseAttempt, CaseResult
     from screamingface.report import CandidateResult, Report
 
 # WHY a closed translation table: inspect's ChatCompletionChoice.stop_reason is a
@@ -172,6 +172,15 @@ def _score_payload(case: CaseResult) -> dict[str, Any]:
     explanation: str | None = _first_explanation(case)
     if explanation is not None:
         score["explanation"] = explanation
+    # WHY (OME-1458): under Attempts this value is the per-Check fold, not the shown
+    # answer's own grade. Two Attempts scoring 0.5 on complementary Checks fold to 1.0,
+    # so the score must say it was folded; each Attempt's own answer and score ride the
+    # sample metadata's "attempts".
+    if case.attempts is not None:
+        score["metadata"] = {
+            "folded_from_attempts": len(case.attempts),
+            "fold": "a Check is met if any Attempt met it",
+        }
     return score
 
 
@@ -199,7 +208,18 @@ def _sample_metadata(case: CaseResult) -> dict[str, Any]:
         metadata["rounds_executed"] = case.rounds_executed
     if case.failures:
         metadata["failures"] = [failure.to_dict() for failure in case.failures]
+    if case.attempts is not None:
+        metadata["attempts"] = [_attempt_metadata(attempt) for attempt in case.attempts]
     return metadata
+
+
+def _attempt_metadata(attempt: CaseAttempt) -> dict[str, Any]:
+    """One Attempt's own answer, grade and failures, so the folded score can be traced."""
+    item: dict[str, Any] = attempt.to_dict()
+    # WHY: cost records are already in the log's single model_usage meter (see
+    # _stats_payload); repeating them per Attempt would read as a second bill.
+    item.pop("operations", None)
+    return item
 
 
 def _results_payload(selected: CandidateResult) -> dict[str, Any]:

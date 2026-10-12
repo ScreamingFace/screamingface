@@ -536,3 +536,27 @@ def test_an_import_with_a_case_set_digest_writes_it_on_the_row(engine_src_copy: 
 
     prepare_text: str = (engine_src_copy / "prepare.py").read_text()
     assert f'case_set_digest="{"d" * 64}",' in prepare_text
+
+
+# --- OME-1527 R5: some Cases' empty key is their answer -------------------------------------
+
+
+def test_a_row_whose_empty_keys_are_answers_says_so_in_its_row() -> None:
+    """The empty keys are inside the seal, so the row carries the opt-in the image build
+    prepares under; without it Case Preparation would refuse those Cases at every build."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "contracteval", _imported(empty_answer_key_allowed=True), "TODO"
+    )
+
+    assert "        empty_answer_key_allowed=True,\n" in rows.cases
+    assert _declared(rows)["contracteval"].empty_answer_key_allowed is True
+
+
+def test_a_row_with_a_key_on_every_case_writes_no_empty_key_line() -> None:
+    """Absence stays absence: a default row's text, and so every existing row, is unchanged."""
+
+    rows: TaskReplayRows = render_task_replay_rows("agieval_lsat_ar", _imported(), "TODO")
+
+    assert "empty_answer_key_allowed" not in rows.cases
+    assert _declared(rows)["agieval_lsat_ar"].empty_answer_key_allowed is False

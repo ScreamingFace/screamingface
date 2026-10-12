@@ -1,0 +1,22 @@
+{
+  "issue": "OME-1527",
+  "branch": "OME-1527-pr5-ome1513-leftovers",
+  "approver": "owner (owner decision on OME-1527 Work order #5)",
+  "date": "2026-10-12",
+  "scope": "(1) test_draco_3pass_definition.py: the install test stops expecting the two DRACO check-surface routes among the registered routes and asserts they are NOT registered; one comment in the catalogue test reworded to match. (2) test_benchmark_stage_parity.py: the DRACO stand-in asset helper is imported from test_draco_case_artifacts.py through a new module-level draco_assets wrapper, because its old home (test_draco_corrective_loop_e2e.py) is deleted. (3) test_draft_feedback_offer_is_owner_opt_in.py: new imports and one appended test (pure addition). Test bodies not listed here are unchanged. Deleted, which this manifest cannot approve: test_draco_corrective_loop_e2e.py and its data/draco_corrective_loop_candidate.url4 fixture.",
+  "reason": "Owner decision on OME-1527 Work order #5: the three hand-built rubric Benchmarks (draco, gdpval, healthbench) have their Draft Feedback offer off, so their check-surface route is no longer installed. The DRACO corrective-loop end-to-end test exercised that route and goes with it; the tests that listed the route as installed now assert it is absent.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_draco_3pass_definition.py": {
+      "base_blob": "14a3d95c47eaecbf798321c2fae9fe2e0e177254",
+      "approved_blob": "7ef6163068cd6b78a2e2a9fce32fa5ac3e830d23"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_stage_parity.py": {
+      "base_blob": "b661cc44b6b4bf9dc1461336ae74d3bdbbb497a9",
+      "approved_blob": "8804e4f0894b01455ac997929e1e9d9e572d83fd"
+    },
+    "apps/screamingface-engine/tests/unit/test_draft_feedback_offer_is_owner_opt_in.py": {
+      "base_blob": "3516b747ddae91b100c93233ab2f6863155ce3ee",
+      "approved_blob": "28b2c1fec306c67a029c56f8445eb734ccb3f8ae"
+    }
+  }
+}

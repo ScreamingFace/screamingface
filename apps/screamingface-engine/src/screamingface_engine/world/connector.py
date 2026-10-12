@@ -20,6 +20,7 @@ from typing import NoReturn
 import httpx
 
 from screamingface_engine import job_env
+from screamingface_engine.benchmarks.case_context import current_case_attempt
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.error_text import ENGINE_RESERVED_CODES
@@ -43,7 +44,7 @@ from screamingface_engine.world.accounting import (
     read_aigw,
     retained_operation_accounting,
 )
-from screamingface_engine.world.cache import policy_to_body_field
+from screamingface_engine.world.cache import attempt_body_field, with_cache_policy
 from screamingface_engine.world.cache_readback import (
     CacheOutcome,
     read_cache_outcome,
@@ -51,6 +52,7 @@ from screamingface_engine.world.cache_readback import (
 )
 from screamingface_engine.world.config import ModelSpec, WorldConfigError, provider_of, routes_for
 from screamingface_engine.world.errors import RunnerRequestError
+from screamingface_engine.world.fresh_judge_retry import scope_for_this_send
 from screamingface_engine.world.model_response import (
     Choice,
     parse_choice,
@@ -61,6 +63,7 @@ from screamingface_engine.world.request_parameters import (
     WEB_SEARCH_PARAM,
     apply_answer_seed,
     apply_retrieval_policy,
+    attempt_egress,
     caller_exclusions,
     model_params,
     wants_web_search,
@@ -75,6 +78,7 @@ from screamingface_engine.world.web_tools import (
     truncate_tool_result,
 )
 from url4.core.errors import ResolutionError
+from url4.dag import GuardRetry, current_guard_retry
 from url4.io.static import StaticIOLayer
 from url4.observe import current_log_sink, current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
@@ -351,7 +355,13 @@ class _ModelEndpoint:
             # never held on `self`. Two concurrent callers through this one handler each observe
             # their own scope because each runs in its own context (AC2), and a spawned model
             # call inherits the scope of the task that created it (AC4).
-            scope = current_scope()
+            # OME-1533: a re-ask of a Judge whose last reply was unusable runs under the same
+            # scope opted out of the gateway cache, which would otherwise serve the stored
+            # garbled reply again; every other call keeps the caller's scope.
+            retry: GuardRetry | None = current_guard_retry()
+            scope = scope_for_this_send(
+                current_scope(), None if retry is None else retry.failure_code
+            )
             retrieval_policy = current_retrieval_policy()
             params = apply_retrieval_policy(request.params, retrieval_policy)
             # FEATURE (OME-1038): the run's declared answer seed, stamped AFTER the retrieval
@@ -370,7 +380,15 @@ class _ModelEndpoint:
                 if in_candidate_invocation() or scope.origin == "sync"
                 else None
             )
-            params = apply_answer_seed(params, ambient_seed)
+            # FEATURE (OME-1458): Attempt 2 and later of a Case must not be a copy of Attempt 1
+            # — a derived seed when the run's seed applies, else the Attempt number for the
+            # gateway's cache. Read only inside the Candidate Invocation, so a judge never is.
+            egress = attempt_egress(
+                params,
+                ambient_seed,
+                current_case_attempt() if in_candidate_invocation() else None,
+            )
+            params = apply_answer_seed(params, egress.answer_seed)
             # WHY: the identity is the REQUEST's path and params (pre-policy), because
             # OME-843 attribution matches them against the candidate expression's own
             # source text — the policy-applied set may differ from what was written.
@@ -390,6 +408,7 @@ class _ModelEndpoint:
                     tavily_http=self._tavily_http,
                     tavily_api_key=self._tavily_api_key,
                     retrieval_policy=retrieval_policy,
+                    cache_attempt=egress.cache_attempt,
                 )
         except RunnerRequestError as exc:
             error = ResolutionError(str(exc), code=exc.code, permanent=exc.permanent)
@@ -878,7 +897,9 @@ async def _fetch_completion(
         # run's body is byte-identical to the one this connector has always sent — which is also
         # the smallest surface exposed to the gateway's closed cache grammar, where one
         # unrecognised key silently costs every hit (spec §1.0).
-        body={**body, **policy_to_body_field(cache)},
+        # FEATURE (OME-1458): merged INTO an Attempt's `cache` object, never over it, so
+        # Attempt 2+ keeps its number; for every other call this is exactly the old merge.
+        body=with_cache_policy(body, cache),
     )
     _raise_for_status(resp)
     outcome = read_cache_outcome(resp.headers, retried=retried)
@@ -890,7 +911,7 @@ async def _fetch_completion(
     resp, reissue_retried = await _post_completion(
         http_client,
         headers=headers,
-        body={**body, **policy_to_body_field(CachePolicy(participate=False))},
+        body=with_cache_policy(body, CachePolicy(participate=False)),
     )
     _raise_for_status(resp)
     return resp, read_cache_outcome(resp.headers, retried=reissue_retried)
@@ -907,6 +928,7 @@ async def _chat_completion_loop(
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
     retrieval_policy: RetrievalPolicy | None = None,
+    cache_attempt: int | None = None,
 ) -> str:
     """Drive one `_ModelEndpoint` call: post to aigateway, execute any requested tool calls,
     and repeat until the model answers with content instead of another tool call.
@@ -946,7 +968,15 @@ async def _chat_completion_loop(
     }
     operation_accounting: list[OperationAccounting | None] = []
     for _ in range(cfg.web_tool_max_iterations):
-        body = {"model": real_model_id, "messages": messages, **sampling, **extra}
+        # FEATURE (OME-1458): Attempt 2+ names itself to the gateway's cache on every round
+        # trip of the turn; Attempt 1 adds nothing, so its body is byte-identical to before.
+        body = {
+            "model": real_model_id,
+            "messages": messages,
+            **sampling,
+            **extra,
+            **attempt_body_field(cache_attempt),
+        }
         choice = await _logged_round_trip(
             http_client,
             real_model_id=real_model_id,

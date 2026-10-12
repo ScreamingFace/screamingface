@@ -7,6 +7,7 @@ import importlib.metadata
 import json
 import os
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -353,6 +354,7 @@ def _serve_logged(config: RuntimeConfig, token: str) -> None:
         "control_url": f"http://127.0.0.1:{control.server_port}",
         "services": config.services,
         "log_path": str(config.log_path),
+        "artifacts_dir": str(config.effective_artifacts_dir(os.environ).resolve()),
         "source": runtime_source.state_record(runtime_source.resolve_source(os.environ)),
     }
     _write_state(config, state)
@@ -436,6 +438,54 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
     _up(config, foreground=foreground)
 
 
+def _artifacts_folder(config: RuntimeConfig, state: dict[str, object] | None) -> Path | None:
+    # INVARIANT: an older serving process's startup environment cannot be inferred here.
+    if state is None:
+        return config.artifacts_dir
+    value = state.get("artifacts_dir")
+    if isinstance(value, str) and value.strip() and Path(value).is_absolute():
+        return Path(value)
+    return None
+
+
+def _artifacts_bytes(folder: Path | None) -> int | None:
+    # FEATURE (OME-1454): absence is zero; unobserved storage/permissions stay unknown.
+    if folder is None:
+        return None
+    try:
+        size = _sample_artifacts_bytes(folder)
+    except PermissionError:
+        size = None
+    except (FileNotFoundError, NotADirectoryError):
+        size = 0
+    return size
+
+
+def _sample_artifacts_bytes(folder: Path) -> int:
+    # WHY: is_dir can suppress stat errors on newer Python versions, yielding a false zero.
+    if not stat.S_ISDIR(folder.stat().st_mode):
+        return 0
+    total = 0
+    for path in folder.iterdir():
+        try:
+            info = path.stat()
+        except FileNotFoundError:
+            # WHY: the Engine TTL sweep can remove a parcel during this sample.
+            continue
+        if stat.S_ISREG(info.st_mode):
+            total += info.st_size
+    return total
+
+
+def _artifacts_hint(folder: Path | None) -> str | None:
+    return (
+        "Artifact location unknown for this runtime; run `screamingface restart` "
+        "to record its serving directory."
+        if folder is None
+        else None
+    )
+
+
 def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
     state = _read_state(config)
     stored_services = _state_services(state)
@@ -443,6 +493,7 @@ def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
     services = stored_services if state_valid and state else config.services
     health = _health(services)
     owned = bool(state_valid and state and _verify_owner(state))
+    artifacts = _artifacts_folder(config, state)
     if not state_valid:
         label, code = "invalid runtime state", 1
     elif owned and all(health.values()):
@@ -466,6 +517,9 @@ def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
                 name: {"url": url, "healthy": health[name]} for name, url in services.items()
             },
             "log_path": str(config.log_path),
+            "artifacts_dir": str(artifacts) if artifacts is not None else None,
+            "artifacts_bytes": _artifacts_bytes(artifacts),
+            "artifacts_hint": _artifacts_hint(artifacts),
             "benchmarks": _benchmark_statuses(config),
         }
         print(json.dumps(payload, separators=(",", ":"), sort_keys=True))
@@ -474,7 +528,17 @@ def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
     for name, ready in health.items():
         print(f"  {name:10} {'UP' if ready else 'down':4}  {services[name]}")
     print(f"  logs       {config.log_path}")
+    _print_artifacts_status(artifacts)
     return code
+
+
+def _print_artifacts_status(folder: Path | None) -> None:
+    hint = _artifacts_hint(folder)
+    if hint is not None:
+        print(f"  artifacts  location unknown; {hint}")
+        return
+    size = _artifacts_bytes(folder)
+    print(f"  artifacts  {folder}  ({'size unknown' if size is None else f'{size} bytes'})")
 
 
 def _logs(  # noqa: C901, PLR0912, PLR0915

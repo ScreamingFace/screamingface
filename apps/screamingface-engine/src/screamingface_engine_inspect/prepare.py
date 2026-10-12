@@ -96,6 +96,12 @@ class TaskReplayCasesSpec:
     task_args: dict[str, Any] | None = None
     keep_sample_metadata: bool = False
     has_answer_key: bool = True
+    #: Some Cases legitimately have no key and the eval's own scorer reads the emptiness as
+    #: a fact (contracteval: no related clause, so the right reply abstains). An empty key
+    #: is then accepted and frozen as the Sample held it; keyed Cases are validated as today.
+    #: Assembly allows it only beside the eval's own judge-free scorer (OME-1527, R5). No
+    #: identity pin: the Case Digest seals the empty keys, as it does for has_answer_key.
+    empty_answer_key_allowed: bool = False
     #: A NAMED DEVIATION: upstream Sample ids (``str(Sample.id)``)
     #: dropped after the task builds its dataset and before capture (sad_stages_full: three
     #: Samples with an empty question). Every id must still be there, or Case Preparation
@@ -1258,7 +1264,12 @@ def prepared_case(
     private Grading Material, after the one validated boundary on eval-produced Samples.
     """
 
-    target, choices = _validated_answer_key(sample, case_id, spec.has_answer_key)
+    target, choices = _validated_answer_key(
+        sample,
+        case_id,
+        spec.has_answer_key,
+        empty_answer_key_allowed=spec.empty_answer_key_allowed,
+    )
     record: dict[str, Any] = (
         {"target": target} if choices is None else {"target": target, "choices": choices}
     )
@@ -1357,13 +1368,19 @@ def _validated_list_key(target: list[Any], sample: Sample, case_id: int) -> list
 
 
 def _validated_answer_key(
-    sample: Sample, case_id: int, has_answer_key: bool = True
+    sample: Sample,
+    case_id: int,
+    has_answer_key: bool = True,
+    *,
+    empty_answer_key_allowed: bool = False,
 ) -> tuple[str | list[str], list[str] | None]:
     """The one trust boundary on eval-produced Samples — never prepare an unkeyed Case.
 
     ``has_answer_key=False`` (a judged benchmark whose judge never reads a key, or one
-    graded by the eval's own scorer from the reply alone, R19) is the one place an empty
-    answer key is accepted; the question itself is still required.
+    graded by the eval's own scorer from the reply alone, R19) and
+    ``empty_answer_key_allowed=True`` (some Cases' empty key IS the answer to the eval's own
+    scorer, OME-1527 R5) are the two places an empty answer key is accepted; the question
+    itself is still required.
 
     FEATURE (OME-1268): a LIST of accepted answers (SQuAD's every accepted span) is a valid
     key on a free-text Case; it is frozen as the list inspect's own f1 and exact read, so
@@ -1373,8 +1390,11 @@ def _validated_answer_key(
 
     _require_a_question(sample, case_id)
     target: object = sample.target
-    if not has_answer_key and target in ("", []) and sample.choices is None:
-        return "", None
+    empty_key: str | list[str] | None = _accepted_empty_key(
+        sample, has_answer_key, empty_answer_key_allowed
+    )
+    if empty_key is not None:
+        return empty_key, None
     key: str | list[str]
     if isinstance(target, list):
         key = _validated_list_key(target, sample, case_id)
@@ -1399,6 +1419,22 @@ def _validated_answer_key(
             "choices nor one of them"
         )
     return target, choices
+
+
+def _accepted_empty_key(
+    sample: Sample, has_answer_key: bool, empty_answer_key_allowed: bool
+) -> str | list[str] | None:
+    """The key to freeze for an empty target the row allows, or None when it allows none
+    (an empty target beside choices names no option, so it is never allowed)."""
+
+    empty: bool = sample.target in ("", []) and sample.choices is None
+    if not empty or (has_answer_key and not empty_answer_key_allowed):
+        return None
+    # WHY the Sample's own shape under the R5 opt-in, not "": grading rebuilds the scorer's
+    # Target from this value, and inspect's Target([]) holds no answers while Target("")
+    # holds one blank answer, which an all-of scorer would find inside every reply. A
+    # key-less row (has_answer_key=False) freezes "" as it always has: no scorer reads it.
+    return [] if empty_answer_key_allowed and isinstance(sample.target, list) else ""
 
 
 def _require_a_question(sample: Sample, case_id: int) -> None:

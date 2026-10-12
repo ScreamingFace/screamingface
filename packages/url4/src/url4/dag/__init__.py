@@ -41,6 +41,7 @@ from url4.dag.nodes import (
     FanoutReduceNode,
     GatherNode,
     GuardNode,
+    GuardRetry,
     HoldingsNode,
     JoinNode,
     LazyExprNode,
@@ -53,6 +54,7 @@ from url4.dag.nodes import (
     StructNode,
     TextNode,
     WebFetchNode,
+    current_guard_retry,
 )
 
 __all__ = [
@@ -71,6 +73,7 @@ __all__ = [
     "GatherNode",
     "Graph",
     "GuardNode",
+    "GuardRetry",
     "HoldingsNode",
     "JoinNode",
     "LazyExprNode",
@@ -89,6 +92,7 @@ __all__ = [
     "WebFetchNode",
     "check_acyclic",
     "compile_expression",
+    "current_guard_retry",
     "default_process",
     "default_registry",
     "run",

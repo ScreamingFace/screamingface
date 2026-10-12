@@ -22,7 +22,8 @@ import asyncio
 import contextvars
 import hashlib
 import json
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+import math
+from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -72,6 +73,7 @@ from screamingface_engine.benchmarks.protocol import (
 )
 from screamingface_engine.benchmarks.provenance import ProvenanceFields
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    CASE_GRADING_CONCURRENCY,
     BenchmarkAggregation,
     CaseGradeOutcome,
     GradeRequest,
@@ -179,9 +181,23 @@ class ImportedBenchmark:
     #: The keys of the Case's Named Scores, headline first (OME-1268); empty for every
     #: single-scorer benchmark. Hashed by the caller's pins.
     named_scores: tuple[str, ...] = ()
+    #: The eval's own whole-run metric as a lazy factory (OME-1527, R1); None tallies the
+    #: mean of the Case scores, as every published Benchmark does. Hashed by the caller's pins.
+    whole_run_metric_factory: Callable[[], Any] | None = None
+    #: The Task's own any-of-N epoch reducer as a lazy factory, for a row with Attempts that
+    #: honours a whole-run metric (OME-1527 x OME-1458); None reduces each Case with inspect's
+    #: default mean. Hashed by the caller's pins.
+    epoch_reducer_factory: Callable[[], Any] | None = None
 
-    def aggregation(self) -> BenchmarkAggregation:
-        """This benchmark's shared-grading binding — built on demand so the scorer stays lazy."""
+    def aggregation(
+        self, kept_scores: MutableMapping[int, Any] | None = None
+    ) -> BenchmarkAggregation:
+        """This benchmark's shared-grading binding — built on demand so the scorer stays lazy.
+
+        ``kept_scores`` is one run's private store of the graded Cases' inspect Scores, for
+        the tally of a row that honours the eval's whole-run metric; None keeps nothing.
+        Each Case's Attempt Scores are filed reduced by the Task's own reducer.
+        """
 
         # WHY lazy: the scorer adapter imports inspect_ai (which drags in a web stack and the
         # OTel SDK). Benchmark REGISTRATION happens at engine import in every mode; the
@@ -203,6 +219,10 @@ class ImportedBenchmark:
                 multiple_correct=self.multiple_correct,
                 inverted_grade=self.inverted_grade,
                 verdict_grades=self.verdict_grades,
+                kept_scores=kept_scores,
+                epoch_reducer=(
+                    None if self.epoch_reducer_factory is None else self.epoch_reducer_factory()
+                ),
             ),
             failure_messages=_FAILURE_MESSAGES,
             method="inspect_scorer",
@@ -211,6 +231,10 @@ class ImportedBenchmark:
             missing_material_code="missing_target_asset",
             inverted_grade=self.inverted_grade,
             named_scores=self.named_scores,
+            # WHY judged only (OME-1527, R4): a judged Case waits on a judge call, so
+            # marking Cases side by side shortens the run's tail; a judge-free scorer
+            # finishes at once and keeps serial marking.
+            case_grading_concurrency=CASE_GRADING_CONCURRENCY if self.judge is not None else 1,
         )
 
 
@@ -243,6 +267,9 @@ def single_shot_benchmark(
     extra_scorer_factories: Sequence[Callable[[], Any]] = (),
     named_scores: Sequence[str] = (),
     origin: BenchmarkOrigin = "inspect_evals",
+    whole_run_metric_factory: Callable[[], Any] | None = None,
+    epoch_reducer_factory: Callable[[], Any] | None = None,
+    attempts: int = 1,
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -286,6 +313,16 @@ def single_shot_benchmark(
             carries them into ``revision_pins``.
         named_scores: the keys of the Case's Named Scores, headline first (OME-1268);
             empty on a single-scorer benchmark. The caller carries it into ``revision_pins``.
+        whole_run_metric_factory: zero-arg callable returning the eval's own inspect metric,
+            which then scores the whole run in place of the mean (OME-1527, R1); None keeps
+            the mean. The caller carries its reference into ``revision_pins``.
+        epoch_reducer_factory: zero-arg callable returning the Task's own any-of-N reducer,
+            which reduces each Case's Attempt Scores before the whole-run metric reads them
+            (OME-1527 x OME-1458); None reduces with inspect's default mean. The caller
+            carries its name into ``revision_pins``.
+        attempts: Attempts per Case (OME-1458) — the expression asks each Case this many
+            times and the aggregate folds them per Check. The caller carries it into
+            ``revision_pins``.
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -362,7 +399,7 @@ def single_shot_benchmark(
         # FEATURE: the researcher-visible refusal-rate mark (OME-1400) — the same flag the
         # scorer adapter flips on, published so report.json can show it.
         inverted_grade=inverted_grade,
-        build=_build(routes, case_count),
+        build=_build(routes, case_count, attempts),
         install=install,
         focus=focus,
         dataset_url=dataset_url,
@@ -378,6 +415,7 @@ def single_shot_benchmark(
             # The tier is authored on the BenchmarkSpec row (the imported benchmark's one
             # authoring site) and threaded through verbatim (OME-1257).
             difficulty=difficulty,
+            attempts=attempts,
         ),
         check_surface=(
             DraftFeedbackOffer(
@@ -410,6 +448,8 @@ def single_shot_benchmark(
         verdict_grades=verdict_grades,
         extra_scorer_factories=tuple(extra_scorer_factories),
         named_scores=tuple(named_scores),
+        whole_run_metric_factory=whole_run_metric_factory,
+        epoch_reducer_factory=epoch_reducer_factory,
     )
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept
@@ -486,8 +526,12 @@ def install_imported_benchmark(node: Url4Node, assets: Path, benchmark_id: str) 
             node.endpoint(route)(handler)
 
 
-def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
-    """The canonical one-invocation expression — one answer per Case, graded once."""
+def _build(routes: Mapping[str, str], available: int, attempts: int = 1) -> Callable[[int], Node]:
+    """The canonical one-invocation expression — one answer per Case, graded once.
+
+    With ``attempts`` above 1 (OME-1458) the same execution runs once per Attempt; at 1 the
+    expression is exactly the one every published imported Benchmark pins.
+    """
 
     def build(case_count: int) -> Node:
         candidate_invocation = candidate(
@@ -524,6 +568,7 @@ def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
                 candidate_invocation=candidate_invocation,
                 grading=checked,
                 case_id="$item.id",
+                attempts=attempts,
             ),
             selected_case_count=case_count,
             available_case_count=available,
@@ -714,8 +759,12 @@ async def benchmark_aggregate_async(
     *,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
+    # WHY one store per call: a run's Scores live exactly as long as its aggregate, so two
+    # runs (or a retried aggregate) never read each other's marks.
+    kept: dict[int, Any] = {}
+    metric_factory: Callable[[], Any] | None = benchmark.whole_run_metric_factory
     # WHY: Inspect scorers are already async; preserve their endpoint's log scope.
-    return await benchmark.aggregation().aggregate_async(
+    return await benchmark.aggregation(None if metric_factory is None else kept).aggregate_async(
         raw_case_grades,
         benchmark_id=benchmark.benchmark.id,
         benchmark_revision=benchmark.benchmark.revision,
@@ -726,7 +775,7 @@ async def benchmark_aggregate_async(
             error_type=AggregateError,
         ),
         grading_material=lambda case_id: _grading_material(root, case_id),
-        scorer=_accuracy,
+        scorer=_accuracy if metric_factory is None else _whole_run_tally(metric_factory(), kept),
     )
 
 
@@ -859,6 +908,138 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
             "scored_cases": len(values),
         },
         scores=_column_means(graded),
+    )
+
+
+def _whole_run_tally(
+    metric: Callable[[list[Any]], object], kept: Mapping[int, Any]
+) -> Callable[[Sequence[CaseResult]], CandidateScore]:
+    """The tally clerk with the eval's own tally sheet: its inspect metric over the run.
+
+    Think of grading as a marking room: the eval's scorer marks each Case, then the tally
+    turns the marks into one headline. :func:`_accuracy` adds and divides; this hands the
+    graded Cases' own inspect Scores to the eval's metric instead. Stages, in execution order:
+
+    Stage 1 — the graded Cases only (the finalizer passes exactly those; a failed Case
+              never reaches a metric, as with the mean). Each one's Score was filed by the
+              scorer adapter in ``kept`` under its Case id, already reduced the way inspect
+              reduces a Sample before any metric runs. For a Case asked several times
+              (Attempts), that is the Task's own any-of-N reducer over its Attempt Scores,
+              and it must equal the Case's folded score, so the metric and the Report read
+              one number per Case.
+    Stage 2 — call the metric: a plain function from the same package the scorer came
+              from. No ``eval()``, no solver, no model call. It is third-party code, so
+              anything it raises (a metadata key the Cases lack) fails the tally by the
+              metric's name, never as a bare exception.
+    Stage 3 — publish: the number becomes the Headline Score. A row with Named Scores
+              keeps the column means beside it, with the headline column carrying the
+              metric's number. A dict is refused: a Named Score is the mean of a column
+              every graded Case carries, and a dict's keys are columns no Case has.
+
+    Worked example (contracteval's shape): 10 Cases, 7 with no related clause, and the
+    Candidate always answers "no related clause". The mean is 7/10 = 0.7, because it is
+    right on every empty Case. F1 counts true positives (clauses found that exist): 0,
+    against 3 missed clauses, so F1 = 2·0 / (2·0 + 0 + 3) = 0.0, the eval's number.
+
+    Raises:
+        AggregateError: naming the metric, when it asks inspect for unreduced Scores (the
+            store holds reduced ones, so it would read numbers inspect never hands it), when
+            a Case's reduced Attempt Scores disagree with its folded score (``pass_at_2`` over
+            a Case whose second Attempt failed reduces to nan, as in inspect), when it
+            raises, when it returns a dict, or when its headline is not a finite number
+            up to 1. A Headline Score is higher-is-better up to 1, so xstest's 0..100
+            ``refusal_rate`` is refused, never clipped or rescaled.
+    """
+
+    # WHY the scorer helper: inspect's one registry names metrics and scorers alike, and the
+    # lazy import keeps inspect out of engine start-up (only an opted-in row reaches here).
+    from screamingface_engine_inspect.scorer_metrics import (
+        reads_unreduced_scores,
+        scorer_registry_name,
+    )
+
+    name: str = scorer_registry_name(metric)
+    # WHY refuse before grading: inspect hands an "unreduced" metric each Sample's raw Score
+    # ("C"), and the store keeps the reduced one (1.0); the importer refuses it too.
+    if reads_unreduced_scores(metric):
+        raise AggregateError(
+            f"the whole-run metric {name} asks for unreduced Scores, which the tally does "
+            "not keep; keep the mean for this row"
+        )
+
+    def tally(cases: Sequence[CaseResult]) -> CandidateScore:
+        # Stage 1 — the graded Cases' kept Scores, in roll-call order.
+        try:
+            samples: list[Any] = [kept[int(case.case_id)] for case in cases]
+        except KeyError as missing:
+            raise AggregateError(f"graded Case {missing} kept no Score for {name}") from None
+        _check_attempts_agree(cases, samples, name)
+        # Stage 2 — the eval's own tally sheet. WHY catch everything: the metric is the
+        # eval's code, and a bare KeyError after every Candidate call is paid names nothing.
+        try:
+            value: object = metric(samples)
+        except Exception as exc:
+            raise AggregateError(
+                f"the whole-run metric {name} failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        # Stage 3 — one number. A dict's keys are Named Scores no Case carries.
+        if isinstance(value, Mapping):
+            raise AggregateError(
+                f"the whole-run metric {name} returned a dict ({', '.join(map(str, value))}); "
+                "a Named Score is the mean of a column every graded Case carries, so only a "
+                "number can be published"
+            )
+        if not _is_headline(value):
+            raise AggregateError(
+                f"the whole-run metric {name} returned {value!r}; a Headline Score is a "
+                "finite number up to 1"
+            )
+        assert isinstance(value, int | float)
+        score: float = round(float(value), 4)
+        mean: CandidateScore = _accuracy(cases)
+        scores: dict[str, float | None] = dict(mean.scores)
+        if scores:
+            # INVARIANT: the headline column IS `score` (the Report shows them as one number).
+            scores[next(iter(scores))] = score
+        return CandidateScore(score=score, metrics=mean.metrics, scores=scores)
+
+    return tally
+
+
+def _check_attempts_agree(
+    cases: Sequence[CaseResult], samples: Sequence[Any], metric_name: str
+) -> None:
+    """Refuse a Case with Attempts whose reduced Score is not the score its Case Result shows.
+
+    INVARIANT (OME-1527 x OME-1458): the metric and the Report read one number per Case. The
+    fold credits a Check met by any graded Attempt; inspect's any-of-N reducers compute the
+    same over 0/1 Attempt Scores, so they agree, except where the reducer reads the Attempts
+    differently: ``pass_at(2)`` over a Case whose second Attempt failed has one Score, which
+    inspect reduces to nan, while the fold scores the graded one.
+    """
+
+    from screamingface_engine_inspect.scorer_metrics import score_value_as_float
+
+    for case, sample in zip(cases, samples, strict=True):
+        if case.attempts is None or case.grade is None:
+            continue
+        reduced: float = score_value_as_float(sample.score.value)
+        if reduced != case.grade.score:
+            raise AggregateError(
+                f"graded Case {case.case_id}'s Attempts reduce to {reduced} for {metric_name}, "
+                f"but fold to {case.grade.score}; the metric would read a number the Case "
+                "Result does not show"
+            )
+
+
+def _is_headline(value: object) -> bool:
+    """True for a number a Candidate Result may publish as its Headline Score."""
+
+    return (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value <= 1.0
     )
 
 
