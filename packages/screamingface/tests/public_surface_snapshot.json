@@ -15,6 +15,7 @@
       "Connection",
       "ConnectionPanel",
       "CorrectiveLoop",
+      "DuplicateMembersWarning",
       "EngineCapabilityError",
       "EngineUnavailableError",
       "EvaluationWarning",
@@ -73,6 +74,7 @@
       "models",
       "reports",
       "reproduce",
+      "samples",
       "signal"
     ],
     "exports": {
@@ -307,6 +309,16 @@
           "name": "field",
           "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
         }
+      },
+      "DuplicateMembersWarning": {
+        "catches_as": [
+          "EvaluationWarning",
+          "UserWarning",
+          "Warning",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
       },
       "EngineCapabilityError": {
         "catches_as": [
@@ -903,6 +915,10 @@
       "reproduce": {
         "kind": "function",
         "signature": "(score: 'LeaderboardScore | UUID | str', *, record: 'bool' = True) -> 'Reproduction'"
+      },
+      "samples": {
+        "kind": "function",
+        "signature": "(model: 'str | Model', n: 'int', *, seeds: 'Sequence[int] | None' = None, temperature: 'float | None' = None, prompts: 'Sequence[str] | None' = None, params: 'Mapping[str, str | int | float | bool] | None' = None) -> 'tuple[Model, ...]'"
       },
       "signal": {
         "kind": "function",
