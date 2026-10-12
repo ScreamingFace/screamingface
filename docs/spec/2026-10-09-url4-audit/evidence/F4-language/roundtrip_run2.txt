@@ -1,0 +1,1181 @@
+.FF.FFFFFFFFFFFFFF                                                       [100%]
+=================================== FAILURES ===================================
+______________________ test_L2_canonical_text_is_fixpoint ______________________
+
+    @S
+>   @given(asts)
+                 
+
+test_roundtrip.py:61: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:65: in test_L2_canonical_text_is_fixpoint
+    assert render(build(s)) == s
+           ^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:83: in render
+    text = _render_top(node)
+           ^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:113: in _render_top
+    result = _render_expression(node, top=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+e = Expression(sources=(SelfRef(),), intent=None, broadcast=False, params=())
+top = True
+
+    def _render_expression(e: Expression, *, top: bool = False) -> str:
+        if e.intent is None and e.broadcast:
+            raise RenderError("broadcast (!*) requires an intent")
+        if e.intent is None:
+            # INVARIANT: expression = "(" source-list ")" intent-op intent — an
+            # intent-less Expression is an internal carrier (paren-collections,
+            # envelope assembly) with no surface form outside collection position
+            # (`OME-508`, rendered via _render_collection).
+>           raise RenderError(
+                "an Expression without an intent has no surface form — a "
+                "parenthesized source group must carry !intent (or !*intent)"
+            )
+E           url4.core.errors.RenderError: an Expression without an intent has no surface form — a parenthesized source group must carry !intent (or !*intent)
+E           Failing test case: test_L2_canonical_text_is_fixpoint(
+E               n=SelfRef(),
+E           )
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:138: RenderError
+___________________ test_L2prime_render_total_on_build_image ___________________
+  + Exception Group Traceback (most recent call last):
+  |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 69, in test_L2prime_render_total_on_build_image
+  |     @given(grammar_text)
+  |                    ^^^
+  |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/core.py", line 2215, in wrapped_test
+  |     _raise_to_user(errors, state.settings, [], " in explicit examples")
+  |     ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/core.py", line 1691, in _raise_to_user
+  |     raise the_error_hypothesis_found
+  | ExceptionGroup: Hypothesis found 2 distinct failures in explicit examples. (2 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 101, in verify
+    |     actual = build(text)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 431, in build
+    |     return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 198, in assemble_expression
+    |     intent = intent_atom(raw_intent) if raw_intent is not None else None
+    |              ~~~~~~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 918, in intent_atom
+    |     node: Node = Text(_unquote(text))
+    |                       ~~~~~~~~^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 752, in _unquote
+    |     return _unescape(token[1:-1])
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 777, in _unescape
+    |     raise ParseError(f"raw control character {char!r} in quoted text (spec quoted-char)")
+    | url4.core.errors.ParseError: raw control character '\n' in quoted text (spec quoted-char)
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 75, in test_L2prime_render_total_on_build_image
+    |     render(t)  # must not raise
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 85, in render
+    |     verify(node, text)
+    |     ~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 103, in verify
+    |     raise RenderError(f"rendered text {text!r} does not reparse: {exc}") from exc
+    | url4.core.errors.RenderError: rendered text "(https://a.io)!'sum\nit'" does not reparse: raw control character '\n' in quoted text (spec quoted-char)
+    | Failing explicit example: test_L2prime_render_total_on_build_image(
+    |     s='(https://a.io)!sum\nit',
+    | )
+    +---------------- 2 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 75, in test_L2prime_render_total_on_build_image
+    |     render(t)  # must not raise
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 83, in render
+    |     text = _render_top(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 113, in _render_top
+    |     result = _render_expression(node, top=True)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 157, in _render_expression
+    |     return out + _render_params(e.params, top=top)
+    |                  ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 176, in _render_params
+    |     return "".join(_render_param(key, value, top=top) for key, value in params)
+    |            ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 176, in <genexpr>
+    |     return "".join(_render_param(key, value, top=top) for key, value in params)
+    |                    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 195, in _render_param
+    |     _check_no_structural(value, "param value", allow_comma=top)
+    |     ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 677, in _check_no_structural
+    |     raise RenderError(f"{what} {text!r} contains a structural character")
+    | url4.core.errors.RenderError: param value "'a b'" contains a structural character
+    | Failing explicit example: test_L2prime_render_total_on_build_image(
+    |     s="(a)!go;note='a b'",
+    | )
+    +------------------------------------
+______________________ test_L3_unchecked_render_faithful _______________________
+
+    @S
+>   @given(asts)
+                 
+
+test_roundtrip.py:89: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+n = RelUrl(value='/')
+
+    @S
+    @given(asts)
+    def test_L3_unchecked_render_faithful(n):
+        s = try_render(n, check=False)
+        assume(s is not None)
+>       assert try_build(s) == wrap(n)
+E       AssertionError: assert None == Expression(sources=(RelUrl(value='/'),), intent=None, broadcast=False, params=())
+E        +  where None = try_build('/')
+E        +  and   Expression(sources=(RelUrl(value='/'),), intent=None, broadcast=False, params=()) = wrap(RelUrl(value='/'))
+E       Failing test case: test_L3_unchecked_render_faithful(
+E           n=RelUrl('/'),
+E       )
+
+test_roundtrip.py:93: AssertionError
+________________________ test_L3s_no_silent_misreading _________________________
+
+    @S
+>   @given(asts)
+                 
+
+test_roundtrip.py:97: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+n = VarRef(name='١', path=())
+
+    @S
+    @given(asts)
+    def test_L3s_no_silent_misreading(n):
+        s = try_render(n, check=False)
+        assume(s is not None)
+        t = try_build(s)
+>       assert t is None or t == wrap(n), f"render(check=False) -> {s!r} reparses to {t!r}"
+E       AssertionError: render(check=False) -> '$١' reparses to Expression(sources=(Text(value='$١'),), intent=None, broadcast=False, params=())
+E       assert (Expression(sources=(Text(value='$١'),), intent=None, broadcast=False, params=()) is None or Expression(so...se, params=()) == Expression(so...se, params=())
+E         
+E         Omitting 3 identical items, use -vv to show
+E         Differing attributes:
+E         ['sources']
+E         
+E         Drill down into differing attribute sources:
+E           sources: (Text(value='$١'),) != (VarRef(name='١', path=()),)
+E           At index 0 diff: Text(value='$١') != VarRef(name='١', path=())
+E           Use -v to get more diff)
+E       Failing test case: test_L3s_no_silent_misreading(
+E           n=VarRef('١', ()),
+E       )
+
+test_roundtrip.py:102: AssertionError
+_____________________ test_F_build_only_raises_parse_error _____________________
+
+    @S
+>   @given(st.one_of(grammar_text, mutated_text(), st.text(max_size=12)))
+                   ^^^
+
+test_roundtrip.py:106: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:110: in test_F_build_only_raises_parse_error
+    f(s)
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py:431: in build
+    return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py:192: in assemble_expression
+    parsed = parse_group_root(source_expr) if source_expr else Expression(sources=())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:587: in parse_group_root
+    return parse(stripped)
+           ^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:142: in parse
+    return _parse_source(stripped)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:185: in _parse_source
+    return _attach_tail(_parse_head(parts[0]), tail)
+                        ^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:213: in _parse_head
+    result = _parse_attrib_chain(head)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:264: in _parse_attrib_chain
+    if _is_value_shaped(rest):
+       ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+text = '', colon = None
+
+    def _is_value_shaped(text: str, colon: int | None = None) -> bool:
+        """§4.3 disambiguation — a token that is a bare data value, no descriptor.
+    
+        ``colon`` is the precomputed top-level colon index, for callers that already
+        scanned for it; omitted, it is computed here.
+        """
+>       if text[0] in "'(/@{$":
+           ^^^^^^^
+E       IndexError: string index out of range
+E       Failing test case: test_F_build_only_raises_parse_error(
+E           s='0:',
+E       )
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:223: IndexError
+________________________ test_B_builder_output_renders _________________________
+  + Exception Group Traceback (most recent call last):
+  |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 146, in test_B_builder_output_renders
+  |     @given(builder_calls)
+  |                    ^^^
+  |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/core.py", line 2295, in wrapped_test
+  |     raise the_error_hypothesis_found
+  | ExceptionGroup: Hypothesis found 10 distinct failures. (10 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 154, in test_B_builder_output_renders
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 83, in render
+    |     text = _render_top(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 123, in _render_top
+    |     result = _render_value(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 364, in _render_value
+    |     return renderer(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 427, in _render_identity
+    |     raise RenderError(f"invalid identity name {node.name!r}")
+    | url4.core.errors.RenderError: invalid identity name ''
+    | Failing test case: test_B_builder_output_renders(
+    |     call=('identity', ('', None)),
+    | )
+    +---------------- 2 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 154, in test_B_builder_output_renders
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 83, in render
+    |     text = _render_top(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 123, in _render_top
+    |     result = _render_value(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 364, in _render_value
+    |     return renderer(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 415, in _render_varref
+    |     out += f"[{seg}]" if seg >= 0 else _raise_seg(seg)
+    |                                        ~~~~~~~~~~^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 422, in _raise_seg
+    |     raise RenderError(f"invalid field-path segment {seg!r}")
+    | url4.core.errors.RenderError: invalid field-path segment -1
+    | Failing test case: test_B_builder_output_renders(
+    |     call=('refpath', -1),
+    | )
+    +---------------- 3 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 154, in test_B_builder_output_renders
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 83, in render
+    |     text = _render_top(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 115, in _render_top
+    |     result = _render_top_iteration(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 518, in _render_top_iteration
+    |     inner = _render_iteration_core(node) + _render_directives(node.directives)
+    |             ~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 536, in _render_iteration_core
+    |     raise RenderError(f"iteration body {node.body!r} is unbalanced")
+    | url4.core.errors.RenderError: iteration body ')' is unbalanced
+    | Failing test case: test_B_builder_output_renders(
+    |     call=('body', ')'),
+    | )
+    +---------------- 4 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 101, in verify
+    |     actual = build(text)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 422, in build
+    |     env = decode_envelope(text)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 279, in decode_envelope
+    |     raw_intent, tail_params, tail_directives = split_expr_params(raw_intent)
+    |                                                ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 120, in split_expr_params
+    |     params, directives = extract_directives(split_annotation_pairs(parts[1:]))
+    |                          ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/_annotations.py", line 185, in extract_directives
+    |     fields[name] = _parse_directive(name, value or "")
+    |                    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/_annotations.py", line 207, in _parse_directive
+    |     return parser(value)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/_annotations.py", line 234, in _parse_concurrency
+    |     raise ParseError(
+    |         f"invalid iteration.concurrency={value.strip()!r}; expected a positive integer"
+    |     ) from None
+    | url4.core.errors.ParseError: invalid iteration.concurrency='True'; expected a positive integer
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 154, in test_B_builder_output_renders
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 85, in render
+    |     verify(node, text)
+    |     ~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 103, in verify
+    |     raise RenderError(f"rendered text {text!r} does not reparse: {exc}") from exc
+    | url4.core.errors.RenderError: rendered text "https://x.io*($item)!'go';iteration.concurrency=True" does not reparse: invalid iteration.concurrency='True'; expected a positive integer
+    | Failing test case: test_B_builder_output_renders(
+    |     call=('concurrency', True),
+    | )
+    +---------------- 5 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 154, in test_B_builder_output_renders
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 83, in render
+    |     text = _render_top(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 121, in _render_top
+    |     result = _render_source(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 240, in _render_source
+    |     return _render_descriptor(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 276, in _render_descriptor
+    |     out = ":".join(chain) + tail + _render_annotations(node.annotations)
+    |                                    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 321, in _render_annotations
+    |     _check_token(key, "annotation key", extra_allowed="._")
+    |     ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 669, in _check_token
+    |     raise RenderError(f"invalid {what} {text!r}")
+    | url4.core.errors.RenderError: invalid annotation key 'x y'
+    | Failing test case: test_B_builder_output_renders(
+    |     call=('annot', 'x y'),
+    | )
+    +---------------- 6 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 101, in verify
+    |     actual = build(text)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 431, in build
+    |     return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 192, in assemble_expression
+    |     parsed = parse_group_root(source_expr) if source_expr else Expression(sources=())
+    |              ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 587, in parse_group_root
+    |     return parse(stripped)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 142, in parse
+    |     return _parse_source(stripped)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 185, in _parse_source
+    |     return _attach_tail(_parse_head(parts[0]), tail)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 432, in _attach_tail
+    |     validate_exec_annotations(source_ann)
+    |     ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/_annotations.py", line 92, in validate_exec_annotations
+    |     raise ParseError(
+    |     ...<2 lines>...
+    |     )
+    | url4.core.errors.ParseError: invalid execution-annotation key 't2' — exec-key admits only letters, '_' and '.' (spec §4.2)
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 154, in test_B_builder_output_renders
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 85, in render
+    |     verify(node, text)
+    |     ~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 103, in verify
+    |     raise RenderError(f"rendered text {text!r} does not reparse: {exc}") from exc
+    | url4.core.errors.RenderError: rendered text 'https://x.io;t2' does not reparse: invalid execution-annotation key 't2' — exec-key admits only letters, '_' and '.' (spec §4.2)
+    | Failing test case: test_B_builder_output_renders(
+    |     call=('annot', 't2'),
+    | )
+    +---------------- 7 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 154, in test_B_builder_output_renders
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 85, in render
+    |     verify(node, text)
+    |     ~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 105, in verify
+    |     raise RenderError(
+    |     ...<2 lines>...
+    |     )
+    | url4.core.errors.RenderError: rendered text 'https://x.io;expand' reparses to a different tree — the grammar cannot faithfully carry Source(value=Url(value='https://x.io'), name=None, weight=None, budgets=(), annotations=(('expand', None),), expand=False)
+    | Failing test case: test_B_builder_output_renders(
+    |     call=('annot', 'expand'),
+    | )
+    +---------------- 8 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 101, in verify
+    |     actual = build(text)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 431, in build
+    |     return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 192, in assemble_expression
+    |     parsed = parse_group_root(source_expr) if source_expr else Expression(sources=())
+    |              ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 587, in parse_group_root
+    |     return parse(stripped)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 142, in parse
+    |     return _parse_source(stripped)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 185, in _parse_source
+    |     return _attach_tail(_parse_head(parts[0]), tail)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 432, in _attach_tail
+    |     validate_exec_annotations(source_ann)
+    |     ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/_annotations.py", line 102, in validate_exec_annotations
+    |     raise ParseError(
+    |         f"invalid execution-annotation value {value!r} for {key!r} (spec §4.2)"
+    |     )
+    | url4.core.errors.ParseError: invalid execution-annotation value '' for 'mode' (spec §4.2)
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 154, in test_B_builder_output_renders
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 85, in render
+    |     verify(node, text)
+    |     ~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 103, in verify
+    |     raise RenderError(f"rendered text {text!r} does not reparse: {exc}") from exc
+    | url4.core.errors.RenderError: rendered text 'https://x.io;mode=' does not reparse: invalid execution-annotation value '' for 'mode' (spec §4.2)
+    | Failing test case: test_B_builder_output_renders(
+    |     call=('mode', ''),
+    | )
+    +---------------- 9 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 154, in test_B_builder_output_renders
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 83, in render
+    |     text = _render_top(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 121, in _render_top
+    |     result = _render_source(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 240, in _render_source
+    |     return _render_descriptor(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 274, in _render_descriptor
+    |     chain = _descriptor_chain(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 291, in _descriptor_chain
+    |     chain.append(_render_weight(node.weight))
+    |                  ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 606, in _render_weight
+    |     return _format_number(weight)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 660, in _format_number
+    |     raise RenderError(f"number {value!r} cannot be written as an unsigned decimal")
+    | url4.core.errors.RenderError: number 1.8597819365939075e-37 cannot be written as an unsigned decimal
+    | Failing test case: test_B_builder_output_renders(
+    |     call=('weight', 1.8597819365939075e-37),
+    | )
+    +---------------- 10 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 101, in verify
+    |     actual = build(text)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 431, in build
+    |     return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 192, in assemble_expression
+    |     parsed = parse_group_root(source_expr) if source_expr else Expression(sources=())
+    |              ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 587, in parse_group_root
+    |     return parse(stripped)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 142, in parse
+    |     return _parse_source(stripped)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 185, in _parse_source
+    |     return _attach_tail(_parse_head(parts[0]), tail)
+    |                         ~~~~~~~~~~~^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 211, in _parse_head
+    |     result = _Descriptor(value=_parse_value(head))
+    |                                ~~~~~~~~~~~~^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 480, in _parse_value
+    |     return _dispatch_value(token)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 487, in _dispatch_value
+    |     node = handler(token)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 499, in _parse_quoted_value
+    |     return Text(_unquote(token))
+    |                 ~~~~~~~~^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 752, in _unquote
+    |     return _unescape(token[1:-1])
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 777, in _unescape
+    |     raise ParseError(f"raw control character {char!r} in quoted text (spec quoted-char)")
+    | url4.core.errors.ParseError: raw control character '\x1f' in quoted text (spec quoted-char)
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 154, in test_B_builder_output_renders
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 85, in render
+    |     verify(node, text)
+    |     ~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 103, in verify
+    |     raise RenderError(f"rendered text {text!r} does not reparse: {exc}") from exc
+    | url4.core.errors.RenderError: rendered text "'\x1f'" does not reparse: raw control character '\x1f' in quoted text (spec quoted-char)
+    | Failing test case: test_B_builder_output_renders(
+    |     call=('text', '\x1f'),
+    | )
+    +------------------------------------
+__________________________ test_B_per_builder[annot] ___________________________
+
+kind = 'annot'
+
+    @pytest.mark.parametrize("kind", sorted(CALL))
+>   @settings(max_examples=400, deadline=None, suppress_health_check=list(HealthCheck))
+                   ^^^^^^^
+
+test_roundtrip.py:158: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:167: in test_B_per_builder
+    render(n)
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:85: in render
+    verify(node, text)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+node = Source(value=Url(value='https://x.io'), name=None, weight=None, budgets=(), annotations=(('expand', None),), expand=False)
+text = 'https://x.io;expand'
+
+    def verify(node: Node, text: str) -> None:
+        """Raise :class:`RenderError` unless ``text`` reparses to exactly ``node``.
+    
+        What ``render(check=True)`` does, exposed so a caller that rendered with
+        ``check=False`` can pay for the check only once something downstream has
+        already failed — see :func:`url4.peer.client._blaming_render`. Returns
+        normally when the tree is faithful, leaving the blame with the run.
+        """
+        from url4.core.parser import build  # runtime-only: parser is a higher layer
+    
+        expected = node if isinstance(node, (Expression, Iteration)) else Expression(sources=(node,))
+        try:
+            actual = build(text)
+        except ParseError as exc:
+            raise RenderError(f"rendered text {text!r} does not reparse: {exc}") from exc
+        if actual != expected:
+>           raise RenderError(
+                f"rendered text {text!r} reparses to a different tree — "
+                f"the grammar cannot faithfully carry {node!r}"
+            )
+E           url4.core.errors.RenderError: rendered text 'https://x.io;expand' reparses to a different tree — the grammar cannot faithfully carry Source(value=Url(value='https://x.io'), name=None, weight=None, budgets=(), annotations=(('expand', None),), expand=False)
+E           Failing test case: test_B_per_builder(
+E               kind='annot',
+E               data=data(...),
+E           )
+E           Draw 1: ('annot', 'expand')
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:105: RenderError
+___________________________ test_B_per_builder[body] ___________________________
+
+kind = 'body'
+
+    @pytest.mark.parametrize("kind", sorted(CALL))
+>   @settings(max_examples=400, deadline=None, suppress_health_check=list(HealthCheck))
+                   ^^^^^^^
+
+test_roundtrip.py:158: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:167: in test_B_per_builder
+    render(n)
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:83: in render
+    text = _render_top(node)
+           ^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:115: in _render_top
+    result = _render_top_iteration(node)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:518: in _render_top_iteration
+    inner = _render_iteration_core(node) + _render_directives(node.directives)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+node = Iteration(collection=Url(value='https://x.io'), body=')', intent="'go'", reducer=None, directives=IterationDirectives(concurrency=None, on_error='collect', slice=None, fmt_result=None))
+
+    def _render_iteration_core(node: Iteration) -> str:
+        collection = _render_collection(node.collection)
+        if isinstance(node.collection, Iteration):
+            raise RenderError("an iteration cannot be another iteration's collection")
+        if balanced_body(f"({node.body})", 1) != node.body:
+>           raise RenderError(f"iteration body {node.body!r} is unbalanced")
+E           url4.core.errors.RenderError: iteration body ')' is unbalanced
+E           Failing test case: test_B_per_builder(
+E               kind='body',
+E               data=data(...),
+E           )
+E           Draw 1: ('body', ')')
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:536: RenderError
+_______________________ test_B_per_builder[concurrency] ________________________
+
+node = Iteration(collection=Url(value='https://x.io'), body='$item', intent="'go'", reducer=None, directives=IterationDirectives(concurrency=True, on_error='collect', slice=None, fmt_result=None))
+text = "https://x.io*($item)!'go';iteration.concurrency=True"
+
+    def verify(node: Node, text: str) -> None:
+        """Raise :class:`RenderError` unless ``text`` reparses to exactly ``node``.
+    
+        What ``render(check=True)`` does, exposed so a caller that rendered with
+        ``check=False`` can pay for the check only once something downstream has
+        already failed — see :func:`url4.peer.client._blaming_render`. Returns
+        normally when the tree is faithful, leaving the blame with the run.
+        """
+        from url4.core.parser import build  # runtime-only: parser is a higher layer
+    
+        expected = node if isinstance(node, (Expression, Iteration)) else Expression(sources=(node,))
+        try:
+>           actual = build(text)
+                     ^^^^^^^^^^^
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:101: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py:422: in build
+    env = decode_envelope(text)
+          ^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py:279: in decode_envelope
+    raw_intent, tail_params, tail_directives = split_expr_params(raw_intent)
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py:120: in split_expr_params
+    params, directives = extract_directives(split_annotation_pairs(parts[1:]))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/_annotations.py:185: in extract_directives
+    fields[name] = _parse_directive(name, value or "")
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/_annotations.py:207: in _parse_directive
+    return parser(value)
+           ^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = 'True'
+
+    def _parse_concurrency(value: str) -> int:
+        """A ``iteration.concurrency`` value; must be a positive int (unbounded is
+        expressed by omitting the directive)."""
+        try:
+            n = int(value)
+        except ValueError:
+>           raise ParseError(
+                f"invalid iteration.concurrency={value.strip()!r}; expected a positive integer"
+            ) from None
+E           url4.core.errors.ParseError: invalid iteration.concurrency='True'; expected a positive integer
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/_annotations.py:234: ParseError
+
+The above exception was the direct cause of the following exception:
+
+kind = 'concurrency'
+
+    @pytest.mark.parametrize("kind", sorted(CALL))
+>   @settings(max_examples=400, deadline=None, suppress_health_check=list(HealthCheck))
+                   ^^^^^^^
+
+test_roundtrip.py:158: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:167: in test_B_per_builder
+    render(n)
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:85: in render
+    verify(node, text)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+node = Iteration(collection=Url(value='https://x.io'), body='$item', intent="'go'", reducer=None, directives=IterationDirectives(concurrency=True, on_error='collect', slice=None, fmt_result=None))
+text = "https://x.io*($item)!'go';iteration.concurrency=True"
+
+    def verify(node: Node, text: str) -> None:
+        """Raise :class:`RenderError` unless ``text`` reparses to exactly ``node``.
+    
+        What ``render(check=True)`` does, exposed so a caller that rendered with
+        ``check=False`` can pay for the check only once something downstream has
+        already failed — see :func:`url4.peer.client._blaming_render`. Returns
+        normally when the tree is faithful, leaving the blame with the run.
+        """
+        from url4.core.parser import build  # runtime-only: parser is a higher layer
+    
+        expected = node if isinstance(node, (Expression, Iteration)) else Expression(sources=(node,))
+        try:
+            actual = build(text)
+        except ParseError as exc:
+>           raise RenderError(f"rendered text {text!r} does not reparse: {exc}") from exc
+E           url4.core.errors.RenderError: rendered text "https://x.io*($item)!'go';iteration.concurrency=True" does not reparse: invalid iteration.concurrency='True'; expected a positive integer
+E           Failing test case: test_B_per_builder(
+E               kind='concurrency',
+E               data=data(...),
+E           )
+E           Draw 1: ('concurrency', True)
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:103: RenderError
+___________________________ test_B_per_builder[fmt] ____________________________
+
+kind = 'fmt'
+
+    @pytest.mark.parametrize("kind", sorted(CALL))
+>   @settings(max_examples=400, deadline=None, suppress_health_check=list(HealthCheck))
+                   ^^^^^^^
+
+test_roundtrip.py:158: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:167: in test_B_per_builder
+    render(n)
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:83: in render
+    text = _render_top(node)
+           ^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:115: in _render_top
+    result = _render_top_iteration(node)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:518: in _render_top_iteration
+    inner = _render_iteration_core(node) + _render_directives(node.directives)
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:595: in _render_directives
+    _check_token(d.fmt_result, "iteration.fmt_result", extra_allowed="._-")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+text = '', what = 'iteration.fmt_result', extra_allowed = '._-'
+
+    def _check_token(text: str, what: str, *, extra_allowed: str) -> None:
+        if not text or not all(ch.isalnum() or ch in extra_allowed for ch in text):
+>           raise RenderError(f"invalid {what} {text!r}")
+E           url4.core.errors.RenderError: invalid iteration.fmt_result ''
+E           Failing test case: test_B_per_builder(
+E               kind='fmt',
+E               data=data(...),
+E           )
+E           Draw 1: ('fmt', '')
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:669: RenderError
+_________________________ test_B_per_builder[identity] _________________________
+
+kind = 'identity'
+
+    @pytest.mark.parametrize("kind", sorted(CALL))
+>   @settings(max_examples=400, deadline=None, suppress_health_check=list(HealthCheck))
+                   ^^^^^^^
+
+test_roundtrip.py:158: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:167: in test_B_per_builder
+    render(n)
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:83: in render
+    text = _render_top(node)
+           ^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:123: in _render_top
+    result = _render_value(node)
+             ^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:364: in _render_value
+    return renderer(node)
+           ^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+node = IdentityRef(name='', collection=None)
+
+    def _render_identity(node: IdentityRef) -> str:
+        if not _IDENTITY_NAME_RE.fullmatch(node.name):
+>           raise RenderError(f"invalid identity name {node.name!r}")
+E           url4.core.errors.RenderError: invalid identity name ''
+E           Failing test case: test_B_per_builder(
+E               kind='identity',
+E               data=data(...),
+E           )
+E           Draw 1: ('identity', ('', None))
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:427: RenderError
+__________________________ test_B_per_builder[intent] __________________________
+
+node = Expression(sources=(Url(value='https://x.io'),), intent=Text(value='\x1b'), broadcast=False, params=())
+text = "(https://x.io)!'\x1b'"
+
+    def verify(node: Node, text: str) -> None:
+        """Raise :class:`RenderError` unless ``text`` reparses to exactly ``node``.
+    
+        What ``render(check=True)`` does, exposed so a caller that rendered with
+        ``check=False`` can pay for the check only once something downstream has
+        already failed — see :func:`url4.peer.client._blaming_render`. Returns
+        normally when the tree is faithful, leaving the blame with the run.
+        """
+        from url4.core.parser import build  # runtime-only: parser is a higher layer
+    
+        expected = node if isinstance(node, (Expression, Iteration)) else Expression(sources=(node,))
+        try:
+>           actual = build(text)
+                     ^^^^^^^^^^^
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:101: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py:431: in build
+    return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py:198: in assemble_expression
+    intent = intent_atom(raw_intent) if raw_intent is not None else None
+             ^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:918: in intent_atom
+    node: Node = Text(_unquote(text))
+                      ^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:752: in _unquote
+    return _unescape(token[1:-1])
+           ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+content = '\x1b'
+
+    def _unescape(content: str) -> str:
+        """Decode a quoted body: the ``\\'`` and ``\\\\`` escapes, no raw control chars.
+    
+        # INVARIANT: exactly two escapes are defined. A backslash before anything
+        # else is rejected, as is a raw control character (< %x20, or DEL) — httpx
+        # rejects those in a URL anyway.
+        """
+        out: list[str] = []
+        i = 0
+        while i < len(content):
+            char = content[i]
+            if char == "\\":
+                nxt = content[i + 1] if i + 1 < len(content) else ""
+                if nxt not in ("\\", "'"):
+                    raise ParseError(
+                        f"undefined escape {'\\' + nxt!r} in quoted text — the grammar "
+                        r"defines only \' and \\"
+                    )
+                out.append(nxt)
+                i += 2
+                continue
+            if char < " " or char == "\x7f":
+>               raise ParseError(f"raw control character {char!r} in quoted text (spec quoted-char)")
+E               url4.core.errors.ParseError: raw control character '\x1b' in quoted text (spec quoted-char)
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:777: ParseError
+
+The above exception was the direct cause of the following exception:
+
+kind = 'intent'
+
+    @pytest.mark.parametrize("kind", sorted(CALL))
+>   @settings(max_examples=400, deadline=None, suppress_health_check=list(HealthCheck))
+                   ^^^^^^^
+
+test_roundtrip.py:158: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:167: in test_B_per_builder
+    render(n)
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:85: in render
+    verify(node, text)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+node = Expression(sources=(Url(value='https://x.io'),), intent=Text(value='\x1b'), broadcast=False, params=())
+text = "(https://x.io)!'\x1b'"
+
+    def verify(node: Node, text: str) -> None:
+        """Raise :class:`RenderError` unless ``text`` reparses to exactly ``node``.
+    
+        What ``render(check=True)`` does, exposed so a caller that rendered with
+        ``check=False`` can pay for the check only once something downstream has
+        already failed — see :func:`url4.peer.client._blaming_render`. Returns
+        normally when the tree is faithful, leaving the blame with the run.
+        """
+        from url4.core.parser import build  # runtime-only: parser is a higher layer
+    
+        expected = node if isinstance(node, (Expression, Iteration)) else Expression(sources=(node,))
+        try:
+            actual = build(text)
+        except ParseError as exc:
+>           raise RenderError(f"rendered text {text!r} does not reparse: {exc}") from exc
+E           url4.core.errors.RenderError: rendered text "(https://x.io)!'\x1b'" does not reparse: raw control character '\x1b' in quoted text (spec quoted-char)
+E           Failing test case: test_B_per_builder(
+E               kind='intent',
+E               data=data(...),
+E           )
+E           Draw 1: ('intent', '\x1b')
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:103: RenderError
+___________________________ test_B_per_builder[mode] ___________________________
+  + Exception Group Traceback (most recent call last):
+  |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 158, in test_B_per_builder
+  |     @settings(max_examples=400, deadline=None, suppress_health_check=list(HealthCheck))
+  |                    ^^^^^^^
+  |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/core.py", line 2295, in wrapped_test
+  |     raise the_error_hypothesis_found
+  | ExceptionGroup: Hypothesis found 2 distinct failures. (2 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 167, in test_B_per_builder
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 83, in render
+    |     text = _render_top(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 121, in _render_top
+    |     result = _render_source(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 240, in _render_source
+    |     return _render_descriptor(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 276, in _render_descriptor
+    |     out = ":".join(chain) + tail + _render_annotations(node.annotations)
+    |                                    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 325, in _render_annotations
+    |     _check_no_structural(value, "annotation value", allow_comma=False)
+    |     ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 677, in _check_no_structural
+    |     raise RenderError(f"{what} {text!r} contains a structural character")
+    | url4.core.errors.RenderError: annotation value ')' contains a structural character
+    | Failing test case: test_B_per_builder(
+    |     kind='mode',
+    |     data=data(...),
+    | )
+    | Draw 1: ('mode', ')')
+    +---------------- 2 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 101, in verify
+    |     actual = build(text)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 431, in build
+    |     return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 192, in assemble_expression
+    |     parsed = parse_group_root(source_expr) if source_expr else Expression(sources=())
+    |              ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 587, in parse_group_root
+    |     return parse(stripped)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 142, in parse
+    |     return _parse_source(stripped)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 185, in _parse_source
+    |     return _attach_tail(_parse_head(parts[0]), tail)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 432, in _attach_tail
+    |     validate_exec_annotations(source_ann)
+    |     ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/_annotations.py", line 102, in validate_exec_annotations
+    |     raise ParseError(
+    |         f"invalid execution-annotation value {value!r} for {key!r} (spec §4.2)"
+    |     )
+    | url4.core.errors.ParseError: invalid execution-annotation value '' for 'mode' (spec §4.2)
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 167, in test_B_per_builder
+    |     render(n)
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 85, in render
+    |     verify(node, text)
+    |     ~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 103, in verify
+    |     raise RenderError(f"rendered text {text!r} does not reparse: {exc}") from exc
+    | url4.core.errors.RenderError: rendered text 'https://x.io;mode=' does not reparse: invalid execution-annotation value '' for 'mode' (spec §4.2)
+    | Failing test case: test_B_per_builder(
+    |     kind='mode',
+    |     data=data(...),
+    | )
+    | Draw 1: ('mode', '')
+    +------------------------------------
+_________________________ test_B_per_builder[refpath] __________________________
+
+kind = 'refpath'
+
+    @pytest.mark.parametrize("kind", sorted(CALL))
+>   @settings(max_examples=400, deadline=None, suppress_health_check=list(HealthCheck))
+                   ^^^^^^^
+
+test_roundtrip.py:158: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:167: in test_B_per_builder
+    render(n)
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:83: in render
+    text = _render_top(node)
+           ^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:123: in _render_top
+    result = _render_value(node)
+             ^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:364: in _render_value
+    return renderer(node)
+           ^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:415: in _render_varref
+    out += f"[{seg}]" if seg >= 0 else _raise_seg(seg)
+                                       ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+seg = -1
+
+    def _raise_seg(seg: object) -> str:
+>       raise RenderError(f"invalid field-path segment {seg!r}")
+E       url4.core.errors.RenderError: invalid field-path segment -1
+E       Failing test case: test_B_per_builder(
+E           kind='refpath',
+E           data=data(...),
+E       )
+E       Draw 1: ('refpath', -1)
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:422: RenderError
+___________________________ test_B_per_builder[text] ___________________________
+
+node = Text(value='\x1f'), text = "'\x1f'"
+
+    def verify(node: Node, text: str) -> None:
+        """Raise :class:`RenderError` unless ``text`` reparses to exactly ``node``.
+    
+        What ``render(check=True)`` does, exposed so a caller that rendered with
+        ``check=False`` can pay for the check only once something downstream has
+        already failed — see :func:`url4.peer.client._blaming_render`. Returns
+        normally when the tree is faithful, leaving the blame with the run.
+        """
+        from url4.core.parser import build  # runtime-only: parser is a higher layer
+    
+        expected = node if isinstance(node, (Expression, Iteration)) else Expression(sources=(node,))
+        try:
+>           actual = build(text)
+                     ^^^^^^^^^^^
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:101: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py:431: in build
+    return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py:192: in assemble_expression
+    parsed = parse_group_root(source_expr) if source_expr else Expression(sources=())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:587: in parse_group_root
+    return parse(stripped)
+           ^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:142: in parse
+    return _parse_source(stripped)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:185: in _parse_source
+    return _attach_tail(_parse_head(parts[0]), tail)
+                        ^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:211: in _parse_head
+    result = _Descriptor(value=_parse_value(head))
+                               ^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:480: in _parse_value
+    return _dispatch_value(token)
+           ^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:487: in _dispatch_value
+    node = handler(token)
+           ^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:499: in _parse_quoted_value
+    return Text(_unquote(token))
+                ^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:752: in _unquote
+    return _unescape(token[1:-1])
+           ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+content = '\x1f'
+
+    def _unescape(content: str) -> str:
+        """Decode a quoted body: the ``\\'`` and ``\\\\`` escapes, no raw control chars.
+    
+        # INVARIANT: exactly two escapes are defined. A backslash before anything
+        # else is rejected, as is a raw control character (< %x20, or DEL) — httpx
+        # rejects those in a URL anyway.
+        """
+        out: list[str] = []
+        i = 0
+        while i < len(content):
+            char = content[i]
+            if char == "\\":
+                nxt = content[i + 1] if i + 1 < len(content) else ""
+                if nxt not in ("\\", "'"):
+                    raise ParseError(
+                        f"undefined escape {'\\' + nxt!r} in quoted text — the grammar "
+                        r"defines only \' and \\"
+                    )
+                out.append(nxt)
+                i += 2
+                continue
+            if char < " " or char == "\x7f":
+>               raise ParseError(f"raw control character {char!r} in quoted text (spec quoted-char)")
+E               url4.core.errors.ParseError: raw control character '\x1f' in quoted text (spec quoted-char)
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:777: ParseError
+
+The above exception was the direct cause of the following exception:
+
+kind = 'text'
+
+    @pytest.mark.parametrize("kind", sorted(CALL))
+>   @settings(max_examples=400, deadline=None, suppress_health_check=list(HealthCheck))
+                   ^^^^^^^
+
+test_roundtrip.py:158: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:167: in test_B_per_builder
+    render(n)
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:85: in render
+    verify(node, text)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+node = Text(value='\x1f'), text = "'\x1f'"
+
+    def verify(node: Node, text: str) -> None:
+        """Raise :class:`RenderError` unless ``text`` reparses to exactly ``node``.
+    
+        What ``render(check=True)`` does, exposed so a caller that rendered with
+        ``check=False`` can pay for the check only once something downstream has
+        already failed — see :func:`url4.peer.client._blaming_render`. Returns
+        normally when the tree is faithful, leaving the blame with the run.
+        """
+        from url4.core.parser import build  # runtime-only: parser is a higher layer
+    
+        expected = node if isinstance(node, (Expression, Iteration)) else Expression(sources=(node,))
+        try:
+            actual = build(text)
+        except ParseError as exc:
+>           raise RenderError(f"rendered text {text!r} does not reparse: {exc}") from exc
+E           url4.core.errors.RenderError: rendered text "'\x1f'" does not reparse: raw control character '\x1f' in quoted text (spec quoted-char)
+E           Failing test case: test_B_per_builder(
+E               kind='text',
+E               data=data(...),
+E           )
+E           Draw 1: ('text', '\x1f')
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:103: RenderError
+__________________________ test_B_per_builder[weight] __________________________
+
+kind = 'weight'
+
+    @pytest.mark.parametrize("kind", sorted(CALL))
+>   @settings(max_examples=400, deadline=None, suppress_health_check=list(HealthCheck))
+                   ^^^^^^^
+
+test_roundtrip.py:158: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:167: in test_B_per_builder
+    render(n)
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:83: in render
+    text = _render_top(node)
+           ^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:121: in _render_top
+    result = _render_source(node)
+             ^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:240: in _render_source
+    return _render_descriptor(node)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:274: in _render_descriptor
+    chain = _descriptor_chain(node)
+            ^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:291: in _descriptor_chain
+    chain.append(_render_weight(node.weight))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:606: in _render_weight
+    return _format_number(weight)
+           ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = 1.175494351e-38
+
+    def _format_number(value: float | int) -> str:
+        if isinstance(value, bool) or value < 0 or not isfinite(value):
+            raise RenderError(f"number {value!r} is outside the grammar's unsigned decimal form")
+        if isinstance(value, int):
+            return str(value)
+        text = repr(value)
+        if not _NUMBER_RE.fullmatch(text):
+            text = f"{value:.12f}".rstrip("0").rstrip(".") or "0"
+        if not _NUMBER_RE.fullmatch(text) or float(text) != value:
+>           raise RenderError(f"number {value!r} cannot be written as an unsigned decimal")
+E           url4.core.errors.RenderError: number 1.175494351e-38 cannot be written as an unsigned decimal
+E           Failing test case: test_B_per_builder(
+E               kind='weight',
+E               data=data(...),
+E           )
+E           Draw 1: ('weight', 1.175494351e-38)
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:660: RenderError
+=========================== short test summary info ============================
+FAILED test_roundtrip.py::test_L2_canonical_text_is_fixpoint - url4.core.erro...
+FAILED test_roundtrip.py::test_L2prime_render_total_on_build_image - Exceptio...
+FAILED test_roundtrip.py::test_L3_unchecked_render_faithful - AssertionError:...
+FAILED test_roundtrip.py::test_L3s_no_silent_misreading - AssertionError: ren...
+FAILED test_roundtrip.py::test_F_build_only_raises_parse_error - IndexError: ...
+FAILED test_roundtrip.py::test_B_builder_output_renders - ExceptionGroup: Hyp...
+FAILED test_roundtrip.py::test_B_per_builder[annot] - url4.core.errors.Render...
+FAILED test_roundtrip.py::test_B_per_builder[body] - url4.core.errors.RenderE...
+FAILED test_roundtrip.py::test_B_per_builder[concurrency] - url4.core.errors....
+FAILED test_roundtrip.py::test_B_per_builder[fmt] - url4.core.errors.RenderEr...
+FAILED test_roundtrip.py::test_B_per_builder[identity] - url4.core.errors.Ren...
+FAILED test_roundtrip.py::test_B_per_builder[intent] - url4.core.errors.Rende...
+FAILED test_roundtrip.py::test_B_per_builder[mode] - ExceptionGroup: Hypothes...
+FAILED test_roundtrip.py::test_B_per_builder[refpath] - url4.core.errors.Rend...
+FAILED test_roundtrip.py::test_B_per_builder[text] - url4.core.errors.RenderE...
+FAILED test_roundtrip.py::test_B_per_builder[weight] - url4.core.errors.Rende...
+16 failed, 2 passed in 47.86s

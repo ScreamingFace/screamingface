@@ -1,0 +1,39 @@
+
+bus factor (since: 5 years; active-since: 18 months)
+────────────────────────────────────────────────────
+authors  active  last_touch  path
+      1       1  2026-07-17  packages/url4/LICENSE
+      1       1  2026-07-15  packages/url4/examples/url4_client.ipynb
+      1       1  2026-07-15  packages/url4/examples/url4_examples.ipynb
+      1       1  2026-07-15  packages/url4/examples/url4_server.ipynb
+      1       1  2026-07-15  packages/url4/examples/utils.py
+      1       1  2026-09-22  packages/url4/scripts/check_module_size.py
+      1       1  2026-09-22  packages/url4/scripts/check_suppressions.py
+      1       1  2026-09-09  packages/url4/src/url4/_log_attributes.py
+      1       1  2026-09-22  packages/url4/src/url4/cli/__init__.py
+      1       1  2026-09-22  packages/url4/src/url4/cli/_config.py
+      1       1  2026-07-23  packages/url4/src/url4/cli/app.py
+      1       1  2026-09-22  packages/url4/src/url4/core/__init__.py
+      1       1  2026-09-22  packages/url4/src/url4/core/_annotations.py
+      1       1  2026-09-22  packages/url4/src/url4/core/_scan.py
+      1       1  2026-09-22  packages/url4/src/url4/core/builders.py
+
+active = distinct authors with a commit since 18 months. active == 0 means the knowledge has left the building.
+
+bus factor (since: 5 years; active-since: 18 months)
+────────────────────────────────────────────────────
+authors  active  last_touch  path
+      1       1  2026-07-17  packages/url4/LICENSE
+      1       1  2026-07-15  packages/url4/examples/url4_client.ipynb
+      1       1  2026-07-15  packages/url4/examples/url4_examples.ipynb
+      1       1  2026-07-15  packages/url4/examples/url4_server.ipynb
+      1       1  2026-07-15  packages/url4/examples/utils.py
+      1       1  2026-09-22  packages/url4/scripts/check_module_size.py
+      1       1  2026-09-22  packages/url4/scripts/check_suppressions.py
+      1       1  2026-07-23  packages/url4/tests/conftest.py
+      1       1  2026-09-22  packages/url4/tests/formal
+      1       1  2026-09-22  packages/url4/tests/spec
+      7       7  2026-10-05  packages/url4/tests/unit
+      9       9  2026-10-05  packages/url4/src/url4
+
+active = distinct authors with a commit since 18 months. active == 0 means the knowledge has left the building.

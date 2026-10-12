@@ -33,13 +33,13 @@ class _RecordingIO:
 def _routes_io() -> StaticIOLayer:
     return StaticIOLayer(
         routes={
-            "/claude": lambda context, intent: f"claude:{intent}",  # noqa: ARG005
-            "/gpt4": lambda context, intent: f"gpt4:{intent}",  # noqa: ARG005
+            "/claude": lambda context, intent: f"claude:{intent}",
+            "/gpt4": lambda context, intent: f"gpt4:{intent}",
         }
     )
 
 
-_FANOUT = "(/claude(a)!x, /gpt4(b)!y)!combine"
+_FANOUT = "(/claude(a)!'x', /gpt4(b)!'y')!'combine'"
 
 
 # --- Form 1: processor-id -----------------------------------------------------------
@@ -129,12 +129,12 @@ def test_wire_processor_param_selects_the_processor() -> None:
     node.endpoint("/gpt4")(lambda request: f"gpt4:{request.intent}")
 
     # Without a processor= the node falls back to its first endpoint...
-    plain = asyncio.run(node.fetch("/v1?q=(/claude(a)!x,/gpt4(b)!y)!combine", relative=True))
+    plain = asyncio.run(node.fetch("/v1?q=(/claude(a)!'x',/gpt4(b)!'y')!'combine'", relative=True))
     assert plain.startswith("claude:")
 
     # ...and the request's processor= overrides that choice.
     chosen = asyncio.run(
-        node.fetch("/v1?processor=gpt4&q=(/claude(a)!x,/gpt4(b)!y)!combine", relative=True)
+        node.fetch("/v1?processor=gpt4&q=(/claude(a)!'x',/gpt4(b)!'y')!'combine'", relative=True)
     )
     assert chosen.startswith("gpt4:")
 

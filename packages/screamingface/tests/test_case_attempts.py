@@ -15,11 +15,15 @@ Attempt 2 answers 42 (score 1), so the Case shows 42 and scores 1.0.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 from decimal import Decimal
 from typing import Any, cast
 
 import pytest
 from test_accounting_breakdown import accounting, replace
+from test_inspect_log_payload import _candidate as export_candidate
+from test_inspect_log_payload import _report as export_report
 from test_report_panel import body
 from test_report_panel import candidate as panel_candidate
 from test_report_panel import report as panel_report
@@ -27,6 +31,7 @@ from test_report_panel import report as panel_report
 import screamingface as sf
 from screamingface._engine.catalog_contract import _benchmark_entry
 from screamingface._evaluation.results import _case_result
+from screamingface._inspect_log.payload import eval_log_payload
 from screamingface._ui.cards import benchmark_card_html, benchmarks_rows_html
 from screamingface._ui.report_view import _attempt_badges_html, _attempts_html, report_html
 from screamingface.accounting import member_usage
@@ -368,3 +373,81 @@ def test_a_catalogue_entry_without_attempts_means_one_and_shows_nothing() -> Non
 def test_a_malformed_attempts_value_is_a_catalogue_defect() -> None:
     with pytest.raises(Exception, match="attempts must be a positive integer"):
         _benchmark_entry(_catalogue_entry(attempts=True))
+
+
+# --- the inspect-log export -------------------------------------------------------------
+
+
+def _grid_grade(score: float, *, a_met: bool, b_met: bool) -> sf.CaseGrade:
+    """A two-Check grade (grids A and B), each Check worth half the Case."""
+
+    checks: tuple[sf.Check, ...] = tuple(
+        sf.Check(
+            type="exact_match",
+            id=check_id,
+            label=f"grid {check_id} matches",
+            outcome="MET" if met else "UNMET",
+            score=1.0 if met else 0.0,
+            evidence=(),
+        )
+        for check_id, met in (("A", a_met), ("B", b_met))
+    )
+    return sf.CaseGrade(method="inspect_scorer", score=score, metrics={}, checks=checks)
+
+
+def _exported_sample(case: sf.CaseResult) -> dict[str, Any]:
+    """The one inspect sample the exporter writes for this Case."""
+
+    candidate: sf.CandidateResult = export_candidate("opus", cases=(case,), score=1.0)
+    payload: dict[str, Any] = eval_log_payload(export_report(candidate, case_count=1))
+    return cast(dict[str, Any], payload["samples"][0])
+
+
+def test_the_export_keeps_every_attempt_behind_a_folded_score() -> None:
+    # WHY: on the spec's complementary grid task Attempt 1 meets grid A and Attempt 2
+    # meets grid B, so each scores 0.5 and the Case folds to 1.0. Exporting only the shown
+    # answer with 1.0 would claim one answer earned a score it did not, and drop the other
+    # answer (review finding on #1303).
+    attempts: tuple[CaseAttempt, ...] = (
+        dataclasses.replace(
+            _attempt(1, "grid A solved", 0.5), grade=_grid_grade(0.5, a_met=True, b_met=False)
+        ),
+        dataclasses.replace(
+            _attempt(2, "grid B solved", 0.5), grade=_grid_grade(0.5, a_met=False, b_met=True)
+        ),
+    )
+    folded: sf.CaseResult = _case(
+        attempts,
+        output="grid A solved",
+        grade=_grid_grade(1.0, a_met=True, b_met=True),
+    )
+
+    sample: dict[str, Any] = _exported_sample(folded)
+
+    score: dict[str, Any] = sample["scores"]["screamingface"]
+    assert score["value"] == 1.0
+    assert score["metadata"] == {
+        "folded_from_attempts": 2,
+        "fold": "a Check is met if any Attempt met it",
+    }
+    exported: list[dict[str, Any]] = sample["metadata"]["attempts"]
+    assert [item["output"] for item in exported] == ["grid A solved", "grid B solved"]
+    assert [item["grade"]["score"] for item in exported] == [0.5, 0.5]
+    json.dumps(sample)
+
+
+def test_the_export_of_a_case_without_attempts_is_unchanged() -> None:
+    # INVARIANT: nothing about Attempts reaches an ordinary Case's sample.
+    sample: dict[str, Any] = _exported_sample(_case(None))
+
+    assert "attempts" not in sample["metadata"]
+    assert "metadata" not in sample["scores"]["screamingface"]
+
+
+def test_a_failed_attempt_shows_its_failure_on_the_pane() -> None:
+    # WHY: when another Attempt succeeds the Case carries no failures of its own, so the
+    # failed Attempt's stage, code and message must show under it (review on #1303).
+    html = _pane(_case((_failed_attempt(1), _attempt(2, "42", 1.0))))
+
+    assert "candidate · model_empty_content — the model returned no text" in html
+    assert html.index("model_empty_content") < html.index("Attempt 2 · score 1")

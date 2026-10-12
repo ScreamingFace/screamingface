@@ -1,6 +1,6 @@
 """ScreamingFace — evaluate composable Candidate Recipes on research Benchmarks."""
 
-from screamingface import benchmarks, connections, events, leaderboards, models
+from screamingface import benchmarks, connections, events, leaderboards, models, reports
 from screamingface._default_client import close, configure, connect, disconnect, evaluate
 from screamingface._ui.connections import ConnectionPanel
 from screamingface._version import resolve_version
@@ -61,6 +61,7 @@ __version__ = resolve_version()
 
 __all__ = [
     "__version__",
+    "reports",
     "AsyncClient",
     "AuthenticationError",
     "Benchmark",

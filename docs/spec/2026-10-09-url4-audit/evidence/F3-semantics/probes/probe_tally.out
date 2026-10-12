@@ -1,0 +1,4 @@
+fail-mode: A nested-collects 1 error, B fails: tally=1
+   out=RAISED ResolutionError: no fetch mapping for '/coll/B'
+collect-mode: nested records, then row reducer fails: tally=3
+   out=[{"error": {"kind": "ResolutionError", "message": "row reducer down", "code": "resolution_failed", "retryable": true}}, {"error": {"kind": "ResolutionError", "message": "no fetch mapping for '/coll/B'", "code": "resolution_failed", "retryable": true}}]
