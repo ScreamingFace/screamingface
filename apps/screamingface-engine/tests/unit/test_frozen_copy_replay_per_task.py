@@ -110,7 +110,7 @@ def _two_identical_tool_calls() -> httpx.Response:
 
 @pytest.mark.asyncio
 async def test_gathered_replay_tool_lookups_feed_their_own_results_in_task_order() -> None:
-    def answer(path: str, occurrence: str, body: Any) -> httpx.Response:
+    def respond(path: str, occurrence: str, body: Any) -> httpx.Response:
         if path == TOOL_LOOKUP:
             return httpx.Response(200, json={"result": "AB"[int(occurrence)]})
         # The first chat call asks for two tools. Its second call carries their results, so it
@@ -119,7 +119,7 @@ async def test_gathered_replay_tool_lookups_feed_their_own_results_in_task_order
             return chat("final")
         return _two_identical_tool_calls()
 
-    gateway = _ByOccurrence(TOOL_LOOKUP, answer)
+    gateway = _ByOccurrence(TOOL_LOOKUP, respond)
 
     async with gateway.client() as client:
         world = await build_aigateway_world(_world_config(), client=client)
