@@ -16,22 +16,26 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from urllib.parse import unquote, unquote_plus
+from urllib.parse import unquote_plus
 
 from url4.core._annotations import EXPRESSION_BEARING_KEYS, validate_param
-from url4.core._scan import balanced_body, split_query_segments
+from url4.core._scan import ASCII_WHITESPACE, balanced_body, split_query_segments
 from url4.core.errors import ParseError
+from url4.core.quoted import quote_text, unquote_text
 
 # Characters that cannot appear raw inside a context/intent payload:
 #   ( )  would desync the balanced-paren scan that delimits the context;
+#   { }  would hide a following `q=` from the depth scan (spec §3.4, §7.3);
 #   '    would let the decoder's quote-aware scan skip a structural ')';
 #   %    would be misread as a percent-escape by the decoder;
+#   +    decodes to a space on the HTTP wire (spec §7.3), so a literal '+'
+#        must travel as %2B;
 #   & #  break query parsing on a real HTTP transport;
 #   space is invalid raw in a URL (spec §7.3: MUST encode as + or %20);
 #   control chars (incl. newline/tab/CR) make httpx reject the URL as invalid.
 # Everything else — ``$``, ordinary punctuation — is left verbatim so the wire
 # form stays human-readable, which is the whole point of url4 URLs.
-_WIRE_UNSAFE = re.compile(r"[()'%&# \x00-\x1f\x7f]")
+_WIRE_UNSAFE = re.compile(r"[(){}'%+&# \x00-\x1f\x7f]")
 
 # INVARIANT (spec §11.6.3): transport-only parameters are scoped to the single
 # hop that received them and MUST NOT appear on an outbound sub-request. This
@@ -55,8 +59,31 @@ def _wire_escape(text: str) -> str:
     return _WIRE_UNSAFE.sub(lambda m: f"%{ord(m.group()):02X}", text)
 
 
+def quote_prompt(text: str) -> str:
+    """A forwarded call's prompt intent as it goes in ``q=``: one quoted literal (C9).
+
+    WHY (the A5 fix, owner decision Q10): unquoted, a one-word prompt would read as a
+    named job and ``/x`` as a code pointer on an eval-path receiver. A text with a
+    control character has no quoted form, so it travels raw, as in url4 1.5; it is never
+    one `bare-value` token, so a receiver still reads it as a prompt.
+    """
+    quoted = quote_text(text)
+    return text if quoted is None else quoted
+
+
+def unquote_prompt(text: str) -> str:
+    """The inverse of :func:`quote_prompt`: what an endpoint handler receives."""
+    content = unquote_text(text)
+    return text if content is None else content
+
+
 def encode_subrequest(
-    path: str, context: str, intent: str | None, params: Sequence[tuple[str, str]] = ()
+    path: str,
+    context: str,
+    intent: str | None,
+    params: Sequence[tuple[str, str]] = (),
+    *,
+    quote: bool = False,
 ) -> str:
     """Build the ``/path?[params&]q=(context)!intent`` relative sub-request URL.
 
@@ -71,6 +98,8 @@ def encode_subrequest(
     paren scan.
     """
     query = f"({_wire_escape(context)})"
+    if intent is not None and quote:
+        intent = quote_prompt(intent)  # a forwarded call's prompt (C9)
     if intent is not None:
         query += f"!{_wire_escape(intent)}"
     # A valueless flag is emitted BARE (`?broadcast&…`), never as `key=`:
@@ -89,22 +118,44 @@ def decode_subrequest(query: str) -> tuple[str, str]:
     Inverse of :func:`encode_subrequest`: the structural ``(context)`` and the
     first ``!`` delimiter are located on the still-escaped text (content parens
     and quotes are ``%28``/``%29``/``%27`` and cannot interfere), then each part
-    is unescaped.
+    is unescaped with :func:`unquote_plus` (spec §7.3: ``+`` is a space on the
+    wire). The whole raw payload is stripped of ASCII whitespace first.
 
     A payload without a leading ``(`` is treated as a bare intent (empty
-    context); a payload with no ``!`` tail yields an empty intent. A payload
-    whose structural parens do not balance falls back to the whole (unescaped)
-    payload as context.
+    context); a payload with no ``!`` tail yields an empty intent. A context
+    whose parens never close, or text after the closing paren other than
+    ``!intent``, raises :class:`~url4.core.errors.ParseError`.
     """
-    text = query.strip()
+    text = query.strip(ASCII_WHITESPACE)
     if not text.startswith("("):
-        return "", unquote(text)
+        return "", unquote_prompt(unquote_plus(text))
     context = balanced_body(text, 1)
     if context is None:
-        return unquote(text), ""
-    rest = text[len(context) + 2 :]
-    intent = rest[1:] if rest.startswith("!") else ""
-    return unquote(context), unquote(intent)
+        raise _unclosed(query)
+    intent = _intent_tail(text[len(context) + 2 :])
+    # WHY unquote: a forwarded prompt travels as quoted text (contracts C9, the A5 fix);
+    # an endpoint handler gets the prompt itself, as in url4 1.5.1.
+    return unquote_plus(context), unquote_prompt(unquote_plus(intent))
+
+
+def _unclosed(payload: str) -> ParseError:
+    """The error for a ``(context`` whose parens never close (spec §7.2)."""
+    return ParseError(
+        f"sub-request context in {payload!r} is never closed — its parentheses do not balance",
+    )
+
+
+def _intent_tail(rest: str) -> str:
+    """The intent after a context's closing paren — ``""`` or ``!intent`` only.
+
+    Anything else after ``(context)`` is not an envelope (spec §7.2), so it is
+    refused loudly rather than dropped.
+    """
+    if rest and not rest.startswith("!"):
+        raise ParseError(
+            f"text {rest!r} follows the sub-request context — only `!intent` may follow it",
+        )
+    return rest[1:]
 
 
 def decode_subrequest_http(query: str) -> tuple[str, str]:
@@ -112,14 +163,16 @@ def decode_subrequest_http(query: str) -> tuple[str, str]:
 
     url4's own :func:`encode_subrequest` keeps STRUCTURAL characters raw and
     escapes only content; standard HTTP clients (httpx, a browser) encode
-    everything. Spec §3.4: a node MUST accept both. A leading ``%28`` can only
-    be an encoded structural ``(`` — the discriminator. For the fully-encoded
-    form, one full decode restores the author's text, and structure is scanned
-    on the decoded form WITHOUT re-unquoting the parts.
+    everything. Spec §3.4: a node MUST accept both. The discriminator is
+    :func:`_fully_encoded`: a payload with a raw ``(`` is raw-convention, and a
+    payload with percent escapes but no raw ``(`` is fully-encoded. For the
+    fully-encoded form, one full decode restores the author's text, and
+    structure is scanned on the decoded form WITHOUT re-unquoting the parts.
     """
     if not _fully_encoded(query):
         return decode_subrequest(query)
-    return _split_decoded(unquote_plus(query))
+    context, intent = _split_decoded(unquote_plus(query))
+    return context, unquote_prompt(intent)  # both conventions hand over the prompt (C9)
 
 
 def decode_expression_http(query: str) -> str:
@@ -132,7 +185,7 @@ def decode_expression_http(query: str) -> str:
     """
     if _fully_encoded(query):
         return unquote_plus(query)
-    return _decode_raw_expression(query.strip())
+    return _decode_raw_expression(query.strip(ASCII_WHITESPACE))
 
 
 def _decode_raw_expression(text: str) -> str:
@@ -142,7 +195,7 @@ def _decode_raw_expression(text: str) -> str:
     exact ``(context)[!intent]`` envelope. Every other grammar-legal shape — a
     ``/path(…)`` call head, a ``url4://`` remote, a paren-collection whose
     ``*(body)`` tail follows the closing paren — is a full expression: one
-    whole-text ``unquote``, and the parser judges the decoded result. The old
+    whole-text ``unquote_plus``, and the parser judges the decoded result. The old
     envelope-only reassembly silently truncated those shapes (`OME-530`).
     """
     if text.startswith("("):
@@ -150,10 +203,10 @@ def _decode_raw_expression(text: str) -> str:
         if context is not None:
             rest = text[len(context) + 2 :]
             if not rest:
-                return f"({unquote(context)})"
+                return f"({unquote_plus(context)})"
             if rest.startswith("!"):
-                return f"({unquote(context)})!{unquote(rest[1:])}"
-    return unquote(text)
+                return f"({unquote_plus(context)})!{unquote_plus(rest[1:])}"
+    return unquote_plus(text)
 
 
 def _fully_encoded(query: str) -> bool:
@@ -161,11 +214,13 @@ def _fully_encoded(query: str) -> bool:
     # _WIRE_UNSAFE), so a raw "(" in a payload is always STRUCTURAL — and every
     # raw-convention envelope/expression carries at least one. A standard
     # client (curl --data-urlencode, URLSearchParams, httpx) percent-encodes
-    # "(" unconditionally. A paren-free, percent-bearing payload can therefore
-    # only be fully-encoded. The previous "%28"-head sniff missed every
-    # non-group head — %2F relative calls, url4%3A remotes — sending them
-    # through the raw decoder mangled (`OME-530`). A payload with neither raw
-    # parens nor escapes is inert: both conventions decode it identically.
+    # "(" unconditionally, so a payload with percent escapes and no raw "("
+    # is fully-encoded: its structure is %28/%29. The "%28"-head sniff this
+    # replaced missed every non-group head — %2F relative calls, url4%3A
+    # remotes — sending them through the raw decoder mangled (`OME-530`).
+    # INVARIANT: a payload with neither a raw "(" nor a "%" is INERT — both
+    # decoders apply unquote_plus to the whole text and yield the same result
+    # (spec §7.3: "+" is a space on the wire), so the choice cannot change it.
     if "(" in query:
         return False
     return "%" in query
@@ -176,9 +231,9 @@ def _split_decoded(text: str) -> tuple[str, str]:
         return "", text
     context = balanced_body(text, 1)
     if context is None:
-        return text, ""
+        raise _unclosed(text)
     rest = text[len(context) + 2 :]
-    return context, rest[1:] if rest.startswith("!") else ""
+    return context, _intent_tail(rest)
 
 
 def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | None]:
@@ -249,5 +304,7 @@ __all__ = [
     "decode_subrequest_http",
     "encode_subrequest",
     "extract_expression_params",
+    "quote_prompt",
     "strip_transport_params",
+    "unquote_prompt",
 ]

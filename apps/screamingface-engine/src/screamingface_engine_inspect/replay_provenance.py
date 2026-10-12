@@ -61,8 +61,13 @@ def replay_provenance(
         A JSON-safe dict: lists and dicts of strings and numbers, no sets.
     """
 
-    # Stage 1 — the fetches, each with its forced pin.
-    sources: list[dict[str, str]] = [asdict(source) for source in recorder.sources]
+    # Stage 1 — the fetches, each with its forced pin and, when it has one, its link
+    # (OME-1524). WHY drop a None link: no link reads as no ``url`` key, as in a hand-built
+    # label, so a reader never meets a null where it expects a string.
+    sources: list[dict[str, str]] = [
+        {key: value for key, value in asdict(source).items() if value is not None}
+        for source in recorder.sources
+    ]
     # Stage 2 — the forced seeds, by name, with the declared value (sorted: stable output).
     seeds_applied: dict[str, int | None] = {
         name: getattr(spec, name) for name in sorted(recorder.seeds_applied)

@@ -1,0 +1,35 @@
+........................................................................ [  5%]
+........................................................................ [ 10%]
+........................................................................ [ 15%]
+........................................................................ [ 21%]
+........................................................................ [ 26%]
+........................................................................ [ 31%]
+........................................................................ [ 37%]
+........................................................................ [ 42%]
+........................................................................ [ 47%]
+........................................................................ [ 52%]
+........................................................................ [ 58%]
+........................................................................ [ 63%]
+........................................................................ [ 68%]
+........................................................................ [ 74%]
+........................................................................ [ 79%]
+........................................................................ [ 84%]
+........................................................................ [ 90%]
+........................................................................ [ 95%]
+................................................................         [100%]
+============================= slowest 10 durations =============================
+0.24s call     tests/unit/test_characterization.py::test_generated_parity_corpus_text_path_matches_ast_path
+0.15s call     tests/unit/test_import_isolation.py::test_importing_url4_pulls_in_no_pydantic
+0.11s call     tests/unit/test_serve_backends.py::test_command_handler_timeout_becomes_resolution_error
+0.10s call     tests/unit/test_serve_app.py::test_over_max_inflight_returns_503
+0.08s call     tests/unit/test_log_sink_lifecycle.py::test_observation_import_stays_free_of_frameworks
+0.08s call     tests/unit/test_import_isolation.py::test_streaming_pulls_in_no_broker_framework_or_engine
+0.08s call     tests/unit/test_import_isolation.py::test_importing_url4_pulls_in_no_web_framework
+0.08s call     tests/unit/test_import_isolation.py::test_importing_the_cli_pulls_in_no_web_framework
+0.08s call     tests/unit/test_import_isolation.py::test_the_probe_detects_a_module_that_IS_imported
+0.07s call     tests/unit/test_import_isolation.py::test_importing_url4_dag_pulls_in_no_web_framework
+1360 passed in 3.25s
+
+real	0m3.578s
+user	0m2.442s
+sys	0m0.453s

@@ -1,0 +1,51 @@
+{
+  "patterns": {
+    "url4-inert-noqa": {
+      "regex": "#\\s*noqa:\\s*(ARG|SLF|S\\d|BLE|FBT)",
+      "include": [
+        "packages/url4/*.py"
+      ]
+    },
+    "url4-pragma-no-cover": {
+      "regex": "pragma:\\s*no cover",
+      "include": [
+        "packages/url4/src/*.py"
+      ]
+    },
+    "url4-assert-src": {
+      "regex": "^\\s*assert\\s",
+      "include": [
+        "packages/url4/src/url4/*.py"
+      ],
+      "exclude": [
+        "*/streaming/testing/*"
+      ]
+    },
+    "url4-sleep-tests": {
+      "regex": "asyncio\\.sleep|time\\.sleep",
+      "include": [
+        "packages/url4/tests/*.py"
+      ]
+    },
+    "url4-tyignore-tests": {
+      "regex": "#\\s*type:\\s*ignore",
+      "include": [
+        "packages/url4/tests/*.py"
+      ]
+    },
+    "url4-importorskip": {
+      "regex": "importorskip",
+      "include": [
+        "packages/url4/*.py"
+      ]
+    }
+  },
+  "baseline": {
+    "url4-inert-noqa": 17,
+    "url4-pragma-no-cover": 8,
+    "url4-assert-src": 21,
+    "url4-sleep-tests": 11,
+    "url4-tyignore-tests": 23,
+    "url4-importorskip": 1
+  }
+}

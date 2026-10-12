@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import socket
 from types import ModuleType
@@ -10,6 +11,7 @@ import pytest
 
 from url4 import IOLayer, StaticIOLayer
 from url4.core.errors import ResolutionError
+from url4.dag.nodes import guard as guard_module
 
 
 @pytest.fixture
@@ -53,6 +55,21 @@ def _no_real_listen(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr(socket.socket, "listen", guarded)
+
+
+@pytest.fixture(autouse=True)
+def _instant_retry_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip the real Spec C §13.3 backoff (0.5 s and more per retry) in every test.
+
+    A retry test asserts how many attempts ran, not how long they waited; the
+    schedule itself is pinned in tests/regressions/test_guard.py, which patches the
+    same seam to record the delays.
+    """
+
+    async def no_wait(_delay: float) -> None:
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(guard_module, "_sleep", no_wait)
 
 
 class RecordingIOLayer:

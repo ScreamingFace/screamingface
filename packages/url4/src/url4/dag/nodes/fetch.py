@@ -12,9 +12,6 @@ from url4.core._scan import skip_quoted, split_top_level
 from url4.core.context import Context
 from url4.core.errors import CollectionError, ErrorCode, ResolutionError
 from url4.core.nodes import Params
-from url4.dag.semantics.ensemble import (
-    substitute_env_vars,
-)
 from url4.io.layer import FetchRequest, SupportsHoldings
 from url4.wire.subrequest import encode_subrequest
 
@@ -101,6 +98,7 @@ class RelUrlNode:
     name: str | None = None
     weight: float | None = None
     params: Params = ()
+    verbatim_intent: bool = False  # a code pointer or named job: never quoted (C9)
     accept: str | None = None
     ctx_slots: tuple[SlotSpec, ...] | None = None
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …, "ctx:i": …} + $refs
@@ -114,12 +112,12 @@ class RelUrlNode:
             request = FetchRequest(path, relative=True, kind="relative", accept=self.accept)
             return await _fetch(ctx, request)
         context = _resolved_context(self.context, self.ctx_slots, inputs, scope, ctx)
-        intent = (
-            substitute_env_vars(_as_text(inputs["intent"]), scope, strict=ctx.strict_fields)
-            if "intent" in inputs
-            else None
-        )
-        target = encode_subrequest(path, context, intent, params=_wire_params(self.params))
+        # The intent dep's output is final: a TextNode already substituted it once, and a
+        # fetched or nested result is data, never interpolated (B §8.2.1; audit A4).
+        intent = _as_text(inputs["intent"]) if "intent" in inputs else None
+        quote = not self.verbatim_intent
+        params = _wire_params(self.params)
+        target = encode_subrequest(path, context, intent, params=params, quote=quote)
         request = FetchRequest(target, relative=True, kind="relative", accept=self.accept)
         return await _fetch(ctx, request)
 
@@ -159,6 +157,7 @@ class RemoteFetchNode:
     path: str
     context: str | None = None
     params: Params = ()
+    verbatim_intent: bool = False  # a code pointer or named job: never quoted (C9)
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …} + $refs
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
@@ -168,12 +167,12 @@ class RemoteFetchNode:
         # never resolves it. Caller-side source-list resolution applies only
         # to RELATIVE calls, where the caller IS the evaluating node.
         context = _substitute(self.context or "", scope, ctx)
-        intent = (
-            substitute_env_vars(_as_text(inputs["intent"]), scope, strict=ctx.strict_fields)
-            if "intent" in inputs
-            else None
-        )
-        rel = encode_subrequest(self.path, context, intent, params=_wire_params(self.params))
+        # The intent dep's output is final: a TextNode already substituted it once, and a
+        # fetched or nested result is data, never interpolated (B §8.2.1; audit A4).
+        intent = _as_text(inputs["intent"]) if "intent" in inputs else None
+        quote = not self.verbatim_intent
+        params = _wire_params(self.params)
+        rel = encode_subrequest(self.path, context, intent, params=params, quote=quote)
         request = FetchRequest(f"url4://{self.authority}{rel}", relative=False, kind="url4")
         return await _fetch(ctx, request)
 

@@ -71,7 +71,7 @@ async def test_owned_layer_is_created_once_closed_once(monkeypatch: pytest.Monke
     assert closed == [True]
 
 
-async def test_close_is_idempotent_and_a_fresh_adapter_follows(
+async def test_close_is_idempotent_and_final(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     closed: list[bool] = []
@@ -81,11 +81,12 @@ async def test_close_is_idempotent_and_a_fresh_adapter_follows(
 
     monkeypatch.setattr("url4.peer._owned._http_io", fake_http_io)
     owner = _OwnedIO(None)
-    first = owner.outbound()
+    owner.outbound()
     await owner.aclose()
     await owner.aclose()  # a second close of an already-closed owner is a no-op
     assert closed == [True]
-    assert owner.outbound() is not first
+    with pytest.raises(RuntimeError, match="its owned IO adapter was closed"):
+        owner.outbound()  # closing is final: no fresh adapter follows
 
 
 async def test_async_context_manager_closes_on_exit(monkeypatch: pytest.MonkeyPatch) -> None:

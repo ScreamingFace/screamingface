@@ -105,7 +105,7 @@ async def _from_sequence_below_one_is_rejected(stream: EventStream, topic: str) 
             await agen.__anext__()
         except ValueError:
             continue
-        except Exception as exc:  # noqa: BLE001 - any other failure is still a contract breach
+        except Exception as exc:  # any other failure is still a contract breach
             raise AssertionError(
                 f"subscribe(from_sequence={bad}) must raise ValueError, raised "
                 f"{type(exc).__name__}: {exc}"

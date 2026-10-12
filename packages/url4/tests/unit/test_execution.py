@@ -17,7 +17,7 @@ from url4.io.static import StaticIOLayer
 @pytest.mark.asyncio
 async def test_single_source_fetch_and_intent() -> None:
     resolver = StaticIOLayer(fetch_map={"https://x": "ARTICLE"})
-    result = await run("https://x!summarize", resolver)
+    result = await run("https://x!'summarize'", resolver)
     assert result == "summarize\n\nARTICLE"
 
 
@@ -52,7 +52,7 @@ async def test_unknown_variable_left_verbatim() -> None:
 async def test_quoted_text_source_strips_quotes() -> None:
     # Quotes are DELIMITERS (spec §5.1): a quoted source resolves to its
     # content, everywhere — the pre-0.2 Url4Text quote-keeping quirk is gone.
-    result = await run("('formal')!tone", RecordingIOLayer())
+    result = await run("('formal')!'tone'", RecordingIOLayer())
     assert result == "tone\n\nformal"
 
 
@@ -70,7 +70,7 @@ async def test_overridable_process() -> None:
     async def shout(sources: str, intent: str | None, scope: Context) -> str:
         return (intent or "").upper()
 
-    result = await run("()!shout", RecordingIOLayer(), process=shout)
+    result = await run("()!'shout'", RecordingIOLayer(), process=shout)
     assert result == "SHOUT"
 
 
@@ -78,7 +78,7 @@ async def test_overridable_process() -> None:
 async def test_run_accepts_prebuilt_parse_tree() -> None:
     from url4.core.parser import Parser
 
-    tree = Parser().build("https://x!go")
+    tree = Parser().build("https://x!'go'")
     resolver = StaticIOLayer(fetch_map={"https://x": "DATA"})
     assert await run(tree, resolver) == "go\n\nDATA"
 
@@ -108,7 +108,7 @@ async def test_run_default_io_creates_and_closes_owned_adapter(monkeypatch) -> N
 
     monkeypatch.setattr(io_http, "HttpIOLayer", FakeHttpIOLayer)
 
-    result = await run("https://x!go")  # no io → batteries-included default
+    result = await run("https://x!'go'")  # no io → batteries-included default
     assert result == "go\n\nhttps://x"
     assert len(created) == 1
     assert created[0].closed is True
@@ -136,5 +136,5 @@ async def test_run_default_io_closes_even_when_execution_raises(monkeypatch) -> 
 
     monkeypatch.setattr(io_http, "HttpIOLayer", FailingHttpIOLayer)
     with pytest.raises(ResolutionError, match="boom"):
-        await run("https://x!go")
+        await run("https://x!'go'")
     assert closed["yes"] is True

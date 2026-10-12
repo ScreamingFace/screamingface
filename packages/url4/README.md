@@ -60,7 +60,63 @@ The execution engine (DAG compilation, executor, lowering) lives one level down:
   concurrently.
 - **Inverted I/O**: all side effects go through the `IOLayer` port (`StaticIOLayer` for
   tests/offline, HTTP for real fetches), keeping the core pure and deterministic.
+- **Code-pointer intents (RDS mode)**: `(sources)!/code?k=v` runs a handler the node
+  mounted with `@node.code("/code")` once, in-process, with the sources bound by position
+  and name (`CodeCall`, `CodeInput`). No model runs. See "Migrating to 2.0".
 - **Fully typed**: passes `pyright`; type hints ship to consumers.
+
+## Migrating to 2.0
+
+url4 2.0 reads the intent's form (Spec B §6): a quoted intent is a prompt; a **relative
+URI intent is a code pointer** and a **one-word bare intent is a named job**, and both run
+code on this node. An absolute URI intent (`https://…`, `url4://…`) and unquoted text with
+a space are still prompts, as in 1.5.
+
+```python
+@node.code("/ensemble/combine/v1")
+def combine(call: CodeCall) -> str:
+    votes = [item.value for item in call.inputs]  # by position; call.input("member_1") by name
+    return pick(votes, reducer=call.params["reducer"])
+```
+
+`(member_1:/a($input)!'P', member_2:/b($input)!'P')!/ensemble/combine/v1?reducer=vote` runs
+`/a` and `/b`, then `combine` once. A failed `;optional` source has no input; a
+weight-`0.0` source is delivered with its weight. `;quorum=N` and `;quorum=majority` gate
+the call.
+
+Mount code by path or by name — one table, separate keys:
+
+```python
+@node.code("score_v1")  # runs for `(…)!score_v1`
+def score(call: CodeCall) -> str: ...
+```
+
+What changes for you:
+
+1. A URI intent that held instruction text (`(…)!/instr`) is now code. Write the text as a
+   quoted intent, or bind it as a weight-`0.0` source and reference it:
+   `(…, instr:0.0:/instr)!'$instr'`.
+2. Code that ran behind an `@node.endpoint` as a reducer → register it with `@node.code`
+   and read `call.inputs` and `call.params`. A code mount is never an HTTP endpoint.
+3. To run code on another node, send the whole expression to that node, as the top-level
+   request (`url4://n/v1?q=(…)!/code`) or as a source (`(r:url4://n/v1(…)!/code)!'…'`).
+   An absolute-URI *intent* is still a prompt source.
+4. A one-word bare intent (`(a, b)!summarize`) is now a named job. Register
+   `@node.code("summarize")`, or quote it (`!'summarize'`) to keep it a prompt. The same
+   holds for every string intent passed to the Python API — `expr(…, intent="go")`,
+   `Client.query`, `broadcast`, `iterate` — use `text("go")` (or `"'go'"`) for a prompt.
+5. A forwarded call's prompt now travels quoted: `/p(ctx)!'Answer'` sends
+   `q=(ctx)!'Answer'` (escaped `%27Answer%27`), so a remote eval path reads a prompt, not a
+   named job. An endpoint handler still receives `Answer`. A prompt with a newline still
+   travels unquoted. Mixed versions: a url4 1.5 endpoint that receives a 2.0 caller's
+   forwarded prompt sees the quotes (`'Answer'`); upgrade receivers first.
+6. A relative-expression intent (`/w?q=($1)!'Write'`) is now evaluated, with the group's
+   `$` references; 1.5 read it as data.
+7. Errors: an unlisted permanent error code now answers HTTP 422 (was 500). An
+   unmounted pointer or a failing handler is `intent_error` (HTTP 422,
+   permanent); an IO layer with no code mounts (for example a client-side `HttpIOLayer`)
+   gives `unsupported_mode` (HTTP 501). Inside a code group, field paths are strict
+   (Spec B §5.3.4.1).
 
 ## Iteration position
 
@@ -181,10 +237,22 @@ this, declaring a command or data route under it is a config error.
 uv run --extra server url4 serve --config url4.toml
 ```
 
-Flags override env vars (`URL4_HOST`, `URL4_PORT`, `URL4_DEFAULT_ROUTE`, `URL4_EVAL_PATH`,
-`URL4_CONFIG`, ...) which override the TOML file, which overrides built-in defaults. An
+Flags override env vars, which override the TOML file, which overrides built-in defaults. An
 **empty** env var counts as unset: `URL4_HOST=` in a `.env`/compose file falls through to the
 TOML value, then the default, exactly as an absent variable would.
+
+Every environment variable the package reads:
+
+| Variable | What it sets | Default |
+|---|---|---|
+| `URL4_CONFIG` | Path to the `url4.toml` file, used when `--config` is not given. | `./url4.toml` if it exists |
+| `URL4_HOST` | Bind address (`--host`). | `127.0.0.1` |
+| `URL4_PORT` | Bind port (`--port`). | `4404` |
+| `URL4_DEFAULT_ROUTE` | Reduce route for fan-out (`--default-route`). | the first declared `[commands]` route |
+| `URL4_EVAL_PATH` | Eval endpoint path (`--eval-path`). | `/v1` |
+| `URL4_CONCURRENCY` | Run-wide I/O cap (`--concurrency`). | `32` |
+| `URL4_MAX_INFLIGHT` | Maximum concurrent evals (`--max-inflight`). | `16` |
+| `URL4_TIMEOUT` | Per-request timeout in seconds (`--timeout`). | `120` |
 
 ### Binding & exposure
 

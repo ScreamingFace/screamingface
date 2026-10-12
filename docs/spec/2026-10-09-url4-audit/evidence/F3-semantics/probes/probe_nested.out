@@ -1,0 +1,3 @@
+flat  : ["s-x|g", "s-y|g"]
+nested: [["s-|[Response 1]\ns-x|g\n\n[Instruction]\np", "s-|[Response 1]\ns-y|g\n\n[Instruction]\np"], ["s-|[Response 1]\ns-z|g\n\n[Instruction]\np"]]
+nested-idx: [["s-|[Response 1]\ns-x 0|g\n\n[Instruction]\np", "s-|[Response 1]\ns-y 1|g\n\n[Instruction]\np"], ["s-|[Response 1]\ns-z 0|g\n\n[Instruction]\np"]]

@@ -18,13 +18,16 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from url4.core.errors import ParseError
-from url4.core.nodes import Params
+from url4.core.intent import CodePointer
+from url4.core.nodes import Node, Params
+from url4.dag.semantics.code_binding import code_quorum
 
 from url4.dag.node import DagNode  # isort: skip
 from url4.dag.nodes import (  # isort: skip
     BarrierNode,
     BindingNode,
     BroadcastCollectNode,
+    ExpandNode,
     FanoutReduceNode,
     GatherNode,
     GuardNode,
@@ -52,33 +55,43 @@ class _Slot:
     refs: frozenset[str]
     make: Callable[[Edges], DagNode]
     instrumental: bool = False
+    weight: float | dict | None = None  # the declared weight; a code group delivers it (C3)
+    # The source's parse form (its tree, or a deferred group's text): a code group reads
+    # the C3 value kind and `;optional` from it, where the form is still known.
+    form: Node | str | None = None
 
 
 @dataclass
 class _Intent:
     """The classified intent: ``make(edges)`` builds it; only text substitutes.
 
-    ``text`` carries the raw template for the broadcast path, which substitutes
-    per source (with ``$current`` bound) instead of once, shared. It is set iff
+    ``text`` carries the raw template for the paths that substitute it at the
+    consuming node, in one scan with the scope that only that node has: the
+    broadcast path (per source, ``$current`` bound), the base path (the
+    post-gather scope) and the fan-out path (the response names). It is set iff
     the intent is text — ``text is not None`` *is* the "is this text?" test.
     """
 
     make: Callable[[Edges], DagNode]
     text: str | None = None
+    # The `$name`/`$N` a computed intent mentions (B §6.2: the group's own sources).
+    refs: frozenset[str] = frozenset()
+    # Set iff the intent is a relative code pointer: the group runs as an RDS call (C5).
+    code: CodePointer | None = None
 
 
 def _quorum_of(params: Params) -> int | None:
-    """The expression's ``quorum=N`` param; ``all`` (the default) is None."""
-    for key, value in params:
-        if key != "quorum":
-            continue
-        if value is None or value == "all":
-            return None
-        try:
-            return int(value)
-        except ValueError:
-            raise ParseError(f"invalid quorum={value!r}; expected an integer or 'all'") from None
-    return None
+    """An LLM group's ``quorum=N``; ``all`` (the default) is None.
+
+    One parser for both modes (:func:`~url4.dag.semantics.code_binding.code_quorum`);
+    ``quorum=majority`` is a url4 2.0 code-group gate only.
+    """
+    quorum = code_quorum(params)
+    if quorum == "majority":
+        raise ParseError(
+            "quorum=majority is supported only for a code-pointer intent; write an integer"
+        )
+    return quorum
 
 
 def _ref_edges(
@@ -122,7 +135,7 @@ def _compile_group(
     quorum: int | None = None,
 ) -> DagNode:
     if broadcast:
-        return _broadcast_graph(slots, intent)
+        return _broadcast_graph(slots, intent, quorum)
     built = _build_slots(slots)
     if intent is None:
         return GatherNode(
@@ -162,10 +175,8 @@ def _reduce_graph(
     # WHY: fan-out + reduce is a LIST operation — it needs a parenthesised group of
     # relative-expression sources, mirroring the reference engine's fan-out gate
     # (``_is_fanout and raw_intent``: the source must be a list AND carry a
-    # top-level intent). A *bare* single relative expression with a top-level
-    # intent is not a list: its intent folds into that one call — matching the
-    # eager AST path's :func:`_lower_rel_expr` — instead of spawning a spurious
-    # reducer call to "combine" a single response.
+    # top-level intent). A bare call followed by a top-level intent has no
+    # reading (D-1b: ``/p(x)!a!b`` is a ParseError), so only a list fans out.
     # INVARIANT (`OME-534`): fan-out additionally needs at least one
     # CONTRIBUTING call — instrumental (weight 0.0) members are not panel
     # members, so an all-instrumental call group has nothing to reduce and
@@ -177,35 +188,11 @@ def _reduce_graph(
         and all(_fanout_call(node) is not None for node in built)
         and any(not slot.instrumental for slot in slots)
     ):
-        return _fanout_graph(built, intent)
-    if not from_list and len(built) == 1 and isinstance(built[0], RelUrlNode) and built[0].is_expr:
-        return _fold_intent_into_call(built[0], intent)
+        return _fanout_graph(built, intent, quorum)
     return _base_graph(built, slots, intent, quorum)
 
 
-def _fold_intent_into_call(node: RelUrlNode, intent: _Intent) -> DagNode:
-    """Attach a top-level intent to a single relative-expression call.
-
-    ``/p(ctx)`` + an outer ``!intent`` become one ``/p?q=(ctx)!intent`` fetch,
-    the exact node :func:`_lower_rel_expr` builds for the eager-AST twin — so the
-    lazy text path and the AST path stay in lock-step for this shape.
-    """
-    deps: dict[str, DagNode] = {"intent": intent.make({})}
-    deps.update(node.deps)  # carries the ctx:i context-slot deps too (`OME-535`)
-    return RelUrlNode(
-        node.path,
-        context=node.context,
-        is_expr=True,
-        name=node.name,
-        weight=node.weight,
-        params=node.params,
-        accept=node.accept,
-        ctx_slots=node.ctx_slots,
-        deps=deps,
-    )
-
-
-def _broadcast_graph(slots: list[_Slot], intent: _Intent | None) -> DagNode:
+def _broadcast_graph(slots: list[_Slot], intent: _Intent | None, quorum: int | None) -> DagNode:
     """``!*`` — apply the intent once per source (spec §6.1).
 
     Sources resolve under the *outer* scope (no sibling reference edges,
@@ -222,31 +209,61 @@ def _broadcast_graph(slots: list[_Slot], intent: _Intent | None) -> DagNode:
         template = intent.text
     else:
         intent_node = intent.make({})
+    sources = [slot.make({}) for slot in slots]
+    # WHY a gate, not a check in the collector: §6.1.2 runs the intent only once
+    # quorum is met, so every MergeNode waits on it and none runs when it fails.
+    # The gate counts like the local route (post-expansion, instrumental included).
+    gate = None
+    if quorum is not None:
+        gate = GatherNode(_slot_specs(slots), quorum, deps=_src_deps(sources))
     parts: dict[str, DagNode] = {}
-    for i, slot in enumerate(slots):
-        deps: dict[str, DagNode] = {"source": slot.make({})}
+    for i, source in enumerate(sources):
+        deps: dict[str, DagNode] = {"source": source}
         if intent_node is not None:
             deps["intent"] = intent_node
-        parts[f"part:{i}"] = MergeNode(intent_template=template, deps=deps)
+        if gate is not None:
+            deps["quorum"] = gate
+        expanded = _is_expansion(source)
+        parts[f"part:{i}"] = MergeNode(intent_template=template, expanded=expanded, deps=deps)
     return BroadcastCollectNode(tuple(slot.name for slot in slots), deps=parts)
 
 
-def _fanout_graph(built: list[DagNode], intent: _Intent) -> DagNode:
+def _is_expansion(node: DagNode) -> bool:
+    """Whether ``node`` is an ``;expand`` source, through a label or a guard (§5.3.12).
+
+    Only an expansion splits into per-element broadcast sources; an iteration
+    source resolves to a single value (§5.3.8) and stays one source.
+    """
+    if isinstance(node, BindingNode):
+        node = node.deps["value"]
+    if isinstance(node, GuardNode):
+        node = node.inner
+    return isinstance(node, ExpandNode)
+
+
+def _src_deps(sources: list[DagNode]) -> dict[str, DagNode]:
+    return {f"src:{i}": node for i, node in enumerate(sources)}
+
+
+def _fanout_graph(built: list[DagNode], intent: _Intent, quorum: int | None) -> DagNode:
     """All-relative-expression group: parallel fetches + a reducer fetch.
 
     The instruction resolves under the outer scope (no slot edges), matching the
-    reference engine's fan-out path. ``meta`` labels come from the (possibly
-    guard-wrapped) call nodes' descriptors.
+    reference engine's fan-out path; a text instruction travels as a raw
+    template so it substitutes once, together with the response names.
+    ``meta`` labels come from the (possibly guard-wrapped) call nodes'
+    descriptors.
     """
-    deps: dict[str, DagNode] = {"intent": intent.make({})}
-    deps.update({f"call:{i}": node for i, node in enumerate(built)})
+    deps: dict[str, DagNode] = {f"call:{i}": node for i, node in enumerate(built)}
+    if intent.text is None:
+        deps["intent"] = intent.make({})
     meta = []
     for node in built:
         unwrapped = _fanout_call(node)
         assert unwrapped is not None  # gated by _reduce_graph
         call, label = unwrapped
         meta.append((label or call.name, call.weight))
-    return FanoutReduceNode(tuple(meta), deps=deps)
+    return FanoutReduceNode(tuple(meta), quorum, intent_template=intent.text, deps=deps)
 
 
 def _base_graph(
@@ -264,7 +281,11 @@ def _base_graph(
     if intent.text is not None:
         return ProcessNode(_slot_specs(slots), quorum, intent_template=intent.text, deps=deps)
     waits = {f"wait:{i}": node for i, node in enumerate(built)}
-    deps["intent"] = BarrierNode(deps={"inner": intent.make({}), **waits})
+    # WHY the group edges: a computed intent (`/w?q=($1)!'Write'`) reads the group's
+    # sources (B §6.2), so its `$1` must reach the same node the group gathers.
+    by_name = {slot.name: node for slot, node in zip(slots, built, strict=True) if slot.name}
+    edges = _ref_edges(intent.refs, by_name, dict(enumerate(built, start=1)))
+    deps["intent"] = BarrierNode(deps={"inner": intent.make(edges), **waits})
     return ProcessNode(_slot_specs(slots), quorum, deps=deps)
 
 

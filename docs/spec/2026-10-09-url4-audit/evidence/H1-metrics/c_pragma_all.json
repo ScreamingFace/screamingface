@@ -1,0 +1,102 @@
+{
+  "kind": "custom",
+  "total": 8,
+  "hits": [
+    {
+      "file": "packages/url4/src/url4/cli/_serve.py",
+      "line": 191,
+      "text": "raise ResolutionError(\"provider declares no source\")  # pragma: no cover",
+      "marker": "pragma: no cover",
+      "key": "pragma: no cover",
+      "expires": null,
+      "reason": null,
+      "age_days": 78.40613541315827,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-23"
+    },
+    {
+      "file": "packages/url4/src/url4/cli/_serve.py",
+      "line": 280,
+      "text": "else:  # pragma: no cover - no websocket surface in v1",
+      "marker": "pragma: no cover",
+      "key": "pragma: no cover",
+      "expires": null,
+      "reason": null,
+      "age_days": 78.40613541315827,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-23"
+    },
+    {
+      "file": "packages/url4/src/url4/cli/app.py",
+      "line": 166,
+      "text": "uvicorn.run(app, host=host, port=port)  # pragma: no cover - needs the extra + a real bind",
+      "marker": "pragma: no cover",
+      "key": "pragma: no cover",
+      "expires": null,
+      "reason": null,
+      "age_days": 78.40613541315827,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-23"
+    },
+    {
+      "file": "packages/url4/src/url4/cli/app.py",
+      "line": 167,
+      "text": "return 0  # pragma: no cover",
+      "marker": "pragma: no cover",
+      "key": "pragma: no cover",
+      "expires": null,
+      "reason": null,
+      "age_days": 78.40613541315827,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-23"
+    },
+    {
+      "file": "packages/url4/src/url4/cli/app.py",
+      "line": 170,
+      "text": "if __name__ == \"__main__\":  # pragma: no cover",
+      "marker": "pragma: no cover",
+      "key": "pragma: no cover",
+      "expires": null,
+      "reason": null,
+      "age_days": 78.40613541315827,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-23"
+    },
+    {
+      "file": "packages/url4/src/url4/streaming/testing/stream_contract.py",
+      "line": 46,
+      "text": "except TimeoutError as exc:  # pragma: no cover - only on a non-conforming adapter",
+      "marker": "pragma: no cover",
+      "key": "pragma: no cover",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41840393167679,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/src/url4/streaming/testing/stream_contract.py",
+      "line": 92,
+      "text": "except TimeoutError as exc:  # pragma: no cover - only on a non-conforming adapter",
+      "marker": "pragma: no cover",
+      "key": "pragma: no cover",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41840393167679,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/src/url4/streaming/testing/stream_contract.py",
+      "line": 171,
+      "text": "except TimeoutError as exc:  # pragma: no cover - only on a non-conforming adapter",
+      "marker": "pragma: no cover",
+      "key": "pragma: no cover",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41840393167679,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    }
+  ]
+}
