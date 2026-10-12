@@ -71,7 +71,13 @@ def _fusion(fusion: Fusion, active: tuple[int, ...]) -> Recipe:
         synthesizer = _rewrite(synthesizer, active)
     if _same(fusion.members, members) and synthesizer is fusion.synthesizer:
         return fusion
-    return Fusion(members, name=_fusion_name(fusion), synthesizer=synthesizer)
+    return Fusion(
+        members,
+        name=_fusion_name(fusion),
+        synthesizer=synthesizer,
+        quorum=fusion.quorum,
+        optional=fusion.optional,
+    )
 
 
 def _fusion_name(fusion: Fusion) -> str | None:
@@ -87,7 +93,14 @@ def _lowered_pair(stages: Sequence[Recipe], index: int, active: tuple[int, ...])
     if follower is None or _is_context_fusion(follower):
         raise ValueError(CONTEXT_MISUSE)
     members = tuple(_rewrite(member, active) for member in context.members)
-    return Fusion(members, name=_fusion_name(context), synthesizer=_rewrite(follower, active))
+    # WHY the quorum rides along: the block form must compile to the named form's bytes. The
+    # context Fusion is a Pipeline stage, never optional; the Pipeline's own flag is kept below.
+    return Fusion(
+        members,
+        name=_fusion_name(context),
+        synthesizer=_rewrite(follower, active),
+        quorum=context.quorum,
+    )
 
 
 def _pipeline(pipeline: Pipeline, active: tuple[int, ...]) -> Recipe:
@@ -108,8 +121,25 @@ def _pipeline(pipeline: Pipeline, active: tuple[int, ...]) -> Recipe:
     if not lowered and _same(pipeline.stages, stages):
         return pipeline
     if lowered and len(stages) == 1 and not pipeline._is_named:
-        return stages[0]
-    return Pipeline(stages, name=pipeline.name if pipeline._is_named else None)
+        return _optional_fusion(stages[0], pipeline.optional)
+    return Pipeline(
+        stages, name=pipeline.name if pipeline._is_named else None, optional=pipeline.optional
+    )
+
+
+def _optional_fusion(stage: Recipe, optional: bool) -> Recipe:
+    """The lowered Fusion that replaces a one-pair Pipeline keeps that Pipeline's optional flag."""
+
+    if not optional:
+        return stage
+    assert isinstance(stage, Fusion)  # a lowered pair is always a Fusion
+    return Fusion(
+        stage.members,
+        name=_fusion_name(stage),
+        synthesizer=stage.synthesizer,
+        quorum=stage.quorum,
+        optional=True,
+    )
 
 
 def _loop(loop: CorrectiveLoop, active: tuple[int, ...]) -> Recipe:

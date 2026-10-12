@@ -199,7 +199,9 @@ Quorum and per-member optional settings survive `Url4.to_python()` and replay.
 A reducer synthesizer (`sf.Vote`, `sf.Reduce`, `sf.Judge` and the other combine blocks) takes
 quorum and optional members too. It reads only the members that answered, and the evidence lists
 each failed optional member with the reason `missing`; a judge scores only the members that
-answered. With `quorum=0` and no member answering, the reducer abstains and the Case scores 0.0.
+answered. `sf.Concat` joins only the members that answered, so set `label=True` when the next
+stage must know which member wrote each part. With `quorum=0` and no member answering, the
+reducer abstains and the Case scores 0.0.
 
 **Deployment requirement:** before using composed quorum Recipes (such as a Pipeline
 feeding a quorum Fusion or a quorum Fusion used as a synthesizer), deploy an Engine
