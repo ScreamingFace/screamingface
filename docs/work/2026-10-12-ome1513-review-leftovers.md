@@ -50,11 +50,10 @@ was held: see Deviations.
 - **Commits:** this branch, `OME-1527-pr5-ome1513-leftovers`.
 - **Gates:** relevant tests only — the check-surface, definition, runtime, stage-parity,
   stage-installation, published-revision and declaration tests (216 passed); ruff and
-  extra-less pyright clean on every touched file. The pre-push hook runs the full gate.
+  extra-less pyright clean on every touched file. Pre-push `run_gates.py screamingface-engine`:
+  ALL GATES GREEN (append-only check included).
 - **Deviations:** the MuSiQue leftover is NOT in this unit. Making `musique_support_f1` raise on
   a missing `supporting_idx` edits `local_tasks/musique/musique.py`, and the MuSiQue revision
   hashes every `.py` file in that package, so its published revision moves (probe:
   `test_published_benchmark_revision_is_byte_identical[musique-1ae798e073477a54]` fails). The
-  work order said to stop and report rather than re-pin; it waits on an owner call. The
-  deleted end-to-end test and fixture are file deletions, which the append-only gate cannot
-  approve through a manifest; owner decision on OME-1527 Work order #5.
+  work order said to stop and report rather than re-pin; it waits on an owner call.
