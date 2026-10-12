@@ -52,3 +52,15 @@ merged spec PR #1329 did not include.
   - §5.4 takes the tool occurrence before execution and keeps `max-age` re-issues `ambiguous`.
   - §0a is corrected: the `seq` uniqueness is kept, and the claim that the malformed `cache` find
     "dissolves" was wrong.
+- **Phase 2 design fixes (2026-10-12):** the implementers and the reviewers found gaps. Each one is
+  now a rule in the design:
+  - §6: the case digest fills only with the status and the copy id. Only the score read returns it.
+    The `not_exact` message names the digest.
+  - §7: `LeaderboardScore.case_digest` is public. `capture_partial_reasons` is in `to_dict()` and fails
+    closed on a bad count. A score of 0.0 stays 0.0 in the digest. `sf.reproduce` cannot name partial
+    reasons, so `local` shows only on the submitter's `CandidateResult`.
+  - §4.3: no body, `{}` or `{"provenance": null}` on seal stores no provenance.
+  - §5.3 item 2a: a replay failure that the copy did not serve is permanent
+    (`frozen_copy_unavailable`). A `frozen_copy_miss` is permanent too. Reason: the occurrence is
+    never given back, so a retry would read the next entry.
+  - §10 FU-6: grading calls should carry their Attempt.
