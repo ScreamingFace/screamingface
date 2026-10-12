@@ -35,8 +35,6 @@
 
   // The history rows carry no paper link, so it comes from the same score
   // detail the run link uses (the newest submission). Nothing is added when there is no safe link.
-  // The metadata edit time (E14 Q24) comes from the same detail and is shown on its own line,
-  // so it also appears when the edit changed only the authors and there is no paper link.
   function renderPaperLink(contentNode, score) {
     var anchor = P.paperLink(score && score.paper_url);
     if (anchor !== null) {
@@ -44,6 +42,11 @@
       line.appendChild(anchor);
       contentNode.insertBefore(line, contentNode.querySelector("h2"));
     }
+  }
+
+  // The metadata edit time (E14 Q24) comes from the same detail and is shown on its own line,
+  // so it also appears when the edit changed only the authors and there is no paper link.
+  function renderMetadataEdited(contentNode, score) {
     if (score && score.metadata_updated_at) {
       contentNode.insertBefore(
         P.el("p", "meta mono", "Metadata edited " + P.formatDate(score.metadata_updated_at)),
@@ -56,6 +59,7 @@
     P.fetchJson("/v1/scores/" + encodeURIComponent(latestId)).then(
       function (score) {
         renderPaperLink(contentNode, score);
+        renderMetadataEdited(contentNode, score);
         if (score && score.url4_expression) {
           P.clear(regionNode);
           regionNode.appendChild(P.createCopyButton(specId, score.url4_expression));

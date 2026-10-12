@@ -129,13 +129,18 @@ async function renderSpecPage(score) {
   return { content: ids["spec-content"], portal: context.ScorePortal };
 }
 
-function anchors(node) {
+// Every descendant of `node` that passes `pred`, in document order.
+function findAll(node, pred) {
   const found = [];
   for (const child of node.children) {
-    if (child.tag === "a") found.push(child);
-    found.push(...anchors(child));
+    if (pred(child)) found.push(child);
+    found.push(...findAll(child, pred));
   }
   return found;
+}
+
+function anchors(node) {
+  return findAll(node, (child) => child.tag === "a");
 }
 
 function scoreDetail(extra) {
@@ -176,21 +181,23 @@ test("paperLink returns null for a falsy or non-http(s) value and an anchor othe
 
 // E14 A1, decision Q24: the last-edit time of a score's metadata is public.
 function metaLines(node) {
-  const found = [];
-  for (const child of node.children) {
-    if (child.tag === "p" && child.textContent.startsWith("Metadata edited ")) found.push(child.textContent);
-    found.push(...metaLines(child));
-  }
-  return found;
+  return findAll(node, (child) => child.tag === "p" && child.textContent.startsWith("Metadata edited ")).map(
+    (child) => child.textContent
+  );
 }
 
 test("the metadata edit time shows next to the paper link when it is set", async () => {
   const { content, portal } = await renderSpecPage(
     scoreDetail({ paper_url: "https://arxiv.org/abs/2610.01234", metadata_updated_at: "2026-10-06T12:00:00Z" })
   );
+  const expected = "Metadata edited " + portal.formatDate("2026-10-06T12:00:00Z");
 
-  assert.deepEqual(metaLines(content), ["Metadata edited " + portal.formatDate("2026-10-06T12:00:00Z")]);
+  assert.deepEqual(metaLines(content), [expected]);
   assert.equal(anchors(content).length, 1);
+  // The edit line is the sibling directly after the "Paper:" line.
+  const paper = content.children.find((child) => child.tag === "p" && child.textContent === "Paper: ");
+  assert.ok(paper);
+  assert.equal(content.children[content.children.indexOf(paper) + 1].textContent, expected);
 });
 
 test("the metadata edit time shows when the score has no paper link", async () => {

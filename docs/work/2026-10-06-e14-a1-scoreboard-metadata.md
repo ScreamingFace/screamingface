@@ -86,13 +86,14 @@ as they are.
 - **Change:** decision Q24. The spec history page shows `Metadata edited <date>` when
   `score.metadata_updated_at` is set. The line uses `P.formatDate`, the date format that
   `spec.js` already uses for `submitted_at`. The line is a separate `p.meta.mono` element. It
-  shows also when the score has no paper link. No API change. The score detail already returns
+  It also shows when the score has no paper link. No API change. The score detail already returns
   `metadata_updated_at` to an anonymous caller on a public board.
 - **Tests:** `test_public_score_detail_returns_metadata_updated_at_to_an_anonymous_caller`
   (`tests/unit/test_score_metadata_patch.py`). Three tests appended to
   `tests/portal/paper-link.test.js`: edit date shows with a paper link; edit date shows with no
-  paper link; no edit line when the value is null or absent. Red before the `spec.js` change, green
-  after.
+  paper link; no edit line when the value is null or absent. The three portal tests are red before
+  the `spec.js` change and green after. The Python test is green before and after, because the API
+  already returns the value.
 - **Gates:** `ALL GATES GREEN` (`run_gates.py scoreboard --base
   refs/e14-backup/pre-phase2-2026-10-12/OME-1435-e14-b3-engine-frozen-copy`). The append-only
   check passed. No `--skip-append-only` was used.

@@ -691,6 +691,7 @@ async def test_public_score_detail_returns_metadata_updated_at_to_an_anonymous_c
     patched = await client.patch(
         f"/v1/scores/{score_id}", json={"paper_url": PAPER}, headers=_as(ALICE)
     )
+    assert patched.status_code == 200, patched.text
 
     fetched = await client.get(f"/v1/scores/{score_id}")
 
