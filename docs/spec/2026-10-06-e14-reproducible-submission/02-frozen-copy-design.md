@@ -1,6 +1,9 @@
 # E14 redesign — frozen copy (supersedes the cache-version design)
 
 **Status:** approved by the owner on 2026-10-08 · **Epic:** OME-1307
+**Addendum 2026-10-12:** Q23–Q30 answer the owner's design review of the PR stack (2026-10-12). The
+implementer approved them on 2026-10-12; the owner confirms them on the PR that adds this addendum.
+Fix plan: `docs/plan/2026-10-06-e14-reproducible-submission/R-2026-10-12-design-review-fixes.md`.
 **Supersedes:** `prd/gateway-cache-revision.md` (removed), and every part of `prd/cache-version-capture.md`,
 `prd/reproduce.md`, `erd.md` and `contracts.md` that names a cache revision, `only-if-cached`,
 `cache-revision`, `X-Cache-Replay` or the revisions endpoint. Where this file and an older file
@@ -39,6 +42,14 @@ header, the revisions endpoint) is removed from the stack. There is no publish s
 | Q20 | Answer seed | Kept: still stored and sent. |
 | Q21 | Remove the cache-revision mechanism from the stack | Yes. |
 | Q22 | Capture default (2026-10-09) | "consider the capture flag an optional flag and for it to be true, by default" |
+| Q23 | Local capture (review item A, 2026-10-12) | A capture on the local runtime is `partial` with reason `local`. A hosted reproduction refuses it (`not_reproducible`). The upload step (Q14) stays a follow-up. |
+| Q24 | Last-edit time (review item B) | Public. The score detail and the portal show `metadata_updated_at`. The edit log stays owner and operator only (Q10). |
+| Q25 | Replay access on private boards (review item 1) | Q16 stands. The copy id is a bearer secret: a private board never returns it to a non-owner. No replay grants. |
+| Q26 | Trust in web-tool results (review item 2) | "Exact" means internally consistent. The copy stores tool results as the engine run reported them. Hardening (an engine service identity for copy writes) is a follow-up. |
+| Q27 | Replay key (review item 5) | Each call is keyed by `(case key, kind, request digest, occurrence)`. The occurrence counts the earlier logical calls of the same request in the same case. It is fixed when the call is first sent and never given back. Replay reads that exact key. Replaces the §4.4 "nth success" rule and the D2 forgiveness rule. |
+| Q28 | Provenance (review item 6) | At seal the engine sends its version. The gateway stores it on the copy. Upgrade-safe replay is a follow-up. |
+| Q29 | Per-case exact (review item 3) | The SDK computes a case digest from the graded cases. The board stores it at submit and compares it on reproduction. |
+| Q30 | Tavily retrieval cache (found in the review) | The cache key includes the caller's account. Cross-account sharing stops until the engine has a service identity. |
 
 ## 3. Data model (AI Gateway, new)
 
@@ -52,6 +63,7 @@ Core module `aigateway.core.frozen_copy` (registered in the Tortoise model list)
 | `account` | FK → `Account`, `CASCADE` | The account that opened the copy. Only it may write or seal. |
 | `status` | `open` \| `sealed` | `open` on create; `sealed` is final. |
 | `entries` | int | Count, set at seal. |
+| `provenance` | JSON, nullable | Set at seal (Q28): `{"engine_version": "<string>"}`. Null when the seal sent none. |
 | `created_at`, `sealed_at` | datetime | |
 
 **`frozen_copy_entries`**
@@ -61,7 +73,9 @@ Core module `aigateway.core.frozen_copy` (registered in the Tortoise model list)
 | `id` | UUID pk | |
 | `frozen_copy` | FK → `frozen_copies`, `CASCADE` | |
 | `kind` | `chat` \| `tool` | |
-| `request_digest` | char(64) | sha256 (see §4.1). Index `(frozen_copy, kind, request_digest, created_at)`. |
+| `case_key` | varchar(32) | Q27. 32 lowercase hex chars, or `""` for a call outside any case. |
+| `occurrence` | int ≥ 0 | Q27. The logical-call number of this request in this case. |
+| `request_digest` | char(64) | sha256 (see §4.1). Index `(frozen_copy, kind, case_key, request_digest, occurrence)`. Not unique: every attempt of one logical call is stored. |
 | `request_json` | JSON | The digested request (chat body or tool description). |
 | `response_json` | JSON | Chat: the body returned to the caller, or the error `detail`. Tool: `{"result": "<string>"}`. |
 | `status_code` | int | 200 for a success; the HTTP status of a captured error. |
@@ -86,9 +100,12 @@ Invariants:
 
 ### 4.2 Capture on `/v1/chat/completions`
 
-- Request header `X-AIGW-Frozen-Copy: <copy id>`.
+- Request headers `X-AIGW-Frozen-Copy: <copy id>`, `X-AIGW-Case-Key: <case key>` (absent = `""`) and
+  `X-AIGW-Call-Occurrence: <n>` (Q27).
 - Before the cache stage, the gateway checks the copy: it exists, it belongs to the caller's account, and
-  it is `open`. If not, the call is served as usual and nothing is stored (`refused`).
+  it is `open`. It also checks the two key headers: the case key is `""` or 32 lowercase hex chars, and
+  the occurrence is present and a non-negative integer (at most 18 digits). If any check fails, the call
+  is served as usual and nothing is stored (`refused`).
 - `stream: true` is never captured (`refused`): the gateway has no assembled body for a stream.
 - After the final response is ready (a cache hit or a live success), the gateway inserts one entry with
   status 200 and the body it returns. A provider or dispatch error that ends the call (an
@@ -103,21 +120,23 @@ Invariants:
 | Route | Who | Result |
 |---|---|---|
 | `POST /v1/frozen-copies` | any account | 201 `{"id", "status": "open"}` |
-| `POST /v1/frozen-copies/{id}/seal` | owner | 200 `{"id", "status": "sealed", "entries"}`. Idempotent. Not the owner or unknown → 404. |
-| `POST /v1/frozen-copies/{id}/tool-results` | owner, copy `open` | Body `{"description": {...}, "result": "<string>"}` → 200 `{"outcome": "stored" \| "failed"}`. Sealed → 409 `frozen_copy_sealed`. |
-| `POST /v1/frozen-copies/{id}/chat/completions` | anyone (Q16), copy `sealed` | Replay. Same request and response shape as `/v1/chat/completions`. |
-| `POST /v1/frozen-copies/{id}/tool-results/lookup` | anyone, copy `sealed` | Body `{"description": {...}}` → 200 `{"result": "<string>"}`. |
+| `POST /v1/frozen-copies/{id}/seal` | owner | Optional body `{"provenance": {"engine_version": "<1–64 chars>"}}`; another key or a bad value → 422. 200 `{"id", "status": "sealed", "entries"}`. Idempotent: a repeat seal keeps the first provenance. Not the owner or unknown → 404. |
+| `POST /v1/frozen-copies/{id}/tool-results` | owner, copy `open` | Key headers as in §4.2 (bad → 400 `malformed_call_key`). Body `{"description": {...}, "result": "<string>"}` → 200 `{"outcome": "stored" \| "failed"}`. Sealed → 409 `frozen_copy_sealed`. |
+| `POST /v1/frozen-copies/{id}/chat/completions` | anyone (Q16), copy `sealed` | Replay. Key headers as in §4.2 (bad → 400 `malformed_call_key`). Same request and response shape as `/v1/chat/completions`. |
+| `POST /v1/frozen-copies/{id}/tool-results/lookup` | anyone, copy `sealed` | Key headers as in §4.2 (bad → 400 `malformed_call_key`). Body `{"description": {...}}` → 200 `{"result": "<string>"}`. |
+
+The copy id is a bearer secret (Q25). The gateway never logs it next to request or response content.
 
 ### 4.4 Replay rules
 
 - The copy must exist and be `sealed`; else 404 `{"code": "frozen_copy_unavailable"}`.
-- The caller sends `X-AIGW-Replay-Occurrence: <n>` (default 0): how many successful answers the caller
-  already received for this same request in this replay run.
-- Lookup among the entries with the same `(copy, kind, digest)`:
-  1. the successful entries (status 200) in capture order: return entry `n`, or the last one when `n`
-     is past the end (identical requests under the cache return identical answers);
-  2. if there is no successful entry: return the latest captured error with its status and `detail`;
-  3. if there is no entry: 404 `{"code": "frozen_copy_miss"}`.
+- The caller sends `X-AIGW-Case-Key` and `X-AIGW-Call-Occurrence` (Q27, same rules as §4.2).
+  `X-AIGW-Replay-Occurrence` is removed.
+- Lookup among the entries with the same `(copy, kind, case_key, digest, occurrence)`:
+  1. the latest successful entry (status 200, highest `seq`);
+  2. if there is no successful entry: the latest captured error with its status and `detail`;
+  3. if there is no entry: 404 `{"code": "frozen_copy_miss"}`. There is no fallback to another
+     occurrence or another case key.
 - No credential is resolved, no provider and no plugin is called, no model is validated, no cache is
   read or written. A replay works after a model is retired or a provider plugin is removed.
 - A replayed chat body is marked so that accounting shows $0 spend: the gateway sets the body's
@@ -143,40 +162,55 @@ present (pinned 2026-10-08, B3 review).
 
 1. At run start (before the first step), `POST /v1/frozen-copies` with the run's identity headers. On
    failure the run continues uncaptured and is `partial` (reason `open`).
-2. Every chat call adds `X-AIGW-Frozen-Copy: <id>` and records the `X-AIGW-Capture` value (no header →
-   `missing`, for an older gateway).
+2. Every chat call adds `X-AIGW-Frozen-Copy: <id>` and the call key (§5.4), and records the
+   `X-AIGW-Capture` value (no header → `missing`, for an older gateway).
 3. Every web-tool call: after `_execute_tool` returns its string (before truncation), `POST
-   …/tool-results` with the description and the string, and record the outcome. This covers success,
-   "no results" and failure strings alike: the copy stores exactly what the model saw.
-4. At run end, `POST …/seal`. On failure the run is `partial` (reason `seal`).
-5. **Rule:** `capture.status = complete` only when the open and the seal worked and every chat and tool
-   outcome is `stored`. A failed or cancelled call that a later attempt with the same request replaced
-   is forgiven (the request-digest rule, D2). Anything else is `partial`.
+   …/tool-results` with the call key, the description and the string, and record the outcome. This
+   covers success, "no results" and failure strings alike: the copy stores exactly what the model saw.
+4. At run end, `POST …/seal` with `{"provenance": {"engine_version": <installed screamingface-engine
+   version>}}` (Q28). On failure the run is `partial` (reason `seal`).
+5. **Rule:** `capture.status = complete` only when the open and the seal worked, every chat and tool
+   outcome is `stored`, and the run is not on the local runtime. Anything else is `partial`. No outcome
+   is forgiven (Q27 removes D2): a call that left no entry at its key would be a replay miss.
 6. Run summary attributes: `capture.frozen_copy_id`, `capture.status`, and
    `capture.partial.<reason>` counts (`failed`, `refused`, `missing`, `open`, `seal`, `error`,
-   `ambiguous`). A capture run always writes them, even with no model call and also when the run fails.
+   `ambiguous`, `local`). A capture run always writes them, even with no model call and also when the run
+   fails.
 7. **`ambiguous` (pinned 2026-10-08, B3 review):** in capture mode, a call that the engine re-issued under a
    `max-age` bound, or a call whose transport attempt was retried, may leave a stored answer the model never
    used ahead of the one it used. Such a call records `ambiguous`, which is never forgiven, so the run is
-   `partial`.
+   `partial`. A call whose every transport attempt lost its reply is `ambiguous` too (#1332 review).
+8. **`local` (Q23):** a capture on the local runtime (`create_local_app`) counts `capture.partial.local =
+   1`. Its copy lives only in the local gateway, so a hosted board can never replay it.
 
 ### 5.3 Replay mode
 
-1. Every chat call goes to `POST /v1/frozen-copies/{id}/chat/completions` with
-   `X-AIGW-Replay-Occurrence`. The engine reserves the next occurrence slot for the request digest when it
-   sends the call, and gives the slot back if the call does not succeed, so concurrent identical requests
-   get distinct entries.
+1. Every chat call goes to `POST /v1/frozen-copies/{id}/chat/completions` with the call key (§5.4).
 1a. Replay skips the engine's model-admission check (`/v1/models/admit`), so a retired model still
    replays.
 2. A found success is used as usual and accounted as $0 (like a cache hit). A captured error is raised as
    usual, so the case fails the same way as in the original run. A 404 `frozen_copy_miss` fails the case
    with `frozen_copy_miss`; a 404 `frozen_copy_unavailable` fails it with `frozen_copy_unavailable`.
 3. No `max-age` re-issue and no cache controls in replay mode.
-4. Web-tool calls never call Tavily: the engine calls `…/tool-results/lookup` (with the occurrence
-   rule). A miss fails the case with `frozen_copy_miss`.
+4. Web-tool calls never call Tavily: the engine calls `…/tool-results/lookup` with the call key (§5.4).
+   A miss fails the case with `frozen_copy_miss`.
 5. The run summary always carries `capture.replay = <id>`.
 6. Failure codes `frozen_copy_miss` and `frozen_copy_unavailable` are declared in the engine
    (`error_text.py`, `benchmarks/contract.py`) and in the SDK mirror (`_report_primitives.py`).
+
+### 5.4 Call key (Q27)
+
+The engine sends the same key in capture and in replay, so both runs name each call the same way.
+
+- **Case key:** the first 32 hex chars of `sha256(json.dumps(["case", case_id], separators=(",", ":")))`.
+  The case id comes from `case_scope` for a candidate call. For a grading or judge call it comes from
+  the grading case when the engine can resolve it. Otherwise the case key is `""`.
+- **Occurrence:** the run tally keeps a counter per `(case key, kind, request digest)`. A logical call
+  takes the next value when it is first sent. Every transport attempt of that call sends the same value.
+  The value is never given back, in capture or in replay. A gathered group of calls takes its values in
+  task-creation order, before the first `await` of each task.
+- A higher-level retry (a new logical call) takes a new occurrence. In replay, the captured error of the
+  first call comes back, so the same retry happens and takes the same next occurrence.
 
 ## 6. Scoreboard behaviour
 
@@ -184,9 +218,15 @@ present (pinned 2026-10-08, B3 review).
   `partial`, nullable) replace `cache_revision` and `reproducible`. `answer_seed` stays. All three are
   fill-only on a same-owner resubmit. `frozen_copy_id` requires `capture_status`.
 - `score_reproductions.frozen_copy_id` replaces `cache_revision`.
+- `Score.case_digest` (64 lowercase hex, nullable, Q29): fill-only on a same-owner resubmit, like the
+  other three. It requires `capture_status`. The score read returns it.
 - `POST /v1/scores/{id}/reproductions`: the score must have `capture_status = complete` (else 409
   `not_reproducible`); the body's `score`, `total_questions` and `frozen_copy_id` must equal the stored
-  values (else 422 `not_exact`). Everything else is unchanged.
+  values (else 422 `not_exact`). When the score has a `case_digest`, the body must carry an equal
+  `case_digest` (else 422 `not_exact`). Everything else is unchanged.
+- The score read is public on a public board, so it shows `metadata_updated_at`, and the portal shows
+  "Metadata edited <date>" next to the paper link (Q24).
+- A private board never returns `frozen_copy_id` to a non-owner (Q25).
 
 ## 7. SDK behaviour
 
@@ -194,7 +234,12 @@ present (pinned 2026-10-08, B3 review).
   `True` sends `X-Capture: true`. `capture=False` sends no header. `sf.reproduce` never sends
   `X-Capture`.
 - `CandidateResult.frozen_copy_id` and `capture_status` (from the run summary; absent → `None`).
-- `submit` sends `frozen_copy_id`, `capture_status` and `answer_seed` when set.
+- `CandidateResult.capture_partial_reasons: tuple[str, ...]`: the `capture.partial.<reason>` names with a
+  non-zero count, sorted (empty when complete or not captured). A local capture shows `("local",)`.
+- **Case digest (Q29):** for each case, the entry `[case_id, status, grade.score or null]`, serialized
+  with `json.dumps(entry, separators=(",", ":"))`. Sort the strings, join them with `"\n"`, and take the
+  sha256 hex. The SDK computes it from `CandidateResult.cases`. It is not a public attribute.
+- `submit` sends `frozen_copy_id`, `capture_status`, `answer_seed` and `case_digest` when set.
 - `LeaderboardScore.frozen_copy_id`, `capture_status` replace `cache_revision`, `reproducible`.
 - `sf.reproduce(score, *, record=True)`, in check order:
 
@@ -208,7 +253,11 @@ present (pinned 2026-10-08, B3 review).
 | failed | `run_failed` | A candidate-level failure that is not a replay code. |
 | failed | `benchmark_revision_changed` | The replay ran on another benchmark revision. |
 | failed | `score_differs` | The score or the case count differs. |
-| exact | — | Recorded with `frozen_copy_id` when `record=True`. |
+| failed | `cases_differ` | Score and count are equal, the score has a `case_digest`, and the replay's digest differs. |
+| exact | — | Recorded with `frozen_copy_id` and the replay's `case_digest` when `record=True`. |
+
+`not_reproducible` with reason `partial` names the partial reasons when the score's own run is at hand;
+for a local capture the message says that the copy exists only in the local gateway (Q23).
 
 ## 8. Removed from the stack
 
@@ -223,17 +272,20 @@ present (pinned 2026-10-08, B3 review).
   the run-scoped tally with D1/D2, the always-written summary for special runs, the failure-code
   declarations.
 - **B4, B5, C1:** renamed fields, codes and texts as in §6, §7.
-- **B2 (Tavily cache through the gateway):** unchanged. It still saves money on normal runs; it is no
-  longer needed for reproducibility.
+- **B2 (Tavily cache through the gateway):** it still saves money on normal runs; it is no longer
+  needed for reproducibility. Q30: the cache key includes the caller's account, so one account can never
+  fill a row that another account reads.
 
 ## 9. Edge cases
 
 | Case | Behaviour |
 |---|---|
 | Cache hit vs live call | Both captured the same way (the body returned to the caller). |
-| Retry after a 429/5xx | Every attempt is captured. Replay of the identical request returns the success directly. |
+| Transport retry after a 429/5xx | Every attempt is captured under the same call key. Replay returns the latest success at that key. A retried attempt makes the call `ambiguous`, so the run is `partial`. |
 | Final error (the case failed) | Captured with its status and `detail`; replay returns it, so the case fails the same way. |
-| Identical requests, different answers (sampling, cache off) | Served in capture order via the occurrence counter. Concurrent branches can take them in another order: a known limit. |
+| Identical requests, different answers (sampling, cache off) | Each logical call has its own key (Q27), so concurrent cases never swap answers. Inside one case, concurrent identical calls take their occurrences in task-creation order. |
+| Replay call lost on the way to the gateway, then retried as a new logical call | The retry takes the next occurrence, which the capture run did not use → a miss or another answer → `failed`. A false "failed", never a false "exact". |
+| Same prompt in two cases | Different case keys, so each case gets its own answer. |
 | Provider-native web search | Inside the chat response, so captured with it. |
 | LLM judges | Through the gateway, so captured. |
 | Streaming request under capture | Not captured (`refused`) → the run is `partial`. |
@@ -241,6 +293,18 @@ present (pinned 2026-10-08, B3 review).
 | Gateway older than B1 | No `X-AIGW-Capture` header → `missing` → `partial`. A replay gets 404 on the replay route → `frozen_copy_unavailable`. |
 | Engine crashes mid-run | The copy stays `open`; replay refuses it (`frozen_copy_unavailable`). |
 | Replay of a run that offered no web tools (no Tavily connection) on an engine that offers them | The request bodies differ → `frozen_copy_miss`. Known limit. |
-| Different engine/SDK version renders prompts differently | Different digests → `frozen_copy_miss`, visible. |
+| Different engine/SDK version renders prompts differently | Different digests → `frozen_copy_miss`, visible. The copy keeps the engine version (Q28) so a follow-up can make our own upgrades safe. |
 | Model retired, plugin removed, cache key rules changed | Replay still works. |
-| Local runs | Out of scope (Q14). Future: upload a local frozen copy. |
+| Local runs | Capture is `partial` with reason `local` (Q23). Future: upload a local frozen copy. |
+| A submitter posts a made-up tool result to an open copy | Stored; a replay is still exact (Q26). Follow-up: only the engine's service identity may write. |
+
+## 10. Follow-ups from the 2026-10-12 review (not in E14)
+
+- **FU-1:** an engine service identity for copy writes (open, tool results, seal) and Tavily fills.
+- **FU-2:** deleting copies: owner and operator delete; `delete_scores` and the private-board purge also
+  delete copies; a tombstone answers 410 `frozen_copy_deleted` and marks the score; a TTL removes
+  unsealed copies; reconcile Q15 with the account CASCADE.
+- **FU-3:** consistency across runs of one url4 over time (OME-1319).
+- **FU-4:** upgrade-safe replay from `provenance` (match by call position, or replay on the engine
+  version that captured the copy).
+- **FU-5:** upload a local frozen copy to the hosted gateway (Q14, Q23).
