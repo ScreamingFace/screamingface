@@ -47,6 +47,16 @@ class BaseScore(BaseScoreboardModel):
     # trend at `submitted_at`. Deliberately not backfilled: no earlier enrichment time survives.
     # Only `_apply_replay_updates` writes it; authors and metadata do not move it.
     enriched_at = fields.DatetimeField(null=True)
+    # FEATURE: OME-1307 — a link to the paper behind this result, stored exactly as sent.
+    #
+    # INVARIANT: display-only, like `authors`. It is not in `_content_hash` and not in
+    # `_ENRICHING_FIELDS`, so a change never splits dedup and never dates the frontier.
+    # NULL means "no paper". The scoreboard does not check that the link is real.
+    paper_url = fields.TextField(null=True)
+    # FEATURE: OME-1307 — when `authors` or `paper_url` last changed after creation (a PATCH or a
+    # same-owner resubmit). NULL means "never edited". Only a change sets it; a request that
+    # changes nothing leaves it alone.
+    metadata_updated_at = fields.DatetimeField(null=True)
     score = fields.FloatField()  # the exact primary score the Engine Benchmark produced
     total_questions = fields.IntField()
     correct_questions = fields.IntField(null=True)
