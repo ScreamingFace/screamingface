@@ -84,9 +84,11 @@ re-importable again with their published rows unchanged.
   - Memory, not Grading Material: the plugin lane grades every Case inside its one
     aggregate call; the incremental consumer (`shared_grading/incremental.py`, OME-932) is
     used only by the hand-built boards. One store per aggregate call, keyed by Case id.
-  - The tally replays inspect's default `mean` reduction per Case before the metric, as
-    inspect does at one epoch; a Task with its own epoch reducer (coconot, HLE) is refused
-    for honour.
+  - The tally replays inspect's per-Case reduction before the metric: the default `mean` at
+    one epoch, or, for a Task whose epochs are Attempts (OME-1458), its own any-of-N reducer
+    (`max`, `at_least_1`, `pass_at_N`), named on the row as `epoch_reducer`, over the Case's
+    Attempt Scores; the tally refuses a Case whose reduction disagrees with its folded score.
+    Any other epoch reducer (coconot's, HLE's `attempt_preserving_mean`) is refused for honour.
   - An honoured metric is written `TODO:<reference>`; assembly refuses the prefix until a
     reviewer confirms the metric is higher-is-better up to 1 (inspect metrics declare
     neither range nor direction). The tally refuses a headline above 1 or non-finite.

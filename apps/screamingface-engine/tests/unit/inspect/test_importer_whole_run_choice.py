@@ -216,8 +216,9 @@ def test_honouring_a_metric_built_with_arguments_is_refused_by_name() -> None:
 
 
 def test_honouring_a_task_with_its_own_reducer_is_refused_by_name() -> None:
-    """coconot reduces each Sample with its own word map; the tally replays inspect's default
-    mean only, so the metric would read numbers the eval never made."""
+    """coconot reduces each Sample with its own word map; the tally replays only inspect's
+    default mean or, for Attempts, an any-of-N reducer, so the metric would read numbers the
+    eval never made."""
 
     coconot: Any = _module("coconot.coconot")
     reducer: Any = _SCORERS.mean_score(value_to_float=coconot.original_compliance_value_to_float())
@@ -228,7 +229,8 @@ def test_honouring_a_task_with_its_own_reducer_is_refused_by_name() -> None:
 
 def test_hle_headline_is_honourable_but_its_own_reducer_is_not() -> None:
     """HLE (OME-1457): its headline is its own ``accuracy``, which the row can name; its Task
-    reduces with ``attempt_preserving_mean``, which the tally does not replay yet."""
+    reduces with ``attempt_preserving_mean``, which is not an any-of-N reducer, so the tally
+    does not replay it."""
 
     hle: Any = _module("hle.scorers")
     metrics: Any = _module("hle.metrics")

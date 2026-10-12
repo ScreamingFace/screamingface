@@ -7,7 +7,9 @@ FEATURE: whole-run metrics (R1). Think of grading as a marking room: the eval's 
 each Case, then a tally clerk turns the marks into one headline. Until now the clerk could
 only add and divide. A row that names ``whole_run_metric`` hands the clerk the eval's own
 tally sheet: the scorer adapter keeps each graded Case's inspect Score for the run, and the
-tally calls the eval's metric over them.
+tally calls the eval's metric over them. A Case asked several times (Attempts, OME-1458)
+hands the metric its Attempt Scores reduced by the Task's own any-of-N reducer, as inspect
+does before any metric runs.
 
 INVARIANT: the mean stays the default. A row that names no metric pins nothing, so no
 published revision moves, and no published row opts in.
@@ -21,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -31,6 +34,8 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
+from inspect_ai import Epochs, Task  # noqa: E402
+from inspect_ai.dataset import MemoryDataset, Sample  # noqa: E402
 from inspect_ai.scorer import (  # noqa: E402
     CORRECT,
     INCORRECT,
@@ -38,15 +43,24 @@ from inspect_ai.scorer import (  # noqa: E402
     SampleScore,
     Score,
     Scorer,
+    ScoreReducer,
     Target,
     accuracy,
+    at_least,
+    max_score,
     metric,
+    pass_at,
     scorer,
 )
+from inspect_ai.scorer._reducer.registry import reducer_log_names  # noqa: E402
 from inspect_ai.solver import TaskState  # noqa: E402
+from test_importer_whole_run_choice import _row as _rendered_row  # noqa: E402
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
-from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
+from screamingface_engine.benchmarks.graded_answer import (  # noqa: E402
+    CASE_ATTEMPTS_SCHEMA,
+    graded_answer_payload,
+)
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (  # noqa: E402
     GradeRequest,
 )
@@ -54,6 +68,7 @@ from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload 
 from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BENCHMARKS, BenchmarkSpec  # noqa: E402
 from screamingface_engine_inspect.envelopes import CHECK_SCHEMA, build_case_grade  # noqa: E402
+from screamingface_engine_inspect.import_replay import TaskReplayFacts, _facts_of  # noqa: E402
 from screamingface_engine_inspect.prepare import PreparedCase, _write_cases  # noqa: E402
 from screamingface_engine_inspect.scorer_adapter import inspect_grade_case  # noqa: E402
 from screamingface_engine_inspect.single_shot import (  # noqa: E402
@@ -442,7 +457,214 @@ async def test_a_failed_case_keeps_no_score() -> None:
     assert kept == {}
 
 
-# ── 3. the row ───────────────────────────────────────────────────────────────────────────
+# ── 3. Attempts: the metric reads each Case's Attempt Scores reduced by the Task's reducer ─
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reducer", [max_score(), at_least(1), pass_at(2)], ids=["max", "at_least_1", "pass_at_2"]
+)
+async def test_a_case_keeps_its_attempts_reduced_whatever_order_they_finish(
+    reducer: ScoreReducer,
+) -> None:
+    """Attempt Scores [0, 1] and [1, 0] both reach the metric as 1.0 under every any-of-2
+    reducer, as inspect reduces a Sample's epochs before any metric runs.
+
+    WHY both orders: the store used to keep whichever Attempt was graded last, so Case 2
+    ([1, 0]) read 0.0 while its Case Result showed it solved. ``slow_in_reverse`` grades
+    Case 1 slower than Case 2, so the two Cases' Attempts finish interleaved (2, 1, 2, 1),
+    as when the aggregate grades Cases side by side (OME-1527 PR 4).
+    """
+
+    kept: dict[int, SampleScore] = {}
+    grade = inspect_grade_case(slow_in_reverse(), kept_scores=kept, epoch_reducer=reducer)
+
+    async def ask(case_id: int, answers: list[str]) -> None:
+        """Grade one Case's Attempts one after another, as the aggregate's Attempts step does."""
+
+        for answer in answers:
+            await grade(_request(case_id, answer))
+
+    await asyncio.gather(ask(1, ["no", "clause 1"]), ask(2, ["clause 2", "no"]))
+
+    assert {case_id: kept[case_id].score.as_float() for case_id in kept} == {1: 1.0, 2: 1.0}
+
+
+@metric
+def per_task_accuracy() -> Metric:
+    """ARC-AGI-2's shape: a task is one or more test grids, and the headline averages TASKS,
+    each scoring the share of its grids solved, so a task with many grids weighs no more
+    than a task with one. The task id is read from the Sample metadata."""
+
+    def compute(scores: list[SampleScore]) -> float:
+        by_task: dict[str, list[float]] = {}
+        for sample in scores:
+            task_id: str = str((sample.sample_metadata or {})["task_id"])
+            by_task.setdefault(task_id, []).append(sample.score.as_float())
+        return sum(sum(grids) / len(grids) for grids in by_task.values()) / len(by_task)
+
+    return compute
+
+
+@scorer(metrics=[accuracy()])
+def grid_match() -> Scorer:
+    """Stand-in for an ARC scorer: 1 when the reply holds the target grid, else 0; a reply of
+    "crash" raises, so that Attempt fails by name (``scorer_error``) as a scorer bug would.
+
+    It does NOT compare grids cell by cell; it only gives each Attempt a 0/1 mark.
+    """
+
+    async def score(state: TaskState, target: Target) -> Score:
+        if state.output.completion == "crash":
+            raise RuntimeError("scorer bug")
+        return Score(value=1 if target.text in state.output.completion else 0)
+
+    return score
+
+
+#: ARC-shaped test grids: (task id, Attempt 1's reply, Attempt 2's reply), grid N's target
+#: being "grid N". Task A has grids 1 and 2; task B has grid 3.
+_ARC_GRIDS: list[tuple[str, str, str]] = [
+    ("A", "wrong", "grid 1"),  # [0, 1] → solved
+    ("A", "wrong", "wrong"),  # [0, 0] → not solved
+    ("B", "grid 3", "wrong"),  # [1, 0] → solved
+]
+
+
+def _arc_task() -> Task:
+    """The ARC-shaped Task: two any-match epochs, the per-task metric, nothing fetched."""
+
+    return Task(
+        dataset=MemoryDataset(
+            [
+                Sample(
+                    input=f"Solve grid {index}.", target=f"grid {index}", metadata={"task_id": task}
+                )
+                for index, (task, _, _) in enumerate(_ARC_GRIDS, start=1)
+            ]
+        ),
+        scorer=grid_match(),
+        metrics=[per_task_accuracy()],
+        epochs=Epochs(2, ["max", "pass_at_2"]),
+    )
+
+
+def _arc_benchmark(key: str, row: BenchmarkSpec) -> ImportedBenchmark:
+    """The plugin Benchmark a reviewed row assembles into: its scorer, metric and reducer
+    resolved from the row's own references, as assembly does."""
+
+    return single_shot_benchmark(
+        benchmark_key=key,
+        title="Grid solving",
+        description="An ARC-shaped stand-in.",
+        focus="Reasoning",
+        dataset_url="https://example.test/grids",
+        case_count=len(_ARC_GRIDS),
+        revision_pins=("stand-in",),
+        scorer_factory=benchmarks._scorer_factory(row),
+        prepare=lambda out: {},
+        install=lambda node, assets: None,
+        with_check_surface=False,
+        difficulty="hard",
+        whole_run_metric_factory=benchmarks._whole_run_metric_factory(row),
+        epoch_reducer_factory=benchmarks._epoch_reducer_factory(row),
+        attempts=row.attempts,
+    )
+
+
+async def _aggregate_attempts(
+    benchmark: ImportedBenchmark, root: Path, grids: list[tuple[str, str, str]]
+) -> dict[str, Any]:
+    """Grade each grid's two Attempts through the plugin's own aggregate, one Attempts row
+    per Case, as the run hands them over."""
+
+    _write_cases(
+        [
+            {
+                "case": {"id": index, "case_id": str(index), "input": f"Solve grid {index}."},
+                "grading_material": {"target": f"grid {index}", "metadata": {"task_id": task}},
+            }
+            for index, (task, _, _) in enumerate(grids, start=1)
+        ],
+        root,
+    )
+    rows: str = json.dumps(
+        [
+            {
+                "schema": CASE_ATTEMPTS_SCHEMA,
+                "case_id": index,
+                "attempts": [_row(index, first), _row(index, second)],
+            }
+            for index, (_, first, second) in enumerate(grids, start=1)
+        ]
+    )
+    return await benchmark_aggregate_async(
+        benchmark, rows, root, case_ids=tuple(range(1, len(grids) + 1))
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_arc_shaped_task_imports_with_honour_and_scores_per_task(tmp_path: Path) -> None:
+    """Worked example: task A has 2 grids, 1 solved → 0.5; task B has 1 grid, solved → 1.0.
+    The per-task average is (0.5 + 1.0) / 2 = 0.75, ARC's number; the per-grid mean, 2 / 3 =
+    0.667, is what the mean would publish. Grid 1 is solved by Attempt 2 only ([0, 1]) and
+    grid 3 by Attempt 1 only ([1, 0]); both count, through the Task's own ``max``."""
+
+    # Stage 1 — import: any-of-2 epochs become 2 Attempts, and the row names the reducer.
+    facts: TaskReplayFacts = _facts_of(
+        _arc_task(), sys.modules[__name__], f"{__name__}:arc_task", None, False, "honour"
+    )
+    _, row = _rendered_row(facts)
+    assert (row.attempts, row.epoch_reducer) == (2, "max")
+    assert row.whole_run_metric == f"TODO:{__name__}:per_task_accuracy"
+    # Stage 2 — a reviewer confirms the metric is higher-is-better up to 1.
+    reviewed: BenchmarkSpec = replace(
+        row, whole_run_metric=str(row.whole_run_metric).removeprefix("TODO:")
+    )
+
+    # Stage 3 — the run: three grids, two Attempts each.
+    result: dict[str, Any] = await _aggregate_attempts(
+        _arc_benchmark("arc-shaped", reviewed), tmp_path, _ARC_GRIDS
+    )
+
+    assert [case["grade"]["score"] for case in result["cases"]] == [1.0, 0.0, 1.0]
+    assert result["score"] == 0.75
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reducer", ["max", "pass_at_2"])
+async def test_a_case_whose_attempt_failed_reaches_the_metric_only_if_the_reducer_agrees(
+    tmp_path: Path, reducer: str
+) -> None:
+    """Grid 1's Attempt 1 is solved and its Attempt 2 fails (the scorer raises). The fold
+    credits grid 1 from the one graded Attempt: 1.0. ``max`` over that one Score agrees.
+    ``pass_at(2)`` over one Score is undefined, and inspect itself reduces it to nan; the
+    tally refuses by name rather than hand the metric a number the Case Result does not show.
+    """
+
+    row: BenchmarkSpec = replace(
+        _spec("aime24"),
+        scorer=f"{__name__}:grid_match",
+        scorer_kwargs={},
+        whole_run_metric=f"{__name__}:per_task_accuracy",
+        attempts=2,
+        epoch_reducer=reducer,
+    )
+    benchmark: ImportedBenchmark = _arc_benchmark(f"arc-failed-attempt-{reducer}", row)
+    grids: list[tuple[str, str, str]] = [("A", "grid 1", "crash")]
+
+    if reducer == "max":
+        result: dict[str, Any] = await _aggregate_attempts(benchmark, tmp_path, grids)
+        assert result["score"] == 1.0
+        return
+    with pytest.raises(
+        AggregateError,
+        match=r"Case 1's Attempts reduce to nan for per_task_accuracy, but fold to 1.0",
+    ):
+        await _aggregate_attempts(benchmark, tmp_path, grids)
+
+
+# ── 4. the row ───────────────────────────────────────────────────────────────────────────
 
 
 def test_no_published_row_opts_in_so_no_revision_moves() -> None:
@@ -490,7 +712,6 @@ def test_naming_a_metric_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) 
     [
         ({"inverted_grade": True}, "inverted_grade"),
         ({"verdict_grades": {"YES": 1.0}}, "verdict_grades"),
-        ({"attempts": 2}, "attempts"),
     ],
 )
 def test_a_metric_beside_a_grade_rewrite_is_refused_at_assembly(
@@ -503,6 +724,57 @@ def test_a_metric_beside_a_grade_rewrite_is_refused_at_assembly(
 
     with pytest.raises(ValueError, match=f"gsm8k: whole_run_metric .*{words}"):
         _assembled(spec, monkeypatch)
+
+
+def test_a_metric_beside_attempts_assembles_with_the_tasks_reducer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WHY allowed (OME-1527 x OME-1458): the metric reads each Case's Attempt Scores reduced
+    by the Task's own any-of-N reducer, as inspect does, so Attempts rewrite nothing it reads.
+    The reducer is identity: it decides the number the metric reads per Case."""
+
+    spec: BenchmarkSpec = _spec(
+        "aime24",
+        whole_run_metric="inspect_evals.hle.metrics:accuracy",
+        attempts=2,
+        epoch_reducer="max",
+    )
+
+    honoured: ImportedBenchmark = _assembled(spec, monkeypatch)
+
+    assert honoured.epoch_reducer_factory is not None
+    assert reducer_log_names([honoured.epoch_reducer_factory()]) == ["max"]
+    assert "epoch_reducer=max" in benchmarks._whole_run_metric_pins(spec)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "words"),
+    [
+        # The row cannot say which reducer inspect would run, so the metric's input is unknown.
+        ({"attempts": 2}, "needs the Task's own epoch_reducer, one of at_least_1, max, pass_at_2"),
+        # mean at N is an average, not any-of-N; task_attempts refuses it at import too.
+        ({"attempts": 2, "epoch_reducer": "mean"}, "got 'mean'"),
+        # pass_at_1 at N=2 is inspect's unbiased estimator, a different number.
+        ({"attempts": 2, "epoch_reducer": "pass_at_1"}, "got 'pass_at_1'"),
+    ],
+)
+def test_a_metric_beside_attempts_needs_an_any_of_n_reducer(
+    monkeypatch: pytest.MonkeyPatch, overrides: Mapping[str, Any], words: str
+) -> None:
+    spec: BenchmarkSpec = _spec(
+        "aime24", whole_run_metric="inspect_evals.hle.metrics:accuracy", **overrides
+    )
+
+    with pytest.raises(ValueError, match=f"aime24: whole_run_metric with attempts=2 .*{words}"):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_reducer_nothing_reads_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WHY: only the honoured metric reads the reducer; on any other row it would move the
+    revision while changing no number."""
+
+    with pytest.raises(ValueError, match="aime24: epoch_reducer is read only by"):
+        _assembled(_spec("aime24", attempts=2, epoch_reducer="max"), monkeypatch)
 
 
 def test_a_metric_on_a_row_that_drops_sample_metadata_is_refused(

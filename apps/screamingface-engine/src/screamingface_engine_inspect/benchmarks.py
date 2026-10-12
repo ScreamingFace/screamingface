@@ -156,6 +156,11 @@ class BenchmarkSpec:
     #: reviewer confirms the metric's headline is higher-is-better up to 1, as a Headline
     #: Score must be. Benchmark identity when set.
     whole_run_metric: str | None = None
+    #: The Task's own any-of-N epoch reducer, by inspect's name (``max``, ``at_least_1``,
+    #: ``pass_at_N``), on a row with Attempts that honours ``whole_run_metric``: the tally
+    #: reduces each Case's Attempt Scores with it before the metric reads them, as inspect
+    #: does (OME-1527 x OME-1458). Required exactly then; Benchmark identity when set.
+    epoch_reducer: str | None = None
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -4010,6 +4015,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         verdict_grades=spec.verdict_grades,
         origin=spec.origin,
         whole_run_metric_factory=_whole_run_metric_factory(spec),
+        epoch_reducer_factory=_epoch_reducer_factory(spec),
         attempts=spec.attempts,
         **_provenance_of(spec),
     )
@@ -4049,15 +4055,31 @@ def _check_named_scores(spec: BenchmarkSpec) -> None:
 
 
 def _check_whole_run_metric(spec: BenchmarkSpec) -> None:
-    """Refuse a row that both honours the eval's whole-run metric and rewrites its grades.
+    """Refuse a row that both honours the eval's whole-run metric and rewrites its grades,
+    or whose Attempts the tally could not reduce the way inspect does.
 
     WHY: the metric reads the eval's own grades. The Inverted Grade flip changes what a Case
     score means, and a verdict map stands in for the eval's own reducer (coconot's), which
     the tally does not replay; either would feed the metric numbers the eval never made.
-    Attempts (OME-1458) fold several asks into one grade per Check, while the metric is
-    replayed over one Score per Case, so they are refused together too.
+    Attempts (OME-1458) are fine: the metric reads each Case's Attempt Scores reduced by the
+    Task's own any-of-N reducer, which the row must name (``epoch_reducer``).
     """
 
+    replays_attempts: bool = spec.whole_run_metric is not None and spec.attempts > 1
+    if spec.epoch_reducer is not None and not replays_attempts:
+        raise ValueError(
+            f"{spec.key}: epoch_reducer is read only by a whole_run_metric on a row with "
+            "attempts above 1; drop it"
+        )
+    if replays_attempts:
+        from screamingface_engine_inspect.scorer_metrics import any_match_reducers
+
+        names: list[str] = sorted(any_match_reducers(spec.attempts))
+        if spec.epoch_reducer not in names:
+            raise ValueError(
+                f"{spec.key}: whole_run_metric with attempts={spec.attempts} needs the Task's "
+                f"own epoch_reducer, one of {', '.join(names)}; got {spec.epoch_reducer!r}"
+            )
     if spec.whole_run_metric is None:
         return
     # WHY: the importer writes an honoured metric behind this prefix; deleting it is the
@@ -4073,7 +4095,6 @@ def _check_whole_run_metric(spec: BenchmarkSpec) -> None:
         for name, rewritten in (
             ("inverted_grade", spec.inverted_grade),
             ("verdict_grades", spec.verdict_grades is not None),
-            ("attempts", spec.attempts > 1),
         )
         if rewritten
     ]
@@ -4505,8 +4526,14 @@ def _whole_run_metric_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     published revision moves (OME-1527)."""
 
     # WHY: the metric decides the published number; switching a row from the mean to the
-    # eval's metric must never keep a revision its members' published scores hang off.
-    return () if spec.whole_run_metric is None else (f"whole_run_metric={spec.whole_run_metric}",)
+    # eval's metric must never keep a revision its members' published scores hang off. The
+    # reducer decides what the metric reads per Case, so it is identity too.
+    pins: list[str] = []
+    if spec.whole_run_metric is not None:
+        pins.append(f"whole_run_metric={spec.whole_run_metric}")
+    if spec.epoch_reducer is not None:
+        pins.append(f"epoch_reducer={spec.epoch_reducer}")
+    return tuple(pins)
 
 
 def _verdict_grades_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
@@ -4539,6 +4566,22 @@ def _whole_run_metric_factory(spec: BenchmarkSpec) -> Callable[[], Any] | None:
 
     def factory() -> Any:
         return _constructor(reference)()
+
+    return factory
+
+
+def _epoch_reducer_factory(spec: BenchmarkSpec) -> Callable[[], Any] | None:
+    """Rebuild the Task's own any-of-N reducer from the row's name, lazily; None when the
+    tally reduces each Case with inspect's default mean."""
+
+    name: str | None = spec.epoch_reducer
+    if name is None:
+        return None
+
+    def factory() -> Any:
+        from screamingface_engine_inspect.scorer_metrics import any_match_reducers
+
+        return any_match_reducers(spec.attempts)[name]
 
     return factory
 

@@ -102,6 +102,9 @@ class TaskReplayFacts:
     mean_instead_of: str | None = None
     #: Attempts per Case, from the Task's any-match epochs (OME-1458); 1 for every other Task.
     attempts: int = 1
+    #: The Task's own any-of-N epoch reducer by inspect's name (``max``), only when Attempts
+    #: meet an honoured whole-run metric (OME-1527); None on every other import.
+    epoch_reducer: str | None = None
 
 
 @dataclass(frozen=True)
@@ -238,6 +241,8 @@ def _facts_of(
     """Stage 3a — read the built Task with the importer's scorer readers; ``whole_run_metric``
     is the agent's choice for a non-mean headline (OME-1527)."""
 
+    from inspect_ai.scorer._reducer.registry import reducer_log_names
+
     # WHY first: a Task whose epochs are not any-match is refused before any of its scorer
     # facts are read (OME-1458).
     attempts: int = task_attempts(task)
@@ -251,15 +256,17 @@ def _facts_of(
             f"({', '.join(scorers.named_scores)}): Attempts are folded per Check, and Named "
             "Scores have no Checks to fold (OME-1458)"
         )
-    # INVARIANT (OME-1527 x OME-1458): the whole-run metric is replayed over ONE Score per
-    # Case; with Attempts the aggregate folds several per Check, so honouring both would hand
-    # the metric Scores inspect never would. Refused at import, before any Case is paid for.
-    if attempts > 1 and scorers.whole_run_metric is not None:
-        raise ImporterError(
-            f"the task declares epochs={attempts} and the whole-run metric is honoured "
-            f"({scorers.whole_run_metric}): a whole-run metric is replayed over one Score per "
-            "Case, and Attempts fold several (OME-1527, OME-1458)"
-        )
+    # FEATURE (OME-1527 x OME-1458): an honoured whole-run metric reads ONE Score per Case,
+    # which inspect makes by reducing the Case's epoch Scores with the Task's reducer. With
+    # Attempts, the row names that reducer (the first declared, inspect's headline one) so
+    # the tally replays it; `task_attempts` has already proved every declared reducer is
+    # inspect's own any-of-N.
+    reducer_names: list[str] | None = (
+        reducer_log_names(task.epochs_reducer)
+        if attempts > 1 and scorers.whole_run_metric is not None
+        else None
+    )
+    epoch_reducer: str | None = reducer_names[0] if reducer_names else None
     return TaskReplayFacts(
         task_ref=task_ref,
         task_args=task_args,
@@ -287,6 +294,7 @@ def _facts_of(
         whole_run_metric=scorers.whole_run_metric,
         mean_instead_of=scorers.mean_instead_of,
         attempts=attempts,
+        epoch_reducer=epoch_reducer,
     )
 
 

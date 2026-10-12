@@ -121,8 +121,9 @@ def task_attempts(task: Any) -> int:
     """
 
     from inspect_ai._util.registry import registry_params
-    from inspect_ai.scorer import at_least, max_score, pass_at
     from inspect_ai.scorer._reducer.registry import reducer_log_names
+
+    from screamingface_engine_inspect.scorer_metrics import any_match_reducers
 
     epochs: int | None = getattr(task, "epochs", None)
     if epochs is None or epochs <= 1:
@@ -131,7 +132,8 @@ def task_attempts(task: Any) -> int:
     names: list[str] = (reducer_log_names(reducers) if reducers else None) or [
         _INSPECT_DEFAULT_REDUCER
     ]
-    any_match: frozenset[str] = frozenset({"max", "at_least_1", f"pass_at_{epochs}"})
+    own_reducers: dict[str, Any] = any_match_reducers(epochs)
+    any_match: frozenset[str] = frozenset(own_reducers)
     refused: list[str] = [name for name in names if name not in any_match]
     if refused:
         raise ImporterError(
@@ -143,9 +145,7 @@ def task_attempts(task: Any) -> int:
     # inspect's entry), but every call of inspect's own factory, imported directly, returns
     # a reduce function sharing one code object; a look-alike cannot.
     builtin_code: dict[str, CodeType | None] = {
-        "max": _reduce_code(max_score()),
-        "at_least_1": _reduce_code(at_least(1)),
-        f"pass_at_{epochs}": _reduce_code(pass_at(epochs)),
+        name: _reduce_code(reducer) for name, reducer in own_reducers.items()
     }
     impostors: list[str] = [
         name
@@ -328,8 +328,12 @@ def _whole_run_choice(
 
     ``mean`` always imports: the row keeps the mean and says so. ``honour`` names the metric
     for the tally (OME-1527, R1), refused for what the tally cannot replay faithfully: a
-    metric the row cannot name, or a Task with its own epoch reducer (the tally reduces
-    each Case with inspect's default mean, as inspect does when a Task names none).
+    metric the row cannot name, or a Task with its own epoch reducer. The tally reduces each
+    Case's Scores the way inspect does before any metric runs: with inspect's default mean
+    when the Task names no reducer, or with the Task's own any-of-N reducer when its epochs
+    are Attempts (``task_attempts`` above 1, which has proved every reducer is inspect's own
+    ``max``, ``at_least_1`` or ``pass_at_N``). Any other reducer (coconot's word map, HLE's
+    ``attempt_preserving_mean``) is refused.
     """
 
     from inspect_ai.scorer._reducer.registry import reducer_log_names
@@ -339,7 +343,7 @@ def _whole_run_choice(
     if choice == "mean":
         return None, metric
     reducers: list[Any] | None = getattr(task, "epochs_reducer", None)
-    if reducers:
+    if reducers and task_attempts(task) == 1:
         names: list[str] = reducer_log_names(reducers) or ["<unnamed>"]
         raise ImporterError(
             f"cannot honour {metric}: the task declares its own epoch reducer "

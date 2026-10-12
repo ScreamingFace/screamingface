@@ -126,6 +126,34 @@ def reads_unreduced_scores(metric: Any) -> bool:
     return metric_scores(metric) == "unreduced"
 
 
+def any_match_reducers(attempts: int) -> dict[str, Any]:
+    """inspect's own epoch reducers that mean "met if any of ``attempts`` tries met it", by
+    the name inspect logs them under, each freshly built from inspect's own factory.
+
+    The one list both sides share (OME-1458, OME-1527): the importer accepts a Task's epochs
+    as Attempts only when every reducer it declares is one of these, and a row honouring a
+    whole-run metric names one of them so the tally can rebuild it. At ``attempts=2``:
+    ``max``, ``at_least_1`` and ``pass_at_2``.
+    """
+
+    from inspect_ai.scorer import at_least, max_score, pass_at
+
+    return {
+        "max": max_score(),
+        "at_least_1": at_least(1),
+        f"pass_at_{attempts}": pass_at(attempts),
+    }
+
+
+def score_value_as_float(value: Any) -> float:
+    """A Score value read as inspect's default ``value_to_float`` reads it: "C" → 1.0,
+    "I" → 0.0, a number as itself — the reading inspect's reducers and metrics share."""
+
+    from inspect_ai.scorer import value_to_float
+
+    return float(value_to_float()(value))
+
+
 def scorer_registry_name(scorer: Any) -> str:
     """The unqualified registry name of a scorer or its constructor (``f1`` for
     ``inspect_ai.scorer.f1``) — the name a Named Score column carries.
