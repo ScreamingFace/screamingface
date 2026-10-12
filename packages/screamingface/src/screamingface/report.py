@@ -362,14 +362,7 @@ class CandidateResult:
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
-        if isinstance(cache_hits, bool) or not isinstance(cache_hits, int) or cache_hits < 0:
-            raise ValueError("Candidate cache_hits must be a non-negative integer")
-        if cache_unpriced_hits is not None and (
-            isinstance(cache_unpriced_hits, bool)
-            or not isinstance(cache_unpriced_hits, int)
-            or cache_unpriced_hits < 0
-        ):
-            raise ValueError("Candidate cache_unpriced_hits must be a non-negative integer or None")
+        _check_cache_counts(cache_hits, cache_unpriced_hits)
         selected_copy, selected_capture = _capture(frozen_copy_id, capture_status)
         selected_score = _optional_number(score, "Candidate score")
         selected_coverage = _coverage(coverage)
@@ -984,6 +977,19 @@ def _candidate_trace(candidate: CandidateResult) -> dict[str, object]:
             for case in candidate.cases
         ],
     }
+
+
+def _check_cache_counts(cache_hits: object, cache_unpriced_hits: object) -> None:
+    """A Candidate's cache-hit counts: non-negative integers (unpriced hits may be None)."""
+
+    if isinstance(cache_hits, bool) or not isinstance(cache_hits, int) or cache_hits < 0:
+        raise ValueError("Candidate cache_hits must be a non-negative integer")
+    if cache_unpriced_hits is not None and (
+        isinstance(cache_unpriced_hits, bool)
+        or not isinstance(cache_unpriced_hits, int)
+        or cache_unpriced_hits < 0
+    ):
+        raise ValueError("Candidate cache_unpriced_hits must be a non-negative integer or None")
 
 
 def _bind_graphs(cases: Sequence[CaseResult], operations: Sequence[OperationInfo]) -> None:

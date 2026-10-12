@@ -90,11 +90,9 @@ def evaluate_sync(
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
-    # INVARIANT: a Candidate without a reducer never requests `/v1/operators`.
-    operators = (
-        load_operators() if load_operators is not None and recipes_need_operators(values) else None
+    evaluation = compile_evaluation(
+        values, resource, limit, operators=_operators_sync(values, load_operators)
     )
-    evaluation = compile_evaluation(values, resource, limit, operators=operators)
     # FEATURE (OME-1193, OME-1307): stamp the declared sitting (`answer_seed`) and the capture
     # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
     # observer and the report all see the same objects.
@@ -157,12 +155,9 @@ async def evaluate_async(
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = await load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
-    operators = (
-        await load_operators()
-        if load_operators is not None and recipes_need_operators(values)
-        else None
+    evaluation = compile_evaluation(
+        values, resource, limit, operators=await _operators_async(values, load_operators)
     )
-    evaluation = compile_evaluation(values, resource, limit, operators=operators)
     # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
     # transport, observer and report alike.
     selected_candidates = _captured_candidates(
@@ -198,6 +193,29 @@ async def evaluate_async(
             raise
         _conclude_evaluation(observer, report, capture)
         return report
+
+
+def _operators_sync(
+    values: Sequence[Recipe], load_operators: _SyncOperatorLoading | None
+) -> _OperatorCatalog | None:
+    """The Engine's operator catalog, only when a Candidate has a reducer.
+
+    INVARIANT: a Candidate without a reducer never requests `/v1/operators`.
+    """
+
+    if load_operators is None or not recipes_need_operators(values):
+        return None
+    return load_operators()
+
+
+async def _operators_async(
+    values: Sequence[Recipe], load_operators: _AsyncOperatorLoading | None
+) -> _OperatorCatalog | None:
+    """The async twin of ``_operators_sync``."""
+
+    if load_operators is None or not recipes_need_operators(values):
+        return None
+    return await load_operators()
 
 
 def _settled_sync(
