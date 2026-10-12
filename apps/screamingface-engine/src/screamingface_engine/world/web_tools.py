@@ -14,10 +14,11 @@ from typing import Protocol
 
 import httpx
 
+from screamingface_engine.benchmarks.case_context import current_case_key
 from screamingface_engine.capture_outcomes import (
-    CAPTURE_OCCURRENCE_HEADER,
+    CALL_OCCURRENCE_HEADER,
+    CASE_KEY_HEADER,
     REPLAY_MISS,
-    REPLAY_OCCURRENCE_HEADER,
     REPLAY_UNAVAILABLE,
     CaptureOutcome,
     current_capture_tally,
@@ -111,18 +112,17 @@ class FrozenToolResults:
     copy_id: str
     replay: bool
 
-    async def store(self, description: Mapping[str, object], result: str) -> str:
+    async def store(
+        self, description: Mapping[str, object], result: str, case_key: str, occurrence: int
+    ) -> str:
         """Post one result to the copy. Returns ``stored`` or ``failed``; never raises."""
-        # Q27 (design §5.3 item 1): the result states the send-time slot its reserve gave it, so
-        # a replay of concurrent identical lookups reads them in reserve order. The capture path
-        # never gives a slot back: every stored result keeps a distinct slot, and a slot a failed
-        # store left unused collapses on replay (the gateway pairs by ordinal over stored rows).
-        _tally = current_capture_tally()
-        occurrence = 0 if _tally is None else _tally.reserve("tool", request_digest(description))
+        headers = {**self.headers, CALL_OCCURRENCE_HEADER: str(occurrence)}
+        if case_key:
+            headers[CASE_KEY_HEADER] = case_key
         try:
             response = await self.client.post(
                 tool_results_path(self.copy_id),
-                headers={**self.headers, CAPTURE_OCCURRENCE_HEADER: str(occurrence)},
+                headers=headers,
                 json={"description": description, "result": result},
                 timeout=_COPY_TIMEOUT,
             )
@@ -133,32 +133,23 @@ class FrozenToolResults:
         except Exception:  # noqa: BLE001 - best effort: nothing here may fail the tool loop
             return "failed"
 
-    async def lookup(self, description: Mapping[str, object]) -> str:
-        """Read the result the original run's model read, in capture order for repeated requests.
-
-        The occurrence slot of this description is reserved NOW and given back unless a result
-        comes back, so concurrent identical lookups read distinct entries.
+    async def lookup(
+        self, description: Mapping[str, object], case_key: str, occurrence: int
+    ) -> str:
+        """Read the result the original run's model read, at the call's key (design §5.4).
 
         INVARIANT: raises a `RunnerRequestError` for every failure, and the caller (`_executed`)
         lets it through. Any other failure would become a "… failed: …" string the model reads and
         carries on from, and a replay that carried on from a made-up tool result would be exact in
         name only.
         """
-        digest = request_digest(description)
-        tally = current_capture_tally()
-        occurrence = 0 if tally is None else tally.reserve("tool", digest)
-        try:
-            return await self._read(description, occurrence)
-        except BaseException:
-            if tally is not None:
-                tally.release("tool", digest, occurrence)
-            raise
-
-    async def _read(self, description: Mapping[str, object], occurrence: int) -> str:
+        headers = {**self.headers, CALL_OCCURRENCE_HEADER: str(occurrence)}
+        if case_key:
+            headers[CASE_KEY_HEADER] = case_key
         try:
             response = await self.client.post(
                 tool_lookup_path(self.copy_id),
-                headers={**self.headers, REPLAY_OCCURRENCE_HEADER: str(occurrence)},
+                headers=headers,
                 json={"description": description},
                 timeout=_COPY_TIMEOUT,
             )
@@ -310,14 +301,21 @@ async def _executed(tool_call: dict, runtime: WebToolRuntime | None) -> str:
     from the run's own checks, and the copy holds what the model saw. Capture posts the result
     BEFORE truncation (the caller truncates), so the copy holds exactly what the tool returned —
     success, "no results" and failure strings alike (design §5.2).
+
+    INVARIANT (design §5.4): the occurrence is taken before the first await, so the calls of one
+    gathered group take their occurrences in task creation order, and before the tool runs, so a
+    replay numbers the calls in the same order whichever Tavily call finishes first.
     """
     if runtime is None or runtime.frozen is None:
         return await _execute_tool(tool_call, runtime)
     name, args = _tool_args(tool_call)
     description = _tool_description(name, args, runtime)
-    if runtime.frozen.replay:
-        return await runtime.frozen.lookup(description)
     digest = request_digest(description)
+    tally = current_capture_tally()
+    case_key = current_case_key()
+    occurrence = 0 if tally is None else tally.next_occurrence(case_key, "tool", digest)
+    if runtime.frozen.replay:
+        return await runtime.frozen.lookup(description, case_key, occurrence)
     try:
         result = await _execute_tool(tool_call, runtime)
     except BaseException:
@@ -326,16 +324,21 @@ async def _executed(tool_call: dict, runtime: WebToolRuntime | None) -> str:
         # request replaces it (D2).
         record_capture_outcome(CaptureOutcome("tool", "error", digest))
         raise
-    await _capture_result(runtime.frozen, description, digest, result)
+    await _capture_result(runtime.frozen, description, digest, result, case_key, occurrence)
     return result
 
 
 async def _capture_result(
-    frozen: FrozenToolResults, description: Mapping[str, object], digest: str, result: str
+    frozen: FrozenToolResults,
+    description: Mapping[str, object],
+    digest: str,
+    result: str,
+    case_key: str,
+    occurrence: int,
 ) -> None:
     """Post one result to the copy and record the outcome. Only a cancellation escapes (D1)."""
     try:
-        status = await frozen.store(description, result)
+        status = await frozen.store(description, result, case_key, occurrence)
     except BaseException:
         # A cancelled store left no entry the replay could read (D1).
         record_capture_outcome(CaptureOutcome("tool", "error", digest))

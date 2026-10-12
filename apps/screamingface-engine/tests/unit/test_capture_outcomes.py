@@ -1,8 +1,8 @@
 """E14 F-B3 — the run-scoped capture tally and the `capture.status` rule (design §5.2 item 5).
 
 FEATURE: OME-1307 — a capture run is `complete` only when the copy opened, sealed, and every chat
-call and tool result is `stored`. D1: a cancelled or crashed call is an `error`. D2: an `error` that
-a later call of the same request replaced is forgiven; nothing else is.
+call and tool result is `stored`. D1: a cancelled or crashed call is an `error`. Q27: no outcome is
+forgiven, so a call that left no entry at its key makes the run partial.
 STORY: as a researcher who submits a score, the run's summary tells me whether it can be replayed.
 
 A separate module (append-only gate).
@@ -52,13 +52,12 @@ def _tally(
         (_tally(("chat", "stored", "a"), seal_failed=True), "partial", {"seal": 1}),
         # D1: a cancelled or crashed call is an error, and nothing replaced it.
         (_tally(("chat", "error", "a")), "partial", {"error": 1}),
-        # D2: a later stored answer to the SAME request forgives the error.
-        (_tally(("chat", "error", "a"), ("chat", "stored", "a")), "complete", {}),
-        (_tally(("tool", "error", "a"), ("tool", "stored", "a")), "complete", {}),
-        # ... but not one to a different request, and not one that came BEFORE the error.
+        # Q27 (review round 2026-10-12): no outcome is forgiven, not even by a later stored answer.
+        (_tally(("chat", "error", "a"), ("chat", "stored", "a")), "partial", {"error": 1}),
+        (_tally(("tool", "error", "a"), ("tool", "stored", "a")), "partial", {"error": 1}),
         (_tally(("chat", "error", "a"), ("chat", "stored", "b")), "partial", {"error": 1}),
         (_tally(("chat", "stored", "a"), ("chat", "error", "a")), "partial", {"error": 1}),
-        # ... and only an `error` is forgiven: failed, refused and missing stay lost.
+        # ... failed, refused and missing stay lost.
         (
             _tally(("chat", "failed", "a"), ("chat", "stored", "a")),
             "partial",
@@ -147,53 +146,3 @@ def test_the_tally_is_bound_for_a_scope_and_restored_after_it() -> None:
 
     assert tally.outcomes == [CaptureOutcome("chat", "stored", "a")]
     assert current_capture_tally() is None
-
-
-def test_slots_are_reserved_in_order_and_given_back() -> None:
-    tally = CaptureTally()
-
-    assert [tally.reserve("chat", "a") for _ in range(3)] == [0, 1, 2]
-    tally.release("chat", "a", 2)
-    assert tally.reserve("chat", "a") == 2
-
-
-def test_slots_are_kept_per_lane_and_per_digest() -> None:
-    tally = CaptureTally()
-
-    assert tally.reserve("chat", "a") == 0
-    assert tally.reserve("tool", "a") == 0
-    assert tally.reserve("chat", "b") == 0
-    assert tally.reserve("chat", "a") == 1
-
-
-def test_giving_back_a_slot_that_was_never_reserved_does_nothing() -> None:
-    tally = CaptureTally()
-
-    tally.release("chat", "a", 0)
-
-    assert tally.reserve("chat", "a") == 0
-
-
-def test_a_failed_slot_is_given_back_without_freeing_a_later_one() -> None:
-    # Two overlapping identical calls hold slots 0 and 1; slot 1 took its answer, slot 0 failed.
-    tally = CaptureTally()
-
-    assert [tally.reserve("chat", "a") for _ in range(2)] == [0, 1]
-    tally.release("chat", "a", 0)
-
-    assert tally.reserve("chat", "a") == 0
-    assert tally.reserve("chat", "a") == 2
-
-
-def test_given_back_slots_are_taken_again_lowest_first_then_trimmed() -> None:
-    tally = CaptureTally()
-
-    assert [tally.reserve("tool", "a") for _ in range(4)] == [0, 1, 2, 3]
-    tally.release("tool", "a", 2)
-    tally.release("tool", "a", 0)
-    assert tally.reserve("tool", "a") == 0
-    tally.release("tool", "a", 3)  # the top slot: 3 and the free 2 go back to the counter
-
-    assert tally.slots == {("tool", "a"): 2}
-    assert tally.freed == {}
-    assert tally.reserve("tool", "a") == 2

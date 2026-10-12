@@ -1,8 +1,8 @@
 """Run-scoped tally of a frozen-copy run (capture or replay), shared by connectors and the executor.
 
 FEATURE: OME-1307 — a capture run records, for every chat call and every web-tool result, whether
-the gateway stored it in the frozen copy; a replay run counts the answers it already received per
-request, so the gateway can serve identical requests in capture order.
+the gateway stored it in the frozen copy. Each logical call takes an occurrence of its case key and
+request, in capture and in replay, so a replay reads the exact entry its capture stored (§5.4).
 
 A shared leaf: stdlib only, importable by both halves of the engine.
 """
@@ -35,15 +35,17 @@ class CaptureOutcome:
     lane: Lane
     status: Status
     digest: str | None = None
-    """:func:`request_digest` of the request, so a retry can be told from a different call."""
+    """:func:`request_digest` of the request the call sent."""
 
 
 # The gateway's frozen-copy contract (design §4): the names both ends of a call share, kept in ONE
 # place so the connector and the web tools can never half-rename one.
 FROZEN_COPY_HEADER = "X-AIGW-Frozen-Copy"
 CAPTURE_FIELD = "X-AIGW-Capture"
-CAPTURE_OCCURRENCE_HEADER = "X-AIGW-Capture-Occurrence"
-REPLAY_OCCURRENCE_HEADER = "X-AIGW-Replay-Occurrence"
+CASE_KEY_HEADER = "X-AIGW-Case-Key"
+"""The call's case key (design §5.4). Sent only when it is not empty: absent means ``""``."""
+CALL_OCCURRENCE_HEADER = "X-AIGW-Call-Occurrence"
+"""The call's occurrence, in decimal. Always sent (design §5.4)."""
 FROZEN_COPIES_PATH = "/v1/frozen-copies"
 
 
@@ -91,6 +93,15 @@ def request_digest(payload: Mapping[str, object]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def case_key_for(case_id: object, attempt: int) -> str:
+    """The case key of one Attempt of one Case (design §5.4): 32 lowercase hex characters.
+
+    The id keeps its type in the key: the integer 1 and the string "1" name different Cases.
+    """
+    seed = json.dumps(["case", case_id, attempt], separators=(",", ":"))
+    return hashlib.sha256(seed.encode()).hexdigest()[:32]
+
+
 @dataclass(slots=True)
 class CaptureTally:
     """One run's frozen-copy state. Mutable and owned by one run."""
@@ -106,10 +117,8 @@ class CaptureTally:
     """The gateway confirmed the seal. A replay refuses an open copy, so only a sealed copy can
     make a capture run complete."""
     outcomes: list[CaptureOutcome] = field(default_factory=list)
-    slots: dict[tuple[Lane, str], int] = field(default_factory=dict)
-    """Replay: per request, one past the highest occurrence slot handed out."""
-    freed: dict[tuple[Lane, str], set[int]] = field(default_factory=dict)
-    """Replay: per request, the slots below ``slots`` that a failed call gave back."""
+    occurrences: dict[tuple[str, Lane, str], int] = field(default_factory=dict)
+    """Per (case key, lane, request digest), the occurrence the next logical call takes."""
 
     def status(self) -> Literal["complete", "partial"]:
         """``complete`` only for a capture run whose copy opened and sealed and whose every call
@@ -146,60 +155,21 @@ class CaptureTally:
         return attributes
 
     def _lost(self) -> list[CaptureOutcome]:
-        """The outcomes that are not stored, less each error that a later stored call of the same
-        request made up for: only the final attempt of a logical call counts (D2)."""
-        served: set[str] = set()
-        lost: list[CaptureOutcome] = []
-        for outcome in reversed(self.outcomes):
-            if outcome.status == "stored":
-                if outcome.digest is not None:
-                    served.add(outcome.digest)
-            elif outcome.status != "error" or outcome.digest not in served:
-                lost.append(outcome)
-        return lost
+        """The outcomes that are not stored. Q27 forgives none: a call that left no entry at its
+        key would be a replay miss, so a later call can never make up for it."""
+        return [outcome for outcome in self.outcomes if outcome.status != "stored"]
 
-    def reserve(self, lane: Lane, digest: str) -> int:
-        """Take the next occurrence slot of this request, when its call is SENT.
+    def next_occurrence(self, case_key: str, lane: Lane, digest: str) -> int:
+        """Take the occurrence of one logical call, when it is first SENT (design §5.4).
 
-        Reserved at send, not counted at answer, so concurrent identical requests take distinct
-        slots and the gateway serves them distinct entries (design §5.3 item 1). A slot a failed
-        call gave back is taken again first, lowest first, so no entry is skipped.
+        It counts the earlier logical calls of the same request in the same case key. A value is
+        never given back, in capture or in replay: a call that failed keeps its place, so the next
+        identical call in the case takes the next value in both runs.
         """
-        key = (lane, digest)
-        freed = self.freed.get(key)
-        if freed:
-            slot = min(freed)
-            freed.remove(slot)
-            if not freed:
-                del self.freed[key]
-            return slot
-        slot = self.slots.get(key, 0)
-        self.slots[key] = slot + 1
-        return slot
-
-    def release(self, lane: Lane, digest: str, slot: int) -> None:
-        """Give ONE slot back: its call did not succeed, so no answer was taken from the copy.
-
-        Only that slot. An overlapping call of the same request may hold a later slot and may have
-        taken its answer already; giving back the top slot instead would make the next call read
-        that answer a second time. Each reserved slot is given back at most once.
-        """
-        key = (lane, digest)
-        taken = self.slots.get(key, 0)
-        if slot >= taken:
-            return
-        freed = self.freed.setdefault(key, set())
-        freed.add(slot)
-        # Free slots at the top go back to the counter, so a run with no overlap keeps a plain one.
-        while taken and taken - 1 in freed:
-            taken -= 1
-            freed.remove(taken)
-        if taken:
-            self.slots[key] = taken
-        else:
-            self.slots.pop(key, None)
-        if not freed:
-            del self.freed[key]
+        key = (case_key, lane, digest)
+        occurrence = self.occurrences.get(key, 0)
+        self.occurrences[key] = occurrence + 1
+        return occurrence
 
 
 _tally: contextvars.ContextVar[CaptureTally | None] = contextvars.ContextVar(
@@ -234,15 +204,17 @@ def record_capture_outcome(outcome: CaptureOutcome) -> None:
 
 
 __all__ = [
+    "CALL_OCCURRENCE_HEADER",
     "CAPTURE_FIELD",
+    "CASE_KEY_HEADER",
     "FROZEN_COPIES_PATH",
     "FROZEN_COPY_HEADER",
     "REPLAY_MISS",
-    "REPLAY_OCCURRENCE_HEADER",
     "REPLAY_UNAVAILABLE",
     "CaptureOutcome",
     "CaptureTally",
     "capture_outcomes",
+    "case_key_for",
     "current_capture_tally",
     "record_capture_outcome",
     "replay_chat_path",
