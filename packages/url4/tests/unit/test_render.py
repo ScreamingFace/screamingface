@@ -21,6 +21,7 @@ from url4.core.nodes import (
     Expression,
     IdentityRef,
     Iteration,
+    IterationDirectives,
     RelExpr,
     RelUrl,
     RemoteExpr,
@@ -243,8 +244,8 @@ def test_intent_forms():
         == "(https://x)!https://code.com/score.py"
     )
     assert render(build("(https://x)!/score.py")) == "(https://x)!/score.py"
-    # a bare-token intent normalizes to the quoted form (same Text AST)
-    assert render(build("(https://x)!Summarize")) == "(https://x)!'Summarize'"
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert render(build("(https://x)!Summarize")) == "(https://x)!Summarize"
 
 
 # --- relative / remote expressions ---------------------------------------------------
@@ -352,20 +353,18 @@ def test_overdeep_struct_budget_raises():
         render(node)
 
 
-def test_iteration_source_with_intent_hazards():
-    # "(A*(b)!'p', B)!'r'" would reparse as reduce-over-iteration, swallowing B.
+def test_iteration_source_with_intent_round_trips():
+    # "(A*(b)!'p', B)!'r'" once reparsed as reduce-over-iteration, swallowing B;
+    # the envelope's source-list check now keeps it a group. Bare, wrapped, first
+    # or later — every placement round-trips.
     it = Iteration(collection=Url("https://x"), body="a=$item", intent="'p'")
-    with pytest.raises(RenderError, match="reduce-over-iteration"):
-        render(Expression(sources=(it, Url("https://y")), intent=Text("r")))
-    # a NON-first wrapped iteration source: the collection prefix spans commas
-    with pytest.raises(RenderError, match="reduce-over-iteration"):
-        render(
-            Expression(sources=(Url("https://y"), Source(value=it, weight=0.5)), intent=Text("r"))
-        )
-    # first-position, descriptor-wrapped: the decode rejects the descriptored
-    # collection prefix and falls through to the group route — representable.
-    ok = Expression(sources=(Source(value=it, weight=0.5), Url("https://y")), intent=Text("r"))
-    assert build(render(ok)) == ok
+    for e in (
+        Expression(sources=(it, Url("https://y")), intent=Text("r")),
+        Expression(sources=(Url("https://y"), Source(value=it, weight=0.5)), intent=Text("r")),
+        Expression(sources=(Source(value=it, weight=0.5), Url("https://y")), intent=Text("r")),
+    ):
+        assert build(render(e)) == e
+        assert build(render(e, check=False)) == e
 
 
 def test_iteration_reducer_in_value_position_raises():
@@ -553,11 +552,10 @@ def test_iteration_intent_depth0_semicolon_raises():
 
 
 def test_nested_reduce_over_iteration_in_value_position_raises():
-    # Distinct from test_iteration_reducer_in_value_position_raises above: that
-    # case trips the TOP-LEVEL decode-hazard guard before the iteration is even
-    # rendered. Here the reducer'd iteration is a bare source of a NESTED
-    # (non-top) Expression, which skips the hazard check entirely and reaches
-    # _check_value_iteration's own reducer guard.
+    # Companion to test_iteration_reducer_in_value_position_raises above, one
+    # level deeper: the reducer'd iteration is a bare source of a NESTED
+    # (non-top) Expression, and _check_value_iteration's own reducer guard
+    # refuses it there too.
     inner_it = Iteration(collection=Url("https://x"), body="a=$item", intent="'p'", reducer="'r'")
     nested = Expression(sources=(inner_it,), intent=Text("go"))
     outer = Expression(sources=(nested,), intent=Text("outer"))
@@ -755,3 +753,11 @@ def test_random_ast_roundtrip():
         )
         rendered = render(root)  # check=True certifies the round-trip
         assert build(rendered) == root, f"case {i}: {rendered!r}"
+
+
+def test_a_quoted_collection_is_unrenderable() -> None:
+    # Found by test_roundtrip_laws (Hypothesis): `''*(x=$item)!go` does not reparse, because
+    # `collection-ref` has no quoted-text form. render refuses it instead of emitting it.
+    tree = Expression((), Iteration(Text(""), "x=$item", "'go'", None, IterationDirectives()))
+    with pytest.raises(RenderError):
+        render(tree)

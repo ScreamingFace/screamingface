@@ -67,6 +67,13 @@ class Text:
 
 
 @dataclass(frozen=True)
+class NamedJob:
+    """A one-token bare intent (B §8 ``bare-value``): a named job on this node (Q6, P3)."""
+
+    value: str
+
+
+@dataclass(frozen=True)
 class Url:
     """An absolute URI reference of any scheme (``https://…``, ``s3://…``, …).
 
@@ -267,6 +274,7 @@ class Expression:
 
 Node = (
     Text
+    | NamedJob
     | Url
     | RelUrl
     | Binding
@@ -320,6 +328,7 @@ __all__ = [
     "IdentityRef",
     "Iteration",
     "IterationDirectives",
+    "NamedJob",
     "Node",
     "Params",
     "RelExpr",

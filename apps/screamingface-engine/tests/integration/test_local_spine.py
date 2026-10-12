@@ -223,7 +223,7 @@ def test_a_big_result_streams_as_a_claim_ticket_and_redeems_whole(
                 }
             )
         )
-        client.get("/?q=https://big!go", headers=_cap(token))
+        client.get("/?q=https://big!'go'", headers=_cap(token))
 
         result_data: dict[str, object] | None = None
         terminal: dict[str, object] | None = None
@@ -257,7 +257,7 @@ def test_the_sync_get_path_serves_a_big_result_whole(big_result_client: TestClie
     client = big_result_client
     token = _token(client)
     with client.websocket_connect(f"/ws?ticket={token}"):
-        response = client.get("/?q=https://big!go", headers=_cap(token))
+        response = client.get("/?q=https://big!'go'", headers=_cap(token))
 
     # WHY: the transactional GET is the result frame's second consumer — same complete
     # bytes, no claim-ticket round trip visible to this caller.

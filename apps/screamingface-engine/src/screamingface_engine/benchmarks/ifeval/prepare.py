@@ -53,6 +53,7 @@ from screamingface_engine.benchmarks.bundle_provenance import (
     FILE,
     LOAD_PHASE,
     PROVENANCE_KEY,
+    github_file_url,
     hand_built_provenance,
     hugging_face_source,
     read_provenance,
@@ -237,19 +238,24 @@ def case_sources() -> list[dict[str, str]]:
     over the Hub's on key 2785, so that Case's prompt comes from it. It is pinned by the
     verifier commit it was copied from. The nltk corpus is NOT a source: it feeds the
     verifier, never a Case.
+
+    WHY the GitHub link is built here (OME-1524): the location alone does not say the file
+    lives on GitHub; only this preparer knows it.
     """
 
-    return [
-        hugging_face_source(DATASET, DATASET_REVISION),
-        {
-            "kind": FILE,
-            # The vendored data/ folder sits one level deeper upstream, beside the copied
-            # checker files: instruction_following_eval/data/input_data.jsonl.
-            "location": f"{VERIFIER_REPOSITORY}/instruction_following_eval/data/input_data.jsonl",
-            "pin": f"commit {VERIFIER_REVISION}",
-            "phase": LOAD_PHASE,
-        },
-    ]
+    # The vendored data/ folder sits one level deeper upstream, beside the copied checker
+    # files: instruction_following_eval/data/input_data.jsonl.
+    official_path: str = "instruction_following_eval/data/input_data.jsonl"
+    official: dict[str, str] = {
+        "kind": FILE,
+        "location": f"{VERIFIER_REPOSITORY}/{official_path}",
+        "pin": f"commit {VERIFIER_REVISION}",
+        "phase": LOAD_PHASE,
+    }
+    url: str | None = github_file_url(VERIFIER_REPOSITORY, VERIFIER_REVISION, official_path)
+    if url is not None:
+        official["url"] = url
+    return [hugging_face_source(DATASET, DATASET_REVISION), official]
 
 
 def prepare_nltk(out: Path) -> dict[str, Any]:

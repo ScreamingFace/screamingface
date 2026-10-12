@@ -3985,13 +3985,14 @@ streaming = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
-    { name = "pydantic", marker = "extra == 'streaming'", specifier = ">=2.13.4" },
+    { name = "pydantic", marker = "extra == 'streaming'", specifier = ">=2.12" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.30" },
 ]
 provides-extras = ["server", "streaming"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "hypothesis", specifier = ">=6.168.5" },
     { name = "pyright", specifier = ">=1.1.409" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=1.3,<2" },
@@ -3999,7 +4000,11 @@ dev = [
     { name = "ruff", specifier = ">=0.16.1" },
     { name = "url4", extras = ["streaming"] },
 ]
-notebook = [{ name = "graphviz", specifier = ">=0.21" }]
+notebook = [
+    { name = "graphviz", specifier = ">=0.21" },
+    { name = "ipykernel", specifier = ">=7.4.0" },
+    { name = "nbclient", specifier = ">=0.11.0" },
+]
 
 [[package]]
 name = "urllib3"

@@ -1,0 +1,260 @@
+.FF.FFFF                                                                 [100%]
+=================================== FAILURES ===================================
+______________________ test_L2_canonical_text_is_fixpoint ______________________
+
+    @S
+>   @given(asts)
+                 
+
+test_roundtrip.py:61: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:65: in test_L2_canonical_text_is_fixpoint
+    assert render(build(s)) == s
+           ^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:83: in render
+    text = _render_top(node)
+           ^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:113: in _render_top
+    result = _render_expression(node, top=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+e = Expression(sources=(SelfRef(),), intent=None, broadcast=False, params=())
+top = True
+
+    def _render_expression(e: Expression, *, top: bool = False) -> str:
+        if e.intent is None and e.broadcast:
+            raise RenderError("broadcast (!*) requires an intent")
+        if e.intent is None:
+            # INVARIANT: expression = "(" source-list ")" intent-op intent — an
+            # intent-less Expression is an internal carrier (paren-collections,
+            # envelope assembly) with no surface form outside collection position
+            # (`OME-508`, rendered via _render_collection).
+>           raise RenderError(
+                "an Expression without an intent has no surface form — a "
+                "parenthesized source group must carry !intent (or !*intent)"
+            )
+E           url4.core.errors.RenderError: an Expression without an intent has no surface form — a parenthesized source group must carry !intent (or !*intent)
+E           Failing test case: test_L2_canonical_text_is_fixpoint(
+E               n=SelfRef(),
+E           )
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py:138: RenderError
+___________________ test_L2prime_render_total_on_build_image ___________________
+  + Exception Group Traceback (most recent call last):
+  |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 69, in test_L2prime_render_total_on_build_image
+  |     @given(grammar_text)
+  |                    ^^^
+  |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/core.py", line 2215, in wrapped_test
+  |     _raise_to_user(errors, state.settings, [], " in explicit examples")
+  |     ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/core.py", line 1691, in _raise_to_user
+  |     raise the_error_hypothesis_found
+  | ExceptionGroup: Hypothesis found 2 distinct failures in explicit examples. (2 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 101, in verify
+    |     actual = build(text)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 431, in build
+    |     return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py", line 198, in assemble_expression
+    |     intent = intent_atom(raw_intent) if raw_intent is not None else None
+    |              ~~~~~~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 918, in intent_atom
+    |     node: Node = Text(_unquote(text))
+    |                       ~~~~~~~~^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 752, in _unquote
+    |     return _unescape(token[1:-1])
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py", line 777, in _unescape
+    |     raise ParseError(f"raw control character {char!r} in quoted text (spec quoted-char)")
+    | url4.core.errors.ParseError: raw control character '\n' in quoted text (spec quoted-char)
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 75, in test_L2prime_render_total_on_build_image
+    |     render(t)  # must not raise
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 85, in render
+    |     verify(node, text)
+    |     ~~~~~~^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 103, in verify
+    |     raise RenderError(f"rendered text {text!r} does not reparse: {exc}") from exc
+    | url4.core.errors.RenderError: rendered text "(https://a.io)!'sum\nit'" does not reparse: raw control character '\n' in quoted text (spec quoted-char)
+    | Failing explicit example: test_L2prime_render_total_on_build_image(
+    |     s='(https://a.io)!sum\nit',
+    | )
+    +---------------- 2 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/tests/test_roundtrip.py", line 75, in test_L2prime_render_total_on_build_image
+    |     render(t)  # must not raise
+    |     ~~~~~~^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 83, in render
+    |     text = _render_top(node)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 113, in _render_top
+    |     result = _render_expression(node, top=True)
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 157, in _render_expression
+    |     return out + _render_params(e.params, top=top)
+    |                  ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 176, in _render_params
+    |     return "".join(_render_param(key, value, top=top) for key, value in params)
+    |            ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 176, in <genexpr>
+    |     return "".join(_render_param(key, value, top=top) for key, value in params)
+    |                    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 195, in _render_param
+    |     _check_no_structural(value, "param value", allow_comma=top)
+    |     ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/junior/workspace/screamingface/packages/url4/src/url4/core/render.py", line 677, in _check_no_structural
+    |     raise RenderError(f"{what} {text!r} contains a structural character")
+    | url4.core.errors.RenderError: param value "'a b'" contains a structural character
+    | Failing explicit example: test_L2prime_render_total_on_build_image(
+    |     s="(a)!go;note='a b'",
+    | )
+    +------------------------------------
+______________________ test_L3_unchecked_render_faithful _______________________
+
+    @S
+>   @given(asts)
+                 
+
+test_roundtrip.py:89: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+n = RelUrl(value='/')
+
+    @S
+    @given(asts)
+    def test_L3_unchecked_render_faithful(n):
+        s = try_render(n, check=False)
+        assume(s is not None)
+>       assert try_build(s) == wrap(n)
+E       AssertionError: assert None == Expression(sources=(RelUrl(value='/'),), intent=None, broadcast=False, params=())
+E        +  where None = try_build('/')
+E        +  and   Expression(sources=(RelUrl(value='/'),), intent=None, broadcast=False, params=()) = wrap(RelUrl(value='/'))
+E       Failing test case: test_L3_unchecked_render_faithful(
+E           n=RelUrl('/'),
+E       )
+
+test_roundtrip.py:93: AssertionError
+________________________ test_L3s_no_silent_misreading _________________________
+
+    @S
+>   @given(asts)
+                 
+
+test_roundtrip.py:97: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+n = VarRef(name='١', path=())
+
+    @S
+    @given(asts)
+    def test_L3s_no_silent_misreading(n):
+        s = try_render(n, check=False)
+        assume(s is not None)
+        t = try_build(s)
+>       assert t is None or t == wrap(n), f"render(check=False) -> {s!r} reparses to {t!r}"
+E       AssertionError: render(check=False) -> '$١' reparses to Expression(sources=(Text(value='$١'),), intent=None, broadcast=False, params=())
+E       assert (Expression(sources=(Text(value='$١'),), intent=None, broadcast=False, params=()) is None or Expression(so...se, params=()) == Expression(so...se, params=())
+E         
+E         Omitting 3 identical items, use -vv to show
+E         Differing attributes:
+E         ['sources']
+E         
+E         Drill down into differing attribute sources:
+E           sources: (Text(value='$١'),) != (VarRef(name='١', path=()),)
+E           At index 0 diff: Text(value='$١') != VarRef(name='١', path=())
+E           Use -v to get more diff)
+E       Failing test case: test_L3s_no_silent_misreading(
+E           n=VarRef(
+E               '١',
+E               (),  # or any other generated value
+E           ),
+E       )
+
+test_roundtrip.py:102: AssertionError
+_____________________ test_F_build_only_raises_parse_error _____________________
+
+    @S
+>   @given(st.one_of(grammar_text, mutated_text(), st.text(max_size=12)))
+                   ^^^
+
+test_roundtrip.py:106: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_roundtrip.py:110: in test_F_build_only_raises_parse_error
+    f(s)
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py:431: in build
+    return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/parser.py:192: in assemble_expression
+    parsed = parse_group_root(source_expr) if source_expr else Expression(sources=())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:587: in parse_group_root
+    return parse(stripped)
+           ^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:142: in parse
+    return _parse_source(stripped)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:185: in _parse_source
+    return _attach_tail(_parse_head(parts[0]), tail)
+                        ^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:213: in _parse_head
+    result = _parse_attrib_chain(head)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:264: in _parse_attrib_chain
+    if _is_value_shaped(rest):
+       ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+text = '', colon = None
+
+    def _is_value_shaped(text: str, colon: int | None = None) -> bool:
+        """§4.3 disambiguation — a token that is a bare data value, no descriptor.
+    
+        ``colon`` is the precomputed top-level colon index, for callers that already
+        scanned for it; omitted, it is computed here.
+        """
+>       if text[0] in "'(/@{$":
+           ^^^^^^^
+E       IndexError: string index out of range
+E       Failing test case: test_F_build_only_raises_parse_error(
+E           s='0:',
+E       )
+
+/Users/junior/workspace/screamingface/packages/url4/src/url4/core/grammar.py:223: IndexError
+________________________ test_B_builder_output_renders _________________________
+
+    @S
+>   @given(st.data())
+                   ^^^
+E   hypothesis.errors.Unsatisfiable: Unable to satisfy assumptions of test_B_builder_output_renders. Hypothesis tried every possible input, so the assumptions of this test are impossible to satisfy - not merely unlikely - and running more test cases cannot help. Also, 1 of 1 test cases failed a .filter() or assume() condition. Try making your filters or assumes less strict, or rewrite using strategy parameters: st.integers().filter(lambda x: x > 0) fails less often (that is, never) when rewritten as st.integers(min_value=1).
+
+test_roundtrip.py:131: Unsatisfiable
+---------------------------------- Hypothesis ----------------------------------
+You can reproduce this failure by adding @seed(39690137667771393801287093853823407145) to this test, or by running pytest with --hypothesis-seed=39690137667771393801287093853823407145.
+=============================== warnings summary ===============================
+test_roundtrip.py::test_F_build_only_raises_parse_error
+  /private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:180: HypothesisWarning: Generating overly large repr. This is an expensive operation, and with a length of 110 kB is unlikely to be useful. Use -Wignore to ignore the warning, or -Werror to get a traceback.
+    self.__representation = repr_call(
+
+test_roundtrip.py::test_F_build_only_raises_parse_error
+  /private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:180: HypothesisWarning: Generating overly large repr. This is an expensive operation, and with a length of 770 kB is unlikely to be useful. Use -Wignore to ignore the warning, or -Werror to get a traceback.
+    self.__representation = repr_call(
+
+test_roundtrip.py::test_F_build_only_raises_parse_error
+  /private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:180: HypothesisWarning: Generating overly large repr. This is an expensive operation, and with a length of 797 kB is unlikely to be useful. Use -Wignore to ignore the warning, or -Werror to get a traceback.
+    self.__representation = repr_call(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED test_roundtrip.py::test_L1_checked_render_roundtrips
+PASSED test_roundtrip.py::test_L2i_render_build_idempotent
+FAILED test_roundtrip.py::test_L2_canonical_text_is_fixpoint - url4.core.erro...
+FAILED test_roundtrip.py::test_L2prime_render_total_on_build_image - Exceptio...
+FAILED test_roundtrip.py::test_L3_unchecked_render_faithful - AssertionError:...
+FAILED test_roundtrip.py::test_L3s_no_silent_misreading - AssertionError: ren...
+FAILED test_roundtrip.py::test_F_build_only_raises_parse_error - IndexError: ...
+FAILED test_roundtrip.py::test_B_builder_output_renders - hypothesis.errors.U...
+6 failed, 2 passed, 3 warnings in 68.55s (0:01:08)

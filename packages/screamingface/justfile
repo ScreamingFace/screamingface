@@ -261,11 +261,13 @@ e2e-refresh-golden board *flags: _bless-preconditions
 # calls of every LLM-judged Benchmark (frontierscience and HealthBench judge with
 # gpt-5.4, DRACO and GDPval with gemini-3.1-pro, once per rubric criterion). `scope`
 # narrows the shelf: all (default) · imported (the inspect evals) · hand-built (the
-# Benchmarks written in the engine). The test fails only on infrastructure failure
+# Benchmarks written in the engine). `benchmarks` (comma-separated ids, e.g.
+# `just screamingface test-paid-benchmarks all musique`) replaces the scope with exactly
+# those; a name the engine does not list fails before any paid call. The test fails only on infrastructure failure
 # codes, never on scores. Never wired into merge gates; the on-demand CI twin is
 # .github/workflows/screamingface-paid-benchmark-smoke.yml.
-[doc("Run the paid OpenRouter smoke over every Benchmark (spends money); scope: all | imported | hand-built")]
-test-paid-benchmarks scope="all":
+[doc("Run the paid OpenRouter smoke over every Benchmark (spends money); scope: all | imported | hand-built; benchmarks: comma-separated ids, overrides scope")]
+test-paid-benchmarks scope="all" benchmarks="":
     #!/usr/bin/env bash
     set -euo pipefail
     UV="{{ require('uv') }}"
@@ -278,7 +280,7 @@ test-paid-benchmarks scope="all":
     # the engine always runs from its own venv, synced here.
     ( cd "{{ engine_dir }}" && "$UV" sync --extra benchmarks )
 
-    # Prepare any missing bundle, whatever the scope: one assets root serves every
+    # Prepare any missing bundle, whatever is picked: one assets root serves every
     # press, and a prepared bundle costs nothing next time. Same resumable rule as
     # local-stack-notebooks: a bundle counts as finished only when its cases.json
     # PARSES; anything else is debris from a dead run and is cleared before re-preparing.
@@ -327,6 +329,7 @@ test-paid-benchmarks scope="all":
     status=0
     SCREAMINGFACE_TEST_PAID=1 SCREAMINGFACE_PAID_REQUIRED=1 SCREAMINGFACE_E2E_ASSETS="{{ assets }}" \
         SCREAMINGFACE_PAID_LOG_DIR="$log_dir" SCREAMINGFACE_PAID_SCOPE="{{ scope }}" \
+        SCREAMINGFACE_PAID_BENCHMARKS="{{ benchmarks }}" \
         "$UV" run pytest tests/paid -rs -v --junitxml "$log_dir/junit.xml" || status=$?
     echo "==> logs, per-Benchmark reports and verdicts: $log_dir"
     exit "$status"
