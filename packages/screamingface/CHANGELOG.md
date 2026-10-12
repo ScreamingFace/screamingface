@@ -4,11 +4,17 @@
 
 ### Fixes
 
+* Show optional Model, Pipeline, and Fusion members in `Fusion` repr so member failure policy is visible (`OME-1557`). Required members retain their compact name-only representation.
+
+* Preserve upstream answers across composed quorum panels and reject executable quorum/member policy that disagrees with default-valued Recipe metadata during export and replay (`OME-1557`). Composed quorum Recipes require an Engine containing the patched URL4 runtime; deploy the Engine operation-reporting update as well to retain member outputs and accounting.
+
 * Stream compact accounting attribution and cache saved-run disclosure context lazily, without retaining every Case payload or accounting row. Invalid or stale caches rebuild; public breakdowns and report JSON remain unchanged.
 
 * Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
 
 ### Features
+
+* **screamingface:** add `Fusion(..., quorum=N)` and per-member `optional=True` on Model, Pipeline, and Fusion Recipes (`OME-1557`). Optional complete members can fail without stopping synthesis when enough members succeed; required members must still succeed. Defaults require every member, `all` includes optional members, and zero allows an empty panel when all members are optional. Quorum is checked after members finish. Gated Fusions pass ordered successful `member_N: answer` sections in the synthesizer JSON's `outputs` string. Optional policy is only valid in Fusion member positions. Quorum and optional settings survive editable Python and replay, which validates the executable policy against recipe metadata.
 
 * Track saved-report evaluation, display and JSON export lifecycles, and show notebook recovery guidance when the previous local owner process exited unexpectedly. Explicit recovery preserves interruption metadata across destination stores; healthy and legacy reports remain quiet.
 

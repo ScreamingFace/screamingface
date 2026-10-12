@@ -86,6 +86,7 @@ from url4.dag.node import DagNode, node_children  # isort: skip
 from url4.dag.nodes import (  # isort: skip
     BindingNode,
     CollectNode,
+    GuardNode,
     HoldingsNode,
     LazyExprNode,
     MapNode,
@@ -280,7 +281,11 @@ def _lower_expression(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     intent = _intent_from_ast(node.intent, registry)
     # An Expression is always a parenthesised group (bare relative expressions
     # parse to RelExpr and lower via _lower_rel_expr), so it is a list source.
-    return compile_group(slots, intent, node.broadcast, from_list=True, params=node.params)
+    group = compile_group(slots, intent, node.broadcast, from_list=True, params=node.params)
+    # WHY: unlike a lazy group, an AST Expression otherwise drops its enclosing
+    # reference edges. Capture their values as a scope frame before entering the
+    # group; they are shared inputs, never additional sources toward its quorum.
+    return GuardNode(group, deps=dict(edges)) if edges else group
 
 
 _ROW_NAMES = frozenset({"item", "current", "index"})
