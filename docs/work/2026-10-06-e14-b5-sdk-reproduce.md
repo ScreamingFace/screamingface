@@ -340,3 +340,14 @@ their names were read from their code (`X-Capture`, `X-Replay-Frozen-Copy`, `cap
   `OME-1436-e14-a2-sdk-metadata`, the name the R-plan gives.
 - Decided 2026-10-12: the SDK does not decode `case_digest` on leaderboard and history rows
   (`LeaderboardEntry`). Only `LeaderboardScore` has it. The board still returns it on those rows (§6).
+
+### Review feedback (2026-10-12, second round)
+
+- Changes: the `0.0` pin in the digest test, the sorted and de-duplicated partial reasons (a non-string
+  is a `TypeError`), the module import in the leaderboards file, the `_classify` invariant, and the digest
+  module docstring. Decision recorded for the leaderboard rows (see Deviations above).
+- Test: `test_the_partial_reasons_are_sorted_once_and_must_be_strings` (`tests/test_capture_summary.py`).
+  The invalid-copy test now shares its result helper, `_constructed`.
+- Gates, base `refs/e14-backup/pre-phase2-2026-10-12/OME-1436-e14-a2-sdk-metadata`: without
+  `--skip-append-only`, the append-only check flags only the three approved files. With
+  `--skip-append-only`: ALL GATES GREEN at `c96c1ad53`.
