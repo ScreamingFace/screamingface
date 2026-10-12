@@ -205,7 +205,7 @@ These edits are in plan B1, approved on 2026-10-12.
 ### Open question
 
 - Resolved in round 2: `{}` seals with no provenance (200).
-- Open: the design says `default ""` and `default 0` for `case_key` and `occurrence`. Tortoise `default=` is Python-side, so the Postgres columns have no SQL DEFAULT (checked in round 2). The codebase uses `db_default` for some columns (migrations 0007 and 0013). Decide whether these two columns need `db_default`. The migration is not released, so the change is cheap.
+- Decided (orchestrator, 2026-10-12): no `db_default` for `case_key` and `occurrence`. The ORM writes both values on every insert, and the design's "default" is the ORM default. The Postgres columns have no SQL DEFAULT, like the other ORM-default columns.
 
 ### Round 2 (coordinator feedback)
 
