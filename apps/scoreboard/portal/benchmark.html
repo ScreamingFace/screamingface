@@ -14,13 +14,10 @@
   <script>(function(){try{var t=localStorage.getItem('sf_theme')||'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
   <!-- Privacy-friendly analytics by Plausible -->
   <script async src="https://plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js"></script>
-  <script>
-    window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
-    plausible.init()
-  </script>
+  <script src="analytics.js"></script>
 </head>
 <body>
-  <div class="rail">
+  <div class="rail" data-section="nav">
     <a class="brand" href="index.html"><span class="m" aria-hidden="true">😱</span> screamingface</a><span class="sep" hidden>/</span>
     <nav class="crumbs" hidden><a href="#" class="here" id="crumb-benchmark"></a></nav>
     <span class="spacer"></span>
@@ -34,16 +31,16 @@
   </div>
 
   <div class="wrap wide">
-    <nav id="benchmark-tabs" class="tabstrip" aria-label="Benchmarks"></nav>
+    <nav id="benchmark-tabs" class="tabstrip" data-section="benchmark-tabs" aria-label="Benchmarks"></nav>
 
-    <header class="masthead">
+    <header class="masthead" data-section="header">
       <div class="eyebrow">Leaderboard</div>
       <h1 id="benchmark-name">Leaderboard</h1>
     </header>
 
     <p class="lead" id="benchmark-desc"></p>
 
-    <div class="note">
+    <div class="note" data-section="note">
       <span class="kicker">about</span> The leaderboard's top row is the current state of the art. Every submission carries its url4 expression, a complete recipe for the run, so any score here can be rerun, verified, and iterated on before you cite it.</div>
 
     <div id="leaderboard-summary" class="stats stats--two" aria-label="Leaderboard summary" hidden>
@@ -54,14 +51,14 @@
 
     <div id="leaderboard-status" class="state" role="status" aria-live="polite">Loading…</div>
 
-    <div id="leaderboard-climb-section" hidden>
+    <div id="leaderboard-climb-section" data-section="score-bars" hidden>
       <h2>Score</h2>
       <!-- Visual duplicate of the table's score column (viz-a climb
            direction); the table below remains the accessible data source. -->
       <div id="leaderboard-climb" class="climb" aria-hidden="true"></div>
     </div>
 
-    <section id="pareto-chart-section" class="pareto-chart-section" hidden>
+    <section id="pareto-chart-section" class="pareto-chart-section" data-section="chart" hidden>
       <h2>Pareto Frontier (cost/score)</h2>
       <figure class="pareto-chart-figure">
         <!-- The table below is the accessible data source. This SVG is a visual summary with
@@ -92,6 +89,7 @@
          a focusable region requires. -->
     <div
       id="leaderboard-wrap"
+      data-section="table"
       class="table-wrap"
       tabindex="0"
       role="region"
@@ -114,7 +112,7 @@
       <span class="legend-item">gold row = highest score</span>
     </p>
 
-    <div class="foot">
+    <div class="foot" data-section="footer">
       <span>😱 screamingface</span>
       <span><a href="https://github.com/ScreamingFace/screamingface" rel="noopener noreferrer nofollow">GitHub</a></span>
     </div>

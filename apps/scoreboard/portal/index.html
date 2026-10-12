@@ -14,13 +14,10 @@
   <script>(function(){try{var t=localStorage.getItem('sf_theme')||'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
   <!-- Privacy-friendly analytics by Plausible -->
   <script async src="https://plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js"></script>
-  <script>
-    window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
-    plausible.init()
-  </script>
+  <script src="analytics.js"></script>
 </head>
 <body>
-  <div class="rail">
+  <div class="rail" data-section="nav">
     <a class="brand" href="index.html"><span class="m" aria-hidden="true">😱</span> screamingface</a>
     <span class="spacer"></span>
     <nav class="rail-nav" aria-label="Site">
@@ -33,7 +30,7 @@
   </div>
 
   <div class="wrap wide landing">
-    <header class="masthead hero">
+    <header class="masthead hero" data-section="hero">
       <div class="eyebrow">ScreamingFace · open leaderboard</div>
       <h1 class="hero-title">Fusi<img class="o-mark" src="assets/mark/sf-mark-128.png" alt="o">ns, ranked and reproducible.</h1>
       <p class="lead hero-lead">The first verified map of the quality–cost frontier for ensembles and routers.</p>
@@ -49,11 +46,11 @@
       <dd>A single model, shown as a reference baseline (no submitter).</dd>
     </dl>
 
-    <div class="hero-cta">
+    <div class="hero-cta" data-section="hero">
       <a class="btn" href="https://docs.screamingface.ai/" target="_blank" rel="noopener">Get started with ScreamingFace →</a>
     </div>
 
-    <section id="benchmarks" class="benchmarks-section">
+    <section id="benchmarks" class="benchmarks-section" data-section="catalogue">
       <h2 class="section-label">Catalogue</h2>
 
       <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
@@ -64,7 +61,7 @@
       </div>
     </section>
 
-    <div class="foot">
+    <div class="foot" data-section="footer">
       <span>😱 screamingface</span>
       <span><a href="https://leaderboard.screamingface.ai/" rel="noopener noreferrer">leaderboard.screamingface.ai</a></span>
     </div>
