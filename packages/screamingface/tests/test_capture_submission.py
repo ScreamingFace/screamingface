@@ -24,6 +24,7 @@ from test_leaderboards import (
 )
 
 import screamingface as sf
+from screamingface._case_digest import case_digest
 from screamingface._scoreboard.leaderboards import _submission
 
 _COPY = "0b1f6d3a-5c0e-4a8e-9a3f-2f6f8f4c7d11"
@@ -87,6 +88,14 @@ def test_a_partial_run_sends_its_status_without_a_frozen_copy() -> None:
 def test_a_zero_answer_seed_is_sent() -> None:
     # 0 is a sitting. Only None means "no seed".
     assert _submission(_result(answer_seed=0))["answer_seed"] == 0
+
+
+def test_submit_sends_the_case_digest_with_the_capture_fields() -> None:
+    # Q29: the digest of the run's own cases travels only with a capture status.
+    result = _result(frozen_copy_id=_COPY, capture_status="complete")
+
+    assert _submission(result)["case_digest"] == case_digest(result.cases)
+    assert "case_digest" not in _submission(_result())
 
 
 def test_submit_posts_the_fields_to_the_board() -> None:

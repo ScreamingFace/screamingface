@@ -20,6 +20,7 @@ from uuid import UUID
 
 import httpx
 
+from screamingface._case_digest import case_digest
 from screamingface._report_primitives import capture_status_value
 from screamingface._scoreboard.submission_notice import (
     display_submission_notice,
@@ -225,6 +226,7 @@ class Leaderboards:
         score: float,
         total_questions: int,
         frozen_copy_id: str | None,
+        case_digest: str,
         client: Mapping[str, object],
     ) -> None:
         """Record one exact replay. Internal: `reproduce` maps any error to `record_error`."""
@@ -234,7 +236,9 @@ class Leaderboards:
             self._scoreboard_url,
             "POST",
             f"{_SCORES_PATH}/{selected}/reproductions",
-            json=_reproduction_payload(run_id, score, total_questions, frozen_copy_id, client),
+            json=_reproduction_payload(
+                run_id, score, total_questions, frozen_copy_id, case_digest, client
+            ),
             # WHY safe to re-send: the board keys a record by (score, run_id) and answers a repeat
             # with the first row, so a retried POST cannot count twice.
             replay_safe=True,
@@ -364,6 +368,7 @@ class AsyncLeaderboards:
         score: float,
         total_questions: int,
         frozen_copy_id: str | None,
+        case_digest: str,
         client: Mapping[str, object],
     ) -> None:
         """Record one exact replay. Internal: `reproduce` maps any error to `record_error`."""
@@ -373,7 +378,9 @@ class AsyncLeaderboards:
             self._scoreboard_url,
             "POST",
             f"{_SCORES_PATH}/{selected}/reproductions",
-            json=_reproduction_payload(run_id, score, total_questions, frozen_copy_id, client),
+            json=_reproduction_payload(
+                run_id, score, total_questions, frozen_copy_id, case_digest, client
+            ),
             # WHY safe to re-send: the board keys a record by (score, run_id) and answers a repeat
             # with the first row, so a retried POST cannot count twice.
             replay_safe=True,
@@ -776,6 +783,7 @@ def _reproduction_payload(
     score: float,
     total_questions: int,
     frozen_copy_id: str | None,
+    case_digest: str,
     client: Mapping[str, object],
 ) -> dict[str, object]:
     selected = dict(client)
@@ -790,6 +798,7 @@ def _reproduction_payload(
         "score": score,
         "total_questions": total_questions,
         "frozen_copy_id": frozen_copy_id,
+        "case_digest": case_digest,
         "client": selected,
     }
 
@@ -805,7 +814,11 @@ def _capture_fields(candidate_result: CandidateResult) -> dict[str, object]:
         "capture_status": candidate_result.capture_status,
         "answer_seed": candidate_result.answer_seed,
     }
-    return {name: value for name, value in known.items() if value is not None}
+    fields = {name: value for name, value in known.items() if value is not None}
+    # FEATURE (Q29): the digest of the run's own cases. The board refuses a digest without a status.
+    if candidate_result.capture_status is not None:
+        fields["case_digest"] = case_digest(candidate_result.cases)
+    return fields
 
 
 def _submission_models(models: Sequence[str]) -> list[str]:

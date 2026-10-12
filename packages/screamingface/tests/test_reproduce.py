@@ -34,6 +34,7 @@ from test_leaderboards import SCORE_ID, SCOREBOARD_URL, _score_response
 
 import screamingface as sf
 from screamingface import _default_client
+from screamingface._case_digest import case_digest
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.url4 import evaluate_url4_sync
 from screamingface._reproduction import Reproduction, _classify
@@ -510,6 +511,17 @@ def test_an_exact_replay_is_recorded_once() -> None:
         "frozen_copy_id": COPY,
     }
     assert body["client"]["name"] == "screamingface"
+
+
+def test_reproduce_sends_the_replay_case_digest() -> None:
+    # Q29: the record carries the digest of the replay's own cases, for the board to compare.
+    board = _Board()
+    with _client(_Replayer(), board) as client:
+        reproduction = client.reproduce(_score())
+
+    assert reproduction.result is not None
+    (post,) = board.posts
+    assert json.loads(post.read())["case_digest"] == case_digest(reproduction.result.cases)
 
 
 def test_record_false_runs_and_judges_but_posts_nothing() -> None:

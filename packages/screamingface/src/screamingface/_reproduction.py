@@ -17,6 +17,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID
 
+from screamingface._case_digest import case_digest
 from screamingface._evaluation.url4 import evaluate_url4_async, evaluate_url4_sync
 from screamingface._report_primitives import CaseId
 from screamingface._scoreboard.leaderboards import _client_info
@@ -165,6 +166,8 @@ def _record_sync(
             score=cast(float, result.score),
             total_questions=len(result.cases),
             frozen_copy_id=score.frozen_copy_id,
+            # The replay's own cases, for the board to compare with the stored digest (Q29).
+            case_digest=case_digest(result.cases),
             client=_client_info(),
         )
     except Exception as exc:  # noqa: BLE001 - a failed record never undoes an exact replay
@@ -220,6 +223,8 @@ async def _record_async(
             score=cast(float, result.score),
             total_questions=len(result.cases),
             frozen_copy_id=score.frozen_copy_id,
+            # The replay's own cases, for the board to compare with the stored digest (Q29).
+            case_digest=case_digest(result.cases),
             client=_client_info(),
         )
     except Exception as exc:  # noqa: BLE001 - see the sync twin
