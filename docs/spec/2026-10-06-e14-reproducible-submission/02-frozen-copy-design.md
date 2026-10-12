@@ -202,7 +202,8 @@ present (pinned 2026-10-08, B3 review).
    with `frozen_copy_miss`; a 404 `frozen_copy_unavailable` fails it with `frozen_copy_unavailable`.
 2a. A failure that the copy did not serve is permanent and fails the case with
    `frozen_copy_unavailable`, with no higher-level retry. This covers a call whose every transport
-   attempt failed, a gateway answer without `X-AIGW-Replay`, and a tool lookup with a transport error.
+   attempt failed, a gateway answer without `X-AIGW-Replay`, and a tool lookup with a transport error
+   or a 200 answer whose body is not a valid result. A `frozen_copy_miss` is permanent too (no retry).
    Transport attempts inside one logical call still reuse its occurrence. Reason: the occurrence is
    never given back (§5.4), so a retry would read the next occurrence and replay the wrong entry.
 3. No `max-age` re-issue and no cache controls in replay mode.
@@ -242,7 +243,8 @@ The engine sends the same key in capture and in replay, so both runs name each c
 - `Score.case_digest` (64 lowercase hex, nullable, Q29): it requires `capture_status`. It fills on a
   same-owner resubmit only together with the status and the copy id, because all three must describe
   the same run. The content hash does not cover the cases, so a different run can dedup to the same
-  row. The score read, the leaderboard rows and the history rows return it.
+  row. The score read returns it (omitted when null). Leaderboard and history rows carry no capture
+  fields, so they do not return it.
 - `POST /v1/scores/{id}/reproductions`: the score must have `capture_status = complete` (else 409
   `not_reproducible`); the body's `score`, `total_questions` and `frozen_copy_id` must equal the stored
   values (else 422 `not_exact`). When the score has a `case_digest`, the body must carry an equal
@@ -269,7 +271,8 @@ The engine sends the same key in capture and in replay, so both runs name each c
 - `submit` sends `frozen_copy_id`, `capture_status`, `answer_seed` and `case_digest` when set.
 - `LeaderboardScore.frozen_copy_id`, `capture_status` replace `cache_revision`, `reproducible`.
   `LeaderboardScore.case_digest: str | None` (64 lowercase hex, needs `capture_status`, validated like
-  `frozen_copy_id`). The board also returns it on leaderboard and history rows; it is not a secret.
+  `frozen_copy_id`). Only the score read carries it; leaderboard rows (`LeaderboardEntry`) carry no
+  capture fields.
 - The reproduction record always sends the replay's `case_digest`. The board compares it only when the
   score has one (§6) and does not store it.
 - `sf.reproduce(score, *, record=True)`, in check order:
