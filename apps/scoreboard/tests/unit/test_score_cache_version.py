@@ -433,3 +433,61 @@ def test_frozen_copy_migration_applies_to_a_populated_database(tmp_path: Path) -
     connection.execute("DELETE FROM scores")
     assert connection.execute("SELECT COUNT(*) FROM score_reproductions").fetchone() == (0,)
     connection.close()
+
+
+# --- B4 Q29: the case digest needs a status and is 64 lower-case hex --------------------------
+
+DIGEST = "0123456789abcdef" * 4
+OTHER_DIGEST = "fedcba9876543210" * 4
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({"case_digest": DIGEST}, id="digest-without-status"),
+        pytest.param(
+            {"capture_status": "complete", "case_digest": DIGEST.upper()}, id="upper-case-hex"
+        ),
+        pytest.param(
+            {"capture_status": "complete", "case_digest": DIGEST[:63]}, id="one-digit-short"
+        ),
+        pytest.param(
+            {"capture_status": "complete", "case_digest": DIGEST + "0"}, id="one-digit-long"
+        ),
+        pytest.param(
+            {"capture_status": "complete", "case_digest": DIGEST[:-1] + "g"}, id="not-hex"
+        ),
+        pytest.param(
+            {"capture_status": "complete", "case_digest": DIGEST + "\n"}, id="trailing-newline"
+        ),
+        pytest.param({"capture_status": "complete", "case_digest": ""}, id="empty"),
+    ],
+)
+async def test_case_digest_without_capture_status_or_malformed_is_rejected(
+    disabled_client: AsyncClient, fields: dict[str, Any]
+) -> None:
+    response = await disabled_client.post("/v1/scores", json=_payload(**fields))
+
+    assert response.status_code == 422, fields
+    errors = response.json()["detail"]
+    assert all(error["type"] != "extra_forbidden" for error in errors)
+    assert any(
+        error["loc"][:2] == ["body", "case_digest"] or error["loc"] == ["body"] for error in errors
+    )
+
+
+@pytest.mark.asyncio
+async def test_resubmit_fills_only_an_empty_case_digest(tortoise_db: None) -> None:
+    row = await _store_then_resubmit(
+        {}, {"capture_status": "complete", "frozen_copy_id": COPY_ID, "case_digest": DIGEST}
+    )
+    assert row.case_digest == DIGEST
+
+    again, was_created = await ScoreStore().submit(
+        _submission(capture_status="complete", frozen_copy_id=COPY_ID, case_digest=OTHER_DIGEST)
+    )
+
+    assert was_created is False
+    assert again.id == row.id
+    assert (await Score.get(id=row.id)).case_digest == DIGEST

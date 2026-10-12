@@ -406,6 +406,9 @@ CaptureStatus = Literal["complete", "partial"]
 # A 32-bit signed INT, the width of the column. Anything wider would fail on PostgreSQL after
 # passing here, so it is refused as a 422 instead of reaching the database.
 AnswerSeed = Annotated[int, Field(ge=-(2**31), le=2**31 - 1)]
+# FEATURE: OME-1307 / Q29 — the SDK's case digest: sha256 hex, lower case, 64 characters. The board
+# compares it as sent and never recomputes it, so the pattern is the whole check.
+CaseDigest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
 # The exact primary score the Engine Benchmark produced: any finite number, higher is better. One
@@ -602,12 +605,16 @@ class ScoreSubmission(BaseModel):
     frozen_copy_id: FrozenCopyId | None = None
     capture_status: CaptureStatus | None = None
     answer_seed: AnswerSeed | None = None
+    # FEATURE: OME-1307 / Q29 — the case digest. Needs `capture_status`, like the copy id.
+    case_digest: CaseDigest | None = None
 
     @model_validator(mode="after")
     def validate_frozen_copy_id_has_a_capture_status(self) -> ScoreSubmission:
-        """INVARIANT (I1): a copy id without a status is incoherent, so it is refused."""
+        """INVARIANT (I1): a copy id or a case digest without a status is incoherent, so refused."""
         if self.frozen_copy_id is not None and self.capture_status is None:
             raise ValueError("frozen_copy_id requires capture_status")
+        if self.case_digest is not None and self.capture_status is None:
+            raise ValueError("case_digest requires capture_status")
         return self
 
     @field_validator("cache_saved_cost_usd", "cache_saved_cost_archive_usd")
@@ -1004,6 +1011,9 @@ class ScoreSchema(BaseModel):
         default=None, exclude_if=lambda value: value is None
     )
     answer_seed: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    # FEATURE: OME-1307 / Q29 — the case digest, excluded when absent for the same reason as the
+    # copy id above. The score read returns it; a reproduction is compared against it.
+    case_digest: str | None = Field(default=None, exclude_if=lambda value: value is None)
     # FEATURE: OME-1307 — recorded reproductions, DERIVED on read (never stored on `scores`). Only
     # `GET /v1/scores/{id}` fills them; every other path that builds this DTO leaves the default.
     #
@@ -1123,6 +1133,8 @@ class ReproductionSubmission(BaseModel):
     score: ExactScore
     total_questions: int
     frozen_copy_id: FrozenCopyId | None = None
+    # FEATURE: OME-1307 / Q29 — compared with the stored digest by the route; never stored here.
+    case_digest: CaseDigest | None = None
     client: ReproductionClientInfo
 
 

@@ -960,3 +960,104 @@ def test_the_openapi_document_lists_both_422_shapes_and_reuses_the_403(
     }
     assert shapes == {"CodedErrorResponse", "ValidationErrorResponse"}
     assert responses["403"] == submit["403"]
+
+
+# --- B4 Q29: the replay matches the case digest; Q25: a private copy id stays private ----------
+
+DIGEST = "0123456789abcdef" * 4
+OTHER_DIGEST = "fedcba9876543210" * 4
+
+
+@pytest.mark.asyncio
+async def test_reproduction_with_matching_case_digest_is_recorded(client: AsyncClient) -> None:
+    score_id = await _submit(client, case_digest=DIGEST)
+
+    response = await client.post(
+        f"/v1/scores/{score_id}/reproductions", json=_record(case_digest=DIGEST), headers=_as(BOB)
+    )
+
+    assert response.status_code == 201, response.text
+    # Compared, never stored: a reproduction row has no column for the digest.
+    assert "case_digest" not in response.json()
+    assert [row.reproduced_by for row in await _rows(score_id)] == [BOB]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "digest",
+    [
+        pytest.param(OTHER_DIGEST, id="different-digest"),
+        pytest.param(None, id="missing-digest"),
+    ],
+)
+async def test_reproduction_with_a_different_or_missing_case_digest_is_422_not_exact(
+    client: AsyncClient, digest: str | None
+) -> None:
+    score_id = await _submit(client, case_digest=DIGEST)
+
+    response = await client.post(
+        f"/v1/scores/{score_id}/reproductions", json=_record(case_digest=digest), headers=_as(BOB)
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "not_exact"
+    assert await _rows(score_id) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "digest",
+    [
+        pytest.param(None, id="no-digest-sent"),
+        pytest.param(OTHER_DIGEST, id="digest-sent-and-ignored"),
+    ],
+)
+async def test_score_without_digest_keeps_the_three_field_rule(
+    client: AsyncClient, digest: str | None
+) -> None:
+    # A score stored without a digest is judged on score, total_questions and frozen_copy_id alone.
+    score_id = await _submit(client)
+
+    matching = await client.post(
+        f"/v1/scores/{score_id}/reproductions", json=_record(case_digest=digest), headers=_as(BOB)
+    )
+    other_copy = await client.post(
+        f"/v1/scores/{score_id}/reproductions",
+        json=_record(frozen_copy_id=OTHER_COPY_ID, case_digest=digest),
+        headers=_as(BOB),
+    )
+
+    assert matching.status_code == 201, matching.text
+    assert other_copy.status_code == 422, other_copy.text
+    assert other_copy.json()["detail"]["code"] == "not_exact"
+    assert len(await _rows(score_id)) == 1
+
+
+@pytest.mark.asyncio
+async def test_private_board_copy_id_never_reaches_a_non_owner(client: AsyncClient) -> None:
+    # Q25: the copy id is a bearer secret. A private board returns it to its owner and to no one
+    # else, on the score read, the leaderboard and the history.
+    await Benchmark.create(id="private-x", display_name="Private", visibility="private")
+    score_id = await _submit(client, ALICE, benchmark_id="private-x")
+
+    owner_read = await client.get(f"/v1/scores/{score_id}", headers=_as(ALICE))
+    stranger_read = await client.get(f"/v1/scores/{score_id}", headers=_as(BOB))
+    anonymous_read = await client.get(f"/v1/scores/{score_id}")
+    stranger_board = await client.get("/v1/leaderboard/private-x", headers=_as(BOB))
+    anonymous_board = await client.get("/v1/leaderboard/private-x")
+    stranger_history = await client.get(
+        "/v1/leaderboard/private-x/spec-1/history", headers=_as(BOB)
+    )
+    anonymous_history = await client.get("/v1/leaderboard/private-x/spec-1/history")
+
+    assert owner_read.json()["frozen_copy_id"] == COPY_ID
+    assert stranger_read.status_code == 404
+    for response in (
+        stranger_read,
+        anonymous_read,
+        stranger_board,
+        anonymous_board,
+        stranger_history,
+        anonymous_history,
+    ):
+        assert COPY_ID not in response.text, response.request.url

@@ -204,6 +204,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         frozen_copy_id=model.frozen_copy_id,
         capture_status=cast("CaptureStatus | None", model.capture_status),
         answer_seed=model.answer_seed,
+        case_digest=model.case_digest,
     )
 
 
@@ -265,6 +266,7 @@ _REPLAY_FIELDS: tuple[str, ...] = (
     "frozen_copy_id",
     "capture_status",
     "answer_seed",
+    "case_digest",
 )
 
 # INVARIANT (OME-1145, review round 3): filling any of these changes what the frontier reads, so
@@ -277,6 +279,7 @@ _ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {
     "frozen_copy_id",
     "capture_status",
     "answer_seed",
+    "case_digest",
 }
 
 
@@ -339,10 +342,10 @@ def _frozen_copy_fills(submission: ScoreSubmission, existing: Score) -> dict[str
     published `complete` is a claim others replay against, and a replay of the same recipe must
     not be able to turn it into `partial` or point it at another frozen copy (C12).
 
-    INVARIANT: the copy id and the status move TOGETHER or not at all, gated on the STATUS. They
-    describe ONE execution: a row that already holds a status (even `partial`, with no copy id) is
-    not given a copy id from a different run. `answer_seed` is a separate fact and fills alone.
-    The sentinel is NULL, not falsy: `0` is a real seed.
+    INVARIANT: the copy id, the status and the case digest move TOGETHER or not at all, gated on the
+    STATUS. They describe ONE execution: a row that already holds a status (even `partial`, with no
+    copy id) is not given a copy id or a digest from a different run. `answer_seed` is a separate
+    fact and fills alone. The sentinel is NULL, not falsy: `0` is a real seed.
 
     WHY a function of its own: `_replay_updates` is at the repo's complexity and branch limits, and
     this rule is the one part of it that has nothing to do with the others.
@@ -351,6 +354,7 @@ def _frozen_copy_fills(submission: ScoreSubmission, existing: Score) -> dict[str
     if submission.capture_status is not None and existing.capture_status is None:
         fills["capture_status"] = submission.capture_status
         fills["frozen_copy_id"] = submission.frozen_copy_id
+        fills["case_digest"] = submission.case_digest
     if submission.answer_seed is not None and existing.answer_seed is None:
         fills["answer_seed"] = submission.answer_seed
     return fills
@@ -506,6 +510,8 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "frozen_copy_id": submission.frozen_copy_id,
         "capture_status": submission.capture_status,
         "answer_seed": submission.answer_seed,
+        # FEATURE: OME-1307 / Q29 — the case digest. Absent from _content_hash, like the copy id.
+        "case_digest": submission.case_digest,
         "content_hash": content_hash,
     }
 

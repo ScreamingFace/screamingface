@@ -44,6 +44,11 @@ class Migration(migrations.Migration):
             name="answer_seed",
             field=fields.IntField(null=True),
         ),
+        ops.AddField(
+            model_name="Score",
+            name="case_digest",
+            field=fields.CharField(null=True, max_length=64),
+        ),
         ops.CreateModel(
             name="ScoreReproduction",
             fields=[

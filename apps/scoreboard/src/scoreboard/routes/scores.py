@@ -209,7 +209,8 @@ RECORD_REPRODUCTION_RESPONSES: dict[int | str, dict[str, Any]] = {
         "model": CodedErrorResponse | ValidationErrorResponse,
         "description": (
             "Two shapes. `{code: not_exact}` (`CodedErrorResponse`): the score, total_questions or "
-            "frozen_copy_id differs from the stored score. A list `detail` "
+            "frozen_copy_id differs from the stored score, or the score has a case_digest and the "
+            "body's differs. A list `detail` "
             "(`ValidationErrorResponse`): the body failed validation."
         ),
     },
@@ -587,10 +588,13 @@ def _refuse_unless_exact(score: Score, body: ReproductionSubmission) -> None:
         )
     # INVARIANT: exact equality, the same value the board stores. A replay that differs by one ulp
     # is a different result, and the board never rounds it into agreement.
+    # FEATURE: OME-1307 / Q29 — a score stored with a case digest also needs an equal one. A score
+    # without one keeps the three-field rule alone.
     if (
         body.score != score.score
         or body.total_questions != score.total_questions
         or body.frozen_copy_id != score.frozen_copy_id
+        or (score.case_digest is not None and body.case_digest != score.case_digest)
     ):
         raise HTTPException(
             status_code=422,

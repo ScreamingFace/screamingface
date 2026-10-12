@@ -72,6 +72,14 @@ class BaseScore(BaseScoreboardModel):
     # INVARIANT: a replay must send the same seed or its requests differ. `0` is a real seed, so
     # "unfilled" is NULL, never falsy.
     answer_seed = fields.IntField(null=True)
+    # FEATURE: OME-1307 / Q29 — the SDK's case digest: sha256 hex (64 lower-case characters) over
+    # the graded cases of the run. The board stores it and compares it on a reproduction; it never
+    # computes it.
+    #
+    # INVARIANT: set only when `capture_status` is set (the request validator), and FILL-ONLY with
+    # the copy id and the status on a same-owner resubmit: it describes the same execution.
+    # AIDEV-NOTE: absent from `_content_hash` and `_ENRICHING_FIELDS`, like the copy id.
+    case_digest = fields.CharField(max_length=64, null=True)
     score = fields.FloatField()  # the exact primary score the Engine Benchmark produced
     total_questions = fields.IntField()
     correct_questions = fields.IntField(null=True)
