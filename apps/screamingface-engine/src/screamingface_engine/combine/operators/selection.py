@@ -144,7 +144,8 @@ def _has_extra_separator(joined: str, separator: str, boundaries: int) -> bool:
 def join(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     """Every member text, in author order, joined by the separator.
 
-    Every member takes a slot, also an empty one and one marked ``too_large``. The collision flag
+    Every member that answered takes a slot, also an empty one and one marked ``too_large``; a
+    member a quorum panel left out (OME-1557) has no text and takes none. The collision flag
     says the separator also occurs inside a part, or overlaps a boundary, so the boundaries are not
     unique; the text is never changed for it.
     """
@@ -153,7 +154,7 @@ def join(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
         f"[{member}]\n{combine_input.outputs[member]}"
         if args["label"]
         else combine_input.outputs[member]
-        for member in combine_input.members
+        for member in combine_input.present
     ]
     joined = separator.join(parts)
     return Reduction(
@@ -165,7 +166,7 @@ def all_members(reduction: Reduction, combine_input: CombineInput, args: OpArgs,
     """Every member is chosen; the output is the joined text."""
     if reduction.text is None:
         raise SpecInvalid("all@1 needs a joined text")
-    return Selection(chosen=combine_input.members, output=reduction.text)
+    return Selection(chosen=combine_input.present, output=reduction.text)
 
 
 OPERATORS: tuple[OperatorDescriptor, ...] = (
