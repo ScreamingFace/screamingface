@@ -45,14 +45,17 @@ moves once; the owner approved that on OME-1527 Work order #5. This was held out
   `tests/unit/inspect/replayed_cases_helpers.py` as `STAND_IN_METADATA`, because a second lane
   needs it too: `test_imported_catalogue_activity.py`, which runs every judge-free Benchmark
   through the connector over one stand-in Case. Also `.claude/test-change-approvals/OME-1527.json`
-  is extended; its `branch` now names this stacked branch, since the gate matches one branch per
-  manifest.
-- **Commits:** this branch, `OME-1527-pr5b-musique-loud-scorer`, stacked on `OME-1527-pr5-ome1513-leftovers`.
+  holds only this branch's entries (#1352's left with it when it merged). The guide's old
+  "a scorer must tolerate missing metadata" bullet is deleted, since it contradicted the new
+  rule, and #1352's ledger Gates line is corrected here (its append-only green was `OME-1575`).
+- **Commits:** this branch, `OME-1527-pr5b-musique-loud-scorer`, on main after #1352 merged.
 - **Gates:** `test_local_task_musique.py`, `test_published_revisions.py`,
   `test_inspect_task_replay_benchmarks.py`, `test_benchmark_declaration.py`,
   `test_imported_catalogue_activity.py`: 307 passed. Ruff and extra-less pyright are clean on the
   touched `.py` files. The first pre-push run caught the activity lane (musique solo and fusion
-  scored None); the second is green.
+  scored None); the second is green. The append-only check, run by hand without `GIT_DIR`
+  (the hook's own run checks nothing from a worktree, `OME-1575`), passes against main
+  `1c7def312`: the four edited tests through `OME-1527.json`, no deletions.
 - **Deviations:** the second stand-in lane above was not in the work order.
 - **Owner-verify:** the next image build re-prepares MuSiQue under the new revision
   `9ba23547b22e70ff`. Scores recorded under `1ae798e073477a54` stay on that revision.

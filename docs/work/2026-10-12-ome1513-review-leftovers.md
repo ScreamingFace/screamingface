@@ -50,8 +50,14 @@ was held: see Deviations.
 - **Commits:** this branch, `OME-1527-pr5-ome1513-leftovers`.
 - **Gates:** relevant tests only — the check-surface, definition, runtime, stage-parity,
   stage-installation, published-revision and declaration tests (216 passed); ruff and
-  extra-less pyright clean on every touched file. Pre-push `run_gates.py screamingface-engine`:
-  ALL GATES GREEN (append-only check included).
+  extra-less pyright clean on every touched file. Pre-push `run_gates.py screamingface-engine`
+  reported ALL GATES GREEN, but its append-only check passed without checking anything: a push
+  from a worktree exports `GIT_DIR`, so the check matched no test path (bug `OME-1575`). Run by
+  hand without `GIT_DIR`, it FAILS on the two deletions, `tests/unit/test_draco_corrective_loop_e2e.py`
+  and `tests/unit/data/draco_corrective_loop_candidate.url4`; the three edited test files pass
+  through `OME-1527.json`. The gate has no way to approve a deletion. The deletions are the
+  owner's decision on OME-1527 (Work order #5: "delete that e2e test and its `.url4` fixture"),
+  recorded here because the manifest can't hold it. (Corrected in #1354, after #1352 merged.)
 - **Deviations:** the MuSiQue leftover is NOT in this unit. Making `musique_support_f1` raise on
   a missing `supporting_idx` edits `local_tasks/musique/musique.py`, and the MuSiQue revision
   hashes every `.py` file in that package, so its published revision moves (probe:
