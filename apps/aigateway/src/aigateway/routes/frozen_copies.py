@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from ..call_context import current_call_id, current_trace_id
 from ..core.auth.middleware import CurrentAccount
+from ..core.frozen_copy.headers import STORED_HEADERS_FIELD
 from ..core.frozen_copy.models import STATUS_OPEN, STATUS_SEALED, FrozenCopy
 from ..core.frozen_copy.store import (
     FrozenCopySealed,
@@ -124,9 +125,11 @@ async def replay_chat_completions(
     shape_error = chat_body_shape_error(body)
     if shape_error is not None:
         raise HTTPException(status_code=400, detail=shape_error)
-    body, _ = prepare_ingress_body(body)
+    body, controls = prepare_ingress_body(body)
     try:
-        entry = await frozen_copy_store_for(request.app).find(copy, "chat", body, occurrence)
+        entry = await frozen_copy_store_for(request.app).find(
+            copy, "chat", body, occurrence, attempt=controls.attempt
+        )
     except (CanonicalizationError, UnicodeError):
         # A request that cannot be digested was never captured (the capture would have failed).
         entry = None
@@ -138,7 +141,10 @@ async def replay_chat_completions(
         return JSONResponse(
             status_code=entry.status_code,
             content=merged_error_detail(entry.response_json["detail"], _replay_metadata()),
-            headers={_REPLAY_HEADER: "error"},
+            headers={
+                **entry.response_json.get(STORED_HEADERS_FIELD, {}),
+                _REPLAY_HEADER: "error",
+            },
         )
     response.headers[_REPLAY_HEADER] = "hit"
     return attach_metadata(entry.response_json, _replay_metadata())

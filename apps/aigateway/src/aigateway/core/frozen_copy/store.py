@@ -52,8 +52,17 @@ class FrozenCopyEntryTooLarge(Exception):
     """Request plus response JSON is over the per-entry cap (design F3)."""
 
 
-def request_digest(kind: EntryKind, request: Any) -> str:
-    return canonical_digest({"kind": kind, "request": request})
+def request_digest(kind: EntryKind, request: Any, attempt: int | None = None) -> str:
+    """The entry key; ``attempt`` is the caller's Attempt number (2 or more, OME-1458).
+
+    WHY beside the request: ingress strips the ``cache`` object that carries the number, so
+    without it Attempt 1 and Attempt 2 of one Case would share a key. Attempt 1 adds nothing,
+    so its digest is unchanged.
+    """
+    key: dict[str, Any] = {"kind": kind, "request": request}
+    if attempt is not None:
+        key["attempt"] = attempt
+    return canonical_digest(key)
 
 
 def request_digest_prefix(kind: EntryKind, request: Any) -> str:
@@ -127,6 +136,8 @@ class FrozenCopyStore:
         request: Any,
         response: Any,
         status_code: int,
+        *,
+        attempt: int | None = None,
     ) -> None:
         """Insert one entry. Raises on any failure; the caller decides what that means.
 
@@ -135,7 +146,7 @@ class FrozenCopyStore:
             FrozenCopySealed: the copy is not open.
             CanonicalizationError: the request cannot be digested deterministically.
         """
-        digest = request_digest(kind, request)
+        digest = request_digest(kind, request, attempt)
         if _json_bytes(request) + _json_bytes(response) > self._max_entry_bytes:
             raise FrozenCopyEntryTooLarge
         async with in_transaction():
@@ -157,7 +168,13 @@ class FrozenCopyStore:
             )
 
     async def find(
-        self, copy: FrozenCopy, kind: EntryKind, request: Any, occurrence: int
+        self,
+        copy: FrozenCopy,
+        kind: EntryKind,
+        request: Any,
+        occurrence: int,
+        *,
+        attempt: int | None = None,
     ) -> FrozenCopyEntry | None:
         """The replay lookup rule (design §4.4); ``None`` is a miss.
 
@@ -167,7 +184,9 @@ class FrozenCopyStore:
         3. Nothing: ``None``.
         """
         entries = FrozenCopyEntry.filter(
-            frozen_copy_id=copy.id, kind=kind, request_digest=request_digest(kind, request)
+            frozen_copy_id=copy.id,
+            kind=kind,
+            request_digest=request_digest(kind, request, attempt),
         )
         successes = entries.filter(status_code=_SUCCESS_STATUS)
         count = await successes.count()

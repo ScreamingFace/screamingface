@@ -43,7 +43,13 @@ from litellm.exceptions import (
 from ..core.auth.middleware import CurrentAccount
 from ..core.credential_blob import DispatchObservation
 from ..core.credential_blob.store import CredentialBlobMutationConflict
-from ..core.frozen_copy.headers import CAPTURE_HEADER, COPY_HEADER, publish_capture_headers
+from ..core.frozen_copy.headers import (
+    CAPTURE_HEADER,
+    COPY_HEADER,
+    RETRY_AFTER_HEADER,
+    STORED_HEADERS_FIELD,
+    publish_capture_headers,
+)
 from ..core.frozen_copy.models import STATUS_OPEN, FrozenCopy
 from ..core.frozen_copy.store import (
     FrozenCopySealed,
@@ -86,6 +92,7 @@ from .chat_cache_stage import (
     store_global_response,
 )
 from .chat_dispatch import (
+    CLIENT_DISCONNECTED_STATUS,
     _dispatch_with_backpressure,
     _litellm_http_exception,
     _record_dispatch_success,
@@ -298,10 +305,13 @@ class _Capture:
         request: dict[str, Any],
         copy_row: FrozenCopy | None,
         outcome: str | None,
+        *,
+        attempt: int | None = None,
     ) -> None:
         self._store = store
         self._request = request
         self._copy = copy_row
+        self._attempt = attempt
         self.outcome = outcome
 
     @property
@@ -315,7 +325,14 @@ class _Capture:
         try:
             if status_code == 200 and not isinstance(response_json, dict):
                 raise TypeError("a success body must be a JSON object")
-            await self._store.capture(self._copy, "chat", self._request, response_json, status_code)
+            await self._store.capture(
+                self._copy,
+                "chat",
+                self._request,
+                response_json,
+                status_code,
+                attempt=self._attempt,
+            )
         except FrozenCopySealed:
             self.outcome = "refused"
         except Exception as exc:
@@ -338,7 +355,14 @@ class _Capture:
         on ``request.state``.
         """
         status_code, detail = _error_view(exc)
-        await self.record({"detail": detail}, status_code)
+        stored: dict[str, Any] = {"detail": detail}
+        # WHY: a replayed 429 or 503 tells the client when to retry, as the live answer did.
+        if isinstance(exc, HTTPException) and exc.headers and RETRY_AFTER_HEADER in exc.headers:
+            stored[STORED_HEADERS_FIELD] = {RETRY_AFTER_HEADER: exc.headers[RETRY_AFTER_HEADER]}
+        # WHY: no client received a 499, so it is never an answer a replay may serve; the outcome
+        # stays `failed` (nothing stored).
+        if status_code != CLIENT_DISCONNECTED_STATUS:
+            await self.record(stored, status_code)
         if not self.headers:
             return
         if isinstance(exc, HTTPException):
@@ -348,7 +372,12 @@ class _Capture:
 
 
 async def _begin_capture(
-    request: Request, current_id: UUID, *, snapshot: dict[str, Any] | None, streaming: bool
+    request: Request,
+    current_id: UUID,
+    *,
+    snapshot: dict[str, Any] | None,
+    streaming: bool,
+    attempt: int | None,
 ) -> _Capture:
     """Check the copy named by ``X-AIGW-Frozen-Copy``.
 
@@ -372,7 +401,7 @@ async def _begin_capture(
     if copy_row is None or copy_row.account_id != current_id or copy_row.status != STATUS_OPEN:
         return _Capture(store, snapshot, None, "refused")
     # ``failed`` until an insert succeeds: a call that ends without recording stored nothing.
-    return _Capture(store, snapshot, copy_row, "failed")
+    return _Capture(store, snapshot, copy_row, "failed", attempt=attempt)
 
 
 @router.post("/v1/chat/completions")
@@ -481,7 +510,11 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # Refusals above (bad JSON, bad shape, unknown provider) are not captured; everything that
     # raises below is. A caller that sent no header gets an inert `capture`.
     capture = await _begin_capture(
-        request, current.id, snapshot=capture_snapshot, streaming=streaming
+        request,
+        current.id,
+        snapshot=capture_snapshot,
+        streaming=streaming,
+        attempt=cache_controls.attempt,
     )
     try:
         # AIDEV-NOTE: do not wrap this in ``in_transaction()``. On Postgres, a failed

@@ -230,9 +230,9 @@ def chat_body_shape_error(body: object) -> str | None:
 def prepare_ingress_body(body: dict[str, Any]) -> tuple[dict[str, Any], GlobalCacheControls]:
     """The gateway-level preparation of a parsed chat body: pop ``cache``, strip dispatch controls.
 
-    # INVARIANT (OME-1307): the frozen-copy digest is taken of the body this returns. The chat
-    # route and the frozen-copy replay route both call it, so the same request digests the same
-    # way in both and the two can never drift.
+    # INVARIANT (OME-1307): the frozen-copy digest is taken of the body this returns, plus the
+    # Attempt number in the returned controls. The chat route and the frozen-copy replay route
+    # both call it, so the same request digests the same way in both and the two can never drift.
     """
     cache_controls = parse_global_cache_controls(body)
     # The gateway owns upstream routing and credentials. Caller-supplied

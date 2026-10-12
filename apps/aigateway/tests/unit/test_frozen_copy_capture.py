@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from litellm.exceptions import BadRequestError
 
@@ -525,3 +526,92 @@ def test_a_replayed_error_has_the_body_shape_of_a_live_error(
     assert aigw["request_economics"]["known_direct_cost_subtotals"] == []
     assert aigw["usage_accounting"]["cache"]["status"] == "hit"
     assert set(aigw) == set(live.json()["_aigw"]) | {"frozen_copy_replay"}
+
+
+# --- review round 2: each Attempt of a Case replays its own answer (OME-1458) --------------
+
+
+def test_each_attempt_replays_its_own_answer(capture_client: TestClient, open_copy: str) -> None:
+    bodies = [
+        chat_body(),
+        chat_body(cache={"attempt": 2}),
+        chat_body(cache={"use-cache": False, "attempt": 3}),
+    ]
+    for body in bodies:
+        live = _chat(capture_client, open_copy, body)
+        assert live.status_code == 200, live.text
+        assert live.headers[CAPTURE_HEADER] == "stored"
+
+    entries = stored_entries(capture_client, open_copy)
+    assert [entry["digest"] for entry in entries] == [
+        request_digest("chat", entry["request"], attempt)
+        for entry, attempt in zip(entries, (None, 2, 3), strict=True)
+    ]
+    assert len({entry["digest"] for entry in entries}) == 3
+
+    seal_copy(capture_client, open_copy)
+    first = capture_client.post(_replay_path(open_copy), json=chat_body())
+    second = capture_client.post(_replay_path(open_copy), json=chat_body(cache={"attempt": 2}))
+    third = capture_client.post(_replay_path(open_copy), json=chat_body(cache={"attempt": 3}))
+    assert [first.json()["id"], second.json()["id"], third.json()["id"]] == [
+        "live-1",
+        "live-2",
+        "live-3",
+    ]
+
+
+# --- review round 2: a client disconnect is never captured ---------------------------------
+
+
+def test_a_client_disconnect_is_not_captured(
+    capture_client: TestClient, open_copy: str, monkeypatch
+) -> None:
+    disconnected = HTTPException(
+        status_code=499,
+        detail={"code": "client_disconnected", "message": "The client disconnected."},
+    )
+    monkeypatch.setattr(PATCH_TARGET, ScriptedDispatch(disconnected))
+
+    response = _chat(capture_client, open_copy)
+
+    assert response.status_code == 499
+    assert response.headers[CAPTURE_HEADER] == "failed"
+    assert stored_entries(capture_client, open_copy) == []
+
+
+# --- review round 2: a replayed error keeps its Retry-After --------------------------------
+
+
+@pytest.fixture
+def _no_retry_env(monkeypatch):
+    # Read at app creation, so a test using it must list it BEFORE the client fixture.
+    monkeypatch.setenv("AIGW_RETRY_MAX_ATTEMPTS", "0")
+
+
+def test_a_replayed_rate_limit_keeps_its_retry_after(
+    _no_retry_env, capture_client: TestClient, open_copy: str, monkeypatch
+) -> None:
+    rate_limited = HTTPException(
+        status_code=429,
+        detail={"code": "rate_limited", "message": "slow down"},
+        headers={"Retry-After": "7"},
+    )
+    monkeypatch.setattr(PATCH_TARGET, ScriptedDispatch(rate_limited))
+
+    live = _chat(capture_client, open_copy)
+
+    assert live.status_code == 429, live.text
+    assert live.headers["Retry-After"] == "7"
+    assert live.headers[CAPTURE_HEADER] == "stored"
+    (entry,) = stored_entries(capture_client, open_copy)
+    assert entry["response"] == {
+        "detail": live.json()["detail"],
+        "headers": {"Retry-After": "7"},
+    }
+    seal_copy(capture_client, open_copy)
+
+    replay = capture_client.post(_replay_path(open_copy), json=chat_body())
+
+    assert replay.status_code == 429, replay.text
+    assert replay.headers["Retry-After"] == "7"
+    assert replay.headers["X-AIGW-Replay"] == "error"

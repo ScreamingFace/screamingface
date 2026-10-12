@@ -33,6 +33,9 @@ from .chat_accounting import note_conversion_failure
 
 logger = logging.getLogger(__name__)
 
+# The gateway's own status for a caller that left mid-call; no client ever receives it.
+CLIENT_DISCONNECTED_STATUS = 499
+
 
 def _should_mark_profile_error_on_dispatch_status(plugin: Any, status_code: int) -> bool:
     checker = getattr(plugin, "should_mark_profile_error_on_dispatch_status", None)
@@ -285,7 +288,7 @@ async def _dispatch_with_backpressure(
             # WHY: a normal HTTP response lets middleware unwind without an ASGI
             # ERROR traceback; the client has gone and cannot receive this response.
             raise HTTPException(
-                status_code=499,
+                status_code=CLIENT_DISCONNECTED_STATUS,
                 detail={"code": "client_disconnected", "message": "The client disconnected."},
             ) from None
 

@@ -17,6 +17,7 @@ from aigateway.core.frozen_copy.store import (
     FrozenCopyStore,
     frozen_copy_store_for,
     log_capture_failure,
+    request_digest,
 )
 from aigateway.core.request_hardening import prepare_ingress_body
 from tests.unit.test_frozen_copy_support import (
@@ -162,3 +163,11 @@ def test_an_inert_capture_never_touches_exception_headers() -> None:
 
     assert exc.headers is None
     assert not hasattr(request.state, "aigw_capture_headers")
+
+
+def test_an_attempt_number_digests_apart_from_attempt_one() -> None:
+    request = chat_body()
+
+    assert request_digest("chat", request) == request_digest("chat", request, None)
+    assert request_digest("chat", request, 2) != request_digest("chat", request)
+    assert request_digest("chat", request, 2) != request_digest("chat", request, 3)
