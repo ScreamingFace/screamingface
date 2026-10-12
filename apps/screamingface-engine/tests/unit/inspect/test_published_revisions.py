@@ -37,6 +37,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1527: 1ae798e073477a54 → 9ba23547b22e70ff, support F1 now raises on a missing
     # supporting_idx (the scorer source is hashed); owner-approved on OME-1527 Work order #5.
     "musique": "9ba23547b22e70ff",
+    # OME-1527: contracteval moved from its hand-built folder (f9a076a10a6ae4c6) to a local Task.
+    "contracteval": "04cde6eac3938ddf",
     "math": "1963559fac28e4a1",
     "mmlu": "1e42325597dee3d6",
     "arc_easy": "5f063684bf708ca1",

@@ -1234,6 +1234,25 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # CC BY 4.0 per the authors' repo; the mirror ships no card (OME-1513).
         license="cc-by-4.0",
     ),
+    # contracteval — imported by Task replay on 2026-10-12 from
+    #   screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face theatticusproject/cuad-qa
+    #     pin revision d9c4ee0250ae2eb97bdb5b50773ab14ea62d0631
+    "contracteval": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval",
+        case_count=4182,
+        case_digest="55a3c9b1e3e29117bda78adf888d09380a6aa658e86b0b733d362453e00df791",
+        case_set_digest="90912a02592485cd657a0932acce4b79fce91a9b5ef488ea6ea8ea9811845e0f",
+        keep_sample_metadata=True,
+        empty_answer_key_allowed=True,
+        source_pins={
+            "theatticusproject/cuad-qa": "d9c4ee0250ae2eb97bdb5b50773ab14ea62d0631",
+        },
+        # CC BY 4.0, as the hand-built Benchmark recorded it (OME-1455); the parquet
+        # branch carries no card of its own.
+        license="cc-by-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

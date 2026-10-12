@@ -373,7 +373,7 @@ serializable data in and `CaseGradeOutcome` out, that is a new ticket against
 
 The notebook Score cell can update as canonical case grades become available. Keep the
 scoring formula in the benchmark: the client receives a scalar snapshot and never averages
-case scores itself (ContractEval, for example, uses dataset-level F1).
+case scores itself (a dataset-level F1, for example, is not a mean of case scores).
 
 For built-in protocols that finish judging each case before starting the next, bind the
 existing `BenchmarkAggregation`, selection, private material loader and scorer in

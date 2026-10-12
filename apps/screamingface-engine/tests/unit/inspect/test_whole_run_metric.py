@@ -669,10 +669,19 @@ async def test_a_case_whose_attempt_failed_reaches_the_metric_only_if_the_reduce
 
 def test_no_published_row_opts_in_so_no_revision_moves() -> None:
     """INVARIANT: honouring the eval's metric is a per-Benchmark owner decision, never a
-    default; test_published_revisions pins the revisions this keeps still."""
+    default; test_published_revisions pins the revisions this keeps still.
 
-    assert [spec.key for spec in BENCHMARKS if spec.whole_run_metric is not None] == []
-    assert all(benchmarks._whole_run_metric_pins(spec) == () for spec in BENCHMARKS)
+    OME-1527 (Work order #7): contracteval is the first row that opts in, by name — its
+    hand-built headline was always the run's F1. Any other row joining this list is a new
+    owner decision and must be named here."""
+
+    opted_in: list[str] = [spec.key for spec in BENCHMARKS if spec.whole_run_metric is not None]
+    assert opted_in == ["contracteval"]
+    assert all(
+        benchmarks._whole_run_metric_pins(spec) == ()
+        for spec in BENCHMARKS
+        if spec.key not in opted_in
+    )
 
 
 def _spec(key: str = "gsm8k", **overrides: Any) -> BenchmarkSpec:

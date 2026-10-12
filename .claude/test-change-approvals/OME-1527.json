@@ -1,26 +1,50 @@
 {
   "issue": "OME-1527",
-  "branch": "OME-1527-pr5b-musique-loud-scorer",
-  "approver": "owner (owner decision on OME-1527 Work order #5)",
+  "branch": "OME-1527-pr7-contracteval-local-task",
+  "approver": "owner \u2014 OME-1527 Work order #7 approved on the ticket (contracteval as a local Task, its folder and tests deleted, the free unit golden rewritten, the SDK retiring its failure code; decision 3: prove the old scores as literals inside the swap PR); to confirm in PR review",
   "date": "2026-10-12",
-  "scope": "Branch OME-1527-pr5b-musique-loud-scorer, on main after #1352 merged (#1352's entries left with it). (4) test_local_task_musique.py: the missing-metadata test flips from 'scores 1.0 / 0.0' to 'raises ValueError naming supporting_idx' under its frozen name, with an AIDEV-NOTE above it; the module docstring bullet and section header say the same. (5) test_published_revisions.py: musique's literal moves once, 1ae798e073477a54 -> 9ba23547b22e70ff, with a comment. (6) test_inspect_task_replay_benchmarks.py: the no-network lane test merges STAND_IN_METADATA (new, appended to replayed_cases_helpers.py; musique: supporting_idx [3, 11]) into the stand-in Cases' grading material. (7) test_imported_catalogue_activity.py: the activity lane writes the same stand-in metadata into its one Case's grading material when the key has an entry; nothing changes for any other key.",
-  "reason": "Owner decision on OME-1527 Work order #5 (MuSiQue): musique_support_f1 now raises on a missing supporting_idx instead of scoring an empty gold list (a reply citing nothing got 1.0). The scorer's source is hashed into MuSiQue's revision, so the literal moves once (owner-approved); the no-network lane gets realistic stand-in metadata so it still grades.",
+  "scope": "(1) test_contracteval_parity.py: imports the moved grading module; the F1/F2 matrix test becomes F1-only against grading.f1 (F2/precision/recall/accuracy are no longer computed) and the zero-guard test calls grading.f1; _synthetic_cases goes with the hand-built reducer. (2) test_benchmark_stage_parity.py, test_builtin_early_score_timing.py: the contracteval asset branches go with the folder. (3) test_case_positions.py: test_contracteval_supplies_case_metadata_without_changing_answer_input deleted (it drove the hand-built route). (4) packages/screamingface/tests/e2e/test_boards.py: contracteval leaves the hand-built replay list (it is served by the plugin lane). Deleted, which the manifest cannot approve: the 9 test_contracteval_*.py files whose routes went with the folder (owner decision, OME-1527 Work order #7). (5) tests/fixtures/early_grade_compatibility.json: the contracteval board leaves the hand-built baseline. (6) test_benchmark_declaration.py: the contracteval row moves from the hand-built table to the plugin table, same declaration. (7) test_published_revisions.py: one added literal (contracteval: 04cde6eac3938ddf). (8) test_inspect_imported_benchmarks.py: one _EXPECTED_FAMILIES row (contracteval: free_text). (9) test_whole_run_metric.py: the no-row-opts-in guard names contracteval as the one row that opts in. Test bodies not listed here are unchanged.",
+  "reason": "OME-1527 moves ContractEval from its hand-built folder to a local inspect Task under the same id. Tests that drove the deleted folder go or follow the moved code; registry tables move the row from the hand-built side to the plugin side; the revision literal records the one deliberate move; the opt-in guard names the first owner-approved whole-run metric row.",
   "files": {
-    "apps/screamingface-engine/tests/unit/inspect/test_local_task_musique.py": {
-      "base_blob": "8a22917a2444dc95481699c1bccc3391de4966dd",
-      "approved_blob": "e78a58a30f477b4f5504d967121e0cb76362273d"
+    "apps/screamingface-engine/tests/unit/test_contracteval_parity.py": {
+      "base_blob": "418e33712b8356b4496b2987ffb3f71456da2a41",
+      "approved_blob": "c7b018dc6958b380fe65b11d4ee0a2ef996996b9"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_stage_parity.py": {
+      "base_blob": "8804e4f0894b01455ac997929e1e9d9e572d83fd",
+      "approved_blob": "87c0d84f970b1d41959d020f347a581fa0f8bd0e"
+    },
+    "apps/screamingface-engine/tests/unit/test_builtin_early_score_timing.py": {
+      "base_blob": "2c52e382e1e7ba14ffb51699b67700fc5c70049d",
+      "approved_blob": "d8a49da4b98bd7bd744d837537c76a97d87febd7"
+    },
+    "apps/screamingface-engine/tests/unit/test_case_positions.py": {
+      "base_blob": "31a6243772a91ca3e7eae4d037da80eea9dcb44b",
+      "approved_blob": "2bd4dee5e36f6579f40f30b2cdc86b734907a081"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "fef775106cc19ff5ba8cee9c91569516b1e943c7",
+      "approved_blob": "231403185bc7faa801ab294f4f7600a29389d66a"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "9da673b7acf65349d05adf1afbe5910682b08a68",
-      "approved_blob": "8dfb6fc817505a2d2de540883112a3e3dc3af68b"
+      "base_blob": "8dfb6fc817505a2d2de540883112a3e3dc3af68b",
+      "approved_blob": "146501551f21407fa79ac5936c6fc1a4d337b475"
     },
-    "apps/screamingface-engine/tests/unit/inspect/test_inspect_task_replay_benchmarks.py": {
-      "base_blob": "b63c2b1f3ee9418660e1d5e1565f7b4c21b2ee08",
-      "approved_blob": "f29143695922aa701834aa3c46670a4bac1317a2"
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "0592cebea57de9cf81b9946df420eefed2b73d21",
+      "approved_blob": "92c017361ae55202e624af64d736cb1efdf6bc12"
     },
-    "apps/screamingface-engine/tests/unit/inspect/test_imported_catalogue_activity.py": {
-      "base_blob": "cce55e284169b73cab0812697d7d39b03eeedb83",
-      "approved_blob": "eae8fd3ba42a9a173ec91a2f83130f915f1479b7"
+    "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
+      "base_blob": "f74a3889cfc50a070aaa44289470fa6ec93a4f39",
+      "approved_blob": "24bb45629cdf9988ec1eff8a258940ba6537cf12"
+    },
+    "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
+      "base_blob": "7c3190ab6b590210e8f6b95f16bd413eaf87c64f",
+      "approved_blob": "08bc09da211c1ba786804512f206c2093a327906"
+    },
+    "packages/screamingface/tests/e2e/test_boards.py": {
+      "base_blob": "cf74853678b496aeb58c0f7247cb65efab3bb326",
+      "approved_blob": "3a00818981d67e04b4d145a738629e54024826a5"
     }
   }
 }

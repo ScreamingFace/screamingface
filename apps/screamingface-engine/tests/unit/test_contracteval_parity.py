@@ -24,7 +24,10 @@ from _contracteval_reference import (
     get_jaccard,
 )
 
-from screamingface_engine.benchmarks.contracteval.grading import (
+# WHY this module: OME-1527 moved ContractEval to a local Task; its grading rules moved with
+# it, verbatim, and this test follows them (the module imports no inspect, so it runs extra-less).
+from screamingface_engine_inspect.local_tasks.contracteval.grading import (
+    f1,
     is_abstention,
     jaccard,
     verdict,
@@ -126,21 +129,16 @@ def test_jaccard_matches_the_reference_on_every_positive_row() -> None:
     assert compared >= 900
 
 
-def test_our_f1_and_f2_match_the_reference_wherever_the_reference_is_defined() -> None:
-    """The formulas agree on every matrix the reference can score at all."""
+def test_our_f1_matches_the_reference_wherever_the_reference_is_defined() -> None:
+    """The formula agrees on every matrix the reference can score at all.
 
-    from screamingface_engine.benchmarks.contracteval.aggregate import (
-        _confusion_matrix_score,
-    )
+    OME-1527: only F1 is served now (the Task's whole-run metric); F2, precision, recall and
+    accuracy were the hand-built reducer's secondary numbers and are no longer computed.
+    """
 
     for tp, fn, tn, fp in [(3, 1, 2, 2), (5, 2, 4, 1), (1, 4, 6, 3), (7, 1, 1, 1)]:
         expected = confusion_scores(tp=tp, tn=tn, fn=fn, fp=fp)
-        got = _confusion_matrix_score(_synthetic_cases(tp, fn, tn, fp))
-        assert got.score == pytest.approx(expected["f1"], abs=1e-4), (tp, fn, tn, fp)
-        assert got.metrics["f2"] == pytest.approx(expected["f2"], abs=1e-4)
-        assert got.metrics["precision"] == pytest.approx(expected["precision"], abs=1e-4)
-        assert got.metrics["recall"] == pytest.approx(expected["recall"], abs=1e-4)
-        assert got.metrics["accuracy"] == pytest.approx(expected["accuracy"], abs=1e-4)
+        assert f1(tp, fn, fp) == pytest.approx(expected["f1"], abs=1e-12), (tp, fn, tn, fp)
 
 
 def test_we_return_zero_where_the_reference_raises() -> None:
@@ -151,56 +149,7 @@ def test_we_return_zero_where_the_reference_raises() -> None:
     limit 0.0. This test is the record that the difference is deliberate.
     """
 
-    from screamingface_engine.benchmarks.contracteval.aggregate import (
-        _confusion_matrix_score,
-    )
-
     with pytest.raises(ZeroDivisionError):
         confusion_scores(tp=0, tn=3, fn=2, fp=0)
 
-    assert _confusion_matrix_score(_synthetic_cases(0, 2, 3, 0)).score == 0.0
-
-
-def _synthetic_cases(tp: int, fn: int, tn: int, fp: int) -> list[Any]:
-    """Cases whose grades place them in exactly the requested confusion-matrix cells."""
-
-    from screamingface_engine.benchmarks.contract import CaseGrade, CaseResult
-
-    def case(case_id: int, *, is_positive: bool, correct: bool) -> Any:
-        grade = CaseGrade.model_validate(
-            {
-                "method": "containment",
-                "score": 1.0 if correct else 0.0,
-                "metrics": {"is_positive": is_positive, "abstained": False, "jaccard": 0.5},
-                "checks": [],
-            }
-        )
-        return CaseResult.model_validate(
-            {
-                "status": "scored",
-                "case_id": case_id,
-                "input": "contract",
-                "output": "reply",
-                "finish_reason": "stop",
-                "refusal": None,
-                "grade": grade.model_dump(by_alias=True),
-                "failures": [],
-                "metadata": {},
-            }
-        )
-
-    cases: list[Any] = []
-    next_id = 1
-    for _ in range(tp):
-        cases.append(case(next_id, is_positive=True, correct=True))
-        next_id += 1
-    for _ in range(fn):
-        cases.append(case(next_id, is_positive=True, correct=False))
-        next_id += 1
-    for _ in range(tn):
-        cases.append(case(next_id, is_positive=False, correct=True))
-        next_id += 1
-    for _ in range(fp):
-        cases.append(case(next_id, is_positive=False, correct=False))
-        next_id += 1
-    return cases
+    assert f1(0, 2, 0) == 0.0

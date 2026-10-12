@@ -4,7 +4,7 @@ The reference harness is https://github.com/olivialiu121/ContractEval (MIT), pin
 f2de74479bb067a13da2fd034972eec6905563b2 (repo tip at the 2026-09-09 fetch). It is CITED here
 rather than vendored: we execute nothing from it, we reproduce four small functions, and the
 full transcription lives in `docs/spec/2026-09-17-OME-1148-contracteval-containment.md` §2.
-The four functions this module mirrors are committed verbatim as test material in
+The functions this module mirrors are committed verbatim as test material in
 `tests/unit/_contracteval_reference.py`, and `test_contracteval_parity.py` proves the two agree
 over real CUAD gold spans — so a "tidy-up" here fails CI instead of moving our F1 silently.
 
@@ -13,9 +13,11 @@ behaviour including its quirks. A change that makes one of these prettier moves 
 numbers off the paper's, so each carries the file and line range it mirrors and a test that
 names it as protocol alignment.
 
-AIDEV-NOTE: there is NO F1 here. ContractEval's F1/F2 are computed from a DATASET-level
-confusion matrix over rows, not per case — see `aggregate.py`. The per-case verdict is a
-boolean. If you came here looking for span overlap or partial credit, the protocol has none.
+Moved verbatim from the hand-built `benchmarks/contracteval/grading.py` (OME-1527); `f1` is the
+hand-built confusion-matrix reducer's formula, unchanged, so the Task's whole-run metric
+(`contracteval.py`) computes the number the hand-built Benchmark published.
+
+No inspect import: the parity test runs in the extra-less install.
 """
 
 from __future__ import annotations
@@ -67,9 +69,8 @@ def verdict(output: str, gold_spans: Sequence[str]) -> bool:
 def jaccard(gold_spans: Sequence[str], output: str) -> float:
     """Token-set overlap — ``get_jaccard``, Evaluation.py lines 106-122.
 
-    AIDEV-NOTE: secondary metric. It is absent from the reference's headline results CSV and is
-    merged in afterwards as a mean over POSITIVE rows only (spec F-5) — `aggregate.py` owns that
-    population rule, not this function.
+    AIDEV-NOTE: per-Case evidence only. The reference merges it in afterwards as a mean over
+    POSITIVE rows only (spec F-5); that whole-run number is not served (see the Task README).
     """
 
     gold = _jaccard_tokens(" ".join(gold_spans))
@@ -94,4 +95,24 @@ def _jaccard_tokens(text: str) -> set[str]:
     return set(text.casefold().replace("/", " ").split(" "))
 
 
-__all__ = ["is_abstention", "jaccard", "normalized", "verdict"]
+def f1(true_positives: int, false_negatives: int, false_positives: int) -> float:
+    """The paper's F1 from a run's confusion-matrix cells — Evaluation.py lines 73-77.
+
+    Worked example: 3 found clauses (TP), 2 missed (FN), 1 answer where none exists (FP) →
+    precision 3/4 = 0.75, recall 3/5 = 0.6, F1 = 2 · 0.75 · 0.6 / 1.35 = 0.6667. True
+    negatives (rightly declined) do not enter it: that is why an always-declining model,
+    right on 70% of rows, scores 0.
+
+    NAMED DEVIATION: the reference computes 2PR/(P+R) with no zero guard and raises
+    ZeroDivisionError for a model that never scores a TP. With 70.3% of rows negative, an
+    always-abstaining model is realistic rather than hypothetical, so we return the limit 0.0.
+    """
+
+    found: int = true_positives + false_positives
+    existing: int = true_positives + false_negatives
+    precision: float = true_positives / found if found else 0.0
+    recall: float = true_positives / existing if existing else 0.0
+    return 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+
+
+__all__ = ["f1", "is_abstention", "jaccard", "normalized", "verdict"]
