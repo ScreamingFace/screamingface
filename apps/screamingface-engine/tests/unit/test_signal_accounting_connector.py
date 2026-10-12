@@ -136,6 +136,14 @@ def _responder(
     queue = list(replies)
 
     def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v1/retrieval/tavily/cache/"):
+            # OME-1045: the retrieval-cache routes are answered, and never counted as chat calls.
+            return httpx.Response(
+                200,
+                json={"outcome": "stored"}
+                if request.url.path.endswith("/entries")
+                else {"status": "miss", "reason": None, "result": None},
+            )
         cache, body = queue.pop(0)
         return httpx.Response(200, headers={"X-AIGW-Cache": cache}, json=body)
 
