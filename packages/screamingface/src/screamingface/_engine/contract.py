@@ -324,6 +324,9 @@ class _RunState:
                 frozen_copy_id=None if summary is None else summary.frozen_copy_id,
                 capture_status=None if summary is None else summary.capture_status,
                 capture_replay=None if summary is None else summary.capture_replay,
+                capture_partial_reasons=(
+                    () if summary is None else summary.capture_partial_reasons
+                ),
                 artifact=self._result[2],
                 client_version=None if self._version_conflict else self._client_version,
             ),
@@ -346,6 +349,8 @@ _SAVED_COST_ARCHIVE_USD = "cache.saved_cost_archive_usd"
 _CAPTURE_FROZEN_COPY_ID = "capture.frozen_copy_id"
 _CAPTURE_STATUS = "capture.status"
 _CAPTURE_REPLAY = "capture.replay"
+# FEATURE (Q23, design §5.2): one count per partial reason, `capture.partial.<reason>`.
+_CAPTURE_PARTIAL_PREFIX = "capture.partial."
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +369,7 @@ class _CacheSummary:
     frozen_copy_id: str | None = None
     capture_status: Literal["complete", "partial"] | None = None
     capture_replay: str | None = None
+    capture_partial_reasons: tuple[str, ...] = ()
 
     @classmethod
     def parse(cls, attributes: Mapping[str, object]) -> _CacheSummary:
@@ -380,6 +386,7 @@ class _CacheSummary:
             frozen_copy_id=_summary_copy_id(attributes, _CAPTURE_FROZEN_COPY_ID),
             capture_status=_summary_capture_status(attributes),
             capture_replay=_summary_copy_id(attributes, _CAPTURE_REPLAY),
+            capture_partial_reasons=_summary_partial_reasons(attributes),
         )
 
     def is_consistent(self) -> bool:
@@ -421,6 +428,22 @@ def _summary_copy_id(attributes: Mapping[str, object], key: str) -> str | None:
     if not isinstance(value, str) or not value:
         raise ExecutionError(f"SF Engine capture summary {key} must be a non-empty string")
     return value
+
+
+def _summary_partial_reasons(attributes: Mapping[str, object]) -> tuple[str, ...]:
+    """The partial reasons the run counted, sorted; a zero count is not a reason.
+
+    INVARIANT: a count that is not a non-negative integer fails closed (`_cache_hit_count`), so a
+    malformed count never reads as "not partial".
+    """
+    return tuple(
+        sorted(
+            key.removeprefix(_CAPTURE_PARTIAL_PREFIX)
+            for key in attributes
+            if key.startswith(_CAPTURE_PARTIAL_PREFIX)
+            and _cache_hit_count(attributes[key], key) > 0
+        )
+    )
 
 
 def _summary_capture_status(

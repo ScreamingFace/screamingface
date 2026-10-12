@@ -78,6 +78,11 @@ def _classify(
             "score_differs",
             result.score != score.score or len(result.cases) != score.total_questions,
         ),
+        # Q29: the same score over other cases is not exact. Only a score with a digest is checked.
+        (
+            "cases_differ",
+            score.case_digest is not None and case_digest(result.cases) != score.case_digest,
+        ),
     )
     reason = next((name for name, failed in checks if failed), None)
     return (

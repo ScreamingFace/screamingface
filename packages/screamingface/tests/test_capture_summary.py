@@ -84,6 +84,26 @@ def test_an_older_engine_without_the_attributes_leaves_them_unknown() -> None:
     assert outcome.capture_replay is None
 
 
+def test_the_decoder_reads_the_partial_reasons_with_a_non_zero_count_only() -> None:
+    # Q23: a local capture counts `capture.partial.local = 1`. A zero count is not a reason.
+    outcome = _decode(
+        {
+            "capture.status": "partial",
+            "capture.partial.local": 1,
+            "capture.partial.failed": 0,
+        }
+    )
+
+    assert outcome.capture_partial_reasons == ("local",)
+
+
+@pytest.mark.parametrize("count", [-1, True, "one", 1.5])
+def test_a_malformed_partial_count_fails_closed(count: object) -> None:
+    # INVARIANT: a count that cannot be trusted stops the run, as the cache counts do.
+    with pytest.raises(ExecutionError, match="capture.partial.local is invalid"):
+        _decode({"capture.status": "partial", "capture.partial.local": count})
+
+
 @pytest.mark.parametrize(
     "attributes",
     [
@@ -127,6 +147,17 @@ def test_the_result_carries_the_frozen_copy_of_its_run() -> None:
     exported = result.to_dict()
     assert exported["frozen_copy_id"] == _COPY
     assert exported["capture_status"] == "complete"
+
+
+def test_local_partial_reason_shows_on_the_result() -> None:
+    # Q23 and design §7: the submitter's own result names `local`. `sf.reproduce` cannot, because
+    # the board does not store the partial reasons.
+    result = _result(
+        frozen_copy_id=_COPY, capture_status="partial", capture_partial_reasons=("local",)
+    )
+
+    assert result.capture_partial_reasons == ("local",)
+    assert result.to_dict()["capture_partial_reasons"] == ["local"]
 
 
 def test_a_result_without_capture_data_has_none_and_exports_null() -> None:

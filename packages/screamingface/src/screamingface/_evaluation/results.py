@@ -215,6 +215,7 @@ def _candidate_result(
             # OME-1307: the frozen copy, as the Engine's run summary stated it (None = unknown).
             frozen_copy_id=outcome.frozen_copy_id,
             capture_status=outcome.capture_status,
+            capture_partial_reasons=outcome.capture_partial_reasons,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"SF Engine Candidate result is invalid: {exc}") from exc

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -149,6 +150,8 @@ class LeaderboardScore:
     # them absent: None, and a count of 0. A null `capture_status` means "unknown".
     frozen_copy_id: str | None = None
     capture_status: Literal["complete", "partial"] | None = None
+    # FEATURE (Q29): the digest of the run's graded cases: 64 lower-case hex, with `capture_status`.
+    case_digest: str | None = None
     answer_seed: int | None = None
     reproduction_count: int = 0
     last_reproduced_at: datetime | None = None
@@ -395,11 +398,24 @@ def _reproduction_fields(score: LeaderboardScore) -> None:
     object.__setattr__(score, "frozen_copy_id", _frozen_copy_id(score.frozen_copy_id))
     _optional_aware_datetime(score.last_reproduced_at, "Leaderboard score last_reproduced_at")
     capture_status_value(score.capture_status)
+    _case_digest(score.case_digest, score.capture_status)
     if score.answer_seed is not None and (
         isinstance(score.answer_seed, bool) or not isinstance(score.answer_seed, int)
     ):
         raise TypeError("Leaderboard score answer_seed must be an integer or None")
     _nonnegative_int(score.reproduction_count, "Leaderboard score reproduction_count")
+
+
+def _case_digest(value: object, capture_status: object) -> None:
+    """A case digest is 64 lower-case hex, and it never travels without a capture status."""
+    if value is None:
+        return
+    if not isinstance(value, str):
+        raise TypeError("Leaderboard score case_digest must be a string or None")
+    if re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise ValueError("Leaderboard score case_digest must be 64 lower-case hex characters")
+    if capture_status is None:
+        raise ValueError("Leaderboard score case_digest requires capture_status")
 
 
 def _frozen_copy_id(value: object) -> str | None:

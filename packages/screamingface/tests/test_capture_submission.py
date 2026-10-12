@@ -29,6 +29,7 @@ from screamingface._scoreboard.leaderboards import _submission
 
 _COPY = "0b1f6d3a-5c0e-4a8e-9a3f-2f6f8f4c7d11"
 _FIELDS = ("frozen_copy_id", "capture_status", "answer_seed")
+_DIGEST = "ab" * 32
 
 
 def _result(**fields: object) -> sf.CandidateResult:
@@ -123,6 +124,7 @@ def _reproduced_response(**overrides: object) -> dict[str, object]:
         "benchmark_revision": "fixture-revision",
         "frozen_copy_id": _COPY,
         "capture_status": "complete",
+        "case_digest": _DIGEST,
         "answer_seed": 7,
         "reproduction_count": 3,
         "last_reproduced_at": "2026-10-07T09:00:00Z",
@@ -136,6 +138,7 @@ def test_get_score_reads_the_frozen_copy_and_the_reproductions() -> None:
 
     assert score.frozen_copy_id == _COPY
     assert score.capture_status == "complete"
+    assert score.case_digest == _DIGEST
     assert score.answer_seed == 7
     assert score.reproduction_count == 3
     assert score.last_reproduced_at == datetime(2026, 10, 7, 9, tzinfo=UTC)
@@ -150,6 +153,7 @@ def test_an_older_board_leaves_the_new_fields_absent() -> None:
 
     assert score.frozen_copy_id is None
     assert score.capture_status is None
+    assert score.case_digest is None
     assert score.answer_seed is None
     assert score.reproduction_count == 0
     assert score.last_reproduced_at is None
@@ -159,6 +163,11 @@ def test_an_older_board_leaves_the_new_fields_absent() -> None:
     "overrides",
     [
         {"capture_status": "maybe"},
+        {"case_digest": "AB" * 32},
+        {"case_digest": "ab" * 31},
+        {"case_digest": 7},
+        # INVARIANT: a digest never travels without a capture status.
+        {"capture_status": None, "frozen_copy_id": None},
         {"frozen_copy_id": 7},
         {"frozen_copy_id": "not-a-uuid"},
         {"frozen_copy_id": ""},

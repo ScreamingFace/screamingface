@@ -595,6 +595,7 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
                 root.get("frozen_copy_id"), "Leaderboard score frozen_copy_id"
             ),
             capture_status=capture_status_value(root.get("capture_status")),
+            case_digest=_optional_text(root.get("case_digest"), "Leaderboard score case_digest"),
             answer_seed=_optional_integer(root.get("answer_seed"), "Leaderboard score answer_seed"),
             # An older board omits the count, and an omitted count reads as 0.
             reproduction_count=_integer(

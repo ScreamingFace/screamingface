@@ -78,6 +78,8 @@ class _RunOutcome:
     # The copy the Engine says it replayed from. Only a replay run's summary carries it, and only
     # an Engine that honoured `X-Replay-Frozen-Copy` writes it.
     capture_replay: str | None = None
+    # The partial reasons the run counted (design §5.2), sorted. Empty when complete or unknown.
+    capture_partial_reasons: tuple[str, ...] = ()
 
 
 # FEATURE: OME-1066 adds the two capacity states — a start the Engine did not admit yet

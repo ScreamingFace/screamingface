@@ -432,6 +432,37 @@ def test_the_score_is_compared_exactly() -> None:
     assert _classify(_score(score=1.0), _result(score=1.0000000000000002))[1] == "score_differs"
 
 
+def test_cases_differ_when_digests_differ_but_score_is_equal() -> None:
+    # Q29: the same score and count over other cases is not exact.
+    replay = _result(cases=((1, None),), score=1.0)
+    other = _result(cases=((2, None),), score=1.0)
+
+    assert _classify(_score(case_digest=case_digest(other.cases)), replay) == (
+        "failed",
+        "cases_differ",
+        (),
+    )
+    assert _classify(_score(case_digest=case_digest(replay.cases)), replay) == ("exact", None, ())
+
+
+def test_score_without_digest_reproduces_on_three_fields() -> None:
+    # A score with no digest is judged on the score, the count and the benchmark revision alone.
+    replay = _result(cases=((2, None),), score=1.0)
+
+    assert _classify(_score(case_digest=None), replay) == ("exact", None, ())
+
+
+def test_a_case_digest_is_64_lower_hex_and_needs_a_capture_status() -> None:
+    assert _score(case_digest="ab" * 32).case_digest == "ab" * 32
+
+    with pytest.raises(ValueError, match="64 lower-case hex"):
+        _score(case_digest="AB" * 32)
+    with pytest.raises(TypeError, match="case_digest must be a string"):
+        _score(case_digest=7)
+    with pytest.raises(ValueError, match="requires capture_status"):
+        _score(case_digest="ab" * 32, capture_status=None, frozen_copy_id=None)
+
+
 def test_a_stored_score_without_a_benchmark_revision_cannot_match() -> None:
     # Compared literally. `reproduce` never gets here with such a score: it refuses it first.
     assert _classify(_score(benchmark_revision=None), _result())[1] == "benchmark_revision_changed"

@@ -245,6 +245,15 @@ def _capture(
     return frozen_copy_id, status
 
 
+def _partial_reasons(value: Sequence[str]) -> tuple[str, ...]:
+    """The partial reason names of one capture; each one is a non-empty string."""
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise TypeError("Candidate capture_partial_reasons must be a sequence of strings")
+    if not all(isinstance(reason, str) and reason for reason in value):
+        raise ValueError("Candidate capture_partial_reasons must name each reason as a string")
+    return tuple(value)
+
+
 def _is_canonical_uuid(value: str) -> bool:
     try:
         return str(UUID(value)) == value
@@ -300,6 +309,10 @@ class CandidateResult:
     # every call of the run. None is "not captured" or "unknown" (an older Engine), never `partial`.
     frozen_copy_id: str | None
     capture_status: Literal["complete", "partial"] | None
+    # FEATURE (Q23, design §7): the partial reasons the run counted, sorted; `("local",)` for a
+    # local capture. Empty when complete, not captured or unknown. Only the submitter sees them:
+    # the board does not store them.
+    capture_partial_reasons: tuple[str, ...]
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
     # FEATURE (OME-1268): the Benchmark's Named Scores for this Candidate, each the mean of
     # its column over the graded Cases, headline first; `score` IS the headline. Empty on a
@@ -336,6 +349,7 @@ class CandidateResult:
         scores: Mapping[str, float | None] | None = None,
         frozen_copy_id: str | None = None,
         capture_status: Literal["complete", "partial"] | None = None,
+        capture_partial_reasons: Sequence[str] = (),
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
@@ -430,6 +444,7 @@ class CandidateResult:
             "cache_unpriced_hits": cache_unpriced_hits,
             "frozen_copy_id": selected_copy,
             "capture_status": selected_capture,
+            "capture_partial_reasons": _partial_reasons(capture_partial_reasons),
             "_metric_items": metric_items,
             "_scores": selected_scores,
         }
@@ -512,6 +527,7 @@ class CandidateResult:
             # OME-1307: always emitted (null = not captured or unknown), like the cache fields.
             "frozen_copy_id": self.frozen_copy_id,
             "capture_status": self.capture_status,
+            "capture_partial_reasons": list(self.capture_partial_reasons),
         }
 
 
