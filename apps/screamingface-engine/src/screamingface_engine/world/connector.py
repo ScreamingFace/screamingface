@@ -20,7 +20,7 @@ from weakref import WeakKeyDictionary
 
 import httpx
 
-from screamingface_engine import job_env
+from screamingface_engine import __version__, job_env
 from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
@@ -578,12 +578,18 @@ async def seal_frozen_copy(node: object, copy_id: str) -> bool:
     """Seal ``copy_id``. ``True`` only when the gateway confirms it is sealed; total, like the open.
 
     A sealed copy is what a replay reads; an open one is refused as unavailable.
+
+    FEATURE: E14 Q28. The seal states the engine version, so the copy records what captured it.
     """
     client = _gateway_client(node)
     if client is None:
         return False
     try:
-        response = await client.post(seal_path(copy_id), headers=_headers(current_scope()))
+        response = await client.post(
+            seal_path(copy_id),
+            headers=_headers(current_scope()),
+            json={"provenance": {"engine_version": __version__}},
+        )
         response.raise_for_status()
         body = response.json()
     except Exception as exc:  # noqa: BLE001 - best effort, as the open: a failed seal is `partial`

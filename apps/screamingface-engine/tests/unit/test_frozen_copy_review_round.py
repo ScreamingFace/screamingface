@@ -11,13 +11,19 @@ A separate module (append-only gate).
 
 from __future__ import annotations
 
-from screamingface_engine import job_env
+import pytest
+from frozen_copy_support import COPY, MODEL, SEAL, Gateway
+
+from screamingface_engine import __version__, job_env
 from screamingface_engine.capture_outcomes import CaptureOutcome, CaptureTally
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.executor import _bind_frozen_copy_mode
 from screamingface_engine.runner.main import request_scope_from_env
+from screamingface_engine.world import connector
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 
-_COPY = "6f1c2b0e-4c0a-4d7e-9a53-2f4f0f3a9b11"
+_COPY = COPY
 
 
 # ── TDD 8: an unstored error is no longer forgiven ─────────────────────────────────────────
@@ -70,3 +76,20 @@ def test_the_executor_binds_the_local_marker_to_the_tally() -> None:
 
     assert tally.mode == "capture"
     assert tally.local is True
+
+
+# ── TDD 9: the seal states the engine version (Q28) ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_seal_sends_the_engine_version() -> None:
+    gateway = Gateway()
+    cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
+
+    async with gateway.client() as client:
+        world = await build_aigateway_world(cfg, client=client)
+        sealed = await connector.seal_frozen_copy(world.node, COPY)
+
+    assert sealed is True
+    ((_headers, body),) = gateway.calls(SEAL)
+    assert body == {"provenance": {"engine_version": __version__}}
