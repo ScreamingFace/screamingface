@@ -387,7 +387,7 @@ sf.reproduce(score, record=False)`
           <td><code>exact</code></td>
           <td>
             The replay gave the stored score and the same number of cases, on the same benchmark
-            revision.
+            revision, and the same case digest when the score has one.
           </td>
         </tr>
         <tr>
@@ -408,10 +408,11 @@ sf.reproduce(score, record=False)`
     </table>
 
     <p>
-      Only an exact replay is recorded. The Client sends the replay's run id, score and case count,
-      and the score's frozen copy id, to the leaderboard. The leaderboard checks that they match the
-      stored score. Hosted deployments need a verified identity to record. There is no limit: each
-      exact replay adds one record. The score's page on the portal shows "Reproduced N times", and
+      Only an exact replay is recorded. The Client sends the replay's run id, score, case count and
+      case digest, and the score's frozen copy id, to the leaderboard. The leaderboard checks that
+      they match the stored score. It checks the digest only when the score has one. Hosted
+      deployments need a verified identity to record. There is no limit: each exact replay adds one
+      record. The score's page on the portal shows "Reproduced N times", and
       <code>reproduction_count</code> and <code>last_reproduced_at</code> hold the same facts on
       <code>LeaderboardScore</code>. If the record fails, the outcome stays <code>exact</code>,
       <code>recorded</code> is <code>False</code>, and <code>record_error</code> says why. The

@@ -42,6 +42,8 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <p>
       A hosted engine's cache is shared across the community. If anyone has already run the same
       model configuration against a benchmark, that call is a cache hit for you as well, at no cost.
+      This sharing covers model calls. The gateway also caches web-search and web-fetch results, but
+      only for each account: a result that one account stored is never given to another account.
       Verifying a published result, or building on someone else's fusion, usually costs a fraction
       of the original run, because the expensive part has already been paid for once.
     </p>
@@ -90,8 +92,9 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <p>
-      An <code>exact</code> replay means that the copy is internally consistent. The copy stores the
-      tool results that the run saw. It does not prove that those results are the true web results.
+      An <code>exact</code> replay shows that the copy is internally consistent: its stored answers
+      give the stored score. The copy keeps each web-tool result as the run reported it. An
+      <code>exact</code> replay does not prove that those results are the true web results.
     </p>
 
     <p>
@@ -102,9 +105,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       Keep one thing in mind. The copy id is part of a published score. Any authenticated gateway
-      account that has the id and sends the exact request can read the stored answer. A private
-      board never shows the copy id to anyone but its owner. Capture is on by default. If you do not
-      want to share the answers of a run, pass <code>capture=False</code> to that run.
+      account that has the id and sends the exact request can read the stored answer. On a private
+      board, only the submitter of a score can read it, so no one else gets its copy id. Capture is
+      on by default. If you do not want to share the answers of a run, pass
+      <code>capture=False</code> to that run.
     </p>
 
     <h3>Local runs</h3>
@@ -221,9 +225,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       replay, every model call goes to the copy, and so does every web-tool read. The copy answers
       each call with the answer that it stored for the same call. A call matches a stored answer
       when it has the same case, the same Attempt of that case, the same request, and the same
-      position among identical calls in that case. The first identical call in a case gets the first
-      stored answer, the second gets the second, and so on. Nothing calls a provider, and nothing
-      calls the web-search service. A confirmed replay costs <strong>$0</strong>.
+      position among identical calls in that case. In each case and Attempt, the first identical
+      call gets the first stored answer, the second gets the second, and so on. Nothing calls a
+      provider, and nothing calls the web-search service. A confirmed replay costs
+      <strong>$0</strong>.
     </p>
 
     <p>
@@ -235,7 +240,8 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <p>
       A replay is <code>exact</code> when it gives the stored score and case count on the same
       benchmark revision. When the score has a case digest, the replay must also give the same
-      digest. The digest covers each graded case: its id, its status and its score.
+      digest. The digest covers each case of the run: its id, its status and its score. A case with
+      no grade has no score.
     </p>
 
     <p>
@@ -262,9 +268,9 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       <li>
         <strong>A copy that is not available.</strong> The copy is unknown, or it is not sealed (for
         example, the Engine stopped during the original run), or the gateway is older and has no
-        frozen copies. A web-tool lookup that the gateway does not answer, because of a transport
-        failure or an error other than not found, is the same. Cases fail, and the replay is
-        reported as <code>frozen_copy_unavailable</code>.
+        frozen copies. A web-tool lookup or a model call that the gateway does not answer, because
+        of a transport failure or an error other than not found, is the same. Cases fail, and the
+        replay is reported as <code>frozen_copy_unavailable</code>.
       </li>
       <li>
         <strong>A changed engine or SDK</strong> may build a request in another way. The copy has no
@@ -278,9 +284,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       </li>
       <li>
         <strong>Same request, different answers.</strong> With sampling, or with the cache off, the
-        same request can get different answers. Each case keeps its own answers. Identical calls in
-        one case take them in the order that the calls were created. A replay can then give another
-        score (<code>score_differs</code>).
+        same request can get different answers. Each case and Attempt keeps its own answers, in the
+        order that the calls were created. One limit remains: the judge calls for different Attempts
+        of one case share their answers. A replay can swap two identical judge calls that run at the
+        same time, and then the score can differ (<code>score_differs</code>).
       </li>
       <li>
         <strong>Different case results.</strong> The score and the case count match, but the case
@@ -293,8 +300,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </ul>
 
     <p>
-      A replay failure that the copy did not serve fails its case. The Engine does not retry that
-      call. A retry would take the next stored answer, which is the wrong one for the call.
+      A replay call can fail before the copy answers it, for example when every transport attempt
+      fails. That call fails its case with <code>frozen_copy_unavailable</code>. The Engine does not
+      send it again as a new call, because a new call would read the next stored answer, which
+      belongs to another call. A <code>frozen_copy_miss</code> is not sent again either.
     </p>
 
     <p>

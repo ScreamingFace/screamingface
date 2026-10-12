@@ -385,7 +385,7 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td>
             A digest of the graded cases of the run: 64 lowercase hex characters. It is set only
             with a <code>capture_status</code>. When it is set, a reproduction must give the same
-            digest. Only the score read returns it.
+            digest. <code>LeaderboardEntry</code> rows do not carry it.
           </td>
         </tr>
         <tr>
@@ -555,8 +555,9 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>not_reproducible</code></td>
           <td><code>partial</code></td>
           <td>
-            The score is <code>capture_status="partial"</code>. This includes a local capture, which
-            the board cannot name as <code>local</code>. No run starts.
+            The score is <code>capture_status="partial"</code>. A local capture also gets this
+            reason: the board does not store the partial reasons, so the reason is never
+            <code>local</code>. No run starts.
           </td>
         </tr>
         <tr>
@@ -592,8 +593,8 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>frozen_copy_unavailable</code></td>
           <td>
             The copy is unknown or not sealed, or the gateway has no frozen copies (an older
-            gateway), or a web-tool lookup got no answer from the gateway. The cases fail, and the
-            run finishes.
+            gateway), or the gateway did not serve a model call or a web-tool lookup of the replay.
+            The cases fail, and the run finishes.
           </td>
         </tr>
         <tr>
