@@ -988,8 +988,18 @@ def _attempts_html(case: CaseResult) -> str:
         )
         said: str | None = attempt.output if attempt.output is not None else attempt.refusal
         answer: str = f"<pre class='sf-report__pre'>{escape(_clip(said))}</pre>" if said else ""
+        # WHY: when another Attempt succeeds the Case has no failures of its own, so this
+        # is the only place a reader sees why this Attempt failed.
+        failure_lines: str = "\n".join(
+            f"{failure.stage} · {failure.code} — {failure.message}{_first_collected_error(failure)}"
+            for failure in attempt.failures
+        )
+        failures: str = (
+            f"<div class='sf-report__fail'>{escape(failure_lines)}</div>" if failure_lines else ""
+        )
         rows.append(
-            f"<div class='sf-detail__k'>Attempt {attempt.attempt} · {escape(outcome)}</div>{answer}"
+            f"<div class='sf-detail__k'>Attempt {attempt.attempt} · {escape(outcome)}</div>"
+            f"{answer}{failures}"
         )
     return "".join(rows)
 
