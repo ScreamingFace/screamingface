@@ -176,12 +176,15 @@ New tests, appended. No existing test was edited.
   - `test_score_without_digest_keeps_the_three_field_rule` (2 cases)
   - `test_private_board_copy_id_never_reaches_a_non_owner`. This test passed before the change. It is
     a regression guard, so a pass before the change is expected.
+  - `test_q25_positive_control_owner_rows_show_only_the_owners_copy_id`. Bob's own rows are on the
+    board and in his history. Alice's copy id is not on the board.
 - `tests/unit/test_score_cache_version.py`:
   - `test_case_digest_without_capture_status_or_malformed_is_rejected` (7 cases)
   - `test_resubmit_fills_only_an_empty_case_digest`
+  - `test_a_case_digest_never_fills_without_its_status`
 
 Before the change, 13 of the new cases failed with `extra_forbidden`. After the change, all 14 pass.
-Both files pass: 102 tests.
+Both files pass: 104 tests (102 after the first round, plus the two review-round tests).
 
 ### Approved test edits
 
@@ -198,5 +201,6 @@ passed without `--skip-append-only`.
 
 ### Pinned-decision notes
 
-- The 422 message of `_refuse_unless_exact` is unchanged. It still names only the three fields. The
-  OpenAPI description names the digest. A follow-up may update the message text.
+- The 422 `not_exact` message of `_refuse_unless_exact` now names the digest: "score,
+  total_questions, frozen_copy_id and, when the score has one, case_digest must equal the stored
+  score".
