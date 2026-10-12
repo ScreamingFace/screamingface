@@ -143,3 +143,60 @@ edited. The file names stay, to keep the branch history easy to follow.
 - Conflict in `.claude/sdlc.local.md` and `.github/workflows/scoreboard-tests.yml`: both lists keep
   main's portal test files and add `tests/portal/reproduced-count.test.js`.
 - Gates for stack `scoreboard` pass against `e14-a1-scoreboard-metadata`.
+
+## Review round 2026-10-12 (design review fixes)
+
+Spec: `docs/spec/2026-10-06-e14-reproducible-submission/02-frozen-copy-design.md` rows Q25, Q29 and
+section 6. Plan: `docs/plan/2026-10-06-e14-reproducible-submission/R-2026-10-12-design-review-fixes.md`,
+section B4.
+
+### Changes
+
+- `Score.case_digest` is a new column: `CharField(64)`, nullable. The SDK computes the digest. The
+  board stores it and compares it. The board never computes it.
+- The column is added in place to `0020_score_frozen_copy.py`. The migration was never released.
+- `ScoreSubmission.case_digest` is optional. It must match `^[0-9a-f]{64}$`. It needs
+  `capture_status`. A missing status, or a malformed value, gives 422.
+- A same-owner resubmit fills the digest only when it fills the status. The digest moves with the
+  status and the copy id, because all three describe one run.
+- `ScoreSchema.case_digest` is returned on the score read. It is omitted when null.
+- `ReproductionSubmission.case_digest` is optional. A reproduction row does not store it.
+- `_refuse_unless_exact`: when the score has a digest, the body must carry an equal digest. Otherwise
+  the route answers 422 `not_exact`. A score without a digest keeps the three-field rule.
+- Q25: the private-board regression test checks the score read, the leaderboard and the history. No
+  leak was found. The code did not need a change.
+
+### Tests
+
+New tests, appended. No existing test was edited.
+
+- `tests/unit/test_score_reproductions.py`:
+  - `test_reproduction_with_matching_case_digest_is_recorded`
+  - `test_reproduction_with_a_different_or_missing_case_digest_is_422_not_exact` (2 cases)
+  - `test_score_without_digest_keeps_the_three_field_rule` (2 cases)
+  - `test_private_board_copy_id_never_reaches_a_non_owner`. This test passed before the change. It is
+    a regression guard, so a pass before the change is expected.
+- `tests/unit/test_score_cache_version.py`:
+  - `test_case_digest_without_capture_status_or_malformed_is_rejected` (7 cases)
+  - `test_resubmit_fills_only_an_empty_case_digest`
+
+Before the change, 13 of the new cases failed with `extra_forbidden`. After the change, all 14 pass.
+Both files pass: 102 tests.
+
+### Approved test edits
+
+None. The migration test and the column-list tests did not need an edit. The append-only check
+passed without `--skip-append-only`.
+
+### Gate lines
+
+- `uv run .claude/scripts/run_gates.py scoreboard --base refs/e14-backup/pre-phase2-2026-10-12/OME-1433-e14-a1-scoreboard-metadata`
+- First run: append-only check passed. Ruff check failed on 5 lines over 100 characters. Those
+  lines were shortened.
+- Second run: `ALL GATES GREEN`. Append-only check, ruff check, ruff format check, pyright, pytest
+  with coverage, and the `node --test` portal gate all passed.
+
+### Pinned-decision notes
+
+- The 422 message of `_refuse_unless_exact` is unchanged. It still names only the three fields. The
+  OpenAPI description names the digest. A follow-up may update the message text.
