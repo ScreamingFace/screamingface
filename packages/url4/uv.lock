@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [[package]]
@@ -1170,7 +1170,7 @@ wheels = [
 
 [[package]]
 name = "url4"
-version = "1.5.1"
+version = "1.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
