@@ -11,8 +11,8 @@
       "approved_blob": "c7b018dc6958b380fe65b11d4ee0a2ef996996b9"
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_stage_parity.py": {
-      "base_blob": "b661cc44b6b4bf9dc1461336ae74d3bdbbb497a9",
-      "approved_blob": "cc1884a6fdc4d8d5d84c582048da095bae63afbd"
+      "base_blob": "8804e4f0894b01455ac997929e1e9d9e572d83fd",
+      "approved_blob": "87c0d84f970b1d41959d020f347a581fa0f8bd0e"
     },
     "apps/screamingface-engine/tests/unit/test_builtin_early_score_timing.py": {
       "base_blob": "2c52e382e1e7ba14ffb51699b67700fc5c70049d",

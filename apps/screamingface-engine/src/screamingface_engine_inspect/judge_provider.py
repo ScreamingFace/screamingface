@@ -45,7 +45,7 @@ import contextvars
 import json
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 from inspect_ai.model import (
@@ -65,7 +65,7 @@ from inspect_ai.tool import ToolChoice, ToolInfo
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.request_scope import RequestScope, current_scope, request_scope
-from url4.streaming.protocol import CachePolicy
+from screamingface_engine.world.fresh_judge_retry import without_gateway_cache
 from url4.wire.subrequest import encode_subrequest
 
 #: One in-process node fetch: a relative sub-request URL in, the completion text out.
@@ -160,7 +160,7 @@ def _gateway_cache_opt_out() -> AbstractContextManager[RequestScope]:
     would re-read the cached broken reply, so it refuses instead of pretending to redraw.
     """
 
-    return request_scope(replace(current_scope(), cache=CachePolicy(participate=False)))
+    return request_scope(without_gateway_cache(current_scope()))
 
 
 @contextmanager
