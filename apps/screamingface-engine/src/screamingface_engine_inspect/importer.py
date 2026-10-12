@@ -43,6 +43,7 @@ import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import CodeType, FunctionType
 from typing import TYPE_CHECKING, Any, Protocol
 
 # WHY a runtime import is safe here: provenance_facts imports only the stdlib and yaml,
@@ -113,10 +114,14 @@ def task_attempts(task: Any) -> int:
 
     INVARIANT: the name alone is not the rule. ``at_least(1, value=0.5)`` is logged as
     ``at_least_1`` but counts a half-right answer; any parameter other than ``k`` (a
-    ``value`` below full marks, a ``value_to_float``) is refused, naming it.
+    ``value`` below full marks, a ``value_to_float``) is refused, naming it. And any eval
+    may register its own reducer as ``max``: one whose code is not inspect's own ``max`` /
+    ``at_least`` / ``pass_at`` is refused, naming it (at scores [0, 1] a first-epoch
+    "max" publishes 0 where our fold publishes 1.0).
     """
 
     from inspect_ai._util.registry import registry_params
+    from inspect_ai.scorer import at_least, max_score, pass_at
     from inspect_ai.scorer._reducer.registry import reducer_log_names
 
     epochs: int | None = getattr(task, "epochs", None)
@@ -134,6 +139,25 @@ def task_attempts(task: Any) -> int:
             f"any-of-{epochs} reducers ({', '.join(sorted(any_match))}) import as "
             f"{epochs} Attempts per Case; this one would publish a different number (OME-1458)"
         )
+    # WHY: a registry name is a label any eval can claim (registering `max` even overwrites
+    # inspect's entry), but every call of inspect's own factory, imported directly, returns
+    # a reduce function sharing one code object; a look-alike cannot.
+    builtin_code: dict[str, CodeType | None] = {
+        "max": _reduce_code(max_score()),
+        "at_least_1": _reduce_code(at_least(1)),
+        f"pass_at_{epochs}": _reduce_code(pass_at(epochs)),
+    }
+    impostors: list[str] = [
+        name
+        for name, reducer in zip(names, reducers or [], strict=True)
+        if (code := _reduce_code(reducer)) is None or code is not builtin_code[name]
+    ]
+    if impostors:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {', '.join(impostors)}: the name "
+            f"is a built-in any-of-{epochs} reducer's, but the code is not inspect's own; "
+            "its rule cannot be read, so it would publish a different number (OME-1458)"
+        )
     # WHY: every name is any-match from here, so the Task declared its reducers; a tuned
     # threshold behind an any-match name is a different rule.
     tuned: list[str] = [
@@ -148,6 +172,12 @@ def task_attempts(task: Any) -> int:
             "threshold would publish a different number (OME-1458)"
         )
     return epochs
+
+
+def _reduce_code(reducer: object) -> CodeType | None:
+    """The code a reducer runs: the one fact a borrowed registry name cannot fake."""
+
+    return reducer.__code__ if isinstance(reducer, FunctionType) else None
 
 
 def _tuned_params(params: dict[str, Any]) -> dict[str, Any]:

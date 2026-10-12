@@ -224,3 +224,89 @@ def test_attempts_with_named_scores_are_refused_before_any_case_runs(fake_eval: 
     # import refuses it first.
     with pytest.raises(TaskReplayError, match=r"epochs=2 and several scores \(match, includes\)"):
         replay_for_import(f"{fake_eval}:two_scores_of_two", None)
+
+
+#: A second stand-in eval, kept apart from FAKE_EVAL because registering a reducer named
+#: `max` in a module replaces inspect's own `max` for every string lookup in that process.
+#: Each fake borrows a built-in any-match name but returns the first epoch's score, so at
+#: scores [0, 1] it publishes 0 where the Engine's any-match fold publishes 1.0.
+IMPOSTOR_EVAL: str = textwrap.dedent(
+    """
+    import os
+    from inspect_ai import Epochs, Task, task
+    from inspect_ai.dataset import FieldSpec, json_dataset
+    from inspect_ai.scorer import Score, at_least, match, score_reducer
+    from inspect_ai.solver import generate, prompt_template
+
+    DATA = os.environ["FAKE_EPOCHS_DATA"]
+
+    def _task(reducer):
+        return Task(dataset=json_dataset(DATA, FieldSpec(input="q", target="a", id="id")),
+                    solver=[prompt_template("Answer briefly.\\n\\n{prompt}\\n"), generate()],
+                    scorer=match(), epochs=Epochs(2, reducer))
+
+    @score_reducer(name="max")
+    def first_epoch_named_max():
+        def reduce(scores: list[Score]) -> Score:
+            return scores[0]
+        return reduce
+
+    @score_reducer(name="pass_at")
+    def first_epoch_named_pass_at(k: int):
+        def reduce(scores: list[Score]) -> Score:
+            return scores[0]
+        return reduce
+
+    @score_reducer(name="max")
+    def at_least_one_at_half_marks_named_max():
+        return at_least(1, value=0.5)
+
+    @task
+    def impostor_max_of_two() -> Task:
+        return _task(first_epoch_named_max())
+
+    @task
+    def impostor_pass_at_two_of_two() -> Task:
+        return _task(first_epoch_named_pass_at(2))
+
+    @task
+    def borrowed_builtin_max_of_two() -> Task:
+        return _task(at_least_one_at_half_marks_named_max())
+    """
+)
+
+
+@pytest.fixture
+def impostor_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the impostor-reducer stand-in eval where the import child can import it."""
+
+    (tmp_path / "impostor_epochs_eval.py").write_text(IMPOSTOR_EVAL, encoding="utf-8")
+    (tmp_path / "cases.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in _ROWS), encoding="utf-8"
+    )
+    monkeypatch.setenv("FAKE_EPOCHS_DATA", str(tmp_path / "cases.jsonl"))
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "impostor_epochs_eval"
+
+
+@pytest.mark.parametrize(
+    ("task_name", "reducer"),
+    [
+        # Simulates an eval's own first-epoch reducer registered under inspect's `max` name.
+        ("impostor_max_of_two", "max"),
+        # Same, under `pass_at` with k=2, so it logs as the any-match `pass_at_2`.
+        ("impostor_pass_at_two_of_two", "pass_at_2"),
+        # A real built-in (at_least at half marks) re-registered as `max` with no params.
+        ("borrowed_builtin_max_of_two", "max"),
+    ],
+)
+def test_a_custom_reducer_borrowing_an_any_match_name_is_refused_naming_it(
+    impostor_eval: str, task_name: str, reducer: str
+) -> None:
+    # WHY: the name is a registry label any eval can claim; only inspect's own max, at_least
+    # and pass_at code computes any-of-N, so a look-alike would publish a different number.
+    with pytest.raises(TaskReplayError, match=rf"epochs=2 with reducer {reducer}"):
+        replay_for_import(f"{impostor_eval}:{task_name}", None)
