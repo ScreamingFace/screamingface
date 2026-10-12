@@ -1,6 +1,9 @@
 # E4a unit 13: reducer synthesizers with Fusion quorum and optional members
 
-Status: approved direction (owner, 2026-10-12: "make them compatible transparently"), built as unit 13.
+Status: built 2026-10-12 as unit 13, branch `e4a-quorum-reducers` (on `e4a-combine-hardening`):
+b448ee827 engine, 9a1fb2603 SDK, 78cce7384 review round. Engine, SDK and repo gates green; the
+append-only check waits for the owner (two regenerated v1 schema snapshots, and the 2026-10-12
+guard test replaced by the quorum-reducer tests). Not pushed.
 Refs: OME-1289 (E4a) × OME-1557 (Fusion quorum, main PR #1340).
 
 ## 1. Problem
