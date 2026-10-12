@@ -139,11 +139,12 @@ Prior assertions that change are listed and approved byte-exactly before they ar
   credential write failed (503 `connection_activation_failed` / `credential_store_unavailable`)
   therefore still advanced the generation, against §5.3 ("check and publication are atomic";
   failures never advance). The first review had wrongly refuted this as matching the legacy flow —
-  the legacy callback claims inside its publication transaction. The native callback now only holds
-  the pair (`hold_observed`, check-only) while its compat document moves, and claims it inside the
-  activation transaction (marker → row → blob); a duplicate-identity completion that activates
-  nothing no longer advances either. Test: a native callback that fails to publish keeps the pair
-  generation (credential write and activation failures).
+  the legacy callback claims inside its publication transaction. The native callback now claims the
+  pair and updates any same-named compat Profile inside the activation/blob transaction; a failure
+  rolls back marker, compat document, row activation and blob write together. A duplicate-identity
+  completion that activates nothing no longer advances either. Tests: a failed native callback
+  publication keeps the pair generation, leaves a same-named API-key Profile unchanged, leaves the
+  Connection `error`, and writes no blob.
 - **Deviations:**
   - The startup bootstrap claims `quarantined` as well as `none` (one `fences_writer` rule for every
     legacy writer) instead of skipping `quarantined`; it skips `migrated` and rolls back when the

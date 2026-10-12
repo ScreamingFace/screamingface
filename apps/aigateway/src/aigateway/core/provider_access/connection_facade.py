@@ -13,13 +13,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 
 from tortoise.transactions import in_transaction
 
 from ..credential_strategy_cache import credential_strategy_cache
-from ..errors import AuthError, CredentialNotFoundError
+from ..errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore
 from ..plugin_base import credential_service_provider_for
@@ -31,6 +30,7 @@ from .connection_authority import LEGACY_STATE_FOR_STATUS
 from .connection_locator import credential_name_from_locator, credential_strategy_for_connection
 from .pair_authority import PairAuthorityStore
 from .profile_authorize import invalidate_session, oauth_connection_store
+from .refresh_guard import ConnectionRefreshOwner, guard_refresh
 from .types import TargetReauthRequired, UnsupportedAuthMode, WriteConflict
 
 
@@ -128,8 +128,11 @@ async def refresh_facade(
         provider=provider,
         auth_type=auth_type_of(None, connection),
         credential_name=credential_name,
-        build=lambda: credential_strategy_for_connection(
-            app, plugin, provider, connection, account_id=account_id
+        build=lambda: guard_refresh(
+            credential_strategy_for_connection(
+                app, plugin, provider, connection, account_id=account_id
+            ),
+            ConnectionRefreshOwner(account_id, provider, connection.id),
         ),
     )
     if strategy is None:
@@ -138,6 +141,14 @@ async def refresh_facade(
     index: ProfileIndexStore = app.state.profile_index
     try:
         await strategy.refresh_credentials()
+    except RefreshSuperseded as exc:
+        # INVARIANT (OME-307 H-1, at the first persistence since OME-1497 G0): a delete or an
+        # ownership change that committed during the provider window wins; nothing is marked.
+        cache.evict(credential_name)
+        invalidate_session(plugin, credential_name)
+        raise WriteConflict(
+            "superseded", subject="profile", provider=provider, requested=name
+        ) from exc
     except (CredentialNotFoundError, AuthError) as exc:
         cache.evict(credential_name)
         await _mark_failed(store, index, target.document, connection, str(exc))
@@ -145,15 +156,14 @@ async def refresh_facade(
         raise TargetReauthRequired(provider, reauth_url, message=str(exc)) from exc
     cache.evict(credential_name)
     invalidate_session(plugin, credential_name)
-    mirror = target.document.model_copy(
-        update={"state": ProfileState.AUTHENTICATED, "last_refreshed_at": datetime.now(UTC)}
-    )
     try:
         # INVARIANT (OME-307 H-1): publish only while the document is still PRESENT — a delete
         # that committed during the provider network window removed it (S2'b1 op 9) and wins.
+        # INVARIANT (OME-1497, G0 §5.3): the mirror is stamped on the document as committed now,
+        # never rewritten from the pre-fetch snapshot (a key change since then would be reverted).
         async with in_transaction():
             await store.touch_last_refreshed(connection)
-            await index.upsert(mirror, require_present=True)
+            mirror = await index.stamp_refreshed(target.document.id)
     except ProfileTransitionConflict as exc:
         raise WriteConflict(
             "superseded", subject="profile", provider=provider, requested=name

@@ -21,7 +21,7 @@ from tortoise.transactions import in_transaction
 from ..core.auth.middleware import CurrentAccount
 from ..core.credential_blob.store import CredentialBlobMutationConflict
 from ..core.credential_strategy_cache import credential_strategy_cache
-from ..core.errors import AuthError, CredentialNotFoundError
+from ..core.errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from ..core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
@@ -46,6 +46,7 @@ from ..core.provider_access import (
     PairAuthority,
     PairAuthorityConflict,
     PairAuthorityStore,
+    ProfileRefreshOwner,
     ProviderCredentialAdmin,
     ProviderUnknown,
     TargetMissing,
@@ -55,7 +56,7 @@ from ..core.provider_access import (
     complete_connection_oauth,
     facade_target,
     fail_connection_oauth,
-    hold_observed,
+    guard_refresh,
     hold_pair,
     patch_facade,
     provider_credential_admin_for,
@@ -174,16 +175,23 @@ async def _profile_refresh_lifecycle(
     """Shared profile state updates around provider-owned credential refresh."""
     # INVARIANT (OME-307 H-1): a manual refresh reads the profile, runs the provider network call,
     # then publishes the result. A delete that commits during that network window must WIN — a
-    # deleted profile is never resurrected. The success branch publishes only while the profile
-    # remains PRESENT (require_present); the error branch additionally fences on the snapshot below
-    # (auth_type + last_refreshed_at) so a deleted/superseded profile is not recreated as a ghost
-    # ERROR row. SCOPE (guard-now): require_present is presence-only, so a concurrent
-    # re-authentication that keeps the profile present is NOT fenced out on the success path — the
-    # stronger prepare-then-publish ownership split is deferred, outside this DELETE scope.
+    # deleted profile is never resurrected. Since OME-1497 (G0 §5.3) the strategy's refresh guard
+    # publishes the token and stamps the document in ONE transaction, only while the profile is
+    # present and the blob still holds the credential that was refreshed. The error branch
+    # fences on the snapshot below (auth_type + last_refreshed_at) so a deleted/superseded profile
+    # is not recreated as a ghost ERROR row.
     expected_auth_type = profile.auth_type
     expected_last_refreshed_at = profile.last_refreshed_at
     try:
         yield
+    except RefreshSuperseded as exc:
+        # INVARIANT (OME-1497, G0 §5.3): the profile or its credential moved under the refresh,
+        # so the guard published nothing; the profile is neither marked nor republished.
+        _invalidate_profile_session(request.app, plugin, account_id, name)
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "profile_conflict", "provider": provider, "profile": name},
+        ) from exc
     except (CredentialNotFoundError, AuthError) as exc:
         # Error branch: fence on ownership and swallow a lost race (mirrors
         # chat_credentials._mark_profile_error_fresh) so a profile deleted or superseded during the
@@ -206,19 +214,9 @@ async def _profile_refresh_lifecycle(
             },
         ) from exc
     else:
-        # Success branch: publish only while the profile still exists (require_present). A profile
-        # deleted during the network window makes this raise -> 409 instead of resurrecting it as
-        # an AUTHENTICATED row.
-        profile.state = ProfileState.AUTHENTICATED
-        profile.last_refreshed_at = datetime.now(UTC)
-        try:
-            await _index_store(request).upsert(profile, require_present=True)
-        except ProfileTransitionConflict as exc:
-            _invalidate_profile_session(request.app, plugin, account_id, name)
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "profile_conflict", "provider": provider, "profile": name},
-            ) from exc
+        # Success branch: the guard already stamped the document (state, `last_refreshed_at`) in
+        # its publication transaction; republishing the snapshot read before the fetch would
+        # revert a key replacement that committed after it (OME-1497, G0 §5.3).
         _invalidate_profile_session(request.app, plugin, account_id, name)
 
 
@@ -872,17 +870,6 @@ async def _complete_oauth_for_app(
                 )
                 raise
             _invalidate_profile_session(app, plugin, pending.account_id, pending.profile_name)
-        else:
-            try:
-                # INVARIANT (OME-1497, G0): a native callback holds the pair its start published
-                # while the compat document moves; it claims the pair only in the transaction that
-                # activates the Connection, so a failed activation advances nothing (§5.3).
-                async with in_transaction():
-                    await hold_observed(pending.observed_pair)
-                    await _mark_profile_authenticated(app, pending, plugin, creds)
-            except PairAuthorityConflict as exc:
-                await _close_loopback_callback(app, state)
-                raise _connection_conflict(pending) from exc
         if pending.pair_generation is None:
             # D14: the shadow Connection write is today's behaviour for a pair the legacy Profile
             # owns; a MIGRATED pair's effective Connection IS the Connection.
@@ -1112,8 +1099,10 @@ async def _record_oauth_connection_completion(
         async with in_transaction():
             if pending.connection_id is not None:
                 # INVARIANT (OME-1497, G0 §5.3): check and publication are atomic — the native
-                # claim commits with the activated row and its blob, or not at all.
+                # claim and compat-document update commit with the activated row and its blob, or
+                # not at all.
                 await claim_observed(pending.observed_pair)
+                await _mark_profile_authenticated(app, pending, plugin, creds)
             elif published is not None:
                 # INVARIANT (OME-1497, G0 D14 refinement): the shadow records the credential this
                 # callback published only while the pair still stands where it was published.
@@ -1151,6 +1140,10 @@ async def _record_oauth_connection_completion(
     except HTTPException as exc:
         if exc.status_code == 503:
             await store.mark_pending_error(connection, "credential_store_unavailable")
+        raise
+    except CredentialBlobMutationConflict:
+        # WHY: the compat-document update exhausted its retries; everything rolled back and the
+        # Connection stays pending, so the callback keeps its retryable `profile_index_conflict`.
         raise
     except Exception as exc:
         await store.mark_pending_error(connection, "connection_activation_failed")
@@ -1488,12 +1481,22 @@ async def refresh_profile(
             )
         return refreshed.model_dump(mode="json")
     p = target.document
-    strategy = _credential_strategy_for_app(
-        request.app, plugin, provider, account_id, name, auth_type=p.auth_type
+    strategy = guard_refresh(
+        _credential_strategy_for_app(
+            request.app, plugin, provider, account_id, name, auth_type=p.auth_type
+        ),
+        ProfileRefreshOwner(account_id, provider, p.id, _index_store(request)),
     )
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
 
     async with _profile_refresh_lifecycle(request, plugin, p, provider, account_id, name):
         await strategy.refresh_credentials()
-    return p.model_dump(mode="json")
+    refreshed = await _index_store(request).get(account_id, provider, name)
+    if refreshed is None:
+        # WHY: deleted after the guarded publication committed — never answer with a ghost.
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "profile_conflict", "provider": provider, "profile": name},
+        )
+    return refreshed.model_dump(mode="json")
