@@ -56,4 +56,5 @@ was held: see Deviations.
   a missing `supporting_idx` edits `local_tasks/musique/musique.py`, and the MuSiQue revision
   hashes every `.py` file in that package, so its published revision moves (probe:
   `test_published_benchmark_revision_is_byte_identical[musique-1ae798e073477a54]` fails). The
-  work order said to stop and report rather than re-pin; it waits on an owner call.
+  work order said to stop and report rather than re-pin. The owner then approved the move, and
+  it ships stacked on this PR as #1354 (ledger `docs/work/2026-10-12-musique-loud-scorer.md`).
