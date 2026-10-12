@@ -104,6 +104,9 @@ class RequestScope:
     ``capture`` asks the run to store every chat answer and tool result in a new frozen copy;
     ``replay_frozen_copy`` is the id of the copy a REPLAY run answers from, and ``None`` for any
     other run. INVARIANT: a producer never sets both; the header and env readers refuse that.
+
+    ``local_runtime`` is True for a run that executes on the local runtime (Q23): its capture is
+    `partial` with reason `local`, because its copy never leaves the local gateway.
     """
 
     identity_headers: Mapping[str, str] = field(default_factory=dict)
@@ -118,6 +121,7 @@ class RequestScope:
     deadline: float | None = None
     capture: bool = False
     replay_frozen_copy: str | None = None
+    local_runtime: bool = False
 
     def __post_init__(self) -> None:
         # INVARIANT (FX-65): the scope OWNS what it holds. `frozen` stops a write to the scope's

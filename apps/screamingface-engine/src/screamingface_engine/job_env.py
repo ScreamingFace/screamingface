@@ -156,6 +156,15 @@ FEATURE: OME-1307. Per-run, with the same invariant as :data:`CAPTURE`: a leftov
 another caller's paid run into a replay. Absent means a normal run.
 """
 
+LOCAL_RUNTIME = "URL4_LOCAL_RUNTIME"
+"""Whether this run executes on the local runtime — `"1"`, or absent for a hosted run.
+
+FEATURE: E14 Q23. Written by ``local.py`` for every run it starts, and by no other App. A capture on
+the local runtime is `partial` with reason `local`: its copy lives only in the local gateway, so a
+hosted board can never replay it. INVARIANT: a hosted App never writes it, so a hosted run reads
+it as absent.
+"""
+
 FROZEN_COPY_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 """The one shape of a frozen copy id. Shared by the header and env readers so the two carriers
 can never disagree about what an id is."""
@@ -366,6 +375,11 @@ def replay_frozen_copy_from_env(env: Mapping[str, str]) -> str | None:
     if FROZEN_COPY_ID.fullmatch(raw) is None:
         raise ValueError(f"{REPLAY_FROZEN_COPY} must be a frozen copy id, got {raw!r}")
     return raw
+
+
+def local_runtime_from_env(env: Mapping[str, str]) -> bool:
+    """Read a run's local-runtime marker back out of its environment. Absent means a hosted run."""
+    return env.get(LOCAL_RUNTIME) == "1"
 
 
 def io_concurrency_from_env(env: Mapping[str, str]) -> int | None:
@@ -592,6 +606,7 @@ WRITTEN_BY_APP = frozenset(
         ANSWER_SEED,
         CAPTURE,
         REPLAY_FROZEN_COPY,
+        LOCAL_RUNTIME,
         CACHE_PARTICIPATE,
         CACHE_MAX_AGE_S,
         EXTRA_MODELS,

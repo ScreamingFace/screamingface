@@ -703,6 +703,8 @@ def _bind_frozen_copy_mode(tally: CaptureTally) -> None:
         tally.mode, tally.frozen_copy_id = "replay", scope.replay_frozen_copy
     elif scope.capture:
         tally.mode = "capture"
+        # FEATURE: E14 Q23 — a local capture's copy lives only in the local gateway: partial.
+        tally.local = scope.local_runtime
 
 
 def _closing_logs(

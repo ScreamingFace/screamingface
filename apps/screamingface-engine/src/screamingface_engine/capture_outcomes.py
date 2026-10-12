@@ -21,7 +21,7 @@ Mode = Literal["capture", "replay"]
 Lane = Literal["chat", "tool"]
 Status = Literal["stored", "failed", "refused", "missing", "error", "ambiguous"]
 
-_REASONS = ("failed", "refused", "missing", "open", "seal", "error", "ambiguous")
+_REASONS = ("failed", "refused", "missing", "open", "seal", "error", "ambiguous", "local")
 _FROZEN_COPY_ID = "capture.frozen_copy_id"
 _STATUS = "capture.status"
 _REPLAY = "capture.replay"
@@ -116,6 +116,9 @@ class CaptureTally:
     sealed: bool = False
     """The gateway confirmed the seal. A replay refuses an open copy, so only a sealed copy can
     make a capture run complete."""
+    local: bool = False
+    """A capture on the local runtime (Q23). Its copy lives only in the local gateway, so the run
+    is never complete: a hosted reproduction could not replay it."""
     outcomes: list[CaptureOutcome] = field(default_factory=list)
     occurrences: dict[tuple[str, Lane, str], int] = field(default_factory=dict)
     """Per (case key, lane, request digest), the occurrence the next logical call takes."""
@@ -124,7 +127,11 @@ class CaptureTally:
         """``complete`` only for a capture run whose copy opened and sealed and whose every call
         is stored. An empty run is complete: it has nothing a replay could miss."""
         complete = (
-            self.mode == "capture" and not self.open_failed and self.sealed and not self._lost()
+            self.mode == "capture"
+            and not self.open_failed
+            and self.sealed
+            and not self.local
+            and not self._lost()
         )
         return "complete" if complete else "partial"
 
@@ -149,6 +156,7 @@ class CaptureTally:
         counts["open"] += self.open_failed
         # A copy that opened and was never confirmed sealed — the seal failed, or never ran.
         counts["seal"] += self.frozen_copy_id is not None and not self.sealed
+        counts["local"] += self.local
         for reason in _REASONS:
             if counts[reason]:
                 attributes[f"{_PARTIAL_PREFIX}{reason}"] = counts[reason]

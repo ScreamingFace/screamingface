@@ -115,6 +115,7 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
         deadline=None if job_deadline is None else time.monotonic() + job_deadline,
         capture=capture,
         replay_frozen_copy=replay_frozen_copy,
+        local_runtime=job_env.local_runtime_from_env(env),
     )
 
 

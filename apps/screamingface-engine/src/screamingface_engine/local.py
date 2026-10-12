@@ -425,8 +425,12 @@ def create_local_app(
     from screamingface_engine.observation_plugins import observation_factories
     from screamingface_engine.runner.main import build_executor
 
-    run_env = dict(_with_runner_config(env if env is not None else os.environ))
-    run_env[job_env.ACTIVITY_LEVEL] = activity_level
+    # FEATURE: E14 Q23 — every run this App starts is a local run (the marker is read per run).
+    run_env = {
+        **_with_runner_config(env if env is not None else os.environ),
+        job_env.ACTIVITY_LEVEL: activity_level,
+        job_env.LOCAL_RUNTIME: "1",
+    }
     observers = observation_factories(run_env)
     if benchmarks is None:
         benchmarks = _local_benchmarks(run_env)
