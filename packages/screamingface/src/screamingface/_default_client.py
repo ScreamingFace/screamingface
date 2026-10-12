@@ -10,10 +10,13 @@ from screamingface.client import DEFAULT_ENGINE_URL, DEFAULT_SCOREBOARD_URL, Cli
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from uuid import UUID
 
+    from screamingface._reproduction import Reproduction
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import Connection, OAuthFlow
     from screamingface.events import Event
+    from screamingface.leaderboard import LeaderboardScore
     from screamingface.recipe import Recipe
     from screamingface.report import Report
 
@@ -101,6 +104,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
+    capture: bool = True,
 ) -> Report: ...
 
 
@@ -113,6 +117,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
+    capture: bool = True,
 ) -> Report: ...
 
 
@@ -124,6 +129,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
+    capture: bool = True,
 ) -> Report:
     """Evaluate Recipes or a complete URL4 through the lazy default Client.
 
@@ -145,6 +151,7 @@ def evaluate(
             on_event=on_event,
             progress=progress,
             answer_seed=answer_seed,
+            capture=capture,
         )
     if benchmark is None:
         raise TypeError("benchmark is required when evaluating Recipes")
@@ -155,7 +162,14 @@ def evaluate(
         on_event=on_event,
         progress=progress,
         answer_seed=answer_seed,
+        capture=capture,
     )
+
+
+def reproduce(score: LeaderboardScore | UUID | str, *, record: bool = True) -> Reproduction:
+    """Reproduce a submitted score from its frozen copy through the lazy default Client."""
+
+    return default_client().reproduce(score, record=record)
 
 
 @overload
@@ -219,4 +233,4 @@ def disconnect(provider: str) -> Connection:
     return default_client().disconnect(provider)
 
 
-__all__ = ["close", "configure", "connect", "disconnect", "evaluate"]
+__all__ = ["close", "configure", "connect", "disconnect", "evaluate", "reproduce"]

@@ -69,6 +69,9 @@ def outcome_value(data: dict[str, Any]) -> _RunOutcome:
         values["root_usage"] = Usage(**usage)
     if values["artifact"] is not None:
         values["artifact"] = _ResultArtifact(**values["artifact"])
+    # INVARIANT: JSON reads the tuple back as a list; the outcome keeps the tuple the run stated.
+    if "capture_partial_reasons" in values:
+        values["capture_partial_reasons"] = tuple(values["capture_partial_reasons"])
     return _RunOutcome(**values, result_body=None)
 
 

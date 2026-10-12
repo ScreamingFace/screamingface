@@ -65,6 +65,14 @@ class RunPlan:
     # The result travels as an artifact claim ticket; its fetch waits for `artifact_hold`.
     artifact: bool = False
     artifact_hold: threading.Event | None = None
+    # FEATURE: OME-1307 — an Engine that honours `X-Replay-Frozen-Copy`. When set, a start that
+    # carries the header is acknowledged by echoing it, and the run's summary log (frame 3) also
+    # states `capture.replay`. `summary` is that log's attributes (its `capture.*` keys go only to a
+    # start that carried `X-Capture`), and `result_body` replaces the plain-text result with a
+    # real one. Without them a plan behaves exactly as it always did.
+    honour_replay: bool = False
+    summary: dict[str, object] | None = None
+    result_body: str | None = None
 
 
 @dataclass
@@ -82,6 +90,10 @@ class StubState:
     pings: dict[str, int] = field(default_factory=dict)
     # Capabilities whose client sent an in-band `ai.url4.stop` after the terminal frame.
     stop_frames: list[str] = field(default_factory=list)
+    # topic -> the `X-Replay-Frozen-Copy` id its start carried (only starts that carried one).
+    replay_copies: dict[str, str] = field(default_factory=dict)
+    # Capabilities whose start carried `X-Capture: true`.
+    capture_starts: list[str] = field(default_factory=list)
 
     def mint(self) -> str:
         with self.lock:
@@ -138,6 +150,7 @@ class _Handler(BaseHTTPRequestHandler):
         plan = state.plans[url4]
         topic = state.topics[self.headers["URL4-Capability"]]
         with state.lock:
+            self._note_frozen_copy_mode(topic)
             state.start_attempts[url4] = state.start_attempts.get(url4, 0) + 1
             first = state.start_attempts[url4] == 1
             answer = plan.admission.pop(0) if plan.admission else None
@@ -155,8 +168,18 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(HTTPStatus.ACCEPTED)
             self.send_header("Preference-Applied", "respond-async")
             self.send_header("Location", "/?topic=isolation")
+            if plan.honour_replay and topic in state.replay_copies:
+                self.send_header("X-Replay-Frozen-Copy", state.replay_copies[topic])
             self.send_header("Content-Length", "0")
             self.end_headers()
+
+    def _note_frozen_copy_mode(self, topic: str) -> None:
+        """Remember the frozen-copy headers a start carried. The caller holds the lock."""
+        state = self.server.state
+        if "X-Replay-Frozen-Copy" in self.headers:
+            state.replay_copies[topic] = self.headers["X-Replay-Frozen-Copy"]
+        if self.headers.get("X-Capture") == "true":
+            state.capture_starts.append(self.headers["URL4-Capability"])
 
     def _refuse(self, answer: tuple[int, str | None], detail: str) -> None:
         status, retry_after = answer
@@ -295,7 +318,15 @@ class _Handler(BaseHTTPRequestHandler):
         url4 = state.started[topic]
         plan = state.plans[url4]
         for sequence in range(first, last + 1):
-            frame = _frame_for(sequence, topic=topic, url4=url4, artifact=plan.artifact)
+            frame = _frame_for(
+                sequence,
+                topic=topic,
+                url4=url4,
+                artifact=plan.artifact,
+                plan=plan,
+                replay=state.replay_copies.get(topic),
+                capture=any(state.topics[token] == topic for token in state.capture_starts),
+            )
             _send_text(self.wfile, json.dumps(frame))
 
     def _accept(self) -> None:
@@ -348,12 +379,35 @@ def result_body(url4: str) -> str:
     return f"result of {url4}"
 
 
-def _frame_for(sequence: int, *, topic: str, url4: str, artifact: bool) -> dict[str, Any]:
+def _frame_for(
+    sequence: int,
+    *,
+    topic: str,
+    url4: str,
+    artifact: bool,
+    plan: RunPlan | None = None,
+    replay: str | None = None,
+    capture: bool = False,
+) -> dict[str, Any]:
+    third: dict[str, object] = {"severity_text": "INFO", "severity_number": 9, "body": "more"}
+    result: dict[str, object] = _result_data(url4, artifact=artifact)
+    if plan is not None and plan.summary is not None:
+        # A real Engine states `capture.*` only for a capture run, and only `capture.replay` for a
+        # replay run, so the plan's capture keys are kept for a start that carried `X-Capture`.
+        kept = {
+            key: value
+            for key, value in plan.summary.items()
+            if capture or not key.startswith("capture.")
+        }
+        stated = {"capture.replay": replay} if plan.honour_replay and replay else {}
+        third["attributes"] = {**kept, **stated}
+    if plan is not None and plan.result_body is not None:
+        result = {"body": plan.result_body, "media_type": "application/json"}
     kinds: dict[int, tuple[str, dict[str, object]]] = {
         1: ("ai.url4.started", {"url4": url4}),
         2: ("ai.url4.log", {"severity_text": "INFO", "severity_number": 9, "body": "working"}),
-        3: ("ai.url4.log", {"severity_text": "INFO", "severity_number": 9, "body": "more"}),
-        4: ("ai.url4.result", _result_data(url4, artifact=artifact)),
+        3: ("ai.url4.log", third),
+        4: ("ai.url4.result", result),
         5: ("ai.url4.terminated", {"status": "succeeded", "error": None}),
     }
     kind, data = kinds[sequence]

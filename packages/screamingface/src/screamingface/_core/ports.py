@@ -70,6 +70,16 @@ class _RunOutcome:
     # all. None when no summary arrived: the Engine may drop log events under backpressure, so
     # absence is "unknown", never "none were unpriced". The submission needs 0 to claim `complete`.
     cache_unpriced_hits: int | None = None
+    # FEATURE (OME-1307): the run summary's frozen copy. None means the summary did not say (an
+    # older Engine, or a run that was not a capture run), which is not `partial`: the submission
+    # omits what it does not know.
+    frozen_copy_id: str | None = None
+    capture_status: Literal["complete", "partial"] | None = None
+    # The copy the Engine says it replayed from. Only a replay run's summary carries it, and only
+    # an Engine that honoured `X-Replay-Frozen-Copy` writes it.
+    capture_replay: str | None = None
+    # The partial reasons the run counted (design §5.2), sorted. Empty when complete or unknown.
+    capture_partial_reasons: tuple[str, ...] = ()
 
 
 # FEATURE: OME-1066 adds the two capacity states — a start the Engine did not admit yet
