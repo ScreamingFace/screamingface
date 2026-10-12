@@ -338,5 +338,5 @@ their names were read from their code (`X-Capture`, `X-Replay-Frozen-Copy`, `cap
   tuple back, as it does the other tuple fields (commit `bea93041f`).
 - The F-B5 note names the base `e14-a2-sdk-metadata`. That ref does not exist. The variant used
   `OME-1436-e14-a2-sdk-metadata`, the name the R-plan gives.
-- Not done: design §6 says the leaderboard and history rows return `case_digest`. The rows decode into
-  `LeaderboardEntry`, which has no capture fields, and the plan does not name that type. Open question.
+- Decided 2026-10-12: the SDK does not decode `case_digest` on leaderboard and history rows
+  (`LeaderboardEntry`). Only `LeaderboardScore` has it. The board still returns it on those rows (§6).
