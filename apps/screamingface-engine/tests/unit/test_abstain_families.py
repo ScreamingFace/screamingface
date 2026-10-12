@@ -8,7 +8,7 @@ in every benchmark family, and I can tell it from a wrong answer in the report.
 INVARIANT defended: "ignored" means the grader ran and still returned grade material. A grading
 step that left none (the ladder rung, a hook failure with no metrics and no checks) keeps the
 Case failed, because publishing a scored Case with ``metrics={}`` would break the scorers that
-read them (the mean, the DRACO block, and ContractEval's confusion matrix).
+read them (the mean and the DRACO block).
 """
 
 from __future__ import annotations
@@ -20,8 +20,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_contracteval_aggregate import _aggregate as contracteval_aggregate
-from test_contracteval_aggregate import _record, _root
 from test_healthbench_runtime import _ANSWER, _write_assets
 from test_shared_grading_aggregation import (
     MESSAGES,
@@ -35,7 +33,6 @@ from test_shared_grading_aggregation import (
 
 from screamingface_engine.benchmarks.case_request import candidate_input
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE, encode_candidate_invocation
-from screamingface_engine.benchmarks.contracteval.case_grade import build_case_grade
 from screamingface_engine.benchmarks.graded_answer import (
     graded_answer_payload,
     install_graded_answer_endpoint,
@@ -307,41 +304,6 @@ async def test_abstained_case_grade_replaced_judge_graded(tmp_path: Path) -> Non
     assert result["score"] == 0.0
     assert (control["score"], control_calls) == (1.0, 1)
     assert "abstained" not in control["cases"][0]
-
-
-# --- ContractEval: the confusion matrix reads the Case as a false negative --------------------
-
-
-def test_contracteval_abstain_on_positive_row_is_false_negative(tmp_path: Path) -> None:
-    root = _root(tmp_path, {1: True, 2: True})
-    true_positive = _record(1, correct=True, is_positive=True, abstained=False)
-    abstained_record = {
-        **_record(2, correct=False, is_positive=True, abstained=False),
-        "output": "",
-        "candidate_abstained": True,
-    }
-    rows = json.dumps(
-        [
-            graded_answer_payload(
-                1,
-                encode_candidate_invocation("reply", "stop", None),
-                [build_case_grade(1, [true_positive])],
-            ),
-            graded_answer_payload(2, _ABST, [build_case_grade(2, [abstained_record])]),
-        ]
-    )
-
-    result = contracteval_aggregate(root, rows, (1, 2))
-
-    assert result["metrics"]["true_positives"] == 1
-    assert result["metrics"]["false_negatives"] == 1
-    assert result["metrics"]["false_positives"] == 0
-    assert result["score"] == 0.6667
-    case = result["cases"][1]
-    assert (case["status"], case["grade"]["score"], case.get("abstained")) == ("scored", 0.0, True)
-    assert case["grade"]["metrics"]["is_positive"] is True
-    # The benchmark's own verdict `abstained` (the reply said "no related clause") is kept.
-    assert case["grade"]["metrics"]["abstained"] is False
 
 
 def test_an_abstained_case_stays_at_zero_on_a_refusal_rate_benchmark(

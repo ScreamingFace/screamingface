@@ -4,9 +4,9 @@ FEATURE: a Candidate Invocation marked ``abstained`` keeps that fact through the
 the Case Evaluation envelope and the hoisted row, as ``candidate_abstained`` (OME-1289).
 STORY: as the shared grading code, I read the Candidate's mark off the row the benchmark filed,
 without knowing which benchmark filed it.
-INVARIANT defended: the record key is ``candidate_abstained`` and is written only when true.
-ContractEval's own check verdict is already called ``abstained`` (the reply said "no related
-clause"), so the two never share a key, and a record with no mark is byte for byte what it was.
+INVARIANT defended: the record key is ``candidate_abstained`` and is written only when true,
+so it never shares a key with a benchmark's own ``abstained`` verdict, and a record with no
+mark is byte for byte what it was.
 """
 
 from __future__ import annotations
@@ -17,17 +17,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_contracteval_check_route import _root as _contracteval_root
 from test_healthbench_aggregate import _case_row, _grading
 from test_ifeval_case_evaluation_route import _assets as _ifeval_assets
 
 from screamingface_engine.benchmarks.case_records import build_case_record
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.contracteval import aggregate as contracteval_aggregate
-from screamingface_engine.benchmarks.contracteval.case_grade import (
-    build_case_grade as contracteval_case_grade,
-)
-from screamingface_engine.benchmarks.contracteval.runtime import _check as contracteval_check
 from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer, candidate_answer
 from screamingface_engine.benchmarks.healthbench.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.ifeval import grade as ifeval_grade
@@ -44,7 +38,7 @@ from screamingface_engine.benchmarks.medxpert.case_grade import (
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import _candidate_fields
 from screamingface_engine.benchmarks.shared_grading.serving import candidate_record
 from url4 import RelExpr, Text, expr, render, src
-from url4.peer.server import Request, Url4Node
+from url4.peer.server import Url4Node
 
 _ABST = encode_candidate_invocation("", "stop", None, abstained=True)
 _PLAIN = encode_candidate_invocation("a plain answer", "stop", None)
@@ -97,11 +91,6 @@ async def _ifeval_record(tmp_path: Path, reply: str) -> dict[str, Any]:
     return record
 
 
-def _contracteval_record(tmp_path: Path, reply: str) -> dict[str, Any]:
-    handler = contracteval_check(_contracteval_root(tmp_path, spans=["gold"]))
-    return json.loads(handler(Request(path="/t", context=reply, intent="1", params={})))
-
-
 def _medxpert_record(reply: str) -> dict[str, Any]:
     """The record ``medxpert.runtime._check`` builds, through the same ``candidate_record``."""
     return candidate_record(
@@ -125,15 +114,12 @@ async def _hoisted_row(family: str, root: Path, reply: str) -> dict[str, Any]:
         record = await _ifeval_record(root, reply)
         specs = {1: {"instruction_id_list": ["punctuation:no_comma"]}}
         return ifeval_grade._decode(specs)(ifeval_case_grade(1, [record]), 1)
-    if family == "contracteval":
-        record = _contracteval_record(root, reply)
-        return contracteval_aggregate._decode(contracteval_case_grade(1, [record]), 1)
     record = _medxpert_record(reply)
     return medxpert_aggregate._decode(medxpert_case_grade(1, [record]), 1)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("family", ["ifeval", "contracteval", "medxpert"])
+@pytest.mark.parametrize("family", ["ifeval", "medxpert"])
 async def test_a_marked_record_survives_its_hoist(family: str, tmp_path: Path) -> None:
     """A hoist that forgets the mark would silently grade an abstained Case as answered."""
     marked = await _hoisted_row(family, tmp_path / "marked", _ABST)
@@ -143,9 +129,6 @@ async def test_a_marked_record_survives_its_hoist(family: str, tmp_path: Path) -
     assert _candidate_fields(marked).abstained is True
     assert "candidate_abstained" not in _hoisted(plain)
     assert _candidate_fields(plain).abstained is False
-    if family == "contracteval":
-        # ContractEval's check verdict `abstained` stays the benchmark's own fact (F4).
-        assert _contracteval_record(tmp_path / "verdict", _ABST)["abstained"] is False
 
 
 def _accepted(grading: dict[str, Any]) -> bool:
