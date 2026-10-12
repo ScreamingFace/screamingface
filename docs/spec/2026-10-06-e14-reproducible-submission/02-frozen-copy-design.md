@@ -234,12 +234,14 @@ The engine sends the same key in capture and in replay, so both runs name each c
   `partial`, nullable) replace `cache_revision` and `reproducible`. `answer_seed` stays. All three are
   fill-only on a same-owner resubmit. `frozen_copy_id` requires `capture_status`.
 - `score_reproductions.frozen_copy_id` replaces `cache_revision`.
-- `Score.case_digest` (64 lowercase hex, nullable, Q29): fill-only on a same-owner resubmit, like the
-  other three. It requires `capture_status`. The score read returns it.
+- `Score.case_digest` (64 lowercase hex, nullable, Q29): it requires `capture_status`. It fills on a
+  same-owner resubmit only together with the status and the copy id, because all three must describe
+  the same run. The content hash does not cover the cases, so a different run can dedup to the same
+  row. The score read, the leaderboard rows and the history rows return it.
 - `POST /v1/scores/{id}/reproductions`: the score must have `capture_status = complete` (else 409
   `not_reproducible`); the body's `score`, `total_questions` and `frozen_copy_id` must equal the stored
   values (else 422 `not_exact`). When the score has a `case_digest`, the body must carry an equal
-  `case_digest` (else 422 `not_exact`). Everything else is unchanged.
+  `case_digest` (else 422 `not_exact`; the message names the digest). Everything else is unchanged.
 - The score read is public on a public board, so it shows `metadata_updated_at`, and the portal shows
   "Metadata edited <date>" next to the paper link (Q24).
 - A private board never returns `frozen_copy_id` to a non-owner (Q25).
@@ -252,11 +254,19 @@ The engine sends the same key in capture and in replay, so both runs name each c
 - `CandidateResult.frozen_copy_id` and `capture_status` (from the run summary; absent → `None`).
 - `CandidateResult.capture_partial_reasons: tuple[str, ...]`: the `capture.partial.<reason>` names with a
   non-zero count, sorted (empty when complete or not captured). A local capture shows `("local",)`.
-- **Case digest (Q29):** for each case, the entry `[case_id, status, grade.score or null]`, serialized
-  with `json.dumps(entry, separators=(",", ":"))`. Sort the strings, join them with `"\n"`, and take the
-  sha256 hex. The SDK computes it from `CandidateResult.cases`. It is not a public attribute.
+  `to_dict()` always includes it, as a list. A count that is not a non-negative integer fails closed
+  (`ExecutionError`, like the cache-hit count).
+- **Case digest (Q29):** for each case in `CandidateResult.cases`, the entry
+  `[case_id, status, score]`, where `score` is `grade.score`, or `null` only when the case has no grade
+  (a score of 0.0 stays 0.0). Serialize each entry with `json.dumps(entry, separators=(",", ":"))`. Sort
+  the strings, join them with `"\n"`, and take the sha256 hex. It is not a public attribute of
+  `CandidateResult`.
 - `submit` sends `frozen_copy_id`, `capture_status`, `answer_seed` and `case_digest` when set.
 - `LeaderboardScore.frozen_copy_id`, `capture_status` replace `cache_revision`, `reproducible`.
+  `LeaderboardScore.case_digest: str | None` (64 lowercase hex, needs `capture_status`, validated like
+  `frozen_copy_id`). The board also returns it on leaderboard and history rows; it is not a secret.
+- The reproduction record always sends the replay's `case_digest`. The board compares it only when the
+  score has one (§6) and does not store it.
 - `sf.reproduce(score, *, record=True)`, in check order:
 
 | Outcome | Reason | When |
@@ -272,8 +282,9 @@ The engine sends the same key in capture and in replay, so both runs name each c
 | failed | `cases_differ` | Score and count are equal, the score has a `case_digest`, and the replay's digest differs. |
 | exact | — | Recorded with `frozen_copy_id` and the replay's `case_digest` when `record=True`. |
 
-`not_reproducible` with reason `partial` names the partial reasons when the score's own run is at hand;
-for a local capture the message says that the copy exists only in the local gateway (Q23).
+The board does not store the partial reasons, so `sf.reproduce` cannot name them: a local capture is
+`not_reproducible` with reason `partial`, like any partial capture. The reason `local` shows only on the
+submitter's own `CandidateResult.capture_partial_reasons` (Q23).
 
 ## 8. Removed from the stack
 

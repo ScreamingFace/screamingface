@@ -216,7 +216,7 @@ No change. Restack only.
 | `report.py` `CandidateResult` | Public `capture_partial_reasons: tuple[str, ...]` (default `()`). |
 | new helper (for example `_case_digest.py`) | `case_digest(cases) -> str` per design §7. |
 | `_scoreboard/leaderboards.py` | `_capture_fields` sends `case_digest` (only with a capture status). `_reproduction_payload` sends the replay's digest. Score decode reads `case_digest`. |
-| `_reproduction.py` | `_classify`: equal score and count but different digests → `failed`, reason `cases_differ` (only when the score has a digest). `_not_reproducible`: a local partial says that the copy exists only in the local gateway. |
+| `_reproduction.py` | `_classify`: equal score and count but different digests → `failed`, reason `cases_differ` (only when the score has a digest). `_not_reproducible`: no change (the board has no partial reasons; design §7). `LeaderboardScore.case_digest` (public, design §7). |
 | `tests/public_surface_snapshot.json` | Regenerate (standing approval). |
 
 TDD:
@@ -225,7 +225,7 @@ TDD:
 3. `reproduce_sends_the_replay_case_digest`
 4. `cases_differ_when_digests_differ_but_score_is_equal`
 5. `score_without_digest_reproduces_on_three_fields`
-6. `local_partial_reason_shows_on_the_result_and_in_not_reproducible`
+6. `local_partial_reason_shows_on_the_result` (design §7: `sf.reproduce` cannot name it)
 
 **Verify:** `uv run .claude/scripts/run_gates.py screamingface --base OME-1436-e14-a2-sdk-metadata` and the
 second variant in `F-B5-sdk-capture-reproduce.md`.
