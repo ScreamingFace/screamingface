@@ -265,9 +265,19 @@ class _CandidateCompiler:
         # Only complete member results contribute. Metadata, intermediate stages,
         # the upstream input, and synthesis must never count toward this floor.
         quorum = len(members) if fusion.quorum == "all" else fusion.quorum
+        # WHY broadcast for a reducer (OME-1289 unit 13): the text panel joins `member_i: answer`
+        # lines that a combine call cannot split safely; the broadcast panel gives one JSON row
+        # per member that answered, named and exact. A model reads the text panel, as before.
+        reads_rows = isinstance(fusion.synthesizer, Reducer)
         self._sources.append(
-            src(expr(*slots, intent=Text(""), params={"quorum": quorum}), name=panel, weight=0.0)
+            src(
+                expr(*slots, intent=Text(""), broadcast=reads_rows, params={"quorum": quorum}),
+                name=panel,
+                weight=0.0,
+            )
         )
+        if reads_rows:
+            return self._fusion(fusion, members, input_context=input_context, panel=f"${panel}")
         context = render(struct({"input": input_context, "outputs": f"${panel}"}))
         return self._fusion(fusion, members, input_context=input_context, context=context)
 
@@ -330,6 +340,7 @@ class _CandidateCompiler:
         *,
         input_context: str,
         context: str | None = None,
+        panel: str | None = None,
     ) -> _ResolvedRecipe:
         self._synthesis_count += 1
         binding = f"synthesis_{self._synthesis_count}"
@@ -345,6 +356,7 @@ class _CandidateCompiler:
                 operation_id=operation_id,
                 input_context=input_context,
                 dependencies=dependencies,
+                panel=panel,
             )
         context = context if context is not None else _fusion_context(input_context, members)
         if isinstance(synthesizer, Model):
@@ -465,12 +477,15 @@ class _CandidateCompiler:
         operation_id: str,
         input_context: str,
         dependencies: tuple[str, ...],
+        panel: str | None = None,
     ) -> _ResolvedRecipe:
         """Compile a reducer to ONE combine call whose intent is the canonical spec.
 
         WHY the ``binding`` param: the Engine attributes an operation's output by the
         call's ``(path, params)`` fingerprint, and every combine call shares one path,
-        so the binding name is what keeps two reducers' evidence apart.
+        so the binding name is what keeps two reducers' evidence apart. ``panel`` is the
+        reference of a quorum Fusion's broadcast panel; the combine call and its signal calls
+        then read it in place of every member's output.
         """
 
         if self._operators is None:
@@ -481,7 +496,7 @@ class _CandidateCompiler:
         spec = combine_spec_text(reducer, member_count=len(members), operators=self._operators)
         # The combine call reads the same question-and-panel value a Model synthesizer does;
         # building it here keeps a later extra input (signals) a local change.
-        context = _fusion_context(input_context, members)
+        context = _fusion_context(input_context, members, panel=panel)
         self._sources.append(
             src(
                 RelExpr(
@@ -578,19 +593,23 @@ class _CandidateCompiler:
         )
 
 
-def _fusion_context(input_context: str, members: tuple[_ResolvedRecipe, ...]) -> str:
-    """Build canonical JSON at runtime so arbitrary answers remain safely escaped."""
+def _fusion_context(
+    input_context: str, members: tuple[_ResolvedRecipe, ...], *, panel: str | None = None
+) -> str:
+    """Build canonical JSON at runtime so arbitrary answers remain safely escaped.
 
-    return render(
-        struct(
-            {
-                "input": input_context,
-                "outputs": {
-                    f"member_{index}": member.reference for index, member in enumerate(members, 1)
-                },
-            }
-        )
-    )
+    ``panel`` replaces ``outputs`` for a quorum Fusion: it lists only the members that answered
+    (OME-1557).
+    """
+
+    value: dict[str, object] = {"input": input_context}
+    if panel is None:
+        value["outputs"] = {
+            f"member_{index}": member.reference for index, member in enumerate(members, 1)
+        }
+    else:
+        value["panel"] = panel
+    return render(struct(value))
 
 
 def _member_models(members: tuple[_ResolvedRecipe, ...]) -> tuple[str, ...]:

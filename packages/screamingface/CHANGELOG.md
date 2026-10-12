@@ -14,6 +14,8 @@
 
 ### Features
 
+* **screamingface:** a Fusion with `quorum` or optional members may end in a reducer (`OME-1289`, `OME-1557`). The members reach the combine call as a broadcast panel with one row per member that answered; url4 checks the quorum and the required members first. A failed optional member is a failed Answer with the reason `missing`, never a vote. A Fusion with no quorum and no optional member keeps its url4 bytes. **Needs an Engine from the same E4a release**: an older Engine refuses the `panel` context permanently.
+
 * **screamingface:** add `Fusion(..., quorum=N)` and per-member `optional=True` on Model, Pipeline, and Fusion Recipes (`OME-1557`). Optional complete members can fail without stopping synthesis when enough members succeed; required members must still succeed. Defaults require every member, `all` includes optional members, and zero allows an empty panel when all members are optional. Quorum is checked after members finish. Gated Fusions pass ordered successful `member_N: answer` sections in the synthesizer JSON's `outputs` string. Optional policy is only valid in Fusion member positions. Quorum and optional settings survive editable Python and replay, which validates the executable policy against recipe metadata.
 
 * Track saved-report evaluation, display and JSON export lifecycles, and show notebook recovery guidance when the previous local owner process exited unexpectedly. Explicit recovery preserves interruption metadata across destination stores; healthy and legacy reports remain quiet.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -42,6 +43,7 @@ from screamingface.blocks import Reduce
 from screamingface.reducer import Reducer
 
 if TYPE_CHECKING:
+    from screamingface._evaluation.benchmark import _CheckSurface
     from screamingface.recipe import Recipe
 
 _BINDING = OPERATION_BINDING
@@ -378,11 +380,34 @@ def _validate_topology(
         _require_call_kind(binding.node, calls[name])
     # INVARIANT: default-valued metadata cannot conceal executable policy.
     if _has_fusion_policy(value) or _has_executable_fusion_policy(candidate):
-        from screamingface._evaluation.candidate import compile_candidate
+        # WHY the pinned catalog (OME-1289 unit 13): a quorum Fusion may end in a reducer.
+        _require_recompiles(candidate, _recipe_from_topology(value, calls), calls)
 
-        expected = compile_candidate(_recipe_from_topology(value, calls)).url4
-        if render(candidate) != expected:
-            raise ValueError("URL4 Candidate does not match its Recipe metadata")
+
+def _require_recompiles(
+    candidate: Expression,
+    recipe: Recipe,
+    calls: Mapping[str, _Call],
+    *,
+    check_surface: _CheckSurface | None = None,
+) -> None:
+    """Refuse a url4 unless the Recipe it describes recompiles to it byte for byte.
+
+    The compiler is the protocol's one authoritative implementation. The operators come from the
+    ids the url4 itself pins, so the check needs no I/O.
+    """
+
+    from screamingface._evaluation.candidate import compile_candidate
+
+    operators = _OperatorCatalog.from_pinned(
+        pair
+        for call in calls.values()
+        if call.model == COMBINE_MODEL
+        for pair in spec_operator_pairs(decode_combine_spec(call.raw_intent))
+    )
+    expected = compile_candidate(recipe, check_surface=check_surface, operators=operators).url4
+    if render(candidate) != expected:
+        raise ValueError("URL4 Candidate does not match its Recipe metadata")
 
 
 def _has_executable_fusion_policy(candidate: Expression) -> bool:
@@ -442,27 +467,15 @@ def _validate_compiled_corrective(
     """
 
     from screamingface._evaluation.benchmark import _CheckSurface
-    from screamingface._evaluation.candidate import compile_candidate
 
     recipe = _recipe_from_topology(topology, calls)
     assert topology.check_route is not None
-    operators = _OperatorCatalog.from_pinned(
-        pair
-        for call in calls.values()
-        if call.model == COMBINE_MODEL
-        for pair in spec_operator_pairs(decode_combine_spec(call.raw_intent))
+    check_surface = _CheckSurface(
+        check_route=topology.check_route,
+        feedback_intent="replay-validation",
+        expected_check_cost="free",
     )
-    expected = compile_candidate(
-        recipe,
-        check_surface=_CheckSurface(
-            check_route=topology.check_route,
-            feedback_intent="replay-validation",
-            expected_check_cost="free",
-        ),
-        operators=operators,
-    ).url4
-    if render(candidate) != expected:
-        raise ValueError("URL4 Candidate does not match its Recipe metadata")
+    _require_recompiles(candidate, recipe, calls, check_surface=check_surface)
 
 
 def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe:

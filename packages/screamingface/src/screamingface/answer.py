@@ -25,6 +25,8 @@ type AnswerReason = Literal[
     "field_missing",
     "too_large",
     "no_match",
+    # A quorum panel left the member out: it was optional and failed upstream (OME-1557).
+    "missing",
     "no_votes",
     "cut_not_met",
 ]

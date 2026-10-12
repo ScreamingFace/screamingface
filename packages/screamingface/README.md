@@ -196,6 +196,10 @@ Quorum is a success floor checked after members finish, not an early response ra
 `quorum=0` permits synthesis with no successful members when every member is optional.
 `None`, booleans, negative numbers, and numbers above the member count are rejected.
 Quorum and per-member optional settings survive `Url4.to_python()` and replay.
+A reducer synthesizer (`sf.Reduce` and the other combine blocks) takes quorum and optional
+members too. It reads only the members that answered, and the evidence lists each failed optional
+member with the reason `missing`. With `quorum=0` and no member answering, the reducer abstains
+and the Case scores 0.0.
 
 **Deployment requirement:** before using composed quorum Recipes (such as a Pipeline
 feeding a quorum Fusion or a quorum Fusion used as a synthesizer), deploy an Engine
