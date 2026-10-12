@@ -27,6 +27,28 @@
 | New: Tavily cache poisoning | Confirmed (`apps/aigateway/DEPLOYMENT.md:486-487`). | Q30 | B2 | Yes |
 | Stack shape | A1 does not descend from the current B3. | Phase 0 | A1…C1 | Yes |
 
+## 0a. Interim stated-occurrence commits on origin B1 and B3 (2026-10-12, after this plan)
+
+The replay-ordering bug of the #1330 review (must-fix 2) was fixed upstream of this plan with the
+reviewer's option (a) in strict form — the engine states the slot it reserved at send:
+
+- B1 `91b352d7b`: `capture()` stores the stated slot (header `X-AIGW-Capture-Occurrence`);
+  `find()` serves replay successes by stated occurrence, per-digest fallback to `seq` for unstated
+  entries; entries carry a nullable `occurrence`; `(frozen_copy_id, seq)` is unique (the #1330
+  follow-up), which Phase 2 here replaces.
+- B3 `3e5ee45eb` (on `ee4c6c3ce`): both capture lanes state their slot; the capture path never
+  gives a slot back — a slot a non-stored call left unused collapses on replay.
+- Where the two commits and the Q27 refinement differ, the refinement wins: the call key moves to
+  headers, the occurrence counts logical calls (every transport attempt shares it) and is never
+  given back, the column is `int not null default 0` with the
+  `(frozen_copy_id, kind, case_key, request_digest, occurrence)` index (not unique),
+  `X-AIGW-Capture-Occurrence` and `X-AIGW-Replay-Occurrence` are both replaced, and the lookup rule
+  becomes §4.4's latest-success-else-latest-error. The Phase 2 edits below remain the binding work;
+  they replace the interim header and drop the `(frozen_copy_id, seq)` uniqueness.
+- The #1330 review's "a malformed `cache` field drops the Attempt number" find dissolves under this
+  plan: the call key travels in headers, not in the request's `cache` object that
+  `prepare_ingress_body` strips.
+
 ## 1. Phase 0 — restack (no behaviour change)
 
 State on 2026-10-12 13:00: B1, B2 and B3 on origin are already rebased onto `main` `ba2d825f2`, and B3
