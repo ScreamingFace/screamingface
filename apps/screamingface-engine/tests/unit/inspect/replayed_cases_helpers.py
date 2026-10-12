@@ -113,3 +113,12 @@ def replay_in_process_over_rows(
                 return pool.submit(captured_case_records, task, spec).result()
         finally:
             recorder.uninstall()
+
+
+#: Realistic stand-in Sample metadata for each Benchmark whose scorer reads a key (OME-1527).
+#: WHY: such scorers fail loudly on a missing key, since a real Case always carries it, so a
+#: lane grading over stand-in Cases hands the Benchmark the shape its real Cases have.
+#: musique: a real question cites 2 to 4 gold paragraphs.
+STAND_IN_METADATA: dict[str, dict[str, object]] = {
+    "musique": {"supporting_idx": [3, 11]},
+}

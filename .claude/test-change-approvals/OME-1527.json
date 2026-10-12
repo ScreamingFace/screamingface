@@ -1,22 +1,26 @@
 {
   "issue": "OME-1527",
-  "branch": "OME-1527-pr5-ome1513-leftovers",
+  "branch": "OME-1527-pr5b-musique-loud-scorer",
   "approver": "owner (owner decision on OME-1527 Work order #5)",
   "date": "2026-10-12",
-  "scope": "(1) test_draco_3pass_definition.py: the install test stops expecting the two DRACO check-surface routes among the registered routes and asserts they are NOT registered; one comment in the catalogue test reworded to match. (2) test_benchmark_stage_parity.py: the DRACO stand-in asset helper is imported from test_draco_case_artifacts.py through a new module-level draco_assets wrapper, because its old home (test_draco_corrective_loop_e2e.py) is deleted. (3) test_draft_feedback_offer_is_owner_opt_in.py: new imports and one appended test (pure addition). Test bodies not listed here are unchanged. Deleted, which this manifest cannot approve: test_draco_corrective_loop_e2e.py and its data/draco_corrective_loop_candidate.url4 fixture.",
-  "reason": "Owner decision on OME-1527 Work order #5: the three hand-built rubric Benchmarks (draco, gdpval, healthbench) have their Draft Feedback offer off, so their check-surface route is no longer installed. The DRACO corrective-loop end-to-end test exercised that route and goes with it; the tests that listed the route as installed now assert it is absent.",
+  "scope": "Branch OME-1527-pr5b-musique-loud-scorer, on main after #1352 merged (#1352's entries left with it). (4) test_local_task_musique.py: the missing-metadata test flips from 'scores 1.0 / 0.0' to 'raises ValueError naming supporting_idx' under its frozen name, with an AIDEV-NOTE above it; the module docstring bullet and section header say the same. (5) test_published_revisions.py: musique's literal moves once, 1ae798e073477a54 -> 9ba23547b22e70ff, with a comment. (6) test_inspect_task_replay_benchmarks.py: the no-network lane test merges STAND_IN_METADATA (new, appended to replayed_cases_helpers.py; musique: supporting_idx [3, 11]) into the stand-in Cases' grading material. (7) test_imported_catalogue_activity.py: the activity lane writes the same stand-in metadata into its one Case's grading material when the key has an entry; nothing changes for any other key.",
+  "reason": "Owner decision on OME-1527 Work order #5 (MuSiQue): musique_support_f1 now raises on a missing supporting_idx instead of scoring an empty gold list (a reply citing nothing got 1.0). The scorer's source is hashed into MuSiQue's revision, so the literal moves once (owner-approved); the no-network lane gets realistic stand-in metadata so it still grades.",
   "files": {
-    "apps/screamingface-engine/tests/unit/test_draco_3pass_definition.py": {
-      "base_blob": "14a3d95c47eaecbf798321c2fae9fe2e0e177254",
-      "approved_blob": "7ef6163068cd6b78a2e2a9fce32fa5ac3e830d23"
+    "apps/screamingface-engine/tests/unit/inspect/test_local_task_musique.py": {
+      "base_blob": "8a22917a2444dc95481699c1bccc3391de4966dd",
+      "approved_blob": "e78a58a30f477b4f5504d967121e0cb76362273d"
     },
-    "apps/screamingface-engine/tests/unit/test_benchmark_stage_parity.py": {
-      "base_blob": "b661cc44b6b4bf9dc1461336ae74d3bdbbb497a9",
-      "approved_blob": "8804e4f0894b01455ac997929e1e9d9e572d83fd"
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "9da673b7acf65349d05adf1afbe5910682b08a68",
+      "approved_blob": "8dfb6fc817505a2d2de540883112a3e3dc3af68b"
     },
-    "apps/screamingface-engine/tests/unit/test_draft_feedback_offer_is_owner_opt_in.py": {
-      "base_blob": "3516b747ddae91b100c93233ab2f6863155ce3ee",
-      "approved_blob": "28b2c1fec306c67a029c56f8445eb734ccb3f8ae"
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_task_replay_benchmarks.py": {
+      "base_blob": "b63c2b1f3ee9418660e1d5e1565f7b4c21b2ee08",
+      "approved_blob": "f29143695922aa701834aa3c46670a4bac1317a2"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_imported_catalogue_activity.py": {
+      "base_blob": "cce55e284169b73cab0812697d7d39b03eeedb83",
+      "approved_blob": "eae8fd3ba42a9a173ec91a2f83130f915f1479b7"
     }
   }
 }
