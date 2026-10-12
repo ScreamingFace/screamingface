@@ -339,7 +339,7 @@ their names were read from their code (`X-Capture`, `X-Replay-Frozen-Copy`, `cap
 - The F-B5 note names the base `e14-a2-sdk-metadata`. That ref does not exist. The variant used
   `OME-1436-e14-a2-sdk-metadata`, the name the R-plan gives.
 - Decided 2026-10-12: the SDK does not decode `case_digest` on leaderboard and history rows
-  (`LeaderboardEntry`). Only `LeaderboardScore` has it. The board still returns it on those rows (§6).
+  (`LeaderboardEntry`). Only `LeaderboardScore` has it. The board does not return it on those rows either: they carry no capture fields (design §6).
 
 ### Review feedback (2026-10-12, second round)
 
