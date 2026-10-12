@@ -170,6 +170,9 @@ def _refuse_injectable_import(
         *imported.facts.named_scores,
         *imported.facts.dropped_scorers,
         *imported.facts.dropped_metrics,
+        imported.facts.whole_run_metric,
+        imported.facts.mean_instead_of,
+        imported.facts.epoch_reducer,
     ]
     # WHY a looser rule for these: they land only inside comments; only a line break or
     # another control character could end the comment and start code.
@@ -360,6 +363,8 @@ def _benchmark_row_lines(
             dropped_scorers=facts.dropped_scorers,
             headline_differs=facts.headline_differs,
             dropped_metrics=facts.dropped_metrics,
+            whole_run_metric=facts.whole_run_metric,
+            mean_instead_of=facts.mean_instead_of,
         )
     )
     if facts.attempts > 1:
@@ -369,6 +374,15 @@ def _benchmark_row_lines(
                 f"        # The Task's epochs={facts.attempts} are any-match: each Case is asked",
                 f"        # {facts.attempts} times and a Check is met if any Attempt met it.",
                 f"        attempts={facts.attempts},",
+            ]
+        )
+    if facts.epoch_reducer is not None:
+        # WHY only beside an honoured metric (OME-1527): it is what the metric reads per Case.
+        lines.extend(
+            [
+                "        # The whole-run metric reads each Case's Attempt Scores reduced by the",
+                "        # Task's own reducer, as inspect does before any metric runs.",
+                f'        epoch_reducer="{facts.epoch_reducer}",',
             ]
         )
     lines.append("    ),")

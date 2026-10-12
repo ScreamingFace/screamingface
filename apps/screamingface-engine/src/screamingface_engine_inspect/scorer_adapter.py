@@ -51,11 +51,11 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from typing import Any
 
 from inspect_ai.model import ChatMessageUser, ModelOutput
-from inspect_ai.scorer import Score, Scorer, Target
+from inspect_ai.scorer import SampleScore, Score, Scorer, ScoreReducer, Target, mean_score
 from inspect_ai.solver import TaskState
 from inspect_ai.solver._multiple_choice import (
     parse_answers,
@@ -88,6 +88,8 @@ def inspect_grade_case(
     multiple_correct: bool = False,
     inverted_grade: bool = False,
     verdict_grades: Mapping[str, float] | None = None,
+    kept_scores: MutableMapping[int, SampleScore] | None = None,
+    epoch_reducer: ScoreReducer | None = None,
 ) -> GradeCase:
     """Wrap one inspect scorer — or several — as this benchmark's ``grade_case`` hook.
 
@@ -124,6 +126,15 @@ def inspect_grade_case(
         verdict_grades: the Benchmark's own verdict word → grade map, for a judge that
             answers in words (coconot); replaces the C/I/P/N letters, matched ignoring
             case. None keeps the letters.
+        kept_scores: the run's private store for the tally of a row that honours the eval's
+            whole-run metric (OME-1527, R1): every graded Case files its headline Score here
+            under its own Case id. None (every other row) keeps nothing. Memory only, so it
+            never reaches the Report. A Case asked several times (Attempts, OME-1458) files
+            one Score: its Attempt Scores reduced by ``epoch_reducer``.
+        epoch_reducer: the Task's own any-of-N reducer (inspect's ``max``, ``at_least(1)`` or
+            ``pass_at(N)``), which folds a Case's Attempt Scores into the one Score the
+            metric reads; None reduces with inspect's default ``mean``, as inspect does for a
+            Task that names no reducer.
 
     Returns:
         The async hook the shared grading code calls once per gradeable Case.
@@ -153,6 +164,9 @@ def inspect_grade_case(
         else {word.casefold(): grade for word, grade in verdict_grades.items()}
     )
     case_insensitive: bool = verdict_grades is not None
+    file_score: Callable[[int, Score, TaskState], None] | None = (
+        None if kept_scores is None else _score_filer(kept_scores, epoch_reducer)
+    )
 
     async def grade(request: GradeRequest) -> CaseGradeOutcome:
         # Stage 1-2 — unpack our envelope, build their benchmark-office forms.
@@ -168,21 +182,24 @@ def inspect_grade_case(
             # named failure, not an aborted aggregate for the other 49 Cases.
             return _failure("scorer_error", f"{type(exc).__name__}: {exc}")
         # Stage 4 — copy their mark back onto our form.
-        if not names:
-            return _outcome(
-                score, state.output.completion, inverted_grade, word_grades, case_insensitive
+        outcome: CaseGradeOutcome = (
+            _outcome(score, state.output.completion, inverted_grade, word_grades, case_insensitive)
+            if not names
+            else await _named_outcome(
+                request.case_id,
+                score,
+                state,
+                target,
+                names,
+                extras,
+                inverted_grade,
+                word_grades,
+                case_insensitive,
             )
-        return await _named_outcome(
-            request.case_id,
-            score,
-            state,
-            target,
-            names,
-            extras,
-            inverted_grade,
-            word_grades,
-            case_insensitive,
         )
+        if file_score is not None and outcome.failure_code is None and score is not None:
+            file_score(int(request.case_id), score, state)
+        return outcome
 
     async def observed(request: GradeRequest) -> CaseGradeOutcome:
         report_case_grading(request.case_id, "started")
@@ -215,6 +232,82 @@ def _outcome(
         return _failure("invalid_score_value", repr(score.value), score)
     return CaseGradeOutcome(
         score=case_score, metrics={}, checks=[_check(score, grade, case_score, completion)]
+    )
+
+
+def _score_filer(
+    kept_scores: MutableMapping[int, SampleScore], epoch_reducer: ScoreReducer | None
+) -> Callable[[int, Score, TaskState], None]:
+    """The run's filing clerk for the whole-run tally: each graded Attempt's Score goes on its
+    Case's pile, and the store keeps the pile reduced.
+
+    INVARIANT: keyed by the Case's own id and written only by that Case's own grading, so
+    Cases graded concurrently never overwrite each other. A Case's Attempts are graded one
+    after another, in Attempt order, inside that one grading (the aggregate's Attempts
+    step), so each filing re-reduces every Attempt so far and the last leaves the Case's
+    full reduction. None as the reducer is inspect's default ``mean``.
+    """
+
+    reducer: ScoreReducer = mean_score() if epoch_reducer is None else epoch_reducer
+    # Each Case's graded Attempt Scores so far, in Attempt order; one per Case without Attempts.
+    piles: dict[int, list[Score]] = {}
+
+    def file_score(case_id: int, score: Score, state: TaskState) -> None:
+        """Add one graded Attempt to its Case's pile and keep the pile's reduction."""
+
+        pile: list[Score] = piles.setdefault(case_id, [])
+        pile.append(score)
+        kept_scores[case_id] = _reduced_sample_score(pile, reducer, state)
+
+    return file_score
+
+
+def _reduced_sample_score(
+    scores: list[Score], reducer: ScoreReducer, state: TaskState
+) -> SampleScore:
+    """File one Case's mark the way inspect hands it to a metric: its epoch Scores, reduced.
+
+    Mental model: inspect never shows a metric the raw marks. It first folds each Sample's
+    marks from every epoch into one Score with the Task's reducer, then runs the metric over
+    those folded Scores. This does the same per Case, so the metric reads what it would
+    read under inspect.
+
+    Stages, in execution order:
+
+    Stage 1 — reduce: the reducer folds the Case's Attempt Scores, in Attempt order, into
+              one Score. Without Attempts the list holds one Score and the reducer is
+              inspect's default ``mean``, which still matters: it turns a letter into a
+              number, so a metric sees ``1.0`` where the scorer said "C" (xstest's
+              ``refusal_rate`` calls ``as_float()`` on it).
+    Stage 2 — file: wrap it as the ``SampleScore`` inspect would build, with the Sample's
+              id and metadata.
+
+    Worked example (``max``, the reducer of ``Epochs(2, "max")``): Case 7's Attempt Scores
+    are [0, 1], so ``max`` gives 1 and the metric reads 1.0. Case 8's are [1, 0]; ``max``
+    gives 1 again. The order the Attempts finished in cannot matter, and neither can a
+    Score that arrived last: filing Case 8's last Attempt alone would give the metric 0.0
+    for a Case the Report shows as solved. ``pass_at(2)`` over [0, 1] gives 1.0 too, the
+    same any-of-2 the Engine's fold computes; the tally checks the two agree.
+
+    Args:
+        scores: the Case's graded Attempt Scores so far, in Attempt order (one without
+            Attempts).
+        reducer: the Task's own any-of-N reducer, or inspect's default ``mean``.
+        state: the Case's TaskState; its Sample id and metadata ride with the Score.
+
+    Returns:
+        The ``SampleScore`` the whole-run metric reads for this Case.
+    """
+
+    # Stage 1 — fold the Attempts with the Task's own reducer.
+    reduced: Score = reducer(scores)
+    # Stage 2 — file it as inspect would hand it to a metric.
+    return SampleScore(
+        score=reduced,
+        sample_id=state.sample_id,
+        # The Sample's metadata, from the private Grading Material: a metric may read
+        # answer-key facts there (contracteval's "has a clause") and none is published.
+        sample_metadata=state.metadata,
     )
 
 
