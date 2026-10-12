@@ -680,3 +680,20 @@ async def test_owner_only_routes_document_both_403_shapes_and_the_401(client: As
         schemas = str(forbidden["content"]["application/json"]["schema"])
         assert "MessageErrorResponse" in schemas and "CodedErrorResponse" in schemas
         assert "disabled" in operation["responses"]["401"]["description"].lower()
+
+
+async def test_public_score_detail_returns_metadata_updated_at_to_an_anonymous_caller(
+    client: AsyncClient,
+) -> None:
+    # INVARIANT: the last-edit time is public (E14 Q24). The score detail is the read that carries
+    # it, so an anonymous GET on a public board must return the same stamp the PATCH returned.
+    score_id = await _submit(client)
+    patched = await client.patch(
+        f"/v1/scores/{score_id}", json={"paper_url": PAPER}, headers=_as(ALICE)
+    )
+
+    fetched = await client.get(f"/v1/scores/{score_id}")
+
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["metadata_updated_at"]
+    assert fetched.json()["metadata_updated_at"] == patched.json()["metadata_updated_at"]

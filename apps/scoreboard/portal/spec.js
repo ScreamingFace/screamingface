@@ -35,12 +35,21 @@
 
   // The history rows carry no paper link, so it comes from the same score
   // detail the run link uses (the newest submission). Nothing is added when there is no safe link.
+  // The metadata edit time (E14 Q24) comes from the same detail and is shown on its own line,
+  // so it also appears when the edit changed only the authors and there is no paper link.
   function renderPaperLink(contentNode, score) {
     var anchor = P.paperLink(score && score.paper_url);
-    if (anchor === null) return;
-    var line = P.el("p", "meta mono", "Paper: ");
-    line.appendChild(anchor);
-    contentNode.insertBefore(line, contentNode.querySelector("h2"));
+    if (anchor !== null) {
+      var line = P.el("p", "meta mono", "Paper: ");
+      line.appendChild(anchor);
+      contentNode.insertBefore(line, contentNode.querySelector("h2"));
+    }
+    if (score && score.metadata_updated_at) {
+      contentNode.insertBefore(
+        P.el("p", "meta mono", "Metadata edited " + P.formatDate(score.metadata_updated_at)),
+        contentNode.querySelector("h2")
+      );
+    }
   }
 
   function renderRunLink(contentNode, regionNode, specId, latestId) {

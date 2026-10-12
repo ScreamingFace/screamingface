@@ -80,3 +80,19 @@ as they are.
 - Conflict in `.claude/sdlc.local.md` and `.github/workflows/scoreboard-tests.yml`: main added three
   portal test files. Both lists keep main's files and add `tests/portal/paper-link.test.js`.
 - Gates for stack `scoreboard` pass against `e14-b3-engine-frozen-copy`.
+
+## Review round 2026-10-12 (design review fixes)
+
+- **Change:** decision Q24. The spec history page shows `Metadata edited <date>` when
+  `score.metadata_updated_at` is set. The line uses `P.formatDate`, the date format that
+  `spec.js` already uses for `submitted_at`. The line is a separate `p.meta.mono` element. It
+  shows also when the score has no paper link. No API change. The score detail already returns
+  `metadata_updated_at` to an anonymous caller on a public board.
+- **Tests:** `test_public_score_detail_returns_metadata_updated_at_to_an_anonymous_caller`
+  (`tests/unit/test_score_metadata_patch.py`). Three tests appended to
+  `tests/portal/paper-link.test.js`: edit date shows with a paper link; edit date shows with no
+  paper link; no edit line when the value is null or absent. Red before the `spec.js` change, green
+  after.
+- **Gates:** `ALL GATES GREEN` (`run_gates.py scoreboard --base
+  refs/e14-backup/pre-phase2-2026-10-12/OME-1435-e14-b3-engine-frozen-copy`). The append-only
+  check passed. No `--skip-append-only` was used.

@@ -173,3 +173,35 @@ test("paperLink returns null for a falsy or non-http(s) value and an anchor othe
   assert.equal(portal.paperLink("javascript:alert(1)"), null);
   assert.equal(portal.paperLink("https://doi.org/10.1/x").attrs.href, "https://doi.org/10.1/x");
 });
+
+// E14 A1, decision Q24: the last-edit time of a score's metadata is public.
+function metaLines(node) {
+  const found = [];
+  for (const child of node.children) {
+    if (child.tag === "p" && child.textContent.startsWith("Metadata edited ")) found.push(child.textContent);
+    found.push(...metaLines(child));
+  }
+  return found;
+}
+
+test("the metadata edit time shows next to the paper link when it is set", async () => {
+  const { content, portal } = await renderSpecPage(
+    scoreDetail({ paper_url: "https://arxiv.org/abs/2610.01234", metadata_updated_at: "2026-10-06T12:00:00Z" })
+  );
+
+  assert.deepEqual(metaLines(content), ["Metadata edited " + portal.formatDate("2026-10-06T12:00:00Z")]);
+  assert.equal(anchors(content).length, 1);
+});
+
+test("the metadata edit time shows when the score has no paper link", async () => {
+  const { content, portal } = await renderSpecPage(scoreDetail({ metadata_updated_at: "2026-10-06T12:00:00Z" }));
+
+  assert.deepEqual(metaLines(content), ["Metadata edited " + portal.formatDate("2026-10-06T12:00:00Z")]);
+});
+
+test("no metadata edit line shows when metadata_updated_at is null or absent", async () => {
+  const { content: absent } = await renderSpecPage(scoreDetail({ paper_url: "https://arxiv.org/abs/2610.01234" }));
+  assert.deepEqual(metaLines(absent), []);
+  const { content: withNull } = await renderSpecPage(scoreDetail({ metadata_updated_at: null }));
+  assert.deepEqual(metaLines(withNull), []);
+});
