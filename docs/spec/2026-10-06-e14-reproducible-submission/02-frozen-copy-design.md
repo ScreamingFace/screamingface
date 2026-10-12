@@ -128,7 +128,7 @@ Invariants:
 | Route | Who | Result |
 |---|---|---|
 | `POST /v1/frozen-copies` | any account | 201 `{"id", "status": "open"}` |
-| `POST /v1/frozen-copies/{id}/seal` | owner | Optional body `{"provenance": {"engine_version": "<1–64 chars>"}}`; another key or a bad value → 422. 200 `{"id", "status": "sealed", "entries"}`. Idempotent: a repeat seal keeps the first provenance. Not the owner or unknown → 404. |
+| `POST /v1/frozen-copies/{id}/seal` | owner | Optional body `{"provenance": {"engine_version": "<1–64 chars>"}}`; no body, `{}` or `{"provenance": null}` stores no provenance; another key or a bad value → 422. 200 `{"id", "status": "sealed", "entries"}`. Idempotent: a repeat seal keeps the first provenance. Not the owner or unknown → 404. |
 | `POST /v1/frozen-copies/{id}/tool-results` | owner, copy `open` | Key headers as in §4.2 (bad → 400 `malformed_call_key`). Body `{"description": {...}, "result": "<string>"}` → 200 `{"outcome": "stored" \| "failed"}`. Sealed → 409 `frozen_copy_sealed`. |
 | `POST /v1/frozen-copies/{id}/chat/completions` | anyone (Q16), copy `sealed` | Replay. Key headers as in §4.2 (bad → 400 `malformed_call_key`). Same request and response shape as `/v1/chat/completions`. |
 | `POST /v1/frozen-copies/{id}/tool-results/lookup` | anyone, copy `sealed` | Key headers as in §4.2 (bad → 400 `malformed_call_key`). Body `{"description": {...}}` → 200 `{"result": "<string>"}`. |
@@ -200,6 +200,11 @@ present (pinned 2026-10-08, B3 review).
 2. A found success is used as usual and accounted as $0 (like a cache hit). A captured error is raised as
    usual, so the case fails the same way as in the original run. A 404 `frozen_copy_miss` fails the case
    with `frozen_copy_miss`; a 404 `frozen_copy_unavailable` fails it with `frozen_copy_unavailable`.
+2a. A failure that the copy did not serve is permanent and fails the case with
+   `frozen_copy_unavailable`, with no higher-level retry. This covers a call whose every transport
+   attempt failed, a gateway answer without `X-AIGW-Replay`, and a tool lookup with a transport error.
+   Transport attempts inside one logical call still reuse its occurrence. Reason: the occurrence is
+   never given back (§5.4), so a retry would read the next occurrence and replay the wrong entry.
 3. No `max-age` re-issue and no cache controls in replay mode.
 4. Web-tool calls never call Tavily: the engine calls `…/tool-results/lookup` with the call key (§5.4).
    A miss fails the case with `frozen_copy_miss`.
@@ -335,3 +340,7 @@ submitter's own `CandidateResult.capture_partial_reasons` (Q23).
 - **FU-4:** upgrade-safe replay from `provenance` (match by call position, or replay on the engine
   version that captured the copy).
 - **FU-5:** upload a local frozen copy to the hosted gateway (Q14, Q23).
+- **FU-6:** grading calls carry the Attempt they grade. Today `case_attempt_scope` opens only around the
+  candidate call, so judge calls for Attempts 1..k of one case share a case key. When identical judge
+  bodies run at the same time, replay can swap their verdicts. Also pin that the engine's counter
+  digest never keeps a field the gateway digest strips, except the Attempt number.
