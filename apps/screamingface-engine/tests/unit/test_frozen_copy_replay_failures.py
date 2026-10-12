@@ -35,6 +35,10 @@ def _refusal(status: int, detail: object) -> httpx.Response:
     return httpx.Response(status, json={"detail": detail})
 
 
+# A found entry's replay answer (design §4.4): the original run's error, not a loss of the copy.
+_CAPTURED = {"X-AIGW-Replay": "error"}
+
+
 @pytest.mark.parametrize("code", ["frozen_copy_miss", "frozen_copy_unavailable"])
 def test_both_codes_are_declared_and_engine_authored(code: str) -> None:
     assert code in ENGINE_ERROR_CODES
@@ -76,10 +80,28 @@ async def test_replay_404_miss_and_unavailable_fail_the_case_with_their_codes(
     ("response", "code", "permanent"),
     [
         # A captured original error: a provider 404, a rate limit, a server error.
-        (_refusal(404, {"code": "model_not_found", "message": "m"}), "model_not_found", True),
-        (_refusal(429, {"code": "rate_limited", "message": "m"}), "rate_limited", False),
-        (_refusal(500, {"code": "boom", "message": "m"}), "boom", False),
-        (httpx.Response(502, text="bad gateway"), "aigateway_http_502", False),
+        (
+            httpx.Response(
+                404, headers=_CAPTURED, json={"detail": {"code": "model_not_found", "message": "m"}}
+            ),
+            "model_not_found",
+            True,
+        ),
+        (
+            httpx.Response(
+                429, headers=_CAPTURED, json={"detail": {"code": "rate_limited", "message": "m"}}
+            ),
+            "rate_limited",
+            False,
+        ),
+        (
+            httpx.Response(
+                500, headers=_CAPTURED, json={"detail": {"code": "boom", "message": "m"}}
+            ),
+            "boom",
+            False,
+        ),
+        (httpx.Response(502, headers=_CAPTURED, text="bad gateway"), "aigateway_http_502", False),
     ],
 )
 async def test_any_other_status_is_the_captured_original_error_handled_as_today(
@@ -101,10 +123,11 @@ async def test_any_other_status_is_the_captured_original_error_handled_as_today(
         (_refusal(404, {"code": "frozen_copy_miss"}), "frozen_copy_miss", True),
         (_refusal(404, {"code": "frozen_copy_unavailable"}), "frozen_copy_unavailable", True),
         (_refusal(404, "Not Found"), "frozen_copy_unavailable", True),
-        # The gateway did not answer at all: the copy is unavailable, and a retry may fix it.
-        (httpx.Response(500), "frozen_copy_unavailable", False),
-        (httpx.Response(200, json={"result": 7}), "frozen_copy_unavailable", False),
-        (httpx.Response(200, content=b"not json"), "frozen_copy_unavailable", False),
+        # The lookup did not serve an answer. A miss is permanent: a retry would read the next
+        # occurrence (design §5.3 2a).
+        (httpx.Response(500), "frozen_copy_unavailable", True),
+        (httpx.Response(200, json={"result": 7}), "frozen_copy_unavailable", True),
+        (httpx.Response(200, content=b"not json"), "frozen_copy_unavailable", True),
     ],
     ids=[
         "miss",
@@ -149,4 +172,4 @@ async def test_a_tool_lookup_transport_failure_fails_the_case_as_unavailable() -
     _tally, _answer, failure = await run_call(gateway, replay_scope())
 
     assert failure is not None
-    assert (failure.code, failure.permanent) == ("frozen_copy_unavailable", False)
+    assert (failure.code, failure.permanent) == ("frozen_copy_unavailable", True)
