@@ -14,7 +14,11 @@ from typing import Any
 
 import httpx
 
-from screamingface_engine.capture_outcomes import CaptureTally, capture_outcomes
+from screamingface_engine.capture_outcomes import (
+    CALL_OCCURRENCE_HEADER,
+    CaptureTally,
+    capture_outcomes,
+)
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
@@ -161,6 +165,21 @@ class Gateway:
                 await barrier.wait()
 
         self.gate = gate
+
+    def record_arrivals(self, path: str, parties: int) -> list[str]:
+        """Park the requests to ``path`` until ``parties`` of them arrive, and record each one's
+        occurrence as it ARRIVES, before the barrier. The barrier answers the parked requests in a
+        different order, so the answers do not show the order the tasks sent in; the arrivals do."""
+        barrier = asyncio.Barrier(parties)
+        arrived: list[str] = []
+
+        async def gate(request: httpx.Request) -> None:
+            if request.url.path == path:
+                arrived.append(request.headers[CALL_OCCURRENCE_HEADER])
+                await barrier.wait()
+
+        self.gate = gate
+        return arrived
 
     def paths(self) -> list[str]:
         return [path for _method, path, _headers, _body in self.requests]

@@ -16,11 +16,10 @@ import httpx
 
 from screamingface_engine.benchmarks.case_context import current_case_key
 from screamingface_engine.capture_outcomes import (
-    CALL_OCCURRENCE_HEADER,
-    CASE_KEY_HEADER,
     REPLAY_MISS,
     REPLAY_UNAVAILABLE,
     CaptureOutcome,
+    call_key_headers,
     current_capture_tally,
     record_capture_outcome,
     replay_refusal_code,
@@ -116,9 +115,7 @@ class FrozenToolResults:
         self, description: Mapping[str, object], result: str, case_key: str, occurrence: int
     ) -> str:
         """Post one result to the copy. Returns ``stored`` or ``failed``; never raises."""
-        headers = {**self.headers, CALL_OCCURRENCE_HEADER: str(occurrence)}
-        if case_key:
-            headers[CASE_KEY_HEADER] = case_key
+        headers = {**self.headers, **call_key_headers(case_key, occurrence)}
         try:
             response = await self.client.post(
                 tool_results_path(self.copy_id),
@@ -141,11 +138,10 @@ class FrozenToolResults:
         INVARIANT: raises a `RunnerRequestError` for every failure, and the caller (`_executed`)
         lets it through. Any other failure would become a "… failed: …" string the model reads and
         carries on from, and a replay that carried on from a made-up tool result would be exact in
-        name only.
+        name only. Design §5.3 item 2a: every failure the copy did not serve is permanent, because
+        a retry would read the next occurrence.
         """
-        headers = {**self.headers, CALL_OCCURRENCE_HEADER: str(occurrence)}
-        if case_key:
-            headers[CASE_KEY_HEADER] = case_key
+        headers = {**self.headers, **call_key_headers(case_key, occurrence)}
         try:
             response = await self.client.post(
                 tool_lookup_path(self.copy_id),
@@ -157,8 +153,8 @@ class FrozenToolResults:
             result = payload.get("result") if isinstance(payload, dict) else None
             if response.status_code == 200 and isinstance(result, str):
                 return result
-            # A 404 is the copy saying it cannot answer; any other failure is a gateway that did
-            # not answer at all, which a retry may fix.
+            # A 404 is the copy saying it cannot answer. Any other status is a failure the copy did
+            # not serve (design §5.3 item 2a).
             code = (
                 (replay_refusal_code(404, payload) or REPLAY_MISS)
                 if response.status_code == 404
@@ -175,7 +171,7 @@ class FrozenToolResults:
         raise RunnerRequestError(
             "the frozen copy cannot serve a web tool call of this replay",
             code=REPLAY_UNAVAILABLE,
-            permanent=code is not None,
+            permanent=True,
         )
 
 
@@ -324,8 +320,7 @@ async def _executed(tool_call: dict, runtime: WebToolRuntime | None) -> str:
         result = await _execute_tool(tool_call, runtime)
     except BaseException:
         # A cancelled or crashed execution gave the model no result and the copy none to store
-        # (D1), as a cancelled chat call: the run is partial unless a later call of the same
-        # request replaces it (D2).
+        # (D1): partial, and no later call forgives it (Q27).
         record_capture_outcome(CaptureOutcome("tool", "error", digest))
         raise
     await _capture_result(runtime.frozen, description, digest, result, case_key, occurrence)

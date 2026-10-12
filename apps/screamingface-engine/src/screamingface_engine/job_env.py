@@ -159,10 +159,10 @@ another caller's paid run into a replay. Absent means a normal run.
 LOCAL_RUNTIME = "URL4_LOCAL_RUNTIME"
 """Whether this run executes on the local runtime — `"1"`, or absent for a hosted run.
 
-FEATURE: E14 Q23. Written by ``local.py`` for every run it starts, and by no other App. A capture on
-the local runtime is `partial` with reason `local`: its copy lives only in the local gateway, so a
-hosted board can never replay it. INVARIANT: a hosted App never writes it, so a hosted run reads
-it as absent.
+FEATURE: E14 Q23. Written by ``local.py`` for every run it starts, and by no other App. A local
+capture is never reproducible: the local app may point at the hosted gateway. A capture on the local
+runtime is `partial` with reason `local`. INVARIANT: a hosted App never writes it, so a hosted run
+reads it as absent.
 """
 
 FROZEN_COPY_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")

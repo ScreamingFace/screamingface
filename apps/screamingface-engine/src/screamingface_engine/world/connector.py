@@ -25,15 +25,16 @@ from screamingface_engine.benchmarks.case_context import current_case_attempt, c
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.capture_outcomes import (
-    CALL_OCCURRENCE_HEADER,
     CAPTURE_FIELD,
-    CASE_KEY_HEADER,
     FROZEN_COPIES_PATH,
     FROZEN_COPY_HEADER,
+    REPLAY_FIELD,
     REPLAY_MISS,
     REPLAY_UNAVAILABLE,
     CaptureOutcome,
+    CaptureTally,
     Status,
+    call_key_headers,
     current_capture_tally,
     record_capture_outcome,
     replay_chat_path,
@@ -1076,13 +1077,13 @@ class _CaptureProbe:
         return _CAPTURE_STATUSES.get((self.header or "").strip().lower(), "missing")
 
 
-def _capture_copy_id() -> str | None:
-    """The frozen copy this run captures into, or ``None`` when it captures nothing — a normal run,
-    a replay, or a capture run whose copy failed to open."""
+def _capture_target() -> tuple[CaptureTally, str] | None:
+    """The run's tally and the frozen copy it captures into, read once, or ``None`` when it captures
+    nothing — a normal run, a replay, or a capture run whose copy failed to open."""
     tally = current_capture_tally()
-    if tally is None or tally.mode != "capture":
+    if tally is None or tally.mode != "capture" or tally.frozen_copy_id is None:
         return None
-    return tally.frozen_copy_id
+    return tally, tally.frozen_copy_id
 
 
 async def _recorded_completion(
@@ -1105,21 +1106,17 @@ async def _recorded_completion(
         return await _fetch_replay(
             http_client, headers=headers, body=body, copy_id=replay_frozen_copy
         )
-    tally = current_capture_tally()
-    copy_id = _capture_copy_id()
-    if copy_id is None or tally is None:
+    target = _capture_target()
+    if target is None:
         return await _fetch_completion(http_client, headers=headers, body=body, cache=cache)
+    tally, copy_id = target
     digest = request_digest(body)
     # Q27 (design §5.4): the call takes its occurrence ONCE, when it is first sent. Every transport
     # attempt of the call sends the same key, and the value is never given back, so a call that
     # stores nothing keeps its place and replay never reads an entry twice.
     case_key = current_case_key()
-    key_headers = {
-        FROZEN_COPY_HEADER: copy_id,
-        CALL_OCCURRENCE_HEADER: str(tally.next_occurrence(case_key, "chat", digest)),
-    }
-    if case_key:
-        key_headers[CASE_KEY_HEADER] = case_key
+    occurrence = tally.next_occurrence(case_key, "chat", digest)
+    key_headers = {FROZEN_COPY_HEADER: copy_id, **call_key_headers(case_key, occurrence)}
     probe = _CaptureProbe()
     try:
         resp, outcome = await _fetch_completion(
@@ -1162,21 +1159,35 @@ async def _fetch_replay(
         raise RuntimeError("a frozen-copy replay call needs the run's capture tally bound")
     case_key = current_case_key()
     occurrence = tally.next_occurrence(case_key, "chat", digest)
-    key_headers = {CALL_OCCURRENCE_HEADER: str(occurrence)}
-    if case_key:
-        key_headers[CASE_KEY_HEADER] = case_key
-    resp, _retried = await _post_completion(
-        http_client,
-        headers={**headers, **key_headers},
-        body=body,
-        path=replay_chat_path(copy_id),
-    )
+    try:
+        resp, _retried = await _post_completion(
+            http_client,
+            headers={**headers, **call_key_headers(case_key, occurrence)},
+            body=body,
+            path=replay_chat_path(copy_id),
+        )
+    except ResolutionError as exc:
+        # Design §5.3 item 2a: every transport attempt failed, and the copy served nothing. A retry
+        # would read the next occurrence (§5.4), so the failure is permanent, with no retry.
+        raise _replay_unavailable() from exc
     refusal = _replay_refusal(resp)
     if refusal is not None:
         raise refusal
-    # Any other failure status is the captured original error, raised as the original run raised it.
+    # Design §5.3 item 2a: a non-2xx answer without the replay header is the gateway's own failure,
+    # not a captured one, so the copy did not serve it and the failure is permanent.
+    if not resp.is_success and REPLAY_FIELD not in resp.headers:
+        raise _replay_unavailable()
+    # Any other failure status is the captured original error (it carries X-AIGW-Replay), raised as
+    # the original run raised it.
     _raise_for_status(resp)
     return resp, _REPLAYED
+
+
+def _replay_unavailable() -> ResolutionError:
+    """The engine's own permanent failure for a replay the copy did not serve (design §5.3 2a)."""
+    return ResolutionError(
+        "the frozen copy is not available for replay", code=REPLAY_UNAVAILABLE, permanent=True
+    )
 
 
 def _replay_refusal(resp: httpx.Response) -> ResolutionError | None:
@@ -1395,10 +1406,10 @@ def _frozen_tool_results(
     """
     if scope.replay_frozen_copy is not None:
         return FrozenToolResults(http_client, headers, scope.replay_frozen_copy, replay=True)
-    copy_id = _capture_copy_id()
-    if copy_id is None:
+    target = _capture_target()
+    if target is None:
         return None
-    return FrozenToolResults(http_client, headers, copy_id, replay=False)
+    return FrozenToolResults(http_client, headers, target[1], replay=False)
 
 
 def _messages(context: str | None, intent: str | None) -> list[dict[str, str]]:

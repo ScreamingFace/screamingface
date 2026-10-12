@@ -1,9 +1,10 @@
-"""E14 F-B3 — replay counts, per request, the successful answers it took (design §5.3 item 1).
+"""E14 F-B3 — replay occurrences: each logical call takes the next occurrence of its request in its
+case, and never gives it back (design §5.3 item 1, §5.4).
 
 FEATURE: OME-1307 — identical requests whose original answers differed (sampling, cache off) are
 served in capture order. The engine sends `X-AIGW-Call-Occurrence: <n>`, where n is how many logical
-calls of the SAME request this case already made, as in capture (design §5.4). Chat and tool lookups
-count alike. A failed answer or a miss takes its occurrence all the same and never gives it back.
+calls of the SAME request this case already made, as in capture. Chat and tool lookups count alike.
+A failed answer or a miss takes its occurrence all the same and never gives it back.
 
 A separate module (append-only gate).
 """

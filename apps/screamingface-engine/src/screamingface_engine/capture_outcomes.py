@@ -42,6 +42,9 @@ class CaptureOutcome:
 # place so the connector and the web tools can never half-rename one.
 FROZEN_COPY_HEADER = "X-AIGW-Frozen-Copy"
 CAPTURE_FIELD = "X-AIGW-Capture"
+REPLAY_FIELD = "X-AIGW-Replay"
+"""The replay answer of a found entry: ``hit`` or ``error`` (design §4.4). A non-2xx replay answer
+without it is one the copy did not serve (design §5.3 item 2a)."""
 CASE_KEY_HEADER = "X-AIGW-Case-Key"
 """The call's case key (design §5.4). Sent only when it is not empty: absent means ``""``."""
 CALL_OCCURRENCE_HEADER = "X-AIGW-Call-Occurrence"
@@ -93,6 +96,15 @@ def request_digest(payload: Mapping[str, object]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def call_key_headers(case_key: str, occurrence: int) -> dict[str, str]:
+    """The call-key headers of one logical call (design §5.4). The case-key header is omitted when
+    the key is empty: absence means ``""``."""
+    headers = {CALL_OCCURRENCE_HEADER: str(occurrence)}
+    if case_key:
+        headers[CASE_KEY_HEADER] = case_key
+    return headers
+
+
 def case_key_for(case_id: object, attempt: int) -> str:
     """The case key of one Attempt of one Case (design §5.4): 32 lowercase hex characters.
 
@@ -117,8 +129,8 @@ class CaptureTally:
     """The gateway confirmed the seal. A replay refuses an open copy, so only a sealed copy can
     make a capture run complete."""
     local: bool = False
-    """A capture on the local runtime (Q23). Its copy lives only in the local gateway, so the run
-    is never complete: a hosted reproduction could not replay it."""
+    """A capture on the local runtime (Q23). A local capture is never reproducible: the local app
+    may point at the hosted gateway, so the run is never complete."""
     outcomes: list[CaptureOutcome] = field(default_factory=list)
     occurrences: dict[tuple[str, Lane, str], int] = field(default_factory=dict)
     """Per (case key, lane, request digest), the occurrence the next logical call takes."""
@@ -217,10 +229,12 @@ __all__ = [
     "CASE_KEY_HEADER",
     "FROZEN_COPIES_PATH",
     "FROZEN_COPY_HEADER",
+    "REPLAY_FIELD",
     "REPLAY_MISS",
     "REPLAY_UNAVAILABLE",
     "CaptureOutcome",
     "CaptureTally",
+    "call_key_headers",
     "capture_outcomes",
     "case_key_for",
     "current_capture_tally",

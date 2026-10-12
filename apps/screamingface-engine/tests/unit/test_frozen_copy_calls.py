@@ -12,8 +12,6 @@ A separate module (append-only gate).
 
 from __future__ import annotations
 
-import asyncio
-
 import httpx
 import pytest
 from frozen_copy_support import (
@@ -33,6 +31,7 @@ from frozen_copy_support import (
     tool_call,
 )
 
+from screamingface_engine.capture_outcomes import CALL_OCCURRENCE_HEADER
 from screamingface_engine.world import connector
 
 
@@ -40,22 +39,6 @@ from screamingface_engine.world import connector
 def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
     monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_JITTER_S", 0.0)
-
-
-def _arrivals(gateway: Gateway, path: str, parties: int) -> list[str]:
-    """Park the requests to ``path`` until ``parties`` of them arrive, and record each one's
-    occurrence as it ARRIVES, before the barrier. The barrier answers the parked requests in a
-    different order, so the order of the answers is not the order the tasks sent in."""
-    barrier = asyncio.Barrier(parties)
-    arrived: list[str] = []
-
-    async def gate(request: httpx.Request) -> None:
-        if request.url.path == path:
-            arrived.append(request.headers["X-AIGW-Call-Occurrence"])
-            await barrier.wait()
-
-    gateway.gate = gate
-    return arrived
 
 
 # ── TDD 1: replay never reaches a provider or Tavily ───────────────────────────────────────
@@ -158,7 +141,7 @@ async def test_two_identical_concurrent_capture_calls_state_occurrences_0_and_1(
     """Q27 (design §5.4): each logical call takes its occurrence when it is first sent, in task
     creation order, so the gateway stores each branch's answer at the position replay reads."""
     gateway = Gateway([chat("a", stored()), chat("b", stored())])
-    arrived = _arrivals(gateway, CHAT, 2)
+    arrived = gateway.record_arrivals(CHAT, 2)
 
     _tally, _answer, failure = await run_call(
         gateway, capture_scope(), expressions=[EXPRESSION, EXPRESSION], concurrent=True
@@ -177,7 +160,7 @@ async def test_capture_calls_of_different_requests_each_start_at_occurrence_0() 
     tally, answer, failure = await run_call(gateway, capture_scope(), tavily=Tavily())
 
     assert failure is None and answer == "final"
-    assert [h["X-AIGW-Call-Occurrence"] for h, _b in gateway.calls(CHAT)] == ["0", "0"]
+    assert [h[CALL_OCCURRENCE_HEADER] for h, _b in gateway.calls(CHAT)] == ["0", "0"]
     assert [(o.lane, o.status) for o in tally.outcomes if o.lane == "tool"] == [("tool", "stored")]
 
 
@@ -206,7 +189,7 @@ async def test_concurrent_identical_tool_results_store_occurrences_0_and_1() -> 
             200, json={"results": [{"title": "t", "url": "https://x", "content": "c"}]}
         )
     )
-    arrived = _arrivals(gateway, TOOL_RESULTS, 2)
+    arrived = gateway.record_arrivals(TOOL_RESULTS, 2)
 
     _tally, answer, failure = await run_call(gateway, capture_scope(), tavily=tavily)
 
