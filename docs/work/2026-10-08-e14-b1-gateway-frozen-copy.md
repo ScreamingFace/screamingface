@@ -187,18 +187,16 @@ These edits are in plan B1, approved on 2026-10-12.
 - Direct full run of `uv run pytest -q`: 5499 passed, 0 failed, 101 skipped.
 - Frozen-copy tests: all pass.
 - `test_unknown_user_timing_close_to_wrong_password` passed in the full run. It was not run alone.
-- Postgres migration apply: not run. No Postgres server is available in this session.
+- Postgres migration apply: run (round 2). `AIGW_TEST_PG=1 DOCKER_HOST=unix:///Users/junior/.colima/default/docker.sock TESTCONTAINERS_RYUK_DISABLED=true uv run pytest -m needs_postgres tests/integration/test_tortoise_migration_smoke.py`: `1 passed` (postgres:16-alpine, full migrate through 0014).
 
 ### Deviations
 
 - One code commit (`c001fc9f7`) covers Q27 and Q28. The two changes share the migration, the models
   and the routes. A split by hunk needs interactive staging.
-- `capture` takes `attempt=None, case_key="", occurrence=0`. The defaults match the model defaults.
-  `find` has no defaults, as the plan says.
+- Round 1 gave `capture` default `case_key` and `occurrence`. Round 2 removed the defaults: they are required keyword-only arguments. `find` has no defaults, as the plan says.
 - `request_digest_prefix` and `log_capture_failure` take `attempt`. Without it, the log prefix of
   an Attempt 2 call would not match its digest.
-- Seal: `provenance` is required inside the body. `{}` and `{"provenance": null}` give 422. The
-  design names only the full form. See the open question below.
+- Seal: round 1 required `provenance` inside the body. Round 2 (coordinator decision) accepts `{}` and `{"provenance": null}`: 200, no provenance.
 - On replay and tool routes, the key check runs before the copy check, as the old occurrence check
   did. A bad key on an unknown copy gives 400.
 - On chat capture, the key check runs before the copy lookup. A bad key does no database read. The
@@ -206,4 +204,20 @@ These edits are in plan B1, approved on 2026-10-12.
 
 ### Open question
 
-- Should a seal body of `{}` mean "no provenance" (200), or stay 422? This build gives 422.
+- Resolved in round 2: `{}` seals with no provenance (200).
+- Open: the design says `default ""` and `default 0` for `case_key` and `occurrence`. Tortoise `default=` is Python-side, so the Postgres columns have no SQL DEFAULT (checked in round 2). The codebase uses `db_default` for some columns (migrations 0007 and 0013). Decide whether these two columns need `db_default`. The migration is not released, so the change is cheap.
+
+### Round 2 (coordinator feedback)
+
+- Commits: `2bca640ff fix(aigateway): pin the chat call key and accept an empty seal body`, then this ledger commit.
+- Seal: the body is optional. `{}` and `{"provenance": null}` give 200 and store no provenance. Unknown keys and bad values stay 422. Tests: `test_a_seal_body_without_provenance_seals_with_none` (new), and `test_a_seal_body_with_an_unknown_key_or_bad_value_is_422` (the `provenance-null` case moved out).
+- Chat call key pinned: `test_a_chat_capture_stores_the_header_key_and_replays_only_under_it` sends `call_key(CASE_A, 3)`, checks the stored row (`case_key`, `occurrence`), replays under the same key (hit) and under `call_key()` (404 `frozen_copy_miss`). The `stored_entries` helper now reports `case_key` and `occurrence`.
+- `capture()`: `case_key` and `occurrence` are required keyword-only arguments. Direct test calls pass them explicitly.
+- `find()` calls in `routes/frozen_copies.py` pass `attempt=`, `case_key=`, `occurrence=` as keywords.
+- `_case_insensitive_header` renamed `case_insensitive_header` in `core/retry.py` and its two call sites (no behaviour change).
+- `_begin_capture` docstring: the two key headers must be well formed (design §4.2).
+- Postgres: see the result line above. The one-off check on a fresh postgres:16 container showed both frozen-copy tables with the model columns, the lookup index `(frozen_copy_id, kind, case_key, request_digest, occurrence, seq)` and the unique `(frozen_copy_id, seq)`. `case_key` and `occurrence` have no SQL DEFAULT (see the open question).
+- Gates, with `--base refs/e14-backup/pre-phase2-2026-10-12/OME-1307-e14-design-review`:
+  - Append-only check: `✗` with only `tests/unit/test_migration_0012_provider_credential_slots.py` (approved line). Skipped with `--skip-append-only`.
+  - `--skip-append-only`: `✓ uv run ruff check`, `✓ uv run ruff format --check`, `✓ uv run pyright`, `✓ uv run python scripts/check_no_enterprise.py`, `✓ uv run pytest --cov=aigateway --cov-fail-under=80 -q`, `ALL GATES GREEN`.
+- Full pytest run: 5501 passed, 0 failed, 101 skipped. Frozen-copy tests: 144 passed.
