@@ -1,9 +1,9 @@
 ---
 ticket: OME-1576
 stack: desktop
-status: in_review
+status: done
 started: 2026-10-12
-finished:
+finished: 2026-10-12
 ---
 
 # studio-runtime-lock — re-lock the studio sidecar for screamingface 0.1.2
@@ -37,7 +37,10 @@ sidecar built from `main` installs without `ijson`. Found while reviewing the De
 
 - `uv lock --check`: fails on `main`, passes on this branch.
 - Diff: +19/-2 in `uv.lock`; only `ijson` added and `screamingface` metadata refreshed.
-- Not run: a full sidecar build (`build-sidecar.sh`). No CI job builds the sidecar; that is the
-  owner's check.
+- `build-sidecar.sh` on this branch (macOS, PyInstaller cache in a scratch dir): builds; the
+  bundle has `_internal/ijson`; `screamingface-runtime --help` runs; in the synced venv
+  `import ijson, screamingface._results.cases` works (`ijson` 3.5.1).
+- Combined with Dependabot #1266 (multidict 6.9.1, same lock): merges cleanly in either order;
+  the result passes `uv lock --check` and `uv sync --locked`.
 - Out of scope: a CI step running `uv lock --check` for this directory. Dependabot PR #1344
   carries the same risk (it moves `packages/screamingface` `runtime` pins without this lock).
