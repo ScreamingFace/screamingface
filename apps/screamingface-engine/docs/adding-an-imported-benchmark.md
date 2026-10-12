@@ -269,6 +269,12 @@ inspect_evals eval such as `bbeh/`:
 | vendored grading code | `vendor/` | the paper's own scorer when it has one, copied byte-for-byte below a header of ours that links to the upstream blob at the pinned commit (never the upstream docstring), with its licence and a sha256 test (`test_local_task_musique_vendor.py` is the template) |
 | the card | `README.md` | dataset, prompt, scoring, baselines, how to run |
 
+A scorer that reads `metadata` fails loudly on a missing key: it raises, as upstream bbeh's
+does, and the scorer adapter records a `scorer_error`. It never falls back to a default that
+grades. The lanes that grade every Benchmark over stand-in Cases take realistic stand-in
+metadata from one table, `STAND_IN_METADATA` in `tests/unit/inspect/replayed_cases_helpers.py`,
+so add your Task's entry there (OME-1527).
+
 Then run the importer on it and fill the generated rows exactly as for an import:
 
 ```sh
@@ -298,14 +304,6 @@ Four things differ from an inspect_evals import:
   (`packages/screamingface/scripts/build_notebooks.py` → `examples/NN_<key>.ipynb`), and its
   row's `notebook=` names it. The imported boards share `12_inspect_evals_benchmarks`; a local
   Task is ours and has its own story to tell (its scores, its reply format, its caveats).
-- **A scorer that reads Sample metadata must tolerate its absence** (`state.metadata.get(...)`),
-  and its tests must say what a missing key scores. The no-network grading lane runs every
-  judge-less Benchmark over stand-in Cases that carry no metadata; a `KeyError` there shows as a
-  grading failure on a Benchmark that grades fine in production. Tolerating is not defaulting
-  to a pass: hand the paper's metric its honest empty input and pin the result (MuSiQue:
-  support F1 is 0.0 for a reply that cites paragraphs and 1.0 for one that cites none, the
-  paper's own "cited nothing, expected nothing" rule). Production never hits this path when
-  the row keeps Sample metadata: the key is in the Case Digest.
 
 The hand-built lane stays only for a Benchmark where a later Candidate call's prompt depends
 on an earlier reply (medxpert's reason-then-commit): capture runs the Task's solvers up to

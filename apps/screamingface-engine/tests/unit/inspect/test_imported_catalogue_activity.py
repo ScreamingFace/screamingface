@@ -7,6 +7,7 @@ import pytest
 pytest.importorskip("inspect_ai")
 
 from activity_recipe_helpers import _run  # noqa: E402
+from replayed_cases_helpers import STAND_IN_METADATA  # noqa: E402
 
 from screamingface_engine_inspect.benchmarks import BENCHMARKS, imported_benchmark  # noqa: E402
 
@@ -19,14 +20,12 @@ async def test_imported_catalogue_case_activity(tmp_path, key, fusion):
     root = tmp_path / benchmark.benchmark.id
     (root / "targets").mkdir(parents=True)
     (root / "cases.json").write_text(json.dumps([{"id": 1, "input": "Choose the answer."}]))
-    (root / "targets" / "1.json").write_text(
-        json.dumps(
-            {
-                "target": "E",
-                "choices": ["a", "b", "c", "d", "Tea is a warm drink"],
-            }
-        )
-    )
+    material = {"target": "E", "choices": ["a", "b", "c", "d", "Tea is a warm drink"]}
+    # OME-1527: a scorer that reads a metadata key fails loudly without it; give it the
+    # realistic stand-in its real Cases carry.
+    if key in STAND_IN_METADATA:
+        material["metadata"] = STAND_IN_METADATA[key]
+    (root / "targets" / "1.json").write_text(json.dumps(material))
     result, events = await _run(benchmark.registration, tmp_path, fusion)
     assert result["score"] is not None, result
     calls = [e for e in events if e.get("sf.activity.kind") == "model_call"]

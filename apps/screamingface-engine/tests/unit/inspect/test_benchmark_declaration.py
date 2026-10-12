@@ -149,18 +149,9 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
     # must add its row deliberately, and a benchmark that CHANGES its declaration trips here — which
     # a loop over "all single_shot" could not catch once a second shape existed (OME-1126).
     expected = {
-        # ContractEval answers each Case once; a reply quoting the wrong sentences is GRADED
-        # (0.0, and it keeps its cell in the confusion matrix), so only never-graded Cases
-        # reach the shared finalizer — coverage_declare.
-        #
-        # AIDEV-NOTE: this row was added under the owner's ruling of 2026-09-09, re-affirmed
-        # 2026-09-17, and landed with `--skip-append-only` — the append-only gate cannot tell
-        # a new row in a registry table from an edited assertion. Recorded here because the
-        # next reader of THIS file will not open the work ledger (OME-1148).
         # OME-1257 third element: the hand-assigned difficulty tier. The rationale for
         # each assignment lives as a comment at the benchmark's own declaration site; this
         # table pins the reviewed outcome so a silent tier change trips loudly.
-        "contracteval": ("coverage_declare", "single_shot", "medium"),
         "draco": ("coverage_declare", "single_shot", "hard"),
         "draco-3pass": ("coverage_declare", "single_shot", "hard"),
         "gdpval-text": ("coverage_declare", "single_shot", "hard"),
@@ -261,6 +252,11 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "musique": ("coverage_declare", "single_shot", "hard"),
         # OME-1476: the second local Task, and the first published Benchmark with Attempts.
         "arc_agi_2": ("coverage_declare", "single_shot", "hard"),
+        # OME-1527: ContractEval moved from its hand-built folder to a local Task, keeping its
+        # id and declaration. It answers each Case once; a reply quoting the wrong sentences is
+        # GRADED (0.0, and it keeps its cell in the confusion matrix), so only never-graded
+        # Cases reach the shared finalizer — coverage_declare.
+        "contracteval": ("coverage_declare", "single_shot", "medium"),
         "inspect-math": ("coverage_declare", "single_shot", "medium"),
     }
     actual = {

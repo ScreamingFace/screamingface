@@ -152,10 +152,15 @@ class BenchmarkSpec:
     #: The eval's own whole-run inspect ``@metric``, as a dotted ``module:constructor``
     #: reference called with no arguments (``inspect_evals.hle.metrics:accuracy``). Set, it
     #: scores the run in place of the mean of the Case scores (OME-1527, R1): its number is the
-    #: Headline Score (a dict is refused at tally). OPT-IN per Benchmark, never a default: a
-    #: reviewer confirms the metric's headline is higher-is-better up to 1, as a Headline
-    #: Score must be. Benchmark identity when set.
+    #: Headline Score (a dict needs ``whole_run_headline``). OPT-IN per Benchmark, never a
+    #: default: a reviewer confirms the metric's headline is higher-is-better up to 1, as a
+    #: Headline Score must be. Benchmark identity when set.
     whole_run_metric: str | None = None
+    #: For a ``whole_run_metric`` that returns a dict (contracteval's F1 beside its precision
+    #: and counts): the key that is the Headline Score. Every other key is published as a run
+    #: metric, never a Named Score, since no Case carries a precision (OME-1527). None for a
+    #: metric returning one number; Benchmark identity when set, so no other row moves.
+    whole_run_headline: str | None = None
     #: The Task's own any-of-N epoch reducer, by inspect's name (``max``, ``at_least_1``,
     #: ``pass_at_N``), on a row with Attempts that honours ``whole_run_metric``: the tally
     #: reduces each Case's Attempt Scores with it before the metric reads them, as inspect
@@ -266,8 +271,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: inspect_evals.gsm8k.gsm8k's Task declares scorer=match(numeric=True).
         scorer="inspect_ai.scorer:match",
         scorer_kwargs={"numeric": True},
-        # Free-form answers make mid-run feedback legitimate: the same scorer serves
-        # the corrective loop (spec §4; owner decision on OME-1115, 2026-09-15).
+        # No Draft Feedback offer (with_check_surface stays False): the offer is a
+        # per-Benchmark owner call, and today only IFEval carries one (OME-1513).
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/2110.14168",
@@ -4048,6 +4053,72 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Task's own reducer, as inspect does before any metric runs.
         epoch_reducer="max",
     ),
+    BenchmarkSpec(
+        key="contracteval",
+        title="ContractEval",
+        description=(
+            "4,182 clause-extraction questions over 102 real commercial contracts (CUAD test "
+            "split). The model is given a full contract and one of 41 clause categories, and must "
+            'quote the answering sentences verbatim or reply "No related clause." Grading is '
+            "deterministic string containment, the paper's own rule: every gold sentence must "
+            "appear, with no partial credit, so there is no Judge and no grading tokens. Benchmark "
+            "score = F1 over the whole run's confusion matrix, not a mean of Case scores: 70% of "
+            "rows have no clause, so a model that always declines would be right on 70% of Cases "
+            "while answering nothing, and F1 scores it 0. Each Case's row records whether the "
+            "Case has a clause, whether the model declined, and its token overlap with the gold "
+            "text. One named deviation from the paper: it sends its extraction instructions as a "
+            "system message, while this board delivers them as the leading text of the single "
+            "candidate input, because a benchmark cannot address a candidate's system role. The "
+            "instructions are identical; the request shape is not, so scores are comparable to "
+            "the paper's in protocol but not in message layout."
+        ),
+        focus="Legal clause extraction",
+        dataset_url="https://huggingface.co/datasets/theatticusproject/cuad-qa",
+        # Specialized legal extraction with real headroom, but deterministic string
+        # containment over given text — no expert-frontier stakes (OME-1257; the hand-built
+        # Benchmark's tier, kept).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval — a
+        #   LOCAL Task (OME-1527), the hand-built Benchmark moved into inspect's shape; every
+        #   field below is carried over from the hand-built definition (OME-1455 sources).
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2508.03080",
+        authors="Liu et al., 2025",
+        citation=(
+            "@misc{liu2025contractevalbenchmarkingllmsclauselevel,\n"
+            "      title={ContractEval: Benchmarking LLMs for Clause-Level Legal Risk Ide"
+            "ntification in Commercial Contracts}, \n"
+            "      author={Shuang Liu and Zelong Li and Ruoyun Ma and Haiyan Zhao and Men"
+            "gnan Du},\n"
+            "      year={2025},\n"
+            "      eprint={2508.03080},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2508.03080}, \n"
+            "}"
+        ),
+        harness_url=(
+            "https://github.com/olivialiu121/ContractEval/tree/f2de74479bb067a13da2fd034972eec6905563b2"
+        ),
+        license="CC-BY-4.0",
+        license_note="CUAD (theatticusproject/cuad-qa) is CC-BY-4.0; the reference harness is MIT.",
+        human_baseline=NotPublished(reason="the ContractEval paper reports no human study"),
+        # F1 (clause-level extraction correctness on CUAD-derived tasks), paper's results table.
+        frontier_score=FrontierScore(
+            score=0.644,
+            model="GPT 4.1 mini",
+            source_url="https://arxiv.org/html/2508.03080",
+            as_of="2025-08",
+        ),
+        notebook="13_contracteval",
+        scorer="screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval_containment",
+        # Reviewed: F1 lies in 0..1, higher is better — a Headline Score (OME-1527, R1).
+        whole_run_metric="screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval_f1",
+        # The metric returns the paper's F1 beside its precision, recall, F2, confusion
+        # counts and laziness rates (the hand-built Benchmark's keys); F1 is the headline.
+        whole_run_headline="f1",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
@@ -4076,6 +4147,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     _check_verdict_grades(spec)
     _check_named_scores(spec)
     _check_whole_run_metric(spec)
+    _check_whole_run_headline(spec)
     cases_spec: TaskReplayCasesSpec = _cases_declaration(spec.key)
     _check_answer_key_opt_in(spec, cases_spec)
     _check_whole_run_metric_keeps_metadata(spec, cases_spec)
@@ -4113,6 +4185,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         verdict_grades=spec.verdict_grades,
         origin=spec.origin,
         whole_run_metric_factory=_whole_run_metric_factory(spec),
+        whole_run_headline=spec.whole_run_headline,
         epoch_reducer_factory=_epoch_reducer_factory(spec),
         attempts=spec.attempts,
         **_provenance_of(spec),
@@ -4201,6 +4274,24 @@ def _check_whole_run_metric(spec: BenchmarkSpec) -> None:
             f"{spec.key}: whole_run_metric reads the eval's own grades, which "
             f"{' and '.join(rewrites)} rewrite; keep the mean for this row"
         )
+
+
+def _check_whole_run_headline(spec: BenchmarkSpec) -> None:
+    """Refuse a headline key the row's whole-run metric cannot have.
+
+    WHY: the key names a number of the metric's dict (OME-1527); on a row keeping the mean it
+    would move the revision while changing no number, and a blank key names nothing.
+    """
+
+    if spec.whole_run_headline is None:
+        return
+    if spec.whole_run_metric is None:
+        raise ValueError(
+            f"{spec.key}: whole_run_headline names a key of the whole_run_metric's dict, "
+            "but the row honours no whole_run_metric; drop it"
+        )
+    if not spec.whole_run_headline.strip():
+        raise ValueError(f"{spec.key}: whole_run_headline must be a non-blank key")
 
 
 def _check_whole_run_metric_keeps_metadata(
@@ -4443,9 +4534,13 @@ def _check_answer_key_opt_in(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpe
     prompts read it, so a judged row must pass its own ``template`` without it (xstest
     does). A custom judged scorer with no template kwarg is the reviewer's call, like every
     other judged row (OME-1269, OME-1371); so is the reply-only claim, which a per-row
-    grading test then checks.
+    grading test then checks. A third case keeps its key on some Cases and reads an empty
+    one as a fact (``empty_answer_key_allowed``, OME-1527 R5); it has its own check.
     """
 
+    if cases_spec.empty_answer_key_allowed:
+        _check_empty_answer_key_claim(spec, cases_spec)
+        return
     if not spec.scorer_reads_answer_key:
         _check_reply_only_claim(spec, cases_spec)
         return
@@ -4501,6 +4596,45 @@ def _check_reply_only_claim(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec
         raise ValueError(
             f"{spec.key}: scorer_reads_answer_key=False with a check surface; a reply-only "
             "benchmark offers no mid-run check (set with_check_surface=False)"
+        )
+
+
+def _check_empty_answer_key_claim(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec) -> None:
+    """Refuse ``empty_answer_key_allowed`` anywhere but beside the eval's own judge-free
+    scorer (OME-1527, R5).
+
+    INVARIANT: an empty key is accepted only where a row says so and only for a grader that
+    reads the emptiness as an answer (contracteval: no related clause, so abstain). A judge
+    decides key-reading by its prompt; inspect's built-ins would mark every reply wrong
+    against it; and the two key-less declarations say no Case has a key at all.
+    """
+
+    if not cases_spec.has_answer_key:
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed with has_answer_key=False; one says some "
+            "Cases have a key, the other that none has (keep one)"
+        )
+    if not spec.scorer_reads_answer_key:
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed with scorer_reads_answer_key=False; the "
+            "flag is for a scorer that reads the key, empty or not"
+        )
+    if spec.judge is not None:
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed on a judged benchmark; whether the judge "
+            "reads the key is decided by its prompt (declare has_answer_key=False instead)"
+        )
+    if spec.scorer.startswith(INSPECT_SCORER_PREFIX):
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed on inspect's built-in {spec.scorer}, "
+            "which would mark every reply wrong against an empty key"
+        )
+    if spec.with_check_surface:
+        # WHY: Draft Feedback over an empty key tells a fusion "no clause here" mid-run,
+        # which is the answer itself.
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed with a check surface; a mid-run check "
+            "over an empty key would leak the answer (set with_check_surface=False)"
         )
 
 
@@ -4629,6 +4763,9 @@ def _whole_run_metric_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     pins: list[str] = []
     if spec.whole_run_metric is not None:
         pins.append(f"whole_run_metric={spec.whole_run_metric}")
+    # WHY identity: the key decides which of the dict's numbers is the published headline.
+    if spec.whole_run_headline is not None:
+        pins.append(f"whole_run_headline={spec.whole_run_headline}")
     if spec.epoch_reducer is not None:
         pins.append(f"epoch_reducer={spec.epoch_reducer}")
     return tuple(pins)

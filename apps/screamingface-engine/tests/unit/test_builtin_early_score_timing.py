@@ -67,12 +67,6 @@ def _assets(tmp_path, monkeypatch, registration):
         medxpert_assets(tmp_path, 2)
     else:
         assets(registration, tmp_path, monkeypatch)
-        if name == "contracteval":
-            root = tmp_path / name
-            rows = json.loads((root / "cases.json").read_text())
-            rows.append({**rows[0], "id": 2})
-            (root / "cases.json").write_text(json.dumps(rows))
-            (root / "answers" / "2.json").write_text((root / "answers" / "1.json").read_text())
 
 
 def _judges(node):

@@ -12,10 +12,10 @@ What these tests pin, and why:
   or orders the labels, and a reply with no label is graded as a whole, never dropped;
 - the prompt bytes: a synthetic row renders to a pinned literal — the prompt is Benchmark
   identity on a judge-free Benchmark;
-- absent Sample metadata never raises — the no-network grading lane feeds stand-in Cases
-  without metadata; the paper's metric then scores "cited nothing, expected nothing" as
-  support F1 1.0 and any citation as 0.0 (production Cases always carry the key: it is in
-  the Case Digest);
+- a missing `supporting_idx` fails loudly (OME-1527) — every real question has 2 to 4 gold
+  paragraphs, so support F1 refuses to grade a Case without them instead of scoring "cited
+  nothing, expected nothing" as 1.0; the no-network grading lane hands MuSiQue realistic
+  stand-in metadata instead;
 - the row: origin `screamingface` (no inspect porter list), three Named Scores in the
   published order, answer F1 the headline.
 
@@ -209,20 +209,24 @@ def test_a_row_renders_to_the_pinned_prompt_bytes() -> None:
     assert CASE_TEMPLATE.endswith("Answer: <the answer, in as few words as possible>")
 
 
-# ── absent metadata never raises ──────────────────────────────────────────────────────────
+# ── missing metadata fails loudly ─────────────────────────────────────────────────────────
 
 
+# AIDEV-NOTE (OME-1527): the name is frozen by the test-change rule; what it checks now is the
+# opposite — a missing `supporting_idx` RAISES (the scorer adapter turns that into a
+# scorer_error), owner decision on OME-1527 Work order #5.
 @pytest.mark.asyncio
 async def test_support_f1_without_metadata_never_raises_and_scores_by_the_papers_rule() -> None:
-    """WHY: the no-network grading lane feeds stand-in Cases with no Sample metadata; a raise
-    there would show as a grading failure on a Benchmark that grades fine in production.
-    The empty gold list is the paper's own metric's input, so a reply that cites paragraphs
-    scores 0.0 and one that cites none scores 1.0 ("cited nothing, expected nothing") — not
-    a blanket 0.0 (review finding on #1292). Production never hits this: `supporting_idx`
-    is in every Case's metadata and the Case Digest."""
+    """WHY: every real MuSiQue question has 2 to 4 gold paragraphs, so a Case with no
+    `supporting_idx` is broken, not "expected nothing". The old default scored a reply that
+    cites nothing 1.0 against an empty gold list, a silent full mark. Now the scorer raises,
+    as upstream bbeh's does on a missing key; the no-network lane supplies realistic stand-in
+    metadata instead. The answer scorers read no required key and still grade."""
 
-    assert await _score_with(musique_support_f1(), _CASES[0], None) == 0.0
-    assert await _score_with(musique_support_f1(), "Answer: Kalamazoo", None) == 1.0
+    with pytest.raises(ValueError, match="supporting_idx"):
+        await _score_with(musique_support_f1(), "Answer: Kalamazoo", None)
+    with pytest.raises(ValueError, match="supporting_idx"):
+        await _score_with(musique_support_f1(), _CASES[0], {"hop_type": "2hop"})
     assert await _score_with(musique_support_f1(), _CASES[0], {"supporting_idx": [5, 10]}) == 1.0
     assert await _score_with(musique_answer_f1(), _CASES[0], None) == 1.0
     assert await _score_with(musique_answer_em(), _CASES[1], None) == 0.0
