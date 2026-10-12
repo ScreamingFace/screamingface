@@ -23,6 +23,7 @@ import screamingface as sf
 from screamingface._scoreboard.leaderboards import _client_info
 
 COPY = "0b1f6d3a-5c0e-4a8e-9a3f-2f6f8f4c7d11"
+DIGEST = "ab" * 32
 RUN_ID = "replay-run-1"
 CLIENT = {"name": "screamingface", "version": "0.2.0", "platform": "darwin"}
 RECORDED = {
@@ -42,6 +43,7 @@ def _arguments() -> dict[str, Any]:
         "score": 0.5,
         "total_questions": 2,
         "frozen_copy_id": COPY,
+        "case_digest": DIGEST,
         "client": CLIENT,
     }
 
@@ -62,6 +64,7 @@ def test_the_record_posts_the_numbers_of_the_replay() -> None:
         "score": 0.5,
         "total_questions": 2,
         "frozen_copy_id": COPY,
+        "case_digest": DIGEST,
         "client": CLIENT,
     }
 

@@ -264,6 +264,7 @@ def test_a_long_client_version_is_dropped_from_the_record_and_kept_on_submit() -
                 score=0.5,
                 total_questions=2,
                 frozen_copy_id=COPY,
+                case_digest="ab" * 32,
                 client=info,
             )
         client.leaderboards.submit(_candidate_result())
