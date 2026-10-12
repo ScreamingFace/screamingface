@@ -54,6 +54,8 @@ AnswerReason = Literal[
     "field_missing",
     "too_large",
     "no_match",
+    # A quorum panel left the member out: it failed upstream and was optional (OME-1557).
+    "missing",
     "no_votes",
     "cut_not_met",
 ]
@@ -224,6 +226,15 @@ class CombineInput:
     @property
     def voters(self) -> tuple[Answer, ...]:
         return tuple(answer for answer in self.answers if answer.status == "answered")
+
+    @property
+    def present(self) -> tuple[str, ...]:
+        """The members that sent an output, in spec order.
+
+        WHY: a quorum panel (OME-1557) leaves out an optional member that failed upstream. Every
+        member is present otherwise, so this equals ``members`` for a context with ``outputs``.
+        """
+        return tuple(member for member in self.members if member in self.outputs)
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,9 +2,9 @@
 
 FEATURE: serve ``/ensemble/combine/v1`` on the world's node, backed by the pure combine core.
 STORY: as a compiled reducer Candidate, I send one call (the spec as ``intent``, the member
-outputs as ``context``, ``binding=synthesis_N`` as the only param) and get one member's text back
-byte for byte, or a text built only by the spec's operators. One ``CombineEvidence`` joins the
-task-local operation-call record.
+outputs or a quorum panel of them as ``context``, ``binding=synthesis_N`` as the only param) and
+get one member's text back byte for byte, or a text built only by the spec's operators. One
+``CombineEvidence`` joins the task-local operation-call record.
 
 WHY an adapter here, not in ``combine/``: the core is pure and imports no ``url4`` module. This
 module is the engine-importing half -- it owns the route, the ``ResolutionError`` mapping, and the

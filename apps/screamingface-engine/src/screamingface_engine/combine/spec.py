@@ -40,6 +40,8 @@ _MEMBER = re.compile(r"member_[1-9][0-9]*")
 # WHY "writer_" and not "writer.": the SDK builds the context with url4 struct, whose keys are
 # [A-Za-z0-9_]+ only, so a dotted signal key cannot be written (OME-1289 unit 8-10 spec, P1).
 _SIGNAL = re.compile(r"judge|writer_[A-Za-z_][A-Za-z0-9_]*")
+_CONTEXT_KEYS = frozenset({"input", "outputs", "panel", "signals", "sources"})
+_PANEL_ROW_KEYS = frozenset({"source_position", "source_name", "result"})
 _CALL_KEY = re.compile(r"[A-Za-z0-9_]+")
 _MAX_ERRORS_SHOWN = 5
 _MAX_LOCATION_CHARS = 64
@@ -203,7 +205,11 @@ def _describe(exc: ValidationError) -> str:
 
 @dataclass(frozen=True, slots=True)
 class CombineContext:
-    """The decoded context: the question, every member's text, and the declared signals."""
+    """The decoded context: the question, the members' texts, and the declared signals.
+
+    ``outputs`` names every member, except when the context is a quorum ``panel``: then it names
+    only the members that answered (OME-1557).
+    """
 
     input: str
     outputs: Mapping[str, str]
@@ -225,39 +231,39 @@ def parse_context(
 ) -> CombineContext:
     """Parse the combine context against the spec's members.
 
-    ``sources`` must be present exactly when the spec reads an accounting signal.
+    The members arrive as ``outputs`` (every member) or as a quorum ``panel`` (the members that
+    answered), never both. ``sources`` must be present exactly when the spec reads an accounting
+    signal.
     """
     try:
         decoded = loads_bounded(context, unique_keys=True)
     except ValueError as exc:
         raise SpecInvalid("combine context is not valid JSON") from exc
-    if not isinstance(decoded, dict) or not {"input", "outputs"} <= decoded.keys() <= {
-        "input",
-        "outputs",
-        "signals",
-        "sources",
-    }:
+    if (
+        not isinstance(decoded, dict)
+        or "input" not in decoded
+        or not decoded.keys() <= _CONTEXT_KEYS
+        or ("outputs" in decoded) == ("panel" in decoded)
+    ):
         raise SpecInvalid("combine context has the wrong shape")
     question = decoded["input"]
-    outputs = _text_map(decoded["outputs"])
+    outputs = _member_outputs(decoded, members)
     signals = _text_map(decoded.get("signals", {}))
     if not isinstance(question, str):
         raise SpecInvalid("combine context has the wrong shape")
-    if len(outputs) != len(members) or set(outputs) != set(members):
-        raise SpecInvalid("combine context outputs do not match the spec members")
     if not all(_SIGNAL.fullmatch(name) for name in signals):
         raise SpecInvalid("combine context has an invalid signal name")
     if ("sources" in decoded) != sources_expected:
         raise SpecInvalid(
             "combine context sources are present exactly when the spec reads an accounting signal"
         )
-    sources = _parse_sources(decoded["sources"], outputs) if sources_expected else None
+    sources = _parse_sources(decoded["sources"], members) if sources_expected else None
     return CombineContext(question, MappingProxyType(outputs), MappingProxyType(signals), sources)
 
 
-def _parse_sources(value: object, outputs: Mapping[str, str]) -> MemberSources:
+def _parse_sources(value: object, members: Sequence[str]) -> MemberSources:
     """``{member: {call_key: {"path": str, "params": canonical text}}}`` with every member named."""
-    if not isinstance(value, dict) or set(value) != set(outputs):
+    if not isinstance(value, dict) or set(value) != set(members):
         raise SpecInvalid("combine context sources do not match the spec members")
     parsed: dict[str, Mapping[str, CallFingerprint]] = {}
     for member, calls in value.items():
@@ -299,6 +305,49 @@ def _decode_params(text: str) -> tuple[tuple[str, str], ...]:
     if "" in names or len(set(names)) != len(names) or canonical_params(pairs) != text:
         raise SpecInvalid("combine context sources params are not canonical")
     return tuple(pairs)
+
+
+def _member_outputs(decoded: Mapping[str, object], members: Sequence[str]) -> dict[str, str]:
+    """Every member's text from ``outputs``, or the answering members' texts from ``panel``."""
+    if "panel" in decoded:
+        return _panel_outputs(decoded["panel"], members)
+    outputs = _text_map(decoded["outputs"])
+    if len(outputs) != len(members) or set(outputs) != set(members):
+        raise SpecInvalid("combine context outputs do not match the spec members")
+    return outputs
+
+
+def _panel_outputs(value: object, members: Sequence[str]) -> dict[str, str]:
+    """The texts of a quorum panel: url4's broadcast rows, one per member that answered.
+
+    A row is ``{"source_position": i, "source_name": "member_i", "result": text}``. url4 leaves
+    out an optional member that failed and checks the quorum before this call runs (OME-1557), so
+    an absent member is not an error here. Any other shape is: the rows are url4's own output.
+    """
+    if not isinstance(value, str):
+        raise SpecInvalid("combine context panel has the wrong shape")
+    try:
+        rows = loads_bounded(value, unique_keys=True)
+    except ValueError as exc:
+        raise SpecInvalid("combine context panel is not valid JSON") from exc
+    if not isinstance(rows, list):
+        raise SpecInvalid("combine context panel has the wrong shape")
+    positions = {member: index for index, member in enumerate(members, 1)}
+    outputs: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != _PANEL_ROW_KEYS:
+            raise SpecInvalid("combine context panel has the wrong shape")
+        name, position, text = row["source_name"], row["source_position"], row["result"]
+        if (
+            not isinstance(name, str)
+            or name in outputs
+            or type(position) is not int
+            or positions.get(name) != position
+            or not isinstance(text, str)
+        ):
+            raise SpecInvalid("combine context panel does not match the spec members")
+        outputs[name] = text
+    return outputs
 
 
 def _text_map(value: object) -> dict[str, str]:

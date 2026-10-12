@@ -219,22 +219,54 @@ def _signal_values(
     """Each member's signals: the one number the spec reads, or none at all."""
     if read is None:
         return {member: {} for member in spec.members}
-    if read.key in ACCOUNTING_SIGNALS:
-        # WHY the reader is a port: the core does no I/O and has no recorder; the adapter knows
-        # what each source call cost. Without a reader every member's number is unknown.
-        if context.sources is None:  # parse_context required them for an accounting key
-            raise RuntimeError("combine context sources are missing for an accounting signal")
-        looked = {} if accounting is None else accounting(context.sources)
-        return {m: {read.key: finite_float(looked.get(m, {}).get(read.key))} for m in spec.members}
-    path = read.key[len(FIELD_SIGNAL_PREFIX) :]
-    return {
-        member: {
-            read.key: None
-            if utf8_exceeds(context.outputs[member], MAX_OUTPUT_READ_BYTES)
-            else field_signal_value(context.outputs[member], path)
-        }
-        for member in spec.members
-    }
+    if not any(member in context.outputs for member in spec.members):
+        # WHY no read (OME-1557): an empty quorum panel abstains with no_votes; reading a signal
+        # over no member could only refuse a Case that has no answer.
+        return {member: {read.key: None} for member in spec.members}
+    numbers = _signal_numbers(read.key, spec, context, accounting)
+    return {member: {read.key: numbers[member]} for member in spec.members}
+
+
+def _signal_numbers(
+    key: str,
+    spec: CombineSpec,
+    context: CombineContext,
+    accounting: AccountingReader | None,
+) -> Mapping[str, float | None]:
+    """One number (or None) for each member, from the source that the signal key names."""
+    if key in ACCOUNTING_SIGNALS:
+        return _accounting_numbers(key, spec, context, accounting)
+    return _field_numbers(key[len(FIELD_SIGNAL_PREFIX) :], spec, context)
+
+
+def _accounting_numbers(
+    key: str,
+    spec: CombineSpec,
+    context: CombineContext,
+    accounting: AccountingReader | None,
+) -> dict[str, float | None]:
+    # WHY the reader is a port: the core does no I/O and has no recorder; the adapter knows
+    # what each source call cost. Without a reader every member's number is unknown.
+    if context.sources is None:  # parse_context required them for an accounting key
+        raise RuntimeError("combine context sources are missing for an accounting signal")
+    # WHY only the members that answered (OME-1557): a member a quorum panel left out has no
+    # recorded call to match, so asking for it would only log a false accounting warning.
+    asked = MappingProxyType({m: c for m, c in context.sources.items() if m in context.outputs})
+    looked = {} if accounting is None else accounting(asked)
+    return {m: finite_float(looked.get(m, {}).get(key)) for m in spec.members}
+
+
+def _field_numbers(
+    path: str, spec: CombineSpec, context: CombineContext
+) -> dict[str, float | None]:
+    numbers: dict[str, float | None] = {}
+    for member in spec.members:
+        text = context.outputs.get(member)  # None: a quorum panel left the member out
+        if text is None or utf8_exceeds(text, MAX_OUTPUT_READ_BYTES):
+            numbers[member] = None
+        else:
+            numbers[member] = field_signal_value(text, path)
+    return numbers
 
 
 def _decide(
@@ -354,7 +386,7 @@ def _read_members(
     answers = tuple(
         _answer(
             member,
-            context.outputs[member],
+            context.outputs.get(member),
             plan,
             MappingProxyType(dict(signals[member])),
             _weight(spec, member, signals[member]),
@@ -375,11 +407,14 @@ def _weight(spec: CombineSpec, member: str, signals: Mapping[str, float | None])
 
 def _answer(
     member_id: str,
-    text: str,
+    text: str | None,
     plan: _Plan,
     signals: Mapping[str, float | None],
     weight: Decimal | None,
 ) -> Answer:
+    if text is None:
+        # A quorum panel left the member out (OME-1557): it is a failed member, never a vote.
+        return Answer(member_id, None, None, "fail", "missing", signals, weight)
     status, raw, value = _stages(text, plan)
     answer_state, reason = answer_status(status)
     if plan.extract is not None and answer_state == "answered" and value is None:
