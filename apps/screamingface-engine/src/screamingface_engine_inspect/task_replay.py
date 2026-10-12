@@ -52,6 +52,7 @@ from typing import Any, NamedTuple
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY
 from screamingface_engine_inspect.capture import captured_case_records
 from screamingface_engine_inspect.case_set import what_moved
+from screamingface_engine_inspect.case_source_prefetch import prefetch_case_sources
 from screamingface_engine_inspect.case_sources import CaseSourceRecorder
 from screamingface_engine_inspect.fetch_pins import FetchPins
 from screamingface_engine_inspect.prepare import (
@@ -114,13 +115,19 @@ def replay_environment(cache_root: Path, base: Mapping[str, str]) -> dict[str, s
     # builder's shell may carry one; "none/none" makes that call raise, so capture refuses
     # the Sample by name instead of a real model's words landing inside a Case.
     env["INSPECT_EVAL_MODEL"] = "none/none"
-    env["INSPECT_EVALS_CACHE_DIR"] = str(cache_root / "inspect_evals")
+    env["INSPECT_EVALS_CACHE_DIR"] = str(_inspect_evals_cache(cache_root))
     env["HF_DATASETS_CACHE"] = str(cache_root / "hf_datasets")
     env["HF_HUB_CACHE"] = str(cache_root / "hf_hub")
     env["HF_MODULES_CACHE"] = str(cache_root / "hf_modules")
     env["HF_XET_CACHE"] = str(cache_root / "hf_xet")
     env["HF_ASSETS_CACHE"] = str(cache_root / "hf_assets")
     return env
+
+
+def _inspect_evals_cache(cache_root: Path) -> Path:
+    """The replay's inspect_evals cache: where its evals' loaders look for their files."""
+
+    return cache_root / "inspect_evals"
 
 
 def _hf_token_path(base: Mapping[str, str]) -> str:
@@ -365,6 +372,12 @@ def _replay_in_this_process(spec_path: Path, result_path: Path, cache_root: Path
 
     fields: dict[str, Any] = json.loads(spec_path.read_text(encoding="utf-8"))
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(**fields)
+    # WHY first: a few evals fetch through a host that rate-limits anonymous builds (SAD:
+    # GitHub's contents API, OME-1574); the prefetch fills the empty cache from a host that
+    # serves the same checksummed files, so the loader finds them and skips its own call.
+    # Before the recorder installs, so the provenance block still names the fetch the eval
+    # itself makes, with its sha256 pin. A failed prefetch fails the replay, as before.
+    prefetch_case_sources(spec.task, _inspect_evals_cache(cache_root))
     # INVARIANT: the module is imported BEFORE the enforcer installs, so a fetch helper it
     # bound by name at import (gsm8k's `hf_dataset`) is rebound too (R1, R4). The recorder
     # also records every fetch and forced seed; that record becomes the provenance block (OME-1492).

@@ -75,7 +75,9 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
-def install(node: Url4Node, root: Path, variant: HealthbenchVariant) -> None:
+def install(
+    node: Url4Node, root: Path, variant: HealthbenchVariant, *, draft_feedback: bool = False
+) -> None:
     """Register every route one HealthBench benchmark's expressions reference.
 
     Providers read lazily so a general-purpose Runner can carry the installed
@@ -91,6 +93,8 @@ def install(node: Url4Node, root: Path, variant: HealthbenchVariant) -> None:
         node: the Runner world to register the routes in.
         root: the prepared HealthBench asset directory (shared by every benchmark).
         benchmark: which Cases this benchmark serves, at which addresses, under which final mean.
+        draft_feedback: whether the Benchmark offers Draft Feedback (its ``check_surface`` is
+            set). Off by default, and then the check-surface route is not installed at all.
     """
     # Install the six routes that implement the benchmark's protocol.
     _install_protocol_once(
@@ -102,7 +106,7 @@ def install(node: Url4Node, root: Path, variant: HealthbenchVariant) -> None:
         rubric_evaluation_route=variant.routes.rubric_evaluation,
         case_evaluation_route=variant.routes.case_evaluation,
         aggregate_route=variant.routes.aggregate,
-        check_surface_route=variant.routes.check_surface,
+        check_surface_route=variant.routes.check_surface if draft_feedback else None,
         benchmark_id=variant.id,
         benchmark_revision=variant.revision,
         case_ids=variant.case_ids,
@@ -120,7 +124,7 @@ def _install_protocol_once(
     rubric_evaluation_route: str,
     case_evaluation_route: str,
     aggregate_route: str,
-    check_surface_route: str,
+    check_surface_route: str | None,
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
@@ -137,13 +141,6 @@ def _install_protocol_once(
             ),
         ),
         (judge_requests_route, _rubric_judge_requests(root, case_ids, benchmark_id)),
-        # The mid-run check surface the corrective loop consumes. It closes over `node`
-        # so the judge route resolves per request — installation must still work in a
-        # world holding no model routes.
-        (
-            check_surface_route,
-            rubric_draft_feedback_endpoint(node, root, HEALTHBENCH_DRAFT_FEEDBACK),
-        ),
         (verdict_route, _rubric_verdict(benchmark_id)),
         (rubric_evaluation_route, _rubric_evaluation),
         (
@@ -175,6 +172,16 @@ def _install_protocol_once(
     for route, handler in endpoints:
         if route not in routes:
             node.endpoint(route)(handler)
+    # WHY gated (OME-1527): an offer that is off must not be reachable either. The SDK refuses a
+    # Corrective Loop on a Benchmark with no offer, but a raw url4 string sent to the Engine
+    # skips the SDK, and an installed route would still answer it with a paid Judge call.
+    if check_surface_route is not None and check_surface_route not in routes:
+        # The mid-run check surface the corrective loop consumes. It closes over `node`
+        # so the judge route resolves per request — installation must still work in a
+        # world holding no model routes.
+        node.endpoint(check_surface_route)(
+            rubric_draft_feedback_endpoint(node, root, HEALTHBENCH_DRAFT_FEEDBACK)
+        )
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
