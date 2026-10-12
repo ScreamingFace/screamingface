@@ -1,9 +1,9 @@
-# E4a unit 13: reducer synthesizers with Fusion quorum and optional members
+# E4a: reducer synthesizers with Fusion quorum and optional members
 
-Status: built 2026-10-12 as unit 13, branch `e4a-quorum-reducers` (on `e4a-combine-hardening`):
-b448ee827 engine, 9a1fb2603 SDK, 78cce7384 review round. Engine, SDK and repo gates green; the
-append-only check waits for the owner (two regenerated v1 schema snapshots, and the 2026-10-12
-guard test replaced by the quorum-reducer tests). Not pushed.
+Status: built 2026-10-12, then folded into the stack (owner, 2026-10-12: "approved, fold unit 13
+into the earlier units"; the append-only edits are owner-approved). The first build, branch
+`e4a-quorum-reducers`, stays as the reference: the folded stack tip has the same source bytes.
+Not pushed.
 Refs: OME-1289 (E4a) × OME-1557 (Fusion quorum, main PR #1340).
 
 ## 1. Problem
@@ -107,8 +107,21 @@ Each fact was run, not only read (url4 in this repo, `StaticIOLayer`, 2026-10-12
 
 ## 5. Where it lands
 
-- Code: a new branch `e4a-quorum-reducers` (unit 13) on top of `e4a-combine-hardening`, as one
-  reviewable unit. No cascade rebase of units 1–12.
+- Code: folded into the unit that first holds the code each piece changes, then cascade-rebased:
+
+  | Unit | What it took |
+  |---|---|
+  | 1 combine-core | `missing` reason, `CombineInput.present`, strict `panel` parsing, missing-member Answers, empty-panel signal skip, accounting for answering members only; QR-5, QR-6 |
+  | 3 engine-wiring-evidence | the url4 world tests (QR-8, QR-9, a failed required member) |
+  | 4 sdk-reducer-slot | broadcast panel compile, `_fusion_context(panel=…)`, the refusal removed, SDK `missing`, one replay recompile helper with pinned operators; QR-1, QR-2, QR-4, QR-10 |
+  | 8E judge-pick-engine | judge parsers and the `score:judge` read over the answering members; QR-7 |
+  | 10E rank-concat-engine | `join@1`/`all@1` over the answering members; concat, rank, filter, argmax tests |
+  | 8S judge-pick-sdk | judge template forms, the panel judge signal, recovery canonicalization |
+  | 10S rank-concat-sdk | the block form keeps `quorum` and `optional` (QR-3) |
+  | 12 combine-hardening | the two v1 schema snapshots (QR-11), the SDK-compiled quorum contract fixtures |
+
+  The rebase's guard-test commit on unit 4 was dropped. Units 6, 7, 9S and 12 needed conflict
+  resolutions only.
 - Docs: this plan, and erratum GE34 in the gap-closure overview §9 on this docs branch.
 
 ## 6. Test plan
