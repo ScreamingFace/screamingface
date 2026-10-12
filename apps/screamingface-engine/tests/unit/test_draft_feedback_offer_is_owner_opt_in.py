@@ -11,8 +11,14 @@ to this set — made by the owner, with the reason on the row or declaration.
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from pathlib import Path
+
+import pytest
+
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_REGISTRATIONS
+from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine_inspect.benchmarks import BENCHMARKS
+from url4.peer.server import Url4Node
 
 #: The Benchmarks the owner has allowed to advertise Draft Feedback.
 _OWNER_ALLOWED_OFFERS: frozenset[str] = frozenset({"ifeval"})
@@ -34,3 +40,32 @@ def test_no_imported_row_asks_for_draft_feedback() -> None:
     asking: list[str] = [spec.key for spec in BENCHMARKS if spec.with_check_surface]
 
     assert asking == []
+
+
+#: Every hand-built Benchmark whose Draft Feedback offer is off (the imported rows get the same
+#: gate from the inspect plugin's own installer).
+_HAND_BUILT_WITHOUT_AN_OFFER: list[Benchmark] = [
+    registration.benchmark
+    for registration in BUILTIN_REGISTRATIONS
+    if registration.benchmark.check_surface is None
+]
+
+
+@pytest.mark.parametrize("benchmark", _HAND_BUILT_WITHOUT_AN_OFFER, ids=lambda b: b.id)
+def test_an_offer_that_is_off_is_not_reachable_by_url4_string(
+    benchmark: Benchmark, tmp_path: Path
+) -> None:
+    """INVARIANT (OME-1527): a Benchmark with no Draft Feedback offer installs no check-surface
+    route. The SDK refuses a Corrective Loop on such a Benchmark, but a raw url4 string sent to
+    the Engine never passes through that refusal; an installed route would answer it with a
+    paid Judge call (draco, gdpval and healthbench used to install theirs unconditionally).
+
+    Installation is lazy, so an empty asset root is enough to read the installed routes."""
+
+    node: Url4Node = Url4Node("offer-off")
+    benchmark.install(node, tmp_path)
+
+    check_routes: list[str] = [
+        route for route in node.processor_routes() if "/check-surface" in route
+    ]
+    assert check_routes == []

@@ -339,7 +339,15 @@ def healthbench_benchmark(
 
         # INVARIANT: every benchmark reads the SAME prepared asset directory — one immutable
         # answer key, selected from at serve time, never a per-benchmark prepare.
-        install_runtime(node, assets / ASSET_BUNDLE_ID, variant)
+        # WHY read `benchmark` here (OME-1527): the check-surface route is installed only when
+        # this Benchmark offers Draft Feedback, the same gate the inspect plugin applies. The
+        # closure runs at install time, after `benchmark` below is assigned.
+        install_runtime(
+            node,
+            assets / ASSET_BUNDLE_ID,
+            variant,
+            draft_feedback=benchmark.check_surface is not None,
+        )
 
     benchmark = Benchmark(
         id=id,
@@ -366,9 +374,9 @@ def healthbench_benchmark(
         # the same pass-through as focus/dataset_url; shapes checked by `Benchmark` itself.
         **provenance,
         # WHY no Draft Feedback offer (owner decision 2026-10-07, OME-1513): the offer is a
-        # per-Benchmark owner call, and today only IFEval carries one. The check-surface route
-        # is still served (a paid Judge call over the Case's rubric) but is not advertised, so
-        # the SDK refuses a Corrective Loop on this Benchmark before any money is spent.
+        # per-Benchmark owner call, and today only IFEval carries one. With no offer the SDK
+        # refuses a Corrective Loop on this Benchmark before any money is spent, and the
+        # check-surface route is not installed, so a raw url4 string cannot reach it (OME-1527).
         check_surface=None,
     )
     return variant, benchmark
