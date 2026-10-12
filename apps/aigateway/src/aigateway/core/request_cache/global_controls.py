@@ -60,7 +60,7 @@ class GlobalCacheControls:
     participate: bool
     bypass_reason: str = ""
     # The caller's Attempt number (2 or more), keyed beside the request; None for Attempt 1
-    # and for every ordinary request, which key exactly as before (OME-1458).
+    # and for every ordinary request, which key exactly as before (OME-1458). An opt-out keeps it.
     attempt: int | None = None
 
 
@@ -94,7 +94,11 @@ def parse_global_cache_controls(body: dict[str, Any]) -> GlobalCacheControls:
     if not isinstance(requested, bool):
         return _refuse(BYPASS_MALFORMED_CONTROLS)
     if not requested:
-        return _refuse(BYPASS_OPTED_OUT)
+        # WHY the number survives an opt-out: the frozen copy (OME-1307) keys on it whether or
+        # not the cache takes part, and an opted-out Attempt 2 is still not Attempt 1.
+        return GlobalCacheControls(
+            participate=False, bypass_reason=BYPASS_OPTED_OUT, attempt=attempt
+        )
     if attempt is None:
         return _PARTICIPATE
     return GlobalCacheControls(participate=True, attempt=attempt)

@@ -197,3 +197,10 @@ def test_the_provider_never_sees_the_cache_object(
 
     assert CONTROL_FIELD not in dispatch.bodies[0]
     assert "attempt" not in dispatch.bodies[0]
+
+
+def test_an_opt_out_keeps_the_attempt_number() -> None:
+    # WHY: the frozen copy keys on the number whether or not the cache takes part.
+    controls = parse_global_cache_controls(_controls_body({"use-cache": False, "attempt": 2}))
+
+    assert controls.attempt == 2

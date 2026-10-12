@@ -29,6 +29,7 @@ from .core.auth.log_filter import (
 from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
 from .core.discovery_runtime import DiscoveryRuntime
+from .core.frozen_copy.headers import published_capture_headers
 from .core.loader import load_plugins
 from .core.model_catalog import build_model_catalog
 from .core.parameter_discovery import DiscoveryLimits, HttpxDiscoveryClient
@@ -63,6 +64,7 @@ from .routes import (
     auth,
     auth_session,
     chat,
+    frozen_copies,
     health,
     model_admission,
     model_parameters,
@@ -310,17 +312,22 @@ async def _accounted_http_exception(request: Request, exc: Exception) -> Respons
 
 
 async def _profile_index_conflict(request: Request, _exc: Exception) -> JSONResponse:
+    # FEATURE: OME-1307 — the capture outcome of a call whose route raised after the copy check.
+    headers = published_capture_headers(request)
     exc = HTTPException(
         status_code=503,
         detail={
             "code": "profile_index_conflict",
             "message": "Profile metadata update conflicted. Try again.",
         },
+        headers=headers or None,
     )
     accounted = accounting_error_response(request, exc)
     if accounted is not None:
         return accounted
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return JSONResponse(
+        status_code=exc.status_code, content={"detail": exc.detail}, headers=headers
+    )
 
 
 def _build_discovery_runtime(settings: Settings) -> DiscoveryRuntime | None:
@@ -490,6 +497,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(model_parameters.router)
     app.include_router(tavily_retrieval_cache.router)
     app.include_router(chat.router)
+    app.include_router(frozen_copies.router)
 
     logger.info("aigateway ready (port=%d, providers=%d)", settings.port, len(registry.all()))
     return app
