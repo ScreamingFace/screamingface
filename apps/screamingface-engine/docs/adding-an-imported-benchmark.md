@@ -271,9 +271,9 @@ inspect_evals eval such as `bbeh/`:
 
 A scorer that reads `metadata` fails loudly on a missing key: it raises, as upstream bbeh's
 does, and the scorer adapter records a `scorer_error`. It never falls back to a default that
-grades. The no-network grading lane (`test_inspect_task_replay_benchmarks.py`) supplies
-realistic stand-in metadata per Benchmark in its `_STAND_IN_METADATA` table, so add your
-Task's entry there (OME-1527).
+grades. The lanes that grade every Benchmark over stand-in Cases take realistic stand-in
+metadata from one table, `STAND_IN_METADATA` in `tests/unit/inspect/replayed_cases_helpers.py`,
+so add your Task's entry there (OME-1527).
 
 Then run the importer on it and fill the generated rows exactly as for an import:
 

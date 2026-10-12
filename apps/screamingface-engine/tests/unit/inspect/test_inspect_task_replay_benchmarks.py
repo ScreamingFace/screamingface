@@ -21,7 +21,10 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
-from replayed_cases_helpers import replay_in_process_over_rows  # noqa: E402
+from replayed_cases_helpers import (  # noqa: E402
+    STAND_IN_METADATA,
+    replay_in_process_over_rows,
+)
 from test_inspect_imported_benchmarks import _EXPECTED_FAMILIES  # noqa: E402
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
@@ -564,15 +567,6 @@ _JUDGE_LESS_KEYS: tuple[str, ...] = tuple(
 )
 
 
-#: Realistic stand-in Sample metadata for a Benchmark whose scorer reads it (OME-1527). WHY:
-#: scorers fail loudly on a missing key, as a real Case always carries it, so the lane hands
-#: each such Benchmark the shape its real Cases have. musique: a real question cites 2 to 4
-#: gold paragraphs.
-_STAND_IN_METADATA: dict[str, dict[str, object]] = {
-    "musique": {"supporting_idx": [3, 11]},
-}
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("key", _JUDGE_LESS_KEYS)
 async def test_every_judge_less_benchmark_grades_with_no_network(
@@ -588,13 +582,13 @@ async def test_every_judge_less_benchmark_grades_with_no_network(
     choice: bool = _EXPECTED_FAMILIES[key] == "mcq"
     benchmark: ImportedBenchmark = imported_benchmark(key)
     cases: list[PreparedCase] = _MCQ_CASES if choice else _FREE_TEXT_CASES
-    if key in _STAND_IN_METADATA:
+    if key in STAND_IN_METADATA:
         cases = [
             {
                 **case,
                 "grading_material": {
                     **case["grading_material"],
-                    "metadata": _STAND_IN_METADATA[key],
+                    "metadata": STAND_IN_METADATA[key],
                 },
             }
             for case in cases
