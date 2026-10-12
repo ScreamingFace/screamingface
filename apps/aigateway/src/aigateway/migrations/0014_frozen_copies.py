@@ -49,6 +49,8 @@ class Migration(migrations.Migration):
                 ("status", fields.CharField(default="open", max_length=16)),
                 ("entries", fields.IntField(default=0)),
                 ("entry_seq", fields.IntField(default=0)),
+                # Q28: the seal's provenance; NULL until a seal sends one.
+                ("provenance", fields.JSONField(null=True)),
                 ("created_at", fields.DatetimeField(auto_now=False, auto_now_add=True)),
                 (
                     "sealed_at",
@@ -77,20 +79,32 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("kind", fields.CharField(max_length=8)),
+                # Q27: the call key. "" for a call outside any case.
+                ("case_key", fields.CharField(max_length=32, default="")),
                 ("request_digest", fields.CharField(max_length=64)),
                 ("request_json", fields.JSONField()),
                 ("response_json", fields.JSONField()),
                 ("status_code", fields.IntField()),
                 ("seq", fields.IntField()),
-                # Q27: the engine's send-time slot when the capture request stated it; NULL when
-                # not stated (legacy capture), so replay falls back to completion order (`seq`).
-                ("occurrence", fields.IntField(null=True)),
+                # Q27: the logical-call number of this request in its case key.
+                ("occurrence", fields.IntField(default=0)),
                 ("created_at", fields.DatetimeField(auto_now=False, auto_now_add=True)),
             ],
             options={
                 "table": "frozen_copy_entries",
                 "app": "models",
-                "indexes": [Index(fields=["frozen_copy_id", "kind", "request_digest", "seq"])],
+                "indexes": [
+                    Index(
+                        fields=[
+                            "frozen_copy_id",
+                            "kind",
+                            "case_key",
+                            "request_digest",
+                            "occurrence",
+                            "seq",
+                        ]
+                    )
+                ],
                 # Q27 follow-up: (copy, seq) uniqueness, so a regression in the copy-row lock
                 # fails loudly instead of silently reordering two entries of one copy.
                 "unique_together": (("frozen_copy_id", "seq"),),

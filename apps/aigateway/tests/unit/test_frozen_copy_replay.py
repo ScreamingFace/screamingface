@@ -9,15 +9,22 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.unit.test_frozen_copy_support import (
+    CASE_A,
+    CASE_B,
+    CASE_KEY_HEADER,
+    OCCURRENCE_HEADER,
     PATCH_TARGET,
     DispatchCounter,
     account_id_of,
+    call_key,
     chat_body,
     chat_response,
     seed_copy,
+    seed_keyed_copy,
 )
 
-_OCCURRENCE = "X-AIGW-Replay-Occurrence"
+# Occurrence values a caller may send that are not 1 to 9 ASCII digits (design §4.2).
+_BAD_OCCURRENCES = ["+3", " 3", "1_0", "-1", "1.5", "", "abc", "1234567890", "٣"]
 
 
 def _replay_path(copy_id: str) -> str:
@@ -70,7 +77,7 @@ def test_replay_never_resolves_credentials_or_calls_a_provider(
         [("chat", body, chat_response("captured"), 200)],
     )
 
-    response = authenticated_client.post(_replay_path(copy_id), json=body)
+    response = authenticated_client.post(_replay_path(copy_id), json=body, headers=call_key())
 
     assert response.status_code == 200, response.text
     assert response.json()["id"] == "captured"
@@ -80,47 +87,74 @@ def test_replay_never_resolves_credentials_or_calls_a_provider(
 
 
 def _lookup_cases() -> list[Any]:
-    ok = lambda marker: ("chat", chat_body(), chat_response(marker), 200)  # noqa: E731
-    err = lambda status, text: (  # noqa: E731
-        "chat",
+    ok = lambda case, occurrence, marker: (  # noqa: E731
+        case,
+        occurrence,
+        chat_body(),
+        chat_response(marker),
+        200,
+    )
+    err = lambda case, occurrence, status, text: (  # noqa: E731
+        case,
+        occurrence,
         chat_body(),
         {"detail": {"code": "provider_error", "message": text}},
         status,
     )
+    miss = ("miss", None)
     return [
-        pytest.param([ok("a"), ok("b"), ok("c")], 0, ("ok", "a"), id="first-success"),
-        pytest.param([ok("a"), ok("b"), ok("c")], 1, ("ok", "b"), id="second-success"),
-        pytest.param([ok("a"), ok("b"), ok("c")], 2, ("ok", "c"), id="last-success"),
-        pytest.param([ok("a"), ok("b"), ok("c")], 9, ("ok", "c"), id="past-the-end-gives-last"),
         pytest.param(
-            [err(429, "e1"), ok("a"), err(500, "e2"), ok("b")],
-            1,
+            [ok(CASE_A, 0, "a"), ok(CASE_A, 0, "b")],
+            CASE_A,
+            0,
             ("ok", "b"),
-            id="errors-do-not-count-as-occurrences",
+            id="latest-success-at-the-key",
         ),
         pytest.param(
-            [err(429, "e1"), ok("a"), err(500, "e2")],
+            [err(CASE_A, 0, 503, "e1"), ok(CASE_A, 1, "a")],
+            CASE_A,
+            0,
+            ("error", (503, "e1")),
+            id="error-at-zero-and-success-at-one-replays-the-error",
+        ),
+        pytest.param(
+            [err(CASE_A, 0, 503, "e1"), ok(CASE_A, 1, "a")],
+            CASE_A,
+            1,
+            ("ok", "a"),
+            id="success-at-one",
+        ),
+        pytest.param(
+            [err(CASE_A, 0, 429, "e1"), ok(CASE_A, 0, "a"), err(CASE_A, 0, 500, "e2")],
+            CASE_A,
             0,
             ("ok", "a"),
-            id="success-wins-over-errors",
+            id="success-wins-over-later-errors",
         ),
         pytest.param(
-            [err(503, "e1"), err(500, "e2")], 0, ("error", (500, "e2")), id="latest-error"
+            [err(CASE_A, 0, 503, "e1"), err(CASE_A, 0, 500, "e2")],
+            CASE_A,
+            0,
+            ("error", (500, "e2")),
+            id="latest-error",
         ),
-        pytest.param(
-            [err(503, "e1"), err(500, "e2")], 7, ("error", (500, "e2")), id="latest-error-any-n"
-        ),
+        pytest.param([ok(CASE_A, 0, "a")], CASE_A, 1, miss, id="occurrence-never-captured"),
+        pytest.param([ok(CASE_A, 0, "a")], CASE_B, 0, miss, id="case-never-captured"),
     ]
 
 
-@pytest.mark.parametrize(("entries", "occurrence", "expected"), _lookup_cases())
-def test_replay_lookup_rule(
-    authenticated_client: TestClient, entries: list[Any], occurrence: int, expected: tuple
+@pytest.mark.parametrize(("entries", "case_key", "occurrence", "expected"), _lookup_cases())
+def test_replay_returns_the_latest_success_at_the_key_else_the_latest_error_else_miss(
+    authenticated_client: TestClient,
+    entries: list[Any],
+    case_key: str,
+    occurrence: int,
+    expected: tuple,
 ) -> None:
-    copy_id = seed_copy(authenticated_client, account_id_of(authenticated_client), entries)
+    copy_id = seed_keyed_copy(authenticated_client, account_id_of(authenticated_client), entries)
 
     response = authenticated_client.post(
-        _replay_path(copy_id), json=chat_body(), headers={_OCCURRENCE: str(occurrence)}
+        _replay_path(copy_id), json=chat_body(), headers=call_key(case_key, occurrence)
     )
 
     kind, value = expected
@@ -128,25 +162,140 @@ def test_replay_lookup_rule(
         assert response.status_code == 200, response.text
         assert response.json()["id"] == value
         assert response.headers["X-AIGW-Replay"] == "hit"
-    else:
+    elif kind == "error":
         status, message = value
         assert response.status_code == status
         assert response.json()["detail"] == {"code": "provider_error", "message": message}
         assert response.headers["X-AIGW-Replay"] == "error"
+    else:
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "frozen_copy_miss"
+        assert "X-AIGW-Replay" not in response.headers
 
 
-def test_replay_occurrence_defaults_to_the_first_success(
+def test_same_request_in_two_cases_replays_each_case_its_own_answer(
     authenticated_client: TestClient,
+) -> None:
+    """Q27: identical requests in two cases never swap answers."""
+    copy_id = seed_keyed_copy(
+        authenticated_client,
+        account_id_of(authenticated_client),
+        [
+            (CASE_A, 0, chat_body(), chat_response("case-a"), 200),
+            (CASE_B, 0, chat_body(), chat_response("case-b"), 200),
+        ],
+    )
+
+    first = authenticated_client.post(
+        _replay_path(copy_id), json=chat_body(), headers=call_key(CASE_A)
+    )
+    second = authenticated_client.post(
+        _replay_path(copy_id), json=chat_body(), headers=call_key(CASE_B)
+    )
+
+    assert first.json()["id"] == "case-a"
+    assert second.json()["id"] == "case-b"
+
+
+def test_completion_order_does_not_change_replay(authenticated_client: TestClient) -> None:
+    """Q27: occurrence 1 is stored before occurrence 0; each call still gets its own answer."""
+    copy_id = seed_keyed_copy(
+        authenticated_client,
+        account_id_of(authenticated_client),
+        [
+            (CASE_A, 1, chat_body(), chat_response("second"), 200),
+            (CASE_A, 0, chat_body(), chat_response("first"), 200),
+        ],
+    )
+
+    def at(occurrence: int) -> str:
+        response = authenticated_client.post(
+            _replay_path(copy_id), json=chat_body(), headers=call_key(CASE_A, occurrence)
+        )
+        return response.json()["id"]
+
+    assert [at(0), at(1)] == ["first", "second"]
+
+
+def test_no_fallback_to_another_occurrence_or_case_key(authenticated_client: TestClient) -> None:
+    """Q27: a call with no entry at its own key is a miss, never another occurrence's answer."""
+    copy_id = seed_keyed_copy(
+        authenticated_client,
+        account_id_of(authenticated_client),
+        [
+            (CASE_A, 0, chat_body(), chat_response("a0"), 200),
+            (CASE_A, 1, chat_body(), chat_response("a1"), 200),
+        ],
+    )
+
+    def status_at(case_key: str, occurrence: int) -> int:
+        response = authenticated_client.post(
+            _replay_path(copy_id), json=chat_body(), headers=call_key(case_key, occurrence)
+        )
+        return response.status_code
+
+    assert status_at(CASE_A, 2) == 404
+    assert status_at(CASE_A, 9) == 404
+    assert status_at(CASE_B, 0) == 404
+    assert status_at(CASE_B, 1) == 404
+    assert status_at("", 0) == 404
+
+
+def test_replay_occurrence_header_is_gone(authenticated_client: TestClient) -> None:
+    """The retired replay-occurrence header has no effect: only the key headers decide."""
+    copy_id = seed_keyed_copy(
+        authenticated_client,
+        account_id_of(authenticated_client),
+        [
+            (CASE_A, 0, chat_body(), chat_response("a0"), 200),
+            (CASE_A, 1, chat_body(), chat_response("a1"), 200),
+        ],
+    )
+
+    response = authenticated_client.post(
+        _replay_path(copy_id),
+        json=chat_body(),
+        headers={**call_key(CASE_A, 0), "X-AIGW-Replay-Occurrence": "1"},
+    )
+
+    assert response.json()["id"] == "a0"
+
+
+def _bad_key_headers() -> list[Any]:
+    """Key-header sets that are not usable (design §4.2): a bad case key or occurrence."""
+    ok_case = {CASE_KEY_HEADER: CASE_A}
+    cases: list[Any] = [
+        pytest.param({}, id="both-missing"),
+        pytest.param(ok_case, id="occurrence-missing"),
+    ]
+    cases += [
+        pytest.param({CASE_KEY_HEADER: "A" * 32, OCCURRENCE_HEADER: "0"}, id="uppercase-hex"),
+        pytest.param({CASE_KEY_HEADER: "a" * 31, OCCURRENCE_HEADER: "0"}, id="31-chars"),
+        pytest.param({CASE_KEY_HEADER: "a" * 33, OCCURRENCE_HEADER: "0"}, id="33-chars"),
+        pytest.param({CASE_KEY_HEADER: "g" * 32, OCCURRENCE_HEADER: "0"}, id="non-hex"),
+    ]
+    cases += [
+        pytest.param({**ok_case, OCCURRENCE_HEADER: value}, id=f"occurrence-{value!r}")
+        for value in _BAD_OCCURRENCES
+    ]
+    return cases
+
+
+@pytest.mark.parametrize("headers", _bad_key_headers())
+def test_bad_or_missing_key_headers_are_a_400_malformed_call_key(
+    authenticated_client: TestClient, headers: dict[str, str]
 ) -> None:
     copy_id = seed_copy(
         authenticated_client,
         account_id_of(authenticated_client),
-        [("chat", chat_body(), chat_response(m), 200) for m in ("a", "b")],
+        [("chat", chat_body(), chat_response("a"), 200)],
     )
+    encoded = {name: value.encode("utf-8") for name, value in headers.items()}
 
-    response = authenticated_client.post(_replay_path(copy_id), json=chat_body())
+    response = authenticated_client.post(_replay_path(copy_id), json=chat_body(), headers=encoded)
 
-    assert response.json()["id"] == "a"
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["code"] == "malformed_call_key"
 
 
 def test_replay_of_a_request_that_was_never_captured_is_a_miss(
@@ -158,7 +307,9 @@ def test_replay_of_a_request_that_was_never_captured_is_a_miss(
         [("chat", chat_body(), chat_response("a"), 200)],
     )
 
-    response = authenticated_client.post(_replay_path(copy_id), json=chat_body(temperature=0.7))
+    response = authenticated_client.post(
+        _replay_path(copy_id), json=chat_body(temperature=0.7), headers=call_key()
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "frozen_copy_miss"
@@ -175,26 +326,12 @@ def test_a_tool_entry_is_not_an_answer_to_a_chat_request(
         [("tool", chat_body(), {"result": "tool text"}, 200)],
     )
 
-    response = authenticated_client.post(_replay_path(copy_id), json=chat_body())
+    response = authenticated_client.post(
+        _replay_path(copy_id), json=chat_body(), headers=call_key()
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "frozen_copy_miss"
-
-
-@pytest.mark.parametrize("value", ["abc", "-1", "1.5", ""])
-def test_a_malformed_occurrence_is_a_400(authenticated_client: TestClient, value: str) -> None:
-    copy_id = seed_copy(
-        authenticated_client,
-        account_id_of(authenticated_client),
-        [("chat", chat_body(), chat_response("a"), 200)],
-    )
-
-    response = authenticated_client.post(
-        _replay_path(copy_id), json=chat_body(), headers={_OCCURRENCE: value}
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "malformed_replay_occurrence"
 
 
 def test_replay_of_an_open_or_unknown_copy_is_404_unavailable(
@@ -209,7 +346,9 @@ def test_replay_of_an_open_or_unknown_copy_is_404_unavailable(
     )
 
     for copy_id in (open_copy, str(uuid4())):
-        response = authenticated_client.post(_replay_path(copy_id), json=chat_body())
+        response = authenticated_client.post(
+            _replay_path(copy_id), json=chat_body(), headers=call_key()
+        )
         assert response.status_code == 404, copy_id
         detail = response.json()["detail"]
         assert detail["code"] == "frozen_copy_unavailable"
@@ -231,7 +370,9 @@ def test_any_authenticated_account_may_replay_a_sealed_copy(
     )
     other = {"Authorization": f"Bearer {login.json()['token']}"}
 
-    response = authenticated_client.post(_replay_path(copy_id), json=chat_body(), headers=other)
+    response = authenticated_client.post(
+        _replay_path(copy_id), json=chat_body(), headers={**other, **call_key()}
+    )
 
     assert response.status_code == 200, response.text
 
@@ -279,8 +420,8 @@ def test_replay_body_reports_zero_cost_and_marks_frozen_copy_replay(
         [("chat", chat_body(), paid, 200)],
     )
 
-    first = authenticated_client.post(_replay_path(copy_id), json=chat_body())
-    second = authenticated_client.post(_replay_path(copy_id), json=chat_body())
+    first = authenticated_client.post(_replay_path(copy_id), json=chat_body(), headers=call_key())
+    second = authenticated_client.post(_replay_path(copy_id), json=chat_body(), headers=call_key())
 
     assert first.status_code == 200, first.text
     aigw = first.json()["_aigw"]
@@ -304,7 +445,9 @@ def test_a_captured_body_without_aigw_still_replays_with_the_zero_cost_block(
         [("chat", chat_body(), chat_response("bare"), 200)],
     )
 
-    response = authenticated_client.post(_replay_path(copy_id), json=chat_body())
+    response = authenticated_client.post(
+        _replay_path(copy_id), json=chat_body(), headers=call_key()
+    )
 
     aigw = response.json()["_aigw"]
     assert aigw["frozen_copy_replay"] is True
@@ -321,7 +464,9 @@ def test_a_replayed_error_carries_the_zero_cost_block_beside_the_detail(
         [("chat", chat_body(), {"detail": detail}, 502)],
     )
 
-    response = authenticated_client.post(_replay_path(copy_id), json=chat_body())
+    response = authenticated_client.post(
+        _replay_path(copy_id), json=chat_body(), headers=call_key()
+    )
 
     assert response.status_code == 502
     body = response.json()
@@ -335,7 +480,9 @@ def test_a_replayed_error_carries_the_zero_cost_block_beside_the_detail(
 def test_a_malformed_copy_id_on_replay_is_404_unavailable_not_422(
     authenticated_client: TestClient,
 ) -> None:
-    response = authenticated_client.post(_replay_path("not-a-uuid"), json=chat_body())
+    response = authenticated_client.post(
+        _replay_path("not-a-uuid"), json=chat_body(), headers=call_key()
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "frozen_copy_unavailable"

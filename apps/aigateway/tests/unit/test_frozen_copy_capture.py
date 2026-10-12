@@ -20,13 +20,17 @@ from aigateway.core.frozen_copy.store import (
 )
 from tests.unit.test_frozen_copy_support import (
     CAPTURE_HEADER,
+    CASE_A,
+    CASE_KEY_HEADER,
     CHAT_PATH,
     COPY_HEADER,
+    OCCURRENCE_HEADER,
     PATCH_TARGET,
     DispatchCounter,
     ScriptedDispatch,
     account_id_of,
     arrange_provider,
+    call_key,
     chat_body,
     run_async,
     seal_copy,
@@ -74,7 +78,7 @@ def open_copy(capture_client: TestClient) -> str:
 
 
 def _chat(client: TestClient, copy_id: str | None, body: dict[str, Any] | None = None):
-    headers = {} if copy_id is None else {COPY_HEADER: copy_id}
+    headers = {} if copy_id is None else {COPY_HEADER: copy_id, **call_key()}
     return client.post(CHAT_PATH, json=chat_body() if body is None else body, headers=headers)
 
 
@@ -108,7 +112,7 @@ def test_capture_and_replay_digest_match_for_the_same_body(
     assert live.headers[CAPTURE_HEADER] == "stored"
     seal_copy(capture_client, open_copy)
 
-    replay = capture_client.post(_replay_path(open_copy), json=replayed)
+    replay = capture_client.post(_replay_path(open_copy), json=replayed, headers=call_key())
 
     assert replay.status_code == 200, replay.text
     assert replay.json()["id"] == live.json()["id"]
@@ -305,7 +309,7 @@ def test_provider_error_is_captured_and_replayed_with_the_same_status_and_detail
     assert entry["response"] == {"detail": failed.json()["detail"]}
     seal_copy(capture_client, open_copy)
 
-    replay = capture_client.post(_replay_path(open_copy), json=chat_body())
+    replay = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
 
     assert replay.status_code == 400
     assert replay.json()["detail"] == failed.json()["detail"]
@@ -325,7 +329,7 @@ def test_every_attempt_is_captured_and_replay_returns_the_success(
     assert (first.status_code, second.status_code) == (400, 200)
     assert [e["status_code"] for e in stored_entries(capture_client, open_copy)] == [400, 200]
     seal_copy(capture_client, open_copy)
-    replay = capture_client.post(_replay_path(open_copy), json=chat_body())
+    replay = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
     assert replay.status_code == 200
     assert replay.json()["id"] == "second-try"
 
@@ -341,7 +345,7 @@ def test_a_refusal_after_the_copy_check_is_captured_too(
     assert failed.status_code >= 400
     assert failed.headers[CAPTURE_HEADER] == "stored"
     seal_copy(authenticated_client, copy_id)
-    replay = authenticated_client.post(_replay_path(copy_id), json=chat_body())
+    replay = authenticated_client.post(_replay_path(copy_id), json=chat_body(), headers=call_key())
     assert replay.status_code == failed.status_code
     assert replay.json()["detail"] == failed.json()["detail"]
 
@@ -454,7 +458,7 @@ def test_a_mutation_conflict_is_captured_as_the_503_the_app_renders(
     # INVARIANT: the stored detail IS the body the app handler renders (drift guard).
     assert entry["response"] == {"detail": live.json()["detail"]}
     seal_copy(capture_client, open_copy)
-    replay = capture_client.post(_replay_path(open_copy), json=chat_body())
+    replay = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
     assert replay.status_code == 503
     assert replay.json()["detail"] == live.json()["detail"]
 
@@ -479,7 +483,7 @@ def test_an_unexpected_exception_is_captured_as_a_generic_500_and_not_swallowed(
     assert entry["response"]["detail"]["code"] == "gateway_internal_error"
     assert "PROMPT-LEAK-MARKER" not in str(entry["response"])
     seal_copy(capture_client, open_copy)
-    replay = capture_client.post(_replay_path(open_copy), json=chat_body())
+    replay = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
     assert replay.status_code == 500
     assert replay.json()["detail"]["code"] == "gateway_internal_error"
 
@@ -508,6 +512,36 @@ def test_an_empty_copy_header_is_refused(capture_client: TestClient) -> None:
     assert response.headers[CAPTURE_HEADER] == "refused"
 
 
+@pytest.mark.parametrize(
+    "headers",
+    [
+        pytest.param({}, id="both-key-headers-missing"),
+        pytest.param({CASE_KEY_HEADER: CASE_A}, id="occurrence-missing"),
+        pytest.param({OCCURRENCE_HEADER: "+3"}, id="occurrence-plus-sign"),
+        pytest.param({OCCURRENCE_HEADER: " 3"}, id="occurrence-leading-space"),
+        pytest.param({OCCURRENCE_HEADER: "1_0"}, id="occurrence-underscore"),
+        pytest.param({OCCURRENCE_HEADER: "٣"}, id="occurrence-non-ascii-digit"),
+        pytest.param({OCCURRENCE_HEADER: "1234567890"}, id="occurrence-ten-digits"),
+        pytest.param({CASE_KEY_HEADER: "A" * 32, OCCURRENCE_HEADER: "0"}, id="case-uppercase"),
+        pytest.param({CASE_KEY_HEADER: "a" * 31, OCCURRENCE_HEADER: "0"}, id="case-31-chars"),
+    ],
+)
+def test_a_bad_or_missing_key_header_is_refused_and_the_call_is_still_served(
+    capture_client: TestClient, open_copy: str, headers: dict[str, str]
+) -> None:
+    """Design §4.2 and Q27: a bad or missing call key is `refused`. The call is served, and
+    nothing is stored."""
+    encoded = {name: value.encode("utf-8") for name, value in headers.items()}
+
+    response = capture_client.post(
+        CHAT_PATH, json=chat_body(), headers={COPY_HEADER: open_copy, **encoded}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers[CAPTURE_HEADER] == "refused"
+    assert stored_entries(capture_client, open_copy) == []
+
+
 def test_a_replayed_error_has_the_body_shape_of_a_live_error(
     capture_client: TestClient, open_copy: str, monkeypatch
 ) -> None:
@@ -515,7 +549,7 @@ def test_a_replayed_error_has_the_body_shape_of_a_live_error(
     live = _chat(capture_client, open_copy)
     seal_copy(capture_client, open_copy)
 
-    replay = capture_client.post(_replay_path(open_copy), json=chat_body())
+    replay = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
 
     assert live.status_code == replay.status_code == 400
     assert set(live.json()) == set(replay.json()) == {"detail", "_aigw"}
@@ -550,9 +584,13 @@ def test_each_attempt_replays_its_own_answer(capture_client: TestClient, open_co
     assert len({entry["digest"] for entry in entries}) == 3
 
     seal_copy(capture_client, open_copy)
-    first = capture_client.post(_replay_path(open_copy), json=chat_body())
-    second = capture_client.post(_replay_path(open_copy), json=chat_body(cache={"attempt": 2}))
-    third = capture_client.post(_replay_path(open_copy), json=chat_body(cache={"attempt": 3}))
+    first = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
+    second = capture_client.post(
+        _replay_path(open_copy), json=chat_body(cache={"attempt": 2}), headers=call_key()
+    )
+    third = capture_client.post(
+        _replay_path(open_copy), json=chat_body(cache={"attempt": 3}), headers=call_key()
+    )
     assert [first.json()["id"], second.json()["id"], third.json()["id"]] == [
         "live-1",
         "live-2",
@@ -588,6 +626,23 @@ def _no_retry_env(monkeypatch):
     monkeypatch.setenv("AIGW_RETRY_MAX_ATTEMPTS", "0")
 
 
+def test_a_retry_after_in_any_header_casing_is_stored_under_its_name(
+    _no_retry_env, capture_client: TestClient, open_copy: str, monkeypatch
+) -> None:
+    """The live header's casing does not matter: the stored entry names it Retry-After."""
+    rate_limited = HTTPException(
+        status_code=429,
+        detail={"code": "rate_limited", "message": "slow down"},
+        headers={"retry-after": "7"},
+    )
+    monkeypatch.setattr(PATCH_TARGET, ScriptedDispatch(rate_limited))
+
+    _chat(capture_client, open_copy)
+
+    (entry,) = stored_entries(capture_client, open_copy)
+    assert entry["response"]["headers"] == {"Retry-After": "7"}
+
+
 def test_a_replayed_rate_limit_keeps_its_retry_after(
     _no_retry_env, capture_client: TestClient, open_copy: str, monkeypatch
 ) -> None:
@@ -610,7 +665,7 @@ def test_a_replayed_rate_limit_keeps_its_retry_after(
     }
     seal_copy(capture_client, open_copy)
 
-    replay = capture_client.post(_replay_path(open_copy), json=chat_body())
+    replay = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
 
     assert replay.status_code == 429, replay.text
     assert replay.headers["Retry-After"] == "7"

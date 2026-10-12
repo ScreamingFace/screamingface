@@ -19,9 +19,15 @@ from aigateway.plugins.anthropic_provider.auth import credential_service_for
 CHAT_PATH = "/v1/chat/completions"
 COPY_HEADER = "X-AIGW-Frozen-Copy"
 CAPTURE_HEADER = "X-AIGW-Capture"
+CASE_KEY_HEADER = "X-AIGW-Case-Key"
+OCCURRENCE_HEADER = "X-AIGW-Call-Occurrence"
 PATCH_TARGET = "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion"
 
 Entry = tuple[Literal["chat", "tool"], Any, Any, int]
+# (case key, occurrence, request, response, status code) of one chat entry (Q27).
+KeyedEntry = tuple[str, int, Any, Any, int]
+CASE_A = "a" * 32
+CASE_B = "b" * 32
 
 
 def run_async[T](client: TestClient, call: Callable[[], Coroutine[Any, Any, T]]) -> T:
@@ -65,6 +71,36 @@ def seed_copy(
         copy = await frozen.open(owner_id)
         for kind, request, response, status_code in entries:
             await frozen.capture(copy, kind, request, response, status_code)
+        if seal:
+            await frozen.seal(copy.id, owner_id)
+        return str(copy.id)
+
+    return run_async(client, _seed)
+
+
+def call_key(case_key: str = "", occurrence: int = 0) -> dict[str, str]:
+    """The two key headers of one logical call (Q27)."""
+    return {CASE_KEY_HEADER: case_key, OCCURRENCE_HEADER: str(occurrence)}
+
+
+def seed_keyed_copy(
+    client: TestClient, owner_id: UUID, entries: list[KeyedEntry], *, seal: bool = True
+) -> str:
+    """A copy owned by `owner_id`, with each chat entry stored under its own call key."""
+
+    async def _seed() -> str:
+        frozen = store()
+        copy = await frozen.open(owner_id)
+        for case_key, occurrence, request, response, status_code in entries:
+            await frozen.capture(
+                copy,
+                "chat",
+                request,
+                response,
+                status_code,
+                case_key=case_key,
+                occurrence=occurrence,
+            )
         if seal:
             await frozen.seal(copy.id, owner_id)
         return str(copy.id)

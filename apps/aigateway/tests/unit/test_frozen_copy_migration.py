@@ -55,6 +55,7 @@ def test_0014_creates_both_tables_with_the_design_columns(migrated: Path) -> Non
         "status",
         "entries",
         "entry_seq",
+        "provenance",
         "created_at",
         "sealed_at",
     }
@@ -62,16 +63,24 @@ def test_0014_creates_both_tables_with_the_design_columns(migrated: Path) -> Non
         "id",
         "frozen_copy_id",
         "kind",
+        "case_key",
+        "occurrence",
         "request_digest",
         "request_json",
         "response_json",
         "status_code",
         "seq",
-        "occurrence",
         "created_at",
     }
-    # `sealed_at` is the only nullable column of frozen_copies (NULL until sealed).
-    assert [name for name, (_, notnull) in copies.items() if not notnull] == ["sealed_at"]
+    # `sealed_at` and `provenance` are the nullable columns of frozen_copies (NULL until sealed,
+    # and NULL when the seal sent no provenance).
+    assert [name for name, (_, notnull) in copies.items() if not notnull] == [
+        "provenance",
+        "sealed_at",
+    ]
+    # Q27: every entry has a call key and an occurrence, never NULL.
+    assert entries["case_key"][1] == 1
+    assert entries["occurrence"][1] == 1
 
 
 def _index_columns(db: Path, table: str) -> list[list[str]]:
@@ -84,7 +93,9 @@ def _index_columns(db: Path, table: str) -> list[list[str]]:
 
 def test_0014_indexes_the_replay_lookup_in_capture_order(migrated: Path) -> None:
     indexed = _index_columns(migrated, "frozen_copy_entries")
-    assert ["frozen_copy_id", "kind", "request_digest", "seq"] in indexed
+    assert ["frozen_copy_id", "kind", "case_key", "request_digest", "occurrence", "seq"] in indexed
+    # Q27: `seq` stays unique per copy, because it defines "latest" (design §3).
+    assert ["frozen_copy_id", "seq"] in indexed
 
 
 def test_0014_indexes_the_owner_of_a_copy(migrated: Path) -> None:

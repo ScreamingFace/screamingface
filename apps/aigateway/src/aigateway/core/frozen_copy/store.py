@@ -65,16 +65,21 @@ def request_digest(kind: EntryKind, request: Any, attempt: int | None = None) ->
     return canonical_digest(key)
 
 
-def request_digest_prefix(kind: EntryKind, request: Any) -> str:
+def request_digest_prefix(kind: EntryKind, request: Any, attempt: int | None = None) -> str:
     """The first 12 digest characters, for a log line; never raises, never carries the request."""
     try:
-        return request_digest(kind, request)[:12]
+        return request_digest(kind, request, attempt)[:12]
     except Exception:
         return "unavailable"
 
 
 def log_capture_failure(
-    kind: EntryKind, exc: BaseException, *, copy_id: Any = None, request: Any = None
+    kind: EntryKind,
+    exc: BaseException,
+    *,
+    copy_id: Any = None,
+    request: Any = None,
+    attempt: int | None = None,
 ) -> None:
     """The ONE log line for a capture that did not store (design Q18, best effort).
 
@@ -84,7 +89,7 @@ def log_capture_failure(
     logger.warning(
         "frozen copy capture failed copy=%s digest=%s kind=%s error=%s",
         "n/a" if copy_id is None else copy_id,
-        "n/a" if request is None else request_digest_prefix(kind, request),
+        "n/a" if request is None else request_digest_prefix(kind, request, attempt),
         kind,
         type(exc).__name__,
     )
@@ -111,8 +116,14 @@ class FrozenCopyStore:
     async def get(self, copy_id: UUID) -> FrozenCopy | None:
         return await FrozenCopy.get_or_none(id=copy_id)
 
-    async def seal(self, copy_id: UUID, account_id: UUID) -> FrozenCopy | None:
-        """Seal the owner's copy; ``None`` for an unknown copy or a non-owner (no leak)."""
+    async def seal(
+        self, copy_id: UUID, account_id: UUID, provenance: dict[str, str] | None = None
+    ) -> FrozenCopy | None:
+        """Seal the owner's copy; ``None`` for an unknown copy or a non-owner (no leak).
+
+        Q28: the first seal stores ``provenance``. A repeat seal returns the sealed copy unchanged,
+        so it keeps the first provenance.
+        """
         async with in_transaction():
             copy = (
                 await FrozenCopy.filter(id=copy_id, account_id=account_id)
@@ -124,9 +135,10 @@ class FrozenCopyStore:
             if copy.status == STATUS_SEALED:
                 return copy
             copy.entries = await FrozenCopyEntry.filter(frozen_copy_id=copy.id).count()
+            copy.provenance = provenance
             copy.status = STATUS_SEALED
             copy.sealed_at = datetime.now(UTC)
-            await copy.save(update_fields=["entries", "status", "sealed_at"])
+            await copy.save(update_fields=["entries", "provenance", "status", "sealed_at"])
             return copy
 
     async def capture(
@@ -138,13 +150,13 @@ class FrozenCopyStore:
         status_code: int,
         *,
         attempt: int | None = None,
-        occurrence: int | None = None,
+        case_key: str = "",
+        occurrence: int = 0,
     ) -> None:
         """Insert one entry. Raises on any failure; the caller decides what that means.
 
-        ``occurrence`` is the caller's send-time slot (Q27): set when the capture request stated
-        its position, so replay can serve that position instead of completion order. ``None``
-        (absent on the request) keeps the legacy completion-order entry.
+        ``case_key`` and ``occurrence`` are the call key of the request (Q27). Replay reads that
+        exact key.
 
         Raises:
             FrozenCopyEntryTooLarge: request plus response is over the per-entry cap.
@@ -165,6 +177,7 @@ class FrozenCopyStore:
             await FrozenCopyEntry.create(
                 frozen_copy_id=copy.id,
                 kind=kind,
+                case_key=case_key,
                 request_digest=digest,
                 request_json=request,
                 response_json=response,
@@ -178,39 +191,27 @@ class FrozenCopyStore:
         copy: FrozenCopy,
         kind: EntryKind,
         request: Any,
+        attempt: int | None,
+        case_key: str,
         occurrence: int,
-        *,
-        attempt: int | None = None,
     ) -> FrozenCopyEntry | None:
-        """The replay lookup rule (design §4.4); ``None`` is a miss.
+        """The replay lookup rule at one call key (design §4.4, Q27); ``None`` is a miss.
 
-        1. Successful entries in capture order: entry ``occurrence``, or the last one when
-           ``occurrence`` is past the end. When the entries carry the caller's send-time slots
-           (Q27, header ``X-AIGW-Capture-Occurrence``), that stated order decides — two
-           concurrent identical calls may complete out of order, and completion order would
-           pair each branch with another branch's answer. A slot an error entry used and a
-           later retry reused may occur in an error row and a success row; only the success
-           rows are counted here.
-        2. Without stated slots (legacy copy, or no slot on the request): successful entries in
-           completion order (``seq``), entry ``occurrence``, or the last one past the end.
-        3. No success: the latest captured error.
-        4. Nothing: ``None``.
+        1. The successful entry with the highest ``seq`` at the key (case key, occurrence,
+           digest).
+        2. Else the captured error with the highest ``seq`` at that key.
+        3. Else ``None``. There is no fallback to another occurrence or another case key.
         """
         entries = FrozenCopyEntry.filter(
             frozen_copy_id=copy.id,
             kind=kind,
+            case_key=case_key,
             request_digest=request_digest(kind, request, attempt),
+            occurrence=occurrence,
         )
-        successes = entries.filter(status_code=_SUCCESS_STATUS)
-        # A copy is captured by one engine build, so its entries state slots uniformly (or not at
-        # all); per-digest avoids serving a mixed view if a copy ever held both.
-        slotted = await successes.exclude(occurrence=None).exists()
-        if slotted:
-            successes = successes.exclude(occurrence=None)
-        count = await successes.count()
-        if count:
-            order = "occurrence" if slotted else "seq"
-            return await successes.order_by(order).offset(min(occurrence, count - 1)).first()
+        success = await entries.filter(status_code=_SUCCESS_STATUS).order_by("-seq").first()
+        if success is not None:
+            return success
         return await entries.order_by("-seq").first()
 
 

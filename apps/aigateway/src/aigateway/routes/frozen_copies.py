@@ -17,15 +17,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..call_context import current_call_id, current_trace_id
 from ..core.auth.middleware import CurrentAccount
-from ..core.frozen_copy.headers import (
-    CAPTURE_OCCURRENCE_HEADER,
-    STORED_HEADERS_FIELD,
-    parse_capture_occurrence,
-)
+from ..core.frozen_copy.headers import STORED_HEADERS_FIELD, MalformedCallKey, parse_call_key
 from ..core.frozen_copy.models import STATUS_OPEN, STATUS_SEALED, FrozenCopy
 from ..core.frozen_copy.store import (
     FrozenCopySealed,
@@ -39,9 +35,7 @@ from ..plugins.taxonomy.render import attach_metadata, merged_error_detail, rend
 
 router = APIRouter()
 
-_OCCURRENCE_HEADER = "X-AIGW-Replay-Occurrence"
 _REPLAY_HEADER = "X-AIGW-Replay"
-_MAX_OCCURRENCE_DIGITS = 18
 
 
 class ToolResultRequest(BaseModel):
@@ -53,19 +47,32 @@ class ToolLookupRequest(BaseModel):
     description: dict[str, Any]
 
 
-def _occurrence(request: Request) -> int:
-    raw = request.headers.get(_OCCURRENCE_HEADER)
-    if raw is None:
-        return 0
-    if not (raw.isascii() and raw.isdecimal() and len(raw) <= _MAX_OCCURRENCE_DIGITS):
+class Provenance(BaseModel):
+    """Q28: the engine's version, stored on the copy at seal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    engine_version: str = Field(min_length=1, max_length=64)
+
+
+class SealRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provenance: Provenance
+
+
+def _call_key(request: Request) -> tuple[str, int]:
+    """The request's call key (Q27). A bad or missing key is a 400, never a fallback."""
+    try:
+        return parse_call_key(request.headers)
+    except MalformedCallKey as exc:
         raise HTTPException(
             status_code=400,
             detail={
-                "code": "malformed_replay_occurrence",
-                "message": f"{_OCCURRENCE_HEADER} must be a non-negative integer",
+                "code": "malformed_call_key",
+                "message": f"{exc} is missing or malformed",
             },
-        )
-    return int(raw)
+        ) from None
 
 
 def _miss() -> HTTPException:
@@ -120,7 +127,7 @@ def _replay_metadata() -> dict[str, Any]:
 async def replay_chat_completions(
     copy_id: str, request: Request, response: Response, current: CurrentAccount
 ) -> Any:
-    occurrence = _occurrence(request)
+    case_key, occurrence = _call_key(request)
     copy = await _sealed_copy(request, copy_id)
     try:
         body = await request.json()
@@ -132,7 +139,7 @@ async def replay_chat_completions(
     body, controls = prepare_ingress_body(body)
     try:
         entry = await frozen_copy_store_for(request.app).find(
-            copy, "chat", body, occurrence, attempt=controls.attempt
+            copy, "chat", body, controls.attempt, case_key, occurrence
         )
     except (CanonicalizationError, UnicodeError):
         # A request that cannot be digested was never captured (the capture would have failed).
@@ -178,9 +185,10 @@ def _sealed() -> HTTPException:
 
 @router.post("/v1/frozen-copies/{copy_id}/seal")
 async def seal_frozen_copy(
-    copy_id: UUID, request: Request, current: CurrentAccount
+    copy_id: UUID, request: Request, current: CurrentAccount, body: SealRequest | None = None
 ) -> dict[str, Any]:
-    copy = await frozen_copy_store_for(request.app).seal(copy_id, current.id)
+    provenance = None if body is None else body.provenance.model_dump()
+    copy = await frozen_copy_store_for(request.app).seal(copy_id, current.id, provenance)
     if copy is None:
         raise _not_found()
     return {"id": str(copy.id), "status": copy.status, "entries": copy.entries}
@@ -190,21 +198,20 @@ async def seal_frozen_copy(
 async def capture_tool_result(
     copy_id: UUID, body: ToolResultRequest, request: Request, current: CurrentAccount
 ) -> dict[str, str]:
+    case_key, occurrence = _call_key(request)
     store = frozen_copy_store_for(request.app)
     # Best effort (design Q18): a store or database failure is `failed` (the engine then marks the
     # run partial), never an error. Ownership and sealed state still answer 404 and 409.
     try:
         copy = await store.get(copy_id)
         if copy is not None and copy.account_id == current.id and copy.status == STATUS_OPEN:
-            # Q27: the caller's send-time slot, when it stated one; absent or malformed reads as
-            # absent — the entry then falls back to completion order.
-            occurrence = parse_capture_occurrence(request.headers.get(CAPTURE_OCCURRENCE_HEADER))
             await store.capture(
                 copy,
                 "tool",
                 body.description,
                 {"result": body.result},
                 200,
+                case_key=case_key,
                 occurrence=occurrence,
             )
     except FrozenCopySealed:
@@ -223,11 +230,11 @@ async def capture_tool_result(
 async def look_up_tool_result(
     copy_id: str, body: ToolLookupRequest, request: Request, current: CurrentAccount
 ) -> dict[str, str]:
-    occurrence = _occurrence(request)
+    case_key, occurrence = _call_key(request)
     copy = await _sealed_copy(request, copy_id)
     try:
         entry = await frozen_copy_store_for(request.app).find(
-            copy, "tool", body.description, occurrence
+            copy, "tool", body.description, None, case_key, occurrence
         )
     except (CanonicalizationError, UnicodeError):
         entry = None

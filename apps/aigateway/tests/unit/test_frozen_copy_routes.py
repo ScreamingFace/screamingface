@@ -13,12 +13,15 @@ from aigateway.core.frozen_copy.store import FrozenCopySealed, FrozenCopyStore, 
 from aigateway.core.request_cache.canonical import canonical_digest
 from tests.unit.test_frozen_copy_support import (
     CAPTURE_HEADER,
+    CASE_A,
+    CASE_B,
     CHAT_PATH,
     COPY_HEADER,
     PATCH_TARGET,
     DispatchCounter,
     account_id_of,
     arrange_provider,
+    call_key,
     chat_body,
     run_async,
     seal_copy,
@@ -29,7 +32,6 @@ from tests.unit.test_frozen_copy_support import (
 
 _COPIES = "/v1/frozen-copies"
 _DESCRIPTION = {"tool": "web_search", "query": "primes below one hundred"}
-_OCCURRENCE = "X-AIGW-Replay-Occurrence"
 
 
 def _tool_results(copy_id: str) -> str:
@@ -40,13 +42,16 @@ def _lookup(copy_id: str) -> str:
     return f"{_COPIES}/{copy_id}/tool-results/lookup"
 
 
-def _store_tool(client: TestClient, copy_id: str, result: str, description=None):
+def _store_tool(
+    client: TestClient, copy_id: str, result: str, description=None, case_key="", occurrence=0
+):
     return client.post(
         _tool_results(copy_id),
         json={
             "description": _DESCRIPTION if description is None else description,
             "result": result,
         },
+        headers=call_key(case_key, occurrence),
     )
 
 
@@ -134,6 +139,56 @@ def test_seal_by_a_non_owner_or_of_an_unknown_copy_is_the_same_404(
     assert _read_copy(client, copy_id).status == "open"
 
 
+def test_seal_stores_provenance_and_keeps_the_first(authenticated_client: TestClient) -> None:
+    """Q28: the seal states the engine version; a repeat seal keeps the first one."""
+    client = authenticated_client
+    copy_id = client.post(_COPIES).json()["id"]
+
+    first = client.post(
+        f"{_COPIES}/{copy_id}/seal", json={"provenance": {"engine_version": "4.2.0"}}
+    )
+    again = client.post(
+        f"{_COPIES}/{copy_id}/seal", json={"provenance": {"engine_version": "9.9.9"}}
+    )
+
+    assert first.status_code == 200, first.text
+    assert again.json() == first.json()
+    assert _read_copy(client, copy_id).provenance == {"engine_version": "4.2.0"}
+
+
+def test_a_seal_without_a_body_stores_no_provenance(authenticated_client: TestClient) -> None:
+    client = authenticated_client
+    copy_id = client.post(_COPIES).json()["id"]
+
+    assert client.post(f"{_COPIES}/{copy_id}/seal").status_code == 200
+    assert _read_copy(client, copy_id).provenance is None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"provenance": {"engine_version": "4.2.0"}, "extra": 1}, id="extra-key"),
+        pytest.param({"other": 1}, id="unknown-key-only"),
+        pytest.param({"provenance": None}, id="provenance-null"),
+        pytest.param({"provenance": {}}, id="engine-version-missing"),
+        pytest.param({"provenance": {"engine_version": ""}}, id="engine-version-empty"),
+        pytest.param({"provenance": {"engine_version": "v" * 65}}, id="engine-version-too-long"),
+        pytest.param({"provenance": {"engine_version": 5}}, id="engine-version-not-a-string"),
+        pytest.param({"provenance": {"engine_version": "4.2.0", "build": "x"}}, id="extra-field"),
+    ],
+)
+def test_a_seal_body_with_an_unknown_key_or_bad_value_is_422(
+    authenticated_client: TestClient, body: dict[str, Any]
+) -> None:
+    client = authenticated_client
+    copy_id = client.post(_COPIES).json()["id"]
+
+    response = client.post(f"{_COPIES}/{copy_id}/seal", json=body)
+
+    assert response.status_code == 422, response.text
+    assert _read_copy(client, copy_id).status == "open"
+
+
 def test_capture_after_seal_is_refused(
     authenticated_client: TestClient, credential_blobs, monkeypatch
 ) -> None:
@@ -141,7 +196,7 @@ def test_capture_after_seal_is_refused(
     arrange_provider(client, credential_blobs)
     monkeypatch.setattr(PATCH_TARGET, DispatchCounter())
     copy_id = client.post(_COPIES).json()["id"]
-    headers = {COPY_HEADER: copy_id}
+    headers = {COPY_HEADER: copy_id, **call_key()}
     assert client.post(CHAT_PATH, json=chat_body(), headers=headers).headers[CAPTURE_HEADER] == (
         "stored"
     )
@@ -182,7 +237,7 @@ def test_tool_results_capture_and_lookup_round_trip(authenticated_client: TestCl
 
     stored = _store_tool(client, copy_id, "25 primes: 2, 3, 5, ...")
     client.post(f"{_COPIES}/{copy_id}/seal")
-    found = client.post(_lookup(copy_id), json={"description": _DESCRIPTION})
+    found = client.post(_lookup(copy_id), json={"description": _DESCRIPTION}, headers=call_key())
 
     assert stored.status_code == 200, stored.text
     assert stored.json() == {"outcome": "stored"}
@@ -206,7 +261,7 @@ def test_a_tool_result_that_is_an_error_string_is_stored_as_given(
     _store_tool(client, copy_id, "Search failed: upstream timeout")
     client.post(f"{_COPIES}/{copy_id}/seal")
 
-    found = client.post(_lookup(copy_id), json={"description": _DESCRIPTION})
+    found = client.post(_lookup(copy_id), json={"description": _DESCRIPTION}, headers=call_key())
 
     assert found.json() == {"result": "Search failed: upstream timeout"}
 
@@ -214,17 +269,22 @@ def test_a_tool_result_that_is_an_error_string_is_stored_as_given(
 def test_tool_lookup_follows_the_occurrence_rule(authenticated_client: TestClient) -> None:
     client = authenticated_client
     copy_id = client.post(_COPIES).json()["id"]
-    for text in ("first", "second", "third"):
-        _store_tool(client, copy_id, text)
+    for occurrence, text in enumerate(("first", "second", "third")):
+        _store_tool(client, copy_id, text, occurrence=occurrence)
     client.post(f"{_COPIES}/{copy_id}/seal")
 
-    def at(occurrence: int | None) -> str:
-        headers = {} if occurrence is None else {_OCCURRENCE: str(occurrence)}
+    def at(occurrence: int):
         return client.post(
-            _lookup(copy_id), json={"description": _DESCRIPTION}, headers=headers
-        ).json()["result"]
+            _lookup(copy_id), json={"description": _DESCRIPTION}, headers=call_key("", occurrence)
+        )
 
-    assert [at(None), at(0), at(1), at(2), at(9)] == ["first", "first", "second", "third", "third"]
+    assert [at(0).json()["result"], at(1).json()["result"], at(2).json()["result"]] == [
+        "first",
+        "second",
+        "third",
+    ]
+    # No fallback to another occurrence: a call past the captured ones is a miss.
+    assert at(3).status_code == 404
 
 
 def test_tool_lookup_miss_is_404_and_does_not_match_another_description(
@@ -235,7 +295,11 @@ def test_tool_lookup_miss_is_404_and_does_not_match_another_description(
     _store_tool(client, copy_id, "text")
     client.post(f"{_COPIES}/{copy_id}/seal")
 
-    miss = client.post(_lookup(copy_id), json={"description": {**_DESCRIPTION, "query": "other"}})
+    miss = client.post(
+        _lookup(copy_id),
+        json={"description": {**_DESCRIPTION, "query": "other"}},
+        headers=call_key(),
+    )
 
     assert miss.status_code == 404
     assert miss.json()["detail"]["code"] == "frozen_copy_miss"
@@ -249,22 +313,83 @@ def test_tool_lookup_of_an_open_or_unknown_copy_is_404_unavailable(
     _store_tool(client, open_copy, "text")
 
     for copy_id in (open_copy, str(uuid4())):
-        response = client.post(_lookup(copy_id), json={"description": _DESCRIPTION})
+        response = client.post(
+            _lookup(copy_id), json={"description": _DESCRIPTION}, headers=call_key()
+        )
         assert response.status_code == 404, copy_id
         assert response.json()["detail"]["code"] == "frozen_copy_unavailable"
 
 
-def test_tool_lookup_rejects_a_malformed_occurrence(authenticated_client: TestClient) -> None:
+@pytest.mark.parametrize(
+    "headers",
+    [
+        pytest.param({"X-AIGW-Call-Occurrence": "-3"}, id="negative-occurrence"),
+        pytest.param({"X-AIGW-Case-Key": CASE_A}, id="occurrence-missing"),
+        pytest.param(
+            {"X-AIGW-Case-Key": "A" * 32, "X-AIGW-Call-Occurrence": "0"}, id="uppercase-case"
+        ),
+    ],
+)
+def test_tool_lookup_rejects_a_bad_call_key_with_400(
+    authenticated_client: TestClient, headers: dict[str, str]
+) -> None:
     client = authenticated_client
     copy_id = client.post(_COPIES).json()["id"]
     client.post(f"{_COPIES}/{copy_id}/seal")
 
-    response = client.post(
-        _lookup(copy_id), json={"description": _DESCRIPTION}, headers={_OCCURRENCE: "-3"}
-    )
+    response = client.post(_lookup(copy_id), json={"description": _DESCRIPTION}, headers=headers)
 
     assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "malformed_replay_occurrence"
+    assert response.json()["detail"]["code"] == "malformed_call_key"
+
+
+def test_tool_results_capture_and_lookup_use_the_key(authenticated_client: TestClient) -> None:
+    """Q27: a tool result is keyed like a chat call, so two cases never share one result."""
+    client = authenticated_client
+    copy_id = client.post(_COPIES).json()["id"]
+    _store_tool(client, copy_id, "case-a result", case_key=CASE_A)
+    _store_tool(client, copy_id, "case-b result", case_key=CASE_B)
+    client.post(f"{_COPIES}/{copy_id}/seal")
+
+    def lookup(case_key: str, occurrence: int = 0):
+        return client.post(
+            _lookup(copy_id),
+            json={"description": _DESCRIPTION},
+            headers=call_key(case_key, occurrence),
+        )
+
+    assert lookup(CASE_A).json() == {"result": "case-a result"}
+    assert lookup(CASE_B).json() == {"result": "case-b result"}
+    assert lookup("").status_code == 404
+    assert lookup(CASE_A, 1).status_code == 404
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        pytest.param({}, id="both-missing"),
+        pytest.param({"X-AIGW-Case-Key": CASE_A}, id="occurrence-missing"),
+        pytest.param({"X-AIGW-Call-Occurrence": "+3"}, id="occurrence-plus-sign"),
+        pytest.param(
+            {"X-AIGW-Case-Key": "A" * 32, "X-AIGW-Call-Occurrence": "0"}, id="uppercase-case"
+        ),
+    ],
+)
+def test_tool_results_capture_rejects_a_bad_call_key_with_400(
+    authenticated_client: TestClient, headers: dict[str, str]
+) -> None:
+    client = authenticated_client
+    copy_id = client.post(_COPIES).json()["id"]
+
+    response = client.post(
+        _tool_results(copy_id),
+        json={"description": _DESCRIPTION, "result": "x"},
+        headers=headers,
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["code"] == "malformed_call_key"
+    assert stored_entries(client, copy_id) == []
 
 
 def test_any_account_may_look_up_a_sealed_copys_tool_result(
@@ -277,7 +402,9 @@ def test_any_account_may_look_up_a_sealed_copys_tool_result(
     client.post(f"{_COPIES}/{copy_id}/seal")
 
     response = client.post(
-        _lookup(copy_id), json={"description": _DESCRIPTION}, headers=other_headers
+        _lookup(copy_id),
+        json={"description": _DESCRIPTION},
+        headers={**other_headers, **call_key()},
     )
 
     assert response.status_code == 200, response.text
@@ -306,7 +433,7 @@ def test_tool_result_by_a_non_owner_is_404_even_when_the_copy_is_sealed(
     body = {"description": _DESCRIPTION, "result": "x"}
 
     responses = [
-        client.post(_tool_results(copy_id), json=body, headers=other_headers)
+        client.post(_tool_results(copy_id), json=body, headers={**other_headers, **call_key()})
         for copy_id in (open_copy, sealed_copy, str(uuid4()))
     ]
 
@@ -383,7 +510,9 @@ def authenticated_client_small_cap(_small_cap_env, authenticated_client: TestCli
 def test_a_malformed_copy_id_on_tool_lookup_is_404_unavailable_not_422(
     authenticated_client: TestClient,
 ) -> None:
-    response = authenticated_client.post(_lookup("not-a-uuid"), json={"description": _DESCRIPTION})
+    response = authenticated_client.post(
+        _lookup("not-a-uuid"), json={"description": _DESCRIPTION}, headers=call_key()
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "frozen_copy_unavailable"

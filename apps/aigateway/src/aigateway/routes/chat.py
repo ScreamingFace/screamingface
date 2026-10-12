@@ -45,11 +45,11 @@ from ..core.credential_blob import DispatchObservation
 from ..core.credential_blob.store import CredentialBlobMutationConflict
 from ..core.frozen_copy.headers import (
     CAPTURE_HEADER,
-    CAPTURE_OCCURRENCE_HEADER,
     COPY_HEADER,
     RETRY_AFTER_HEADER,
     STORED_HEADERS_FIELD,
-    parse_capture_occurrence,
+    MalformedCallKey,
+    parse_call_key,
     publish_capture_headers,
 )
 from ..core.frozen_copy.models import STATUS_OPEN, FrozenCopy
@@ -75,6 +75,7 @@ from ..core.provider_access import (
 )
 from ..core.registry import ProviderRegistry
 from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
+from ..core.retry import _case_insensitive_header
 from ..unhandled_errors import generic_detail
 from .chat_accounting import (
     accounting_handler,
@@ -309,12 +310,14 @@ class _Capture:
         outcome: str | None,
         *,
         attempt: int | None = None,
-        occurrence: int | None = None,
+        case_key: str = "",
+        occurrence: int = 0,
     ) -> None:
         self._store = store
         self._request = request
         self._copy = copy_row
         self._attempt = attempt
+        self._case_key = case_key
         self._occurrence = occurrence
         self.outcome = outcome
 
@@ -336,13 +339,20 @@ class _Capture:
                 response_json,
                 status_code,
                 attempt=self._attempt,
+                case_key=self._case_key,
                 occurrence=self._occurrence,
             )
         except FrozenCopySealed:
             self.outcome = "refused"
         except Exception as exc:
             self.outcome = "failed"
-            log_capture_failure("chat", exc, copy_id=self._copy.id, request=self._request)
+            log_capture_failure(
+                "chat",
+                exc,
+                copy_id=self._copy.id,
+                request=self._request,
+                attempt=self._attempt,
+            )
         else:
             self.outcome = "stored"
 
@@ -361,9 +371,15 @@ class _Capture:
         """
         status_code, detail = _error_view(exc)
         stored: dict[str, Any] = {"detail": detail}
-        # WHY: a replayed 429 or 503 tells the client when to retry, as the live answer did.
-        if isinstance(exc, HTTPException) and exc.headers and RETRY_AFTER_HEADER in exc.headers:
-            stored[STORED_HEADERS_FIELD] = {RETRY_AFTER_HEADER: exc.headers[RETRY_AFTER_HEADER]}
+        # WHY: a replayed 429 or 503 tells the client when to retry, as the live answer did. The
+        # header name is read in any casing, as the client would see it.
+        retry_after = (
+            _case_insensitive_header(exc.headers, RETRY_AFTER_HEADER)
+            if isinstance(exc, HTTPException)
+            else None
+        )
+        if retry_after is not None:
+            stored[STORED_HEADERS_FIELD] = {RETRY_AFTER_HEADER: retry_after}
         # WHY: no client received a 499, so it is never an answer a replay may serve; the outcome
         # stays `failed` (nothing stored).
         if status_code != CLIENT_DISCONNECTED_STATUS:
@@ -396,6 +412,12 @@ async def _begin_capture(
         return _Capture(store, {}, None, None)
     if streaming:
         return _Capture(store, snapshot, None, "refused")
+    # Q27: a bad or missing call key is refused, never read as absent: the call is served, and
+    # nothing is stored.
+    try:
+        case_key, occurrence = parse_call_key(request.headers)
+    except MalformedCallKey:
+        return _Capture(store, snapshot, None, "refused")
     try:
         copy_row = await store.get(UUID(raw))
     except ValueError:
@@ -405,10 +427,16 @@ async def _begin_capture(
         return _Capture(store, snapshot, None, "failed")
     if copy_row is None or copy_row.account_id != current_id or copy_row.status != STATUS_OPEN:
         return _Capture(store, snapshot, None, "refused")
-    # Q27: the caller's send-time slot, when it stated one; absent or malformed reads as absent.
-    occurrence = parse_capture_occurrence(request.headers.get(CAPTURE_OCCURRENCE_HEADER))
     # ``failed`` until an insert succeeds: a call that ends without recording stored nothing.
-    return _Capture(store, snapshot, copy_row, "failed", attempt=attempt, occurrence=occurrence)
+    return _Capture(
+        store,
+        snapshot,
+        copy_row,
+        "failed",
+        attempt=attempt,
+        case_key=case_key,
+        occurrence=occurrence,
+    )
 
 
 @router.post("/v1/chat/completions")

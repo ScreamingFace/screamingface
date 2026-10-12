@@ -39,6 +39,8 @@ class FrozenCopy(Model):
     entries = fields.IntField(default=0)
     # Per-copy counter for `FrozenCopyEntry.seq`, advanced under the copy-row lock at each insert.
     entry_seq = fields.IntField(default=0)
+    # Q28: the seal's provenance, {"engine_version": "..."}. NULL when the seal sent none.
+    provenance: Any = fields.JSONField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
     sealed_at = fields.DatetimeField(null=True)
 
@@ -49,8 +51,9 @@ class FrozenCopy(Model):
 class FrozenCopyEntry(Model):
     class Meta:
         table = "frozen_copy_entries"
-        # The replay lookup: every entry of one (copy, kind, digest) in capture order.
-        indexes = (("frozen_copy_id", "kind", "request_digest", "seq"),)
+        # The replay lookup (Q27): every entry of one call key in capture order. Not unique: every
+        # transport attempt of one logical call is stored under the same key.
+        indexes = (("frozen_copy_id", "kind", "case_key", "request_digest", "occurrence", "seq"),)
         # INVARIANT (Q27 follow-up): a regression in the copy-row lock fails loudly instead of
         # silently reordering two entries of one copy.
         unique_together = (("frozen_copy_id", "seq"),)
@@ -62,6 +65,8 @@ class FrozenCopyEntry(Model):
         on_delete=fields.OnDelete.CASCADE,
     )
     kind = fields.CharField(max_length=8)
+    # The case key (Q27): 32 lowercase hex characters, or "" for a call outside any case.
+    case_key = fields.CharField(max_length=32, default="")
     request_digest = fields.CharField(max_length=64)
     request_json: Any = fields.JSONField()
     response_json: Any = fields.JSONField()
@@ -70,14 +75,10 @@ class FrozenCopyEntry(Model):
     # Capture order within the copy: 1, 2, 3, ... assigned under the copy-row lock. The clock is
     # never the order (two rows can share a timestamp, and a clock can step back).
     seq = fields.IntField()
-    # The caller's send-time slot (Q27, header X-AIGW-Capture-Occurrence), when the capture request
-    # stated it. Replay prefers this order: two concurrent identical calls may finish out of order,
-    # and completion order (`seq`) then pairs each branch with another branch's answer. ``None``
-    # for an entry captured before the caller stated slots (legacy copy): replay falls back to
-    # ``seq``. A slot is stated again by the retry that reused it (engine release-once), so an
-    # error entry and the later success entry of one slot can coexist — only the success rows are
-    # distinguished by it.
-    occurrence = fields.IntField(null=True)
+    # The logical-call number of this request in its case key (Q27): 0 for the first call. The
+    # engine fixes it when the call is first sent, and every transport attempt of that call stores
+    # the same value.
+    occurrence = fields.IntField(default=0)
     created_at = fields.DatetimeField(auto_now_add=True)
 
     if TYPE_CHECKING:
