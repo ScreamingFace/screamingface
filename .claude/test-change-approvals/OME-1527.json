@@ -1,0 +1,50 @@
+{
+  "issue": "OME-1527",
+  "branch": "OME-1527-pr7-contracteval-local-task",
+  "approver": "owner \u2014 OME-1527 Work order #7 approved on the ticket (contracteval as a local Task, its folder and tests deleted, the free unit golden rewritten, the SDK retiring its failure code; decision 3: prove the old scores as literals inside the swap PR); to confirm in PR review",
+  "date": "2026-10-12",
+  "scope": "(1) test_contracteval_parity.py: imports the moved grading module; the F1/F2 matrix test becomes F1-only against grading.f1 (F2/precision/recall/accuracy are no longer computed) and the zero-guard test calls grading.f1; _synthetic_cases goes with the hand-built reducer. (2) test_benchmark_stage_parity.py, test_builtin_early_score_timing.py: the contracteval asset branches go with the folder. (3) test_case_positions.py: test_contracteval_supplies_case_metadata_without_changing_answer_input deleted (it drove the hand-built route). (4) test_failure_classes.py: contracteval_grading_failed and polarity_mismatch leave the agreed set (retired on both sides). (5) tests/fixtures/early_grade_compatibility.json: the contracteval board leaves the hand-built baseline. (6) test_benchmark_declaration.py: the contracteval row moves from the hand-built table to the plugin table, same declaration. (7) test_published_revisions.py: one added literal (contracteval: 04cde6eac3938ddf). (8) test_inspect_imported_benchmarks.py: one _EXPECTED_FAMILIES row (contracteval: free_text). (9) test_whole_run_metric.py: the no-row-opts-in guard names contracteval as the one row that opts in. Test bodies not listed here are unchanged.",
+  "reason": "OME-1527 moves ContractEval from its hand-built folder to a local inspect Task under the same id. Tests that drove the deleted folder go or follow the moved code; registry tables move the row from the hand-built side to the plugin side; the revision literal records the one deliberate move; the opt-in guard names the first owner-approved whole-run metric row.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_contracteval_parity.py": {
+      "base_blob": "418e33712b8356b4496b2987ffb3f71456da2a41",
+      "approved_blob": "c7b018dc6958b380fe65b11d4ee0a2ef996996b9"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_stage_parity.py": {
+      "base_blob": "b661cc44b6b4bf9dc1461336ae74d3bdbbb497a9",
+      "approved_blob": "cc1884a6fdc4d8d5d84c582048da095bae63afbd"
+    },
+    "apps/screamingface-engine/tests/unit/test_builtin_early_score_timing.py": {
+      "base_blob": "2c52e382e1e7ba14ffb51699b67700fc5c70049d",
+      "approved_blob": "d8a49da4b98bd7bd744d837537c76a97d87febd7"
+    },
+    "apps/screamingface-engine/tests/unit/test_case_positions.py": {
+      "base_blob": "31a6243772a91ca3e7eae4d037da80eea9dcb44b",
+      "approved_blob": "2bd4dee5e36f6579f40f30b2cdc86b734907a081"
+    },
+    "apps/screamingface-engine/tests/unit/test_failure_classes.py": {
+      "base_blob": "311d88876af2a1a48362472de04da7f5d460c4a4",
+      "approved_blob": "43be9385bea643ac00173fec48f28fb9313eea5f"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "fef775106cc19ff5ba8cee9c91569516b1e943c7",
+      "approved_blob": "231403185bc7faa801ab294f4f7600a29389d66a"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "9da673b7acf65349d05adf1afbe5910682b08a68",
+      "approved_blob": "b39510c9d4d382162e3c9512605408843e3059ca"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "0592cebea57de9cf81b9946df420eefed2b73d21",
+      "approved_blob": "92c017361ae55202e624af64d736cb1efdf6bc12"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
+      "base_blob": "f74a3889cfc50a070aaa44289470fa6ec93a4f39",
+      "approved_blob": "24bb45629cdf9988ec1eff8a258940ba6537cf12"
+    },
+    "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
+      "base_blob": "7c3190ab6b590210e8f6b95f16bd413eaf87c64f",
+      "approved_blob": "08bc09da211c1ba786804512f206c2093a327906"
+    }
+  }
+}

@@ -3950,6 +3950,69 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         named_scores=("musique_answer_f1", "musique_answer_em", "musique_support_f1"),
     ),
+    BenchmarkSpec(
+        key="contracteval",
+        title="ContractEval",
+        description=(
+            "4,182 clause-extraction questions over 102 real commercial contracts (CUAD test "
+            "split). The model is given a full contract and one of 41 clause categories, and must "
+            'quote the answering sentences verbatim or reply "No related clause." Grading is '
+            "deterministic string containment, the paper's own rule: every gold sentence must "
+            "appear, with no partial credit, so there is no Judge and no grading tokens. Benchmark "
+            "score = F1 over the whole run's confusion matrix, not a mean of Case scores: 70% of "
+            "rows have no clause, so a model that always declines would be right on 70% of Cases "
+            "while answering nothing, and F1 scores it 0. Each Case's row records whether the "
+            "Case has a clause, whether the model declined, and its token overlap with the gold "
+            "text. One named deviation from the paper: it sends its extraction instructions as a "
+            "system message, while this board delivers them as the leading text of the single "
+            "candidate input, because a benchmark cannot address a candidate's system role. The "
+            "instructions are identical; the request shape is not, so scores are comparable to "
+            "the paper's in protocol but not in message layout."
+        ),
+        focus="Legal clause extraction",
+        dataset_url="https://huggingface.co/datasets/theatticusproject/cuad-qa",
+        # Specialized legal extraction with real headroom, but deterministic string
+        # containment over given text — no expert-frontier stakes (OME-1257; the hand-built
+        # Benchmark's tier, kept).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval — a
+        #   LOCAL Task (OME-1527), the hand-built Benchmark moved into inspect's shape; every
+        #   field below is carried over from the hand-built definition (OME-1455 sources).
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2508.03080",
+        authors="Liu et al., 2025",
+        citation=(
+            "@misc{liu2025contractevalbenchmarkingllmsclauselevel,\n"
+            "      title={ContractEval: Benchmarking LLMs for Clause-Level Legal Risk Ide"
+            "ntification in Commercial Contracts}, \n"
+            "      author={Shuang Liu and Zelong Li and Ruoyun Ma and Haiyan Zhao and Men"
+            "gnan Du},\n"
+            "      year={2025},\n"
+            "      eprint={2508.03080},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2508.03080}, \n"
+            "}"
+        ),
+        harness_url=(
+            "https://github.com/olivialiu121/ContractEval/tree/f2de74479bb067a13da2fd034972eec6905563b2"
+        ),
+        license="CC-BY-4.0",
+        license_note="CUAD (theatticusproject/cuad-qa) is CC-BY-4.0; the reference harness is MIT.",
+        human_baseline=NotPublished(reason="the ContractEval paper reports no human study"),
+        # F1 (clause-level extraction correctness on CUAD-derived tasks), paper's results table.
+        frontier_score=FrontierScore(
+            score=0.644,
+            model="GPT 4.1 mini",
+            source_url="https://arxiv.org/html/2508.03080",
+            as_of="2025-08",
+        ),
+        notebook="13_contracteval",
+        scorer="screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval_containment",
+        # Reviewed: F1 lies in 0..1, higher is better — a Headline Score (OME-1527, R1).
+        whole_run_metric="screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval_f1",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

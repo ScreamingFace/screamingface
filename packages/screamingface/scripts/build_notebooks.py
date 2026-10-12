@@ -1632,14 +1632,20 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface prepare contracteval  # first run only: download pinned Benchmark assets
-screamingface up                    # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
 Stack management stays outside the notebook so **Run All** never starts or stops local
-services."""),
+services.
+
+**`contracteval` needs an Engine with the `inspect` extra.** It is a Benchmark we author in
+inspect's shape (origin `screamingface`), served by the same machinery as the imported
+inspect_evals boards, so the plain `screamingface up` Engine does not list it. The
+`just local-stack-notebooks` recipe serves an inspect-capable Engine beside the stack and points
+this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting
+the kernel (see `12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -1665,16 +1671,11 @@ report"""),
         nbformat.v4.new_markdown_cell("""\
 ### Reading the metrics
 
-`score` is F1. Beside it the board reports the whole confusion matrix, so you can see *which*
-mistake a model is making rather than only how often:
-
-- **`false_no_related_clause_rate`** — the paper calls this *laziness*: how often the model
-  claimed no clause exists when one did. This is the refusal lever, and it is the number that
-  separates a cautious model from a knowledgeable one.
-- **`recall`** vs **`precision`** — low recall means it misses real clauses; low precision means
-  it answers when it should have abstained.
-- **`jaccard_mean`** — token overlap on the rows that *do* have a clause, so a model that found
-  roughly the right passage but not exactly scores above one that was nowhere near."""),
+`score` is F1, computed by the Benchmark's own whole-run metric over the run's confusion
+matrix. Beside it, `metrics` carries `correct` and `scored_cases`: their ratio is the plain
+accuracy F1 replaces. The paper's other numbers (precision, recall, F2, the *laziness* rate of
+declining where a clause exists) are not served; section 3 prints the per-case facts they
+are built from."""),
         nbformat.v4.new_code_cell("""\
 candidate = report.candidates.only
 print("score (F1):", candidate.score)
@@ -1707,19 +1708,26 @@ fusion_report"""),
         nbformat.v4.new_markdown_cell("""\
 ## 3. Read the per-case outcomes
 
-Each case is one bit: every gold sentence was quoted, or it was not. The check row records
-whether the model abstained and how many gold sentences the case had, so a wrong answer can be
-inspected rather than just counted."""),
+Each case is one bit: every gold sentence was quoted, or it was not. The check's evidence
+records whether the case has a clause, whether the model declined, and its token overlap
+(Jaccard) with the gold text, so a wrong answer can be inspected rather than just counted —
+and a missed clause the model declined is the paper's *laziness*."""),
         nbformat.v4.new_code_cell("""\
 for case in fusion_report.candidates.only.cases:
     grade = case.grade
-    metrics = grade.metrics if grade else {}
+    if grade is None:
+        print(case.case_id, case.status)
+        continue
+    check = grade.checks[0]
+    evidence = check.evidence[0].metadata if check.evidence else {}
     print(
         case.case_id,
         case.status,
-        grade.score if grade else None,
-        "positive" if metrics.get("is_positive") else "negative",
-        "abstained" if metrics.get("abstained") else "answered",
+        grade.score,
+        "positive" if evidence.get("is_positive") else "negative",
+        "abstained" if evidence.get("abstained") else "answered",
+        "jaccard:",
+        evidence.get("jaccard"),
     )"""),
         nbformat.v4.new_markdown_cell("""\
 ## 4. Before you scale up
