@@ -15,10 +15,13 @@ repos:
       #
       # Vendored third-party content is not ours to format. Edit SKILL.md (our interpretation) or
       # re-pull (upstream's content); never reformat in between.
+      #
+      # Audit evidence (docs/spec/<slug>/evidence/) is the same kind of record: the models, probes
+      # and tool output exactly as they were run. Reformatting them changes the evidence.
       - id: trailing-whitespace
-        exclude: '^\.claude/skills/screamingface-design/reference/'
+        exclude: '^(\.claude/skills/screamingface-design/reference/|docs/spec/[^/]+/evidence/)'
       - id: end-of-file-fixer
-        exclude: '^\.claude/skills/screamingface-design/reference/'
+        exclude: '^(\.claude/skills/screamingface-design/reference/|docs/spec/[^/]+/evidence/)'
       - id: check-yaml
         args: [--allow-multiple-documents]
         exclude: '(^|/)templates/.*\.ya?ml$'   # Helm templates use Go-template syntax, not valid YAML
@@ -31,6 +34,9 @@ repos:
     rev: v0.14.0
     hooks:
       # ruff resolves each stack's own [tool.ruff] config (incl. C901/PLR complexity) per file.
+      # Audit evidence is excluded for the same reason as above: it is a record, not product code.
       - id: ruff-check
         args: [--fix]
+        exclude: '^docs/spec/[^/]+/evidence/'
       - id: ruff-format
+        exclude: '^docs/spec/[^/]+/evidence/'

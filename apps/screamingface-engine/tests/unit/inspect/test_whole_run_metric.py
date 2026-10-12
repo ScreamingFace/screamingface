@@ -490,6 +490,7 @@ def test_naming_a_metric_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) 
     [
         ({"inverted_grade": True}, "inverted_grade"),
         ({"verdict_grades": {"YES": 1.0}}, "verdict_grades"),
+        ({"attempts": 2}, "attempts"),
     ],
 )
 def test_a_metric_beside_a_grade_rewrite_is_refused_at_assembly(

@@ -43,6 +43,7 @@ import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import CodeType, FunctionType
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 # WHY a runtime import is safe here: provenance_facts imports only the stdlib and yaml,
@@ -96,35 +97,97 @@ def _custom_metrics(task: Any) -> tuple[str, ...]:
 _INSPECT_DEFAULT_REDUCER: str = "mean"
 
 
-def _refuse_several_epochs(task: Any) -> None:
-    """Refuse a Task that asks each Sample more than once, naming its epochs and reducer.
+def task_attempts(task: Any) -> int:
+    """How many Attempts each Case gets: the Task's epochs when they mean "any of N", else 1.
 
-    FEATURE: several Attempts per Case (OME-1458). ``epochs=N`` runs every Sample N times
-    and folds the N scores with a reducer (MBPP: 5, ``pass_at_1``); our Benchmark asks
-    each Case once, so the import would publish a one-Attempt score as the eval's number.
+    FEATURE: several Attempts per Case (OME-1458). ``epochs=N`` runs every Sample N times and
+    folds the N scores with a reducer. Our Benchmark asks each Case N times and marks a Check
+    met if any Attempt met it, which is exactly what three inspect reducers compute at N:
+    ``max``, ``at_least_1`` and ``pass_at_N``. Worked example: ``Epochs(2, "pass_at_2")`` →
+    2; MBPP's ``Epochs(5, ["mean", "pass_at_1", "pass_at_2", "pass_at_5"])`` → refused,
+    naming ``mean``.
 
-    INVARIANT: refused whatever the reducer, until the Engine runs several Attempts per
-    Case (spec ``docs/spec/2026-10-07-OME-1458-attempts-per-case.md`` D12). One epoch is
-    one Attempt, so ``Epochs(1, "mode")`` (lab_bench) imports as before.
-    AIDEV-NOTE: the build replaces this refusal with a mapping: any-match reducers
-    (``max``, ``at_least_1``, ``pass_at_N``) become ``attempts=N``; every other reducer
-    stays refused by name (spec §2.6).
+    INVARIANT: every declared reducer must be any-match at N, or the Task is refused by name:
+    ``pass_at_k`` with k < N is inspect's unbiased estimator, a different number from any-of-N
+    (spec §2.1), and ``mean`` is an average. One epoch is one Attempt, so
+    ``Epochs(1, "mode")`` (lab_bench) imports as before.
+
+    INVARIANT: the name alone is not the rule. ``at_least(1, value=0.5)`` is logged as
+    ``at_least_1`` but counts a half-right answer; any parameter other than ``k`` (a
+    ``value`` below full marks, a ``value_to_float``) is refused, naming it. And any eval
+    may register its own reducer as ``max``: one whose code is not inspect's own ``max`` /
+    ``at_least`` / ``pass_at`` is refused, naming it (at scores [0, 1] a first-epoch
+    "max" publishes 0 where our fold publishes 1.0).
     """
 
+    from inspect_ai._util.registry import registry_params
+    from inspect_ai.scorer import at_least, max_score, pass_at
     from inspect_ai.scorer._reducer.registry import reducer_log_names
 
     epochs: int | None = getattr(task, "epochs", None)
     if epochs is None or epochs <= 1:
-        return
+        return 1
     reducers: list[Any] | None = getattr(task, "epochs_reducer", None)
     names: list[str] = (reducer_log_names(reducers) if reducers else None) or [
         _INSPECT_DEFAULT_REDUCER
     ]
-    raise ImporterError(
-        f"the task declares epochs={epochs} with reducer {', '.join(names)}: a Benchmark "
-        "that asks each Case several times is not supported yet (OME-1458), and importing "
-        "it would publish a one-Attempt score"
-    )
+    any_match: frozenset[str] = frozenset({"max", "at_least_1", f"pass_at_{epochs}"})
+    refused: list[str] = [name for name in names if name not in any_match]
+    if refused:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {', '.join(refused)}: only "
+            f"any-of-{epochs} reducers ({', '.join(sorted(any_match))}) import as "
+            f"{epochs} Attempts per Case; this one would publish a different number (OME-1458)"
+        )
+    # WHY: a registry name is a label any eval can claim (registering `max` even overwrites
+    # inspect's entry), but every call of inspect's own factory, imported directly, returns
+    # a reduce function sharing one code object; a look-alike cannot.
+    builtin_code: dict[str, CodeType | None] = {
+        "max": _reduce_code(max_score()),
+        "at_least_1": _reduce_code(at_least(1)),
+        f"pass_at_{epochs}": _reduce_code(pass_at(epochs)),
+    }
+    impostors: list[str] = [
+        name
+        for name, reducer in zip(names, reducers or [], strict=True)
+        if (code := _reduce_code(reducer)) is None or code is not builtin_code[name]
+    ]
+    if impostors:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {', '.join(impostors)}: the name "
+            f"is a built-in any-of-{epochs} reducer's, but the code is not inspect's own; "
+            "its rule cannot be read, so it would publish a different number (OME-1458)"
+        )
+    # WHY: every name is any-match from here, so the Task declared its reducers; a tuned
+    # threshold behind an any-match name is a different rule.
+    tuned: list[str] = [
+        f"{name}({', '.join(f'{key}={value!r}' for key, value in params.items())})"
+        for name, reducer in zip(names, reducers or [], strict=True)
+        if (params := _tuned_params(registry_params(reducer)))
+    ]
+    if tuned:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {', '.join(tuned)}: only "
+            f"any-of-{epochs} at full marks imports as {epochs} Attempts per Case; a tuned "
+            "threshold would publish a different number (OME-1458)"
+        )
+    return epochs
+
+
+def _reduce_code(reducer: object) -> CodeType | None:
+    """The code a reducer runs: the one fact a borrowed registry name cannot fake."""
+
+    return reducer.__code__ if isinstance(reducer, FunctionType) else None
+
+
+def _tuned_params(params: dict[str, Any]) -> dict[str, Any]:
+    """The reducer parameters that change what "any of N" counts: all but ``k`` and full marks."""
+
+    return {
+        key: value
+        for key, value in params.items()
+        if key != "k" and not (key == "value" and value == 1.0)
+    }
 
 
 @dataclass(frozen=True)

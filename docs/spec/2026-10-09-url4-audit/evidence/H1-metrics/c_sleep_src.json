@@ -1,0 +1,42 @@
+{
+  "kind": "custom",
+  "total": 3,
+  "hits": [
+    {
+      "file": "packages/url4/src/url4/streaming/testing/stream_contract.py",
+      "line": 88,
+      "text": "await asyncio.sleep(0)",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41841380289583,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/src/url4/streaming/testing/stream_contract.py",
+      "line": 150,
+      "text": "# completed by the time we publish: `asyncio.sleep(0)` below gives the follower task exact",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41841380289583,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/src/url4/streaming/testing/stream_contract.py",
+      "line": 167,
+      "text": "await asyncio.sleep(0)",
+      "marker": "asyncio.sleep",
+      "key": "asyncio.sleep",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41841380289583,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    }
+  ]
+}

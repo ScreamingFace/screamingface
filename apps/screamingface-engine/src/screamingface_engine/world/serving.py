@@ -190,7 +190,7 @@ def mount_http_status(code: str | None, *, permanent: bool) -> int:
     if permanent and code is not None and code not in _URL4_CODES:
         # Node-tier parity (review C2): a permanent failure with an ENGINE or provider code
         # (`aigateway_http_401`, `provider_refused`) is an upstream failure — 502 — not url4's
-        # 500 for an unknown permanent error.
+        # class default for an unlisted permanent error (422 since url4 2.0, contracts C8).
         return 502
     return url4_http_status(code, permanent=permanent)
 

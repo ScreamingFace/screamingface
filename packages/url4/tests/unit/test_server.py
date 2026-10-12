@@ -349,8 +349,10 @@ async def test_dual_wire_conventions_are_codec_owned():
 
     raw = "(a=https://x)!'go'"
     encoded = "%28a%3Dhttps%3A%2F%2Fx%29%21%27go%27"
-    assert decode_subrequest_http(raw) == ("a=https://x", "'go'")
-    assert decode_subrequest_http(encoded) == ("a=https://x", "'go'")
+    # FLIPPED (url4 2.0, A5 / C9): the sub-request decode hands an endpoint the prompt
+    # itself — a quoted-text intent is unquoted; the eval path keeps the raw expression.
+    assert decode_subrequest_http(raw) == ("a=https://x", "go")
+    assert decode_subrequest_http(encoded) == ("a=https://x", "go")
     assert decode_expression_http(raw) == raw
     assert decode_expression_http(encoded) == raw
 
@@ -363,11 +365,11 @@ async def test_node_default_route_is_first_registered_endpoint() -> None:
     assert n.default_route() is None
 
     @n.endpoint("/alpha")
-    async def alpha(request: Request) -> str:  # noqa: ARG001 - handler contract
+    async def alpha(_request: Request) -> str:
         return "alpha"
 
     @n.endpoint("/beta")
-    async def beta(request: Request) -> str:  # noqa: ARG001 - handler contract
+    async def beta(_request: Request) -> str:
         return "beta"
 
     assert n.default_route() == "/alpha"
@@ -379,12 +381,12 @@ async def test_node_reduce_dispatches_to_first_registered_endpoint() -> None:
     calls: list[str] = []
 
     @n.endpoint("/reducer")
-    async def reducer(request: Request) -> str:  # noqa: ARG001 - handler contract
+    async def reducer(_request: Request) -> str:
         calls.append("/reducer")
         return "REDUCED"
 
     @n.endpoint("/leaf")
-    async def leaf(request: Request) -> str:  # noqa: ARG001 - handler contract
+    async def leaf(_request: Request) -> str:
         calls.append("/leaf")
         return "LEAF"
 

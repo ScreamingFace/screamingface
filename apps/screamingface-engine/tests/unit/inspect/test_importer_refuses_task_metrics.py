@@ -42,7 +42,7 @@ pytest.importorskip("inspect_ai")
 
 from inspect_ai import Task  # noqa: E402
 from inspect_ai.dataset import MemoryDataset, Sample  # noqa: E402
-from inspect_ai.scorer import accuracy, grouped, match, mean, stderr  # noqa: E402
+from inspect_ai.scorer import accuracy, grouped, match, stderr  # noqa: E402
 
 from screamingface_engine_inspect.case_sources import CaseSource  # noqa: E402
 from screamingface_engine_inspect.import_replay import (  # noqa: E402
@@ -69,8 +69,9 @@ def _module(name: str) -> Any:
     return importlib.import_module(f"inspect_evals.{name}")
 
 
-def _task_with(metrics: list[Any]) -> Task:
-    """A one-Sample exact-match Task declaring these Task-level metrics; nothing is fetched.
+def _task_with(metrics: list[Any], scorers: list[Any] | None = None) -> Task:
+    """A one-Sample Task declaring these Task-level metrics (exact-match unless the eval's own
+    scorers are given); nothing is fetched.
 
     WHY a stand-in Task with the eval's real metric objects: calling the eval's task function
     downloads its dataset; each case below also checks the eval's source declares exactly
@@ -78,7 +79,9 @@ def _task_with(metrics: list[Any]) -> Task:
     """
 
     return Task(
-        dataset=MemoryDataset([Sample(input="q", target="a")]), scorer=match(), metrics=metrics
+        dataset=MemoryDataset([Sample(input="q", target="a")]),
+        scorer=scorers or match(),
+        metrics=metrics,
     )
 
 
@@ -106,12 +109,23 @@ def _bbeh() -> list[Any]:
     ]
 
 
+#: bbeh's whole Task-level list, verbatim from ``metrics=[`` to ``],``: a one-line piece of it
+#: would still match if a metric were added or removed around that line.
+_BBEH_DECLARED: str = """metrics=[
+            grouped(
+                accuracy(),
+                group_key="task",
+                all=False,
+            ),  # average for each task
+            harmonic_mean_across_tasks(),  # harmonic mean across tasks
+        ],"""
+
 #: (eval module, text its Task declaration contains, the eval's metrics rebuilt, the
 #: headline metric the refusal names).
 _REFUSED: list[tuple[str, str, Callable[[], list[Any]], str]] = [
     ("xstest.xstest", "metrics=[refusal_rate()]", _xstest, "refusal_rate"),
     ("coconot.coconot", "metrics=[compliance_rate()]", _coconot, "compliance_rate"),
-    ("bbeh.bbeh", "harmonic_mean_across_tasks(),  # harmonic mean across tasks", _bbeh, "grouped"),
+    ("bbeh.bbeh", _BBEH_DECLARED, _bbeh, "grouped"),
 ]
 
 
@@ -193,7 +207,7 @@ def test_the_import_child_refuses_a_task_level_rate_too(fake_eval: str) -> None:
 
 # ── 2. a plain mean plus a stderr imports ────────────────────────────────────────────────
 
-#: race_h, mgsm_en and squad declare a plain mean plus a clustered stderr at Task level.
+#: race_h and mgsm_en declare a plain mean plus a clustered stderr at Task level on one scorer.
 _IMPORTED: list[tuple[str, str, Callable[[], list[Any]]]] = [
     (
         "race_h.race_h",
@@ -204,11 +218,6 @@ _IMPORTED: list[tuple[str, str, Callable[[], list[Any]]]] = [
         "mgsm.mgsm",
         'metrics=[accuracy(), stderr(cluster="question_id")]',
         lambda: [accuracy(), stderr(cluster="question_id")],
-    ),
-    (
-        "squad.squad",
-        'metrics=[mean(), stderr(cluster="context_hash")]',
-        lambda: [mean(), stderr(cluster="context_hash")],
     ),
 ]
 
@@ -226,6 +235,33 @@ def test_a_task_level_plain_mean_with_a_clustered_stderr_imports_with_nothing_dr
     facts: TaskReplayFacts = _facts(_task_with(metrics()), f"inspect_evals.{module}:task")
 
     assert facts.scorer == "inspect_ai.scorer:match"
+    assert facts.dropped_metrics == ()
+
+
+def test_squads_two_scorers_under_a_task_level_mean_both_import_with_nothing_dropped() -> None:
+    """squad marks each Case twice (f1 and exact) and declares its metrics on the Task, so
+    inspect gives both scorers its mean; both are kept, the first is the headline."""
+
+    squad: Any = _module("squad.squad")
+    source: str = inspect.getsource(squad)
+    assert "scorer=[f1(), exact()]" in source
+    assert 'metrics=[mean(), stderr(cluster="context_hash")]' in source
+
+    # WHY squad's own bindings: they are the scorer and metric functions its task function
+    # calls. The one in-memory Sample stands in for its dataset (calling the task function
+    # downloads it); it says nothing about how squad loads its Samples.
+    facts: TaskReplayFacts = _facts(
+        _task_with(
+            [squad.mean(), squad.stderr(cluster="context_hash")],
+            scorers=[squad.f1(), squad.exact()],
+        ),
+        "inspect_evals.squad.squad:squad",
+    )
+
+    assert facts.scorer == "inspect_ai.scorer:f1"
+    assert facts.extra_scorers == ("inspect_ai.scorer:exact",)
+    assert facts.named_scores == ("f1", "exact")
+    assert facts.dropped_scorers == ()
     assert facts.dropped_metrics == ()
 
 

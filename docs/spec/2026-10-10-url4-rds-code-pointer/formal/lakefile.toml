@@ -1,0 +1,9 @@
+name = "url4rds"
+version = "0.1.0"
+defaultTargets = ["Url4Rds"]
+
+[leanOptions]
+autoImplicit = false
+
+[[lean_lib]]
+name = "Url4Rds"

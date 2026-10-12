@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from collections.abc import Awaitable, Callable, Coroutine, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Iterator, Sequence
 from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
+from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import Event as ThreadEvent
 from threading import Lock
@@ -19,6 +20,7 @@ from screamingface._core.ports import (
     AsyncRunTransport,
     SyncRunTransport,
     _ConnectionNotice,
+    _ResultPersistence,
     _RunOutcome,
 )
 from screamingface._evaluation.benchmark import _BenchmarkResource
@@ -74,7 +76,7 @@ def evaluate_sync(
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
     from screamingface._evaluation.compilation import compile_evaluation
-    from screamingface._evaluation.results import report_from_outcomes
+    from screamingface._evaluation.outcome import completed_report
     from screamingface.errors import PlanningError
 
     _evaluation_options(on_event, progress)
@@ -98,22 +100,22 @@ def evaluate_sync(
     preflight_sync(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
-    observer = _sync_event_observer(
-        on_event,
-        progress,
-        selected_candidates,
-        evaluation.case_count,
-        benchmark,
-        check_disclosure=check_disclosure,
-    )
-    try:
-        outcomes = _settled_sync(transport, evaluation, selected_candidates, observer)
-        report = report_from_outcomes(evaluation, outcomes)
-    except BaseException as exc:
-        _abort_event_observer(observer, exc)
-        raise
-    _reconcile_event_observer(observer, report)
-    return report
+    with _prepared_results(transport, evaluation, selected_candidates):
+        observer = _sync_event_observer(
+            on_event,
+            progress,
+            selected_candidates,
+            evaluation.case_count,
+            benchmark,
+            check_disclosure=check_disclosure,
+        )
+        try:
+            outcomes = _settled_sync(transport, evaluation, selected_candidates, observer)
+            report = completed_report(evaluation, outcomes)
+        except BaseException as exc:
+            _abort_event_observer(observer, exc)
+            raise
+        return _returned_report(observer, report)
 
 
 async def evaluate_async(
@@ -131,7 +133,7 @@ async def evaluate_async(
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
     from screamingface._evaluation.compilation import compile_evaluation
-    from screamingface._evaluation.results import report_from_outcomes
+    from screamingface._evaluation.outcome import completed_report
     from screamingface.errors import PlanningError
 
     _evaluation_options(on_event, progress)
@@ -155,22 +157,22 @@ async def evaluate_async(
     await preflight_async(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
-    observer = _async_event_observer(
-        on_event,
-        progress,
-        selected_candidates,
-        evaluation.case_count,
-        benchmark,
-        check_disclosure=check_disclosure,
-    )
-    try:
-        outcomes = await _settled_async(transport, evaluation, selected_candidates, observer)
-        report = report_from_outcomes(evaluation, outcomes)
-    except BaseException as exc:
-        _abort_event_observer(observer, exc)
-        raise
-    _reconcile_event_observer(observer, report)
-    return report
+    with _prepared_results(transport, evaluation, selected_candidates):
+        observer = _async_event_observer(
+            on_event,
+            progress,
+            selected_candidates,
+            evaluation.case_count,
+            benchmark,
+            check_disclosure=check_disclosure,
+        )
+        try:
+            outcomes = await _settled_async(transport, evaluation, selected_candidates, observer)
+            report = completed_report(evaluation, outcomes)
+        except BaseException as exc:
+            _abort_event_observer(observer, exc)
+            raise
+        return _returned_report(observer, report)
 
 
 def _settled_sync(
@@ -809,3 +811,21 @@ def _evaluation_inputs(
 
 
 __all__: list[str] = []
+
+
+@contextmanager
+def _prepared_results(transport, evaluation, candidates) -> Iterator[None]:
+    if isinstance(transport, _ResultPersistence):
+        transport.prepare_results(evaluation, candidates)
+    try:
+        yield
+    finally:
+        # INVARIANT: cancellation retires membership for candidates never scheduled.
+        finish = getattr(transport, "finish_results", None)
+        if callable(finish):
+            finish(candidates)
+
+
+def _returned_report(observer, report: Report) -> Report:
+    _reconcile_event_observer(observer, report)
+    return report

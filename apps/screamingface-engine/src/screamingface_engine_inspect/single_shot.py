@@ -255,6 +255,7 @@ def single_shot_benchmark(
     named_scores: Sequence[str] = (),
     origin: BenchmarkOrigin = "inspect_evals",
     whole_run_metric_factory: Callable[[], Any] | None = None,
+    attempts: int = 1,
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -301,6 +302,9 @@ def single_shot_benchmark(
         whole_run_metric_factory: zero-arg callable returning the eval's own inspect metric,
             which then scores the whole run in place of the mean (OME-1527, R1); None keeps
             the mean. The caller carries its reference into ``revision_pins``.
+        attempts: Attempts per Case (OME-1458) — the expression asks each Case this many
+            times and the aggregate folds them per Check. The caller carries it into
+            ``revision_pins``.
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -377,7 +381,7 @@ def single_shot_benchmark(
         # FEATURE: the researcher-visible refusal-rate mark (OME-1400) — the same flag the
         # scorer adapter flips on, published so report.json can show it.
         inverted_grade=inverted_grade,
-        build=_build(routes, case_count),
+        build=_build(routes, case_count, attempts),
         install=install,
         focus=focus,
         dataset_url=dataset_url,
@@ -393,6 +397,7 @@ def single_shot_benchmark(
             # The tier is authored on the BenchmarkSpec row (the imported benchmark's one
             # authoring site) and threaded through verbatim (OME-1257).
             difficulty=difficulty,
+            attempts=attempts,
         ),
         check_surface=(
             DraftFeedbackOffer(
@@ -502,8 +507,12 @@ def install_imported_benchmark(node: Url4Node, assets: Path, benchmark_id: str) 
             node.endpoint(route)(handler)
 
 
-def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
-    """The canonical one-invocation expression — one answer per Case, graded once."""
+def _build(routes: Mapping[str, str], available: int, attempts: int = 1) -> Callable[[int], Node]:
+    """The canonical one-invocation expression — one answer per Case, graded once.
+
+    With ``attempts`` above 1 (OME-1458) the same execution runs once per Attempt; at 1 the
+    expression is exactly the one every published imported Benchmark pins.
+    """
 
     def build(case_count: int) -> Node:
         candidate_invocation = candidate(
@@ -540,6 +549,7 @@ def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
                 candidate_invocation=candidate_invocation,
                 grading=checked,
                 case_id="$item.id",
+                attempts=attempts,
             ),
             selected_case_count=case_count,
             available_case_count=available,

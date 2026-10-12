@@ -1,0 +1,150 @@
+{
+  "kind": "custom",
+  "total": 12,
+  "hits": [
+    {
+      "file": "packages/url4/src/url4/cli/app.py",
+      "line": 127,
+      "text": "return {name: getattr(args, name) for name in _SERVE_FIELDS}",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 78.40617288187423,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-23"
+    },
+    {
+      "file": "packages/url4/src/url4/dag/executor.py",
+      "line": 216,
+      "text": "value = getattr(node, attr, None)",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41844140039274,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/src/url4/streaming/lifecycle.py",
+      "line": 88,
+      "text": "code = getattr(exc, \"code\", None)",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41844140039274,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/src/url4/streaming/lifecycle.py",
+      "line": 89,
+      "text": "permanent = getattr(exc, \"permanent\", None)",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41844140039274,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/src/url4/dag/executor.py",
+      "line": 196,
+      "text": "code = getattr(exc, \"code\", None)",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 30.109633530022368,
+      "author": "Keelan",
+      "date": "2026-09-09"
+    },
+    {
+      "file": "packages/url4/src/url4/dag/executor.py",
+      "line": 197,
+      "text": "permanent = getattr(exc, \"permanent\", None)",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 30.109633530022368,
+      "author": "Keelan",
+      "date": "2026-09-09"
+    },
+    {
+      "file": "packages/url4/src/url4/streaming/protocol/signals.py",
+      "line": 144,
+      "text": "amount = getattr(self, name)",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 22.27006177076311,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-17"
+    },
+    {
+      "file": "packages/url4/src/url4/dag/nodes/_shared.py",
+      "line": 159,
+      "text": "return getattr(payload, \"media_type\", None)",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.32364973372607,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    },
+    {
+      "file": "packages/url4/src/url4/dag/nodes/_shared.py",
+      "line": 176,
+      "text": "code = getattr(exc, \"code\", None)",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.32364973372607,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    },
+    {
+      "file": "packages/url4/src/url4/dag/nodes/_shared.py",
+      "line": 179,
+      "text": "permanent = getattr(exc, \"permanent\", None)",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.32364973372607,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    },
+    {
+      "file": "packages/url4/src/url4/peer/direct.py",
+      "line": 146,
+      "text": "code = getattr(exc, \"code\", None)",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 12.227492326318666,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-27"
+    },
+    {
+      "file": "packages/url4/src/url4/peer/direct.py",
+      "line": 147,
+      "text": "permanent = getattr(exc, \"permanent\", None)",
+      "marker": "getattr(",
+      "key": "getattr(",
+      "expires": null,
+      "reason": null,
+      "age_days": 12.227492326318666,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-27"
+    }
+  ]
+}

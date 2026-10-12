@@ -1,0 +1,14 @@
+-- r0_control
+R0 control (happy path): 1:started 2:log 3:usage 4:result 5:terminated:succeeded | run returned
+-- r1_flush_raises_on_terminal_flush
+R1 flush raises in _terminate('succeeded'): 1:started 2:usage 3:result 4:terminated:succeeded 5:terminated:failed | run returned | terminals=['succeeded', 'failed'] -> REPRODUCED
+-- r2_cancel_during_terminal_flush
+R2 cancel while _terminate('succeeded') flushes: 1:started 2:usage 3:result 4:terminated:succeeded 5:terminated:stopped | run raised CancelledError | terminals=['succeeded', 'stopped'] -> REPRODUCED
+-- r3_second_deferred_failure_at_the_failed_arm_flush
+R3 second rejected ack settles during the failed arm's flush: 1:started 2:log 3:log 5:terminated:failed | run raised RuntimeError: deferred publish failure: rejected tel-1 | terminals=['failed'] -> REPRODUCED (terminal written, run raises out of the failed arm)
+-- r4_prewrite_refusal_leaves_a_sequence_hole
+R4 pre-write publish failure: 1:started 2:log 3:usage 5:terminated:failed | run returned | REPRODUCED (hole in sequence)
+-- r5_deadline_converted_by_adapter
+R5 deadline fires inside a cancel-converting publish: 1:started 3:terminated:failed | run returned | terminals=['failed'] gap=True -> REPRODUCED (failed, not timed_out)
+-- r6_executor_not_closed_on_completed
+R6 executor generator on Completed: ['publish started', 'publish usage', 'executor finally (world close)', 'publish result', 'publish terminated', 'run returned'] -> REPRODUCED: run never closes it; the asyncgen finalizer closes it in ANOTHER task at the run's next suspension

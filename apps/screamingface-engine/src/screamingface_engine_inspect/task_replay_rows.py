@@ -366,6 +366,15 @@ def _benchmark_row_lines(
             mean_instead_of=facts.mean_instead_of,
         )
     )
+    if facts.attempts > 1:
+        # WHY only above 1 (OME-1458): every one-epoch Task's row renders byte-identically.
+        lines.extend(
+            [
+                f"        # The Task's epochs={facts.attempts} are any-match: each Case is asked",
+                f"        # {facts.attempts} times and a Check is met if any Attempt met it.",
+                f"        attempts={facts.attempts},",
+            ]
+        )
     lines.append("    ),")
     return lines
 

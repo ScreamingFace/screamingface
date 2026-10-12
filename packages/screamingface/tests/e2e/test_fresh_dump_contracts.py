@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 from fixtures.slice_snapshot import (
     author_golden,
+    fresh_candidate,
     parse_candidate_spec,
     parse_fresh_report,
 )
@@ -315,3 +316,44 @@ def test_fusion_fields_are_refused_on_a_loop_golden() -> None:
         GoldenReport.model_validate(_loop_golden_document(recipe="open_panel"))
     with pytest.raises(Exception, match="corrective_loop"):
         GoldenReport.model_validate(_loop_golden_document(synthesizer=_JUDGE))
+
+
+# -- single-model fresh recordings (url4 2.0: draco-3pass re-recorded) ----------------
+
+
+def test_fresh_candidate_rebuilds_a_single_model() -> None:
+    import screamingface as sf
+
+    candidate, fields = fresh_candidate({"kind": "model", "model": _MEMBER_1})
+    assert candidate == sf.Model(_MEMBER_1)
+    assert fields == {"kind": "model", "model": _MEMBER_1}
+
+
+def test_fresh_candidate_golden_replays_the_same_model() -> None:
+    # INVARIANT: the golden a fresh single-model bless writes rebuilds the very
+    # candidate the bless replayed — build_candidate and fresh_candidate agree.
+    candidate, fields = fresh_candidate({"kind": "model", "model": _MEMBER_1})
+    golden = author_golden(
+        board="draco-3pass",
+        revision="r",
+        **fields,
+        limit=None,
+        rendered_url4="(x)!y",
+        final_score=0.5,
+        case_statuses={"1": "scored"},
+        case_failures={},
+    )
+    assert build_candidate(GoldenReport.model_validate(golden)) == candidate
+
+
+@pytest.mark.parametrize("spec", [{"kind": "model"}, {"kind": "model", "model": " "}])
+def test_fresh_candidate_refuses_a_model_spec_without_a_model(spec: dict[str, object]) -> None:
+    with pytest.raises(SystemExit, match="model"):
+        fresh_candidate(spec)
+
+
+def test_fresh_candidate_keeps_the_corrective_loop_path() -> None:
+    candidate, fields = fresh_candidate(_candidate_spec())
+    assert fields["kind"] == "corrective_loop"
+    assert fields["max_rounds"] == 3
+    assert type(candidate).__name__ == "CorrectiveLoop"
