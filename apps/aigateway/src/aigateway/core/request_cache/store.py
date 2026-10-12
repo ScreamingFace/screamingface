@@ -94,7 +94,45 @@ class RequestCacheStore(Protocol):
     def cache_available(self) -> bool: ...
 
 
+# Held EXCLUSIVELY by a snapshot merge for its whole transaction (`bulk_loader.load_snapshot`):
+# the database-wide signal that a merge, not another hit, may be holding a row's lock.
+MERGE_ADVISORY_LOCK_KEY = 951_1221
+
+# INVARIANT (OME-951 spec §7, owner decision OME-1221): a hit never waits for a snapshot merge. A
+# merge holds every colliding row's lock until it commits, and `get` awaits this bump before
+# returning the body — so a plain UPDATE would park the hit for the whole merge.
+# INVARIANT (plan §8.13, `test_every_concurrent_hit_is_counted`): concurrent hits on one key are
+# all counted. Hits hold a row's lock for one statement, so waiting for each other costs nothing.
+#
+# A row lock does not say who holds it, so the bump asks in two steps:
+#   1. take the row only if it is free (`SKIP LOCKED`) — the common case, one round trip;
+#   2. the row is taken: wait for it only if no merge is running. `pg_try_advisory_xact_lock_shared`
+#      never waits; it fails while the merge holds the key, or queues for it, and the hit goes
+#      uncounted. Otherwise the holder is another hit and the wait is one statement long.
+# WHY no deadlock: the merge takes the key before any row lock, so a hit that got the shared key
+# can only be waiting on a hit (or a non-merge writer), and a waiting merge waits on hits that end.
+_HIT_IF_FREE_SQL = (
+    "UPDATE request_cache_entries SET hit_count = hit_count + 1, last_hit_at = $2 "
+    "WHERE id = (SELECT id FROM request_cache_entries WHERE id = $1 FOR UPDATE SKIP LOCKED)"
+)
+_HIT_UNLESS_MERGING_SQL = (
+    "UPDATE request_cache_entries SET hit_count = hit_count + 1, last_hit_at = $2 "
+    "WHERE id = $1 AND pg_try_advisory_xact_lock_shared($3)"
+)
+
+
 async def record_hit_metadata(entry_id: uuid.UUID, when: datetime) -> None:
+    client = RequestCacheEntry._meta.db
+    if client.capabilities.dialect == "postgres":
+        bumped, _ = await client.execute_query(_HIT_IF_FREE_SQL, [entry_id, when])
+        if not bumped:
+            # Zero rows: the row is locked — or gone, in which case this matches nothing too.
+            await client.execute_query(
+                _HIT_UNLESS_MERGING_SQL, [entry_id, when, MERGE_ADVISORY_LOCK_KEY]
+            )
+        return
+    # WHY the plain update elsewhere: SQLite has no row locks — a writer holds the whole database,
+    # and there is no snapshot merge there (the loader speaks Postgres COPY only).
     await RequestCacheEntry.filter(id=entry_id).update(
         hit_count=F("hit_count") + 1, last_hit_at=when
     )
