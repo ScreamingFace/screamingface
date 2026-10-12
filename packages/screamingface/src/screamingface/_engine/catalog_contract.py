@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import NoReturn
 
 from screamingface._benchmark_identity import benchmark_id as _benchmark_id
-from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY
+from screamingface._catalogue_vocabulary import ATTEMPTS_KEY, INVERTED_GRADE_KEY
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
 from screamingface._ui.catalog import _ModelCatalog
@@ -26,6 +26,7 @@ class _BenchmarkEntry:
     interaction: str | None
     difficulty: str | None
     inverted_grade: bool
+    attempts: int
     provenance: BenchmarkProvenance | None
     saturation: str
 
@@ -137,6 +138,7 @@ def _benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
         interaction=_optional_axis(item, "interaction"),
         difficulty=_optional_axis(item, "difficulty"),
         inverted_grade=_inverted_grade(item),
+        attempts=_attempts(item),
         provenance=_provenance(item),
         saturation=_saturation(item),
     )
@@ -238,6 +240,16 @@ def _saturation(item: Mapping[str, object]) -> str:
     if "saturation" not in item:
         return "unknown"
     return _wire_text(item.get("saturation"), "Benchmark saturation", _catalog_invalid)
+
+
+def _attempts(item: Mapping[str, object]) -> int:
+    """How many Attempts each Case gets (OME-1458): the Engine publishes it only above one,
+    so absence means one, and an Engine that predates Attempts serves none."""
+
+    value: object = item.get(ATTEMPTS_KEY, 1)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        _catalog_invalid("Benchmark attempts must be a positive integer")
+    return value
 
 
 def _inverted_grade(item: Mapping[str, object]) -> bool:

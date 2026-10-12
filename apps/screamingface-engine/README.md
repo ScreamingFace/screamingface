@@ -347,13 +347,15 @@ directive is a hint about cost, not a term of the request.
 `ai.url4.log` on the stream. **First attach wins** on the frame side: a re-attach with a different
 policy leaves the run's policy alone (calls may already have run under it) and warns.
 
-> **INVARIANT — url4 never sends a cache control key other than `use-cache`.** aigateway's cache
-> grammar is CLOSED to that one field, and any other key inside the request body's `cache` object
-> makes the whole request **bypass** the cache — silently, with nothing raised anywhere, even
-> alongside a valid `use-cache: true`. So every directive above collapses to participate/opt-out
-> at url4's own edge (`rest/cache_header.py` → intent, `runner/cache.py` → the wire), and a run
-> that participates sends **no `cache` field at all**. `tests/unit/test_runner_cache_body_field.py`
-> pins it as a property over every input.
+> **INVARIANT — a run's cache directive reaches the wire as `use-cache` only.** aigateway's cache
+> grammar is CLOSED, and any key it does not know inside the request body's `cache` object makes
+> the whole request **bypass** the cache — silently, with nothing raised anywhere, even alongside
+> a valid `use-cache: true`. So every directive above collapses to participate/opt-out at url4's
+> own edge (`rest/cache_header.py` → intent, `world/cache.py` → the wire), and a run that
+> participates sends **no `cache` field at all**. `tests/unit/test_runner_cache_body_field.py`
+> pins it as a property over every input. The one other key is the Engine's own, not the
+> caller's: Attempt 2 and later of a Case (OME-1458) add `attempt` beside it, so the gateway keeps
+> each Attempt's reply apart (`tests/unit/test_attempt_egress.py`).
 
 **Observability.** Each span carries `cache_status` (`hit`/`miss`/`bypass`) and `cache_reason` —
 the gateway's vocabulary verbatim, so `opted_out` stays distinct from `unsupported_control`. The

@@ -18,11 +18,13 @@ here:
   struct decoding they own;
 - :mod:`.group` — :class:`BindingNode`, :class:`LazyExprNode`,
   :class:`BarrierNode`, :class:`GatherNode`, :class:`InlineCollectionNode`,
-  :class:`ProcessNode`, :class:`MergeNode`, :class:`BroadcastCollectNode`,
-  :class:`JoinNode`, :class:`CollectNode`, :class:`FanoutReduceNode`;
+  :class:`ProcessNode`, :class:`JoinNode`, :class:`CollectNode`,
+  :class:`FanoutReduceNode`;
+- :mod:`.broadcast` — :class:`MergeNode`;
+- :mod:`.broadcast_result` — :class:`BroadcastCollectNode`;
 - :mod:`.guard` — :class:`GuardNode` (``;optional``/``;t=``/``;retry=``);
-- :mod:`.iteration` — :class:`ExpandNode`, :class:`MapNode`,
-  :class:`ReduceNode`;
+- :mod:`.iteration` — :class:`ExpandNode`, :class:`MapNode`;
+- :mod:`.reduce` — :class:`ReduceNode`;
 - :mod:`._shared` — the helpers every family consumes (substitution, the
   reference-edge scope frame, the gather machinery, fetch plumbing, row
   serialization). Private to the package: a node module may import it, never
@@ -43,6 +45,9 @@ construction.
 from __future__ import annotations
 
 from url4.dag.nodes._shared import DEFAULT_MAP_CONCURRENCY, SlotSpec
+from url4.dag.nodes.broadcast import MergeNode
+from url4.dag.nodes.broadcast_result import BroadcastCollectNode
+from url4.dag.nodes.code import CodeCallNode, CodeSourcesNode
 from url4.dag.nodes.fetch import (
     HoldingsNode,
     RelUrlNode,
@@ -54,29 +59,31 @@ from url4.dag.nodes.fetch import (
 from url4.dag.nodes.group import (
     BarrierNode,
     BindingNode,
-    BroadcastCollectNode,
     CollectNode,
     FanoutReduceNode,
     GatherNode,
     InlineCollectionNode,
     JoinNode,
     LazyExprNode,
-    MergeNode,
     ProcessNode,
 )
-from url4.dag.nodes.guard import GuardNode
-from url4.dag.nodes.iteration import ExpandNode, MapNode, ReduceNode
+from url4.dag.nodes.guard import GuardNode, GuardRetry, current_guard_retry
+from url4.dag.nodes.iteration import ExpandNode, MapNode
+from url4.dag.nodes.reduce import ReduceNode
 
 __all__ = [
     "DEFAULT_MAP_CONCURRENCY",
     "BarrierNode",
     "BindingNode",
     "BroadcastCollectNode",
+    "CodeCallNode",
+    "CodeSourcesNode",
     "CollectNode",
     "ExpandNode",
     "FanoutReduceNode",
     "GatherNode",
     "GuardNode",
+    "GuardRetry",
     "HoldingsNode",
     "InlineCollectionNode",
     "JoinNode",
@@ -91,4 +98,5 @@ __all__ = [
     "StructNode",
     "TextNode",
     "WebFetchNode",
+    "current_guard_retry",
 ]

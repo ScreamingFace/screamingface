@@ -27,28 +27,56 @@ params onto :class:`~url4.core.nodes.RelExpr` / :class:`~url4.core.nodes.RemoteE
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from url4.core._annotations import (
     classify_boundary,
     extract_directives,
+    fold_broadcast,
     split_annotation_pairs,
     validate_exec_annotations,
-    validate_param,
+    validate_params,
 )
+from url4.core._call_head import (
+    REMOTE_SCHEME,
+    check_authority,
+    check_data_path,
+    check_expr_path,
+    decode_query_params,
+    find_expression_param,
+    remote_path_offset,
+)
+from url4.core._lexical import (
+    _BARE_VALUE_RE,
+    _BUDGET_KEY_RE,
+    _FIELD_SEG_RE,
+    _IDENT_RE,
+    _IDENTITY_RE,
+    _INDEX_SEG_RE,
+    _NUMBER_RE,
+    _PATH_SEGMENT_RE,
+    _SCHEME_RE,
+    _VARREF_HEAD_RE,
+    _unquote,
+    reject_chained_intent,
+)
+from url4.core._lexical import _IDENTITY_NAME_RE as _IDENTITY_NAME_RE
 from url4.core._scan import (
     balanced_body,
     balanced_braces,
     find_unquoted,
     iter_iteration_stars,
-    iter_top_level,
     one_paren_layer,
     skip_quoted,
-    split_query_segments,
     split_top_level,
 )
+from url4.core._struct_values import (
+    _classify_weight_group,
+    _parse_budget_value,
+    _parse_weight_value,
+)
+from url4.core.descriptor_head import classify_head, first_colon, is_value_shaped
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.nodes import (
     Binding,
@@ -56,6 +84,7 @@ from url4.core.nodes import (
     IdentityRef,
     Iteration,
     IterationDirectives,
+    NamedJob,
     Node,
     Params,
     RelExpr,
@@ -68,66 +97,6 @@ from url4.core.nodes import (
     Url,
     VarRef,
 )
-
-# INVARIANT: the ABNF's ALPHA is ASCII. Python's `\w` is Unicode-aware by
-# default, so every identifier pattern here compiles with re.ASCII — otherwise
-# `$café` / `@bób` / `articleé=…` parse as identifiers the grammar does not
-# admit (`OME-504`).
-_IDENT_RE = re.compile(r"[A-Za-z_]\w*", re.ASCII)
-_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?", re.ASCII)
-_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://")
-# identity-name = name-part / 1*DIGIT — a digit-led name followed by letters
-# (`@9lives`) is NEITHER alternative and must not parse.
-_IDENTITY_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", re.ASCII)
-_IDENTITY_RE = re.compile(rf"@({_IDENTITY_NAME_RE.pattern})", re.ASCII)
-_VARREF_HEAD_RE = re.compile(r"\$([A-Za-z_]\w*|\d+)", re.ASCII)
-_FIELD_SEG_RE = re.compile(r"[A-Za-z_]\w*", re.ASCII)
-# path-segment (§ identity-collection) — the ABNF's explicit character class.
-_PATH_SEGMENT_RE = re.compile(r"[A-Za-z0-9\-_.~:@!$&+=]+", re.ASCII)
-# INVARIANT: budget-key = 1*( ALPHA / "_" ) — digits are deliberately excluded.
-_BUDGET_KEY_RE = re.compile(r"[A-Za-z_]+", re.ASCII)
-# scalar-budget-value = 1*( ALPHA / DIGIT / "." / "-" / "_" )
-_SCALAR_BUDGET_RE = re.compile(r"[A-Za-z0-9.\-_]+", re.ASCII)
-_INDEX_SEG_RE = re.compile(r"(0|[1-9]\d*)\]")
-_STRUCT_KEY_RE = re.compile(r"[A-Za-z0-9_]+")
-_STRUCT_TOKEN_RE = re.compile(r"[A-Za-z0-9_.\-]+")
-
-# §8 `path = segment *( "/" segment )`, `segment = *( ALPHA / DIGIT / "-" /
-# "_" / "." / "~" )` — the NARROW charset, for expression-bearing paths
-# (relative-expr / remote-expr).
-# WHY: `render._check_path` reads this same pattern — keeps parse and render
-# from drifting (`OME-507`).
-_PATH_RE = re.compile(r"(?:/[A-Za-z0-9\-_.~]*)+", re.ASCII)
-
-# `relative-uri`'s `path-segment` — the WIDE charset.
-# WHY: it admits "$", which is what makes a variable-bearing data reference like
-# `/data/$topic` legal. A data path is a DIFFERENT production from an expression
-# path; narrowing it to match would break those references.
-_DATA_PATH_RE = re.compile(r"(?:/[A-Za-z0-9\-_.~:@!$&+=]+)+", re.ASCII)
-
-# `port = 1*DIGIT`.
-# WHY: `host = hostname / IPv4address` is deliberately NOT validated — the grammar
-# defines neither `hostname` nor `IPv4address`, so a charset here would assert a
-# rule the spec does not state.
-_PORT_RE = re.compile(r"[0-9]+", re.ASCII)
-
-
-def _check_expr_path(path: str, token: str) -> None:
-    """Validate an expression-bearing path against `path` / `segment`."""
-    if not _PATH_RE.fullmatch(path):
-        raise ParseError(
-            f"invalid expression path {path!r} in {token!r} — a path segment takes "
-            "ALPHA / DIGIT / '-' / '_' / '.' / '~'",
-        )
-
-
-def _check_data_path(token: str) -> None:
-    """Validate a `relative-uri` path against `path-segment` (query-tail aside)."""
-    path = token.partition("?")[0]
-    if not _DATA_PATH_RE.fullmatch(path):
-        raise ParseError(
-            f"invalid data path {path!r} in {token!r}",
-        )
 
 
 def parse(text: str) -> Node:
@@ -194,52 +163,15 @@ def _mark_expand(node: Node) -> Source:
 
 
 def _parse_head(head: str) -> _Descriptor:
-    """Decode the pre-``;`` part: bare value, ``name=`` sugar, or attrib chain.
+    """Decode the pre-``;`` part: bare value, ``src=`` value, ``name=`` sugar, or chain.
 
-    The sugar test runs before the bare-value test so ``article=https://x``
-    binds ``article`` (§4.5) — the ``://`` inside the *value* must not promote
-    the whole token to a bare URI.
+    The classification is :func:`~url4.core.descriptor_head.classify_head`,
+    the one owner the DAG text path shares.
     """
-    if head.startswith("src="):
-        result = _Descriptor(value=_parse_value(head[4:]))
-    elif (sugar := _match_sugar(head)) is not None:
-        result = _Descriptor(value=_parse_value(sugar[1]), name=sugar[0], kind="=")
-    # The top-level colon scan is shared: _is_value_shaped needs it, and its
-    # absence is itself the "no descriptor chain" test. Scanning once keeps
-    # _parse_head linear in the token rather than walking it twice.
-    elif (colon := _first_colon(head)) is None or _is_value_shaped(head, colon):
-        result = _Descriptor(value=_parse_value(head))
-    else:
-        result = _parse_attrib_chain(head)
-    return result
-
-
-def _is_value_shaped(text: str, colon: int | None = None) -> bool:
-    """§4.3 disambiguation — a token that is a bare data value, no descriptor.
-
-    ``colon`` is the precomputed top-level colon index, for callers that already
-    scanned for it; omitted, it is computed here.
-    """
-    if text[0] in "'(/@{$":
-        return True
-    if colon is None:
-        colon = _first_colon(text)
-    return colon is not None and text[colon : colon + 3] == "://"
-
-
-def _first_colon(text: str) -> int | None:
-    for i, ch in iter_top_level(text):
-        if ch == ":":
-            return i
-    return None
-
-
-def _match_sugar(head: str) -> tuple[str, str] | None:
-    """``name=value`` with no ``:`` before the ``=`` (§4.3 sugar form)."""
-    m = _IDENT_RE.match(head)
-    if m is None or head[m.end() : m.end() + 1] != "=" or len(head) == m.end() + 1:
-        return None
-    return m.group(), head[m.end() + 1 :]
+    form, name, value = classify_head(head)
+    if form == "chain":
+        return _parse_attrib_chain(head)
+    return _Descriptor(value=_parse_value(value), name=name, kind="=")
 
 
 def _parse_attrib_chain(head: str) -> _Descriptor:
@@ -249,6 +181,8 @@ def _parse_attrib_chain(head: str) -> _Descriptor:
     first = True
     while True:
         rest = rest.strip()
+        if not rest:
+            raise ParseError(f"empty data binding after ':' in descriptor {head!r} (spec §4.3)")
         if rest.startswith("src="):
             d.value = _parse_value(rest[4:])
             return d
@@ -261,10 +195,10 @@ def _parse_attrib_chain(head: str) -> _Descriptor:
             d.weight, rest = struct
             first = False
             continue
-        if _is_value_shaped(rest):
+        if is_value_shaped(rest):
             d.value = _parse_value(rest)
             return d
-        colon = _first_colon(rest)
+        colon = first_colon(rest)
         if colon is None:
             raise ParseError(
                 f"bare-token data binding requires 'src=' in descriptor {head!r} (spec §4.3)"
@@ -289,132 +223,6 @@ def _classify_segment(seg: str, first: bool, d: _Descriptor, head: str) -> None:
         raise ParseError(f"cannot classify descriptor segment {seg!r} in {head!r}")
 
 
-# --- structured annotation values (§4.1.1) --------------------------------------
-
-
-def _classify_weight_group(rest: str) -> tuple[dict, str] | None:
-    """Classify ``(`` in the weight position; parse a structured weight on commit.
-
-    Returns ``(weight_mapping, remainder_after_colon)`` when the group is a
-    structured annotation, or ``None`` when it begins an expression source list
-    (§4.1.1.4). A committed group whose later entries violate the struct-pair
-    production raises ``malformed_source`` — commitment, not a heuristic.
-    """
-    body = balanced_body(rest, 1)
-    if body is None:
-        raise ParseError(f"unclosed '(' in {rest!r}")
-    if not _commits_to_struct(body):
-        return None
-    # INVARIANT: structured-weight is FLAT. `struct-val` is terminal, so only
-    # `structured-budget-value` may nest (and only two deep, §24.4.6). Passing
-    # nested=True makes any inner "(" a malformed_source (`OME-504`).
-    weight = _parse_struct_entries(body, nested=True)
-    after = rest[len(body) + 2 :]
-    if not after.startswith(":"):
-        raise ParseError(f"structured weight must be followed by ':<data-binding>' in {rest!r}")
-    return weight, after[1:]
-
-
-def _commits_to_struct(body: str) -> bool:
-    """§4.1.1.4 first-entry classification (True = structured annotation)."""
-    entries = split_top_level(body, ",")
-    if not entries or not entries[0]:
-        return False
-    first = entries[0]
-    m = _IDENT_RE.match(first)
-    if m is None or first[m.end() : m.end() + 1] != ":":
-        return False  # rules 1–4, 6–7: quoted, nested, '/', '@', digit, other
-    value = first[m.end() + 1 :].strip()
-    if value.startswith("/"):
-        result = False  # rules 5a/5b: URI scheme or relative path after ':'
-    elif value.startswith("'"):
-        result = all(_is_struct_pair(e) for e in entries)  # rule 5d: all-entries
-    else:
-        result = _is_simple_struct_value(value)  # rule 5c: commit
-    return result
-
-
-def _is_simple_struct_value(value: str) -> bool:
-    if _NUMBER_RE.fullmatch(value) or _IDENT_RE.fullmatch(value):
-        return True
-    return value.startswith("(") and balanced_body(value, 1) == value[1:-1]
-
-
-def _is_struct_pair(entry: str) -> bool:
-    m = _STRUCT_KEY_RE.match(entry)
-    if m is None or entry[m.end() : m.end() + 1] != ":":
-        return False
-    value = entry[m.end() + 1 :].strip()
-    if value.startswith("'"):
-        return skip_quoted(value, 0) == len(value) != 1
-    return _is_simple_struct_value(value)
-
-
-def _parse_struct_entries(body: str, *, nested: bool) -> dict:
-    """Parse committed struct entries; violations are ``malformed_source``."""
-    result: dict[str, object] = {}
-    for entry in split_top_level(body, ","):
-        m = _STRUCT_KEY_RE.match(entry)
-        if m is None or entry[m.end() : m.end() + 1] != ":":
-            raise ParseError(f"malformed structured annotation entry {entry!r} (spec §4.1.1.4)")
-        result[m.group()] = _parse_struct_val(entry[m.end() + 1 :].strip(), nested=nested)
-    if not result:
-        raise ParseError("empty structured annotation value")
-    return result
-
-
-def _parse_struct_val(val: str, *, nested: bool) -> object:
-    result: object
-    if _NUMBER_RE.fullmatch(val):
-        result = float(val) if "." in val else int(val)
-    elif val.startswith("'"):
-        result = _unquote(val)
-    elif val.startswith("("):
-        result = _parse_nested_struct_val(val, nested=nested)
-    elif _STRUCT_TOKEN_RE.fullmatch(val):
-        result = val
-    else:
-        raise ParseError(f"malformed structured annotation value {val!r} (spec §4.1.1.4)")
-    return result
-
-
-def _parse_nested_struct_val(val: str, *, nested: bool) -> dict:
-    # WHY well-formedness is checked BEFORE the depth rule: `(b:1)x` is malformed
-    # whatever the depth budget is, and reporting it as "nested too deep" would
-    # send the reader looking for the wrong defect.
-    inner = balanced_body(val, 1)
-    if inner is None or len(inner) + 2 != len(val):
-        raise ParseError(f"malformed structured annotation value {val!r}")
-    if nested:
-        # §24.4.6 — at most scope → domain → scalar. Also the flat-only rule for
-        # structured-weight, which passes nested=True at the top level.
-        raise ParseError(f"structured annotation nested too deep at {val!r}")
-    return _parse_struct_entries(inner, nested=True)
-
-
-def _parse_weight_value(val: str) -> float | dict:
-    """The ``weight=`` reserved key: scalar or structured (§4.1.1.3)."""
-    if _NUMBER_RE.fullmatch(val):
-        return float(val)
-    if val.startswith("("):
-        inner = balanced_body(val, 1)
-        if inner is not None and len(inner) + 2 == len(val):
-            # flat only — see _classify_weight_group
-            return _parse_struct_entries(inner, nested=True)
-    raise ParseError(f"malformed weight value {val!r}")
-
-
-def _parse_budget_value(val: str) -> str | dict:
-    if val.startswith("("):
-        inner = balanced_body(val, 1)
-        if inner is not None and len(inner) + 2 == len(val):
-            return _parse_struct_entries(inner, nested=False)
-        raise ParseError(f"malformed structured budget value {val!r}")
-    if not _SCALAR_BUDGET_RE.fullmatch(val):
-        raise ParseError(f"malformed scalar budget value {val!r} (spec §4.1.1.3)")
-    return val
-
-
 # --- execution-chain routing (§4.2, §8.1.2) --------------------------------------
 
 
@@ -423,6 +231,8 @@ def _attach_tail(d: _Descriptor, tail: Params) -> Node:
     value = d.value
     if isinstance(value, (RelExpr, RemoteExpr, Expression)):
         expr_params, source_ann = classify_boundary(tail)
+        # `expr-param = param-key "=" param-value`: the rule the envelope applies.
+        validate_params(expr_params)
         value = _add_expr_params(value, expr_params)
     else:
         source_ann = tail
@@ -452,6 +262,11 @@ def _attach_tail(d: _Descriptor, tail: Params) -> Node:
 def _add_expr_params(
     value: RelExpr | RemoteExpr | Expression, params: Params
 ) -> RelExpr | RemoteExpr | Expression:
+    # B4: on a local expression ';broadcast' IS the '!*' flag (one owner,
+    # `fold_broadcast`); a call keeps it as a param its node decodes.
+    if isinstance(value, Expression):
+        flag, params = fold_broadcast(params)
+        value = replace(value, broadcast=True) if flag else value
     return value if not params else replace(value, params=value.params + params)
 
 
@@ -502,10 +317,10 @@ def _parse_quoted_value(token: str) -> Text:
 def _find_iteration_star(token: str) -> int | None:
     """The depth-0 ``*(`` iteration operator's position, if present (§5.3.3).
 
-    Source-initial ``*`` (position 0) is the expansion prefix, not iteration —
-    it is consumed in :func:`_parse_source` before value detection begins.
+    A source-initial ``*`` (the first non-space character) is the expansion
+    prefix, not iteration — :func:`iter_iteration_stars` never yields it.
     """
-    return next(iter_iteration_stars(token, skip_leading=True), None)
+    return next(iter_iteration_stars(token), None)
 
 
 # --- iteration (§5.3) ---------------------------------------------------------------
@@ -519,6 +334,7 @@ def _parse_iteration(token: str, star: int) -> Iteration:
     intent: str | None = None
     if after.startswith("!"):
         intent = after[1:].strip() or None
+        reject_chained_intent(after[1:])
     elif after.strip():
         raise ParseError(f"unexpected text after iteration body: {after!r}")
     if intent is None:
@@ -542,6 +358,12 @@ def _parse_collection(token: str) -> Node:
     strict local-expr path.
     """
     stripped = token.strip()
+    if stripped.startswith("*"):
+        # A collection-ref is a value, and a value never starts with '*' (the
+        # expansion prefix marks a source): `n=*x*(b)!i` has no reading (§8 rule 5).
+        raise ParseError(
+            f"a collection cannot start with '*' in {token!r} — a collection is a value"
+        )
     if (body := one_paren_layer(stripped)) is not None:
         return Expression(sources=_parse_group_sources(body))
     return _parse_value(token)
@@ -599,7 +421,7 @@ def _parse_group_sources(body: str) -> tuple[Node, ...]:
 def _parse_relative(token: str) -> RelUrl | RelExpr:
     pos = find_unquoted(token, "?(")
     if pos is None:
-        _check_data_path(token)
+        check_data_path(token)
         return RelUrl(token)
     if token[pos] == "(":
         return _parse_expr_sugar(token, pos)
@@ -612,7 +434,7 @@ def _parse_expr_sugar(token: str, paren: int) -> RelExpr:
     if body is None:
         raise ParseError(f"unclosed '(' in {token!r}", position=paren)
     after = token[paren + 1 + len(body) + 1 :]
-    _check_expr_path(token[:paren], token)
+    check_expr_path(token[:paren], token)
     return RelExpr(
         path=token[:paren],
         context=body.strip() or None,
@@ -626,59 +448,23 @@ def _parse_expr_canonical(token: str, qmark: int) -> RelUrl | RelExpr:
     ``?`` without a ``q=(`` parameter is the rewind rule (§8 parse rule 16):
     the whole token is a relative data URI with a query string.
     """
-    qstart = _find_expression_param(token, qmark)
+    qstart = find_expression_param(token, qmark)
     if qstart is None or token[qstart + 2 : qstart + 3] != "(":
         # §8 parse rule 16 rewind — this is a `relative-uri`, not an expression.
-        _check_data_path(token)
+        check_data_path(token)
         return RelUrl(token)
     body_start = qstart + 2  # past "q="
     body = balanced_body(token, body_start + 1)
     if body is None:
         raise ParseError(f"unclosed '(' in {token!r}", position=body_start)
     after = token[body_start + 1 + len(body) + 1 :]
-    _check_expr_path(token[:qmark], token)
+    check_expr_path(token[:qmark], token)
     return RelExpr(
         path=token[:qmark],
         context=body.strip() or None,
         intent=_parse_expr_intent(after, token),
-        params=_decode_query_params(token[qmark + 1 : qstart].rstrip("&")),
+        params=decode_query_params(token[qmark + 1 : qstart].rstrip("&")),
     )
-
-
-def _find_expression_param(token: str, qmark: int) -> int | None:
-    """The offset of ``q=(`` as a query parameter after ``qmark``, or None.
-
-    # INVARIANT: ``&`` separates query parameters only at depth 0 outside
-    # quotes — the same rule :func:`url4.wire.subrequest.extract_expression_params`
-    # applies on the wire. A quote-only scan mistook an ``&`` nested inside a
-    # parenthesized expression-bearing value (``processor=(/x?a=1&b=2&q=(y)!z)``)
-    # for a parameter boundary and locked onto the INNER ``q=(`` (`OME-501`).
-    """
-    start = qmark + 1
-    if token[start : start + 3] == "q=(":
-        return start
-    rest = token[start:]
-    for i, ch in iter_top_level(rest):
-        if ch == "&":
-            candidate = start + i + 1
-            if token[candidate : candidate + 3] == "q=(":
-                return candidate
-    return None
-
-
-def _decode_query_params(params_text: str) -> Params:
-    # INVARIANT: same depth-0 rule as _find_expression_param — a nested ``&``
-    # belongs to its enclosing value, not to this parameter list.
-    if not params_text:
-        return ()
-    pairs: list[tuple[str, str | None]] = []
-    for segment in split_query_segments(params_text):
-        if segment:
-            key, eq, value = segment.partition("=")
-            decoded = value if eq else None
-            validate_param(key, decoded)
-            pairs.append((key, decoded))
-    return tuple(pairs)
 
 
 def _parse_expr_intent(after: str, token: str) -> Node:
@@ -707,31 +493,20 @@ def _parse_expr_intent(after: str, token: str) -> Node:
     raise ParseError(f"unexpected text after expression body in {token!r}")
 
 
-def _check_authority(authority: str, token: str) -> None:
-    """Validate `authority = host [ ":" port ]` — the PORT only (see `_PORT_RE`)."""
-    host, sep, port = authority.partition(":")
-    if sep and not _PORT_RE.fullmatch(port):
-        raise ParseError(
-            f"invalid port {port!r} in {token!r} — `port = 1*DIGIT`",
-        )
-    if not host:
-        raise ParseError(f"remote expression has no host: {token!r}")
-
-
 def _parse_remote(token: str) -> Node:
-    rest = token[len("url4://") :]
-    slash = rest.find("/")
-    paren = find_unquoted(rest, "(")
-    if paren is not None and (slash == -1 or paren < slash):
+    slash = remote_path_offset(token)
+    paren = find_unquoted(token, "(", len(REMOTE_SCHEME))
+    if paren is not None and (slash is None or paren < slash):
         raise ParseError(f"remote expression requires a path: {token!r}")
-    if slash == -1:
+    if slash is None:
         return Url(token)
-    _check_authority(rest[:slash], token)
-    inner = _parse_relative(rest[slash:])
+    authority = token[len(REMOTE_SCHEME) : slash]
+    check_authority(authority, token)
+    inner = _parse_relative(token[slash:])
     if isinstance(inner, RelUrl):
         return Url(token)  # §5.2 rule 3.3 — bare remote reference
     return RemoteExpr(
-        authority=rest[:slash],
+        authority=authority,
         path=inner.path,
         context=inner.context,
         intent=inner.intent,
@@ -740,44 +515,6 @@ def _parse_remote(token: str) -> Node:
 
 
 # --- leaf values (§5.2 rules 4–10) -------------------------------------------------
-
-
-def _unquote(token: str) -> str:
-    """Decode a fully-quoted ``'…'`` token to its content (``\\'``/``\\\\``)."""
-    end = skip_quoted(token, 0)
-    if end == 1:
-        raise ParseError(f"unterminated quote in {token!r}", position=0)
-    if end != len(token):
-        raise ParseError(f"unexpected text after quoted value in {token!r}", position=end)
-    return _unescape(token[1:-1])
-
-
-def _unescape(content: str) -> str:
-    """Decode a quoted body: the ``\\'`` and ``\\\\`` escapes, no raw control chars.
-
-    # INVARIANT: exactly two escapes are defined. A backslash before anything
-    # else is rejected, as is a raw control character (< %x20, or DEL) — httpx
-    # rejects those in a URL anyway.
-    """
-    out: list[str] = []
-    i = 0
-    while i < len(content):
-        char = content[i]
-        if char == "\\":
-            nxt = content[i + 1] if i + 1 < len(content) else ""
-            if nxt not in ("\\", "'"):
-                raise ParseError(
-                    f"undefined escape {'\\' + nxt!r} in quoted text — the grammar "
-                    r"defines only \' and \\"
-                )
-            out.append(nxt)
-            i += 2
-            continue
-        if char < " " or char == "\x7f":
-            raise ParseError(f"raw control character {char!r} in quoted text (spec quoted-char)")
-        out.append(char)
-        i += 1
-    return "".join(out)
 
 
 def _parse_struct_object(token: str) -> StructObject:
@@ -901,12 +638,13 @@ def intent_atom(intent: str) -> Node:
     """Classify a raw intent string into an AST node (§6).
 
     Quoted → :class:`~url4.core.nodes.Text` content (quotes are delimiters);
-    ``/path`` → :class:`~url4.core.nodes.RelUrl` (the fan-out reducer route form,
-    ``!/reduce()``); any ``scheme://…`` → :class:`~url4.core.nodes.Url`. Otherwise
+    ``/path`` → a :class:`~url4.core.nodes.RelExpr` when it parses as a relative
+    expression (§5.2 rules 2.1/2.2), else a :class:`~url4.core.nodes.RelUrl` (a code
+    pointer, url4 2.0); any ``scheme://…`` → :class:`~url4.core.nodes.Url`. Otherwise
     ``intent = value`` applies and the token runs through full value detection,
     so a nested expression, an iteration, a struct object or a self/identity ref
-    keeps its structure. Anything else is natural-language
-    :class:`~url4.core.nodes.Text`.
+    keeps its structure. One `bare-value` token is a :class:`~url4.core.nodes.NamedJob`
+    (url4 2.0, P3); anything else is natural-language :class:`~url4.core.nodes.Text`.
 
     # WHY value detection matters here: the DAG compiler dispatches lowering by
     # node type, so an intent flattened to `Text` is never compiled into a
@@ -914,15 +652,30 @@ def intent_atom(intent: str) -> Node:
     # the model as a prompt instead of evaluating it.
     """
     text = intent.strip()
+    reject_chained_intent(text)
     if text.startswith("'"):
         node: Node = Text(_unquote(text))
     elif _SCHEME_RE.match(text) is not None:
         node = Url(text)
     elif text.startswith("/"):
-        node = RelUrl(text)
+        node = _relative_intent(text)
     else:
         node = _intent_value_or_text(text)
     return node
+
+
+def _relative_intent(text: str) -> Node:
+    """A ``/path`` intent: the source parser's own reading, so the two cannot disagree.
+
+    # WHY the ParseError fallback: 1.5.1 accepted ANY ``/…`` intent as a RelUrl
+    # (``!/reduce()``), and url4 2.0 changes no acceptance — an invalid code pointer is
+    # refused when it is lowered (``url4.core.intent.parse_code_pointer``), not here.
+    """
+    try:
+        node = _parse_relative(text)
+    except ParseError:
+        return RelUrl(text)
+    return node if isinstance(node, RelExpr) else RelUrl(text)
 
 
 def _intent_value_or_text(text: str) -> Node:
@@ -934,7 +687,10 @@ def _intent_value_or_text(text: str) -> Node:
     # is allowed to say.
     """
     if text[:1] not in _INTENT_VALUE_HEADS and _find_iteration_star(text) is None:
-        return Text(text)
+        # url4 2.0 (P3, Q6): one `bare-value` token is a named job; a `$` ref stays Text
+        # (see _INTENT_VALUE_HEADS); prose with a space stays a prompt (url4 leniency).
+        bare = _BARE_VALUE_RE.fullmatch(text) and text[:1] != "$" and "://" not in text
+        return NamedJob(text) if bare else Text(text)
     try:
         return _parse_value(text)
     except ParseError:

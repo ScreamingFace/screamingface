@@ -21,12 +21,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# WHY: the principal-name production belongs to the grammar, so config validation
-# reads it from there — the same deliberate private-name import render.py and
-# server.py make, for the same reason (re-declaring it would let the two drift).
-# Importing it via url4.peer.server instead would lean on a re-export server never
-# promised: it is absent from server's __all__, so a tidy-up there would break
-# config validation with no signal.
+# WHY: the grammar owns the principal-name production, so validation reads it from there,
+# as render.py and server.py do (a copy would drift). Not via url4.peer.server: that
+# re-export is not in its __all__, so it is not promised.
 from url4.core.grammar import _IDENTITY_NAME_RE
 
 _HEALTH_PATH = "/healthz"
@@ -121,9 +118,9 @@ class ServeConfig:
         _require(not overlap, f"data paths clash with command routes {sorted(overlap)}")
         # INVARIANT: `{eval_path}/…` is the self-holdings qualifier namespace
         # (spec §5.6.3.1) — `GET /v1/science?q=(@)!'…'` scopes `@` to the
-        # "science" shelf. A command or data route declared under it would
-        # shadow every qualifier below that path (endpoints match first in
-        # `_dispatch`), so reject it here rather than let one silently win.
+        # "science" shelf, so no config route is mounted there. Url4Node.data is
+        # the one authority for data routes; this check reports the same
+        # refusal as a ConfigError before bind.
         prefix = f"{self.eval_path}/"
         shadowed = sorted(p for p in (*self.commands, *self.data) if p.startswith(prefix))
         _require(
@@ -168,7 +165,10 @@ class ServeConfig:
         return next(iter(self.commands))
 
 
-def _require(ok: bool, message: str) -> None:  # noqa: FBT001 - tiny internal guard
+SERVE_DEFAULTS = ServeConfig()  # INVARIANT: the one source of the serve defaults
+
+
+def _require(ok: bool, message: str) -> None:
     if not ok:
         raise ConfigError(message)
 
@@ -198,13 +198,13 @@ def resolve(
     toml = _read_toml(toml_path)
     raw_route = _pick("default_route", overrides, env, toml)
     return ServeConfig(
-        host=_pick_str("host", overrides, env, toml, "127.0.0.1"),
-        port=_pick_int("port", overrides, env, toml, 4404),
+        host=_pick_str("host", overrides, env, toml, SERVE_DEFAULTS.host),
+        port=_pick_int("port", overrides, env, toml, SERVE_DEFAULTS.port),
         default_route=None if raw_route is None else str(raw_route),
-        eval_path=_pick_str("eval_path", overrides, env, toml, "/v1"),
-        concurrency=_pick_int("concurrency", overrides, env, toml, 32),
-        max_inflight=_pick_int("max_inflight", overrides, env, toml, 16),
-        timeout=_pick_float("timeout", overrides, env, toml, 120.0),
+        eval_path=_pick_str("eval_path", overrides, env, toml, SERVE_DEFAULTS.eval_path),
+        concurrency=_pick_int("concurrency", overrides, env, toml, SERVE_DEFAULTS.concurrency),
+        max_inflight=_pick_int("max_inflight", overrides, env, toml, SERVE_DEFAULTS.max_inflight),
+        timeout=_pick_float("timeout", overrides, env, toml, SERVE_DEFAULTS.timeout),
         commands=_toml_command_map(toml.get("commands")),
         data=_toml_data_map(toml.get("data")),
         holdings=_toml_shelf_map(toml.get("holdings"), "holdings"),

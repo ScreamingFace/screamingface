@@ -1,0 +1,186 @@
+
+fm mutate - url4 lifecycle.run - candidate fix FIX=3 (liveness)
+───────────────────────────────────────────────────────────────
+  each mutant is the model with ONE guard, clause, action or assumption
+  removed. A property that no mutant can break is not checking anything.
+  baseline   : clean, 129 states  (each mutant: up to 1290 states, 60s)
+  properties : at_most_one_terminal, terminal_is_last, seq_gap_free_when_succeeded, succeeded_only_after_result, started_run_gets_a_terminal_frame
+
+  killed  (23)
+  the edit breaks a property - this guard or action is LOAD-BEARING
+    L70   guard→True     _write: DEDUP_BY_SEQ and any((q == seq for q, _ in s['frames']))   [guard removed]
+          breaks started_run_gets_a_terminal_frame
+    L70   drop clause 2  _write: DEDUP_BY_SEQ and any((q == seq for q, _ in s['frames']))   [clause removed: any((q == seq for q, _ in s['frames']))]
+          breaks started_run_gets_a_terminal_frame
+    L88   guard→True     _route: not s['in_try']   [guard removed]
+          breaks started_run_gets_a_terminal_frame
+    L90   guard→False    _route: s['arm'] is None   [branch removed]
+          breaks started_run_gets_a_terminal_frame
+    L91   guard→True     _route: FIX == 3 and s['sent']   [guard removed]
+          breaks started_run_gets_a_terminal_frame
+    L91   drop clause 2  _route: FIX == 3 and s['sent']   [clause removed: s['sent']]
+          breaks started_run_gets_a_terminal_frame
+    L107  guard→True     _advance: pc == 'flush_exec'   [guard removed]
+          breaks at_most_one_terminal, terminal_is_last, seq_gap_free_when_succeeded, succeeded_only_after_result
+    L120  guard→True     _alloc: s['pc'] == 'term_pub' and FIX == 2 and (s['term_seq'] is not None)   [guard removed]
+          breaks started_run_gets_a_terminal_frame
+    L140  guard→True     actions: pc == 'exit'   [guard removed]
+          breaks (deadlock), started_run_gets_a_terminal_frame
+    L148  guard→True     actions: pc == 'ensure'   [guard removed]
+          breaks started_run_gets_a_terminal_frame
+    L148  guard→False    actions: pc == 'ensure'   [branch removed]
+          breaks (deadlock), started_run_gets_a_terminal_frame
+    L156  guard→True     actions: pc == 'exec'   [guard removed]
+          breaks (deadlock), started_run_gets_a_terminal_frame
+    L189  guard→False    actions: in_deadline   [branch removed]
+          breaks started_run_gets_a_terminal_frame
+    L164  guard→False    actions: pc in PUB_PCS or pc == 'term_pub'   [branch removed]
+          breaks (deadlock), started_run_gets_a_terminal_frame
+    L164  drop clause 2  actions: pc in PUB_PCS or pc == 'term_pub'   [clause removed: pc == 'term_pub']
+          breaks (deadlock), started_run_gets_a_terminal_frame
+    L168  guard→True     actions: can_fault   [guard removed]
+          breaks started_run_gets_a_terminal_frame
+    L173  guard→True     actions: can_cancel   [guard removed]
+          breaks started_run_gets_a_terminal_frame
+    L178  guard→True     actions: in_deadline   [guard removed]
+          breaks started_run_gets_a_terminal_frame
+          drop action    action 'ensure:ok' can never fire
+          breaks started_run_gets_a_terminal_frame
+          drop action    action 'exec:deadline_fires' can never fire
+          breaks started_run_gets_a_terminal_frame
+          drop action    action 'term_pub:ok' can never fire
+          breaks (deadlock), started_run_gets_a_terminal_frame
+          assumption     TERM_PATH_RELIABLE=0 (publish/flush inside _terminate do not fail and the task is not cancelled while it terminates (ack futures resolve; one stop only))
+          breaks started_run_gets_a_terminal_frame
+          assumption     DEADLINE_SET=0 (run() is given a deadline_s (both engine runners pass one))
+          breaks started_run_gets_a_terminal_frame
+
+  deadlock only  (2)
+  the edit only makes the model stop - no named property notices
+    L182  guard→False    actions: pc in ('flush_exec', 'term_flush')   [branch removed]
+          drop action    action 'term_flush:ok' can never fire
+
+  survived  (85)
+  no property notices the edit
+    L70   guard→False    _write: DEDUP_BY_SEQ and any((q == seq for q, _ in s['frames']))   [branch removed]
+    L70   drop clause 1  _write: DEDUP_BY_SEQ and any((q == seq for q, _ in s['frames']))   [clause removed: DEDUP_BY_SEQ]
+    L81   guard→True     _after_terminate: s['arm'] == 'cancel'   [guard removed]
+    L81   guard→False    _after_terminate: s['arm'] == 'cancel'   [branch removed]
+    L88   guard→False    _route: not s['in_try']   [branch removed]
+    L90   guard→True     _route: s['arm'] is None   [guard removed]
+    L96   guard→True     _route: s['arm'] == 'cancel' and exc != 'cancel'   [guard removed]
+    L96   guard→False    _route: s['arm'] == 'cancel' and exc != 'cancel'   [branch removed]
+    L96   drop clause 1  _route: s['arm'] == 'cancel' and exc != 'cancel'   [clause removed: s['arm'] == 'cancel']
+    L96   drop clause 2  _route: s['arm'] == 'cancel' and exc != 'cancel'   [clause removed: exc != 'cancel']
+    L91   guard→False    _route: FIX == 3 and s['sent']   [branch removed]
+    L91   drop clause 1  _route: FIX == 3 and s['sent']   [clause removed: FIX == 3]
+    L98   guard→True     _route: exc == 'cancel'   [guard removed]
+    L98   guard→False    _route: exc == 'cancel'   [branch removed]
+    L89   guard→True     _route: exc == 'cancel'   [guard removed]
+    L89   guard→False    _route: exc == 'cancel'   [branch removed]
+    L92   guard→True     _route: exc == 'cancel'   [guard removed]
+    L92   guard→False    _route: exc == 'cancel'   [branch removed]
+    L111  guard→True     _advance: pc == 'term_pub'   [guard removed]
+    L113  guard→True     _advance: pc == 'term_flush'   [guard removed]
+    L120  guard→False    _alloc: s['pc'] == 'term_pub' and FIX == 2 and (s['term_seq'] is not None)   [branch removed]
+    L120  drop clause 1  _alloc: s['pc'] == 'term_pub' and FIX == 2 and (s['term_seq'] is not None)   [clause removed: s['pc'] == 'term_pub']
+    L120  drop clause 2  _alloc: s['pc'] == 'term_pub' and FIX == 2 and (s['term_seq'] is not None)   [clause removed: FIX == 2]
+    L120  drop clause 3  _alloc: s['pc'] == 'term_pub' and FIX == 2 and (s['term_seq'] is not None)   [clause removed: s['term_seq'] is not None]
+    L124  guard→True     _alloc: s['pc'] == 'term_pub'   [guard removed]
+    L124  guard→False    _alloc: s['pc'] == 'term_pub'   [branch removed]
+    L140  guard→False    actions: pc == 'exit'   [branch removed]
+    L156  guard→False    actions: pc == 'exec'   [branch removed]
+    L189  guard→True     actions: in_deadline   [guard removed]
+    L191  guard→True     actions: pc == 'exec' and can_cancel   [guard removed]
+    L191  guard→False    actions: pc == 'exec' and can_cancel   [branch removed]
+    L191  drop clause 1  actions: pc == 'exec' and can_cancel   [clause removed: pc == 'exec']
+    L191  drop clause 2  actions: pc == 'exec' and can_cancel   [clause removed: can_cancel]
+    L150  guard→True     actions: can_fault   [guard removed]
+    L150  guard→False    actions: can_fault   [branch removed]
+    L152  guard→True     actions: can_cancel   [guard removed]
+    L152  guard→False    actions: can_cancel   [branch removed]
+    L157  guard→True     actions: not s['hang']   [guard removed]
+    L157  guard→False    actions: not s['hang']   [branch removed]
+    L164  drop clause 1  actions: pc in PUB_PCS or pc == 'term_pub'   [clause removed: pc in PUB_PCS]
+    L158  guard→False    actions: s['tel'] < MAX_TEL   [branch removed]
+    L161  guard→True     actions: can_fault   [guard removed]
+    L161  guard→False    actions: can_fault   [branch removed]
+    L168  guard→False    actions: can_fault   [branch removed]
+    L173  guard→False    actions: can_cancel   [branch removed]
+    L178  guard→False    actions: in_deadline   [branch removed]
+    L182  guard→True     actions: pc in ('flush_exec', 'term_flush')   [guard removed]
+    L171  guard→True     actions: LOST_RESPONSE   [guard removed]
+    L171  guard→False    actions: LOST_RESPONSE   [branch removed]
+    L176  guard→True     actions: LOST_RESPONSE   [guard removed]
+    L176  guard→False    actions: LOST_RESPONSE   [branch removed]
+    L184  guard→True     actions: can_fault   [guard removed]
+    L184  guard→False    actions: can_fault   [branch removed]
+    L186  guard→True     actions: can_cancel   [guard removed]
+    L186  guard→False    actions: can_cancel   [branch removed]
+    L268  guard→False    _source: lbl in _EXTRA   [branch removed]
+          drop action    action 'ensure:cancelled' can never fire
+          drop action    action 'ensure:raises' can never fire
+          drop action    action 'exec:cancelled' can never fire
+          drop action    action 'exec:completed' can never fire
+          drop action    action 'exec:ends_without_completed' can never fire
+          drop action    action 'exec:raises' can never fire
+          drop action    action 'exec:yield_telemetry' can never fire
+          drop action    action 'flush_exec:cancelled' can never fire
+          drop action    action 'flush_exec:deadline_fires' can never fire
+          drop action    action 'flush_exec:ok' can never fire
+          drop action    action 'flush_exec:raises' can never fire
+          drop action    action 'pub_cost:cancelled_unwritten' can never fire
+          drop action    action 'pub_cost:deadline_fires' can never fire
+          drop action    action 'pub_cost:ok' can never fire
+          drop action    action 'pub_cost:raises_unwritten' can never fire
+          drop action    action 'pub_result:cancelled_unwritten' can never fire
+          drop action    action 'pub_result:deadline_fires' can never fire
+          drop action    action 'pub_result:ok' can never fire
+          drop action    action 'pub_result:raises_unwritten' can never fire
+          drop action    action 'pub_started:cancelled_unwritten' can never fire
+          drop action    action 'pub_started:deadline_fires' can never fire
+          drop action    action 'pub_started:ok' can never fire
+          drop action    action 'pub_started:raises_unwritten' can never fire
+          drop action    action 'pub_tel:cancelled_unwritten' can never fire
+          drop action    action 'pub_tel:deadline_fires' can never fire
+          drop action    action 'pub_tel:ok' can never fire
+          drop action    action 'pub_tel:raises_unwritten' can never fire
+          assumption     LOST_RESPONSE=1 (no publish both writes the frame and then raises or is cancelled (true of JetStreamPublisher sequenced path and InMemoryEventStream))
+          assumption     DEDUP_BY_SEQ=0 (the transport drops a second frame carrying an already-stored seq (JetStream Nats-Msg-Id dedup window; NOT true of InMemoryEventStream))
+
+  inconclusive  (1)
+  the edit made the state space too big, or too slow, to finish (exit 4)
+    L158  guard→True     actions: s['tel'] < MAX_TEL   [guard removed]
+
+  invalid  (9)
+  the edit made the model itself fail - not evidence either way
+    L105  guard→True     _advance: pc in nxt   [guard removed]
+          actions() raised on {arm='exc', cancels=1, deadline='off', faults=1, frames=(), hang=False, in_try=T
+    L105  guard→False    _advance: pc in nxt   [branch removed]
+          actions() raised on {arm=None, cancels=1, deadline='armed', faults=2, frames=(), hang=False, in_try=
+    L107  guard→False    _advance: pc == 'flush_exec'   [branch removed]
+          actions() raised on {arm=None, cancels=1, deadline='armed', faults=2, frames=((1, 'S'), (2, 'C'), (3
+    L111  guard→False    _advance: pc == 'term_pub'   [branch removed]
+          actions() raised on {arm='exc', cancels=1, deadline='off', faults=1, frames=(), hang=False, in_try=T
+    L113  guard→False    _advance: pc == 'term_flush'   [branch removed]
+          actions() raised on {arm='exc', cancels=1, deadline='off', faults=1, frames=((2, 'T:failed'),), hang
+    L130  guard→True     _kind: s['pc'] == 'term_pub'   [guard removed]
+          actions() raised on {arm=None, cancels=1, deadline='armed', faults=2, frames=(), hang=False, in_try=
+    L130  guard→False    _kind: s['pc'] == 'term_pub'   [branch removed]
+          actions() raised on {arm='exc', cancels=1, deadline='off', faults=1, frames=(), hang=False, in_try=T
+    L164  guard→True     actions: pc in PUB_PCS or pc == 'term_pub'   [guard removed]
+          actions() raised on {arm='exc', cancels=1, deadline='off', faults=1, frames=((2, 'T:failed'),), hang
+    L268  guard→True     _source: lbl in _EXTRA   [guard removed]
+          KeyError: 'ensure:ok'
+
+  mutants that break each property
+    at_most_one_terminal                  1
+    terminal_is_last                      1
+    seq_gap_free_when_succeeded           1
+    succeeded_only_after_result           1
+    started_run_gets_a_terminal_frame    22
+
+✓ every property is broken by at least one edit
+  the model CAN fail, and the killed edits above are what keeps it green.
+
+  claim  Every property is falsifiable; 23 of 120 edits break one. Those edits are load-bearing - name the one your fix introduced. Guards only: a wrong state update is not tested.

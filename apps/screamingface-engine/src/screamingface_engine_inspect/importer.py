@@ -43,7 +43,8 @@ import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from types import CodeType, FunctionType
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 # WHY a runtime import is safe here: provenance_facts imports only the stdlib and yaml,
 # never this module, so no cycle (OME-1455).
@@ -96,35 +97,97 @@ def _custom_metrics(task: Any) -> tuple[str, ...]:
 _INSPECT_DEFAULT_REDUCER: str = "mean"
 
 
-def _refuse_several_epochs(task: Any) -> None:
-    """Refuse a Task that asks each Sample more than once, naming its epochs and reducer.
+def task_attempts(task: Any) -> int:
+    """How many Attempts each Case gets: the Task's epochs when they mean "any of N", else 1.
 
-    FEATURE: several Attempts per Case (OME-1458). ``epochs=N`` runs every Sample N times
-    and folds the N scores with a reducer (MBPP: 5, ``pass_at_1``); our Benchmark asks
-    each Case once, so the import would publish a one-Attempt score as the eval's number.
+    FEATURE: several Attempts per Case (OME-1458). ``epochs=N`` runs every Sample N times and
+    folds the N scores with a reducer. Our Benchmark asks each Case N times and marks a Check
+    met if any Attempt met it, which is exactly what three inspect reducers compute at N:
+    ``max``, ``at_least_1`` and ``pass_at_N``. Worked example: ``Epochs(2, "pass_at_2")`` →
+    2; MBPP's ``Epochs(5, ["mean", "pass_at_1", "pass_at_2", "pass_at_5"])`` → refused,
+    naming ``mean``.
 
-    INVARIANT: refused whatever the reducer, until the Engine runs several Attempts per
-    Case (spec ``docs/spec/2026-10-07-OME-1458-attempts-per-case.md`` D12). One epoch is
-    one Attempt, so ``Epochs(1, "mode")`` (lab_bench) imports as before.
-    AIDEV-NOTE: the build replaces this refusal with a mapping: any-match reducers
-    (``max``, ``at_least_1``, ``pass_at_N``) become ``attempts=N``; every other reducer
-    stays refused by name (spec §2.6).
+    INVARIANT: every declared reducer must be any-match at N, or the Task is refused by name:
+    ``pass_at_k`` with k < N is inspect's unbiased estimator, a different number from any-of-N
+    (spec §2.1), and ``mean`` is an average. One epoch is one Attempt, so
+    ``Epochs(1, "mode")`` (lab_bench) imports as before.
+
+    INVARIANT: the name alone is not the rule. ``at_least(1, value=0.5)`` is logged as
+    ``at_least_1`` but counts a half-right answer; any parameter other than ``k`` (a
+    ``value`` below full marks, a ``value_to_float``) is refused, naming it. And any eval
+    may register its own reducer as ``max``: one whose code is not inspect's own ``max`` /
+    ``at_least`` / ``pass_at`` is refused, naming it (at scores [0, 1] a first-epoch
+    "max" publishes 0 where our fold publishes 1.0).
     """
 
+    from inspect_ai._util.registry import registry_params
     from inspect_ai.scorer._reducer.registry import reducer_log_names
+
+    from screamingface_engine_inspect.scorer_metrics import any_match_reducers
 
     epochs: int | None = getattr(task, "epochs", None)
     if epochs is None or epochs <= 1:
-        return
+        return 1
     reducers: list[Any] | None = getattr(task, "epochs_reducer", None)
     names: list[str] = (reducer_log_names(reducers) if reducers else None) or [
         _INSPECT_DEFAULT_REDUCER
     ]
-    raise ImporterError(
-        f"the task declares epochs={epochs} with reducer {', '.join(names)}: a Benchmark "
-        "that asks each Case several times is not supported yet (OME-1458), and importing "
-        "it would publish a one-Attempt score"
-    )
+    own_reducers: dict[str, Any] = any_match_reducers(epochs)
+    any_match: frozenset[str] = frozenset(own_reducers)
+    refused: list[str] = [name for name in names if name not in any_match]
+    if refused:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {', '.join(refused)}: only "
+            f"any-of-{epochs} reducers ({', '.join(sorted(any_match))}) import as "
+            f"{epochs} Attempts per Case; this one would publish a different number (OME-1458)"
+        )
+    # WHY: a registry name is a label any eval can claim (registering `max` even overwrites
+    # inspect's entry), but every call of inspect's own factory, imported directly, returns
+    # a reduce function sharing one code object; a look-alike cannot.
+    builtin_code: dict[str, CodeType | None] = {
+        name: _reduce_code(reducer) for name, reducer in own_reducers.items()
+    }
+    impostors: list[str] = [
+        name
+        for name, reducer in zip(names, reducers or [], strict=True)
+        if (code := _reduce_code(reducer)) is None or code is not builtin_code[name]
+    ]
+    if impostors:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {', '.join(impostors)}: the name "
+            f"is a built-in any-of-{epochs} reducer's, but the code is not inspect's own; "
+            "its rule cannot be read, so it would publish a different number (OME-1458)"
+        )
+    # WHY: every name is any-match from here, so the Task declared its reducers; a tuned
+    # threshold behind an any-match name is a different rule.
+    tuned: list[str] = [
+        f"{name}({', '.join(f'{key}={value!r}' for key, value in params.items())})"
+        for name, reducer in zip(names, reducers or [], strict=True)
+        if (params := _tuned_params(registry_params(reducer)))
+    ]
+    if tuned:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {', '.join(tuned)}: only "
+            f"any-of-{epochs} at full marks imports as {epochs} Attempts per Case; a tuned "
+            "threshold would publish a different number (OME-1458)"
+        )
+    return epochs
+
+
+def _reduce_code(reducer: object) -> CodeType | None:
+    """The code a reducer runs: the one fact a borrowed registry name cannot fake."""
+
+    return reducer.__code__ if isinstance(reducer, FunctionType) else None
+
+
+def _tuned_params(params: dict[str, Any]) -> dict[str, Any]:
+    """The reducer parameters that change what "any of N" counts: all but ``k`` and full marks."""
+
+    return {
+        key: value
+        for key, value in params.items()
+        if key != "k" and not (key == "value" and value == 1.0)
+    }
 
 
 @dataclass(frozen=True)
@@ -144,9 +207,20 @@ class ScorerFacts:
     dropped_scorers: tuple[str, ...] = ()
     headline_differs: bool = False
     dropped_metrics: tuple[str, ...] = ()
+    #: The eval's own whole-run metric the row honours (OME-1527, R1), by dotted reference.
+    whole_run_metric: str | None = None
+    #: The eval's whole-run metric the row does NOT honour, keeping the mean: a Named
+    #: Deviation the row states in a comment.
+    mean_instead_of: str | None = None
 
 
-def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
+#: The importing agent's per-Benchmark choice for a headline metric that is not a plain mean.
+type WholeRunMetricChoice = Literal["honour", "mean"]
+
+
+def _scorer_facts(
+    task: Any, module: Any, whole_run_metric: WholeRunMetricChoice | None = None
+) -> ScorerFacts:
     """Every scorer the Task declares, kept or dropped by name (OME-1268).
 
     Stage 1 — list the declared scorers; none is a refusal.
@@ -155,8 +229,10 @@ def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
               judged one cannot be seated (only a single-scorer row pins a judge), so it is
               written to ``dropped_scorers`` by name. None kept is a refusal.
     Stage 4 — the tripwire: the headline scorer's first declared metric must be a plain mean
-              (``accuracy`` / ``mean``), or the row would publish the wrong headline; any
-              other metric on a kept scorer is noted as not reproduced.
+              (``accuracy`` / ``mean``), or the row would publish the wrong headline, unless
+              the importing agent chose for this Benchmark (``whole_run_metric``): honour the
+              eval's metric, or keep the mean under a Named Deviation (OME-1527). Any other
+              metric on a kept scorer is noted as not reproduced.
     """
 
     from screamingface_engine_inspect.scorer_metrics import (
@@ -190,12 +266,30 @@ def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
         )
     headline_ref, headline_kwargs, headline_name = resolved[kept[0]]
     headline_scorer: Any = declared[kept[0]]
+    # WHY this also catches a Task-level ``metrics=[...]``: when inspect builds the Task it
+    # REPLACES each scorer's whole-run metric list with the Task's (resolve_scorer_metrics);
+    # per-Case marking is untouched. So xstest's ``Task(metrics=[refusal_rate()])`` reads
+    # here as the scorer's headline (OME-1527).
+    honoured: str | None = None
+    kept_mean: str | None = None
     if headline_metric_kind(headline_scorer) != "mean":
         metric: str | None = headline_metric_name(headline_scorer)
+        if whole_run_metric is None:
+            raise ImporterError(
+                f"headline metric {metric or '<none>'} of scorer {headline_name} is not a plain "
+                "mean; the Benchmark would publish the wrong headline. A Task-level "
+                "metrics=[...] is checked here too, because inspect puts it in place of each "
+                "scorer's own whole-run metrics. Choose for this Benchmark (OME-1527 (R1)): "
+                "--whole-run-metric honour scores the run with the eval's own metric, "
+                "--whole-run-metric mean keeps the mean under a Named Deviation"
+            )
+        honoured, kept_mean = _whole_run_choice(
+            task, headline_scorer, metric or "<none>", whole_run_metric
+        )
+    elif whole_run_metric is not None:
         raise ImporterError(
-            f"headline metric {metric or '<none>'} of scorer {headline_name} is not a plain "
-            "mean; the Benchmark would publish the wrong headline — declare a reducer for it "
-            "(OME-1268) or add the row by hand"
+            f"--whole-run-metric {whole_run_metric} was given, but the headline is already a "
+            "plain mean; drop the flag"
         )
     if len(declared) == 1:
         return ScorerFacts(
@@ -203,6 +297,8 @@ def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
             scorer_kwargs=headline_kwargs,
             scorer_name=headline_name,
             dropped_metrics=extra_metric_names(headline_scorer),
+            whole_run_metric=honoured,
+            mean_instead_of=kept_mean,
         )
     _check_kept_scorers(declared, resolved, kept)
     dropped_metrics: list[str] = []
@@ -219,7 +315,45 @@ def _scorer_facts(task: Any, module: Any) -> ScorerFacts:
         ),
         headline_differs=kept[0] != 0,
         dropped_metrics=tuple(dropped_metrics),
+        whole_run_metric=honoured,
+        mean_instead_of=kept_mean,
     )
+
+
+def _whole_run_choice(
+    task: Any, scorer: Any, metric: str, choice: WholeRunMetricChoice
+) -> tuple[str | None, str | None]:
+    """The row's ``(whole_run_metric, mean_instead_of)`` for the agent's choice on a non-mean
+    headline, or a named refusal.
+
+    ``mean`` always imports: the row keeps the mean and says so. ``honour`` names the metric
+    for the tally (OME-1527, R1), refused for what the tally cannot replay faithfully: a
+    metric the row cannot name, or a Task with its own epoch reducer. The tally reduces each
+    Case's Scores the way inspect does before any metric runs: with inspect's default mean
+    when the Task names no reducer, or with the Task's own any-of-N reducer when its epochs
+    are Attempts (``task_attempts`` above 1, which has proved every reducer is inspect's own
+    ``max``, ``at_least_1`` or ``pass_at_N``). Any other reducer (coconot's word map, HLE's
+    ``attempt_preserving_mean``) is refused.
+    """
+
+    from inspect_ai.scorer._reducer.registry import reducer_log_names
+
+    from screamingface_engine_inspect.scorer_metrics import headline_metric_reference
+
+    if choice == "mean":
+        return None, metric
+    reducers: list[Any] | None = getattr(task, "epochs_reducer", None)
+    if reducers and task_attempts(task) == 1:
+        names: list[str] = reducer_log_names(reducers) or ["<unnamed>"]
+        raise ImporterError(
+            f"cannot honour {metric}: the task declares its own epoch reducer "
+            f"{', '.join(names)}, which the tally does not replay; use --whole-run-metric mean"
+        )
+    try:
+        reference: str = headline_metric_reference(scorer)
+    except ValueError as exc:
+        raise ImporterError(f"cannot honour {metric}: {exc}; use --whole-run-metric mean") from None
+    return reference, None
 
 
 def _check_kept_scorers(
@@ -327,6 +461,9 @@ def _scorer_lines(
     dropped_scorers: tuple[str, ...] = (),
     headline_differs: bool = False,
     dropped_metrics: tuple[str, ...] = (),
+    whole_run_metric: str | None = None,
+    mean_instead_of: str | None = None,
+    whole_run_headline: str | None = None,
 ) -> list[str]:
     """The scorer, metric, judge and check-surface lines of a BenchmarkSpec row.
 
@@ -351,7 +488,20 @@ def _scorer_lines(
             extra_scorers, named_scores, dropped_scorers, headline_differs, dropped_metrics
         )
     )
+    benchmark_lines.extend(
+        _whole_run_metric_lines(whole_run_metric, mean_instead_of, whole_run_headline)
+    )
+    # WHY the headline metric too: honouring it or keeping the mean is already said above.
+    stated: set[str] = {
+        *dropped_metrics,
+        *(name for name in (mean_instead_of, _metric_of(whole_run_metric)) if name is not None),
+    }
     for metric_name in custom_metrics:
+        # WHY skip a dropped metric: inspect puts Task-level metrics in place of the scorer's, so
+        # _named_score_lines already wrote its "not reproduced" note; a TODO beside it
+        # would ask for the same deviation twice (OME-1527).
+        if metric_name.rpartition("/")[2] in stated:
+            continue
         benchmark_lines.append(
             f"        # TODO(review): the eval reports its own metric {metric_name}, but the"
         )
@@ -421,6 +571,49 @@ def _named_score_lines(
         )
         lines.append("        # name it in the description.")
     return lines
+
+
+#: What the importer writes in front of an honoured metric's reference: assembly refuses it,
+#: so a reviewer must delete it, and that deletion is the human claim the row needs.
+WHOLE_RUN_METRIC_UNREVIEWED: str = "TODO:"
+
+
+def _whole_run_metric_lines(
+    whole_run_metric: str | None, mean_instead_of: str | None, whole_run_headline: str | None
+) -> list[str]:
+    """The row's whole-run-metric choice (OME-1527): an honoured metric's reference behind a
+    review gate (with the key of its dict that is the headline, when the agent named one), or
+    the kept mean as a Named Deviation; nothing when there was no choice."""
+
+    if mean_instead_of is not None:
+        return [
+            f"        # NAMED DEVIATION: the eval scores the whole run with {mean_instead_of};",
+            "        # this Benchmark reports the mean per-Case score instead (chosen at import,",
+            "        # OME-1527). Name it, and how the two differ, in the description.",
+        ]
+    if whole_run_metric is None:
+        return []
+    name: str = _metric_of(whole_run_metric) or whole_run_metric
+    # WHY a gate, not a note: inspect metrics declare neither range nor direction, and a
+    # Headline Score is higher-is-better up to 1 (xstest's refusal_rate is 0..100, lower is
+    # better on xstest_safe). Only a reviewer reading the metric can make that claim.
+    return [
+        f"        # TODO(review): confirm {name} is higher-is-better up to 1, as a Headline Score",
+        f'        # must be; then delete "{WHOLE_RUN_METRIC_UNREVIEWED}" below. If it is not,',
+        "        # re-import with --whole-run-metric mean.",
+        f'        whole_run_metric="{WHOLE_RUN_METRIC_UNREVIEWED}{whole_run_metric}",',
+        *(
+            ()
+            if whole_run_headline is None
+            else (f"        whole_run_headline={json.dumps(whole_run_headline)},",)
+        ),
+    ]
+
+
+def _metric_of(reference: str | None) -> str | None:
+    """The metric's name from its dotted ``module:constructor`` reference."""
+
+    return None if reference is None else reference.rpartition(":")[2]
 
 
 def _tuple_literal(items: tuple[str, ...]) -> str:
@@ -545,6 +738,8 @@ class TaskReplayImporter(Protocol):
         shuffle_seed: int | None,
         choice_shuffle_seed: int | None,
         keep_sample_metadata: bool,
+        whole_run_metric: WholeRunMetricChoice | None = None,
+        empty_answer_key_allowed: bool = False,
     ) -> TaskReplayImport:
         """Seal the Cases by two replays, as import_replay.import_by_task_replay does."""
         ...
@@ -624,17 +819,42 @@ def _add_task_replay_arguments(parser: argparse.ArgumentParser) -> None:
         help="an upstream Sample id to leave out (repeatable), a Named Deviation whose "
         "reason the row must state, e.g. stages_full:14",
     )
-    parser.add_argument(
+    # WHY exclusive: one says no Sample has an answer key, the other that some do.
+    answer_key = parser.add_mutually_exclusive_group()
+    answer_key.add_argument(
         "--no-answer-key",
         action="store_true",
         help="the eval's Samples carry no answer key, so an empty one is accepted; the "
         "Benchmark row must then say who grades without it",
+    )
+    answer_key.add_argument(
+        "--empty-answer-key-allowed",
+        action="store_true",
+        help="some Samples have an empty answer key that is itself the answer, read by the "
+        "eval's own scorer (contracteval: no related clause, so the right reply declines); "
+        "Samples with a key are checked as usual",
     )
     parser.add_argument(
         "--keep-sample-metadata",
         action="store_true",
         help="keep the Sample metadata although the scorer is inspect's own, because a "
         "Judge template reads it (coconot's rubric)",
+    )
+    parser.add_argument(
+        "--whole-run-metric",
+        choices=("honour", "mean"),
+        default=None,
+        help="for a Task whose headline metric is not a plain mean: honour scores the run with "
+        "the eval's own metric (the row names it, behind a review gate), mean keeps the mean "
+        "per-Case score under a Named Deviation (OME-1527)",
+    )
+    parser.add_argument(
+        "--whole-run-headline",
+        default=None,
+        metavar="KEY",
+        help="with --whole-run-metric honour, for a metric that returns several numbers by "
+        "name: the one that is the Benchmark's headline score, e.g. f1; the others are "
+        "published beside it as run metrics (OME-1527)",
     )
 
 
@@ -662,6 +882,16 @@ def _import_by_task_replay_cli(
         write_task_replay_rows,
     )
 
+    # WHY before the replays: the key names a number of an honoured metric's dict, so without
+    # honour it is a contradiction, refused before any child runs.
+    if args.whole_run_headline is not None and args.whole_run_metric != "honour":
+        raise ImporterError(
+            "--whole-run-headline names a number the honoured whole-run metric returns; it "
+            "needs --whole-run-metric honour"
+        )
+    empty_key_option: dict[str, Any] = (
+        {"empty_answer_key_allowed": True} if args.empty_answer_key_allowed else {}
+    )
     imported: TaskReplayImport = (import_by_task_replay or replay_both_times)(
         args.task_ref,
         _parse_task_args(args.task_arg),
@@ -670,6 +900,10 @@ def _import_by_task_replay_cli(
         shuffle_seed=args.shuffle_seed,
         choice_shuffle_seed=args.choice_shuffle_seed,
         keep_sample_metadata=args.keep_sample_metadata,
+        # WHY only when given: absence stays absence, so a command without these flags
+        # passes the import exactly the options it always did.
+        **({} if args.whole_run_metric is None else {"whole_run_metric": args.whole_run_metric}),
+        **empty_key_option,
     )
     card: CardLicense = card_license_of(
         imported.case_sources, dataset_info=dataset_info or _hub_dataset_info
@@ -681,6 +915,7 @@ def _import_by_task_replay_cli(
         license=card.value,
         card_license=card.card_says,
         provenance=read_provenance_facts(args.task_ref, fetch=arxiv_fetch),
+        whole_run_headline=args.whole_run_headline,
     )
     sources: str = "\n".join(f"  {source.as_comment()}" for source in imported.case_sources)
     print(

@@ -41,6 +41,17 @@ def _chunks(value: object) -> Iterator[str]:
         yield json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def inline_json(report: Report, limit: int = 65536) -> str | None:
+    chunks: list[str] = []
+    size = 0
+    for chunk in iter_report_json(report):
+        size += len(chunk.encode("utf-8"))
+        if size > limit:
+            return None
+        chunks.append(chunk)
+    return "".join(chunks)
+
+
 def write_report(report: Report, path: Path) -> None:
     """Replace an export only after the complete new snapshot reaches disk."""
 
@@ -48,4 +59,7 @@ def write_report(report: Report, path: Path) -> None:
         for chunk in iter_report_json(report):
             stream.write(chunk.encode("utf-8"))
 
-    write_atomic(path, write)
+    from screamingface._results.lifecycle import report_operation
+
+    with report_operation(report, "exporting"):
+        write_atomic(path, write)

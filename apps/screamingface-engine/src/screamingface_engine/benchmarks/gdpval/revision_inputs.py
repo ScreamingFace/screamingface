@@ -44,9 +44,10 @@ JUDGE_PARAMS = (
     # the exact-response cache.
     ("web_search", "false"),
     # WHY non-zero, and why that matters here: an unparseable reply is retried by re-resolving
-    # the nested judge call. At temperature 0 the retry would re-send identical bytes and fail
-    # identically; 0.2 redraws a fresh sample while staying near-deterministic. Copied from
-    # DRACO, where the same reasoning applies.
+    # the nested judge call. That retry sends identical bytes, so it reaches the judge only
+    # because it opts out of the gateway cache (OME-1533, world/fresh_judge_retry.py); at
+    # temperature 0 the judge would then answer identically, and 0.2 gives a fresh sample while
+    # staying near-deterministic. Copied from DRACO, where the same reasoning applies.
     ("temperature", "0.2"),
     # WHY (mirrors DRACO's OME-993 lesson): the judge is a reasoning model and its thinking
     # tokens count against max_tokens — left at provider default it can spend the whole budget

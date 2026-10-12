@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1533",
+  "branch": "OME-1533-fresh-judge-retry",
+  "approver": "owner (in the OME-1533 session)",
+  "date": "2026-10-12",
+  "scope": "One prior-test edit: test_hygiene_ratchets.py EXPORTS raises url4.dag from 36 to 38 and url4.dag.nodes from 25 to 27, for the two new public names GuardRetry and current_guard_retry. No ceiling in BASELINE is raised and nothing else in the file changes.",
+  "reason": "The guard now tells the subtree it re-runs which retry it is and why, and the Engine reads that through url4.dag; the ratchet pins every __all__ size exactly so that a public-API addition edits it in the same diff.",
+  "files": {
+    "packages/url4/tests/unit/test_hygiene_ratchets.py": {
+      "base_blob": "9e1669024d0cc779bf5b3ee0f6f8cf7a7e0e2810",
+      "approved_blob": "d34dfb6975f758403f1225dec8d1524a2203bdbf"
+    }
+  }
+}

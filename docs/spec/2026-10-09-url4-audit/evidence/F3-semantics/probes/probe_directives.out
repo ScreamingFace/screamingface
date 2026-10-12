@@ -1,0 +1,6 @@
+(https://d*(/s($item)!'g')!'p';iteration.on_error=collect)!'r';iteration.on_error=fail -> IterationDirectives(concurrency=None, on_error='fail', slice=None, fmt_result=None)
+(https://d*(/s($item)!'g')!'p';iteration.on_error=skip)!'r';iteration.on_error=fail -> IterationDirectives(concurrency=None, on_error='skip', slice=None, fmt_result=None)
+(https://d*(/s($item)!'g')!'p';iteration.concurrency=2)!'r';iteration.concurrency=5 -> IterationDirectives(concurrency=2, on_error='collect', slice=None, fmt_result=None)
+IterationDirectives(concurrency=None, on_error='fail', slice=None, fmt_result=None)
+((a, b)!'j';expand, c)!'m' -> 'm\n\nj\n\na\nb\nc'
+(https://d*(/s($item)!'g')!'p';expand, c)!'m' -> 'm\n\n[Response 1]\nok-r0\n\n[Instruction]\np\n{"error": {"kind": "ResolutionError", "message": "bad row", "code": "resolution_failed", "retryable": true}}\nc'

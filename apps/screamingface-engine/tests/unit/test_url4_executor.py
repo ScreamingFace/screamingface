@@ -51,7 +51,7 @@ async def test_static_world_yields_span_then_completed_with_real_result() -> Non
     io = StaticIOLayer(fetch_map={"https://a": "A"})
     executor = Url4Executor(io)
 
-    frames = await _drain(executor, "https://a!go")
+    frames = await _drain(executor, "https://a!'go'")
 
     last = frames[-1]
     assert isinstance(last, Completed)
@@ -151,7 +151,7 @@ async def test_zero_usage_still_yields_valid_all_zero_subtree() -> None:
     io = StaticIOLayer(fetch_map={"https://a": "A"})
     executor = Url4Executor(io)
 
-    frames = await _drain(executor, "https://a!go")
+    frames = await _drain(executor, "https://a!'go'")
 
     completed = frames[-1]
     assert isinstance(completed, Completed)
@@ -239,7 +239,7 @@ async def test_world_aclose_runs_once_after_a_normal_drain() -> None:
     spy = _AcloseSpy()
     executor = Url4Executor(io, world_aclose=spy)
 
-    frames = await _drain(executor, "https://a!go")
+    frames = await _drain(executor, "https://a!'go'")
 
     assert isinstance(frames[-1], Completed)
     assert spy.calls == 1
@@ -297,7 +297,7 @@ async def test_no_world_aclose_is_a_no_op() -> None:
     io = StaticIOLayer(fetch_map={"https://a": "A"})
     executor = Url4Executor(io)
 
-    frames = await _drain(executor, "https://a!go")
+    frames = await _drain(executor, "https://a!'go'")
 
     assert isinstance(frames[-1], Completed)
 
@@ -592,7 +592,7 @@ async def test_publish_run_orders_frames_per_spec_section_8() -> None:
     stream = InMemoryEventStream()
     topic = "url4-executor-integration"
 
-    await publish_run(stream, Url4Executor(io), topic, "https://a!go")
+    await publish_run(stream, Url4Executor(io), topic, "https://a!'go'")
 
     frames = []
 

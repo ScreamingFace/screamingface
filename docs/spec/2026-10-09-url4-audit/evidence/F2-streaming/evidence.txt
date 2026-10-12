@@ -1,0 +1,28 @@
+exit=1  python3 $FM check model_lifecycle.py --keep-going
+exit=1  python3 $FM check model_lifecycle.py -D LOST_RESPONSE=0 -D CANCELS=0 --keep-going
+exit=1  python3 $FM check model_lifecycle.py -D LOST_RESPONSE=0 -D FAULTS=0 --keep-going
+exit=1  python3 $FM check model_lifecycle.py -D TERM_PATH_RELIABLE=1 -D LOST_RESPONSE=0 --keep-going
+exit=1  python3 $FM check model_lifecycle.py -D TERM_PATH_RELIABLE=1 -D DEADLINE_SET=0 --keep-going
+exit=1  python3 $FM check model_lifecycle.py -D MAX_TEL=3 -D FAULTS=3 -D CANCELS=2 --keep-going
+exit=1  python3 $FM check model_lifecycle.py -D SEQ_COMMIT=1 -D FIX=3 -D TERM_PATH_RELIABLE=1 -D LOST_RESPONSE=1 --keep-going
+exit=1  python3 $FM check model_lifecycle.py -D FIX=0 -D LOST_RESPONSE=0 --keep-going
+exit=1  python3 $FM check model_lifecycle.py -D FIX=1 -D LOST_RESPONSE=0 --keep-going
+exit=1  python3 $FM check model_lifecycle.py -D FIX=2 -D LOST_RESPONSE=0 --keep-going
+exit=1  python3 $FM check model_lifecycle.py -D FIX=3 -D LOST_RESPONSE=0 --keep-going
+exit=0  python3 $FM check model_lifecycle_fix3_safety.py
+exit=0  python3 $FM check model_lifecycle_fix3_safety.py -D MAX_TEL=3 -D FAULTS=3 -D CANCELS=2
+exit=0  python3 $FM check model_lifecycle_fix3_safety.py --challenge
+exit=0  python3 $FM mutate model_lifecycle_fix3_safety.py
+exit=0  python3 $FM check model_lifecycle_fix3_live.py
+exit=0  python3 $FM check model_lifecycle_fix3_live.py -D MAX_TEL=3 -D FAULTS=3 -D CANCELS=2
+exit=0  python3 $FM check model_lifecycle_fix3_live.py --challenge
+exit=0  python3 $FM mutate model_lifecycle_fix3_live.py
+exit=0  python3 $FM check model_lifecycle_fix3_commit.py
+exit=0  python3 $FM check model_lifecycle_fix3_commit.py --challenge
+exit=1  python3 $FM mutate model_lifecycle_fix3_commit.py
+exit=0  python3 $FM compare model_lifecycle.py model_lifecycle_fix3_safety.py model_lifecycle_fix3_live.py model_lifecycle_fix3_commit.py
+exit=1  python3 $FM check model_jobstatus_inprocess.py --keep-going
+exit=1  python3 $FM check model_jobstatus_queue.py --keep-going
+exit=1  python3 $FM check model_jobstatus_queue.py --challenge
+exit=0  python3 $FM check model_jobstatus_queue_spec2.py
+exit=0  python3 $FM mutate model_jobstatus_queue_spec2.py

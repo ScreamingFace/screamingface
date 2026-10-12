@@ -241,6 +241,10 @@ async def test_bound_elapsed_returns_504_and_stops_run() -> None:
         ("provider_refused", True, 502),
         # A url4 code the node answered 500 stays 500 (test_a_500_with_a_url4_error_code_stays_500).
         ("internal_error", True, 500),
+        # url4 2.0 (contracts C8): an unlisted permanent url4 code keeps its class: 422.
+        ("quorum_not_met", True, 422),
+        ("intent_error", True, 422),
+        ("unsupported_mode", True, 501),
     ],
 )
 async def test_mount_status_mapping_matches_node_tier_table(

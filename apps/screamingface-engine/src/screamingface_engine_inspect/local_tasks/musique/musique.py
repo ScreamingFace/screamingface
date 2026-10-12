@@ -191,8 +191,13 @@ def musique_support_f1() -> Scorer:
     """Support F1: cited paragraph numbers against the gold `is_supporting` ones."""
 
     async def score(state: TaskState, target: Target) -> Score:
+        # WHY raise (OME-1527): every real MuSiQue question has 2 to 4 gold paragraphs, so a
+        # missing key is a broken Case, not "expected nothing"; the default it replaced scored
+        # "cited nothing" 1.0. Upstream bbeh's scorer refuses a missing key the same way.
+        if state.metadata is None or "supporting_idx" not in state.metadata:
+            raise ValueError("Sample is missing 'supporting_idx' in its metadata")
         predicted: list[int] = extract_support(state.output.completion)
-        gold: list[int] = list(state.metadata.get("supporting_idx", []))
+        gold: list[int] = list(state.metadata["supporting_idx"])
         metric: SupportMetric = SupportMetric()  # fresh: upstream accumulates across calls
         metric(predicted, gold)
         _, f1 = metric.get_metric()

@@ -92,6 +92,9 @@ class BenchmarkSpec:
     #: The description must name what the flipped score means (refusal rate, or
     #: sosbench's safe-reply rate): the flag flips, it never names.
     inverted_grade: bool = False
+    #: Attempts per Case (OME-1458): the Task's any-match epochs. Each Case is asked this many
+    #: times and a Check is met if any Attempt met it; 1 is an ordinary Benchmark.
+    attempts: int = 1
     #: For a judge that answers in WORDS, not inspect's C/I/P/N letters: each verdict
     #: word → its grade, copied from the eval's own reducer (coconot: UNACCEPTABLE → 1).
     #: It replaces the letters and is matched ignoring case; a word outside it fails the
@@ -146,6 +149,23 @@ class BenchmarkSpec:
     #: changes per-Case values cannot keep a published Revision (OME-1268). Empty on every
     #: other row, so no published revision moves.
     scorer_dependencies: tuple[str, ...] = ()
+    #: The eval's own whole-run inspect ``@metric``, as a dotted ``module:constructor``
+    #: reference called with no arguments (``inspect_evals.hle.metrics:accuracy``). Set, it
+    #: scores the run in place of the mean of the Case scores (OME-1527, R1): its number is the
+    #: Headline Score (a dict needs ``whole_run_headline``). OPT-IN per Benchmark, never a
+    #: default: a reviewer confirms the metric's headline is higher-is-better up to 1, as a
+    #: Headline Score must be. Benchmark identity when set.
+    whole_run_metric: str | None = None
+    #: For a ``whole_run_metric`` that returns a dict (contracteval's F1 beside its precision
+    #: and counts): the key that is the Headline Score. Every other key is published as a run
+    #: metric, never a Named Score, since no Case carries a precision (OME-1527). None for a
+    #: metric returning one number; Benchmark identity when set, so no other row moves.
+    whole_run_headline: str | None = None
+    #: The Task's own any-of-N epoch reducer, by inspect's name (``max``, ``at_least_1``,
+    #: ``pass_at_N``), on a row with Attempts that honours ``whole_run_metric``: the tally
+    #: reduces each Case's Attempt Scores with it before the metric reads them, as inspect
+    #: does (OME-1527 x OME-1458). Required exactly then; Benchmark identity when set.
+    epoch_reducer: str | None = None
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -251,8 +271,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: inspect_evals.gsm8k.gsm8k's Task declares scorer=match(numeric=True).
         scorer="inspect_ai.scorer:match",
         scorer_kwargs={"numeric": True},
-        # Free-form answers make mid-run feedback legitimate: the same scorer serves
-        # the corrective loop (spec §4; owner decision on OME-1115, 2026-09-15).
+        # No Draft Feedback offer (with_check_surface stays False): the offer is a
+        # per-Benchmark owner call, and today only IFEval carries one (OME-1513).
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/2110.14168",
@@ -3935,6 +3955,72 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         named_scores=("musique_answer_f1", "musique_answer_em", "musique_support_f1"),
     ),
+    BenchmarkSpec(
+        key="contracteval",
+        title="ContractEval",
+        description=(
+            "4,182 clause-extraction questions over 102 real commercial contracts (CUAD test "
+            "split). The model is given a full contract and one of 41 clause categories, and must "
+            'quote the answering sentences verbatim or reply "No related clause." Grading is '
+            "deterministic string containment, the paper's own rule: every gold sentence must "
+            "appear, with no partial credit, so there is no Judge and no grading tokens. Benchmark "
+            "score = F1 over the whole run's confusion matrix, not a mean of Case scores: 70% of "
+            "rows have no clause, so a model that always declines would be right on 70% of Cases "
+            "while answering nothing, and F1 scores it 0. Each Case's row records whether the "
+            "Case has a clause, whether the model declined, and its token overlap with the gold "
+            "text. One named deviation from the paper: it sends its extraction instructions as a "
+            "system message, while this board delivers them as the leading text of the single "
+            "candidate input, because a benchmark cannot address a candidate's system role. The "
+            "instructions are identical; the request shape is not, so scores are comparable to "
+            "the paper's in protocol but not in message layout."
+        ),
+        focus="Legal clause extraction",
+        dataset_url="https://huggingface.co/datasets/theatticusproject/cuad-qa",
+        # Specialized legal extraction with real headroom, but deterministic string
+        # containment over given text — no expert-frontier stakes (OME-1257; the hand-built
+        # Benchmark's tier, kept).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval — a
+        #   LOCAL Task (OME-1527), the hand-built Benchmark moved into inspect's shape; every
+        #   field below is carried over from the hand-built definition (OME-1455 sources).
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2508.03080",
+        authors="Liu et al., 2025",
+        citation=(
+            "@misc{liu2025contractevalbenchmarkingllmsclauselevel,\n"
+            "      title={ContractEval: Benchmarking LLMs for Clause-Level Legal Risk Ide"
+            "ntification in Commercial Contracts}, \n"
+            "      author={Shuang Liu and Zelong Li and Ruoyun Ma and Haiyan Zhao and Men"
+            "gnan Du},\n"
+            "      year={2025},\n"
+            "      eprint={2508.03080},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2508.03080}, \n"
+            "}"
+        ),
+        harness_url=(
+            "https://github.com/olivialiu121/ContractEval/tree/f2de74479bb067a13da2fd034972eec6905563b2"
+        ),
+        license="CC-BY-4.0",
+        license_note="CUAD (theatticusproject/cuad-qa) is CC-BY-4.0; the reference harness is MIT.",
+        human_baseline=NotPublished(reason="the ContractEval paper reports no human study"),
+        # F1 (clause-level extraction correctness on CUAD-derived tasks), paper's results table.
+        frontier_score=FrontierScore(
+            score=0.644,
+            model="GPT 4.1 mini",
+            source_url="https://arxiv.org/html/2508.03080",
+            as_of="2025-08",
+        ),
+        notebook="13_contracteval",
+        scorer="screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval_containment",
+        # Reviewed: F1 lies in 0..1, higher is better — a Headline Score (OME-1527, R1).
+        whole_run_metric="screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval_f1",
+        # The metric returns the paper's F1 beside its precision, recall, F2, confusion
+        # counts and laziness rates (the hand-built Benchmark's keys); F1 is the headline.
+        whole_run_headline="f1",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
@@ -3962,8 +4048,11 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     _check_judge_declaration(spec)
     _check_verdict_grades(spec)
     _check_named_scores(spec)
+    _check_whole_run_metric(spec)
+    _check_whole_run_headline(spec)
     cases_spec: TaskReplayCasesSpec = _cases_declaration(spec.key)
     _check_answer_key_opt_in(spec, cases_spec)
+    _check_whole_run_metric_keeps_metadata(spec, cases_spec)
     identity_pins: tuple[str, ...] = _task_replay_pins(cases_spec)
     prepare: Callable[[Path], dict[str, Any]] = partial(
         prepare_replayed_cases, cases_spec, benchmark_key=spec.key
@@ -3980,9 +4069,11 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             identity_pins
             + _judge_prompt_pins(spec)
             + _inverted_grade_pins(spec)
+            + _attempts_pins(spec)
             + _verdict_grades_pins(spec)
             + _named_score_pins(spec)
             + _scorer_dependency_pins(spec)
+            + _whole_run_metric_pins(spec)
         ),
         scorer_factory=_scorer_factory(spec),
         extra_scorer_factories=_extra_scorer_factories(spec),
@@ -3995,6 +4086,10 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         inverted_grade=spec.inverted_grade,
         verdict_grades=spec.verdict_grades,
         origin=spec.origin,
+        whole_run_metric_factory=_whole_run_metric_factory(spec),
+        whole_run_headline=spec.whole_run_headline,
+        epoch_reducer_factory=_epoch_reducer_factory(spec),
+        attempts=spec.attempts,
         **_provenance_of(spec),
     )
 
@@ -4029,6 +4124,94 @@ def _check_named_scores(spec: BenchmarkSpec) -> None:
         raise ValueError(
             f"{spec.key}: dropped_scorers {sorted(declared_and_dropped)} are also declared "
             "in named_scores; a scorer is kept or dropped, never both"
+        )
+
+
+def _check_whole_run_metric(spec: BenchmarkSpec) -> None:
+    """Refuse a row that both honours the eval's whole-run metric and rewrites its grades,
+    or whose Attempts the tally could not reduce the way inspect does.
+
+    WHY: the metric reads the eval's own grades. The Inverted Grade flip changes what a Case
+    score means, and a verdict map stands in for the eval's own reducer (coconot's), which
+    the tally does not replay; either would feed the metric numbers the eval never made.
+    Attempts (OME-1458) are fine: the metric reads each Case's Attempt Scores reduced by the
+    Task's own any-of-N reducer, which the row must name (``epoch_reducer``).
+    """
+
+    replays_attempts: bool = spec.whole_run_metric is not None and spec.attempts > 1
+    if spec.epoch_reducer is not None and not replays_attempts:
+        raise ValueError(
+            f"{spec.key}: epoch_reducer is read only by a whole_run_metric on a row with "
+            "attempts above 1; drop it"
+        )
+    if replays_attempts:
+        from screamingface_engine_inspect.scorer_metrics import any_match_reducers
+
+        names: list[str] = sorted(any_match_reducers(spec.attempts))
+        if spec.epoch_reducer not in names:
+            raise ValueError(
+                f"{spec.key}: whole_run_metric with attempts={spec.attempts} needs the Task's "
+                f"own epoch_reducer, one of {', '.join(names)}; got {spec.epoch_reducer!r}"
+            )
+    if spec.whole_run_metric is None:
+        return
+    # WHY: the importer writes an honoured metric behind this prefix; deleting it is the
+    # reviewer's claim that the metric is higher-is-better up to 1, which inspect metrics
+    # never declare (as the TODO judge model, it never ships unreviewed).
+    if spec.whole_run_metric.startswith("TODO:"):
+        raise ValueError(
+            f"{spec.key}: whole_run_metric is unreviewed — confirm the metric is "
+            'higher-is-better up to 1 and delete "TODO:", or keep the mean'
+        )
+    rewrites: list[str] = [
+        name
+        for name, rewritten in (
+            ("inverted_grade", spec.inverted_grade),
+            ("verdict_grades", spec.verdict_grades is not None),
+        )
+        if rewritten
+    ]
+    if rewrites:
+        raise ValueError(
+            f"{spec.key}: whole_run_metric reads the eval's own grades, which "
+            f"{' and '.join(rewrites)} rewrite; keep the mean for this row"
+        )
+
+
+def _check_whole_run_headline(spec: BenchmarkSpec) -> None:
+    """Refuse a headline key the row's whole-run metric cannot have.
+
+    WHY: the key names a number of the metric's dict (OME-1527); on a row keeping the mean it
+    would move the revision while changing no number, and a blank key names nothing.
+    """
+
+    if spec.whole_run_headline is None:
+        return
+    if spec.whole_run_metric is None:
+        raise ValueError(
+            f"{spec.key}: whole_run_headline names a key of the whole_run_metric's dict, "
+            "but the row honours no whole_run_metric; drop it"
+        )
+    if not spec.whole_run_headline.strip():
+        raise ValueError(f"{spec.key}: whole_run_headline must be a non-blank key")
+
+
+def _check_whole_run_metric_keeps_metadata(
+    spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec
+) -> None:
+    """Refuse a row that honours the eval's whole-run metric but drops the Sample metadata.
+
+    WHY: the metric may read answer-key facts from the Sample metadata (an F1 over "has a
+    clause"). Without it the metric reads an empty dict: one that indexes it fails the run,
+    but one written with ``.get(key, default)`` publishes a wrong number under the eval's
+    name. The importer keeps the metadata for an honour import; a hand edit that adds the
+    metric to a row imported without it is refused here, so it is re-imported instead.
+    """
+
+    if spec.whole_run_metric is not None and not cases_spec.keep_sample_metadata:
+        raise ValueError(
+            f"{spec.key}: whole_run_metric needs keep_sample_metadata=True, because the "
+            "metric may read the Sample metadata; re-import with --whole-run-metric honour"
         )
 
 
@@ -4253,9 +4436,13 @@ def _check_answer_key_opt_in(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpe
     prompts read it, so a judged row must pass its own ``template`` without it (xstest
     does). A custom judged scorer with no template kwarg is the reviewer's call, like every
     other judged row (OME-1269, OME-1371); so is the reply-only claim, which a per-row
-    grading test then checks.
+    grading test then checks. A third case keeps its key on some Cases and reads an empty
+    one as a fact (``empty_answer_key_allowed``, OME-1527 R5); it has its own check.
     """
 
+    if cases_spec.empty_answer_key_allowed:
+        _check_empty_answer_key_claim(spec, cases_spec)
+        return
     if not spec.scorer_reads_answer_key:
         _check_reply_only_claim(spec, cases_spec)
         return
@@ -4311,6 +4498,45 @@ def _check_reply_only_claim(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec
         raise ValueError(
             f"{spec.key}: scorer_reads_answer_key=False with a check surface; a reply-only "
             "benchmark offers no mid-run check (set with_check_surface=False)"
+        )
+
+
+def _check_empty_answer_key_claim(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec) -> None:
+    """Refuse ``empty_answer_key_allowed`` anywhere but beside the eval's own judge-free
+    scorer (OME-1527, R5).
+
+    INVARIANT: an empty key is accepted only where a row says so and only for a grader that
+    reads the emptiness as an answer (contracteval: no related clause, so abstain). A judge
+    decides key-reading by its prompt; inspect's built-ins would mark every reply wrong
+    against it; and the two key-less declarations say no Case has a key at all.
+    """
+
+    if not cases_spec.has_answer_key:
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed with has_answer_key=False; one says some "
+            "Cases have a key, the other that none has (keep one)"
+        )
+    if not spec.scorer_reads_answer_key:
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed with scorer_reads_answer_key=False; the "
+            "flag is for a scorer that reads the key, empty or not"
+        )
+    if spec.judge is not None:
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed on a judged benchmark; whether the judge "
+            "reads the key is decided by its prompt (declare has_answer_key=False instead)"
+        )
+    if spec.scorer.startswith(INSPECT_SCORER_PREFIX):
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed on inspect's built-in {spec.scorer}, "
+            "which would mark every reply wrong against an empty key"
+        )
+    if spec.with_check_surface:
+        # WHY: Draft Feedback over an empty key tells a fusion "no clause here" mid-run,
+        # which is the answer itself.
+        raise ValueError(
+            f"{spec.key}: empty_answer_key_allowed with a check surface; a mid-run check "
+            "over an empty key would leak the answer (set with_check_surface=False)"
         )
 
 
@@ -4379,6 +4605,15 @@ def _inverted_grade_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     return ("inverted_grade=1",) if spec.inverted_grade else ()
 
 
+def _attempts_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """Attempts per Case as Benchmark identity — a pin only above 1, so no published revision
+    moves (OME-1458)."""
+
+    # WHY: any-of-2 and any-of-1 are different numbers for the same answers, so a change
+    # of N must never keep a revision its published scores hang off.
+    return (f"attempts={spec.attempts}",) if spec.attempts > 1 else ()
+
+
 def _named_score_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     """The extra, named and dropped scorers as Benchmark identity — each a pin only when
     set, so no published single-scorer revision moves (OME-1268).
@@ -4420,6 +4655,24 @@ def _scorer_dependency_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     return tuple(pins)
 
 
+def _whole_run_metric_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """The eval's whole-run metric as Benchmark identity — a pin only when set, so no
+    published revision moves (OME-1527)."""
+
+    # WHY: the metric decides the published number; switching a row from the mean to the
+    # eval's metric must never keep a revision its members' published scores hang off. The
+    # reducer decides what the metric reads per Case, so it is identity too.
+    pins: list[str] = []
+    if spec.whole_run_metric is not None:
+        pins.append(f"whole_run_metric={spec.whole_run_metric}")
+    # WHY identity: the key decides which of the dict's numbers is the published headline.
+    if spec.whole_run_headline is not None:
+        pins.append(f"whole_run_headline={spec.whole_run_headline}")
+    if spec.epoch_reducer is not None:
+        pins.append(f"epoch_reducer={spec.epoch_reducer}")
+    return tuple(pins)
+
+
 def _verdict_grades_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     """The verdict map as Benchmark identity — a pin only when set, so no published
     revision moves (OME-1371)."""
@@ -4436,6 +4689,36 @@ def _scorer_factory(spec: BenchmarkSpec) -> Callable[[], Any]:
 
     def factory() -> Any:
         return _constructor(spec.scorer)(**dict(spec.scorer_kwargs))
+
+    return factory
+
+
+def _whole_run_metric_factory(spec: BenchmarkSpec) -> Callable[[], Any] | None:
+    """Resolve the eval's whole-run metric from the row's dotted reference, lazily; None
+    when the row keeps the mean."""
+
+    reference: str | None = spec.whole_run_metric
+    if reference is None:
+        return None
+
+    def factory() -> Any:
+        return _constructor(reference)()
+
+    return factory
+
+
+def _epoch_reducer_factory(spec: BenchmarkSpec) -> Callable[[], Any] | None:
+    """Rebuild the Task's own any-of-N reducer from the row's name, lazily; None when the
+    tally reduces each Case with inspect's default mean."""
+
+    name: str | None = spec.epoch_reducer
+    if name is None:
+        return None
+
+    def factory() -> Any:
+        from screamingface_engine_inspect.scorer_metrics import any_match_reducers
+
+        return any_match_reducers(spec.attempts)[name]
 
     return factory
 

@@ -52,11 +52,12 @@ from screamingface_engine_inspect.fetch_pins import (
 from screamingface_engine_inspect.importer import (
     ImporterError,
     ScorerFacts,
+    WholeRunMetricChoice,
     _custom_metrics,
     _hub_dataset_info,
-    _refuse_several_epochs,
     _scorer_facts,
     _solver_list,
+    task_attempts,
 )
 from screamingface_engine_inspect.prepare import (
     INSPECT_SCORER_PREFIX,
@@ -96,6 +97,14 @@ class TaskReplayFacts:
     dropped_scorers: tuple[str, ...] = ()
     headline_differs: bool = False
     dropped_metrics: tuple[str, ...] = ()
+    #: The importing agent's whole-run-metric choice, as the row writes it (OME-1527).
+    whole_run_metric: str | None = None
+    mean_instead_of: str | None = None
+    #: Attempts per Case, from the Task's any-match epochs (OME-1458); 1 for every other Task.
+    attempts: int = 1
+    #: The Task's own any-of-N epoch reducer by inspect's name (``max``), only when Attempts
+    #: meet an honoured whole-run metric (OME-1527); None on every other import.
+    epoch_reducer: str | None = None
 
 
 @dataclass(frozen=True)
@@ -119,10 +128,12 @@ def replay_for_import(
     *,
     excluded_sample_ids: tuple[str, ...] | None = None,
     has_answer_key: bool = True,
+    empty_answer_key_allowed: bool = False,
     shuffle_seed: int | None = None,
     choice_shuffle_seed: int | None = None,
     keep_sample_metadata: bool = False,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
+    whole_run_metric: WholeRunMetricChoice | None = None,
 ) -> ImportReplay:
     """Run the import child once and read back Cases, Case Sources and facts.
 
@@ -132,11 +143,15 @@ def replay_for_import(
         excluded_sample_ids: upstream Sample ids capture leaves out (spec R18); None for none.
         has_answer_key: False when the Benchmark has no answer key, so an empty one is
             accepted (spec R19).
+        empty_answer_key_allowed: True when some Cases' empty key is itself the answer the
+            eval's own scorer reads (OME-1527, R5), so an empty one is accepted there.
         shuffle_seed: forced onto an ``hf_dataset`` row shuffle the eval makes without one.
         choice_shuffle_seed: forced onto a bare ``shuffle_choices=True``.
         keep_sample_metadata: keep the Sample metadata even under one of inspect's own
             scorers, because a Judge template reads it (coconot's rubric).
         timeout: seconds before a stalled replay is abandoned.
+        whole_run_metric: the agent's choice for a headline metric that is not a plain mean,
+            honour it or keep the mean (OME-1527); None refuses such a Task.
 
     Returns:
         The child's Cases (numbered 1..N by the shared writer), the upstream Sample ids in
@@ -157,9 +172,11 @@ def replay_for_import(
             "task_args": dict(task_args) if task_args else None,
             "excluded_sample_ids": list(excluded_sample_ids) if excluded_sample_ids else None,
             "has_answer_key": has_answer_key,
+            "empty_answer_key_allowed": empty_answer_key_allowed,
             "shuffle_seed": shuffle_seed,
             "choice_shuffle_seed": choice_shuffle_seed,
             "keep_sample_metadata": keep_sample_metadata,
+            "whole_run_metric": whole_run_metric,
             "cache_root": str(cache_root),
         }
         request_path.write_text(json.dumps(request), encoding="utf-8")
@@ -223,13 +240,37 @@ def _facts_of(
     task_ref: str,
     task_args: dict[str, Any] | None,
     samples_carry_choices: bool,
+    whole_run_metric: WholeRunMetricChoice | None = None,
 ) -> TaskReplayFacts:
-    """Stage 3a — read the built Task with the importer's scorer readers."""
+    """Stage 3a — read the built Task with the importer's scorer readers; ``whole_run_metric``
+    is the agent's choice for a non-mean headline (OME-1527)."""
 
-    # WHY first: a Task that asks each Sample several times is refused before any of its
-    # scorer facts are read (OME-1458).
-    _refuse_several_epochs(task)
-    scorers: ScorerFacts = _scorer_facts(task, module)
+    from inspect_ai.scorer._reducer.registry import reducer_log_names
+
+    # WHY first: a Task whose epochs are not any-match is refused before any of its scorer
+    # facts are read (OME-1458).
+    attempts: int = task_attempts(task)
+    scorers: ScorerFacts = _scorer_facts(task, module, whole_run_metric)
+    # INVARIANT (OME-1458): the Attempts fold credits each Check on its own, and a Named
+    # Score has no Checks to fold. Refused here, where both facts are known, because the
+    # marking room's own refusal comes after every Case was asked N times and paid for.
+    if attempts > 1 and scorers.named_scores:
+        raise ImporterError(
+            f"the task declares epochs={attempts} and several scores "
+            f"({', '.join(scorers.named_scores)}): Attempts are folded per Check, and Named "
+            "Scores have no Checks to fold (OME-1458)"
+        )
+    # FEATURE (OME-1527 x OME-1458): an honoured whole-run metric reads ONE Score per Case,
+    # which inspect makes by reducing the Case's epoch Scores with the Task's reducer. With
+    # Attempts, the row names that reducer (the first declared, inspect's headline one) so
+    # the tally replays it; `task_attempts` has already proved every declared reducer is
+    # inspect's own any-of-N.
+    reducer_names: list[str] | None = (
+        reducer_log_names(task.epochs_reducer)
+        if attempts > 1 and scorers.whole_run_metric is not None
+        else None
+    )
+    epoch_reducer: str | None = reducer_names[0] if reducer_names else None
     return TaskReplayFacts(
         task_ref=task_ref,
         task_args=task_args,
@@ -243,12 +284,21 @@ def _facts_of(
         custom_metrics=_custom_metrics(task),
         # WHY (D11): an eval's own scorer may read state.metadata (chembench), and the
         # metadata sits inside the Case Digest, so it is decided here, never by a hand edit.
-        keep_sample_metadata=not scorers.scorer.startswith(INSPECT_SCORER_PREFIX),
+        # An honoured whole-run metric may read it too (an F1 over "has a clause"), even
+        # under one of inspect's own scorers (OME-1527); only an honour import moves.
+        keep_sample_metadata=(
+            not scorers.scorer.startswith(INSPECT_SCORER_PREFIX)
+            or scorers.whole_run_metric is not None
+        ),
         extra_scorers=scorers.extra_scorers,
         named_scores=scorers.named_scores,
         dropped_scorers=scorers.dropped_scorers,
         headline_differs=scorers.headline_differs,
         dropped_metrics=scorers.dropped_metrics,
+        whole_run_metric=scorers.whole_run_metric,
+        mean_instead_of=scorers.mean_instead_of,
+        attempts=attempts,
+        epoch_reducer=epoch_reducer,
     )
 
 
@@ -298,7 +348,12 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     samples: list[Any] = list(task.dataset)
     # Stage 3 — facts from the built Task, then the Cases by capture.
     facts: TaskReplayFacts = _facts_of(
-        task, module, task_ref, task_args, any(sample.choices for sample in samples)
+        task,
+        module,
+        task_ref,
+        task_args,
+        any(sample.choices for sample in samples),
+        request.get("whole_run_metric"),
     )
     if request["keep_sample_metadata"]:
         facts = replace(facts, keep_sample_metadata=True)
@@ -309,6 +364,7 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         task_args=task_args,
         keep_sample_metadata=facts.keep_sample_metadata,
         has_answer_key=request["has_answer_key"],
+        empty_answer_key_allowed=request["empty_answer_key_allowed"],
         excluded_sample_ids=(
             None
             if request["excluded_sample_ids"] is None
@@ -348,11 +404,13 @@ def import_by_task_replay(
     *,
     excluded_sample_ids: tuple[str, ...] | None = None,
     has_answer_key: bool = True,
+    empty_answer_key_allowed: bool = False,
     shuffle_seed: int | None = None,
     choice_shuffle_seed: int | None = None,
     keep_sample_metadata: bool = False,
     dataset_info: Callable[[str, str | None], Any] | None = None,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
+    whole_run_metric: WholeRunMetricChoice | None = None,
 ) -> TaskReplayImport:
     """Import one eval by Task replay: run 1 reads, the declaration is sealed, run 2 proves it.
 
@@ -365,7 +423,8 @@ def import_by_task_replay(
         Stage 3 — seal: the declaration carries run 1's Case count and Case Digest, the one
                   fact that shapes a Case (keep_sample_metadata), the things only the
                   importing agent can say (which Sample ids to leave out, R18; that the
-                  Benchmark has no answer key, R19; the seeds, D1), and, per Hub repo run 1
+                  Benchmark has no answer key, R19, or that some Cases' empty key is their
+                  answer, OME-1527 R5; the seeds, D1), and, per Hub repo run 1
                   read, the commit the Hub resolves that revision to plus the Hub's gate
                   (OME-1460, :func:`~screamingface_engine_inspect.fetch_pins.source_pins_of`).
         Stage 4 — run 2, the IMAGE-SIDE child (task_replay.replayed_cases) on that
@@ -382,6 +441,8 @@ def import_by_task_replay(
         task_args: forwarded to the task function in both runs; None for none.
         excluded_sample_ids: upstream Sample ids both runs leave out (R18); None for none.
         has_answer_key: False when the Benchmark has no answer key, in both runs (R19).
+        empty_answer_key_allowed: True when some Cases' empty key is the answer the eval's
+            own scorer reads, in both runs (OME-1527, R5).
         shuffle_seed: the seed both runs force onto an unseeded ``hf_dataset`` row shuffle.
         choice_shuffle_seed: the seed both runs force onto a bare ``shuffle_choices=True``.
         keep_sample_metadata: keep the Sample metadata although the scorer is inspect's own,
@@ -389,6 +450,8 @@ def import_by_task_replay(
         dataset_info: ``(repo id, revision) → Hub dataset info`` (HfApi().dataset_info by
             default); injectable for tests.
         timeout: seconds before either run is abandoned.
+        whole_run_metric: honour the eval's non-mean headline metric or keep the mean
+            (OME-1527); None refuses such a Task. Run 1 reads it; it shapes no Case.
 
     Returns:
         The sealed declaration, the Case Sources run 1 recorded, and the Task's facts.
@@ -404,10 +467,12 @@ def import_by_task_replay(
             task_args,
             excluded_sample_ids=excluded_sample_ids,
             has_answer_key=has_answer_key,
+            empty_answer_key_allowed=empty_answer_key_allowed,
             shuffle_seed=shuffle_seed,
             choice_shuffle_seed=choice_shuffle_seed,
             keep_sample_metadata=keep_sample_metadata,
             timeout=timeout,
+            whole_run_metric=whole_run_metric,
         )
     except TaskReplayError as exc:
         raise ImporterError(str(exc)) from exc
@@ -431,6 +496,7 @@ def import_by_task_replay(
         task_args=dict(task_args) if task_args else None,
         keep_sample_metadata=first.facts.keep_sample_metadata,
         has_answer_key=has_answer_key,
+        empty_answer_key_allowed=empty_answer_key_allowed,
         excluded_sample_ids=excluded_sample_ids,
         source_pins=hub.source_pins,
         shuffle_seed=shuffle_seed,

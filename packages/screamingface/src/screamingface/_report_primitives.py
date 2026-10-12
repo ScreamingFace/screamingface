@@ -36,6 +36,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # code — aigateway's catch-all 500. Sits beside `aigateway_http_<status>`: gateway-
         # attributed and retryable (permanent=False from the 5xx), never `upstream_error`.
         "gateway_internal_error",
+        # WHY declared (OME-1458): a Benchmark that asks each Case several times marks a
+        # Check met if any Attempt met it, which only means something for a Check graded 0
+        # or 1. An Attempt whose Check scored anything else fails its Case by this name.
+        "attempt_grade_not_pass_fail",
         "provider_queue_timeout",
         "provider_execution_timeout",
         "caller_deadline_exceeded",
@@ -62,6 +66,9 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # WHY declared here (OME-1246): contracteval (engine PR #984) landed in flight
         # with the OME-1233 vocabulary close, so its two codes never joined the set —
         # a polarity mismatch then crashed report validation instead of failing the case.
+        # AIDEV-NOTE (OME-1527, #1355): nothing emits these two since contracteval became a
+        # local Task; they stay declared because the SDK refuses an undeclared code when it
+        # reads a Report, so a contracteval Report made before the move must stay readable.
         "contracteval_grading_failed",
         "polarity_mismatch",
         "missing_answer_asset",

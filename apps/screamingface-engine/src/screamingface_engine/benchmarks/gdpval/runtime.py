@@ -71,11 +71,16 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
-def install(node: Url4Node, root: Path, variant: GdpvalVariant) -> None:
+def install(
+    node: Url4Node, root: Path, variant: GdpvalVariant, *, draft_feedback: bool = False
+) -> None:
     """Register every route this benchmark's expressions reference.
 
     INVARIANT: routes are namespaced by benchmark id AND revision, so several benchmarks can install
     into ONE Runner world over ONE ``root`` without colliding.
+
+    ``draft_feedback`` is whether the Benchmark offers Draft Feedback (its ``check_surface``
+    is set). Off by default, and then the check-surface route is not installed at all.
     """
 
     install_cases(node, variant.routes.cases, _cases(root, variant.case_ids))
@@ -89,12 +94,6 @@ def install(node: Url4Node, root: Path, variant: GdpvalVariant) -> None:
             ),
         ),
         (variant.routes.judge_requests, _rubric_judge_requests(root, variant.case_ids, variant.id)),
-        # Closes over `node` so the judge route resolves per request — installation must still
-        # work in a world holding no model routes.
-        (
-            variant.routes.check_surface,
-            rubric_draft_feedback_endpoint(node, root, GDPVAL_DRAFT_FEEDBACK),
-        ),
         (variant.routes.verdict, _rubric_verdict(variant.id)),
         (variant.routes.rubric_evaluation, _rubric_evaluation),
         (
@@ -126,6 +125,15 @@ def install(node: Url4Node, root: Path, variant: GdpvalVariant) -> None:
     for route, handler in endpoints:
         if route not in installed:
             node.endpoint(route)(handler)
+    # WHY gated (OME-1527): an offer that is off must not be reachable either. The SDK refuses a
+    # Corrective Loop on a Benchmark with no offer, but a raw url4 string sent to the Engine
+    # skips the SDK, and an installed route would still answer it with a paid Judge call.
+    if draft_feedback and variant.routes.check_surface not in installed:
+        # Closes over `node` so the judge route resolves per request — installation must still
+        # work in a world holding no model routes.
+        node.endpoint(variant.routes.check_surface)(
+            rubric_draft_feedback_endpoint(node, root, GDPVAL_DRAFT_FEEDBACK)
+        )
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> str:
@@ -269,7 +277,9 @@ def _rubric_verdict(benchmark_id: str):
             raise _contract_error(str(exc)) from exc
         if record.get("valid") is not True:
             # WHY a transient error rather than a returned record: the expression's `;retry=` on
-            # this route re-resolves the NESTED judge call, so each re-ask draws a fresh sample.
+            # this route re-resolves the NESTED judge call, and that retry opts out of the gateway
+            # cache (OME-1533, world/fresh_judge_retry.py), so each re-ask draws a fresh sample
+            # instead of the stored garbled reply.
             # After the bounded retries the error propagates and the CASE fails loudly, keeping
             # the reply head as audit evidence.
             raw = str(record.get("raw_output") or "")

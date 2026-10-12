@@ -1,0 +1,36 @@
+
+fm 2.0.0 - environment
+──────────────────────
+python         3.14.7
+
+external tools
+──────────────
+  · z3            SMT solver
+  · cvc5          SMT solver
+  · dafny         auto-active verifier
+  · tlc           TLA+ model checker
+  · apalache-mc   symbolic TLA+
+  · alloy         relational analyzer
+  · spin          LTL model checker
+  · nusmv         symbolic model checker
+  · cbmc          bounded model checker
+  · frama-c       C analysis platform
+  · why3          deductive platform
+  · rocq          proof assistant
+  · coq           proof assistant
+  · lean          proof assistant
+  · isabelle      proof assistant
+  ✓ java          runtime
+
+python libraries
+────────────────
+  · z3            pip install z3-solver
+  · hypothesis    pip install hypothesis
+  · pytest        pip install pytest
+
+what you can do right now
+─────────────────────────
+  always  fm audit / check / mutate / compare / replay / refine / laws / equiv
+          (stdlib only)
+  no      fm prove                        pip install z3-solver
+  yes     TLA+ / Alloy                    (java present)

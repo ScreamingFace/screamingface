@@ -21,7 +21,10 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
-from replayed_cases_helpers import replay_in_process_over_rows  # noqa: E402
+from replayed_cases_helpers import (  # noqa: E402
+    STAND_IN_METADATA,
+    replay_in_process_over_rows,
+)
 from test_inspect_imported_benchmarks import _EXPECTED_FAMILIES  # noqa: E402
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
@@ -578,7 +581,19 @@ async def test_every_judge_less_benchmark_grades_with_no_network(
     # stand-in Cases follow the family the catalogue test declares for the key.
     choice: bool = _EXPECTED_FAMILIES[key] == "mcq"
     benchmark: ImportedBenchmark = imported_benchmark(key)
-    node: Url4Node = _node(benchmark, _MCQ_CASES if choice else _FREE_TEXT_CASES, tmp_path)
+    cases: list[PreparedCase] = _MCQ_CASES if choice else _FREE_TEXT_CASES
+    if key in STAND_IN_METADATA:
+        cases = [
+            {
+                **case,
+                "grading_material": {
+                    **case["grading_material"],
+                    "metadata": STAND_IN_METADATA[key],
+                },
+            }
+            for case in cases
+        ]
+    node: Url4Node = _node(benchmark, cases, tmp_path)
     answers: list[str] = ["ANSWER: B", "(B)"] if choice else ["ANSWER: 42", "ANSWER: 5"]
 
     scores: list[object] = await _scores(node, benchmark, answers)

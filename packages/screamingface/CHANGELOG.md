@@ -8,11 +8,25 @@
 
 * Preserve upstream answers across composed quorum panels and reject executable quorum/member policy that disagrees with default-valued Recipe metadata during export and replay (`OME-1557`). Composed quorum Recipes require an Engine containing the patched URL4 runtime; deploy the Engine operation-reporting update as well to retain member outputs and accounting.
 
+* Stream compact accounting attribution and cache saved-run disclosure context lazily, without retaining every Case payload or accounting row. Invalid or stale caches rebuild; public breakdowns and report JSON remain unchanged.
+
 * Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
 
 ### Features
 
 * **screamingface:** add `Fusion(..., quorum=N)` and per-member `optional=True` on Model, Pipeline, and Fusion Recipes (`OME-1557`). Optional complete members can fail without stopping synthesis when enough members succeed; required members must still succeed. Defaults require every member, `all` includes optional members, and zero allows an empty panel when all members are optional. Quorum is checked after members finish. Gated Fusions pass ordered successful `member_N: answer` sections in the synthesizer JSON's `outputs` string. Optional policy is only valid in Fusion member positions. Quorum and optional settings survive editable Python and replay, which validates the executable policy against recipe metadata.
+
+* Track saved-report evaluation, display and JSON export lifecycles, and show notebook recovery guidance when the previous local owner process exited unexpectedly. Explicit recovery preserves interruption metadata across destination stores; healthy and legacy reports remain quiet.
+
+* **screamingface:** read Benchmarks that ask each Case several times (`OME-1458`). Such a Benchmark marks a Check met if any Attempt met it; `CaseResult.attempts` keeps every Attempt's own answer, finish reason, failures, grade and cost records (`CaseAttempt`), in order, and is `None` for every other Benchmark. The Case Result's `output` and `grade` stay the shown answer and the folded grade. The report pane says "any of 2 Attempts" (and how many failed) and lists each Attempt's answer and score (and a failed Attempt's failure); an inspect-log export keeps the folded score, marks it folded, and lists every Attempt in the sample's metadata; `CandidateResult.accounting` bills each Attempt's calls once. `Benchmark.attempts` carries the catalogue's count (absent means 1), shown as "any of N Attempts · N Candidate Invocations per Case". Failure code `attempt_grade_not_pass_fail` is declared.
+
+  **Engines that send Attempts need this release first.** An older SDK refuses the run result of an Attempts Benchmark ("unsupported field `attempts`"); every other Benchmark is unaffected.
+
+* Browse completed reports in live notebooks 25 Case results at a time, with Candidate filtering, exact Case-ID navigation and streamed full-report downloads. Static HTML shows a bounded first-page preview; install the notebook extra for live controls.
+
+* Retain completed evaluation results on disk before decoding and reopen them with `sf.reports.list()`, `get()`, `get_async()`, and explicit `delete()`. Public Clients save results by default; `save_results=False` retains in-memory collection. Verified incremental indexing preserves full Case data and provenance, while fusion-member totals retain nullable values with bounded auxiliary memory.
+
+### Features
 
 * **screamingface:** carry each Benchmark's provenance and saturation verdict from the Engine catalogue. `Benchmark.provenance` is a `BenchmarkProvenance` (paper, authors, citation, inspect porters as GitHub handles, website, harness pinned to a commit or tag, licence with any note, content warning, a `PublishedScore` human baseline and frontier score, the SDK notebook that runs it) and `Benchmark.saturation` is the Engine's derived verdict (`saturated` / `open` / `unknown`). An Engine that predates them serves neither: `provenance` reads `None` and `saturation` reads `unknown`. The local Scoreboard seed emits the same keys, so a local board shows what a deployed one shows.
 
@@ -49,6 +63,8 @@
   Scoreboard deployed before `OME-1181`.
 
 ### Bug Fixes
+
+* **screamingface:** keep local Engine result artifacts in the private data directory (respecting `URL4_CLOUD_ARTIFACTS_DIR`) and show the absolute serving directory and size in runtime status, even from another working directory. Incorporates runtime storage improvements from Ionésio's PR #1211. Engine retention is unchanged.
 
 * **screamingface:** remediate runtime logs already on disk (`OME-1048`). Every `screamingface up` now tightens the rotated backups `runtime.log.1`…`.5` to `0600`, as `OME-990` already did for the live log; before this, a backup written `0644` by an earlier version kept that mode until five more rotations pushed it out. The backups' content is left alone. Versions before `OME-990` also wrote prompts into these files, so the new `screamingface logs --purge` deletes every rotated backup and empties the live log (a running stack keeps logging into it). It runs only when you invoke it: nothing is purged automatically.
 * **screamingface:** stop publishing a cache replay's $0 as an exact run cost. A response the Gateway served from its cache spends nothing upstream, so a cached run's spend understates its cost, yet the leaderboard showed and ranked it as `complete`. `CandidateResult.cache_hits` now counts the run's cache-served round trips (the Engine's run summary, falling back to hit spans; `0` when none), and serializes into report.json. A leaderboard submission from a run with **any** hit is sent as `run_cost_status="partial"` with no `run_cost_usd`, whether or not its spend was priced. `cache_saved_cost_usd` is still sent when present. **Behavior change:** such a row shows no cost on the board. The local result is unchanged: `usage.cost_usd` and `run_cost_status` still report what the run spent. Uncached runs submit exactly as before. To publish a real cost, rerun with the cache bypassed.

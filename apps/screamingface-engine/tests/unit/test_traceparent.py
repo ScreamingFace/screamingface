@@ -81,7 +81,7 @@ async def test_span_tracestate_and_non_span_tracestate_none() -> None:
     stream = InMemoryEventStream()
     topic = "trace-topic-2"
 
-    await publish_run(stream, Url4Executor(io), topic, "(https://x, https://y)!go")
+    await publish_run(stream, Url4Executor(io), topic, "(https://x, https://y)!'go'")
     frames = await _collect(stream, topic)
 
     span_frames = [f for f in frames if isinstance(f, SpanEvent)]
@@ -106,7 +106,7 @@ async def test_fanout_span_edge_set_matches_mock_runner_shape() -> None:
     stream = InMemoryEventStream()
     topic = "trace-topic-3"
 
-    await publish_run(stream, Url4Executor(io), topic, "(https://x, https://y)!go")
+    await publish_run(stream, Url4Executor(io), topic, "(https://x, https://y)!'go'")
     frames = await _collect(stream, topic)
     real_spans = [f for f in frames if isinstance(f, SpanEvent)]
     assert len(real_spans) == 3
@@ -246,7 +246,7 @@ async def test_non_span_lifecycle_frames_carry_root_traceparent() -> None:
     stream = InMemoryEventStream()
     topic = "trace-topic-6"
 
-    await publish_run(stream, Url4Executor(io), topic, "https://a!go")
+    await publish_run(stream, Url4Executor(io), topic, "https://a!'go'")
     frames = await _collect(stream, topic)
 
     started = next(f for f in frames if isinstance(f, StartedEvent))

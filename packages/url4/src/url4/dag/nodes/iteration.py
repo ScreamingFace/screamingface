@@ -1,4 +1,4 @@
-"""The collection nodes: expansion, per-row mapping, and cross-row reduction."""
+"""The collection nodes: expansion and per-row mapping (reduction lives in :mod:`.reduce`)."""
 
 from __future__ import annotations
 
@@ -9,21 +9,14 @@ from dataclasses import dataclass, field
 
 from url4.core.context import Context
 from url4.core.errors import CollectionError, ErrorCode
-from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import IterationDirectives
-from url4.core.nodes import RelExpr as AstRelExpr
-from url4.core.parser import split_intent
 from url4.dag.semantics.collection import parse_collection
-from url4.dag.semantics.ensemble import (
-    substitute_env_vars,
-)
-from url4.wire.subrequest import encode_subrequest
 
 from url4.dag.node import (  # isort: skip
     DagNode,
     ExecutionContext,
     Payload,
-    reraise_first,
+    gather_or_cancel,
 )
 
 
@@ -35,7 +28,6 @@ from url4.dag.nodes._shared import (  # isort: skip
     _error_payload,
     _frame,
     _media_type_of,
-    _rows_to_json,
 )
 
 
@@ -106,11 +98,17 @@ class MapNode:
         # the spawn cache key and would otherwise be re-concatenated and
         # re-hashed len(items) times.
         expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
+        # A7: each kept row adds its captured-error count; a failed map adds none.
+        error_counts: list[int] = []
         if self.directives.on_error == "fail":
-            return await self._run_all(items, expr, sem, ctx, frame)
-        rows = [self._row((index, item), expr, sem, ctx, frame) for index, item in enumerate(items)]
-        raw = await asyncio.gather(*rows, return_exceptions=True)
-        return self._skip(raw) if self.directives.on_error == "skip" else self._collect(raw, ctx)
+            results = await self._run_all(items, expr, sem, ctx, frame, error_counts)
+        else:
+            rows = [self._row(row, expr, sem, ctx, frame, error_counts) for row in enumerate(items)]
+            raw = await asyncio.gather(*rows, return_exceptions=True)
+            skip = self.directives.on_error == "skip"
+            results = self._skip(raw) if skip else self._collect(raw, error_counts)
+        ctx.record_collected_errors(sum(error_counts))
+        return results
 
     def _items(self, collection: Payload) -> list[str]:
         # An inline parenthesized collection (§5.3.11) arrives pre-materialized as
@@ -133,17 +131,11 @@ class MapNode:
         sem: asyncio.Semaphore,
         ctx: ExecutionContext,
         frame: Context,
+        error_counts: list[int],
     ) -> list[str]:
-        # TaskGroup so the first failing row cancels its in-flight siblings.
-        try:
-            async with asyncio.TaskGroup() as tg:
-                tasks = [
-                    tg.create_task(self._row((index, item), expr, sem, ctx, frame))
-                    for index, item in enumerate(items)
-                ]
-        except BaseExceptionGroup as group:
-            reraise_first(group)
-        return [task.result() for task in tasks]
+        # The first failing row cancels its in-flight siblings.
+        rows = (self._row(row, expr, sem, ctx, frame, error_counts) for row in enumerate(items))
+        return await gather_or_cancel(rows)
 
     async def _row(
         self,
@@ -152,6 +144,7 @@ class MapNode:
         sem: asyncio.Semaphore,
         ctx: ExecutionContext,
         frame: Context,
+        error_counts: list[int],
     ) -> str:
         # WHY: the body is spawned verbatim (with $item still in it) and the row is
         # bound into scope, so arbitrary row data never enters the re-parse.
@@ -161,8 +154,11 @@ class MapNode:
         # INVARIANT: numbering happens after slicing and before concurrent scheduling.
         index, item = row
         scope = Context(bindings={_ITEM_KEY: item, _INDEX_KEY: str(index)}, parent=frame)
+        row_ctx = ctx.row_scoped()
         async with sem:
-            return await ctx.spawn(expr, scope)
+            result = await row_ctx.spawn(expr, scope)
+        error_counts.append(row_ctx.collected_errors)
+        return result
 
     def _skip(self, raw: list) -> list[str]:
         # skip omits failed elements (spec §5.3.6); control-flow signals
@@ -176,7 +172,7 @@ class MapNode:
                 results.append(item)
         return results
 
-    def _collect(self, raw: list, ctx: ExecutionContext) -> list[str]:
+    def _collect(self, raw: list, error_counts: list[int]) -> list[str]:
         results: list[str] = []
         for item in raw:
             # collect captures per-row *errors* as data; control-flow signals
@@ -184,41 +180,8 @@ class MapNode:
             if isinstance(item, BaseException) and not isinstance(item, Exception):
                 raise item
             if isinstance(item, Exception):
-                ctx.record_collected_error()
+                error_counts.append(1)
                 results.append(json.dumps(_error_payload(item)))
             else:
                 results.append(item)
         return results
-
-
-@dataclass(eq=False)
-class ReduceNode:
-    """``(src*(body))!reducer`` — reduce all rows through the reducer template.
-
-    The reducer is parsed lazily, here at resolve time: a relative-expression
-    reducer (``/reduce(all)``) is fetched with the JSON row array as its intent
-    (``/reduce?q=(all)!<array>``); any other reducer merges via ``ctx.process``
-    with the *raw* reducer text.
-    """
-
-    reducer: str
-    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"rows": MapNode}
-
-    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        rows = inputs["rows"]
-        rows = rows if isinstance(rows, list) else [_as_text(rows)]
-        array_json = _rows_to_json(rows)
-        reducer_src, _, _ = split_intent(self.reducer)
-        node = grammar_parse(reducer_src)
-        if isinstance(node, AstRelExpr):
-            return await self._dispatch(node, array_json, ctx)
-        return await ctx.process(array_json, self.reducer, ctx.scope)
-
-    async def _dispatch(self, expr: AstRelExpr, array_json: str, ctx: ExecutionContext) -> str:
-        context = substitute_env_vars(expr.context or "", ctx.scope, strict=ctx.strict_fields)
-        # WHY: array_json is the row data, not a template: pass it through verbatim.
-        # Running $-substitution over it would collapse a row's literal "$$" or
-        # replace a "$1" that happens to match an in-scope binding — corrupting
-        # the very data the reducer is meant to see. encode_subrequest wire-escapes
-        # it, so quotes/newlines survive the URL without any JSON pre-escaping.
-        return await ctx.io.fetch(encode_subrequest(expr.path, context, array_json), relative=True)

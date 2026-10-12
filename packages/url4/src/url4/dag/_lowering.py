@@ -14,9 +14,10 @@ segments are parsed with the recursive-descent grammar and lowered to typed
 nodes; a group-shaped segment defers its inner text into a
 :class:`~url4.dag.nodes.LazyExprNode` thunk, compiled only when executed.
 
-Descriptor lowering (spec §4.3): a :class:`~url4.core.nodes.Source` wrapper
-lowers its value, pushes the attribution label into the fan-out metadata, then
-wraps outward — :class:`~url4.dag.nodes.ExpandNode` for ``;expand``/``*source``,
+Descriptor lowering (spec §4.3, in :mod:`url4.dag._descriptor`): a
+:class:`~url4.core.nodes.Source` wrapper lowers its value, pushes the
+attribution label into the fan-out metadata, then wraps outward —
+:class:`~url4.dag.nodes.ExpandNode` for ``;expand``/``*source``,
 :class:`~url4.dag.nodes.GuardNode` for ``;optional``/``;t=``/``;retry=``. A
 guarded subtree is lowered WITHOUT reference edges: the edges sit on the guard
 itself and flow into the isolated sub-execution as a scope frame (the same
@@ -30,12 +31,14 @@ without touching this module.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
+from functools import partial
 
-from url4.core.errors import ErrorCode, ParseError
+from url4.core.descriptor_head import deferrable_group, is_processed_group
+from url4.core.errors import ParseError
 from url4.core.grammar import parse as grammar_parse
+from url4.core.intent import code_pointer_of
 from url4.core.nodes import (
     Binding,
     Expression,
@@ -56,7 +59,6 @@ from url4.core.nodes import (
 from url4.core.nodes import walk as ast_walk
 from url4.core.parser import (
     IterationEnvelope,
-    balanced_body,
     decode_envelope,
     intent_atom,
     split_intent,
@@ -65,13 +67,17 @@ from url4.core.parser import (
 )
 from url4.dag.semantics.ensemble import find_references
 
+from url4.dag._descriptor import _lower_source, slot_identity  # isort: skip
+from url4.dag._code_wiring import (  # isort: skip
+    call_intent,
+    compile_group,
+    is_verbatim_intent,
+    reduce_rows,
+)
 from url4.dag._wiring import (  # isort: skip
     Edges,
-    _compile_group,
-    _fold_intent_into_call,
     _inline_collection,
     _Intent,
-    _quorum_of,
     _ref_edges,
     _Slot,
     _slot_specs,
@@ -80,7 +86,6 @@ from url4.dag.node import DagNode, node_children  # isort: skip
 from url4.dag.nodes import (  # isort: skip
     BindingNode,
     CollectNode,
-    ExpandNode,
     GuardNode,
     HoldingsNode,
     LazyExprNode,
@@ -95,10 +100,6 @@ from url4.dag.nodes import (  # isort: skip
 )
 
 Lowerer = Callable[[Node, Edges, "LoweringRegistry"], DagNode]
-
-# ``name=(…`` / ``name:(…`` — a binding whose RHS is a group, which stays lazy
-# on the text path (the grammar would eagerly parse the nested group).
-_GROUP_BINDING_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)([=:])\(")
 
 
 class LoweringRegistry:
@@ -153,7 +154,7 @@ def _lower_rel_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> Dag
     if node.intent is not None:
         # The call's OWN intent is lowered as a plain leaf; quotes were already
         # stripped by the grammar (quotes are delimiters, spec §5.1).
-        deps["intent"] = registry.lower(node.intent, edges)
+        deps["intent"] = call_intent(node.intent, edges, registry.lower)
     deps.update(edges)
     ctx_slots = _wire_context_slots(node.context, deps, edges, registry)
     return RelUrlNode(
@@ -162,6 +163,7 @@ def _lower_rel_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> Dag
         is_expr=True,
         params=node.params,
         ctx_slots=ctx_slots,
+        verbatim_intent=is_verbatim_intent(node.intent),
         deps=deps,
     )
 
@@ -170,7 +172,7 @@ def _lower_remote_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> 
     assert isinstance(node, RemoteExpr)
     deps: dict[str, DagNode] = {}
     if node.intent is not None:
-        deps["intent"] = registry.lower(node.intent, edges)
+        deps["intent"] = call_intent(node.intent, edges, registry.lower)
     deps.update(edges)
     # No context slots here (`OME-535`): the remote q= is an EXPRESSION the
     # remote node evaluates; only RELATIVE calls resolve context caller-side.
@@ -179,6 +181,7 @@ def _lower_remote_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> 
         node.path,
         context=node.context,
         params=node.params,
+        verbatim_intent=is_verbatim_intent(node.intent),
         deps=deps,
     )
 
@@ -278,9 +281,7 @@ def _lower_expression(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     intent = _intent_from_ast(node.intent, registry)
     # An Expression is always a parenthesised group (bare relative expressions
     # parse to RelExpr and lower via _lower_rel_expr), so it is a list source.
-    group = _compile_group(
-        slots, intent, node.broadcast, from_list=True, quorum=_quorum_of(node.params)
-    )
+    group = compile_group(slots, intent, node.broadcast, from_list=True, params=node.params)
     # WHY: unlike a lazy group, an AST Expression otherwise drops its enclosing
     # reference edges. Capture their values as a scope frame before entering the
     # group; they are shared inputs, never additional sources toward its quorum.
@@ -311,7 +312,7 @@ def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> Da
         deps={"collection": collection, **_body_ref_edges(node.body, node.intent, edges)},
     )
     if node.reducer is not None:
-        return ReduceNode(node.reducer, deps={"rows": map_node})
+        return reduce_rows(node.reducer, map_node)
     return CollectNode(deps={"rows": map_node})
 
 
@@ -364,66 +365,6 @@ def _lower_collection(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     return registry.lower(node, edges)
 
 
-def _lower_source(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
-    """Lower a two-axis descriptor (spec §4.3): label, expand, then guard.
-
-    A guarded subtree is lowered without edges — the guard carries them and
-    hands the resolved values to the isolated sub-execution as a scope frame
-    (see the module docstring). Everything else keeps edges on the value.
-    """
-    assert isinstance(node, Source)
-    ann = dict(node.annotations)
-    guard = _guard_options(ann, node)
-    inner = registry.lower(node.value, {} if guard is not None else edges)
-    _push_label(inner, node, ann)
-    if node.expand:
-        inner = ExpandNode(deps={"inner": inner})
-    if guard is not None:
-        optional, timeout, retries = guard
-        inner = GuardNode(
-            inner, optional=optional, timeout=timeout, retries=retries, deps=dict(edges)
-        )
-    return inner
-
-
-def _guard_options(
-    ann: dict[str, str | None], node: Source
-) -> tuple[bool, float | None, int] | None:
-    """Decode ``;optional`` / ``;t=`` / ``;retry=`` — None when no guard is needed."""
-    optional = "optional" in ann
-    timeout = _annotation_number(ann.get("t"), "t", float, node)
-    retries = _annotation_number(ann.get("retry"), "retry", int, node) or 0
-    if not optional and timeout is None and retries == 0:
-        return None
-    return optional, timeout, retries
-
-
-def _annotation_number(raw: str | None, key: str, cast: Callable, node: Source):
-    if raw is None:
-        return None
-    try:
-        return cast(raw)
-    except ValueError:
-        raise ParseError(f"invalid ;{key}={raw!r} on source {node.name or node.value!r}") from None
-
-
-def _push_label(inner: DagNode, node: Source, ann: dict[str, str | None]) -> None:
-    """Attach the descriptor's attribution label / ``;accept=`` to the fetch node."""
-    if isinstance(inner, RelUrlNode) and inner.is_expr:
-        inner.name = node.name
-        inner.weight = _scalar_weight(node.weight)
-    if isinstance(inner, (RelUrlNode, WebFetchNode)) and "accept" in ann:
-        inner.accept = ann["accept"]
-
-
-def _scalar_weight(weight: float | dict | None) -> float | None:
-    """A structured weight's fan-out label scalar: ``_default`` or none (§4.1.1.8)."""
-    if isinstance(weight, dict):
-        default = weight.get("_default")
-        return float(default) if isinstance(default, (int, float)) else None
-    return weight
-
-
 def default_registry() -> LoweringRegistry:
     """A fresh registry with the built-in lowerings; ``copy()`` to customize."""
     return LoweringRegistry(
@@ -448,74 +389,29 @@ def default_registry() -> LoweringRegistry:
 # --- the text (string) path ---------------------------------------------------
 
 
-def _reject_bare_group(segment: str) -> None:
-    """WHY: reject an intent-less ``(…)`` in source position EAGERLY (`OME-508`).
-
-    Lazy deferral would postpone the error to spawn time — and the spawn
-    boundary compiles permissively (the engine's own wrappers legally arrive
-    intent-less), so a user's bare group would silently execute instead of
-    failing as the grammar demands. Iteration collections never pass through
-    here (``_collection_dag`` owns that legal position).
-    """
-    if strip_one_paren_layer(segment) is not None:
-        raise ParseError(
-            f"expression group {segment!r} has no intent — a parenthesized "
-            "source group must be followed by !intent (or !*intent)",
-            code=ErrorCode.MISSING_INTENT,
-        )
-
-
-def _is_lazy_group(segment: str) -> bool:
-    """True for ``(…)`` and ``(…)!tail`` shapes, which defer to a thunk."""
-    if strip_one_paren_layer(segment) is not None:
-        return True
-    if not segment.startswith("("):
-        return False
-    body = balanced_body(segment, 1)
-    return body is not None and segment[len(body) + 2 :].startswith("!")
-
-
 def _slot_from_text(segment: str, registry: LoweringRegistry) -> _Slot:
-    refs = frozenset(find_references(segment))
-    group_binding = _GROUP_BINDING_RE.match(segment)
-    if group_binding is not None:
-        rhs = segment[len(group_binding.group(1)) + 1 :]
-        # Only a group-shaped RHS defers; ``name:(k:v):data`` is a structured
-        # weight (§4.1.1.4) and must reach the grammar's classifier instead.
-        if _is_lazy_group(rhs):
-            _reject_bare_group(rhs)
-            name, kind = group_binding.group(1), group_binding.group(2)
-            # ABNF (`OME-534`): a deferred name=(group) binding CONTRIBUTES like
-            # any named source — only weight 0.0 marks a source instrumental,
-            # and the binding forms carry no weight.
-            return _Slot(name, refs, _make_binding_thunk(name, kind, rhs))
-    if _is_lazy_group(segment):
-        _reject_bare_group(segment)
-        return _Slot(None, refs, lambda edges: LazyExprNode(segment, deps=dict(edges)))
-    ast = grammar_parse(segment)
-    name, instrumental = _slot_identity(ast)
-    return _Slot(name, refs, lambda edges: registry.lower(ast, edges), instrumental=instrumental)
+    """One source segment: a group the grammar lets us defer, else the eager grammar parse.
 
-
-def _slot_identity(ast: Node) -> tuple[str | None, bool]:
-    """The slot's ``(name, instrumental)`` — ABNF contribution semantics.
-
-    WHY Binding is never instrumental (`OME-534`): the name-only forms
-    (``a: v`` / ``a=v``) are contributing sources under the ABNF; the ONLY
-    instrumental marker is an explicit scalar ``weight 0.0`` on a Source.
+    The classification is the grammar's (:func:`~url4.core.descriptor_head.deferrable_group`),
+    so a reserved ``src``, a guard on the ``;`` chain or a weight reads the same
+    here as on the parse-tree path.
     """
-    if isinstance(ast, Binding):
-        return ast.name, False
-    if isinstance(ast, Source):
-        return ast.name, _is_instrumental_weight(ast.weight)
-    return None, False
-
-
-def _is_instrumental_weight(weight: object) -> bool:
-    """True for the explicit scalar ``0.0`` (structured weights never qualify)."""
-    return (
-        isinstance(weight, (int, float)) and not isinstance(weight, bool) and float(weight) == 0.0
-    )
+    refs = frozenset(find_references(segment))
+    deferred = deferrable_group(segment)
+    if deferred is not None:
+        name, kind, group = deferred
+        if name is None:
+            return _Slot(
+                None, refs, lambda edges: LazyExprNode(group, deps=dict(edges)), form=group
+            )
+        # ABNF (`OME-534`): a deferred name=(group) binding CONTRIBUTES like
+        # any named source — only weight 0.0 marks a source instrumental,
+        # and the binding forms carry no weight.
+        return _Slot(name, refs, _make_binding_thunk(name, kind, group), form=group)
+    ast = grammar_parse(segment)
+    name, instrumental, weight = slot_identity(ast)
+    make = partial(registry.lower, ast)
+    return _Slot(name, refs, make, instrumental=instrumental, weight=weight, form=ast)
 
 
 def _make_binding_thunk(name: str, kind: str, rhs: str) -> Callable[[Edges], DagNode]:
@@ -537,12 +433,14 @@ def _intent_from_ast(atom: Node | None, registry: LoweringRegistry) -> _Intent |
     if isinstance(atom, Text):
         value = atom.value
         return _Intent(lambda edges: TextNode(value, deps=dict(edges)), text=value)
-    return _Intent(lambda edges: registry.lower(atom, edges))
+    code = code_pointer_of(atom)
+    make: Callable[[Edges], DagNode] = partial(registry.lower, atom)
+    return _Intent(make, refs=frozenset(_refs_of_ast(atom)), code=code)
 
 
 def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
-    if not collection:
-        return TextNode("")
+    # INVARIANT: never empty — the envelope refuses an iteration with no
+    # collection (core._iteration_envelope._check_collection_ref).
     inner = strip_one_paren_layer(collection)
     if inner is not None:
         # WHY: a bare parenthesized group ``(e1, …)`` is an inline collection (§5.3.11):
@@ -558,7 +456,7 @@ def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
     # its body is parsed by content type at iteration time (§5.3.7).
     return (
         LazyExprNode(collection)
-        if _is_lazy_group(collection)
+        if is_processed_group(collection)
         else registry.lower(grammar_parse(collection), {})
     )
 
@@ -588,13 +486,8 @@ def _compile_group_text(
     else:
         segments = [source_expr] if source_expr.strip() else []
     slots = [_slot_from_text(segment, registry) for segment in segments]
-    return _compile_group(
-        slots,
-        _intent_from_raw(raw_intent, registry),
-        broadcast,
-        from_list=from_list,
-        quorum=_quorum_of(params),
-    )
+    intent = _intent_from_raw(raw_intent, registry)
+    return compile_group(slots, intent, broadcast, from_list=from_list, params=params)
 
 
 def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool = False) -> DagNode:
@@ -609,7 +502,7 @@ def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool =
     ``(a, (b, c)!x)!go`` becomes a :class:`~url4.dag.nodes.LazyExprNode` thunk
     here (compiled only when the executor reaches it) but is fully expanded
     up front on the parse-tree path (:func:`_lower_expression` /
-    :func:`_lower_top_level`, which see an already-built AST with nothing left
+    :func:`compile_expression` on a tree, which see an already-built AST with nothing left
     to defer). ``test_bare_relexpr_text_path_matches_ast_path`` pins result
     parity for the shapes it covers; it is not evidence the two paths build the
     same graph. Extending that test to a nested-group shape should assert on
@@ -619,7 +512,7 @@ def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool =
     if isinstance(env, IterationEnvelope):
         map_node = _map_from_text(env.collection, env.body, env.intent, env.directives, registry)
         if env.reducer is not None:
-            return ReduceNode(env.reducer, deps={"rows": map_node})
+            return reduce_rows(env.reducer, map_node)
         return CollectNode(deps={"rows": map_node})
     return _compile_group_text(env.source_expr, env.intent, env.broadcast, registry, env.params)
 
@@ -628,12 +521,14 @@ def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool =
 
 
 def _slot_from_ast(source: Node, registry: LoweringRegistry) -> _Slot:
-    name, instrumental = _slot_identity(source)
+    name, instrumental, weight = slot_identity(source)
     return _Slot(
         name,
         frozenset(_refs_of_ast(source)),
         lambda edges: registry.lower(source, edges),
         instrumental=instrumental,
+        weight=weight,
+        form=source,
     )
 
 
@@ -724,19 +619,4 @@ def compile_expression(
     registry = registry if registry is not None else default_registry()
     if isinstance(target, str):
         return Graph(_compile_text(target, registry, bare_root_ok=bare_root_ok), registry=registry)
-    return Graph(_lower_top_level(target, registry), registry=registry)
-
-
-def _lower_top_level(target: Node, registry: LoweringRegistry) -> DagNode:
-    """Lower a top-level parse-tree node, keeping the text and AST paths in step.
-
-    A *top-level* relative expression's intent is a top-level intent — folded
-    into the call, exactly as the text path treats it after ``split_intent``.
-    """
-    if isinstance(target, RelExpr) and target.intent is not None:
-        rel = registry.lower(replace(target, intent=None), {})
-        intent = _intent_from_ast(target.intent, registry)
-        assert intent is not None  # target.intent is not None
-        assert isinstance(rel, RelUrlNode)  # _lower_rel_expr's output
-        return _fold_intent_into_call(rel, intent)
-    return registry.lower(target, {})
+    return Graph(registry.lower(target, {}), registry=registry)
