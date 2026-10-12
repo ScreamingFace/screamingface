@@ -43,6 +43,16 @@ from screamingface_engine.request_scope import RequestScope
 from url4.streaming.protocol import CachePolicy
 
 
+def without_gateway_cache(scope: RequestScope) -> RequestScope:
+    """Same request scope, except this one call skips the AI Gateway's exact-request cache.
+
+    WHY: a Judge re-ask sends the same bytes as the ask before it, so under the caller's own
+    policy the gateway would answer it with the stored, unusable reply. Only the cache policy
+    changes; identity, seed, origin and deadline stay the caller's.
+    """
+    return replace(scope, cache=CachePolicy(participate=False))
+
+
 def scope_for_this_send(scope: RequestScope, retry_cause: str | None) -> RequestScope:
     """The request scope this model call runs under: the caller's, or the same one opted out
     of the cache when it re-asks a Judge whose last reply was unusable.
@@ -59,7 +69,7 @@ def scope_for_this_send(scope: RequestScope, retry_cause: str | None) -> Request
     """
     if retry_cause != JUDGE_REPLY_INVALID_CODE:
         return scope
-    return replace(scope, cache=CachePolicy(participate=False))
+    return without_gateway_cache(scope)
 
 
-__all__ = ["scope_for_this_send"]
+__all__ = ["scope_for_this_send", "without_gateway_cache"]
