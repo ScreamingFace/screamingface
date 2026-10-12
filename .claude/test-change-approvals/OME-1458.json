@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1458",
+  "branch": "OME-1458-pr3-sdk-attempts",
+  "approver": "owner (in the OME-1458 session)",
+  "date": "2026-10-08",
+  "scope": "Two prior-test edits for Attempts per Case. (1) public_surface_snapshot.json regenerated: CaseResult gains an attempts keyword and field, Benchmark gains attempts as its last field; nothing else in the surface moves. (2) test_failure_classes.py::test_the_declared_vocabulary_is_exactly_the_agreed_set gains one entry, attempt_grade_not_pass_fail, in the agreed set (the OME-939 shape); no assertion weakened, nothing else in that file.",
+  "reason": "A Benchmark that asks each Case several times sends an attempts list on the Case Result and declares attempts on the catalogue entry, so the SDK's public surface grows by two fields; the fold's failure code must be declared on both pinned-equal failure-code lists, which this test pins on purpose so that an addition edits it.",
+  "files": {
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "61abd6c50b2c27a3e04b1c87eab530c8f0be9248",
+      "approved_blob": "c915159e4eb16fab92813216826297a3f30ce0c1"
+    },
+    "apps/screamingface-engine/tests/unit/test_failure_classes.py": {
+      "base_blob": "7bfe34a92fce66ebc90bced9851f25f841090226",
+      "approved_blob": "311d88876af2a1a48362472de04da7f5d460c4a4"
+    }
+  }
+}

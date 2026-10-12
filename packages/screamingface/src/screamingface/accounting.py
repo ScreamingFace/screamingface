@@ -13,7 +13,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
 from screamingface._report_primitives import CaseId, Usage
-from screamingface.case_result import CaseResult
+from screamingface.case_result import CaseGrade, CaseOperation, CaseResult
 from screamingface.operation_accounting import OperationAccounting, OperationCache
 
 if TYPE_CHECKING:
@@ -140,8 +140,31 @@ def summarize(values: Sequence[OperationAccounting | None]) -> AccountingSummary
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _BilledAnswer:
+    """One answer the Candidate was billed for: its model calls and the grade marking it."""
+
+    operations: tuple[CaseOperation, ...] | None
+    grade: CaseGrade | None
+
+
+def _billed_answers(case: CaseResult) -> tuple[_BilledAnswer, ...]:
+    """The answers a Case paid for: the Case itself, or each of its Attempts.
+
+    WHY (OME-1458): a Case with Attempts carries its cost records on each Attempt and none
+    of its own, and its folded grade's evidence is a view of an Attempt's evidence. Reading
+    the Attempts, never the Case-level fields, bills every model call exactly once.
+    Worked example: two Attempts, each one call costing $0.01 → two generation rows, $0.02
+    for the Case; the folded Check's judge evidence is not counted a third time.
+    """
+
+    if case.attempts is None:
+        return (_BilledAnswer(case.operations, case.grade),)
+    return tuple(_BilledAnswer(item.operations, item.grade) for item in case.attempts)
+
+
 def member_usage(cases: Iterable[CaseResult], operation_id: str) -> Usage | None:
-    """Stream exact operation observations; retain only nullable field totals."""
+    """Stream exact operation observations in every answer; retain only nullable field totals."""
     totals = Usage(
         input_tokens=0,
         output_tokens=0,
@@ -152,21 +175,24 @@ def member_usage(cases: Iterable[CaseResult], operation_id: str) -> Usage | None
     )
     seen = False
     for case in cases:
-        matches = (op for op in case.operations or () if op.operation_id == operation_id)
-        match = next(matches, None)
-        if match is None or match.accounting is None or next(matches, None) is not None:
-            return None
-        usage = match.accounting.usage
-        # INVARIANT: a missing observation poisons only its field; known zero stays zero.
-        totals = Usage(
-            input_tokens=_add(totals.input_tokens, usage.input_tokens),
-            output_tokens=_add(totals.output_tokens, usage.output_tokens),
-            cache_read_tokens=_add(totals.cache_read_tokens, usage.cache_read_tokens),
-            cache_creation_tokens=_add(totals.cache_creation_tokens, usage.cache_creation_tokens),
-            reasoning_tokens=_add(totals.reasoning_tokens, usage.reasoning_tokens),
-            cost_usd=_add(totals.cost_usd, usage.cost_usd),
-        )
-        seen = True
+        for answer in _billed_answers(case):
+            matches = (op for op in answer.operations or () if op.operation_id == operation_id)
+            match = next(matches, None)
+            if match is None or match.accounting is None or next(matches, None) is not None:
+                return None
+            usage = match.accounting.usage
+            # INVARIANT: a missing observation poisons only its field; known zero stays zero.
+            totals = Usage(
+                input_tokens=_add(totals.input_tokens, usage.input_tokens),
+                output_tokens=_add(totals.output_tokens, usage.output_tokens),
+                cache_read_tokens=_add(totals.cache_read_tokens, usage.cache_read_tokens),
+                cache_creation_tokens=_add(
+                    totals.cache_creation_tokens, usage.cache_creation_tokens
+                ),
+                reasoning_tokens=_add(totals.reasoning_tokens, usage.reasoning_tokens),
+                cost_usd=_add(totals.cost_usd, usage.cost_usd),
+            )
+            seen = True
     return totals if seen else None
 
 
@@ -179,7 +205,7 @@ def _declared_operation_models(candidate: CandidateResult) -> dict[str, str]:
         declarations[candidate.operations[0].id] = list(candidate.models)
     models = {key: values[0] for key, values in declarations.items() if len(values) == 1}
     for case in candidate.cases:
-        for op in case.operations or ():
+        for op in (op for answer in _billed_answers(case) for op in answer.operations or ()):
             if op.accounting is not None and op.accounting.request_model != models.get(
                 op.operation_id
             ):
@@ -191,10 +217,14 @@ def _declared_judge_models(candidate: CandidateResult) -> dict[str, str]:
     models: dict[str, str] = {}
     conflicts: set[str] = set()
     # INVARIANT: judge evidence is streamed; raw outputs never accumulate across Cases.
-    for case in candidate.cases:
-        if case.grade is None:
-            continue
-        for check in case.grade.checks:
+    grades = (
+        answer.grade
+        for case in candidate.cases
+        for answer in _billed_answers(case)
+        if answer.grade is not None
+    )
+    for grade in grades:
+        for check in grade.checks:
             for item in check.evidence:
                 if item.producer.type != "model":
                     continue
@@ -208,11 +238,14 @@ def _declared_judge_models(candidate: CandidateResult) -> dict[str, str]:
 
 
 def _candidate_rows(
-    candidate: CandidateResult, case: CaseResult, models: Mapping[str, str]
+    candidate: CandidateResult,
+    case: CaseResult,
+    answer: _BilledAnswer,
+    models: Mapping[str, str],
 ) -> list[AccountingRow]:
     operations = {op.id: op for op in candidate.operations}
-    retained = {op.operation_id: op for op in case.operations or ()}
-    if len(retained) != len(case.operations or ()):
+    retained = {op.operation_id: op for op in answer.operations or ()}
+    if len(retained) != len(answer.operations or ()):
         raise ValueError("duplicate accounting operation")
     if set(retained) - operations.keys():
         raise ValueError("unknown accounting operation")
@@ -237,11 +270,13 @@ def _candidate_rows(
     return rows
 
 
-def _grading_rows(case: CaseResult, models: Mapping[str, str]) -> list[AccountingRow]:
+def _grading_rows(
+    case: CaseResult, grade: CaseGrade | None, models: Mapping[str, str]
+) -> list[AccountingRow]:
     rows = []
-    if case.grade is None:
+    if grade is None:
         return rows
-    for check in case.grade.checks:
+    for check in grade.checks:
         for evidence in check.evidence:
             value = evidence.accounting
             # WHY: deterministic checks make no model call. A missing model observation
@@ -277,10 +312,11 @@ def _iter_rows(
     judge_models: Mapping[str, str],
 ) -> Iterator[AccountingRow]:
     for case in cases:
-        # INVARIANT: loop internals are not attributable by this retained contract.
-        if candidate.kind not in {"corrective_loop", "self_corrective"}:
-            yield from _candidate_rows(candidate, case, operation_models)
-        yield from _grading_rows(case, judge_models)
+        for answer in _billed_answers(case):
+            # INVARIANT: loop internals are not attributable by this retained contract.
+            if candidate.kind not in {"corrective_loop", "self_corrective"}:
+                yield from _candidate_rows(candidate, case, answer, operation_models)
+            yield from _grading_rows(case, answer.grade, judge_models)
 
 
 def _rows(candidate: CandidateResult) -> tuple[AccountingRow, ...]:
