@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 from screamingface_engine.benchmarks.case_request import CASE_ATTEMPT_PARAM
@@ -9,9 +10,13 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.graded_answer import CASE_ATTEMPTS_ROUTE, GRADED_ANSWER_ROUTE
 from screamingface_engine.benchmarks.grading_endpoints import positive_count
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
-from url4.core.nodes import Expression, Source
+from url4.core.nodes import Expression, Iteration, RemoteExpr, Source, StructObject, walk
 
 EVALUATION_PROTOCOL_REVISION = "outcome-preserving-case-evaluation-v1"
+
+# A Candidate Invocation written inside a template string (an ``iterate`` body, a context): the
+# route followed by anything but more path, so a longer route sharing the prefix is not counted.
+_CANDIDATE_ROUTE_IN_TEXT = re.compile(re.escape(CANDIDATE_ROUTE) + r"(?![\w/.-])")
 
 
 def preserve_candidate_outcome(
@@ -152,24 +157,60 @@ def _numbered_or_refused(
 ) -> tuple[Node, tuple[Node, ...]]:
     """The Candidate Invocation and bindings marked as Attempt ``attempt``, or a refusal.
 
-    INVARIANT: Attempt 2 and later carry their number on at least one Candidate Invocation.
-    An unmarked Attempt 2 leaves the Engine byte-identical to Attempt 1, so an unseeded run
-    is served Attempt 1's stored reply and the board silently scores one answer N times.
-    ``_numbered`` walks only Expressions and Sources; a Candidate Invocation nested inside
-    another node kind (an ``iterate``, a struct) is not reached, and this raise is how the
-    Benchmark author finds out, at build time, before any paid call.
+    INVARIANT: Attempt 2 and later carry their number on EVERY Candidate Invocation.
+    An unmarked call in Attempt 2 leaves the Engine byte-identical to Attempt 1's call, so an
+    unseeded run is served Attempt 1's stored reply and the board silently scores one answer
+    N times. ``_numbered`` walks only Expressions and Sources; a Candidate Invocation nested
+    inside another node kind (an ``iterate``, a struct) is not reached, and this raise is how
+    the Benchmark author finds out, at build time, before any paid call.
+
+    Think of it as a head count: count every Candidate Invocation the Attempt will send, then
+    count the ones the rewrite numbered; any shortfall refuses. Worked example: a reachable
+    final call beside a reasoning call inside an ``iterate`` binding → 2 sent, 1 numbered →
+    refused, because the reasoning call would replay Attempt 1's answer.
     """
 
-    parts: list[tuple[Node, int]] = [
-        _numbered(node, attempt) for node in (candidate_invocation, *bindings)
-    ]
-    if attempt > 1 and sum(count for _, count in parts) == 0:
-        raise ValueError(
-            f"Attempt {attempt} reached no Candidate Invocation on {CANDIDATE_ROUTE}: it would "
-            "be sent identical to Attempt 1; build the Candidate Invocation as an expression "
-            "or source the Attempts rewrite can reach (OME-1458)"
-        )
+    nodes: tuple[Node, ...] = (candidate_invocation, *bindings)
+    parts: list[tuple[Node, int]] = [_numbered(node, attempt) for node in nodes]
+    if attempt > 1:
+        numbered: int = sum(count for _, count in parts)
+        sent: int = sum(_candidate_invocations(node) for node in nodes)
+        if numbered == 0:
+            raise ValueError(
+                f"Attempt {attempt} reached no Candidate Invocation on {CANDIDATE_ROUTE}: it "
+                "would be sent identical to Attempt 1; build the Candidate Invocation as an "
+                "expression or source the Attempts rewrite can reach (OME-1458)"
+            )
+        if numbered < sent:
+            raise ValueError(
+                f"Attempt {attempt} numbered {numbered} of {sent} Candidate Invocations on "
+                f"{CANDIDATE_ROUTE}: a Candidate Invocation sits where the Attempt number cannot "
+                "reach (inside an iterate or another node kind), so it would be sent identical "
+                "to Attempt 1's; build every Candidate Invocation as an expression or source "
+                "the Attempts rewrite can reach (OME-1458)"
+            )
     return parts[0][0], tuple(node for node, _ in parts[1:])
+
+
+def _candidate_invocations(node: Node) -> int:
+    """Count every Candidate Invocation inside ``node``, reachable by the rewrite or not.
+
+    WHY text too: an ``iterate`` keeps its body (and a call keeps its context) as a template
+    string, not as nodes, so a Candidate Invocation there is visible only as its route.
+    """
+
+    count: int = 0
+    for child in walk(node):
+        texts: tuple[str | None, ...] = ()
+        if isinstance(child, RelExpr | RemoteExpr):
+            count += int(isinstance(child, RelExpr) and child.path == CANDIDATE_ROUTE)
+            texts = (child.context,)
+        elif isinstance(child, Iteration):
+            texts = (child.body, child.intent, child.reducer)
+        elif isinstance(child, StructObject):
+            texts = (child.raw,)
+        count += sum(len(_CANDIDATE_ROUTE_IN_TEXT.findall(text)) for text in texts if text)
+    return count
 
 
 def _numbered(node: Node, attempt: int) -> tuple[Node, int]:
