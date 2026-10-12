@@ -19,12 +19,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from inspect_evals.constants import INSPECT_EVALS_CACHE_PATH
-from inspect_evals.sad import download_data
-from inspect_evals.sad.download_data import SAD_GITHUB_REVISION
 
-from screamingface_engine_inspect import task_replay
-from screamingface_engine_inspect.case_source_prefetch import prefetch_case_sources
+pytest.importorskip("inspect_evals")
+
+from inspect_evals.constants import INSPECT_EVALS_CACHE_PATH  # noqa: E402
+from inspect_evals.sad import download_data  # noqa: E402
+from inspect_evals.sad.download_data import SAD_GITHUB_REVISION  # noqa: E402
+
+from screamingface_engine_inspect import task_replay  # noqa: E402
+from screamingface_engine_inspect.case_source_prefetch import prefetch_case_sources  # noqa: E402
 
 #: A real SAD Task reference, as the five SAD declarations in prepare.py write it.
 _SAD_TASK: str = "inspect_evals.sad.sad:sad_facts_llms"
