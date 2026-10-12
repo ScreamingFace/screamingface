@@ -186,9 +186,8 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
 
 - **Scope:** plan `R-2026-10-12-design-review-fixes.md`, sections 0a and B3. Design
   `02-frozen-copy-design.md` Q23, Q27, Q28, §4.2, §5.2, §5.3 (items 2 and 2a) and §5.4.
-- **Status: NOT complete.** The gate fails in one place: eight existing tests in
-  `test_frozen_copy_replay_failures.py` encode the old failure rule. They need an approval
-  (see "Blocked"). Every other gate step passes.
+- **Status: complete.** The full gate passes (`ALL GATES GREEN`). One approval round covered the
+  eight existing tests in `test_frozen_copy_replay_failures.py` (see "Fourth round").
 
 ### Changes
 
@@ -240,6 +239,8 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
 - `d5b1b3084` fix(screamingface-engine): make an unserved replay failure permanent (design §5.3 2a)
 - `ca6bb2282` docs(screamingface-engine): name the call-key headers and the permanent replay failures
 - `be32f4084` test(screamingface-engine): rename a helper that shadowed a variable in the per-task replay test
+- `2aa59ce28` docs(work): record the design §5.3 2a feedback round and its blocked edit
+- `de2a586df` test(screamingface-engine): a captured replay error keeps its code and an unserved lookup is permanent
 - this ledger commit
 
 ### Approved test edits (2026-10-12)
@@ -297,37 +298,28 @@ Third round (coordinator, this feedback):
 
 ### Gates (`run_gates.py screamingface-engine --base refs/e14-backup/pre-phase2-2026-10-12/OME-1045-e14-b2-engine-tavily-cache`)
 
-- Without `--skip-append-only`: FAILED. The check flags exactly the eight approved files
+- Without `--skip-append-only`: FAILED, as expected. The check flags exactly the eight approved files
   (`test_cache_policy_threading.py`, `test_failure_classes.py`, `test_queue_admission.py`,
   `test_terminal_error_detail.py`, `test_e2e_compose_flow.py`, `test_run_control_resilience.py`,
   `_fakes.py`, `test_answer_seed_threading.py`). The B3 edits are not flagged, because the base
   holds none of these files.
-- With `--skip-append-only`: ruff check PASS, ruff format PASS, pyright PASS,
-  `check_layering.py` PASS. pytest FAILED: 8 failed, 4908 passed, 94 skipped. All 8 failures are in
-  "Blocked".
-- Unit (direct run, before the last test-only commit): 4870 passed, 8 failed.
+- With `--skip-append-only`: `ALL GATES GREEN`. Steps: ruff check, ruff format --check, pyright,
+  `check_layering.py`, pytest (`-n auto`, coverage `--cov-fail-under=80`).
+- Unit and integration (direct run): 4916 passed, 94 skipped, 0 failed.
 
-### Blocked: approval needed (not edited)
+### Fourth round (orchestrator, approved 2026-10-12 under the plan approval; the owner confirms on the PR)
 
-`test_frozen_copy_replay_failures.py` encodes the old failure rule. The new rule (§5.3 2a) changes
-these eight tests:
-
-- `test_any_other_status_is_the_captured_original_error_handled_as_today` (4 cases). The four
-  responses have no `X-AIGW-Replay` header. A captured error carries `X-AIGW-Replay: error`, so the
-  fix is to add that header to each response. Without it the case becomes `frozen_copy_unavailable`.
-- `test_tool_lookup_miss_fails_the_case` (`gateway-error`, `malformed-result`, `not-json`). The
-  expected `permanent` changes from `False` to `True`. The comment at line 104 says a retry may fix it.
-- `test_a_tool_lookup_transport_failure_fails_the_case_as_unavailable`. The expected `permanent`
-  changes from `False` to `True`.
-
-Question for the coordinator: may I make these edits? The proposed edit is the header on the four
-captured-error responses, and `permanent` `True` in the four lookup expectations.
-
-### Interpretation to confirm
-
-- Design §5.3 2a names three cases. The code also makes permanent a tool lookup that returns HTTP 200
-  with a malformed result or with a body that is not JSON. The copy did not serve either answer, and
-  a retry would read the next occurrence, so I treat them the same way. Confirm or reverse.
+- `test_frozen_copy_replay_failures.py`, `test_any_other_status_is_the_captured_original_error_handled_as_today`:
+  the four captured-error responses carry `X-AIGW-Replay: error` (`_CAPTURED`). Each case keeps its code
+  and its `permanent` value.
+- `test_frozen_copy_replay_failures.py`, `test_tool_lookup_miss_fails_the_case`: the three cases
+  `gateway-error`, `malformed-result` and `not-json` expect `permanent` `True`. The comment above them
+  says a miss is permanent, because a retry would read the next occurrence (§5.3 2a).
+- `test_frozen_copy_replay_failures.py`, `test_a_tool_lookup_transport_failure_fails_the_case_as_unavailable`:
+  expects `permanent` `True`.
+- Interpretation, confirmed by the orchestrator: a tool lookup that answers HTTP 200 with a malformed
+  result, or with a body that is not JSON, is an unserved failure. It is permanent
+  `frozen_copy_unavailable`, the same as a lookup transport error. The existing parametrized cases cover it.
 
 ### Deviations
 
