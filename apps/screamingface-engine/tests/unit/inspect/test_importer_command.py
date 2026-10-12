@@ -171,3 +171,28 @@ def test_the_task_replay_flag_is_gone() -> None:
 
     with pytest.raises(SystemExit):
         main([_TASK, "--key", "csqa", "--task-replay"])
+
+
+def test_the_empty_answer_key_flag_reaches_the_import(engine_src_copy: Path) -> None:
+    """OME-1527 R5: the dev says some Samples' empty key is their answer; the import (and
+    through it both replays) hears exactly that, and a key on every other Case stays required."""
+
+    recording: _RecordingImport = _RecordingImport()
+
+    main(
+        [_TASK, "--key", "csqa", "--empty-answer-key-allowed"]
+        + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=recording,
+        dataset_info=lambda repo_id, revision: type("Info", (), {"card_data": {}})(),
+    )
+
+    assert recording.calls[0][2]["empty_answer_key_allowed"] is True
+    assert recording.calls[0][2]["has_answer_key"] is True
+
+
+def test_no_answer_key_and_empty_answer_key_allowed_cannot_both_be_said() -> None:
+    """One flag says no Sample has a key, the other that some do; the command refuses the
+    contradiction before any replay runs."""
+
+    with pytest.raises(SystemExit):
+        main([_TASK, "--key", "csqa", "--no-answer-key", "--empty-answer-key-allowed"])
