@@ -13,6 +13,7 @@ from asyncio import Event as _AsyncEvent
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace as _dataclass_replace
+from pathlib import Path
 from threading import Event as _ThreadEvent
 from threading import Lock
 from typing import Protocol
@@ -133,6 +134,10 @@ class Url4CloudTransport:
         from screamingface._results.store import ResultStore
 
         self._result_store = ResultStore() if save_results else None
+        if self._result_store is not None:
+            from screamingface._results.recovery_notice import show_recoverable_results
+
+            show_recoverable_results(self._result_store, engine_url)
         self._result_contexts = {}
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
@@ -179,14 +184,20 @@ class Url4CloudTransport:
         )
         return download_sync(self._http, saved, lambda: _mint_sync(self._http))
 
-    def prepare_results(self, evaluation, candidates) -> None:
+    def prepare_results(self, evaluation, candidates) -> Path | None:
         from screamingface._results.evaluation import prepare
+        from screamingface._results.lifecycle import evaluation_path
 
         if self._result_store is not None:
             contexts = prepare(self._result_store, evaluation, candidates)
             self._result_contexts.update(
                 {id(candidate): (candidate, contexts[id(candidate)]) for candidate in candidates}
             )
+            if contexts:
+                return evaluation_path(
+                    self._result_store.directory, next(iter(contexts.values()))["id"]
+                )
+        return None
 
     def finish_results(self, candidates) -> None:
         for candidate in candidates:
@@ -549,6 +560,10 @@ class AsyncUrl4CloudTransport:
         from screamingface._results.store import ResultStore
 
         self._result_store = ResultStore() if save_results else None
+        if self._result_store is not None:
+            from screamingface._results.recovery_notice import show_recoverable_results
+
+            show_recoverable_results(self._result_store, engine_url)
         self._result_contexts = {}
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
@@ -590,14 +605,20 @@ class AsyncUrl4CloudTransport:
         )
         return await download_async(self._http, saved, lambda: _mint_async(self._http))
 
-    def prepare_results(self, evaluation, candidates) -> None:
+    def prepare_results(self, evaluation, candidates) -> Path | None:
         from screamingface._results.evaluation import prepare
+        from screamingface._results.lifecycle import evaluation_path
 
         if self._result_store is not None:
             contexts = prepare(self._result_store, evaluation, candidates)
             self._result_contexts.update(
                 {id(candidate): (candidate, contexts[id(candidate)]) for candidate in candidates}
             )
+            if contexts:
+                return evaluation_path(
+                    self._result_store.directory, next(iter(contexts.values()))["id"]
+                )
+        return None
 
     def finish_results(self, candidates) -> None:
         for candidate in candidates:

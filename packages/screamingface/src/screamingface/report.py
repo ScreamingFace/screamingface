@@ -647,6 +647,12 @@ class Report:
         return f"Report(benchmark={self.benchmark.id!r}, candidates=[{candidates}], ok={self.ok})"
 
     def _ipython_display_(self) -> None:
+        from screamingface._results.lifecycle import report_operation
+
+        with report_operation(self, "rendering"):
+            self._display_notebook()
+
+    def _display_notebook(self) -> None:
         from IPython.display import HTML, display
 
         try:
