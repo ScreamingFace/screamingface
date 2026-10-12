@@ -27,8 +27,8 @@
       "approved_blob": "231403185bc7faa801ab294f4f7600a29389d66a"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "9da673b7acf65349d05adf1afbe5910682b08a68",
-      "approved_blob": "52bbc77476c15119ce56c03f1a174e138c305102"
+      "base_blob": "8dfb6fc817505a2d2de540883112a3e3dc3af68b",
+      "approved_blob": "625aa8a3eddc15e6ad6b6686afd53d754674c5cc"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
       "base_blob": "0592cebea57de9cf81b9946df420eefed2b73d21",
