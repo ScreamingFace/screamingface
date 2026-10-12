@@ -270,3 +270,73 @@ their names were read from their code (`X-Capture`, `X-Replay-Frozen-Copy`, `cap
 - `runner.py` had one conflict. Main's `with _prepared_results(...)` and `completed_report(...)` stay. B5's `_conclude_evaluation(observer, report, capture)` replaces main's `_returned_report`, which nothing uses now. The call returns `report` after it. The resolution is right.
 - The e2e FakeGateway served only chat completions. With capture on by default, the engine calls `/v1/frozen-copies` (open, seal, tool-results), so five `test_failures.py` tests failed with an unroutable refusal. The FakeGateway now answers those three routes with the real gateway's shapes (fixed id, no stored data). The e2e tests now run the default capture path. Chat calls with the frozen-copy header still use the tape.
 - `test_live_controls_select_candidates_and_exact_cases` and `test_colab_report_compatibility` failed only because the local venv lacked the `notebook` extra (`ipyevents`, `ipywidgets`). They fail the same way on origin/main and on the A2 branch. They pass with `uv sync --extra notebook`, as CI does. No code change.
+
+## Review round 2026-10-12 (design review fixes)
+
+### Changes
+
+- `_case_digest.case_digest(cases)`: sha256 hex of the sorted `[case_id, status, score]` entries, one per
+  case in `CandidateResult.cases`. The score is null only for a case with no grade. A score of 0.0 stays 0.0.
+- `submit` sends `case_digest` only with a `capture_status`.
+- A reproduction record always sends the replay's `case_digest`.
+- `LeaderboardScore.case_digest` (public, default `None`): 64 lower-case hex, and it needs `capture_status`.
+  The score decode reads it.
+- `_classify`: after `score_differs`, a score with a digest whose replay digest differs is `failed`, reason
+  `cases_differ`. A score without a digest keeps the three-field rule.
+- `CandidateResult.capture_partial_reasons` (public, default `()`): the sorted `capture.partial.<reason>`
+  names with a non-zero count. `to_dict()` carries it as a list. A count that is not a non-negative integer
+  stops the run with `ExecutionError`, as the cache counts do.
+- `sf.reproduce` does not name the local reason. The board does not store partial reasons. A local capture
+  is `not_reproducible` with reason `partial`. The reason `local` shows only on the submitter's result (Q23).
+
+### Tests
+
+- New `tests/test_case_digest.py`: `test_case_digest_is_stable_and_order_independent`,
+  `test_case_digest_changes_when_one_grade_or_status_changes`, `test_case_digest_int_and_str_ids_differ`.
+- `tests/test_capture_submission.py`: `test_submit_sends_the_case_digest_with_the_capture_fields`. The
+  `get_score` tests read `case_digest`, and the malformed-field rows cover a bad digest and a digest with no
+  status.
+- `tests/test_reproduce.py`: `test_reproduce_sends_the_replay_case_digest`,
+  `test_cases_differ_when_digests_differ_but_score_is_equal`, `test_score_without_digest_reproduces_on_three_fields`,
+  `test_a_case_digest_is_64_lower_hex_and_needs_a_capture_status`.
+- `tests/test_capture_summary.py`: `test_local_partial_reason_shows_on_the_result`,
+  `test_the_decoder_reads_the_partial_reasons_with_a_non_zero_count_only`,
+  `test_a_malformed_partial_count_fails_closed`.
+- Order: the digest tests, the submit test and the replay test were written first. Each was seen to fail
+  (import error) before the code. The `cases_differ`, three-field, local-reason and bad-count tests were
+  written after their code in this round. Their RED run was not recorded.
+
+### Approved edits
+
+- `tests/public_surface_snapshot.json`: regenerated with `UPDATE_SURFACE_SNAPSHOT=1 uv run pytest
+  tests/test_public_surface.py` (standing approval). Diff: `capture_partial_reasons` on `CandidateResult`
+  (signature and field); `case_digest` on `LeaderboardScore` (signature and field). Commit `e64531d60`.
+- `tests/e2e/harness/fake_gateway.py`: an additive harness edit under standing approval (e). Commit
+  `1ac056658` "test(screamingface): serve the frozen-copy routes in the e2e fake gateway".
+- `tests/_isolation_engine.py`: approved in the first B5 round (see the rounds above).
+- Existing-test edits in `4e7f7ab39` (approved by the coordinator's message of 2026-10-12, not by the owner):
+  `tests/test_leaderboards_reproductions.py` (the `_arguments` helper and the exact-body assertion pass
+  `case_digest`; new `DIGEST` constant) and `tests/test_reproduce_review.py` (one record call passes
+  `case_digest`).
+- Existing helper edit in `tests/test_capture_submission.py` (`_reproduced_response` gains `case_digest`).
+
+### Gates
+
+- Append-only check, base `refs/e14-backup/pre-phase2-2026-10-12/OME-1436-e14-a2-sdk-metadata`: flags only
+  `tests/_isolation_engine.py`, `tests/e2e/harness/fake_gateway.py` and `tests/public_surface_snapshot.json`.
+  All three are approved above.
+- `run_gates.py screamingface --base refs/e14-backup/pre-phase2-2026-10-12/OME-1436-e14-a2-sdk-metadata
+  --skip-append-only`: ALL GATES GREEN at `bea93041f` (ruff check, ruff format, pyright, pytest with the 95%
+  coverage gate, notebooks, build, distribution).
+- F-B5 second variant, `--base OME-1436-e14-a2-sdk-metadata` after `uv sync --extra runtime --extra notebook`:
+  the append-only check flags the same three files. With `--skip-append-only`: ALL GATES GREEN.
+
+### Deviations
+
+- `src/screamingface/_results/codec.py` is not in the plan table. The saved-run manifest is JSON, so the
+  reasons came back as a list and `test_manifest_roundtrip_before_download` failed. The codec now reads the
+  tuple back, as it does the other tuple fields (commit `bea93041f`).
+- The F-B5 note names the base `e14-a2-sdk-metadata`. That ref does not exist. The variant used
+  `OME-1436-e14-a2-sdk-metadata`, the name the R-plan gives.
+- Not done: design §6 says the leaderboard and history rows return `case_digest`. The rows decode into
+  `LeaderboardEntry`, which has no capture fields, and the plan does not name that type. Open question.
