@@ -20,7 +20,7 @@ from weakref import WeakKeyDictionary
 
 import httpx
 
-from screamingface_engine import __version__, job_env
+from screamingface_engine import engine_version, job_env
 from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
@@ -581,15 +581,17 @@ async def seal_frozen_copy(node: object, copy_id: str) -> bool:
     A sealed copy is what a replay reads; an open one is refused as unavailable.
 
     FEATURE: E14 Q28. The seal states the engine version, so the copy records what captured it.
+    A source tree with no installed version seals with no body (the gateway stores no provenance).
     """
     client = _gateway_client(node)
     if client is None:
         return False
+    version = engine_version()
     try:
         response = await client.post(
             seal_path(copy_id),
             headers=_headers(current_scope()),
-            json={"provenance": {"engine_version": __version__}},
+            json={"provenance": {"engine_version": version}} if version else None,
         )
         response.raise_for_status()
         body = response.json()

@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 from frozen_copy_support import COPY, MODEL, SEAL, Gateway
 
-from screamingface_engine import __version__, job_env
+from screamingface_engine import engine_version, job_env
 from screamingface_engine.capture_outcomes import CaptureOutcome, CaptureTally
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.executor import _bind_frozen_copy_mode
@@ -92,4 +92,35 @@ async def test_seal_sends_the_engine_version() -> None:
 
     assert sealed is True
     ((_headers, body),) = gateway.calls(SEAL)
-    assert body == {"provenance": {"engine_version": __version__}}
+    assert body == {"provenance": {"engine_version": engine_version()}}
+
+
+@pytest.mark.asyncio
+async def test_seal_without_an_installed_version_sends_no_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(connector, "engine_version", lambda: None)
+    gateway = Gateway()
+    cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
+
+    async with gateway.client() as client:
+        world = await build_aigateway_world(cfg, client=client)
+        sealed = await connector.seal_frozen_copy(world.node, COPY)
+
+    assert sealed is True
+    ((_headers, body),) = gateway.calls(SEAL)
+    assert body is None
+
+
+def test_engine_version_is_none_when_the_package_is_not_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import importlib.metadata
+
+    import screamingface_engine
+
+    def _missing(_name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(_name)
+
+    monkeypatch.setattr(importlib.metadata, "version", _missing)
+    assert screamingface_engine.engine_version() is None

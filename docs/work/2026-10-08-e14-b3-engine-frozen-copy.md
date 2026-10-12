@@ -216,9 +216,15 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
   marker is listed in `job_env.WRITTEN_BY_APP`. It reaches `RequestScope.local_runtime`, and
   `_bind_frozen_copy_mode` sets `CaptureTally.local`. A local capture is `partial` with reason
   `local`, and a local capture is never reproducible (the local app may point at the hosted gateway).
-- **Q28, provenance.** `screamingface_engine.__version__` comes from the installed package metadata.
-  It raises `PackageNotFoundError` when the package is not installed; this is accepted, and a comment
-  says so. `seal_frozen_copy` posts `{"provenance": {"engine_version": __version__}}`.
+- **Q28, provenance.** `screamingface_engine.engine_version()` reads the installed package metadata
+  when the copy is sealed. `seal_frozen_copy` posts `{"provenance": {"engine_version": <version>}}`.
+  For a source tree that was never installed, `engine_version()` returns `None` and the seal sends no
+  body (the gateway stores no provenance).
+  - Phase 3 fix (orchestrator, 2026-10-12): the first version read the metadata at import time
+    (`__version__`). The SDK gate failed, because `tests/test_runtime_artifacts_dir.py` imports the
+    engine from source without metadata (`PackageNotFoundError`). Tests:
+    `test_seal_without_an_installed_version_sends_no_provenance`,
+    `test_engine_version_is_none_when_the_package_is_not_installed`.
 - **Can the sync surface replay?** No. Design §5.1 allows the run route only. The mount routes
   (`rest/mounts.py`, `_validated`) and the local eval path (`local.py`, before `bind_sync_request`)
   refuse `X-Replay-Frozen-Copy` with 400 `capture_unsupported` before anything is bound. The tally is
