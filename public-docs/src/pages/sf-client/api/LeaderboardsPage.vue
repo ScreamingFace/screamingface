@@ -357,7 +357,10 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
         <tr>
           <td><code>metadata_updated_at</code></td>
           <td><code>datetime&nbsp;|&nbsp;None</code></td>
-          <td>When the authors or the paper link last changed. <code>None</code> if never.</td>
+          <td>
+            When the authors or the paper link last changed. <code>None</code> if never. The portal
+            shows it as "Metadata edited &lt;date&gt;" next to the paper link.
+          </td>
         </tr>
         <tr>
           <td><code>frozen_copy_id</code></td>
@@ -372,7 +375,17 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>"complete"&nbsp;|&nbsp;"partial"&nbsp;|&nbsp;None</code></td>
           <td>
             Whether the frozen copy holds the whole run. <code>"partial"</code> scores cannot be
-            replayed. <code>None</code> means unknown.
+            replayed. A local capture is always <code>"partial"</code>. <code>None</code> means
+            unknown.
+          </td>
+        </tr>
+        <tr>
+          <td><code>case_digest</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            A digest of the graded cases of the run: 64 lowercase hex characters. It is set only
+            with a <code>capture_status</code>. When it is set, a reproduction must give the same
+            digest. Only the score read returns it.
           </td>
         </tr>
         <tr>
@@ -478,7 +491,8 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>"exact"&nbsp;|&nbsp;"failed"&nbsp;|&nbsp;"not_reproducible"</code></td>
           <td>
             <code>"exact"</code>: the replay gave the stored score and case count on the same
-            benchmark revision. <code>"failed"</code>: it ran, or tried to, and did not match.
+            benchmark revision, and the same case digest when the score has one.
+            <code>"failed"</code>: it ran, or tried to, and did not match.
             <code>"not_reproducible"</code>: the score has no complete frozen copy, so no run
             started.
           </td>
@@ -540,7 +554,10 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
         <tr>
           <td><code>not_reproducible</code></td>
           <td><code>partial</code></td>
-          <td>The score is <code>capture_status="partial"</code>. No run starts.</td>
+          <td>
+            The score is <code>capture_status="partial"</code>. This includes a local capture, which
+            the board cannot name as <code>local</code>. No run starts.
+          </td>
         </tr>
         <tr>
           <td><code>not_reproducible</code></td>
@@ -576,8 +593,7 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td>
             The copy is unknown or not sealed, or the gateway has no frozen copies (an older
             gateway), or a web-tool lookup got no answer from the gateway. The cases fail, and the
-            run finishes. A copy made by a local run, replayed against a hosted gateway, is
-            unavailable.
+            run finishes.
           </td>
         </tr>
         <tr>
@@ -597,6 +613,14 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>failed</code></td>
           <td><code>score_differs</code></td>
           <td>The score or the case count is not the stored one. The comparison is exact.</td>
+        </tr>
+        <tr>
+          <td><code>failed</code></td>
+          <td><code>cases_differ</code></td>
+          <td>
+            The score and the case count match, the score has a <code>case_digest</code>, and the
+            replay's digest is not the stored one.
+          </td>
         </tr>
       </tbody>
     </table>

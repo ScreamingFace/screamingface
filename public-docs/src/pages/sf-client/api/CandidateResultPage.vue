@@ -182,6 +182,16 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
             <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
           </td>
         </tr>
+        <tr>
+          <td><code>capture_partial_reasons</code></td>
+          <td><code>tuple[str, ...]</code></td>
+          <td>
+            The names of the partial reasons that have a count above zero, sorted. Empty when the
+            run is complete or was not captured. A local capture shows <code>("local",)</code>.
+            <code>to_dict()</code> always includes it, as a list. See
+            <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
+          </td>
+        </tr>
       </tbody>
     </table>
 

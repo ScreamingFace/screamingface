@@ -94,6 +94,15 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
       read the original.
     </p>
 
+    <h2>The paper link</h2>
+
+    <p>
+      A submitter can link the paper that reports a result. The submitter can also change the
+      authors and the paper link later. The portal shows "Metadata edited &lt;date&gt;" next to the
+      paper link. The date is the last time either field changed. The edit log of a score is not
+      public.
+    </p>
+
     <h2>The recipe is the reward</h2>
 
     <p>

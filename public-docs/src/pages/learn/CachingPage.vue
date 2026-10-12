@@ -90,6 +90,11 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <p>
+      An <code>exact</code> replay means that the copy is internally consistent. The copy stores the
+      tool results that the run saw. It does not prove that those results are the true web results.
+    </p>
+
+    <p>
       Capture adds no call to a provider, so a captured run costs the same as a normal run. It is
       best effort. If the gateway cannot store something, the run still goes on and still returns
       its result. The copy is then <code>partial</code>.
@@ -97,19 +102,18 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       Keep one thing in mind. The copy id is part of a published score. Any authenticated gateway
-      account that has the id and sends the exact request can read the stored answer. No
-      private-board rule limits this. Capture is on by default. If you do not want to share the
-      answers of a run, pass <code>capture=False</code> to that run.
+      account that has the id and sends the exact request can read the stored answer. A private
+      board never shows the copy id to anyone but its owner. Capture is on by default. If you do not
+      want to share the answers of a run, pass <code>capture=False</code> to that run.
     </p>
 
     <h3>Local runs</h3>
 
     <p>
-      The local runtime starts a real AI gateway with its own SQLite database. A local run that
-      captures (the default) can be <code>complete</code>. Its copy lives only in that local
-      gateway. Only the same local setup can replay it. A hosted reproduction of that score gets
-      <code>frozen_copy_unavailable</code>. To upload a local copy to the hosted gateway is a
-      planned follow-up.
+      The local runtime starts a real AI gateway with its own SQLite database. A capture on the
+      local runtime is always <code>partial</code>, with the reason <code>local</code>. Its copy
+      lives only in that local gateway. A local capture is never reproducible on a board. To upload
+      a local copy to the hosted gateway is a planned follow-up.
     </p>
 
     <h3>Complete and partial</h3>
@@ -117,9 +121,9 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <p>
       A captured run has a <code>capture_status</code> and, when the copy opened, a
       <code>frozen_copy_id</code>. The status is <code>complete</code> only when the copy opened,
-      the copy sealed, and every model call and every web-tool result is stored. In all other cases
-      it is <code>partial</code>. A partial score is not replayed: <code>sf.reproduce</code> returns
-      <code>not_reproducible</code> and starts no run.
+      the copy sealed, every model call and every web-tool result is stored, and the run did not use
+      the local runtime. In all other cases it is <code>partial</code>. A partial score is not
+      replayed: <code>sf.reproduce</code> returns <code>not_reproducible</code> and starts no run.
     </p>
 
     <table>
@@ -182,6 +186,13 @@ import { learnNavigation as navigation } from '@/navigation/learn'
             after a transport error. The Engine cannot tell which answer is the right one.
           </td>
         </tr>
+        <tr>
+          <td>Local</td>
+          <td>
+            The run used the local runtime. Its copy lives only in the local gateway, so a board
+            cannot replay it.
+          </td>
+        </tr>
       </tbody>
     </table>
 
@@ -207,15 +218,24 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <p>
       <code>sf.reproduce(score)</code> asks the Engine to run the score's url4 and answer seed
       against the frozen copy. The Engine must confirm that it runs in replay mode. In a confirmed
-      replay, every model call goes to the copy, and so does every web-tool read. The copy answers a
-      request with the answer that it stored for the same request. Nothing calls a provider, and
-      nothing calls the web-search service. A confirmed replay costs <strong>$0</strong>.
+      replay, every model call goes to the copy, and so does every web-tool read. The copy answers
+      each call with the answer that it stored for the same call. A call matches a stored answer
+      when it has the same case, the same Attempt of that case, the same request, and the same
+      position among identical calls in that case. The first identical call in a case gets the first
+      stored answer, the second gets the second, and so on. Nothing calls a provider, and nothing
+      calls the web-search service. A confirmed replay costs <strong>$0</strong>.
     </p>
 
     <p>
       A replay does not depend on the cache or on the models of today. It works after a model is
       retired, after a provider plugin is removed, and after the cache rules change. A request that
       the copy cannot answer fails its case. The replay never buys the answer.
+    </p>
+
+    <p>
+      A replay is <code>exact</code> when it gives the stored score and case count on the same
+      benchmark revision. When the score has a case digest, the replay must also give the same
+      digest. The digest covers each graded case: its id, its status and its score.
     </p>
 
     <p>
@@ -258,15 +278,24 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       </li>
       <li>
         <strong>Same request, different answers.</strong> With sampling, or with the cache off, the
-        same request can get different answers. The copy serves them in the order that the original
-        run took them. Parallel branches can take them in another order in the replay. Then the
-        score can differ (<code>score_differs</code>).
+        same request can get different answers. Each case keeps its own answers. Identical calls in
+        one case take them in the order that the calls were created. A replay can then give another
+        score (<code>score_differs</code>).
+      </li>
+      <li>
+        <strong>Different case results.</strong> The score and the case count match, but the case
+        digest does not. The Client reports <code>cases_differ</code>.
       </li>
       <li>
         <strong>A changed benchmark</strong> grades a different exam, so the numbers cannot be
         compared. The Client reports <code>benchmark_revision_changed</code>.
       </li>
     </ul>
+
+    <p>
+      A replay failure that the copy did not serve fails its case. The Engine does not retry that
+      call. A retry would take the next stored answer, which is the wrong one for the call.
+    </p>
 
     <p>
       A failed replay is not recorded. It is not proof against the score, because of the known
