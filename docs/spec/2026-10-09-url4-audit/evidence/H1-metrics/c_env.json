@@ -1,0 +1,42 @@
+{
+  "kind": "custom",
+  "total": 3,
+  "hits": [
+    {
+      "file": "packages/url4/src/url4/cli/app.py",
+      "line": 131,
+      "text": "explicit = args.config or os.environ.get(\"URL4_CONFIG\")",
+      "marker": "URL4_CONFIG",
+      "key": "URL4_CONFIG",
+      "expires": null,
+      "reason": null,
+      "age_days": 78.40618320700194,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-23"
+    },
+    {
+      "file": "packages/url4/src/url4/cli/_config.py",
+      "line": 96,
+      "text": "# URL4_HOST away; this covers the explicit `--host \"\"` flag, which it cannot.",
+      "marker": "URL4_HOST",
+      "key": "URL4_HOST",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.323660058853804,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    },
+    {
+      "file": "packages/url4/src/url4/cli/_config.py",
+      "line": 221,
+      "text": "# WHY: an empty env var is an UNSET var, not an empty value \u2014 `URL4_HOST=` in a",
+      "marker": "URL4_HOST",
+      "key": "URL4_HOST",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.323660058853804,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    }
+  ]
+}

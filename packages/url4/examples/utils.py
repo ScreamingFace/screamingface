@@ -371,6 +371,17 @@ def print_tree(target: str | DagNode | Graph) -> None:
 # -- notebook fixture: one offline IOLayer wired with realistic content -------
 
 
+def _question_in(intent: str) -> str:
+    """The text between the first "Re: " and the following " —" in ``intent``, or ""."""
+    start = intent.find("Re: ")
+    if start < 0:
+        return ""
+    end = intent.find(" —", start + 4)
+    if end < 0:
+        return ""
+    return intent[start + 4 : end].strip()
+
+
 def _fake_model(name: str):
     """A fake localhost model route — returns a plausible response by intent.
 
@@ -381,10 +392,14 @@ def _fake_model(name: str):
 
     def route(context: str, intent: str) -> str:
         text = intent.lower()
-        if "[instruction]" in text or "merge" in text or "aggregate" in text:
+        if (
+            "merge" in text
+            or "aggregate" in text
+            or ("[instruction]" in text and "answer" not in text)
+        ):
             return f"[{name}] Consensus: the sources broadly agree; key points reconciled."
         if "answer" in text:
-            question = context.strip() or "the request"
+            question = context.strip() or _question_in(intent) or "the request"
             return f"[{name}] Re: {question} — follow the documented steps; escalate if needed."
         headline = f"[{name}] EU advances landmark AI rules while funding a compute push."
         summary = f"[{name}] Summary: the main provisions, obligations, and who they affect."

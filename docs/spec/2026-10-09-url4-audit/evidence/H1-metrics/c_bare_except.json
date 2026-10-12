@@ -1,0 +1,78 @@
+{
+  "kind": "custom",
+  "total": 6,
+  "hits": [
+    {
+      "file": "packages/url4/src/url4/streaming/lifecycle.py",
+      "line": 234,
+      "text": "# `CancelledError` is a BaseException, so the `except Exception` arm below never saw it.",
+      "marker": "except Exception",
+      "key": "except Exception",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41842810900398,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/src/url4/streaming/lifecycle.py",
+      "line": 239,
+      "text": "except Exception as exc:",
+      "marker": "except Exception",
+      "key": "except Exception",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41842810900398,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/src/url4/streaming/testing/stream_contract.py",
+      "line": 108,
+      "text": "except Exception as exc:  # noqa: BLE001 - any other failure is still a contract breach",
+      "marker": "except Exception",
+      "key": "except Exception",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41842810900398,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/src/url4/observe.py",
+      "line": 406,
+      "text": "except Exception:",
+      "marker": "except Exception",
+      "key": "except Exception",
+      "expires": null,
+      "reason": null,
+      "age_days": 30.10962023863362,
+      "author": "Keelan",
+      "date": "2026-09-09"
+    },
+    {
+      "file": "packages/url4/src/url4/dag/nodes/guard.py",
+      "line": 61,
+      "text": "except Exception as exc:  # control-flow signals (CancelledError) propagate",
+      "marker": "except Exception",
+      "key": "except Exception",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.323636442337325,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    },
+    {
+      "file": "packages/url4/src/url4/peer/direct.py",
+      "line": 145,
+      "text": "except Exception as exc:",
+      "marker": "except Exception",
+      "key": "except Exception",
+      "expires": null,
+      "reason": null,
+      "age_days": 12.227479034929916,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-27"
+    }
+  ]
+}

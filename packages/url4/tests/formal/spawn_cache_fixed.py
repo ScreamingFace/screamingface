@@ -7,12 +7,10 @@
 # hits the cache. Invariant ``one_compile_per_unique_text`` holds across all
 # reachable states.
 #
-# Check:  python3 ~/Documents/skills/concepts/formal-modeling/bin/fm.py check spawn_cache_fixed.py
+# Check:  fm check spawn_cache_fixed.py   (the formal-modeling skill, bin/fm.py)
 #         (expect clean, 4 states)
 #
-# The code this mirrors: packages/url4/src/url4/dag/executor.py, the
-# ``spawn_hook`` closure in ``_wire_spawn`` (the INVARIANT comment above the
-# ``compile_expression`` call).
+# SOURCE: packages/url4/src/url4/dag/executor.py:_wire_spawn.spawn_hook (its INVARIANT comment)
 
 """spawn_hook compile cache — the REAL atomic get → compile → store.
 
@@ -30,6 +28,9 @@ Run:  fm check spawn_cache_fixed.py     # expect clean
 """
 
 NAME = "spawn_hook compile cache - atomic get/compile/store (as written)"
+
+# FAILURE_ACTIONS: none. The model covers only the check-and-store interleaving, not errors.
+FAILURE_ACTIONS = []
 
 
 def init():

@@ -24,7 +24,7 @@ pytestmark = pytest.mark.asyncio
 _TOKEN = "test-token"  # noqa: S105 - not a real credential
 _TAVILY_TOKEN = "tvly-test"  # noqa: S105 - not a real credential
 
-_FANOUT = "(/openrouter/gpt-4o(ctx)!probe)!combine"
+_FANOUT = "(/openrouter/gpt-4o(ctx)!'probe')!'combine'"
 
 
 async def test_candidate_chat_envelopes_preserve_native_message_roles() -> None:
@@ -263,7 +263,7 @@ async def test_a_bare_short_name_no_longer_resolves_to_a_prefixed_model() -> Non
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
 
-        fanout = "(/codex/gpt-5.5(ctx)!probe)!combine"
+        fanout = "(/codex/gpt-5.5(ctx)!'probe')!'combine'"
         with pytest.raises(ResolutionError) as exc_info:
             await url4_run(fanout, io=world.node, processor="gpt-5.5")
 
@@ -354,7 +354,7 @@ async def test_a_shared_bare_name_across_providers_stays_addressable_by_full_id(
 
         assert set(world.node.processor_routes()) == {"/anthropic/x", "/openrouter/x"}
 
-        fanout = "(/anthropic/x(ctx)!probe)!combine"
+        fanout = "(/anthropic/x(ctx)!'probe')!'combine'"
         with pytest.raises(ResolutionError) as exc_info:
             await url4_run(fanout, io=world.node, processor="x")
 
@@ -367,7 +367,7 @@ async def test_unregistered_model_id_fails_before_any_completion_call() -> None:
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
 
-        fanout = "(/anthropic/claude-haiku-4-5(ctx)!probe)!combine"
+        fanout = "(/anthropic/claude-haiku-4-5(ctx)!'probe')!'combine'"
         with pytest.raises(ResolutionError) as exc_info:
             await url4_run(fanout, io=world.node, processor="not-a-real-model")
 

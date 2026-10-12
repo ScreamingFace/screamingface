@@ -38,7 +38,7 @@ def _loaded_after_import(module: str, watch: tuple[str, ...]) -> set[str]:
         f"import {module}, sys;"
         f"print(' '.join(sorted({{n.split('.')[0] for n in sys.modules}} & set({watch!r}))))"
     )
-    done = subprocess.run(  # noqa: S603 - fixed argv, no shell, test-controlled input
+    done = subprocess.run(  # fixed argv, no shell, test-controlled input
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,

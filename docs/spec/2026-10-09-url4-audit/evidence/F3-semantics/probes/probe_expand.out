@@ -1,0 +1,6 @@
+['one row'] -> RAISED CollectionError expansion_not_iterable expansion source is not iterable: collection source resolved to a scal
+['a,b', 'c,d'] -> ['{"a": "c", "b": "d"}']
+['multi\nline row', 'x'] -> ['multi', 'line row', 'x']
+['{"k":1}'] -> RAISED CollectionError expansion_not_iterable expansion source is not iterable: iteration over a JSON object is malf
+e2e expand(map rows a,b / c,d): 'm\n\n\n\nz'
+e2e expand(map 1 row): 'm\n\n\nz'

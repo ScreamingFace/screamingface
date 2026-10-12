@@ -104,7 +104,7 @@ async def test_local_iterate_returns_elements(io):
 
 async def test_local_broadcast_produces_per_source_results(io):
     async with Client(io) as client:
-        res = await client.broadcast("https://x", "https://x", intent="Extract")
+        res = await client.broadcast("https://x", "https://x", intent="'Extract'")
     assert len(res.elements) == 2
 
 
@@ -124,7 +124,7 @@ async def test_local_query_params_ride_the_expression(io):
     # AIDEV-NOTE: quorum is ENFORCED by the executor (not just carried) — the
     # value must be satisfiable by the source list.
     async with Client(io) as client:
-        res = await client.query("https://x", intent="go", quorum=1, triggers=(1, 2), t=60)
+        res = await client.query("https://x", intent="'go'", quorum=1, triggers=(1, 2), t=60)
     assert res.request == "(https://x)!'go';quorum=1;triggers=1,2;t=60"
 
 
@@ -178,10 +178,10 @@ async def test_remote_protocol_params_precede_q(io):
 
 async def test_injected_io_is_never_closed(io):
     client = Client(io)
-    await client.query("https://x", intent="go")
+    await client.query("https://x", intent="'go'")
     await client.aclose()  # no-op for injected io; must not raise
     # io still usable
-    res = await Client(io).query("https://x", intent="go")
+    res = await Client(io).query("https://x", intent="'go'")
     assert "ARTICLE" in res.text
 
 
@@ -244,7 +244,7 @@ async def test_query_seeds_env(io):
 
 async def test_client_accepts_a_node_target_string():
     async with Client("url4://node.ai/v1") as client:
-        assert client._node == "url4://node.ai/v1"  # noqa: SLF001 — facade contract
+        assert client._node == "url4://node.ai/v1"  # facade contract
     with pytest.raises(ValueError, match="once"):
         Client("url4://node.ai", node="url4://other.ai")
 

@@ -121,7 +121,7 @@ async def test_iteration_top_level_intent_reduces_each_row() -> None:
     # through the explicit processor (/claude — the resolver declares /solve
     # first, so relying on the first-declared-route default would mis-dispatch).
     result = await run(
-        "https://data*(/solve($item.q)!'go')!topintent", _resolver(), processor="/claude"
+        "https://data*(/solve($item.q)!'go')!'topintent'", _resolver(), processor="/claude"
     )
     # The reducer input is repr'd by the fake /claude, so its real newlines show
     # as literal \n; the per-row results assemble into the JSON-array result.
@@ -294,7 +294,7 @@ async def test_directive_after_top_level_intent_is_parsed_not_swallowed() -> Non
     # Pre-0.2 QUIRK, now fixed per spec §5.3.6: a trailing ';iteration.*' after
     # the intent is an execution annotation on the iteration, never intent text.
     result = await run(
-        "https://data*(/solve($item.q)!'go')!topintent;iteration.concurrency=1",
+        "https://data*(/solve($item.q)!'go')!'topintent';iteration.concurrency=1",
         _resolver(),
         processor="/claude",
     )
@@ -369,7 +369,7 @@ async def test_distinct_spawned_bodies_each_compile_once(monkeypatch) -> None:
     io = StaticIOLayer(
         fetch_map={"https://data": rows, "https://inner": "PAYLOAD"},
     )
-    node = Iteration(collection=Url("https://data"), body="(https://inner)!p")
+    node = Iteration(collection=Url("https://data"), body="(https://inner)!'p'")
     result = await run(node, io)
 
     # Correctness: each row resolves the lazy fragment (fetch + intent "p").
@@ -377,7 +377,7 @@ async def test_distinct_spawned_bodies_each_compile_once(monkeypatch) -> None:
     # Outer once + the two distinct spawn texts once each, despite 3 rows.
     assert len(calls) == 3
     assert calls[0] is node
-    assert sorted(calls[1:]) == ["((https://inner)!p)", "(https://inner)!p"]
+    assert sorted(calls[1:]) == ["((https://inner)!'p')", "(https://inner)!'p'"]
 
 
 @pytest.mark.asyncio

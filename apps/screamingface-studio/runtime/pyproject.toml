@@ -9,7 +9,6 @@ dependencies = [
 
 [tool.uv.sources]
 aigateway = { path = "../../aigateway", editable = true }
-url4 = { path = "../../../packages/url4", editable = true }
 screamingface = { path = "../../../packages/screamingface", editable = true }
 scoreboard = { path = "../../scoreboard", editable = true }
 

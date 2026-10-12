@@ -1,0 +1,271 @@
+54 disagreement classes
+- ('result+fetch', 'ok', 'ok', 'w(w)!()!Q')
+    s="/p(sum)!()!''"
+    text=('ok', '</p?q=(sum)!%28%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(sum)!%28%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28sum%29!%2528%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(Q)!Q')
+    s="/p(data)!('')!''"
+    text=('ok', '</p?q=(data)!%28%27%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(data)!%28%27%27%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28data%29!%2528%2527%2527%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(Q)!w')
+    s="/p(data)!('b$')!@"
+    text=('ok', '</p?q=(data)!%28%27b$%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(data)!%28%27b$%27%29>\n\n[Instruction]\nH|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28data%29!%2528%2527b$%2527%2529>%0A%0A[Instruction]%0AH': 1}
+- ('result+fetch', 'ok', 'ok', 'w({w Q})!()!Q')
+    s="/p({k: 'v'})!()!''"
+    text=('ok', '</p?q=({"k":%20"v"})!%28%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=({"k":%20"v"})!%28%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28{"k":%2520"v"}%29!%2528%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w()!()!Q;w=w')
+    s="/claude()!()!'';k=v"
+    text=('ok', '</claude?q=()!%28%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=()!%28%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28%29!%2528%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(*Q)!w')
+    s="/claude(hello)!(*'')!@"
+    text=('ok', '</claude?q=(hello)!%28*%27%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(hello)!%28*%27%27%29>\n\n[Instruction]\nH|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28hello%29!%2528*%2527%2527%2529>%0A%0A[Instruction]%0AH': 1}
+- ('result', 'ok', 'ok', '(()!w;w)!w;w=w')
+    s='(()!@;broadcast)!@;k=v'
+    text=('ok', 'H\n\n[]')
+    ast =('ok', 'H\n\nH')
+    fetch text-only={} ast-only={}
+- ('result+fetch', 'ok', 'ok', 'w(w)!()!()!Q')
+    s="/p(s3://bk/d)!()!()!''"
+    text=('ok', '</p?q=(<s3://bk/d>)!%28%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(<s3://bk/d>)!%28%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28<s3://bk/d>%29!%2528%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(*Q)!Q')
+    s="/claude(hello)!(*'')!''"
+    text=('ok', '</claude?q=(hello)!%28*%27%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(hello)!%28*%27%27%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28hello%29!%2528*%2527%2527%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!()!Q;w=Q')
+    s="/p($a)!()!'';note='a b'"
+    text=('ok', '</p?q=($a)!%28%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=($a)!%28%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28$a%29!%2528%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(*w)!w;w=Q')
+    s="/p($a)!(*go)!@;note='a b'"
+    text=('ok', '</p?q=($a)!%28*go%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=($a)!%28*go%29>\n\n[Instruction]\nH|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28$a%29!%2528*go%2529>%0A%0A[Instruction]%0AH': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w?w=w)!()!Q')
+    s="/claude(/api/x?a=1)!()!''"
+    text=('ok', '</claude?q=(</api/x?a=1>)!%28%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(</api/x?a=1>)!%28%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28</api/x?a=1>%29!%2528%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!()!w')
+    s='/p(/data/$topic)!()!hello'
+    text=('ok', '</p?q=(</data/$topic>)!%28%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(</data/$topic>)!%28%29>\n\n[Instruction]\nhello|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28</data/$topic>%29!%2528%2529>%0A%0A[Instruction]%0Ahello': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w*(w)!w)!Q')
+    s="/p(sum)!(https://a.io*($item)!go)!''"
+    text=('ok', '</p?q=(sum)!%28https://a.io*%28$item%29!go%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(sum)!%28https://a.io*%28$item%29!go%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28sum%29!%2528https://a.io*%2528$item%2529!go%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w=w, w)!(wQ)!Q')
+    s="/claude(a=https://a.io, $a)!(x1:'')!''"
+    text=('ok', '</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28x1:%27%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28x1:%27%27%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28a:%2520<https://a.io>%250A<https://a.io>%29!%2528x1:%2527%2527%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w?w=w)!()!Q;w=Q')
+    s="/p(/api/x?a=1)!()!'a**\\'\\'@';note='a b'"
+    text=('ok', '</p?q=(</api/x?a=1>)!%28%29>')
+    ast =('ok', "LLM[[Response 1]\n</p?q=(</api/x?a=1>)!%28%29>\n\n[Instruction]\na**''@|]")
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28</api/x?a=1>%29!%2528%2529>%0A%0A[Instruction]%0Aa**%27%27@': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w, Q)!Q;w=w')
+    s="/claude(@emily/notes)!($a, '\\'=)')!'\\\\';k=v"
+    text=('ok', '</claude?q=(@emily/notes)!%28$a,%20%27\\%27=%29%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(@emily/notes)!%28$a,%20%27\\%27=%29%27%29>\n\n[Instruction]\n\\|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28@emily/notes%29!%2528$a,%2520%2527\\%2527=%2529%2527%2529>%0A%0A[Instruction]%0A\\': 1}
+- ('result+fetch', 'ok', 'ok', 'w()!(w(w)!Q)!Q;w=w')
+    s="/claude()!(/claude(https://a.io)!'')!'';k=v"
+    text=('ok', '</claude?q=()!%28/claude%28https://a.io%29!%27%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=()!%28/claude%28https://a.io%29!%27%27%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28%29!%2528/claude%2528https://a.io%2529!%2527%2527%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w=w, w)!()!w;w=Q')
+    s="/p(a=https://a.io, $a)!()!/reduce;note='a b'"
+    text=('ok', '</p?q=(a:%20<https://a.io>%0A<https://a.io>)!%28%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(a:%20<https://a.io>%0A<https://a.io>)!%28%29>\n\n[Instruction]\n</reduce>|]')
+    fetch text-only={} ast-only={'/reduce': 1, '/llm?q=()![Response%201]%0A</p?q=%28a:%2520<https://a.io>%250A<https://a.io>%29!%2528%2529>%0A%0A[Instruction]%0A</reduce>': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(Q, Q)!Q;w=Q')
+    s="/claude(@emily/notes)!('', '')!'';note='a b'"
+    text=('ok', '</claude?q=(@emily/notes)!%28%27%27,%20%27%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(@emily/notes)!%28%27%27,%20%27%27%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28@emily/notes%29!%2528%2527%2527,%2520%2527%2527%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w()!(*w, w()!w)!w')
+    s='/claude()!(*s3://bk/d, /p()!/reduce)!s3://bk/d'
+    text=('ok', '</claude?q=()!%28*s3://bk/d,%20/p%28%29!/reduce%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=()!%28*s3://bk/d,%20/p%28%29!/reduce%29>\n\n[Instruction]\n<s3://bk/d>|]')
+    fetch text-only={} ast-only={'s3://bk/d': 1, '/llm?q=()![Response%201]%0A</claude?q=%28%29!%2528*s3://bk/d,%2520/p%2528%2529!/reduce%2529>%0A%0A[Instruction]%0A<s3://bk/d>': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w, Q)!Q;w=Q')
+    s="/claude(@emily/notes)!($a, '\\'=)')!'';note='a b'"
+    text=('ok', '</claude?q=(@emily/notes)!%28$a,%20%27\\%27=%29%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(@emily/notes)!%28$a,%20%27\\%27=%29%27%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28@emily/notes%29!%2528$a,%2520%2527\\%2527=%2529%2527%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w*(w(w)!w)!Q)!Q;w=w')
+    s="/p(sum)!(https://a.io*(/p($item)!go)!'p')!'';k=v"
+    text=('ok', '</p?q=(sum)!%28https://a.io*%28/p%28$item%29!go%29!%27p%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(sum)!%28https://a.io*%28/p%28$item%29!go%29!%27p%27%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28sum%29!%2528https://a.io*%2528/p%2528$item%2529!go%2529!%2527p%2527%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w=w, w)!()!w;w=w')
+    s='/claude(a=https://a.io, $a)!()!https://a.io/$topic;k=v'
+    text=('ok', '</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28%29>\n\n[Instruction]\n<https://a.io/$topic>|]')
+    fetch text-only={} ast-only={'https://a.io/$topic': 1, '/llm?q=()![Response%201]%0A</claude?q=%28a:%2520<https://a.io>%250A<https://a.io>%29!%2528%2529>%0A%0A[Instruction]%0A<https://a.io/$topic>': 1}
+- ('result', 'ok', 'ok', '(()!w;w)!wFw(w);w')
+    s='(()!@;broadcast)!https://w.org/Fish_(animal);broadcast'
+    text=('ok', '[{"source_position": 1, "source_name": null, "result": "<https://w.org/Fish_(animal)>\\n\\n[]"}]')
+    ast =('ok', '[{"source_position": 1, "source_name": null, "result": "<https://w.org/Fish_(animal)>\\n\\nH"}]')
+    fetch text-only={} ast-only={}
+- ('result+fetch', 'ok', 'ok', 'w(w=w, w)!()!()!Q;w=w;w=w')
+    s="/claude(a=https://a.io, $a)!()!()!'/:=a*';k=v;quorum=1"
+    text=('ok', '</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28%29>\n\n[Instruction]\n/:=a*|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28a:%2520<https://a.io>%250A<https://a.io>%29!%2528%2529>%0A%0A[Instruction]%0A/:=a*': 1}
+- ('result+fetch', 'ok', 'err', '(w w, (*(w)!Q)!*Q;w=w)!Q;w=w')
+    s="(run fast, (*(https://a.io)!'')!*'';quorum=1)!'';quorum=1"
+    text=('ok', "run fast\n''\n\n[]")
+    ast =('err', 'CollectionError', 'expansion_not_iterable')
+    fetch text-only={} ast-only={'https://a.io': 1}
+- ('result', 'ok', 'ok', '((Q)!()!()!*w;w;w=w)!*(w, w)*(w)!Q;w=w')
+    s="(('\\')')!()!()!*@;broadcast;k=v)!*(a, b)*($item)!'p';quorum=1"
+    text=('ok', '["p\\n\\na\\nb"]')
+    ast =('ok', '["p\\n\\na\\nb", "p\\n\\na\\nb"]')
+    fetch text-only={} ast-only={}
+- ('result+fetch', 'ok', 'ok', 'w(w=w, w)!(w[w])!()!Q;w=w;w=w')
+    s="/claude(a=https://a.io, $a)!($a.f[0])!()!'/:=a*';k=v;quorum=1"
+    text=('ok', '</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28$a.f[0]%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28$a.f[0]%29>\n\n[Instruction]\n/:=a*|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28a:%2520<https://a.io>%250A<https://a.io>%29!%2528$a.f[0]%2529>%0A%0A[Instruction]%0A/:=a*': 1}
+- ('result', 'ok', 'ok', '((Q)!()!()!*w;w;w=w)!*()!()!w;w;w=w;w=w')
+    s="(('\\')')!()!()!*@;broadcast;k=v)!*()!()!@;broadcast;k=v;quorum=1"
+    text=('ok', '["H"]')
+    ast =('ok', '["H", "H"]')
+    fetch text-only={} ast-only={}
+- ('result+fetch', 'ok', 'ok', 'w()!(*w, w(w=w, w)!w)!w')
+    s='/claude()!(*s3://bk/d, /p(a=https://a.io, $a)!/reduce)!s3://bk/d'
+    text=('ok', '</claude?q=()!%28*s3://bk/d,%20/p%28a=https://a.io,%20$a%29!/reduce%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=()!%28*s3://bk/d,%20/p%28a=https://a.io,%20$a%29!/reduce%29>\n\n[Instruction]\n<s3://bk/d>|]')
+    fetch text-only={} ast-only={'s3://bk/d': 1, '/llm?q=()![Response%201]%0A</claude?q=%28%29!%2528*s3://bk/d,%2520/p%2528a=https://a.io,%2520$a%2529!/reduce%2529>%0A%0A[Instruction]%0A<s3://bk/d>': 1}
+- ('result', 'ok', 'ok', '((Q)!()!()!*w;w;w=w)!*()!()!*w;w;w=w;w=w')
+    s="(('\\')')!()!()!*@;broadcast;k=v)!*()!()!*@;broadcast;k=v;quorum=1"
+    text=('ok', '[[]]')
+    ast =('ok', '[[], []]')
+    fetch text-only={} ast-only={}
+- ('result', 'ok', 'ok', '((Q)!(Q)!()!*w;w;w=w)!*(w, w)*(w)!Q;w=w')
+    s="(('\\')')!('\\')')!()!*@;broadcast;k=v)!*(a, b)*($item)!'p';quorum=1"
+    text=('ok', '["p\\n\\na\\nb"]')
+    ast =('ok', '["p\\n\\na\\nb", "p\\n\\na\\nb", "p\\n\\na\\nb"]')
+    fetch text-only={} ast-only={}
+- ('result+fetch', 'ok', 'ok', 'w(w=w, w)!(w?w=w&w=()!(w)!w, Q)!()!w;w=w')
+    s="/claude(a=https://a.io, $a)!(/p?t=90&q=()!($a)!@, '')!()!hello;k=v"
+    text=('ok', '</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28/p?t=90%26q=%28%29!%28$a%29!@,%20%27%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28/p?t=90%26q=%28%29!%28$a%29!@,%20%27%27%29>\n\n[Instruction]\nhello|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28a:%2520<https://a.io>%250A<https://a.io>%29!%2528/p?t=90%2526q=%2528%2529!%2528$a%2529!@,%2520%2527%2527%2529>%0A%0A[Instruction]%0Ahello': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w, w)!w;w=Q')
+    s="/p(https://a.io/$topic)!(topic:0:sum, topic:0:sum)!/reduce;note='a b'"
+    text=('ok', '</p?q=(<https://a.io/$topic>)!%28topic:0:sum,%20topic:0:sum%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(<https://a.io/$topic>)!%28topic:0:sum,%20topic:0:sum%29>\n\n[Instruction]\n</reduce>|]')
+    fetch text-only={} ast-only={'/reduce': 1, '/llm?q=()![Response%201]%0A</p?q=%28<https://a.io/$topic>%29!%2528topic:0:sum,%2520topic:0:sum%2529>%0A%0A[Instruction]%0A</reduce>': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w(w?w=w)!()!*w;w=w)!Q;w=w')
+    s="/claude($1)!(/claude(/api/x?a=1)!()!*https://a.io;quorum=1)!'';quorum=1"
+    text=('ok', '</claude?q=($1)!%28/claude%28/api/x?a=1%29!%28%29!*https://a.io;quorum=1%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=($1)!%28/claude%28/api/x?a=1%29!%28%29!*https://a.io;quorum=1%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28$1%29!%2528/claude%2528/api/x?a=1%2529!%2528%2529!*https://a.io;quorum=1%2529>%0A%0A[Instruction]%0A': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(()!Q;w=w, w)!w;w=Q')
+    s="/p(https://a.io/$topic)!(()!'\\\\';quorum=1, topic:0:sum)!/reduce;note='a b'"
+    text=('ok', '</p?q=(<https://a.io/$topic>)!%28%28%29!%27\\\\%27;quorum=1,%20topic:0:sum%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(<https://a.io/$topic>)!%28%28%29!%27\\\\%27;quorum=1,%20topic:0:sum%29>\n\n[Instruction]\n</reduce>|]')
+    fetch text-only={} ast-only={'/reduce': 1, '/llm?q=()![Response%201]%0A</p?q=%28<https://a.io/$topic>%29!%2528%2528%2529!%2527\\\\%2527;quorum=1,%2520topic:0:sum%2529>%0A%0A[Instruction]%0A</reduce>': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w=w, w)!(w?w=w&w=()!(w)!w;w, Q)!()!w;w')
+    s="/claude(a=https://a.io, $a)!(/p?t=90&q=()!($a)!@;broadcast, '')!()!hello;k=v"
+    text=('ok', '</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28/p?t=90%26q=%28%29!%28$a%29!@;broadcast,%20%27%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(a:%20<https://a.io>%0A<https://a.io>)!%28/p?t=90%26q=%28%29!%28$a%29!@;broadcast,%20%27%27%29>\n\n[Instruction]\nhello|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28a:%2520<https://a.io>%250A<https://a.io>%29!%2528/p?t=90%2526q=%2528%2529!%2528$a%2529!@;broadcast,%2520%2527%2527%2529>%0A%0A[Instruction]%0Ahello': 1}
+- ('+fetch', 'err', 'err', '(w(w)!w*(w=w, w)!w)!*w*(w=w, w)!w;w=w')
+    s='(/claude($a)!https://a.io*(x=$item, $a)!/r)!*https://a.io*(x=$item, $a)!/r;k=v'
+    text=('err', 'CollectionError', 'malformed_source')
+    ast =('err', 'CollectionError', 'malformed_source')
+    fetch text-only={} ast-only={'https://a.io': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w, w(w)!w, w?w=w)!Q')
+    s="/p(@emily/notes)!($1, url4://node.ai/v1(https://b.io/x)!@, _n:/api/x?a=1)!'=)!;*'"
+    text=('ok', '</p?q=(@emily/notes)!%28$1,%20url4://node.ai/v1%28https://b.io/x%29!@,%20_n:/api/x?a=1%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(@emily/notes)!%28$1,%20url4://node.ai/v1%28https://b.io/x%29!@,%20_n:/api/x?a=1%29>\n\n[Instruction]\n=)!;*|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28@emily/notes%29!%2528$1,%2520url4://node.ai/v1%2528https://b.io/x%2529!@,%2520_n:/api/x?a=1%2529>%0A%0A[Instruction]%0A=%29!;*': 1}
+- ('+fetch', 'err', 'err', '(w(w\tw)!w?w=w*(Q)!Q;w=w)!w?w=w*(Q)!Q;w=w')
+    s="(url4://node.ai/v1(a\tb)!/api/x?a=1*('$item')!'p';t=30)!/api/x?a=1*('$item')!'p';quorum=1"
+    text=('err', 'CollectionError', 'malformed_source')
+    ast =('err', 'CollectionError', 'malformed_source')
+    fetch text-only={} ast-only={'/api/x?a=1': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w=wQ, w(w?w=w)!()!*w;w=w)!w;w=w')
+    s="/claude($1)!(_n:0.5:tokens=100:'b; ,\\\\=', /claude(/api/x?a=1)!()!*https://a.io;quorum=1)!@;quorum=1"
+    text=('ok', '</claude?q=($1)!%28_n:0.5:tokens=100:%27b;%20,\\\\=%27,%20/claude%28/api/x?a=1%29!%28%29!*https://a.io;quorum=1%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=($1)!%28_n:0.5:tokens=100:%27b;%20,\\\\=%27,%20/claude%28/api/x?a=1%29!%28%29!*https://a.io;quorum=1%29>\n\n[Instruction]\nH|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28$1%29!%2528_n:0.5:tokens=100:%2527b;%2520,\\\\=%2527,%2520/claude%2528/api/x?a=1%2529!%2528%2529!*https://a.io;quorum=1%2529>%0A%0A[Instruction]%0AH': 1}
+- ('+fetch', 'err', 'err', '(w(w\tw)!w?w=w*(Q)!Q;w=w)!w*(Q)!Q;w=w;w=w')
+    s="(url4://node.ai/v1(a\tb)!/api/x?a=1*('$item')!'p';t=30)!/data*('$item')!'p';iteration.on_error=skip;quorum=1"
+    text=('err', 'CollectionError', 'malformed_source')
+    ast =('err', 'CollectionError', 'malformed_source')
+    fetch text-only={} ast-only={'/data': 1}
+- ('+fetch', 'err', 'err', '(w(w\tw)!w?w=w*(w=w, w)!Q;w=w)!w*(Q)!Q;w=')
+    s="(url4://node.ai/v1(a\tb)!/api/x?a=1*(x=$item, $a)!'p';t=30)!/data*('$item')!'p';iteration.on_error=skip;quorum=1"
+    text=('err', 'CollectionError', 'malformed_source')
+    ast =('err', 'CollectionError', 'malformed_source')
+    fetch text-only={} ast-only={'/data': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w(w?w=w)!()!*w;w=w, w(w?w=w)!()!*w')
+    s='/claude($1)!(/claude(/api/x?a=1)!()!*https://a.io;quorum=1, /claude(/api/x?a=1)!()!*https://a.io;quorum=1)!@;quorum=1'
+    text=('ok', '</claude?q=($1)!%28/claude%28/api/x?a=1%29!%28%29!*https://a.io;quorum=1,%20/claude%28/api/x?a=1%29!%28%29!*https://a.io;quorum=1%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=($1)!%28/claude%28/api/x?a=1%29!%28%29!*https://a.io;quorum=1,%20/claude%28/api/x?a=1%29!%28%29!*https://a.io;quorum=1%29>\n\n[Instruction]\nH|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28$1%29!%2528/claude%2528/api/x?a=1%2529!%2528%2529!*https://a.io;quorum=1,%2520/claude%2528/api/x?a=1%2529!%2528%2529!*https://a.io;quorum=1%2529>%0A%0A[Instruction]%0AH': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!((w(w?w=w)!w, *wFw(w), w={w Q})!*w;')
+    s="/claude(hello)!((url4://node.ai/v1(/api/x?a=1)!@, *https://w.org/Fish_(animal), _n={k: 'v'})!*/reduce;note='a b')!'=/'"
+    text=('ok', '</claude?q=(hello)!%28%28url4://node.ai/v1%28/api/x?a=1%29!@,%20*https://w.org/Fish_%28animal%29,%20_n={k:%20%27v%27}%29!*/reduce;note=%27a%20b%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(hello)!%28%28url4://node.ai/v1%28/api/x?a=1%29!@,%20*https://w.org/Fish_%28animal%29,%20_n={k:%20%27v%27}%29!*/reduce;note=%27a%20b%27%29>\n\n[Instruction]\n=/|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28hello%29!%2528%2528url4://node.ai/v1%2528/api/x?a=1%2529!@,%2520*https://w.org/Fish_%2528animal%2529,%2520_n={k:%2520%2527v%2527}%2529!*/reduce;note=%2527a%2520b%2527%2529>%0A%0A[Instruction]%0A=/': 1}
+- ('+fetch', 'err', 'err', '(w()!(w, w, w*(Q)!Q)!w;w=Q;w=w, Q)!(w, w')
+    s="(a:()!($item, x, /data/$topic*('$item')!'p')!@;note='a b';quorum=1, '')!($item, x, /data/$topic*('$item')!'p')!@;note='a b'"
+    text=('err', 'CollectionError', 'malformed_source')
+    ast =('err', 'CollectionError', 'malformed_source')
+    fetch text-only={} ast-only={'/data/$topic': 1}
+- ('+fetch', 'err', 'err', '(w?w=w&w=(w)!(w, w)*(w=w, w)!w, (w\tw, w?')
+    s="(/p?t=90&q=(s3://bk/d)!(a, b)*(x=$item, $a)!/r, (a\tb, /p?t=90&q=()!https://w.org/Fish_(animal))!https://b.io/x*($item)!go)!''"
+    text=('err', 'CollectionError', 'malformed_source')
+    ast =('err', 'CollectionError', 'malformed_source')
+    fetch text-only={} ast-only={'/p?t=90&q=()!<https://w.org/Fish_%28animal%29>': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!((w(w?w=w)!w, *wFw(w), w=wFw(w))!*w')
+    s="/claude(hello)!((url4://node.ai/v1(/api/x?a=1)!@, *https://w.org/Fish_(animal), _n=https://w.org/Fish_(animal))!*/reduce)!'=/'"
+    text=('ok', '</claude?q=(hello)!%28%28url4://node.ai/v1%28/api/x?a=1%29!@,%20*https://w.org/Fish_%28animal%29,%20_n=https://w.org/Fish_%28animal%29%29!*/reduce%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=(hello)!%28%28url4://node.ai/v1%28/api/x?a=1%29!@,%20*https://w.org/Fish_%28animal%29,%20_n=https://w.org/Fish_%28animal%29%29!*/reduce%29>\n\n[Instruction]\n=/|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28hello%29!%2528%2528url4://node.ai/v1%2528/api/x?a=1%2529!@,%2520*https://w.org/Fish_%2528animal%2529,%2520_n=https://w.org/Fish_%2528animal%2529%2529!*/reduce%2529>%0A%0A[Instruction]%0A=/': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w?w=w&w=(w)!(()!(w=w?w=w, w?w=w&w=')
+    s="/p(@emily/notes)!(/p?t=90&q=(@emily/notes)!(()!(b=/api/x?a=1, /p?t=90&q=($1)!@, /p?t=90&q=()!'')!*'')!/reduce;note='a b')!/reduce"
+    text=('ok', '</p?q=(@emily/notes)!%28/p?t=90%26q=%28@emily/notes%29!%28%28%29!%28b=/api/x?a=1,%20/p?t=90%26q=%28$1%29!@,%20/p?t=90%26q=%28%29!%27%27%29!*%27%27%29!/reduce;note=%27a%20b%27%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(@emily/notes)!%28/p?t=90%26q=%28@emily/notes%29!%28%28%29!%28b=/api/x?a=1,%20/p?t=90%26q=%28$1%29!@,%20/p?t=90%26q=%28%29!%27%27%29!*%27%27%29!/reduce;note=%27a%20b%27%29>\n\n[Instruction]\n</reduce>|]')
+    fetch text-only={} ast-only={'/reduce': 1, '/llm?q=()![Response%201]%0A</p?q=%28@emily/notes%29!%2528/p?t=90%2526q=%2528@emily/notes%2529!%2528%2528%2529!%2528b=/api/x?a=1,%2520/p?t=90%2526q=%2528$1%2529!@,%2520/p?t=90%2526q=%2528%2529!%25
+- ('+fetch', 'err', 'err', '(w?w=w&w=(w)!w*(w=w, w)!w, (w\tw, w?w=w&w')
+    s="(/p?t=90&q=(s3://bk/d)!https://b.io/x*(x=$item, $a)!/r, (a\tb, /p?t=90&q=()!https://w.org/Fish_(animal))!https://b.io/x*($item)!/r)!''"
+    text=('err', 'CollectionError', 'malformed_source')
+    ast =('err', 'CollectionError', 'malformed_source')
+    fetch text-only={} ast-only={'/p?t=90&q=()!<https://w.org/Fish_%28animal%29>': 1}
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w?w=w&w=(w)!(w(w)!w*(w)!w, w, w?w=')
+    s='/p(s3://bk/d)!(/p?t=90&q=(s3://bk/d)!(url4://node.ai/v1($1)!https://a.io*($item)!go, @, /p?t=90&q=(s3://bk/d)!()!@)!hello)!hello;quorum=1'
+    text=('ok', '</p?q=(<s3://bk/d>)!%28/p?t=90%26q=%28s3://bk/d%29!%28url4://node.ai/v1%28$1%29!https://a.io*%28$item%29!go,%20@,%20/p?t=90%26q=%28s3://bk/d%29!%28%29!@%29!hello%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(<s3://bk/d>)!%28/p?t=90%26q=%28s3://bk/d%29!%28url4://node.ai/v1%28$1%29!https://a.io*%28$item%29!go,%20@,%20/p?t=90%26q=%28s3://bk/d%29!%28%29!@%29!hello%29>\n\n[Instruction]\nhello|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%28<s3://bk/d>%29!%2528/p?t=90%2526q=%2528s3://bk/d%2529!%2528url4://node.ai/v1%2528$1%2529!https://a.io*%2528$item%2529!go,%2520@,%2520/p?t=90%2526q=%2528s3://bk/d%2529!%2528%2529!@%2529!hello%2529
+- ('result+fetch', 'ok', 'ok', 'w(w)!(w=wQ, w(w?w=w)!(w*(Q)!Q;w=w, {w w,')
+    s="/claude($1)!(_n:0.5:tokens=100:'b; ,\\\\=', /claude(/api/x?a=1)!($a*('$item')!'p';iteration.concurrency=2, {a: 1, b: $a}, {a: 1, b: $a})!*https://a.io;quorum=1)!@;quorum=1"
+    text=('ok', '</claude?q=($1)!%28_n:0.5:tokens=100:%27b;%20,\\\\=%27,%20/claude%28/api/x?a=1%29!%28$a*%28%27$item%27%29!%27p%27;iteration.concurrency=2,%20{a:%201,%20b:%20$a},%20{a:%201,%20b:%20$a}%29!*https://a.io;quorum=1%29>')
+    ast =('ok', 'LLM[[Response 1]\n</claude?q=($1)!%28_n:0.5:tokens=100:%27b;%20,\\\\=%27,%20/claude%28/api/x?a=1%29!%28$a*%28%27$item%27%29!%27p%27;iteration.concurrency=2,%20{a:%201,%20b:%20$a},%20{a:%201,%20b:%20$a}%29!*https://a.io;quorum=1%29>\n\n[Instruction]\nH|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</claude?q=%28$1%29!%2528_n:0.5:tokens=100:%2527b;%2520,\\\\=%2527,%2520/claud
+- ('result+fetch', 'ok', 'ok', 'w(w=w, w)!((w, w)*(w(w)!w)!w;w=w, (w, {w')
+    s="/p(a=https://a.io, $a)!((a, b)*(/p($item)!go)!go;iteration.on_error=skip, (/data/$topic, {k: 'v'}, x1:s3://bk/d*(/p($item)!go)!go;iteration.concurrency=2)!*@, {a: 1, b: $a})!''"
+    text=('ok', '</p?q=(a:%20<https://a.io>%0A<https://a.io>)!%28%28a,%20b%29*%28/p%28$item%29!go%29!go;iteration.on_error=skip,%20%28/data/$topic,%20{k:%20%27v%27},%20x1:s3://bk/d*%28/p%28$item%29!go%29!go;iteration.concurrency=2%29!*@,%20{a:%201,%20b:%20$a}%29>')
+    ast =('ok', 'LLM[[Response 1]\n</p?q=(a:%20<https://a.io>%0A<https://a.io>)!%28%28a,%20b%29*%28/p%28$item%29!go%29!go;iteration.on_error=skip,%20%28/data/$topic,%20{k:%20%27v%27},%20x1:s3://bk/d*%28/p%28$item%29!go%29!go;iteration.concurrency=2%29!*@,%20{a:%201,%20b:%20$a}%29>\n\n[Instruction]\n|]')
+    fetch text-only={} ast-only={'/llm?q=()![Response%201]%0A</p?q=%2

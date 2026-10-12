@@ -1,0 +1,5 @@
+map rows: ['ctx=costs $5|intent=go', 'ctx=see 1 here|intent=go', 'ctx=literal {"q": "literal $item"}|intent=go']
+map intents: ['ctx=x|intent=Q: costs $5', 'ctx=x|intent=Q: see 1 here', 'ctx=x|intent=Q: literal {"q": "literal $item"}']
+text form: ["ctx=|intent=[Response 1]\nctx=costs $5|intent=go\n\n[Instruction]\nr", "ctx=|intent=[Response 1]\nctx=see 1 here|intent=go\n\n[Instruction]\nr", "ctx=|intent=[Response 1]\nctx=literal {\"q\": \"literal $item\"}|intent=go\n\n[Instruction]\nr"]
+gather empty contributing + instrumental -> '\nINSTRUMENTAL'
+gather failed contributing + instrumental -> 'INSTRUMENTAL'

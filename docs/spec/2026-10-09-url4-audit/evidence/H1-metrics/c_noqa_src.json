@@ -1,0 +1,30 @@
+{
+  "kind": "custom",
+  "total": 2,
+  "hits": [
+    {
+      "file": "packages/url4/src/url4/streaming/testing/stream_contract.py",
+      "line": 108,
+      "text": "except Exception as exc:  # noqa: BLE001 - any other failure is still a contract breach",
+      "marker": "# noqa",
+      "key": "# noqa",
+      "expires": null,
+      "reason": null,
+      "age_days": 72.41841602320473,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-07-29"
+    },
+    {
+      "file": "packages/url4/src/url4/cli/_config.py",
+      "line": 171,
+      "text": "def _require(ok: bool, message: str) -> None:  # noqa: FBT001 - tiny internal guard",
+      "marker": "# noqa",
+      "key": "# noqa",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.32362435653806,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    }
+  ]
+}
