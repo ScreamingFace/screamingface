@@ -483,8 +483,11 @@ migration was needed. Consequences for operators:
   deliberate choice of determinism over freshness: a re-run of a benchmark keys *and* answers
   identically, which is what also lets the tool-loop continuation chat call hit the response
   cache. The cost is that a stale web result can be served indefinitely.
-- **Cross-account replay applies here too.** Two callers whose retrieval descriptions are
-  identical share one row. Identity never enters the key.
+- **The account is part of the key.** The key includes the id of the calling account. A row that
+  one account fills is a miss for every other account. Only the same account gets the hit. The
+  reason is decision Q30: one account must not be able to poison the results of another account.
+  Cross-account sharing stops until the engine has a service identity (FU-1). A caller that
+  re-runs with the same account still hits its own rows.
 - **The exclusion list IS part of the key.** A row filled by a caller with no domain exclusions
   is never served to one that excluded domains, because a cached hit returns an
   already-formatted result string that can no longer be filtered. Do not remove

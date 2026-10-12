@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.cache_ports import CACHE_UNAVAILABLE_REASON
+from ..core.request_cache.canonical import canonical_digest
 from ..core.request_cache.store import CacheUnavailable
 from ..core.request_cache.tavily_retrieval import (
     TAVILY_PROVIDER,
@@ -107,8 +108,13 @@ def _target(body: _Description) -> str:
     raise _refusal("unknown_tool", f"unknown tavily tool: {body.tool!r}")
 
 
-def _key_hash(body: _Description) -> str:
-    """Derive the key server-side, or refuse the description."""
+def _key_hash(body: _Description, account_id: str) -> str:
+    """Derive the key server-side, or refuse the description.
+
+    INVARIANT (Q30): the caller's account is mixed into the key, for lookup and fill alike.
+    One account's fill can then never answer another account's lookup. Cross-account sharing
+    stops until the engine has a service identity.
+    """
     if body.provider != TAVILY_PROVIDER:
         raise _refusal("unknown_provider", f"unknown retrieval provider: {body.provider!r}")
     target = _target(body)
@@ -122,7 +128,7 @@ def _key_hash(body: _Description) -> str:
         )
     except TavilyDescriptionError as exc:
         raise _refusal(exc.code, str(exc)) from exc
-    return tavily_retrieval_key(key)
+    return canonical_digest({"account": account_id, "retrieval": tavily_retrieval_key(key)})
 
 
 def _cache_status_value(status: str, *, reason: str | None, key_hash: str | None) -> str:
@@ -191,11 +197,11 @@ async def lookup_tavily_retrieval(
     body: _Description,
     request: Request,
     response: Response,
-    _current: CurrentAccount,
+    current: CurrentAccount,
 ) -> dict:
     """Answer whether this exact retrieval is already stored."""
     store = request.app.state.tavily_retrieval_cache_store
-    key_hash = _key_hash(body)
+    key_hash = _key_hash(body, str(current.id))
     try:
         hit = await store.get(key_hash)
     except CacheUnavailable:
@@ -216,7 +222,7 @@ async def lookup_tavily_retrieval(
 async def fill_tavily_retrieval(
     body: _FillRequest,
     request: Request,
-    _current: CurrentAccount,
+    current: CurrentAccount,
 ) -> dict:
     """Store a result the caller has just paid for. Insert-only; first fill wins.
 
@@ -228,7 +234,7 @@ async def fill_tavily_retrieval(
     if len(body.result.encode("utf-8")) > MAX_RESULT_BYTES:
         raise _refusal("result_too_large", f"result exceeds {MAX_RESULT_BYTES} bytes")
 
-    key_hash = _key_hash(body)
+    key_hash = _key_hash(body, str(current.id))
     outcome = await store.set_if_absent(
         TavilyRetrievalCacheWrite(key_hash=key_hash, tool=body.tool, result=body.result)
     )
