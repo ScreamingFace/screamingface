@@ -8,6 +8,8 @@ What these tests pin, and why:
   checker did, and the run's headline equals the hand-built F1. The literals below were
   produced by running the hand-built folder end to end (prepare → check route → aggregate)
   on these replies before it was deleted, so "same exam, same score" is a test, not a promise;
+- the run's other numbers (precision, recall, F2, the four cells, the decline and laziness
+  rates, the clause-row Jaccard mean) equal the hand-built aggregate's, under its key names;
 - the prompt bytes: a synthetic row renders to a pinned literal, byte-identical to the
   hand-built `render_case_input` (all 4,182 real Cases were compared at import);
 - the answer key survives Case Preparation as a list: `[]` on a no-clause Case (so only a
@@ -95,6 +97,43 @@ _HAND_BUILT_VERDICTS: list[tuple[bool, bool, bool, float]] = [
 #: precision 0.75, recall 0.6, F1 0.6667. (Its accuracy, the mean, was 0.625.)
 _HAND_BUILT_F1: float = 0.6667
 
+#: The hand-built aggregate's run metrics on these eight replies: its `_confusion_matrix_score`
+#: (upstream main before the deletion, `benchmarks/contracteval/aggregate.py`) run over the
+#: verdicts above. One decline among the five clause Cases → laziness 0.2; Jaccard mean over
+#: those five = (1.0 + 0.8421 + 1.0 + 0.5625 + 0.0) / 5 = 0.6809.
+_HAND_BUILT_RUN_METRICS: dict[str, float | int] = {
+    "accuracy": 0.625,
+    "precision": 0.75,
+    "recall": 0.6,
+    "f2": 0.625,
+    "true_positives": 3,
+    "false_negatives": 2,
+    "true_negatives": 2,
+    "false_positives": 1,
+    "scored_cases": 8,
+    "no_related_clause_rate": 0.375,
+    "false_no_related_clause_rate": 0.2,
+    "jaccard_mean": 0.6809,
+}
+
+#: The same aggregate over the eight Cases all declined (correct on the three without a
+#: clause): a fully lazy run, every clause Case declined → laziness 1.0, and F1, precision,
+#: recall all 0.0 by the hand-built zero guards.
+_HAND_BUILT_DECLINED_RUN_METRICS: dict[str, float | int] = {
+    "accuracy": 0.375,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f2": 0.0,
+    "true_positives": 0,
+    "false_negatives": 5,
+    "true_negatives": 3,
+    "false_positives": 0,
+    "scored_cases": 8,
+    "no_related_clause_rate": 1.0,
+    "false_no_related_clause_rate": 1.0,
+    "jaccard_mean": 0.0,
+}
+
 
 def _material(case_id: int, gold: list[str]) -> dict[str, Any]:
     """The Case's Grading Material as the real row prepares it, after its JSON round trip."""
@@ -168,7 +207,22 @@ async def test_the_run_headline_is_the_hand_built_f1_not_the_mean(tmp_path: Path
 
     assert result["score"] == _HAND_BUILT_F1
     assert result["coverage"] == 1.0
-    assert result["metrics"] == {"correct": 5, "scored_cases": 8}
+    assert (result["metrics"]["correct"], result["metrics"]["scored_cases"]) == (5, 8)
+
+
+@pytest.mark.asyncio
+async def test_every_restored_run_number_equals_the_hand_built_aggregates(
+    tmp_path: Path,
+) -> None:
+    """Owner decision 3, proved with literals: the eight replies publish the hand-built
+    Benchmark's run metrics, key for key and value for value, beside the tally's own
+    `correct`. A Report or notebook reading `false_no_related_clause_rate` reads what it read
+    before the move. `f1` is the headline (`score`), so it is not repeated in `metrics`."""
+
+    result: dict[str, Any] = await _run(tmp_path, _CASES)
+
+    assert result["metrics"] == {"correct": 5, **_HAND_BUILT_RUN_METRICS}
+    assert not result.get("scores")
 
 
 @pytest.mark.asyncio
@@ -181,7 +235,7 @@ async def test_always_declining_scores_zero_where_the_mean_would_be_0_375(tmp_pa
     result: dict[str, Any] = await _run(tmp_path, declined)
 
     assert result["score"] == 0.0
-    assert result["metrics"] == {"correct": 3, "scored_cases": 8}
+    assert result["metrics"] == {"correct": 3, **_HAND_BUILT_DECLINED_RUN_METRICS}
 
 
 def test_the_metric_refuses_a_score_without_its_cell_facts() -> None:
@@ -288,6 +342,7 @@ def test_the_row_keeps_the_hand_built_id_and_honours_its_own_f1() -> None:
     assert benchmark.benchmark.origin == "screamingface"
     assert provenance_gaps(benchmark.benchmark) == []
     assert spec.whole_run_metric is not None and spec.whole_run_metric.endswith(":contracteval_f1")
+    assert spec.whole_run_headline == "f1"
     assert spec.with_check_surface is False
     assert (cases.case_count, cases.empty_answer_key_allowed, cases.keep_sample_metadata) == (
         4182,

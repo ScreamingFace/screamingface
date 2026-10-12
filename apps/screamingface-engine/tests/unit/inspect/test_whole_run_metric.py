@@ -267,9 +267,10 @@ async def test_finding_every_clause_scores_one_as_f1(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_a_dict_metric_is_refused_by_name(tmp_path: Path) -> None:
-    """WHY: a Named Score is the mean of a column every graded Case carries (the SDK's
-    promise); a dict's ``found_rate`` and ``cases`` are columns no Case has, so publishing
-    them would show numbers no Case Grade explains."""
+    """WHY: a dict has no single headline until the row names one (``whole_run_headline``);
+    guessing a key would publish the wrong number under the eval's name. The dict's keys are
+    never Named Scores either: a Named Score is the mean of a column every graded Case carries,
+    and ``found_rate`` and ``cases`` are columns no Case has."""
 
     with pytest.raises(
         AggregateError, match=r"clause_counts returned a dict \(found_rate, cases\)"
@@ -807,3 +808,197 @@ def test_an_unreviewed_metric_never_ships(monkeypatch: pytest.MonkeyPatch) -> No
 
     with pytest.raises(ValueError, match="gsm8k: whole_run_metric is unreviewed"):
         _assembled(spec, monkeypatch)
+
+
+# ── 5. a dict metric: the row names its headline, the other keys become run metrics ──────
+
+
+@metric
+def clause_report() -> Metric:
+    """contracteval's shape: F1 as a dict key beside precision, recall and a count, all over
+    the run's confusion matrix (``has_clause`` read from the Sample metadata, as clause_f1)."""
+
+    def compute(scores: list[SampleScore]) -> dict[str, float | int]:
+        cells: dict[str, int] = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
+        for sample in scores:
+            has_clause: bool = bool((sample.sample_metadata or {})["has_clause"])
+            said_none: bool = _NONE in str(sample.score.answer)
+            if has_clause:
+                cells["tp" if not said_none else "fn"] += 1
+            else:
+                cells["fp" if not said_none else "tn"] += 1
+        precision: float = cells["tp"] / (cells["tp"] + cells["fp"])
+        recall: float = cells["tp"] / (cells["tp"] + cells["fn"])
+        return {
+            "f1": 2 * precision * recall / (precision + recall),
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+            "true_negatives": cells["tn"],
+        }
+
+    return compute
+
+
+@metric
+def nan_precision() -> Metric:
+    """A dict whose extra number is not finite."""
+
+    def compute(scores: list[SampleScore]) -> dict[str, float]:
+        return {"f1": 0.5, "precision": float("nan")}
+
+    return compute
+
+
+@metric
+def worded_label() -> Metric:
+    """A dict whose extra value is a word, not a number."""
+
+    def compute(scores: list[SampleScore]) -> dict[str, float | str]:
+        return {"f1": 0.5, "label": "high"}
+
+    return compute
+
+
+@metric
+def own_correct() -> Metric:
+    """A dict reusing a key the tally already publishes (``correct``)."""
+
+    def compute(scores: list[SampleScore]) -> dict[str, float | int]:
+        return {"f1": 0.5, "correct": 99}
+
+    return compute
+
+
+@metric
+def percent_f1() -> Metric:
+    """A dict whose headline is a percent, which no Headline Score may be."""
+
+    def compute(scores: list[SampleScore]) -> dict[str, float]:
+        return {"f1": 50.0, "recall": 0.5}
+
+    return compute
+
+
+def _dict_benchmark(
+    key: str, metric_factory: Callable[[], Any], headline: str | None
+) -> ImportedBenchmark:
+    """The clause stand-in Benchmark with a whole-run metric and the row's headline key."""
+
+    return single_shot_benchmark(
+        benchmark_key=key,
+        title="Clause finding",
+        description="A contracteval-shaped stand-in.",
+        focus="Contracts",
+        dataset_url="https://example.test/contracts",
+        case_count=10,
+        revision_pins=("stand-in",),
+        scorer_factory=clause_match,
+        prepare=lambda out: {},
+        install=lambda node, assets: None,
+        with_check_surface=False,
+        difficulty="easy",
+        whole_run_metric_factory=metric_factory,
+        whole_run_headline=headline,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_dict_metric_publishes_the_named_headline_and_the_rest_as_run_metrics(
+    tmp_path: Path,
+) -> None:
+    """Worked example, 10 Cases (3 with a clause): two clauses found, one missed by declining,
+    five rightful declines and two quotes where no clause exists → TP 2, FN 1, TN 5, FP 2;
+    precision 2/4 = 0.5, recall 2/3 = 0.6667, F1 = 2·0.5·0.6667 / 1.1667 = 0.5714.
+
+    INVARIANT: precision and recall land in the run's ``metrics``, never as Named Scores (no
+    Case has a precision), and beside the tally's own ``correct`` and ``scored_cases``: 2
+    found + 5 declines are the 7 Cases ``clause_match`` marked 1."""
+
+    answers: list[str] = ["clause 1", "clause 2", _NONE] + [_NONE] * 5 + ["clause 9", "clause 10"]
+
+    result: dict[str, Any] = await _aggregate(
+        _dict_benchmark("clause-report", clause_report, "f1"),
+        tmp_path,
+        _SEVENTY_PERCENT_NONE,
+        answers,
+    )
+
+    assert result["score"] == 0.5714
+    assert result["metrics"] == {
+        "correct": 7,
+        "scored_cases": 10,
+        "precision": 0.5,
+        "recall": 0.6667,
+        "true_negatives": 5,
+    }
+    assert not result.get("scores")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("key", "factory", "headline", "words"),
+    [
+        # The row never said which key is the headline, so any pick would be a guess.
+        (
+            "clause-dict-no-headline",
+            clause_counts,
+            None,
+            r"clause_counts returned a dict \(found_rate, cases\); name the key that is the "
+            r"Headline Score with the row's whole_run_headline",
+        ),
+        # The row names a key the metric does not return: a stale or mistyped declaration.
+        (
+            "clause-dict-missing-key",
+            clause_counts,
+            "f1",
+            r"clause_counts returned a dict \(found_rate, cases\) with no 'f1'",
+        ),
+        # A nan run metric would read as a number beside the headline.
+        ("clause-dict-nan", nan_precision, "f1", "nan_precision returned precision=nan"),
+        ("clause-dict-word", worded_label, "f1", "worded_label returned label='high'"),
+        # The tally's own count of the Cases it saw is never overwritten.
+        (
+            "clause-dict-collision",
+            own_correct,
+            "f1",
+            "own_correct returned correct, which the tally already publishes",
+        ),
+        # The named headline keeps every check a number headline has.
+        ("clause-dict-percent", percent_f1, "f1", "percent_f1 returned 50.0"),
+        # A number on a row that says the metric returns a dict: one of the two is wrong.
+        ("clause-number-with-key", found_rate, "f1", "drop whole_run_headline"),
+    ],
+)
+async def test_a_dict_metric_the_row_cannot_publish_faithfully_is_refused_by_name(
+    tmp_path: Path, key: str, factory: Callable[[], Any], headline: str | None, words: str
+) -> None:
+    with pytest.raises(AggregateError, match=words):
+        await _aggregate(
+            _dict_benchmark(key, factory, headline), tmp_path, [True] * 2, ["clause 1"] * 2
+        )
+
+
+def test_a_headline_key_without_a_metric_is_refused_at_assembly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WHY: the key names a number of the metric's dict; on a row keeping the mean it would
+    move the revision while changing no number."""
+
+    with pytest.raises(ValueError, match="aime24: whole_run_headline names a key"):
+        _assembled(_spec("aime24", whole_run_headline="f1"), monkeypatch)
+
+
+def test_a_headline_key_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WHY: the key decides which of the dict's numbers is the published headline, so naming
+    another key must never keep a revision its published scores hang off."""
+
+    honoured: BenchmarkSpec = _spec("aime24", whole_run_metric="inspect_evals.hle.metrics:accuracy")
+    plain: str = _assembled(honoured, monkeypatch).benchmark.revision
+    keyed: ImportedBenchmark = _assembled(replace(honoured, whole_run_headline="f1"), monkeypatch)
+
+    assert keyed.benchmark.revision != plain
+    assert keyed.whole_run_headline == "f1"
+    assert benchmarks._whole_run_metric_pins(replace(honoured, whole_run_headline="f1")) == (
+        "whole_run_metric=inspect_evals.hle.metrics:accuracy",
+        "whole_run_headline=f1",
+    )

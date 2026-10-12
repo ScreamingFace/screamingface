@@ -152,10 +152,15 @@ class BenchmarkSpec:
     #: The eval's own whole-run inspect ``@metric``, as a dotted ``module:constructor``
     #: reference called with no arguments (``inspect_evals.hle.metrics:accuracy``). Set, it
     #: scores the run in place of the mean of the Case scores (OME-1527, R1): its number is the
-    #: Headline Score (a dict is refused at tally). OPT-IN per Benchmark, never a default: a
-    #: reviewer confirms the metric's headline is higher-is-better up to 1, as a Headline
-    #: Score must be. Benchmark identity when set.
+    #: Headline Score (a dict needs ``whole_run_headline``). OPT-IN per Benchmark, never a
+    #: default: a reviewer confirms the metric's headline is higher-is-better up to 1, as a
+    #: Headline Score must be. Benchmark identity when set.
     whole_run_metric: str | None = None
+    #: For a ``whole_run_metric`` that returns a dict (contracteval's F1 beside its precision
+    #: and counts): the key that is the Headline Score. Every other key is published as a run
+    #: metric, never a Named Score, since no Case carries a precision (OME-1527). None for a
+    #: metric returning one number; Benchmark identity when set, so no other row moves.
+    whole_run_headline: str | None = None
     #: The Task's own any-of-N epoch reducer, by inspect's name (``max``, ``at_least_1``,
     #: ``pass_at_N``), on a row with Attempts that honours ``whole_run_metric``: the tally
     #: reduces each Case's Attempt Scores with it before the metric reads them, as inspect
@@ -4012,6 +4017,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer="screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval_containment",
         # Reviewed: F1 lies in 0..1, higher is better — a Headline Score (OME-1527, R1).
         whole_run_metric="screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval_f1",
+        # The metric returns the paper's F1 beside its precision, recall, F2, confusion
+        # counts and laziness rates (the hand-built Benchmark's keys); F1 is the headline.
+        whole_run_headline="f1",
     ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
@@ -4041,6 +4049,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     _check_verdict_grades(spec)
     _check_named_scores(spec)
     _check_whole_run_metric(spec)
+    _check_whole_run_headline(spec)
     cases_spec: TaskReplayCasesSpec = _cases_declaration(spec.key)
     _check_answer_key_opt_in(spec, cases_spec)
     _check_whole_run_metric_keeps_metadata(spec, cases_spec)
@@ -4078,6 +4087,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         verdict_grades=spec.verdict_grades,
         origin=spec.origin,
         whole_run_metric_factory=_whole_run_metric_factory(spec),
+        whole_run_headline=spec.whole_run_headline,
         epoch_reducer_factory=_epoch_reducer_factory(spec),
         attempts=spec.attempts,
         **_provenance_of(spec),
@@ -4166,6 +4176,24 @@ def _check_whole_run_metric(spec: BenchmarkSpec) -> None:
             f"{spec.key}: whole_run_metric reads the eval's own grades, which "
             f"{' and '.join(rewrites)} rewrite; keep the mean for this row"
         )
+
+
+def _check_whole_run_headline(spec: BenchmarkSpec) -> None:
+    """Refuse a headline key the row's whole-run metric cannot have.
+
+    WHY: the key names a number of the metric's dict (OME-1527); on a row keeping the mean it
+    would move the revision while changing no number, and a blank key names nothing.
+    """
+
+    if spec.whole_run_headline is None:
+        return
+    if spec.whole_run_metric is None:
+        raise ValueError(
+            f"{spec.key}: whole_run_headline names a key of the whole_run_metric's dict, "
+            "but the row honours no whole_run_metric; drop it"
+        )
+    if not spec.whole_run_headline.strip():
+        raise ValueError(f"{spec.key}: whole_run_headline must be a non-blank key")
 
 
 def _check_whole_run_metric_keeps_metadata(
@@ -4637,6 +4665,9 @@ def _whole_run_metric_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     pins: list[str] = []
     if spec.whole_run_metric is not None:
         pins.append(f"whole_run_metric={spec.whole_run_metric}")
+    # WHY identity: the key decides which of the dict's numbers is the published headline.
+    if spec.whole_run_headline is not None:
+        pins.append(f"whole_run_headline={spec.whole_run_headline}")
     if spec.epoch_reducer is not None:
         pins.append(f"epoch_reducer={spec.epoch_reducer}")
     return tuple(pins)

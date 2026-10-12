@@ -1671,11 +1671,16 @@ report"""),
         nbformat.v4.new_markdown_cell("""\
 ### Reading the metrics
 
-`score` is F1, computed by the Benchmark's own whole-run metric over the run's confusion
-matrix. Beside it, `metrics` carries `correct` and `scored_cases`: their ratio is the plain
-accuracy F1 replaces. The paper's other numbers (precision, recall, F2, the *laziness* rate of
-declining where a clause exists) are not served; section 3 prints the per-case facts they
-are built from."""),
+`score` is F1. Beside it the board reports the whole confusion matrix, so you can see *which*
+mistake a model is making rather than only how often:
+
+- **`false_no_related_clause_rate`** — the paper calls this *laziness*: how often the model
+  claimed no clause exists when one did. This is the refusal lever, and it is the number that
+  separates a cautious model from a knowledgeable one.
+- **`recall`** vs **`precision`** — low recall means it misses real clauses; low precision means
+  it answers when it should have abstained.
+- **`jaccard_mean`** — token overlap on the rows that *do* have a clause, so a model that found
+  roughly the right passage but not exactly scores above one that was nowhere near."""),
         nbformat.v4.new_code_cell("""\
 candidate = report.candidates.only
 print("score (F1):", candidate.score)

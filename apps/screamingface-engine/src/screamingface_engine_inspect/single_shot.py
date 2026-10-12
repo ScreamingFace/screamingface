@@ -184,6 +184,10 @@ class ImportedBenchmark:
     #: The eval's own whole-run metric as a lazy factory (OME-1527, R1); None tallies the
     #: mean of the Case scores, as every published Benchmark does. Hashed by the caller's pins.
     whole_run_metric_factory: Callable[[], Any] | None = None
+    #: The key of a dict-returning whole-run metric that is the Headline Score; its other
+    #: keys are published as run metrics (OME-1527). None for a metric returning one number,
+    #: and for every row that keeps the mean. Hashed by the caller's pins.
+    whole_run_headline: str | None = None
     #: The Task's own any-of-N epoch reducer as a lazy factory, for a row with Attempts that
     #: honours a whole-run metric (OME-1527 x OME-1458); None reduces each Case with inspect's
     #: default mean. Hashed by the caller's pins.
@@ -268,6 +272,7 @@ def single_shot_benchmark(
     named_scores: Sequence[str] = (),
     origin: BenchmarkOrigin = "inspect_evals",
     whole_run_metric_factory: Callable[[], Any] | None = None,
+    whole_run_headline: str | None = None,
     epoch_reducer_factory: Callable[[], Any] | None = None,
     attempts: int = 1,
     **provenance: Unpack[ProvenanceFields],
@@ -316,6 +321,9 @@ def single_shot_benchmark(
         whole_run_metric_factory: zero-arg callable returning the eval's own inspect metric,
             which then scores the whole run in place of the mean (OME-1527, R1); None keeps
             the mean. The caller carries its reference into ``revision_pins``.
+        whole_run_headline: the key of a dict-returning whole-run metric that is the
+            Headline Score; the dict's other keys become run metrics (OME-1527). None for a
+            metric returning one number. The caller carries it into ``revision_pins``.
         epoch_reducer_factory: zero-arg callable returning the Task's own any-of-N reducer,
             which reduces each Case's Attempt Scores before the whole-run metric reads them
             (OME-1527 x OME-1458); None reduces with inspect's default mean. The caller
@@ -449,6 +457,7 @@ def single_shot_benchmark(
         extra_scorer_factories=tuple(extra_scorer_factories),
         named_scores=tuple(named_scores),
         whole_run_metric_factory=whole_run_metric_factory,
+        whole_run_headline=whole_run_headline,
         epoch_reducer_factory=epoch_reducer_factory,
     )
     # WHY revision-compared, not presence-compared: re-assembling the identical
@@ -775,7 +784,11 @@ async def benchmark_aggregate_async(
             error_type=AggregateError,
         ),
         grading_material=lambda case_id: _grading_material(root, case_id),
-        scorer=_accuracy if metric_factory is None else _whole_run_tally(metric_factory(), kept),
+        scorer=(
+            _accuracy
+            if metric_factory is None
+            else _whole_run_tally(metric_factory(), kept, benchmark.whole_run_headline)
+        ),
     )
 
 
@@ -912,7 +925,9 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
 
 
 def _whole_run_tally(
-    metric: Callable[[list[Any]], object], kept: Mapping[int, Any]
+    metric: Callable[[list[Any]], object],
+    kept: Mapping[int, Any],
+    headline_key: str | None = None,
 ) -> Callable[[Sequence[CaseResult]], CandidateScore]:
     """The tally clerk with the eval's own tally sheet: its inspect metric over the run.
 
@@ -931,24 +946,34 @@ def _whole_run_tally(
               from. No ``eval()``, no solver, no model call. It is third-party code, so
               anything it raises (a metadata key the Cases lack) fails the tally by the
               metric's name, never as a bare exception.
-    Stage 3 — publish: the number becomes the Headline Score. A row with Named Scores
-              keeps the column means beside it, with the headline column carrying the
-              metric's number. A dict is refused: a Named Score is the mean of a column
-              every graded Case carries, and a dict's keys are columns no Case has.
+    Stage 3 — publish: a number becomes the Headline Score. A dict (the paper's F1
+              beside its precision, recall and counts) must have the key the row names as
+              its headline (``whole_run_headline``): that value is the Headline Score, and
+              every other key joins the run's ``metrics`` beside the tally's own
+              ``correct`` and ``scored_cases``. Never a Named Score: a Named Score is the
+              mean of a column every graded Case carries, and precision has no per-Case
+              value. A row with Named Scores keeps the column means beside the headline,
+              with the headline column carrying the metric's number.
 
     Worked example (contracteval's shape): 10 Cases, 7 with no related clause, and the
     Candidate always answers "no related clause". The mean is 7/10 = 0.7, because it is
     right on every empty Case. F1 counts true positives (clauses found that exist): 0,
-    against 3 missed clauses, so F1 = 2·0 / (2·0 + 0 + 3) = 0.0, the eval's number.
+    against 3 missed clauses, so F1 = 2·0 / (2·0 + 0 + 3) = 0.0, the eval's number. Had the
+    metric returned ``{"f1": 0.0, "recall": 0.0, "true_negatives": 7}`` on a row naming
+    ``f1``, the headline is 0.0 and ``metrics`` gains ``recall`` 0.0 and ``true_negatives`` 7.
 
     Raises:
         AggregateError: naming the metric, when it asks inspect for unreduced Scores (the
             store holds reduced ones, so it would read numbers inspect never hands it), when
             a Case's reduced Attempt Scores disagree with its folded score (``pass_at_2`` over
             a Case whose second Attempt failed reduces to nan, as in inspect), when it
-            raises, when it returns a dict, or when its headline is not a finite number
-            up to 1. A Headline Score is higher-is-better up to 1, so xstest's 0..100
-            ``refusal_rate`` is refused, never clipped or rescaled.
+            raises, or when its headline is not a finite number up to 1. A Headline Score
+            is higher-is-better up to 1, so xstest's 0..100 ``refusal_rate`` is refused,
+            never clipped or rescaled. For a dict, also when the row names no headline key,
+            when the dict lacks that key, when another key's value is not a finite number,
+            or when another key is one the tally already publishes (``correct``), which is
+            never overwritten. A number on a row that names a headline key is refused too:
+            the row says the metric returns a dict, so one of the two is wrong.
     """
 
     # WHY the scorer helper: inspect's one registry names metrics and scorers alike, and the
@@ -982,28 +1007,94 @@ def _whole_run_tally(
             raise AggregateError(
                 f"the whole-run metric {name} failed: {type(exc).__name__}: {exc}"
             ) from exc
-        # Stage 3 — one number. A dict's keys are Named Scores no Case carries.
-        if isinstance(value, Mapping):
+        # Stage 3 — the headline, and a dict's other keys as run metrics (never Named
+        # Scores: no Case carries a precision).
+        headline, run_metrics = _headline_and_run_metrics(value, headline_key, name)
+        if not _is_headline(headline):
             raise AggregateError(
-                f"the whole-run metric {name} returned a dict ({', '.join(map(str, value))}); "
-                "a Named Score is the mean of a column every graded Case carries, so only a "
-                "number can be published"
-            )
-        if not _is_headline(value):
-            raise AggregateError(
-                f"the whole-run metric {name} returned {value!r}; a Headline Score is a "
+                f"the whole-run metric {name} returned {headline!r}; a Headline Score is a "
                 "finite number up to 1"
             )
-        assert isinstance(value, int | float)
-        score: float = round(float(value), 4)
+        assert isinstance(headline, int | float)
+        score: float = round(float(headline), 4)
         mean: CandidateScore = _accuracy(cases)
         scores: dict[str, float | None] = dict(mean.scores)
         if scores:
             # INVARIANT: the headline column IS `score` (the Report shows them as one number).
             scores[next(iter(scores))] = score
-        return CandidateScore(score=score, metrics=mean.metrics, scores=scores)
+        return CandidateScore(
+            score=score, metrics=_beside(mean.metrics, run_metrics, name), scores=scores
+        )
 
     return tally
+
+
+def _headline_and_run_metrics(
+    value: object, headline_key: str | None, metric_name: str
+) -> tuple[object, dict[str, int | float]]:
+    """Split a whole-run metric's value into its headline and the run metrics beside it.
+
+    A number is all headline. A dict gives up the row's named key as the headline and keeps
+    every other key as a run metric: ``{"f1": 0.6667, "recall": 0.6}`` with ``f1`` named →
+    headline 0.6667, run metrics ``{"recall": 0.6}``. The headline's own checks (finite, up
+    to 1) are the caller's; this checks only what the dict form adds.
+    """
+
+    if not isinstance(value, Mapping):
+        if headline_key is not None:
+            raise AggregateError(
+                f"the whole-run metric {metric_name} returned {value!r}, but the row names "
+                f"whole_run_headline={headline_key!r} as if it returned a dict; drop "
+                "whole_run_headline"
+            )
+        return value, {}
+    keys: str = ", ".join(map(str, value))
+    if headline_key is None:
+        raise AggregateError(
+            f"the whole-run metric {metric_name} returned a dict ({keys}); name the key that "
+            "is the Headline Score with the row's whole_run_headline, and the other keys are "
+            "published as run metrics"
+        )
+    if headline_key not in value:
+        raise AggregateError(
+            f"the whole-run metric {metric_name} returned a dict ({keys}) with no "
+            f"{headline_key!r}, the row's whole_run_headline"
+        )
+    run_metrics: dict[str, int | float] = {}
+    for key, number in value.items():
+        if key == headline_key:
+            continue
+        # WHY finite numbers only: a run metric is read as a number beside the headline; a
+        # nan or a word published under the eval's name would be the wrong number silently.
+        if (
+            not isinstance(number, int | float)
+            or isinstance(number, bool)
+            or not math.isfinite(number)
+        ):
+            raise AggregateError(
+                f"the whole-run metric {metric_name} returned {key}={number!r}; a run metric "
+                "is a finite number"
+            )
+        run_metrics[str(key)] = number
+    return value[headline_key], run_metrics
+
+
+def _beside(
+    tally_metrics: Mapping[str, Any], run_metrics: Mapping[str, int | float], metric_name: str
+) -> dict[str, Any]:
+    """The tally's own run metrics, then the whole-run metric's; a shared key is refused.
+
+    WHY refuse, never overwrite: ``correct`` and ``scored_cases`` are the tally's own count of
+    the Cases it saw; a metric's key of the same name would silently replace it.
+    """
+
+    collisions: list[str] = sorted(set(run_metrics) & set(tally_metrics))
+    if collisions:
+        raise AggregateError(
+            f"the whole-run metric {metric_name} returned {', '.join(collisions)}, which the "
+            "tally already publishes; rename the metric's key"
+        )
+    return {**tally_metrics, **run_metrics}
 
 
 def _check_attempts_agree(
