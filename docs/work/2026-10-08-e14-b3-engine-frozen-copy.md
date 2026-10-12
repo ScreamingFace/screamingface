@@ -185,40 +185,48 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
 ## Review round 2026-10-12 (design review fixes)
 
 - **Scope:** plan `R-2026-10-12-design-review-fixes.md`, sections 0a and B3. Design
-  `02-frozen-copy-design.md` Q23, Q27, Q28, §4.2, §5.2, §5.3 and §5.4.
-- **Status: complete.** All gates pass. One approval round was needed for three existing test files
-  (see "Approved test edits").
+  `02-frozen-copy-design.md` Q23, Q27, Q28, §4.2, §5.2, §5.3 (items 2 and 2a) and §5.4.
+- **Status: NOT complete.** The gate fails in one place: eight existing tests in
+  `test_frozen_copy_replay_failures.py` encode the old failure rule. They need an approval
+  (see "Blocked"). Every other gate step passes.
 
 ### Changes
 
-- **Q27, call key.** Every chat call and every web-tool call sends `X-AIGW-Case-Key` (only when the
-  key is not empty) and `X-AIGW-Call-Occurrence` (always), in capture and in replay.
-  - The case key is `case_key_for(case_id, attempt)` in `capture_outcomes.py`, and
-    `current_case_key()` in `benchmarks/case_context.py`.
+- **Q27, call key.** Every chat call and every web-tool call sends `X-AIGW-Call-Occurrence` (always)
+  and `X-AIGW-Case-Key` (only when the key is not empty), in capture and in replay.
+  `call_key_headers(case_key, occurrence)` in `capture_outcomes.py` builds the two headers for all
+  four call sites.
+  - The case key is `case_key_for(case_id, attempt)`. `current_case_key()` is in
+    `benchmarks/case_context.py`.
   - The occurrence counts the logical calls of one (case key, lane, request digest). It is taken once,
     when the call is first sent, and it is never given back. Transport retries reuse it.
   - A tool call takes its occurrence in `_executed`, before the tool runs.
   - Capture and replay take the occurrence from the run's tally. A replay with no tally bound fails
-    loudly (`RuntimeError`) and sends nothing. The occurrence-0 fallback is removed.
-  - `CaptureTally.reserve` and `release`, the slot fields, and the headers `X-AIGW-Capture-Occurrence`
-    and `X-AIGW-Replay-Occurrence` are removed.
+    loudly (`RuntimeError`) and sends nothing.
   - D2 is removed: `_lost()` counts every outcome that is not `stored`.
+  - The capture path reads its tally and copy id once (`_capture_target`).
+- **Design §5.3 2a, permanent unserved failures.** In replay, these fail the case with
+  `frozen_copy_unavailable`, permanently:
+  - a chat call whose every transport attempt failed (`_fetch_replay` catches the transport
+    `ResolutionError` from `_post_completion`);
+  - a non-2xx answer without the `X-AIGW-Replay` header (`REPLAY_FIELD`, new constant);
+  - a tool lookup failure that the copy did not serve. Every such failure is permanent, not only a
+    transport error. The stale "a retry may fix it" comment is gone.
+  A captured error with `X-AIGW-Replay: error` is raised as before. The 404 codes are unchanged.
 - **Q23, local capture.** `local.py` sets `URL4_LOCAL_RUNTIME=1` on every run env it builds. The
   marker is listed in `job_env.WRITTEN_BY_APP`. It reaches `RequestScope.local_runtime`, and
   `_bind_frozen_copy_mode` sets `CaptureTally.local`. A local capture is `partial` with reason
-  `local`.
+  `local`, and a local capture is never reproducible (the local app may point at the hosted gateway).
 - **Q28, provenance.** `screamingface_engine.__version__` comes from the installed package metadata.
-  `seal_frozen_copy` posts `{"provenance": {"engine_version": __version__}}`.
-- **README.** The capture and replay paragraphs name the new headers, the occurrence rule, the
-  `local` reason and the seal version.
-
-### Can the sync surface replay?
-
-No. Design §5.1 allows the run route only. The mount routes (`rest/mounts.py`, `_validated`) and the
-local eval path (`local.py`, before `bind_sync_request`) refuse `X-Replay-Frozen-Copy` with 400
-`capture_unsupported` before anything is bound. The tally is bound in one place only:
-`runner/executor.py` (`_drive`). So the fallback was reachable only from tests that drive the
-connector directly. `test_frozen_copy_unsupported_surfaces.py` covers both refusals.
+  It raises `PackageNotFoundError` when the package is not installed; this is accepted, and a comment
+  says so. `seal_frozen_copy` posts `{"provenance": {"engine_version": __version__}}`.
+- **Can the sync surface replay?** No. Design §5.1 allows the run route only. The mount routes
+  (`rest/mounts.py`, `_validated`) and the local eval path (`local.py`, before `bind_sync_request`)
+  refuse `X-Replay-Frozen-Copy` with 400 `capture_unsupported` before anything is bound. The tally is
+  bound in one place only: `runner/executor.py` (`_drive`).
+  `test_frozen_copy_unsupported_surfaces.py` covers both refusals.
+- **README.** The capture and replay paragraphs name the headers, the occurrence rule, the
+  permanent failures, the `local` reason and the seal version.
 
 ### Commits (branch `OME-1435-e14-b3-engine-frozen-copy`, local only)
 
@@ -228,54 +236,64 @@ connector directly. `test_frozen_copy_unsupported_surfaces.py` covers both refus
 - `231d73db2` docs(screamingface-engine): describe the call key, local capture and seal version
 - `2922b6f5b` docs(work): record the B3 review round in the ledger
 - `9cdda82ed` fix(screamingface-engine): count replay occurrences in the run tally only (Q27)
+- `06cd16bdd` docs(work): record the replay tally fix and the approved test edits
+- `d5b1b3084` fix(screamingface-engine): make an unserved replay failure permanent (design §5.3 2a)
+- `ca6bb2282` docs(screamingface-engine): name the call-key headers and the permanent replay failures
+- `be32f4084` test(screamingface-engine): rename a helper that shadowed a variable in the per-task replay test
 - this ledger commit
 
 ### Approved test edits (2026-10-12)
 
-First round (approved by the owner):
+First round (owner):
 
-- `test_capture_outcomes.py`: deleted `test_slots_are_reserved_in_order_and_given_back`,
-  `test_slots_are_kept_per_lane_and_per_digest`,
-  `test_giving_back_a_slot_that_was_never_reserved_does_nothing`,
-  `test_a_failed_slot_is_given_back_without_freeing_a_later_one` and
-  `test_given_back_slots_are_taken_again_lowest_first_then_trimmed`.
-- `test_capture_outcomes.py`, `test_capture_status_rule`: the two D2 rows (`error` then `stored` at
-  the same request, for chat and for tool) now expect `partial` with `{"error": 1}`.
-- `test_frozen_copy_overlap.py`: deleted (its two tests were the approved deletions and nothing else
-  was in the file).
-- `test_frozen_copy_calls.py`: the three `3e5ee45eb` tests use `X-AIGW-Call-Occurrence` and check
-  each task's value in order. Two of them record the value when the request ARRIVES at the gateway,
-  before the barrier. The barrier answers the parked requests in a different order, so the order
-  of the answers is not the order of the tasks.
+- `test_capture_outcomes.py`: deleted the five slot tests (reserve, release, freed).
+- `test_capture_outcomes.py`, `test_capture_status_rule`: the two D2 rows now expect `partial`.
+- `test_frozen_copy_overlap.py`: deleted (its two tests were the approved deletions).
+- `test_frozen_copy_calls.py`: the three `3e5ee45eb` tests use `X-AIGW-Call-Occurrence`. They check
+  the occurrence each task sends, in task order, through the shared helper
+  `Gateway.record_arrivals` (`frozen_copy_support.py`). The helper records each occurrence when the
+  request ARRIVES at the gateway, before the barrier. It checks the send order. It does not check
+  the answers, because the barrier answers the parked requests in another order.
 
-Second round (approved by the coordinator, 2026-10-12):
+Second round (coordinator):
 
-- `test_frozen_copy_normal_run.py`: imports `CALL_OCCURRENCE_HEADER` and `CASE_KEY_HEADER` in place of
-  `REPLAY_OCCURRENCE_HEADER`; the e14 header set uses them; `tally.slots == {}` becomes
+- `test_frozen_copy_normal_run.py`: `CALL_OCCURRENCE_HEADER` and `CASE_KEY_HEADER`, and
   `tally.occurrences == {}`.
 - `test_frozen_copy_occurrence.py`: the header is `X-AIGW-Call-Occurrence`. Inverted:
-  `test_a_failed_answer_does_not_move_the_counter` became `test_a_failed_answer_still_moves_the_counter`
-  (`["0", "1", "2"]`), and `test_a_tool_lookup_miss_does_not_move_the_counter` became
-  `test_a_tool_lookup_miss_still_moves_the_counter` (`["0", "1"]`). Replaced:
+  `test_a_failed_answer_does_not_move_the_counter` became `test_a_failed_answer_still_moves_the_counter`,
+  and `test_a_tool_lookup_miss_does_not_move_the_counter` became
+  `test_a_tool_lookup_miss_still_moves_the_counter`. Replaced:
   `test_a_run_without_a_tally_still_asks_for_the_first_answer` became
-  `test_identical_replay_calls_take_occurrences_0_and_1_under_the_run_tally`, which binds the run's
-  tally (the run path) and expects `["0", "1"]`. Added: `test_a_replay_call_with_no_bound_tally_fails_loudly`.
+  `test_identical_replay_calls_take_occurrences_0_and_1_under_the_run_tally`.
 - `test_frozen_copy_replay_review.py`: the header is `X-AIGW-Call-Occurrence`. Inverted:
   `test_a_reserved_slot_is_given_back_when_the_call_does_not_succeed` became
-  `test_an_occurrence_is_never_given_back_when_the_call_does_not_succeed` (`["0", "1", "2"]`, and
-  the counter stands at 3).
+  `test_an_occurrence_is_never_given_back_when_the_call_does_not_succeed`.
+
+Third round (coordinator, this feedback):
+
+- `test_frozen_copy_replay_review.py`: the two concurrent tests,
+  `test_two_identical_concurrent_replay_requests_get_occurrences_0_and_1` and
+  `test_two_identical_concurrent_tool_lookups_get_occurrences_0_and_1`, check the arrival order
+  (`["0", "1"]`, from `record_arrivals`) instead of `sorted(...)`.
+- `test_frozen_copy_occurrence.py` and `test_frozen_copy_replay_review.py`: the module docstrings
+  state the Q27 rule.
+- `test_frozen_copy_calls.py`: the one literal occurrence header now uses `CALL_OCCURRENCE_HEADER`.
 
 ### New tests
 
-- `tests/unit/test_frozen_copy_call_key.py` (8): capture and replay send one key sequence; two
-  concurrent cases each take occurrence 0; transport retries reuse the occurrence; a new logical call
-  takes the next one and never gives it back; gathered tool calls take values in task order, also
-  when the second Tavily call finishes first; the grading key and the empty key; the Attempt 2 key;
-  the case id keeps its type.
-- `tests/unit/test_frozen_copy_review_round.py` (6): an unstored error is not forgiven; a local
-  capture is `partial` with reason `local`; a hosted capture is unchanged; the local marker reaches
-  the scope; the executor binds the marker; the seal sends the engine version.
-- `test_frozen_copy_occurrence.py`: `test_a_replay_call_with_no_bound_tally_fails_loudly` (1).
+- `tests/unit/test_frozen_copy_call_key.py` (8). The key of capture and replay, the concurrent cases,
+  the retries, the gathered tool order, the grading and Attempt keys, and the case id type.
+- `tests/unit/test_frozen_copy_review_round.py` (6). The unstored error, the local partial rule, the
+  hosted rule, the marker path, the executor binding, and the seal version.
+- `test_frozen_copy_occurrence.py`: `test_a_replay_call_with_no_bound_tally_fails_loudly`.
+- `tests/unit/test_frozen_copy_replay_per_task.py` (2). Gathered replay chat calls, and gathered
+  replay tool lookups, take their own answers in task order. The fake gateway holds occurrence 0 until
+  occurrence 1 has answered, so task 0 finishes last. The lookup test checks the tool messages of the
+  second chat body, keyed by call id.
+- `tests/unit/test_frozen_copy_replay_unserved.py` (4). One test for each unserved case: (a) every
+  transport attempt failed, (b) a 500 without the replay header, (c) a lookup transport error. Each
+  checks that the replay endpoint was called once per attempt, all for occurrence 0. The fourth test
+  is the control: a captured error with `X-AIGW-Replay: error` keeps its own code.
 
 ### Gates (`run_gates.py screamingface-engine --base refs/e14-backup/pre-phase2-2026-10-12/OME-1045-e14-b2-engine-tavily-cache`)
 
@@ -284,27 +302,47 @@ Second round (approved by the coordinator, 2026-10-12):
   `test_terminal_error_detail.py`, `test_e2e_compose_flow.py`, `test_run_control_resilience.py`,
   `_fakes.py`, `test_answer_seed_threading.py`). The B3 edits are not flagged, because the base
   holds none of these files.
-- With `--skip-append-only`: `ALL GATES GREEN`. Steps: ruff check, ruff format --check, pyright,
-  `check_layering.py`, pytest (`-n auto`, coverage `--cov-fail-under=80`).
-- Unit (run directly): 4872 passed, 54 skipped, 0 failed.
-- Integration (run directly): 38 passed, 40 skipped.
+- With `--skip-append-only`: ruff check PASS, ruff format PASS, pyright PASS,
+  `check_layering.py` PASS. pytest FAILED: 8 failed, 4908 passed, 94 skipped. All 8 failures are in
+  "Blocked".
+- Unit (direct run, before the last test-only commit): 4870 passed, 8 failed.
+
+### Blocked: approval needed (not edited)
+
+`test_frozen_copy_replay_failures.py` encodes the old failure rule. The new rule (§5.3 2a) changes
+these eight tests:
+
+- `test_any_other_status_is_the_captured_original_error_handled_as_today` (4 cases). The four
+  responses have no `X-AIGW-Replay` header. A captured error carries `X-AIGW-Replay: error`, so the
+  fix is to add that header to each response. Without it the case becomes `frozen_copy_unavailable`.
+- `test_tool_lookup_miss_fails_the_case` (`gateway-error`, `malformed-result`, `not-json`). The
+  expected `permanent` changes from `False` to `True`. The comment at line 104 says a retry may fix it.
+- `test_a_tool_lookup_transport_failure_fails_the_case_as_unavailable`. The expected `permanent`
+  changes from `False` to `True`.
+
+Question for the coordinator: may I make these edits? The proposed edit is the header on the four
+captured-error responses, and `permanent` `True` in the four lookup expectations.
+
+### Interpretation to confirm
+
+- Design §5.3 2a names three cases. The code also makes permanent a tool lookup that returns HTTP 200
+  with a malformed result or with a body that is not JSON. The copy did not serve either answer, and
+  a retry would read the next occurrence, so I treat them the same way. Confirm or reverse.
 
 ### Deviations
 
 - The plan says to remove the unreachable `0 if _tally is None` branch in the connector. The capture
   branch is removed. The replay branch was reachable only from tests that drive the connector with no
-  tally bound. The owner's round-2 instruction removed it too, and a replay with no tally now fails
-  loudly.
-- `FrozenToolResults.lookup` and `store` take `case_key` and `occurrence` as arguments. The
-  `_read` helper is merged into `lookup`, because the release it existed for is removed.
-- The plan leaves the field name open. `RequestScope.local_runtime` is the chosen name.
-- The marker `URL4_LOCAL_RUNTIME` is listed in `WRITTEN_BY_APP`, because the job-env contract test
-  requires every App-written key to be listed there.
+  tally bound. A replay with no tally now fails loudly.
+- `FrozenToolResults.lookup` and `store` take `case_key` and `occurrence` as arguments. The `_read`
+  helper is merged into `lookup`.
+- `RequestScope.local_runtime` is the chosen name for the local-marker field. The plan left it open.
+- `URL4_LOCAL_RUNTIME` is listed in `WRITTEN_BY_APP`, because the job-env contract test requires every
+  App-written key to be listed there.
 - `create_local_app` builds `run_env` in one dict expression. Three statements exceeded the
   `PLR0915` limit (26).
-- Two comments and the module docstring in `test_capture_outcomes.py` now describe the new rule.
-  They change with the approved rows. The docstrings and comments of the other approved files
-  changed in the same way.
-- The two concurrent tests in `test_frozen_copy_calls.py` record the occurrence at gate arrival
-  (helper `_arrivals`). This goes beyond the header rename the owner approved, and the reason is
-  given under "Approved test edits".
+- `REPLAY_FIELD` (`X-AIGW-Replay`) and `call_key_headers` are new in `capture_outcomes.py`. The
+  coordinator asked for `call_key_headers`; `REPLAY_FIELD` follows the `CAPTURE_FIELD` pattern.
+- `Gateway.record_arrivals` moved the arrival helper from `test_frozen_copy_calls.py` into the shared
+  support module, so the replay tests can use it too. The support module is not a test module.
+- Comments and docstrings in the approved test files changed with the approved rows.
