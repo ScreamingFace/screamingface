@@ -269,6 +269,12 @@ inspect_evals eval such as `bbeh/`:
 | vendored grading code | `vendor/` | the paper's own scorer when it has one, copied byte-for-byte below a header of ours that links to the upstream blob at the pinned commit (never the upstream docstring), with its licence and a sha256 test (`test_local_task_musique_vendor.py` is the template) |
 | the card | `README.md` | dataset, prompt, scoring, baselines, how to run |
 
+A scorer that reads `metadata` fails loudly on a missing key: it raises, as upstream bbeh's
+does, and the scorer adapter records a `scorer_error`. It never falls back to a default that
+grades. The no-network grading lane (`test_inspect_task_replay_benchmarks.py`) supplies
+realistic stand-in metadata per Benchmark in its `_STAND_IN_METADATA` table, so add your
+Task's entry there (OME-1527).
+
 Then run the importer on it and fill the generated rows exactly as for an import:
 
 ```sh

@@ -564,6 +564,15 @@ _JUDGE_LESS_KEYS: tuple[str, ...] = tuple(
 )
 
 
+#: Realistic stand-in Sample metadata for a Benchmark whose scorer reads it (OME-1527). WHY:
+#: scorers fail loudly on a missing key, as a real Case always carries it, so the lane hands
+#: each such Benchmark the shape its real Cases have. musique: a real question cites 2 to 4
+#: gold paragraphs.
+_STAND_IN_METADATA: dict[str, dict[str, object]] = {
+    "musique": {"supporting_idx": [3, 11]},
+}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("key", _JUDGE_LESS_KEYS)
 async def test_every_judge_less_benchmark_grades_with_no_network(
@@ -578,7 +587,19 @@ async def test_every_judge_less_benchmark_grades_with_no_network(
     # stand-in Cases follow the family the catalogue test declares for the key.
     choice: bool = _EXPECTED_FAMILIES[key] == "mcq"
     benchmark: ImportedBenchmark = imported_benchmark(key)
-    node: Url4Node = _node(benchmark, _MCQ_CASES if choice else _FREE_TEXT_CASES, tmp_path)
+    cases: list[PreparedCase] = _MCQ_CASES if choice else _FREE_TEXT_CASES
+    if key in _STAND_IN_METADATA:
+        cases = [
+            {
+                **case,
+                "grading_material": {
+                    **case["grading_material"],
+                    "metadata": _STAND_IN_METADATA[key],
+                },
+            }
+            for case in cases
+        ]
+    node: Url4Node = _node(benchmark, cases, tmp_path)
     answers: list[str] = ["ANSWER: B", "(B)"] if choice else ["ANSWER: 42", "ANSWER: 5"]
 
     scores: list[object] = await _scores(node, benchmark, answers)
