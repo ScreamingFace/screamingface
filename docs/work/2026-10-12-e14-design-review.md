@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # leaf under OME-1307, filed at PR-open
+ticket: OME-1577
 stack: repo
 status: done
 started: 2026-10-12
