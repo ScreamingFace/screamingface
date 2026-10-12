@@ -6,7 +6,9 @@ import asyncio
 import logging
 from types import SimpleNamespace
 from typing import Any, cast
+from uuid import UUID
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -26,6 +28,7 @@ from tests.unit.test_frozen_copy_support import (
     chat_response,
     run_async,
     seed_copy,
+    store,
     stored_entries,
 )
 
@@ -171,3 +174,149 @@ def test_an_attempt_number_digests_apart_from_attempt_one() -> None:
     assert request_digest("chat", request) == request_digest("chat", request, None)
     assert request_digest("chat", request, 2) != request_digest("chat", request)
     assert request_digest("chat", request, 2) != request_digest("chat", request, 3)
+
+
+def _seed_slotted(
+    client: TestClient, owner: UUID, entries: list[tuple[Any, Any, int, int | None]], *, seal: bool
+) -> str:
+    """A copy filled through the store with an explicit occurrence per entry (Q27)."""
+
+    async def _seed() -> str:
+        frozen = store()
+        copy = await frozen.open(owner)
+        for request, response, status_code, occurrence in entries:
+            await frozen.capture(
+                copy, "chat", request, response, status_code, occurrence=occurrence
+            )
+        if seal:
+            await frozen.seal(copy.id, owner)
+        return str(copy.id)
+
+    return run_async(client, _seed)
+
+
+def test_replay_serves_by_stated_occurrence_not_completion_order(
+    authenticated_client: TestClient,
+) -> None:
+    """Q27: two identical concurrent calls may finish out of order; the stated slot decides.
+
+    Slot 0's answer lands last (seq 2), slot 1's first (seq 1). Completion order would serve
+    slot 0's caller the slot-1 answer.
+    """
+    client = authenticated_client
+    request = chat_body()
+    copy_id = _seed_slotted(
+        client,
+        account_id_of(client),
+        # (request, response, status, occurrence) in completion order: slot 1 completes first.
+        [(request, chat_response("slot-1"), 200, 1), (request, chat_response("slot-0"), 200, 0)],
+        seal=True,
+    )
+
+    assert _replay(client, copy_id, 0) == "slot-0"
+    assert _replay(client, copy_id, 1) == "slot-1"
+    # Past the end: the last success (the design's clamp still applies to stated slots).
+    assert _replay(client, copy_id, 9) == "slot-1"
+
+
+def test_a_reused_slot_keeps_one_success_and_the_error_falls_behind(
+    authenticated_client: TestClient,
+) -> None:
+    """An error entry at a slot and the later success that reused the slot can coexist; only
+    successes carry the replay order."""
+    client = authenticated_client
+    request = chat_body()
+    copy_id = _seed_slotted(
+        client,
+        account_id_of(client),
+        # (request, response, status, occurrence) in completion order: slot 0 errored, the retry
+        # that reused slot 0 succeeded, slot 1 succeeded.
+        [
+            (request, {"detail": "gateway down"}, 503, 0),
+            (request, chat_response("slot-0-retry"), 200, 0),
+            (request, chat_response("slot-1"), 200, 1),
+        ],
+        seal=True,
+    )
+
+    assert _replay(client, copy_id, 0) == "slot-0-retry"
+    assert _replay(client, copy_id, 1) == "slot-1"
+
+
+def test_a_digest_without_stated_slots_still_replays_in_completion_order(
+    authenticated_client: TestClient,
+) -> None:
+    """Legacy fallback: entries without a stated slot replay by ``seq``, even in a copy that
+    also holds a slotted digest (the two digests cannot pollute each other's order)."""
+    client = authenticated_client
+    owner = account_id_of(client)
+    slotted_request = chat_body()
+    legacy_request = {
+        "model": "anthropic/claude-haiku-4-5",
+        "messages": [{"role": "user", "content": "legacy"}],
+    }
+
+    async def _seed() -> str:
+        frozen = store()
+        copy = await frozen.open(owner)
+        # Completion order 1st..3rd. The slotted digest's entries state their send slots; the
+        # legacy digest's two entries carry no slot and replay by ``seq`` — first captured on
+        # offset 0, later captured on offset 1.
+        await frozen.capture(copy, "chat", legacy_request, chat_response("legacy-first"), 200)
+        await frozen.capture(
+            copy, "chat", slotted_request, chat_response("slot-1"), 200, occurrence=1
+        )
+        await frozen.capture(
+            copy, "chat", slotted_request, chat_response("slot-0"), 200, occurrence=0
+        )
+        await frozen.capture(copy, "chat", legacy_request, chat_response("legacy-later"), 200)
+        await frozen.seal(copy.id, owner)
+        return str(copy.id)
+
+    copy_id = run_async(client, _seed)
+
+    assert _replay(client, copy_id, 0) == "slot-0"
+    assert _replay(client, copy_id, 1) == "slot-1"
+    legacy = client.post(
+        f"/v1/frozen-copies/{copy_id}/chat/completions",
+        json=legacy_request,
+        headers={"X-AIGW-Replay-Occurrence": "1"},
+    )
+    assert legacy.json()["id"] == "legacy-later"
+
+
+def test_two_entries_of_one_copy_never_share_a_seq(authenticated_client: TestClient) -> None:
+    """Q27 follow-up: the (copy, seq) uniqueness makes a row-lock regression fail loudly."""
+    from aigateway.core.frozen_copy.models import FrozenCopyEntry
+
+    client = authenticated_client
+    owner = account_id_of(client)
+
+    async def _create_duplicate() -> None:
+        frozen = store()
+        copy = await frozen.open(owner)
+        await frozen.capture(copy, "chat", {"n": 1}, {"r": 1}, 200)
+        await FrozenCopyEntry.create(
+            frozen_copy_id=copy.id,
+            kind="chat",
+            request_digest="dup",
+            request_json={"n": 2},
+            response_json={"r": 2},
+            status_code=200,
+            seq=1,
+        )
+
+    with pytest.raises(Exception, match="(?i)unique constraint"):
+        run_async(client, _create_duplicate)
+
+
+def test_a_capture_occurrence_header_reads_as_absent_unless_usable() -> None:
+    """Capture is best effort: malformed or negative slots are absent, never an error (Q27)."""
+    from aigateway.core.frozen_copy.headers import parse_capture_occurrence
+
+    assert parse_capture_occurrence(None) is None
+    assert parse_capture_occurrence("") is None
+    assert parse_capture_occurrence("first") is None
+    assert parse_capture_occurrence("-1") is None
+    assert parse_capture_occurrence("0") == 0
+    assert parse_capture_occurrence("12") == 12

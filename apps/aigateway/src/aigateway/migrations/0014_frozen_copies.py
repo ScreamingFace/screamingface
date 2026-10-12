@@ -82,12 +82,18 @@ class Migration(migrations.Migration):
                 ("response_json", fields.JSONField()),
                 ("status_code", fields.IntField()),
                 ("seq", fields.IntField()),
+                # Q27: the engine's send-time slot when the capture request stated it; NULL when
+                # not stated (legacy capture), so replay falls back to completion order (`seq`).
+                ("occurrence", fields.IntField(null=True)),
                 ("created_at", fields.DatetimeField(auto_now=False, auto_now_add=True)),
             ],
             options={
                 "table": "frozen_copy_entries",
                 "app": "models",
                 "indexes": [Index(fields=["frozen_copy_id", "kind", "request_digest", "seq"])],
+                # Q27 follow-up: (copy, seq) uniqueness, so a regression in the copy-row lock
+                # fails loudly instead of silently reordering two entries of one copy.
+                "unique_together": (("frozen_copy_id", "seq"),),
                 "pk_attr": "id",
             },
             bases=["Model"],

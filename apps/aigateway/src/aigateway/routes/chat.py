@@ -45,9 +45,11 @@ from ..core.credential_blob import DispatchObservation
 from ..core.credential_blob.store import CredentialBlobMutationConflict
 from ..core.frozen_copy.headers import (
     CAPTURE_HEADER,
+    CAPTURE_OCCURRENCE_HEADER,
     COPY_HEADER,
     RETRY_AFTER_HEADER,
     STORED_HEADERS_FIELD,
+    parse_capture_occurrence,
     publish_capture_headers,
 )
 from ..core.frozen_copy.models import STATUS_OPEN, FrozenCopy
@@ -307,11 +309,13 @@ class _Capture:
         outcome: str | None,
         *,
         attempt: int | None = None,
+        occurrence: int | None = None,
     ) -> None:
         self._store = store
         self._request = request
         self._copy = copy_row
         self._attempt = attempt
+        self._occurrence = occurrence
         self.outcome = outcome
 
     @property
@@ -332,6 +336,7 @@ class _Capture:
                 response_json,
                 status_code,
                 attempt=self._attempt,
+                occurrence=self._occurrence,
             )
         except FrozenCopySealed:
             self.outcome = "refused"
@@ -400,8 +405,10 @@ async def _begin_capture(
         return _Capture(store, snapshot, None, "failed")
     if copy_row is None or copy_row.account_id != current_id or copy_row.status != STATUS_OPEN:
         return _Capture(store, snapshot, None, "refused")
+    # Q27: the caller's send-time slot, when it stated one; absent or malformed reads as absent.
+    occurrence = parse_capture_occurrence(request.headers.get(CAPTURE_OCCURRENCE_HEADER))
     # ``failed`` until an insert succeeds: a call that ends without recording stored nothing.
-    return _Capture(store, snapshot, copy_row, "failed", attempt=attempt)
+    return _Capture(store, snapshot, copy_row, "failed", attempt=attempt, occurrence=occurrence)
 
 
 @router.post("/v1/chat/completions")

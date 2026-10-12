@@ -138,8 +138,13 @@ class FrozenCopyStore:
         status_code: int,
         *,
         attempt: int | None = None,
+        occurrence: int | None = None,
     ) -> None:
         """Insert one entry. Raises on any failure; the caller decides what that means.
+
+        ``occurrence`` is the caller's send-time slot (Q27): set when the capture request stated
+        its position, so replay can serve that position instead of completion order. ``None``
+        (absent on the request) keeps the legacy completion-order entry.
 
         Raises:
             FrozenCopyEntryTooLarge: request plus response is over the per-entry cap.
@@ -165,6 +170,7 @@ class FrozenCopyStore:
                 response_json=response,
                 status_code=status_code,
                 seq=current.entry_seq,
+                occurrence=occurrence,
             )
 
     async def find(
@@ -179,9 +185,16 @@ class FrozenCopyStore:
         """The replay lookup rule (design §4.4); ``None`` is a miss.
 
         1. Successful entries in capture order: entry ``occurrence``, or the last one when
-           ``occurrence`` is past the end.
-        2. No success: the latest captured error.
-        3. Nothing: ``None``.
+           ``occurrence`` is past the end. When the entries carry the caller's send-time slots
+           (Q27, header ``X-AIGW-Capture-Occurrence``), that stated order decides — two
+           concurrent identical calls may complete out of order, and completion order would
+           pair each branch with another branch's answer. A slot an error entry used and a
+           later retry reused may occur in an error row and a success row; only the success
+           rows are counted here.
+        2. Without stated slots (legacy copy, or no slot on the request): successful entries in
+           completion order (``seq``), entry ``occurrence``, or the last one past the end.
+        3. No success: the latest captured error.
+        4. Nothing: ``None``.
         """
         entries = FrozenCopyEntry.filter(
             frozen_copy_id=copy.id,
@@ -189,9 +202,15 @@ class FrozenCopyStore:
             request_digest=request_digest(kind, request, attempt),
         )
         successes = entries.filter(status_code=_SUCCESS_STATUS)
+        # A copy is captured by one engine build, so its entries state slots uniformly (or not at
+        # all); per-digest avoids serving a mixed view if a copy ever held both.
+        slotted = await successes.exclude(occurrence=None).exists()
+        if slotted:
+            successes = successes.exclude(occurrence=None)
         count = await successes.count()
         if count:
-            return await successes.order_by("seq").offset(min(occurrence, count - 1)).first()
+            order = "occurrence" if slotted else "seq"
+            return await successes.order_by(order).offset(min(occurrence, count - 1)).first()
         return await entries.order_by("-seq").first()
 
 

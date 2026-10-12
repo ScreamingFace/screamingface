@@ -21,7 +21,11 @@ from pydantic import BaseModel
 
 from ..call_context import current_call_id, current_trace_id
 from ..core.auth.middleware import CurrentAccount
-from ..core.frozen_copy.headers import STORED_HEADERS_FIELD
+from ..core.frozen_copy.headers import (
+    CAPTURE_OCCURRENCE_HEADER,
+    STORED_HEADERS_FIELD,
+    parse_capture_occurrence,
+)
 from ..core.frozen_copy.models import STATUS_OPEN, STATUS_SEALED, FrozenCopy
 from ..core.frozen_copy.store import (
     FrozenCopySealed,
@@ -192,7 +196,17 @@ async def capture_tool_result(
     try:
         copy = await store.get(copy_id)
         if copy is not None and copy.account_id == current.id and copy.status == STATUS_OPEN:
-            await store.capture(copy, "tool", body.description, {"result": body.result}, 200)
+            # Q27: the caller's send-time slot, when it stated one; absent or malformed reads as
+            # absent — the entry then falls back to completion order.
+            occurrence = parse_capture_occurrence(request.headers.get(CAPTURE_OCCURRENCE_HEADER))
+            await store.capture(
+                copy,
+                "tool",
+                body.description,
+                {"result": body.result},
+                200,
+                occurrence=occurrence,
+            )
     except FrozenCopySealed:
         raise _sealed() from None
     except Exception as exc:

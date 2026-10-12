@@ -51,6 +51,9 @@ class FrozenCopyEntry(Model):
         table = "frozen_copy_entries"
         # The replay lookup: every entry of one (copy, kind, digest) in capture order.
         indexes = (("frozen_copy_id", "kind", "request_digest", "seq"),)
+        # INVARIANT (Q27 follow-up): a regression in the copy-row lock fails loudly instead of
+        # silently reordering two entries of one copy.
+        unique_together = (("frozen_copy_id", "seq"),)
 
     id = fields.UUIDField(pk=True, default=uuid.uuid4)
     frozen_copy: fields.ForeignKeyRelation[FrozenCopy] = fields.ForeignKeyField(
@@ -67,6 +70,14 @@ class FrozenCopyEntry(Model):
     # Capture order within the copy: 1, 2, 3, ... assigned under the copy-row lock. The clock is
     # never the order (two rows can share a timestamp, and a clock can step back).
     seq = fields.IntField()
+    # The caller's send-time slot (Q27, header X-AIGW-Capture-Occurrence), when the capture request
+    # stated it. Replay prefers this order: two concurrent identical calls may finish out of order,
+    # and completion order (`seq`) then pairs each branch with another branch's answer. ``None``
+    # for an entry captured before the caller stated slots (legacy copy): replay falls back to
+    # ``seq``. A slot is stated again by the retry that reused it (engine release-once), so an
+    # error entry and the later success entry of one slot can coexist — only the success rows are
+    # distinguished by it.
+    occurrence = fields.IntField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
 
     if TYPE_CHECKING:

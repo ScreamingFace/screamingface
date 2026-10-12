@@ -67,6 +67,7 @@ def test_0014_creates_both_tables_with_the_design_columns(migrated: Path) -> Non
         "response_json",
         "status_code",
         "seq",
+        "occurrence",
         "created_at",
     }
     # `sealed_at` is the only nullable column of frozen_copies (NULL until sealed).
