@@ -1,6 +1,6 @@
 """OME-1044 — the Tavily retrieval cache key.
 
-FEATURE: a repeated Tavily `web_search` / `web_fetch` is served from one shared row
+FEATURE: a repeated Tavily `web_search` / `web_fetch` is served from a stored row
 instead of being paid for again, which also makes the tool-loop continuation chat call
 byte-identical and therefore cacheable in its own right.
 
@@ -100,8 +100,8 @@ def test_the_contract_revision_is_registered_in_the_snapshot_revision_set() -> N
 
 
 def test_the_key_builder_accepts_no_identity_profile_or_credential_input() -> None:
-    # INVARIANT: identity is structurally absent — that is what makes one row safe to
-    # share across accounts.
+    # INVARIANT: the key builder is identity-free. The route adds the account (Q30);
+    # this layer must never see it.
     names = set(inspect.signature(build_tavily_retrieval_key).parameters)
     forbidden = {"account", "account_id", "profile", "auth_mode", "credential", "api_key", "user"}
     assert names & forbidden == set()

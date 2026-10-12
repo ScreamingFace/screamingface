@@ -213,7 +213,7 @@ def test_the_lane_serves_with_no_configuration_at_all(cache_client: TestClient) 
 
 
 def test_the_endpoints_require_an_authenticated_caller(client: TestClient) -> None:
-    # Identity gates WHO MAY ASK; it never enters the key.
+    # Identity gates WHO MAY ASK. It also scopes the key to one account (Q30).
     assert client.post(LOOKUP, json=_SEARCH).status_code == 401
     assert client.post(ENTRIES, json={**_SEARCH, "result": _RESULT}).status_code == 401
 
@@ -285,6 +285,8 @@ def test_same_account_hit_is_unchanged(cache_client: TestClient) -> None:
     # INVARIANT (Q30): the account scope never splits one account's own rows. A fill and a
     # lookup by the same account still hit, with the same body and the same header shape.
     cache_client.post(ENTRIES, json={**_SEARCH, "result": _RESULT})
+    # A second login mints a fresh token for the same account. The key must hold across logins.
+    _login(cache_client)
     hit = cache_client.post(LOOKUP, json=_SEARCH)
     assert hit.status_code == 200, hit.text
     assert hit.json() == {"status": "hit", "reason": None, "result": _RESULT}
@@ -297,5 +299,11 @@ def test_key_is_still_derived_server_side(cache_client: TestClient) -> None:
     # refused with a 422, so a caller cannot name another account's row.
     for path in (LOOKUP, ENTRIES):
         for field in ("key", "key_hash", "account_id"):
-            response = cache_client.post(path, json={**_SEARCH, "result": _RESULT, field: "x"})
+            body = (
+                {**_SEARCH, field: "x"}
+                if path == LOOKUP
+                else {**_SEARCH, "result": _RESULT, field: "x"}
+            )
+            response = cache_client.post(path, json=body)
             assert response.status_code == 422, (path, field, response.text)
+            assert any(err["loc"][-1] == field for err in response.json()["detail"])

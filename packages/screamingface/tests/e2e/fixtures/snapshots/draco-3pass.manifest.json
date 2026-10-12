@@ -3,7 +3,7 @@
   "revisions": {
     "openrouter_adapter": "openrouter-global-cache-2026-08d",
     "parameter_contract": "aigw-parameter-contract-2026-08b",
-    "tavily_retrieval": "aigw-tavily-retrieval-2026-08a"
+    "tavily_retrieval": "aigw-tavily-retrieval-2026-10a"
   },
   "row_count": 11902,
   "schema": "screamingface.cache-snapshot.v1",

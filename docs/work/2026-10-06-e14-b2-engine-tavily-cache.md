@@ -90,24 +90,55 @@ routing edits are exactly these:
   hashes `{"account", "retrieval"}` through `canonical_digest`. The `retrieval` member is the
   unchanged `tavily_retrieval_key`. Lookup and fill both pass `str(current.id)`. The two route
   handlers now name the dependency `current`, because it is used. The key is still derived
-  server-side. Extra fields (`key`, `key_hash`, `account_id`) are still refused with `422`.
+  server-side. Each extra field (`key`, `key_hash`, `account_id`) is refused with `422` on both
+  routes. The test checks the error location, so it fails if a route refuses for another reason.
+  The first version sent `result` to lookup, which refused that route for the wrong reason.
 - **Change (docs):** `apps/aigateway/DEPLOYMENT.md`, "The Tavily Retrieval Cache" section. The
   line "Identity never enters the key" is replaced by the account-scope rule and its reason (Q30).
+- **Revision bump (approved by the orchestrator):** `TAVILY_RETRIEVAL_CONTRACT_REVISION` is now
+  `aigw-tavily-retrieval-2026-10a`, with the comment "Also bump when the route's account wrap (Q30)
+  changes." The revision is inside every key hash, so every key changes.
+  `packages/screamingface/tests/e2e/fixtures/snapshots/draco-3pass.manifest.json` line 6 holds the
+  new value; no other line changed. A grep for `aigw-tavily-retrieval-2026-08a` finds no test or
+  fixture that asserts it. The old value remains only in the dated spec
+  `docs/spec/2026-08-31-OME-1043-tavily-retrieval-cache.md` line 146. That spec is not edited.
+- **Upgrade and auth notes (DEPLOYMENT.md, approved):** a bullet on the upgrade. Every Tavily row
+  written before the upgrade is a miss, and the old rows are never served. The first re-run pays
+  Tavily again. A bullet on `AIGW_AUTH_MODE=disabled`: all callers share one anonymous account, so
+  they share one set of rows. The "a re-run of a benchmark" sentence now says "by the same
+  account".
 - **Tests:** `apps/aigateway/tests/unit/tavily_retrieval/test_tavily_retrieval_routes.py`, three
   new functions appended: `test_fill_by_one_account_is_a_miss_for_another`,
-  `test_same_account_hit_is_unchanged`, `test_key_is_still_derived_server_side`. The first one
-  failed before the change (the second account got the first account's fill). All 56 Tavily
-  tests pass after the change.
-- **Gates:**
-  - `run_gates.py aigateway --base refs/e14-backup/pre-phase2-2026-10-12/OME-1434-e14-b1-gateway-frozen-copy`:
-    ALL GATES GREEN.
-  - `run_gates.py screamingface-engine --base refs/e14-backup/pre-phase2-2026-10-12/OME-1434-e14-b1-gateway-frozen-copy`:
-    the append-only check flagged only the 4 approved files (`test_aigateway_connector.py`,
-    `test_benchmark_foundation.py`, `test_cache_policy_threading.py`,
-    `test_operation_accounting_failure_boundaries.py`). Rerun with `--skip-append-only`:
-    ALL GATES GREEN.
-- **Deviations:** none in code. The engine is unchanged in this round. Two comments outside the
-  listed files still describe the old rule: the module docstring of
-  `core/request_cache/tavily_retrieval.py` (identity is structurally absent), and the comment
-  "it never enters the key" in `test_the_endpoints_require_an_authenticated_caller`. Both are left
-  as they are. They need an owner decision.
+  `test_same_account_hit_is_unchanged` (now logs in again and still hits), and
+  `test_key_is_still_derived_server_side` (now builds the body per route and checks the error
+  location). The first one failed before the change (the second account got the first account's
+  fill). All 56 Tavily tests pass after the change.
+- **Approved test edits (comment or docstring only, no test body changed):**
+  - `apps/aigateway/tests/unit/tavily_retrieval/test_tavily_retrieval_key.py:3` (module docstring):
+    "one shared row" becomes "a stored row".
+  - `apps/aigateway/tests/unit/tavily_retrieval/test_tavily_retrieval_key.py:103-104` (comment in
+    `test_the_key_builder_accepts_no_identity_profile_or_credential_input`): now states that the key
+    builder is identity-free and that the route adds the account (Q30).
+  - `apps/aigateway/tests/unit/tavily_retrieval/test_tavily_retrieval_routes.py:216` (comment in
+    `test_the_endpoints_require_an_authenticated_caller`): now says identity also scopes the key to
+    one account (Q30).
+- **Stale comments (approved in this round):** `core/request_cache/tavily_retrieval.py` lines 3
+  and 14-16 (the same file as the revision bump): "one shared row" becomes "a stored
+  row", and the identity invariant now says the key is identity-free and that the route adds the
+  account (Q30).
+- **Gates** (both run on the working tree, which is the committed state, with `--skip-append-only`
+  because the approved comment edits above are flagged by the append-only check):
+  - `run_gates.py aigateway --base refs/e14-backup/pre-phase2-2026-10-12/OME-1434-e14-b1-gateway-frozen-copy --skip-append-only`:
+    ALL GATES GREEN (ruff check, ruff format, pyright, no-enterprise, pytest with coverage 80).
+    The append-only check without the flag flagged only `test_tavily_retrieval_key.py` and
+    `test_tavily_retrieval_routes.py` (the approved comment edits).
+  - `run_gates.py screamingface-engine --base refs/e14-backup/pre-phase2-2026-10-12/OME-1434-e14-b1-gateway-frozen-copy --skip-append-only`:
+    ALL GATES GREEN. The append-only check without the flag flags the 4 approved files, as in the
+    first round.
+- **Manifest check:** no test asserts the manifest revision value. The one test that reads
+  `draco-3pass.manifest.json` (`packages/screamingface/tests/e2e/test_correlation_chain.py`) is
+  skipped here. It needs the e2e lane (`SCREAMINGFACE_TEST_E2E=1`) and prepared DRACO assets at
+  `~/.screamingface/benchmark-assets/draco`, which are not on this machine. The manifest change is
+  not verified by a run.
+- **Deviations:** none in code. The engine is unchanged in this round. The two stale comments from
+  the first round are now fixed (see above), so no owner decision is open for them.
