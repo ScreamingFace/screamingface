@@ -63,6 +63,14 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "healthbench_grading_failed",
         "medxpert_grading_failed",
         "inspect_grading_failed",
+        # WHY declared here (OME-1246): contracteval (engine PR #984) landed in flight
+        # with the OME-1233 vocabulary close, so its two codes never joined the set —
+        # a polarity mismatch then crashed report validation instead of failing the case.
+        # AIDEV-NOTE (OME-1527, #1355): nothing emits these two since contracteval became a
+        # local Task; they stay declared because the SDK refuses an undeclared code when it
+        # reads a Report, so a contracteval Report made before the move must stay readable.
+        "contracteval_grading_failed",
+        "polarity_mismatch",
         "missing_answer_asset",
         "missing_target_asset",
         # spine failure_messages table codes
