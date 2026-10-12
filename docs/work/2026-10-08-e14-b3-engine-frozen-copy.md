@@ -186,18 +186,20 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
 
 - **Scope:** plan `R-2026-10-12-design-review-fixes.md`, sections 0a and B3. Design
   `02-frozen-copy-design.md` Q23, Q27, Q28, §4.2, §5.2, §5.3 and §5.4.
-- **Status: NOT complete.** The production work and the new tests are done. Three existing test
-  files need an approval that is not yet given (see "Blocked"). The gates do not pass until then.
+- **Status: complete.** All gates pass. One approval round was needed for three existing test files
+  (see "Approved test edits").
 
 ### Changes
 
 - **Q27, call key.** Every chat call and every web-tool call sends `X-AIGW-Case-Key` (only when the
   key is not empty) and `X-AIGW-Call-Occurrence` (always), in capture and in replay.
-  - The case key is `case_key_for(case_id, attempt)` in `capture_outcomes.py`, and `current_case_key()`
-    in `benchmarks/case_context.py`.
+  - The case key is `case_key_for(case_id, attempt)` in `capture_outcomes.py`, and
+    `current_case_key()` in `benchmarks/case_context.py`.
   - The occurrence counts the logical calls of one (case key, lane, request digest). It is taken once,
     when the call is first sent, and it is never given back. Transport retries reuse it.
   - A tool call takes its occurrence in `_executed`, before the tool runs.
+  - Capture and replay take the occurrence from the run's tally. A replay with no tally bound fails
+    loudly (`RuntimeError`) and sends nothing. The occurrence-0 fallback is removed.
   - `CaptureTally.reserve` and `release`, the slot fields, and the headers `X-AIGW-Capture-Occurrence`
     and `X-AIGW-Replay-Occurrence` are removed.
   - D2 is removed: `_lost()` counts every outcome that is not `stored`.
@@ -210,15 +212,27 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
 - **README.** The capture and replay paragraphs name the new headers, the occurrence rule, the
   `local` reason and the seal version.
 
+### Can the sync surface replay?
+
+No. Design §5.1 allows the run route only. The mount routes (`rest/mounts.py`, `_validated`) and the
+local eval path (`local.py`, before `bind_sync_request`) refuse `X-Replay-Frozen-Copy` with 400
+`capture_unsupported` before anything is bound. The tally is bound in one place only:
+`runner/executor.py` (`_drive`). So the fallback was reachable only from tests that drive the
+connector directly. `test_frozen_copy_unsupported_surfaces.py` covers both refusals.
+
 ### Commits (branch `OME-1435-e14-b3-engine-frozen-copy`, local only)
 
 - `af374b82a` fix(screamingface-engine): key each frozen-copy call by case and occurrence (Q27)
 - `e1201e692` fix(screamingface-engine): a local frozen-copy capture is partial (Q23)
 - `65b5e0d68` fix(screamingface-engine): seal a frozen copy with the engine version (Q28)
 - `231d73db2` docs(screamingface-engine): describe the call key, local capture and seal version
+- `2922b6f5b` docs(work): record the B3 review round in the ledger
+- `9cdda82ed` fix(screamingface-engine): count replay occurrences in the run tally only (Q27)
 - this ledger commit
 
 ### Approved test edits (2026-10-12)
+
+First round (approved by the owner):
 
 - `test_capture_outcomes.py`: deleted `test_slots_are_reserved_in_order_and_given_back`,
   `test_slots_are_kept_per_lane_and_per_digest`,
@@ -234,7 +248,24 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
   before the barrier. The barrier answers the parked requests in a different order, so the order
   of the answers is not the order of the tasks.
 
-### New tests (14)
+Second round (approved by the coordinator, 2026-10-12):
+
+- `test_frozen_copy_normal_run.py`: imports `CALL_OCCURRENCE_HEADER` and `CASE_KEY_HEADER` in place of
+  `REPLAY_OCCURRENCE_HEADER`; the e14 header set uses them; `tally.slots == {}` becomes
+  `tally.occurrences == {}`.
+- `test_frozen_copy_occurrence.py`: the header is `X-AIGW-Call-Occurrence`. Inverted:
+  `test_a_failed_answer_does_not_move_the_counter` became `test_a_failed_answer_still_moves_the_counter`
+  (`["0", "1", "2"]`), and `test_a_tool_lookup_miss_does_not_move_the_counter` became
+  `test_a_tool_lookup_miss_still_moves_the_counter` (`["0", "1"]`). Replaced:
+  `test_a_run_without_a_tally_still_asks_for_the_first_answer` became
+  `test_identical_replay_calls_take_occurrences_0_and_1_under_the_run_tally`, which binds the run's
+  tally (the run path) and expects `["0", "1"]`. Added: `test_a_replay_call_with_no_bound_tally_fails_loudly`.
+- `test_frozen_copy_replay_review.py`: the header is `X-AIGW-Call-Occurrence`. Inverted:
+  `test_a_reserved_slot_is_given_back_when_the_call_does_not_succeed` became
+  `test_an_occurrence_is_never_given_back_when_the_call_does_not_succeed` (`["0", "1", "2"]`, and
+  the counter stands at 3).
+
+### New tests
 
 - `tests/unit/test_frozen_copy_call_key.py` (8): capture and replay send one key sequence; two
   concurrent cases each take occurrence 0; transport retries reuse the occurrence; a new logical call
@@ -244,6 +275,7 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
 - `tests/unit/test_frozen_copy_review_round.py` (6): an unstored error is not forgiven; a local
   capture is `partial` with reason `local`; a hosted capture is unchanged; the local marker reaches
   the scope; the executor binds the marker; the seal sends the engine version.
+- `test_frozen_copy_occurrence.py`: `test_a_replay_call_with_no_bound_tally_fails_loudly` (1).
 
 ### Gates (`run_gates.py screamingface-engine --base refs/e14-backup/pre-phase2-2026-10-12/OME-1045-e14-b2-engine-tavily-cache`)
 
@@ -252,27 +284,17 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
   `test_terminal_error_detail.py`, `test_e2e_compose_flow.py`, `test_run_control_resilience.py`,
   `_fakes.py`, `test_answer_seed_threading.py`). The B3 edits are not flagged, because the base
   holds none of these files.
-- With `--skip-append-only`: ruff check PASS, ruff format PASS, pyright FAIL. The three errors are
-  in unapproved test files (see "Blocked"). The gate stops at pyright and does not reach pytest.
-- `check_layering.py` (run directly): `LAYERING OK`.
-- pytest `tests/unit`: 4860 passed, 54 skipped, 9 failed, all in "Blocked". Collection error in
-  `test_frozen_copy_normal_run.py`.
-- pytest `tests/integration`: 38 passed, 40 skipped.
-
-### Blocked: existing tests that need an approval (not edited)
-
-- `test_frozen_copy_normal_run.py`: imports the removed `REPLAY_OCCURRENCE_HEADER` (collection
-  error). Line 54 reads `tally.slots`.
-- `test_frozen_copy_occurrence.py`: six tests read `X-AIGW-Replay-Occurrence` and expect the old
-  per-digest counter. Two of them expect a failed call to give its occurrence back.
-- `test_frozen_copy_replay_review.py`: three tests read `X-AIGW-Replay-Occurrence` and `tally.slots`.
-  `test_a_reserved_slot_is_given_back_when_the_call_does_not_succeed` tests the removed give-back rule.
+- With `--skip-append-only`: `ALL GATES GREEN`. Steps: ruff check, ruff format --check, pyright,
+  `check_layering.py`, pytest (`-n auto`, coverage `--cov-fail-under=80`).
+- Unit (run directly): 4872 passed, 54 skipped, 0 failed.
+- Integration (run directly): 38 passed, 40 skipped.
 
 ### Deviations
 
-- The plan says to remove the unreachable `0 if _tally is None` branch in the connector. The branch
-  in the capture path is removed. The replay path keeps `0 if tally is None`, because the sync
-  surface replays with no tally bound (covered by `test_frozen_copy_occurrence.py`).
+- The plan says to remove the unreachable `0 if _tally is None` branch in the connector. The capture
+  branch is removed. The replay branch was reachable only from tests that drive the connector with no
+  tally bound. The owner's round-2 instruction removed it too, and a replay with no tally now fails
+  loudly.
 - `FrozenToolResults.lookup` and `store` take `case_key` and `occurrence` as arguments. The
   `_read` helper is merged into `lookup`, because the release it existed for is removed.
 - The plan leaves the field name open. `RequestScope.local_runtime` is the chosen name.
@@ -281,4 +303,8 @@ Pre-approved by the F-B3 plan. Nothing else in an existing test may move.
 - `create_local_app` builds `run_env` in one dict expression. Three statements exceeded the
   `PLR0915` limit (26).
 - Two comments and the module docstring in `test_capture_outcomes.py` now describe the new rule.
-  They change with the approved rows.
+  They change with the approved rows. The docstrings and comments of the other approved files
+  changed in the same way.
+- The two concurrent tests in `test_frozen_copy_calls.py` record the occurrence at gate arrival
+  (helper `_arrivals`). This goes beyond the header rename the owner approved, and the reason is
+  given under "Approved test edits".
