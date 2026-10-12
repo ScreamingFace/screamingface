@@ -259,6 +259,8 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-squad": ("coverage_declare", "single_shot", "medium"),
         # OME-1513: a local Task keeps its bare key as its id — nothing came from inspect_evals.
         "musique": ("coverage_declare", "single_shot", "hard"),
+        # OME-1476: the second local Task, and the first published Benchmark with Attempts.
+        "arc_agi_2": ("coverage_declare", "single_shot", "hard"),
         "inspect-math": ("coverage_declare", "single_shot", "medium"),
     }
     actual = {

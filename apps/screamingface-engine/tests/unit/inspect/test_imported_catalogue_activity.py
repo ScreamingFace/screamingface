@@ -30,10 +30,15 @@ async def test_imported_catalogue_case_activity(tmp_path, key, fusion):
     result, events = await _run(benchmark.registration, tmp_path, fusion)
     assert result["score"] is not None, result
     calls = [e for e in events if e.get("sf.activity.kind") == "model_call"]
-    assert len([e for e in calls if e["sf.activity.state"] == "completed"]) == (3 if fusion else 1)
+    # WHY times attempts (OME-1476, owner-approved): a Benchmark with Attempts asks each Case
+    # N times, so each Attempt makes its own calls and is graded on its own (ARC-AGI-2: 2 calls
+    # solo, 6 as a fusion, and two started/completed grading pairs).
+    attempts: int = next(row.attempts for row in BENCHMARKS if row.key == key)
+    expected: int = (3 if fusion else 1) * attempts
+    assert len([e for e in calls if e["sf.activity.state"] == "completed"]) == expected
     assert all(str(e.get("sf.activity.case_id")) == "1" for e in calls)
     grading = [e for e in events if e["sf.activity.kind"] == "grading"]
-    assert [e["sf.activity.state"] for e in grading] == ["started", "completed"]
+    assert [e["sf.activity.state"] for e in grading] == ["started", "completed"] * attempts
     assert all(e.get("sf.activity.case_id") == 1 for e in grading)
     assert events[-1]["sf.activity.kind"] == "aggregation"
     assert events[-1]["sf.activity.state"] == "completed"

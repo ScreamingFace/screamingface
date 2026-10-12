@@ -40,6 +40,7 @@ from screamingface_engine_inspect.single_shot import imported_benchmark_id  # no
 _EXPECTED_FAMILIES: dict[str, str] = {
     "gsm8k": "free_text",
     "musique": "free_text",  # OME-1513: a local Task, served like a free-text import
+    "arc_agi_2": "free_text",  # OME-1476: a local Task; the reply is a grid read by its parser
     "mmlu": "mcq",
     "arc_easy": "mcq",
     "arc_challenge": "mcq",

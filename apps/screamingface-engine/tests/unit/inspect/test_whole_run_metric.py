@@ -669,10 +669,16 @@ async def test_a_case_whose_attempt_failed_reaches_the_metric_only_if_the_reduce
 
 def test_no_published_row_opts_in_so_no_revision_moves() -> None:
     """INVARIANT: honouring the eval's metric is a per-Benchmark owner decision, never a
-    default; test_published_revisions pins the revisions this keeps still."""
+    default; test_published_revisions pins the revisions this keeps still. ARC-AGI-2 is the
+    one row the owner opted in (OME-1476: its headline averages per task, not per grid)."""
 
-    assert [spec.key for spec in BENCHMARKS if spec.whole_run_metric is not None] == []
-    assert all(benchmarks._whole_run_metric_pins(spec) == () for spec in BENCHMARKS)
+    opted_in: list[str] = [spec.key for spec in BENCHMARKS if spec.whole_run_metric is not None]
+    assert opted_in == ["arc_agi_2"]
+    assert all(
+        benchmarks._whole_run_metric_pins(spec) == ()
+        for spec in BENCHMARKS
+        if spec.key not in opted_in
+    )
 
 
 def _spec(key: str = "gsm8k", **overrides: Any) -> BenchmarkSpec:

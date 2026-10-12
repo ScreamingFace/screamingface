@@ -263,7 +263,7 @@ inspect_evals eval such as `bbeh/`:
 
 | Piece | Where | What it is |
 |---|---|---|
-| dataset loader | `<name>.py` | a pinned fetch (Hub commit + sha256) rendered into `Sample`s: `input` is the exact Candidate-facing text, `target` the answer key (a list when there are aliases), `metadata` whatever the scorer needs |
+| dataset loader | `<name>.py` | a pinned fetch (Hub commit + sha256, or a URL through `inspect_ai.util.download(url, sha256)`, which the Case Source recorder wraps; ARC-AGI-2 fetches GitHub's zip at a commit) rendered into `Sample`s: `input` is the exact Candidate-facing text, `target` the answer key (a list when there are aliases), `metadata` whatever the scorer needs |
 | scorer(s) | `<name>.py` | `@scorer` functions, `(state, target) -> Score`; several scorers = several Named Scores, the first is the Headline |
 | the Task | `<name>.py` | `@task def <name>() -> Task(dataset=…, solver=generate(), scorer=[…])` |
 | vendored grading code | `vendor/` | the paper's own scorer when it has one, copied byte-for-byte below a header of ours that links to the upstream blob at the pinned commit (never the upstream docstring), with its licence and a sha256 test (`test_local_task_musique_vendor.py` is the template) |
@@ -312,6 +312,11 @@ on an earlier reply (medxpert's reason-then-commit): capture runs the Task's sol
 their first `generate`, so a second prompt that contains the first reply cannot be captured.
 Several *independent* Attempts per Case (pass@k, `Task.epochs`) are not that exception: the
 Engine asks each Case N times with the same prompt, and `OME-1458` brings it to both lanes.
+ARC-AGI-2 (`local_tasks/arc_agi_2/`, OME-1476) is the worked example of a local Task with both:
+`epochs=Epochs(2, "max")` becomes `attempts=2` (use `max`, not `pass_at_2`: a Case whose second
+Attempt failed reduces to nan under `pass_at_2` and the tally refuses the run), and a Task-level
+metric that averages per task is honoured with `--whole-run-metric honour`. Such a metric reads
+Sample metadata, so it must tolerate its absence too (ARC's counts each Case as its own task).
 
 ### Two network gotchas on a developer Mac
 

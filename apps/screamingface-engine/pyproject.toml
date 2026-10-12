@@ -125,10 +125,12 @@ target-version = "py312"
 #   - coverage: those branches are upstream's, not ours; the benchmark's own tests exercise the
 #     paths we call, and nobody should write tests for upstream's dead branches to lift a number.
 # Pins: ifeval → josejg/instruction_following_eval (its vendor/__init__.py); musique →
-# StonyBrookNLP/musique@922ac98f (tests/unit/inspect/test_local_task_musique_vendor.py).
+# StonyBrookNLP/musique@922ac98f (tests/unit/inspect/test_local_task_musique_vendor.py);
+# arc_agi_2 → arcprize/arc-agi-benchmarking@9e2828fb (test_local_task_arc_agi_2_vendor.py).
 extend-exclude = [
     "src/screamingface_engine/benchmarks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
+    "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
 ]
 
 [tool.ruff.lint]
@@ -156,6 +158,7 @@ known-first-party = [
 ignore = [
     "src/screamingface_engine/benchmarks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
+    "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
 ]
 
 [tool.pytest.ini_options]
@@ -179,6 +182,7 @@ markers = [
 omit = [
     "src/screamingface_engine/benchmarks/ifeval/vendor/*",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor/*",
+    "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor/*",
 ]
 
 [dependency-groups]

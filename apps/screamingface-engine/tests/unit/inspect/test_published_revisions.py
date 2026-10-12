@@ -35,6 +35,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "squad": "d0075817a5457cfb",
     # OME-1513: the first LOCAL Task (our own eval in inspect's shape, not an inspect_evals import).
     "musique": "1ae798e073477a54",
+    # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
+    "arc_agi_2": "4f831492ca42fdf4",
     "math": "1963559fac28e4a1",
     "mmlu": "1e42325597dee3d6",
     "arc_easy": "5f063684bf708ca1",
