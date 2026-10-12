@@ -1,0 +1,45 @@
+2-line prose pairs (valid CSV)   'red,green\nblue,yellow'                 -> ['{"red": "blue", "green": "yellow"}']
+city list                        'Paris,France\nTokyo,Japan\nLima,Peru'   -> ['{"Paris": "Tokyo", "France": "Japan"}', '{"Paris": "Lima", "France": "Peru"}']
+dup header                       'a,a\n1,2'                               -> ['{"a": "2"}']
+numeric text lines               '2.50\n3.10'                             -> ['2.5', '3.1']
+exp text                         '1e3\n2'                                 -> ['1000.0', '2']
+NaN lines                        'NaN\nInfinity'                          -> ['NaN', 'Infinity']
+quoted text lines                '"a"\n"b"'                               -> ['a', 'b']
+json arr 1 elem                  '["x"]'                                  -> ['x']
+json arr nested str vs obj 1     '[{"a":1}]'                              -> ['{"a": 1}']
+json arr nested str vs obj 2     '["{\\"a\\": 1}"]'                       -> ['{"a": 1}']
+num vs str 1                     '[1]'                                    -> ['1']
+num vs str 2                     '["1"]'                                  -> ['1']
+ndjson scalars                   '1\n"x"\nnull'                           -> ['1', 'x', 'null']
+single line scalar               'hello'                                  -> 'ERR(malformed_source: collection source resolved to a scalar value, not an iterabl)'
+single ndjson obj                '{"a":1}'                                -> 'ERR(malformed_source: iteration over a JSON object is malformed — a collection mus)'
+two ndjson objs                  '{"a":1}\n{"a":2}'                       -> ['{"a": 1}', '{"a": 2}']
+html w/o doctype                 '<head><title>x</title></head>\n<body>404</body>' -> ['<head><title>x</title></head>', '<body>404</body>']
+CR only                          'a\rb\rc'                                -> 'ERR(malformed_source: collection source resolved to a scalar value, not an iterabl)'
+header w/ quoted comma           '"a,b",c\n1,2'                           -> ['{"a,b": "1", "c": "2"}']
+pretty json obj                  '{\n "a": 1\n}'                          -> 'ERR(malformed_source: iteration over a JSON object is malformed — a collection mus)'
+pretty json obj broken           '{\n "a": 1,\n}'                         -> ['{', '"a": 1,', '}']
+json arr with junk               '[1,2] trailing\nmore'                   -> ['[1,2] trailing', 'more']
+
+declared application/jsonl                '[1]\n' or csv -> "ERR(malformed_source: unsupported content type 'application/jsonl' for collection )"
+declared application/json; charset=utf-8  '[1]\n' or csv -> ['1']
+declared text/html                        '[1]\n' or csv -> "ERR(malformed_source: unsupported content type 'text/html' for collection parsing)"
+declared application/ld+json              '[1]\n' or csv -> "ERR(malformed_source: unsupported content type 'application/ld+json' for collectio)"
+declared text/csv                         '[1]\n' or csv -> ['{"a": "1", "b": "2"}']
+declared csv ragged: ['{"a": "1", "b": "2", "null": ["3"]}', '{"a": "4", "b": null}']
+declared csv dup: ['{"a": "2"}']
+
+--- substitute_item double substitution
+'A={"a": "$item"} B={"a": "$item"}'
+'A=$item.b B=X'
+--- _substitute: row value re-scanned by env pass
+'Q=TOPSECRET'
+'row=price $5 and $1'
+--- response vars: value containing $name
+'A=says $b B=BBB'
+--- blob spans shifted by inserted value: path value with '}' 
+'{"x": "}", "y": "{\\"a\\": \\"}\\"}"}'
+valid
+'{ {"y": "{"a": "{"}"}'
+--- _rows_to_json
+[[NaN], "1", {"a": 1}, "", "[x"]

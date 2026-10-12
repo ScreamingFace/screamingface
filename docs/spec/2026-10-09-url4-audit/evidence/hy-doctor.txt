@@ -1,0 +1,71 @@
+
+hygiene 1.0.0 - environment
+───────────────────────────
+python         3.14.7
+git            git version 2.50.1 (Apple Git-155)
+repo           yes  (2148 commits, since 2026-03-10)
+
+dead code / unused exports
+──────────────────────────
+  · knip
+  · ts-prune
+  · vulture
+  · deadcode
+  · staticcheck
+  · cargo-machete
+  · cargo-udeps
+  · periphery
+  · debride
+
+dependencies
+────────────
+  · depcheck
+  · deptry
+  ✓ npm
+  · pip-audit
+  · cargo
+  · mvn
+
+duplication / complexity
+────────────────────────
+  · jscpd
+  · lizard
+  · gocyclo
+  · pmd
+
+architecture / coupling
+───────────────────────
+  · depcruise
+  · madge
+  · lint-imports
+  · maat
+
+structural search / codemod
+───────────────────────────
+  · semgrep
+  · ast-grep
+  · comby
+  · jscodeshift
+
+repo hygiene
+────────────
+  · git-sizer
+  · gitleaks
+  · trufflehog
+  ✓ gh
+  · scc
+  · tokei
+
+mutation testing
+────────────────
+  · mutmut
+  · stryker
+  · cargo-mutants
+  · pitest
+
+what you can do right now
+─────────────────────────
+  always  every hygiene.py subcommand (stdlib only, no external tools needed)
+  missing semgrep      pip install semgrep
+  missing vulture      pip install vulture
+  missing ts-prune     npm install -g ts-prune

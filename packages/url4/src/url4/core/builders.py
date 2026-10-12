@@ -33,18 +33,24 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from typing import cast
 
-from url4.core._annotations import _VALID_ON_ERROR
-from url4.core.grammar import _IDENT_RE, _STRUCT_KEY_RE, intent_atom, parse, parse_value
+from url4.core._annotations import (
+    _VALID_ON_ERROR,
+    checked_retries,
+    checked_timeout,
+    directives_from_fields,
+)
+from url4.core._lexical import _IDENT_RE, _STRUCT_KEY_RE, chained_bang
+from url4.core.errors import ParseError
+from url4.core.grammar import intent_atom, parse, parse_value
 from url4.core.nodes import (
     Binding,
     Expression,
     IdentityRef,
     Iteration,
     IterationDirectives,
+    NamedJob,
     Node,
-    OnErrorPolicy,
     Params,
     RelUrl,
     SelfRef,
@@ -205,15 +211,11 @@ def _exec_annotations(
 
 
 def _timeout_text(t: float | int) -> str:
-    if t <= 0:
-        raise ValueError(f"per-source timeout t={t!r} must be positive")
-    return _format_number(t)
+    return _format_number(checked_timeout(t))
 
 
 def _retry_text(retry: int) -> str:
-    if retry < 0:
-        raise ValueError(f"retry={retry!r} must be >= 0")
-    return str(retry)
+    return str(checked_retries(retry))
 
 
 def _pairs(extra: ParamsLike) -> Params:
@@ -319,12 +321,18 @@ def expr(
 
 def _intent_node(intent: str | Node) -> Node:
     if isinstance(intent, str):
+        if chained_bang(intent) is not None:
+            # D-1b: a string intent is url4 syntax, and a bare value ends at '!'.
+            raise ParseError(
+                f"intent {intent!r} holds an unquoted '!', where a url4 intent ends "
+                f"(Spec B §8); pass text({intent!r}) to send it as literal prompt text"
+            )
         return intent_atom(intent)
-    if isinstance(intent, (Text, Url, RelUrl)):
+    if isinstance(intent, (Text, NamedJob, Url, RelUrl)):
         return intent
     raise TypeError(
         f"{type(intent).__name__} cannot be an intent — the grammar's intent forms "
-        "are text (prompt) and URIs (code pointers), §6"
+        "are text (prompt), named jobs and URIs (code pointers), §6"
     )
 
 
@@ -427,14 +435,13 @@ def _directives(
         )
     if slice is not None and not (0 <= slice[0] <= slice[1]):
         raise ValueError(f"iteration.slice={slice!r} needs 0 <= start <= end")
-    return IterationDirectives(
-        concurrency=concurrency,
-        # The membership check above is the runtime proof; the cast records it
-        # for the type system, which cannot see through the `in` test.
-        on_error=cast(OnErrorPolicy, on_error) if on_error is not None else "collect",
-        slice=slice,
-        fmt_result=fmt_result,
-    )
+    given = {
+        "concurrency": concurrency,
+        "on_error": on_error,
+        "slice": slice,
+        "fmt_result": fmt_result,
+    }
+    return directives_from_fields({key: value for key, value in given.items() if value is not None})
 
 
 # --- expand() ---------------------------------------------------------------------------------

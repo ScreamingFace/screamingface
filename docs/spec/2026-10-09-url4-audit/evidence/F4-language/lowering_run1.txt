@@ -1,0 +1,55 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________________________ test_text_and_ast_paths_agree _________________________
+
+    @S
+>   @given(grammar_text)
+                   ^^^
+
+test_lowering_equiv.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+s = '/claude()!()!/reduce'
+
+    @S
+    @given(grammar_text)
+    @example("(a=https://a.io, /claude($a)!go)!sum")
+    @example("(x, (/p(https://n)!'go')!merge)!top")
+    def test_text_and_ast_paths_agree(s):
+        pair = observe_pair(s)
+        assume(pair is not None)
+        (r_text, f_text), (r_ast, f_ast) = pair
+>       assert r_text == r_ast, f"result differs for {s!r}:\n text={r_text}\n  ast={r_ast}"
+E       AssertionError: result differs for '/claude()!()!/reduce':
+E          text=('ok', '</claude?q=()!%28%29>')
+E           ast=('ok', 'LLM[[Response 1]\n</claude?q=()!%28%29>\n\n[Instruction]\n</reduce>|]')
+E       assert ('ok', '</cla...q=()!%28%29>') == ('ok', 'LLM[[...n</reduce>|]')
+E         
+E         At index 1 diff: '</claude?q=()!%28%29>' != 'LLM[[Response 1]\n</claude?q=()!%28%29>\n\n[Instruction]\n</reduce>|]'
+E         Use -v to get more diff
+E       Failing test case: test_text_and_ast_paths_agree(
+E           s='/claude()!()!/reduce',
+E       )
+E       Explanation:
+E           These lines were always and only run by failing test cases:
+E               /Users/junior/workspace/screamingface/packages/url4/src/url4/dag/_wiring.py:182
+E               /Users/junior/workspace/screamingface/packages/url4/src/url4/dag/_wiring.py:194
+
+test_lowering_equiv.py:79: AssertionError
+=============================== warnings summary ===============================
+test_lowering_equiv.py::test_text_and_ast_paths_agree
+  /private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:180: HypothesisWarning: Generating overly large repr. This is an expensive operation, and with a length of 110 kB is unlikely to be useful. Use -Wignore to ignore the warning, or -Werror to get a traceback.
+    self.__representation = repr_call(
+
+test_lowering_equiv.py::test_text_and_ast_paths_agree
+  /private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:180: HypothesisWarning: Generating overly large repr. This is an expensive operation, and with a length of 770 kB is unlikely to be useful. Use -Wignore to ignore the warning, or -Werror to get a traceback.
+    self.__representation = repr_call(
+
+test_lowering_equiv.py::test_text_and_ast_paths_agree
+  /private/tmp/claude-501/-Users-junior-workspace-screamingface/8818f0aa-a352-4aaa-880e-23f676850dd5/scratchpad/url4-audit/F4-language/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:180: HypothesisWarning: Generating overly large repr. This is an expensive operation, and with a length of 797 kB is unlikely to be useful. Use -Wignore to ignore the warning, or -Werror to get a traceback.
+    self.__representation = repr_call(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED test_lowering_equiv.py::test_text_and_ast_paths_agree - AssertionError...
+1 failed, 3 warnings in 7.85s

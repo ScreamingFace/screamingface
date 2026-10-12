@@ -29,6 +29,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 
+from url4.cli._command import run_command
 from url4.cli._config import _HEALTH_PATH, ConfigError, ProviderSpec, ServeConfig, resolve
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.layer import resolve_shelf
@@ -102,7 +103,7 @@ def make_command_handler(
     async def handler(request: Request) -> str:
         command = _subst_all(template, request)
         piped = request.intent if want_intent else request.context
-        return await _run_command(command, piped, timeout)
+        return await run_command(command, piped, timeout)
 
     return handler
 
@@ -132,39 +133,6 @@ def _subst_all(template: Sequence[str], request: Request) -> list[str]:
     return [_SUBST_TOKEN_RE.sub(replacement, token) for token in template]
 
 
-async def _run_command(command: list[str], stdin_text: str, timeout: float) -> str:
-    """Run one argv to completion and return its stdout (stdout is the result).
-
-    # CONTRACT: a timeout kills the process and raises a NON-permanent
-    # :class:`~url4.core.errors.ResolutionError`, so a `;retry=N` source retries it.
-    # The engine cannot tell "did not run" from "ran but the answer was lost", so
-    # commands MUST be idempotent.
-    """
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *command,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except OSError as exc:
-        raise ResolutionError(f"command {command[0]!r} failed to start: {exc}") from exc
-    try:
-        out, err = await asyncio.wait_for(proc.communicate(stdin_text.encode()), timeout)
-    except TimeoutError:
-        proc.kill()
-        await proc.wait()
-        raise ResolutionError(f"command {command[0]!r} timed out after {timeout}s") from None
-    if proc.returncode != 0:
-        raise ResolutionError(
-            f"command {command[0]!r} exited {proc.returncode}: "
-            f"{err.decode(errors='replace')[:500].strip()}"
-        )
-    # errors='replace': a command that emits non-UTF-8 bytes must not escape the
-    # handler's ResolutionError contract as a raw UnicodeDecodeError (→ bare 500).
-    return out.decode(errors="replace")
-
-
 # --- read-side providers ----------------------------------------------------------
 
 
@@ -186,7 +154,7 @@ async def _provide(spec: ProviderSpec, timeout: float, collection: str | None = 
             raise ResolutionError(f"data file {spec.file!r} cannot be read: {exc}") from exc
     if spec.command is not None:
         argv = [token.replace("{collection}", collection or "") for token in spec.command]
-        return await _run_command(argv, "", timeout)
+        return await run_command(argv, "", timeout)
     # Unreachable: _as_provider guarantees exactly one source is set.
     raise ResolutionError("provider declares no source")  # pragma: no cover
 
@@ -293,10 +261,15 @@ async def _serve_http(base, scope, receive, send, state, config: ServeConfig) ->
         return
     state["inflight"] += 1
     guard = _StartGuard(send)
+    # WHY the context manager is bound to a name: `expired()` is the only way to tell
+    # the request deadline apart from a TimeoutError the handler raised itself.
+    deadline = asyncio.timeout(config.timeout)
     try:
-        async with asyncio.timeout(config.timeout):
+        async with deadline:
             await base(scope, receive, guard.send)
     except TimeoutError:
+        if not deadline.expired():
+            raise
         if not guard.started:  # nothing sent yet — the node computes the body before sending
             await _send_error(
                 send, 504, ErrorCode.TIMEOUT, f"evaluation exceeded {config.timeout}s"

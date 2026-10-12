@@ -1,0 +1,14 @@
+/echo(x)!'literal $$a'                     scope=none     -> ctx=x|intent=literal $a
+/echo(x)!'literal $$a'                     scope=a=BOUND  -> ctx=x|intent=literal BOUND
+/echo(x)!'literal $$$$a'                   scope=none     -> ctx=x|intent=literal $a
+/echo(x)!'literal $$$$a'                   scope=a=BOUND  -> ctx=x|intent=literal $a
+/echo(literal $$a)!'go'                    scope=none     -> ctx=literal $a|intent=go
+/echo(literal $$a)!'go'                    scope=a=BOUND  -> ctx=literal $a|intent=go
+(a: 'BOUND', /echo(x)!'literal $$a')!'go'  scope=none     -> go
+
+a: BOUND
+ctx=x|intent=literal $a
+(a: 'BOUND', /echo(x)!'literal $$a')!'go'  scope=a=BOUND  -> go
+
+a: BOUND
+ctx=x|intent=literal BOUND

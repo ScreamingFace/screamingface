@@ -1,0 +1,24 @@
+
+fm check - url4 serve admission + subprocess reaping
+────────────────────────────────────────────────────
+  invariants : inflight_nonneg, inflight_le_max, inflight_equals_active, released_at_most_once, done_means_released, live_children_le_inflight
+  steps      : no_child_outlives_its_request  (checked on every transition)
+  eventually : slot_can_free  (checked as AG EF)
+  scope      : INNER_TIMEOUT_FIRST=0, KILL_ON_CANCEL=1, MAX=1, N=2
+  fingerprint: bb527469abb0  (record it; per property: --json or fm compare)
+  states     : 58
+  diameter   : 7
+  ✓ slot_can_free: reachable from every reachable state (AG EF)
+    that is 'still POSSIBLE', not 'will happen'. For a guarantee use LEADS_TO + FAIR.
+
+  ! declared failure action(s) never fired: inner_timeout_kill_0, inner_timeout_kill_1
+    a failure the model cannot reach is a failure it does not check.
+
+  ! SOURCE links that do not hold:
+    inner_timeout_kill_0: label never fired
+    inner_timeout_kill_1: label never fired
+
+✓ all invariants hold across 58 reachable states
+  note: this is a BOUNDED result. It proves nothing about larger scopes.
+
+  claim  No counterexample within this scope (INNER_TIMEOUT_FIRST=0, KILL_ON_CANCEL=1, MAX=1, N=2; 58 states). Bounded: it says nothing about larger scopes. slot_can_free: still POSSIBLE from every state - not a guarantee that it happens.

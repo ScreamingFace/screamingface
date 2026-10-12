@@ -1,0 +1,142 @@
+FF...FFFF....FFF                                                         [100%]
+=================================== FAILURES ===================================
+______________________ test_item_path_value_not_rescanned ______________________
+test_props.py:50: in test_item_path_value_not_rescanned
+    @given(v=ANY)
+                  
+test_props.py:54: in test_item_path_value_not_rescanned
+    assert out == f"<{v}>"
+E   assert '<{"a": "$item"}>' == '<$item>'
+E     
+E     - <$item>
+E     + <{"a": "$item"}>
+E   Failing test case: test_item_path_value_not_rescanned(
+E       v='$item',
+E   )
+_________________ test_row_value_opaque_through_leaf_pipeline __________________
+test_props.py:58: in test_row_value_opaque_through_leaf_pipeline
+    @given(v=ANY)
+                  
+test_props.py:62: in test_row_value_opaque_through_leaf_pipeline
+    assert _substitute("Q=$item.q", scope, _Strict()) == f"Q={v}"
+E   assert 'Q={"q": "$item"}' == 'Q=$item'
+E     
+E     - Q=$item
+E     + Q={"q": "$item"}
+E   Failing test case: test_row_value_opaque_through_leaf_pipeline(
+E       v='$item',
+E   )
+___________________ test_blob_after_path_value_is_valid_json ___________________
+test_props.py:93: in test_blob_after_path_value_is_valid_json
+    @given(prefix=ANY, v=ANY)
+                   ^^^
+test_props.py:99: in test_blob_after_path_value_is_valid_json
+    assert json.loads(tail) == {"k": row}
+           ^^^^^^^^^^^^^^^^
+/Users/junior/.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/json/__init__.py:352: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/json/decoder.py:345: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/junior/.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/json/decoder.py:361: in raw_decode
+    obj, end = self.scan_once(s, idx)
+               ^^^^^^^^^^^^^^^^^^^^^^
+E   json.decoder.JSONDecodeError: Expecting ',' delimiter: line 1 column 10 (char 9)
+E   Failing test case: test_blob_after_path_value_is_valid_json(
+E       prefix='{',
+E       v='',
+E   )
+_____________________ test_json_array_items_are_injective ______________________
+test_props.py:106: in test_json_array_items_are_injective
+    @given(items=st.lists(st.one_of(st.text(max_size=8), st.integers(), st.none(),
+                   ^^^
+test_props.py:115: in test_json_array_items_are_injective
+    assert parse_collection(json.dumps(items)) != parse_collection(other)
+E   assert ['0'] != ['0']
+E    +  where ['0'] = parse_collection('[0]')
+E    +    where '[0]' = <function dumps at 0x106c6b240>([0])
+E    +      where <function dumps at 0x106c6b240> = json.dumps
+E    +  and   ['0'] = parse_collection('["0"]')
+E   Failing test case: test_json_array_items_are_injective(
+E       items=[0],
+E   )
+_______________________ test_plain_lines_count_preserved _______________________
+test_props.py:119: in test_plain_lines_count_preserved
+    @given(lines=st.lists(st.from_regex(r"[A-Za-z]{1,6},[A-Za-z]{1,6}", fullmatch=True),
+                   ^^^
+test_props.py:123: in test_plain_lines_count_preserved
+    assert len(parse_collection("\n".join(lines))) == len(lines)
+E   assert 1 == 2
+E    +  where 1 = len(['{"A": "A"}'])
+E    +    where ['{"A": "A"}'] = parse_collection('A,A\nA,A')
+E    +      where 'A,A\nA,A' = <built-in method join of str object at 0x101994558>(['A,A', 'A,A'])
+E    +        where <built-in method join of str object at 0x101994558> = '\n'.join
+E    +  and   2 = len(['A,A', 'A,A'])
+E   Failing test case: test_plain_lines_count_preserved(
+E       lines=['A,A', 'A,A'],
+E   )
+______________________ test_numeric_text_lines_round_trip ______________________
+test_props.py:127: in test_numeric_text_lines_round_trip
+    @given(lines=st.lists(st.from_regex(r"[0-9]{1,3}\.[0-9]{1,2}0", fullmatch=True),
+                   ^^^
+test_props.py:131: in test_numeric_text_lines_round_trip
+    assert parse_collection("\n".join(lines)) == lines
+E   AssertionError: assert ['0.0', '0.0'] == ['0.00', '0.00']
+E     
+E     At index 0 diff: '0.0' != '0.00'
+E     Use -v to get more diff
+E   Failing test case: test_numeric_text_lines_round_trip(
+E       lines=['0.00', '0.00'],
+E   )
+_____________________ test_quorum_counts_resolved_sources ______________________
+test_props.py:223: in test_quorum_counts_resolved_sources
+    @given(
+            
+test_props.py:249: in test_quorum_counts_resolved_sources
+    assert raised == (resolved < quorum)
+E   assert True == (1 < 1)
+E   Failing test case: test_quorum_counts_resolved_sources(
+E       slots=[('ok', True)],
+E       quorum=1,
+E   )
+_________________________ test_fanout_quorum_enforced __________________________
+test_props.py:266: in test_fanout_quorum_enforced
+    @given(n=st.integers(2, 4), data=st.data())
+                   ^^^
+test_props.py:282: in test_fanout_quorum_enforced
+    assert raised == (successes < quorum)
+E   assert False == (1 < 2)
+E   Failing test case: test_fanout_quorum_enforced(
+E       n=2,
+E       data=data(...),
+E   )
+E   Draw 1: {0}
+E   Draw 2: 2
+_________________ test_broadcast_omits_failed_optional_sources _________________
+test_props.py:286: in test_broadcast_omits_failed_optional_sources
+    @given(n=st.integers(2, 3), data=st.data())
+                   ^^^
+test_props.py:297: in test_broadcast_omits_failed_optional_sources
+    assert sorted(p["source_position"] for p in parts) == [i + 1 for i in range(n) if i not in fail]
+E   assert [1, 2] == [2]
+E     
+E     At index 0 diff: 1 != 2
+E     Left contains one more item: 2
+E     Use -v to get more diff
+E   Failing test case: test_broadcast_omits_failed_optional_sources(
+E       n=2,
+E       data=data(...),
+E   )
+E   Draw 1: {0}
+=========================== short test summary info ============================
+FAILED test_props.py::test_item_path_value_not_rescanned - assert '<{"a": "$i...
+FAILED test_props.py::test_row_value_opaque_through_leaf_pipeline - assert 'Q...
+FAILED test_props.py::test_blob_after_path_value_is_valid_json - json.decoder...
+FAILED test_props.py::test_json_array_items_are_injective - assert ['0'] != [...
+FAILED test_props.py::test_plain_lines_count_preserved - assert 1 == 2
+FAILED test_props.py::test_numeric_text_lines_round_trip - AssertionError: as...
+FAILED test_props.py::test_quorum_counts_resolved_sources - assert True == (1...
+FAILED test_props.py::test_fanout_quorum_enforced - assert False == (1 < 2)
+FAILED test_props.py::test_broadcast_omits_failed_optional_sources - assert [...
+9 failed, 7 passed in 1.78s

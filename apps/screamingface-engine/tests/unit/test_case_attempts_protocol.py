@@ -123,6 +123,36 @@ def test_a_candidate_invocation_the_rewrite_cannot_reach_is_refused_at_build() -
     preserve_candidate_outcome(candidate_invocation=hidden, grading=_GRADING, case_id="1")
 
 
+def test_an_unreachable_candidate_invocation_beside_a_reachable_one_is_refused() -> None:
+    # INVARIANT: every Candidate Invocation in Attempt 2 carries its number, not just one.
+    # Stand-in: a reasoning turn nested inside an `iterate` binding (a node kind the rewrite
+    # does not walk) beside a reachable final Candidate Invocation, the MedXpertQA shape. The
+    # final call would be numbered, but the reasoning call would keep Attempt 1's cache identity,
+    # so Attempt 2 would reuse Attempt 1's reasoning answer.
+    reasoning = iterate(
+        [struct({"question": "What is 6 times 7?"})],
+        body=(src(_CANDIDATE_INVOCATION, name="answer", weight=0.0),),
+        intent=Text("$answer"),
+    )
+    bindings = (src(reasoning, name="reasoning", weight=0.0),)
+
+    with pytest.raises(ValueError, match="Attempt 2 numbered 1 of 2 Candidate Invocations"):
+        preserve_candidate_outcome(
+            candidate_invocation=_CANDIDATE_INVOCATION,
+            grading=_GRADING,
+            case_id="1",
+            bindings=bindings,
+            attempts=2,
+        )
+    # One Attempt carries no number, so the same nodes still build.
+    preserve_candidate_outcome(
+        candidate_invocation=_CANDIDATE_INVOCATION,
+        grading=_GRADING,
+        case_id="1",
+        bindings=bindings,
+    )
+
+
 def test_attempt_two_carries_the_attempt_param_and_one_does_not() -> None:
     rendered: str = render(_case(2))
 

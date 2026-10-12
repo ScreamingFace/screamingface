@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import pytest
 
+from url4.core._annotations import parse_query_tail
 from url4.core.errors import ParseError
 from url4.core.grammar import parse
 from url4.core.nodes import RelExpr
@@ -160,3 +161,46 @@ def test_flag_key_is_still_charset_checked() -> None:
     # The key is a `param-key` whether or not a value follows it.
     with pytest.raises(ParseError, match="param"):
         extract_expression_params("we-ird&q=(a)!'go'")
+
+
+# --- query-tail (url4 2.0 code pointers, contracts C7) -----------------------------
+
+# FEATURE: a code pointer's query tail is read by its own reader, not by
+# `param-value`. It admits the wider `query-tail` charset (so `+`, `@`, `?` and
+# `=` survive), percent-decoding is NOT applied (the expression text is already
+# decoded, B §7.4), no key is reserved, and a duplicate key is refused.
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("", {}),
+        (
+            "reducer=vote&extract=last_number@1&sep=a+b&dry",
+            {"reducer": "vote", "extract": "last_number@1", "sep": "a+b", "dry": ""},
+        ),
+        ("k=a=b", {"k": "a=b"}),
+        ("q=1&t=2&rid=3", {"q": "1", "t": "2", "rid": "3"}),
+        ("a=1", {"a": "1"}),
+        ("flag", {"flag": ""}),
+    ],
+)
+def test_legal_query_tail_is_read(text: str, expected: dict[str, str]) -> None:
+    assert parse_query_tail(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "x=1,2",
+        "x=%40",
+        "a=1&a=2",
+        "&a=1",
+        "a=1&",
+        "=v",
+        "a=1&&b=2",
+    ],
+)
+def test_illegal_query_tail_is_refused_and_named(text: str) -> None:
+    with pytest.raises(ParseError, match=text):
+        parse_query_tail(text)

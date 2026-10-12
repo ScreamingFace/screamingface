@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1571",
+  "branch": "OME-1571-report-pagination",
+  "approver": "owner",
+  "date": "2026-10-11",
+  "scope": "Only the notebook-extra allowlist test: permit exactly ipywidgets and ipyevents, independent of order, and add the rationale. All other inherited tests and assertions are unchanged.",
+  "reason": "Owner explicitly approved the optional notebook dependency and existing test update in this chat on 2026-10-11. ipyevents synchronizes Case-click focus with the kernel and its sole runtime dependency is ipywidgets; JupyterLab/authoring tooling remains excluded.",
+  "files": {
+    "packages/screamingface/tests/test_public_surface.py": {
+      "base_blob": "dcd448f96b8e0d706db574a2d59fb06b744a89d1",
+      "approved_blob": "19ad25b068561d834c08dbff1fb11bb6361b6143"
+    }
+  }
+}

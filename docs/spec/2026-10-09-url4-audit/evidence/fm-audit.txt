@@ -1,0 +1,129 @@
+
+fm audit - 65 source files under packages/url4/src
+──────────────────────────────────────────────────
+
+loop-invariant  (21 files)
+  Mutating loop with no stated invariant
+  concept   Loop invariant I: {I ∧ b} C {I}, and I ∧ ¬b ⟹ postcondition
+  do this   Write I as a comment above the loop. Then write the VARIANT: the non-negative integer that strictly decreases. No variant, no termination proof. `fm prove` checks a variant for you if you define one.
+  reference references/invariants-and-contracts.md
+    url4/core/_scan.py:40  while j < n:
+    url4/core/_scan.py:70  while i < n:
+    url4/core/_scan.py:102  while i < n:
+    ... 18 more
+
+guard-complexity  (10 files)
+  Boolean guard with >=3 connectives
+  concept   Propositional logic - 2^n cases
+  do this   Write the truth table with `fm equiv`. Negate with De Morgan, never by hand. Check for an unreachable or duplicated row; that row is usually the bug.
+  reference references/invariants-and-contracts.md
+    url4/observe.py:207  if not isinstance(amount, Decimal) or not amount.is_finite() or amount < 0:
+    url4/core/_scan.py:198  if ch == "*" and text[i + 1 : i + 2] == "(" and not (skip_leading and i == 0):
+    url4/core/builders.py:111  if not isinstance(key, str) or not _STRUCT_KEY_RE.fullmatch(key):
+    ... 7 more
+
+idempotence  (8 files)
+  Retry / at-least-once delivery
+  concept   Idempotence: f(f(x)) = f(x)
+  do this   Exactly-once delivery is impossible (Two Generals). Make PROCESSING idempotent: dedup key + idempotent write. Prove f∘f = f with `fm laws`.
+  reference references/concurrency-distribution.md
+    url4/core/_annotations.py:32  {"mode", "retry", "required", "optional", "accept", "expand", "coord"}
+    url4/core/builders.py:142  retry: int | None = None,
+    url4/dag/_lowering.py:378  optional, timeout, retries = guard
+    ... 5 more
+
+merge-conflict  (5 files)
+  Conflict resolution / merge of replicated state
+  concept   Join-semilattice: merge must be Associative, Commutative, Idempotent
+  do this   Each ACI law defends against one network failure: idempotent↔retries, commutative↔reordering, associative↔batching. Verify with `fm laws`.
+  reference references/lattices-and-fixpoints.md
+    url4/core/parser.py:353  merged = _merge_directives(inner_directives, directives)
+    url4/dag/__init__.py:48  MergeNode,
+    url4/dag/_wiring.py:32  MergeNode,
+    ... 2 more
+
+class-invariant  (5 files)
+  Class '_ObsState': 2 mutators, no invariant check
+  concept   Class invariant: holds after the constructor and after every public method
+  do this   Add _check_invariants() and call it at the end of every mutator under a debug flag. This is the cheapest formal method that exists and it finds real bugs.
+  reference references/invariants-and-contracts.md
+    url4/dag/_context.py:56  class _ObsState:
+    url4/io/http.py:17  class HttpIOLayer:
+    url4/cli/_serve.py:308  class _StartGuard:
+    ... 2 more
+
+concurrency  (4 files)
+  Shared-state concurrency primitives
+  concept   Linearizability / interference (rely-guarantee)
+  do this   State the correctness condition (linearizable? serializable?) and the progress condition. Identify each operation's linearization point.
+  reference references/concurrency-distribution.md
+    url4/observe.py:353  _log_drop_lock = threading.Lock()
+    url4/dag/_context.py:134  self._sem = asyncio.Semaphore(limit)
+    url4/dag/executor.py:176  values = await asyncio.gather(*(self._run(dep, None) for dep in node.deps.values()))
+    ... 1 more
+
+timeout-assume-fail  (4 files)
+  Timeout handled as 'it did not happen'
+  concept   A timeout is a NON-RESULT, not a negative result
+  do this   The call may have succeeded and the response been lost. Model both branches: timeout-but-succeeded and timeout-not-succeeded. That single missing action is the bug in examples/payment-capture.
+  reference references/concurrency-distribution.md
+    url4/dag/nodes/guard.py:85  except TimeoutError as exc:
+    url4/cli/_serve.py:154  except TimeoutError:
+    url4/streaming/lifecycle.py:227  except TimeoutError as exc:
+    ... 1 more
+
+ordering-dep  (2 files)
+  Dependency / ordering resolution
+  concept   Partial order; a cycle breaks antisymmetry
+  do this   This is a topological sort over a DAG. Detect cycles explicitly and report them - a back edge in DFS is a cycle.
+  reference references/data-model-relations.md
+    url4/core/errors.py:42  CYCLE_DETECTED = "cycle_detected"
+    url4/dag/_context.py:376  "ExecutionContext.spawn is not wired — execute nodes via url4.dag.run/Executor"
+
+state-machine  (2 files)
+  Status/state field with transition dispatch
+  concept   Labelled transition system (S, s0, →, F)
+  do this   Enumerate the transition relation as a set of triples. Every pair NOT in the set must be rejected, not ignored. Then `fm check`.
+  reference references/state-machines-and-temporal.md
+    url4/dag/_run.py:166  status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
+    url4/dag/executor.py:195  status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
+
+liveness  (1 file)
+  Polling / waiting for progress
+  concept   Liveness property - NOT refutable by any finite trace
+  do this   Testing can never establish this. It needs a fairness assumption; say whether it is weak or strong. Bound it into a safety property if you can.
+  reference references/state-machines-and-temporal.md
+    url4/streaming/testing/stream_contract.py:88  await asyncio.sleep(0)
+
+transaction-isolation  (1 file)
+  Transaction / isolation level
+  concept   Serializability - an execution is correct iff its dependency graph is acyclic
+  do this   Name the isolation level and the anomalies it admits. Snapshot isolation permits WRITE SKEW, which breaks most invariants people assume.
+  reference references/concurrency-distribution.md
+    url4/streaming/interfaces/jobs.py:22  it — the in-process runner's tasks begin as soon as they are created — reports ``running`` from
+
+hotspots - files that trip 3+ rules
+───────────────────────────────────
+  start the model here; these are where the bug classes overlap
+  3  url4/dag/executor.py
+     concurrency, loop-invariant, state-machine
+  3  url4/dag/_context.py
+     class-invariant, concurrency, ordering-dep
+  3  url4/cli/_serve.py
+     class-invariant, idempotence, timeout-assume-fail
+
+suggested order of work
+───────────────────────
+  1. state-machine          2 files
+  2. concurrency            4 files
+  3. transaction-isolation  1 file
+  4. merge-conflict         5 files
+  5. timeout-assume-fail    4 files
+  6. class-invariant        5 files
+  7. loop-invariant         21 files
+  8. guard-complexity       10 files
+  9. idempotence            8 files
+  10. liveness               1 file
+  11. ordering-dep           2 files
+
+next: `fm scaffold model -o model.py` then `fm check model.py`

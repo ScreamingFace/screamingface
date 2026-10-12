@@ -7,7 +7,7 @@
 # per Benchmark) through the OPENROUTER_API_KEY repo secret. It is a button the
 # owner presses after wrapper/gateway/route refactors or new imports — never a merge
 # gate, never on push/pull_request. The local twin is
-# `just screamingface test-paid-benchmarks [scope]`.
+# `just screamingface test-paid-benchmarks [scope] [benchmarks]`.
 name: ScreamingFace Paid Benchmark Smoke
 
 on:
@@ -24,6 +24,15 @@ on:
           - imported
           - hand-built
         default: all
+      # WHY free text beside the choice (OME-1522): smoking one new Benchmark should not
+      # pay for its whole kind. Filled in, it replaces `scope`; a name the live engine
+      # does not list fails the press before any paid call. Read only through env: below,
+      # never interpolated into a run: script.
+      benchmarks:
+        description: "Only these Benchmark ids, comma-separated (e.g. musique,inspect-gsm8k); overrides scope"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -80,7 +89,7 @@ jobs:
 
       # The engine serves the Imported Benchmarks only with the `benchmarks` extra
       # (uncoinstallable with the SDK's runtime extra), and every bundle comes from
-      # the engine's own preparer. Every bundle is prepared whatever the scope: one
+      # the engine's own preparer. Every bundle is prepared whatever is picked: one
       # cache entry serves every press, and a cache hit makes the extra ones free.
       # WHY the temp file, not `done < <(...)` (PR #1035 review): a failed
       # --list-bundles inside process substitution does NOT trip `set -e` — the loop
@@ -131,6 +140,7 @@ jobs:
       - name: Run the paid smoke over the picked Benchmarks
         env:
           SCREAMINGFACE_PAID_SCOPE: ${{ inputs.scope }}
+          SCREAMINGFACE_PAID_BENCHMARKS: ${{ inputs.benchmarks }}
           SCREAMINGFACE_TEST_PAID: "1"
           SCREAMINGFACE_PAID_REQUIRED: "1"
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

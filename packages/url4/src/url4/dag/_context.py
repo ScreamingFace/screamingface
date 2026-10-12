@@ -12,11 +12,14 @@ time; :mod:`url4.dag.node` re-exports every name here for compatibility.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import secrets
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from contextvars import ContextVar
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
+from url4.core.code import CodeCall, SupportsCode
 from url4.core.context import Context
 from url4.io.layer import (
     FetchRequest,
@@ -128,6 +131,8 @@ class BoundedIOLayer:
     fetch_ex: Callable[[FetchRequest], Awaitable[FetchResult]]
     fetch_holdings: Callable[[str | None, str | None], Awaitable[str]]
     processor_routes: Callable[[], Sequence[str]]
+    has_code: Callable[[str], bool]
+    invoke_code: Callable[[CodeCall], Awaitable[object]]
 
     def __init__(self, inner: IOLayer, limit: int) -> None:
         self._inner = inner
@@ -140,18 +145,67 @@ class BoundedIOLayer:
             # Not bounded: declaring routes is not I/O. Forwarded so a
             # `processor=` id still resolves through the wrapper (§27.3).
             self.processor_routes = inner.processor_routes
+        if isinstance(inner, SupportsCode):
+            # Not bounded either: in-process code is not I/O (url4 2.0 code mounts).
+            self.has_code, self.invoke_code = inner.has_code, inner.invoke_code
 
     async def fetch(self, target: str, *, relative: bool) -> str:
-        async with self._sem:
+        async with self._admitted():
             return await self._inner.fetch(target, relative=relative)
 
     async def _bounded_fetch_ex(self, request: FetchRequest) -> FetchResult:
-        async with self._sem:
+        async with self._admitted():
             return await self._inner.fetch_ex(request)  # type: ignore[attr-defined]
 
     async def _bounded_fetch_holdings(self, identity: str | None, collection: str | None) -> str:
-        async with self._sem:
+        async with self._admitted():
             return await self._inner.fetch_holdings(identity, collection)  # type: ignore[attr-defined]
+
+    @contextlib.asynccontextmanager
+    async def _admitted(self) -> AsyncIterator[None]:
+        """Hold the permit, and tell a watching guard when the wait ends (report C2)."""
+        probe = IO_ADMISSION.get()
+        if probe is not None:
+            probe.mark(issued=False)
+        async with self._sem:
+            if probe is not None:
+                probe.mark(issued=True)
+            yield
+
+
+class IoAdmission:
+    """What the fetches of one ``;t=``-guarded resolve did with the run-wide I/O permit.
+
+    WHY: ``;t=`` deliberately covers the wait for a :class:`BoundedIOLayer` permit (a
+    guarded source must finish by its deadline), so a deadline can expire before any
+    request was sent. The guard reads this probe to tell that case (``admission_timeout``:
+    the run's own cap was the cause) from a source that answered too slowly (``timeout``).
+    Child tasks copy the context, so they share this one mutable probe; a nested guard
+    chains to its ``parent`` so the outer guard sees the inner fetches too. A run without
+    a bounded layer never marks it, so its timeouts stay plain ``timeout``.
+    """
+
+    __slots__ = ("issued", "parent", "waited")
+
+    def __init__(self, parent: IoAdmission | None) -> None:
+        self.parent = parent
+        self.waited = False
+        self.issued = False
+
+    def mark(self, *, issued: bool) -> None:
+        probe: IoAdmission | None = self
+        while probe is not None:
+            probe.waited = True
+            probe.issued = probe.issued or issued
+            probe = probe.parent
+
+    @property
+    def starved(self) -> bool:
+        """A fetch waited for the permit and no fetch got one."""
+        return self.waited and not self.issued
+
+
+IO_ADMISSION: ContextVar[IoAdmission | None] = ContextVar("url4_io_admission", default=None)
 
 
 def _declared_default_route(io: IOLayer) -> str | None:
@@ -182,7 +236,10 @@ class ExecutionContext:
 
     Contexts are per-run — no state is shared across runs — but ``child``
     frames share the run's error tally so ``collected_errors`` totals
-    per-row failures captured under ``;iteration.on_error=collect``.
+    per-row failures captured under ``;iteration.on_error=collect``. A map row
+    counts on its own tally (:meth:`row_scoped`); the map adds a row's count
+    only when it keeps the row, so the total matches the error objects the
+    caller sees (audit A7).
     """
 
     def __init__(
@@ -227,13 +284,24 @@ class ExecutionContext:
         """Per-row failures captured under ``;iteration.on_error=collect`` this run."""
         return self._tally.count
 
-    def record_collected_error(self) -> None:
-        self._tally.count += 1
+    def record_collected_errors(self, n: int) -> None:
+        self._tally.count += n
 
-    def _clone(self, *, scope: Context, span_id: str | None) -> ExecutionContext:
+    def row_scoped(self) -> ExecutionContext:
+        """The same context with its own error tally, for one map row.
+
+        The row's captured errors stay off the run count until the map keeps the
+        row and adds them with :meth:`record_collected_errors`.
+        """
+        return self._clone(scope=self.scope, span_id=self._current_span_id, tally=_ErrorTally())
+
+    def _clone(
+        self, *, scope: Context, span_id: str | None, tally: _ErrorTally | None = None
+    ) -> ExecutionContext:
         """A copy of this context differing only in ``scope`` and the current
         observation span; every other field — io, processor, hooks, strictness,
-        self-collection, the shared error tally — is carried over."""
+        self-collection, the shared error tally (unless ``tally`` replaces it) —
+        is carried over."""
         return ExecutionContext(
             self.io,
             processor=self.processor,
@@ -241,7 +309,7 @@ class ExecutionContext:
             scope=scope,
             strict_fields=self.strict_fields,
             self_collection=self.self_collection,
-            _tally=self._tally,
+            _tally=tally if tally is not None else self._tally,
             _spawn_hook=self._spawn_hook,
             _execute_node_hook=self._execute_node_hook,
             _obs=self._obs,
