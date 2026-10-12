@@ -386,8 +386,9 @@ no model provider and no Tavily, and it costs nothing. Epic: OME-1307. Design:
   the echo. Only the run route honours the headers. A mount route and the local eval path answer
   `400` with `code: capture_unsupported` when either header is present, and run nothing.
 - **Capture.** Before the first step, the run opens a copy (`POST /v1/frozen-copies`). Each chat
-  call and each web-tool result sends `X-AIGW-Frozen-Copy: <id>`, `X-AIGW-Call-Occurrence: <n>`
-  and, for a call that belongs to a Case, `X-AIGW-Case-Key: <key>`. The case key names the Case and
+  call sends `X-AIGW-Frozen-Copy: <id>`. Each chat call and each web-tool result sends
+  `X-AIGW-Call-Occurrence: <n>` and, for a call that belongs to a Case, `X-AIGW-Case-Key: <key>`. A
+  web-tool result names its copy in the path. The case key names the Case and
   its Attempt. The occurrence counts the earlier calls of the same request in the same case key.
   The chat call records the `X-AIGW-Capture` answer of the gateway. Each web-tool result goes to
   the copy before the engine truncates it. After the last step, the run seals the copy and states
@@ -418,7 +419,11 @@ no model provider and no Tavily, and it costs nothing. Epic: OME-1307. Design:
 - **Replay failures.** A captured error fails the case as it failed in the original run. A `404`
   `frozen_copy_miss` fails the case with `frozen_copy_miss`. A `404` `frozen_copy_unavailable` (an
   unknown or unsealed copy, or a gateway without the replay routes) fails it with
-  `frozen_copy_unavailable`. A tool lookup that the copy cannot answer fails the case too.
+  `frozen_copy_unavailable`. A tool lookup that the copy cannot answer fails the case too. A failure
+  that the copy did not serve is permanent, with no retry, because a retry would read the next
+  occurrence: a chat call whose every transport attempt failed, a non-2xx answer without the
+  `X-AIGW-Replay` header, and a tool lookup with a transport error. These fail with
+  `frozen_copy_unavailable`.
 - **Proof of replay.** A replay run always writes `capture.replay = <id>`. Only an engine that
   honoured the header can write it, so a client treats a replay summary without it as unsupported.
 
