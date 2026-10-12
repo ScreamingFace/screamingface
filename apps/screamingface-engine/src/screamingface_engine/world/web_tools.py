@@ -312,8 +312,12 @@ async def _executed(tool_call: dict, runtime: WebToolRuntime | None) -> str:
     description = _tool_description(name, args, runtime)
     digest = request_digest(description)
     tally = current_capture_tally()
+    # INVARIANT (design §5.4): a frozen-copy call counts its occurrence in the run's tally, which
+    # the run path binds. Without one, every call would send occurrence 0: it fails loudly instead.
+    if tally is None:
+        raise RuntimeError("a frozen-copy tool call needs the run's capture tally bound")
     case_key = current_case_key()
-    occurrence = 0 if tally is None else tally.next_occurrence(case_key, "tool", digest)
+    occurrence = tally.next_occurrence(case_key, "tool", digest)
     if runtime.frozen.replay:
         return await runtime.frozen.lookup(description, case_key, occurrence)
     try:

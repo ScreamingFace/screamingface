@@ -1156,8 +1156,12 @@ async def _fetch_replay(
     """
     digest = request_digest(body)
     tally = current_capture_tally()
+    # INVARIANT (design §5.4): a replay call counts its occurrence in the run's tally, which the
+    # run path binds. Without one, every call would send occurrence 0, so the call fails loudly.
+    if tally is None:
+        raise RuntimeError("a frozen-copy replay call needs the run's capture tally bound")
     case_key = current_case_key()
-    occurrence = 0 if tally is None else tally.next_occurrence(case_key, "chat", digest)
+    occurrence = tally.next_occurrence(case_key, "chat", digest)
     key_headers = {CALL_OCCURRENCE_HEADER: str(occurrence)}
     if case_key:
         key_headers[CASE_KEY_HEADER] = case_key

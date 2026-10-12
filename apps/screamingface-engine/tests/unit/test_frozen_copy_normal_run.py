@@ -21,7 +21,11 @@ from frozen_copy_support import (
     tool_call,
 )
 
-from screamingface_engine.capture_outcomes import FROZEN_COPY_HEADER, REPLAY_OCCURRENCE_HEADER
+from screamingface_engine.capture_outcomes import (
+    CALL_OCCURRENCE_HEADER,
+    CASE_KEY_HEADER,
+    FROZEN_COPY_HEADER,
+)
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.world.config import ModelSpec
@@ -43,7 +47,11 @@ async def test_normal_run_is_byte_identical() -> None:
     assert gateway.paths().count(CHAT) == 2
     # WHY only the E14 names: every chat call also carries the gateway timeout headers
     # (`x-aigw-execution-timeout-s`, `x-aigw-queue-timeout-s`), which are not part of E14.
-    e14_headers = {FROZEN_COPY_HEADER.lower(), REPLAY_OCCURRENCE_HEADER.lower()}
+    e14_headers = {
+        FROZEN_COPY_HEADER.lower(),
+        CALL_OCCURRENCE_HEADER.lower(),
+        CASE_KEY_HEADER.lower(),
+    }
     for headers, body in gateway.calls(CHAT):
         assert not [name for name in headers if name.lower() in e14_headers]
         assert "cache" not in body
@@ -51,7 +59,7 @@ async def test_normal_run_is_byte_identical() -> None:
     assert tally.mode is None
     assert tally.frozen_copy_id is None
     assert tally.outcomes == []
-    assert tally.slots == {}
+    assert tally.occurrences == {}
 
 
 @pytest.mark.asyncio

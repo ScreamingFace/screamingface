@@ -1,9 +1,9 @@
 """E14 F-B3 review — replay slots, the no-avoided-cost accounting, and no model admission.
 
-FEATURE: OME-1307 (design §5.3 items 1, 1a, 2). The occurrence slot of a request is reserved when
-the call is sent and given back when it does not succeed, so concurrent identical requests get
-distinct entries. A replayed answer is accounted as served from the cache at $0 WITHOUT a saved-cost
-claim: nothing was avoided, the copy answered. A replay never asks the gateway to admit a model.
+FEATURE: OME-1307 (design §5.3 items 1, 1a, 2). The occurrence of a logical call is taken when the
+call is first sent and is never given back, so concurrent identical requests get distinct entries.
+A replayed answer is accounted as served from the cache at $0 WITHOUT a saved-cost claim: nothing
+was avoided, the copy answered. A replay never asks the gateway to admit a model.
 
 A separate module (append-only gate).
 """
@@ -31,7 +31,7 @@ from frozen_copy_support import (
 from screamingface_engine.world.accounting import OPENROUTER_CREDIT_UNIT
 from url4.observe import ModelResponse, ObservationEvent, Usage
 
-_OCCURRENCE = "X-AIGW-Replay-Occurrence"
+_OCCURRENCE = "X-AIGW-Call-Occurrence"
 
 
 def _two_identical_tool_calls() -> httpx.Response:
@@ -82,14 +82,15 @@ async def test_two_identical_concurrent_tool_lookups_get_occurrences_0_and_1() -
 
 
 @pytest.mark.asyncio
-async def test_a_reserved_slot_is_given_back_when_the_call_does_not_succeed() -> None:
+async def test_an_occurrence_is_never_given_back_when_the_call_does_not_succeed() -> None:
     gateway = Gateway(replay_steps=[error(500, "boom"), chat(), chat()])
 
     tally, _answer, failure = await run_call(gateway, replay_scope(), expressions=[EXPRESSION] * 3)
 
     assert failure is None
-    assert [h[_OCCURRENCE] for h, _b in gateway.calls(REPLAY_CHAT)] == ["0", "0", "1"]
-    assert sorted(tally.slots.values()) == [2]
+    assert [h[_OCCURRENCE] for h, _b in gateway.calls(REPLAY_CHAT)] == ["0", "1", "2"]
+    # One request, three logical calls: the counter stands at 3.
+    assert list(tally.occurrences.values()) == [3]
 
 
 # ── accounting ─────────────────────────────────────────────────────────────────────────────
