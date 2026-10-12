@@ -89,9 +89,20 @@ class _MockAigateway:
         self.models = tuple(ModelSpec(id=m, web_search=web_search) for m in models)
         self.responses = responses or {}
         self.requests: list[httpx.Request] = []
+        # OME-1045: the Tavily retrieval-cache routes are answered but kept out of `requests`, so
+        # every count of chat calls keeps counting chat calls only.
+        self.cache_requests: list[httpx.Request] = []
         self._seq_index: dict[str, int] = {}
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v1/retrieval/tavily/cache/"):
+            self.cache_requests.append(request)
+            return httpx.Response(
+                200,
+                json={"outcome": "stored"}
+                if request.url.path.endswith("/entries")
+                else {"status": "miss", "reason": None, "result": None},
+            )
         self.requests.append(request)
         assert "authorization" not in request.headers
         if request.url.path == "/v1/models":
