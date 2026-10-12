@@ -72,10 +72,14 @@ _NESTED_RECIPE_ROUTES = frozenset(
 )
 _DEFAULT_CORRECTIVE_ROUNDS = 3
 _MODEL_CALLS = "URL4 Candidate Recipe topology does not match its model calls"
-# WHY the optional sources tail: the combine context is {input, outputs, signals, sources}, and
-# `signals` holds only '$judge_N'/'$writer_N' values (no braces), so the first `}` ends it.
+# WHY the optional sources tail: the combine context is {input, outputs or panel, signals,
+# sources}, and `signals` holds only '$judge_N'/'$writer_N' values (no braces), so the first `}`
+# ends it.
 _CONTEXT_SIGNALS = re.compile(r"signals: \{([^{}]*)\}(?:, sources: \{.*\})?\}\Z", re.DOTALL)
 _SIGNAL_KEY = re.compile(r"([A-Za-z0-9_]+): '")
+# A call that reads a quorum Fusion's broadcast panel (OME-1289 unit 13).
+_PANEL_CONTEXT = re.compile(r"\bpanel: '\$panel_\d+'")
+_JUDGE_CALL = "judge"  # the _ModelSignal key of a judge call
 
 
 class Url4(str):
@@ -534,7 +538,15 @@ def _model_signal(signal: _SignalTopology, calls: dict[str, _Call]) -> _ModelSig
         {name: _scalar(value) for name, value in call.params[1:]},
         f"{signal.source.role} params",
     )
-    return _ModelSignal(signal.key, call.model, call.prompt, params)
+    prompt = call.prompt
+    if signal.key == _JUDGE_CALL:
+        # Lazy: screamingface.judge imports the reducer registry that this module also feeds.
+        from screamingface.judge import outputs_form_prompt
+
+        prompt = outputs_form_prompt(
+            prompt, reads_panel=_PANEL_CONTEXT.search(call.context) is not None
+        )
+    return _ModelSignal(signal.key, call.model, prompt, params)
 
 
 def _validate_compiled_corrective(

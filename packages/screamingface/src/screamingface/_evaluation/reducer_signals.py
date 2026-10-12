@@ -32,6 +32,7 @@ from screamingface._evaluation.topology import (
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
 from screamingface.fusion import Fusion
+from screamingface.judge import panel_judge_signal
 from screamingface.reducer import _ModelSignal, _ReducerPlan
 
 if TYPE_CHECKING:
@@ -54,14 +55,19 @@ def _compile_signals(
     *,
     input_context: str,
     dependencies: tuple[str, ...],
+    panel: str | None = None,
 ) -> _CompiledSignals:
-    """Attach one source per signal, in declared order, and describe them for the combine call."""
+    """Attach one source per signal, in declared order, and describe them for the combine call.
+
+    With a quorum ``panel`` the signal calls read the panel too, and a judge gets the panel form
+    of its template, which says the members arrive as rows.
+    """
 
     signals = plan.signal_calls
     if not signals:
         return _CompiledSignals(MappingProxyType({}), (), (), ())
     # WHY no signals in the signal calls' own context: a signal reads the members, not itself.
-    context = _fusion_context(input_context, members)
+    context = _fusion_context(input_context, members, panel=panel)
     references: dict[str, str] = {}
     topology: list[_SignalTopology] = []
     operation_ids: list[str] = []
@@ -74,7 +80,7 @@ def _compile_signals(
         source = _model_signal_source(
             compiler,
             fusion,
-            signal,
+            signal if panel is None or role != "judge" else panel_judge_signal(signal),
             route=route,
             role=role,
             context=context,

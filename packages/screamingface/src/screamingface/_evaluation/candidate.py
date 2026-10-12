@@ -586,6 +586,7 @@ class _CandidateCompiler:
             members,
             input_context=input_context,
             dependencies=dependencies,
+            panel=panel,
         )
         # The combine call reads the same question-and-panel value a Model synthesizer does,
         # plus the references of the model calls it reads (the signals).
