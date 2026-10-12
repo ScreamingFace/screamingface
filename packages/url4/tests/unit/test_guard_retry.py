@@ -144,7 +144,7 @@ async def test_a_timed_out_send_reports_the_timeout_code_to_the_retry() -> None:
             """Hang on the first send so the inner guard times it out; answer on the retry."""
             self.seen.append(current_guard_retry())
             if len(self.seen) == 1:
-                await asyncio.sleep(10)
+                await asyncio.Event().wait()  # never set: hangs until ;t= cancels it
             return "answer"
 
     inner = SlowThenFast()
