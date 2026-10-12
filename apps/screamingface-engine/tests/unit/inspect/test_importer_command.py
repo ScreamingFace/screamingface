@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -196,3 +197,51 @@ def test_no_answer_key_and_empty_answer_key_allowed_cannot_both_be_said() -> Non
 
     with pytest.raises(SystemExit):
         main([_TASK, "--key", "csqa", "--no-answer-key", "--empty-answer-key-allowed"])
+
+
+def test_the_whole_run_headline_flag_lands_on_the_row(engine_src_copy: Path) -> None:
+    """OME-1527: the agent names which number of an honoured dict metric is the headline; the
+    row carries it beside the metric's reference, so assembly hands it to the tally. Nothing
+    runs the metric at import: the key is the agent's reading of the metric's code."""
+
+    def honouring(
+        task_ref: str, task_args: Mapping[str, Any] | None, **options: Any
+    ) -> TaskReplayImport:
+        """Seal as an honour import of a dict metric does: the row names the metric."""
+
+        assert options["whole_run_metric"] == "honour"
+        sealed: TaskReplayImport = _sealed_import()
+        return replace(
+            sealed, facts=replace(sealed.facts, whole_run_metric="probe.metrics:clause_report")
+        )
+
+    code: int = main(
+        [_TASK, "--key", "csqa", "--whole-run-metric", "honour", "--whole-run-headline", "f1"]
+        + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=honouring,
+        dataset_info=lambda repo_id, revision: type("Info", (), {"card_data": {}})(),
+    )
+
+    assert code == 0
+    row: str = (engine_src_copy / "benchmarks.py").read_text().split('key="csqa"', 1)[1]
+    assert '        whole_run_metric="TODO:probe.metrics:clause_report",\n' in row
+    assert '        whole_run_headline="f1",\n' in row
+
+
+def test_a_headline_key_without_honour_is_refused_before_any_replay(
+    engine_src_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """WHY: the key names a number of an honoured metric's dict; without honour there is no
+    such dict, so the command refuses before paying for two replays."""
+
+    recording: _RecordingImport = _RecordingImport()
+
+    code: int = main(
+        [_TASK, "--key", "csqa", "--whole-run-headline", "f1"]
+        + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=recording,
+    )
+
+    assert code == 1
+    assert recording.calls == []
+    assert "needs --whole-run-metric honour" in capsys.readouterr().err

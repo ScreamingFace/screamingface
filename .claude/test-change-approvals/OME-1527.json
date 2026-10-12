@@ -1,10 +1,10 @@
 {
   "issue": "OME-1527",
-  "branch": "OME-1527-pr7-contracteval-local-task",
-  "approver": "owner \u2014 OME-1527 Work order #7 approved on the ticket (contracteval as a local Task, its folder and tests deleted, the free unit golden rewritten, the SDK retiring its failure code; decision 3: prove the old scores as literals inside the swap PR); to confirm in PR review",
+  "branch": "OME-1527-pr7b-whole-run-dict-metric",
+  "approver": "owner \u2014 OME-1527 Work order #7 approved on the ticket (contracteval as a local Task, its folder and tests deleted, the free unit golden rewritten, the SDK retiring its failure code; decision 3: prove the old scores as literals inside the swap PR); to confirm in PR review; the restored run numbers (owner decision 2026-10-12: bring back the numbers the swap dropped) ride the stacked branch named here, which keeps every inherited entry",
   "date": "2026-10-12",
-  "scope": "(1) test_contracteval_parity.py: imports the moved grading module; the F1/F2 matrix test becomes F1-only against grading.f1 (F2/precision/recall/accuracy are no longer computed) and the zero-guard test calls grading.f1; _synthetic_cases goes with the hand-built reducer. (2) test_benchmark_stage_parity.py, test_builtin_early_score_timing.py: the contracteval asset branches go with the folder. (3) test_case_positions.py: test_contracteval_supplies_case_metadata_without_changing_answer_input deleted (it drove the hand-built route). (4) packages/screamingface/tests/e2e/test_boards.py: contracteval leaves the hand-built replay list (it is served by the plugin lane). Deleted, which the manifest cannot approve: the 9 test_contracteval_*.py files whose routes went with the folder (owner decision, OME-1527 Work order #7). (5) tests/fixtures/early_grade_compatibility.json: the contracteval board leaves the hand-built baseline. (6) test_benchmark_declaration.py: the contracteval row moves from the hand-built table to the plugin table, same declaration. (7) test_published_revisions.py: one added literal (contracteval: 04cde6eac3938ddf). (8) test_inspect_imported_benchmarks.py: one _EXPECTED_FAMILIES row (contracteval: free_text). (9) test_whole_run_metric.py: the no-row-opts-in guard names contracteval as the one row that opts in. Test bodies not listed here are unchanged.",
-  "reason": "OME-1527 moves ContractEval from its hand-built folder to a local inspect Task under the same id. Tests that drove the deleted folder go or follow the moved code; registry tables move the row from the hand-built side to the plugin side; the revision literal records the one deliberate move; the opt-in guard names the first owner-approved whole-run metric row.",
+  "scope": "(1) test_contracteval_parity.py: imports the moved grading module; the F1/F2 matrix test becomes F1-only against grading.f1 (F2/precision/recall/accuracy are no longer computed) and the zero-guard test calls grading.f1; _synthetic_cases goes with the hand-built reducer. (2) test_benchmark_stage_parity.py, test_builtin_early_score_timing.py: the contracteval asset branches go with the folder. (3) test_case_positions.py: test_contracteval_supplies_case_metadata_without_changing_answer_input deleted (it drove the hand-built route). (4) packages/screamingface/tests/e2e/test_boards.py: contracteval leaves the hand-built replay list (it is served by the plugin lane). Deleted, which the manifest cannot approve: the 9 test_contracteval_*.py files whose routes went with the folder (owner decision, OME-1527 Work order #7). (5) tests/fixtures/early_grade_compatibility.json: the contracteval board leaves the hand-built baseline. (6) test_benchmark_declaration.py: the contracteval row moves from the hand-built table to the plugin table, same declaration. (7) test_published_revisions.py: one added literal (contracteval: 04cde6eac3938ddf). (8) test_inspect_imported_benchmarks.py: one _EXPECTED_FAMILIES row (contracteval: free_text). (9) test_whole_run_metric.py: the no-row-opts-in guard names contracteval as the one row that opts in. Test bodies not listed here are unchanged. Stacked branch OME-1527-pr7b-whole-run-dict-metric adds: (10) test_whole_run_metric.py: the dict-refusal test's docstring states the new reason (a dict needs the row's headline key); its assertion is unchanged; new tests are appended. (11) test_published_revisions.py: the contracteval literal moves once more (890889e5b2863be4), because its whole-run metric now returns the hand-built run numbers beside F1 and the row names its headline key.",
+  "reason": "OME-1527 moves ContractEval from its hand-built folder to a local inspect Task under the same id. Tests that drove the deleted folder go or follow the moved code; registry tables move the row from the hand-built side to the plugin side; the revision literal records the one deliberate move; the opt-in guard names the first owner-approved whole-run metric row. The stacked branch lets a whole-run metric return a dict whose named headline key is the Headline Score and whose other keys are run metrics, so contracteval publishes the hand-built Benchmark's precision, recall, F2, counts, laziness and Jaccard numbers again.",
   "files": {
     "apps/screamingface-engine/tests/unit/test_contracteval_parity.py": {
       "base_blob": "418e33712b8356b4496b2987ffb3f71456da2a41",
@@ -28,7 +28,7 @@
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
       "base_blob": "8dfb6fc817505a2d2de540883112a3e3dc3af68b",
-      "approved_blob": "146501551f21407fa79ac5936c6fc1a4d337b475"
+      "approved_blob": "625aa8a3eddc15e6ad6b6686afd53d754674c5cc"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
       "base_blob": "0592cebea57de9cf81b9946df420eefed2b73d21",
@@ -36,7 +36,7 @@
     },
     "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
       "base_blob": "f74a3889cfc50a070aaa44289470fa6ec93a4f39",
-      "approved_blob": "24bb45629cdf9988ec1eff8a258940ba6537cf12"
+      "approved_blob": "c4218a0d22e700958c53de05121fea47e6ccb019"
     },
     "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
       "base_blob": "7c3190ab6b590210e8f6b95f16bd413eaf87c64f",

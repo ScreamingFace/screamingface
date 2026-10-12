@@ -42,15 +42,25 @@ on 70% of Cases and scores F1 0. One named deviation: where the reference divide
 (no true positive), F1 is 0.0.
 
 Each Case's Check carries `is_positive`, `abstained` and `jaccard` (token overlap with the gold
-text). The hand-built Benchmark also published run-level precision, recall, F2, accuracy,
-the abstention and false-abstention ("laziness") rates and the mean Jaccard over clause rows;
-the lane publishes only the headline (a whole-run metric returning several numbers is
-refused), so those are not served. Accuracy is `correct / scored_cases` from the run metrics.
+text). The metric returns the paper's other run numbers beside F1, under the hand-built
+Benchmark's key names, and the row names `f1` as its `whole_run_headline`, so the rest land
+in the run's `metrics` (never as per-Case columns: no Case has a precision):
+
+- `accuracy`, `precision`, `recall`, `f2`;
+- the four cells `true_positives`, `false_negatives`, `true_negatives`, `false_positives`;
+- `no_related_clause_rate` (declines over graded Cases) and `false_no_related_clause_rate`,
+  the paper's *laziness*: declines on Cases that have a clause, over those Cases (the
+  reference divides by the full split's 1,244, wrong for a subset run; kept from the
+  hand-built Benchmark as a named deviation);
+- `jaccard_mean`, over Cases that have a clause only, as the reference merges it.
+
+`scored_cases` and `correct` come from the tally itself. `test_local_task_contracteval.py` pins
+every number against the hand-built Benchmark's on the same replies.
 
 ## Identity
 
-The revision hashes the Case Digest, the Task reference, the Hub pin, the whole-run metric and
-the sha256 of every `.py` file in this package (`task_source=…`). Editing `contracteval.py` or
+The revision hashes the Case Digest, the Task reference, the Hub pin, the whole-run metric, its
+headline key and the sha256 of every `.py` file in this package (`task_source=…`). Editing `contracteval.py` or
 `grading.py` is a new Benchmark: update the literal in
 `tests/unit/inspect/test_published_revisions.py` and say why in the PR.
 
@@ -60,7 +70,8 @@ the sha256 of every `.py` file in this package (`task_source=…`). Editing `con
 # import (two clean-room replays + the two rows; already done — re-run only to re-seal)
 uv run python -m screamingface_engine_inspect.importer \
     screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval \
-    --key contracteval --empty-answer-key-allowed --whole-run-metric honour
+    --key contracteval --empty-answer-key-allowed --whole-run-metric honour \
+    --whole-run-headline f1
 # prepare the bundle
 uv run python -m screamingface_engine.benchmarks.prepare --root /tmp/assets --bundle contracteval
 ```

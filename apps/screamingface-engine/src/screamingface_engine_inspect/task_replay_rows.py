@@ -84,6 +84,7 @@ def render_task_replay_rows(
     *,
     card_license: str | None = None,
     provenance: ProvenanceFacts | None = None,
+    whole_run_headline: str | None = None,
 ) -> TaskReplayRows:
     """Stages 2 to 4 — render a Task-replay declaration and its BenchmarkSpec row (spec R6).
 
@@ -93,17 +94,34 @@ def render_task_replay_rows(
         license: the license value to write; ``LICENSE_TODO`` when the owner must decide.
         card_license: what the Hugging Face card said when it was not a cleared license, so
             the review note can name it (D13); None when there was no card to read.
+        whole_run_headline: the key of the honoured whole-run metric's dict that is the
+            Headline Score (``--whole-run-headline``, OME-1527); None for every other import.
 
     Returns:
         The declaration text (for TASK_REPLAY_CASES) and the BenchmarkSpec row text.
 
     Raises:
-        ImporterError: a string that could escape the generated code (injection guard).
+        ImporterError: a string that could escape the generated code (injection guard), or
+            a headline key without an honoured whole-run metric.
     """
 
     _refuse_injectable_import(imported, license, card_license)
+    if whole_run_headline is not None:
+        if imported.facts.whole_run_metric is None:
+            raise ImporterError(
+                "--whole-run-headline names a number the honoured whole-run metric returns, "
+                "but this import honours none"
+            )
+        if not _REFERENCE_CHARSET.match(whole_run_headline) or not whole_run_headline.strip():
+            raise ImporterError(
+                f"{whole_run_headline!r} cannot be written into generated code — refusing "
+                "(injection guard)"
+            )
     cases: str = "\n".join(_declaration_lines(key, imported, license, card_license)) + "\n"
-    benchmark: str = "\n".join(_benchmark_row_lines(key, imported, license, provenance)) + "\n"
+    benchmark: str = (
+        "\n".join(_benchmark_row_lines(key, imported, license, provenance, whole_run_headline))
+        + "\n"
+    )
     return TaskReplayRows(cases=cases, benchmark=benchmark)
 
 
@@ -115,6 +133,7 @@ def write_task_replay_rows(
     license: str,
     card_license: str | None = None,
     provenance: ProvenanceFacts | None = None,
+    whole_run_headline: str | None = None,
 ) -> TaskReplayRows:
     """Stages 1 to 5 — insert a Task-replay import's two rows into prepare.py and benchmarks.py.
 
@@ -124,6 +143,7 @@ def write_task_replay_rows(
         engine_src: the directory holding prepare.py and benchmarks.py.
         license: see render_task_replay_rows.
         card_license: see render_task_replay_rows.
+        whole_run_headline: see render_task_replay_rows.
 
     Returns:
         The rows written.
@@ -141,7 +161,12 @@ def write_task_replay_rows(
     # Stage 1
     _refuse_existing_rows(key, texts)
     rows: TaskReplayRows = render_task_replay_rows(
-        key, imported, license, card_license=card_license, provenance=provenance
+        key,
+        imported,
+        license,
+        card_license=card_license,
+        provenance=provenance,
+        whole_run_headline=whole_run_headline,
     )
     # Stage 5 — compose both files before writing either.
     new_texts: dict[Path, str] = {
@@ -318,6 +343,7 @@ def _benchmark_row_lines(
     imported: TaskReplayImport,
     license: str,
     provenance: ProvenanceFacts | None = None,
+    whole_run_headline: str | None = None,
 ) -> list[str]:
     """Stage 4 — the BenchmarkSpec row: prose as TODOs, the first browsable source as URL."""
 
@@ -369,6 +395,7 @@ def _benchmark_row_lines(
             dropped_metrics=facts.dropped_metrics,
             whole_run_metric=facts.whole_run_metric,
             mean_instead_of=facts.mean_instead_of,
+            whole_run_headline=whole_run_headline,
         )
     )
     if facts.attempts > 1:

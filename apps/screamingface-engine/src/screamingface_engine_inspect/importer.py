@@ -463,6 +463,7 @@ def _scorer_lines(
     dropped_metrics: tuple[str, ...] = (),
     whole_run_metric: str | None = None,
     mean_instead_of: str | None = None,
+    whole_run_headline: str | None = None,
 ) -> list[str]:
     """The scorer, metric, judge and check-surface lines of a BenchmarkSpec row.
 
@@ -487,7 +488,9 @@ def _scorer_lines(
             extra_scorers, named_scores, dropped_scorers, headline_differs, dropped_metrics
         )
     )
-    benchmark_lines.extend(_whole_run_metric_lines(whole_run_metric, mean_instead_of))
+    benchmark_lines.extend(
+        _whole_run_metric_lines(whole_run_metric, mean_instead_of, whole_run_headline)
+    )
     # WHY the headline metric too: honouring it or keeping the mean is already said above.
     stated: set[str] = {
         *dropped_metrics,
@@ -575,9 +578,12 @@ def _named_score_lines(
 WHOLE_RUN_METRIC_UNREVIEWED: str = "TODO:"
 
 
-def _whole_run_metric_lines(whole_run_metric: str | None, mean_instead_of: str | None) -> list[str]:
+def _whole_run_metric_lines(
+    whole_run_metric: str | None, mean_instead_of: str | None, whole_run_headline: str | None
+) -> list[str]:
     """The row's whole-run-metric choice (OME-1527): an honoured metric's reference behind a
-    review gate, or the kept mean as a Named Deviation; nothing when there was no choice."""
+    review gate (with the key of its dict that is the headline, when the agent named one), or
+    the kept mean as a Named Deviation; nothing when there was no choice."""
 
     if mean_instead_of is not None:
         return [
@@ -596,6 +602,11 @@ def _whole_run_metric_lines(whole_run_metric: str | None, mean_instead_of: str |
         f'        # must be; then delete "{WHOLE_RUN_METRIC_UNREVIEWED}" below. If it is not,',
         "        # re-import with --whole-run-metric mean.",
         f'        whole_run_metric="{WHOLE_RUN_METRIC_UNREVIEWED}{whole_run_metric}",',
+        *(
+            ()
+            if whole_run_headline is None
+            else (f"        whole_run_headline={json.dumps(whole_run_headline)},",)
+        ),
     ]
 
 
@@ -837,6 +848,14 @@ def _add_task_replay_arguments(parser: argparse.ArgumentParser) -> None:
         "the eval's own metric (the row names it, behind a review gate), mean keeps the mean "
         "per-Case score under a Named Deviation (OME-1527)",
     )
+    parser.add_argument(
+        "--whole-run-headline",
+        default=None,
+        metavar="KEY",
+        help="with --whole-run-metric honour, for a metric that returns several numbers by "
+        "name: the one that is the Benchmark's headline score, e.g. f1; the others are "
+        "published beside it as run metrics (OME-1527)",
+    )
 
 
 def _import_by_task_replay_cli(
@@ -863,6 +882,13 @@ def _import_by_task_replay_cli(
         write_task_replay_rows,
     )
 
+    # WHY before the replays: the key names a number of an honoured metric's dict, so without
+    # honour it is a contradiction, refused before any child runs.
+    if args.whole_run_headline is not None and args.whole_run_metric != "honour":
+        raise ImporterError(
+            "--whole-run-headline names a number the honoured whole-run metric returns; it "
+            "needs --whole-run-metric honour"
+        )
     empty_key_option: dict[str, Any] = (
         {"empty_answer_key_allowed": True} if args.empty_answer_key_allowed else {}
     )
@@ -889,6 +915,7 @@ def _import_by_task_replay_cli(
         license=card.value,
         card_license=card.card_says,
         provenance=read_provenance_facts(args.task_ref, fetch=arxiv_fetch),
+        whole_run_headline=args.whole_run_headline,
     )
     sources: str = "\n".join(f"  {source.as_comment()}" for source in imported.case_sources)
     print(
