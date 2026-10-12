@@ -50,8 +50,10 @@ Answers run to 2,760 characters before any reasoning: give the Candidate a high 
 
 ## Baselines
 
-- Human: testers solved 66% of the test pairs they attempted (paper, §5), on candidate tasks
-  before curation, across all subsets.
+- Human: 0.75, **per task** — on the final ARC-AGI-2 tasks, the share of human attempts that
+  solved a task, averaged by task (paper, §5). A task attempt counts only if all its test pairs
+  are right, so it is stricter than our per-grid partial credit. The paper also gives 66% per
+  test pair (pooled over attempts) and 62% on the pre-curation candidate pairs.
 - Frontier: 0.925, GPT-5.6 Sol at maximum reasoning, ARC Prize-verified on the **semi-private**
   set (August 2026). A different 120 tasks, calibrated to the same human difficulty: our
   public-eval runs sit beside it, not on the same scale.
