@@ -26,6 +26,7 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CAN
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.capture_outcomes import (
     CAPTURE_FIELD,
+    CAPTURE_OCCURRENCE_HEADER,
     FROZEN_COPIES_PATH,
     FROZEN_COPY_HEADER,
     REPLAY_MISS,
@@ -1102,11 +1103,22 @@ async def _recorded_completion(
     if copy_id is None:
         return await _fetch_completion(http_client, headers=headers, body=body, cache=cache)
     digest = request_digest(body)
+    # Q27 (design §5.3 item 1): the call states the send-time slot its reserve gave it, so the
+    # gateway stores the entry at that position and replay pairs each branch with its own answer
+    # even when identical calls complete out of order. The capture path never gives a slot back:
+    # every stored entry keeps a distinct slot, and a slot a non-stored call left unused collapses
+    # on replay (the gateway pairs by ordinal over stored successes).
+    _tally = current_capture_tally()
+    occurrence = 0 if _tally is None else _tally.reserve("chat", digest)
     probe = _CaptureProbe()
     try:
         resp, outcome = await _fetch_completion(
             http_client,
-            headers={**headers, FROZEN_COPY_HEADER: copy_id},
+            headers={
+                **headers,
+                FROZEN_COPY_HEADER: copy_id,
+                CAPTURE_OCCURRENCE_HEADER: str(occurrence),
+            },
             body=body,
             cache=cache,
             probe=probe,

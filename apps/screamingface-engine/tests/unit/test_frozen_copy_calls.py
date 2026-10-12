@@ -17,8 +17,10 @@ import pytest
 from frozen_copy_support import (
     CHAT,
     COPY,
+    EXPRESSION,
     REPLAY_CHAT,
     TOOL_LOOKUP,
+    TOOL_RESULTS,
     Gateway,
     Tavily,
     capture_scope,
@@ -128,3 +130,69 @@ async def test_the_capture_header_is_read_from_every_response_including_errors(
     tally, _answer, _failure = await run_call(Gateway([step]), capture_scope(), web_search=False)
 
     assert [(o.lane, o.status) for o in tally.outcomes] == [("chat", expected)]
+
+
+# ── Q27: capture states the engine's send-time slot ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_two_identical_concurrent_capture_calls_state_occurrences_0_and_1() -> None:
+    """Q27 (design §5.3 item 1): the capture request carries the reserve slot it got at send
+    time, so the gateway stores each branch's answer at the position the engine reserved."""
+    gateway = Gateway([chat("a", stored()), chat("b", stored())])
+    gateway.hold_until(CHAT, 2)
+
+    _tally, _answer, failure = await run_call(
+        gateway, capture_scope(), expressions=[EXPRESSION, EXPRESSION], concurrent=True
+    )
+
+    assert failure is None
+    sent = [h["X-AIGW-Capture-Occurrence"] for h, _b in gateway.calls(CHAT)]
+    assert sorted(sent) == ["0", "1"]
+
+
+@pytest.mark.asyncio
+async def test_capture_calls_of_different_requests_each_start_at_occurrence_0() -> None:
+    """Slots are per request: the initial dispatch and the post-tool call key differently, so
+    each reserves its own slot 0."""
+    gateway = Gateway([tool_call("web_search", {"query": "q"}, stored()), chat("final", stored())])
+
+    tally, answer, failure = await run_call(gateway, capture_scope(), tavily=Tavily())
+
+    assert failure is None and answer == "final"
+    assert [h["X-AIGW-Capture-Occurrence"] for h, _b in gateway.calls(CHAT)] == ["0", "0"]
+    assert [(o.lane, o.status) for o in tally.outcomes if o.lane == "tool"] == [("tool", "stored")]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_identical_tool_results_store_occurrences_0_and_1() -> None:
+    """The tool lane reserves from its own tally lane, so concurrent identical results store
+    distinct slots and a replay reads them in reserve order."""
+    calls = [
+        {
+            "id": f"call_{n}",
+            "type": "function",
+            "function": {"name": "web_search", "arguments": '{"query": "q"}'},
+        }
+        for n in (1, 2)
+    ]
+    two_tool_calls = httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"role": "assistant", "content": None, "tool_calls": calls}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        },
+    )
+    gateway = Gateway([two_tool_calls, chat("done", stored())])
+    tavily = Tavily(
+        response=httpx.Response(
+            200, json={"results": [{"title": "t", "url": "https://x", "content": "c"}]}
+        )
+    )
+    gateway.hold_until(TOOL_RESULTS, 2)
+
+    _tally, answer, failure = await run_call(gateway, capture_scope(), tavily=tavily)
+
+    assert failure is None and answer == "done"
+    sent = [h["X-AIGW-Capture-Occurrence"] for h, _b in gateway.calls(TOOL_RESULTS)]
+    assert sorted(sent) == ["0", "1"]

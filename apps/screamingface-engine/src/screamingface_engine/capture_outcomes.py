@@ -42,6 +42,7 @@ class CaptureOutcome:
 # place so the connector and the web tools can never half-rename one.
 FROZEN_COPY_HEADER = "X-AIGW-Frozen-Copy"
 CAPTURE_FIELD = "X-AIGW-Capture"
+CAPTURE_OCCURRENCE_HEADER = "X-AIGW-Capture-Occurrence"
 REPLAY_OCCURRENCE_HEADER = "X-AIGW-Replay-Occurrence"
 FROZEN_COPIES_PATH = "/v1/frozen-copies"
 

@@ -15,6 +15,7 @@ from typing import Protocol
 import httpx
 
 from screamingface_engine.capture_outcomes import (
+    CAPTURE_OCCURRENCE_HEADER,
     REPLAY_MISS,
     REPLAY_OCCURRENCE_HEADER,
     REPLAY_UNAVAILABLE,
@@ -112,10 +113,16 @@ class FrozenToolResults:
 
     async def store(self, description: Mapping[str, object], result: str) -> str:
         """Post one result to the copy. Returns ``stored`` or ``failed``; never raises."""
+        # Q27 (design §5.3 item 1): the result states the send-time slot its reserve gave it, so
+        # a replay of concurrent identical lookups reads them in reserve order. The capture path
+        # never gives a slot back: every stored result keeps a distinct slot, and a slot a failed
+        # store left unused collapses on replay (the gateway pairs by ordinal over stored rows).
+        _tally = current_capture_tally()
+        occurrence = 0 if _tally is None else _tally.reserve("tool", request_digest(description))
         try:
             response = await self.client.post(
                 tool_results_path(self.copy_id),
-                headers=self.headers,
+                headers={**self.headers, CAPTURE_OCCURRENCE_HEADER: str(occurrence)},
                 json={"description": description, "result": result},
                 timeout=_COPY_TIMEOUT,
             )
