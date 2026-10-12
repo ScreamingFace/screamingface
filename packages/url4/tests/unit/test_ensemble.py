@@ -13,9 +13,10 @@ from url4.dag import ExecutionContext, run
 from url4.dag.semantics.collection import parse_collection
 from url4.dag.semantics.ensemble import (
     FanoutResponse,
+    interpolate,
+    response_bindings,
     substitute_env_vars,
     substitute_item,
-    substitute_response_vars,
 )
 from url4.io.static import StaticIOLayer
 from url4.wire.subrequest import decode_subrequest
@@ -45,7 +46,7 @@ async def test_fanout_reduce_builds_weighted_reducer_input() -> None:
 async def test_broadcast_applies_intent_per_source() -> None:
     # Spec §6.1.4 — a JSON collection of per-source results, 1-based positions.
     io = StaticIOLayer(fetch_map={"https://a": "A", "https://b": "B"})
-    result = await run("(https://a, https://b)!*tag", io)
+    result = await run("(https://a, https://b)!*'tag'", io)
     assert json.loads(result) == [
         {"source_position": 1, "source_name": None, "result": "tag\n\nA"},
         {"source_position": 2, "source_name": None, "result": "tag\n\nB"},
@@ -158,15 +159,17 @@ def test_parse_collection_even_column_prose_not_csv() -> None:
     assert parse_collection(body) == ["What is your name, please?", "Pick a color, any color"]
 
 
-def test_substitute_response_vars_prefix_name_not_corrupted() -> None:
+def test_interpolate_prefix_name_not_corrupted() -> None:
     # A source name that is a prefix of another must not corrupt the longer $ref.
     entries = [FanoutResponse(text="A", name="gpt"), FanoutResponse(text="B", name="gpt4")]
-    assert substitute_response_vars("compare $gpt4 vs $gpt", entries) == "compare B vs A"
+    scope = Context(bindings=response_bindings(entries), parent=None)
+    assert interpolate("compare $gpt4 vs $gpt", scope) == "compare B vs A"
 
 
-def test_substitute_response_vars_escapes_inside_json_blob() -> None:
+def test_interpolate_response_escapes_inside_json_blob() -> None:
     entries = [FanoutResponse(text='has "quote"', name="a")]
-    assert substitute_response_vars('{"k": "$a"}', entries) == '{"k": "has \\"quote\\""}'
+    scope = Context(bindings=response_bindings(entries), parent=None)
+    assert interpolate('{"k": "$a"}', scope) == '{"k": "has \\"quote\\""}'
 
 
 def test_substitute_item_leaves_longer_identifier() -> None:

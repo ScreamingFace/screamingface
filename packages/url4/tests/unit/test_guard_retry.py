@@ -132,7 +132,8 @@ async def test_the_retry_is_unbound_again_once_the_guard_returns() -> None:
 @pytest.mark.asyncio
 async def test_a_timed_out_send_reports_the_timeout_code_to_the_retry() -> None:
     # WHY: ;t= turns a slow send into a transient `timeout` error; the retry must see that code
-    # like any other, so a reader can tell "slow" from "unusable".
+    # like any other, so a reader can tell "slow" from "unusable". A guard's own ;t= is one
+    # deadline over all its attempts (never retried), so the retry comes from an OUTER guard.
     class SlowThenFast:
         deps: dict = {}
 
@@ -140,12 +141,13 @@ async def test_a_timed_out_send_reports_the_timeout_code_to_the_retry() -> None:
             self.seen: list[GuardRetry | None] = []
 
         async def resolve(self, inputs: object, ctx: object) -> str:
-            """Hang on the first send so the guard times it out; answer on the retry."""
+            """Hang on the first send so the inner guard times it out; answer on the retry."""
             self.seen.append(current_guard_retry())
             if len(self.seen) == 1:
                 await asyncio.sleep(10)
             return "answer"
 
     inner = SlowThenFast()
-    assert await run(GuardNode(inner, timeout=0.05, retries=1), RecordingIOLayer()) == "answer"
+    outer = GuardNode(GuardNode(inner, timeout=0.05), retries=1)
+    assert await run(outer, RecordingIOLayer()) == "answer"
     assert inner.seen == [None, GuardRetry(number=1, failure_code="timeout")]

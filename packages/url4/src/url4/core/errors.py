@@ -45,6 +45,11 @@ class ErrorCode(StrEnum):
     UNKNOWN_IDENTITY = "unknown_identity"
     ENDPOINT_NOT_FOUND = "endpoint_not_found"
     TIMEOUT = "timeout"
+    ADMISSION_TIMEOUT = "x.admission_timeout"
+    """A guarded source's ``;t=`` ran out while it still waited for the run-wide I/O
+    permit: no request was sent. Transient, like ``timeout``, but it names the run's own
+    concurrency cap as the cause, not the source. An implementation code, so it carries
+    the ``x.`` prefix the spec reserves for them (Spec C §13.5.2)."""
     EXPANSION_NOT_ITERABLE = "expansion_not_iterable"
     QUORUM_NOT_MET = "quorum_not_met"
     UNKNOWN_PROCESSOR = "unknown_processor"
@@ -54,6 +59,8 @@ class ErrorCode(StrEnum):
     IDENTITY_ACCESS_DENIED = "identity_access_denied"
     CONSENT_REQUIRED = "consent_required"
     CONSENT_WITHHELD = "consent_withheld"
+    INTENT_ERROR = "intent_error"
+    UNSUPPORTED_MODE = "unsupported_mode"
     DIRECT_EVAL_REFUSED = "direct_eval_refused"
     """A direct call (one handler, `url4.peer.dispatch_direct`) targeted the eval path, which
     evaluates an expression — the one thing a direct call must never do."""
@@ -113,6 +120,21 @@ class ResolutionError(Url4Error):
 
     code = ErrorCode.RESOLUTION_FAILED
     permanent = False
+    retry_after: float | None = None
+    """Seconds the source asked the caller to wait before a retry (a ``Retry-After``),
+    or ``None``. A retrying guard waits at least this long (Spec C §14.3)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        permanent: bool | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(message, code=code, permanent=permanent)
+        if retry_after is not None:
+            self.retry_after = retry_after
 
 
 class CollectionError(Url4Error):

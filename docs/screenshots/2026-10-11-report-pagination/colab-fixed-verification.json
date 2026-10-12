@@ -1,0 +1,26 @@
+{
+  "widgets": "7.7.1",
+  "ipyevents": "2.0.4",
+  "source_sha256": "ed233abace4213b1f97444e94c99f122d6654e93b0115a2cfaf2b58211bd938b",
+  "export_equals_source": true,
+  "case_entries": 120,
+  "prepared": true,
+  "page": 4,
+  "count": "101–120 of 120",
+  "focus": 59,
+  "native_bridge": "google.colab.kernel.invokeFunction(\"screamingface.case.cf7c0cb81c244fc68d6e3ea1f567881c\", [{target: {id: this.id}}], {})",
+  "snapshot": "screamingface-reports/3eba55b7f2f342cb9ff774de60a5ce76/report.json",
+  "snapshot_mtime_ns": 1791744437112786200,
+  "host_module_sha256": "45f3a478c0cfa8892544cb5d786a8bd37cdb34858bc1179289e430c0d49f6337",
+  "wheel_sha256": "9a7146efe889c29ae43c4e224304c9576beeadb4ae88c879dc32cff288f99835",
+  "browser_checks": [
+    "initial page; Previous and Next",
+    "exact Case 59; last page disables Next",
+    "Candidate Alpha filter",
+    "DOM click Case 56; Python input acknowledges 56",
+    "Beta reversed Case order retains selected 56",
+    "All Candidates retains selected Case",
+    "unknown Case 999 warning and recovery",
+    "two actual report.json browser downloads; 120 entries; equal every source field"
+  ]
+}

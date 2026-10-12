@@ -9,6 +9,7 @@ from url4.core.grammar import parse, parse_value
 from url4.core.nodes import (
     Binding,
     Expression,
+    NamedJob,
     RelExpr,
     RelUrl,
     Source,
@@ -37,7 +38,8 @@ def test_quoted_text_strips_quotes() -> None:
 def test_group_of_sources() -> None:
     # `OME-508`: local-expr's intent is mandatory — the bare form raises.
     node = parse("(a, https://x)!go")
-    assert node == Expression(sources=(Text("a"), Url("https://x")), intent=Text("go"))
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert node == Expression(sources=(Text("a"), Url("https://x")), intent=NamedJob(value="go"))
     with pytest.raises(ParseError, match="intent"):
         parse("(a, https://x)")
 
@@ -55,8 +57,9 @@ def test_weighted_relative_expression() -> None:
     # The name:weight: label is the two-axis descriptor (§4.3) — it wraps ANY
     # value in a Source, not just relative expressions.
     node = parse("claude:0.6:/claude(x)!go")
+    # url4 2.0 (P3): a bare one-word intent is a named job.
     assert node == Source(
-        value=RelExpr(path="/claude", context="x", intent=Text("go")),
+        value=RelExpr(path="/claude", context="x", intent=NamedJob(value="go")),
         name="claude",
         weight=0.6,
     )
@@ -75,9 +78,10 @@ def test_star_not_before_paren_is_literal_mid_value() -> None:
 
 def test_grouped_reduce_binding() -> None:
     node = parse("consensus=(a, b)!merge")
+    # url4 2.0 (P3): a bare one-word intent is a named job.
     assert node == Binding(
         "consensus",
-        Expression(sources=(Text("a"), Text("b")), intent=Text("merge")),
+        Expression(sources=(Text("a"), Text("b")), intent=NamedJob(value="merge")),
         "=",
     )
 
@@ -148,11 +152,12 @@ def test_non_struct_pair_entry_falls_back_to_expression_list() -> None:
     # test, so the whole '(' group is reclassified as an expression source
     # list rather than a structured weight.
     node = parse("name:(a:'x',b=2)!go")
+    # url4 2.0 (P3): a bare one-word intent is a named job.
     assert node == Binding(
         "name",
         Expression(
             sources=(Binding("a", Text("x"), ":"), Binding("b", Text("2"), "=")),
-            intent=Text("go"),
+            intent=NamedJob(value="go"),
         ),
         ":",
     )
@@ -345,4 +350,10 @@ def test_quoted_segment_skipped_when_scanning_relative_expression() -> None:
     # A quoted query-param value containing '(' must not be mistaken for the
     # 'q=(' expression opener while scanning for it.
     node = parse("/x?a='(y)'&q=(ctx)!go")
-    assert node == RelExpr(path="/x", context="ctx", intent=Text("go"), params=(("a", "'(y)'"),))
+    # url4 2.0 (P3): a bare one-word intent is a named job.
+    assert node == RelExpr(
+        path="/x",
+        context="ctx",
+        intent=NamedJob(value="go"),
+        params=(("a", "'(y)'"),),
+    )

@@ -25,18 +25,18 @@ from dataclasses import dataclass
 from inspect import signature
 from typing import overload
 
-from url4.core.context import Context
+from url4.core.code import CodeHandler
 from url4.core.grammar import _IDENTITY_NAME_RE
 from url4.core.nodes import Node
-from url4.core.render import render
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
 from url4.io.layer import FetchRequest, FetchResult, IOLayer
 from url4.peer import _dispatch
+from url4.peer._code import CodeMounts
 from url4.peer._dispatch import Request
 from url4.peer._http import asgi_app as _asgi_app
 from url4.peer._http import serve as _serve_node
 from url4.peer._owned import _OwnedIO
-from url4.peer.client import Url4Result, _blaming_render
+from url4.peer.client import Url4Result, _evaluate_front_door, _scope
 
 EndpointHandler = Callable[[Request], str | Awaitable[str]]
 # handlers may take the requested collection or nothing at all
@@ -54,7 +54,7 @@ class _DataRoute:
     media_type: str | None = None
 
 
-class Url4Node:
+class Url4Node(CodeMounts):
     """A url4 protocol node: endpoint/holdings/identity registries + dispatch.
 
     ``outbound`` is the IOLayer for absolute (``https://``, ``url4://``, …)
@@ -83,6 +83,7 @@ class Url4Node:
         self._strict_fields = strict_fields
         self._endpoints: dict[str, EndpointHandler] = {}
         self._data: dict[str, _DataRoute] = {}
+        self._code: dict[str, CodeHandler] = {}
         self._self_holdings: dict[str | None, _HoldingsPort] = {}
         self._identities: dict[str, _HoldingsPort] = {}
         for path, provider in (data or {}).items():
@@ -94,6 +95,7 @@ class Url4Node:
             (len(self._self_holdings), "holdings shelf", "holdings shelves"),
             (len(self._identities), "identity", "identities"),
             (len(self._data), "data route", "data routes"),
+            (len(self._code), "code mount", "code mounts"),
         )
         listed = ", ".join(f"{n} {one if n == 1 else many}" for n, one, many in counts if n)
         return f"<Url4Node {self.name!r}: {listed or 'empty'}>"
@@ -127,9 +129,11 @@ class Url4Node:
         ``@node.data("/api/rows")`` decorates a provider function. ``media_type``
         declares the route's Content-Type so a collection served here parses by
         its declared type (spec §5.3.7) rather than being sniffed — the node's
-        :meth:`fetch_ex` reports it when it serves this route.
+        :meth:`fetch_ex` reports it. A path under the eval path raises ``ValueError``.
         """
         self._check_routable(path)
+        if self._is_eval_path(path.partition("?")[0]):
+            raise ValueError(f"data route {path!r} is under the eval path {self._eval_path!r}")
         if provider is not None:
             self._data[path] = _DataRoute(provider, media_type)
             return None
@@ -209,8 +213,12 @@ class Url4Node:
             raise ValueError(f"route path {path!r} must start with '/'")
         if path == self._eval_path:
             raise ValueError(f"{path!r} is the eval path — it is dispatched by the node itself")
-        if path in self._endpoints or path in self._data:
+        if path in self._endpoints or path in self._data or path in self._code:
             raise ValueError(f"path {path!r} is already registered")
+
+    def _is_eval_path(self, path: str) -> bool:
+        """Whether ``path`` is the eval path, bare or collection-qualified (§5.6.1)."""
+        return path == self._eval_path or path.startswith(f"{self._eval_path}/")
 
     # --- the IOLayer ports (a node IS an io layer) ----------------------------------
     # Thin delegates: the dispatch order lives in url4.peer._dispatch (the F2
@@ -241,7 +249,7 @@ class Url4Node:
             self,
             processor=processor or self._processor,
             process=self._process,
-            scope=Context(bindings=dict(env)) if env else None,
+            scope=_scope(env),
             strict_fields=self._strict_fields,
             self_collection=self_collection,
         )
@@ -255,20 +263,13 @@ class Url4Node:
         """Evaluate a url4 expression in-process, with this node as its world.
 
         A tree passed as ``Node`` is rendered with the round-trip re-parse
-        skipped (``check=False``, ~15x the render). A tree the grammar cannot
-        faithfully carry (spec §8.1.2) is still reported as
-        :class:`~url4.core.errors.RenderError` naming the tree — the check runs
-        only once the run has already failed, so it costs nothing when the tree
-        is sound.
+        skipped (``check=False``). It is still never run as another
+        expression: the render guards refuse a tree the grammar cannot
+        faithfully carry (spec §8.1.2) with :class:`~url4.core.errors.RenderError`,
+        and text that fails to parse at all is re-blamed on the tree once the
+        run has failed (see ``_evaluate_front_door``).
         """
-        # WHY check=False: same front-door reasoning as Client.evaluate — the verify
-        # re-parse costs ~15x the render, and _blaming_render pays it only on failure.
-        if isinstance(expression, str):
-            request, rendered = expression, None
-        else:
-            request, rendered = render(expression, check=False), expression
-        text = await _blaming_render(rendered, request, self._run_text(request, env))
-        return Url4Result(text=text, request=request)
+        return await _evaluate_front_door(expression, lambda request: self._run_text(request, env))
 
     def asgi(self):
         """The node as a plain ASGI application (framework-free by construction)."""
@@ -279,7 +280,7 @@ class Url4Node:
         _serve_node(self, host=host, port=port, **uvicorn_kwargs)
 
     async def aclose(self) -> None:
-        """Close the lazily-owned outbound adapter (injected outbound is left alone)."""
+        """Close the owned outbound adapter. Closing is final: a later call raises RuntimeError."""
         await self._owned.aclose()
 
     async def __aenter__(self) -> Url4Node:

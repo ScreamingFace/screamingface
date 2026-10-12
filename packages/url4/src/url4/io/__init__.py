@@ -8,12 +8,14 @@ Owns
 - ``layer`` — the port (``IOLayer``, ``FetchRequest``/``FetchResult``) and the
   optional capability protocols (``SupportsFetchEx``, ``SupportsHoldings``, …).
   Standard library only, so the engine can name the port without a transport.
+- ``idempotency`` — the ``Idempotency-Key`` a retrying guard offers to adapters
+  ("reuse until answered"), carried in a context variable. Standard library only.
 - ``static`` — ``StaticIOLayer``: in-memory, deterministic; the test default.
 - ``http`` — ``HttpIOLayer``: the httpx adapter.
 
 May import: the standard library, ``url4.core``, and ``url4.wire``.
 Must not import: ``url4.dag`` (the engine depends on this port, not the
-reverse), ``url4.peer``, ``url4.cli``, ``url4.streaming``.
+reverse), ``url4.observe``, ``url4.peer``, ``url4.cli``, ``url4.streaming``.
 
 See ``ARCHITECTURE.md`` for the layer map and the direction rule.
 """

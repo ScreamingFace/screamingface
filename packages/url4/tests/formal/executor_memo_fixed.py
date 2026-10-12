@@ -5,15 +5,15 @@
 # child resolves at most once. Invariant ``child_resolved_at_most_once`` holds
 # across all 4 reachable states.
 #
-# Check:  python3 ~/Documents/skills/concepts/formal-modeling/bin/fm.py check executor_memo_fixed.py
+# Check:  fm check executor_memo_fixed.py   (the formal-modeling skill, bin/fm.py)
 #         (expect clean, 4 states)
 #
-# The code this mirrors: packages/url4/src/url4/dag/executor.py, Executor._run.
+# SOURCE: packages/url4/src/url4/dag/executor.py:Executor._run (its INVARIANT comment)
 
 """Executor._run memo — the REAL atomic check-then-act (no await between).
 
 Two parents (A, B) of a diamond both reach the shared child C. The code's
-INVARIANT (packages/url4/src/url4/dag/executor.py:154-174): the check-then-act
+INVARIANT (packages/url4/src/url4/dag/executor.py, Executor._run): the check-then-act
 on ``_memo`` is a critical section because ``create_task`` does not yield, so
 the shared child resolves EXACTLY ONCE.
 
@@ -22,6 +22,9 @@ Run:  fm check executor_memo_fixed.py     # expect clean
 """
 
 NAME = "Executor._run memo - atomic check-then-act (as written)"
+
+# FAILURE_ACTIONS: none. The model covers only the check-and-store interleaving, not errors.
+FAILURE_ACTIONS = []
 
 
 def init():

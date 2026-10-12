@@ -1,0 +1,76 @@
+== dag/executor.py
+
+complexity trend: packages/url4/src/url4/dag/executor.py (renames not followed)
+───────────────────────────────────────────────────────────────────────────────
+date        sha       lines  cmplx  maxd  bar
+2026-07-15  56f932b6    306    436     4  #############
+2026-07-29  ac888c5c    442    677     5  ####################
+2026-08-04  b787cf5d    438    676     6  ####################
+2026-08-23  8c7c8bf9    442    681     6  ####################
+2026-08-23  e0c7ac50    438    676     6  ####################
+2026-09-22  cba47c0f    270    496     5  ###############
+
+lines 306 -> 270; complexity 436 -> 496 (+14%) over 5 points
+== observe.py
+
+complexity trend: packages/url4/src/url4/observe.py (renames not followed)
+──────────────────────────────────────────────────────────────────────────
+date        sha       lines  cmplx  maxd  bar
+2026-07-29  ac888c5c     99     59     2  ###
+2026-08-04  b787cf5d    158    110     2  #####
+2026-08-07  245e0a47    188    134     2  ######
+2026-08-17  f51d3d37    213    153     2  #######
+2026-09-17  0d2c00f8    388    426     4  ####################
+2026-09-22  cba47c0f    393    425     4  ####################
+
+lines 99 -> 393; complexity 59 -> 425 (+620%) over 5 points
+== dag/node.py
+
+complexity trend: packages/url4/src/url4/dag/node.py (renames not followed)
+───────────────────────────────────────────────────────────────────────────
+date        sha       lines  cmplx  maxd  bar
+2026-07-15  56f932b6    226    506     8  ########
+2026-07-29  ac888c5c    357    926     8  ###############
+2026-07-31  7980f364    383   1070    10  #################
+2026-08-07  245e0a47    398   1144    10  ##################
+2026-09-09  cfd3eb38    417   1238    10  ####################
+2026-09-22  cba47c0f    140    196     8  ###
+
+lines 226 -> 140; complexity 506 -> 196 (-61%) over 5 points
+== core/render.py
+
+complexity trend: packages/url4/src/url4/core/render.py (renames not followed)
+──────────────────────────────────────────────────────────────────────────────
+date        sha       lines  cmplx  maxd  bar
+2026-07-23  5d8a701a    557   1488     8  ####################
+2026-09-22  cba47c0f    563   1500     8  ####################
+
+lines 557 -> 563; complexity 1488 -> 1500 (+1%) over 1 points
+== dag/_lowering.py
+
+complexity trend: packages/url4/src/url4/dag/_lowering.py (renames not followed)
+────────────────────────────────────────────────────────────────────────────────
+date        sha       lines  cmplx  maxd  bar
+2026-09-22  cba47c0f    610    775     4  ####################
+2026-09-23  375b6803    611    777     4  ####################
+
+lines 610 -> 611; complexity 775 -> 777 (+0%) over 1 points
+== core/parser.py
+
+complexity trend: packages/url4/src/url4/core/parser.py (renames not followed)
+──────────────────────────────────────────────────────────────────────────────
+date        sha       lines  cmplx  maxd  bar
+2026-07-23  5d8a701a    373    415     4  ###################
+2026-08-10  a0d874f3    386    431     4  ####################
+2026-09-22  cba47c0f    392    437     4  ####################
+
+lines 373 -> 392; complexity 415 -> 437 (+5%) over 2 points
+== peer/client.py
+
+complexity trend: packages/url4/src/url4/peer/client.py (renames not followed)
+──────────────────────────────────────────────────────────────────────────────
+date        sha       lines  cmplx  maxd  bar
+2026-07-23  5d8a701a    350   1066     8  ##################
+2026-09-22  cba47c0f    380   1160     8  ####################
+
+lines 350 -> 380; complexity 1066 -> 1160 (+9%) over 1 points
