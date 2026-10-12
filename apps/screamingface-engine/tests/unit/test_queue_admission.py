@@ -234,6 +234,8 @@ class _AtCapacityRunner(IdentityAwareJobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: RunShape = "expression",
+        capture: bool = False,
+        replay_frozen_copy: str | None = None,
     ) -> str:
         raise JobRunnerAtCapacity(active=100, limit=10, retry_after_s=42)
 

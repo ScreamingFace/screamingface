@@ -53,6 +53,8 @@ from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
 from screamingface_engine.metrics import register_fair_share_metrics
 from screamingface_engine.request_scope import (
+    CAPTURE_UNSUPPORTED,
+    CAPTURE_UNSUPPORTED_MESSAGE,
     PROFILE_HEADER,
     X_PROFILE_UNSUPPORTED,
     X_PROFILE_UNSUPPORTED_MESSAGE,
@@ -60,6 +62,7 @@ from screamingface_engine.request_scope import (
     bind_sync_request,
     forwarded_headers,
     requests_selector,
+    states_frozen_copy_mode,
 )
 from screamingface_engine.rest.mounts import register_mounts
 from screamingface_engine.runner.fair_share import FairShareGate
@@ -250,6 +253,11 @@ class _LocalNodeMount:
         if requests_selector(raw_headers.getlist(PROFILE_HEADER)):
             await send_url4_error(send, 400, X_PROFILE_UNSUPPORTED, X_PROFILE_UNSUPPORTED_MESSAGE)
             return
+        # INVARIANT (OME-1307): only the run route honours the frozen-copy headers, so the eval
+        # path refuses either one before binding the request — never a silent, uncaptured run.
+        if states_frozen_copy_mode(raw_headers):
+            await send_url4_error(send, 400, CAPTURE_UNSUPPORTED, CAPTURE_UNSUPPORTED_MESSAGE)
+            return
         with ExitStack() as stack:
             try:
                 # `bind_sync_request` binds the request scope, the trace (FX-64) and the
@@ -417,8 +425,12 @@ def create_local_app(
     from screamingface_engine.observation_plugins import observation_factories
     from screamingface_engine.runner.main import build_executor
 
-    run_env = dict(_with_runner_config(env if env is not None else os.environ))
-    run_env[job_env.ACTIVITY_LEVEL] = activity_level
+    # FEATURE: E14 Q23 — every run this App starts is a local run (the marker is read per run).
+    run_env = {
+        **_with_runner_config(env if env is not None else os.environ),
+        job_env.ACTIVITY_LEVEL: activity_level,
+        job_env.LOCAL_RUNTIME: "1",
+    }
     observers = observation_factories(run_env)
     if benchmarks is None:
         benchmarks = _local_benchmarks(run_env)

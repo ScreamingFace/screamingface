@@ -66,6 +66,8 @@ class _RecordingJobRunner(IdentityAwareJobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: RunShape = "expression",
+        capture: bool = False,
+        replay_frozen_copy: str | None = None,
     ) -> str:
         del url4, deadline_s, traceparent, credential, identity, cache
         del answer_seed, client_version, shape

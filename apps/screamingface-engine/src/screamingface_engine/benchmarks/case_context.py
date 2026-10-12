@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 
 from screamingface_engine.benchmarks.contract import CaseId, validate_case_id
+from screamingface_engine.capture_outcomes import case_key_for
+from screamingface_engine.grading_call_scope import current_grading_case
 from screamingface_engine.observations import RunObservations, current_observations
 
 _CURRENT: ContextVar[
@@ -80,3 +82,17 @@ def current_case_attempt() -> int | None:
     if value is None or value[0] is not current_observations():
         return None
     return value[1]
+
+
+def current_case_key() -> str:
+    """The key that names the Case of the work in progress, for a frozen-copy call (design §5.4).
+
+    A candidate call names its Case. A grading call names the graded Case when the engine can
+    resolve it. Any other call names no Case, and its key is ``""``.
+    """
+    case_id = current_case_id()
+    if case_id is None:
+        case_id = current_grading_case()
+    if case_id is None:
+        return ""
+    return case_key_for(case_id, current_case_attempt() or 1)
