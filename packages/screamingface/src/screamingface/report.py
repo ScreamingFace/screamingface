@@ -989,7 +989,15 @@ def _candidate_trace(candidate: CandidateResult) -> dict[str, object]:
 def _bind_graphs(cases: Sequence[CaseResult], operations: Sequence[OperationInfo]) -> None:
     """Bind this Candidate's operation graph to each of its Cases, in place (never a copy)."""
 
-    for case in cases:
+    from screamingface._results.cases import DiskCases
+
+    items = cases._items if isinstance(cases, _CaseResults) else cases
+    # WHY: a saved report's Cases decode only when read (OME-1570); walking them here would
+    # decode every Case, so the disk sequence binds each Case as it decodes it.
+    if isinstance(items, DiskCases):
+        items.bind_operations(operations)
+        return
+    for case in items:
         _bind_operation_graph(case, operations)
 
 
