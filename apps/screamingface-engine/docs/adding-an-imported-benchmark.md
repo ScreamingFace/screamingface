@@ -304,14 +304,6 @@ Four things differ from an inspect_evals import:
   (`packages/screamingface/scripts/build_notebooks.py` → `examples/NN_<key>.ipynb`), and its
   row's `notebook=` names it. The imported boards share `12_inspect_evals_benchmarks`; a local
   Task is ours and has its own story to tell (its scores, its reply format, its caveats).
-- **A scorer that reads Sample metadata must tolerate its absence** (`state.metadata.get(...)`),
-  and its tests must say what a missing key scores. The no-network grading lane runs every
-  judge-less Benchmark over stand-in Cases that carry no metadata; a `KeyError` there shows as a
-  grading failure on a Benchmark that grades fine in production. Tolerating is not defaulting
-  to a pass: hand the paper's metric its honest empty input and pin the result (MuSiQue:
-  support F1 is 0.0 for a reply that cites paragraphs and 1.0 for one that cites none, the
-  paper's own "cited nothing, expected nothing" rule). Production never hits this path when
-  the row keeps Sample metadata: the key is in the Case Digest.
 
 The hand-built lane stays only for a Benchmark where a later Candidate call's prompt depends
 on an earlier reply (medxpert's reason-then-commit): capture runs the Task's solvers up to
