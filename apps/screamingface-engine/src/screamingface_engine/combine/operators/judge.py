@@ -53,9 +53,9 @@ def parse_label(raw: str, members: Sequence[str]) -> str:
 
 
 def label(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
-    """The member the judge named. Any spec member is valid: the judge saw every text."""
+    """The member the judge named: any member that answered, since the judge saw exactly those."""
     raw = judge_reply(combine_input.signals, "label@1")
-    return Reduction(judge=JudgeReading(raw, "label", parse_label(raw, combine_input.members)))
+    return Reduction(judge=JudgeReading(raw, "label", parse_label(raw, combine_input.present)))
 
 
 def _value_scores(combine_input: CombineInput) -> Reduction:
@@ -72,7 +72,7 @@ def scores(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     if args["source"] == "values":
         return _value_scores(combine_input)
     raw = judge_reply(combine_input.signals, "scores@1")
-    parsed = parse_scores(raw, combine_input.members)
+    parsed = parse_scores(raw, combine_input.present)
     return Reduction(
         scores=MappingProxyType({member: Decimal(repr(score)) for member, score in parsed.items()}),
         judge=JudgeReading(raw, "scores", MappingProxyType(parsed)),

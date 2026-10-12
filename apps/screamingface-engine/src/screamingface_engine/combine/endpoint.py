@@ -224,7 +224,7 @@ def _signal_values(
         return {member: {} for member in spec.members}
     if not any(member in context.outputs for member in spec.members):
         # WHY no read (OME-1557): an empty quorum panel abstains with no_votes; reading a signal
-        # over no member could only refuse a Case that has no answer.
+        # over no member (a judge reply above all) could only refuse a Case that has no answer.
         return {member: {read.key: None} for member in spec.members}
     numbers = _signal_numbers(read.key, spec, context, accounting)
     return {member: {read.key: numbers[member]} for member in spec.members}
@@ -241,7 +241,9 @@ def _signal_numbers(
         return _accounting_numbers(key, spec, context, accounting)
     if key == JUDGE_SIGNAL:
         # WHY strict (F4): the judge reply format is the contract; judge reducers fail the same way.
-        return parse_scores(judge_reply(context.signals, JUDGE_SIGNAL), spec.members)
+        present = [member for member in spec.members if member in context.outputs]
+        scores = parse_scores(judge_reply(context.signals, JUDGE_SIGNAL), present)
+        return {member: scores.get(member) for member in spec.members}
     return _field_numbers(key[len(FIELD_SIGNAL_PREFIX) :], spec, context)
 
 
