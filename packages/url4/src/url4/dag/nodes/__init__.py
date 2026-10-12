@@ -67,7 +67,7 @@ from url4.dag.nodes.group import (
     LazyExprNode,
     ProcessNode,
 )
-from url4.dag.nodes.guard import GuardNode
+from url4.dag.nodes.guard import GuardNode, GuardRetry, current_guard_retry
 from url4.dag.nodes.iteration import ExpandNode, MapNode
 from url4.dag.nodes.reduce import ReduceNode
 
@@ -83,6 +83,7 @@ __all__ = [
     "FanoutReduceNode",
     "GatherNode",
     "GuardNode",
+    "GuardRetry",
     "HoldingsNode",
     "InlineCollectionNode",
     "JoinNode",
@@ -97,4 +98,5 @@ __all__ = [
     "StructNode",
     "TextNode",
     "WebFetchNode",
+    "current_guard_retry",
 ]

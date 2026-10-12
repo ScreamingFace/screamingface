@@ -150,7 +150,8 @@ def build_variant_protocol(routes: Routes, case_count: int, available_case_count
        already rendered into a grader prompt.
     3. Send each grader prompt to the judge as a single user message and parse its yes/no verdict
        via ``routes.verdict``. A malformed reply raises, so ``;retry=`` re-resolves the NESTED
-       judge call for a fresh sample. That nesting is the point: as a sibling, a
+       judge call, and that retry opts out of the gateway cache (OME-1533) so it gets a fresh
+       sample, not the stored malformed reply. That nesting is the point: as a sibling, a
        malformed-but-successful model call would never be retried.
     4. Roll up: criterion rows → ``routes.rubric_evaluation`` → per-Case score at
        ``routes.case_evaluation`` → every Case row into ``routes.aggregate``.

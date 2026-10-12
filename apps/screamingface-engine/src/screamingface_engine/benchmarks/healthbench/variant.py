@@ -152,8 +152,9 @@ def build_variant_protocol(routes: Routes, case_count: int, available_case_count
     3. For each rubric item, send the grader prompt to the judge model as a single
        user message (empty intent = no system row, matching the official judge),
        and parse its yes/no verdict via ``routes.verdict``. A malformed reply
-       raises, so ``;retry=`` re-resolves the NESTED judge call — a fresh sample
-       per attempt. That is why the judge call sits inside the verdict expression:
+       raises, so ``;retry=`` re-resolves the NESTED judge call, opted out of the
+       gateway cache (OME-1533) — a fresh sample per retry, not the stored malformed
+       reply. That is why the judge call sits inside the verdict expression:
        as a sibling, a malformed-but-successful model call would never be retried.
     4. Roll verdicts up: rubric rows → ``routes.rubric_evaluation`` → per-Case score
        at ``routes.case_evaluation`` → all Case rows into ``routes.aggregate``, which
@@ -197,7 +198,8 @@ def build_variant_protocol(routes: Routes, case_count: int, available_case_count
         src("$item.rubric_record", name="rubric_record", weight=0.0),
         # WHY nested, not siblings: the verdict route RAISES a transient error on a
         # malformed reply, and its `;retry=` re-resolves the nested judge call — a
-        # fresh sample per attempt (verdict.call docstring). Sibling wiring would
+        # fresh sample per retry, because that retry opts out of the gateway cache
+        # (verdict.call docstring, OME-1533). Sibling wiring would
         # retry nothing: a malformed reply is a successful model call.
         verdict.call(
             judge_reply,
