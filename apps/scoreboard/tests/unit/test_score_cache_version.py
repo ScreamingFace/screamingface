@@ -491,3 +491,17 @@ async def test_resubmit_fills_only_an_empty_case_digest(tortoise_db: None) -> No
     assert was_created is False
     assert again.id == row.id
     assert (await Score.get(id=row.id)).case_digest == DIGEST
+
+
+@pytest.mark.asyncio
+async def test_a_case_digest_never_fills_without_its_status(tortoise_db: None) -> None:
+    # The digest moves with the status: a row that holds `partial` and no digest is not given a
+    # digest by a replay that brings a `complete` status. The pair is one execution, so the digest
+    # from that run must not be paired with the partial run's status.
+    row = await _store_then_resubmit(
+        {"capture_status": "partial"},
+        {"capture_status": "complete", "frozen_copy_id": COPY_ID, "case_digest": DIGEST},
+    )
+
+    assert row.case_digest is None
+    assert _held(row) == ("partial", None, None)

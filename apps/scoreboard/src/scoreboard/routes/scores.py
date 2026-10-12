@@ -600,7 +600,10 @@ def _refuse_unless_exact(score: Score, body: ReproductionSubmission) -> None:
             status_code=422,
             detail={
                 "code": "not_exact",
-                "message": "score, total_questions and frozen_copy_id must equal the stored score",
+                "message": (
+                    "score, total_questions, frozen_copy_id and, when the score has one, "
+                    "case_digest must equal the stored score"
+                ),
             },
             headers=PRIVATE_CACHE_HEADERS,
         )

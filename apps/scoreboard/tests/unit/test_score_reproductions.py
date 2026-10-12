@@ -1061,3 +1061,37 @@ async def test_private_board_copy_id_never_reaches_a_non_owner(client: AsyncClie
         anonymous_history,
     ):
         assert COPY_ID not in response.text, response.request.url
+
+
+@pytest.mark.asyncio
+async def test_q25_positive_control_owner_rows_show_only_the_owners_copy_id(
+    client: AsyncClient,
+) -> None:
+    # Q25 positive control: Bob's own private-board rows carry Bob's copy id, and Alice's copy id
+    # stays hidden from Bob on the same board.
+    await Benchmark.create(id="private-x", display_name="Private", visibility="private")
+    await _submit(client, ALICE, benchmark_id="private-x")
+    bob_created = await client.post(
+        "/v1/scores",
+        json=_payload(
+            benchmark_id="private-x", spec_id="spec-bob", score=0.5, frozen_copy_id=OTHER_COPY_ID
+        ),
+        headers=_as(BOB),
+    )
+    assert bob_created.status_code == 201, bob_created.text
+    bob_score_id = bob_created.json()["id"]
+
+    bob_detail = await client.get(f"/v1/scores/{bob_score_id}", headers=_as(BOB))
+    bob_board = await client.get("/v1/leaderboard/private-x", headers=_as(BOB))
+    bob_history = await client.get("/v1/leaderboard/private-x/spec-bob/history", headers=_as(BOB))
+
+    assert bob_detail.status_code == 200, bob_detail.text
+    assert bob_detail.json()["frozen_copy_id"] == OTHER_COPY_ID
+    assert bob_board.status_code == 200, bob_board.text
+    assert bob_history.status_code == 200, bob_history.text
+    assert COPY_ID not in bob_board.text
+    assert COPY_ID not in bob_history.text
+    # Bob's own row is on the board (leaderboard rows carry no copy id, so the row is named by its
+    # spec) and in his history (history rows carry the score id).
+    assert "spec-bob" in bob_board.text
+    assert bob_score_id in bob_history.text
