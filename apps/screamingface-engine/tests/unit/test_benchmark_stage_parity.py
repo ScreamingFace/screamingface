@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from test_draco_corrective_loop_e2e import _assets as draco_assets
+from test_draco_case_artifacts import _assets as draco_case_assets
 from test_healthbench_dual_benchmark_runtime import _write_full_assets as healthbench_assets
 from test_ifeval_case_evaluation_route import _assets as ifeval_assets
 from test_medxpert_protocol_turns import _assets as medxpert_assets
@@ -16,6 +16,15 @@ from screamingface_engine.world.candidate_adapter import install_candidate_invoc
 from url4.dag import run as execute
 from url4.observe import Log
 from url4.peer.server import Url4Node
+
+
+def draco_assets(root):
+    """Write DRACO's stand-in Cases and rubrics under ``root/draco``, as the bundle lays them out.
+
+    WHY here (OME-1527): this helper used to come from the DRACO corrective-loop end-to-end
+    test, deleted with the route it exercised; the Case-artifacts test writes the same shape.
+    """
+    draco_case_assets(root / "draco")
 
 
 def assets(registration, root, monkeypatch):

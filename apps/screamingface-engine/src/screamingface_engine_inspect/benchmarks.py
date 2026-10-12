@@ -266,8 +266,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: inspect_evals.gsm8k.gsm8k's Task declares scorer=match(numeric=True).
         scorer="inspect_ai.scorer:match",
         scorer_kwargs={"numeric": True},
-        # Free-form answers make mid-run feedback legitimate: the same scorer serves
-        # the corrective loop (spec §4; owner decision on OME-1115, 2026-09-15).
+        # No Draft Feedback offer (with_check_surface stays False): the offer is a
+        # per-Benchmark owner call, and today only IFEval carries one (OME-1513).
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/2110.14168",
