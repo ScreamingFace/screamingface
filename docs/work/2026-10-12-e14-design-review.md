@@ -41,3 +41,14 @@ merged spec PR #1329 did not include.
   records only the engine version, because the executor does not know the benchmark revision (the score
   already stores it). Q29 is computed by the SDK from the graded cases, because the engine run summary
   has no per-case results.
+- **Interim commits (2026-10-12):** a second session pushed `1e635c5e0`, `91b352d7b` (B1) and
+  `3e5ee45eb` (B3), and added plan §0a. An Opus design review of them changed the design:
+  - The case key names the Attempt.
+  - §3 documents `seq`, `entry_seq`, the unique `(frozen_copy, seq)` index and the error
+    `response_json` shape with `Retry-After`.
+  - §4.1 adds the Attempt digest rule.
+  - §4.2 skips a 499 and caps the occurrence at 9 ASCII digits.
+  - §4.4 re-sends the stored `Retry-After`.
+  - §5.4 takes the tool occurrence before execution and keeps `max-age` re-issues `ambiguous`.
+  - §0a is corrected: the `seq` uniqueness is kept, and the claim that the malformed `cache` find
+    "dissolves" was wrong.

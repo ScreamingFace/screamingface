@@ -46,7 +46,7 @@ header, the revisions endpoint) is removed from the stack. There is no publish s
 | Q24 | Last-edit time (review item B) | Public. The score detail and the portal show `metadata_updated_at`. The edit log stays owner and operator only (Q10). |
 | Q25 | Replay access on private boards (review item 1) | Q16 stands. The copy id is a bearer secret: a private board never returns it to a non-owner. No replay grants. |
 | Q26 | Trust in web-tool results (review item 2) | "Exact" means internally consistent. The copy stores tool results as the engine run reported them. Hardening (an engine service identity for copy writes) is a follow-up. |
-| Q27 | Replay key (review item 5) | Each call is keyed by `(case key, kind, request digest, occurrence)`. The occurrence counts the earlier logical calls of the same request in the same case. It is fixed when the call is first sent and never given back. Replay reads that exact key. Replaces the §4.4 "nth success" rule and the D2 forgiveness rule. |
+| Q27 | Replay key (review item 5) | Each call is keyed by `(case key, kind, request digest, occurrence)`. The case key names the case and its Attempt (OME-1458). The occurrence counts the earlier logical calls of the same request in the same case key. It is fixed when the call is first sent and never given back. Replay reads that exact key. Replaces the §4.4 "nth success" rule, the interim stated-slot rule (`91b352d7b`, `3e5ee45eb`) and the D2 forgiveness rule. |
 | Q28 | Provenance (review item 6) | At seal the engine sends its version. The gateway stores it on the copy. Upgrade-safe replay is a follow-up. |
 | Q29 | Per-case exact (review item 3) | The SDK computes a case digest from the graded cases. The board stores it at submit and compares it on reproduction. |
 | Q30 | Tavily retrieval cache (found in the review) | The cache key includes the caller's account. Cross-account sharing stops until the engine has a service identity. |
@@ -63,6 +63,7 @@ Core module `aigateway.core.frozen_copy` (registered in the Tortoise model list)
 | `account` | FK → `Account`, `CASCADE` | The account that opened the copy. Only it may write or seal. |
 | `status` | `open` \| `sealed` | `open` on create; `sealed` is final. |
 | `entries` | int | Count, set at seal. |
+| `entry_seq` | int | The counter that gives each new entry its `seq`. Incremented under the copy-row lock. |
 | `provenance` | JSON, nullable | Set at seal (Q28): `{"engine_version": "<string>"}`. Null when the seal sent none. |
 | `created_at`, `sealed_at` | datetime | |
 
@@ -73,13 +74,14 @@ Core module `aigateway.core.frozen_copy` (registered in the Tortoise model list)
 | `id` | UUID pk | |
 | `frozen_copy` | FK → `frozen_copies`, `CASCADE` | |
 | `kind` | `chat` \| `tool` | |
-| `case_key` | varchar(32) | Q27. 32 lowercase hex chars, or `""` for a call outside any case. |
-| `occurrence` | int ≥ 0 | Q27. The logical-call number of this request in this case. |
-| `request_digest` | char(64) | sha256 (see §4.1). Index `(frozen_copy, kind, case_key, request_digest, occurrence)`. Not unique: every attempt of one logical call is stored. |
+| `case_key` | varchar(32), not null, default `""` | Q27. 32 lowercase hex chars, or `""` for a call outside any case. |
+| `occurrence` | int ≥ 0, not null, default 0 | Q27. The logical-call number of this request in this case key. |
+| `request_digest` | char(64) | sha256 (see §4.1). Index `(frozen_copy, kind, case_key, request_digest, occurrence, seq)`. Not unique: every transport attempt of one logical call is stored. |
 | `request_json` | JSON | The digested request (chat body or tool description). |
-| `response_json` | JSON | Chat: the body returned to the caller, or the error `detail`. Tool: `{"result": "<string>"}`. |
+| `response_json` | JSON | Chat success: the body returned to the caller. Chat error: `{"detail": ..., "headers": {"Retry-After": "<value>"}}`; `headers` is present only when the live error had `Retry-After`. Tool: `{"result": "<string>"}`. |
 | `status_code` | int | 200 for a success; the HTTP status of a captured error. |
-| `created_at` | datetime | Capture order. |
+| `seq` | int | Capture order inside the copy, from `entry_seq`. Unique per copy (`unique (frozen_copy, seq)`), so a broken row lock fails loudly. It defines "latest" in §4.4. |
+| `created_at` | datetime | For information only. The clock is never the order. |
 
 Invariants:
 - **F1.** Rows are insert-only. A sealed copy accepts no insert.
@@ -96,6 +98,10 @@ Invariants:
 - **chat:** `request` is the body after the `cache` control is popped and the gateway-level dispatch
   controls are stripped (`chat.py`, the body at the step before provider lookup). The replay endpoint
   applies the same two steps, so the same request gives the same digest.
+- **Attempt (OME-1458, `1e635c5e0`):** when the `cache` control names Attempt 2 or later, the digest
+  input also has `"attempt": N`. This is true also with an opt-out (`"use-cache": false`), which keeps
+  the number. Attempt 1 digests as before. The case key (§5.4) also names the Attempt, so two Attempts
+  never share a key, even if a malformed `cache` object drops the number from the digest.
 - **tool:** `request` is the tool description the engine sends (§4.4).
 
 ### 4.2 Capture on `/v1/chat/completions`
@@ -104,13 +110,15 @@ Invariants:
   `X-AIGW-Call-Occurrence: <n>` (Q27).
 - Before the cache stage, the gateway checks the copy: it exists, it belongs to the caller's account, and
   it is `open`. It also checks the two key headers: the case key is `""` or 32 lowercase hex chars, and
-  the occurrence is present and a non-negative integer (at most 18 digits). If any check fails, the call
+  the occurrence is present and is 1 to 9 ASCII digits (no sign, no space). If any check fails, the call
   is served as usual and nothing is stored (`refused`).
 - `stream: true` is never captured (`refused`): the gateway has no assembled body for a stream.
 - After the final response is ready (a cache hit or a live success), the gateway inserts one entry with
   status 200 and the body it returns. A provider or dispatch error that ends the call (an
-  `HTTPException` after the copy check) is captured too, with its status and `detail`. Gateway
-  refusals before the copy check (bad JSON, bad shape, unknown provider) are not captured.
+  `HTTPException` after the copy check) is captured too, with its status, `detail` and `Retry-After`
+  (when the live error had one). Gateway refusals before the copy check (bad JSON, bad shape, unknown
+  provider) are not captured.
+- A client disconnect (499) is not captured: no client received that response. The outcome is `failed`.
 - The insert is awaited, and a failure never fails the call (best effort, Q18).
 - Response header `X-AIGW-Capture: stored | failed | refused` on every call that sent the request
   header (also on the error responses).
@@ -134,7 +142,8 @@ The copy id is a bearer secret (Q25). The gateway never logs it next to request 
   `X-AIGW-Replay-Occurrence` is removed.
 - Lookup among the entries with the same `(copy, kind, case_key, digest, occurrence)`:
   1. the latest successful entry (status 200, highest `seq`);
-  2. if there is no successful entry: the latest captured error with its status and `detail`;
+  2. if there is no successful entry: the latest captured error with its status, `detail` and stored
+     `Retry-After` (sent again as a response header);
   3. if there is no entry: 404 `{"code": "frozen_copy_miss"}`. There is no fallback to another
      occurrence or another case key.
 - No credential is resolved, no provider and no plugin is called, no model is validated, no cache is
@@ -202,15 +211,22 @@ present (pinned 2026-10-08, B3 review).
 
 The engine sends the same key in capture and in replay, so both runs name each call the same way.
 
-- **Case key:** the first 32 hex chars of `sha256(json.dumps(["case", case_id], separators=(",", ":")))`.
-  The case id comes from `case_scope` for a candidate call. For a grading or judge call it comes from
-  the grading case when the engine can resolve it. Otherwise the case key is `""`.
+- **Case key:** the first 32 hex chars of
+  `sha256(json.dumps(["case", case_id, attempt], separators=(",", ":")))`, where `attempt` is
+  `current_case_attempt()` or 1 (OME-1458). The case id comes from `case_scope` for a candidate call.
+  For a grading or judge call it comes from the grading case when the engine can resolve it. Otherwise
+  the case key is `""`.
 - **Occurrence:** the run tally keeps a counter per `(case key, kind, request digest)`. A logical call
   takes the next value when it is first sent. Every transport attempt of that call sends the same value.
   The value is never given back, in capture or in replay. A gathered group of calls takes its values in
   task-creation order, before the first `await` of each task.
+- **Tool calls:** the occurrence is taken before `_execute_tool` runs, not when the result is stored.
+  So capture numbers identical tool calls in send order, the same order that replay uses.
 - A higher-level retry (a new logical call) takes a new occurrence. In replay, the captured error of the
   first call comes back, so the same retry happens and takes the same next occurrence.
+- A `max-age` re-issue stays `ambiguous` (§5.2 item 7), on purpose. "Latest success" would serve the
+  re-issued answer, but we keep the strict rule until a run shows that this costs too many `complete`
+  captures.
 
 ## 6. Scoreboard behaviour
 

@@ -41,13 +41,24 @@ reviewer's option (a) in strict form — the engine states the slot it reserved 
 - Where the two commits and the Q27 refinement differ, the refinement wins: the call key moves to
   headers, the occurrence counts logical calls (every transport attempt shares it) and is never
   given back, the column is `int not null default 0` with the
-  `(frozen_copy_id, kind, case_key, request_digest, occurrence)` index (not unique),
+  `(frozen_copy_id, kind, case_key, request_digest, occurrence, seq)` index (not unique),
   `X-AIGW-Capture-Occurrence` and `X-AIGW-Replay-Occurrence` are both replaced, and the lookup rule
-  becomes §4.4's latest-success-else-latest-error. The Phase 2 edits below remain the binding work;
-  they replace the interim header and drop the `(frozen_copy_id, seq)` uniqueness.
-- The #1330 review's "a malformed `cache` field drops the Attempt number" find dissolves under this
-  plan: the call key travels in headers, not in the request's `cache` object that
-  `prepare_ingress_body` strips.
+  becomes §4.4's latest-success-else-latest-error at the exact key. The Phase 2 edits below remain the
+  binding work.
+- Review of the interim commits (2026-10-12, Opus design review):
+  - `91b352d7b` picks the nth stored success, not the entry at the exact slot. A call whose stored
+    error sits at slot 0 gets slot 1's success on replay. The exact-key lookup fixes this.
+  - `3e5ee45eb` takes the tool slot after `_execute_tool`, so capture numbers identical tool calls
+    in Tavily completion order and replay numbers them in send order. Phase 2 takes it before.
+  - The order tests check `sorted(...)` only, so they cannot catch either bug. Phase 2 checks the
+    value per task.
+- **Keep** (Phase 2 must not delete): the Attempt number in the gateway digest and the opt-out that
+  keeps it (`1e635c5e0`, design §4.1); no capture of a 499; the stored `Retry-After` on a captured
+  error and on replay (design §3, §4.2, §4.4); the unique `(frozen_copy_id, seq)` index, because `seq`
+  defines "latest" (design §3).
+- The #1330 review's "a malformed `cache` field drops the Attempt number" find: the Attempt number lives
+  in the digest, not in the headers, so the header call key alone does not fix it. The design now puts
+  the Attempt in the case key (§5.4), so two Attempts never share a key.
 
 ## 1. Phase 0 — restack (no behaviour change)
 
@@ -66,6 +77,10 @@ carries the #1332 fixes (`ee4c6c3ce`). A1…C1 still sit on the older B3.
 6. B5 carries `18ffd1f94` (Q22 text). D0 holds the same change, so the rebase drops it or the conflict
    resolves to D0's text.
 7. Run the gates on every branch (commands in Phase 2).
+
+Done 2026-10-12, twice: a second session pushed the §0a commits during the first restack, so the
+restack ran again on its final pushes. Backups: `refs/e14-backup/pre-review-2026-10-12/` and
+`refs/e14-backup/pre-restack2-2026-10-12/`.
 
 ## 2. Phase 1 — D0 (this branch)
 
@@ -87,20 +102,22 @@ A1, B4 and B5 touches separate files, so it runs in parallel in each worktree. C
 
 | File | Change |
 |---|---|
-| `src/aigateway/migrations/0014_frozen_copies.py` | Amend in place (unreleased). Entries: add `case_key` varchar(32) not null default `""` and `occurrence` int not null default 0. Index `(frozen_copy_id, kind, case_key, request_digest, occurrence)`, not unique. Copies: add `provenance` JSON null. |
-| `src/aigateway/core/frozen_copy/models.py` | The same fields. |
-| `src/aigateway/core/frozen_copy/headers.py` | `CASE_KEY_HEADER = "X-AIGW-Case-Key"`, `OCCURRENCE_HEADER = "X-AIGW-Call-Occurrence"`, one parser for both (design §4.2). |
-| `src/aigateway/core/frozen_copy/store.py` | `capture(..., case_key, occurrence)`. `find(copy, kind, request, case_key, occurrence)` per design §4.4: latest success, else latest error, else `None`. `seal(..., provenance)`; a repeat seal keeps the first provenance. |
-| `src/aigateway/routes/chat.py` | Capture reads both key headers. A bad or missing key → `refused`. |
-| `src/aigateway/routes/frozen_copies.py` | Replay, tool lookup and tool-results capture read both key headers; bad → 400 `malformed_call_key`. Remove `X-AIGW-Replay-Occurrence` and `malformed_replay_occurrence`. Seal takes the optional provenance body (design §4.3). |
-| `tests/unit/test_frozen_copy_*.py` | New tests below. Lookup-rule and occurrence tests change (approved, see the header). |
+| `src/aigateway/migrations/0014_frozen_copies.py` | Amend in place (unreleased). Entries: add `case_key` varchar(32) not null default `""`; change `occurrence` (from `91b352d7b`) to int not null default 0. Index `(frozen_copy_id, kind, case_key, request_digest, occurrence, seq)`, not unique; it replaces `(frozen_copy_id, kind, request_digest, seq)`. **Keep** unique `(frozen_copy_id, seq)`. Copies: add `provenance` JSON null. |
+| `src/aigateway/core/frozen_copy/models.py` | The same fields. Fix the `occurrence` comment ("engine release-once" is wrong). |
+| `src/aigateway/core/frozen_copy/headers.py` | `CASE_KEY_HEADER = "X-AIGW-Case-Key"`, `OCCURRENCE_HEADER = "X-AIGW-Call-Occurrence"`, one parser for both (design §4.2: case key `""` or 32 lowercase hex; occurrence 1–9 ASCII digits, a regex, not `int()`). Remove `CAPTURE_OCCURRENCE_HEADER`, `parse_capture_occurrence` and the replay-occurrence header. Keep `RETRY_AFTER_HEADER` and `STORED_HEADERS_FIELD`. |
+| `src/aigateway/core/frozen_copy/store.py` | `capture(..., attempt, case_key, occurrence)`. `find(copy, kind, request, attempt, case_key, occurrence)` per design §4.4: at the exact key, the success with the highest `seq`, else the error with the highest `seq`, else `None`. No `seq` fallback for entries without a stated slot. `request_digest_prefix` takes `attempt` too. `seal(..., provenance)`; a repeat seal keeps the first provenance. **Keep** the Attempt number in the digest (`1e635c5e0`). |
+| `src/aigateway/routes/chat.py` | Capture reads both key headers. A bad or missing key → `refused`. **Keep** the 499 skip and the stored `Retry-After`; read `Retry-After` with the case-insensitive helper `_case_insensitive_header` (`core/retry.py`). |
+| `src/aigateway/routes/frozen_copies.py` | Replay, tool lookup and tool-results capture read both key headers; bad → 400 `malformed_call_key`. Remove `X-AIGW-Replay-Occurrence` and `malformed_replay_occurrence`. **Keep** the `Retry-After` on a replayed error. Seal takes the optional provenance body (design §4.3). |
+| `tests/unit/test_frozen_copy_*.py` | New tests below. Lookup-rule and occurrence tests change (approved, see the header). Delete `test_a_digest_without_stated_slots_still_replays_in_completion_order` (no fallback). Change `test_a_capture_occurrence_header_reads_as_absent_unless_usable` into test 5. Keep `test_two_entries_of_one_copy_never_share_a_seq`, `test_each_attempt_replays_its_own_answer`, `test_a_client_disconnect_is_not_captured`, `test_a_replayed_rate_limit_keeps_its_retry_after`. |
 
 TDD (risk order):
 1. `same_request_in_two_cases_replays_each_case_its_own_answer`
 2. `completion_order_does_not_change_replay` (occurrence 1 stored before occurrence 0)
-3. `replay_returns_the_latest_success_at_the_key_else_the_latest_error_else_miss`
+3. `replay_returns_the_latest_success_at_the_key_else_the_latest_error_else_miss`, including: an error
+   at occurrence 0 and a success at occurrence 1 → occurrence 0 replays the error (the `91b352d7b` bug)
 4. `no_fallback_to_another_occurrence_or_case_key`
-5. `bad_or_missing_key_headers`: capture `refused`; replay and tool routes 400 `malformed_call_key`
+5. `bad_or_missing_key_headers`: capture `refused`; replay and tool routes 400 `malformed_call_key`.
+   Bad values include `"+3"`, `" 3"`, `"1_0"`, a non-ASCII digit and 10 digits.
 6. `tool_results_capture_and_lookup_use_the_key`
 7. `seal_stores_provenance_and_keeps_the_first`; `unknown_key_or_bad_value_is_422`
 8. `replay_occurrence_header_is_gone` (the old header has no effect)
@@ -129,21 +146,22 @@ TDD: `fill_by_one_account_is_a_miss_for_another`, `same_account_hit_is_unchanged
 
 | File | Change |
 |---|---|
-| `src/screamingface_engine/capture_outcomes.py` | Header constants for the key (design §5.4); remove `REPLAY_OCCURRENCE_HEADER`. `CaptureTally`: `local: bool = False`; `_REASONS` gets `"local"`; `status()` is `partial` when `local`; `attributes()` counts `capture.partial.local`. Replace `slots`/`freed`/`reserve`/`release` with `next_occurrence(case_key, lane, digest) -> int` (never given back). `_lost()`: every outcome that is not `stored` is lost (D2 removed). Keep the `ambiguous` rules. Add `case_key_for(case_id) -> str` (design §5.4). |
-| `src/screamingface_engine/world/connector.py` | `_recorded_completion` takes the occurrence once per logical call and sends both key headers with `X-AIGW-Frozen-Copy`; every transport attempt reuses them. The replay fetch sends the same key. Remove the release on failure. `seal_frozen_copy` sends `{"provenance": {"engine_version": ...}}`. |
-| `src/screamingface_engine/world/web_tools.py` | Tool-result capture and lookup send the key. Take the occurrence before the first `await` of each gathered task. |
-| `src/screamingface_engine/benchmarks/case_context.py` | `current_case_key() -> str`: the candidate case from `case_scope`; else the grading case when it can be resolved (`grading_call_scope.current_grading_case`); else `""`. |
+| `src/screamingface_engine/capture_outcomes.py` | Header constants `CASE_KEY_HEADER`, `CALL_OCCURRENCE_HEADER` (design §5.4), in `__all__`; remove `CAPTURE_OCCURRENCE_HEADER` (`3e5ee45eb`) and `REPLAY_OCCURRENCE_HEADER`. `CaptureTally`: `local: bool = False`; `_REASONS` gets `"local"`; `status()` is `partial` when `local`; `attributes()` counts `capture.partial.local`. Replace `slots`/`freed`/`reserve`/`release` with `next_occurrence(case_key, lane, digest) -> int` (never given back). `_lost()`: every outcome that is not `stored` is lost (D2 removed). Keep the `ambiguous` rules, also for a `max-age` re-issue (design §5.4). Add `case_key_for(case_id, attempt) -> str` (design §5.4). Fix the module and `slots` docstrings. |
+| `src/screamingface_engine/world/connector.py` | `_recorded_completion` takes the occurrence once per logical call and sends both key headers with `X-AIGW-Frozen-Copy`; every transport attempt reuses them. The replay fetch sends the same key and keeps the body's `cache.attempt`. Remove the release on failure and the unreachable `0 if _tally is None` branch. `seal_frozen_copy` sends `{"provenance": {"engine_version": ...}}`. |
+| `src/screamingface_engine/world/web_tools.py` | Tool-result capture and lookup send the key. Take the occurrence in `_executed` **before** `_execute_tool` runs (not in `store()`), before the first `await` of each gathered task. Lookup sends the same value. |
+| `src/screamingface_engine/benchmarks/case_context.py` | `current_case_key() -> str`: the candidate case from `case_scope`; else the grading case when it can be resolved (`grading_call_scope.current_grading_case`); else `""`. The Attempt is `current_case_attempt() or 1`. |
 | `src/screamingface_engine/__init__.py` | `__version__ = importlib.metadata.version("screamingface-engine")`. |
 | `src/screamingface_engine/runner/executor.py` (`_bind_frozen_copy_mode`) | Set `tally.local` when the run executes on the local runtime. No flag exists today: add a job-env marker that `local.py` (`_install_local_node` / `create_local_app`) sets for every run it starts, and read it here. |
-| Tests | New tests below. Existing occurrence, release and overlap tests change (approved). |
+| Tests | New tests below. Existing occurrence, release and overlap tests change (approved): delete the five slot tests in `test_capture_outcomes.py` (reserve/release/freed) and both tests in `test_frozen_copy_overlap.py`; the two D2 "complete" rows in `test_capture_status_rule` become `partial`. The three `3e5ee45eb` tests in `test_frozen_copy_calls.py` stay with the new header names, and check each task's value, not `sorted(...)`. |
 
 TDD (risk order):
 1. `capture_and_replay_send_the_same_key_sequence` (end to end with a fake gateway)
 2. `same_request_in_two_concurrent_cases_takes_occurrence_0_in_each`
 3. `transport_retries_of_one_call_reuse_its_occurrence`
 4. `a_new_logical_call_takes_the_next_occurrence_and_it_is_never_given_back`
-5. `gathered_identical_tool_calls_take_occurrences_in_task_creation_order`
-6. `grading_call_uses_the_grading_case_key_or_empty`
+5. `gathered_identical_tool_calls_take_occurrences_in_task_creation_order`, also when the second task's
+   Tavily call finishes first
+6. `grading_call_uses_the_grading_case_key_or_empty`; `attempt_2_of_a_case_has_its_own_case_key`
 7. `local_runtime_capture_is_partial_with_reason_local`; `hosted_capture_is_unchanged`
 8. `an_unstored_error_is_no_longer_forgiven`
 9. `seal_sends_the_engine_version`
