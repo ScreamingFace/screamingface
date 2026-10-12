@@ -20,6 +20,7 @@
     "cut_not_met",
     "empty",
     "field_missing",
+    "missing",
     "no_match",
     "no_votes",
     "not_json",

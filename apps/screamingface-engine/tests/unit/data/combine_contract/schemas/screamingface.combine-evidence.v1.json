@@ -29,6 +29,7 @@
                 "field_missing",
                 "too_large",
                 "no_match",
+                "missing",
                 "no_votes",
                 "cut_not_met"
               ],
