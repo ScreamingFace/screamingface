@@ -59,7 +59,8 @@ def _classify(
     INVARIANT: the order of `checks` is the contract (spec §7). A replay code outranks everything,
     since a run that missed the copy has nothing to compare. Then a run failure, then the benchmark
     revision (a changed exam makes the score meaningless to compare), then the numbers, compared
-    exactly (one ulp is a different result).
+    exactly (one ulp is a different result). Then the case digest, only when the score has one
+    (Q29).
     """
     missed = tuple(
         dict.fromkeys(

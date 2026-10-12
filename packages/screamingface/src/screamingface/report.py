@@ -246,12 +246,17 @@ def _capture(
 
 
 def _partial_reasons(value: Sequence[str]) -> tuple[str, ...]:
-    """The partial reason names of one capture; each one is a non-empty string."""
+    """The partial reason names of one capture, sorted and without repeats.
+
+    INVARIANT: each reason is a non-empty string. A value of another type is a TypeError.
+    """
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
         raise TypeError("Candidate capture_partial_reasons must be a sequence of strings")
-    if not all(isinstance(reason, str) and reason for reason in value):
-        raise ValueError("Candidate capture_partial_reasons must name each reason as a string")
-    return tuple(value)
+    if not all(isinstance(reason, str) for reason in value):
+        raise TypeError("Candidate capture_partial_reasons must name each reason as a string")
+    if not all(value):
+        raise ValueError("Candidate capture_partial_reasons must not name an empty reason")
+    return tuple(sorted(set(value)))
 
 
 def _is_canonical_uuid(value: str) -> bool:

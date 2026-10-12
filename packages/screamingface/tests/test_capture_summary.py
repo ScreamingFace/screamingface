@@ -180,7 +180,8 @@ def test_a_result_without_capture_data_has_none_and_exports_null() -> None:
         ({"frozen_copy_id": _COPY}, "frozen_copy_id"),
     ],
 )
-def test_the_result_refuses_an_invalid_frozen_copy(fields: dict[str, object], message: str) -> None:
+def _constructed(**fields: object) -> sf.CandidateResult:
+    """A result built directly from the fixture's parts, with `fields` replaced."""
     base = _result()
     values = {
         "benchmark": base.benchmark,
@@ -200,6 +201,32 @@ def test_the_result_refuses_an_invalid_frozen_copy(fields: dict[str, object], me
         "failures": base.failures,
         "usage": base.usage,
     }
+    return sf.CandidateResult(**values, **fields)  # type: ignore[arg-type]
 
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        ({"frozen_copy_id": "not-a-uuid", "capture_status": "complete"}, "frozen_copy_id"),
+        ({"frozen_copy_id": 7, "capture_status": "complete"}, "frozen_copy_id"),
+        ({"frozen_copy_id": _COPY.upper(), "capture_status": "complete"}, "frozen_copy_id"),
+        ({"capture_status": "yes"}, "capture_status"),
+        # INVARIANT: the board refuses a copy id without a status, so the Client never builds that
+        # pair.
+        ({"frozen_copy_id": _COPY}, "frozen_copy_id"),
+    ],
+)
+def test_the_result_refuses_an_invalid_frozen_copy(fields: dict[str, object], message: str) -> None:
     with pytest.raises((TypeError, ValueError), match=message):
-        sf.CandidateResult(**values, **fields)  # type: ignore[arg-type]
+        _constructed(**fields)
+
+
+def test_the_partial_reasons_are_sorted_once_and_must_be_strings() -> None:
+    assert _constructed(
+        capture_partial_reasons=["local", "failed", "local"]
+    ).capture_partial_reasons == (
+        "failed",
+        "local",
+    )
+    with pytest.raises(TypeError, match="each reason as a string"):
+        _constructed(capture_partial_reasons=["local", 1])

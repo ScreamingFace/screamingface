@@ -20,7 +20,7 @@ from uuid import UUID
 
 import httpx
 
-from screamingface._case_digest import case_digest
+from screamingface import _case_digest
 from screamingface._report_primitives import capture_status_value
 from screamingface._scoreboard.submission_notice import (
     display_submission_notice,
@@ -818,7 +818,7 @@ def _capture_fields(candidate_result: CandidateResult) -> dict[str, object]:
     fields = {name: value for name, value in known.items() if value is not None}
     # FEATURE (Q29): the digest of the run's own cases. The board refuses a digest without a status.
     if candidate_result.capture_status is not None:
-        fields["case_digest"] = case_digest(candidate_result.cases)
+        fields["case_digest"] = _case_digest.case_digest(candidate_result.cases)
     return fields
 
 

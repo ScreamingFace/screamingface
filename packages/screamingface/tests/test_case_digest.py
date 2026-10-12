@@ -38,6 +38,8 @@ def test_case_digest_is_stable_and_order_independent() -> None:
     expected = hashlib.sha256(b'[1,"scored",1.0]\n[2,"failed",null]').hexdigest()
     assert case_digest(cases) == expected
     assert case_digest(tuple(reversed(cases))) == expected
+    # A score of 0.0 is a grade, not a missing one: the entry keeps it.
+    assert case_digest((_case(2, 0.0),)) == hashlib.sha256(b'[2,"scored",0.0]').hexdigest()
 
 
 def test_case_digest_changes_when_one_grade_or_status_changes() -> None:

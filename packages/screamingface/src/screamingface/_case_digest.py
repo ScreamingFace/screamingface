@@ -3,8 +3,8 @@
 FEATURE: OME-1307 — the SDK digests a run's graded Cases. The board stores the digest at submit,
 and an exact replay must carry the same one, so the same headline score over other Cases is not an
 exact replay.
-INVARIANT: the same Cases always give the same digest, in any order. The entry format is the wire
-contract with the board, so it changes only with the design.
+INVARIANT: the same Cases always give the same digest, in any order. The entry format must not
+change between SDK versions: a score's stored digest must match a replay made by a later SDK.
 """
 
 from __future__ import annotations
