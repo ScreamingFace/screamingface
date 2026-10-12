@@ -150,8 +150,8 @@ class FrozenCopyStore:
         status_code: int,
         *,
         attempt: int | None = None,
-        case_key: str = "",
-        occurrence: int = 0,
+        case_key: str,
+        occurrence: int,
     ) -> None:
         """Insert one entry. Raises on any failure; the caller decides what that means.
 

@@ -214,7 +214,7 @@ def test_two_entries_of_one_copy_never_share_a_seq(authenticated_client: TestCli
     async def _create_duplicate() -> None:
         frozen = store()
         copy = await frozen.open(owner)
-        await frozen.capture(copy, "chat", {"n": 1}, {"r": 1}, 200)
+        await frozen.capture(copy, "chat", {"n": 1}, {"r": 1}, 200, case_key="", occurrence=0)
         await FrozenCopyEntry.create(
             frozen_copy_id=copy.id,
             kind="chat",

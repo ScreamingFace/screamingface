@@ -167,9 +167,29 @@ def test_a_seal_without_a_body_stores_no_provenance(authenticated_client: TestCl
 @pytest.mark.parametrize(
     "body",
     [
+        pytest.param({}, id="empty-object"),
+        pytest.param({"provenance": None}, id="provenance-null"),
+    ],
+)
+def test_a_seal_body_without_provenance_seals_with_none(
+    authenticated_client: TestClient, body: dict[str, Any]
+) -> None:
+    """Design §4.3: an optional body with no provenance seals the copy and stores none."""
+    client = authenticated_client
+    copy_id = client.post(_COPIES).json()["id"]
+
+    response = client.post(f"{_COPIES}/{copy_id}/seal", json=body)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "sealed"
+    assert _read_copy(client, copy_id).provenance is None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
         pytest.param({"provenance": {"engine_version": "4.2.0"}, "extra": 1}, id="extra-key"),
         pytest.param({"other": 1}, id="unknown-key-only"),
-        pytest.param({"provenance": None}, id="provenance-null"),
         pytest.param({"provenance": {}}, id="engine-version-missing"),
         pytest.param({"provenance": {"engine_version": ""}}, id="engine-version-empty"),
         pytest.param({"provenance": {"engine_version": "v" * 65}}, id="engine-version-too-long"),
@@ -222,7 +242,9 @@ def test_the_store_itself_refuses_an_insert_into_a_sealed_copy(
 
     async def _late_insert() -> None:
         with pytest.raises(FrozenCopySealed):
-            await store().capture(stale_view, "chat", {"a": 1}, {"r": 1}, 200)
+            await store().capture(
+                stale_view, "chat", {"a": 1}, {"r": 1}, 200, case_key="", occurrence=0
+            )
 
     run_async(client, _late_insert)
     assert stored_entries(client, copy_id) == []

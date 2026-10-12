@@ -75,7 +75,7 @@ from ..core.provider_access import (
 )
 from ..core.registry import ProviderRegistry
 from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
-from ..core.retry import _case_insensitive_header
+from ..core.retry import case_insensitive_header
 from ..unhandled_errors import generic_detail
 from .chat_accounting import (
     accounting_handler,
@@ -374,7 +374,7 @@ class _Capture:
         # WHY: a replayed 429 or 503 tells the client when to retry, as the live answer did. The
         # header name is read in any casing, as the client would see it.
         retry_after = (
-            _case_insensitive_header(exc.headers, RETRY_AFTER_HEADER)
+            case_insensitive_header(exc.headers, RETRY_AFTER_HEADER)
             if isinstance(exc, HTTPException)
             else None
         )
@@ -402,9 +402,9 @@ async def _begin_capture(
 ) -> _Capture:
     """Check the copy named by ``X-AIGW-Frozen-Copy``.
 
-    Valid means: the copy exists, belongs to the caller, is ``open``, and the call is not a
-    stream (the gateway has no assembled body for a stream). Anything else, an empty or malformed
-    id included, is ``refused``.
+    Valid means: the copy exists, belongs to the caller, is ``open``, the call is not a stream
+    (the gateway has no assembled body for a stream), and the two key headers are well formed
+    (design §4.2). Anything else, an empty or malformed id included, is ``refused``.
     """
     raw = request.headers.get(COPY_HEADER)
     store = frozen_copy_store_for(request.app)

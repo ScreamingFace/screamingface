@@ -70,7 +70,9 @@ def seed_copy(
         frozen = store()
         copy = await frozen.open(owner_id)
         for kind, request, response, status_code in entries:
-            await frozen.capture(copy, kind, request, response, status_code)
+            await frozen.capture(
+                copy, kind, request, response, status_code, case_key="", occurrence=0
+            )
         if seal:
             await frozen.seal(copy.id, owner_id)
         return str(copy.id)
@@ -127,6 +129,8 @@ def stored_entries(client: TestClient, copy_id: str) -> list[dict[str, Any]]:
             {
                 "kind": row.kind,
                 "seq": row.seq,
+                "case_key": row.case_key,
+                "occurrence": row.occurrence,
                 "digest": row.request_digest,
                 "request": row.request_json,
                 "response": row.response_json,

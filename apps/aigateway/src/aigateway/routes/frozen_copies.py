@@ -58,7 +58,7 @@ class Provenance(BaseModel):
 class SealRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    provenance: Provenance
+    provenance: Provenance | None = None
 
 
 def _call_key(request: Request) -> tuple[str, int]:
@@ -139,7 +139,12 @@ async def replay_chat_completions(
     body, controls = prepare_ingress_body(body)
     try:
         entry = await frozen_copy_store_for(request.app).find(
-            copy, "chat", body, controls.attempt, case_key, occurrence
+            copy,
+            "chat",
+            body,
+            attempt=controls.attempt,
+            case_key=case_key,
+            occurrence=occurrence,
         )
     except (CanonicalizationError, UnicodeError):
         # A request that cannot be digested was never captured (the capture would have failed).
@@ -187,7 +192,7 @@ def _sealed() -> HTTPException:
 async def seal_frozen_copy(
     copy_id: UUID, request: Request, current: CurrentAccount, body: SealRequest | None = None
 ) -> dict[str, Any]:
-    provenance = None if body is None else body.provenance.model_dump()
+    provenance = None if body is None or body.provenance is None else body.provenance.model_dump()
     copy = await frozen_copy_store_for(request.app).seal(copy_id, current.id, provenance)
     if copy is None:
         raise _not_found()
@@ -234,7 +239,12 @@ async def look_up_tool_result(
     copy = await _sealed_copy(request, copy_id)
     try:
         entry = await frozen_copy_store_for(request.app).find(
-            copy, "tool", body.description, None, case_key, occurrence
+            copy,
+            "tool",
+            body.description,
+            attempt=None,
+            case_key=case_key,
+            occurrence=occurrence,
         )
     except (CanonicalizationError, UnicodeError):
         entry = None

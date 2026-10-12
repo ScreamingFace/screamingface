@@ -391,10 +391,10 @@ def test_the_size_cap_counts_request_plus_response_and_includes_the_boundary(
     async def _run() -> None:
         store = FrozenCopyStore(max_entry_bytes=size)
         copy = await store.open(account_id_of_sync)
-        await store.capture(copy, "tool", request, response, 200)
+        await store.capture(copy, "tool", request, response, 200, case_key="", occurrence=0)
         with pytest.raises(FrozenCopyEntryTooLarge):
             await FrozenCopyStore(max_entry_bytes=size - 1).capture(
-                copy, "tool", request, response, 200
+                copy, "tool", request, response, 200, case_key="", occurrence=0
             )
 
     account_id_of_sync = account_id_of(client)
@@ -624,6 +624,34 @@ def test_a_client_disconnect_is_not_captured(
 def _no_retry_env(monkeypatch):
     # Read at app creation, so a test using it must list it BEFORE the client fixture.
     monkeypatch.setenv("AIGW_RETRY_MAX_ATTEMPTS", "0")
+
+
+def test_a_chat_capture_stores_the_header_key_and_replays_only_under_it(
+    capture_client: TestClient, open_copy: str
+) -> None:
+    """Q27: a chat capture stores the call key it was sent with. Replay finds the entry only under
+    that key, never under the empty key."""
+    live = capture_client.post(
+        CHAT_PATH,
+        json=chat_body(),
+        headers={COPY_HEADER: open_copy, **call_key(CASE_A, 3)},
+    )
+
+    assert live.headers[CAPTURE_HEADER] == "stored"
+    (entry,) = stored_entries(capture_client, open_copy)
+    assert (entry["case_key"], entry["occurrence"]) == (CASE_A, 3)
+    seal_copy(capture_client, open_copy)
+
+    hit = capture_client.post(
+        _replay_path(open_copy), json=chat_body(), headers=call_key(CASE_A, 3)
+    )
+    miss = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
+
+    assert hit.status_code == 200, hit.text
+    assert hit.headers["X-AIGW-Replay"] == "hit"
+    assert hit.json()["id"] == live.json()["id"]
+    assert miss.status_code == 404
+    assert miss.json()["detail"]["code"] == "frozen_copy_miss"
 
 
 def test_a_retry_after_in_any_header_casing_is_stored_under_its_name(
