@@ -88,4 +88,6 @@ RESTATES the harness's scoring rule (`scoring.py:122-127`, `:160-234`); it is no
 - **Owner-verify:** the Frontier Score (0.925, GPT-5.6 Sol, semi-private, 2026-08) came from a
   secondary source because arcprize.org/leaderboard renders client-side; confirm it on the live
   leaderboard. The Case licence `apache-2.0` is the data repo's LICENSE; confirm. The paid run
-  (set `max_tokens` ≥ 32,768) precedes PR 2's golden recording.
+  (set `max_tokens` ≥ 32,768) is the ticket's acceptance 4 and is still owed; this PR closes
+  OME-1476 regardless (owner, 2026-10-12). Revisit when that run's cache dump exists: file the
+  golden recording as its own ticket under OME-1457.
