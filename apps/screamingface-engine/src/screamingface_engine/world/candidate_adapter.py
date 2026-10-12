@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import AbstractContextManager, nullcontext
 
 from screamingface_engine.activity_kinds import ActivityKind
-from screamingface_engine.benchmarks.case_context import case_scope
-from screamingface_engine.benchmarks.case_request import candidate_input, candidate_position
+from screamingface_engine.benchmarks.case_context import case_attempt_scope, case_scope
+from screamingface_engine.benchmarks.case_request import (
+    CASE_ATTEMPT_PARAM,
+    CONTEXT_FORMAT_PARAM,
+    candidate_attempt,
+    candidate_input,
+    candidate_position,
+)
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.failures import CandidateExecutionError
 from screamingface_engine.benchmarks.graded_answer import install_graded_answer_endpoint
@@ -23,6 +30,8 @@ from url4.core.errors import ResolutionError, Url4Error
 from url4.peer.server import Request, Url4Node
 
 _POLICY_PARAMS = frozenset({"web_search", "web_search_exclude"})
+# Engine call metadata, decoded by the adapter and never part of the retrieval policy.
+_METADATA_PARAMS = frozenset({CONTEXT_FORMAT_PARAM, CASE_ATTEMPT_PARAM})
 
 
 class _CandidateInvocation:
@@ -41,18 +50,22 @@ class _CandidateInvocation:
                 permanent=True,
             )
         input_text, case_id = candidate_input(request)
+        attempt: int | None = candidate_attempt(request)
         policy = _candidate_policy(
-            {key: value for key, value in request.params.items() if key != "context_format"}
+            {key: value for key, value in request.params.items() if key not in _METADATA_PARAMS}
         )
         try:
             # WHY: retrieval narrows what the candidate may fetch; the
             # candidate-invocation flag marks its calls as ANSWERING, which is what lets
             # the run's answer seed reach them and never the benchmark's judges (OME-1038).
             # Case scope adds explicit identity to nested observations, outside model input.
+            # FEATURE (OME-1458): the Attempt scope tells the model calls inside which Attempt
+            # they answer, so Attempt 2 is never served Attempt 1's stored reply.
             with (
                 retrieval_scope(policy),
                 candidate_invocation_scope(),
                 case_scope(case_id, position=candidate_position(request)),
+                _attempt_scope(attempt),
             ):
                 return await self._evaluate(request.intent, input_text)
         except RetrievalPolicyError as exc:
@@ -74,6 +87,12 @@ class _CandidateInvocation:
             # WHY: attribute at the recipe boundary, before collection drops scope.
             # Codes remain diagnostic; URL4 already preserves this exception's kind.
             raise CandidateExecutionError(str(exc), code=exc.code, permanent=exc.permanent) from exc
+
+
+def _attempt_scope(attempt: int | None) -> AbstractContextManager[None]:
+    """Open the Attempt scope for Attempt 2 and later; Attempt 1 opens nothing."""
+
+    return nullcontext() if attempt is None else case_attempt_scope(attempt)
 
 
 def install_candidate_invocation(node: Url4Node) -> None:

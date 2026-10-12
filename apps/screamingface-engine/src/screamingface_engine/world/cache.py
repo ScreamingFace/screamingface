@@ -5,12 +5,17 @@ point of it existing. `packages/url4`'s :class:`~url4.streaming.protocol.CachePo
 intent — "does this run participate?" — because it ships to SDK users and must not encode some
 server's body shape (plan §4). The adapter that talks to that server owns the wire words.
 
-INVARIANT — aigateway v2's cache-control grammar is CLOSED to exactly one field, `use-cache`
-(spec §1.0). An unrecognised key inside the `cache` object does NOT degrade to "ignored": it
-makes the whole request **bypass** the cache, silently, with nothing raised anywhere, and even
-alongside an otherwise valid `use-cache: true`. The only symptom is a cache that never hits. So:
+INVARIANT — aigateway v2's cache-control grammar is CLOSED (spec §1.0). An unrecognised key
+inside the `cache` object does NOT degrade to "ignored": it makes the whole request **bypass**
+the cache, silently, with nothing raised anywhere, and even alongside an otherwise valid
+`use-cache: true`. The only symptom is a cache that never hits. So:
 
-    NOTHING but `use-cache` may ever appear in the object this module builds.
+    NOTHING but `use-cache`, and `attempt` for Attempt 2 and later, may ever appear in the
+    object this module builds — and `policy_to_body_field` builds `use-cache` only.
+
+FEATURE (OME-1458): `attempt` names Attempt 2..N of a Case, which the gateway keys beside the
+request so Attempt 2 is never served Attempt 1's stored reply. A gateway that predates it reads
+the field as unknown and bypasses: the Attempt is still asked afresh, only its rerun is not free.
 
 `CachePolicy.max_age` is therefore url4-INTERNAL and is deliberately not read here. v2 refuses a
 freshness bound (`global_controls.py:79-83`), so forwarding it would buy `unsupported_control`
@@ -19,6 +24,8 @@ compared against it, and degrades to an opt-out until the gateway reports one.
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
 
 from url4.streaming.protocol import CachePolicy
 
@@ -56,4 +63,33 @@ def policy_to_body_field(policy: CachePolicy) -> dict[str, dict[str, bool]]:
     return {}
 
 
-__all__ = ["policy_to_body_field"]
+_ATTEMPT = "attempt"
+"""aigateway's Attempt-number key (OME-1458), sent only for Attempt 2 and later."""
+
+
+def attempt_body_field(attempt: int | None) -> dict[str, dict[str, object]]:
+    """The `cache` field naming Attempt ``attempt`` (2 or more), or nothing for Attempt 1.
+
+    Attempt 1 adds nothing, so a Benchmark without Attempts sends what it always sent.
+    """
+
+    return {} if attempt is None else {"cache": {_ATTEMPT: attempt}}
+
+
+def with_cache_policy(body: Mapping[str, object], policy: CachePolicy) -> dict[str, object]:
+    """Merge the run's cache policy into one chat body, keeping an Attempt number it carries.
+
+    For a body with no `cache` object this is ``{**body, **policy_to_body_field(policy)}``,
+    the merge every call has always used. An Attempt 2+ body already carries
+    ``{"cache": {"attempt": 2}}``; the policy's `use-cache` joins it inside that object —
+    ``{"cache": {"use-cache": False, "attempt": 2}}`` for an opt-out — instead of replacing it.
+    """
+
+    stated: dict[str, bool] = policy_to_body_field(policy).get("cache", {})
+    carried: object = body.get("cache")
+    if not isinstance(carried, Mapping):
+        return {**body, **policy_to_body_field(policy)}
+    return {**body, "cache": {**carried, **stated}}
+
+
+__all__ = ["attempt_body_field", "policy_to_body_field", "with_cache_policy"]
