@@ -1,0 +1,42 @@
+{
+  "issue": "OME-E4B-pick-output",
+  "branch": "e4b-pick-output",
+  "approver": "owner",
+  "date": "2026-10-13",
+  "scope": "Unit 7 (Pick output): additive output field in the combine-evidence and answer v1 schemas, the by_field@1 and best_holder@1 golden fixtures and evidence_cases.json (two new scenarios); test_rest_operators expects the output argument in the operator descriptor; test_frozen_record_fields counts 28 scenarios, not 26; the public-surface snapshot adds the Pick output argument.",
+  "reason": "Owner approved these pinned test edits in chat on 2026-10-13 (E4b part 1, plan section 6 plus the errata the build reported). The issue id and branch are placeholders until the Linear issue is filed at PR-open; rename the file and update issue and branch then.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json": {
+      "base_blob": "f97795862b12edcf15500759df28754f3a39f19d",
+      "approved_blob": "ecf2f814a51548ff56df7a12d2f51fd6beab2b44"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "26cb38e59b53ce740af29129f2423a597ec9a084",
+      "approved_blob": "c191827c4e963d59b13a77daa8ba9f8eac4f810c"
+    },
+    "apps/screamingface-engine/tests/unit/fixtures/combine/flow/best_holder@1.json": {
+      "base_blob": "64df62a5047203ef8a7d77618dd5be8b73658d21",
+      "approved_blob": "8a3b0017e92a896feb52cb0822820e67abfab9ef"
+    },
+    "apps/screamingface-engine/tests/unit/fixtures/combine/flow/by_field@1.json": {
+      "base_blob": "f27721b778add079ff010f59f0fd8504d4139b99",
+      "approved_blob": "fc0d59cbcf02abd0cd31a514ee6e2c8de87e73cf"
+    },
+    "apps/screamingface-engine/tests/unit/test_rest_operators.py": {
+      "base_blob": "2ce872e0641c4a7ff188f2af9bac7b56fd95a08f",
+      "approved_blob": "c1adac4a58a1364a21f4edf0dfe312292caae490"
+    },
+    "packages/screamingface/tests/data/schemas/screamingface.answer.v1.json": {
+      "base_blob": "0f1d1777ce02cc1844eefb0b8014a8b54e7bc10a",
+      "approved_blob": "d179ec29bf6aa230a3019cdd2da955be4c18e87a"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "1d777f6499b97595247c2d112d5846edf9cd5502",
+      "approved_blob": "489b8a57e3c20c8038085c80fa06a23fb595c178"
+    },
+    "packages/screamingface/tests/test_frozen_record_fields.py": {
+      "base_blob": "e6f801b00132b32815ab7872c940bd6d9917c7ce",
+      "approved_blob": "c6b98604a87c661ede9e7b275fd6fbdd455045e1"
+    }
+  }
+}
