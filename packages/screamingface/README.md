@@ -339,6 +339,18 @@ On HealthBench a harmful answer can score below 0, so an abstain can rank above 
 is intended. Only the final step of a Candidate can mark a Case as abstained: a combine step that
 feeds another stage (a Rank or a Filter) never does.
 
+`sf.Mean` returns the mean of the members' numbers (`select="value"`, the default) or the text of
+the member nearest the mean (`select="nearest"`). Give it weights to make some members count more:
+
+```python
+by_mean = sf.Fusion(routes, synthesizer=sf.Mean(weights=[1, 1, 2]))
+```
+
+The sums are exact, and the division is rounded to 34 significant digits. A member with no usable
+weight is dropped: it is not in the mean and it is never the nearest member. For a number in a
+JSON reply, use the block form `sf.Reduce("mean", extract=sf.Extract("field", path="answer"),
+weights=sf.signal("field:confidence"))` (see "Combine recipes").
+
 To group answers the way the benchmark grades them, let the benchmark choose the extract rule. The
 SDK reads the rule from the benchmark before any spend:
 
@@ -402,7 +414,7 @@ member's `weight` and each answer's summed `score`.
 A weight that is zero, negative, not finite or above `sys.float_info.max / 256` raises `ValueError`
 at `sf.Vote(...)`, and a weight that is not a number raises `TypeError`. A wrong number of weights
 raises `ValueError` when the Fusion is built. All of these raise before any call. Weights apply to
-`sf.Vote` only; `sf.Median(weights=...)` raises `TypeError`. `sf.signal("score:judge")` needs a judge
+`sf.Vote` and `sf.Mean`; `sf.Median(weights=...)` raises `TypeError`. `sf.signal("score:judge")` needs a judge
 on the same vote (see "Judge synthesizer" below).
 
 The accounting keys are `cost_usd`, `latency_ms`, `tokens_in` and `tokens_out`. For a member they
