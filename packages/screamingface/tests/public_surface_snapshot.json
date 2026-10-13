@@ -790,13 +790,14 @@
       "Pick": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, field: 'str | None' = None, *, by_signal: 'Signal | None' = None, order: \"Literal['max', 'min'] | None\" = None, equals: 'str | int | float | bool | None' = None, normalize: 'FieldNormalizer | None' = None) -> 'None'",
+          "__init__": "method (self, field: 'str | None' = None, *, by_signal: 'Signal | None' = None, order: \"Literal['max', 'min'] | None\" = None, equals: 'str | int | float | bool | None' = None, normalize: 'FieldNormalizer | None' = None, output: 'str | None' = None) -> 'None'",
           "by_signal": "field",
           "equals": "field",
           "field": "field",
           "name": "field",
           "normalize": "field",
-          "order": "field"
+          "order": "field",
+          "output": "field"
         }
       },
       "Pipeline": {

@@ -31,7 +31,8 @@
                 "no_match",
                 "missing",
                 "no_votes",
-                "cut_not_met"
+                "cut_not_met",
+                "output_missing"
               ],
               "type": "string"
             },
@@ -202,7 +203,8 @@
             {
               "enum": [
                 "no_votes",
-                "cut_not_met"
+                "cut_not_met",
+                "output_missing"
               ],
               "type": "string"
             },
