@@ -226,7 +226,11 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
             named="sf.Vote(weights=...)",
         ),
         "argmax": _OpRow(
-            "pick", ("select",), ("by_signal",), ("order",), named="sf.Pick(by_signal=...)"
+            "pick",
+            ("select",),
+            ("by_signal",),
+            ("order", "output"),
+            named="sf.Pick(by_signal=...)",
         ),
         "top_k": _OpRow(
             "rank",
@@ -243,7 +247,7 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
             "pick",
             ("select",),
             ("field",),
-            ("normalize", "order", "equals"),
+            ("normalize", "order", "equals", "output"),
             one_of=("order", "equals"),
             named="sf.Pick(field)",
         ),
@@ -384,6 +388,12 @@ def _check_label(op: str, value: object) -> bool:
     return value
 
 
+def _check_output(op: str, value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"sf.Reduce({op!r}) option 'output' must be text")
+    return value
+
+
 # option -> (op, value) -> canonical value
 _CHECKS: Mapping[str, Callable[[str, object], object]] = MappingProxyType(
     {
@@ -403,6 +413,7 @@ _CHECKS: Mapping[str, Callable[[str, object], object]] = MappingProxyType(
         "by": _check_by,
         "judge": _check_judge,
         "rubric": _check_rubric,
+        "output": _check_output,
     }
 )
 
