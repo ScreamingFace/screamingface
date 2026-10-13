@@ -42,6 +42,10 @@ dependencies = [
     "nltk>=3.9.1",
     "opentelemetry-sdk>=1.30.0",
     "opentelemetry-exporter-otlp-proto-http>=1.30.0",
+    # --- the combine regex@1 operator (OME-1289): the linear-time RE2 engine, so no pattern an
+    # author writes can freeze a worker. The only third-party module a combine plugin may import
+    # (.claude/scripts/check_layering.py COMBINE_PLUGIN_THIRD_PARTY).
+    "google-re2>=1.1.20240702,<2",
 ]
 
 [project.scripts]
@@ -131,6 +135,7 @@ extend-exclude = [
     "src/screamingface_engine/benchmarks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
+    "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
 [tool.ruff.lint]
@@ -159,6 +164,7 @@ ignore = [
     "src/screamingface_engine/benchmarks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
+    "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
 [tool.pytest.ini_options]
@@ -183,6 +189,7 @@ omit = [
     "src/screamingface_engine/benchmarks/ifeval/vendor/*",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor/*",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor/*",
+    "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
 [dependency-groups]

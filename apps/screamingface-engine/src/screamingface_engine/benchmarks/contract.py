@@ -18,6 +18,7 @@ from pydantic import (
     model_validator,
 )
 
+from screamingface_engine.combine.evidence import CombineEvidence
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
     OperationCache,
@@ -142,6 +143,11 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "benchmark_contract_error",
         "benchmark_definition_error",
         "upstream_error",
+        # the combine endpoint declares three codes (OME-1289 E4a); judge_reply_invalid is reused,
+        # not added. A step with no usable member abstains (a normal output), not a failure.
+        "combine_spec_invalid",
+        "combine_operator_unknown",
+        "combine_input_too_large",
     }
 )
 # WHY a pattern beside the set: the connector mints one code PER HTTP status
@@ -299,6 +305,9 @@ class CaseResult(_StrictWireModel):
     # INVARIANT: excluded when None, so a Benchmark without Attempts serializes byte-for-byte
     # as before; `output` and `grade` above are the shown answer and the per-Check fold.
     attempts: list[CaseAttempt] | None = Field(default=None, exclude_if=lambda value: value is None)
+    # FEATURE (OME-1289 E4a): the Candidate abstained, so the grader's score was replaced by 0.0.
+    # Excluded when False so every other Case stays byte-identical (like `operations`).
+    abstained: bool = Field(default=False, exclude_if=lambda value: not value)
 
     @field_validator("case_id")
     @classmethod
@@ -326,6 +335,8 @@ class CaseResult(_StrictWireModel):
         _require_case_outcome(self)
         if self.attempts is not None:
             _require_case_attempts(self)
+        if self.abstained:
+            _require_abstained_case(self)
         return self
 
 
@@ -335,12 +346,18 @@ class OperationOutput(_StrictWireModel):
     FEATURE: OME-843 member-output capture. ``output``/``finish_reason`` are null
     when the Engine could not attribute the call unambiguously — absence of
     evidence, never a positional guess.
+
+    FEATURE: OME-1289 (E4a) ``combine`` is the evidence of a deterministic combine step. It is
+    set only on a combine operation the Engine attributed to ONE binding, and it is left out of
+    the wire (not written as null) when absent, so an envelope with no reducer is byte-identical
+    to the pre-E4a contract.
     """
 
     operation_id: str = Field(min_length=1)
     output: str | None
     finish_reason: str | None
     accounting: OperationAccounting | None
+    combine: CombineEvidence | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("finish_reason")
     @classmethod
@@ -395,6 +412,9 @@ class CandidateInvocation(_StrictWireModel):
     operations: list[OperationOutput] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    # FEATURE (OME-1289 E4a): the expression's final node is a combine that abstained. Excluded
+    # when False so every other envelope stays byte-identical (like `operations`).
+    abstained: bool = Field(default=False, exclude_if=lambda value: not value)
 
     @field_validator("finish_reason")
     @classmethod
@@ -414,6 +434,10 @@ class CandidateInvocation(_StrictWireModel):
             raise ValueError("a completed Candidate Invocation cannot carry refusal text")
         if self.status == "refused" and self.output:
             raise ValueError("a refused Candidate Invocation must carry an empty output")
+        if self.abstained and (
+            self.status != "completed" or self.output or self.refusal is not None
+        ):
+            raise ValueError("an abstained Candidate Invocation must be a completed empty answer")
         return self
 
 
@@ -491,6 +515,19 @@ def _require_case_outcome(case: CaseResult) -> None:
         _require_scored_case(case)
     else:
         _require_failed_case(case)
+
+
+def _require_abstained_case(case: CaseResult) -> None:
+    # INVARIANT (OME-1289): the mark and the Case must agree, so an impossible pairing fails
+    # loudly here instead of publishing a report that contradicts itself.
+    if (
+        case.status != "scored"
+        or case.grade is None
+        or case.grade.score != 0.0
+        or case.output != ""
+        or case.refusal is not None
+    ):
+        raise ValueError("an abstained Case is a scored empty answer with score 0.0")
 
 
 def _require_failed_case(case: CaseResult) -> None:
@@ -736,6 +773,7 @@ def encode_candidate_invocation(
     *,
     status: CandidateInvocationStatus | None = None,
     operations: Sequence[OperationOutput] | None = None,
+    abstained: bool = False,
 ) -> str:
     """Encode one Candidate answer without discarding its provider-originated outcome."""
 
@@ -746,12 +784,30 @@ def encode_candidate_invocation(
         refusal=refusal,
         execution=execution,
         operations=None if operations is None else list(operations),
+        abstained=abstained,
     )
     return json.dumps(
         invocation.model_dump(by_alias=True),
         ensure_ascii=False,
         separators=(",", ":"),
     )
+
+
+def _require_invocation_shape(decoded: Mapping[str, object]) -> None:
+    # WHY: `operations` (OME-843) and `abstained` (OME-1289) are the two optional keys — their
+    # absence keeps the legacy shape valid, and no other deviation is tolerated.
+    if set(decoded) - {"operations", "abstained"} != {
+        "schema",
+        "status",
+        "output",
+        "finish_reason",
+        "refusal",
+        "execution",
+    }:
+        raise ValueError("Candidate Invocation result has an invalid shape")
+    # WHY: one encoding only — the key is written when true and never as false.
+    if decoded.get("abstained", True) is not True:
+        raise ValueError("Candidate Invocation result has an invalid shape")
 
 
 def decode_candidate_invocation_record(value: str) -> CandidateInvocation:
@@ -763,17 +819,7 @@ def decode_candidate_invocation_record(value: str) -> CandidateInvocation:
         raise ValueError(f"Candidate Invocation result is not JSON: {exc}") from None
     if not isinstance(decoded, Mapping) or decoded.get("schema") != CANDIDATE_INVOCATION_SCHEMA:
         raise ValueError("Candidate Invocation result has an unsupported schema")
-    # WHY: `operations` (OME-843) is the one optional key — its absence keeps the
-    # legacy shape valid, and no other deviation is tolerated.
-    if set(decoded) - {"operations"} != {
-        "schema",
-        "status",
-        "output",
-        "finish_reason",
-        "refusal",
-        "execution",
-    }:
-        raise ValueError("Candidate Invocation result has an invalid shape")
+    _require_invocation_shape(decoded)
     if decoded["execution"] is not None:
         validate_corrective_execution(decoded["execution"])
     try:

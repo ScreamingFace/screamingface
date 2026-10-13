@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from url4 import Expression, Source, Text, build
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
+from screamingface._evaluation.combine_spec import COMBINE_MODEL
 from screamingface._evaluation.model import (
     Candidate,
+    _candidate_kind,
     _canonical_url4,
     _compiled_candidate,
     _compiled_operation,
@@ -18,17 +22,24 @@ from screamingface._evaluation.model import (
     _with_capture,
     _with_replay_frozen_copy,
 )
+from screamingface._evaluation.operators import Stage, _OperatorCatalog
 from screamingface._evaluation.results import report_from_url4_outcome
 from screamingface._evaluation.topology import (
+    _operation_shape,
     _RecipeTopology,
     _topology_bindings,
     _topology_from_expression,
+    _TopologyBinding,
 )
 from screamingface.errors import ExecutionError
 from screamingface.events import Event
+from screamingface.operation import OperationInfo
 from screamingface.report import Report
 from screamingface.url4 import _calls as _url4_calls
-from screamingface.url4 import _validate_topology
+from screamingface.url4 import _combine_operator_pairs, _validate_topology
+
+if TYPE_CHECKING:
+    from screamingface._evaluation.runner import _AsyncOperatorLoading, _SyncOperatorLoading
 
 
 def evaluate_url4_sync(
@@ -39,6 +50,7 @@ def evaluate_url4_sync(
     answer_seed: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    load_operators: _SyncOperatorLoading | None = None,
 ) -> Report:
     """Execute one already-linked evaluation expression unchanged."""
 
@@ -50,10 +62,13 @@ def evaluate_url4_sync(
     )
 
     _evaluation_options(on_event, progress)
-    candidate = _candidate_from_url4(url4)
+    replay = _replayed_url4(url4)
+    candidate = replay.candidate
+    if replay.pinned and load_operators is not None:
+        _require_known_operators(load_operators(), replay.pinned)
     if answer_seed is not None:
         # FEATURE (OME-1193): a replayed sitting is the reproduction use case itself.
-        candidate = _with_answer_seed(candidate, answer_seed)
+        candidate = _stamped_sitting(replay, answer_seed)
     if capture:
         # FEATURE (OME-1307): the capture request rides the Candidate, as the seed does.
         candidate = _with_capture(candidate)
@@ -86,6 +101,7 @@ async def evaluate_url4_async(
     answer_seed: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    load_operators: _AsyncOperatorLoading | None = None,
 ) -> Report:
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
@@ -97,10 +113,13 @@ async def evaluate_url4_async(
     )
 
     _evaluation_options(on_event, progress)
-    candidate = _candidate_from_url4(url4)
+    replay = _replayed_url4(url4)
+    candidate = replay.candidate
+    if replay.pinned and load_operators is not None:
+        _require_known_operators(await load_operators(), replay.pinned)
     if answer_seed is not None:
         # FEATURE (OME-1193): see the sync twin.
-        candidate = _with_answer_seed(candidate, answer_seed)
+        candidate = _stamped_sitting(replay, answer_seed)
     if capture:
         candidate = _with_capture(candidate)
     if replay_frozen_copy is not None:
@@ -158,10 +177,42 @@ def _require_replay_statement(
 def _candidate_from_url4(value: str) -> Candidate:
     """Recover the Candidate projection embedded by the ScreamingFace linker.
 
+    This is the recovery-only view of ``_replayed_url4``, kept for existing callers: it does not
+    expose the operators a replay must check.
+    """
+
+    return _replayed_url4(value).candidate
+
+
+@dataclass(frozen=True, slots=True)
+class _Replay:
+    candidate: Candidate
+    # The (stage, pinned id) pairs of the combine calls: the Engine's catalog must hold them.
+    pinned: tuple[tuple[Stage, str], ...]
+    # Own-seed model calls as ``op_id (label)``, for the fixed-seed warning (U1).
+    seeded: tuple[str, ...]
+
+
+def _stamped_sitting(replay: _Replay, answer_seed: int) -> Candidate:
+    """Warn about own-seed calls, then stamp the declared sitting (as the Recipe path does)."""
+
+    from screamingface._evaluation.runner import _warn_fixed_seed
+
+    if replay.seeded:
+        _warn_fixed_seed(replay.candidate.name, replay.seeded)
+    return _with_answer_seed(replay.candidate, answer_seed)
+
+
+def _replayed_url4(value: str) -> _Replay:
+    """Recover the embedded Candidate with what a replay must check before it spends.
+
     The benchmark owns the outer expression. Its zero-weight ``candidate`` binding
     carries the independently compiled Candidate expression as text, which is the
     stable seam needed to rebuild Report metadata without changing the URL4 that runs.
+    The pairs are what the Engine's operator catalog must hold before the replay spends.
     """
+
+    from screamingface._evaluation.runner import _SEED_PARAM
 
     url4 = _canonical_url4(value, "Evaluation")
     root = build(url4)
@@ -180,7 +231,31 @@ def _candidate_from_url4(value: str) -> Candidate:
         if topology.kind in {"corrective_loop", "self_corrective"}
         else _dependency_closure(final, calls)
     )
-    return _candidate_from_topology(url4, topology, calls, selected)
+    pinned = _combine_operator_pairs(parsed_calls)
+    # No I/O here: the form check shares its message with the corrective-loop recompile.
+    _OperatorCatalog.from_pinned(pinned)
+    recovered = _candidate_from_topology(url4, topology, calls, selected)
+    labels = {operation.id: operation.label for operation in recovered.operations}
+    seeded = tuple(
+        f"{operation_id} ({labels[operation_id]})"
+        for binding, call in parsed_calls.items()
+        if call.model != COMBINE_MODEL
+        and (operation_id := f"op_{binding}") in labels
+        and any(name == _SEED_PARAM for name, _ in call.params)
+    )
+    return _Replay(recovered, pinned, seeded)
+
+
+def _require_known_operators(
+    catalog: _OperatorCatalog, pinned: tuple[tuple[Stage, str], ...]
+) -> None:
+    """Refuse a replay that pins an operator this Engine lacks (``pin`` names the id and stage).
+
+    The pinned FORM is already checked in ``_replayed_url4``, so every id here is ``name@version``.
+    """
+
+    for stage, operator in pinned:
+        catalog.pin(stage, operator)
 
 
 def _candidate_from_topology(
@@ -193,17 +268,7 @@ def _candidate_from_topology(
     corrective = topology.kind in {"corrective_loop", "self_corrective"}
     fusion_names = _direct_fusion_output_names(topology)
     operations = tuple(
-        _compiled_operation(
-            id=f"op_{name}",
-            kind=bindings[name].node.role or "model",
-            label=(
-                f"{fusion_names.get(name, bindings[name].node.name)} "
-                f"{'synthesis' if bindings[name].node.role == 'synthesis' else 'answer'}"
-            ),
-            depends_on=tuple(
-                f"op_{dependency}" for dependency in bindings[name].operation_dependencies
-            ),
-        )
+        _replayed_operation(name, bindings[name], fusion_names)
         for name in bindings
         if name in selected
     )
@@ -212,7 +277,7 @@ def _candidate_from_topology(
             _member_projection(
                 operation_id=f"op_{member.binding}",
                 name=member.name,
-                kind=member.kind,
+                kind=_candidate_kind(member.kind),
                 models=_models(member.binding, calls),
             )
             for member in topology.members
@@ -221,13 +286,13 @@ def _candidate_from_topology(
         else ()
     )
     models = (
-        tuple(dict.fromkeys(calls[name][0] for name in bindings))
+        tuple(dict.fromkeys(calls[name][0] for name in bindings if calls[name][0] != COMBINE_MODEL))
         if corrective
         else _models(topology.binding, calls)
     )
     return _compiled_candidate(
         name=topology.name,
-        kind=topology.kind,
+        kind=_candidate_kind(topology.kind),
         models=models,
         url4=url4,
         operations=operations,
@@ -235,19 +300,40 @@ def _candidate_from_topology(
     )
 
 
+def _replayed_operation(
+    name: str,
+    binding: _TopologyBinding,
+    fusion_names: dict[str, str],
+) -> OperationInfo:
+    node = binding.node
+    kind, suffix = _operation_shape(node, binding.signal)
+    return _compiled_operation(
+        id=f"op_{name}",
+        kind=kind,
+        label=f"{fusion_names.get(name, node.name)} {suffix}",
+        depends_on=tuple(f"op_{dependency}" for dependency in binding.operation_dependencies),
+    )
+
+
 def _direct_fusion_output_names(value: _RecipeTopology) -> dict[str, str]:
     selected: dict[str, str] = {}
 
     def visit(node: _RecipeTopology) -> None:
-        if node.kind == "model":
+        if node.kind in {"model", "reducer"}:
             return
         children = node.stages if node.kind == "pipeline" else node.members
         for child in children:
             visit(child)
         if node.synthesizer is not None:
             visit(node.synthesizer)
-            if node.synthesizer.kind == "model":
+            if node.synthesizer.kind in {"model", "reducer"}:
                 selected[node.binding] = node.name
+            # a reducer's signal calls are named after their Fusion too ("a+b+c judge",
+            # "a+b+c project s", "a+b+c write s")
+            for signal in node.synthesizer.signals:
+                selected[signal.source.binding] = node.name
+                if signal.projection is not None:
+                    selected[signal.projection.binding] = node.name
 
     visit(value)
     return selected
@@ -312,7 +398,12 @@ def _models(
     calls: dict[str, tuple[str, tuple[str, ...]]],
 ) -> tuple[str, ...]:
     selected = _dependency_closure(name, calls)
-    return tuple(dict.fromkeys(route for key, (route, _) in calls.items() if key in selected))
+    # INVARIANT: the combine route is a join, never a model a Run needs available.
+    return tuple(
+        dict.fromkeys(
+            route for key, (route, _) in calls.items() if key in selected and route != COMBINE_MODEL
+        )
+    )
 
 
 __all__: list[str] = []

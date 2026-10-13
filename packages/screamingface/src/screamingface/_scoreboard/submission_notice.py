@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import sys
 import warnings
-from pathlib import Path
 
-from screamingface._environment import running_in_notebook
+from screamingface._environment import SDK_PACKAGE_ROOT, running_in_notebook
 from screamingface._notices import PARTIAL_SUBMISSION_NOTICE, ClientNotice
 from screamingface._ui.notice_view import display_notebook_notice
 from screamingface.report import CandidateResult
 from screamingface.warnings import EvaluationWarning
-
-_SDK_PACKAGE_ROOT = str(Path(__file__).resolve().parents[1])
 
 
 def prepare_submission_notice(candidate_result: CandidateResult) -> ClientNotice | None:
@@ -62,7 +59,7 @@ def _warn() -> None:
     warnings.warn(
         PARTIAL_SUBMISSION_NOTICE.message,
         EvaluationWarning,
-        skip_file_prefixes=(_SDK_PACKAGE_ROOT,),
+        skip_file_prefixes=(SDK_PACKAGE_ROOT,),
     )
 
 

@@ -1,0 +1,21 @@
+{
+ "op": "text@1",
+ "stage": "normalize",
+ "cases": [
+  {"name": "trim casefold period", "args": {},
+   "input": "  Paris. ",
+   "expect": {"status": "voted", "value": "paris"}},
+  {"name": "collapse whitespace", "args": {},
+   "input": "  A   B\tC  ",
+   "expect": {"status": "voted", "value": "a b c"}},
+  {"name": "casefold sharp s", "args": {},
+   "input": "Stra\u00dfe",
+   "expect": {"status": "voted", "value": "strasse"}},
+  {"name": "only a period", "args": {},
+   "input": ".",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "double period strips one", "args": {},
+   "input": "end..",
+   "expect": {"status": "voted", "value": "end."}}
+ ]
+}

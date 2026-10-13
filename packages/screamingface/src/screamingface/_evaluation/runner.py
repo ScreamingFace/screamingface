@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import warnings
 from collections.abc import Awaitable, Callable, Coroutine, Iterator, Sequence
 from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from contextlib import contextmanager
@@ -23,7 +24,9 @@ from screamingface._core.ports import (
     _ResultPersistence,
     _RunOutcome,
 )
+from screamingface._environment import SDK_PACKAGE_ROOT
 from screamingface._evaluation.benchmark import _BenchmarkResource
+from screamingface._evaluation.candidate import recipes_need_operators
 from screamingface._evaluation.completion import completion_callback
 from screamingface._evaluation.model import (
     Candidate,
@@ -33,7 +36,12 @@ from screamingface._evaluation.model import (
     _with_answer_seed,
     _with_capture,
 )
-from screamingface._evaluation.model_parameters import preflight_async, preflight_sync
+from screamingface._evaluation.model_parameters import (
+    _SEED_PARAM,
+    preflight_async,
+    preflight_sync,
+)
+from screamingface._evaluation.operators import _OperatorCatalog
 from screamingface._evaluation.outcome import (
     _CandidatesFailed,
     _Failed,
@@ -44,6 +52,7 @@ from screamingface.discovery import ModelDetails, ModelInfo
 from screamingface.events import Event
 from screamingface.recipe import Recipe
 from screamingface.report import CandidateResult, Report
+from screamingface.warnings import FixedSeedSittingWarning
 
 
 class _ModelCatalog(Protocol):
@@ -57,8 +66,11 @@ type _SyncModelDetailsLoading = Callable[[str], ModelDetails]
 type _AsyncModelDetailsLoading = Callable[[str], Awaitable[ModelDetails]]
 type _SyncBenchmarkLoading = Callable[[str, int | None], _BenchmarkResource]
 type _AsyncBenchmarkLoading = Callable[[str, int | None], Awaitable[_BenchmarkResource]]
+type _SyncOperatorLoading = Callable[[], _OperatorCatalog]
+type _AsyncOperatorLoading = Callable[[], Awaitable[_OperatorCatalog]]
 
 _MAX_CANDIDATES_IN_FLIGHT = 8
+_NAMED_CALLS = 3
 _logger = logging.getLogger(__name__)
 
 
@@ -74,6 +86,7 @@ def evaluate_sync(
     progress: bool | None,
     answer_seed: int | None = None,
     capture: bool = False,
+    load_operators: _SyncOperatorLoading | None = None,
 ) -> Report:
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
@@ -85,7 +98,11 @@ def evaluate_sync(
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
-    evaluation = compile_evaluation(values, resource, limit)
+    # extract="benchmark" resolves inside compile_evaluation from resource.answer_rule, before any
+    # spend (GP-1).
+    evaluation = compile_evaluation(
+        values, resource, limit, operators=_operators_sync(values, load_operators)
+    )
     # FEATURE (OME-1193, OME-1307): stamp the declared sitting (`answer_seed`) and the capture
     # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
     # observer and the report all see the same objects.
@@ -136,6 +153,7 @@ async def evaluate_async(
     progress: bool | None,
     answer_seed: int | None = None,
     capture: bool = False,
+    load_operators: _AsyncOperatorLoading | None = None,
 ) -> Report:
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
@@ -147,7 +165,11 @@ async def evaluate_async(
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = await load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
-    evaluation = compile_evaluation(values, resource, limit)
+    # extract="benchmark" resolves inside compile_evaluation from resource.answer_rule, before any
+    # spend (GP-1).
+    evaluation = compile_evaluation(
+        values, resource, limit, operators=await _operators_async(values, load_operators)
+    )
     # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
     # transport, observer and report alike.
     selected_candidates = _captured_candidates(
@@ -183,6 +205,29 @@ async def evaluate_async(
             raise
         _conclude_evaluation(observer, report, capture)
         return report
+
+
+def _operators_sync(
+    values: Sequence[Recipe], load_operators: _SyncOperatorLoading | None
+) -> _OperatorCatalog | None:
+    """The Engine's operator catalog, only when a Candidate has a reducer.
+
+    INVARIANT: a Candidate without a reducer never requests `/v1/operators`.
+    """
+
+    if load_operators is None or not recipes_need_operators(values):
+        return None
+    return load_operators()
+
+
+async def _operators_async(
+    values: Sequence[Recipe], load_operators: _AsyncOperatorLoading | None
+) -> _OperatorCatalog | None:
+    """The async twin of ``_operators_sync``."""
+
+    if load_operators is None or not recipes_need_operators(values):
+        return None
+    return await load_operators()
 
 
 def _settled_sync(
@@ -537,9 +582,15 @@ def _seeded_candidates(
     candidates: tuple[Candidate, ...],
     answer_seed: int | None,
 ) -> tuple[Candidate, ...]:
-    """Stamp the run's declared sitting onto each compiled Candidate — identity when None."""
+    """Stamp the run's declared sitting onto each compiled Candidate — identity when None.
+
+    Side effect (U1, OME-1289): also warns about own-seed calls, once per evaluation, after
+    compile and before any model-details lookup or submit. WHY here and not in the caller: the
+    two evaluate functions are at ruff's statement limit.
+    """
     if answer_seed is None:
         return candidates
+    _warn_fixed_seed_sittings(candidates)
     return tuple(_with_answer_seed(candidate, answer_seed) for candidate in candidates)
 
 
@@ -554,6 +605,58 @@ def _captured_candidates(
     if not capture:
         return candidates
     return tuple(_with_capture(candidate) for candidate in candidates)
+
+
+def _warn_fixed_seed_sittings(candidates: tuple[Candidate, ...]) -> None:
+    """Warn once per Candidate whose own-seed calls ignore the run seed (never a refusal).
+
+    WHY: the Engine lets a call that sets its own ``seed`` keep it and applies the run's seed only
+    to calls without one, so those calls send the same request in every sitting (OME-1038) and a
+    mean and CI across sittings looks tighter than the model really is. INVARIANT: the text holds
+    no run seed value, because Python shows a warning once per text and line, and a text that
+    changed with the sitting would repeat in every sitting.
+    """
+    for candidate in candidates:
+        if calls := _own_seed_calls(candidate):
+            _warn_fixed_seed(candidate.name, calls)
+
+
+def _warn_fixed_seed(name: str, calls: tuple[str, ...]) -> None:
+    """Emit the one fixed-seed warning for ``calls`` of the Candidate ``name``.
+
+    Shared by the Recipe path and the raw URL4 replay (``_evaluation/url4.py``), so the text is
+    identical. ``skip_file_prefixes`` points the warning at the researcher's line.
+    """
+    warnings.warn(
+        f"Candidate {name!r}: a run seed is set, but {_calls_phrase(calls)}. "
+        "These calls send the same request in every sitting, so the spread across "
+        "sittings is not measured. If you already pass different seeds= in each "
+        "sitting, this is expected: silence it with "
+        'warnings.filterwarnings("ignore", category=sf.FixedSeedSittingWarning). '
+        "Otherwise drop the explicit seed.",
+        FixedSeedSittingWarning,
+        skip_file_prefixes=(SDK_PACKAGE_ROOT,),
+    )
+
+
+def _own_seed_calls(candidate: Candidate) -> tuple[str, ...]:
+    """Each compiled model call whose resolved params carry a ``seed``, as ``id (label)``."""
+    labels = {operation.id: operation.label for operation in candidate.operations}
+    return tuple(
+        f"{assignment.operation_id} ({labels[assignment.operation_id]})"
+        for assignment in candidate.parameter_assignments
+        if _SEED_PARAM in assignment.params
+    )
+
+
+def _calls_phrase(calls: tuple[str, ...]) -> str:
+    """Name the calls with the right number; a long list keeps its first few and a count."""
+    shown = ", ".join(calls[:_NAMED_CALLS])
+    if len(calls) > _NAMED_CALLS:
+        shown += f", and {len(calls) - _NAMED_CALLS} more"
+    if len(calls) == 1:
+        return f"1 call sets its own seed: {shown}"
+    return f"{len(calls)} calls set their own seed: {shown}"
 
 
 def _run_candidates_sync(

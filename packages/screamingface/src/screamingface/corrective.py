@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from screamingface.recipe import Recipe, _name, _recipe
+from screamingface.recipe import Recipe, _inferred_name, _inferred_self_name, _name, _recipe
 
 # The structural floor is a PANEL rule (a corrective panel needs >=2 drafts to
 # select between). The former four-member ceiling belonged to the LANL prototype,
@@ -49,7 +49,7 @@ class CorrectiveLoop(Recipe):
         name: str | None = None,
     ) -> None:
         selected_members = _members(members)
-        inferred_name = "+".join(member.name for member in selected_members)
+        inferred_name = _inferred_name(selected_members)
         object.__setattr__(
             self,
             "name",
@@ -65,7 +65,7 @@ class CorrectiveLoop(Recipe):
 
     def __repr__(self) -> str:
         members = ", ".join(repr(member.name) for member in self.members)
-        inferred_name = "+".join(member.name for member in self.members)
+        inferred_name = _inferred_name(self.members)
         arguments = [f"[{members}]"]
         if self.name != inferred_name:
             arguments.append(f"name={self.name!r}")
@@ -101,7 +101,7 @@ class SelfCorrective(Recipe):
         object.__setattr__(
             self,
             "name",
-            member.name if name is None else _name(name, "self-corrective name"),
+            _inferred_self_name(member) if name is None else _name(name, "self-corrective name"),
         )
         object.__setattr__(self, "member", member)
         object.__setattr__(self, "max_rounds", _max_rounds(max_rounds))
@@ -112,7 +112,7 @@ class SelfCorrective(Recipe):
 
     def __repr__(self) -> str:
         arguments = [repr(self.member.name)]
-        if self.name != self.member.name:
+        if self.name != _inferred_self_name(self.member):
             arguments.append(f"name={self.name!r}")
         if self.max_rounds != _DEFAULT_MAX_ROUNDS:
             arguments.append(f"max_rounds={self.max_rounds!r}")

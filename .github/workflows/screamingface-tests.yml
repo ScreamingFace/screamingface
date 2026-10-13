@@ -9,6 +9,26 @@ on:
       # the cache-hit contract fixtures that tests/test_cache_hit_contract.py consumes
       - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
       - "apps/screamingface-engine/tests/unit/data/cache_hit_contract/**"
+      # the combine contract fixtures that tests/unit/test_binding_pattern_conformance.py and
+      # tests/test_combine_contract_fixture.py consume
+      - "apps/screamingface-engine/tests/unit/data/combine_contract/**"
+      # the operator goldens that tests/test_vote_median_contract_fixtures.py checks
+      - "apps/screamingface-engine/tests/unit/fixtures/combine/**"
+      # the engine's signal-key grammar and corpus that tests/unit/test_signal_key_conformance.py reads
+      - "apps/screamingface-engine/src/screamingface_engine/combine/ports.py"
+      - "apps/screamingface-engine/tests/unit/test_combine_ports.py"
+      # the canonical_params source that tests/unit/test_canonical_params_conformance.py binds
+      - "apps/screamingface-engine/src/screamingface_engine/combine/spec.py"
+      # the field_rules@1 grammars that tests/unit/test_signal_key_conformance.py binds
+      - "apps/screamingface-engine/src/screamingface_engine/combine/operators/fields.py"
+      # the cache snapshot column layout that tests/e2e/test_reducer_lane_contracts.py reads
+      - "apps/aigateway/src/aigateway/core/request_cache/snapshot.py"
+      # the Engine files that the SDK conformance and contract checks read
+      - "apps/screamingface-engine/src/screamingface_engine/combine/**"
+      - "apps/screamingface-engine/src/screamingface_engine/benchmarks/operation_outputs.py"
+      - "apps/screamingface-engine/src/screamingface_engine/benchmarks/contract.py"
+      - "apps/screamingface-engine/src/screamingface_engine/benchmarks/definition.py"
+      - "apps/screamingface-engine/tests/unit/data/corrective_loop_candidate.url4"
       - ".github/workflows/screamingface-tests.yml"
   pull_request:
     paths:
@@ -18,6 +38,26 @@ on:
       # the cache-hit contract fixtures that tests/test_cache_hit_contract.py consumes
       - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
       - "apps/screamingface-engine/tests/unit/data/cache_hit_contract/**"
+      # the combine contract fixtures that tests/unit/test_binding_pattern_conformance.py and
+      # tests/test_combine_contract_fixture.py consume
+      - "apps/screamingface-engine/tests/unit/data/combine_contract/**"
+      # the operator goldens that tests/test_vote_median_contract_fixtures.py checks
+      - "apps/screamingface-engine/tests/unit/fixtures/combine/**"
+      # the engine's signal-key grammar and corpus that tests/unit/test_signal_key_conformance.py reads
+      - "apps/screamingface-engine/src/screamingface_engine/combine/ports.py"
+      - "apps/screamingface-engine/tests/unit/test_combine_ports.py"
+      # the canonical_params source that tests/unit/test_canonical_params_conformance.py binds
+      - "apps/screamingface-engine/src/screamingface_engine/combine/spec.py"
+      # the field_rules@1 grammars that tests/unit/test_signal_key_conformance.py binds
+      - "apps/screamingface-engine/src/screamingface_engine/combine/operators/fields.py"
+      # the cache snapshot column layout that tests/e2e/test_reducer_lane_contracts.py reads
+      - "apps/aigateway/src/aigateway/core/request_cache/snapshot.py"
+      # the Engine files that the SDK conformance and contract checks read
+      - "apps/screamingface-engine/src/screamingface_engine/combine/**"
+      - "apps/screamingface-engine/src/screamingface_engine/benchmarks/operation_outputs.py"
+      - "apps/screamingface-engine/src/screamingface_engine/benchmarks/contract.py"
+      - "apps/screamingface-engine/src/screamingface_engine/benchmarks/definition.py"
+      - "apps/screamingface-engine/tests/unit/data/corrective_loop_candidate.url4"
       - ".github/workflows/screamingface-tests.yml"
   workflow_dispatch:
 

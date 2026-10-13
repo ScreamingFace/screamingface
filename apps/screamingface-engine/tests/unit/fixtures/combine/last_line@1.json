@@ -1,0 +1,18 @@
+{
+ "op": "last_line@1",
+ "stage": "extract",
+ "cases": [
+  {"name": "skips blank lines", "args": {},
+   "input": "a\n\nfinal: B\n  \n",
+   "expect": {"status": "voted", "value": "final: B"}},
+  {"name": "only blanks", "args": {},
+   "input": "\n\n  \n",
+   "expect": {"status": "empty", "value": null}},
+  {"name": "crlf", "args": {},
+   "input": "x\r\ny\r\n",
+   "expect": {"status": "voted", "value": "y"}},
+  {"name": "indented", "args": {},
+   "input": "  indented  ",
+   "expect": {"status": "voted", "value": "indented"}}
+ ]
+}

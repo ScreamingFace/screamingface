@@ -88,6 +88,9 @@ SCORES_KEY: str = "scores"
 _BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_evals")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
+# INVARIANT: the same operator-id grammar as combine/spec.py `_OP_ID`.
+_OPERATOR_ID = re.compile(r"[a-z][a-z0-9_]{0,47}@[1-9][0-9]{0,5}")
+_PINNED_GRADER = re.compile(r"[^\s@]+@[0-9][0-9A-Za-z.+-]*")
 # WHY only http(s): the dataset link is rendered as a clickable target on a public web page, so a
 # scheme a browser will not follow (or a bare host that resolves relative to the benchmark) is a
 # broken link published under the Engine's name.
@@ -213,6 +216,38 @@ class BenchmarkDeclaration:
 
 
 @dataclass(frozen=True, slots=True)
+class AnswerRule:
+    """How the benchmark's grader reads an answer, as pinned combine operator ids (OME-1289).
+
+    FEATURE: `sf.Vote(extract="benchmark")` groups answers the way the grade does (erd section 7).
+    v1 rules take no operator args; `as_block` writes `"args": {}`. Never part of `revision`.
+    """
+
+    extract: str
+    normalize: str | None
+    grader: str  # "<dotted scorer>@<pinned version>"
+
+    def __post_init__(self) -> None:
+        # WHY the messages name the field and never the value: a rule is authored in code, and
+        # a refusal that echoed a bad grader string would only repeat what the author typed.
+        if not isinstance(self.extract, str) or _OPERATOR_ID.fullmatch(self.extract) is None:
+            raise ValueError("AnswerRule extract must be a combine operator id")
+        if self.normalize is not None and (
+            not isinstance(self.normalize, str) or _OPERATOR_ID.fullmatch(self.normalize) is None
+        ):
+            raise ValueError("AnswerRule normalize must be a combine operator id when declared")
+        if not isinstance(self.grader, str) or _PINNED_GRADER.fullmatch(self.grader) is None:
+            raise ValueError("AnswerRule grader must be '<scorer>@<pinned version>'")
+
+    def as_block(self) -> dict[str, object]:
+        return {
+            "extract": {"op": self.extract, "args": {}},
+            "normalize": None if self.normalize is None else {"op": self.normalize, "args": {}},
+            "grader": self.grader,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class Benchmark:
     """Immutable metadata plus one complete URL4 protocol builder.
 
@@ -274,6 +309,11 @@ class Benchmark:
     human_baseline: HumanBaseline | NotPublished | None = None
     frontier_score: FrontierScore | NotPublished | None = None
     notebook: str | None = None
+    # FEATURE: how this benchmark's grader reads an answer (OME-1289). Published in the catalog
+    # so a combine vote can group answers the way the grade does.
+    # INVARIANT: like `focus`, it never enters `revision`; set only for a benchmark whose grader
+    # the combine operators copy exactly.
+    answer_rule: AnswerRule | None = None
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
@@ -296,6 +336,11 @@ class Benchmark:
             raise ValueError(
                 f"Benchmark origin must be one of {_BENCHMARK_ORIGINS!r}, got {self.origin!r}"
             )
+        self._validate_answer_rule()
+
+    def _validate_answer_rule(self) -> None:
+        if self.answer_rule is not None and not isinstance(self.answer_rule, AnswerRule):
+            raise TypeError("Benchmark answer_rule must be an AnswerRule")
 
     def _validate_display_metadata(self) -> None:
         """Refuse text the leaderboard could not show (OME-904)."""
@@ -345,6 +390,8 @@ class Benchmark:
             metadata[INVERTED_GRADE_KEY] = True
         # Present-only like `focus`; `saturation` is the one key always emitted (OME-1455).
         metadata.update(provenance_metadata(self))
+        if self.answer_rule is not None:
+            metadata["answer_rule"] = self.answer_rule.as_block()
         return metadata
 
     def protocol(self, selected_case_count: int) -> Node:

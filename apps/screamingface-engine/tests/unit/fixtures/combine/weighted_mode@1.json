@@ -1,0 +1,21 @@
+{
+ "op": "weighted_mode@1",
+ "stage": "reduce",
+ "cases": [
+  {"name": "9 9 12 12 12 weights 3 3 1 1 1", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "9", "value": "9", "status": "voted", "weight": "3"}, {"member": "member_2", "raw": "9", "value": "9", "status": "voted", "weight": "3"}, {"member": "member_3", "raw": "12", "value": "12", "status": "voted", "weight": "1"}, {"member": "member_4", "raw": "12", "value": "12", "status": "voted", "weight": "1"}, {"member": "member_5", "raw": "12", "value": "12", "status": "voted", "weight": "1"}]},
+   "expect": {"tally": [{"value": "9", "score": "6", "holders": ["member_1", "member_2"]}, {"value": "12", "score": "3", "holders": ["member_3", "member_4", "member_5"]}], "statistic": null}},
+  {"name": "decimal weights add exactly", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "5", "value": "5", "status": "voted", "weight": "0.1"}, {"member": "member_2", "raw": "5", "value": "5", "status": "voted", "weight": "0.2"}]},
+   "expect": {"tally": [{"value": "5", "score": "0.3", "holders": ["member_1", "member_2"]}], "statistic": null}},
+  {"name": "weights null", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "9", "value": "9", "status": "voted", "weight": null}, {"member": "member_2", "raw": "9", "value": "9", "status": "voted", "weight": null}]},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "signal weight missing does not vote", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "9", "value": "9", "status": "voted", "weight": "2", "signals": {"field:c": 2}}, {"member": "member_2", "raw": "9", "value": "9", "status": "voted", "weight": null, "signals": {"field:c": null}}, {"member": "member_3", "raw": "12", "value": "12", "status": "voted", "weight": "1", "signals": {"field:c": 1}}]},
+   "expect": {"tally": [{"value": "9", "score": "2", "holders": ["member_1"]}, {"value": "12", "score": "1", "holders": ["member_3"]}], "statistic": null}},
+  {"name": "all signal weights missing", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "9", "value": "9", "status": "voted", "weight": null, "signals": {"field:c": null}}, {"member": "member_2", "raw": "12", "value": "12", "status": "voted", "weight": null, "signals": {"field:c": null}}]},
+   "expect": {"abstain": "no_votes"}}
+ ]
+}

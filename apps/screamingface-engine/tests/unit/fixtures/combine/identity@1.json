@@ -1,0 +1,9 @@
+{
+ "op": "identity@1",
+ "stage": "normalize",
+ "cases": [
+  {"name": "keeps spaces", "args": {},
+   "input": " x ",
+   "expect": {"status": "voted", "value": " x "}}
+ ]
+}

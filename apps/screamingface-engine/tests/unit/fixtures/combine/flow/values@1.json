@@ -1,0 +1,24 @@
+{
+ "op": "values@1",
+ "stage": "reduce",
+ "cases": [
+  {"name": "three numeric values", "args": {"field": "confidence"},
+   "input": {"readings": [{"member": "member_1", "raw": "0.4", "value": "0.4", "status": "voted", "weight": null}, {"member": "member_2", "raw": "0.9", "value": "0.9", "status": "voted", "weight": null}, {"member": "member_3", "raw": "0.7", "value": "0.7", "status": "voted", "weight": null}]},
+   "expect": {"fields": [{"field": "confidence", "rule": "values", "values": {"member_1": "0.4", "member_2": "0.9", "member_3": "0.7"}, "result": null}]}},
+  {"name": "a field path", "args": {"field": "a.b[0]"},
+   "input": {"readings": [{"member": "member_1", "raw": "x", "value": "x", "status": "voted", "weight": null}]},
+   "expect": {"fields": [{"field": "a.b[0]", "rule": "values", "values": {"member_1": "x"}, "result": null}]}},
+  {"name": "no args", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "1", "value": "1", "status": "voted", "weight": null}]},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "field is not a string", "args": {"field": 3},
+   "input": {"readings": [{"member": "member_1", "raw": "1", "value": "1", "status": "voted", "weight": null}]},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "field longer than 256 chars", "args": {"field": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+   "input": {"readings": [{"member": "member_1", "raw": "1", "value": "1", "status": "voted", "weight": null}]},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "a field that is not a field path", "args": {"field": "a b"},
+   "input": {"readings": [{"member": "member_1", "raw": "1", "value": "1", "status": "voted", "weight": null}]},
+   "expect": {"error": "combine_spec_invalid"}}
+ ]
+}

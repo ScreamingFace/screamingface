@@ -26,10 +26,12 @@ from dataclasses import dataclass
 from decimal import Decimal, localcontext
 from typing import Any, Literal
 
+from screamingface_engine.combine.ports import finite_float
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
     OperationCache,
     OperationUsage,
+    SignalAccounting,
 )
 from screamingface_engine.world.cache_readback import CacheOutcome
 from screamingface_engine.world.config import provider_of
@@ -48,6 +50,7 @@ __all__ = [
     "avoided_usd_from_aigw",
     "read_aigw",
     "retained_operation_accounting",
+    "signal_accounting_from_aigw",
     "usd_from_aigw",
 ]
 
@@ -232,6 +235,17 @@ class AvoidedCost:
             raise ValueError("AvoidedCost usd and provenance must be set together or not at all")
 
 
+def _cache_reference(aigw: object) -> Mapping[str, Any] | None:
+    """The record of the call a cache hit replays, or `None`.
+
+    This is `_aigw.usage_accounting.cache.reference`, written by the gateway at write time.
+    """
+    envelope = _mapping(aigw)
+    accounting = _mapping(envelope.get("usage_accounting")) if envelope is not None else None
+    cache = _mapping(accounting.get("cache")) if accounting is not None else None
+    return _mapping(cache.get("reference")) if cache is not None else None
+
+
 def _cache_reference_direct_cost(aigw: object) -> Mapping[str, Any] | None:
     """The stored cost the gateway attached to a cache hit, or `None`.
 
@@ -239,10 +253,7 @@ def _cache_reference_direct_cost(aigw: object) -> Mapping[str, Any] | None:
     write time from the raw provider response (PRD §2.4) — never a value inferred from the
     cached body.
     """
-    envelope = _mapping(aigw)
-    accounting = _mapping(envelope.get("usage_accounting")) if envelope is not None else None
-    cache = _mapping(accounting.get("cache")) if accounting is not None else None
-    reference = _mapping(cache.get("reference")) if cache is not None else None
+    reference = _cache_reference(aigw)
     return _mapping(reference.get("direct_cost")) if reference is not None else None
 
 
@@ -505,6 +516,72 @@ def retained_operation_accounting(
         provider_attempts=(call.attempts if complete and call is not None else None),
         cache=_operation_cache(cache),
     )
+
+
+def _reference_signal_accounting(aigw: object) -> SignalAccounting:
+    """The numbers of the call a cache hit replays: ``cache.reference`` (cost, usage, latency)."""
+    reference = _cache_reference(aigw)
+    if reference is None:
+        return SignalAccounting()
+    latency = _mapping(reference.get("latency")) or {}
+    usage = _attempt_usage(reference)  # the reference holds an attempt's `usage` shape
+    return SignalAccounting(
+        cost_usd=finite_float(avoided_usd_from_aigw(aigw).usd),
+        latency_ms=finite_float(_count(latency.get("provider_latency_ms"))),
+        tokens_in=finite_float(usage[0]),
+        tokens_out=finite_float(usage[1]),
+    )
+
+
+def _final_succeeded_attempt(aigw: object) -> Mapping[str, Any] | None:
+    """The last succeeded attempt of a COMPLETE capture, or None when the evidence is partial."""
+    envelope = _mapping(aigw)
+    accounting = _mapping(envelope.get("usage_accounting")) if envelope is not None else None
+    raw_attempts = accounting.get("attempts") if accounting is not None else None
+    if (
+        accounting is None
+        or accounting.get("capture_status") != "complete"
+        or _count(accounting.get("omitted_attempts")) != 0
+        or not isinstance(raw_attempts, list)
+        or any(_mapping(attempt) is None for attempt in raw_attempts)
+    ):
+        return None
+    succeeded = [m for a in raw_attempts if (m := _mapping(a)) and m.get("outcome") == "succeeded"]
+    return succeeded[-1] if succeeded else None
+
+
+def _attempt_signal_accounting(aigw: object) -> SignalAccounting:
+    attempt = _final_succeeded_attempt(aigw)
+    if attempt is None:
+        return SignalAccounting()
+    direct_cost = _mapping(attempt.get("direct_cost"))
+    cost = None
+    if direct_cost is not None and direct_cost.get("status") in _SAVED_COST_PROVENANCES:
+        cost = _saved_cost_usd(direct_cost)
+    usage = _attempt_usage(attempt)
+    return SignalAccounting(
+        cost_usd=finite_float(cost),
+        latency_ms=finite_float(_attempt_latency(attempt)),
+        tokens_in=finite_float(usage[0]),
+        tokens_out=finite_float(usage[1]),
+    )
+
+
+def signal_accounting_from_aigw(aigw: object, cache: CacheOutcome) -> SignalAccounting:
+    """The numbers of the ORIGINAL call behind one response, for combine signals (erd 4.3).
+
+    Total: it never raises, and every absent or malformed piece is None for that field only.
+    A hit reads ``cache.reference`` (the call the cache replays), so a replay gives a signal the
+    same numbers as the first run. Anything else reads the last attempt that succeeded, and only
+    when the capture is complete, nothing was omitted and every attempt is a mapping (F8).
+
+    WHY this ignores ``cache.retried``: ``avoided_usd_for_outcome`` withdraws a money-saved claim
+    after a retry, but a signal wants the original call's numbers, and the reference holds exactly
+    those. WHY separate from ``retained_operation_accounting``: that keeps the cache-hit zeros.
+    """
+    if cache.status == "hit":
+        return _reference_signal_accounting(aigw)
+    return _attempt_signal_accounting(aigw)
 
 
 def _operation_cache(cache: CacheOutcome) -> OperationCache:

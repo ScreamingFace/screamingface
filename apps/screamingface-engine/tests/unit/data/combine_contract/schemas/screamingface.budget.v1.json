@@ -1,0 +1,322 @@
+{
+  "Budget": {
+    "additionalProperties": false,
+    "description": "A Budget declared on a request: a unit and a cap.",
+    "properties": {
+      "cap": {
+        "title": "Cap",
+        "type": "number"
+      },
+      "unit": {
+        "enum": [
+          "usd",
+          "tokens"
+        ],
+        "title": "Unit",
+        "type": "string"
+      }
+    },
+    "required": [
+      "unit",
+      "cap"
+    ],
+    "title": "Budget",
+    "type": "object"
+  },
+  "BudgetCharge": {
+    "additionalProperties": false,
+    "description": "One sent call's charge; ``amount`` is None only for an unpriced call.",
+    "properties": {
+      "amount": {
+        "anyOf": [
+          {
+            "minimum": 0,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Amount"
+      },
+      "member_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Member Id"
+      },
+      "operation_id": {
+        "minLength": 1,
+        "title": "Operation Id",
+        "type": "string"
+      },
+      "remaining_after": {
+        "minimum": 0,
+        "title": "Remaining After",
+        "type": "number"
+      },
+      "source": {
+        "enum": [
+          "live",
+          "cache_reference",
+          "unpriced"
+        ],
+        "title": "Source",
+        "type": "string"
+      },
+      "stage": {
+        "enum": [
+          "model",
+          "synthesis",
+          "judge",
+          "writer"
+        ],
+        "title": "Stage",
+        "type": "string"
+      }
+    },
+    "required": [
+      "operation_id",
+      "member_id",
+      "stage",
+      "amount",
+      "source",
+      "remaining_after"
+    ],
+    "title": "BudgetCharge",
+    "type": "object"
+  },
+  "BudgetRefusal": {
+    "additionalProperties": false,
+    "description": "One call that was not sent because it would exceed the cap (written by E4c).",
+    "properties": {
+      "estimated": {
+        "minimum": 0,
+        "title": "Estimated",
+        "type": "number"
+      },
+      "member_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Member Id"
+      },
+      "operation_id": {
+        "minLength": 1,
+        "title": "Operation Id",
+        "type": "string"
+      },
+      "reason": {
+        "const": "would_exceed_cap",
+        "title": "Reason",
+        "type": "string"
+      },
+      "stage": {
+        "enum": [
+          "model",
+          "synthesis",
+          "judge",
+          "writer"
+        ],
+        "title": "Stage",
+        "type": "string"
+      }
+    },
+    "required": [
+      "operation_id",
+      "member_id",
+      "stage",
+      "estimated",
+      "reason"
+    ],
+    "title": "BudgetRefusal",
+    "type": "object"
+  },
+  "BudgetState": {
+    "$defs": {
+      "BudgetCharge": {
+        "additionalProperties": false,
+        "description": "One sent call's charge; ``amount`` is None only for an unpriced call.",
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "member_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Id"
+          },
+          "operation_id": {
+            "minLength": 1,
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "remaining_after": {
+            "minimum": 0,
+            "title": "Remaining After",
+            "type": "number"
+          },
+          "source": {
+            "enum": [
+              "live",
+              "cache_reference",
+              "unpriced"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "model",
+              "synthesis",
+              "judge",
+              "writer"
+            ],
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "member_id",
+          "stage",
+          "amount",
+          "source",
+          "remaining_after"
+        ],
+        "title": "BudgetCharge",
+        "type": "object"
+      },
+      "BudgetRefusal": {
+        "additionalProperties": false,
+        "description": "One call that was not sent because it would exceed the cap (written by E4c).",
+        "properties": {
+          "estimated": {
+            "minimum": 0,
+            "title": "Estimated",
+            "type": "number"
+          },
+          "member_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Id"
+          },
+          "operation_id": {
+            "minLength": 1,
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "reason": {
+            "const": "would_exceed_cap",
+            "title": "Reason",
+            "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "model",
+              "synthesis",
+              "judge",
+              "writer"
+            ],
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "member_id",
+          "stage",
+          "estimated",
+          "reason"
+        ],
+        "title": "BudgetRefusal",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "description": "What a compare reads: the counters plus every charge and refusal.",
+    "properties": {
+      "cap": {
+        "title": "Cap",
+        "type": "number"
+      },
+      "charges": {
+        "items": {
+          "$ref": "#/$defs/BudgetCharge"
+        },
+        "title": "Charges",
+        "type": "array"
+      },
+      "refused": {
+        "items": {
+          "$ref": "#/$defs/BudgetRefusal"
+        },
+        "title": "Refused",
+        "type": "array"
+      },
+      "remaining": {
+        "title": "Remaining",
+        "type": "number"
+      },
+      "spent": {
+        "title": "Spent",
+        "type": "number"
+      },
+      "unit": {
+        "enum": [
+          "usd",
+          "tokens"
+        ],
+        "title": "Unit",
+        "type": "string"
+      },
+      "unpriced_charges": {
+        "minimum": 0,
+        "title": "Unpriced Charges",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "unit",
+      "cap",
+      "spent",
+      "remaining",
+      "unpriced_charges",
+      "charges",
+      "refused"
+    ],
+    "title": "BudgetState",
+    "type": "object"
+  }
+}

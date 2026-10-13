@@ -26,6 +26,12 @@ One image ships two modes, and the whole point of that shape is a rule about wha
                   Job's cold start should pay for. The serving half imports it freely.
   Shared leaves:  job_env · subjects · adapters.jetstream · request_scope · candidate_scope ·
                   model_outcomes · observations — importable by BOTH, importing NEITHER.
+  Combine core:   combine — a shared leaf with a hexagonal rule inside it (OME-1289 E4a). Its core
+                  defines the ports and runs specs and never imports a plugin or the wiring module
+                  (`combine/builtins.py`); a plugin (`combine/operators/*`) imports only the
+                  ports and the pure standard library (no I/O, clock, randomness, environment or
+                  logging module).
+                  Nothing under `combine/` imports url4; the route adapter is `world/combine.py`.
 
 WHY this rule outlived the package split it was born in: it used to be proved structurally — the
 two halves were separate distributions with separate images, so a cross-import could not even be
@@ -92,6 +98,33 @@ WORKER_MODE = {"worker"}
 # NEITHER. It is not a shared leaf because the dependency arrow is one-way — the world imports
 # shared leaves such as `job_env`, so a shared leaf importing the world would close a cycle.
 WORLD = {"world"}
+
+# The combine framework (OME-1289 E4a, contracts.md K5): a SHARED LEAF with a hexagonal rule
+# inside it. Its core — every module under combine/ except the wiring module and the plugin
+# subtree — defines the ports and runs specs. The core never imports a plugin or the module that
+# lists them; a plugin imports only the ports (plus the stdlib).
+COMBINE_CORE = "combine"
+COMBINE_WIRING = "combine/builtins.py"
+COMBINE_PLUGINS = "combine/operators"
+COMBINE_CORE_FORBIDDEN = {"combine.operators", "combine.builtins"}
+COMBINE_PLUGIN_ALLOWED = {"combine", "combine.ports", "combine.operators"}
+# The whole combine package (core AND plugins) is pure: it never imports the url4 engine. The
+# route adapter lives in `world/combine.py`, the engine-importing half (test_url4_executor.py
+# polices the same boundary for every other module).
+COMBINE_FORBIDDEN_ROOTS = {"url4"}
+# A plugin is a pure function of its arguments (ports.py INVARIANT): no I/O, no clock, no
+# randomness, no environment, no concurrency, no logging. Top-level module names; the standard
+# library's pure helpers (re, decimal, json, collections, types, ...) stay allowed.
+COMBINE_PLUGIN_DENY = {
+    "socket", "ssl", "http", "urllib", "httpx", "requests", "subprocess", "os", "sys", "time",
+    "datetime", "random", "secrets", "uuid", "asyncio", "threading", "multiprocessing",
+    "concurrent", "io", "pathlib", "shutil", "tempfile", "logging",
+}  # fmt: skip
+
+# The one third-party module a plugin may import (a plugin otherwise gets only the stdlib and the
+# ports). WHY re2: linear-time regex for regex@1, so no author-written pattern can freeze a worker
+# (OME-1289 user decision). The core imports it nowhere; only a plugin does.
+COMBINE_PLUGIN_THIRD_PARTY = frozenset({"re2"})
 
 # (subtree under screamingface_engine/, forbidden screamingface_engine submodules, why)
 RULES: list[tuple[str, set[str], str]] = [
@@ -227,6 +260,19 @@ def imported_screamingface_engine_submodules(path: pathlib.Path) -> set[str]:
     return found
 
 
+def imported_top_level_modules(path: pathlib.Path) -> set[str]:
+    """The top-level names of every absolute import in ``path`` (``os.path`` -> ``os``,
+    ``from urllib.parse import x`` -> ``urllib``). Relative imports stay in the engine, so they
+    belong to `imported_screamingface_engine_submodules`, not here."""
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
+        if isinstance(node, ast.Import):
+            found.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            found.add(node.module.split(".")[0])
+    return found
+
+
 def python_files(root: pathlib.Path) -> list[pathlib.Path]:
     return sorted(p for p in root.rglob("*.py") if "__pycache__" not in p.parts)
 
@@ -275,6 +321,87 @@ def shared_leaf_files() -> list[pathlib.Path]:
     return [p for p in python_files(SRC) if _half_of(p) is None]
 
 
+def combine_files() -> tuple[list[pathlib.Path], list[pathlib.Path]]:
+    """The combine (core files, plugin files); both empty when the tree has no `combine/`."""
+    root = SRC / COMBINE_CORE
+    if not root.is_dir():
+        return [], []
+    plugins_root = SRC / COMBINE_PLUGINS
+    wiring = SRC / COMBINE_WIRING
+    files = python_files(root)
+    plugins = [p for p in files if p.is_relative_to(plugins_root)]
+    core = [p for p in files if p not in plugins and p != wiring]
+    return core, plugins
+
+
+def _third_party(modules: set[str]) -> set[str]:
+    """The imported top-level names that are neither stdlib, the engine itself, nor allowed."""
+    known = sys.stdlib_module_names | {"screamingface_engine", "__future__"}
+    return modules - known - COMBINE_PLUGIN_THIRD_PARTY - COMBINE_FORBIDDEN_ROOTS
+
+
+def check_combine() -> list[str]:
+    """The hexagonal rule inside `combine/`: the core never imports a plugin or the wiring, a
+    plugin imports only the ports (and its sibling plugins) and no I/O or nondeterminism module,
+    and nothing under `combine/` imports the url4 engine."""
+    core, plugins = combine_files()
+    core_why = (
+        "the combine core defines the ports and runs specs; it never imports a plugin, nor the "
+        "wiring module (combine/builtins.py) that lists them. Wiring is the one place that "
+        "names plugins, at composition time"
+    )
+    plugin_why = (
+        "a combine plugin imports only combine.ports (plus the standard library): "
+        "the ports are the one meeting point, and importing the core or any other part of the "
+        "engine couples a pure operator to the machinery that runs it"
+    )
+    deny_why = (
+        "a combine plugin is a pure function of its arguments: no I/O, clock, randomness, "
+        "environment, concurrency or logging. Return a value; the core does the rest"
+    )
+    url4_why = (
+        "the combine package is pure and imports no url4 module; the route adapter lives in "
+        "world/combine.py, the engine-importing half"
+    )
+    third_party_why = (
+        "a combine plugin imports the standard library and the ports only, plus re2 (the "
+        "linear-time regex engine of regex@1); any other third-party module couples a pure "
+        "operator to a dependency the core does not vouch for"
+    )
+    re2_core_why = (
+        "only a combine plugin may import re2; the core stays free of the regex engine"
+    )
+    offenders: list[str] = []
+
+    def report(path: pathlib.Path, module: str, why: str) -> None:
+        offenders.append(f"  {path.relative_to(ROOT)}: imports {module}\n      {why}")
+
+    for path in core:
+        found = imported_screamingface_engine_submodules(path)
+        for module in sorted(found & COMBINE_CORE_FORBIDDEN):
+            report(path, f"screamingface_engine.{module}", core_why)
+        for module in sorted(
+            imported_top_level_modules(path) & COMBINE_PLUGIN_THIRD_PARTY
+        ):
+            report(path, module, re2_core_why)
+    for path in plugins:
+        found = imported_screamingface_engine_submodules(path)
+        for module in sorted(found - COMBINE_PLUGIN_ALLOWED):
+            report(path, f"screamingface_engine.{module}", plugin_why)
+        for module in sorted(imported_top_level_modules(path) & COMBINE_PLUGIN_DENY):
+            report(path, module, deny_why)
+        for module in sorted(_third_party(imported_top_level_modules(path))):
+            report(path, module, third_party_why)
+    combine_root = SRC / COMBINE_CORE
+    if combine_root.is_dir():
+        for path in python_files(combine_root):
+            for module in sorted(
+                imported_top_level_modules(path) & COMBINE_FORBIDDEN_ROOTS
+            ):
+                report(path, module, url4_why)
+    return offenders
+
+
 def check_layers() -> list[str]:
     if not SRC.is_dir():
         print(f"ERROR: source tree missing: {SRC}", file=sys.stderr)
@@ -316,6 +443,7 @@ def check_layers() -> list[str]:
                 f"  {path.relative_to(ROOT)}: imports screamingface_engine.{module}\n"
                 f"      {REMOVED[module]}; mount calls run as direct runs (rest.mounts)"
             )
+    offenders.extend(check_combine())
     return offenders
 
 

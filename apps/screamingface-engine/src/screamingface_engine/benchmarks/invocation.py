@@ -14,7 +14,10 @@ from screamingface_engine.benchmarks.loop_outcomes import (
     capture_loop_outcomes,
     terminal_loop_outcome,
 )
-from screamingface_engine.benchmarks.operation_outputs import attribute_operation_outputs
+from screamingface_engine.benchmarks.operation_outputs import (
+    attribute_operation_outputs,
+    final_operation_abstained,
+)
 from screamingface_engine.model_outcomes import (
     ModelOutcome,
     capture_model_outcomes,
@@ -69,11 +72,13 @@ async def evaluate_candidate_recipe(
                             operations=attribute_operation_outputs(expression, calls),
                         )
 
+    operations = attribute_operation_outputs(expression, calls)
     return _encode(
         result.text,
         terminal_model_outcome(outcomes),
         terminal_loop_outcome(executions),
-        operations=attribute_operation_outputs(expression, calls),
+        operations=operations,
+        abstained=final_operation_abstained(expression, operations),
     )
 
 
@@ -84,6 +89,7 @@ def _encode(
     *,
     status: CandidateInvocationStatus | None = None,
     operations: list[OperationOutput] | None = None,
+    abstained: bool = False,
 ) -> str:
     try:
         return encode_candidate_invocation(
@@ -93,6 +99,7 @@ def _encode(
             execution,
             status=status,
             operations=operations,
+            abstained=abstained,
         )
     except ValueError as exc:
         raise ResolutionError(
