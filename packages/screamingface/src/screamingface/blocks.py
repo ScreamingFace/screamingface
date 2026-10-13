@@ -19,6 +19,7 @@ from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal, _Comparison
 from screamingface.reducer import (
     _MAX_REDUCER_MEMBERS,
     _MEAN_SIGNAL_USE,
+    _MEDIAN_JUDGE_USE,
     BENCHMARK_EXTRACT,
     Reducer,
     _check_judge_weights,
@@ -245,7 +246,9 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
             named="sf.Pick(field)",
         ),
         "concat": _OpRow("concat", ("compute",), (), ("separator", "label"), named="sf.Concat"),
-        "median": _OpRow("median", ("select", "compute"), ("extract",), named="sf.Median"),
+        "median": _OpRow(
+            "median", ("select", "compute"), ("extract",), ("weights",), named="sf.Median"
+        ),
         "mean": _OpRow("mean", ("compute", "select"), ("extract",), ("weights",), named="sf.Mean"),
         "judge": _OpRow("judge", ("select",), ("judge",), ("rubric",), named="sf.Judge"),
         "merge": _OpRow("merge", ("compute",), ("fields",), named="sf.Merge"),
@@ -538,6 +541,9 @@ def _median_extract(extract: object) -> Extract:
 
 def _canonical_median(checked: dict[str, object]) -> None:
     checked["extract"] = _median_extract(checked["extract"])
+    weights = checked.get("weights")
+    if isinstance(weights, Signal):
+        _refuse_judge_signal(weights, "sf.Reduce('median')", _MEDIAN_JUDGE_USE)
 
 
 def _canonical_mean(checked: dict[str, object]) -> None:
@@ -601,13 +607,14 @@ def _weighted_plan(block: Reduce) -> _ReducerPlan:
 
 def _median_plan(block: Reduce) -> _ReducerPlan:
     extract, _ = _extract_of(block)._steps()
+    weights = cast("tuple[float, ...] | Signal | None", block.options.get("weights"))
     steps = _Steps(
         extract=extract,
         normalize=_Step("numeric"),
-        reduce=_Step("median"),
+        reduce=_Step("median" if weights is None else "weighted_median"),
         select=_Step("nearest" if block.mode == "select" else "value"),
     )
-    return _ReducerPlan("median", "answer", steps)
+    return _ReducerPlan("median", "answer", steps, weights)
 
 
 def _mean_plan(block: Reduce) -> _ReducerPlan:
@@ -698,11 +705,15 @@ _MEDIAN_MODES: Mapping[str, ReduceMode] = MappingProxyType(
 def _rebuild_median(spec: Mapping[str, object]) -> Reduce:
     _no_args(spec["reduce"])
     _no_args(spec["select"])
-    numeric = spec["weights"] is None and _normalize_from_spec(spec) == "numeric"
-    if not numeric or _op_name(spec["reduce"]) != "median":
+    weights = _recovered_weights(spec)  # the one recovery rule; a refusal is a ValueError
+    reduce = "median" if weights is None else "weighted_median"
+    if _normalize_from_spec(spec) != "numeric" or _op_name(spec["reduce"]) != reduce:
         raise ValueError("a median shape this SDK version cannot rebuild")
     extract = _extract_from_spec(spec, "numeric")
-    return Reduce("median", mode=_MEDIAN_MODES[_op_name(spec["select"])], extract=extract)
+    options: dict[str, Any] = {} if weights is None else {"weights": weights}
+    return Reduce(
+        "median", mode=_MEDIAN_MODES[_op_name(spec["select"])], extract=extract, **options
+    )
 
 
 _MEAN_MODES: Mapping[str, ReduceMode] = MappingProxyType({"value": "compute", "nearest": "select"})

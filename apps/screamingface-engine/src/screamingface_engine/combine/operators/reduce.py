@@ -101,7 +101,31 @@ def weighted_median(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     keeps author order among equal values. At exactly half the weight the result is the mean of
     this value and the next one, so equal weights give the median@1 result (P3).
     """
-    raise NotImplementedError("weighted_median@1 lands in the GREEN commit")
+    op_id = "weighted_median@1"
+    weighted = tuple(a for a in combine_input.voters if _signal_weight(a, op_id) is not None)
+    if not weighted:
+        raise NoVotes("no voter has a usable weight")
+    pairs = sorted(
+        ((_decimal(answer, op_id), cast(Decimal, answer.weight)) for answer in weighted),
+        key=lambda pair: pair[0],
+    )
+    participants = tuple(answer.member_id for answer in weighted)
+    with localcontext(DECIMAL_CONTEXT):
+        total = sum((weight for _, weight in pairs), Decimal(0))
+        running = Decimal(0)
+        index = 0
+        for index, (_, weight) in enumerate(pairs):
+            running += weight
+            if 2 * running >= total:
+                break
+        number = pairs[index][0]
+        if 2 * running == total:
+            # WHY index + 1 exists: every weight is > 0, so the last running sum is the total,
+            # and 2 * total == total is false.
+            return Reduction(
+                statistic=(number + pairs[index + 1][0]) / 2, participants=participants
+            )
+        return Reduction(statistic=number, participants=participants)
 
 
 def _mean_of(pairs: Sequence[tuple[Decimal, Decimal]]) -> Decimal:
@@ -138,6 +162,13 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         "weighted_mode", 1, "reduce", "The member's weight per vote.", weighted_mode
     ),
     OperatorDescriptor("median", 1, "reduce", "Median of the numeric values.", median),
+    OperatorDescriptor(
+        "weighted_median",
+        1,
+        "reduce",
+        "Weighted median of the numeric values; a member with no usable weight is dropped.",
+        weighted_median,
+    ),
     OperatorDescriptor("mean", 1, "reduce", "Mean of the numeric values.", mean),
     OperatorDescriptor(
         "weighted_mean",
