@@ -56,10 +56,12 @@ def free_port() -> int:
         return int(probe.getsockname()[1])
 
 
-def sync_project(project_dir: Path) -> None:
-    """``uv sync`` the app's own venv (idempotent; slow only on a fresh worktree)."""
+def sync_project(project_dir: Path, extras: tuple[str, ...] = ()) -> None:
+    """``uv sync`` the app's own venv, with ``extras`` (idempotent; slow only on a fresh
+    worktree)."""
+    extra_flags: list[str] = [flag for extra in extras for flag in ("--extra", extra)]
     subprocess.run(
-        ["uv", "sync", "--quiet"],
+        ["uv", "sync", "--quiet", *extra_flags],
         cwd=project_dir,
         env=clean_env({}),
         check=True,
