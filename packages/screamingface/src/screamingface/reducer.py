@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 type _ReducerKind = Literal["answer", "selection", "projection"]
 type _ReducerName = Literal[
-    "vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter"
+    "vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter", "mean"
 ]
 # One source for each vocabulary: the Literal above is the list, the sets are derived from it.
 REDUCER_NAMES: frozenset[str] = frozenset(get_args(_ReducerName.__value__))
@@ -172,6 +172,9 @@ _REDUCER_CLASSES: dict[str, type[Reducer]] = {}
 
 
 _MEDIAN_SELECTS: frozenset[str] = frozenset({"nearest", "value"})
+
+# What sf.Mean tells an author who passed sf.signal("score:judge") (MN-E4).
+_MEAN_SIGNAL_USE = "a JSON field signal such as sf.signal('field:confidence')"
 
 
 def _op_name(op: str | None) -> str | None:
@@ -571,7 +574,12 @@ class Median(Reducer):
 
 @dataclass(frozen=True, slots=True, init=False)
 class Mean(Reducer):
-    """Mean of the members' numeric answers: the number itself, or the nearest member's text."""
+    """Mean of the members' numeric answers: the number itself, or the nearest member's text.
+
+    ``weights`` is one positive number per member (author order) or ``sf.signal(key)``. A member
+    with no usable weight is dropped: it is not in the mean and never the nearest member. For a
+    JSON field answer, use ``sf.Reduce("mean", extract=sf.Extract("field", path=...))``.
+    """
 
     name: str
     extract: str
@@ -585,21 +593,68 @@ class Mean(Reducer):
         select: str = "value",
         weights: Sequence[float] | Signal | None = None,
     ) -> None:
+        _Step(extract)
+        _Step(select)
+        if _op_name(extract) == BENCHMARK_EXTRACT:
+            raise ValueError(
+                "sf.Mean needs the numeric normalizer, so it cannot read extract='benchmark' "
+                "(the benchmark brings its own normalizer)"
+            )
+        if _op_name(select) not in _MEDIAN_SELECTS:
+            raise ValueError(f"Mean select must be 'value' or 'nearest', not {select!r}")
+        selected = None if weights is None else _weights_option(weights, "Mean weights")
+        if isinstance(selected, Signal):
+            _refuse_judge_signal(selected, "Mean", _MEAN_SIGNAL_USE)
         object.__setattr__(self, "name", "mean")
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "select", select)
-        object.__setattr__(self, "weights", weights)
+        object.__setattr__(self, "weights", selected)
 
     def _plan(self) -> _ReducerPlan:
-        raise NotImplementedError("E4b unit 3")
+        steps = _Steps(
+            reduce=_Step("mean" if self.weights is None else "weighted_mean"),
+            select=_Step(self.select),
+            extract=_Step(self.extract),
+            normalize=_Step("numeric"),
+        )
+        return _ReducerPlan("mean", "answer", steps, self.weights)
+
+    def _check_members(self, count: int) -> None:
+        if isinstance(self.weights, tuple) and len(self.weights) != count:
+            raise ValueError(f"{self.name} has {len(self.weights)} weights for {count} members")
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Mean:
-        raise NotImplementedError("E4b unit 3")
+        ops = _spec_ops(spec, "mean")
+        extract, select = ops["extract"], ops["select"]
+        try:
+            weights = _recovered_weights(spec)
+        except ValueError as exc:
+            raise _cannot_rebuild("mean") from exc
+        reduce = "mean" if weights is None else "weighted_mean"
+        if (
+            extract is None
+            or select is None
+            or _op_name(ops["normalize"]) != "numeric"
+            or _op_name(ops["reduce"]) != reduce
+            or _op_name(select) not in _MEDIAN_SELECTS
+        ):
+            raise _cannot_rebuild("mean")
+        return _decoded("mean", cls, extract=extract, select=select, weights=weights)
+
+    def __repr__(self) -> str:
+        return self._render("Mean", repr)
+
+    def _python(self) -> str:
+        return self._render("sf.Mean", _as_python)
+
+    def _render(self, head: str, show: Callable[[object], str]) -> str:
+        weights = "" if self.weights is None else f", weights={show(self.weights)}"
+        return f"{head}(extract={self.extract!r}, select={self.select!r}{weights})"
 
     __hash__: ClassVar[Any] = None
 
 
-_REDUCER_CLASSES.update(vote=Vote, median=Median)
+_REDUCER_CLASSES.update(vote=Vote, median=Median, mean=Mean)
 
-__all__ = ["Median", "Reducer", "Vote"]
+__all__ = ["Mean", "Median", "Reducer", "Vote"]
