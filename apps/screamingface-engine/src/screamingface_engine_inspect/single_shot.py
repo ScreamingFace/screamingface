@@ -23,6 +23,7 @@ import contextvars
 import hashlib
 import json
 import math
+import re
 from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
@@ -83,6 +84,7 @@ from screamingface_engine.benchmarks.shared_grading.case_grades import (
     read_selected_cases,
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload
+from screamingface_engine.retrieval_policy import normalize_excluded_domains
 from screamingface_engine_inspect.envelopes import (
     CHECK_SCHEMA,
     build_case_grade,
@@ -97,9 +99,11 @@ from screamingface_engine_inspect.revision_inputs import (
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Request, Url4Node
 
-# INVARIANT: imported grading is retrieval-free — their scorers compare text to a
-# pinned answer key; a model that searched would answer a different question.
-_CANDIDATE_WEB_SEARCH = False
+# INVARIANT: an imported Benchmark's Candidate call is retrieval-free unless its row declares a
+# retrieval policy (OME-1527, R13). Most scorers compare text to a pinned answer key, and a
+# model that searched would answer a different question. A row that declares one (draco: search
+# on, seven domains banned) sends it on the Candidate call, where the Candidate adapter applies
+# it as a ceiling no nested call can widen; grading calls run outside that call.
 
 # INVARIANT: failure wording is this plugin's published voice; no rubric-flavored
 # codes may leak into an imported benchmark's result.
@@ -147,11 +151,84 @@ class JudgeSpec:
             ``(("temperature", "0"),)``) — benchmark identity too.
         model_role: the inspect model role this judge fills, or None when the scorer
             names its judge in a kwarg. Benchmark identity when set.
+        seed_per_pass: the scorer grades over judge passes and names pass ``k`` as
+            ``GenerateConfig(seed=k)``; the judge call then carries ``seed=k`` after the
+            pinned params, so N passes are N requests, never one cached reply (OME-1527
+            R12). Benchmark identity when set. A pinned ``seed`` beside it is refused.
     """
 
     model: str
     params: tuple[tuple[str, str], ...] = ()
     model_role: str | None = None
+    seed_per_pass: bool = False
+
+    def __post_init__(self) -> None:
+        """Refuse a row that pins a seed AND gives each judge pass its own."""
+
+        if self.seed_per_pass and any(name == "seed" for name, _ in self.params):
+            raise ValueError(
+                f"judge {self.model!r} pins a seed and declares seed_per_pass — each judge "
+                "pass sends its own seed, so a pinned one would put two on the call; drop "
+                "one (OME-1527 R12)"
+            )
+
+
+#: What a retrieval policy id may hold: lowercase words joined by ``/`` (``draco/reproduction``),
+#: so it can never break the newline-joined revision or a generated row.
+_RETRIEVAL_POLICY_ID: re.Pattern[str] = re.compile(
+    r"[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)*"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievalPolicyDeclaration:
+    """A Benchmark's web-search rule for its Candidate: search on, these domains never reached.
+
+    The exam's own rule, not the Candidate's choice (draco bans the sites that host its
+    answers). The Candidate call carries it, the Candidate adapter turns it into the ceiling
+    every nested model call runs under, and both fields are Benchmark identity. Checked when
+    the row is declared, so a malformed one fails at import, never mid-run.
+
+    Attributes:
+        policy_id: the name a published score cites, e.g. ``draco/reproduction``.
+        excluded_domains: bare domains, e.g. ``("arxiv.org", "huggingface.co")``; stored
+            lowercased, deduplicated and sorted, so their order never moves the revision.
+    """
+
+    policy_id: str
+    excluded_domains: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.policy_id, str) or not _RETRIEVAL_POLICY_ID.fullmatch(
+            self.policy_id
+        ):
+            raise ValueError(
+                f"retrieval policy id {self.policy_id!r} must be lowercase words joined by /, "
+                "e.g. draco/reproduction"
+            )
+        # WHY refuse an empty list (draco's own build rule): search with nothing banned can
+        # read a public answer key, and an empty list usually means the list was lost.
+        if not self.excluded_domains:
+            raise ValueError(
+                f"retrieval policy {self.policy_id}: excluded_domains is empty — name the "
+                "domains the Candidate must never reach"
+            )
+        try:
+            domains: tuple[str, ...] = normalize_excluded_domains(self.excluded_domains)
+        except ValueError:
+            raise ValueError(
+                f"retrieval policy {self.policy_id}: excluded_domains must be bare domains "
+                f"like arxiv.org, got {list(self.excluded_domains)!r}"
+            ) from None
+        object.__setattr__(self, "excluded_domains", domains)
+
+    def revision_pins(self) -> tuple[str, str]:
+        """The policy as Benchmark identity: its id and its sorted banned domains."""
+
+        return (
+            f"retrieval_policy={self.policy_id}",
+            f"retrieval_excluded_domains={json.dumps(list(self.excluded_domains))}",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,6 +352,7 @@ def single_shot_benchmark(
     whole_run_headline: str | None = None,
     epoch_reducer_factory: Callable[[], Any] | None = None,
     attempts: int = 1,
+    retrieval_policy: RetrievalPolicyDeclaration | None = None,
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -331,6 +409,8 @@ def single_shot_benchmark(
         attempts: Attempts per Case (OME-1458) — the expression asks each Case this many
             times and the aggregate folds them per Check. The caller carries it into
             ``revision_pins``.
+        retrieval_policy: the row's web-search rule for the Candidate call (OME-1527, R13);
+            None keeps the call retrieval-free. Hashed into the revision below when set.
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -377,8 +457,14 @@ def single_shot_benchmark(
                         # WHY conditional again: a named judge's pins must stay
                         # byte-identical, so FrontierScience's revision holds (OME-1370).
                         *(() if judge.model_role is None else (f"judge_role={judge.model_role}",)),
+                        # WHY conditional: no published row gives its passes seeds, so
+                        # every judged revision holds (OME-1527 R12).
+                        *(("judge_seed_per_pass=True",) if judge.seed_per_pass else ()),
                     )
                 ),
+                # WHY conditional (OME-1527, R13): searching changes what the Candidate can
+                # know, so the policy is identity; unset adds nothing, so no revision moves.
+                *(() if retrieval_policy is None else retrieval_policy.revision_pins()),
             )
         ).encode()
     ).hexdigest()[:16]
@@ -407,7 +493,7 @@ def single_shot_benchmark(
         # FEATURE: the researcher-visible refusal-rate mark (OME-1400) — the same flag the
         # scorer adapter flips on, published so report.json can show it.
         inverted_grade=inverted_grade,
-        build=_build(routes, case_count, attempts),
+        build=_build(routes, case_count, attempts, retrieval_policy),
         install=install,
         focus=focus,
         dataset_url=dataset_url,
@@ -535,17 +621,27 @@ def install_imported_benchmark(node: Url4Node, assets: Path, benchmark_id: str) 
             node.endpoint(route)(handler)
 
 
-def _build(routes: Mapping[str, str], available: int, attempts: int = 1) -> Callable[[int], Node]:
+def _build(
+    routes: Mapping[str, str],
+    available: int,
+    attempts: int = 1,
+    retrieval_policy: RetrievalPolicyDeclaration | None = None,
+) -> Callable[[int], Node]:
     """The canonical one-invocation expression — one answer per Case, graded once.
 
     With ``attempts`` above 1 (OME-1458) the same execution runs once per Attempt; at 1 the
-    expression is exactly the one every published imported Benchmark pins.
+    expression is exactly the one every published imported Benchmark pins. A
+    ``retrieval_policy`` turns search on for the Candidate call with its banned domains;
+    without one the call says ``web_search=false``, as it always has.
     """
+
+    banned: tuple[str, ...] = () if retrieval_policy is None else retrieval_policy.excluded_domains
 
     def build(case_count: int) -> Node:
         candidate_invocation = candidate(
             "$item.input",
-            web_search=_CANDIDATE_WEB_SEARCH,
+            web_search=retrieval_policy is not None,
+            web_search_exclude=banned,
             case_id="$item.id",
             case_index="$index",
             case_count=str(case_count),
@@ -829,6 +925,7 @@ def _judged_aggregate(
             fetch=fetch,
             params=benchmark.judge.params,
             benchmark_id=benchmark.benchmark.id,
+            seed_per_pass=benchmark.judge.seed_per_pass,
         )
         with ExitStack() as scope:
             scope.enter_context(bound_judge_transport(transport))
@@ -1178,6 +1275,7 @@ __all__ = [
     "AggregateError",
     "ImportedBenchmark",
     "JudgeSpec",
+    "RetrievalPolicyDeclaration",
     "benchmark_aggregate",
     "benchmark_aggregate_async",
     "install_imported_benchmark",
