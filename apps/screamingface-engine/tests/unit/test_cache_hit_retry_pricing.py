@@ -195,14 +195,16 @@ async def test_a_retried_hit_still_reports_no_tokens_consumed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_retried_miss_keeps_its_provider_authored_price() -> None:
-    # Scope guard: the withdrawal belongs to the hit path, where the published figure would
-    # otherwise be an affirmative zero. A miss carries real attempt accounting and keeps it.
+async def test_a_retried_miss_is_unpriced_too() -> None:
+    # OME-1220 (owner-approved contract change): a lost reply may have been billed in full
+    # upstream, so the miss's own figure covers only the attempt that answered. "Unknown" beats
+    # a confident undercount; connect-phase failures keep the exact price
+    # (`test_ambiguous_retry_pricing.py`).
     rec = _Recorder()
 
     await _run(_body(_billed_aigw()), _MISS_HEADERS, rec, fail_first=True)
 
-    assert rec.usages[0].cost_usd == Decimal("0.001")
+    assert rec.usages[0].cost_usd is None
 
 
 def test_a_retried_hit_makes_the_whole_run_total_unpriced() -> None:
