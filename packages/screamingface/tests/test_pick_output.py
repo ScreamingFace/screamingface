@@ -151,7 +151,7 @@ def test_a_pick_output_of_the_longest_name_is_kept() -> None:
 def test_pick_repr_and_python_show_the_output() -> None:
     assert (
         repr(sf.Pick(by_signal=sf.signal("field:confidence"), order="max", output="answer"))
-        == "Pick(by_signal=sf.signal('field:confidence'), order='max', output='answer')"
+        == "Pick(by_signal=signal('field:confidence'), order='max', output='answer')"
     )
     assert (
         repr(sf.Pick("confidence", order="max", output="answer"))

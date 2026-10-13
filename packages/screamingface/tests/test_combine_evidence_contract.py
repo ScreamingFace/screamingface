@@ -35,8 +35,6 @@ _EXPECTED_NAMES = {
     "merge_abstain",
     "merge_model_field",
     "pick",
-    "pick_output",
-    "pick_output_missing",
     "projection",
     "rank_by_judge",
     "rank_by_signal",
@@ -51,6 +49,7 @@ _EXPECTED_NAMES = {
     "vote_tie",
     "vote_weighted",
 }
+_EXPECTED_NAMES |= {"pick_output", "pick_output_missing"}  # E4b pick-output
 
 
 def _cases() -> dict[str, Any]:
