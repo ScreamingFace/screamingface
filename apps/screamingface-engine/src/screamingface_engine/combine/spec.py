@@ -84,6 +84,7 @@ REDUCER_RULES: Mapping[Reducer, ReducerRule] = MappingProxyType(
         "rank": ReducerRule("selection", "optional", "optional", "forbidden"),
         "concat": ReducerRule("selection", "forbidden", "forbidden", "forbidden"),
         "filter": ReducerRule("selection", "optional", "optional", "forbidden"),
+        "mean": ReducerRule("answer", "required", "required", "optional", "numeric"),
     }
 )
 

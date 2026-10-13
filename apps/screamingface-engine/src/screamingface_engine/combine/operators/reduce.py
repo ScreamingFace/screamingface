@@ -90,12 +90,30 @@ def median(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
         return Reduction(statistic=(numbers[middle - 1] + numbers[middle]) / 2)
 
 
+def mean(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
+    """Mean of the numeric values; spec weights are ignored, as mode@1 ignores them (CS-I1)."""
+    raise NotImplementedError("E4b unit 3")
+
+
+def weighted_mean(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
+    """sum(w * x) / sum(w) over the voters with a usable weight; the others are dropped (ans:Q2)."""
+    raise NotImplementedError("E4b unit 3")
+
+
 OPERATORS: tuple[OperatorDescriptor, ...] = (
     OperatorDescriptor("mode", 1, "reduce", "One vote per member.", mode),
     OperatorDescriptor(
         "weighted_mode", 1, "reduce", "The member's weight per vote.", weighted_mode
     ),
     OperatorDescriptor("median", 1, "reduce", "Median of the numeric values.", median),
+    OperatorDescriptor("mean", 1, "reduce", "Mean of the numeric values.", mean),
+    OperatorDescriptor(
+        "weighted_mean",
+        1,
+        "reduce",
+        "Weighted mean of the numeric values; a member with no usable weight is dropped.",
+        weighted_mean,
+    ),
 )
 
 __all__ = ["OPERATORS"]

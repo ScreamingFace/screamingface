@@ -41,7 +41,9 @@ from types import MappingProxyType
 from typing import ClassVar, Literal, Protocol, cast
 
 Stage = Literal["extract", "normalize", "reduce", "select"]
-Reducer = Literal["vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter"]
+Reducer = Literal[
+    "vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter", "mean"
+]
 EvidenceKind = Literal["answer", "selection", "projection"]
 ReadingStatus = Literal[
     "voted", "empty", "not_numeric", "not_json", "field_missing", "too_large", "no_match"
@@ -282,6 +284,8 @@ class Reduction:
     filter pass marks).
     judge: judge reducers. fields: pick and merge. text: a text this step built for select to
     emit (merge JSON, projection JSON, joined text). separator_collision: concat only.
+    participants: the members a weighted reduce step used, in author order (None: every voter).
+    nearest@1 picks only among them (E4b P9, ans:Q2).
     """
 
     tally: tuple[TallyRow, ...] | None = None
@@ -291,6 +295,7 @@ class Reduction:
     fields: tuple[FieldReading, ...] | None = None
     text: str | None = None
     separator_collision: bool | None = None
+    participants: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

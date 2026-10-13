@@ -334,3 +334,57 @@ async def test_recipe_s2_median_nearest_runs_end_to_end() -> None:
     combine = operation(record, "op_synthesis_1")["combine"]
     assert combine["chosen"] == ["member_2"]
     assert combine["result"]["member_id"] == "member_2"
+
+
+@pytest.mark.asyncio
+async def test_engine_runs_sdk_mean_with_static_weights() -> None:
+    # Oracle: (10*1 + 20*1 + 60*2) / (1 + 1 + 2) = 37.5 (E4b S3, MN#22).
+    record = await run_candidate(
+        _recipe("recipe_s3.url4"),
+        _models(
+            {
+                "provider/alpha": "x = 10",
+                "provider/beta": "x = 20",
+                "provider/gamma": "x = 60",
+            }
+        ),
+        "miss",
+    )
+
+    assert record["status"] == "completed"
+    assert operation(record, "op_synthesis_1")["output"] == "37.5"
+    combine = operation(record, "op_synthesis_1")["combine"]
+    assert combine["reducer"] == "mean"
+    assert combine["mean"] == "37.5"
+    assert combine["median"] is None
+    assert [m["weight"] for m in combine["members"]] == [1.0, 1.0, 2.0]
+    assert combine["operators"] == ["last_number@1", "numeric@1", "weighted_mean@1", "value@1"]
+
+
+@pytest.mark.asyncio
+async def test_engine_runs_mean_block_weighted_by_field_confidence() -> None:
+    # Oracle: (0.2*10 + 0.8*20) / (0.2 + 0.8) = 18; gamma has weight 0, so it is dropped (ans:Q2).
+    record = await run_candidate(
+        _recipe("recipe_s4.url4"),
+        _models(
+            {
+                "provider/alpha": '{"answer": 10, "confidence": 0.2}',
+                "provider/beta": '{"answer": 20, "confidence": 0.8}',
+                "provider/gamma": '{"answer": 99, "confidence": 0}',
+            }
+        ),
+        "miss",
+    )
+
+    assert record["status"] == "completed"
+    assert operation(record, "op_synthesis_1")["output"] == "18"
+    combine = operation(record, "op_synthesis_1")["combine"]
+    assert combine["mean"] == "18"
+    assert [m["weight"] for m in combine["members"]] == [0.2, 0.8, None]
+    assert [m["signals"] for m in combine["members"]] == [
+        {"field:confidence": 0.2},
+        {"field:confidence": 0.8},
+        {"field:confidence": 0.0},
+    ]
+    assert combine["signal"] == {"key": "field:confidence", "order": None}
+    assert combine["operators"] == ["json_field@1", "numeric@1", "weighted_mean@1", "value@1"]
