@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-13
-finished:
+finished: 2026-10-13
 ---
 
 # e4b-judge-order — sf.Judge(..., order="min"): the lowest judge score wins
@@ -59,9 +59,26 @@ Unit 5 of docs/plan/2026-10-13-e4b-combine-extensions.md.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message> (A: RED tests + stubs; B: GREEN; C: docs)
-- **Gates:** <run_gates.py result lines for screamingface (with and without --skip-append-only), repo, screamingface-engine>
+- **Actual files:** As planned. Code: `judge.py`, `blocks.py`, `reducer.py`, `selection.py`. Tests and
+  data: the four new test files, the fixture `judge_order_min_candidate.url4`, and the snapshot
+  `public_surface_snapshot.json` (pinned edit). Docs: `README.md` and `CHANGELOG.md`.
+- **Commits:** `4a54f1d06` test(e4b): RED for E4b unit 5 judge-order (A: RED tests and stubs);
+  `529b039e0` feat(screamingface): sf.Judge(..., order="min") picks the lowest judge score (B: GREEN);
+  the docs commit that adds this Outcome (C).
+- **Gates:**
+  - `run_gates.py screamingface --base e4b-weighted-median`: append-only FAILED with one offender,
+    `tests/public_surface_snapshot.json` (approved pinned edit, no manifest yet).
+  - `run_gates.py screamingface --base e4b-weighted-median --skip-append-only`: ALL GATES GREEN
+    (ruff check, ruff format, pyright, pytest with coverage, notebooks, uv build, distribution).
+  - `run_gates.py repo --base e4b-weighted-median`: ALL GATES GREEN, append-only check ON.
+  - Focused engine tests (`test_combine_judge_order.py`, `test_sdk_judge_order_contracts.py` and
+    the engine neighbors): 62 passed. The `screamingface-engine` gate was not run in this pass.
 - **Pinned edit for owner approval:** `packages/screamingface/tests/public_surface_snapshot.json`
-  base_blob <git rev-parse e4b-weighted-median:...> → approved_blob <git hash-object ...>
-- **Deviations:** <anything that differed from the plan, or "none">
+  base_blob e11797349144ce62db42617293d6bbdf7019fd56 → approved_blob 49c4b7bfeff79c7365ce3fdb753c87d0eb01f9ab
+  (2 changes: the Judge `__init__` gains `order`; the member `"order": "field"` is added).
+- **Deviations:**
+  - JO#12 test fix in `test_sdk_judge_order_contracts.py`: the system prompt separator is U+2028,
+    not a space. The RED test had the wrong character. Commit B holds the fix.
+  - No `S11 min` row existed in the README table. A row with inline code was added, as the
+    `S4, median form` row does. It names no new recipe, so no builder or fixture was added.
+  - The `screamingface-engine` gate was not run, because the run named only `screamingface` and `repo`.
