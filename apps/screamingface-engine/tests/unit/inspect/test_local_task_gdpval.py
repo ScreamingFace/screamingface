@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -42,8 +43,10 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
 from screamingface_engine.request_scope import RequestScope, request_scope  # noqa: E402
+from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
 from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     BENCHMARKS,
+    BenchmarkSpec,
     _task_replay_pins,
     imported_benchmark,
 )
@@ -58,7 +61,11 @@ from screamingface_engine_inspect.prepare import (  # noqa: E402
     _write_cases,
     prepared_case,
 )
-from screamingface_engine_inspect.single_shot import benchmark_aggregate_async  # noqa: E402
+from screamingface_engine_inspect.single_shot import (  # noqa: E402
+    ImportedBenchmark,
+    _cases,
+    benchmark_aggregate_async,
+)
 from url4.wire.subrequest import decode_subrequest_http, extract_expression_params  # noqa: E402
 
 #: Five Cases: (request, submission, [(points, criterion, the judge's replies in draw order)]).
@@ -447,3 +454,57 @@ def test_the_row_keeps_the_hand_built_id_judge_and_declaration() -> None:
     )
     source = [pin for pin in _task_replay_pins(cases) if pin.startswith("task_source=")]
     assert len(source) == 1
+
+
+# --- the Candidate gets the hand-built input envelope (owner decision 3, OME-1527) ---------
+
+
+def test_the_candidate_is_served_the_hand_built_envelope_while_cases_json_stays_plain(
+    tmp_path: Path,
+) -> None:
+    """A Fusion synthesizer is pasted ``$input`` raw, so the hand-built envelope must reach
+    the Candidate byte for byte or the recorded e2e golden misses every synthesizer call;
+    the scorer reads cases.json, which must stay plain or the judge's prompt moves."""
+
+    plain: str = "Rédige la note.\n\nREFERENCE FILE: brief.pdf"
+    written: str = json.dumps([{"id": 1, "case_id": 1, "input": plain}])
+    (tmp_path / "cases.json").write_text(written, encoding="utf-8")
+
+    served: list[dict[str, Any]] = json.loads(_cases(tmp_path, envelope=True)())
+
+    # The literal is hand-built gdpval's `case_input` form: compact, non-ASCII kept as is.
+    assert served[0]["input"] == (
+        '{"schema":"screamingface.candidate-input.v1","messages":[{"role":"user",'
+        '"content":"Rédige la note.\\n\\nREFERENCE FILE: brief.pdf"}]}'
+    )
+    assert (tmp_path / "cases.json").read_text(encoding="utf-8") == written
+    assert _cases(tmp_path)() == written, "a row without the flag is served cases.json as is"
+    assert imported_benchmark("gdpval-text").candidate_input_envelope is True
+
+
+def test_the_envelope_is_benchmark_identity_and_refuses_a_check_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The envelope changes what a synthesizer reads, so it moves the revision; and the
+    check surface finds its Case by the exact text the Candidate was given, which the
+    envelope no longer matches, so the two can't be declared together."""
+
+    # Stand-in: gsm8k's real row, simulating any row that sets the flag; it proves the
+    # factory's rules, not gdpval-text's own Task.
+    gsm8k: BenchmarkSpec = next(spec for spec in BENCHMARKS if spec.key == "gsm8k")
+
+    def assembled(spec: BenchmarkSpec) -> ImportedBenchmark:
+        """Assemble one row through the real table path, with the caches emptied."""
+
+        monkeypatch.setattr(benchmarks, "BENCHMARKS", (spec,))
+        monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
+        monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
+        return imported_benchmark(spec.key)
+
+    plain: str = assembled(replace(gsm8k, with_check_surface=False)).benchmark.revision
+    enveloped: str = assembled(
+        replace(gsm8k, with_check_surface=False, candidate_input_envelope=True)
+    ).benchmark.revision
+    assert enveloped != plain
+    with pytest.raises(ValueError, match="cannot declare a check surface"):
+        assembled(replace(gsm8k, with_check_surface=True, candidate_input_envelope=True))

@@ -172,6 +172,10 @@ class BenchmarkSpec:
     #: today, keeps the Candidate call retrieval-free. Benchmark identity when set, so no
     #: other row moves. The search loop itself is the Candidate's; the row only sets the ceiling.
     retrieval_policy: RetrievalPolicyDeclaration | None = None
+    #: Serve the Candidate each Case's input in the candidate-input envelope, as a hand-built
+    #: Benchmark did (OME-1527). Only a migrated hand-built row sets it, to keep its Candidate
+    #: bytes (and Fusion golden) unchanged; False everywhere else. Benchmark identity when set.
+    candidate_input_envelope: bool = False
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -4172,6 +4176,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         # Judged benchmark, and no owner decision to offer one (OME-1513): no Draft Feedback.
         with_check_surface=False,
+        # The hand-built gdpval sent its Candidate the input envelope, and a Fusion's
+        # synthesizer reads `$input` raw: kept, so the move leaves Fusion bytes and the
+        # recorded e2e golden unchanged (OME-1527, owner decision 3).
+        candidate_input_envelope=True,
         origin="screamingface",
         paper_url="https://arxiv.org/abs/2510.04374",
         authors="Patwardhan et al., 2025",
@@ -4285,6 +4293,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         epoch_reducer_factory=_epoch_reducer_factory(spec),
         attempts=spec.attempts,
         retrieval_policy=spec.retrieval_policy,
+        candidate_input_envelope=spec.candidate_input_envelope,
         **_provenance_of(spec),
     )
 

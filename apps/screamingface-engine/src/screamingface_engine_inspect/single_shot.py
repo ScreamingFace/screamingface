@@ -36,6 +36,7 @@ from screamingface_engine.benchmarks.aggregation import CandidateScore
 from screamingface_engine.benchmarks.case_context import case_scope
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import (
+    CANDIDATE_INPUT_SCHEMA,
     CANDIDATE_RESULT_SCHEMA,
     CaseGrade,
     CaseResult,
@@ -272,6 +273,9 @@ class ImportedBenchmark:
     #: honours a whole-run metric (OME-1527 x OME-1458); None reduces each Case with inspect's
     #: default mean. Hashed by the caller's pins.
     epoch_reducer_factory: Callable[[], Any] | None = None
+    #: Serve each Case's input to the Candidate as the candidate-input envelope rather than
+    #: as plain text (OME-1527); False on every imported row. Hashed by the factory.
+    candidate_input_envelope: bool = False
 
     def aggregation(
         self, kept_scores: MutableMapping[int, Any] | None = None
@@ -356,6 +360,7 @@ def single_shot_benchmark(
     epoch_reducer_factory: Callable[[], Any] | None = None,
     attempts: int = 1,
     retrieval_policy: RetrievalPolicyDeclaration | None = None,
+    candidate_input_envelope: bool = False,
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -414,6 +419,12 @@ def single_shot_benchmark(
             ``revision_pins``.
         retrieval_policy: the row's web-search rule for the Candidate call (OME-1527, R13);
             None keeps the call retrieval-free. Hashed into the revision below when set.
+        candidate_input_envelope: the Candidate gets each Case's input wrapped in the
+            candidate-input envelope, the form a hand-built Benchmark sent (OME-1527). A
+            single model sees the same chat message either way, since the connector unwraps
+            the envelope; a Fusion synthesizer is pasted ``$input`` raw, so only this keeps a
+            migrated Benchmark's Fusion bytes, and its recorded golden, unchanged. The scorer
+            and ``cases.json`` keep plain text. Hashed into the revision below when set.
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -427,6 +438,13 @@ def single_shot_benchmark(
         raise ValueError(
             f"{benchmark_id}: a judged benchmark cannot declare a check surface until "
             "the check-cost knob lands (OME-1116)"
+        )
+    if candidate_input_envelope and with_check_surface:
+        # WHY: the check surface finds its Case by the exact text the Candidate was given
+        # (`_case_by_input` reads cases.json), which the envelope would no longer match.
+        raise ValueError(
+            f"{benchmark_id}: a Benchmark serving its Candidate the input envelope cannot "
+            "declare a check surface"
         )
     # WHY: pins are newline-joined below; a pin containing "\n" would make two
     # different pin lists hash identically — refused, never coerced.
@@ -468,6 +486,9 @@ def single_shot_benchmark(
                 # WHY conditional (OME-1527, R13): searching changes what the Candidate can
                 # know, so the policy is identity; unset adds nothing, so no revision moves.
                 *(() if retrieval_policy is None else retrieval_policy.revision_pins()),
+                # WHY conditional (OME-1527): the envelope changes what a Fusion synthesizer
+                # reads, so it is identity; unset adds nothing, so no imported revision moves.
+                *(("candidate_input=envelope",) if candidate_input_envelope else ()),
             )
         ).encode()
     ).hexdigest()[:16]
@@ -548,6 +569,7 @@ def single_shot_benchmark(
         whole_run_metric_factory=whole_run_metric_factory,
         whole_run_headline=whole_run_headline,
         epoch_reducer_factory=epoch_reducer_factory,
+        candidate_input_envelope=candidate_input_envelope,
     )
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept
@@ -586,7 +608,7 @@ def install_imported_benchmark(node: Url4Node, assets: Path, benchmark_id: str) 
         "case_evaluation": benchmark.case_evaluation_route,
         "aggregate": benchmark.aggregate_route,
     }
-    install_cases(node, routes["cases"], _cases(root))
+    install_cases(node, routes["cases"], _cases(root, envelope=benchmark.candidate_input_envelope))
     installed = frozenset(node.processor_routes())
     endpoints: list[tuple[str, Callable[[Request], str | Awaitable[str]]]] = [
         (routes["check"], _check(root)),
@@ -686,11 +708,13 @@ def _build(
     return build
 
 
-def _cases(root: Path) -> Callable[[], str]:
+def _cases(root: Path, *, envelope: bool = False) -> Callable[[], str]:
+    """The cases route: ``cases.json`` as written, or with each input enveloped."""
+
     @observe_phase(ActivityKind.CASE_LOADING)
     def cases() -> str:
         try:
-            return (root / "cases.json").read_text(encoding="utf-8")
+            text: str = (root / "cases.json").read_text(encoding="utf-8")
         except OSError as exc:
             # A gated benchmark skipped at image build (PR builds without the Hugging Face
             # token) leaves a marker saying so — name that instead of a bare IO error.
@@ -701,8 +725,32 @@ def _cases(root: Path) -> Callable[[], str]:
                     + skipped.read_text(encoding="utf-8").strip()
                 ) from exc
             raise _unavailable(f"imported board cases are unavailable: {exc}") from exc
+        return _enveloped_inputs(text) if envelope else text
 
     return cases
+
+
+def _enveloped_inputs(cases_json: str) -> str:
+    """Wrap every Case's plain input in the candidate-input envelope, byte for byte as a
+    hand-built Benchmark's preparer wrote it (OME-1527).
+
+    Worked example: input ``"Draft the memo."`` is served as
+    ``{"schema":"screamingface.candidate-input.v1","messages":[{"role":"user","content":
+    "Draft the memo."}]}`` — compact separators, non-ASCII kept as is, which is what
+    hand-built gdpval's ``case_input`` wrote, so the Candidate call's bytes do not move.
+    """
+
+    rows: list[dict[str, Any]] = json.loads(cases_json)
+    for row in rows:
+        row["input"] = json.dumps(
+            {
+                "schema": CANDIDATE_INPUT_SCHEMA,
+                "messages": [{"role": "user", "content": row["input"]}],
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    return json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
 
 
 def _check(root: Path) -> Callable[[Request], str]:
