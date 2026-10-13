@@ -569,6 +569,37 @@ class Median(Reducer):
     __hash__: ClassVar[Any] = None
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class Mean(Reducer):
+    """Mean of the members' numeric answers: the number itself, or the nearest member's text."""
+
+    name: str
+    extract: str
+    select: str
+    weights: tuple[float, ...] | Signal | None
+
+    def __init__(
+        self,
+        *,
+        extract: str = "last_number",
+        select: str = "value",
+        weights: Sequence[float] | Signal | None = None,
+    ) -> None:
+        object.__setattr__(self, "name", "mean")
+        object.__setattr__(self, "extract", extract)
+        object.__setattr__(self, "select", select)
+        object.__setattr__(self, "weights", weights)
+
+    def _plan(self) -> _ReducerPlan:
+        raise NotImplementedError("E4b unit 3")
+
+    @classmethod
+    def _from_spec(cls, spec: Mapping[str, object]) -> Mean:
+        raise NotImplementedError("E4b unit 3")
+
+    __hash__: ClassVar[Any] = None
+
+
 _REDUCER_CLASSES.update(vote=Vote, median=Median)
 
 __all__ = ["Median", "Reducer", "Vote"]
