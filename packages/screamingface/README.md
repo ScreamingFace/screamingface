@@ -674,8 +674,8 @@ by a signal, or `join@1` and `all@1` for `Concat`.
 
 ### Filter selection
 
-`sf.Filter` keeps the members that pass a test. The next stage gets only those members, as the
-same JSON that `sf.Rank` writes, in author order. `where=` is a regex or a signal comparison:
+`sf.Filter` keeps the members that pass a test. The next stage gets the input of the Fusion and only those members, as the
+same JSON that `sf.Rank` writes (`{"input":...,"selected":[...]}`), in author order. `where=` is a regex or a signal comparison:
 
 ```python
 confident = sf.Pipeline(
