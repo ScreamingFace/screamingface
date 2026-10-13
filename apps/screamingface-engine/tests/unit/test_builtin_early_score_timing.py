@@ -70,10 +70,9 @@ def _assets(tmp_path, monkeypatch, registration):
 
 
 def _judges(node):
-    from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as draco
     from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL as health
 
-    for model in {draco, health}:
+    for model in {health}:
         node.endpoint("/" + model)(
             lambda request: '{"explanation":"ok","criteria_met":true,"criterion_status":"MET"}'
         )

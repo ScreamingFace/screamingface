@@ -63,7 +63,6 @@ LABELS_DIR: Final = "provenance"
 #: them). Every other Benchmark's bundle folder has the Benchmark's own id. Repeated here
 #: for the same reason as ``PROVENANCE_FILE``: the SDK venv cannot import the Engine.
 _SHARED_BUNDLE: Final[dict[str, str]] = {
-    "draco-3pass": "draco",
     "healthbench-worst30": "healthbench",
     "healthbench-professional": "healthbench",
 }

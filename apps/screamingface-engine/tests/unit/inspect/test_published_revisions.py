@@ -43,6 +43,11 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1527: gdpval-text moved from its hand-built folder (cacfc3e6b83765f6) to a local Task;
     # owner-accepted (no external users), the revision moves once.
     "gdpval-text": "2e839377e3ee28d4",
+    # OME-1527: draco (62718f04ea1a980f) and draco-3pass (2634cec91fd0f19a) moved from their
+    # hand-built folder to one local Task package; owner-accepted (no external users), each
+    # revision moves once. The draco-3pass e2e golden replays unchanged against the new one.
+    "draco": "c6fb6f500dc58622",
+    "draco-3pass": "e8c3ad925dcd4d4a",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
     "math": "1963559fac28e4a1",

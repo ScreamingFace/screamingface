@@ -60,13 +60,14 @@ jobs:
         # whose deps (uvicorn et al.) live in the user-facing runtime extra.
         run: uv run --extra runtime screamingface prepare --all --data-dir /tmp/screamingface-data
 
-      # A local Task's bundle (OME-1527: gdpval-text moved from a hand-built folder) is not in
-      # `screamingface prepare`; the Engine's own preparer writes it, as the image build does.
+      # A local Task's bundle (OME-1527: gdpval-text, draco and draco-3pass moved from hand-built
+      # folders) is not in `screamingface prepare`; the Engine's own preparer writes it, as the
+      # image build does.
       # It refuses a non-empty directory, so a bundle restored from the cache is kept as is.
       - name: Prepare the local-Task bundles a golden replays
         working-directory: apps/screamingface-engine
         run: |
-          for bundle in gdpval-text; do
+          for bundle in gdpval-text draco draco-3pass; do
             if [ ! -f "/tmp/screamingface-data/benchmark-assets/$bundle/cases.json" ]; then
               uv run --extra benchmarks python -m screamingface_engine.benchmarks.prepare \
                 --root /tmp/screamingface-data/benchmark-assets --bundle "$bundle"

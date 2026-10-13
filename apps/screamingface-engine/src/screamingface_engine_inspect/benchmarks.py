@@ -4228,6 +4228,198 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="10_gdpval",
     ),
+    BenchmarkSpec(
+        key="draco",
+        title="DRACO",
+        description=(
+            "A 100-task DRACO reproduction with official score arithmetic. It uses the successor "
+            "Judge model, provider-default reasoning, mixed native/Tavily retrieval, and a "
+            "host-only approximation of the reference blocklist, so its scores are not "
+            "paper-identical. Every answer is judged five times — the paper's stability protocol."
+        ),
+        focus="Research reports with citations",
+        dataset_url="https://huggingface.co/datasets/perplexity-ai/draco",
+        # Open-ended deep-research reports frontier models still visibly fail (OME-1257; the
+        # hand-built Benchmark's tier, kept).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.draco.draco:draco — a LOCAL Task
+        #   (OME-1527), the hand-built Benchmark moved into inspect's shape; every field below is
+        #   carried over from the hand-built definition (OME-1455 sources).
+        scorer="screamingface_engine_inspect.local_tasks.draco.draco:draco_rubric",
+        scorer_kwargs={
+            "judge_model": "screamingface/openrouter/google/gemini-3.1-pro-preview",
+            "judge_passes": 5,
+        },
+        judge=JudgeSpec(
+            # The paper pins Gemini-3-Pro Preview, which Google shut down on 2026-03-09; Google
+            # named Gemini-3.1-Pro Preview its replacement, so the reproduction uses that.
+            model="openrouter/google/gemini-3.1-pro-preview",
+            # The hand-built JUDGE_PARAMS, same values in the same order (so the same wire and
+            # the same recorded replies): grading never searches, even though the Candidate
+            # does (the search guard refuses a searching row whose judge could); 0.2 as the
+            # paper; the judge is a reasoning model whose thinking counts against max_tokens,
+            # so effort is low (OME-993) and the cap stays the paper's 4096.
+            params=(
+                ("web_search", "false"),
+                ("temperature", "0.2"),
+                ("reasoning_effort", "low"),
+                ("max_tokens", "4096"),
+            ),
+            # Each judge pass is its own request, stamped seed=k as the hand-built judge
+            # stamped it, so the gateway cache can never answer all passes with one reply.
+            seed_per_pass=True,
+        ),
+        # Judged benchmark, and no owner decision to offer one (OME-1513): no Draft Feedback.
+        with_check_surface=False,
+        # The exam lets the Candidate search the web, never these domains: the sites that host
+        # DRACO's answers (the hand-built EXCLUDED_DOMAINS, a host-only floor; see the README).
+        # The policy is part of the Benchmark Revision.
+        retrieval_policy=RetrievalPolicyDeclaration(
+            policy_id="draco/reproduction",
+            excluded_domains=(
+                "alphaxiv.org",
+                "arxiv.org",
+                "huggingface.co",
+                "openrouter.ai",
+                "paperswithcode.com",
+                "research.perplexity.ai",
+                "semanticscholar.org",
+            ),
+        ),
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2602.11685",
+        authors="Zhong et al., 2026",
+        citation=(
+            "@misc{zhong2026dracocrossdomainbenchmarkdeep,\n"
+            "      title={DRACO: a Cross-Domain Benchmark for Deep Research Accuracy, Com"
+            "pleteness, and Objectivity}, \n"
+            "      author={Joey Zhong and Hao Zhang and Clare Southern and Jeremy Yang an"
+            "d Thomas Wang and Kate Jung and Shu Zhang and Denis Yarats and Johnny Ho and"
+            " Jerry Ma},\n"
+            "      year={2026},\n"
+            "      eprint={2602.11685},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      url={https://arxiv.org/abs/2602.11685}, \n"
+            "}"
+        ),
+        harness_url=(
+            "https://huggingface.co/datasets/perplexity-ai/draco/tree/ce076749809027649ebd331bcb70f42bf720d387"
+        ),
+        license="MIT",
+        license_note=(
+            "perplexity-ai/draco dataset card. The GitHub repo the paper cites as protocol "
+            "authority is not public, so the harness link is the dataset repo (rubrics and tasks) "
+            "at the pinned revision."
+        ),
+        human_baseline=NotPublished(reason="the DRACO paper reports no human study"),
+        # Frontier score: DRACO score, five judge passes, agentic deep research with retrieval.
+        frontier_score=FrontierScore(
+            score=0.705,
+            model="Perplexity Deep Research (Claude Opus 4.6)",
+            source_url="https://arxiv.org/abs/2602.11685",
+            as_of="2026-02",
+        ),
+        notebook="06_draco",
+    ),
+    BenchmarkSpec(
+        key="draco-3pass",
+        title="DRACO 3-Pass",
+        description=(
+            "The DRACO 100-case reproduction judged three times per answer instead of five. "
+            "Identical dataset, criteria, Judge, and retrieval policy to the canonical board — "
+            "only the judge-pass count differs. The draco-cache-seed archive covers exactly "
+            "these three passes, so re-running its candidates is served fully from the shared "
+            "response cache; scores carry their own benchmark revision and are not compared "
+            "against five-pass results."
+        ),
+        focus="Research reports, three judge passes",
+        dataset_url="https://huggingface.co/datasets/perplexity-ai/draco",
+        # Open-ended deep-research reports frontier models still visibly fail (OME-1257; the
+        # hand-built Benchmark's tier, kept).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.draco.draco:draco_3pass — a LOCAL Task
+        #   (OME-1527), the hand-built Benchmark moved into inspect's shape; every field below is
+        #   carried over from the hand-built definition (OME-1455 sources).
+        scorer="screamingface_engine_inspect.local_tasks.draco.draco:draco_rubric",
+        scorer_kwargs={
+            "judge_model": "screamingface/openrouter/google/gemini-3.1-pro-preview",
+            "judge_passes": 3,
+        },
+        judge=JudgeSpec(
+            # The paper pins Gemini-3-Pro Preview, which Google shut down on 2026-03-09; Google
+            # named Gemini-3.1-Pro Preview its replacement, so the reproduction uses that.
+            model="openrouter/google/gemini-3.1-pro-preview",
+            # The hand-built JUDGE_PARAMS, same values in the same order (so the same wire and
+            # the same recorded replies): grading never searches, even though the Candidate
+            # does (the search guard refuses a searching row whose judge could); 0.2 as the
+            # paper; the judge is a reasoning model whose thinking counts against max_tokens,
+            # so effort is low (OME-993) and the cap stays the paper's 4096.
+            params=(
+                ("web_search", "false"),
+                ("temperature", "0.2"),
+                ("reasoning_effort", "low"),
+                ("max_tokens", "4096"),
+            ),
+            # Each judge pass is its own request, stamped seed=k as the hand-built judge
+            # stamped it, so the gateway cache can never answer all passes with one reply.
+            seed_per_pass=True,
+        ),
+        # Judged benchmark, and no owner decision to offer one (OME-1513): no Draft Feedback.
+        with_check_surface=False,
+        # The exam lets the Candidate search the web, never these domains: the sites that host
+        # DRACO's answers (the hand-built EXCLUDED_DOMAINS, a host-only floor; see the README).
+        # The policy is part of the Benchmark Revision.
+        retrieval_policy=RetrievalPolicyDeclaration(
+            policy_id="draco/reproduction",
+            excluded_domains=(
+                "alphaxiv.org",
+                "arxiv.org",
+                "huggingface.co",
+                "openrouter.ai",
+                "paperswithcode.com",
+                "research.perplexity.ai",
+                "semanticscholar.org",
+            ),
+        ),
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2602.11685",
+        authors="Zhong et al., 2026",
+        citation=(
+            "@misc{zhong2026dracocrossdomainbenchmarkdeep,\n"
+            "      title={DRACO: a Cross-Domain Benchmark for Deep Research Accuracy, Com"
+            "pleteness, and Objectivity}, \n"
+            "      author={Joey Zhong and Hao Zhang and Clare Southern and Jeremy Yang an"
+            "d Thomas Wang and Kate Jung and Shu Zhang and Denis Yarats and Johnny Ho and"
+            " Jerry Ma},\n"
+            "      year={2026},\n"
+            "      eprint={2602.11685},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      url={https://arxiv.org/abs/2602.11685}, \n"
+            "}"
+        ),
+        harness_url=(
+            "https://huggingface.co/datasets/perplexity-ai/draco/tree/ce076749809027649ebd331bcb70f42bf720d387"
+        ),
+        license="MIT",
+        license_note=(
+            "perplexity-ai/draco dataset card. The GitHub repo the paper cites as protocol "
+            "authority is not public, so the harness link is the dataset repo (rubrics and tasks) "
+            "at the pinned revision."
+        ),
+        human_baseline=NotPublished(reason="the DRACO paper reports no human study"),
+        # Frontier score: DRACO score, five judge passes, agentic deep research with retrieval.
+        frontier_score=FrontierScore(
+            score=0.705,
+            model="Perplexity Deep Research (Claude Opus 4.6)",
+            source_url="https://arxiv.org/abs/2602.11685",
+            as_of="2026-02",
+        ),
+        notebook="06_draco",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

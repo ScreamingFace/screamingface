@@ -6,7 +6,6 @@ import httpx
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.definition import link_candidate
-from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as DRACO_JUDGE
 from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL as HEALTH_JUDGE
 from screamingface_engine.grading_accounting import capture_grading_requests
 from screamingface_engine.observations import RunObservations
@@ -47,8 +46,7 @@ async def _run(registration, root, fusion):
                 default_model="writer",
                 allow_outbound=False,
                 models=tuple(
-                    ModelSpec(id=m, web_search=True)
-                    for m in {"writer", "synth", DRACO_JUDGE, HEALTH_JUDGE}
+                    ModelSpec(id=m, web_search=True) for m in {"writer", "synth", HEALTH_JUDGE}
                 ),
             ),
             client=client,

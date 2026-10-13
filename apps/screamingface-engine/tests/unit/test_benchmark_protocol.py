@@ -16,7 +16,6 @@ from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.definition import Benchmark
-from screamingface_engine.benchmarks.draco.definition import DRACO, JUDGE_MODEL
 from screamingface_engine.benchmarks.graded_answer import (
     GRADED_ANSWER_SCHEMA,
     install_graded_answer_endpoint,
@@ -51,8 +50,8 @@ async def test_the_public_catalogue_publishes_exactly_the_registered_benchmarks(
 
     WHAT THIS DOES NOT COVER: membership. Both sides derive from the same registrations, so
     deleting a benchmark from `builtins.py` makes it vanish from both and passes here. That a
-    given benchmark is public is pinned in the benchmark's own definition test — see
-    `test_both_draco_benchmarks_are_registered_under_their_own_ids` and its siblings.
+    given benchmark is public is pinned in the benchmark's own definition test (or, for a
+    local inspect Task, its Task test's row test).
     """
 
     registered = sorted(
@@ -72,29 +71,6 @@ async def test_the_public_catalogue_publishes_exactly_the_registered_benchmarks(
     published = [entry["id"] for entry in entries]
 
     assert sorted(published) == registered
-
-
-def test_canonical_draco_limit_changes_cases_only_not_grading_strength() -> None:
-    full = render(DRACO.build(DRACO.case_count))
-    one_case = render(DRACO.build(1))
-
-    assert DRACO.id == "draco"
-    assert DRACO.case_count == 100
-    assert full.count("/" + JUDGE_MODEL) == 5
-    assert one_case.count("/" + JUDGE_MODEL) == 5
-    assert "iteration.slice=0:100" in full
-    # Selection slices the outer cases only; criteria remain unsliced.
-    assert one_case.count("iteration.slice=0:1") == 1
-    assert ")!'1'" in one_case
-    assert "/benchmarks/selected-cases" not in one_case
-
-
-def test_canonical_draco_judge_passes_have_stable_independent_cache_slots() -> None:
-    expression = render(DRACO.build(1))
-
-    assert expression.count("web_search=false") == 5
-    for seed in range(1, 6):
-        assert expression.count(f"&seed={seed}") == 1
 
 
 @pytest.mark.asyncio
@@ -287,10 +263,8 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
-        # OME-1228: repin the explicit Case envelope; model input equivalence is tested separately.
-        # OME-993 (atop OME-924's fail-fast re-pin): judge gains reasoning_effort=low
-        # (max_tokens stays the paper's 4096) and a bounded ;retry=2 per verdict source.
-        (DRACO, "6e3eecc4c504dd1d0bcf0b788c312e6ad8c7ba0eaf4335d34b54e0450e16d02c"),
+        # OME-1527: DRACO left this table when it became a local inspect Task; its
+        # expression is pinned by its published revision and its e2e golden instead.
         (IFEVAL, "ffc22c70f6f9bdc9b036ad884f4aa67c8d0df880c070e624748a81b7944bd3e7"),
         (
             HEALTHBENCH_WORST30,

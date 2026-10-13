@@ -127,7 +127,7 @@ _COPY_COLUMNS = (
 #: Which prepared-asset bundle each board reads (mirrors test_boards._ASSET_BUNDLE).
 _ASSET_BUNDLE = {
     "draco": "draco",
-    "draco-3pass": "draco",
+    "draco-3pass": "draco-3pass",
     "ifeval": "ifeval",
     "healthbench-worst30": "healthbench",
     "healthbench-professional": "healthbench",

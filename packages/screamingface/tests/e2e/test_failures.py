@@ -19,15 +19,18 @@ The declared policy chain, with the code that declares it:
 - a failed CANDIDATE call errors the whole Case row; the board's cases fan out with
   ``on_error="collect"`` (``benchmarks/protocol.py``), so the row becomes
   ``{"error": {"kind", "message", "code", "retryable"}}`` (url4
-  ``dag/nodes.py::_error_payload``) and DRACO's
-  aggregate maps it to a ``stage="candidate"`` Failure via ``public_error``
-  (``benchmarks/draco/grade.py::_error_row_result``). The wire row carries the connector's
-  own code/retryable (OME-924), so the Failure code and retryability are the upstream
-  ones and the gateway-authored MESSAGE names the provider failure.
-- a judge that answers but is cut off (truncated verdict JSON) never errors the row:
-  every verdict is bound invalid (``benchmarks/draco/verdict.py::bind``) and the case
-  lands as a ``stage="grading"`` Failure, code ``judge_reply_invalid``
-  (``benchmarks/draco/grade.py``), with the candidate's output preserved.
+  ``dag/nodes.py::_error_payload``) and the board's
+  aggregate maps it to a ``stage="candidate"`` Failure via ``public_error``. The wire row
+  carries the connector's own code/retryable (OME-924), so the Failure code and
+  retryability are the upstream ones and the gateway-authored MESSAGE names the provider
+  failure.
+- the judge runs inside the board's scorer (draco is a local inspect Task since OME-1527,
+  ``local_tasks/draco/draco.py``): a reply with no verdict is redrawn, then that line drops
+  out of its pass, and a Case with no valid verdict at all lands as a ``stage="grading"``
+  Failure, code ``judge_reply_invalid``; a judge CALL that fails (a token cap, a 429 past
+  its retries) lands as ``scorer_error``, its cause carried in the Case's Check evidence
+  (``screamingface_engine_inspect/scorer_adapter.py``). Either way the candidate's output
+  is preserved.
 
 Lanes: the FakeGateway/fixture contract tests below are pure-code + loopback-thread and
 run in the DEFAULT lane; the scenario tests boot the real engine subprocess and are
@@ -53,7 +56,7 @@ from harness.tape import TAPE_SCHEMA, LoadedTape, TapeDocument, load_tape
 FAILURES_DIR = FIXTURES_DIR / "failures"
 
 #: Both ids are declared engine routes (models/seeds/openrouter.py); the judge id is
-#: DRACO's pinned judge (benchmarks/draco/exam.py::JUDGE_MODEL).
+#: DRACO's pinned judge (the draco-3pass row's JudgeSpec).
 CANDIDATE_MODEL = "openrouter/openai/gpt-5.5"
 JUDGE_MODEL = "openrouter/google/gemini-3.1-pro-preview"
 
@@ -383,11 +386,13 @@ def failure_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Failure
     """
     require_e2e_stack()
     assets = _assets_root()
-    if not (assets / "draco").is_dir():
+    # The board is a local inspect Task (OME-1527): its bundle is named after it and the
+    # Engine's own preparer writes it.
+    if not (assets / BOARD).is_dir():
         pytest.skip(
-            f"the failure rehearsal drives the {BOARD} board and needs prepared draco "
-            f"assets at {assets / 'draco'} "
-            f"(run `screamingface prepare draco`, or point {_ASSETS_ENV} at them)"
+            f"the failure rehearsal drives the {BOARD} board and needs its prepared bundle "
+            f"at {assets / BOARD} (run the Engine's `screamingface_engine.benchmarks.prepare "
+            f"--bundle {BOARD}`, or point {_ASSETS_ENV} at them)"
         )
     fake = FakeGateway(load_tape(SCENARIO_TAPES["rate_limit_429"]))
     engine = EngineProcess(work_dir=tmp_path_factory.mktemp("failure-stack"), assets_dir=assets)
@@ -513,12 +518,12 @@ def test_a_judge_cut_off_mid_batch_lands_as_grading_never_candidate(
     assert case.output, "the candidate's completed answer must be preserved"
     assert case.failures, "the cut-off judge must be reported, not silently ungraded"
     assert all(failure.stage == "grading" for failure in case.failures)
-    # WHY judge_reply_invalid (OME-1234): the reconciled grader spelling — DRACO's
-    # no_valid_judge_verdict merged into the shared judge-failure code, and the class
-    # is retryable: a fresh judge run can produce a valid verdict.
+    # WHY judge_reply_invalid (OME-1234): the shared judge-failure code — every redraw of
+    # every line came back cut off, so no pass had a valid verdict. Since OME-1527 the
+    # plugin lane leaves retryability unstated (None) where the hand-built board said True.
     judge_failures = [f for f in case.failures if f.code == "judge_reply_invalid"]
     assert judge_failures
-    assert all(f.retryable is True for f in judge_failures)
+    assert all(f.retryable is not False for f in judge_failures)
 
 
 @pytest.mark.e2e
@@ -527,34 +532,45 @@ def test_a_token_capped_judge_lands_as_a_named_grading_failure_never_an_envelope
 ) -> None:
     # THE OME-993 regression pin (GH #740): a judge that burned its budget thinking
     # used to surface as "invalid Criterion envelope" — the collected error row's
-    # shape, not its cause. The failure must now land at stage="grading" carrying the
-    # ORIGINAL model_token_cap cause, with the candidate's answer preserved.
+    # shape, not its cause. The failure must land at stage="grading" with the candidate's
+    # answer preserved, and the ORIGINAL token-cap cause must be on the Case. Since
+    # OME-1527 the judge runs inside the board's scorer, so the Failure is the scorer's
+    # (`scorer_error`) and the cause rides its Check evidence, word for word.
     case = _rehearse(failure_stack, "judge_token_cap", tolerate_aborted=True)
 
     assert str(case.status) == "failed"
     assert case.output, "the candidate's completed answer must be preserved"
     (failure,) = case.failures
     assert failure.stage == "grading"
-    assert failure.code == "model_token_cap"
-    assert "ran out of tokens" in failure.message
-    assert failure.retryable is False
+    assert failure.code == "scorer_error"
     assert "envelope" not in failure.message.lower()
+    assert "ran out of tokens" in _judge_cause(case)
 
 
 @pytest.mark.e2e
 def test_a_rate_limited_judge_lands_as_a_retryable_grading_failure(
     failure_stack: _FailureStack,
 ) -> None:
-    # The other GH #740 trigger: a judge-side 429 must propagate the gateway-authored
-    # cause and stay retryable — after the bounded in-run retries (;retry=2 on every
-    # verdict source) are exhausted against the still-rate-limiting fake.
+    # The other GH #740 trigger: a judge-side 429 must keep the gateway-authored cause on
+    # the Case — after the bounded in-run retries (the redraw helper's shared budget, as
+    # the hand-built ;retry=2) are exhausted against the still-rate-limiting fake. Since
+    # OME-1527 the Failure is the scorer's (`scorer_error`) and the cause rides its Check
+    # evidence.
     case = _rehearse(failure_stack, "judge_429", tolerate_aborted=True)
 
     assert str(case.status) == "failed"
     assert case.output, "the candidate's completed answer must be preserved"
     (failure,) = case.failures
     assert failure.stage == "grading"
-    assert failure.code == "rate_limited"
-    assert "rate limiting" in failure.message
-    assert failure.retryable is True
+    assert failure.code == "scorer_error"
     assert "envelope" not in failure.message.lower()
+    assert "rate limiting" in _judge_cause(case)
+
+
+def _judge_cause(case) -> str:
+    """The judge failure's own words, as the scorer's one Check carries them."""
+
+    assert case.grade is not None, "a scorer failure keeps its Check as evidence"
+    return " ".join(
+        evidence.raw_output for check in case.grade.checks for evidence in check.evidence
+    )

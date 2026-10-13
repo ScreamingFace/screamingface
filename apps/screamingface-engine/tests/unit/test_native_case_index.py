@@ -65,10 +65,9 @@ async def test_cases_validate_selected_collection_before_any_model_calls(raw):
 
 
 def test_every_shipped_benchmark_installs_cases_as_validated_processor(tmp_path):
-    from screamingface_engine.benchmarks.draco.definition import DRACO_3PASS
     from screamingface_engine.benchmarks.healthbench.definition import HEALTHBENCH_WORST30
 
-    for benchmark in (DRACO_3PASS, HEALTHBENCH_WORST30):
+    for benchmark in (HEALTHBENCH_WORST30,):
         node = Url4Node()
         benchmark.install(node, tmp_path)
         assert f"/benchmarks/{benchmark.id}/{benchmark.revision}/cases" in node.processor_routes()

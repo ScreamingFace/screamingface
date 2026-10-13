@@ -62,7 +62,7 @@ _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
 #: Which prepared-asset bundle each board reads (bundles are shared across variants).
 _ASSET_BUNDLE = {
     "draco": "draco",
-    "draco-3pass": "draco",
+    "draco-3pass": "draco-3pass",
     "ifeval": "ifeval",
     "healthbench-worst30": "healthbench",
     "healthbench-professional": "healthbench",
