@@ -59,6 +59,7 @@ _NEW_IDS = frozenset(
     {"inspect_aime@1", "inspect_number@1", "inspect_numeric@1", "regex@1", "set@1"}
 )
 _ORDERS = {"enum": ["max", "min"]}
+_OUTPUT = {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"}
 # The published args schemas of the flow operators, as the catalog serves them.
 _FLOW_ARGS_SCHEMAS = {
     "top_k@1": {
@@ -88,7 +89,7 @@ _FLOW_ARGS_SCHEMAS = {
     },
     "best_holder@1": {
         "type": "object",
-        "properties": {"order": _ORDERS},
+        "properties": {"order": _ORDERS, "output": _OUTPUT},
         "required": ["order"],
         "additionalProperties": False,
     },
