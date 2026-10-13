@@ -1,9 +1,9 @@
 {
   "issue": "OME-1527",
   "branch": "OME-1527-pr10-gdpval-text-local-task",
-  "approver": "owner \u2014 OME-1527 Work order #10 approved on the ticket (gdpval-text as a local Task, its hand-built folder and tests deleted, the revision moving once; decision 1: the thinner Report; decision 3: prove the old scores as literals inside the swap PR); to confirm in PR review",
+  "approver": "owner — OME-1527 Work order #10 approved on the ticket (gdpval-text as a local Task, its hand-built folder and tests deleted, the revision moving once; decision 1: the thinner Report; decision 3: prove the old scores as literals inside the swap PR); to confirm in PR review",
   "date": "2026-10-13",
-  "scope": "(1) test_gdpval_rubric_filter.py, test_gdpval_ingestion.py, test_gdpval_subset.py: import the moved modules (rubric_filter, references (was ingestion), subset under local_tasks/gdpval/); the FILTER_REVISION test and the two subset_sha tests go with the constants the revision no longer reads (the Task's source and the Case Digest carry that identity now); every other assertion is unchanged. (2) test_benchmark_stage_parity.py, test_builtin_early_score_timing.py, test_early_grade_compatibility.py, tests/activity_recipe_helpers.py: the gdpval asset branch and the gdpval judge route go with the folder (the same judge model stays installed as DRACO's). (3) test_fresh_judge_retry.py: the gdpval-text verdict-route case and its pre-fix revision literal go with the folder; healthbench and draco cases unchanged. (4) test_native_case_index.py: GDPVAL_TEXT leaves the hand-built tuple. (5) test_benchmark_provenance.py: the gdpval factory half of the healthbench/gdpval pass-through test goes with the factory; the healthbench half is unchanged. (6) _bundle_provenance_checks.py: docstring counts four hand-built preparers. (7) tests/fixtures/early_grade_compatibility.json: the gdpval-text board leaves the hand-built baseline. (8) test_benchmark_declaration.py: the gdpval-text row moves from the hand-built table to the plugin table, same declaration; gdpval leaves the shared-scored-path family loop. (9) test_published_revisions.py: one added literal (gdpval-text: 1d82f69ca3650609). (10) test_inspect_imported_benchmarks.py: one _EXPECTED_FAMILIES row (gdpval-text: judged). (11) packages/screamingface/tests/e2e/test_boards.py, e2e/fixtures/slice_snapshot.py: gdpval-text leaves the hand-built replay tuple and its bundle map (the replay stack syncs the Engine without the inspect extra). (12) packages/screamingface/tests/paid/_case_provenance.py, paid/test_case_provenance.py: gdpval-text leaves the shared-bundle map (its bundle folder has its own id now) and the shared-bundle test's list. (13) packages/screamingface/tests/test_runtime_cli.py: gdpval leaves the hand-built prepare list. Deleted, which the manifest cannot approve: the 7 test_gdpval_*.py files whose routes, scoring and preparer went with the folder (owner decision, OME-1527 Work order #10). Test bodies not listed here are unchanged.",
+  "scope": "(1) test_gdpval_rubric_filter.py, test_gdpval_ingestion.py, test_gdpval_subset.py: import the moved modules (rubric_filter, references (was ingestion), subset under local_tasks/gdpval/); the FILTER_REVISION test and the two subset_sha tests go with the constants the revision no longer reads (the Task's source and the Case Digest carry that identity now); every other assertion is unchanged. (2) test_benchmark_stage_parity.py, test_builtin_early_score_timing.py, test_early_grade_compatibility.py, tests/activity_recipe_helpers.py: the gdpval asset branch and the gdpval judge route go with the folder (the same judge model stays installed as DRACO's). (3) test_fresh_judge_retry.py: the gdpval-text verdict-route case and its pre-fix revision literal go with the folder; healthbench and draco cases unchanged. (4) test_native_case_index.py: GDPVAL_TEXT leaves the hand-built tuple. (5) test_benchmark_provenance.py: the gdpval factory half of the healthbench/gdpval pass-through test goes with the factory; the healthbench half is unchanged. (6) _bundle_provenance_checks.py: docstring counts four hand-built preparers. (7) tests/fixtures/early_grade_compatibility.json: the gdpval-text board leaves the hand-built baseline. (8) test_benchmark_declaration.py: the gdpval-text row moves from the hand-built table to the plugin table, same declaration; gdpval leaves the shared-scored-path family loop. (9) test_published_revisions.py: one added literal (gdpval-text: 1d82f69ca3650609). (10) test_inspect_imported_benchmarks.py: one _EXPECTED_FAMILIES row (gdpval-text: judged). (11) packages/screamingface/tests/e2e/test_boards.py, e2e/fixtures/slice_snapshot.py, e2e/harness/{stack,_local_proc}.py: gdpval-text stays in the replay tuple with its local-Task bundle id, and the replay stack syncs the Engine with the inspect extra so it can serve a local Task (owner decision 3, 2026-10-13: old goldens replay unchanged). (11b) packages/screamingface/tests/e2e/fixtures/goldens/gdpval-text.golden.json: only revision and expression_sha regenerated from the free replay; score, statuses and failures unchanged (owner decision 3). (12) packages/screamingface/tests/paid/_case_provenance.py, paid/test_case_provenance.py: gdpval-text leaves the shared-bundle map (its bundle folder has its own id now) and the shared-bundle test's list. (13) packages/screamingface/tests/test_runtime_cli.py: gdpval leaves the hand-built prepare list. Deleted, which the manifest cannot approve: the 7 test_gdpval_*.py files whose routes, scoring and preparer went with the folder (owner decision, OME-1527 Work order #10). Test bodies not listed here are unchanged.",
   "reason": "OME-1527 moves GDPval-text from its hand-built folder to a local inspect Task under the same id. Tests of code that moved follow it; tests that drove the deleted routes go; registry tables move the row from the hand-built side to the plugin side; the revision literal records the one deliberate move.",
   "files": {
     "apps/screamingface-engine/tests/unit/test_gdpval_rubric_filter.py": {
@@ -55,24 +55,24 @@
       "approved_blob": "549349f13b727fdbf511e7dca609357801eae2ff"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
-      "base_blob": "231403185bc7faa801ab294f4f7600a29389d66a",
-      "approved_blob": "b0e73a32cd99d6d57c3b175f3dbe05505b9def5c"
+      "base_blob": "e3094bb564c971066608cc5a91900ef21b2e9655",
+      "approved_blob": "c81ce799079128beb5c81315d81a95e86c66cba9"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "625aa8a3eddc15e6ad6b6686afd53d754674c5cc",
-      "approved_blob": "9cb70c861e4d7cb40eae01f5813db8907e789ac7"
+      "base_blob": "2ae30ca70ef2aae8cf7a92b1cb22080720b67a11",
+      "approved_blob": "b916a87c5d053b2736f7ade240e6f649a059be30"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
-      "base_blob": "92c017361ae55202e624af64d736cb1efdf6bc12",
-      "approved_blob": "e6f58019c9ed0af51548f8104f51910c544b270d"
+      "base_blob": "91fc6f80a389f3aae4fea1968f9c933e1c2d6b36",
+      "approved_blob": "aa75272c1c56428e9c33f6f21541a0837d0522c1"
     },
     "packages/screamingface/tests/e2e/test_boards.py": {
       "base_blob": "3a00818981d67e04b4d145a738629e54024826a5",
-      "approved_blob": "f434752caf7b3c5f1a5f73b6bab97ccf5ea54548"
+      "approved_blob": "ff16a51948349aa5416def5f9b6d55ec9479c690"
     },
     "packages/screamingface/tests/e2e/fixtures/slice_snapshot.py": {
       "base_blob": "1a910e047969aa14cb3a5b66c4ab24dd4031cf82",
-      "approved_blob": "e69070d65b674b5ce67bae2345e94e1779570809"
+      "approved_blob": "6b170c9a80f162dab193eeb0b3f68d65ef93f82e"
     },
     "packages/screamingface/tests/paid/_case_provenance.py": {
       "base_blob": "62fbcaf68c339d41166d0828709b9245e0a348ab",
@@ -85,6 +85,18 @@
     "packages/screamingface/tests/test_runtime_cli.py": {
       "base_blob": "8602b06e71d9b398e4e7dc3cd91f09623f44771b",
       "approved_blob": "045f3510ed599d05b170f6286571dfe9b2c88be5"
+    },
+    "packages/screamingface/tests/e2e/fixtures/goldens/gdpval-text.golden.json": {
+      "base_blob": "fba8fcda4e34fd40d0d2fe07e8b327bcba836347",
+      "approved_blob": "d13aef5149a34a9b37b0d57a2fb88557d4a33ae4"
+    },
+    "packages/screamingface/tests/e2e/harness/_local_proc.py": {
+      "base_blob": "8113f389a2d62f15670f22891803f67b2faa999e",
+      "approved_blob": "53a93fb0d3cfb6ec4de81c825f30a100461d2942"
+    },
+    "packages/screamingface/tests/e2e/harness/stack.py": {
+      "base_blob": "c2c68206edae7d673d9d688240d811c3a521ee61",
+      "approved_blob": "944721b6466004477232f6beef5cfb59fbd00128"
     }
   }
 }
