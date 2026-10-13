@@ -260,3 +260,17 @@ def test_answer_v1_lists_output_missing() -> None:
         "output_missing",
         "too_large",
     ]
+
+
+def test_changelog_entry_names_the_pick_output_operator_ids() -> None:
+    # WHY: the CS#9 check in test_mean.py takes the FIRST bullet that names `sf.Pick(`, which is
+    # the older Pick bullet. This finds the pick-output bullet by its abstain reason instead.
+    changelog = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
+    unreleased = changelog.read_text(encoding="utf-8").split("## Unreleased", 1)[1]
+    unreleased = unreleased.split("\n## ", 1)[0]
+    entries = [b for b in unreleased.split("\n* ") if "`output_missing`" in b]
+    assert len(entries) == 1
+    assert "`sf.Pick(" in entries[0]
+    assert "Requires an SF Engine whose catalog has" in entries[0]
+    for op_id in ("by_field@1", "best_holder@1"):
+        assert f"`{op_id}`" in entries[0]
