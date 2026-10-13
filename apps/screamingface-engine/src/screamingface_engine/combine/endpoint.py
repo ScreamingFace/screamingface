@@ -532,6 +532,7 @@ def _evidence(
     reduction = Reduction() if reduction is None else reduction
     scores = reduction.scores or {}
     statistic = reduction.statistic
+    is_mean = spec.reducer == "mean"
     return CombineEvidence(
         kind=REDUCER_RULES[spec.reducer].kind,
         reducer=spec.reducer,
@@ -548,7 +549,8 @@ def _evidence(
             else _finite(selection.agreement)
         ),
         tie=selection is not None and selection.tie,
-        median=None if statistic is None else canonical_decimal(statistic),
+        median=None if statistic is None or is_mean else canonical_decimal(statistic),
+        mean=canonical_decimal(statistic) if is_mean and statistic is not None else None,
         presentation_order="author" if "judge" in combine_input.signals else None,
         separator_collision=reduction.separator_collision,
         signal=None

@@ -225,6 +225,7 @@ class CombineEvidence:
     agreement: float | None
     tie: bool
     median: str | None
+    mean: str | None
     presentation_order: Literal["author"] | None
     separator_collision: bool | None
     signal: CombineSignal | None
@@ -250,6 +251,7 @@ class CombineEvidence:
         fields: Sequence[CombineFieldReading] | None = None,
         agreement: float | None = None,
         median: str | None = None,
+        mean: str | None = None,
         presentation_order: Literal["author"] | None = None,
         separator_collision: bool | None = None,
         signal: CombineSignal | None = None,
@@ -282,6 +284,7 @@ class CombineEvidence:
             "agreement": _agreement(agreement),
             "tie": _flag(tie, "Combine evidence tie"),
             "median": _optional_text(median, "Combine evidence median"),
+            "mean": _optional_text(mean, "Combine evidence mean"),
             "presentation_order": _presentation_order(presentation_order),
             "separator_collision": _optional_flag(
                 separator_collision, "Combine evidence separator_collision"
@@ -295,7 +298,7 @@ class CombineEvidence:
             object.__setattr__(self, name, value)
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        data: dict[str, object] = {
             "schema": COMBINE_EVIDENCE_SCHEMA,
             "kind": self.kind,
             "reducer": self.reducer,
@@ -309,13 +312,20 @@ class CombineEvidence:
             "agreement": self.agreement,
             "tie": self.tie,
             "median": self.median,
-            "presentation_order": self.presentation_order,
-            "separator_collision": self.separator_collision,
-            "signal": None if self.signal is None else self.signal.to_dict(),
-            "result": self.result.to_dict(),
-            "dropped": self.dropped,
-            "finish_reason": self.finish_reason,
         }
+        if self.mean is not None:  # E4b P8: optional on the wire, only the mean reducer writes it
+            data["mean"] = self.mean
+        data.update(
+            {
+                "presentation_order": self.presentation_order,
+                "separator_collision": self.separator_collision,
+                "signal": None if self.signal is None else self.signal.to_dict(),
+                "result": self.result.to_dict(),
+                "dropped": self.dropped,
+                "finish_reason": self.finish_reason,
+            }
+        )
+        return data
 
 
 def _text(value: object, label: str) -> str:

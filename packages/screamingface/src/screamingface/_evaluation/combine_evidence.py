@@ -57,6 +57,7 @@ _EVIDENCE_KEYS = {
     "dropped",
     "finish_reason",
 }
+_OPTIONAL_EVIDENCE_KEYS = frozenset({"mean"})  # E4b P8: written only by the mean reducer
 _MEMBER_KEYS = {"member_id", "raw", "value", "status", "reason", "signals", "weight", "score"}
 _RESULT_KEYS = {"member_id", "value", "status", "reason"}
 _SIGNAL_KEYS = {"key", "order"}
@@ -76,7 +77,7 @@ def decode_combine_evidence(value: object, label: str) -> CombineEvidence | None
     if value is None:
         return None
     raw = _mapping(value, label)
-    _exact_keys(raw, _EVIDENCE_KEYS, label)
+    _exact_keys(raw, _EVIDENCE_KEYS | {key for key in _OPTIONAL_EVIDENCE_KEYS if key in raw}, label)
     if raw["schema"] != COMBINE_EVIDENCE_SCHEMA:
         raise ExecutionError(f"{label} schema must be {COMBINE_EVIDENCE_SCHEMA!r}")
     try:
@@ -96,6 +97,7 @@ def decode_combine_evidence(value: object, label: str) -> CombineEvidence | None
             agreement=_optional_number(raw["agreement"], f"{label} agreement"),
             tie=_boolean(raw["tie"], f"{label} tie"),
             median=_optional_text(raw["median"], f"{label} median"),
+            mean=_optional_text(raw.get("mean"), f"{label} mean"),
             presentation_order=cast(
                 Literal["author"] | None,
                 _optional_text(raw["presentation_order"], f"{label} presentation_order"),

@@ -723,6 +723,8 @@ another member writes 0.8.
 |---|---|---|
 | S1 | Read a number from each answer and return the median number | `s1_median_number` |
 | S2 | Read a number from each answer and return the answer nearest the median | `s2_median_member` |
+| S3 | Read a number from each answer and return the mean, with fixed weights | `s3_mean_static` |
+| S4 | Read the answer and the confidence of each JSON reply and return the mean weighted by confidence | `s4_mean_by_confidence` |
 | S5 | Return the answer with the highest confidence | `s5_max_confidence` |
 | S7 | Keep the 2 answers with the highest confidence, then a writer combines them | `s7_top_confidence` |
 | S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` |
@@ -749,6 +751,13 @@ judge = sf.Judge(
 
 s1_median_number = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number", select="value"))
 s2_median_member = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number"))
+s3_mean_static = sf.Fusion(routes, synthesizer=sf.Mean(weights=(1, 1, 2)))
+s4_mean_by_confidence = sf.Fusion(
+    json_members,
+    synthesizer=sf.Reduce(
+        "mean", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence")
+    ),
+)
 s5_max_confidence = sf.Fusion(json_members, synthesizer=sf.Pick("confidence", order="max"))
 s7_top_confidence = sf.Pipeline(
     [sf.Fusion(json_members, synthesizer=sf.Rank(k=2, by_field="confidence")), writer]

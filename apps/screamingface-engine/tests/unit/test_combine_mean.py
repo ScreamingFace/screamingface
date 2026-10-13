@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import random
 from decimal import ROUND_DOWN, Context, Decimal, localcontext
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from combine_fields_support import step
@@ -65,7 +65,9 @@ def _confidence(values: list[float | None]) -> list[dict[str, float | None]]:
 def test_mean_rounds_a_repeating_division_to_34_significant_digits() -> None:
     # WHY: 4/3 must not carry 1000 digits; the division is one rounding at 34 digits (E4b P1).
     assert (
-        canonical_decimal(reduce_result("mean@1", member_readings(["1", "1", "2"])).statistic)
+        canonical_decimal(
+            cast(Decimal, reduce_result("mean@1", member_readings(["1", "1", "2"])).statistic)
+        )
         == "1.333333333333333333333333333333333"
     )
     assert (
@@ -215,14 +217,16 @@ def test_float_weight_becomes_its_str_decimal() -> None:
 
 def test_mean_of_one_usable_member_is_its_value() -> None:
     assert (
-        canonical_decimal(reduce_result("mean@1", member_readings(["7.25", None])).statistic)
+        canonical_decimal(
+            cast(Decimal, reduce_result("mean@1", member_readings(["7.25", None])).statistic)
+        )
         == "7.25"
     )
     reduction = reduce_result(
         "weighted_mean@1",
         member_readings(["7.25", "100"], weights=["2", None], signals=_confidence([2.0, None])),
     )
-    assert canonical_decimal(reduction.statistic) == "7.25"
+    assert canonical_decimal(cast(Decimal, reduction.statistic)) == "7.25"
     assert reduction.participants == ("member_1",)
 
 
@@ -232,13 +236,17 @@ def test_mean_sum_is_exact_for_negative_and_long_values() -> None:
     tiny = "0.00000000000001"
     neg = "-123456789012345678901234567890123456789012345678.12345678901234"
     assert (
-        canonical_decimal(reduce_result("mean@1", member_readings([big, tiny, neg])).statistic)
+        canonical_decimal(
+            cast(Decimal, reduce_result("mean@1", member_readings([big, tiny, neg])).statistic)
+        )
         == "0." + "0" * 14 + "3" * 34
     )
     # INVARIANT: 0.1 + 0.2 - 0.3 is exactly 0 (a float gives 5.55E-17).
     assert (
         canonical_decimal(
-            reduce_result("mean@1", member_readings(["0.1", "0.2", "-0.3"])).statistic
+            cast(
+                Decimal, reduce_result("mean@1", member_readings(["0.1", "0.2", "-0.3"])).statistic
+            )
         )
         == "0"
     )
