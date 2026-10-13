@@ -74,5 +74,9 @@ dropped) and writes one JSONL snapshot the owner publishes on Hugging Face. The 
   go through today's redirect, and a page moved away that is younger than the cut-off is
   skipped (a vandalism cleanup on "Dolly Parton" in August 2026) (the
   redirect test from the first commit was replaced: "The Beatles discography" now redirects
-  to "The Beatles"). The builder file is 658 lines, over the 450-line guideline. Not yet run
-  against live Wikipedia: the full build and the snapshot publish are still to do.
+  to "The Beatles"). The builder file is 658 lines, over the 450-line guideline. Full build run
+  2026-10-13 (exit 0): 2,521 articles, 824 questions, every revision before the cut-off,
+  questions 141 and 540 name their deleted article; `articles.jsonl` sha256
+  `0e5e6e4759cb5415c8ef4f99608697e5647359fa45b36d0c25e381099912b646`, `questions.jsonl`
+  `1a1a6f1d831039ed993fc2f787f671b3e06fa6a20ee200f307a48221d0e10541`; a rebuild from the
+  cache gives the same bytes. Publishing the snapshot on Hugging Face is the owner's step.
