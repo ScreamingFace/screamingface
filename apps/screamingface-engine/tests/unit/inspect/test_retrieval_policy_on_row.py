@@ -211,3 +211,38 @@ def test_a_malformed_declaration_is_refused_when_declared(
 
     with pytest.raises(ValueError, match=complaint):
         RetrievalPolicyDeclaration(policy_id=policy_id, excluded_domains=excluded_domains)
+
+
+def _frontierscience(**overrides: Any) -> BenchmarkSpec:
+    """frontierscience's real judged row with overrides. Stand-in: it simulates a judged row
+    that declares a retrieval policy; it does not prove draco's own judge."""
+
+    row: BenchmarkSpec = next(spec for spec in BENCHMARKS if spec.key == "frontierscience")
+    return replace(row, **overrides)
+
+
+def test_a_searching_rows_judge_that_pins_search_off_assembles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    judged: ImportedBenchmark = _assembled(_frontierscience(retrieval_policy=_POLICY), monkeypatch)
+
+    assert judged.judge is not None
+    assert ("web_search", "false") in judged.judge.params
+
+
+@pytest.mark.parametrize(
+    "judge_params",
+    [(("max_tokens", "4096"),), (("web_search", "true"), ("max_tokens", "4096"))],
+)
+def test_a_searching_rows_judge_that_can_search_is_refused(
+    judge_params: tuple[tuple[str, str], ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WHY: the policy turns search on for the Candidate only; a judge call with no
+    web_search=false searches on its route's default, so it could look the answer up."""
+
+    row: BenchmarkSpec = _frontierscience(retrieval_policy=_POLICY)
+    assert row.judge is not None
+    searching_judge: BenchmarkSpec = replace(row, judge=replace(row.judge, params=judge_params))
+
+    with pytest.raises(ValueError, match="must pin its judge's web search off"):
+        _assembled(searching_judge, monkeypatch)
