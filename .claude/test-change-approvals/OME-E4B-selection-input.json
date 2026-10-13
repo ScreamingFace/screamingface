@@ -1,0 +1,22 @@
+{
+  "issue": "OME-E4B-selection-input",
+  "branch": "e4b-selection-input",
+  "approver": "owner",
+  "date": "2026-10-13",
+  "scope": "Unit 1 (Q6): the stage after Rank or Filter gets {input, selected}. Only the expected selection envelopes in three engine tests change to add the Case input. No assertion is removed.",
+  "reason": "Owner approved these pinned test edits in chat on 2026-10-13 (E4b part 1, plan section 6 plus the errata the build reported). The issue id and branch are placeholders until the Linear issue is filed at PR-open; rename the file and update issue and branch then.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_combine_rank_world.py": {
+      "base_blob": "eaa52b79c5d02718b607857ca97590592304ee18",
+      "approved_blob": "9938026095960203cb7fbf92dfd0ce23755ed6dd"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_selection.py": {
+      "base_blob": "dfd85a0e4c3f5a1691032fa9e42c92329abca617",
+      "approved_blob": "03fc66d99e528e91d231ff54540eb62959b82286"
+    },
+    "apps/screamingface-engine/tests/unit/test_sdk_candidate_contracts.py": {
+      "base_blob": "7768deb562c8ddf04ac6d370c4a6cf8219d281f4",
+      "approved_blob": "c4fbc6cd886564a9b1f5112a199ec9ee63d47627"
+    }
+  }
+}
