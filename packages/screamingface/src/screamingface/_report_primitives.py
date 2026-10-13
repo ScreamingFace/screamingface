@@ -66,6 +66,9 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "invalid_case_evaluation",
         "ifeval_checker_failed",
         "draco_grading_failed",
+        # AIDEV-NOTE (OME-1527): nothing emits this since gdpval-text became a local Task; it
+        # stays declared because the SDK refuses an undeclared code when it reads a Report, so
+        # a gdpval-text Report made before the move must stay readable.
         "gdpval_grading_failed",
         "healthbench_grading_failed",
         "medxpert_grading_failed",

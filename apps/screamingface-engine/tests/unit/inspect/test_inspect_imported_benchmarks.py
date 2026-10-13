@@ -43,6 +43,9 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # OME-1527: the hand-built folder moved to a local Task; free text graded by containment
     # (an empty key on 70% of Cases means "decline"), scored by its own whole-run F1.
     "contracteval": "free_text",
+    # OME-1527: the hand-built folder moved to a local Task; rubric-graded by a pinned judge,
+    # one call per criterion, so no Draft Feedback offer.
+    "gdpval-text": "judged",
     "mmlu": "mcq",
     "arc_easy": "mcq",
     "arc_challenge": "mcq",

@@ -1,6 +1,7 @@
 """A Judge retry after an unparseable reply gets a fresh reply, not the cached garbled one.
 
-FEATURE (OME-1533): healthbench and gdpval-text nest each Judge call inside a verdict route. A
+FEATURE (OME-1533): healthbench nests each Judge call inside a verdict route (gdpval-text did
+until OME-1527 moved it to a local Task, whose scorer redraws through `judge_redraw`). A
 reply the verdict cannot parse fails the route with ``judge_reply_invalid``, and the verdict
 source's ``;retry=`` asks the Judge again. That retry sends the same bytes, and the AI
 Gateway's global request cache has already stored the garbled reply (it stores any successful
@@ -34,12 +35,6 @@ from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.draco.definition import DRACO
 from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as DRACO_JUDGE
 from screamingface_engine.benchmarks.failure_classes import JUDGE_REPLY_INVALID_CODE
-from screamingface_engine.benchmarks.gdpval import runtime as gdpval_runtime
-from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL as GDPVAL_JUDGE
-from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_PARAMS as GDPVAL_PARAMS
-from screamingface_engine.benchmarks.gdpval.revision_inputs import (
-    JUDGE_RETRIES as GDPVAL_RETRIES,
-)
 from screamingface_engine.benchmarks.healthbench import runtime as healthbench_runtime
 from screamingface_engine.benchmarks.healthbench.revision_inputs import (
     JUDGE_MODEL as HEALTHBENCH_JUDGE,
@@ -148,7 +143,7 @@ def _without_cache(body: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in body.items() if k != "cache"}
 
 
-# --- healthbench and gdpval-text: the shared rubric verdict wiring -------------------------
+# --- healthbench: the shared rubric verdict wiring ---------------------------------------
 
 
 @dataclass(frozen=True)
@@ -169,13 +164,6 @@ _RUBRIC_BENCHMARKS = (
         HEALTHBENCH_JUDGE,
         HEALTHBENCH_PARAMS,
         HEALTHBENCH_RETRIES,
-    ),
-    _RubricBenchmark(
-        "gdpval-text",
-        gdpval_runtime._rubric_verdict,  # pyright: ignore[reportPrivateUsage]
-        GDPVAL_JUDGE,
-        GDPVAL_PARAMS,
-        GDPVAL_RETRIES,
     ),
 )
 
@@ -446,7 +434,6 @@ async def test_an_unguarded_call_keeps_the_callers_scope() -> None:
 _REVISIONS_BEFORE_THE_FIX: dict[str, str] = {
     "healthbench-worst30": "39cfd96b068f7230",
     "healthbench-professional": "d8fb037307f35415",
-    "gdpval-text": "cacfc3e6b83765f6",
     "draco": "62718f04ea1a980f",
     "draco-3pass": "2634cec91fd0f19a",
 }

@@ -1253,6 +1253,28 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # branch carries no card of its own.
         license="cc-by-4.0",
     ),
+    # gdpval-text — imported by Task replay on 2026-10-13 from
+    #   screamingface_engine_inspect.local_tasks.gdpval.gdpval:gdpval_text.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face openai/gdpval
+    #     pin revision 11e7900cdcac61bc4daf59e65feb238acda98fbf
+    # Not recorded (fetched by the loader's own urllib, as the hand-built prepare did): the
+    #   58 reference files of 36 Cases, by URL on the dataset's moving branch, unpinned; the
+    #   Case Digest seals the text they flatten to, so a changed file fails the build loudly.
+    "gdpval-text": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.gdpval.gdpval:gdpval_text",
+        case_count=102,
+        case_digest="06dd52eca719f1f4b5a6da90cab234d9af4af7245497ae06ec37e391ef75d7fb",
+        case_set_digest="2bcb8dd8c33e2f13b8dd7e48c725f5be4c79676c3578dbd719a6cd9c2c9e535f",
+        keep_sample_metadata=True,
+        has_answer_key=False,
+        source_pins={
+            "openai/gdpval": "11e7900cdcac61bc4daf59e65feb238acda98fbf",
+        },
+        # License: none published — openai/gdpval states no licence on its dataset card or
+        # README, as the hand-built Benchmark recorded it (OME-1455).
+        license="unknown",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

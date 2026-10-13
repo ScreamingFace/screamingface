@@ -1,50 +1,90 @@
 {
   "issue": "OME-1527",
-  "branch": "OME-1527-pr7b-whole-run-dict-metric",
-  "approver": "owner \u2014 OME-1527 Work order #7 approved on the ticket (contracteval as a local Task, its folder and tests deleted, the free unit golden rewritten, the SDK retiring its failure code; decision 3: prove the old scores as literals inside the swap PR); to confirm in PR review; the restored run numbers (owner decision 2026-10-12: bring back the numbers the swap dropped) ride the stacked branch named here, which keeps every inherited entry",
-  "date": "2026-10-12",
-  "scope": "(1) test_contracteval_parity.py: imports the moved grading module; the F1/F2 matrix test becomes F1-only against grading.f1 (F2/precision/recall/accuracy are no longer computed) and the zero-guard test calls grading.f1; _synthetic_cases goes with the hand-built reducer. (2) test_benchmark_stage_parity.py, test_builtin_early_score_timing.py: the contracteval asset branches go with the folder. (3) test_case_positions.py: test_contracteval_supplies_case_metadata_without_changing_answer_input deleted (it drove the hand-built route). (4) packages/screamingface/tests/e2e/test_boards.py: contracteval leaves the hand-built replay list (it is served by the plugin lane). Deleted, which the manifest cannot approve: the 9 test_contracteval_*.py files whose routes went with the folder (owner decision, OME-1527 Work order #7). (5) tests/fixtures/early_grade_compatibility.json: the contracteval board leaves the hand-built baseline. (6) test_benchmark_declaration.py: the contracteval row moves from the hand-built table to the plugin table, same declaration. (7) test_published_revisions.py: one added literal (contracteval: 04cde6eac3938ddf). (8) test_inspect_imported_benchmarks.py: one _EXPECTED_FAMILIES row (contracteval: free_text). (9) test_whole_run_metric.py: the no-row-opts-in guard names contracteval as the one row that opts in. Test bodies not listed here are unchanged. Stacked branch OME-1527-pr7b-whole-run-dict-metric adds: (10) test_whole_run_metric.py: the dict-refusal test's docstring states the new reason (a dict needs the row's headline key); its assertion is unchanged; new tests are appended. (11) test_published_revisions.py: the contracteval literal moves once more (890889e5b2863be4), because its whole-run metric now returns the hand-built run numbers beside F1 and the row names its headline key.",
-  "reason": "OME-1527 moves ContractEval from its hand-built folder to a local inspect Task under the same id. Tests that drove the deleted folder go or follow the moved code; registry tables move the row from the hand-built side to the plugin side; the revision literal records the one deliberate move; the opt-in guard names the first owner-approved whole-run metric row. The stacked branch lets a whole-run metric return a dict whose named headline key is the Headline Score and whose other keys are run metrics, so contracteval publishes the hand-built Benchmark's precision, recall, F2, counts, laziness and Jaccard numbers again.",
+  "branch": "OME-1527-pr10-gdpval-text-local-task",
+  "approver": "owner \u2014 OME-1527 Work order #10 approved on the ticket (gdpval-text as a local Task, its hand-built folder and tests deleted, the revision moving once; decision 1: the thinner Report; decision 3: prove the old scores as literals inside the swap PR); to confirm in PR review",
+  "date": "2026-10-13",
+  "scope": "(1) test_gdpval_rubric_filter.py, test_gdpval_ingestion.py, test_gdpval_subset.py: import the moved modules (rubric_filter, references (was ingestion), subset under local_tasks/gdpval/); the FILTER_REVISION test and the two subset_sha tests go with the constants the revision no longer reads (the Task's source and the Case Digest carry that identity now); every other assertion is unchanged. (2) test_benchmark_stage_parity.py, test_builtin_early_score_timing.py, test_early_grade_compatibility.py, tests/activity_recipe_helpers.py: the gdpval asset branch and the gdpval judge route go with the folder (the same judge model stays installed as DRACO's). (3) test_fresh_judge_retry.py: the gdpval-text verdict-route case and its pre-fix revision literal go with the folder; healthbench and draco cases unchanged. (4) test_native_case_index.py: GDPVAL_TEXT leaves the hand-built tuple. (5) test_benchmark_provenance.py: the gdpval factory half of the healthbench/gdpval pass-through test goes with the factory; the healthbench half is unchanged. (6) _bundle_provenance_checks.py: docstring counts four hand-built preparers. (7) tests/fixtures/early_grade_compatibility.json: the gdpval-text board leaves the hand-built baseline. (8) test_benchmark_declaration.py: the gdpval-text row moves from the hand-built table to the plugin table, same declaration; gdpval leaves the shared-scored-path family loop. (9) test_published_revisions.py: one added literal (gdpval-text: 1d82f69ca3650609). (10) test_inspect_imported_benchmarks.py: one _EXPECTED_FAMILIES row (gdpval-text: judged). (11) packages/screamingface/tests/e2e/test_boards.py, e2e/fixtures/slice_snapshot.py: gdpval-text leaves the hand-built replay tuple and its bundle map (the replay stack syncs the Engine without the inspect extra). (12) packages/screamingface/tests/paid/_case_provenance.py, paid/test_case_provenance.py: gdpval-text leaves the shared-bundle map (its bundle folder has its own id now) and the shared-bundle test's list. (13) packages/screamingface/tests/test_runtime_cli.py: gdpval leaves the hand-built prepare list. Deleted, which the manifest cannot approve: the 7 test_gdpval_*.py files whose routes, scoring and preparer went with the folder (owner decision, OME-1527 Work order #10). Test bodies not listed here are unchanged.",
+  "reason": "OME-1527 moves GDPval-text from its hand-built folder to a local inspect Task under the same id. Tests of code that moved follow it; tests that drove the deleted routes go; registry tables move the row from the hand-built side to the plugin side; the revision literal records the one deliberate move.",
   "files": {
-    "apps/screamingface-engine/tests/unit/test_contracteval_parity.py": {
-      "base_blob": "418e33712b8356b4496b2987ffb3f71456da2a41",
-      "approved_blob": "c7b018dc6958b380fe65b11d4ee0a2ef996996b9"
+    "apps/screamingface-engine/tests/unit/test_gdpval_rubric_filter.py": {
+      "base_blob": "69c89ecfb945ac7a0d9330b926bd8bfa7e8fe8e6",
+      "approved_blob": "00dc45e122604ae5b68a95bc7fb734f875501f10"
+    },
+    "apps/screamingface-engine/tests/unit/test_gdpval_ingestion.py": {
+      "base_blob": "ed0afae507296fa2ae6b548ee96d7c121b938fe7",
+      "approved_blob": "8d5b6af747eb2b580b51edf4add1424e34e29510"
+    },
+    "apps/screamingface-engine/tests/unit/test_gdpval_subset.py": {
+      "base_blob": "9aec23bf7e92aca8f9e5df7dd7b4a332e1122e38",
+      "approved_blob": "0e1dc85305d7fee5bfcf56bd05ef15fcaadfda65"
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_stage_parity.py": {
-      "base_blob": "8804e4f0894b01455ac997929e1e9d9e572d83fd",
-      "approved_blob": "87c0d84f970b1d41959d020f347a581fa0f8bd0e"
+      "base_blob": "87c0d84f970b1d41959d020f347a581fa0f8bd0e",
+      "approved_blob": "9baec1a5be45265fe05fc928d68c4f7a8b1a98fe"
     },
     "apps/screamingface-engine/tests/unit/test_builtin_early_score_timing.py": {
-      "base_blob": "2c52e382e1e7ba14ffb51699b67700fc5c70049d",
-      "approved_blob": "d8a49da4b98bd7bd744d837537c76a97d87febd7"
+      "base_blob": "d8a49da4b98bd7bd744d837537c76a97d87febd7",
+      "approved_blob": "1478b93b5b0e05be815c73f5884fffe3670f5345"
     },
-    "apps/screamingface-engine/tests/unit/test_case_positions.py": {
-      "base_blob": "31a6243772a91ca3e7eae4d037da80eea9dcb44b",
-      "approved_blob": "2bd4dee5e36f6579f40f30b2cdc86b734907a081"
+    "apps/screamingface-engine/tests/unit/test_early_grade_compatibility.py": {
+      "base_blob": "7c78591fc80a920624edb5be0b55000b573a859f",
+      "approved_blob": "e4b9c9bb0469706916440b05a6fc49b4ad57170c"
     },
-    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
-      "base_blob": "fef775106cc19ff5ba8cee9c91569516b1e943c7",
-      "approved_blob": "231403185bc7faa801ab294f4f7600a29389d66a"
+    "apps/screamingface-engine/tests/activity_recipe_helpers.py": {
+      "base_blob": "68e43ae32a6f0776e7823f3f48dbb5e661f12646",
+      "approved_blob": "fcc8b62c3ec12cfb0054dbfcf16e42c61307770a"
     },
-    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "8dfb6fc817505a2d2de540883112a3e3dc3af68b",
-      "approved_blob": "625aa8a3eddc15e6ad6b6686afd53d754674c5cc"
+    "apps/screamingface-engine/tests/unit/test_fresh_judge_retry.py": {
+      "base_blob": "d2a806cdf405887647fae1ca46ef32aea8c2b116",
+      "approved_blob": "06fe3ee86fa9ae967ad4ddfc4d5dde46a4625f2d"
     },
-    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
-      "base_blob": "0592cebea57de9cf81b9946df420eefed2b73d21",
-      "approved_blob": "92c017361ae55202e624af64d736cb1efdf6bc12"
+    "apps/screamingface-engine/tests/unit/test_native_case_index.py": {
+      "base_blob": "cd7ba585f5f3ed2ed31e976777cf6b000c18c63d",
+      "approved_blob": "741157a2b6a651938d2097523771bb1ab47c6dd2"
     },
-    "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
-      "base_blob": "f74a3889cfc50a070aaa44289470fa6ec93a4f39",
-      "approved_blob": "c4218a0d22e700958c53de05121fea47e6ccb019"
+    "apps/screamingface-engine/tests/unit/test_benchmark_provenance.py": {
+      "base_blob": "27a7a00fe31bb9108e182ee99011329d98951acd",
+      "approved_blob": "78671d37d5999aa20bc50b7257d3644868d40f5d"
+    },
+    "apps/screamingface-engine/tests/unit/_bundle_provenance_checks.py": {
+      "base_blob": "85329832ffae7c689bf0e8b75b3ea543713089d0",
+      "approved_blob": "520b2e29c751224516e1a670eb4d52b11e95d9f4"
     },
     "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
-      "base_blob": "7c3190ab6b590210e8f6b95f16bd413eaf87c64f",
-      "approved_blob": "08bc09da211c1ba786804512f206c2093a327906"
+      "base_blob": "08bc09da211c1ba786804512f206c2093a327906",
+      "approved_blob": "549349f13b727fdbf511e7dca609357801eae2ff"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "231403185bc7faa801ab294f4f7600a29389d66a",
+      "approved_blob": "b0e73a32cd99d6d57c3b175f3dbe05505b9def5c"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "625aa8a3eddc15e6ad6b6686afd53d754674c5cc",
+      "approved_blob": "9cb70c861e4d7cb40eae01f5813db8907e789ac7"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "92c017361ae55202e624af64d736cb1efdf6bc12",
+      "approved_blob": "e6f58019c9ed0af51548f8104f51910c544b270d"
     },
     "packages/screamingface/tests/e2e/test_boards.py": {
-      "base_blob": "cf74853678b496aeb58c0f7247cb65efab3bb326",
-      "approved_blob": "3a00818981d67e04b4d145a738629e54024826a5"
+      "base_blob": "3a00818981d67e04b4d145a738629e54024826a5",
+      "approved_blob": "f434752caf7b3c5f1a5f73b6bab97ccf5ea54548"
+    },
+    "packages/screamingface/tests/e2e/fixtures/slice_snapshot.py": {
+      "base_blob": "1a910e047969aa14cb3a5b66c4ab24dd4031cf82",
+      "approved_blob": "e69070d65b674b5ce67bae2345e94e1779570809"
+    },
+    "packages/screamingface/tests/paid/_case_provenance.py": {
+      "base_blob": "62fbcaf68c339d41166d0828709b9245e0a348ab",
+      "approved_blob": "7bdbe6190949270ea1ad6bb34f19fe8a873643f0"
+    },
+    "packages/screamingface/tests/paid/test_case_provenance.py": {
+      "base_blob": "16a60c26e4470e54d423678317d3df8a68a2ddd3",
+      "approved_blob": "996227be2c3bfc54e2820ddbd4226bdd1ab7bcd8"
+    },
+    "packages/screamingface/tests/test_runtime_cli.py": {
+      "base_blob": "8602b06e71d9b398e4e7dc3cd91f09623f44771b",
+      "approved_blob": "045f3510ed599d05b170f6286571dfe9b2c88be5"
     }
   }
 }

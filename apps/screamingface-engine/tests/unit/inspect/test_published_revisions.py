@@ -40,6 +40,9 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1527: contracteval moved from its hand-built folder (f9a076a10a6ae4c6) to a local Task
     # whose metric returns the hand-built run numbers beside F1 (headline key "f1").
     "contracteval": "890889e5b2863be4",
+    # OME-1527: gdpval-text moved from its hand-built folder (cacfc3e6b83765f6) to a local Task;
+    # owner-accepted (no external users), the revision moves once.
+    "gdpval-text": "1d82f69ca3650609",
     "math": "1963559fac28e4a1",
     "mmlu": "1e42325597dee3d6",
     "arc_easy": "5f063684bf708ca1",

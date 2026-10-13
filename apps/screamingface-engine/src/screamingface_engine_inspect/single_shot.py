@@ -106,6 +106,9 @@ _CANDIDATE_WEB_SEARCH = False
 _FAILURE_MESSAGES: Mapping[str, str] = {
     "scorer_error": "the inspect scorer raised while grading this Case",
     "invalid_score_value": "the inspect scorer returned a value this board cannot map to a score",
+    # WHY (OME-1527): the scorer adapter names a judge that never gave a parseable verdict
+    # (`judge_redraw`); without a message here that Case crashed the whole aggregate.
+    "judge_reply_invalid": "the judge gave no parseable verdict for this Case after its redraws",
     "missing_target_asset": "the baked target record for this Case is missing or invalid",
     "missing_case_row": "no evaluation row for this Case reached the aggregate",
     "case_error": "the Case pipeline collected an error instead of an evaluation",

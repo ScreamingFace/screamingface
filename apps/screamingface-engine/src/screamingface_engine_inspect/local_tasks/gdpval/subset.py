@@ -5,9 +5,9 @@ AND deliverable formats are all prose — {.docx, .doc, .txt, .md, .pdf}, or abs
 yields 109; then minus the 7 whose reference files cannot be extracted to text. Both figures
 were measured on 2026-08-24 over the published parquet, every row, not a sample.
 
-INVARIANT: this tuple is FROZEN. subset_sha() participates in the benchmark's revision hash,
-so any edit re-addresses every route — an expression written against the old revision
-physically cannot resolve against a changed selection. Never regenerate it from live data.
+INVARIANT: this tuple is FROZEN. Its order is the Case order, and the Case Digest seals it, so
+any edit is a new Benchmark revision (OME-1527: the Task's source is pinned too). Never
+regenerate it from live data.
 
 AIDEV-NOTE: the exclusions below are not a style choice. A task whose reference PDF is a
 scanned image extracts to nothing; the model then cannot do the work, and the resulting low
@@ -16,8 +16,6 @@ the comparison this benchmark exists to make.
 """
 
 from __future__ import annotations
-
-import hashlib
 
 # WHY: GDPval task_ids, not Engine Case ids — this benchmark's identity IS a selection out of
 # the 220, so the dataset's own stable ids are the honest fingerprint. HealthBench's worst30
@@ -143,14 +141,4 @@ EXCLUDED_TASK_IDS: dict[str, str] = {
 }
 
 
-def subset_sha() -> str:
-    """Fingerprint the selection, in serve order.
-
-    INVARIANT: order participates. Two benchmarks serving the same tasks in a different order are
-    different benchmarks, because Engine Case ids are the 1-based positions of this tuple.
-    """
-
-    return hashlib.sha256("\n".join(TEXT_SUBSET_TASK_IDS).encode()).hexdigest()
-
-
-__all__ = ["EXCLUDED_TASK_IDS", "TEXT_SUBSET_TASK_IDS", "subset_sha"]
+__all__ = ["EXCLUDED_TASK_IDS", "TEXT_SUBSET_TASK_IDS"]

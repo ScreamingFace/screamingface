@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import pytest
 
-from screamingface_engine.benchmarks.gdpval.ingestion import (
+# WHY this module: OME-1527 moved GDPval-text to a local Task; this code moved with it,
+# and this test follows it (the module imports no inspect, so it runs extra-less).
+from screamingface_engine_inspect.local_tasks.gdpval.references import (
     MIN_VIABLE_CHARS,
     IngestionError,
     extract_reference_text,

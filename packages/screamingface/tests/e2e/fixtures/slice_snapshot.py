@@ -131,7 +131,6 @@ _ASSET_BUNDLE = {
     "ifeval": "ifeval",
     "healthbench-worst30": "healthbench",
     "healthbench-professional": "healthbench",
-    "gdpval-text": "gdpval",
 }
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"

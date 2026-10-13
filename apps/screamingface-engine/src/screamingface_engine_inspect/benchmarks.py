@@ -4021,6 +4021,96 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # counts and laziness rates (the hand-built Benchmark's keys); F1 is the headline.
         whole_run_headline="f1",
     ),
+    BenchmarkSpec(
+        key="gdpval-text",
+        title="GDPval Text Subset",
+        description=(
+            "The prose-only slice of GDPval's 220-task open gold set: 102 real professional work "
+            "requests whose reference material and expected deliverable are documents rather than "
+            "spreadsheets or slide decks. An AI judge grades the answer against the task's "
+            "expert-written rubric, one criterion at a time; penalties subtract, so a case can "
+            "score below zero. Benchmark score = the plain average of the case scores. "
+            "Two deliberate differences from published GDPval numbers: submissions are plain text "
+            "where 83 of these tasks expected a formatted document, so criteria checking the "
+            "delivered file are excluded from scoring; and grading is per-criterion rubric judging "
+            "rather than GDPval's official blinded expert pairwise comparison against a human "
+            "professional's deliverable. Scores are therefore not comparable to the published "
+            "GDPval leaderboard."
+        ),
+        focus="Real professional work, prose deliverables",
+        dataset_url="https://huggingface.co/datasets/openai/gdpval",
+        # Real professional deliverables graded on expert rubrics — the benchmark that appears
+        # in frontier-model launch tables (OME-1257; the hand-built Benchmark's tier, kept).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.gdpval.gdpval:gdpval_text — a LOCAL Task
+        #   (OME-1527), the hand-built Benchmark moved into inspect's shape; every field below is
+        #   carried over from the hand-built definition (OME-1455 sources).
+        scorer="screamingface_engine_inspect.local_tasks.gdpval.gdpval:gdpval_rubric",
+        scorer_kwargs={"judge_model": "screamingface/openrouter/google/gemini-3.1-pro-preview"},
+        judge=JudgeSpec(
+            # WHY this judge: GDPval's official grading is blinded expert PAIRWISE comparison
+            # against a human professional's deliverable, and OpenAI's automated stand-in is a
+            # hosted service, not a model we can call — so the judge is OUR choice, pinned
+            # independently of DRACO's (owner decision; the description names the deviation).
+            model="openrouter/google/gemini-3.1-pro-preview",
+            # The hand-built JUDGE_PARAMS, same values in the same order (so the same wire):
+            # grading is retrieval-free; 0.2 lets a redraw draw a fresh sample while staying
+            # near-deterministic; the judge is a reasoning model whose thinking counts against
+            # max_tokens, so effort is low and the cap 8192 (a verdict is a sentence and a
+            # boolean; DRACO's OME-993 lesson).
+            params=(
+                ("web_search", "false"),
+                ("temperature", "0.2"),
+                ("reasoning_effort", "low"),
+                ("max_tokens", "8192"),
+            ),
+        ),
+        # Judged benchmark, and no owner decision to offer one (OME-1513): no Draft Feedback.
+        with_check_surface=False,
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2510.04374",
+        authors="Patwardhan et al., 2025",
+        citation=(
+            "@misc{patwardhan2025gdpvalevaluatingaimodel,\n"
+            "      title={GDPval: Evaluating AI Model Performance on Real-World Economica"
+            "lly Valuable Tasks}, \n"
+            "      author={Tejal Patwardhan and Rachel Dias and Elizabeth Proehl and Grac"
+            "e Kim and Michele Wang and Olivia Watkins and Sim\u00f3n Posada Fishman and Marwa"
+            "n Aljubeh and Phoebe Thacker and Laurance Fauconnet and Natalie S. Kim and P"
+            "atrick Chao and Samuel Miserendino and Gildas Chabot and David Li and Michae"
+            "l Sharman and Alexandra Barr and Amelia Glaese and Jerry Tworek},\n"
+            "      year={2025},\n"
+            "      eprint={2510.04374},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      url={https://arxiv.org/abs/2510.04374}, \n"
+            "}"
+        ),
+        harness_url=(
+            "https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/gdpval"
+        ),
+        license=NotPublished(
+            reason="openai/gdpval states no licence on its dataset card or README",
+        ),
+        license_note=(
+            "OpenAI publishes no grader code; the inspect_evals port is the public harness, and "
+            "our score is a rubric mean, not GDPval's win rate."
+        ),
+        human_baseline=NotPublished(
+            reason=(
+                "GDPval's human reference is the expert deliverable itself, on a win-rate metric "
+                "this Benchmark does not score"
+            ),
+        ),
+        frontier_score=NotPublished(
+            reason=(
+                "GDPval's published metric is a win rate against the expert deliverable; this "
+                "Benchmark scores a rubric mean, so no published number is on its headline metric"
+            ),
+        ),
+        notebook="10_gdpval",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

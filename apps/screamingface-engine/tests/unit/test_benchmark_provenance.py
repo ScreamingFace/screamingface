@@ -369,10 +369,8 @@ def test_the_draco_factory_passes_provenance_through_and_keeps_its_revision() ->
 
 
 def test_the_healthbench_and_gdpval_factories_pass_provenance_through() -> None:
-    from screamingface_engine.benchmarks.gdpval.definition import TEXT_CASE_IDS
-    from screamingface_engine.benchmarks.gdpval.scoring import mean
-    from screamingface_engine.benchmarks.gdpval.subset import subset_sha as gdpval_sha
-    from screamingface_engine.benchmarks.gdpval.variant import gdpval_benchmark
+    # OME-1527: the gdpval factory went with its hand-built folder (gdpval-text is a local
+    # inspect Task now); the healthbench half stands.
     from screamingface_engine.benchmarks.healthbench.scoring import unclipped_mean
     from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS
     from screamingface_engine.benchmarks.healthbench.subset import subset_sha as hb_sha
@@ -391,22 +389,9 @@ def test_the_healthbench_and_gdpval_factories_pass_provenance_through() -> None:
         license="MIT",
         human_baseline=HumanBaseline(score=0.5, source_url=_PAPER),
     )
-    _, gdpval = gdpval_benchmark(
-        id="gdpval-text",
-        title="GDPval",
-        description="probe",
-        case_ids=TEXT_CASE_IDS,
-        protocol_revision="text-per-item-v1",
-        scoring="rubric-mean-v1",
-        mean=mean,
-        selection_sha=gdpval_sha(),
-        difficulty="hard",
-        frontier_score=FrontierScore(score=0.5, model="m", source_url=_PAPER, as_of="2026-09"),
-    )
 
     assert healthbench.catalog_entry()["license"] == "MIT"
     assert healthbench.catalog_entry()["human_baseline"] == {"score": 0.5, "source_url": _PAPER}
-    assert gdpval.catalog_entry()["saturation"] == "open"
 
 
 # --- a literal TODO is refused by name, like difficulty="TODO" --------------------------------
