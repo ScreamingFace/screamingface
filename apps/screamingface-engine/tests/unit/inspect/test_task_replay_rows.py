@@ -560,3 +560,29 @@ def test_a_row_with_a_key_on_every_case_writes_no_empty_key_line() -> None:
 
     assert "empty_answer_key_allowed" not in rows.cases
     assert _declared(rows)["agieval_lsat_ar"].empty_answer_key_allowed is False
+
+
+# --- OME-1527 R8: the nltk corpus the grader reads offline ---------------------------------
+
+
+def test_a_row_that_reads_nltk_data_names_it_and_its_seal() -> None:
+    """The corpus is Benchmark identity, sealed at import like the Cases, so the row carries
+    both; every image build downloads those names and checks that seal."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "ifeval",
+        _imported(nltk_resources=("punkt", "punkt_tab"), nltk_data_digest="d" * 64),
+        "TODO",
+    )
+
+    declared: TaskReplayCasesSpec = _declared(rows)["ifeval"]
+    assert declared.nltk_resources == ("punkt", "punkt_tab")
+    assert declared.nltk_data_digest == "d" * 64
+
+
+def test_a_row_without_nltk_data_writes_no_nltk_line() -> None:
+    """Absence stays absence: every existing row's text is unchanged."""
+
+    rows: TaskReplayRows = render_task_replay_rows("agieval_lsat_ar", _imported(), "TODO")
+
+    assert "nltk_" not in rows.cases

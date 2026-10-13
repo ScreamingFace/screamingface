@@ -265,19 +265,13 @@ def prepare_nltk(out: Path) -> dict[str, Any]:
     ``grading.configure_nltk`` and never downloads.
     """
 
-    import nltk
-
-    from screamingface_engine.benchmarks.ifeval.grading import configure_nltk
+    from screamingface_engine.benchmarks.nltk_data import NltkDataError, download_nltk_data
 
     target = out / "nltk_data"
-    target.mkdir(parents=True, exist_ok=True)
-    # WHY: nltk>=3.10's downloader rejects any target not registered in nltk.data.path
-    # ("Security Violation: Unauthorized path"), so the directory is authorized first —
-    # the same registration the run-time reader uses.
-    configure_nltk(target)
-    for resource in ("punkt", "punkt_tab"):
-        if not nltk.download(resource, quiet=True, download_dir=str(target)):
-            raise PrepareError(f"could not download the nltk resource {resource!r}")
+    try:
+        download_nltk_data(target, ("punkt", "punkt_tab"))
+    except NltkDataError as exc:
+        raise PrepareError(str(exc)) from exc
     return {"nltk_data": str(target)}
 
 

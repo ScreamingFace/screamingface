@@ -283,6 +283,13 @@ def _declaration_lines(
         lines.append("        empty_answer_key_allowed=True,")
     if declaration.excluded_sample_ids:
         lines.extend(_excluded_id_lines(declaration.excluded_sample_ids))
+    if declaration.nltk_resources:
+        # WHY written: the corpus the grader reads is Benchmark identity, sealed at import
+        # like the Cases; only when set, so no existing row's text moves (OME-1527, R8).
+        lines.append("        nltk_resources=(")
+        lines.extend(f"            {json.dumps(name)}," for name in declaration.nltk_resources)
+        lines.append("        ),")
+        lines.append(f'        nltk_data_digest="{declaration.nltk_data_digest}",')
     lines.extend(_fetch_pin_lines(declaration))
     lines.extend(_license_lines(license, card_license))
     lines.append("    ),")
