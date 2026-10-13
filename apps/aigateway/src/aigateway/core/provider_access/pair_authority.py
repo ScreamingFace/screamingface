@@ -102,6 +102,19 @@ class PairAuthorityStore:
         )
         return tuple(_view(account_id, row) for row in rows)
 
+    async def providers(self, account_id: str) -> tuple[str, ...]:
+        """The marked providers of the account, by provider, without judging their state.
+
+        # WHY: `list` refuses the whole account on one unknown state; a caller that must name
+        # the refused pair reads the providers here and each pair through `read`.
+        """
+        rows = (
+            await ProviderCredentialSlot.filter(account_id=account_id)
+            .order_by("provider")
+            .values_list("provider", flat=True)
+        )
+        return tuple(str(row) for row in rows)
+
     async def advance(
         self,
         account_id: str,

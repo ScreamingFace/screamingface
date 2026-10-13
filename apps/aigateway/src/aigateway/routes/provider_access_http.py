@@ -15,7 +15,10 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from ..core.provider_access import (
+    CredentialAuthorityUnavailable,
+    CredentialStoreReadUnavailable,
     CredentialStoreUnavailable,
+    PairConflict,
     ProviderAccessRefusal,
     ProviderUnknown,
     Selector,
@@ -193,3 +196,55 @@ def legacy_delete_refusals_as_http() -> Iterator[None]:
         yield
     except ProviderAccessRefusal as exc:
         raise render_legacy_delete_refusal(exc) from exc
+
+
+# --- the D18 successor scope (OME-1497, G1; contract §7) -----------------------------------------
+# INVARIANT: these rows serve ONLY the `/v1/admin/accounts/{account_id}/connections` routes; the
+# legacy rows above keep their bodies, and a successor refusal never reaches `render_refusal`.
+
+_PAIR_CONFLICT_MESSAGES = {
+    "ambiguous": (
+        "credential_pair_ambiguous",
+        "The provider credential cannot be addressed unambiguously.",
+    ),
+    "unresolved": (
+        "credential_pair_unresolved",
+        "The provider credential cannot be managed safely. Resolve its state before retrying.",
+    ),
+}
+_STORE_READ_MESSAGE = "Credential store is temporarily unavailable. Try again."
+_AUTHORITY_MESSAGE = "Credential state is temporarily unavailable. Retry later."
+
+
+def pair_conflict_detail(conflict: PairConflict) -> dict[str, str]:
+    """The pair detail `{code, message, provider}` — a LIST item, or a mutation's 409 body."""
+    code, message = _PAIR_CONFLICT_MESSAGES[conflict.kind]
+    return {"code": code, "message": message, "provider": conflict.provider}
+
+
+def render_successor_refusal(exc: ProviderAccessRefusal) -> HTTPException:
+    """The successor's status and body for one refusal; the shared rows serve the rest."""
+    if isinstance(exc, CredentialStoreReadUnavailable):
+        return HTTPException(
+            status_code=503,
+            detail={"code": "credential_store_read_unavailable", "message": _STORE_READ_MESSAGE},
+        )
+    if isinstance(exc, CredentialAuthorityUnavailable):
+        return HTTPException(
+            status_code=503,
+            detail={
+                "code": "credential_authority_unavailable",
+                "message": _AUTHORITY_MESSAGE,
+                "provider": exc.provider,
+            },
+        )
+    return render_refusal(exc)
+
+
+@contextmanager
+def successor_refusals_as_http() -> Iterator[None]:
+    """`refusals_as_http`, rendering through the successor scope first (§7)."""
+    try:
+        yield
+    except ProviderAccessRefusal as exc:
+        raise render_successor_refusal(exc) from exc
