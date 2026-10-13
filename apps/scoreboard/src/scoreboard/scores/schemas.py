@@ -5,9 +5,11 @@ from collections.abc import Mapping
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -330,6 +332,90 @@ AuthorEmail = Annotated[
 ]
 
 
+def _validate_bounded_authors(value: list[str] | None) -> list[str] | None:
+    """The author-list bounds, shared by `ScoreSubmission` and `ScoreMetadataPatch`.
+
+    INVARIANT: the cap protects credit cardinality, not raw audit history. The serializer uses this
+    exact key when it collapses repeated identities. A PATCH must apply the SAME bounds as a POST,
+    so both call this one function.
+    """
+    if value is None:
+        return value
+    if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
+        raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
+    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+    if len(encoded) > _AUTHORS_MAX_BYTES:
+        raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
+    return value
+
+
+_PAPER_URL_MAX_CHARS = 2048
+_PAPER_URL_SCHEMES = frozenset({"http", "https"})
+
+
+def _validate_paper_url(value: str) -> str:
+    """Accept an absolute `http(s)` link with a host, and return it UNCHANGED.
+
+    FEATURE: OME-1307 — this checks the SHAPE of the link, never that the paper exists or that the
+    named authors wrote it (out of scope for E14).
+
+    INVARIANT: the string is stored exactly as sent. That is why this is not pydantic's `HttpUrl`,
+    which lower-cases the host and appends a slash: a link a researcher pasted must come back as
+    they pasted it. The portal still runs every link through `httpUrlOrNull` on read (M21).
+    """
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+        raise ValueError("paper_url must not contain control characters")
+    # WHY any whitespace, anywhere: `urlsplit` quietly strips leading and trailing blanks, so a
+    # link with one would validate, be stored as sent, and then not be the URL it looks like.
+    if any(char.isspace() for char in value):
+        raise ValueError("paper_url must not contain whitespace")
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in _PAPER_URL_SCHEMES:
+        raise ValueError("paper_url must use the http or https scheme")
+    if not parts.hostname:
+        raise ValueError("paper_url must name a host")
+    # WHY refuse user info: a paper link is shown and followed by readers, and
+    # `https://trusted.example@evil.test/` reads as the first host while going to the second.
+    # `username` is "" (not None) for a bare `@`, so test for None.
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("paper_url must not contain user info")
+    return value
+
+
+PaperUrl = Annotated[
+    str,
+    Field(min_length=1, max_length=_PAPER_URL_MAX_CHARS),
+    AfterValidator(_validate_paper_url),
+]
+
+
+# FEATURE: OME-1307 — the frozen copy id in the AI Gateway: a UUID, stored in lower case.
+# INVARIANT: the same spelling on the submission, on a recorded reproduction and in the column
+# width (`VARCHAR(36)`). `UUID(...)` is the check and `str(...)` the stored form, so the same copy
+# sent in upper case or without hyphens is the same value, and a trailing newline is refused.
+def _validate_frozen_copy_id(value: str) -> str:
+    try:
+        return str(UUID(value))
+    except ValueError as exc:
+        raise ValueError("frozen_copy_id must be a UUID") from exc
+
+
+FrozenCopyId = Annotated[str, AfterValidator(_validate_frozen_copy_id)]
+# `complete`: the frozen copy holds every call, so a replay can answer it. `partial`: not.
+CaptureStatus = Literal["complete", "partial"]
+# A 32-bit signed INT, the width of the column. Anything wider would fail on PostgreSQL after
+# passing here, so it is refused as a 422 instead of reaching the database.
+AnswerSeed = Annotated[int, Field(ge=-(2**31), le=2**31 - 1)]
+# FEATURE: OME-1307 / Q29 — the SDK's case digest: sha256 hex, lower case, 64 characters. The board
+# compares it as sent and never recomputes it, so the pattern is the whole check.
+CaseDigest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+# The exact primary score the Engine Benchmark produced: any finite number, higher is better. One
+# annotation for the submitted score and the replayed one, so the two are compared as the same type.
+ExactScore = Annotated[float, Field(strict=True, allow_inf_nan=False)]
+
+
 class ClientInfo(BaseModel):
     """Optional client metadata for a score submission."""
 
@@ -365,6 +451,23 @@ class MessageErrorResponse(BaseModel):
     detail: str
 
 
+class CodedErrorDetail(BaseModel):
+    """A machine-readable refusal: a stable `code` plus a human `message`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+
+
+class CodedErrorResponse(BaseModel):
+    """HTTP error response whose detail carries a stable code (for example `not_score_owner`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    detail: CodedErrorDetail
+
+
 class ScoreSubmission(BaseModel):
     """Input DTO for score ingestion."""
 
@@ -382,6 +485,10 @@ class ScoreSubmission(BaseModel):
     # None means the client did not specify a credit line; reads then derive [submitted_by].
     # An explicit list is exact — the submitter is not auto-added (OME-1051 D1).
     authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    # FEATURE: OME-1307 — a link to the paper behind this result. None means "not given", so a
+    # same-owner resubmit without it keeps the stored link (an older SDK never sends it).
+    # AIDEV-NOTE: deliberately absent from `_content_hash`, like `authors`: it is display-only.
+    paper_url: PaperUrl | None = None
     # FEATURE: OME-1181 — the candidate's DECLARED model routes, as composed in the recipe.
     #
     # WHY optional: this field deploys BEFORE the Client that populates it (OME-1179
@@ -398,9 +505,7 @@ class ScoreSubmission(BaseModel):
     # projection of what `url4_expression` already carries, and that IS hashed — see the
     # invariant on `_content_hash` in store.py before changing this.
     models: Annotated[list[ModelRoute], Field(min_length=1)] | None = None
-    # the exact primary score the Engine Benchmark produced — any
-    # finite number, higher is better
-    score: Annotated[float, Field(strict=True, allow_inf_nan=False)]
+    score: ExactScore
     total_questions: int
     correct_questions: int | None = None
     ran_with_providers: list[str]
@@ -487,6 +592,30 @@ class ScoreSubmission(BaseModel):
     # would have cost, priced from the archive (another call of the same model and kind). Summed
     # with the spend and the reported saving at the point of use; never sent pre-summed.
     cache_saved_cost_archive_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    # FEATURE: OME-1307 — which frozen copy holds this run and whether it holds every call of it.
+    #
+    # WHY optional: like `paper_url`, these deploy BEFORE the SDK that sends them (`extra="forbid"`
+    # makes the rollout one-directional), and the SDK omits each one when it is NULL.
+    #
+    # INVARIANT: `frozen_copy_id` needs `capture_status` (below). `capture_status` alone is legal: a
+    # run that failed to open its copy has a status and no copy id.
+    #
+    # AIDEV-NOTE: deliberately absent from `_content_hash`. They describe one execution of a recipe,
+    # as the cost fields do, and a resubmit only FILLS them (`_replay_updates`).
+    frozen_copy_id: FrozenCopyId | None = None
+    capture_status: CaptureStatus | None = None
+    answer_seed: AnswerSeed | None = None
+    # FEATURE: OME-1307 / Q29 — the case digest. Needs `capture_status`, like the copy id.
+    case_digest: CaseDigest | None = None
+
+    @model_validator(mode="after")
+    def validate_frozen_copy_id_has_a_capture_status(self) -> ScoreSubmission:
+        """INVARIANT (I1): a copy id or a case digest without a status is incoherent, so refused."""
+        if self.frozen_copy_id is not None and self.capture_status is None:
+            raise ValueError("frozen_copy_id requires capture_status")
+        if self.case_digest is not None and self.capture_status is None:
+            raise ValueError("case_digest requires capture_status")
+        return self
 
     @field_validator("cache_saved_cost_usd", "cache_saved_cost_archive_usd")
     @classmethod
@@ -560,16 +689,7 @@ class ScoreSubmission(BaseModel):
     @field_validator("authors")
     @classmethod
     def validate_distinct_authors(cls, value: list[str] | None) -> list[str] | None:
-        # INVARIANT: the cap protects credit cardinality, not raw audit history. The
-        # serializer uses this exact key when it collapses repeated identities.
-        if value is None:
-            return value
-        if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
-            raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
-        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
-        if len(encoded) > _AUTHORS_MAX_BYTES:
-            raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
-        return value
+        return _validate_bounded_authors(value)
 
     @field_validator("models")
     @classmethod
@@ -799,6 +919,17 @@ class ScoreSchema(BaseModel):
     url4_expression: str
     submitted_by: SubmittedBy
     authors: Authors = None
+    # FEATURE: OME-1307 — the paper link and the time `authors` or `paper_url` last changed.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, for exactly the reason `models` below records. This schema
+    # feeds the private JSONL export whose bytes authorize a purge; `"paper_url": null` on every
+    # legacy row would change every export saved before these fields existed.
+    #
+    # INVARIANT: null `metadata_updated_at` means "never edited". Only a CHANGE sets it.
+    paper_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    metadata_updated_at: datetime | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     # FEATURE: OME-1181 — the declared candidate model routes, for classification.
     #
     # INVARIANT: EXCLUDED WHEN ABSENT, like `ranking_notice` below and for the same reason.
@@ -870,6 +1001,36 @@ class ScoreSchema(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    # FEATURE: OME-1307 — the frozen copy of the run. EXCLUDED WHEN ABSENT, for exactly the reason
+    # `paper_url` and `models` record: the private JSONL export hashes these bytes to authorise a
+    # purge, and no legacy row may gain `"capture_status": null`.
+    #
+    # INVARIANT: a null `capture_status` means "unknown", never `partial`.
+    frozen_copy_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    capture_status: CaptureStatus | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    answer_seed: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    # FEATURE: OME-1307 / Q29 — the case digest, excluded when absent for the same reason as the
+    # copy id above. The score read returns it; a reproduction is compared against it.
+    case_digest: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    # FEATURE: OME-1307 — recorded reproductions, DERIVED on read (never stored on `scores`). Only
+    # `GET /v1/scores/{id}` fills them; every other path that builds this DTO leaves the default.
+    #
+    # INVARIANT: EXCLUDED WHEN ZERO or null, for the reason `paper_url` records. An absent count
+    # reads as 0 (K8), so a row with no reproductions serializes as it did before the field: the
+    # private JSONL export (whose bytes authorise a purge) and the PATCH and resubmit responses,
+    # which never compute the count, do not change.
+    reproduction_count: int = Field(
+        default=0,
+        exclude_if=lambda value: value == 0,
+        description="Recorded reproductions; only `GET /v1/scores/{id}` carries it. Absent: 0.",
+    )
+    last_reproduced_at: datetime | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Latest reproduction time; only `GET /v1/scores/{id}` carries it.",
+    )
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a
     # mismatch supplied by POST remains visible and documented in the shared schema.
@@ -877,6 +1038,118 @@ class ScoreSchema(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+
+
+class ScoreMetadataPatch(BaseModel):
+    """Body of `PATCH /v1/scores/{id}`: the two fields a submitter may edit after the fact.
+
+    FEATURE: OME-1307 — an ABSENT key means "unchanged" and `paper_url: null` means "clear the
+    link"; `model_fields_set` is what tells them apart, so the route must not dump the model with
+    defaults. `authors: null` is refused: to go back to the derived credit line, send
+    `authors: [submitted_by]`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    paper_url: PaperUrl | None = None
+
+    @field_validator("authors", mode="before")
+    @classmethod
+    def refuse_null_authors(cls, value: object) -> object:
+        # A FIELD validator (not the model one below) so the 422 points at `body.authors`. It runs
+        # only when the key is present, which is exactly the case to refuse.
+        if value is None:
+            raise ValueError("authors cannot be null; send a list, or omit the key")
+        return value
+
+    @field_validator("authors")
+    @classmethod
+    def validate_distinct_authors(cls, value: list[str] | None) -> list[str] | None:
+        return _validate_bounded_authors(value)
+
+    @model_validator(mode="after")
+    def validate_one_known_key(self) -> ScoreMetadataPatch:
+        if not self.model_fields_set:
+            raise ValueError("send at least one of: authors, paper_url")
+        return self
+
+
+class ScoreMetadataEventSchema(BaseModel):
+    """One row of a score's edit log, for its owner only (`GET /v1/scores/{id}/metadata-events`).
+
+    INVARIANT: `authors` here is a plain list, NOT the `Authors` type. That type publishes local
+    parts only, which is right for a public read and wrong here: the owner reads the full addresses
+    they added or removed. The route is owner-only and `no-store` for that reason.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    edited_by: str
+    edited_at: datetime
+    source: Literal["patch", "resubmit"]
+    old_authors: list[str] | None
+    new_authors: list[str] | None
+    old_paper_url: str | None
+    new_paper_url: str | None
+
+
+class ReproductionClientInfo(ClientInfo):
+    """`ClientInfo` with the one field this table stores bounded to its column.
+
+    WHY not bounded on `ClientInfo`: that model is shared with `POST /v1/scores`, whose behaviour
+    this change does not alter. `client_version` is `VARCHAR(64)`, and an unbounded value would
+    reach PostgreSQL as a DataError and answer 503 for a client error.
+    """
+
+    version: Annotated[str, Field(max_length=64)] | None = None
+
+
+class ValidationErrorItem(BaseModel):
+    """One entry of the framework's list-shaped 422 `detail`, for the OpenAPI document."""
+
+    loc: list[str | int]
+    msg: str
+    type: str
+
+
+class ValidationErrorResponse(BaseModel):
+    """The framework's 422 for a body that fails validation (as opposed to a coded refusal)."""
+
+    detail: list[ValidationErrorItem]
+
+
+class ReproductionSubmission(BaseModel):
+    """Body of `POST /v1/scores/{id}/reproductions`: one exact replay a verified identity records.
+
+    FEATURE: OME-1307 — `score`, `total_questions` and `frozen_copy_id` are compared with the stored
+    score by the route (a mismatch is `not_exact`); this DTO only checks their shape.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: Annotated[str, Field(min_length=1, max_length=128)]
+    score: ExactScore
+    total_questions: int
+    frozen_copy_id: FrozenCopyId | None = None
+    # FEATURE: OME-1307 / Q29 — compared with the stored digest by the route; never stored here.
+    case_digest: CaseDigest | None = None
+    client: ReproductionClientInfo
+
+
+class ReproductionSchema(BaseModel):
+    """One recorded reproduction, as the recorder receives it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    score_id: UUID
+    reproduced_by: str
+    reproduced_at: datetime
+    run_id: str
+    frozen_copy_id: str | None
+    client_version: str | None
 
 
 class LeaderboardEntry(BaseModel):

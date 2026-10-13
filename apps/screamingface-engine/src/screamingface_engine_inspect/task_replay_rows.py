@@ -36,7 +36,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from screamingface_engine_inspect.case_sources import HUGGING_FACE, CaseSource
 from screamingface_engine_inspect.fetch_pins import is_commit_sha
@@ -57,6 +57,9 @@ from screamingface_engine_inspect.importer import (
 )
 from screamingface_engine_inspect.prepare import LICENSE_TODO, TaskReplayCasesSpec
 from screamingface_engine_inspect.provenance_facts import ProvenanceFacts, provenance_row_lines
+
+if TYPE_CHECKING:
+    from screamingface_engine_inspect.single_shot import RetrievalPolicyDeclaration
 
 #: The anchor generated TaskReplayCasesSpec entries land above, inside TASK_REPLAY_CASES.
 _TASK_REPLAY_CASES_ANCHOR: str = (
@@ -84,6 +87,8 @@ def render_task_replay_rows(
     *,
     card_license: str | None = None,
     provenance: ProvenanceFacts | None = None,
+    whole_run_headline: str | None = None,
+    retrieval_policy: RetrievalPolicyDeclaration | None = None,
 ) -> TaskReplayRows:
     """Stages 2 to 4 — render a Task-replay declaration and its BenchmarkSpec row (spec R6).
 
@@ -93,17 +98,40 @@ def render_task_replay_rows(
         license: the license value to write; ``LICENSE_TODO`` when the owner must decide.
         card_license: what the Hugging Face card said when it was not a cleared license, so
             the review note can name it (D13); None when there was no card to read.
+        whole_run_headline: the key of the honoured whole-run metric's dict that is the
+            Headline Score (``--whole-run-headline``, OME-1527); None for every other import.
+        retrieval_policy: the exam's web-search rule (``--retrieval-policy``, OME-1527 R13),
+            already checked when declared; None for every other import.
 
     Returns:
         The declaration text (for TASK_REPLAY_CASES) and the BenchmarkSpec row text.
 
     Raises:
-        ImporterError: a string that could escape the generated code (injection guard).
+        ImporterError: a string that could escape the generated code (injection guard), or
+            a headline key without an honoured whole-run metric.
     """
 
     _refuse_injectable_import(imported, license, card_license)
+    if whole_run_headline is not None:
+        if imported.facts.whole_run_metric is None:
+            raise ImporterError(
+                "--whole-run-headline names a number the honoured whole-run metric returns, "
+                "but this import honours none"
+            )
+        if not _REFERENCE_CHARSET.match(whole_run_headline) or not whole_run_headline.strip():
+            raise ImporterError(
+                f"{whole_run_headline!r} cannot be written into generated code — refusing "
+                "(injection guard)"
+            )
     cases: str = "\n".join(_declaration_lines(key, imported, license, card_license)) + "\n"
-    benchmark: str = "\n".join(_benchmark_row_lines(key, imported, license, provenance)) + "\n"
+    benchmark: str = (
+        "\n".join(
+            _benchmark_row_lines(
+                key, imported, license, provenance, whole_run_headline, retrieval_policy
+            )
+        )
+        + "\n"
+    )
     return TaskReplayRows(cases=cases, benchmark=benchmark)
 
 
@@ -115,6 +143,8 @@ def write_task_replay_rows(
     license: str,
     card_license: str | None = None,
     provenance: ProvenanceFacts | None = None,
+    whole_run_headline: str | None = None,
+    retrieval_policy: RetrievalPolicyDeclaration | None = None,
 ) -> TaskReplayRows:
     """Stages 1 to 5 — insert a Task-replay import's two rows into prepare.py and benchmarks.py.
 
@@ -124,6 +154,8 @@ def write_task_replay_rows(
         engine_src: the directory holding prepare.py and benchmarks.py.
         license: see render_task_replay_rows.
         card_license: see render_task_replay_rows.
+        whole_run_headline: see render_task_replay_rows.
+        retrieval_policy: see render_task_replay_rows.
 
     Returns:
         The rows written.
@@ -141,7 +173,13 @@ def write_task_replay_rows(
     # Stage 1
     _refuse_existing_rows(key, texts)
     rows: TaskReplayRows = render_task_replay_rows(
-        key, imported, license, card_license=card_license, provenance=provenance
+        key,
+        imported,
+        license,
+        card_license=card_license,
+        provenance=provenance,
+        whole_run_headline=whole_run_headline,
+        retrieval_policy=retrieval_policy,
     )
     # Stage 5 — compose both files before writing either.
     new_texts: dict[Path, str] = {
@@ -170,6 +208,9 @@ def _refuse_injectable_import(
         *imported.facts.named_scores,
         *imported.facts.dropped_scorers,
         *imported.facts.dropped_metrics,
+        imported.facts.whole_run_metric,
+        imported.facts.mean_instead_of,
+        imported.facts.epoch_reducer,
     ]
     # WHY a looser rule for these: they land only inside comments; only a line break or
     # another control character could end the comment and start code.
@@ -236,8 +277,19 @@ def _declaration_lines(
     if not declaration.has_answer_key:
         # WHY written: the empty keys are inside the Case Digest, as the metadata is (R19).
         lines.append("        has_answer_key=False,")
+    if declaration.empty_answer_key_allowed:
+        # WHY written: the empty keys are inside the Case Digest too; only when set, so no
+        # existing row's text moves (OME-1527, R5).
+        lines.append("        empty_answer_key_allowed=True,")
     if declaration.excluded_sample_ids:
         lines.extend(_excluded_id_lines(declaration.excluded_sample_ids))
+    if declaration.nltk_resources:
+        # WHY written: the corpus the grader reads is Benchmark identity, sealed at import
+        # like the Cases; only when set, so no existing row's text moves (OME-1527, R8).
+        lines.append("        nltk_resources=(")
+        lines.extend(f"            {json.dumps(name)}," for name in declaration.nltk_resources)
+        lines.append("        ),")
+        lines.append(f'        nltk_data_digest="{declaration.nltk_data_digest}",')
     lines.extend(_fetch_pin_lines(declaration))
     lines.extend(_license_lines(license, card_license))
     lines.append("    ),")
@@ -311,6 +363,8 @@ def _benchmark_row_lines(
     imported: TaskReplayImport,
     license: str,
     provenance: ProvenanceFacts | None = None,
+    whole_run_headline: str | None = None,
+    retrieval_policy: RetrievalPolicyDeclaration | None = None,
 ) -> list[str]:
     """Stage 4 — the BenchmarkSpec row: prose as TODOs, the first browsable source as URL."""
 
@@ -360,8 +414,47 @@ def _benchmark_row_lines(
             dropped_scorers=facts.dropped_scorers,
             headline_differs=facts.headline_differs,
             dropped_metrics=facts.dropped_metrics,
+            whole_run_metric=facts.whole_run_metric,
+            mean_instead_of=facts.mean_instead_of,
+            whole_run_headline=whole_run_headline,
         )
     )
+    if facts.attempts > 1:
+        # WHY only above 1 (OME-1458): every one-epoch Task's row renders byte-identically.
+        lines.extend(
+            [
+                f"        # The Task's epochs={facts.attempts} are any-match: each Case is asked",
+                f"        # {facts.attempts} times and a Check is met if any Attempt met it.",
+                f"        attempts={facts.attempts},",
+            ]
+        )
+    if facts.epoch_reducer is not None:
+        # WHY only beside an honoured metric (OME-1527): it is what the metric reads per Case.
+        lines.extend(
+            [
+                "        # The whole-run metric reads each Case's Attempt Scores reduced by the",
+                "        # Task's own reducer, as inspect does before any metric runs.",
+                f'        epoch_reducer="{facts.epoch_reducer}",',
+            ]
+        )
+    if retrieval_policy is not None:
+        # WHY only when set (OME-1527, R13): every other row renders byte-identically. The id
+        # and domains were checked when declared, so json quoting cannot be escaped.
+        lines.extend(
+            [
+                "        # The exam lets the Candidate search the web, never these domains; the",
+                "        # policy is part of the Benchmark Revision.",
+                "        retrieval_policy=RetrievalPolicyDeclaration(",
+                f"            policy_id={json.dumps(retrieval_policy.policy_id)},",
+                "            excluded_domains=(",
+                *(
+                    f"                {json.dumps(domain)},"
+                    for domain in retrieval_policy.excluded_domains
+                ),
+                "            ),",
+                "        ),",
+            ]
+        )
     lines.append("    ),")
     return lines
 

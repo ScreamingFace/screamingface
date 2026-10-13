@@ -193,6 +193,8 @@ def _env_mapping(
     io_concurrency: int = DEFAULT_IO_CONCURRENCY,
     extra_models: Sequence[str] = (),
     shape: job_env.RunShape = "expression",
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
 ) -> dict[str, str]:
     """The per-run env mapping a queue message carries, keyed by env name.
 
@@ -212,6 +214,8 @@ def _env_mapping(
     env.update(job_env.identity_to_env(identity or {}))
     env.update(job_env.cache_policy_to_env(cache))
     env.update(job_env.answer_seed_to_env(answer_seed))
+    env.update(job_env.capture_env(capture))
+    env.update(job_env.replay_frozen_copy_env(replay_frozen_copy))
     version = valid_version(client_version)
     if version is not None:
         env[CLIENT_VERSION_ENV] = version
@@ -242,6 +246,8 @@ def encode_message(
     io_concurrency: int = DEFAULT_IO_CONCURRENCY,
     extra_models: Sequence[str] = (),
     shape: job_env.RunShape = "expression",
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
 ) -> bytes:
     """Encode a run submission as the queue message body: the per-run env mapping, JSON."""
     return json.dumps(
@@ -257,6 +263,8 @@ def encode_message(
             io_concurrency=io_concurrency,
             extra_models=extra_models,
             shape=shape,
+            capture=capture,
+            replay_frozen_copy=replay_frozen_copy,
         ),
         sort_keys=True,
     ).encode("utf-8")

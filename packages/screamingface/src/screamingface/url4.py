@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from url4 import (
+    Binding,
     Expression,
     Iteration,
     Node,
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
     from screamingface.recipe import Recipe
 
 _BINDING = re.compile(r"(?:model|synthesis)_\d+")
-_REFERENCE = re.compile(r"\$(model_\d+|synthesis_\d+)")
+_REFERENCE = re.compile(r"\$(model_\d+|synthesis_\d+|panel_\d+)")
 _BENCHMARK_ROUTE = re.compile(
     r"/benchmarks/([A-Za-z0-9._~/-]+?)/"
     r"(?:cases|tasks|aggregate|criterion-verdict|criterion-evaluation|case-evaluation)\b"
@@ -112,6 +113,7 @@ def _candidate_expression(root: Node) -> tuple[Expression, bool]:
 
 def _calls(candidate: Expression) -> dict[str, _Call]:
     calls: dict[str, _Call] = {}
+    panels = _panel_dependencies(candidate)
     for node in _executable_nodes(candidate):
         if (
             not isinstance(node, Source)
@@ -122,7 +124,13 @@ def _calls(candidate: Expression) -> dict[str, _Call]:
         ):
             continue
         context = node.value.context or ""
-        dependencies = tuple(dict.fromkeys(_REFERENCE.findall(context)))
+        dependencies = tuple(
+            dict.fromkeys(
+                dependency
+                for reference in _REFERENCE.findall(context)
+                for dependency in panels.get(reference, (reference,))
+            )
+        )
         calls[node.name] = _Call(
             binding=node.name,
             model=node.value.path.removeprefix("/"),
@@ -133,6 +141,25 @@ def _calls(candidate: Expression) -> dict[str, _Call]:
     if not calls:
         raise ValueError("URL4 contains no compiled ScreamingFace model calls")
     return calls
+
+
+def _panel_dependencies(candidate: Expression) -> dict[str, tuple[str, ...]]:
+    panels: dict[str, tuple[str, ...]] = {}
+    for node in _executable_nodes(candidate):
+        if (
+            not isinstance(node, Source)
+            or node.name is None
+            or re.fullmatch(r"panel_\d+", node.name) is None
+            or not isinstance(node.value, Expression)
+        ):
+            continue
+        references = []
+        for slot in node.value.sources:
+            if isinstance(slot, Source | Binding) and isinstance(slot.value, Expression):
+                if isinstance(slot.value.intent, Text):
+                    references.extend(_REFERENCE.findall(slot.value.intent.value))
+        panels[node.name] = tuple(references)
+    return panels
 
 
 def _executable_nodes(value: Node):
@@ -228,6 +255,8 @@ def _render_topology(
         lines = _render_corrective_topology(value, calls, indent=indent)
     else:
         lines = _render_fusion_topology(value, calls, indent=indent)
+    if value.optional:
+        lines.insert(-1, f"{' ' * indent}    optional=True,")
     return lines
 
 
@@ -308,6 +337,8 @@ def _render_fusion_topology(
     synthesizer[0] = f"{prefix}    synthesizer={synthesizer[0].lstrip()}"
     synthesizer[-1] += ","
     lines.extend(synthesizer)
+    if value.quorum != "all":
+        lines.append(f"{prefix}    quorum={value.quorum!r},")
     lines.append(f"{prefix})")
     return lines
 
@@ -329,6 +360,33 @@ def _validate_topology(
     for name, binding in bindings.items():
         if calls[name].dependencies != binding.context_dependencies:
             raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+    # INVARIANT: default-valued metadata cannot conceal executable policy.
+    if _has_fusion_policy(value) or _has_executable_fusion_policy(candidate):
+        from screamingface._evaluation.candidate import compile_candidate
+
+        expected = compile_candidate(_recipe_from_topology(value, calls)).url4
+        if render(candidate) != expected:
+            raise ValueError("URL4 Candidate does not match its Recipe metadata")
+
+
+def _has_executable_fusion_policy(candidate: Expression) -> bool:
+    return any(
+        (isinstance(node, Expression) and any(key == "quorum" for key, _ in node.params))
+        or (
+            isinstance(node, Source)
+            and any(key in {"optional", "required"} for key, _ in node.annotations)
+        )
+        for node in _executable_nodes(candidate)
+    )
+
+
+def _has_fusion_policy(value: _RecipeTopology) -> bool:
+    if value.quorum != "all" or value.optional:
+        return True
+    children = (*value.members, *value.stages)
+    if value.synthesizer is not None:
+        children += (value.synthesizer,)
+    return any(_has_fusion_policy(child) for child in children)
 
 
 def _validate_compiled_corrective(
@@ -380,11 +438,13 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
             name=value.name if value.named else None,
             prompt=call.prompt,
             params=_editable_params(call),
+            optional=value.optional,
         )
     elif value.kind == "pipeline":
         selected = Pipeline(
             [_recipe_from_topology(stage, calls) for stage in value.stages],
             name=value.name if value.named else None,
+            optional=value.optional,
         )
     elif value.kind == "fusion":
         assert value.synthesizer is not None
@@ -393,6 +453,8 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
             [_recipe_from_topology(member, calls) for member in value.members],
             name=value.name if value.name != inferred_name else None,
             synthesizer=_recipe_from_topology(value.synthesizer, calls),
+            quorum=value.quorum,
+            optional=value.optional,
         )
     elif value.kind == "self_corrective":
         assert value.max_rounds is not None

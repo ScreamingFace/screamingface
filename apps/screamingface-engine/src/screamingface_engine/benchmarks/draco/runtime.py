@@ -60,8 +60,13 @@ from screamingface_engine.grading_accounting import (
 from url4.peer.server import Request, Url4Node
 
 
-def install(node: Url4Node, root: Path, variant: DracoVariant) -> None:
+def install(
+    node: Url4Node, root: Path, variant: DracoVariant, *, draft_feedback: bool = False
+) -> None:
     """Register the routes referenced by one DRACO benchmark.
+
+    ``draft_feedback`` is whether the Benchmark offers Draft Feedback (its ``check_surface``
+    is set). Off by default, and then the check-surface route is not installed at all.
 
     INVARIANT (OME-999): install registers LAZY providers and reads no asset. A Runner world
     carries every registered benchmark, so an eager read here would make every other benchmark's run
@@ -75,13 +80,17 @@ def install(node: Url4Node, root: Path, variant: DracoVariant) -> None:
     # The mid-run draft-feedback offer the corrective loop consumes. It closes over `node` so the
     # judge route resolves per request — installation must still work in a world that holds
     # no model routes at all (every benchmark-only test builds one).
-    node.endpoint(variant.routes.check_surface)(
-        rubric_draft_feedback_endpoint(
-            node,
-            root,
-            DRACO_DRAFT_FEEDBACK,
+    # WHY gated (OME-1527): an offer that is off must not be reachable either. The SDK refuses a
+    # Corrective Loop on a Benchmark with no offer, but a raw url4 string sent to the Engine
+    # skips the SDK, and an installed route would still answer it with a paid Judge call.
+    if draft_feedback:
+        node.endpoint(variant.routes.check_surface)(
+            rubric_draft_feedback_endpoint(
+                node,
+                root,
+                DRACO_DRAFT_FEEDBACK,
+            )
         )
-    )
     node.endpoint(variant.routes.verdict)(_criterion_verdict(variant.id))
     node.endpoint(variant.routes.criterion_evaluation)(_criterion_evaluation(variant.judge_passes))
     node.endpoint(variant.routes.case_evaluation)(

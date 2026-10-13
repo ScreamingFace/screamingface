@@ -241,6 +241,11 @@ discover. Set `config.requestCache.enabled=false` to opt out.
 - **Default-on per request, opt-out per request.** With the operator flag on, an eligible request
   participates in the cache by default. A caller who must not be served a stored answer sends
   `{"cache": {"use-cache": false}}` in the request body and gets a normal dispatch.
+- **One deliberate repeat: the Attempt number.** A Benchmark that asks each Case several times
+  (OME-1458) sends Attempt 2 and later with `{"cache": {"attempt": 2}}` (an integer of at least 2;
+  Attempt 1 sends nothing). The reply is stored under the request plus that number, so Attempt 2
+  is never served Attempt 1's answer and a rerun of Attempt 2 is served its own. A request without
+  the number keys exactly as before. Any other control field still bypasses the cache.
 - **First successful fill wins, permanently.** Rows are created, never overwritten. Whatever the
   first caller's request produced is what everyone receives from then on. A concurrent second fill
   is discarded, not merged.
@@ -475,11 +480,21 @@ calls Tavily exactly as it would have anyway.
 migration was needed. Consequences for operators:
 
 - **Rows never expire**, the same as the response-cache lane — `expires_at` is NULL. This was a
-  deliberate choice of determinism over freshness: a re-run of a benchmark keys *and* answers
-  identically, which is what also lets the tool-loop continuation chat call hit the response
+  deliberate choice of determinism over freshness: a re-run of a benchmark by the same account keys
+  *and* answers identically, which is what also lets the tool-loop continuation chat call hit the response
   cache. The cost is that a stale web result can be served indefinitely.
-- **Cross-account replay applies here too.** Two callers whose retrieval descriptions are
-  identical share one row. Identity never enters the key.
+- **The account is part of the key.** The key includes the id of the calling account. A row that
+  one account fills is a miss for every other account. Only the same account gets the hit. The
+  reason is decision Q30: one account must not be able to poison the results of another account.
+  Cross-account sharing stops until the engine has a service identity (FU-1). A caller that
+  re-runs with the same account still hits its own rows.
+- **Upgrade note (Q30).** After the upgrade, every Tavily row that was written before it is a miss.
+  The old rows stay in the table and are never served. Delete them with the per-provider delete
+  below. The first re-run of a benchmark after the upgrade pays Tavily again. Because new web
+  results can differ, the tool-loop chat calls of that re-run can also miss the response cache.
+- With `AIGW_AUTH_MODE=disabled`, every caller is the same anonymous account, so all callers share
+  one set of rows. A snapshot moves Tavily rows with their account ids. These rows hit only on a
+  gateway that has the same account ids.
 - **The exclusion list IS part of the key.** A row filled by a caller with no domain exclusions
   is never served to one that excluded domains, because a cached hit returns an
   already-formatted result string that can no longer be filtered. Do not remove

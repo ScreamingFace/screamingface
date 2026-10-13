@@ -33,6 +33,7 @@ from tortoise import Tortoise
 from tortoise.backends.asyncpg.client import AsyncpgDBClient
 
 from .snapshot import CopyBlockSource, open_snapshot_stream
+from .store import MERGE_ADVISORY_LOCK_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,8 @@ _REPLACE_SQL: Final = (
 # drifting upward on a later engine run, which points the operator at the engine rather than at
 # the restore that caused it.
 # INVARIANT: counts rows the merge DEGRADES — a live block this load turns to NULL — never rows
-# that were already unknown, and never rows the archive does not mention.
+# that were already unknown, never rows another writer degraded, and never rows the archive does
+# not mention.
 #
 # There are TWO ways a row degrades, and round 2 counted only the first (review round 3, finding
 # 4). The second arm mirrors the stale-metadata TRIGGER's own `WHEN` clause, substituting the
@@ -96,37 +98,46 @@ _REPLACE_SQL: Final = (
 # Without arm 2 a load could clear blocks and still report `metadata_degraded = 0` — a figure the
 # API documents as "this load degraded nothing", which is the one reading it must never support.
 #
+# WHY `FOR UPDATE OF t` (OME-1221): the count and the merge are two statements under READ
+# COMMITTED. Unlocked, a writer could change a counted row in the gap — e.g. a pre-0011 gateway
+# replacing `response_json`, whose trigger clears the block — and the load would be blamed for a
+# degradation the WRITER caused. Locking the colliding rows as they are counted closes that: a row
+# a writer is changing is waited for and re-checked on its committed version, and a locked row
+# cannot change until this transaction commits. The figure is therefore EXACT for every row that
+# existed when it was counted. What remains is one-directional: a fill that INSERTs a staged key
+# after the count is merged but not counted — the figure can understate, never overstate.
+#
+# The locks cost serving nothing: the merge locks these same rows anyway, and while it holds
+# `MERGE_ADVISORY_LOCK_KEY` a hit's bump skips a locked row rather than waiting
+# (`store.record_hit_metadata`). Only writers wait — a fill of an expired key, `delete_expired`,
+# an old pod — and they would have waited for the merge regardless.
+#
 # AIDEV-NOTE: the `response_json` comparison in arm 2 DETOASTS both sides for every colliding row.
 # Deliberate, and not a regression of the hot-path detoast fix in the trigger's column list: this
 # statement runs once per merge, off the serving path. Do not copy it into anything a hit reaches.
+# AIDEV-NOTE: `count(*)` cannot be combined with FOR UPDATE, hence the locking subquery.
 _DEGRADED_COUNT_SQL: Final = f"""
-SELECT count(*)
-  FROM {_TABLE} AS t
-  JOIN {_STAGING} AS s USING (key_hash)
- WHERE t.metadata_json IS NOT NULL
-   AND (s.metadata_json IS NULL
-        OR (s.response_json IS DISTINCT FROM t.response_json
-            AND s.metadata_json IS NOT DISTINCT FROM t.metadata_json))
+SELECT count(*) FROM (
+    SELECT 1
+      FROM {_TABLE} AS t
+      JOIN {_STAGING} AS s USING (key_hash)
+     WHERE t.metadata_json IS NOT NULL
+       AND (s.metadata_json IS NULL
+            OR (s.response_json IS DISTINCT FROM t.response_json
+                AND s.metadata_json IS NOT DISTINCT FROM t.metadata_json))
+       FOR UPDATE OF t
+) AS degraded
 """
 
 # INVARIANT: the load never blocks serving (OME-951 spec §7). Round 2 took SHARE ROW EXCLUSIVE on
 # the live table for the merge's whole duration to make the count above EXACT. That mode conflicts
 # with the ROW EXCLUSIVE every cache hit takes to bump `hit_count`/`last_hit_at` — and the store
 # AWAITS that bump before returning the cached body — so every hit stalled until the merge
-# committed. Sharpening a telemetry field does not justify suspending an approved availability
-# contract (review round 3, finding 2), so the lock is gone and the count is a LOWER BOUND.
+# committed. The table lock is gone; only the colliding ROWS are locked, and a hit skips those.
 #
-# What that costs, precisely: the count and the merge are two statements, and READ COMMITTED gives
-# each its own snapshot while `ON CONFLICT DO UPDATE` re-reads the latest committed row. A fill
-# that commits between them is degraded but uncounted. The error is one-directional — the figure
-# can UNDERSTATE the damage, never overstate it — which is the safe direction for a number an
-# operator acts on: it never blames a restore for a degradation that did not happen.
-#
-# AIDEV-NOTE: do not "fix" the bound by reintroducing a table lock. Exactness here needs an
-# approved change to the snapshot contract first, not a lock added under a telemetry rationale.
-# Row-level `SELECT … FOR UPDATE` over the colliding join was considered and rejected for round 3:
-# it cannot lock a row that does not exist yet, so it buys accuracy under concurrency without
-# reaching exactness — the published wording stays "at least" either way.
+# AIDEV-NOTE: do not "fix" the remaining downward error with a table lock. Exactness for rows that
+# do not exist yet needs an approved change to the snapshot contract first, not a lock added under
+# a telemetry rationale.
 
 
 class CacheUploadUnsupportedDatabase(RuntimeError):
@@ -158,8 +169,9 @@ class LoadOutcome(NamedTuple):
     staged_rows: int
     live_before: int
     live_after: int
-    # How many live rows this load was OBSERVED to turn from "priced" back to "unknown" (ERD E7).
-    # A lower bound — see `_DEGRADED_COUNT_SQL`. Merge only:
+    # How many live rows this load turned from "priced" back to "unknown" (ERD E7). Exact for rows
+    # that existed when counted; a fill racing the load can only make it understate — see
+    # `_DEGRADED_COUNT_SQL`. Merge only:
     # replace discards the whole table by contract, behind the caller's own loss acknowledgement,
     # so per-row degradation is not the fact being reported there.
     metadata_degraded: int = 0
@@ -241,10 +253,14 @@ async def load_snapshot(
         # a mid-load failure leaves the live table untouched rather than half-replaced.
         async with raw.transaction():
             if mode == "merge":
+                # Taken FIRST, before any row lock: tells a hit that finds a row locked that the
+                # holder may be this merge, so it skips its bump instead of waiting (spec §7;
+                # `store.record_hit_metadata`). Released by COMMIT/ROLLBACK.
+                await raw.execute("SELECT pg_advisory_xact_lock($1)", MERGE_ADVISORY_LOCK_KEY)
                 # Counted BEFORE the merge, inside the same transaction: afterwards the live
-                # block is already gone and the two states are indistinguishable. Nothing locks
-                # the gap between this statement and the merge below — the count is a lower
-                # bound by design; see `_DEGRADED_COUNT_SQL` for why that beats a stalled cache.
+                # block is already gone and the two states are indistinguishable. The count locks
+                # the rows it reads, so nothing else can change them before the merge below;
+                # see `_DEGRADED_COUNT_SQL`.
                 metadata_degraded = await raw.fetchval(_DEGRADED_COUNT_SQL) or 0
                 await raw.execute(_MERGE_SQL)
             else:

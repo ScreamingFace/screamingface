@@ -29,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.12", "3.13", "3.14"]
     defaults:
       run:
         working-directory: packages/url4
@@ -211,6 +211,53 @@ jobs:
         run: |
           if [ -f serve.pid ]; then kill "$(cat serve.pid)" 2>/dev/null || true; fi
           if [ -f serve.log ]; then echo "--- serve.log ---"; cat serve.log; fi
+
+  # The examples are the teaching surface, so they run end to end on every change.
+  # Each notebook executes against the offline StaticIOLayer, with the notebook
+  # directory as the kernel's working directory (utils.py is imported from there).
+  # A grammar or API change that breaks an example fails here, not at the next reader.
+  notebooks:
+    name: notebooks (examples/)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/url4
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The show_graph and show_run cells render with the Graphviz `dot` binary.
+      - name: Install Graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+
+      - name: Install dependencies (notebook group)
+        run: uv sync --group notebook
+
+      - name: Execute every notebook in examples/
+        run: |
+          uv run --group notebook python - <<'PY'
+          import pathlib
+
+          import nbformat
+          from nbclient import NotebookClient
+
+          for path in sorted(pathlib.Path("examples").glob("*.ipynb")):
+              nb = nbformat.read(path, as_version=4)
+              NotebookClient(
+                  nb,
+                  timeout=120,
+                  kernel_name="python3",
+                  resources={"metadata": {"path": "examples"}},
+              ).execute()
+              print(f"ok  {path}")
+          PY
 
   build:
     name: Build & validate package

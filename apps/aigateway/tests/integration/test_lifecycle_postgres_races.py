@@ -10,6 +10,7 @@ import time
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
@@ -34,6 +35,7 @@ from aigateway.core.oauth.store import (
     credential_locator_for,
 )
 from aigateway.core.profile_models import credential_name_for
+from aigateway.core.provider_access.refresh_guard import GuardedRefreshPublication
 from aigateway.main import create_app
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
@@ -572,23 +574,25 @@ def test_profile_refresh_publication_loses_to_committed_delete_on_postgres(
     name = f"refresh-delete-{uuid4()}"
     assert pg_client.post("/v1/auth/anthropic/profiles", json={"name": name}).status_code == 201
 
-    # refresh_profile builds its strategy via credential_strategy_from (not the shared cache), so
-    # substitute a no-op strategy to isolate the require_present publication CAS from the network.
-    class _NoopProfileStrategy:
-        async def refresh_credentials(self) -> None:
-            return None
-
-        async def delete_credentials(self) -> None:
-            return None
-
-    monkeypatch.setattr(
-        "aigateway.routes.auth.credential_strategy_from",
-        lambda *args, **kwargs: _NoopProfileStrategy(),
+    # WHY (OME-1497, G0 §5.3): the refresh publishes under the guard, so the probe is the guard's
+    # publication (marker, then the account index row), reached with a real OAuth refresh against a
+    # mocked provider.
+    app = _app(pg_client)
+    portal = pg_client.portal
+    if portal is None:
+        raise AssertionError("TestClient portal is not active")
+    portal.call(
+        app.state.credential_store.write,
+        credential_service_for(credential_name_for(account_id, name)),
+        "default",
+        '{"access_token": "old", "refresh_token": "rt", "token_type": "Bearer", '
+        '"expires_at_ms": 0}',
     )
+    app.state.anthropic_http_factory = _token_factory("refreshed-token")
 
-    index = _app(pg_client).state.profile_index
+    index = app.state.profile_index
     remove = index.remove
-    upsert = index.upsert
+    real_publish = GuardedRefreshPublication.publish
     delete_holds_index = threading.Event()
     refresh_reached_publish = threading.Event()
     release_delete = threading.Event()
@@ -601,13 +605,13 @@ def test_profile_refresh_publication_loses_to_committed_delete_on_postgres(
         if not await asyncio.to_thread(release_delete.wait, 10):
             raise TimeoutError("profile delete was not released")
 
-    async def _attempting_upsert(*args, **kwargs):
-        # Signal just before require_present publishes, which then blocks on the delete's row lock.
+    async def _attempting_publish(self: Any, captured: object, write: Any) -> None:
+        # Signal just before the guarded publication, which then blocks on the delete's row locks.
         refresh_reached_publish.set()
-        return await upsert(*args, **kwargs)
+        await real_publish(self, captured, write)
 
     monkeypatch.setattr(index, "remove", _holding_remove)
-    monkeypatch.setattr(index, "upsert", _attempting_upsert)
+    monkeypatch.setattr(GuardedRefreshPublication, "publish", _attempting_publish)
     with ThreadPoolExecutor(max_workers=2) as executor:
         deleting = executor.submit(pg_client.delete, f"/v1/auth/anthropic/profiles/{name}")
         assert delete_holds_index.wait(10), "delete never took the profile-index row lock"

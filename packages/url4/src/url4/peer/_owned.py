@@ -25,23 +25,31 @@ class _OwnedIO:
     :meth:`outbound` returns the injected layer when one was given, else creates
     (once) and returns the owned adapter. :meth:`aclose` closes ONLY the owned
     adapter — an injected layer is the caller's to manage — and is idempotent,
-    because the reference is dropped before the close is awaited.
+    because the reference is dropped before the close is awaited. Closing is
+    final for the owned adapter: after :meth:`aclose`, :meth:`outbound` raises
+    instead of creating a new one.
     """
 
     def __init__(self, injected: IOLayer | None) -> None:
         self._injected = injected
         self._owned: IOLayer | None = None
+        self._closed = False
 
     def outbound(self) -> IOLayer:
         """The injected adapter, else the owned one created on first use."""
         if self._injected is not None:
             return self._injected
+        if self._closed:
+            raise RuntimeError(
+                "this Client or Url4Node is closed (its owned IO adapter was closed)"
+            )
         if self._owned is None:
             self._owned = _http_io()
         return self._owned
 
     async def aclose(self) -> None:
         """Close the owned adapter if one exists; leave an injected layer alone."""
+        self._closed = True
         owned, self._owned = self._owned, None
         if isinstance(owned, SupportsClose):
             await owned.aclose()

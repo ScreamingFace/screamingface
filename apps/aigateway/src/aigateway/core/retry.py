@@ -74,7 +74,7 @@ def is_retryable_status(exc: BaseException) -> bool:
 def _seconds_from_headers(headers: Any) -> int | None:
     if headers is None:
         return None
-    raw = _case_insensitive_header(headers, "retry-after")
+    raw = case_insensitive_header(headers, "retry-after")
     if raw is None:
         return None
     # RFC 9110 delay-seconds = 1*DIGIT: ASCII, unsigned, integral. HTTP-date
@@ -91,7 +91,7 @@ def _seconds_from_headers(headers: Any) -> int | None:
     return int(normalized)
 
 
-def _case_insensitive_header(headers: Any, name: str) -> Any:
+def case_insensitive_header(headers: Any, name: str) -> Any:
     """Read ``name`` from ``headers`` regardless of key casing.
 
     ``httpx.Headers`` is case-insensitive natively, but FastAPI's

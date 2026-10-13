@@ -239,6 +239,8 @@ class _CacheRecordingRunner(RecordingJobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: RunShape = "expression",
+        capture: bool = False,
+        replay_frozen_copy: str | None = None,
     ) -> str:
         self.cache_policies.append(cache)
         return await super().schedule(
@@ -318,6 +320,14 @@ class _MockAigateway:
         self._index = 0
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v1/retrieval/tavily/cache/"):
+            # OME-1045: the retrieval-cache routes are answered, and never counted as chat calls.
+            return httpx.Response(
+                200,
+                json={"outcome": "stored"}
+                if request.url.path.endswith("/entries")
+                else {"status": "miss", "reason": None, "result": None},
+            )
         self.contents.append(request.content)
         self.bodies.append(json.loads(request.content))
         if self._index < len(self._script):

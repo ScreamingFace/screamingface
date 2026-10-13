@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 from url4 import Expression, Node, Source, Text, src
+
+from screamingface.fusion import _quorum
 
 _SCHEMA = "screamingface.recipe.v1"
 _SOURCE_NAME = "_sf_recipe"
@@ -31,6 +33,8 @@ class _RecipeTopology:
     members: tuple[_RecipeTopology, ...] = ()
     synthesizer: _RecipeTopology | None = None
     stages: tuple[_RecipeTopology, ...] = ()
+    quorum: int | Literal["all"] = "all"
+    optional: bool = False
     # Corrective-loop identity (OME-796): the judge role, the cost cap, the
     # check route compiled against (carries the benchmark revision), and the
     # loop protocol revision — run records self-describe with no new mechanism.
@@ -196,7 +200,10 @@ def _encode_topology(value: _RecipeTopology) -> str:
 
 
 def _encode_node(value: _RecipeTopology) -> dict[str, object]:
-    return _ENCODERS[value.kind](value)
+    payload = _ENCODERS[value.kind](value)
+    if value.optional:
+        payload["optional"] = True
+    return payload
 
 
 def _encode_model(value: _RecipeTopology) -> dict[str, object]:
@@ -250,7 +257,11 @@ def _encode_self_corrective(value: _RecipeTopology) -> dict[str, object]:
 
 def _encode_fusion(value: _RecipeTopology) -> dict[str, object]:
     assert value.synthesizer is not None
+    policy = {}
+    if value.quorum != "all":
+        policy = {"quorum": value.quorum}
     return {
+        **policy,
         "binding": value.binding,
         "kind": value.kind,
         "members": [_encode_node(member) for member in value.members],
@@ -271,6 +282,10 @@ _ENCODERS: dict[str, Callable[[_RecipeTopology], dict[str, object]]] = {
 def _decode_node(value: object) -> _RecipeTopology:
     if not isinstance(value, dict):
         raise ValueError("URL4 Candidate has invalid Recipe topology metadata")
+    optional = value.get("optional", False)
+    if not isinstance(optional, bool):
+        raise ValueError("URL4 Candidate has invalid optional policy metadata")
+    value = {key: field for key, field in value.items() if key != "optional"}
     kind = value.get("kind")
     name = _text(value.get("name"))
     binding = _binding(value.get("binding"))
@@ -283,7 +298,7 @@ def _decode_node(value: object) -> _RecipeTopology:
     }.get(kind if isinstance(kind, str) else "")
     if decoder is None:
         raise ValueError("URL4 Candidate has invalid Recipe topology metadata")
-    return decoder(value, name, binding)
+    return replace(decoder(value, name, binding), optional=optional)
 
 
 def _decode_model(
@@ -334,7 +349,8 @@ def _decode_fusion(
     name: str,
     binding: str,
 ) -> _RecipeTopology:
-    if set(value) != {"binding", "kind", "members", "name", "synthesizer"}:
+    expected = {"binding", "kind", "members", "name", "synthesizer"}
+    if set(value) not in (expected, expected | {"quorum"}):
         raise ValueError("URL4 Candidate has invalid Fusion topology metadata")
     members_value = value["members"]
     if not isinstance(members_value, list):
@@ -344,6 +360,7 @@ def _decode_fusion(
     if not members or binding != synthesizer.binding:
         raise ValueError("URL4 Candidate has invalid Fusion topology metadata")
     return _RecipeTopology(
+        quorum=_quorum(value.get("quorum", "all"), len(members)),
         kind="fusion",
         name=name,
         binding=binding,

@@ -6,10 +6,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from screamingface._evaluation.model import Candidate
+    from screamingface._evaluation.model import Candidate, _Evaluation
     from screamingface.events import Event
     from screamingface.report import Usage
 
@@ -34,10 +35,9 @@ class _ResultArtifact:
 class _RunOutcome:
     """Transport-neutral root result retained for strict Report decoding.
 
-    INVARIANT: exactly one of `result_body` / `artifact` is set when the contract layer
-    builds this; the transport materializes an artifact outcome into a full `result_body`
-    (artifact=None) before anything downstream decodes it — Report construction never
-    sees an unredeemed ticket.
+    The contract supplies an inline body or artifact ticket. Public Clients select
+    persistence and provide a result_path before decoding; artifact tickets remain
+    available for recovery. save_results=False retains the legacy in-memory path.
     """
 
     run_id: str
@@ -61,6 +61,7 @@ class _RunOutcome:
     # including for a run whose frames never arrived.
     trace_id: str | None = None
     client_version: str | None = None
+    result_path: Path | None = None
     # FEATURE (OME-1441, spec 2026-09-30-cached-run-not-complete): how many of this run's gateway
     # round trips the response cache served. A hit spends nothing upstream, so any hit means the
     # spend is not the run's cost, and the submission must not publish it as `complete`.
@@ -69,6 +70,16 @@ class _RunOutcome:
     # all. None when no summary arrived: the Engine may drop log events under backpressure, so
     # absence is "unknown", never "none were unpriced". The submission needs 0 to claim `complete`.
     cache_unpriced_hits: int | None = None
+    # FEATURE (OME-1307): the run summary's frozen copy. None means the summary did not say (an
+    # older Engine, or a run that was not a capture run), which is not `partial`: the submission
+    # omits what it does not know.
+    frozen_copy_id: str | None = None
+    capture_status: Literal["complete", "partial"] | None = None
+    # The copy the Engine says it replayed from. Only a replay run's summary carries it, and only
+    # an Engine that honoured `X-Replay-Frozen-Copy` writes it.
+    capture_replay: str | None = None
+    # The partial reasons the run counted (design §5.2), sorted. Empty when complete or unknown.
+    capture_partial_reasons: tuple[str, ...] = ()
 
 
 # FEATURE: OME-1066 adds the two capacity states — a start the Engine did not admit yet
@@ -133,3 +144,10 @@ class AsyncRunTransport(Protocol):
 
 
 __all__: list[str] = []
+
+
+@runtime_checkable
+class _ResultPersistence(Protocol):
+    def prepare_results(
+        self, evaluation: _Evaluation, candidates: tuple[Candidate, ...]
+    ) -> Path | None: ...

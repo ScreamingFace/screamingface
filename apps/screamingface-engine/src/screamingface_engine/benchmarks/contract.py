@@ -68,10 +68,21 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # code — aigateway's catch-all 500. Sits beside `aigateway_http_<status>`: gateway-
         # attributed and retryable (permanent=False from the 5xx), never `upstream_error`.
         "gateway_internal_error",
+        # WHY declared (OME-1458): a Benchmark that asks each Case several times marks a
+        # Check met if any Attempt met it, which only means something for a Check graded 0
+        # or 1. An Attempt whose Check scored anything else fails its Case by this name.
+        "attempt_grade_not_pass_fail",
         "provider_queue_timeout",
         "provider_execution_timeout",
         "caller_deadline_exceeded",
         "aigateway_deadline_exceeded",
+        # WHY declared (OME-1307, F-B3): a replay's own failures. A case that the frozen copy
+        # cannot answer, or a copy that is unknown or not sealed, fails as itself — a client must
+        # not read either as `upstream_error`. Both are engine-authored. `frozen_copy_miss` is
+        # permanent; `frozen_copy_unavailable` is permanent for an unknown or unsealed copy and
+        # transient when the gateway did not answer a tool lookup.
+        "frozen_copy_miss",
+        "frozen_copy_unavailable",
         "invalid_candidate_input",
         "web_tool_loop_limit",
         "web_retrieval_invalid",
@@ -87,6 +98,9 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "invalid_case_evaluation",
         "ifeval_checker_failed",
         "draco_grading_failed",
+        # AIDEV-NOTE (OME-1527): nothing emits this since gdpval-text became a local Task; it
+        # stays declared because the SDK refuses an undeclared code when it reads a Report, so
+        # a gdpval-text Report made before the move must stay readable.
         "gdpval_grading_failed",
         "healthbench_grading_failed",
         "medxpert_grading_failed",
@@ -94,6 +108,9 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # WHY declared here (OME-1246): contracteval (PR #984) landed in flight with the
         # OME-1233 vocabulary close, so its two codes never joined the set — a polarity
         # mismatch then CRASHED report validation instead of failing the case.
+        # AIDEV-NOTE (OME-1527, #1355): nothing emits these two since contracteval became a
+        # local Task; they stay declared because the SDK refuses an undeclared code when it
+        # reads a Report, so a contracteval Report made before the move must stay readable.
         "contracteval_grading_failed",
         "polarity_mismatch",
         "missing_answer_asset",
@@ -278,6 +295,10 @@ class CaseResult(_StrictWireModel):
     operations: list[OperationOutput] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    # FEATURE (OME-1458): every Attempt of a Benchmark that asks each Case N times, in order.
+    # INVARIANT: excluded when None, so a Benchmark without Attempts serializes byte-for-byte
+    # as before; `output` and `grade` above are the shown answer and the per-Check fold.
+    attempts: list[CaseAttempt] | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("case_id")
     @classmethod
@@ -302,12 +323,9 @@ class CaseResult(_StrictWireModel):
     def _enforce_status(self) -> CaseResult:
         if (self.stop_reason is None) != (self.rounds_executed is None):
             raise ValueError("stop_reason and rounds_executed must be present together")
-        if any(failure.case_id != self.case_id for failure in self.failures):
-            raise ValueError("every Case Failure must reference its own case_id")
-        if self.status == "scored":
-            _require_scored_case(self)
-        else:
-            _require_failed_case(self)
+        _require_case_outcome(self)
+        if self.attempts is not None:
+            _require_case_attempts(self)
         return self
 
 
@@ -328,6 +346,27 @@ class OperationOutput(_StrictWireModel):
     @classmethod
     def _validate_finish_reason(cls, value: str | None) -> str | None:
         return validate_finish_reason(value)
+
+
+class CaseAttempt(_StrictWireModel):
+    """One Attempt at a Case: what the Candidate answered that time, and its own grade.
+
+    FEATURE (OME-1458): the SDK's ``CaseAttempt``, key for key. ``operations`` are this
+    Attempt's cost records; under Attempts the Case carries none of its own, so every model
+    call is billed exactly once. The outcome rules are a Case Result's, checked by the owning
+    `CaseResult`, which knows the Case id.
+    """
+
+    attempt: int = Field(ge=1)
+    status: CaseStatus
+    output: str | None
+    finish_reason: str | None
+    refusal: str | None
+    grade: CaseGrade | None
+    failures: list[Failure]
+    operations: list[OperationOutput] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class CorrectiveLoopOutcome(_StrictWireModel):
@@ -415,6 +454,43 @@ def _require_scored_case(case: CaseResult) -> None:
             "a scored Case requires a numeric grade and exactly one of output and refusal, "
             "and cannot carry failures"
         )
+
+
+def _require_case_attempts(case: CaseResult) -> None:
+    """A Case's Attempts are numbered 1..N with N ≥ 2, carry its cost, and obey its rules.
+
+    WHY N ≥ 2: one Attempt is spelled by absence, so a report has one shape per meaning.
+    WHY no Case-level operations: each Attempt carries its own; a copy would bill twice.
+    """
+
+    assert case.attempts is not None
+    numbers: list[int] = [attempt.attempt for attempt in case.attempts]
+    if len(numbers) < 2 or numbers != list(range(1, len(numbers) + 1)):
+        raise ValueError("Case attempts must be numbered 1..N with N of at least 2")
+    if case.operations is not None:
+        raise ValueError("a Case with attempts carries its operations on each attempt")
+    for attempt in case.attempts:
+        _require_case_outcome(
+            CaseResult.model_construct(
+                status=attempt.status,
+                case_id=case.case_id,
+                output=attempt.output,
+                refusal=attempt.refusal,
+                grade=attempt.grade,
+                failures=attempt.failures,
+            )
+        )
+
+
+def _require_case_outcome(case: CaseResult) -> None:
+    """The scored-or-failed rules every Case Result, and every Attempt, obeys."""
+
+    if any(failure.case_id != case.case_id for failure in case.failures):
+        raise ValueError("every Case Failure must reference its own case_id")
+    if case.status == "scored":
+        _require_scored_case(case)
+    else:
+        _require_failed_case(case)
 
 
 def _require_failed_case(case: CaseResult) -> None:
@@ -730,6 +806,7 @@ __all__ = [
     "CandidateInvocationStatus",
     "CaseId",
     "CaseGrade",
+    "CaseAttempt",
     "CaseResult",
     "CandidateResult",
     "CorrectiveLoopOutcome",

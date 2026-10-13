@@ -66,7 +66,7 @@ COPY --from=ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de5
 # versions were a second hand-maintained copy of the pins. They are now declared in the engine's
 # `benchmarks` extra, which is a superset of `inspect`, so this one sync resolves the whole
 # preparer world from the lock. Keep the pins in step with `packages/screamingface`'s runtime
-# extra and with `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
+# extra; gdpval-text's Case Digest is what notices an extraction change.
 #
 # This stage is thrown away — the runtime image below is `FROM ${BASE}` again, so the readers
 # never ship. `inspect-ai`/`inspect-evals` DO ship, because the base image installs `--extra

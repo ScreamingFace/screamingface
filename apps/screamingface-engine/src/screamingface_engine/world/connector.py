@@ -16,12 +16,32 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import NoReturn
+from weakref import WeakKeyDictionary
 
 import httpx
 
-from screamingface_engine import job_env
+from screamingface_engine import engine_version, job_env
+from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
+from screamingface_engine.capture_outcomes import (
+    CAPTURE_FIELD,
+    FROZEN_COPIES_PATH,
+    FROZEN_COPY_HEADER,
+    REPLAY_FIELD,
+    REPLAY_MISS,
+    REPLAY_UNAVAILABLE,
+    CaptureOutcome,
+    CaptureTally,
+    Status,
+    call_key_headers,
+    current_capture_tally,
+    record_capture_outcome,
+    replay_chat_path,
+    replay_refusal_code,
+    request_digest,
+    seal_path,
+)
 from screamingface_engine.error_text import ENGINE_RESERVED_CODES
 from screamingface_engine.grading_call_scope import grading_call_log_suffix
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
@@ -43,7 +63,7 @@ from screamingface_engine.world.accounting import (
     read_aigw,
     retained_operation_accounting,
 )
-from screamingface_engine.world.cache import policy_to_body_field
+from screamingface_engine.world.cache import attempt_body_field, with_cache_policy
 from screamingface_engine.world.cache_readback import (
     CacheOutcome,
     read_cache_outcome,
@@ -51,6 +71,7 @@ from screamingface_engine.world.cache_readback import (
 )
 from screamingface_engine.world.config import ModelSpec, WorldConfigError, provider_of, routes_for
 from screamingface_engine.world.errors import RunnerRequestError
+from screamingface_engine.world.fresh_judge_retry import scope_for_this_send
 from screamingface_engine.world.model_response import (
     Choice,
     parse_choice,
@@ -61,12 +82,15 @@ from screamingface_engine.world.request_parameters import (
     WEB_SEARCH_PARAM,
     apply_answer_seed,
     apply_retrieval_policy,
+    attempt_egress,
     caller_exclusions,
     model_params,
     wants_web_search,
 )
+from screamingface_engine.world.tavily_retrieval_cache import TavilyRetrievalCache
 from screamingface_engine.world.web_tools import (
     WEB_TOOLS,
+    FrozenToolResults,
     WebToolRuntime,
     append_tool_results,
     build_client,
@@ -75,12 +99,24 @@ from screamingface_engine.world.web_tools import (
     truncate_tool_result,
 )
 from url4.core.errors import ResolutionError
+from url4.dag import GuardRetry, current_guard_retry
 from url4.io.static import StaticIOLayer
 from url4.observe import current_log_sink, current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
 from url4.streaming.protocol import CachePolicy
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
+_CAPTURE_STATUSES: dict[str, Status] = {
+    "stored": "stored",
+    "failed": "failed",
+    "refused": "refused",
+}
+"""The statuses the gateway reports. A LOOKUP, so a word outside the vocabulary reads as absent
+(`missing`), never as a guess."""
+_REPLAYED = CacheOutcome(status="hit", reason=None, key=None, age_s=None)
+"""How a replayed answer is accounted: like a cache hit, unretried. It cost nothing — the gateway
+sets the body's call cost to 0 — and a replay never pays a provider, so no transport retry of it
+can have been billed."""
 _truncate_tool_result = truncate_tool_result
 # WHY the pre-refactor name, not `__name__` (FX-19): this module moved from `runner/` to
 # `world/` in unit 1, and operators filter the runtime log by logger name. Keeping the old name
@@ -140,6 +176,7 @@ async def _logged_round_trip(
     cache: CachePolicy,
     max_tokens: object | None,
     operation_accounting: list[OperationAccounting | None],
+    replay_frozen_copy: str | None = None,
 ) -> Choice:
     # FEATURE: OME-1161 exposes execution facts to optional, node-associated observers.
     async with ModelCall(real_model_id, current_log_sink()) as observation:
@@ -152,6 +189,7 @@ async def _logged_round_trip(
             max_tokens=max_tokens,
             operation_accounting=operation_accounting,
             observation=observation,
+            replay_frozen_copy=replay_frozen_copy,
         )
 
 
@@ -165,6 +203,7 @@ async def _observed_round_trip(
     max_tokens: object | None,
     operation_accounting: list[OperationAccounting | None],
     observation: ModelCall,
+    replay_frozen_copy: str | None,
 ) -> Choice:
     """One gateway round trip with its lifecycle in the log.
 
@@ -176,8 +215,12 @@ async def _observed_round_trip(
     started = time.monotonic()
     heartbeat = asyncio.create_task(_in_flight_heartbeat(real_model_id, started))
     try:
-        resp, outcome = await _fetch_completion(
-            http_client, headers=headers, body=body, cache=cache
+        resp, outcome = await _recorded_completion(
+            http_client,
+            headers=headers,
+            body=body,
+            cache=cache,
+            replay_frozen_copy=replay_frozen_copy,
         )
         data = _json_or_raise(resp)
         _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
@@ -192,7 +235,12 @@ async def _observed_round_trip(
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most
         # needs to audit, and raising first would lose exactly the event OME-679 exists to
         # capture.
-        _report_response(choice, outcome, data.get("_aigw"))
+        # INVARIANT: a replayed answer claims NO saving. It is served from the cache's accounting
+        # path at $0, but the copy answered; nothing was avoided, and the captured body's `_aigw`
+        # may still carry the saved-cost reference of the original run's own cache hit.
+        _report_response(
+            choice, outcome, None if replay_frozen_copy is not None else data.get("_aigw")
+        )
         _raise_if_unusable_with_accounting(
             choice,
             max_tokens=max_tokens,
@@ -361,7 +409,13 @@ class _ModelEndpoint:
             # never held on `self`. Two concurrent callers through this one handler each observe
             # their own scope because each runs in its own context (AC2), and a spawned model
             # call inherits the scope of the task that created it (AC4).
-            scope = current_scope()
+            # OME-1533: a re-ask of a Judge whose last reply was unusable runs under the same
+            # scope opted out of the gateway cache, which would otherwise serve the stored
+            # garbled reply again; every other call keeps the caller's scope.
+            retry: GuardRetry | None = current_guard_retry()
+            scope = scope_for_this_send(
+                current_scope(), None if retry is None else retry.failure_code
+            )
             retrieval_policy = current_retrieval_policy()
             params = apply_retrieval_policy(request.params, retrieval_policy)
             # FEATURE (OME-1038): the run's declared answer seed, stamped AFTER the retrieval
@@ -380,7 +434,15 @@ class _ModelEndpoint:
                 if in_candidate_invocation() or scope.origin == "sync"
                 else None
             )
-            params = apply_answer_seed(params, ambient_seed)
+            # FEATURE (OME-1458): Attempt 2 and later of a Case must not be a copy of Attempt 1
+            # — a derived seed when the run's seed applies, else the Attempt number for the
+            # gateway's cache. Read only inside the Candidate Invocation, so a judge never is.
+            egress = attempt_egress(
+                params,
+                ambient_seed,
+                current_case_attempt() if in_candidate_invocation() else None,
+            )
+            params = apply_answer_seed(params, egress.answer_seed)
             # WHY: the identity is the REQUEST's path and params (pre-policy), because
             # OME-843 attribution matches them against the candidate expression's own
             # source text — the policy-applied set may differ from what was written.
@@ -400,12 +462,23 @@ class _ModelEndpoint:
                     tavily_http=self._tavily_http,
                     tavily_api_key=self._tavily_api_key,
                     retrieval_policy=retrieval_policy,
+                    cache_attempt=egress.cache_attempt,
                 )
         except RunnerRequestError as exc:
             error = ResolutionError(str(exc), code=exc.code, permanent=exc.permanent)
             if exc.outcome is not None:
                 bind_model_outcome(error, exc.outcome)
             raise error from exc
+
+
+_GATEWAY_CLIENTS: WeakKeyDictionary[Url4Node, httpx.AsyncClient] = WeakKeyDictionary()
+"""The aigateway client of each world node, keyed by the node itself.
+
+WHY a side table (the idiom of `world.factory._DIRECT_MOUNTS`): the executor drives a run on the
+node the world factory returned and owns no client, yet a capture run must open and seal its copy
+on the SAME client and headers as the run's chat calls. An engine-owned table read through
+:func:`open_frozen_copy` keeps the node's own type unwidened and the `World` tuple unchanged.
+"""
 
 
 async def build_aigateway_world(
@@ -476,6 +549,7 @@ async def build_aigateway_world(
     )
     for path in routes:
         node.endpoint(path)(call_model)
+    _GATEWAY_CLIENTS[node] = http_client
     return AigatewayWorld(
         node=node,
         _client=http_client,
@@ -483,6 +557,62 @@ async def build_aigateway_world(
         _tavily_client=tavily_http,
         _owns_tavily_client=owns_tavily_client,
     )
+
+
+async def open_frozen_copy(node: object) -> str | None:
+    """Open the frozen copy a capture run stores into, on ``node``'s gateway client.
+
+    FEATURE: OME-1307 (design §5.2 item 1). Sent with the run's identity headers, as the chat calls
+    are. Total: a node with no gateway client, any failure (`Exception`, never a cancellation) and
+    a body without a copy id all return ``None``, and the run goes on uncaptured and partial.
+    Names the error type only in the log, never a body.
+
+    INVARIANT: the id goes into every later URL path, so it must be a UUID or it is refused.
+    """
+    client = _gateway_client(node)
+    if client is None:
+        return None
+    try:
+        response = await client.post(FROZEN_COPIES_PATH, headers=_headers(current_scope()))
+        response.raise_for_status()
+        body = response.json()
+        copy_id = body.get("id") if isinstance(body, dict) else None
+        if not isinstance(copy_id, str) or job_env.FROZEN_COPY_ID.fullmatch(copy_id) is None:
+            raise ValueError("the gateway named no frozen copy")
+    except Exception as exc:  # noqa: BLE001 - best effort: nothing here may fail the run
+        logger.warning("frozen copy open failed error=%s", type(exc).__name__)
+        return None
+    return copy_id
+
+
+async def seal_frozen_copy(node: object, copy_id: str) -> bool:
+    """Seal ``copy_id``. ``True`` only when the gateway confirms it is sealed; total, like the open.
+
+    A sealed copy is what a replay reads; an open one is refused as unavailable.
+
+    FEATURE: E14 Q28. The seal states the engine version, so the copy records what captured it.
+    A source tree with no installed version seals with no body (the gateway stores no provenance).
+    """
+    client = _gateway_client(node)
+    if client is None:
+        return False
+    version = engine_version()
+    try:
+        response = await client.post(
+            seal_path(copy_id),
+            headers=_headers(current_scope()),
+            json={"provenance": {"engine_version": version}} if version else None,
+        )
+        response.raise_for_status()
+        body = response.json()
+    except Exception as exc:  # noqa: BLE001 - best effort, as the open: a failed seal is `partial`
+        logger.warning("frozen copy seal failed error=%s", type(exc).__name__)
+        return False
+    return isinstance(body, dict) and body.get("status") == "sealed"
+
+
+def _gateway_client(node: object) -> httpx.AsyncClient | None:
+    return _GATEWAY_CLIENTS.get(node) if isinstance(node, Url4Node) else None
 
 
 def _report_response(choice: Choice, cache: CacheOutcome, aigw: object = None) -> None:
@@ -649,6 +779,8 @@ async def _post_completion(
     *,
     headers: dict[str, str],
     body: dict,
+    path: str = _COMPLETIONS_PATH,
+    probe: _CaptureProbe | None = None,
 ) -> tuple[httpx.Response, bool]:
     """Use one bounded retry policy for transport failures and explicit queue expiry.
 
@@ -657,6 +789,8 @@ async def _post_completion(
     The bool marks a retry that followed a failure which may have reached the gateway, and so
     may have been billed. A known queue refusal never dispatched and must not make subsequent
     usage unknown; neither does a connect-phase failure (`_NEVER_SENT`).
+    Independently, a capture ``probe`` learns every lost reply as it happens, including a
+    connect-phase failure: capture ordering is ambiguous after any retry even when billing is not.
     """
     deadline = _current_deadline()
     configured = _transport_budget(http_client, headers)
@@ -666,10 +800,13 @@ async def _post_completion(
         timeout = _attempt_timeout(deadline, configured, last)
         try:
             response = await _post_attempt(
-                http_client, headers, body, deadline, configured, timeout
+                http_client, headers, body, deadline, configured, timeout, path=path
             )
         except httpx.TransportError as exc:
             last = exc
+            if probe is not None:
+                # Told now, not at the answer: a call whose every attempt fails never gets one.
+                probe.lost_reply()
             possibly_billed = possibly_billed or not isinstance(exc, _NEVER_SENT)
             if isinstance(exc, httpx.TimeoutException) and _deadline_bound(timeout, configured):
                 raise _deadline_exceeded(exc) from exc
@@ -705,6 +842,8 @@ async def _post_attempt(
     deadline: float | None,
     configured: float | None,
     timeout: float | None,
+    *,
+    path: str = _COMPLETIONS_PATH,
 ) -> httpx.Response:
     attempt_headers = dict(headers)
     if deadline is not None:
@@ -720,7 +859,7 @@ async def _post_attempt(
         # Also bound transports without HTTPX timeout enforcement and trickling replies.
         async with asyncio.timeout(limit):
             return await client.post(
-                _COMPLETIONS_PATH,
+                path,
                 headers=attempt_headers,
                 json=body,
                 timeout=transport_timeout,
@@ -869,6 +1008,7 @@ async def _fetch_completion(
     headers: dict[str, str],
     body: dict,
     cache: CachePolicy,
+    probe: _CaptureProbe | None = None,
 ) -> tuple[httpx.Response, CacheOutcome]:
     """One chat-completions round trip under this run's cache policy, plus what the gateway
     reported about the cache — re-issued without the cache when the answer cannot be served.
@@ -894,8 +1034,13 @@ async def _fetch_completion(
         # run's body is byte-identical to the one this connector has always sent — which is also
         # the smallest surface exposed to the gateway's closed cache grammar, where one
         # unrecognised key silently costs every hit (spec §1.0).
-        body={**body, **policy_to_body_field(cache)},
+        # FEATURE (OME-1458): merged INTO an Attempt's `cache` object, never over it, so
+        # Attempt 2+ keeps its number; for every other call this is exactly the old merge.
+        body=with_cache_policy(body, cache),
+        probe=probe,
     )
+    if probe is not None:
+        probe.read(resp)
     _raise_for_status(resp)
     outcome = read_cache_outcome(resp.headers, retried=retried)
     if not requires_revalidation(cache, outcome):
@@ -906,12 +1051,185 @@ async def _fetch_completion(
     resp, reissue_retried = await _post_completion(
         http_client,
         headers=headers,
-        body={**body, **policy_to_body_field(CachePolicy(participate=False))},
+        body=with_cache_policy(body, CachePolicy(participate=False)),
+        probe=probe,
     )
+    if probe is not None:
+        probe.read(resp)
     _raise_for_status(resp)
     # INVARIANT (OME-1220): a possibly billed attempt lost on the FIRST round trip is still spend
     # this call cannot price, even though the re-issue that replaced it ran cleanly.
     return resp, read_cache_outcome(resp.headers, retried=retried or reissue_retried)
+
+
+@dataclass(slots=True)
+class _CaptureProbe:
+    """What the last gateway response of one logical chat call said about its capture.
+
+    Filled BEFORE `_raise_for_status`, so an error response still says what the gateway stored.
+    `lost_reply` is called by `_post_completion` at each lost transport reply, even when no
+    response follows. One per call: the run's tally is shared by concurrent calls, a field on it
+    would race.
+    """
+
+    responded: bool = False
+    header: str | None = None
+    responses: int = 0
+    retried: bool = False
+
+    def read(self, resp: httpx.Response) -> None:
+        self.responded = True
+        self.header = resp.headers.get(CAPTURE_FIELD)
+        self.responses += 1
+
+    def lost_reply(self) -> None:
+        self.retried = True
+
+    def status(self) -> Status:
+        """What the gateway said, or `ambiguous` when more than one answer may have been stored.
+
+        FEATURE: OME-1307 (design §5.2 item 7). A call re-issued under a `max-age` bound has two
+        responses, and a call whose transport attempt was retried may have been processed — and
+        stored — before its reply was lost. Either can leave an answer the model never used AHEAD
+        of the one it used, in capture order, which a replay would then serve.
+        """
+        if self.responses > 1 or self.retried:
+            return "ambiguous"
+        return _CAPTURE_STATUSES.get((self.header or "").strip().lower(), "missing")
+
+
+def _capture_target() -> tuple[CaptureTally, str] | None:
+    """The run's tally and the frozen copy it captures into, read once, or ``None`` when it captures
+    nothing — a normal run, a replay, or a capture run whose copy failed to open."""
+    tally = current_capture_tally()
+    if tally is None or tally.mode != "capture" or tally.frozen_copy_id is None:
+        return None
+    return tally, tally.frozen_copy_id
+
+
+async def _recorded_completion(
+    http_client: httpx.AsyncClient,
+    *,
+    headers: dict[str, str],
+    body: dict,
+    cache: CachePolicy,
+    replay_frozen_copy: str | None,
+) -> tuple[httpx.Response, CacheOutcome]:
+    """One gateway round trip in the run's frozen-copy mode.
+
+    FEATURE: OME-1307. A replay run is served by the copy and never by the normal route. A capture
+    run names its copy and records, once per consumed response, what the gateway says it stored
+    (`X-AIGW-Capture`); a call that raises records an error unless a response or a lost transport
+    reply said more (D1).
+    A normal run passes straight through, byte-identical to a world without the copy.
+    """
+    if replay_frozen_copy is not None:
+        return await _fetch_replay(
+            http_client, headers=headers, body=body, copy_id=replay_frozen_copy
+        )
+    target = _capture_target()
+    if target is None:
+        return await _fetch_completion(http_client, headers=headers, body=body, cache=cache)
+    tally, copy_id = target
+    digest = request_digest(body)
+    # Q27 (design §5.4): the call takes its occurrence ONCE, when it is first sent. Every transport
+    # attempt of the call sends the same key, and the value is never given back, so a call that
+    # stores nothing keeps its place and replay never reads an entry twice.
+    case_key = current_case_key()
+    occurrence = tally.next_occurrence(case_key, "chat", digest)
+    key_headers = {FROZEN_COPY_HEADER: copy_id, **call_key_headers(case_key, occurrence)}
+    probe = _CaptureProbe()
+    try:
+        resp, outcome = await _fetch_completion(
+            http_client,
+            headers={**headers, **key_headers},
+            body=body,
+            cache=cache,
+            probe=probe,
+        )
+    except BaseException as exc:
+        # A cancelled call left no answer the copy can serve (D1); an error response says itself.
+        # A lost transport reply may have been stored all the same, so it stays `ambiguous`, which
+        # no later call forgives (D2), cancelled or not.
+        cancelled = isinstance(exc, asyncio.CancelledError)
+        said = probe.retried or (probe.responded and not cancelled)
+        record_capture_outcome(CaptureOutcome("chat", probe.status() if said else "error", digest))
+        raise
+    record_capture_outcome(CaptureOutcome("chat", probe.status(), digest))
+    return resp, outcome
+
+
+async def _fetch_replay(
+    http_client: httpx.AsyncClient,
+    *,
+    headers: dict[str, str],
+    body: dict,
+    copy_id: str,
+) -> tuple[httpx.Response, CacheOutcome]:
+    """One chat round trip of a REPLAY run: the copy's answer to this request (design §5.3).
+
+    No cache field and no `max-age` re-issue: a second round trip is not a thing a replay does. The
+    occurrence is taken like a capture call's (design §5.4), so the same logical call reads the same
+    entry the capture stored.
+    """
+    digest = request_digest(body)
+    tally = current_capture_tally()
+    # INVARIANT (design §5.4): a replay call counts its occurrence in the run's tally, which the
+    # run path binds. Without one, every call would send occurrence 0, so the call fails loudly.
+    if tally is None:
+        raise RuntimeError("a frozen-copy replay call needs the run's capture tally bound")
+    case_key = current_case_key()
+    occurrence = tally.next_occurrence(case_key, "chat", digest)
+    try:
+        resp, _retried = await _post_completion(
+            http_client,
+            headers={**headers, **call_key_headers(case_key, occurrence)},
+            body=body,
+            path=replay_chat_path(copy_id),
+        )
+    except ResolutionError as exc:
+        # Design §5.3 item 2a: every transport attempt failed, and the copy served nothing. A retry
+        # would read the next occurrence (§5.4), so the failure is permanent, with no retry.
+        raise _replay_unavailable() from exc
+    refusal = _replay_refusal(resp)
+    if refusal is not None:
+        raise refusal
+    # Design §5.3 item 2a: a non-2xx answer without the replay header is the gateway's own failure,
+    # not a captured one, so the copy did not serve it and the failure is permanent.
+    if not resp.is_success and REPLAY_FIELD not in resp.headers:
+        raise _replay_unavailable()
+    # Any other failure status is the captured original error (it carries X-AIGW-Replay), raised as
+    # the original run raised it.
+    _raise_for_status(resp)
+    return resp, _REPLAYED
+
+
+def _replay_unavailable() -> ResolutionError:
+    """The engine's own permanent failure for a replay the copy did not serve (design §5.3 2a)."""
+    return ResolutionError(
+        "the frozen copy is not available for replay", code=REPLAY_UNAVAILABLE, permanent=True
+    )
+
+
+def _replay_refusal(resp: httpx.Response) -> ResolutionError | None:
+    """The engine's own failure for a replay the copy cannot answer, or ``None``.
+
+    INVARIANT (OME-941): the codes are reserved, so the message is the engine's own fixed text and
+    never the gateway's — which is also why this runs BEFORE `_raise_for_status`, which would
+    refuse to carry a reserved code.
+    """
+    try:
+        payload = resp.json()
+    except ValueError:
+        return None
+    code = replay_refusal_code(resp.status_code, payload)
+    if code == REPLAY_MISS:
+        message = "the frozen copy holds no answer for this call of the replay"
+    elif code == REPLAY_UNAVAILABLE:
+        message = "the frozen copy is not available for replay"
+    else:
+        return None
+    return ResolutionError(message, code=code, permanent=True)
 
 
 async def _chat_completion_loop(
@@ -925,6 +1243,7 @@ async def _chat_completion_loop(
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
     retrieval_policy: RetrievalPolicy | None = None,
+    cache_attempt: int | None = None,
 ) -> str:
     """Drive one `_ModelEndpoint` call: post to aigateway, execute any requested tool calls,
     and repeat until the model answers with content instead of another tool call.
@@ -948,6 +1267,11 @@ async def _chat_completion_loop(
     # line that reaches aigateway or reports what aigateway actually billed uses `real_model_id`;
     # error messages below keep `spec.id` (the route form), since that's what the caller wrote.
     real_model_id = decode_route_id(spec.id)
+    headers = {
+        **_headers(scope),
+        "x-aigw-execution-timeout-s": str(cfg.timeout_s),
+        "x-aigw-queue-timeout-s": str(cfg.admission_timeout_s),
+    }
     tools, extra = _retrieval_request(
         cfg=cfg,
         spec=spec,
@@ -955,16 +1279,23 @@ async def _chat_completion_loop(
         tavily_http=tavily_http,
         tavily_api_key=tavily_api_key,
         retrieval_policy=retrieval_policy,
+        # FEATURE (OME-1045): the retrieval cache rides the SAME aigateway client and headers as
+        # the chat calls — no new pool, base URL or setting.
+        cache=TavilyRetrievalCache(http_client, headers),
+        frozen=_frozen_tool_results(http_client, headers, scope),
     )
     sampling = model_params(params)
-    headers = {
-        **_headers(scope),
-        "x-aigw-execution-timeout-s": str(cfg.timeout_s),
-        "x-aigw-queue-timeout-s": str(cfg.admission_timeout_s),
-    }
     operation_accounting: list[OperationAccounting | None] = []
     for _ in range(cfg.web_tool_max_iterations):
-        body = {"model": real_model_id, "messages": messages, **sampling, **extra}
+        # FEATURE (OME-1458): Attempt 2+ names itself to the gateway's cache on every round
+        # trip of the turn; Attempt 1 adds nothing, so its body is byte-identical to before.
+        body = {
+            "model": real_model_id,
+            "messages": messages,
+            **sampling,
+            **extra,
+            **attempt_body_field(cache_attempt),
+        }
         choice = await _logged_round_trip(
             http_client,
             real_model_id=real_model_id,
@@ -973,6 +1304,7 @@ async def _chat_completion_loop(
             cache=scope.cache,
             max_tokens=sampling.get("max_tokens"),
             operation_accounting=operation_accounting,
+            replay_frozen_copy=scope.replay_frozen_copy,
         )
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:
@@ -1050,6 +1382,8 @@ def _retrieval_request(
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
     retrieval_policy: RetrievalPolicy | None,
+    cache: TavilyRetrievalCache,
+    frozen: FrozenToolResults | None,
 ) -> tuple[WebToolRuntime | None, dict[str, object]]:
     if (
         retrieval_policy is not None
@@ -1070,6 +1404,8 @@ def _retrieval_request(
         config=cfg,
         policy=retrieval_policy,
         params=params,
+        cache=cache,
+        frozen=frozen,
     )
     if wants_search and spec.uses_native_web_search:
         extra: dict[str, object] = {"web_search": True}
@@ -1080,6 +1416,21 @@ def _retrieval_request(
     if tools is not None:
         return tools, {"tools": WEB_TOOLS, "tool_choice": "auto"}
     return tools, {}
+
+
+def _frozen_tool_results(
+    http_client: httpx.AsyncClient, headers: dict[str, str], scope: RequestScope
+) -> FrozenToolResults | None:
+    """The tool-result routes of this run's frozen copy, or ``None`` for a run with no copy.
+
+    Rides the SAME aigateway client and headers as the chat calls — no new pool or setting.
+    """
+    if scope.replay_frozen_copy is not None:
+        return FrozenToolResults(http_client, headers, scope.replay_frozen_copy, replay=True)
+    target = _capture_target()
+    if target is None:
+        return None
+    return FrozenToolResults(http_client, headers, target[1], replay=False)
 
 
 def _messages(context: str | None, intent: str | None) -> list[dict[str, str]]:
@@ -1246,4 +1597,10 @@ def _raise_for_status(resp: httpx.Response) -> None:
     raise ResolutionError(message, code=code, permanent=permanent)
 
 
-__all__ = ["AigatewayConfig", "AigatewayWorld", "build_aigateway_world"]
+__all__ = [
+    "AigatewayConfig",
+    "AigatewayWorld",
+    "build_aigateway_world",
+    "open_frozen_copy",
+    "seal_frozen_copy",
+]

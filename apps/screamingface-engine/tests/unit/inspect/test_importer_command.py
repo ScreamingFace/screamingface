@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -171,3 +172,134 @@ def test_the_task_replay_flag_is_gone() -> None:
 
     with pytest.raises(SystemExit):
         main([_TASK, "--key", "csqa", "--task-replay"])
+
+
+def test_the_empty_answer_key_flag_reaches_the_import(engine_src_copy: Path) -> None:
+    """OME-1527 R5: the dev says some Samples' empty key is their answer; the import (and
+    through it both replays) hears exactly that, and a key on every other Case stays required."""
+
+    recording: _RecordingImport = _RecordingImport()
+
+    main(
+        [_TASK, "--key", "csqa", "--empty-answer-key-allowed"]
+        + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=recording,
+        dataset_info=lambda repo_id, revision: type("Info", (), {"card_data": {}})(),
+    )
+
+    assert recording.calls[0][2]["empty_answer_key_allowed"] is True
+    assert recording.calls[0][2]["has_answer_key"] is True
+
+
+def test_no_answer_key_and_empty_answer_key_allowed_cannot_both_be_said() -> None:
+    """One flag says no Sample has a key, the other that some do; the command refuses the
+    contradiction before any replay runs."""
+
+    with pytest.raises(SystemExit):
+        main([_TASK, "--key", "csqa", "--no-answer-key", "--empty-answer-key-allowed"])
+
+
+def test_the_whole_run_headline_flag_lands_on_the_row(engine_src_copy: Path) -> None:
+    """OME-1527: the agent names which number of an honoured dict metric is the headline; the
+    row carries it beside the metric's reference, so assembly hands it to the tally. Nothing
+    runs the metric at import: the key is the agent's reading of the metric's code."""
+
+    def honouring(
+        task_ref: str, task_args: Mapping[str, Any] | None, **options: Any
+    ) -> TaskReplayImport:
+        """Seal as an honour import of a dict metric does: the row names the metric."""
+
+        assert options["whole_run_metric"] == "honour"
+        sealed: TaskReplayImport = _sealed_import()
+        return replace(
+            sealed, facts=replace(sealed.facts, whole_run_metric="probe.metrics:clause_report")
+        )
+
+    code: int = main(
+        [_TASK, "--key", "csqa", "--whole-run-metric", "honour", "--whole-run-headline", "f1"]
+        + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=honouring,
+        dataset_info=lambda repo_id, revision: type("Info", (), {"card_data": {}})(),
+    )
+
+    assert code == 0
+    row: str = (engine_src_copy / "benchmarks.py").read_text().split('key="csqa"', 1)[1]
+    assert '        whole_run_metric="TODO:probe.metrics:clause_report",\n' in row
+    assert '        whole_run_headline="f1",\n' in row
+
+
+def test_a_headline_key_without_honour_is_refused_before_any_replay(
+    engine_src_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """WHY: the key names a number of an honoured metric's dict; without honour there is no
+    such dict, so the command refuses before paying for two replays."""
+
+    recording: _RecordingImport = _RecordingImport()
+
+    code: int = main(
+        [_TASK, "--key", "csqa", "--whole-run-headline", "f1"]
+        + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=recording,
+    )
+
+    assert code == 1
+    assert recording.calls == []
+    assert "needs --whole-run-metric honour" in capsys.readouterr().err
+
+
+def test_the_retrieval_policy_flags_land_on_the_row(engine_src_copy: Path) -> None:
+    """OME-1527, R13: the agent names the exam's web-search rule at import; the row carries it
+    with the domains sorted, so the reviewed row is the one the revision hashes."""
+
+    code: int = main(
+        [_TASK, "--key", "csqa", "--retrieval-policy", "draco/reproduction"]
+        + ["--retrieval-excluded-domain", "huggingface.co"]
+        + ["--retrieval-excluded-domain", "arxiv.org"]
+        + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=_RecordingImport(),
+        dataset_info=lambda repo_id, revision: type("Info", (), {"card_data": {}})(),
+    )
+
+    assert code == 0
+    row: str = (engine_src_copy / "benchmarks.py").read_text().split('key="csqa"', 1)[1]
+    assert (
+        "        retrieval_policy=RetrievalPolicyDeclaration(\n"
+        '            policy_id="draco/reproduction",\n'
+        "            excluded_domains=(\n"
+        '                "arxiv.org",\n'
+        '                "huggingface.co",\n'
+        "            ),\n"
+        "        ),\n"
+    ) in row
+
+
+@pytest.mark.parametrize(
+    ("flags", "complaint"),
+    [
+        (["--retrieval-policy", "draco/reproduction"], "excluded_domains is empty"),
+        (
+            ["--retrieval-policy", "draco/reproduction", "--retrieval-excluded-domain", "a.org/x"],
+            "must be bare domains",
+        ),
+        (["--retrieval-excluded-domain", "arxiv.org"], "needs --retrieval-policy"),
+    ],
+)
+def test_a_malformed_retrieval_policy_is_refused_before_any_replay(
+    engine_src_copy: Path,
+    capsys: pytest.CaptureFixture[str],
+    flags: list[str],
+    complaint: str,
+) -> None:
+    """WHY before the replays: a policy the row could never declare must not cost two
+    replays, and the error names what to fix."""
+
+    recording: _RecordingImport = _RecordingImport()
+
+    code: int = main(
+        [_TASK, "--key", "csqa", *flags, "--engine-src", str(engine_src_copy)],
+        import_by_task_replay=recording,
+    )
+
+    assert code == 1
+    assert recording.calls == []
+    assert complaint in capsys.readouterr().err

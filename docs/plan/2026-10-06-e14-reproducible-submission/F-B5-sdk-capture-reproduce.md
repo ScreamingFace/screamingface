@@ -8,7 +8,8 @@
 
 ## Changes
 
-- `evaluate(..., capture: bool = False)` on `Client`, `AsyncClient` and module level. Thread it like
+- `evaluate(..., capture: bool = True)` on `Client`, `AsyncClient` and module level (default on, Q22;
+  the internal helpers keep `False`, so `sf.reproduce` never sends `X-Capture`). Thread it like
   `answer_seed` (`client.py` → `_evaluation/url4.py` → `Candidate` via `_stamped` → transport header
   `X-Capture: true` only when true). `capture` and the internal replay are mutually exclusive.
 - Replace the old replay plumbing: `Candidate.cache_replay` → `replay_frozen_copy`; header `X-Cache-Replay` →

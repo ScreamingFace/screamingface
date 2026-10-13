@@ -4,9 +4,9 @@ linear_url: https://linear.app/openmined/issue/OME-1045/route-runner-tavily-call
 parent: OME-1043
 blocked_by: [OME-1044]
 stack: screamingface-engine
-status: todo
+status: in_progress
 priority: 3
-labels: [screamingface-engine]
+labels: [screamingface-engine, agentic, autonomous]
 actor: agentic
 who-acts: autonomous
 created: 2026-08-31
@@ -63,3 +63,5 @@ Spec: `docs/spec/2026-08-31-OME-1043-tavily-retrieval-cache.md`.
 - The Tavily API key is never sent to aigateway (extend
   `test_tavily_key_never_sent_to_aigateway`).
 - screamingface-engine gates green.
+
+- 2026-10-09: built as E14 B2 on branch `OME-1045-e14-b2-engine-tavily-cache` (parent epic for delivery: OME-1307). Ledger: `docs/work/2026-10-06-e14-b2-engine-tavily-cache.md`.

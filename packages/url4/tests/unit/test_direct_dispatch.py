@@ -24,7 +24,7 @@ def _node() -> tuple[Url4Node, list[object]]:
         calls.append(request)
         return f"answer to {request.intent} over {request.context}"
 
-    node.data("/v1/benchmarks/data/foo", lambda: '{"rows": 3}', media_type="application/json")
+    node.data("/benchmarks/data/foo", lambda: '{"rows": 3}', media_type="application/json")
     node.data("/plain", "hello")
 
     async def evaluate(*args: object, **kwargs: object) -> str:
@@ -62,7 +62,7 @@ async def test_dispatch_direct_calls_one_endpoint_handler() -> None:
 async def test_dispatch_direct_serves_data_route_with_media_type() -> None:
     """MNT-3 / MC-D14: a data route without `q` returns the data and its media type."""
     node, _ = _node()
-    assert await dispatch_direct(node, "/v1/benchmarks/data/foo") == DirectResult(
+    assert await dispatch_direct(node, "/benchmarks/data/foo") == DirectResult(
         body='{"rows": 3}', media_type="application/json"
     )
     assert await dispatch_direct(node, "/plain") == DirectResult(body="hello", media_type=None)
@@ -88,8 +88,8 @@ async def test_describe_routes_lists_endpoints_and_data_routes() -> None:
     """MNT-4: the public route listing — never the eval path."""
     node, _ = _node()
     assert describe_routes(node) == [
+        RouteInfo(path="/benchmarks/data/foo", kind="data", media_type="application/json"),
         RouteInfo(path="/plain", kind="data", media_type=None),
-        RouteInfo(path="/v1/benchmarks/data/foo", kind="data", media_type="application/json"),
         RouteInfo(path="/v1/chat/completions", kind="endpoint", media_type=None),
     ]
 

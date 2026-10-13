@@ -25,7 +25,8 @@ a tool. Stages, in execution order:
               work (answer parsing) runs as it would on a blank reply.
     Stage 4 — after the chain: refuse a chain that never asked, or asked twice, or reordered
               the choices (the Grading Material holds the Sample's order); turn the recorded
-              messages into the one input text; cross the writer's validated boundary and
+              messages into the one input text (a fixed conversation becomes the
+              candidate-input envelope, R14); cross the writer's validated boundary and
               build the prepared Case.
 
 Example: Sample "Which port serves HTTPS?" with choices 21/443/80/22, chain
@@ -42,6 +43,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from screamingface_engine_inspect.conversation_input import conversation_input
 from screamingface_engine_inspect.prepare import (
     PreparedCase,
     PrepareError,
@@ -212,26 +214,28 @@ async def _capture_one(task: Task, sample: Sample, case_id: int) -> tuple[str, l
 def _input_text(messages: Sequence[ChatMessage], case_id: int) -> str:
     """Stage 4 — the messages the model saw, as the one text the Candidate sees.
 
-    Accepted: any number of leading system messages, then exactly one user message, all
-    plain text. Refused: anything else (assistant or tool turns, several user turns, images
-    or audio), because a Case is one text and the Candidate answers it once.
+    Two shapes, both plain text only:
+
+    * One prompt: any number of leading system messages, then exactly one user message.
+      The texts join with a blank line, as they always have, so these Cases keep their bytes.
+    * A fixed conversation (OME-1527, R14): any other run of user and assistant turns that
+      ends on a user turn. It becomes the candidate-input envelope with every turn kept in
+      order and role, so the Candidate still answers once, with the next turn.
+
+    Refused: a tool turn, an assistant turn that calls tools, a system turn inside a
+    conversation (a Benchmark cannot address the Candidate's system role, the rule the
+    one-prompt fold above follows), an empty or blank turn (hand-built healthbench refused
+    it too), a conversation that does not end on a user turn, and images or audio, because
+    the Candidate answers text once.
+
+    Example: user "What is 2 plus 2?", assistant "4", user "And 6 times 7?" →
+    ``{"schema":"screamingface.candidate-input.v1","messages":[{"role":"user","content":"What
+    is 2 plus 2?"},{"role":"assistant","content":"4"},{"role":"user","content":"And 6 times
+    7?"}]}``.
     """
 
     from inspect_ai.model import ChatMessageSystem, ChatMessageUser
 
-    roles: list[str] = [message.role for message in messages]
-    system_count: int = 0
-    while system_count < len(messages) and isinstance(messages[system_count], ChatMessageSystem):
-        system_count += 1
-    shape_is_one_prompt: bool = len(messages) == system_count + 1 and isinstance(
-        messages[-1], ChatMessageUser
-    )
-    if not shape_is_one_prompt:
-        raise CaptureError(
-            f"case {case_id}: the solver sent {len(messages)} messages ({', '.join(roles)}); "
-            "a Case is system text then one user prompt"
-        )
-    texts: list[str] = []
     for message in messages:
         if not isinstance(message.content, str) and any(
             part.type != "text" for part in message.content
@@ -240,8 +244,58 @@ def _input_text(messages: Sequence[ChatMessage], case_id: int) -> str:
                 f"case {case_id}: a {message.role} message carries non-text content; "
                 "a Case is text only"
             )
-        texts.append(message.text)
-    return _MESSAGE_SEPARATOR.join(texts)
+    system_count: int = 0
+    while system_count < len(messages) and isinstance(messages[system_count], ChatMessageSystem):
+        system_count += 1
+    shape_is_one_prompt: bool = len(messages) == system_count + 1 and isinstance(
+        messages[-1], ChatMessageUser
+    )
+    if shape_is_one_prompt:
+        return _MESSAGE_SEPARATOR.join(message.text for message in messages)
+    return _conversation_text(messages, case_id)
+
+
+def _conversation_text(messages: Sequence[ChatMessage], case_id: int) -> str:
+    """Stage 4, a fixed conversation — every turn a text turn, the last one the user's, sealed
+    into the candidate-input envelope in order and role (R14)."""
+
+    from inspect_ai.model import ChatMessageAssistant, ChatMessageSystem, ChatMessageUser
+
+    roles: list[str] = [message.role for message in messages]
+    for index, message in enumerate(messages):
+        if isinstance(message, ChatMessageSystem):
+            # WHY: the system role is the Candidate's (a recipe's own instructions); a
+            # Benchmark only hands over the question. A one-prompt Case folds its system text
+            # into the prompt for that reason (``_MESSAGE_SEPARATOR``); inside a conversation
+            # there is no single prompt to fold into, so the Case is refused, never re-roled.
+            raise CaptureError(
+                f"case {case_id}: the solver sent a system turn inside a conversation "
+                f"({', '.join(roles)}); a Benchmark cannot address the Candidate's system role"
+            )
+        if not isinstance(message, ChatMessageUser | ChatMessageAssistant):
+            raise CaptureError(
+                f"case {case_id}: the solver sent a {message.role} message ({', '.join(roles)}); "
+                "a conversation Case holds user and assistant turns only"
+            )
+        if isinstance(message, ChatMessageAssistant) and message.tool_calls:
+            raise CaptureError(
+                f"case {case_id}: an assistant turn calls tools; a conversation Case is text "
+                "turns only"
+            )
+        if not message.text.strip():
+            # WHY: a blank turn is a damaged row, not a question; the Candidate would be paid
+            # to answer nothing. Hand-built healthbench's preparer refused it the same way.
+            raise CaptureError(
+                f"case {case_id}: conversation turn {index + 1} ({message.role}) is empty"
+            )
+    if not messages or not isinstance(messages[-1], ChatMessageUser):
+        raise CaptureError(
+            f"case {case_id}: the solver sent {len(messages)} messages ({', '.join(roles)}); "
+            "a Case ends on the user turn the Candidate answers"
+        )
+    return conversation_input(
+        [{"role": message.role, "content": message.text} for message in messages]
+    )
 
 
 __all__ = ["STAND_IN_MODEL", "CaptureError", "captured_case_records"]

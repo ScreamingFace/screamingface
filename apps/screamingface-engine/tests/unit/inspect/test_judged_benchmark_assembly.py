@@ -581,3 +581,103 @@ def test_a_reply_only_row_is_refused_the_check_surface(monkeypatch: pytest.Monke
 
     with pytest.raises(ValueError, match="check surface"):
         _assembled(_reply_only_spec(with_check_surface=True), monkeypatch)
+
+
+# ── some Cases' empty key is their answer: only for the eval's own judge-free scorer (R5) ──
+
+#: The eval's own scorer of a Benchmark whose empty keys are answers, shaped like
+#: contracteval's (no clause spans → the right reply declines). A stand-in reference only;
+#: assembly never imports it.
+_EMPTY_KEY_SCORER: str = "stand_in_contracteval.scorers:quotes_every_span"
+
+
+def _empty_key_snapshot(monkeypatch: pytest.MonkeyPatch, **cases: Any) -> None:
+    """Make the gsm8k Cases row say some Cases' empty key is their answer."""
+
+    from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES
+
+    monkeypatch.setitem(
+        TASK_REPLAY_CASES,
+        "gsm8k",
+        replace(TASK_REPLAY_CASES["gsm8k"], empty_answer_key_allowed=True, **cases),
+    )
+
+
+def _own_scorer_spec(**overrides: Any) -> BenchmarkSpec:
+    """A judge-free row graded by the eval's own scorer, which reads the key (empty or not)."""
+
+    values: dict[str, Any] = {"scorer": _EMPTY_KEY_SCORER, "scorer_kwargs": {}, "judge": None}
+    values.update(overrides)
+    return _judged_spec(**values)
+
+
+def test_empty_keys_as_answers_assemble_beside_the_evals_own_scorer_without_a_new_pin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The one place the opt-in stands. It is no identity pin: the Case Digest already seals
+    the empty keys, so the revision is the one the same row has without it."""
+
+    without: str = _revision(_own_scorer_spec(), monkeypatch)
+    _empty_key_snapshot(monkeypatch)
+
+    assert _revision(_own_scorer_spec(), monkeypatch) == without
+
+
+def test_empty_keys_as_answers_are_refused_on_a_judged_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A judge reads the key or not by its prompt; has_answer_key=False already says that."""
+
+    _empty_key_snapshot(monkeypatch)
+    spec = _judged_spec(
+        scorer_kwargs={"model": "screamingface/judge-4", "template": "{question} {answer}"}
+    )
+
+    with pytest.raises(ValueError, match="judged"):
+        _assembled(spec, monkeypatch)
+
+
+def test_empty_keys_as_answers_are_refused_on_an_inspect_built_in_scorer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """inspect's own scorers compare every reply against the key; an empty one fails them all."""
+
+    _empty_key_snapshot(monkeypatch)
+
+    with pytest.raises(ValueError, match="built-in"):
+        _assembled(_own_scorer_spec(scorer="inspect_ai.scorer:match"), monkeypatch)
+
+
+def test_empty_keys_as_answers_contradict_a_row_with_no_key_at_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One flag says some Cases have a key, the other that none has; a reader could not tell
+    which to trust, so the row keeps one."""
+
+    _empty_key_snapshot(monkeypatch, has_answer_key=False)
+
+    with pytest.raises(ValueError, match="has_answer_key=False"):
+        _assembled(_own_scorer_spec(), monkeypatch)
+
+
+def test_empty_keys_as_answers_contradict_a_scorer_that_never_reads_the_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The opt-in exists because the scorer reads the emptiness; a reply-only claim denies it."""
+
+    _empty_key_snapshot(monkeypatch)
+
+    with pytest.raises(ValueError, match="scorer_reads_answer_key=False"):
+        _assembled(_own_scorer_spec(scorer_reads_answer_key=False), monkeypatch)
+
+
+def test_empty_keys_as_answers_are_refused_the_check_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Draft Feedback over an empty key would tell a fusion "no clause here" mid-run, which
+    is the answer itself."""
+
+    _empty_key_snapshot(monkeypatch)
+
+    with pytest.raises(ValueError, match="check surface"):
+        _assembled(_own_scorer_spec(with_check_surface=True), monkeypatch)

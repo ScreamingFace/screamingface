@@ -152,8 +152,9 @@ def build_variant_protocol(routes: Routes, case_count: int, available_case_count
     3. For each rubric item, send the grader prompt to the judge model as a single
        user message (empty intent = no system row, matching the official judge),
        and parse its yes/no verdict via ``routes.verdict``. A malformed reply
-       raises, so ``;retry=`` re-resolves the NESTED judge call — a fresh sample
-       per attempt. That is why the judge call sits inside the verdict expression:
+       raises, so ``;retry=`` re-resolves the NESTED judge call, opted out of the
+       gateway cache (OME-1533) — a fresh sample per retry, not the stored malformed
+       reply. That is why the judge call sits inside the verdict expression:
        as a sibling, a malformed-but-successful model call would never be retried.
     4. Roll verdicts up: rubric rows → ``routes.rubric_evaluation`` → per-Case score
        at ``routes.case_evaluation`` → all Case rows into ``routes.aggregate``, which
@@ -197,7 +198,8 @@ def build_variant_protocol(routes: Routes, case_count: int, available_case_count
         src("$item.rubric_record", name="rubric_record", weight=0.0),
         # WHY nested, not siblings: the verdict route RAISES a transient error on a
         # malformed reply, and its `;retry=` re-resolves the nested judge call — a
-        # fresh sample per attempt (verdict.call docstring). Sibling wiring would
+        # fresh sample per retry, because that retry opts out of the gateway cache
+        # (verdict.call docstring, OME-1533). Sibling wiring would
         # retry nothing: a malformed reply is a successful model call.
         verdict.call(
             judge_reply,
@@ -337,7 +339,15 @@ def healthbench_benchmark(
 
         # INVARIANT: every benchmark reads the SAME prepared asset directory — one immutable
         # answer key, selected from at serve time, never a per-benchmark prepare.
-        install_runtime(node, assets / ASSET_BUNDLE_ID, variant)
+        # WHY read `benchmark` here (OME-1527): the check-surface route is installed only when
+        # this Benchmark offers Draft Feedback, the same gate the inspect plugin applies. The
+        # closure runs at install time, after `benchmark` below is assigned.
+        install_runtime(
+            node,
+            assets / ASSET_BUNDLE_ID,
+            variant,
+            draft_feedback=benchmark.check_surface is not None,
+        )
 
     benchmark = Benchmark(
         id=id,
@@ -364,9 +374,9 @@ def healthbench_benchmark(
         # the same pass-through as focus/dataset_url; shapes checked by `Benchmark` itself.
         **provenance,
         # WHY no Draft Feedback offer (owner decision 2026-10-07, OME-1513): the offer is a
-        # per-Benchmark owner call, and today only IFEval carries one. The check-surface route
-        # is still served (a paid Judge call over the Case's rubric) but is not advertised, so
-        # the SDK refuses a Corrective Loop on this Benchmark before any money is spent.
+        # per-Benchmark owner call, and today only IFEval carries one. With no offer the SDK
+        # refuses a Corrective Loop on this Benchmark before any money is spent, and the
+        # check-surface route is not installed, so a raw url4 string cannot reach it (OME-1527).
         check_surface=None,
     )
     return variant, benchmark

@@ -4,7 +4,7 @@
 > Task** — one file in inspect's shape (dataset loader, scorer, `@task`) under
 > `src/screamingface_engine_inspect/local_tasks/<name>/`, fed to the same importer that
 > imports inspect_evals — **unless a later Candidate call's prompt depends on an earlier reply**
-> (medxpert's reason-then-commit exchange; draco's passes). Only that case is a hand-built
+> (medxpert's reason-then-commit exchange). Only that case is a hand-built
 > folder, and only that case is what this guide is for. Everything else, whether or not it
 > exists in inspect_evals, goes through
 > [`adding-an-imported-benchmark.md`](adding-an-imported-benchmark.md) ("Importing a local
@@ -35,11 +35,10 @@ runs:
 <img src="diagrams/benchmark-authoring-seam.png" width="1350">
 
 Realistic size, from the benchmarks in production: a rubric benchmark on the shared factories is
-~122 lines of grading code (`gdpval/grade.py`, `healthbench/grade.py` — both exactly
-122); a novel grading mode is larger (`medxpert/aggregate.py` 245, `ifeval/grade.py` 401)
-plus its protocol/runtime modules. Everything below is walked against MedXpertQA
-(`benchmarks/medxpert/`), the newest benchmark — when a step says "copy the shape", that is
-the module to open.
+~145 lines of grading code (`healthbench/grade.py`); a novel grading mode is larger
+(`medxpert/aggregate.py` 245, `ifeval/grade.py` 401) plus its protocol/runtime modules.
+Everything below is walked against MedXpertQA (`benchmarks/medxpert/`), the newest benchmark
+— when a step says "copy the shape", that is the module to open.
 
 ## Step 0 — pick your cell on the two axes
 
@@ -157,7 +156,7 @@ auditable per Case.
 marking rule in one line (`benchmarks/shared_grading/rubric.py`):
 
 ```python
-grade_case = rubric_grade_case(case_score=case_score, judge_producer_id="gdpval/judge")
+grade_case = rubric_grade_case(case_score=case_score, judge_producer_id="healthbench/judge")
 ```
 
 where `case_score: (points, verdicts) -> float | None` is your benchmark's official scoring
@@ -373,7 +372,7 @@ serializable data in and `CaseGradeOutcome` out, that is a new ticket against
 
 The notebook Score cell can update as canonical case grades become available. Keep the
 scoring formula in the benchmark: the client receives a scalar snapshot and never averages
-case scores itself (ContractEval, for example, uses dataset-level F1).
+case scores itself (a dataset-level F1, for example, is not a mean of case scores).
 
 For built-in protocols that finish judging each case before starting the next, bind the
 existing `BenchmarkAggregation`, selection, private material loader and scorer in

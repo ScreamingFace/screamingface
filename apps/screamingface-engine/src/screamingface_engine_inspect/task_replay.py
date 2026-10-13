@@ -31,8 +31,10 @@ Stages, in execution order:
               decoded leniently: it only feeds the log and the reason, and one byte that is
               not UTF-8 must not crash the whole image build.
     Stage 5 — Case Preparation (:func:`prepare_replayed_cases`): refuse a different Case
-              count, then a different Case Digest; write the Cases only when both match,
-              otherwise write the SKIPPED marker with the reason. Either way the bundle gets
+              count, then a different Case Digest; download the row's nltk resources, if
+              any, and refuse files that seal differently (OME-1527, R8); write the Cases
+              only when all match, otherwise write the SKIPPED marker with the reason. Either
+              way the bundle gets
               ``provenance.json`` (before ``cases.json``) and the summary carries the block.
 """
 
@@ -40,6 +42,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -50,8 +53,14 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY
+from screamingface_engine.benchmarks.nltk_data import (
+    NLTK_DATA_DIR,
+    NltkDataError,
+    download_nltk_data,
+)
 from screamingface_engine_inspect.capture import captured_case_records
 from screamingface_engine_inspect.case_set import what_moved
+from screamingface_engine_inspect.case_source_prefetch import prefetch_case_sources
 from screamingface_engine_inspect.case_sources import CaseSourceRecorder
 from screamingface_engine_inspect.fetch_pins import FetchPins
 from screamingface_engine_inspect.prepare import (
@@ -114,13 +123,19 @@ def replay_environment(cache_root: Path, base: Mapping[str, str]) -> dict[str, s
     # builder's shell may carry one; "none/none" makes that call raise, so capture refuses
     # the Sample by name instead of a real model's words landing inside a Case.
     env["INSPECT_EVAL_MODEL"] = "none/none"
-    env["INSPECT_EVALS_CACHE_DIR"] = str(cache_root / "inspect_evals")
+    env["INSPECT_EVALS_CACHE_DIR"] = str(_inspect_evals_cache(cache_root))
     env["HF_DATASETS_CACHE"] = str(cache_root / "hf_datasets")
     env["HF_HUB_CACHE"] = str(cache_root / "hf_hub")
     env["HF_MODULES_CACHE"] = str(cache_root / "hf_modules")
     env["HF_XET_CACHE"] = str(cache_root / "hf_xet")
     env["HF_ASSETS_CACHE"] = str(cache_root / "hf_assets")
     return env
+
+
+def _inspect_evals_cache(cache_root: Path) -> Path:
+    """The replay's inspect_evals cache: where its evals' loaders look for their files."""
+
+    return cache_root / "inspect_evals"
 
 
 def _hf_token_path(base: Mapping[str, str]) -> str:
@@ -309,6 +324,9 @@ def prepare_replayed_cases(
                 # OME-1492: "same N Cases in another order" or "text changed", when sealed.
                 + what_moved(spec, prepared)
             )
+        # WHY before cases.json: it is the bundle's completion marker, so the corpus the
+        # grading job reads offline must already be there when it lands (OME-1527, R8).
+        _prepare_nltk_data(spec, out)
     except TaskReplayError as exc:
         # WHY SKIPPED, not a raise: deployed images keep every other Benchmark (spec R10).
         reason: str = f"{benchmark_key}: {exc}" if benchmark_key else str(exc)
@@ -349,6 +367,33 @@ def _skip_with_provenance(
     return skipped_summary
 
 
+def _prepare_nltk_data(spec: TaskReplayCasesSpec, out: Path) -> None:
+    """Download the row's nltk resources into the bundle and check their seal (OME-1527, R8).
+
+    Nothing happens on a row that declares none. A download that fails, or files that seal
+    differently from ``nltk_data_digest``, removes the folder and is a TaskReplayError, so
+    the Benchmark goes SKIPPED by name, as a broken Case Digest does; the other Benchmarks
+    still build.
+    """
+
+    if not spec.nltk_resources:
+        return
+    corpus: Path = out / NLTK_DATA_DIR
+    try:
+        digest: str = download_nltk_data(corpus, spec.nltk_resources)
+    except NltkDataError as exc:
+        # WHY remove: a SKIPPED bundle must not ship half a corpus nobody sealed.
+        shutil.rmtree(corpus, ignore_errors=True)
+        raise TaskReplayError(f"{spec.task}: {exc}") from exc
+    if digest != spec.nltk_data_digest:
+        # WHY remove: the image must never carry corpus bytes that failed their seal.
+        shutil.rmtree(corpus, ignore_errors=True)
+        raise TaskReplayError(
+            f"{spec.task}: nltk data {', '.join(spec.nltk_resources)} seals to {digest}, "
+            f"not the pinned {spec.nltk_data_digest}"
+        )
+
+
 def fetch_pins_of(spec: TaskReplayCasesSpec) -> FetchPins:
     """What a replay of this declaration forces onto the eval's fetches (OME-1460)."""
 
@@ -365,6 +410,12 @@ def _replay_in_this_process(spec_path: Path, result_path: Path, cache_root: Path
 
     fields: dict[str, Any] = json.loads(spec_path.read_text(encoding="utf-8"))
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(**fields)
+    # WHY first: a few evals fetch through a host that rate-limits anonymous builds (SAD:
+    # GitHub's contents API, OME-1574); the prefetch fills the empty cache from a host that
+    # serves the same checksummed files, so the loader finds them and skips its own call.
+    # Before the recorder installs, so the provenance block still names the fetch the eval
+    # itself makes, with its sha256 pin. A failed prefetch fails the replay, as before.
+    prefetch_case_sources(spec.task, _inspect_evals_cache(cache_root))
     # INVARIANT: the module is imported BEFORE the enforcer installs, so a fetch helper it
     # bound by name at import (gsm8k's `hf_dataset`) is rebound too (R1, R4). The recorder
     # also records every fetch and forced seed; that record becomes the provenance block (OME-1492).

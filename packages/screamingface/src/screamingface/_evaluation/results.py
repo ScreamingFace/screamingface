@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
@@ -14,6 +16,7 @@ from screamingface._report_primitives import CaseId
 from screamingface._report_primitives import _case_id as _validate_case_id
 from screamingface.accounting import member_usage
 from screamingface.case_result import (
+    CaseAttempt,
     CaseOperation,
     CaseStatus,
     StopReason,
@@ -33,6 +36,25 @@ from screamingface.report import (
     RunCostStatus,
     Usage,
 )
+from screamingface.warnings import EvaluationWarning
+
+
+def _warn_if_not_captured(report: Report) -> None:
+    """Tell the caller of a capturing run (the default) about each uncaptured Candidate.
+
+    FEATURE (OME-1307): an Engine that ignores `X-Capture` runs the Candidate normally, and its
+    summary has no `capture.status`. The result keeps `frozen_copy_id` and `capture_status` as
+    None, so nothing else says that the run cannot be reproduced.
+    """
+    for result in report.candidates:
+        if result.capture_status is None:
+            warnings.warn(
+                "the Engine did not capture this run; it cannot be reproduced "
+                f"(Candidate {result.name!r}); pass capture=False to skip capture",
+                EvaluationWarning,
+                stacklevel=5,
+            )
+
 
 # The marker pre-OME-892 Engines glued onto a cut result body. Recognized here so a run
 # against an OLD Engine fails with the real cause instead of the generic "must be JSON".
@@ -49,6 +71,15 @@ def _decoded_result_body(outcome: _RunOutcome) -> object:
     count so the researcher learns what happened from the error alone; (4) anything else
     keeps the generic message.
     """
+    if outcome.result_path is not None:
+        from screamingface._results.cases import index_result
+        from screamingface._results.store import storage_error
+
+        try:
+            metadata, cases = index_result(outcome.result_path)
+        except (OSError, sqlite3.Error) as exc:
+            raise storage_error(exc, outcome.run_id) from exc
+        return {**metadata, "cases": cases}
     body = outcome.result_body
     if body is None:
         raise ExecutionError(
@@ -174,13 +205,17 @@ def _candidate_result(
             failures=failures,
             usage=outcome.root_usage or Usage(),
             run_cost_status=_run_cost_status(outcome),
-            # OME-1326: the REPORTED sum, the one the local status above reads.
+            # OME-1326: the REPORTED sum only, the same one the status above reads. Never the
+            # archive sum, and never the two added (OME-1251 D3).
             cache_saved_cost_usd=outcome.cache_saved_cost_usd,
             cache_hits=outcome.cache_hits,
-            # OME-1463 (D7 reverses D3): the archive sum travels too, still never added to the
-            # reported one or to the spend; the board sums the parts.
+            # INVARIANT: retain main's archive savings and unpriced-hit provenance on recovery.
             cache_saved_cost_archive_usd=outcome.cache_saved_cost_archive_usd,
             cache_unpriced_hits=outcome.cache_unpriced_hits,
+            # OME-1307: the frozen copy, as the Engine's run summary stated it (None = unknown).
+            frozen_copy_id=outcome.frozen_copy_id,
+            capture_status=outcome.capture_status,
+            capture_partial_reasons=outcome.capture_partial_reasons,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"SF Engine Candidate result is invalid: {exc}") from exc
@@ -270,7 +305,7 @@ def _candidate_components(
     float | None,
     float,
     dict[str, object],
-    tuple[CaseResult, ...],
+    Sequence[CaseResult],
     tuple[Failure, ...],
     dict[str, float | None],
 ]:
@@ -313,7 +348,11 @@ def _metrics(value: object) -> dict[str, object]:
     return dict(raw)
 
 
-def _cases(value: object) -> tuple[CaseResult, ...]:
+def _cases(value: object) -> Sequence[CaseResult]:
+    from screamingface._results.cases import DiskCases
+
+    if isinstance(value, DiskCases):
+        return value
     return tuple(_case_result(item) for item in _sequence(value, "Candidate cases"))
 
 
@@ -337,12 +376,16 @@ def _case_result(value: object) -> CaseResult:
         # WHY: `operations` (OME-843 member-output capture) is optional so pre-capture
         # Engines keep decoding; tolerance is for the key's absence only — present
         # content still decodes strictly below.
-        optional={"operations"},
+        # WHY: `attempts` (OME-1458) is optional the same way — present only when the
+        # Benchmark declares more than one Attempt per Case.
+        optional={"operations", "attempts"},
         label="Case Result",
     )
     case_id = _case_id(raw.get("case_id"), "Case Result case_id")
     operations_value = raw.get("operations")
     operations = None if operations_value is None else _case_operations(operations_value)
+    attempts_value = raw.get("attempts")
+    attempts = None if attempts_value is None else _case_attempts(attempts_value)
     grade_value = _required(raw, "grade", "Case Result")
     grade = None if grade_value is None else _case_grade(grade_value)
     failures = _failures(_required(raw, "failures", "Case Result"), "Case Result failures")
@@ -367,9 +410,46 @@ def _case_result(value: object) -> CaseResult:
             failures=failures,
             metadata=_mapping(_required(raw, "metadata", "Case Result"), "Case Result metadata"),
             operations=operations,
+            attempts=attempts,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Case Result is invalid: {exc}") from exc
+
+
+def _case_attempts(value: object) -> tuple[CaseAttempt, ...]:
+    return tuple(_case_attempt(item) for item in _sequence(value, "Case Result attempts"))
+
+
+def _case_attempt(value: object) -> CaseAttempt:
+    """Decode one Attempt strictly: an unknown key is refused, as on the Case Result."""
+
+    raw = _mapping(value, "Case Attempt")
+    _keys(
+        raw,
+        required={"attempt", "status", "output", "finish_reason", "refusal", "grade", "failures"},
+        optional={"operations"},
+        label="Case Attempt",
+    )
+    grade_value = raw.get("grade")
+    finish_reason_value = raw.get("finish_reason")
+    operations_value = raw.get("operations")
+    try:
+        return CaseAttempt(
+            attempt=_positive_integer(raw.get("attempt"), "Case Attempt attempt"),
+            status=_case_status(raw.get("status")),
+            output=_optional_string(raw.get("output"), "Case Attempt output"),
+            finish_reason=(
+                None
+                if finish_reason_value is None
+                else _text(finish_reason_value, "Case Attempt finish_reason")
+            ),
+            refusal=_optional_text(raw.get("refusal"), "Case Attempt refusal"),
+            grade=None if grade_value is None else _case_grade(grade_value),
+            failures=_failures(raw.get("failures"), "Case Attempt failures"),
+            operations=(None if operations_value is None else _case_operations(operations_value)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ExecutionError(f"Case Attempt is invalid: {exc}") from exc
 
 
 def _case_operations(value: object) -> tuple[CaseOperation, ...]:

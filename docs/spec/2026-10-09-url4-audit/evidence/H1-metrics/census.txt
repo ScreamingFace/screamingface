@@ -1,0 +1,73 @@
+### todos --histogram
+
+census todos - histogram (0 total)
+──────────────────────────────────
+  bucket  count  bar
+    <30d      0
+  30-90d      0
+ 90-180d      0
+180-365d      0
+    1-2y      0
+     >2y      0
+ unknown      0
+### todos
+no todos hits found.
+### skips
+no skips hits found.
+### suppressions
+
+census suppressions (55 hits)
+─────────────────────────────
+age        date          author  site                                                             text
+2mo  2026-07-15  Ionésio Junior  packages/url4/src/url4/core/_annotations.py:186                  return tuple(rest), IterationDirectives(**fields)  # type: ignore[arg-type]
+2mo  2026-07-15  Ionésio Junior  packages/url4/tests/unit/test_builders.py:182                    src(123)  # type: ignore[arg-type]
+2mo  2026-07-15  Ionésio Junior  packages/url4/tests/unit/test_builders.py:205                    expr("https://x", intent=SelfRef())  # type: ignore[arg-type]
+2mo  2026-07-15  Ionésio Junior  packages/url4/tests/unit/test_client.py:247                      assert client._node == "url4://node.ai/v1"  # noqa: SLF001 — facade contract
+2mo  2026-07-15  Ionésio Junior  packages/url4/tests/unit/test_dag.py:156                         await run("https://a!go", resolver, concurrency="2")  # type: ignore[arg-type]
+2mo  2026-07-15  Ionésio Junior  packages/url4/tests/unit/test_dag.py:436                         await run("https://x!go", ctx=ctx, process=lambda s, i, sc: None)  # type: ignore[arg-type
+2mo  2026-07-15  Ionésio Junior  packages/url4/tests/unit/test_iteration.py:397                   def spy(root):  # type: ignore[no-untyped-def]
+2mo  2026-07-15  Ionésio Junior  packages/url4/tests/unit/test_render.py:406                      render(object())  # type: ignore[arg-type]
+2mo  2026-07-23  Ionésio Junior  packages/url4/src/url4/cli/_serve.py:191                         raise ResolutionError("provider declares no source")  # pragma: no cover
+2mo  2026-07-23  Ionésio Junior  packages/url4/src/url4/cli/_serve.py:280                         else:  # pragma: no cover - no websocket surface in v1
+2mo  2026-07-23  Ionésio Junior  packages/url4/src/url4/cli/app.py:166                            uvicorn.run(app, host=host, port=port)  # pragma: no cover - needs the extra + a real bind
+2mo  2026-07-23  Ionésio Junior  packages/url4/src/url4/cli/app.py:167                            return 0  # pragma: no cover
+2mo  2026-07-23  Ionésio Junior  packages/url4/src/url4/cli/app.py:170                            if __name__ == "__main__":  # pragma: no cover
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/spec/test_grammar_conformance.py:136         async def fetch(self, target: str, *, relative: bool) -> str:  # noqa: ARG002
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/spec/test_intent_as_value.py:44              async def fetch(self, target: str, *, relative: bool) -> str:  # noqa: ARG002
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/spec/test_mandatory_intent.py:147            "/claude": lambda context, intent: f"claude:{intent}",  # noqa: ARG005
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/spec/test_mandatory_intent.py:148            "/gpt4": lambda context, intent: f"gpt4:{intent}",  # noqa: ARG005
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/spec/test_processor_delegation.py:36         "/claude": lambda context, intent: f"claude:{intent}",  # noqa: ARG005
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/spec/test_processor_delegation.py:37         "/gpt4": lambda context, intent: f"gpt4:{intent}",  # noqa: ARG005
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/spec/test_substitution_coverage.py:28        _ECHO_IO = StaticIOLayer(routes={"/echo": lambda context, intent: context})  # noqa: ARG00
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/unit/test_import_isolation.py:41             done = subprocess.run(  # noqa: S603 - fixed argv, no shell, test-controlled input
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/unit/test_iteration.py:323                   def spy(text: str, *, registry=None, **kwargs):  # type: ignore[no-untyped-def]
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/unit/test_iteration.py:361                   def spy(text: str, *, registry=None, **kwargs):  # type: ignore[no-untyped-def]
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/unit/test_serve_app.py:103                   async def slow(request) -> str:  # noqa: ARG001 - handler contract
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/unit/test_serve_app.py:123                   async def slow(request) -> str:  # noqa: ARG001 - handler contract
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/unit/test_server.py:366                      async def alpha(request: Request) -> str:  # noqa: ARG001 - handler contract
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/unit/test_server.py:370                      async def beta(request: Request) -> str:  # noqa: ARG001 - handler contract
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/unit/test_server.py:382                      async def reducer(request: Request) -> str:  # noqa: ARG001 - handler contract
+2mo  2026-07-23  Ionésio Junior  packages/url4/tests/unit/test_server.py:387                      async def leaf(request: Request) -> str:  # noqa: ARG001 - handler contract
+2mo  2026-07-29  Ionésio Junior  packages/url4/src/url4/streaming/testing/stream_contract.py:46   except TimeoutError as exc:  # pragma: no cover - only on a non-conforming adapter
+2mo  2026-07-29  Ionésio Junior  packages/url4/src/url4/streaming/testing/stream_contract.py:92   except TimeoutError as exc:  # pragma: no cover - only on a non-conforming adapter
+2mo  2026-07-29  Ionésio Junior  packages/url4/src/url4/streaming/testing/stream_contract.py:108  except Exception as exc:  # noqa: BLE001 - any other failure is still a contract breach
+2mo  2026-07-29  Ionésio Junior  packages/url4/src/url4/streaming/testing/stream_contract.py:171  except TimeoutError as exc:  # pragma: no cover - only on a non-conforming adapter
+ 3w  2026-09-17  Ionésio Junior  packages/url4/tests/unit/test_saved_cost_reporting.py:266        cache_saved_cost_provenance="bogus",  # type: ignore[arg-type]
+ 2w  2026-09-22  Ionésio Junior  packages/url4/scripts/check_suppressions.py:1                    """Suppression ratchet: the count of ``# type: ignore`` / ``# noqa`` may only go down.
+ 2w  2026-09-22  Ionésio Junior  packages/url4/scripts/check_suppressions.py:56                   "Remove the new '# type: ignore' or '# noqa'; lower BASELINE when you remove one.",
+ 2w  2026-09-22  Ionésio Junior  packages/url4/src/url4/cli/_config.py:171                        def _require(ok: bool, message: str) -> None:  # noqa: FBT001 - tiny internal guard
+ 2w  2026-09-22  Ionésio Junior  packages/url4/src/url4/cli/_config.py:242                        return int(value)  # type: ignore[arg-type]
+ 2w  2026-09-22  Ionésio Junior  packages/url4/src/url4/cli/_config.py:252                        return float(value)  # type: ignore[arg-type]
+ 2w  2026-09-22  Ionésio Junior  packages/url4/src/url4/dag/_context.py:150                       return await self._inner.fetch_ex(request)  # type: ignore[attr-defined]
+### suppressions --histogram
+
+census suppressions - histogram (55 total)
+──────────────────────────────────────────
+  bucket  count  bar
+    <30d     22  #############
+  30-90d     33  ####################
+ 90-180d      0
+180-365d      0
+    1-2y      0
+     >2y      0
+ unknown      0

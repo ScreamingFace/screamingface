@@ -43,10 +43,11 @@ pytestmark = pytest.mark.e2e
 #: screamingface_engine.benchmarks.builtins; medxpert is registered but not yet
 #: onboarded here — no golden planned for it).
 #:
-#: contracteval is listed WITHOUT a golden on purpose (OME-1148, review of PR #984): the
-#: manual-onboarding runbook's Step 7 says to wire a new board in here precisely so it SKIPs
-#: loudly until its fixtures exist. A board absent from this tuple is silently unguarded, and
-#: silence is what let medxpert's omission go unnoticed.
+#: A board absent from this tuple is silently unguarded, and silence is what let medxpert's
+#: omission go unnoticed. contracteval left this tuple in OME-1527: it is a local inspect Task
+#: now, guarded by the Engine's inspect lane (prompt-bytes literal, conservation literals,
+#: published revision), like musique. gdpval-text stays: it became a local Task too, and its
+#: recorded golden replays against it (the stack syncs the Engine with the inspect extra).
 BOARDS = (
     "draco",
     "draco-3pass",
@@ -54,7 +55,6 @@ BOARDS = (
     "healthbench-worst30",
     "healthbench-professional",
     "gdpval-text",
-    "contracteval",
 )
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
@@ -66,8 +66,8 @@ _ASSET_BUNDLE = {
     "ifeval": "ifeval",
     "healthbench-worst30": "healthbench",
     "healthbench-professional": "healthbench",
-    "gdpval-text": "gdpval",
-    "contracteval": "contracteval",
+    # A local Task's bundle has its own id; the Engine's preparer writes it (OME-1527).
+    "gdpval-text": "gdpval-text",
 }
 
 

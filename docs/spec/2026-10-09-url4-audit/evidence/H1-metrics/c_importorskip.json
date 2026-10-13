@@ -1,0 +1,18 @@
+{
+  "kind": "custom",
+  "total": 1,
+  "hits": [
+    {
+      "file": "packages/url4/tests/unit/test_lifecycle_terminal_frame.py",
+      "line": 25,
+      "text": "pytest.importorskip(\"pydantic\")",
+      "marker": "importorskip",
+      "key": "importorskip",
+      "expires": null,
+      "reason": null,
+      "age_days": 17.323616112280224,
+      "author": "Ion\u00e9sio Junior",
+      "date": "2026-09-22"
+    }
+  ]
+}

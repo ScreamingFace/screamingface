@@ -1,6 +1,6 @@
 """OME-1043/OME-1044 — the Tavily retrieval cache key.
 
-FEATURE: a repeated Tavily `web_search` / `web_fetch` is answered from one shared row
+FEATURE: a repeated Tavily `web_search` / `web_fetch` is answered from a stored row
 instead of being paid for again. The second-order win is larger than the Tavily credit:
 the tool result is appended to `messages` and the chat cache hashes those verbatim, so a
 stable retrieval result is what makes the tool-loop continuation cacheable at all.
@@ -11,8 +11,10 @@ re-pay Tavily nor re-pay the model, because both halves of the turn now key iden
 INVARIANT: aigateway never calls Tavily and never holds a Tavily credential. The Runner
 keeps both. This module only describes and keys a retrieval request.
 
-INVARIANT: identity is structurally absent — no account, profile, auth mode or
-credential reaches any signature here. That is what makes one row safe to share.
+INVARIANT: this key is identity-free — no account, profile, auth mode or credential reaches
+any signature here. The route mixes the caller's account on top of this key (decision Q30,
+`routes/tavily_retrieval_cache._key_hash`), so a row is shared only within one account. Keep
+identity out of this module.
 
 INVARIANT: `excluded_domains` participates in the key. This is security-critical, not
 cosmetic: a cached hit returns an already-formatted result string that can no longer be
@@ -61,7 +63,8 @@ OPERATION: Final = "retrieval.tavily"
 # INVARIANT: the revision is inside the hashed material too. Bump it whenever the member
 # set or any normalization rule below changes, which abandons every row keyed under the
 # old rules rather than re-serving them under new semantics.
-TAVILY_RETRIEVAL_CONTRACT_REVISION: Final = "aigw-tavily-retrieval-2026-08a"
+# Also bump when the route's account wrap (Q30) changes.
+TAVILY_RETRIEVAL_CONTRACT_REVISION: Final = "aigw-tavily-retrieval-2026-10a"
 
 MAX_RESULTS_FLOOR: Final = 1
 MAX_RESULTS_CEILING: Final = 100

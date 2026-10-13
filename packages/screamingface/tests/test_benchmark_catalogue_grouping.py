@@ -26,7 +26,7 @@ import pytest
 import screamingface as sf
 from screamingface._ui.cards import ALL_CHIP_VALUE
 
-LEADERBOARD_URL = "https://leaderboard.dev.screamingface.ai/"
+LEADERBOARD_URL = "https://leaderboard.screamingface.ai/"
 INSPECT_EVALS_URL = "https://ukgovernmentbeis.github.io/inspect_evals/"
 
 

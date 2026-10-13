@@ -10,6 +10,12 @@ Evaluate composable Candidate Recipes against URL4-native research Benchmarks.
 
 ## Local notebook runtime
 
+Local Engine result artifacts live in the private `<data_dir>/artifacts` directory
+rather than temporary storage. Set `URL4_CLOUD_ARTIFACTS_DIR` to override it;
+`screamingface status` shows the absolute serving directory and its current size.
+The Engine's retention policy still applies. This configuration is independent of SDK
+report rendering, export and recovery APIs.
+
 Install the SDK, notebook tools, and local services together:
 
 ```bash
@@ -154,6 +160,50 @@ invented by the SDK: a parameter-free Model emits no sampling or retrieval param
 uses the Engine's configured defaults. Benchmarks may still impose explicit execution policy in
 their own URL4 protocol. Transport, routing, tool, and Benchmark-policy fields remain unavailable
 through Candidate `params`.
+
+### Fusion quorum and failed members
+
+A Fusion requires every member by default (`quorum="all"`). Mark individual members
+with `optional=True` to tolerate their failures:
+
+```python
+resilient = sf.Fusion(
+    [
+        sf.Model("provider/a", optional=True),
+        sf.Model("provider/b", optional=True),
+        "provider/c",  # required
+    ],
+    synthesizer="provider/synth",
+    quorum=2,
+)
+```
+
+The compiler wraps optional members with URL4's `;optional` and gates the member-only
+expression with `;quorum=2`, before running the synthesizer. Required members always
+have to succeed, even if other successes already meet the quorum. Strings and Recipes
+without `optional=True` remain required. `Pipeline(..., optional=True)` and
+`Fusion(..., optional=True)` guard a complete composite when used as a member of another
+Fusion; their intermediate answers do not count toward the containing Fusion's quorum.
+Optional Recipes are only valid as Fusion members, not standalone Candidates, pipeline
+stages, or synthesizers.
+
+The synthesizer receives JSON containing the original `input` and an `outputs` string
+with ordered `member_N: answer` sections for successful members only. Fusions using the
+default quorum and only required members retain their existing outputs object.
+
+Quorum is a success floor checked after members finish, not an early response race.
+`quorum="all"` still requires every member to succeed, including optional members;
+`quorum=0` permits synthesis with no successful members when every member is optional.
+`None`, booleans, negative numbers, and numbers above the member count are rejected.
+Quorum and per-member optional settings survive `Url4.to_python()` and replay.
+
+**Deployment requirement:** before using composed quorum Recipes (such as a Pipeline
+feeding a quorum Fusion or a quorum Fusion used as a synthesizer), deploy an Engine
+containing the URL4 nested-expression scope fix shipped with this change. Older runtimes
+can pass literal binding references instead of resolved upstream answers. Deploy the
+Engine operation-reporting update as well to retain member outputs and accounting.
+URL4 already supports quorum and optional sources; the runtime change fixes scope
+propagation for these compositions.
 
 ### Serial and recursive composition
 
@@ -460,6 +510,35 @@ Every `CandidateResult` exposes the Engine-owned top-level `coverage` ratio. A p
 available alongside the Cases that could not be graded, and the notebook Report panel labels the
 result as partial rather than silently presenting it as a complete evaluation.
 
+### Browse completed Case results
+
+Install `screamingface[notebook]` and display a completed `report` in a live notebook to
+browse 25 Case results per page. Use Previous/Next, enter an exact Case ID in Go to case
+number, or filter by Candidate using the dropdown or a Candidate name. The answer/grading
+and cost views remain available for every result. Numeric and string Case IDs retain their
+original identity.
+
+Download prepares the complete report JSON on disk, including every Candidate and Case,
+then provides a Jupyter file link (or the saved path when no local server serves it).
+In Colab it uses the native browser download API; the button can download the saved file
+again without re-exporting it. Jupyter prepares exports and pages asynchronously. Colab
+publishes bounded page changes and streaming exports inside the click callback, as its
+widget transport requires. Failures leave the current page available and allow retry.
+`report.export('report.json')` also writes the complete portable artifact directly.
+
+Colab's custom widget manager is enabled automatically for this browser. The notebook extra
+accepts ipywidgets 7.7.1 and 8, preserving Colab's compatible preinstalled version. If you
+previously upgraded Colab to ipywidgets 8 and see a blank report, install
+`ipywidgets==7.7.1` and restart the Colab session before displaying the report. Ordinary
+Jupyter supports ipywidgets 8. Case clicks use Colab’s native callback API there and
+ipywidgets DOM events in Jupyter. This compatibility verification covers completed reports;
+older-widget live-progress accessibility has separate existing limitations.
+
+Static HTML, including environments without the notebook extra, previews the first 25
+results and shortens oversized Case panes. Small JSON downloads remain inline; larger
+ones use explicit export. The complete retained data remains available through the Report
+and JSON export.
+
 ### Completed accounting breakdown
 
 Each Candidate exposes derived views of the Engine's retained operation and grading records:
@@ -536,6 +615,10 @@ submission = sf.leaderboards.submit(
     authors=["alice@example.com", "bob@example.org"],
 )
 same_submission = sf.leaderboards.get_score(submission.id)
+
+# Add or fix the paper link and authors of a score you submitted, then read the edit log:
+sf.leaderboards.edit(submission.id, paper_url="https://arxiv.org/abs/2610.01234")
+edit_log = sf.leaderboards.metadata_events(submission.id)
 editable_python = same_submission.url4.to_python()
 replayed_report = sf.evaluate(same_submission.url4)
 ```
@@ -562,7 +645,14 @@ through the configured Engine. Submitting a limited or incompletely graded Candi
 notebook the Client displays a branded notice even when the score is assigned to a variable;
 headless callers receive `sf.EvaluationWarning` attributed to their submission line. If that
 warning category is configured as an error, submission stops before the Scoreboard is changed.
-A Scoreboard deployment may
+`submit(..., paper_url=...)` links a paper you have already published (an `http` or `https` link
+with a host and no user info or whitespace). Later, the submitter can call
+`edit(score_id, authors=..., paper_url=...)`: an argument you leave out stays unchanged,
+`paper_url=None` clears the link, and `authors=None` is refused (pass `[submitter]` to go back to
+the default). `edit` returns the updated `LeaderboardScore`, which carries `paper_url` and
+`metadata_updated_at`. `metadata_events(score_id)` returns the owner-only edit log as
+`ScoreMetadataEvent` rows with the old and new values. The SDK does not check that the paper exists
+or that the authors wrote it. A Scoreboard deployment may
 keep writes closed, in which case `submit()` raises a typed `LeaderboardError`. Explicit Clients
 expose the same interface at `client.leaderboards`; asynchronous Clients use `await`. The
 Scoreboard is the deployed data system, while a Leaderboard is the ranked domain resource returned
@@ -621,3 +711,55 @@ uv run --extra notebook python scripts/check_notebooks.py
 uv build
 uv run python scripts/check_distribution.py
 ```
+
+
+## Reopen completed results
+
+Public `Client` and `AsyncClient` instances save completed-run metadata before downloading
+results. Artifact downloads are streamed and checked against the Engine ticket's size and
+SHA-256. Cases are validated incrementally into a disk index and loaded on demand, preserving
+prompts, answers, grading, operations, accounting, and the SDK's run provenance.
+
+```python
+import screamingface as sf
+
+entries = sf.reports.list()
+report = sf.reports.get(entries[0].id)
+# In async code: report = await sf.reports.get_async(entries[0].id)
+# Explicit removal: sf.reports.delete(entries[0].id)
+```
+
+The default location is `~/.screamingface/results`; `SCREAMINGFACE_RESULTS_DIR` overrides it,
+or use `SCREAMINGFACE_DATA_DIR` to choose the containing data directory. `list()` reads
+lightweight metadata and groups Candidates from the same Evaluation. `get()` and
+`get_async()` use local copies when available and obtain fresh authentication when a missing
+artifact needs downloading. They never start model runs. `destination='/another/disk'`
+lets recovery copy retained results to another location. Incomplete recovery raises the
+existing `candidates_failed` error with a `partial_report` and named Candidate failures.
+
+New saved evaluations track whether evaluation, notebook display or JSON export is in progress.
+When a POSIX notebook process exits unexpectedly, the next persisted Client for the same Engine
+shows an informational notice with an explicit `sf.reports.get(...)` command for retained completed
+results. It does not rerun models or recover automatically. Healthy, active and legacy results
+stay quiet; headless Clients do not scan results at startup. Owners that cannot be verified dead
+(including non-POSIX environments) are treated conservatively. Process-ID reuse can also suppress
+a notice; saved results remain available through `sf.reports.list()`. On POSIX, overlapping
+notebooks sharing the same directory preserve one another's unfinished work, including when
+a saved Candidate is recovered, displayed or exported from another process.
+
+Local copies remain until explicit deletion. Deleting a report also makes existing
+Reports backed by its files unreadable. Recovery requires a saved completion record and
+either a valid local raw result or an unexpired Engine artifact. An unavailable artifact
+reports `result_expired` with its age. Death before completion is recorded cannot be recovered.
+Disk failures report `result_storage_failed`; collection never silently falls back to RAM.
+Only completion/result metadata is saved, never authentication credentials.
+
+Set `Client(save_results=False)` or `AsyncClient(save_results=False)` for the previous
+in-memory collection path. These options do not change a custom supplied `run_transport`.
+Calling `to_dict()`, `to_json()`, converting Cases to a list, or requesting a Case slice
+still materializes the requested data. `CandidateResult.accounting` also materializes its
+full accounting breakdown. Notebook cost disclosures instead derive a compact context by
+streaming Cases and cache that context beside a saved Case index on first use. Warm run-level
+disclosures reuse the cache without decoding Cases; missing, stale or malformed caches
+rebuild, and a read-only cache location still returns derived values. Per-Case HTML still
+materializes its rendered output. Automatic lifecycle discovery remains a separate follow-up.

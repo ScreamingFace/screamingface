@@ -22,6 +22,9 @@ from url4 import Node, RelExpr, build, expr, render, src, struct, text
 from url4.peer.server import Url4Node
 
 CANDIDATE_REF = f"${CANDIDATE_BINDING}"
+#: The wire key of a Benchmark's Attempts per Case (OME-1458) on its catalogue entry and
+#: resource — the SDK's ATTEMPTS_KEY, letter for letter.
+ATTEMPTS_KEY = "attempts"
 
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
 type DraftFeedbackCost = Literal["free", "paid"]
@@ -164,6 +167,12 @@ class BenchmarkDeclaration:
     failure_policy: FailurePolicy
     interaction: InteractionType
     difficulty: DifficultyTier
+    # FEATURE (OME-1458): how many Attempts each Case gets; a Check is met if any Attempt met
+    # it (ARC-AGI-2 gives two per test grid). WHY the one default in a no-defaults record: 1
+    # means "no Attempts rule", which is every Benchmark authored before this field, and it is
+    # published only above 1, so no catalogue entry or resource moves. A Benchmark that
+    # declares N > 1 states it here, where a reader of the cover sheet sees it.
+    attempts: int = 1
 
     def __post_init__(self) -> None:
         if self.failure_policy not in _FAILURE_POLICIES:
@@ -181,13 +190,26 @@ class BenchmarkDeclaration:
                 f"BenchmarkDeclaration difficulty must be one of {_DIFFICULTY_TIERS!r}, "
                 f"got {self.difficulty!r}"
             )
+        if isinstance(self.attempts, bool) or not isinstance(self.attempts, int):
+            raise ValueError(
+                f"BenchmarkDeclaration attempts must be an integer, got {self.attempts!r}"
+            )
+        if self.attempts < 1:
+            raise ValueError(
+                f"BenchmarkDeclaration attempts must be at least 1, got {self.attempts}"
+            )
 
-    def as_block(self) -> dict[str, str]:
-        return {
+    def as_block(self) -> dict[str, str | int]:
+        block: dict[str, str | int] = {
             "failure_policy": self.failure_policy,
             "interaction": self.interaction,
             "difficulty": self.difficulty,
         }
+        # INVARIANT (OME-1458): published only above 1, so every existing catalogue entry
+        # and Benchmark resource stays byte-identical.
+        if self.attempts > 1:
+            block[ATTEMPTS_KEY] = self.attempts
+        return block
 
 
 @dataclass(frozen=True, slots=True)

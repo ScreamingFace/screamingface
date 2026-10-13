@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from test_draco_corrective_loop_e2e import _assets as draco_assets
+from test_draco_case_artifacts import _assets as draco_case_assets
 from test_healthbench_dual_benchmark_runtime import _write_full_assets as healthbench_assets
 from test_ifeval_case_evaluation_route import _assets as ifeval_assets
 from test_medxpert_protocol_turns import _assets as medxpert_assets
@@ -18,6 +18,15 @@ from url4.observe import Log
 from url4.peer.server import Url4Node
 
 
+def draco_assets(root):
+    """Write DRACO's stand-in Cases and rubrics under ``root/draco``, as the bundle lays them out.
+
+    WHY here (OME-1527): this helper used to come from the DRACO corrective-loop end-to-end
+    test, deleted with the route it exercised; the Case-artifacts test writes the same shape.
+    """
+    draco_case_assets(root / "draco")
+
+
 def assets(registration, root, monkeypatch):
     name = registration.asset_bundle.id
     if name == "draco":
@@ -27,20 +36,8 @@ def assets(registration, root, monkeypatch):
     elif name == "ifeval":
         (root / name).mkdir()
         ifeval_assets(root / name)
-    elif name == "contracteval":
-        from test_contracteval_resolution import _assets as contracteval_assets
-
-        contracteval_assets(root)
     elif name == "medxpert":
         medxpert_assets(root, 1)
-    else:
-        import test_gdpval_runtime as fixture
-
-        from screamingface_engine.benchmarks.gdpval.definition import TEXT_CASE_IDS
-
-        assert name == "gdpval"
-        monkeypatch.setattr(fixture, "_CASE_IDS", TEXT_CASE_IDS)
-        fixture._write_assets(root / name)
 
 
 class Events:
@@ -67,12 +64,11 @@ async def run_benchmark(registration, root, enabled):
         return '{"explanation":"ok","criteria_met":true,"criterion_status":"MET"}'
 
     from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as draco_judge
-    from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL as gdpval_judge
     from screamingface_engine.benchmarks.healthbench.revision_inputs import (
         JUDGE_MODEL as health_judge,
     )
 
-    for model in {draco_judge, gdpval_judge, health_judge}:
+    for model in {draco_judge, health_judge}:
         node.endpoint("/" + model)(judge)
     expression = link_candidate(
         "(answer:0.0:/writer($input)!'Answer')!'$answer'", registration.benchmark.protocol(1)

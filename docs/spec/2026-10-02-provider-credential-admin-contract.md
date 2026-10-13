@@ -261,18 +261,25 @@ Four OAuth plugins (anthropic, codex, gemini, antigravity) currently persist the
 **Refresh is not an ownership change.** It never advances the ownership generation. Only explicit
 PUT/DELETE, OAuth callback/re-auth completion and native create/key-replace/delete advance it. An
 ordinary refresh performs its network I/O outside any transaction, then in a short transaction
-checks that the same Connection is still the current owner at the captured generation and writes
-tokens and `last_refreshed_at`. Why: a browser re-auth already in flight on an active row reuses the
-row in place and completes only at its captured generation, so a refresh that advanced the
-generation would turn that callback into a false 409. A last-used touch does not advance either.
+checks that the same owner still holds the credential it refreshed and writes tokens and
+`last_refreshed_at`. Why: a browser re-auth already in flight on an active row reuses the row in
+place and completes only at its captured generation, so a refresh that advanced the generation would
+turn that callback into a false 409; for the same reason the refresh's metadata stamp never promotes
+a `pending` Profile. A last-used touch does not advance either.
 
-Check-without-advance primitive (clarified at formalization): `PairAuthorityStore.advance` always
-writes `expected + 1`, and an absent `none` marker cannot be row-locked, so the refresh guard
-locks the owning Connection row `SELECT … FOR UPDATE`, then re-reads the marker and requires the
-captured generation and the same owner before writing. Ownership-changing writers on that pair
-update or lock the same Connection row before their blob write, which serializes them against the
-refresh. A Profile-owned refresh uses the existing account-index serialization instead. No new
-table, lock store or job.
+Refresh check (owner decision 2026-10-07, replacing the pair-generation check): the strategy
+observes its own blob's row id and `credential_revision` together with the credential it refreshes
+— taken around its read of the blob (equal before and after, else it reads again, a bounded number
+of times) and renewed by each publication it makes; never at refresh time, which would bless a
+credential rewritten after the cached one was read. The publication locks the
+owner (the Connection row `SELECT … FOR UPDATE`, not revoked; or the account-index row with the
+Profile document present), then the blob row `SELECT … FOR UPDATE`, and requires the captured row
+id and revision before writing. Every writer that replaces, deletes or recreates that credential
+moves one of them (the store increments the revision on every value write, and a PostgreSQL trigger
+covers older binaries), and ownership-changing writers lock the same owner row before their blob
+write, so they serialize against the refresh in the writers' order (marker → owner → blob). An
+ownership change elsewhere on the pair (another Connection created or started) no longer makes the
+refresh lose, so it never burns a rotating refresh token. No new table, column, lock store or job.
 
 The G0 inventory includes authorize-triggered refresh, the token service and bootstrap where they
 write a credential. A missed persistence path fails acceptance; "routes guarded" is not enough.
@@ -280,9 +287,9 @@ write a credential. A missed persistence path fails acceptance; "routes guarded"
 **Advance or check (owner decision 2026-10-06, after the G0 inventory).** Only an ownership change
 advances the generation: key PUT/DELETE, OAuth callback/re-auth completion and native
 create/OAuth start/key-replace/delete. OAuth begin records the pair it observed and its callback
-claims that generation; OAuth failure, error marks and refresh publication only check the observed
-generation where a lockable row exists and never advance it. Migrated paths keep the advances they
-already make. On `none` and `quarantined` every claim keeps the state, the null reference and the
+claims that generation; OAuth failure and error marks only check the observed generation where a
+lockable row exists and never advance it; refresh publication checks its own blob revision
+(above). Migrated paths keep the advances they already make. On `none` and `quarantined` every claim keeps the state, the null reference and the
 note; a native create or OAuth start on `none` keeps `none` (no auto-promotion). Non-effective native
 rows of a `migrated` pair keep their existing fences. Legacy PUT and native key replacement capture
 the pair after provider key validation, as the migrated paths do: a change during validation is
@@ -419,6 +426,9 @@ Mandatory falsifiers:
 - start re-auth → ordinary refresh publishes → callback with the original generation succeeds;
 - an old refresh publication after a key replacement loses, including on an unmarked `none` pair
   (PostgreSQL lane);
+- a refresh publication survives an ownership change elsewhere on the pair, and loses when its own
+  blob was rewritten, deleted or recreated — including a rewrite committed after a cached
+  strategy read the blob and before its refresh started;
 - native create inserts a second candidate while the bridge validates → the bridge refuses;
 - a cached strategy's next legitimate refresh is not stuck on an obsolete epoch;
 - two first-marker creates → exactly one commits, no orphan;
@@ -440,6 +450,7 @@ over pre-G0 guards.
 | Stop new shadow writes | deferred: reverses D14's decided "shadow Connection write included", and the Local Engine reads `/v1/oauth/connections*`; needs a D14 amendment and a consumer check | open follow-up, not in G0 |
 | Legacy concurrency baseline | three wire outcomes, not two; the umbrella D18 row and the OME-1375 description are corrected | correction of existing behaviour, not a new API |
 | Advance or check, native create, capture point (§5.3) | only ownership changes advance; begin/fail/error marks/refresh check; native create on `none` keeps `none`; key validation precedes the capture | owner decision 2026-10-06 |
+| Refresh check (§5.3) | the publication checks the owner and its own blob's row id and `credential_revision` instead of the pair generation, so an unrelated ownership change never burns a rotating refresh token; supersedes the "Refresh guard" row's generation check | owner decision 2026-10-07 |
 
 ## 10. Landing issues
 

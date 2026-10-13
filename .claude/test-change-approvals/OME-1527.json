@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1527",
+  "branch": "OME-1527-pr19-conversation-cases",
+  "approver": "owner — OME-1527 Work order #19 (R14) approved on the ticket: a Case's prompt can be a fixed conversation, still one Candidate call; to confirm in PR review",
+  "date": "2026-10-13",
+  "scope": "(1) test_capture.py: test_a_multi_turn_prompt_is_refused becomes test_a_conversation_that_ends_on_an_assistant_turn_is_refused. The rule it pinned (any assistant turn refuses the Case) is the one R14 replaces: a conversation ending on a user turn is now a Case, pinned in the new test_conversation_cases.py. The test keeps pinning a refusal, now the one that still holds (a conversation ending on the assistant's turn), with the same Sample shape minus its last user turn. Test bodies not listed here are unchanged.",
+  "reason": "OME-1527 Work order #19 (R14) lets capture write a fixed conversation as the candidate-input envelope; the one capture test that pinned its refusal is narrowed to the shape still refused.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_capture.py": {
+      "base_blob": "f628f2a8f8e4273b50ac8e4b0753547513037f65",
+      "approved_blob": "ce99efa79a7106ec09faf6153465a7324f78799a"
+    }
+  }
+}

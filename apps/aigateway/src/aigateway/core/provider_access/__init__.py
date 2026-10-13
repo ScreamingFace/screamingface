@@ -65,6 +65,7 @@ from .profile_backed import (
     target_from_legacy,
 )
 from .profile_defaults import read_defaults
+from .refresh_guard import ConnectionRefreshOwner, ProfileRefreshOwner, guard_refresh
 from .selector import DEFAULT_SELECTOR_NAME, Selector, SelectorPolicy
 from .types import (
     Authorization,
@@ -109,6 +110,7 @@ __all__ = [
     "AvailabilityStatus",
     "ConnectionBackedCredentialAdmin",
     "ConnectionBackedProviderAccess",
+    "ConnectionRefreshOwner",
     "CredentialStoreUnavailable",
     "CredentialSummary",
     "CredentialTarget",
@@ -119,6 +121,7 @@ __all__ = [
     "PairAuthorityStore",
     "ProfileBackedCredentialAdmin",
     "ProfileBackedProviderAccess",
+    "ProfileRefreshOwner",
     "ProviderAccess",
     "ProviderAccessRefusal",
     "ProviderCredentialAdmin",
@@ -160,6 +163,7 @@ __all__ = [
     "facade_target",
     "fail_connection_oauth",
     "fences_writer",
+    "guard_refresh",
     "hold_observed",
     "hold_pair",
     "invalidate_session",

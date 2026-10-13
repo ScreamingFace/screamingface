@@ -67,20 +67,13 @@ def _assets(tmp_path, monkeypatch, registration):
         medxpert_assets(tmp_path, 2)
     else:
         assets(registration, tmp_path, monkeypatch)
-        if name == "contracteval":
-            root = tmp_path / name
-            rows = json.loads((root / "cases.json").read_text())
-            rows.append({**rows[0], "id": 2})
-            (root / "cases.json").write_text(json.dumps(rows))
-            (root / "answers" / "2.json").write_text((root / "answers" / "1.json").read_text())
 
 
 def _judges(node):
     from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as draco
-    from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL as gdpval
     from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL as health
 
-    for model in {draco, gdpval, health}:
+    for model in {draco, health}:
         node.endpoint("/" + model)(
             lambda request: '{"explanation":"ok","criteria_met":true,"criterion_status":"MET"}'
         )

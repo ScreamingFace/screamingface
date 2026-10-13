@@ -10,7 +10,7 @@ from tortoise.transactions import in_transaction
 
 from aigateway.core.auth.middleware import CurrentAccount
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
-from aigateway.core.errors import AuthError, CredentialNotFoundError
+from aigateway.core.errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.schemas import (
     CreateApiKeyConnectionRequest,
@@ -35,11 +35,13 @@ from aigateway.core.oauth_pkce import generate_pkce, generate_state
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import credential_service_provider_for, credential_strategy_from
 from aigateway.core.provider_access import (
+    ConnectionRefreshOwner,
     PairAuthorityStore,
     claim_for_connection,
     claim_native_write,
     credential_has_other_owner,
     credential_name_of,
+    guard_refresh,
     lock_lower_addressers,
     republish_effective_api_key,
     retire_effective,
@@ -519,14 +521,21 @@ async def refresh_connection(
         provider=provider,
         auth_type="oauth",
         credential_name=credential_name,
-        build=lambda: credential_strategy_for_connection(
-            request.app, plugin, provider, connection, account_id=account_id
+        build=lambda: guard_refresh(
+            credential_strategy_for_connection(
+                request.app, plugin, provider, connection, account_id=account_id
+            ),
+            ConnectionRefreshOwner(account_id, provider, connection.id),
         ),
     )
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
     try:
         await strategy.refresh_credentials()
+    except RefreshSuperseded as exc:
+        # INVARIANT (OME-1497, G0 §5.3): an ownership change during the window wins; no mark.
+        credential_strategy_cache(request.app).evict(credential_name)
+        raise HTTPException(status_code=409, detail={"code": "connection_conflict"}) from exc
     except (CredentialNotFoundError, AuthError) as exc:
         await store.mark_error(connection, str(exc))
         credential_strategy_cache(request.app).evict(credential_name)

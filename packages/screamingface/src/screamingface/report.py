@@ -11,6 +11,7 @@ from os import PathLike
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, cast, overload
+from uuid import UUID
 
 from screamingface._client_provenance import client_version as _client_version
 from screamingface._evaluation.model import _canonical_url4
@@ -26,6 +27,7 @@ from screamingface._report_primitives import (
     _duration,
     _nonblank,
     _usage,
+    capture_status_value,
 )
 from screamingface.accounting import AccountingBreakdown, accounting_breakdown
 from screamingface.case_result import (
@@ -125,6 +127,14 @@ class _CaseResults(Sequence[CaseResult]):
     def __init__(self, values: Sequence[CaseResult]) -> None:
         if isinstance(values, str | bytes) or not isinstance(values, Sequence):
             raise TypeError("Candidate cases must be an ordered sequence")
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(values, DiskCases):
+            if not values:
+                raise ValueError("a Candidate Result requires at least one Case Result")
+            self._items = values
+            self._by_id = None
+            return
         items = tuple(values)
         if any(not isinstance(value, CaseResult) for value in items):
             raise TypeError("Candidate cases must contain sf.CaseResult values")
@@ -154,19 +164,52 @@ class _CaseResults(Sequence[CaseResult]):
         return iter(self._items)
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, _CaseResults):
-            return self._items == other._items
         if isinstance(other, Sequence):
-            return self._items == tuple(other)
+            return len(self) == len(other) and all(a == b for a, b in zip(self, other))
         return NotImplemented
 
     def __repr__(self) -> str:
         return repr(self._items)
 
+    def _identities(self) -> Iterator[CaseId]:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            yield from self._items.identities()
+        else:
+            yield from (case.case_id for case in self._items)
+
+    @property
+    def _disk_path(self) -> Path | None:
+        from screamingface._results.cases import DiskCases
+
+        return self._items.path if isinstance(self._items, DiskCases) else None
+
+    def _gradeable_count(self) -> int:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases) and self._items.gradeable is not None:
+            return self._items.gradeable
+        return sum(case.grade is not None and case.grade.score is not None for case in self._items)
+
+    def _failures(self) -> Iterator[Failure]:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            yield from self._items.failures()
+        else:
+            for case in self._items:
+                yield from case.failures
+
     def by_id(self, case_id: CaseId) -> CaseResult:
         """Return the Case with this domain ID without treating integers as positions."""
 
         selected = _case_id(case_id)
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            return self._items.by_id(selected)
+        assert self._by_id is not None
         try:
             return self._by_id[selected]
         except KeyError:
@@ -180,6 +223,47 @@ def _answer_seed(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError("Candidate answer_seed must be an integer or None")
     return value
+
+
+def _capture(
+    frozen_copy_id: object, capture_status: object
+) -> tuple[str | None, Literal["complete", "partial"] | None]:
+    """Validate the frozen copy pair; stricter than the Scoreboard on the spelling of the id.
+
+    INVARIANT: a copy id is a canonical (lower-case, hyphenated) UUID string, and a copy id never
+    travels without its status. The board refuses the pair without a status. It also accepts other
+    spellings of a UUID and normalises them; the Client refuses those instead, so the id it stores
+    and sends is exactly the id the Engine stated.
+    """
+    if frozen_copy_id is not None and (
+        not isinstance(frozen_copy_id, str) or not _is_canonical_uuid(frozen_copy_id)
+    ):
+        raise ValueError("Candidate frozen_copy_id must be a UUID string or None")
+    status = capture_status_value(capture_status)
+    if frozen_copy_id is not None and status is None:
+        raise ValueError("Candidate frozen_copy_id requires capture_status")
+    return frozen_copy_id, status
+
+
+def _partial_reasons(value: Sequence[str]) -> tuple[str, ...]:
+    """The partial reason names of one capture, sorted and without repeats.
+
+    INVARIANT: each reason is a non-empty string. A value of another type is a TypeError.
+    """
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise TypeError("Candidate capture_partial_reasons must be a sequence of strings")
+    if not all(isinstance(reason, str) for reason in value):
+        raise TypeError("Candidate capture_partial_reasons must name each reason as a string")
+    if not all(value):
+        raise ValueError("Candidate capture_partial_reasons must not name an empty reason")
+    return tuple(sorted(set(value)))
+
+
+def _is_canonical_uuid(value: str) -> bool:
+    try:
+        return str(UUID(value)) == value
+    except ValueError:
+        return False
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -226,6 +310,14 @@ class CandidateResult:
     # FEATURE (OME-1463): the Engine run summary's count of hits with no price at all; None when no
     # summary arrived. Only 0 lets a cached run be published as `complete`.
     cache_unpriced_hits: int | None
+    # FEATURE (OME-1307): the frozen copy this run captured (`capture=True`) and whether it holds
+    # every call of the run. None is "not captured" or "unknown" (an older Engine), never `partial`.
+    frozen_copy_id: str | None
+    capture_status: Literal["complete", "partial"] | None
+    # FEATURE (Q23, design §7): the partial reasons the run counted, sorted; `("local",)` for a
+    # local capture. Empty when complete, not captured or unknown. Only the submitter sees them:
+    # the board does not store them.
+    capture_partial_reasons: tuple[str, ...]
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
     # FEATURE (OME-1268): the Benchmark's Named Scores for this Candidate, each the mean of
     # its column over the graded Cases, headline first; `score` IS the headline. Empty on a
@@ -260,6 +352,9 @@ class CandidateResult:
         cache_saved_cost_archive_usd: Decimal | str | None = None,
         cache_unpriced_hits: int | None = None,
         scores: Mapping[str, float | None] | None = None,
+        frozen_copy_id: str | None = None,
+        capture_status: Literal["complete", "partial"] | None = None,
+        capture_partial_reasons: Sequence[str] = (),
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
@@ -271,6 +366,7 @@ class CandidateResult:
             or cache_unpriced_hits < 0
         ):
             raise ValueError("Candidate cache_unpriced_hits must be a non-negative integer or None")
+        selected_copy, selected_capture = _capture(frozen_copy_id, capture_status)
         selected_score = _optional_number(score, "Candidate score")
         selected_coverage = _coverage(coverage)
         metric_items = _metrics(metrics)
@@ -351,6 +447,9 @@ class CandidateResult:
             "cache_hits": cache_hits,
             "cache_saved_cost_archive_usd": selected_archive,
             "cache_unpriced_hits": cache_unpriced_hits,
+            "frozen_copy_id": selected_copy,
+            "capture_status": selected_capture,
+            "capture_partial_reasons": _partial_reasons(capture_partial_reasons),
             "_metric_items": metric_items,
             "_scores": selected_scores,
         }
@@ -430,6 +529,10 @@ class CandidateResult:
                 else str(self.cache_saved_cost_archive_usd)
             ),
             "cache_unpriced_hits": self.cache_unpriced_hits,
+            # OME-1307: always emitted (null = not captured or unknown), like the cache fields.
+            "frozen_copy_id": self.frozen_copy_id,
+            "capture_status": self.capture_status,
+            "capture_partial_reasons": list(self.capture_partial_reasons),
         }
 
 
@@ -504,8 +607,9 @@ class Report:
 
     @property
     def ok(self) -> bool:
-        return not self.failures and all(
-            candidate.score is not None for candidate in self.candidates
+        return all(
+            candidate.score is not None and next(_candidate_failures(candidate), None) is None
+            for candidate in self.candidates
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -604,6 +708,24 @@ class Report:
         candidates = ", ".join(repr(candidate.name) for candidate in self.candidates)
         return f"Report(benchmark={self.benchmark.id!r}, candidates=[{candidates}], ok={self.ok})"
 
+    def _ipython_display_(self) -> None:
+        from screamingface._results.lifecycle import report_operation
+
+        with report_operation(self, "rendering"):
+            self._display_notebook()
+
+    def _display_notebook(self) -> None:
+        from IPython.display import HTML, display
+
+        try:
+            from screamingface._ui.report_browser import ReportBrowser
+
+            browser = ReportBrowser(self)
+        except ImportError:
+            display(HTML(self._repr_html_()))
+            return
+        display(browser.widget)
+
     def _repr_html_(self) -> str:
         from screamingface._ui.report_view import report_html
 
@@ -645,8 +767,7 @@ def _candidate_failures(candidate: CandidateResult) -> Iterator[Failure]:
     for member in candidate.members:
         if member.failures is not None:
             yield from member.failures
-    for case in candidate.cases:
-        yield from case.failures
+    yield from candidate.cases._failures()
 
 
 def _failures(values: Sequence[Failure], label: str) -> tuple[Failure, ...]:
@@ -845,10 +966,12 @@ def _validate_candidate_outcome(
 ) -> None:
     """Independently enforce the Engine's Candidate Result wire invariants."""
 
-    gradeable = tuple(
-        case for case in cases if case.grade is not None and case.grade.score is not None
+    gradeable = (
+        cases._gradeable_count()
+        if isinstance(cases, _CaseResults)
+        else sum(case.grade is not None and case.grade.score is not None for case in cases)
     )
-    expected_coverage = round(len(gradeable) / len(cases), 4)
+    expected_coverage = round(gradeable / len(cases), 4)
     if coverage != expected_coverage:
         raise ValueError(
             "Candidate coverage must equal numeric Case grades / selected Cases "

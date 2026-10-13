@@ -13,7 +13,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from url4.core.errors import CollectionError
 
@@ -102,25 +102,29 @@ def _declared_json(body: str) -> list[str]:
             "iteration over non-array application/json is malformed "
             f"(got {type(data).__name__}; spec §5.3.7)"
         )
-    return [_item_to_str(item) for item in data]
+    return _array_items(data, body)
 
 
 def _declared_ndjson(body: str) -> list[str]:
     items: list[str] = []
     for line in _lines(body):
         try:
-            items.append(_item_to_str(json.loads(line)))
+            items.append(_line_item(line))
         except json.JSONDecodeError as exc:
             raise CollectionError(f"invalid NDJSON line: {line[:80]!r}") from exc
     return items
 
 
 def _declared_csv(body: str, delimiter: str = ",") -> list[str]:
-    # WHY: a declared table is trusted — no header heuristics, rows as JSON objects.
+    # WHY: a declared table is trusted — no header heuristics, rows as JSON objects —
+    # except that a repeated header would silently drop a column, so it is refused.
     try:
-        rows = list(csv.DictReader(io.StringIO(body), delimiter=delimiter))
+        reader = csv.DictReader(io.StringIO(body), delimiter=delimiter)
+        rows = list(reader)
     except csv.Error as exc:
         raise CollectionError(f"invalid CSV collection: {exc}") from exc
+    if not _unique(reader.fieldnames or []):
+        raise CollectionError(f"CSV collection has duplicate headers: {reader.fieldnames!r}")
     return [json.dumps(dict(row)) for row in rows]
 
 
@@ -131,6 +135,8 @@ def _declared_tsv(body: str) -> list[str]:
 _DECLARED: dict[str, Callable[[str], list[str]]] = {
     "application/json": _declared_json,
     "application/x-ndjson": _declared_ndjson,
+    "application/ndjson": _declared_ndjson,
+    "application/jsonl": _declared_ndjson,
     "text/csv": _declared_csv,
     "text/tab-separated-values": _declared_tsv,
     "text/plain": lambda body: _lines(body),
@@ -148,7 +154,7 @@ def _try_json_array(body: str, _lines_unused: list[str]) -> list[str] | None:
         data = json.loads(body)
     except json.JSONDecodeError:
         return None
-    return [_item_to_str(item) for item in data] if isinstance(data, list) else None
+    return _array_items(data, body) if isinstance(data, list) else None
 
 
 def _try_jsonl(_body: str, lines: list[str]) -> list[str] | None:
@@ -159,18 +165,18 @@ def _try_jsonl(_body: str, lines: list[str]) -> list[str] | None:
     items: list[str] = []
     for line in lines:
         try:
-            items.append(_item_to_str(json.loads(line)))
+            items.append(_line_item(line))
         except json.JSONDecodeError:
             return None
     return items
 
 
 def _try_csv(body: str, lines: list[str]) -> list[str] | None:
-    # Only accept a genuine rectangular table: a comma-bearing header with >=2
-    # columns and every data row matching it exactly. Ragged prose that merely
-    # contains commas (e.g. "What is 2, 3?\nName a color, please") is rejected and
-    # falls through to the plain-lines fallback rather than being mangled.
-    if len(lines) < 2 or "," not in lines[0] or not _looks_like_header(lines[0]):
+    # Only accept a genuine rectangular table (D-4): at least 3 lines, a header of
+    # >=2 unique, label-like columns, and every data row matching it exactly. Two
+    # comma-bearing lines stay two text rows ("red,green\nblue,yellow"), and ragged
+    # prose that merely contains commas falls through to the plain-lines fallback.
+    if len(lines) < 3 or not _looks_like_header(lines[0]):
         return None
     try:
         reader = csv.DictReader(io.StringIO(body))
@@ -178,10 +184,12 @@ def _try_csv(body: str, lines: list[str]) -> list[str] | None:
     except csv.Error:
         return None
     fieldnames = reader.fieldnames or []
-    # A real table: >=2 columns and every row rectangular (no missing/extra cells,
-    # which DictReader signals via a None value or a None key).
-    rectangular = len(fieldnames) >= 2 and all(
-        None not in row and None not in row.values() for row in rows
+    # A real table: >=2 unique columns and every row rectangular (no missing/extra
+    # cells, which DictReader signals via a None value or a None key).
+    rectangular = (
+        len(fieldnames) >= 2
+        and _unique(fieldnames)
+        and all(None not in row and None not in row.values() for row in rows)
     )
     return [json.dumps(dict(row)) for row in rows] if rows and rectangular else None
 
@@ -201,6 +209,26 @@ def _looks_like_header(line: str) -> bool:
     """
     fields = [f.strip() for f in line.split(",")]
     return all(f and " " not in f and f[-1] not in "?!." for f in fields)
+
+
+def _unique(fieldnames: Sequence[str]) -> bool:
+    return len(set(fieldnames)) == len(fieldnames)
+
+
+def _array_items(data: list, body: str) -> list[str]:
+    """JSON array elements as text; a number keeps its source spelling (``2.50``)."""
+    spelled = json.loads(body, parse_float=str, parse_int=str, parse_constant=str)
+    return [spelled[i] if _is_number(item) else _item_to_str(item) for i, item in enumerate(data)]
+
+
+def _line_item(line: str) -> str:
+    """One JSONL value as text; a number keeps its source spelling. Raises on bad JSON."""
+    item = json.loads(line)
+    return line if _is_number(item) else _item_to_str(item)
+
+
+def _is_number(item: object) -> bool:
+    return isinstance(item, int | float) and not isinstance(item, bool)
 
 
 def _item_to_str(item: object) -> str:

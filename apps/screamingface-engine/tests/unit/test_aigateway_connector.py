@@ -24,7 +24,7 @@ pytestmark = pytest.mark.asyncio
 _TOKEN = "test-token"  # noqa: S105 - not a real credential
 _TAVILY_TOKEN = "tvly-test"  # noqa: S105 - not a real credential
 
-_FANOUT = "(/openrouter/gpt-4o(ctx)!probe)!combine"
+_FANOUT = "(/openrouter/gpt-4o(ctx)!'probe')!'combine'"
 
 
 async def test_candidate_chat_envelopes_preserve_native_message_roles() -> None:
@@ -89,9 +89,20 @@ class _MockAigateway:
         self.models = tuple(ModelSpec(id=m, web_search=web_search) for m in models)
         self.responses = responses or {}
         self.requests: list[httpx.Request] = []
+        # OME-1045: the Tavily retrieval-cache routes are answered but kept out of `requests`, so
+        # every count of chat calls keeps counting chat calls only.
+        self.cache_requests: list[httpx.Request] = []
         self._seq_index: dict[str, int] = {}
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v1/retrieval/tavily/cache/"):
+            self.cache_requests.append(request)
+            return httpx.Response(
+                200,
+                json={"outcome": "stored"}
+                if request.url.path.endswith("/entries")
+                else {"status": "miss", "reason": None, "result": None},
+            )
         self.requests.append(request)
         assert "authorization" not in request.headers
         if request.url.path == "/v1/models":
@@ -263,7 +274,7 @@ async def test_a_bare_short_name_no_longer_resolves_to_a_prefixed_model() -> Non
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
 
-        fanout = "(/codex/gpt-5.5(ctx)!probe)!combine"
+        fanout = "(/codex/gpt-5.5(ctx)!'probe')!'combine'"
         with pytest.raises(ResolutionError) as exc_info:
             await url4_run(fanout, io=world.node, processor="gpt-5.5")
 
@@ -354,7 +365,7 @@ async def test_a_shared_bare_name_across_providers_stays_addressable_by_full_id(
 
         assert set(world.node.processor_routes()) == {"/anthropic/x", "/openrouter/x"}
 
-        fanout = "(/anthropic/x(ctx)!probe)!combine"
+        fanout = "(/anthropic/x(ctx)!'probe')!'combine'"
         with pytest.raises(ResolutionError) as exc_info:
             await url4_run(fanout, io=world.node, processor="x")
 
@@ -367,7 +378,7 @@ async def test_unregistered_model_id_fails_before_any_completion_call() -> None:
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
 
-        fanout = "(/anthropic/claude-haiku-4-5(ctx)!probe)!combine"
+        fanout = "(/anthropic/claude-haiku-4-5(ctx)!'probe')!'combine'"
         with pytest.raises(ResolutionError) as exc_info:
             await url4_run(fanout, io=world.node, processor="not-a-real-model")
 

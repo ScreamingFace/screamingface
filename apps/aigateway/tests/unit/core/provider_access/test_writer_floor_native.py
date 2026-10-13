@@ -22,6 +22,7 @@ import pytest
 from connection_backed_admin_probes import blob_at_connection_address, document, marker, set_api_key
 from connection_backed_harness import ConnectionBackedHarness
 from connection_backed_oauth_probes import access_token_of, callback, pending_entry, use_tokens
+from fastapi import HTTPException
 from provider_access_harness import PROVIDER, ProfileBackedHarness
 
 from aigateway.core.api_key_validation import (
@@ -383,6 +384,54 @@ def test_a_native_callback_that_lost_the_pair_before_activation_activates_nothin
 
     connection_id = started.json()["connection_id"]
     assert _row(legacy, connection_id).status != "active"
+    assert blob_at_connection_address(legacy, connection_id) is None
+
+
+def test_a_native_callback_publication_failure_does_not_claim_the_pair(
+    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    use_tokens(legacy, "not-published")
+    started = _start(legacy)
+    state = started.json()["state"]
+    before_callback = marker(legacy)
+
+    async def fail_after_activation_precondition(*_args: Any, **_kwargs: Any) -> None:
+        raise HTTPException(status_code=503, detail={"code": "credential_store_unavailable"})
+
+    monkeypatch.setattr(
+        auth_routes, "_persist_connection_credentials", fail_after_activation_precondition
+    )
+
+    response = callback(legacy, state)
+
+    assert response.status_code == 503, response.text
+    assert marker(legacy) == before_callback
+    connection_id = started.json()["connection_id"]
+    assert _row(legacy, connection_id).status == "error"
+    assert blob_at_connection_address(legacy, connection_id) is None
+
+
+def test_a_native_callback_publication_failure_leaves_same_named_profile_unchanged(
+    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    legacy.seed_profile(name="work", auth_type="api_key", credential=KEY)
+    before = document(legacy, "work")
+    use_tokens(legacy, "not-published")
+    started = _start(legacy, label="work")
+
+    async def fail_after_profile_precondition(*_args: Any, **_kwargs: Any) -> None:
+        raise HTTPException(status_code=503, detail={"code": "credential_store_unavailable"})
+
+    monkeypatch.setattr(
+        auth_routes, "_persist_connection_credentials", fail_after_profile_precondition
+    )
+
+    response = callback(legacy, started.json()["state"])
+
+    assert response.status_code == 503, response.text
+    assert document(legacy, "work") == before
+    connection_id = started.json()["connection_id"]
+    assert _row(legacy, connection_id).status == "error"
     assert blob_at_connection_address(legacy, connection_id) is None
 
 

@@ -23,7 +23,7 @@ sf.leaderboards.get_score(score.id)         # read it back later`
 const remix = `entry = board.entries[0]
 
 entry.url4.to_python()   # the winning recipe as editable code, no spend
-sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
+sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
 </script>
 
 <template>
@@ -44,6 +44,12 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
       Published model numbers usually originate with the party that benefits from them, and are
       reported rather than demonstrated. The board is organized around the opposite arrangement: a
       rank is a claim someone else has already reproduced, and that you can reproduce again.
+    </p>
+
+    <p>
+      A captured run (the default) keeps a frozen copy of its model answers and web-tool results,
+      and <code>sf.reproduce(score)</code> replays a submission against that copy. The
+      <RouterLink to="/learn/caching">caching page</RouterLink> explains how.
     </p>
 
     <h2>How a rank happens</h2>
@@ -86,6 +92,15 @@ sf.evaluate(entry.url4)  # or replay it verbatim, benchmark included`
       only interesting if it beats the models it is composed from, and the comparison should use
       numbers the field already accepts. Each baseline records where it came from, so you can go
       read the original.
+    </p>
+
+    <h2>The paper link</h2>
+
+    <p>
+      A submitter can link the paper that reports a result. The submitter can also change the
+      authors and the paper link later. The portal shows "Metadata edited &lt;date&gt;" next to the
+      paper link. The date is the last time either field changed. The edit log of a score is not
+      public.
     </p>
 
     <h2>The recipe is the reward</h2>

@@ -124,8 +124,8 @@ def test_the_catalogue_serves_both_benchmarks() -> None:
     assert entry["id"] == "draco-3pass"
     assert entry["case_count"] == 100
     # OME-1513: no Draft Feedback offer on either draco Benchmark (owner rule 2026-10-07), so
-    # the catalogue entry carries no check_surface block; the route still sits under the
-    # three-pass prefix (asserted on the registered routes below).
+    # the catalogue entry carries no check_surface block; the route's address still sits under
+    # the three-pass prefix, though the route is not installed (OME-1527, asserted below).
     assert "check_surface" not in entry
     assert THREE_PASS_VARIANT.routes.check_surface.startswith(
         f"/benchmarks/draco-3pass/{THREE_PASS_VARIANT.revision}"
@@ -193,15 +193,17 @@ def test_both_benchmarks_install_and_validate_on_one_world(tmp_path: Path) -> No
         CANONICAL_VARIANT.routes.criterion_evaluation,
         CANONICAL_VARIANT.routes.case_evaluation,
         CANONICAL_VARIANT.routes.aggregate,
-        CANONICAL_VARIANT.routes.check_surface,
         THREE_PASS_VARIANT.routes.judge_requests,
         THREE_PASS_VARIANT.routes.verdict,
         THREE_PASS_VARIANT.routes.criterion_evaluation,
         THREE_PASS_VARIANT.routes.case_evaluation,
         THREE_PASS_VARIANT.routes.aggregate,
-        THREE_PASS_VARIANT.routes.check_surface,
     ):
         assert route in registered
+    # OME-1527: neither DRACO Benchmark offers Draft Feedback, so neither installs its
+    # check-surface route — an offer that is off is not reachable by url4 string either.
+    assert CANONICAL_VARIANT.routes.check_surface not in registered
+    assert THREE_PASS_VARIANT.routes.check_surface not in registered
     # Cases validate the selected count before iteration starts.
     assert CANONICAL_VARIANT.routes.cases in registered
     assert THREE_PASS_VARIANT.routes.cases in registered

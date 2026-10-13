@@ -57,6 +57,20 @@ key that would remove the double charge) is out of scope and proposed separately
 - The result table in the PR body holds and every row is pinned by a test.
 - `uv run .claude/scripts/run_gates.py screamingface-engine --base origin/main` is green.
 
+## Main-sync conflict correction — 2026-10-13
+
+Current `main` added frozen-copy capture/replay and Attempts behavior in the same connector retry
+seam. The PR conflicts in `_post_completion`; the resolution must preserve two independent facts:
+
+- every lost transport reply notifies the per-call capture probe, keeping frozen-copy ordering
+  ambiguous exactly as on `main`;
+- only failures outside `_NEVER_SENT` set `possibly_billed`, keeping OME-1220's connect-phase cost
+  exact while read/write/protocol failures remain unpriced.
+
+Acceptance: the merged catch path performs both updates before retry classification; frozen-copy,
+Attempts and OME-1220 focused tests pass; the full Engine gate is green against the synchronized
+`origin/main`.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned, plus `.claude/test-change-approvals/OME-1220.json` (the blob pin
@@ -73,4 +87,8 @@ key that would remove the double charge) is out of scope and proposed separately
 - **Deviations:** the re-issue path (`_fetch_completion` after a hit refused for age) lost the
   first round trip's retry flag; found during the work and fixed here, with its own test.
   `connector.py` (already over 450 lines) grew by about 20 lines of constant and comments; no
-  new responsibility was added to it.
+  new responsibility was added to it. The final main sync conflicted only in `_post_completion`:
+  resolution retained `probe.lost_reply()` for every transport loss and independently updated
+  `possibly_billed` only outside `_NEVER_SENT`. Focused OME-1220/frozen-copy/Attempts/fresh-judge
+  checks passed (121 in the initial pass; independent review selections 173 and 146), and the full
+  Engine gate against synchronized `origin/main` is green. Independent conflict review: `READY`.

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from url4.core.context import Context
 from url4.core.errors import ResolutionError
@@ -12,7 +12,7 @@ from url4.dag.processor import resolve_processor_target
 from url4.dag.semantics.ensemble import (
     FanoutResponse,
     build_reducer_input,
-    substitute_response_vars,
+    response_bindings,
 )
 from url4.wire.subrequest import encode_subrequest
 
@@ -30,6 +30,7 @@ from url4.dag.nodes._shared import (  # isort: skip
     _check_quorum,
     _frame,
     _gather,
+    _require_quorum,
     _rows_to_json,
     _substitute,
 )
@@ -86,7 +87,8 @@ class GatherNode:
     intent, so this node is reached via hand-built ``Expression(intent=None)``
     trees and the engine's own internal wrappers, never from user text.
     A pure-instrumental group falls back to joining every slot value.
-    ``quorum`` (spec §9.1) gates on the post-expansion resolved-source count.
+    ``quorum`` (spec §9.1) gates on the post-expansion resolved-source count; the
+    broadcast route also uses this node as its quorum gate (§6.1.2).
     """
 
     slots: tuple[SlotSpec, ...] = ()
@@ -144,6 +146,8 @@ class ProcessNode:
     *fetch* intent stays an ``intent`` dependency behind the barrier.
     """
 
+    rds_scope: ClassVar[bool] = False  # a prompt group: lenient (C6)
+
     slots: tuple[SlotSpec, ...] = ()
     quorum: int | None = None
     intent_template: str | None = None
@@ -160,60 +164,6 @@ class ProcessNode:
         else:
             intent = _as_text(inputs["intent"])
         return await ctx.process("\n".join(g.sources), intent, scope)
-
-
-@dataclass(eq=False)
-class MergeNode:
-    """One broadcast application (spec §6.1.2): merge a single source with the intent.
-
-    ``$current`` is bound to this source's resolved data in the scope handed to
-    ``process``. A *text* intent arrives as ``intent_template`` and is
-    substituted here — once per source, with ``current`` in scope — rather than
-    as a shared pre-substituted node; a *fetch* intent stays a shared ``intent``
-    dependency (resolved exactly once) and carries no ``$current``.
-    """
-
-    intent_template: str | None = None
-    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"source": …, ["intent": …]}
-
-    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        source = _as_text(inputs["source"])
-        scope = Context(bindings={"current": source}, parent=ctx.scope)
-        if self.intent_template is not None:
-            # WHY: _substitute (not bare substitute_env_vars) so a broadcast intent
-            # nested inside an iteration resolves $item too, exactly as the
-            # non-broadcast ProcessNode path does — $current still resolves via
-            # the substitute_env_vars pass _substitute ends with.
-            intent = _substitute(self.intent_template, scope, ctx)
-        else:
-            intent = _as_text(inputs["intent"]) if "intent" in inputs else ""
-        return await ctx.process(source, intent, scope)
-
-
-@dataclass(eq=False)
-class BroadcastCollectNode:
-    """Assemble per-source broadcast results into the §6.1.4 collection shape.
-
-    A JSON array of ``{"source_position", "source_name", "result"}`` objects,
-    ordered by source position (1-based). A failed optional source's part is
-    omitted — broadcast applies across *resolved* sources (§6.1.3) — while the
-    surviving parts keep their original positions.
-    """
-
-    names: tuple[str | None, ...] = ()
-    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"part:i": node}
-
-    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        rows = [
-            {
-                "source_position": i + 1,
-                "source_name": self.names[i] if i < len(self.names) else None,
-                "result": _as_text(inputs[role]),
-            }
-            for i, role in enumerate(self.deps)
-            if not isinstance(inputs[role], SourceFailure)
-        ]
-        return json.dumps(rows)
 
 
 @dataclass(eq=False)
@@ -262,10 +212,18 @@ class FanoutReduceNode:
     from the configured ``ctx.processor`` route as ``processor?q=()!<input>`` —
     the reduce step is itself a localhost fetch. A failed optional call is
     excluded from the reducer input (it is not a resolved response).
+
+    A text instruction is the raw ``intent_template``, substituted in one scan
+    with the response names and the outer scope (audit A4: no double ``$$``
+    collapse, no re-scan of bound values). A fetched instruction is data.
     """
 
+    rds_scope: ClassVar[bool] = False  # a prompt group: lenient (C6)
+
     meta: tuple[tuple[str | None, float | None], ...] = ()
-    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …, "call:i": …}
+    quorum: int | None = None
+    intent_template: str | None = None
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {["intent": …], "call:i": …}
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         entries = [
@@ -273,7 +231,15 @@ class FanoutReduceNode:
             for i, (name, weight) in enumerate(self.meta)
             if not isinstance(inputs[f"call:{i}"], SourceFailure)
         ]
-        instruction = substitute_response_vars(_as_text(inputs.get("intent", "")), entries)
+        _require_quorum(len(entries), self.quorum)  # §12.2: instrumental calls count too
+        scope = _frame(inputs, ctx)
+        # Responses are the sibling frame: they shadow outer names (spec §6.2).
+        response_scope = Context(bindings=response_bindings(entries), parent=scope)
+        instruction = (
+            _substitute(self.intent_template, response_scope, ctx)
+            if self.intent_template is not None
+            else _as_text(inputs.get("intent", ""))
+        )
         # ABNF conformance (`OME-534`): a scalar weight 0.0 marks the call
         # INSTRUMENTAL — its response is $name-substitutable above but forms no
         # labeled section of the reducer input.
@@ -290,7 +256,6 @@ class FanoutReduceNode:
             )
         # §27.3: the processor may be an id, a URI, a route path, or an
         # expression that computes one — url4.dag.processor owns that classification.
-        scope = _frame(inputs, ctx)
         base, relative = await resolve_processor_target(
             ctx.processor, io=ctx.io, spawn=lambda text: ctx.spawn(text, scope)
         )

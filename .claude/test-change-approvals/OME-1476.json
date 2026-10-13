@@ -1,0 +1,46 @@
+{
+  "issue": "OME-1476",
+  "branch": "OME-1476-pr2-arc-notebook-cost-warning",
+  "approver": "owner \u2014 approved in session 2026-10-12: the spec (amend the whole-run guard), then the pin-count guard and the activity test scaling by Attempts; to confirm in PR review",
+  "date": "2026-10-12",
+  "scope": "(1) test_whole_run_metric.py::test_no_published_row_opts_in_so_no_revision_moves: '== [\"contracteval\"]' (OME-1527) becomes '== [\"arc_agi_2\", \"contracteval\"]' and the no-pins check skips the opted-in row; docstring names ARC-AGI-2. (2) test_task_replay_assembly.py::test_every_task_replay_row_without_an_exclusion_keeps_its_three_pins: also skips rows whose Task lives under local_tasks/ (their task_source pin is by design, OME-1513). (3) test_imported_catalogue_activity.py::test_imported_catalogue_case_activity: expected completed model calls and grading started/completed pairs are multiplied by the row's attempts. (4) test_benchmark_declaration.py: one added table row (arc_agi_2). (5) test_inspect_imported_benchmarks.py: one added _EXPECTED_FAMILIES row (arc_agi_2: free_text). (6) test_published_revisions.py: one added literal (arc_agi_2); no existing literal moves. (7) test_attempt_egress.py: one appended test pinning derive_attempt_seed values. Nothing else in these files. Re-based 2026-10-12 onto main after OME-1527 moved contracteval to a local Task: both rows kept in every table; base blobs are main's. (8) test_benchmark_catalogue_grouping.py and test_benchmark_origin_tabs.py: LEADERBOARD_URL moves from the dev Leaderboard to https://leaderboard.screamingface.ai/, following the screamingface origin chip's link (owner request 2026-10-13). Nothing else in these files.",
+  "reason": "OME-1476 publishes ARC-AGI-2, the first Benchmark with Attempts (OME-1458) and an honoured whole-run metric (OME-1527), and the second local Task. Three catalogue-wide tests encoded 'no row does this yet': no row honours a metric, every pin-free Task-replay row has exactly three pins, every imported Benchmark makes one call per Case. Each is generalised for the new row without loosening it for any existing row; the table rows and the seed pin are additions.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
+      "base_blob": "c4218a0d22e700958c53de05121fea47e6ccb019",
+      "approved_blob": "701d8ef126d0e6dc8c3c85102410dd28b987563b"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_task_replay_assembly.py": {
+      "base_blob": "aa2d2a03cd888a597c01c4b266e2196a165a5cf7",
+      "approved_blob": "e45a8eface96c90317512a75d6d1c9223ce766fb"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_imported_catalogue_activity.py": {
+      "base_blob": "eae8fd3ba42a9a173ec91a2f83130f915f1479b7",
+      "approved_blob": "cade69d956dfeaafed77c8dd1071841ff21d5742"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "231403185bc7faa801ab294f4f7600a29389d66a",
+      "approved_blob": "e3094bb564c971066608cc5a91900ef21b2e9655"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "92c017361ae55202e624af64d736cb1efdf6bc12",
+      "approved_blob": "91fc6f80a389f3aae4fea1968f9c933e1c2d6b36"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "625aa8a3eddc15e6ad6b6686afd53d754674c5cc",
+      "approved_blob": "2ae30ca70ef2aae8cf7a92b1cb22080720b67a11"
+    },
+    "apps/screamingface-engine/tests/unit/test_attempt_egress.py": {
+      "base_blob": "b9017438ed92316ef227f9f556d7665db60be1df",
+      "approved_blob": "3bb9cb90b7c27418874ad99886e2c4f835ba6617"
+    },
+    "packages/screamingface/tests/test_benchmark_catalogue_grouping.py": {
+      "base_blob": "8e1e8828c5501db6e6bb667fd42a6e4d564e8312",
+      "approved_blob": "bf3b132503495ccb2d798fc9be508b1c94c7d831"
+    },
+    "packages/screamingface/tests/test_benchmark_origin_tabs.py": {
+      "base_blob": "1cab75a96aadcc936d32e9ce9a67210952777f29",
+      "approved_blob": "20aa8d10a70341a71327413b278b2e68b487703b"
+    }
+  }
+}

@@ -2,9 +2,10 @@
   "generated_at": "2026-08-25",
   "revisions": {
     "openrouter_adapter": "openrouter-global-cache-2026-08d",
-    "parameter_contract": "aigw-parameter-contract-2026-08b"
+    "parameter_contract": "aigw-parameter-contract-2026-08b",
+    "tavily_retrieval": "aigw-tavily-retrieval-2026-10a"
   },
   "row_count": 11902,
   "schema": "screamingface.cache-snapshot.v1",
-  "sha256": "b22b0f9b2b836690aaae092e090dc486c426b0a8bfa14303315db46df6793bae"
+  "sha256": "5332a14a4ba43f1a02dc4c703b4db3fa93e90ee00835f15f94869dc7bc8785e6"
 }

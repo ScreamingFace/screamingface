@@ -93,9 +93,12 @@ class _CandidateCompiler:
         self._active: set[int] = set()
         self._model_count = 0
         self._synthesis_count = 0
+        self._panel_count = 0
         self._check_surface = check_surface
 
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
+        if getattr(recipe, "optional", False):
+            raise ValueError("optional=True is only supported on Fusion members")
         # Corrective loops are ROOT-ONLY by construction (member/judge positions
         # reject them), so this dispatch is the single loop entry point.
         if isinstance(recipe, CorrectiveLoop | SelfCorrective):
@@ -174,15 +177,7 @@ class _CandidateCompiler:
                     synthesis=synthesis,
                 )
             if isinstance(recipe, Fusion):
-                members = tuple(
-                    self._recipe(
-                        member,
-                        input_context=input_context,
-                        input_dependencies=input_dependencies,
-                    )
-                    for member in recipe.members
-                )
-                return self._fusion(recipe, members, input_context=input_context)
+                return self._compile_fusion(recipe, input_context, input_dependencies)
             if isinstance(recipe, Pipeline):
                 return self._pipeline(
                     recipe,
@@ -193,6 +188,47 @@ class _CandidateCompiler:
             raise TypeError("candidate must be an sf.Model, sf.Fusion, or sf.Pipeline")
         finally:
             self._active.remove(identity)
+
+    def _compile_fusion(
+        self, fusion: Fusion, input_context: str, input_dependencies: tuple[str, ...]
+    ) -> _ResolvedRecipe:
+        if fusion.quorum == "all" and not any(member.optional for member in fusion.members):
+            members = tuple(
+                self._recipe(
+                    member, input_context=input_context, input_dependencies=input_dependencies
+                )
+                for member in fusion.members
+            )
+            return self._fusion(fusion, members, input_context=input_context)
+        captured = tuple(
+            self._capture_recipe(
+                member,
+                input_context=input_context,
+                input_dependencies=input_dependencies,
+                synthesis=False,
+            )
+            for member in fusion.members
+        )
+        members = tuple(member for member, _ in captured)
+        self._panel_count += 1
+        panel = f"panel_{self._panel_count}"
+        slots = tuple(
+            src(
+                expr(*sources, intent=Text(member.reference)),
+                name=f"member_{index}",
+                weight=1.0,
+                required=not fusion.members[index - 1].optional,
+            )
+            for index, (member, sources) in enumerate(captured, 1)
+        )
+        # Only complete member results contribute. Metadata, intermediate stages,
+        # the upstream input, and synthesis must never count toward this floor.
+        quorum = len(members) if fusion.quorum == "all" else fusion.quorum
+        self._sources.append(
+            src(expr(*slots, intent=Text(""), params={"quorum": quorum}), name=panel, weight=0.0)
+        )
+        context = render(struct({"input": input_context, "outputs": f"${panel}"}))
+        return self._fusion(fusion, members, input_context=input_context, context=context)
 
     def _model(
         self,
@@ -238,6 +274,7 @@ class _CandidateCompiler:
             models=(route,),
             topology=_RecipeTopology(
                 kind="model",
+                optional=model.optional,
                 name=model.name,
                 binding=binding,
                 named=model._sample_id is not None,
@@ -251,12 +288,13 @@ class _CandidateCompiler:
         members: tuple[_ResolvedRecipe, ...],
         *,
         input_context: str,
+        context: str | None = None,
     ) -> _ResolvedRecipe:
         self._synthesis_count += 1
         binding = f"synthesis_{self._synthesis_count}"
         operation_id = f"op_{binding}"
         models = tuple(model for member in members for model in member.models)
-        context = _fusion_context(input_context, members)
+        context = context if context is not None else _fusion_context(input_context, members)
         dependencies = tuple(member.operation_id for member in members)
         if isinstance(fusion.synthesizer, Model):
             synthesizer = _canonical_model(fusion.synthesizer.model)
@@ -294,6 +332,8 @@ class _CandidateCompiler:
                 models=_ordered_unique((*models, synthesizer)),
                 topology=_RecipeTopology(
                     kind="fusion",
+                    quorum=fusion.quorum,
+                    optional=fusion.optional,
                     name=fusion.name,
                     binding=binding,
                     members=tuple(_required_topology(member) for member in members),
@@ -326,6 +366,8 @@ class _CandidateCompiler:
             models=_ordered_unique((*models, *resolved_synthesizer.models)),
             topology=_RecipeTopology(
                 kind="fusion",
+                quorum=fusion.quorum,
+                optional=fusion.optional,
                 name=fusion.name,
                 binding=resolved_synthesizer.reference.removeprefix("$"),
                 members=tuple(_required_topology(member) for member in members),
@@ -367,6 +409,7 @@ class _CandidateCompiler:
             models=models,
             topology=_RecipeTopology(
                 kind="pipeline",
+                optional=pipeline.optional,
                 name=pipeline.name,
                 binding=resolved.reference.removeprefix("$"),
                 named=pipeline._is_named,

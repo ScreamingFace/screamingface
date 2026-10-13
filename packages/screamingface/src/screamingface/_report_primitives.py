@@ -36,10 +36,21 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # code — aigateway's catch-all 500. Sits beside `aigateway_http_<status>`: gateway-
         # attributed and retryable (permanent=False from the 5xx), never `upstream_error`.
         "gateway_internal_error",
+        # WHY declared (OME-1458): a Benchmark that asks each Case several times marks a
+        # Check met if any Attempt met it, which only means something for a Check graded 0
+        # or 1. An Attempt whose Check scored anything else fails its Case by this name.
+        "attempt_grade_not_pass_fail",
         "provider_queue_timeout",
         "provider_execution_timeout",
         "caller_deadline_exceeded",
         "aigateway_deadline_exceeded",
+        # WHY declared (OME-1307, F-B3): a replay's own failures. A case that the frozen copy
+        # cannot answer, or a copy that is unknown or not sealed, fails as itself — a client must
+        # not read either as `upstream_error`. Both are engine-authored. `frozen_copy_miss` is
+        # permanent; `frozen_copy_unavailable` is permanent for an unknown or unsealed copy and
+        # transient when the gateway did not answer a tool lookup.
+        "frozen_copy_miss",
+        "frozen_copy_unavailable",
         "invalid_candidate_input",
         "web_tool_loop_limit",
         "web_retrieval_invalid",
@@ -55,6 +66,9 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "invalid_case_evaluation",
         "ifeval_checker_failed",
         "draco_grading_failed",
+        # AIDEV-NOTE (OME-1527): nothing emits this since gdpval-text became a local Task; it
+        # stays declared because the SDK refuses an undeclared code when it reads a Report, so
+        # a gdpval-text Report made before the move must stay readable.
         "gdpval_grading_failed",
         "healthbench_grading_failed",
         "medxpert_grading_failed",
@@ -62,6 +76,9 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # WHY declared here (OME-1246): contracteval (engine PR #984) landed in flight
         # with the OME-1233 vocabulary close, so its two codes never joined the set —
         # a polarity mismatch then crashed report validation instead of failing the case.
+        # AIDEV-NOTE (OME-1527, #1355): nothing emits these two since contracteval became a
+        # local Task; they stay declared because the SDK refuses an undeclared code when it
+        # reads a Report, so a contracteval Report made before the move must stay readable.
         "contracteval_grading_failed",
         "polarity_mismatch",
         "missing_answer_asset",
@@ -102,6 +119,21 @@ _AIGATEWAY_HTTP_CODE = re.compile(r"aigateway_http_[1-5][0-9]{2}")
 def is_declared_failure_code(code: str) -> bool:
     """Whether a failure code belongs to the declared vocabulary (set or the one family)."""
     return code in DECLARED_FAILURE_CODES or _AIGATEWAY_HTTP_CODE.fullmatch(code) is not None
+
+
+def capture_status_value(value: object) -> Literal["complete", "partial"] | None:
+    """The one narrowing of a run's capture status: `complete`, `partial`, or None (unknown).
+
+    INVARIANT (OME-1307): a null status means "unknown", never `partial`. Anything else is a
+    ValueError, which each caller re-raises in the error type of its own boundary.
+    """
+    if value is None:
+        return None
+    if value == "complete":
+        return "complete"
+    if value == "partial":
+        return "partial"
+    raise ValueError("capture_status must be 'complete', 'partial' or None")
 
 
 @dataclass(frozen=True, slots=True, init=False)

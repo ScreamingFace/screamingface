@@ -39,6 +39,12 @@ from screamingface_engine.error_text import (
     public_message,
 )
 from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.request_scope import (
+    CAPTURE_HEADER,
+    REPLAY_FROZEN_COPY_HEADER,
+    FrozenCopyHeaderError,
+    frozen_copy_mode_from_headers,
+)
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
@@ -46,6 +52,7 @@ from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selec
 from screamingface_engine.rest.sessions import RunSessions
 from screamingface_engine.runner_queue import RunQueueUnavailable
 from screamingface_engine.tracing.accept import AcceptSpan
+from screamingface_engine.world.wire import MALFORMED_HEADER
 from url4.streaming.interfaces import (
     EventConsumer,
     JobAlreadyExists,
@@ -206,6 +213,22 @@ def _parse_answer_seed(raw: str | None) -> int | None:
         ) from None
 
 
+def _parse_frozen_copy_mode(
+    capture_raw: str | None, replay_raw: str | None
+) -> tuple[bool, str | None]:
+    """Read the caller's frozen-copy mode, or raise 400 `malformed_header` (OME-1307).
+
+    Caller input, so refused at the edge — a run that asked to capture or to replay and was
+    scheduled as a normal run would be paid for by someone, and its result would claim otherwise.
+    """
+    try:
+        return frozen_copy_mode_from_headers(capture_raw, replay_raw)
+    except FrozenCopyHeaderError as exc:
+        raise ProblemException(
+            status=400, title="Bad Request", detail=str(exc), code=MALFORMED_HEADER
+        ) from None
+
+
 def _require_q(q: str | None) -> str:
     """Return the url4 expression, or raise 400 if the ``q`` query parameter is missing/empty."""
     if not q:
@@ -266,6 +289,8 @@ async def _schedule(
     client_version: str | None = None,
     shape: job_env.RunShape = "expression",
     deadline_s: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
 ) -> None:
     """Schedule the run on the job runner; raise 409 if the runner reports it already exists.
 
@@ -292,6 +317,8 @@ async def _schedule(
             answer_seed=answer_seed,
             client_version=client_version,
             shape=shape,
+            capture=capture,
+            replay_frozen_copy=replay_frozen_copy,
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
@@ -345,8 +372,22 @@ async def _schedule(
         ) from exc
 
 
-def _accepted(topic: str) -> Response:
-    """Build the 202 Accepted response, with ``Location``/``Link``/``Preference-Applied``."""
+def _mode_echo(capture: bool, replay_frozen_copy: str | None) -> dict[str, str]:
+    """The header that acknowledges the frozen-copy mode this engine honoured, or nothing.
+
+    FEATURE: OME-1307 — a run in capture or replay mode echoes its header on every start response.
+    An engine that ignores the headers never sends one, which is how the SDK tells.
+    """
+    if replay_frozen_copy is not None:
+        return {REPLAY_FROZEN_COPY_HEADER: replay_frozen_copy}
+    return {CAPTURE_HEADER: "true"} if capture else {}
+
+
+def _accepted(topic: str, capture: bool = False, replay_frozen_copy: str | None = None) -> Response:
+    """Build the 202 Accepted response, with ``Location``/``Link``/``Preference-Applied``.
+
+    The frozen-copy mode, when there is one, is echoed as its acknowledgement (OME-1307).
+    """
     location = f"/?topic={topic}"
     return Response(
         status_code=202,
@@ -354,6 +395,7 @@ def _accepted(topic: str) -> Response:
             "Location": location,
             "Preference-Applied": "respond-async",
             "Link": f'<{location}>; rel="self"',
+            **_mode_echo(capture, replay_frozen_copy),
         },
     )
 
@@ -533,6 +575,8 @@ async def _run_sync(
     topic: str,
     wait_s: float | None,
     is_disconnected: Callable[[], Awaitable[bool]],
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
 ) -> Response:
     """Hold the request until the run's terminal frame, or 202-fall-back once the bound elapses
     — or stop waiting when the caller disconnects.
@@ -550,9 +594,11 @@ async def _run_sync(
     if outcome is None or outcome is WAIT_GONE:
         # The bound passed (the client may attach a WebSocket) — or the caller is gone and
         # nobody reads this response.
-        return _accepted(topic)
+        return _accepted(topic, capture, replay_frozen_copy)
     terminated, result = outcome  # type: ignore[misc]
-    return await _terminal_response(terminated, result, deps.artifact_store)
+    response = await _terminal_response(terminated, result, deps.artifact_store)
+    response.headers.update(_mode_echo(capture, replay_frozen_copy))
+    return response
 
 
 @router.post(
@@ -677,6 +723,27 @@ async def start_run(
             "Absent, the run's requests are byte-identical to an unseeded run's.",
         ),
     ] = None,
+    x_capture: Annotated[
+        str | None,
+        Header(
+            alias="X-Capture",
+            description="Optional `true`: the run opens a frozen copy in the AI Gateway, stores "
+            "every chat answer and web-tool result in it, and seals it at the end. The accepted "
+            "header is echoed back on the start response as the acknowledgement; an engine that "
+            "does not echo it has ignored the header. Not valid together with "
+            "`X-Replay-Frozen-Copy`.",
+        ),
+    ] = None,
+    x_replay_frozen_copy: Annotated[
+        str | None,
+        Header(
+            alias="X-Replay-Frozen-Copy",
+            description="Optional frozen copy id (a lowercase UUID). The run answers every model "
+            "call and web-tool call from that sealed copy, calls no provider and no search "
+            "service. The id is echoed back on the start response as the acknowledgement. Not "
+            "valid together with `X-Capture`.",
+        ),
+    ] = None,
     # DECLARED HERE, RESOLVED IN `_converge_cache`. The run's cache intent has two carriers — this
     # header and the WS attach frame — and the header wins when both speak. Reading it into a
     # policy is therefore not this handler's business alone: `cache_intent.parse_cache_control`
@@ -718,6 +785,7 @@ async def start_run(
         # an empty mapping meaning it.
         identity = job_env.identity_from_headers(request.headers) or None
         answer_seed = _parse_answer_seed(x_answer_seed)
+        capture, replay_frozen_copy = _parse_frozen_copy_mode(x_capture, x_replay_frozen_copy)
         clock = getattr(request.app.state, "clock", default_clock)
         client_version = (
             parse_user_agent(request.headers.get("User-Agent"))
@@ -738,6 +806,8 @@ async def start_run(
                 cache=_converge_cache(deps, topic, cache_control, clock),
                 answer_seed=answer_seed,
                 client_version=client_version,
+                capture=capture,
+                replay_frozen_copy=replay_frozen_copy,
             )
             # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
             # hold is not accept latency, and counting it would hide the queue-wait gap.
@@ -746,14 +816,16 @@ async def start_run(
 
         if pref.respond_async:
             await schedule()
-            return _accepted(topic)
+            return _accepted(topic, capture, replay_frozen_copy)
         # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps
         # the reaper disarmed while it waits. ONE block covers gate, schedule and wait, so
         # every exit — a 503 from admission, the bound, a disconnect, an error — releases it.
         async with deps.sessions.hold_sync(topic):
             await _require_subscriber(deps.interest, topic)
             await schedule()
-            return await _run_sync(deps, topic, pref.wait_s, request.is_disconnected)
+            return await _run_sync(
+                deps, topic, pref.wait_s, request.is_disconnected, capture, replay_frozen_copy
+            )
 
 
 def _open_accept(request: Request, traceparent: str | None, topic: str) -> AcceptSpan | None:

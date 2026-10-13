@@ -52,7 +52,10 @@ class EngineProcess:
 
     def start(self, aigateway_base_url: str) -> str:
         engine_dir = repo_root() / "apps" / "screamingface-engine"
-        sync_project(engine_dir)
+        # WHY the inspect extra (OME-1527): a local Task (gdpval-text) is served by the
+        # inspect plugin, which registers nothing without it. The Engine declares no extra
+        # conflicts (the inspect-vs-runtime one is the SDK's), so this changes nothing else.
+        sync_project(engine_dir, extras=("inspect",))
         port = free_port()
         env = clean_env(
             {

@@ -47,6 +47,39 @@ class BaseScore(BaseScoreboardModel):
     # trend at `submitted_at`. Deliberately not backfilled: no earlier enrichment time survives.
     # Only `_apply_replay_updates` writes it; authors and metadata do not move it.
     enriched_at = fields.DatetimeField(null=True)
+    # FEATURE: OME-1307 — a link to the paper behind this result, stored exactly as sent.
+    #
+    # INVARIANT: display-only, like `authors`. It is not in `_content_hash` and not in
+    # `_ENRICHING_FIELDS`, so a change never splits dedup and never dates the frontier.
+    # NULL means "no paper". The scoreboard does not check that the link is real.
+    paper_url = fields.TextField(null=True)
+    # FEATURE: OME-1307 — when `authors` or `paper_url` last changed after creation (a PATCH or a
+    # same-owner resubmit). NULL means "never edited". Only a change sets it; a request that
+    # changes nothing leaves it alone.
+    metadata_updated_at = fields.DatetimeField(null=True)
+    # FEATURE: OME-1307 — which frozen copy holds this run, and whether it holds every call of it.
+    # The copy id (a UUID string, lower-case canonical form) names the AI Gateway frozen copy the
+    # run was captured into; no request or response is stored here.
+    #
+    # INVARIANT: `frozen_copy_id` is set only when `capture_status` is set (the request validator),
+    # and the two are FILL-ONLY and move TOGETHER on a same-owner resubmit: they describe ONE
+    # execution.
+    # NULL `capture_status` means "unknown" (a row that predates the field), never "partial". A
+    # row may hold a status and no copy id (a run that failed to open its copy).
+    # None of the three is in `_content_hash` or `_ENRICHING_FIELDS`.
+    frozen_copy_id = fields.CharField(max_length=36, null=True)
+    capture_status = fields.CharField(max_length=16, null=True)
+    # INVARIANT: a replay must send the same seed or its requests differ. `0` is a real seed, so
+    # "unfilled" is NULL, never falsy.
+    answer_seed = fields.IntField(null=True)
+    # FEATURE: OME-1307 / Q29 — the SDK's case digest: sha256 hex (64 lower-case characters) over
+    # the graded cases of the run. The board stores it and compares it on a reproduction; it never
+    # computes it.
+    #
+    # INVARIANT: set only when `capture_status` is set (the request validator), and FILL-ONLY with
+    # the copy id and the status on a same-owner resubmit: it describes the same execution.
+    # AIDEV-NOTE: absent from `_content_hash` and `_ENRICHING_FIELDS`, like the copy id.
+    case_digest = fields.CharField(max_length=64, null=True)
     score = fields.FloatField()  # the exact primary score the Engine Benchmark produced
     total_questions = fields.IntField()
     correct_questions = fields.IntField(null=True)

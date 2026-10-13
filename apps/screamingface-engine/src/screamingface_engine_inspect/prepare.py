@@ -96,6 +96,12 @@ class TaskReplayCasesSpec:
     task_args: dict[str, Any] | None = None
     keep_sample_metadata: bool = False
     has_answer_key: bool = True
+    #: Some Cases legitimately have no key and the eval's own scorer reads the emptiness as
+    #: a fact (contracteval: no related clause, so the right reply abstains). An empty key
+    #: is then accepted and frozen as the Sample held it; keyed Cases are validated as today.
+    #: Assembly allows it only beside the eval's own judge-free scorer (OME-1527, R5). No
+    #: identity pin: the Case Digest seals the empty keys, as it does for has_answer_key.
+    empty_answer_key_allowed: bool = False
     #: A NAMED DEVIATION: upstream Sample ids (``str(Sample.id)``)
     #: dropped after the task builds its dataset and before capture (sad_stages_full: three
     #: Samples with an empty question). Every id must still be there, or Case Preparation
@@ -122,6 +128,14 @@ class TaskReplayCasesSpec:
     #: broken seal can say "same Cases in another order" vs "text changed". Diagnosis, not
     #: identity, so no pin and no Revision moves; None on rows sealed before it existed.
     case_set_digest: str | None = None
+    #: The nltk resources the Task's scorer reads at grading time (ifeval's checker:
+    #: ``punkt``, ``punkt_tab``). The job has no network, so Case Preparation downloads them
+    #: into ``<bundle>/nltk_data/`` and the installer points nltk there (OME-1527, R8).
+    #: ``nltk_data_digest`` seals the downloaded files, captured at import; a build whose
+    #: files seal differently is refused like a broken Case Digest. Both are Benchmark
+    #: identity when set, so no published revision moves.
+    nltk_resources: tuple[str, ...] = ()
+    nltk_data_digest: str | None = None
 
 
 def case_digest(prepared: Sequence[PreparedCase]) -> str:
@@ -1228,6 +1242,61 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # CC BY 4.0 per the authors' repo; the mirror ships no card (OME-1513).
         license="cc-by-4.0",
     ),
+    # arc_agi_2 — imported by Task replay on 2026-10-12 from
+    #   screamingface_engine_inspect.local_tasks.arc_agi_2.arc_agi_2:arc_agi_2.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://codeload.github.com/arcprize/ARC-AGI-2/zip/f3283f727488ad98fe575ea6a5ac981e4a188e49
+    #     pin sha256 c3f9f6975d8432133419fd0e1677c42289666517af4e6f83d8a291690e14d49f
+    "arc_agi_2": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.arc_agi_2.arc_agi_2:arc_agi_2",
+        case_count=167,
+        case_digest="4e0367c8929afd2d6dbef0a0e3b83e0bb3204a742c768114f50119d4be19768a",
+        case_set_digest="d4184f55dc938879b5d86d70a62373e8d58bc861c3e63114ad382b8dd0c618b5",
+        keep_sample_metadata=True,
+        # Apache-2.0 per the data repo's LICENSE at f3283f72; no dataset card (OME-1476).
+        license="apache-2.0",
+    ),
+    # contracteval — imported by Task replay on 2026-10-12 from
+    #   screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face theatticusproject/cuad-qa
+    #     pin revision d9c4ee0250ae2eb97bdb5b50773ab14ea62d0631
+    "contracteval": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval",
+        case_count=4182,
+        case_digest="55a3c9b1e3e29117bda78adf888d09380a6aa658e86b0b733d362453e00df791",
+        case_set_digest="90912a02592485cd657a0932acce4b79fce91a9b5ef488ea6ea8ea9811845e0f",
+        keep_sample_metadata=True,
+        empty_answer_key_allowed=True,
+        source_pins={
+            "theatticusproject/cuad-qa": "d9c4ee0250ae2eb97bdb5b50773ab14ea62d0631",
+        },
+        # CC BY 4.0, as the hand-built Benchmark recorded it (OME-1455); the parquet
+        # branch carries no card of its own.
+        license="cc-by-4.0",
+    ),
+    # gdpval-text — imported by Task replay on 2026-10-13 from
+    #   screamingface_engine_inspect.local_tasks.gdpval.gdpval:gdpval_text.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face openai/gdpval
+    #     pin revision 11e7900cdcac61bc4daf59e65feb238acda98fbf
+    # Not recorded (fetched by the loader's own urllib, as the hand-built prepare did): the
+    #   58 reference files of 36 Cases, by URL on the dataset's moving branch, unpinned; the
+    #   Case Digest seals the text they flatten to, so a changed file fails the build loudly.
+    "gdpval-text": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.gdpval.gdpval:gdpval_text",
+        case_count=102,
+        case_digest="06dd52eca719f1f4b5a6da90cab234d9af4af7245497ae06ec37e391ef75d7fb",
+        case_set_digest="2bcb8dd8c33e2f13b8dd7e48c725f5be4c79676c3578dbd719a6cd9c2c9e535f",
+        keep_sample_metadata=True,
+        has_answer_key=False,
+        source_pins={
+            "openai/gdpval": "11e7900cdcac61bc4daf59e65feb238acda98fbf",
+        },
+        # License: none published — openai/gdpval states no licence on its dataset card or
+        # README, as the hand-built Benchmark recorded it (OME-1455).
+        license="unknown",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
@@ -1258,7 +1327,12 @@ def prepared_case(
     private Grading Material, after the one validated boundary on eval-produced Samples.
     """
 
-    target, choices = _validated_answer_key(sample, case_id, spec.has_answer_key)
+    target, choices = _validated_answer_key(
+        sample,
+        case_id,
+        spec.has_answer_key,
+        empty_answer_key_allowed=spec.empty_answer_key_allowed,
+    )
     record: dict[str, Any] = (
         {"target": target} if choices is None else {"target": target, "choices": choices}
     )
@@ -1357,13 +1431,19 @@ def _validated_list_key(target: list[Any], sample: Sample, case_id: int) -> list
 
 
 def _validated_answer_key(
-    sample: Sample, case_id: int, has_answer_key: bool = True
+    sample: Sample,
+    case_id: int,
+    has_answer_key: bool = True,
+    *,
+    empty_answer_key_allowed: bool = False,
 ) -> tuple[str | list[str], list[str] | None]:
     """The one trust boundary on eval-produced Samples — never prepare an unkeyed Case.
 
     ``has_answer_key=False`` (a judged benchmark whose judge never reads a key, or one
-    graded by the eval's own scorer from the reply alone, R19) is the one place an empty
-    answer key is accepted; the question itself is still required.
+    graded by the eval's own scorer from the reply alone, R19) and
+    ``empty_answer_key_allowed=True`` (some Cases' empty key IS the answer to the eval's own
+    scorer, OME-1527 R5) are the two places an empty answer key is accepted; the question
+    itself is still required.
 
     FEATURE (OME-1268): a LIST of accepted answers (SQuAD's every accepted span) is a valid
     key on a free-text Case; it is frozen as the list inspect's own f1 and exact read, so
@@ -1373,8 +1453,11 @@ def _validated_answer_key(
 
     _require_a_question(sample, case_id)
     target: object = sample.target
-    if not has_answer_key and target in ("", []) and sample.choices is None:
-        return "", None
+    empty_key: str | list[str] | None = _accepted_empty_key(
+        sample, has_answer_key, empty_answer_key_allowed
+    )
+    if empty_key is not None:
+        return empty_key, None
     key: str | list[str]
     if isinstance(target, list):
         key = _validated_list_key(target, sample, case_id)
@@ -1399,6 +1482,22 @@ def _validated_answer_key(
             "choices nor one of them"
         )
     return target, choices
+
+
+def _accepted_empty_key(
+    sample: Sample, has_answer_key: bool, empty_answer_key_allowed: bool
+) -> str | list[str] | None:
+    """The key to freeze for an empty target the row allows, or None when it allows none
+    (an empty target beside choices names no option, so it is never allowed)."""
+
+    empty: bool = sample.target in ("", []) and sample.choices is None
+    if not empty or (has_answer_key and not empty_answer_key_allowed):
+        return None
+    # WHY the Sample's own shape under the R5 opt-in, not "": grading rebuilds the scorer's
+    # Target from this value, and inspect's Target([]) holds no answers while Target("")
+    # holds one blank answer, which an all-of scorer would find inside every reply. A
+    # key-less row (has_answer_key=False) freezes "" as it always has: no scorer reads it.
+    return [] if empty_answer_key_allowed and isinstance(sample.target, list) else ""
 
 
 def _require_a_question(sample: Sample, case_id: int) -> None:
