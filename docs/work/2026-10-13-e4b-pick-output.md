@@ -55,10 +55,20 @@ usable field abstains with the new reason `output_missing` and never falls back 
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** as planned. One more test: `ST/test_pick_output.py::
+  test_changelog_entry_names_the_pick_output_operator_ids` (see Deviations).
+- **Commits:** 0282f83e7 — test(e4b): RED for E4b unit 7 pick-output; 06cabe358 — feat(e4b):
+  Pick outputs one JSON field (pick-output); docs commit — README and CHANGELOG; review-fix
+  commit — see "Review fixes" below.
+- **Gates:** see "Review fixes" below (the final run is after the review fixes).
+- **Deviations:**
+  - The CS#9 check in `ST/test_mean.py` takes the first bullet that names `` `sf.Pick( ``. That
+    is the older Pick bullet, so the check passes with or without the new bullet. A new test in
+    `ST/test_pick_output.py` finds the bullet by `` `output_missing` `` and checks the two
+    operator ids and the "Requires an SF Engine" text. It failed before the bullet was written
+    (`assert 0 == 1`) and passes after.
+  - The CHANGELOG bullet goes after the E4b `sf.Median` weights bullet (the last E4b bullet),
+    as the unit spec says.
 
 ### RED record (commit A, draft)
 

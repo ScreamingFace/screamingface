@@ -577,6 +577,8 @@ If the members reply with JSON, a rule can choose or build the answer. No model 
 ```python
 by_confidence = sf.Fusion(routes, synthesizer=sf.Pick("confidence", order="max"))
 by_answer = sf.Fusion(routes, synthesizer=sf.Pick("answer", equals="yes", normalize="text"))
+# the answer is only the "answer" field of the most confident member's JSON reply
+answer_only = sf.Fusion(routes, synthesizer=sf.Pick("confidence", order="max", output="answer"))
 
 # argmax: the member with the lowest value of a named signal (here, the cheapest member)
 cheapest = sf.Fusion(routes, synthesizer=sf.Pick(by_signal=sf.signal("cost_usd"), order="min"))
@@ -620,6 +622,14 @@ SDK adds `sources` to the combine context (the model calls of each member), as i
 `sf.Vote`; a member with a call that appears twice in the Candidate gets no value. `score:judge` raises
 `ValueError`: this reducer has no judge. Use `sf.Judge(..., returns="scores")`, which picks the member
 with the highest judge score. A `Pick` takes a field or `by_signal=`, not both.
+
+`output="answer"` (on a field Pick or on `by_signal=`) makes the answer one top-level field of the
+winner's JSON reply, not its whole text. A string is returned without its quotes, and any other
+value as compact JSON (`42`, `true`, `{"a":1}`). When the winner's field is missing, `null` or
+blank, or its reply is not a JSON object, the Case abstains with the reason `output_missing`. The
+next member is never used. `output` is a field name (a letter or `_`, then letters, digits or `_`,
+at most 64 characters), not a path; anything else raises `ValueError` before any call. The block
+forms take the same `output=` option.
 
 The block forms compile to the same url4 as the named classes, and `Url4(...).to_python()` writes the
 named class back: `sf.Reduce("argmax", by_signal=..., order=...)` is `sf.Pick(by_signal=..., order=...)`,
@@ -810,9 +820,9 @@ another member writes 0.8.
 | S3 | Read a number from each answer and return the mean, with fixed weights | `s3_mean_static` |
 | S4 | Read the answer and the confidence of each JSON reply and return the mean weighted by confidence | `s4_mean_by_confidence` |
 | S4, median form | Read the answer and the confidence of each JSON reply and return the median weighted by confidence | `sf.Reduce("median", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"))` |
-| S5 | Return the answer with the highest confidence | `s5_max_confidence` |
+| S5 | Return the answer with the highest confidence | `s5_max_confidence` or `sf.Pick(..., output="answer")` |
 | S7 | Keep the 2 answers with the highest confidence, then a writer combines them | `s7_top_confidence` |
-| S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` |
+| S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` or `sf.Pick(..., output="answer")` |
 | S9 | Keep the answers with a confidence above 0.7, then a writer combines them | `s9_confident_only` |
 | S10 | A judge scores each answer, keep the best 2, then a writer combines them | `s10_judge_top` |
 | S10, threshold form | A judge scores each answer, keep the answers with a score of 7 or more (see "Filter selection") | `sf.Filter(where=sf.signal("score:judge") >= 7, judge=sf.Judge(m, returns="scores", rubric=R))` |
