@@ -105,6 +105,10 @@ Benchmark's): prompt bytes, grading rule, score.
   this migration's acceptance check is the one paid run, not a re-record. (4) The shared
   judge-reply parser and redraw helper are not pinned into this Benchmark's revision; accepted
   by the owner, like every imported Benchmark's dependence on shared harness code.
+  (5) Review fix: the redraw helper now also re-asks a judge call the gateway failed for a
+  moment (429/5xx, `permanent=False`), from the same 3-ask budget and with url4's backoff, as
+  the hand-built `;retry=2` did; before it, one 502 on any of a Case's ~44 judge calls failed
+  the Case as `scorer_error`. Pinned by four tests appended to `test_judge_redraw.py`.
 - **Owner-verify:** (1) the next Engine image build prepares the `gdpval-text` bundle (needs the
   `benchmarks` extra, as before) and its Case Digest matches; (2) one paid gdpval-text run after
   merge on an Engine with the inspect extra, its score read beside the hand-built golden's

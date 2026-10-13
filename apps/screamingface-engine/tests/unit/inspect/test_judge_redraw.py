@@ -37,6 +37,7 @@ from screamingface_engine.request_scope import (  # noqa: E402
     current_scope,
     request_scope,
 )
+from screamingface_engine_inspect import judge_redraw  # noqa: E402
 from screamingface_engine_inspect.judge_provider import (  # noqa: E402
     JudgeFetch,
     JudgeTransport,
@@ -47,6 +48,7 @@ from screamingface_engine_inspect.judge_redraw import (  # noqa: E402
     JudgeReplyUnparseable,
     judge_until_parsed,
 )
+from url4.core.errors import ResolutionError  # noqa: E402
 
 #: A reply with no verdict word — the shape a judge sends when it rambles or truncates.
 GARBLED: str = "Let me think about whether the answer cites the source..."
@@ -265,3 +267,96 @@ async def test_an_eval_level_inspect_cache_never_serves_the_redraw(
     judged = await judge_until_parsed(judge, "Reply MET or UNMET.", _met_or_unmet, item="i1")
     assert (judged.verdict, judged.redraws) == (True, 1)
     assert not any(tmp_path.rglob("*")), "the helper's calls must never write inspect's cache"
+
+
+# --- a temporary gateway failure is asked again (review finding on PR #1387) -------------
+
+
+class _FlakyFetch(_ScriptedFetch):
+    """A scripted fetch whose script may also hold an HTTP status: that ask fails the way the
+    connector fails a 429/5xx (``ResolutionError(permanent=False)``), instead of replying."""
+
+    def __init__(self, *script: str | int) -> None:
+        super().__init__()
+        self.script: list[str | int] = list(script)
+
+    async def __call__(self, target: str) -> str:
+        self.targets.append(target)
+        self.participation.append(current_scope().cache.participate)
+        step: str | int = self.script.pop(0)
+        if isinstance(step, int):
+            # The real connector's raise for a non-2xx (`world/connector.py`
+            # `_raise_for_status`): 429 and 5xx are the only non-permanent statuses.
+            raise ResolutionError(
+                f"aigateway request failed with status {step}",
+                code=f"aigateway_http_{step}",
+                permanent=not (step == 429 or 500 <= step < 600),
+            )
+        return step
+
+
+@pytest.fixture
+def waits(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record the backoff waits instead of sleeping them, with the jitter pinned to 0."""
+
+    recorded: list[float] = []
+
+    async def record(seconds: float) -> None:
+        recorded.append(seconds)
+
+    monkeypatch.setattr(judge_redraw, "_sleep", record)
+    monkeypatch.setattr(judge_redraw, "_jitter", lambda low, high: 0.0)
+    return recorded
+
+
+@pytest.mark.asyncio
+async def test_a_retry_after_a_gateway_5xx_still_participates_in_the_cache(
+    run_scope: RequestScope, waits: list[float]
+) -> None:
+    """A 502 on one judge call costs one re-ask, not the Case (the hand-built `;retry=2` did
+    the same; gdpval-text's golden lost 5 of 25 Cases to upstream errors). The re-ask keeps
+    the cache: a 5xx stored nothing, and an opt-out would stop the good reply being stored."""
+
+    fetch: _FlakyFetch = _FlakyFetch(502, "MET")
+    assert await _judge_through_gateway(fetch) == (True, 0)
+    assert fetch.participation == [None, None]
+    assert waits == [0.5]
+
+
+@pytest.mark.asyncio
+async def test_once_a_reply_failed_to_parse_a_retry_after_a_5xx_stays_fresh(
+    run_scope: RequestScope, waits: list[float]
+) -> None:
+    """The cache still holds the broken first reply, so the ask after a 502 must leave it too,
+    or it would be handed that broken reply back and burn the last ask."""
+
+    fetch: _FlakyFetch = _FlakyFetch(GARBLED, 503, "UNMET")
+    assert await _judge_through_gateway(fetch) == (False, 1)
+    assert fetch.participation == [None, False, False]
+
+
+@pytest.mark.asyncio
+async def test_a_gateway_that_keeps_failing_spends_the_shared_budget_then_names_the_gateway(
+    run_scope: RequestScope, waits: list[float]
+) -> None:
+    """The budget is shared with redraws (3 asks, as `;retry=2`), so a down gateway costs at
+    most 3 calls per item, and the Case fails with the gateway's error, not a fake verdict."""
+
+    fetch: _FlakyFetch = _FlakyFetch(502, 502, 502)
+    with pytest.raises(ResolutionError, match="status 502"):
+        await _judge_through_gateway(fetch)
+    assert len(fetch.targets) == 1 + MAX_JUDGE_REDRAWS
+    assert waits == [0.5, 1.0]
+
+
+@pytest.mark.asyncio
+async def test_a_permanent_gateway_error_is_never_asked_again(
+    run_scope: RequestScope, waits: list[float]
+) -> None:
+    """A 400 will fail the same way every time; re-asking only spends money."""
+
+    fetch: _FlakyFetch = _FlakyFetch(400, "MET")
+    with pytest.raises(ResolutionError, match="status 400"):
+        await _judge_through_gateway(fetch)
+    assert len(fetch.targets) == 1
+    assert waits == []
