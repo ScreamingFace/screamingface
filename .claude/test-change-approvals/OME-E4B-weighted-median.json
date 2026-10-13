@@ -1,0 +1,26 @@
+{
+  "issue": "OME-E4B-weighted-median",
+  "branch": "e4b-weighted-median",
+  "approver": "owner",
+  "date": "2026-10-13",
+  "scope": "Unit 4 (weighted median): median now takes weights (Q5), so test_only_the_vote_reducer_takes_weights drops 'median' and one reducer='median' sample becomes 'pick'; test_signal_weighted_vote expects the new median weight message; flow fixtures add weighted_median@1; the public-surface snapshot adds the weights argument.",
+  "reason": "Owner approved these pinned test edits in chat on 2026-10-13 (E4b part 1, plan section 6 plus the errata the build reported). The issue id and branch are placeholders until the Linear issue is filed at PR-open; rename the file and update issue and branch then.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_combine_spec.py": {
+      "base_blob": "58ef58dd9b2195ac124da7e0f4a92c12a8ca146f",
+      "approved_blob": "fef1f5a95a298dd77b54ce650370a328be1aba98"
+    },
+    "packages/screamingface/tests/_combine_flow_fixtures.py": {
+      "base_blob": "7fdfa77ee0f429111d1abe0cb9c0fe57befce72d",
+      "approved_blob": "b0e2e536aaadc374c67f7ae441a946c32cd7d64a"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "e562d0d28901596ea980b39c018ddba504475499",
+      "approved_blob": "e11797349144ce62db42617293d6bbdf7019fd56"
+    },
+    "packages/screamingface/tests/test_signal_weighted_vote.py": {
+      "base_blob": "19b8cc8238f1857ed306b1a66c71b6e961f47d16",
+      "approved_blob": "5632e070c04efb43d14ba2f2f0b300d67ee39fa6"
+    }
+  }
+}
