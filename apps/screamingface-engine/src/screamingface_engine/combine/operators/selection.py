@@ -3,13 +3,16 @@
 FEATURE: rank and concat hand the NEXT stage original member texts, never a rewrite. ``top_k``
 keeps the k best-scored members in score order (the highest, or with ``order`` "min" the lowest);
 ``kept`` keeps the members that passed a filter, in author order; ``join`` and ``all`` join every
-member, in author order, with visible boundaries.
+member, in author order, with visible boundaries. ``top_k`` and ``kept`` also copy the combine
+context ``input`` into their JSON (E4b ans:Q7), so the next stage sees the question; ``join`` and
+``all`` do not (ans:Q13).
 STORY: as a researcher, "focus on the best three" is enforced by the engine and not asked of a
 prompt, and a multi-document hand-off does not go through a model that summarizes.
 
 Mental model: a clerk who photocopies. Rank photocopies the k best pages in rank order, and a filter
-the pages that passed, and staples them in one JSON envelope; concat photocopies every page in the
-order of the recipe and tapes a divider between them. The clerk never rewords a page.
+the pages that passed, and staples them under a copy of the question in one JSON envelope; concat
+photocopies every page in the order of the recipe and tapes a divider between them. The clerk never
+rewords a page.
 
 INVARIANT: each operator is pure and holds no mutable state; no model call. Order comes from the
 author order of the members -- ties at a score keep it (a stable sort), and ``join`` walks
@@ -19,7 +22,9 @@ no ``DECIMAL_CONTEXT``, and a Decimal comparison is exact. Negating a score woul
 thread's default 28-digit context, and two long numeric field values could then compare equal.
 ``reverse=True`` keeps equal scores in author order, and the "min" sort is stable too.
 AIDEV-NOTE: the selection JSON shape, the cut-tie rule and the collision rule are v1 behavior
-pinned by the golden fixtures. A change is a new ``@version``, never an edit.
+pinned by the golden fixtures. A change is a new ``@version``, never an edit. The one exception
+(E4b P4, ans:Q5): ``input`` was added to the ``top_k@1`` and ``kept@1`` JSON in place while E4a
+was unreleased. A ``CombineInput`` without ``input`` (the flow golden fixtures) gives the E4a shape.
 """
 
 from __future__ import annotations
@@ -47,9 +52,16 @@ _MAX_SEPARATOR_CHARS = 1024
 
 
 def _selection_text(chosen: tuple[str, ...], combine_input: CombineInput) -> str:
-    """The selection JSON: the chosen members' original texts, in the order given."""
+    """The selection JSON: the Fusion's input and the chosen members' original texts, in order.
+
+    WHY ``None`` is left out: a ``CombineInput`` built without a context (a test helper) has no
+    input. The endpoint always sets it, so every combine call writes the ``input`` key.
+    """
     selected = [{"id": member, "text": combine_input.outputs[member]} for member in chosen]
-    return canonical_json({"selected": selected})
+    envelope: dict[str, object] = {"selected": selected}
+    if combine_input.input is not None:
+        envelope["input"] = combine_input.input
+    return canonical_json(envelope)
 
 
 def _check_top_k_args(args: OpArgs) -> None:
