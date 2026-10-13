@@ -401,7 +401,9 @@ def _read_members(
         )
         for member in spec.members
     )
-    return CombineInput(answers=answers, outputs=context.outputs, signals=context.signals)
+    return CombineInput(
+        answers=answers, outputs=context.outputs, signals=context.signals, input=context.input
+    )
 
 
 def _weight(spec: CombineSpec, member: str, signals: Mapping[str, float | None]) -> Decimal | None:
