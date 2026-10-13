@@ -66,7 +66,6 @@ _SHARED_BUNDLE: Final[dict[str, str]] = {
     "draco-3pass": "draco",
     "healthbench-worst30": "healthbench",
     "healthbench-professional": "healthbench",
-    "gdpval-text": "gdpval",
 }
 
 

@@ -70,8 +70,8 @@ runtime = [
     # WHY pinned exactly, like `datasets`: these flatten GDPval's reference PDFs and Word
     # documents to text at BUILD time, and that text is baked into the answer key. A version
     # whose extraction differs would silently change what every candidate is asked, without
-    # moving the board revision. Bump these together with
-    # `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
+    # moving the board revision. Bump these together with the engine's `benchmarks` extra;
+    # gdpval-text's Case Digest is what notices an extraction change.
     "pdfplumber==0.11.10",
     "python-docx==1.2.0",
     "prometheus-client>=0.26.0",

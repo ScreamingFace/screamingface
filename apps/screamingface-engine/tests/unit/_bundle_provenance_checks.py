@@ -1,8 +1,8 @@
 """Shared checks for the provenance block a hand-built preparer writes (OME-1492 PR 3).
 
-Each of the five hand-built preparers (draco, ifeval, healthbench, gdpval, medxpert) appends
-one test to its own prepare test file; this module holds the checks they all make, so the five
-tests state only what differs: the source, the counts, the Case text.
+Each of the four hand-built preparers (draco, ifeval, healthbench, medxpert) appends one test
+to its own prepare test file; this module holds the checks they all make, so the four tests
+state only what differs: the source, the counts, the Case text.
 """
 
 from __future__ import annotations

@@ -35,11 +35,10 @@ runs:
 <img src="diagrams/benchmark-authoring-seam.png" width="1350">
 
 Realistic size, from the benchmarks in production: a rubric benchmark on the shared factories is
-~122 lines of grading code (`gdpval/grade.py`, `healthbench/grade.py` — both exactly
-122); a novel grading mode is larger (`medxpert/aggregate.py` 245, `ifeval/grade.py` 401)
-plus its protocol/runtime modules. Everything below is walked against MedXpertQA
-(`benchmarks/medxpert/`), the newest benchmark — when a step says "copy the shape", that is
-the module to open.
+~145 lines of grading code (`healthbench/grade.py`); a novel grading mode is larger
+(`medxpert/aggregate.py` 245, `ifeval/grade.py` 401) plus its protocol/runtime modules.
+Everything below is walked against MedXpertQA (`benchmarks/medxpert/`), the newest benchmark
+— when a step says "copy the shape", that is the module to open.
 
 ## Step 0 — pick your cell on the two axes
 
@@ -157,7 +156,7 @@ auditable per Case.
 marking rule in one line (`benchmarks/shared_grading/rubric.py`):
 
 ```python
-grade_case = rubric_grade_case(case_score=case_score, judge_producer_id="gdpval/judge")
+grade_case = rubric_grade_case(case_score=case_score, judge_producer_id="healthbench/judge")
 ```
 
 where `case_score: (points, verdicts) -> float | None` is your benchmark's official scoring

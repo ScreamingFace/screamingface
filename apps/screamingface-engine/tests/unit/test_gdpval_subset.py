@@ -1,8 +1,7 @@
 """The frozen GDPval text-subset selection — what this benchmark serves, and what it refuses.
 
-INVARIANT under test: the selection is FROZEN. Its sha participates in the benchmark's revision
-hash, so an edit here re-addresses every route — an expression written against the old
-revision physically cannot resolve against a changed selection.
+INVARIANT under test: the selection is FROZEN. Its order is the Case order and the Case Digest
+seals it (OME-1527: GDPval-text is a local Task now), so an edit is a new Benchmark revision.
 
 FEATURE: the GDPval text subset — the prose-only slice of the 220-task open gold set that
 the existing rubric judge can grade without artifact handling.
@@ -10,12 +9,11 @@ the existing rubric judge can grade without artifact handling.
 
 from __future__ import annotations
 
-import hashlib
-
-from screamingface_engine.benchmarks.gdpval.subset import (
+# WHY this module: OME-1527 moved GDPval-text to a local Task; this code moved with it,
+# and this test follows it (the module imports no inspect, so it runs extra-less).
+from screamingface_engine_inspect.local_tasks.gdpval.subset import (
     EXCLUDED_TASK_IDS,
     TEXT_SUBSET_TASK_IDS,
-    subset_sha,
 )
 
 # WHY: measured 2026-08-24 over the published parquet (all 220 rows). 109 tasks pass the
@@ -46,12 +44,3 @@ def test_excluded_tasks_are_absent_from_the_selection() -> None:
     # INVARIANT: a task whose references failed extraction must never be served — its low
     # score would read as model weakness rather than as a broken input.
     assert not (set(TEXT_SUBSET_TASK_IDS) & set(EXCLUDED_TASK_IDS))
-
-
-def test_subset_sha_fingerprints_the_selection_in_order() -> None:
-    expected = hashlib.sha256("\n".join(TEXT_SUBSET_TASK_IDS).encode()).hexdigest()
-    assert subset_sha() == expected
-
-
-def test_subset_sha_is_stable_across_calls() -> None:
-    assert subset_sha() == subset_sha()

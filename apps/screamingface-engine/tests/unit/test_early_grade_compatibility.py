@@ -100,10 +100,9 @@ def _install_calls(node, calls):
         return '{"explanation":"ok","criteria_met":true,"criterion_status":"MET"}'
 
     from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as draco
-    from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL as gdpval
     from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL as health
 
-    for model in {draco, gdpval, health}:
+    for model in {draco, health}:
         node.endpoint("/" + model)(judge)
     for path in ("/writer", "/writer-b", "/synth"):
         node.endpoint(path)(answer)

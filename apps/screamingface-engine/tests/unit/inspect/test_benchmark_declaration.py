@@ -154,7 +154,6 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # table pins the reviewed outcome so a silent tier change trips loudly.
         "draco": ("coverage_declare", "single_shot", "hard"),
         "draco-3pass": ("coverage_declare", "single_shot", "hard"),
-        "gdpval-text": ("coverage_declare", "single_shot", "hard"),
         "healthbench-professional": ("coverage_declare", "single_shot", "hard"),
         "healthbench-worst30": ("coverage_declare", "single_shot", "hard"),
         "ifeval": ("coverage_declare", "single_shot", "medium"),
@@ -257,6 +256,10 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # GRADED (0.0, and it keeps its cell in the confusion matrix), so only never-graded
         # Cases reach the shared finalizer — coverage_declare.
         "contracteval": ("coverage_declare", "single_shot", "medium"),
+        # OME-1527: GDPval-text moved the same way, keeping its id and declaration. A judged
+        # Case whose judge never gives a verdict fails by name, so only graded Cases reach the
+        # mean — coverage_declare.
+        "gdpval-text": ("coverage_declare", "single_shot", "hard"),
         "inspect-math": ("coverage_declare", "single_shot", "medium"),
     }
     actual = {
@@ -302,7 +305,7 @@ def test_each_benchmark_aggregate_reduces_through_the_shared_finalizer() -> None
     # folded in OME-1101, draco in OME-1100), which itself reduces through the
     # shared finalizer — same mechanism, one hop up.
     assert benchmark_aggregation.finalize_candidate_result is aggregation.finalize_candidate_result
-    for family in ("draco", "gdpval", "healthbench", "ifeval"):
+    for family in ("draco", "healthbench", "ifeval"):
         module = importlib.import_module(f"screamingface_engine.benchmarks.{family}.grade")
         assert module.BenchmarkAggregation is benchmark_aggregation.BenchmarkAggregation, (
             f"{family} no longer reduces through the shared scored path"

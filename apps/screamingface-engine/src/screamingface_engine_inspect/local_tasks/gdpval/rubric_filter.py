@@ -7,12 +7,13 @@ A GDPval rubric is a checklist; the judge ticks each line against the candidate'
 Case score is points earned over points available. Most lines judge content and transfer to a
 text answer unchanged. A minority judge the artifact itself — "provided as a Microsoft Word
 (.docx) document", "A single PDF file is delivered". This benchmark never produces a file, so every
-candidate fails those identically. They are stripped in ``prepare`` and never reach the prepared
-assets.
+candidate fails those identically. They are stripped by the Task's loader and never reach the
+prepared Grading Material.
 
 INVARIANT: filtering happens at BUILD time, so no scoring path can include a container criterion
-by accident. ``FILTER_REVISION`` is hashed into the benchmark revision — changing the rules below
-changes which criteria are scored, and must therefore re-address every route.
+by accident. This file is part of the Task's pinned source and the filtered rubrics sit inside
+the Case Digest — changing the rules below changes which criteria are scored, and so moves the
+benchmark revision.
 
 Measured over the 4,553 criteria of the 102 selected tasks (2026-08-27, rules v2): 106 removed,
 worth 224 of 7,183 positive points (3.1%). A hand audit of the removals found no content
@@ -32,9 +33,6 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
-
-# WHY: hashed into the benchmark revision. Bump when any rule below changes.
-FILTER_REVISION = "container-vs-content-v2"
 
 # Rule 1 — a filename inside quotes is a REFERENCE the answer must be consistent with, never a
 # demand about the deliverable's own format. Strip quoted spans before looking for format words.
@@ -102,7 +100,6 @@ def format_criteria_count(items: Sequence[Mapping[str, Any]]) -> int:
 
 
 __all__ = [
-    "FILTER_REVISION",
     "format_criteria_count",
     "is_format_criterion",
     "strip_format_criteria",

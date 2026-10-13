@@ -8,11 +8,17 @@ FEATURE (OME-1527 R3): a judge reply with no verdict word is still a SUCCESSFUL 
 call, so nothing below a scorer retries it. Without this helper a Task scorer has two bad
 options: raise, and the whole Case fails as ``scorer_error`` (wasting its other judge
 calls), or default the item to "not met", a silently wrong score.
+
+The same budget also covers a judge call the gateway failed for a moment (a 429 or 5xx),
+because the hand-built boards' ``;retry=2`` retried those too and a migrated Benchmark must
+not lose a Case to one blip.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+import random
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Final
 
@@ -28,10 +34,43 @@ MAX_JUDGE_REDRAWS: Final[int] = 2
 #: How much of the last reply the error quotes — enough to see why it failed, no more.
 _REPLY_HEAD_CHARS: Final[int] = 200
 
+#: The wait before re-asking after a temporary gateway failure, url4's guard backoff
+#: (``url4/dag/nodes/guard.py``, Spec C §13.3) so a migrated board waits as it did:
+#: retry k waits ``0.5 s * 2^(k-1)`` plus up to 0.5 s of jitter, never more than 30 s,
+#: and at least what the gateway's ``Retry-After`` asked for.
+_BACKOFF_BASE_S: Final[float] = 0.5
+_BACKOFF_JITTER_S: Final[float] = 0.5
+_BACKOFF_CAP_S: Final[float] = 30.0
+
+# Seams, so tests neither wait the backoff out nor depend on the global random state.
+_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+_jitter: Callable[[float, float], float] = random.uniform
+
 
 class JudgeReplyUnparseable(RuntimeError):
     """The judge never gave a parseable reply for one item; the Case fails as
     ``judge_reply_invalid`` (the scorer adapter maps it), blaming the judge, not our code."""
+
+
+def _is_temporary(exc: Exception) -> bool:
+    """Whether a failed judge call is a passing gateway fault worth asking again.
+
+    The connector raises a 429 or 5xx as an error with ``permanent=False`` (``world/
+    connector.py`` ``_raise_for_status``); url4's ``;retry=`` retries exactly those. Read
+    duck-typed, as url4's executor does, because this lane may not import the url4 engine.
+    Anything without that mark (a refused config, a 4xx, our own bug) is not temporary.
+    """
+
+    return getattr(exc, "permanent", None) is False
+
+
+def _backoff_wait(retry: int, exc: Exception) -> float:
+    """The wait before ``retry`` (1-based): url4's backoff, raised to ``Retry-After``."""
+
+    delay: float = _BACKOFF_BASE_S * 2 ** (retry - 1) + _jitter(0, _BACKOFF_JITTER_S)
+    retry_after: object = getattr(exc, "retry_after", None)
+    asked: float = float(retry_after) if isinstance(retry_after, int | float) else 0.0
+    return max(min(delay, _BACKOFF_CAP_S), asked)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +78,7 @@ class JudgedItem[Verdict]:
     """One judged item: the parsed verdict and how many redraws it took (0 = first ask).
 
     ``redraws`` is what a scorer puts in ``Score.metadata`` to feed ``judge_invalid_replies``.
+    It counts unparseable replies only; a re-ask after a temporary gateway failure is not one.
     """
 
     verdict: Verdict
@@ -67,24 +107,30 @@ async def judge_until_parsed[Verdict](
        names that pass, so the provider sends the pass's seed (OME-1527 R12).
     2. Parse: ``parse`` returns the verdict, or ``None`` when the reply is unparseable. A
        blank reply never reaches ``parse``: the provider refuses it as
-       :class:`JudgeReplyBlank`, which counts here as unparseable too. Only that error is
-       caught; any other failed call propagates on the first ask, never redrawn.
-    3. Redraw: on ``None``, ask again inside :func:`fresh_judge_draw`, which makes the
-       gateway skip its exact-request cache for that call. Gotcha: the redraw is the SAME
-       bytes as the first ask, so without the opt-out the cache would hand back the same
-       broken text and every redraw would fail identically. A redraw inside pass ``k``
-       keeps pass ``k``'s seed: only the cache policy changes. Limit: leaving the cache only
-       buys a fresh SAMPLE. A judge pinned at ``temperature=0`` decodes near-greedily, so
-       the same bytes can bring the same bad reply back, and the redraw may be a wasted
-       call; redrawing pays off when the judge samples.
-    4. Give up: after ``MAX_JUDGE_REDRAWS`` redraws, raise :class:`JudgeReplyUnparseable`
-       naming ``item`` and quoting the last reply's head. The scorer adapter turns it into
-       the Case's ``judge_reply_invalid``; it never becomes "not met".
+       :class:`JudgeReplyBlank`, which counts here as unparseable too.
+    3. Re-ask, from the same budget of ``MAX_JUDGE_REDRAWS`` (the hand-built ``;retry=2``):
+       a. after an unparseable reply, a REDRAW inside :func:`fresh_judge_draw`, which makes
+          the gateway skip its exact-request cache. Gotcha: the redraw is the SAME bytes as
+          the first ask, so without the opt-out the cache would hand back the same broken
+          text. A redraw inside pass ``k`` keeps pass ``k``'s seed: only the cache policy
+          changes. Once a reply failed to parse, every later ask stays fresh, because the cache
+          still holds that broken reply. Limit: a judge pinned at ``temperature=0`` can send
+          the same bad reply again; redrawing pays off when the judge samples.
+       b. after a temporary gateway failure (429 or 5xx, ``permanent=False``), a RETRY after
+          url4's backoff, keeping the cache unless a reply already failed to parse: the
+          failure stored nothing, so the cache can't echo it, and an opt-out would stop the
+          good reply from being stored for cache-backed replays. Any other failed call
+          propagates at once, never re-asked.
+    4. Give up: when the budget is spent on an unparseable reply, raise
+       :class:`JudgeReplyUnparseable` naming ``item`` and quoting the last reply's head; the
+       scorer adapter turns it into the Case's ``judge_reply_invalid``, never "not met".
+       When it is spent on a temporary failure, that failure propagates as it came.
 
-    Worked example (``MAX_JUDGE_REDRAWS = 2``, so at most 3 draws): replies
-    ``["Let me think...", "MET"]`` → draw 1 unparseable, draw 2 parses → returns
-    ``JudgedItem(verdict=True, redraws=1)``. Replies ``["...", "...", "..."]`` → three
-    draws, no verdict → raises, and no fourth call is made.
+    Worked example (``MAX_JUDGE_REDRAWS = 2``, so at most 3 asks): replies
+    ``["Let me think...", "MET"]`` → ask 1 unparseable, ask 2 parses → returns
+    ``JudgedItem(verdict=True, redraws=1)``. ``[502, "MET"]`` → ask 1 fails for a moment,
+    wait ~0.5-1 s, ask 2 (cache kept) parses → ``JudgedItem(verdict=True, redraws=0)``.
+    ``["...", "...", "..."]`` → three asks, no verdict → raises, and no fourth call is made.
 
     Args:
         judge: the inspect model to ask; on the plugin lane, the gateway judge provider.
@@ -100,15 +146,17 @@ async def judge_until_parsed[Verdict](
         The parsed verdict and the number of redraws it took.
 
     Raises:
-        JudgeReplyUnparseable: no parseable reply after ``MAX_JUDGE_REDRAWS`` redraws.
+        JudgeReplyUnparseable: no parseable reply after ``MAX_JUDGE_REDRAWS`` re-asks.
+        Exception: a judge call that failed for good, or for a moment on the last ask.
     """
 
     reply: str = ""
     config: GenerateConfig = GenerateConfig(seed=judge_pass)
-    for redraws in range(1 + MAX_JUDGE_REDRAWS):
-        # Stage 1 / 3 — ask; every draw after the first leaves the gateway cache.
+    unparseable: int = 0
+    for ask in range(1 + MAX_JUDGE_REDRAWS):
+        # Stage 1 / 3a — ask; once a reply failed to parse, every ask leaves the gateway cache.
         try:
-            if redraws:
+            if unparseable:
                 with fresh_judge_draw():
                     output: ModelOutput = await judge.generate(prompt, config=config, cache=False)
             else:
@@ -116,13 +164,22 @@ async def judge_until_parsed[Verdict](
         except JudgeReplyBlank:
             # Stage 2 — a blank reply has no verdict: unparseable, so it costs a redraw.
             reply = ""
+            unparseable += 1
+            continue
+        except Exception as exc:
+            # Stage 3b — a passing gateway fault is asked again after a wait; anything else,
+            # or a fault on the last ask, propagates as it came.
+            if not _is_temporary(exc) or ask == MAX_JUDGE_REDRAWS:
+                raise
+            await _sleep(_backoff_wait(ask + 1, exc))
             continue
         reply = output.completion
         # Stage 2 — parse; a verdict ends the loop.
         verdict: Verdict | None = parse(reply)
         if verdict is not None:
-            return JudgedItem(verdict=verdict, redraws=redraws)
-    # Stage 4 — the budget is spent: fail by name, never as "not met".
+            return JudgedItem(verdict=verdict, redraws=unparseable)
+        unparseable += 1
+    # Stage 4 — the budget is spent on an unparseable reply: fail by name, never "not met".
     raise JudgeReplyUnparseable(
         f"the judge gave no parseable reply for {item} after {MAX_JUDGE_REDRAWS} redraws; "
         f"last reply: {reply[:_REPLY_HEAD_CHARS]!r}"

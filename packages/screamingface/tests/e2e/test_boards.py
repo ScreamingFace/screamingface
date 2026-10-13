@@ -46,7 +46,8 @@ pytestmark = pytest.mark.e2e
 #: A board absent from this tuple is silently unguarded, and silence is what let medxpert's
 #: omission go unnoticed. contracteval left this tuple in OME-1527: it is a local inspect Task
 #: now, guarded by the Engine's inspect lane (prompt-bytes literal, conservation literals,
-#: published revision), like musique.
+#: published revision), like musique. gdpval-text stays: it became a local Task too, and its
+#: recorded golden replays against it (the stack syncs the Engine with the inspect extra).
 BOARDS = (
     "draco",
     "draco-3pass",
@@ -65,7 +66,8 @@ _ASSET_BUNDLE = {
     "ifeval": "ifeval",
     "healthbench-worst30": "healthbench",
     "healthbench-professional": "healthbench",
-    "gdpval-text": "gdpval",
+    # A local Task's bundle has its own id; the Engine's preparer writes it (OME-1527).
+    "gdpval-text": "gdpval-text",
 }
 
 

@@ -15,8 +15,9 @@ its tests while deleting seven content criteria in production, including a -10 p
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.gdpval.rubric_filter import (
-    FILTER_REVISION,
+# WHY this module: OME-1527 moved GDPval-text to a local Task; this code moved with it,
+# and this test follows it (the module imports no inspect, so it runs extra-less).
+from screamingface_engine_inspect.local_tasks.gdpval.rubric_filter import (
     is_format_criterion,
     strip_format_criteria,
 )
@@ -110,9 +111,3 @@ def test_strip_removes_only_container_criteria_and_preserves_order() -> None:
 def test_strip_on_an_all_content_rubric_is_a_no_op() -> None:
     items = [{"criterion": c, "score": 1} for c in _CONTENT]
     assert strip_format_criteria(items) == items
-
-
-def test_filter_revision_is_a_nonempty_identifier() -> None:
-    # INVARIANT: hashed into the benchmark revision — an unnamed filter could change scores without
-    # re-addressing the routes.
-    assert FILTER_REVISION.strip()
