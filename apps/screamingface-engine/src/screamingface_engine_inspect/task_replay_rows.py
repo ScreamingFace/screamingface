@@ -36,7 +36,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from screamingface_engine_inspect.case_sources import HUGGING_FACE, CaseSource
 from screamingface_engine_inspect.fetch_pins import is_commit_sha
@@ -57,6 +57,9 @@ from screamingface_engine_inspect.importer import (
 )
 from screamingface_engine_inspect.prepare import LICENSE_TODO, TaskReplayCasesSpec
 from screamingface_engine_inspect.provenance_facts import ProvenanceFacts, provenance_row_lines
+
+if TYPE_CHECKING:
+    from screamingface_engine_inspect.single_shot import RetrievalPolicyDeclaration
 
 #: The anchor generated TaskReplayCasesSpec entries land above, inside TASK_REPLAY_CASES.
 _TASK_REPLAY_CASES_ANCHOR: str = (
@@ -85,6 +88,7 @@ def render_task_replay_rows(
     card_license: str | None = None,
     provenance: ProvenanceFacts | None = None,
     whole_run_headline: str | None = None,
+    retrieval_policy: RetrievalPolicyDeclaration | None = None,
 ) -> TaskReplayRows:
     """Stages 2 to 4 — render a Task-replay declaration and its BenchmarkSpec row (spec R6).
 
@@ -96,6 +100,8 @@ def render_task_replay_rows(
             the review note can name it (D13); None when there was no card to read.
         whole_run_headline: the key of the honoured whole-run metric's dict that is the
             Headline Score (``--whole-run-headline``, OME-1527); None for every other import.
+        retrieval_policy: the exam's web-search rule (``--retrieval-policy``, OME-1527 R13),
+            already checked when declared; None for every other import.
 
     Returns:
         The declaration text (for TASK_REPLAY_CASES) and the BenchmarkSpec row text.
@@ -119,7 +125,11 @@ def render_task_replay_rows(
             )
     cases: str = "\n".join(_declaration_lines(key, imported, license, card_license)) + "\n"
     benchmark: str = (
-        "\n".join(_benchmark_row_lines(key, imported, license, provenance, whole_run_headline))
+        "\n".join(
+            _benchmark_row_lines(
+                key, imported, license, provenance, whole_run_headline, retrieval_policy
+            )
+        )
         + "\n"
     )
     return TaskReplayRows(cases=cases, benchmark=benchmark)
@@ -134,6 +144,7 @@ def write_task_replay_rows(
     card_license: str | None = None,
     provenance: ProvenanceFacts | None = None,
     whole_run_headline: str | None = None,
+    retrieval_policy: RetrievalPolicyDeclaration | None = None,
 ) -> TaskReplayRows:
     """Stages 1 to 5 — insert a Task-replay import's two rows into prepare.py and benchmarks.py.
 
@@ -144,6 +155,7 @@ def write_task_replay_rows(
         license: see render_task_replay_rows.
         card_license: see render_task_replay_rows.
         whole_run_headline: see render_task_replay_rows.
+        retrieval_policy: see render_task_replay_rows.
 
     Returns:
         The rows written.
@@ -167,6 +179,7 @@ def write_task_replay_rows(
         card_license=card_license,
         provenance=provenance,
         whole_run_headline=whole_run_headline,
+        retrieval_policy=retrieval_policy,
     )
     # Stage 5 — compose both files before writing either.
     new_texts: dict[Path, str] = {
@@ -344,6 +357,7 @@ def _benchmark_row_lines(
     license: str,
     provenance: ProvenanceFacts | None = None,
     whole_run_headline: str | None = None,
+    retrieval_policy: RetrievalPolicyDeclaration | None = None,
 ) -> list[str]:
     """Stage 4 — the BenchmarkSpec row: prose as TODOs, the first browsable source as URL."""
 
@@ -414,6 +428,24 @@ def _benchmark_row_lines(
                 "        # The whole-run metric reads each Case's Attempt Scores reduced by the",
                 "        # Task's own reducer, as inspect does before any metric runs.",
                 f'        epoch_reducer="{facts.epoch_reducer}",',
+            ]
+        )
+    if retrieval_policy is not None:
+        # WHY only when set (OME-1527, R13): every other row renders byte-identically. The id
+        # and domains were checked when declared, so json quoting cannot be escaped.
+        lines.extend(
+            [
+                "        # The exam lets the Candidate search the web, never these domains; the",
+                "        # policy is part of the Benchmark Revision.",
+                "        retrieval_policy=RetrievalPolicyDeclaration(",
+                f"            policy_id={json.dumps(retrieval_policy.policy_id)},",
+                "            excluded_domains=(",
+                *(
+                    f"                {json.dumps(domain)},"
+                    for domain in retrieval_policy.excluded_domains
+                ),
+                "            ),",
+                "        ),",
             ]
         )
     lines.append("    ),")

@@ -245,3 +245,61 @@ def test_a_headline_key_without_honour_is_refused_before_any_replay(
     assert code == 1
     assert recording.calls == []
     assert "needs --whole-run-metric honour" in capsys.readouterr().err
+
+
+def test_the_retrieval_policy_flags_land_on_the_row(engine_src_copy: Path) -> None:
+    """OME-1527, R13: the agent names the exam's web-search rule at import; the row carries it
+    with the domains sorted, so the reviewed row is the one the revision hashes."""
+
+    code: int = main(
+        [_TASK, "--key", "csqa", "--retrieval-policy", "draco/reproduction"]
+        + ["--retrieval-excluded-domain", "huggingface.co"]
+        + ["--retrieval-excluded-domain", "arxiv.org"]
+        + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=_RecordingImport(),
+        dataset_info=lambda repo_id, revision: type("Info", (), {"card_data": {}})(),
+    )
+
+    assert code == 0
+    row: str = (engine_src_copy / "benchmarks.py").read_text().split('key="csqa"', 1)[1]
+    assert (
+        "        retrieval_policy=RetrievalPolicyDeclaration(\n"
+        '            policy_id="draco/reproduction",\n'
+        "            excluded_domains=(\n"
+        '                "arxiv.org",\n'
+        '                "huggingface.co",\n'
+        "            ),\n"
+        "        ),\n"
+    ) in row
+
+
+@pytest.mark.parametrize(
+    ("flags", "complaint"),
+    [
+        (["--retrieval-policy", "draco/reproduction"], "excluded_domains is empty"),
+        (
+            ["--retrieval-policy", "draco/reproduction", "--retrieval-excluded-domain", "a.org/x"],
+            "must be bare domains",
+        ),
+        (["--retrieval-excluded-domain", "arxiv.org"], "needs --retrieval-policy"),
+    ],
+)
+def test_a_malformed_retrieval_policy_is_refused_before_any_replay(
+    engine_src_copy: Path,
+    capsys: pytest.CaptureFixture[str],
+    flags: list[str],
+    complaint: str,
+) -> None:
+    """WHY before the replays: a policy the row could never declare must not cost two
+    replays, and the error names what to fix."""
+
+    recording: _RecordingImport = _RecordingImport()
+
+    code: int = main(
+        [_TASK, "--key", "csqa", *flags, "--engine-src", str(engine_src_copy)],
+        import_by_task_replay=recording,
+    )
+
+    assert code == 1
+    assert recording.calls == []
+    assert complaint in capsys.readouterr().err
