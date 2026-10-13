@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface-engine, screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-13
-finished:
+finished: 2026-10-13
 ---
 
 # e4b-weighted-median — weighted median reducer and sf.Median(weights=...) (E4b unit 4)
@@ -61,10 +61,40 @@ url4 bytes. PRD: `docs/spec/2026-10-13-e4b-combine-extensions/prd/weighted-media
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">; parent checks P-1..P-10 results
+- **Actual files:** As planned. Engine: `combine/operators/reduce.py` (`weighted_median`, descriptor),
+  `combine/spec.py` (`median` weights `optional`), the generated fixture
+  `tests/unit/data/combine_contract/weighted_median_confidence_candidate.url4`. SDK:
+  `reducer.py` (`Median`, `_median_weights`, `_MEDIAN_JUDGE_USE`), `blocks.py` (`median` option
+  `weights`, plan, rebuild, judge refusal), `tests/public_surface_snapshot.json` (regenerated),
+  `README.md`, `CHANGELOG.md`. Not changed: `combine-spec.v1`, `combine-evidence.v1` and
+  `answer.v1` snapshots.
+- **Commits:**
+  - A `35c64ad9d` — test(e4b): RED for E4b unit 4 weighted-median
+  - B `cf9b2349b` — feat(e4b): weighted median reducer and sf.Median(weights=...) (WM#1-15)
+  - C `3c0313e42` — docs(e4b): weighted median in the README and CHANGELOG
+  - D — docs(work): close the e4b-weighted-median ledger (this commit)
+- **Gates:** Run with `--base e4b-mean`.
+  - screamingface-engine: green (ruff check, ruff format, pyright, check_layering, pytest with
+    coverage) when the append-only check is skipped. Run on commit B.
+  - screamingface: green (ruff, format, pyright, pytest with coverage at 95, check_notebooks,
+    uv build, check_distribution) when the append-only check is skipped. Run on commit C.
+  - repo: green with the append-only check on commit C.
+  - Append-only offenders (all pinned edits from commit A, owner approval needed):
+    - `apps/screamingface-engine/tests/unit/test_combine_spec.py`
+    - `packages/screamingface/tests/_combine_flow_fixtures.py`
+    - `packages/screamingface/tests/public_surface_snapshot.json`
+    - `packages/screamingface/tests/test_signal_weighted_vote.py`
+- **Deviations:**
+  - Parent checks P-1 to P-10 match the spec. P-3 and P-4: the helpers already take `op_id`, so
+    no change was needed. P-5: `_reduction_view` renders only `tally` and `statistic`, so the
+    golden expectations keep no `participants` key.
+  - The `Reduce._check_members` message already equals the text in the spec, so no change.
+  - The engine module docstring (FEATURE line) was not changed. The spec lists it as optional.
+  - The WM#15 fixture trailing newline was added by hand. The pre-commit hooks were not on the
+    PATH in this shell.
+  - The RED check (§5.2) was not run again in this session. The RED evidence below comes from
+    commit A.
+  - Commit B has no ledger change. The spec puts the Outcome after the gates.
 
 ## RED evidence (commit A)
 
