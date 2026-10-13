@@ -17,23 +17,11 @@ live on ``_pinned_nonalpha_letter``.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any
 
-
-def configure_nltk(data_dir: Path) -> None:
-    """Point nltk at the prepared offline corpus, once.
-
-    INVARIANT: the verifier's own ``ensure_nltk_resource`` downloader is NEVER called — a
-    Runner Job has a read-only rootfs and no network egress, so tokenizer data must come
-    from the benchmark's prepared assets.
-    """
-
-    import nltk
-
-    selected = str(data_dir)
-    if data_dir.is_dir() and selected not in nltk.data.path:
-        nltk.data.path.insert(0, selected)
+# WHY imported: the offline-corpus reader moved to a shared module the plugin lane's local
+# Tasks read too (OME-1527, R8); this name stays for the runtime and the tests.
+from screamingface_engine.benchmarks.nltk_data import configure_nltk
 
 
 def check_case(

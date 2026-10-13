@@ -128,6 +128,14 @@ class TaskReplayCasesSpec:
     #: broken seal can say "same Cases in another order" vs "text changed". Diagnosis, not
     #: identity, so no pin and no Revision moves; None on rows sealed before it existed.
     case_set_digest: str | None = None
+    #: The nltk resources the Task's scorer reads at grading time (ifeval's checker:
+    #: ``punkt``, ``punkt_tab``). The job has no network, so Case Preparation downloads them
+    #: into ``<bundle>/nltk_data/`` and the installer points nltk there (OME-1527, R8).
+    #: ``nltk_data_digest`` seals the downloaded files, captured at import; a build whose
+    #: files seal differently is refused like a broken Case Digest. Both are Benchmark
+    #: identity when set, so no published revision moves.
+    nltk_resources: tuple[str, ...] = ()
+    nltk_data_digest: str | None = None
 
 
 def case_digest(prepared: Sequence[PreparedCase]) -> str:

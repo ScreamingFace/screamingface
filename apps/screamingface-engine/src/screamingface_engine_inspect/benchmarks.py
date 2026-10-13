@@ -29,6 +29,7 @@ from typing import Any, cast
 
 from screamingface_engine.benchmarks.definition import BenchmarkOrigin, DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
+from screamingface_engine.benchmarks.nltk_data import NLTK_DATA_DIR, configure_nltk
 from screamingface_engine.benchmarks.provenance import (
     PROVENANCE_FIELD_NAMES,
     FrontierScore,
@@ -4079,7 +4080,9 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         extra_scorer_factories=_extra_scorer_factories(spec),
         named_scores=spec.named_scores,
         prepare=prepare,
-        install=_installer(imported_benchmark_id(spec.key, spec.origin)),
+        install=_installer(
+            imported_benchmark_id(spec.key, spec.origin), bool(cases_spec.nltk_resources)
+        ),
         with_check_surface=spec.with_check_surface,
         multiple_correct=spec.multiple_correct,
         judge=spec.judge,
@@ -4591,9 +4594,30 @@ def _task_replay_pins(cases_spec: TaskReplayCasesSpec) -> tuple[str, ...]:
         # are two Benchmarks. Only when set, so no URL-only row's revision moves; sorted, so
         # dict order never does.
         pins = (*pins, f"source_pins={json.dumps(cases_spec.source_pins, sort_keys=True)}")
+    if cases_spec.nltk_resources or cases_spec.nltk_data_digest is not None:
+        pins = (*pins, *_nltk_data_pins(cases_spec))
     # WHY (OME-1513): a local Task's marking scheme is our own source, not the pinned
     # inspect-evals package, so its bytes join the revision; empty for every import.
     return (*pins, *task_source_pin(cases_spec.task))
+
+
+def _nltk_data_pins(cases_spec: TaskReplayCasesSpec) -> tuple[str, str]:
+    """The nltk corpus the grader reads, by name and sealed content (OME-1527, R8).
+
+    WHY both: the same Task grading against a different tokenizer corpus is a different
+    Benchmark, and the names alone would not move when the files behind them do. A list
+    without its seal (or a seal without a list) is refused: it would pin nothing checkable.
+    """
+
+    if not cases_spec.nltk_resources or cases_spec.nltk_data_digest is None:
+        raise ValueError(
+            f"{cases_spec.task}: nltk_resources and nltk_data_digest are declared together; "
+            "re-import with --nltk-resource to capture the digest"
+        )
+    return (
+        f"nltk_resources={','.join(sorted(cases_spec.nltk_resources))}",
+        f"nltk_data_digest={cases_spec.nltk_data_digest}",
+    )
 
 
 def _inverted_grade_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
@@ -4747,8 +4771,13 @@ def _extra_scorer_factories(spec: BenchmarkSpec) -> tuple[Callable[[], Any], ...
     return tuple(factory_for(reference) for reference in spec.extra_scorers)
 
 
-def _installer(benchmark_id: str) -> Callable[[Url4Node, Path], None]:
+def _installer(
+    benchmark_id: str, reads_nltk_data: bool = False
+) -> Callable[[Url4Node, Path], None]:
     """One installer per benchmark, carrying the bundle id ON the function.
+
+    ``reads_nltk_data``: the row declares nltk resources, so the installer points nltk at the
+    corpus Case Preparation put in the bundle; the job has no network to fetch it (R8).
 
     WHY the attribute: the deployment conformance check reads the asset directory a
     benchmark's installer actually opens from the installer itself; with benchmarks as rows
@@ -4758,6 +4787,12 @@ def _installer(benchmark_id: str) -> Callable[[Url4Node, Path], None]:
     """
 
     def install(node: Url4Node, assets: Path) -> None:
+        """Register the benchmark's routes, after pointing nltk at its bundle when it reads one."""
+
+        if reads_nltk_data:
+            # WHY at install: grading runs in this process, and nltk reads NLTK_DATA only
+            # when first imported, so the path list is set directly instead.
+            configure_nltk(assets / benchmark_id / NLTK_DATA_DIR)
         install_imported_benchmark(node, assets, benchmark_id)
 
     install.ASSET_BUNDLE_ID = benchmark_id  # type: ignore[attr-defined]

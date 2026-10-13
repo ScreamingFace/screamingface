@@ -40,11 +40,18 @@ import ast
 import json
 import re
 import sys
+import tempfile
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import CodeType, FunctionType
 from typing import TYPE_CHECKING, Any, Literal, Protocol
+
+from screamingface_engine.benchmarks.nltk_data import (
+    NLTK_DATA_DIR,
+    NltkDataError,
+    download_nltk_data,
+)
 
 # WHY a runtime import is safe here: provenance_facts imports only the stdlib and yaml,
 # never this module, so no cycle (OME-1455).
@@ -53,6 +60,7 @@ from screamingface_engine_inspect.provenance_facts import read_provenance_facts
 if TYPE_CHECKING:
     # WHY type-only: import_replay imports this module, so a runtime import would cycle.
     from screamingface_engine_inspect.import_replay import TaskReplayImport
+    from screamingface_engine_inspect.prepare import TaskReplayCasesSpec
 
 #: Dataset licenses cleared for the public catalogue. A card naming any other is written as
 #: TODO with the card's value in the review note, for the owner to decide (D13).
@@ -856,6 +864,15 @@ def _add_task_replay_arguments(parser: argparse.ArgumentParser) -> None:
         "name: the one that is the Benchmark's headline score, e.g. f1; the others are "
         "published beside it as run metrics (OME-1527)",
     )
+    parser.add_argument(
+        "--nltk-resource",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="an nltk resource the Task's scorer reads at grading time (repeatable), e.g. "
+        "punkt_tab; downloaded once here to seal its files, then at every image build into "
+        "the bundle, because the grading job has no network (OME-1527, R8)",
+    )
 
 
 def _import_by_task_replay_cli(
@@ -905,6 +922,7 @@ def _import_by_task_replay_cli(
         **({} if args.whole_run_metric is None else {"whole_run_metric": args.whole_run_metric}),
         **empty_key_option,
     )
+    imported = _with_nltk_data(imported, args.nltk_resource)
     card: CardLicense = card_license_of(
         imported.case_sources, dataset_info=dataset_info or _hub_dataset_info
     )
@@ -928,6 +946,24 @@ def _import_by_task_replay_cli(
         "a human decides the license and reviews the diff before merge.",
         file=sys.stderr,
     )
+
+
+def _with_nltk_data(imported: TaskReplayImport, resources: list[str]) -> TaskReplayImport:
+    """Download the named nltk resources once and seal their files onto the declaration,
+    as the replays seal the Cases; unchanged when none are named (OME-1527, R8)."""
+
+    if not resources:
+        return imported
+    names: tuple[str, ...] = tuple(dict.fromkeys(resources))
+    with tempfile.TemporaryDirectory(prefix="nltk-data-import-") as scratch:
+        try:
+            digest: str = download_nltk_data(Path(scratch) / NLTK_DATA_DIR, names)
+        except NltkDataError as exc:
+            raise ImporterError(str(exc)) from exc
+    declaration: TaskReplayCasesSpec = replace(
+        imported.declaration, nltk_resources=names, nltk_data_digest=digest
+    )
+    return replace(imported, declaration=declaration)
 
 
 def _parse_task_args(pairs: list[str]) -> dict[str, Any]:
