@@ -281,6 +281,16 @@ def _mean_weighted_value() -> CombineEvidence:
     return _evidence(spec, texts)
 
 
+def _pick_output() -> CombineEvidence:
+    texts = ['{"answer": 42, "confidence": 0.9}', '{"answer": 40, "confidence": 0.6}']
+    return _evidence(pick_spec(2, step("by_field@1", order="max", output="answer")), texts)
+
+
+def _pick_output_missing() -> CombineEvidence:
+    texts = ['{"confidence": 0.9}', '{"answer": 40, "confidence": 0.6}']
+    return _evidence(pick_spec(2, step("by_field@1", order="max", output="answer")), texts)
+
+
 SCENARIOS: dict[str, Callable[[], CombineEvidence]] = {
     "vote_tie": _plain_vote,
     "vote_weighted": _weighted_vote,
@@ -308,6 +318,8 @@ SCENARIOS: dict[str, Callable[[], CombineEvidence]] = {
     "filter_none_pass": _filter_none_pass,
     "merge_abstain": _merge_abstain,
     "mean_weighted_value": _mean_weighted_value,
+    "pick_output": _pick_output,
+    "pick_output_missing": _pick_output_missing,
 }
 
 
