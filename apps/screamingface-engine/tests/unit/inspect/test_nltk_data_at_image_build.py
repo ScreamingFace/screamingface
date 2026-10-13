@@ -20,6 +20,7 @@ bytes (the next image build does) or that ifeval's checker tokenizes with them (
 
 from __future__ import annotations
 
+import shutil
 import socket
 from dataclasses import replace
 from pathlib import Path
@@ -32,7 +33,10 @@ pytest.importorskip("inspect_ai")
 import nltk  # noqa: E402
 
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY  # noqa: E402
-from screamingface_engine.benchmarks.nltk_data import NLTK_DATA_DIR  # noqa: E402
+from screamingface_engine.benchmarks.nltk_data import (  # noqa: E402
+    NLTK_DATA_DIR,
+    NltkDataMissingError,
+)
 from screamingface_engine_inspect import benchmarks, importer, single_shot  # noqa: E402
 from screamingface_engine_inspect.import_replay import TaskReplayImport  # noqa: E402
 from screamingface_engine_inspect.prepare import (  # noqa: E402
@@ -292,3 +296,60 @@ def test_an_import_without_nltk_resources_is_untouched() -> None:
     sealed_import: TaskReplayImport = _sealed_import()
 
     assert importer._with_nltk_data(sealed_import, []) is sealed_import
+
+
+# ── a SKIPPED or broken bundle never feeds nltk ───────────────────────────────────────
+
+
+def _download_failing_on_second(resource: str, *, quiet: bool, download_dir: str) -> bool:
+    """The stand-in download, failing on punkt_tab after punkt landed: a partial corpus."""
+
+    if resource == "punkt_tab":
+        return False
+    return _stand_in_download(resource, quiet=quiet, download_dir=download_dir)
+
+
+@pytest.mark.parametrize(
+    ("digest", "download"),
+    [("0" * 64, _stand_in_download), (_STAND_IN_DIGEST, _download_failing_on_second)],
+    ids=["seal-mismatch", "partial-download"],
+)
+def test_a_skipped_bundle_keeps_no_corpus_and_never_joins_the_nltk_path(
+    digest: str, download: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Every Benchmark's installer runs at world build, SKIPPED or not, and nltk's path is
+    process-wide, so unsealed bytes left in a skipped bundle could answer another Benchmark's
+    lookup; the folder goes, and the installer neither points nltk at it nor raises."""
+
+    imported: Any = _assembled(
+        _cases_row(nltk_resources=_RESOURCES, nltk_data_digest=digest), monkeypatch
+    )
+    monkeypatch.setattr(nltk, "download", download)
+    assets: Path = tmp_path / "assets"
+    summary: dict[str, Any] = imported.registration.asset_bundle.prepare(
+        assets / imported.benchmark.id
+    )
+    monkeypatch.setattr(nltk.data, "path", [])
+
+    imported.benchmark.install(Url4Node("test"), assets)
+
+    assert UNCONFIRMED_CASES_KEY in summary
+    assert not (assets / imported.benchmark.id / NLTK_DATA_DIR).exists()
+    assert nltk.data.path == []
+
+
+def test_a_finished_bundle_without_its_corpus_refuses_to_install(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A bundle with cases.json but no corpus is a broken image: the installer must fail loud
+    by name, never let the grader silently read whatever corpus the machine holds."""
+
+    imported: Any = _assembled(
+        _cases_row(nltk_resources=_RESOURCES, nltk_data_digest=_STAND_IN_DIGEST), monkeypatch
+    )
+    assets: Path = tmp_path / "assets"
+    imported.registration.asset_bundle.prepare(assets / imported.benchmark.id)
+    shutil.rmtree(assets / imported.benchmark.id / NLTK_DATA_DIR)
+
+    with pytest.raises(NltkDataMissingError, match=f"{imported.benchmark.id}: .*{NLTK_DATA_DIR}/"):
+        imported.benchmark.install(Url4Node("test"), assets)

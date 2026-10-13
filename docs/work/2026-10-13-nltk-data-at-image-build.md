@@ -65,6 +65,10 @@ nltk at the bundle so grading reads it offline.
   prepare step, fails the suite (the first run of the offline test passed with the pointing
   disabled because the build's download had registered the folder in the same process; the
   test now resets nltk's path between build and grading).
+- **Review fix:** a failed download or seal now removes `nltk_data/` so a SKIPPED bundle ships
+  no unsealed bytes, and the installer points nltk only at a finished bundle (`cases.json`
+  present), raising `NltkDataMissingError` when that bundle has no corpus folder; 3 tests
+  appended, each mutation-checked.
 - **Owner-verify:** nothing to press for this PR alone. No row declares the field yet; the
   first real download and seal happen when ifeval's local Task is imported (Work order #15)
   with `--nltk-resource punkt --nltk-resource punkt_tab`, and the next image build after that

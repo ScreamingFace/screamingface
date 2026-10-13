@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -370,17 +371,23 @@ def _prepare_nltk_data(spec: TaskReplayCasesSpec, out: Path) -> None:
     """Download the row's nltk resources into the bundle and check their seal (OME-1527, R8).
 
     Nothing happens on a row that declares none. A download that fails, or files that seal
-    differently from ``nltk_data_digest``, is a TaskReplayError, so the Benchmark goes
-    SKIPPED by name, as a broken Case Digest does; the other Benchmarks still build.
+    differently from ``nltk_data_digest``, removes the folder and is a TaskReplayError, so
+    the Benchmark goes SKIPPED by name, as a broken Case Digest does; the other Benchmarks
+    still build.
     """
 
     if not spec.nltk_resources:
         return
+    corpus: Path = out / NLTK_DATA_DIR
     try:
-        digest: str = download_nltk_data(out / NLTK_DATA_DIR, spec.nltk_resources)
+        digest: str = download_nltk_data(corpus, spec.nltk_resources)
     except NltkDataError as exc:
+        # WHY remove: a SKIPPED bundle must not ship half a corpus nobody sealed.
+        shutil.rmtree(corpus, ignore_errors=True)
         raise TaskReplayError(f"{spec.task}: {exc}") from exc
     if digest != spec.nltk_data_digest:
+        # WHY remove: the image must never carry corpus bytes that failed their seal.
+        shutil.rmtree(corpus, ignore_errors=True)
         raise TaskReplayError(
             f"{spec.task}: nltk data {', '.join(spec.nltk_resources)} seals to {digest}, "
             f"not the pinned {spec.nltk_data_digest}"

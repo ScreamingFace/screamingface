@@ -29,7 +29,11 @@ from typing import Any, cast
 
 from screamingface_engine.benchmarks.definition import BenchmarkOrigin, DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
-from screamingface_engine.benchmarks.nltk_data import NLTK_DATA_DIR, configure_nltk
+from screamingface_engine.benchmarks.nltk_data import (
+    NLTK_DATA_DIR,
+    NltkDataMissingError,
+    configure_nltk,
+)
 from screamingface_engine.benchmarks.provenance import (
     PROVENANCE_FIELD_NAMES,
     FrontierScore,
@@ -4789,10 +4793,20 @@ def _installer(
     def install(node: Url4Node, assets: Path) -> None:
         """Register the benchmark's routes, after pointing nltk at its bundle when it reads one."""
 
-        if reads_nltk_data:
+        bundle: Path = assets / benchmark_id
+        # WHY only a finished bundle (cases.json is its completion marker): a SKIPPED or
+        # unprepared one serves no Cases, and raising for it would stop every other Benchmark
+        # in the image from installing (R10).
+        if reads_nltk_data and (bundle / "cases.json").is_file():
+            corpus: Path = bundle / NLTK_DATA_DIR
+            if not corpus.is_dir():
+                raise NltkDataMissingError(
+                    f"{benchmark_id}: the prepared bundle has no {NLTK_DATA_DIR}/ folder, so "
+                    "its grader would read whatever nltk corpus this machine happens to hold"
+                )
             # WHY at install: grading runs in this process, and nltk reads NLTK_DATA only
             # when first imported, so the path list is set directly instead.
-            configure_nltk(assets / benchmark_id / NLTK_DATA_DIR)
+            configure_nltk(corpus)
         install_imported_benchmark(node, assets, benchmark_id)
 
     install.ASSET_BUNDLE_ID = benchmark_id  # type: ignore[attr-defined]

@@ -22,6 +22,15 @@ class NltkDataError(BenchmarkAssetPreparationError):
     """An nltk resource could not be downloaded at image build. Names the resource."""
 
 
+class NltkDataMissingError(ValueError):
+    """A finished bundle whose row reads nltk data holds no corpus folder. Names the folder.
+
+    WHY ValueError: world build turns an install-time ValueError into its one loud
+    WorldConfigError, so a broken image refuses to start instead of grading with whatever
+    corpus nltk finds elsewhere on the machine.
+    """
+
+
 def configure_nltk(data_dir: Path) -> None:
     """Point nltk at the prepared offline corpus, once.
 
@@ -80,6 +89,7 @@ def nltk_data_digest(data_dir: Path) -> str:
 __all__ = [
     "NLTK_DATA_DIR",
     "NltkDataError",
+    "NltkDataMissingError",
     "configure_nltk",
     "download_nltk_data",
     "nltk_data_digest",
