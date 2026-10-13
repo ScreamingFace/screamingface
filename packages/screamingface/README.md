@@ -389,8 +389,9 @@ answer is the first value where the running weight reaches half the total weight
 half, the answer is the mean of that value and the next one, so equal weights give the plain
 median. A member with a missing or non-positive weight is dropped. It is never the nearest pick.
 When no member is left, the Case abstains. For a number in a JSON reply, use the block form
-`sf.Reduce("median", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"))`.
-A `sf.signal("score:judge")` weight raises `ValueError`: a Median has no judge.
+`sf.Reduce("median", extract=sf.Extract("field", path="answer"),
+weights=sf.signal("field:confidence"))`. A `sf.signal("score:judge")` weight raises
+`ValueError`: a Median has no judge.
 
 `sf.Mean` returns the mean of the members' numbers (`select="value"`, the default) or the text of
 the member nearest the mean (`select="nearest"`). Give it weights to make some members count more:
@@ -514,7 +515,16 @@ extra key, a string, `NaN` or `Infinity` all fail the Case with `judge_reply_inv
 judge is never used as the answer, and a reply that does not parse is not retried. (A transient
 transport error still gets the normal retry of the connector.)
 
-**Lower is better.** `sf.Judge(model, returns="scores", rubric=..., order="min")` picks the member with the lowest score, for a rubric such as an error count or a risk score. The judge is told that a lower number means a better answer, and the first line of its system prompt is `judge-template@1 returns=scores order=min`. A tie goes to the first member in author order. The default `order="max"` keeps the url4 of a judge that has no order. A label judge has no order: `returns="label"` with `order="min"` raises `ValueError`. `sf.Rank(by=...)` and `sf.Vote(judge=...)` refuse a judge with `order="min"`, because they read the scores with their own rule. To keep the lowest scores with Rank, use `sf.Rank(k, by=sf.Judge(...), order="min")`; the judge is then told that a higher number is better. The block form takes `order=` the same way as `rubric=`. `order="min"` needs an Engine whose catalog has `best_holder@1`.
+**Lower is better.** `sf.Judge(model, returns="scores", rubric=..., order="min")` picks the member
+with the lowest score, for a rubric such as an error count or a risk score. The judge is told that a
+lower number means a better answer, and the first line of its system prompt is
+`judge-template@1 returns=scores order=min`. A tie goes to the first member in author order. The
+default `order="max"` keeps the url4 of a judge that has no order. A label judge has no order:
+`returns="label"` with `order="min"` raises `ValueError`. `sf.Rank(by=...)` and
+`sf.Vote(judge=...)` refuse a judge with `order="min"`, because they read the scores with their own
+rule. To keep the lowest scores with Rank, use `sf.Rank(k, by=sf.Judge(...), order="min")`; the
+judge is then told that a higher number is better. The block form takes `order=` the same way as
+`rubric=`. `order="min"` needs an Engine whose catalog has `best_holder@1`.
 
 The judge call is the operation `op_judge_1`. Its output is the raw reply of the judge, and its cost
 is in the accounting breakdown as a synthesis row. The combine step is `op_synthesis_1`. Its `combine`
@@ -628,8 +638,9 @@ winner's JSON reply, not its whole text. A string is returned without its quotes
 value as compact JSON (`42`, `true`, `{"a":1}`). When the winner's field is missing, `null` or
 blank, or its reply is not a JSON object, the Case abstains with the reason `output_missing`. The
 next member is never used. `output` is a field name (a letter or `_`, then letters, digits or `_`,
-at most 64 characters), not a path; anything else raises `ValueError` before any call. The block
-forms take the same `output=` option.
+at most 64 characters), not a path. A string that is not a field name raises `ValueError`, and a
+value that is not a string raises `TypeError`, both before any call. The block forms take the same
+`output=` option.
 
 The block forms compile to the same url4 as the named classes, and `Url4(...).to_python()` writes the
 named class back: `sf.Reduce("argmax", by_signal=..., order=...)` is `sf.Pick(by_signal=..., order=...)`,
@@ -753,8 +764,9 @@ by a signal, or `join@1` and `all@1` for `Concat`.
 
 ### Filter selection
 
-`sf.Filter` keeps the members that pass a test. The next stage gets the input of the Fusion and only those members, as the
-same JSON that `sf.Rank` writes (`{"input":...,"selected":[...]}`), in author order. `where=` is a regex or a signal comparison:
+`sf.Filter` keeps the members that pass a test. The next stage gets the input of the Fusion and only
+those members, as the same JSON that `sf.Rank` writes (`{"input":"...","selected":[...]}`), in
+author order. `where=` is a regex or a signal comparison:
 
 ```python
 confident = sf.Pipeline(
@@ -778,9 +790,10 @@ plain `bool`, and a comparison is not a `bool` (`if sf.signal("cost_usd") < 1:` 
 `sf.signal("field:x") == True` also passes a member whose number is `1.0`, because a signal holds a
 float. A member with no value for the signal, or that failed to answer, is dropped.
 An accounting key (`cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`) reads the model calls of
-each member, and `sf.signal("score:judge")` needs `judge=sf.Judge(..., returns="scores")` on the same Filter. A regex reads the original text of the
-member, never the extracted answer. `extract=` reads each answer first: a member whose answer
-cannot be read is dropped, and the report shows the value it read.
+each member, and `sf.signal("score:judge")` needs `judge=sf.Judge(..., returns="scores")` on the
+same Filter. A regex reads the original text of the member, never the extracted answer.
+`extract=` reads each answer first: a member whose answer cannot be read is dropped, and the
+report shows the value it read.
 
 A Filter can keep the members that a judge scores high enough. One judge call scores every
 member, and the Filter keeps each member whose score passes the test:
@@ -798,12 +811,12 @@ better (a judge with `order="min"` is refused). A judge reply that is not one fi
 each member fails the Case with `judge_reply_invalid`.
 
 A Filter that keeps no member abstains: its `combine` evidence has the result `abstain` with the
-reason `no_votes`, and the next stage gets an empty text. (The Case is not marked `abstained`, because
-a Filter is never the final step.) The report shows a pass mark in
-`members[].score` of the `combine` evidence: `1.0` when the member is kept, `0.0` when it is
-dropped, and `None` when the member failed to answer. The block form is
-`sf.Reduce("filter", where=..., extract=..., judge=...)`. The place rules of "Rank and Concat selections" apply
-to a Filter too. This needs an Engine whose operator catalog has `filter@1` and `kept@1`.
+reason `no_votes`, and the next stage gets an empty text. (The Case is not marked `abstained`,
+because a Filter is never the final step.) The report shows a pass mark in `members[].score` of the
+`combine` evidence: `1.0` when the member is kept, `0.0` when it is dropped, and `None` when the
+member failed to answer. The block form is `sf.Reduce("filter", where=..., extract=..., judge=...)`.
+The place rules of "Rank and Concat selections" apply to a Filter too. This needs an Engine whose
+operator catalog has `filter@1` and `kept@1`.
 
 ### Combine recipes
 
