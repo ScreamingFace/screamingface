@@ -97,7 +97,7 @@ grading rule, score; and the recorded draco-3pass golden must replay unchanged (
   touched files. Full gate = pre-push hook + CI. Append-only check run by hand (the hook passes
   silently in worktrees, bug `OME-1575`): it fails only on the 17 deleted `test_draco_*.py` files,
   which the manifest cannot approve; every edited test passes through `OME-1527.json`. Size: well
-  over the ~500-line cap from the deletions (−7,000-odd lines); the owner waived the cap for #1387.
+  over the ~500-line cap from the deletions (+1,609 / −6,631 lines); the owner waived the cap for #1387.
 - **Deviations:** (1) A judge reply with no verdict is redrawn (twice, outside the gateway cache)
   before its criterion is left out of that pass; the hand-built grader asked once. Same outcome
   whenever the redraws also fail (pinned), a verdict where one redraw parses (pinned). (2) A judge
