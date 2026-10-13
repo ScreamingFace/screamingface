@@ -205,7 +205,8 @@ class _FakeWiki:
                 for move in self.moves.get(params["letitle"], [])
                 if move[0] >= params["lestart"]
             )
-            return {"logevents": [{"timestamp": at, "logpage": page} for at, page in after[:1]]}
+            limit: int = int(params["lelimit"])
+            return {"logevents": [{"timestamp": at, "logpage": page} for at, page in after[:limit]]}
         return {"pages": [self._page(params)]}
 
     def _page(self, params: dict[str, str]) -> dict[str, Any]:
@@ -354,6 +355,19 @@ def test_two_articles_swapped_after_the_cut_off_never_serve_the_wrong_one() -> N
     )
     revision = fs.resolve_revision(wiki, fs.PageRef(_EN, "Mercury"))
     assert (revision.page_id, revision.revision_id) == (1, 1230000001)
+
+
+def test_a_page_created_after_the_cut_off_never_counts_as_the_one_that_held_the_title() -> None:
+    # WHY: in August 2026 a vandal swapped "Dolly Parton" with a junk page and an admin moved
+    # the junk page away again; that cleanup is the first visible move after the cut-off (the
+    # vandal's own moves are hidden from the log). The junk page has no revision before the
+    # cut-off, so it cannot have held the title then; the article back at the title did.
+    wiki = _FakeWiki(
+        {"Dolly Parton": _page("Dolly Parton", 1, 1245000000, "2024-09-15T00:00:00Z", "singer")},
+        moves={"Dolly Parton": [("2026-08-27T18:59:05Z", 84079417)]},
+    )
+    revision = fs.resolve_revision(wiki, fs.PageRef(_EN, "Dolly Parton"))
+    assert (revision.page_id, revision.revision_id) == (1, 1245000000)
 
 
 def test_a_page_with_no_revision_before_the_cut_off_is_refused_by_name() -> None:
