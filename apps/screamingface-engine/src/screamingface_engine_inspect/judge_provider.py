@@ -105,8 +105,9 @@ class JudgeTransport:
     #: grading join attributes the judge's tokens/cost/latency per Case.
     benchmark_id: str | None = None
     #: The row grades over judge passes (OME-1527 R12): a scorer may then name pass ``k`` as
-    #: ``GenerateConfig(seed=k)``, sent as ``seed=k`` after the pinned params. False refuses
-    #: a scorer's seed like any other grade-affecting setting.
+    #: ``GenerateConfig(seed=k)``, sent as ``seed=k`` after the pinned params, and a call
+    #: naming no pass is refused. False refuses a scorer's seed like any other
+    #: grade-affecting setting.
     seed_per_pass: bool = False
 
 
@@ -334,11 +335,20 @@ def _params_with_pass_seed(
     ``(("temperature", "0"),)`` and ``GenerateConfig(seed=2)`` → ``(("temperature", "0"),
     ("seed", "2"))``. WHY the pass number itself is the seed: it is the hand-built draco
     judge's own mapping (``(*JUDGE_PARAMS, ("seed", str(run)))``), stable across reruns, so a
-    rerun may reuse a pass's slot while two passes of one run never share one. Only reached
-    with a seed on a ``seed_per_pass`` transport; Stage 1 refused it everywhere else.
+    rerun may reuse a pass's slot while two passes of one run never share one. A seed only
+    reaches here on a ``seed_per_pass`` transport; Stage 1 refused it everywhere else. On that
+    transport a call naming NO pass is refused: unseeded passes are identical bytes, so the
+    cache would answer all N with one reply and the vote would be fake (5-0 from one draw).
     """
 
     if judge_pass is None:
+        if transport.seed_per_pass:
+            raise RuntimeError(
+                "the scorer sent a judge call with no pass number, but this row declared "
+                "seed_per_pass — every judge call must name its pass via "
+                "GenerateConfig(seed=k), or the passes go out as identical requests and the "
+                "gateway cache answers them all with one reply (OME-1527 R12)"
+            )
         return tuple(transport.params)
     if not 0 <= judge_pass <= MAX_JUDGE_PASS:
         raise RuntimeError(

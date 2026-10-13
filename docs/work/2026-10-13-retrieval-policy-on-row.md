@@ -61,6 +61,10 @@ Candidate's.
 - **Deviations:** "unknown policy id" has no list to check against (no registry of policy ids
   exists; draco's id is a label a score cites), so the id is checked for shape only. An empty
   domain list is refused, following draco's own build rule.
+- **Review fix:** a judged row with a retrieval policy must pin `('web_search', 'false')` in
+  `JudgeSpec.params` (refused at assembly otherwise), because a judge call naming no
+  `web_search` searches on its route's default; scoped to policy rows so no published row or
+  prior test moves.
 
 ## Owner-verify
 

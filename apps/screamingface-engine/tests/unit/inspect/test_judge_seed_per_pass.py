@@ -329,3 +329,23 @@ def test_declaring_judge_passes_is_benchmark_identity(monkeypatch: pytest.Monkey
     )
     assert plain == explicit_default
     assert opted_in != plain
+
+
+@pytest.mark.asyncio
+async def test_an_opted_in_row_refuses_a_judge_call_that_names_no_pass(
+    run_scope: RequestScope,
+) -> None:
+    """A scorer on an opted-in row that forgets its pass number must fail by name: N unseeded
+    passes are N identical requests, so the cache would serve one reply as a fake N-0 vote."""
+
+    fetch: _ScriptedFetch = _ScriptedFetch("MET")
+    with bound_judge_transport(JudgeTransport(fetch=fetch, params=PINNED, seed_per_pass=True)):
+        with pytest.raises(RuntimeError, match=r"no pass number.*seed_per_pass"):
+            # WHY through the redraw helper: judge_pass=None is the forgetful scorer's call.
+            await judge_until_parsed(
+                get_model("screamingface/judge-4", memoize=False),
+                "Reply MET or UNMET.",
+                _met_or_unmet,
+                item="rubric r1",
+            )
+    assert fetch.targets == []

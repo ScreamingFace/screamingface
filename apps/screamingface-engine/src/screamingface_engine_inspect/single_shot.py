@@ -158,7 +158,8 @@ class JudgeSpec:
         seed_per_pass: the scorer grades over judge passes and names pass ``k`` as
             ``GenerateConfig(seed=k)``; the judge call then carries ``seed=k`` after the
             pinned params, so N passes are N requests, never one cached reply (OME-1527
-            R12). Benchmark identity when set. A pinned ``seed`` beside it is refused.
+            R12). Benchmark identity when set. A pinned ``seed`` beside it is refused, and
+            so is a judge call that names no pass.
     """
 
     model: str
@@ -445,6 +446,18 @@ def single_shot_benchmark(
         raise ValueError(
             f"{benchmark_id}: a Benchmark serving its Candidate the input envelope cannot "
             "declare a check surface"
+        )
+    if (
+        judge is not None
+        and retrieval_policy is not None
+        and ("web_search", "false") not in judge.params
+    ):
+        # WHY (OME-1527, R13): the policy reaches the Candidate call only. A judge call that
+        # names no web_search searches whenever its route can (a route's default is on), so on a
+        # searching exam it could look the answer up — the judge pins it off, as draco's does.
+        raise ValueError(
+            f"{benchmark_id}: a row with retrieval policy {retrieval_policy.policy_id} must pin "
+            "its judge's web search off — add ('web_search', 'false') to JudgeSpec.params"
         )
     # WHY: pins are newline-joined below; a pin containing "\n" would make two
     # different pin lists hash identically — refused, never coerced.
