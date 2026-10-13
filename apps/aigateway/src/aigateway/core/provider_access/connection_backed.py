@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any
 
 from ..credential_blob import DispatchObservation, OperationalOutcome
@@ -98,9 +99,10 @@ class ConnectionBackedProviderAccess(ProfileBackedProviderAccess):
     ) -> CredentialTarget:
         pair = await self._markers.read(account_id, provider)
         if pair.migration_state != "migrated":
-            return await super().resolve(
+            target = await super().resolve(
                 account_id, provider, selector, plugin=plugin, policy=policy
             )
+            return replace(target, _observed_pair=pair)
         document = await self._index.get(account_id, provider, selector.name)
         if document is None:
             # WHY: a selector naming no legacy document of this pair is exactly today's situation
