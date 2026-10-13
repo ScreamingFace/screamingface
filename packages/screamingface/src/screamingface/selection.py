@@ -32,6 +32,7 @@ from screamingface.reducer import (
     Reducer,
     _as_python,
     _cannot_rebuild,
+    _check_judge_pair,
     _decoded,
     _field_path,
     _ModelSignal,
@@ -287,30 +288,18 @@ def _check_filter_where(where: object) -> None:
 
 
 def _check_filter_judge(where: Matches | _Comparison, judge: object) -> None:
-    """The Filter pairing rule (FJ-E3, FJ-E4), the same rule as Vote's: a score:judge comparison
-    and a scores judge go together. The Engine reads score:judge strictly, so a lone half would
-    fail after the member calls are paid. The messages never echo the rubric."""
+    """The Filter pairing rule (FJ-E3, FJ-E4), the same rule as Vote's (``_check_judge_pair``):
+    a score:judge comparison and a scores judge go together."""
 
-    reads_judge = isinstance(where, _Comparison) and where.signal.key == JUDGE_SIGNAL
-    if judge is None:
-        if reads_judge:
-            raise ValueError(
-                f"Filter where=sf.signal({JUDGE_SIGNAL!r}) needs a judge on the same reducer: "
-                "add judge=sf.Judge(..., returns='scores')"
-            )
-        return
-    if not isinstance(judge, Judge):
-        raise TypeError("Filter judge must be an sf.Judge")
-    if judge.returns != "scores":
-        raise ValueError(
-            "Filter judge needs sf.Judge(..., returns='scores'): "
-            "the filter reads one score per member"
-        )
-    _refuse_min_order_judge(judge, "Filter")  # P6 / JO-D1: refuses order="min"
-    if not reads_judge:
-        raise ValueError(
-            f"Filter judge is read only by a where=sf.signal({JUDGE_SIGNAL!r}) comparison"
-        )
+    signal = f"where=sf.signal({JUDGE_SIGNAL!r})"
+    _check_judge_pair(
+        judge,
+        isinstance(where, _Comparison) and where.signal.key == JUDGE_SIGNAL,
+        "Filter",
+        reader="filter",
+        read_by=f"a {signal} comparison",
+        unpaired=f"Filter {signal}",
+    )
 
 
 @dataclass(frozen=True, slots=True, init=False)
