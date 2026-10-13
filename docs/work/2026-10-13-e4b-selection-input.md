@@ -50,4 +50,10 @@ compiled url4 stay the same. Spec: `docs/spec/2026-10-13-e4b-combine-extensions/
   - `repo`, with append-only: ALL GATES GREEN.
   - `screamingface-engine`, with append-only: FAILED on the append-only check only. Offenders: `tests/unit/test_combine_rank_world.py`, `tests/unit/test_sdk_candidate_contracts.py`, `tests/unit/test_combine_selection.py`. These are the three approved pinned files.
   - `screamingface-engine`, with `--skip-append-only`: ALL GATES GREEN (ruff check, ruff format, pyright, layering, pytest with coverage).
-- **Deviations:** The ledger status stays `in_progress`. The owner must approve the three pinned test edits before this unit is done (spec §7). No code deviation.
+- **Review fixes (round 2):**
+  - `packages/screamingface/README.md` (Filter selection section): the next stage now gets the input of the Fusion. Doc goldens, 40 passed. No code changed in this round.
+  - `screamingface-engine`, with `--skip-append-only`: ALL GATES GREEN in the final run. An earlier run in this round failed one unrelated test: `tests/unit/test_ws.py::test_ws_malformed_inbound_frames_nacked_stream_survives`. That test passed when run alone. This branch does not change that test or `url4` source.
+  - `repo`, with append-only: ALL GATES GREEN.
+  - `screamingface`, with append-only: NOT VERIFIED in this round. The SDK pytest run (`-n auto`) stopped at about 98% in one run, with all workers idle. The rerun hung in the same way. A serial run did not finish. The round 1 run was green. This round changed one README sentence only.
+  - Append-only offenders (unchanged): the three approved pinned files.
+- **Deviations:** The ledger status stays `in_progress`. The owner must approve the three pinned test edits before this unit is done (spec §7). No code deviation. Writer calls after a Rank or a Filter miss the request cache once (review note 5). The SDK gate needs a clean run before the PR opens.
