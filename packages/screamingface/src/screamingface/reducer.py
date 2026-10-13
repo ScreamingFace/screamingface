@@ -323,6 +323,16 @@ def _reads_judge(weights: object) -> bool:
     return isinstance(weights, Signal) and weights.key == JUDGE_SIGNAL
 
 
+def _refuse_min_order_judge(judge: Judge, label: str) -> None:
+    """JO-D1 (P6): a judge with order='min' is only a Fusion synthesizer.
+
+    Rank, Vote and Filter (unit 6) read the judge's scores with their own rule (Rank has its own
+    order=), so a second order would conflict. The message never echoes the rubric.
+    """
+
+    del judge, label  # STUB (unit 5 commit A): no check yet
+
+
 def _check_judge_weights(weights: object, judge: object, label: str) -> None:
     """The one pairing rule (8S F5): weights=sf.signal('score:judge') and a scores judge go
     together. The Engine reads score:judge strictly, so a lone half would fail after the member

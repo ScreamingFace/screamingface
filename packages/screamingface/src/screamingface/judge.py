@@ -123,7 +123,9 @@ class Judge(Reducer):
         returns: JudgeReturns,
         rubric: str,
         params: Mapping[str, str | int | float | bool] | None = None,
+        order: Literal["max", "min"] = "max",
     ) -> None:
+        del order  # STUB (unit 5 commit A): accepted and ignored; commit B stores and compiles it
         if returns not in ("label", "scores"):
             raise ValueError(f"Judge returns must be 'label' or 'scores', not {returns!r}")
         if not isinstance(rubric, str):
