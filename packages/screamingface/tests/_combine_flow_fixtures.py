@@ -14,7 +14,7 @@ import httpx
 import screamingface as sf
 from screamingface._evaluation.operators import _OperatorCatalog, decode_operator_catalog
 
-# (id, stage) sorted by id: EXACTLY the Engine built-ins (`BUILTIN_OPERATORS`), 39 ids. A literal
+# (id, stage) sorted by id: EXACTLY the Engine built-ins (`BUILTIN_OPERATORS`), 40 ids. A literal
 # on purpose: a drift in the Engine's names must show as a diff here, not be computed away.
 FLOW_OPERATOR_IDS: tuple[tuple[str, str], ...] = (
     ("all@1", "select"),
@@ -54,6 +54,7 @@ FLOW_OPERATOR_IDS: tuple[tuple[str, str], ...] = (
     ("value@1", "select"),
     ("values@1", "reduce"),
     ("weighted_mean@1", "reduce"),
+    ("weighted_median@1", "reduce"),
     ("weighted_mode@1", "reduce"),
     ("whole@1", "extract"),
 )

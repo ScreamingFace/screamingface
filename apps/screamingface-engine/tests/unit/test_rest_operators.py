@@ -254,3 +254,12 @@ async def test_operator_catalog_lists_regex_set_and_inspect_rules() -> None:
         "regex@1": "One regex group (RE2 syntax) from the last 1024 characters.",
         "set@1": "Sorted, casefolded, distinct list items as canonical JSON.",
     }
+
+
+@pytest.mark.asyncio
+async def test_operator_catalog_lists_weighted_median() -> None:
+    app = create_app(Settings(jwt_secret="s"), stream=InMemoryEventStream())
+    listed = {entry["id"]: entry for entry in (await _get(app, "/v1/operators")).json()["data"]}
+    assert "weighted_median@1" in listed
+    entry = listed["weighted_median@1"]
+    assert (entry["stage"], entry["version"], entry["args_schema"]) == ("reduce", 1, {})
