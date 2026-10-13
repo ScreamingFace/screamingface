@@ -3,7 +3,7 @@
   "branch": "OME-1476-pr1-arc-agi-2-local-task",
   "approver": "owner \u2014 approved in session 2026-10-12: the spec (amend the whole-run guard), then the pin-count guard and the activity test scaling by Attempts; to confirm in PR review",
   "date": "2026-10-12",
-  "scope": "(1) test_whole_run_metric.py::test_no_published_row_opts_in_so_no_revision_moves: '== [\"contracteval\"]' (OME-1527) becomes '== [\"arc_agi_2\", \"contracteval\"]' and the no-pins check skips the opted-in row; docstring names ARC-AGI-2. (2) test_task_replay_assembly.py::test_every_task_replay_row_without_an_exclusion_keeps_its_three_pins: also skips rows whose Task lives under local_tasks/ (their task_source pin is by design, OME-1513). (3) test_imported_catalogue_activity.py::test_imported_catalogue_case_activity: expected completed model calls and grading started/completed pairs are multiplied by the row's attempts. (4) test_benchmark_declaration.py: one added table row (arc_agi_2). (5) test_inspect_imported_benchmarks.py: one added _EXPECTED_FAMILIES row (arc_agi_2: free_text). (6) test_published_revisions.py: one added literal (arc_agi_2); no existing literal moves. (7) test_attempt_egress.py: one appended test pinning derive_attempt_seed values. Nothing else in these files. Re-based 2026-10-12 onto main after OME-1527 moved contracteval to a local Task: both rows kept in every table; base blobs are main's.",
+  "scope": "(1) test_whole_run_metric.py::test_no_published_row_opts_in_so_no_revision_moves: '== [\"contracteval\"]' (OME-1527) becomes '== [\"arc_agi_2\", \"contracteval\"]' and the no-pins check skips the opted-in row; docstring names ARC-AGI-2. (2) test_task_replay_assembly.py::test_every_task_replay_row_without_an_exclusion_keeps_its_three_pins: also skips rows whose Task lives under local_tasks/ (their task_source pin is by design, OME-1513). (3) test_imported_catalogue_activity.py::test_imported_catalogue_case_activity: expected completed model calls and grading started/completed pairs are multiplied by the row's attempts. (4) test_benchmark_declaration.py: one added table row (arc_agi_2). (5) test_inspect_imported_benchmarks.py: one added _EXPECTED_FAMILIES row (arc_agi_2: free_text). (6) test_published_revisions.py: one added literal (arc_agi_2); no existing literal moves. (7) test_attempt_egress.py: one appended test pinning derive_attempt_seed values. Nothing else in these files. Re-based 2026-10-12 onto main after OME-1527 moved contracteval to a local Task: both rows kept in every table; base blobs are main's. (8) test_benchmark_catalogue_grouping.py and test_benchmark_origin_tabs.py: LEADERBOARD_URL moves from the dev Leaderboard to https://leaderboard.screamingface.ai/, following the screamingface origin chip's link (owner request 2026-10-13). Nothing else in these files.",
   "reason": "OME-1476 publishes ARC-AGI-2, the first Benchmark with Attempts (OME-1458) and an honoured whole-run metric (OME-1527), and the second local Task. Three catalogue-wide tests encoded 'no row does this yet': no row honours a metric, every pin-free Task-replay row has exactly three pins, every imported Benchmark makes one call per Case. Each is generalised for the new row without loosening it for any existing row; the table rows and the seed pin are additions.",
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
@@ -33,6 +33,14 @@
     "apps/screamingface-engine/tests/unit/test_attempt_egress.py": {
       "base_blob": "b9017438ed92316ef227f9f556d7665db60be1df",
       "approved_blob": "3bb9cb90b7c27418874ad99886e2c4f835ba6617"
+    },
+    "packages/screamingface/tests/test_benchmark_catalogue_grouping.py": {
+      "base_blob": "8e1e8828c5501db6e6bb667fd42a6e4d564e8312",
+      "approved_blob": "bf3b132503495ccb2d798fc9be508b1c94c7d831"
+    },
+    "packages/screamingface/tests/test_benchmark_origin_tabs.py": {
+      "base_blob": "1cab75a96aadcc936d32e9ce9a67210952777f29",
+      "approved_blob": "20aa8d10a70341a71327413b278b2e68b487703b"
     }
   }
 }

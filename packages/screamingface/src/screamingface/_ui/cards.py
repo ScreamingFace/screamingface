@@ -105,7 +105,7 @@ def models_rows_html(records: Sequence[ModelInfo]) -> str:
 # An origin absent from this map still renders — a plain chip named by the origin
 # string, with no source link — so a newer Engine's new origin degrades gracefully.
 _ORIGIN_SOURCES: Mapping[str, tuple[str, str]] = {
-    "screamingface": ("ScreamingFace", "https://leaderboard.dev.screamingface.ai/"),
+    "screamingface": ("ScreamingFace", "https://leaderboard.screamingface.ai/"),
     "inspect_evals": ("inspect_evals", "https://ukgovernmentbeis.github.io/inspect_evals/"),
 }
 
