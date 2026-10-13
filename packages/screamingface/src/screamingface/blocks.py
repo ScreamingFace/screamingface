@@ -18,6 +18,7 @@ from screamingface._regex_rule import check_regex
 from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal, _Comparison
 from screamingface.reducer import (
     _MAX_REDUCER_MEMBERS,
+    _MEAN_SIGNAL_USE,
     BENCHMARK_EXTRACT,
     Reducer,
     _check_judge_weights,
@@ -25,6 +26,7 @@ from screamingface.reducer import (
     _ModelSignal,
     _recovered_weights,
     _ReducerPlan,
+    _refuse_judge_signal,
     _Step,
     _Steps,
     _vote_plan,
@@ -244,6 +246,7 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
         ),
         "concat": _OpRow("concat", ("compute",), (), ("separator", "label"), named="sf.Concat"),
         "median": _OpRow("median", ("select", "compute"), ("extract",), named="sf.Median"),
+        "mean": _OpRow("mean", ("compute", "select"), ("extract",), ("weights",), named="sf.Mean"),
         "judge": _OpRow("judge", ("select",), ("judge",), ("rubric",), named="sf.Judge"),
         "merge": _OpRow("merge", ("compute",), ("fields",), named="sf.Merge"),
         "context": _OpRow("context", ("compute",), (), named="the Fusion recipe rewrite"),
@@ -483,7 +486,7 @@ class Reduce(Reducer):
         weights = self.options.get("weights")
         if isinstance(weights, tuple) and len(weights) != count:
             raise ValueError(
-                f"sf.Reduce('weighted') has {len(weights)} weights for {count} members"
+                f"sf.Reduce({self.op!r}) has {len(weights)} weights for {count} members"
             )
 
     @classmethod
@@ -520,17 +523,28 @@ def _check_option_names(op: str, row: _OpRow, options: Mapping[str, object]) -> 
         raise ValueError(f"sf.Reduce({op!r}) needs exactly one of {', '.join(row.one_of)}")
 
 
-def _median_extract(extract: object) -> Extract:
-    """F19: a median reads numbers, so its normalizer is numeric (D-6) and never the benchmark's."""
-
+def _numeric_extract(extract: object, op: str) -> Extract:
+    """F19: a median or a mean reads numbers, so its normalizer is numeric (D-6) and never the
+    benchmark's."""
     assert isinstance(extract, Extract)
     if extract.rule == "benchmark" or extract.normalize not in (None, "numeric"):
-        raise ValueError("sf.Reduce('median') needs a numeric Extract that is not 'benchmark'")
+        raise ValueError(f"sf.Reduce({op!r}) needs a numeric Extract that is not 'benchmark'")
     return Extract(extract.rule, normalize="numeric", **extract.args)
+
+
+def _median_extract(extract: object) -> Extract:
+    return _numeric_extract(extract, "median")
 
 
 def _canonical_median(checked: dict[str, object]) -> None:
     checked["extract"] = _median_extract(checked["extract"])
+
+
+def _canonical_mean(checked: dict[str, object]) -> None:
+    checked["extract"] = _numeric_extract(checked["extract"], "mean")
+    weights = checked.get("weights")
+    if isinstance(weights, Signal):
+        _refuse_judge_signal(weights, "sf.Reduce('mean')", _MEAN_SIGNAL_USE)
 
 
 def _canonical_weighted(checked: dict[str, object]) -> None:
@@ -539,7 +553,7 @@ def _canonical_weighted(checked: dict[str, object]) -> None:
 
 # op -> the in-place canonicalization of its checked options (BK#4: one canonical block per op)
 _CANONICAL: Mapping[str, Callable[[dict[str, object]], None]] = MappingProxyType(
-    {"median": _canonical_median, "weighted": _canonical_weighted}
+    {"median": _canonical_median, "weighted": _canonical_weighted, "mean": _canonical_mean}
 )
 
 
@@ -596,6 +610,18 @@ def _median_plan(block: Reduce) -> _ReducerPlan:
     return _ReducerPlan("median", "answer", steps)
 
 
+def _mean_plan(block: Reduce) -> _ReducerPlan:
+    extract, _ = _extract_of(block)._steps()
+    weights = cast("tuple[float, ...] | Signal | None", block.options.get("weights"))
+    steps = _Steps(
+        extract=extract,
+        normalize=_Step("numeric"),
+        reduce=_Step("mean" if weights is None else "weighted_mean"),
+        select=_Step("value" if block.mode == "compute" else "nearest"),
+    )
+    return _ReducerPlan("mean", "answer", steps, weights)
+
+
 def _extract_of(block: Reduce) -> Extract:
     extract = block.options["extract"]
     assert isinstance(extract, Extract)
@@ -603,7 +629,12 @@ def _extract_of(block: Reduce) -> Extract:
 
 
 _PLANS: Mapping[str, Callable[[Reduce], _ReducerPlan]] = MappingProxyType(
-    {"plurality": _plurality_plan, "weighted": _weighted_plan, "median": _median_plan}
+    {
+        "plurality": _plurality_plan,
+        "weighted": _weighted_plan,
+        "median": _median_plan,
+        "mean": _mean_plan,
+    }
 )
 
 # engine op name -> Extract rule (benchmark has no engine op)
@@ -674,8 +705,23 @@ def _rebuild_median(spec: Mapping[str, object]) -> Reduce:
     return Reduce("median", mode=_MEDIAN_MODES[_op_name(spec["select"])], extract=extract)
 
 
+_MEAN_MODES: Mapping[str, ReduceMode] = MappingProxyType({"value": "compute", "nearest": "select"})
+
+
+def _rebuild_mean(spec: Mapping[str, object]) -> Reduce:
+    _no_args(spec["reduce"])
+    _no_args(spec["select"])
+    weights = _recovered_weights(spec)  # the one recovery rule; a refusal is a ValueError
+    reduce = "mean" if weights is None else "weighted_mean"
+    if _normalize_from_spec(spec) != "numeric" or _op_name(spec["reduce"]) != reduce:
+        raise ValueError("a mean shape this SDK version cannot rebuild")
+    extract = _extract_from_spec(spec, "numeric")
+    options: dict[str, Any] = {} if weights is None else {"weights": weights}
+    return Reduce("mean", mode=_MEAN_MODES[_op_name(spec["select"])], extract=extract, **options)
+
+
 _REBUILD: Mapping[str, Callable[[Mapping[str, object]], Reduce]] = MappingProxyType(
-    {"vote": _rebuild_vote, "median": _rebuild_median}
+    {"vote": _rebuild_vote, "median": _rebuild_median, "mean": _rebuild_mean}
 )
 
 

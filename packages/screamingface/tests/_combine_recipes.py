@@ -140,3 +140,20 @@ def recipe_s10() -> sf.Recipe:
 @recipe("S11", "recipe_s11_max.url4", "s11_judge_best")
 def recipe_s11_max() -> sf.Recipe:
     return sf.Fusion(ROUTES, synthesizer=_judge())
+
+
+@recipe("S3", "recipe_s3.url4", "s3_mean_static")
+def recipe_s3() -> sf.Recipe:
+    return sf.Fusion(ROUTES, synthesizer=sf.Mean(weights=(1, 1, 2)))
+
+
+@recipe("S4", "recipe_s4.url4", "s4_mean_by_confidence")
+def recipe_s4() -> sf.Recipe:
+    return sf.Fusion(
+        _json_members(),
+        synthesizer=sf.Reduce(
+            "mean",
+            extract=sf.Extract("field", path="answer"),
+            weights=sf.signal("field:confidence"),
+        ),
+    )

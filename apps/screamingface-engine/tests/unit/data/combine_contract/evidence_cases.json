@@ -1921,5 +1921,77 @@
     },
     "dropped": 0,
     "finish_reason": "stop"
+  },
+  "mean_weighted_value": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "mean",
+    "operators": [
+      "json_field@1",
+      "numeric@1",
+      "weighted_mean@1",
+      "value@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "10",
+        "value": "10",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.25
+        },
+        "weight": 0.25,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "99",
+        "value": "99",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.0
+        },
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "30",
+        "value": "30",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.75
+        },
+        "weight": 0.75,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "mean": "25",
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "field:confidence",
+      "order": null
+    },
+    "result": {
+      "member_id": null,
+      "value": "25",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
   }
 }

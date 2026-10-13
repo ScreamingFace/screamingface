@@ -368,6 +368,18 @@
       "title": "Kind",
       "type": "string"
     },
+    "mean": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mean"
+    },
     "median": {
       "anyOf": [
         {
@@ -415,7 +427,8 @@
         "project",
         "rank",
         "concat",
-        "filter"
+        "filter",
+        "mean"
       ],
       "title": "Reducer",
       "type": "string"

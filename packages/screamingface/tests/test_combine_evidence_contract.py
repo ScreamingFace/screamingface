@@ -29,6 +29,7 @@ _EXPECTED_NAMES = {
     "filter_threshold",
     "judge_label",
     "judge_scores",
+    "mean_weighted_value",
     "median_nearest",
     "median_value",
     "merge_abstain",
