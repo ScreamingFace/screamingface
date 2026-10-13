@@ -468,6 +468,8 @@ extra key, a string, `NaN` or `Infinity` all fail the Case with `judge_reply_inv
 judge is never used as the answer, and a reply that does not parse is not retried. (A transient
 transport error still gets the normal retry of the connector.)
 
+**Lower is better.** `sf.Judge(model, returns="scores", rubric=..., order="min")` picks the member with the lowest score, for a rubric such as an error count or a risk score. The judge is told that a lower number means a better answer, and the first line of its system prompt is `judge-template@1 returns=scores order=min`. A tie goes to the first member in author order. The default `order="max"` keeps the url4 of a judge that has no order. A label judge has no order: `returns="label"` with `order="min"` raises `ValueError`. `sf.Rank(by=...)` and `sf.Vote(judge=...)` refuse a judge with `order="min"`, because they read the scores with their own rule. To keep the lowest scores with Rank, use `sf.Rank(k, by=sf.Judge(...), order="min")`; the judge is then told that a higher number is better. The block form takes `order=` the same way as `rubric=`. `order="min"` needs an Engine whose catalog has `best_holder@1`.
+
 The judge call is the operation `op_judge_1`. Its output is the raw reply of the judge, and its cost
 is in the accounting breakdown as a synthesis row. The combine step is `op_synthesis_1`. Its `combine`
 evidence holds the raw reply, the parsed label or scores, the chosen member and
@@ -753,6 +755,7 @@ another member writes 0.8.
 | S9 | Keep the answers with a confidence above 0.7, then a writer combines them | `s9_confident_only` |
 | S10 | A judge scores each answer, keep the best 2, then a writer combines them | `s10_judge_top` |
 | S11 | A judge scores each answer and returns the best answer | `s11_judge_best` |
+| S11, min form | A judge scores each answer with a lower number as better, and returns the answer with the lowest score | `sf.Judge(m, returns="scores", rubric=R, order="min")` |
 
 ```python
 import screamingface as sf
