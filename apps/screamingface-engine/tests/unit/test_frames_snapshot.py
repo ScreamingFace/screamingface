@@ -316,6 +316,45 @@ def test_only_the_first_rename_after_the_cut_off_counts() -> None:
     assert fs.resolve_revision(wiki, fs.PageRef(_EN, old_title)).page_id == 5
 
 
+def test_a_title_taken_over_by_a_redirect_after_the_cut_off_serves_the_page_that_left() -> None:
+    # WHY: after the cut-off "Edward II of England" was swapped with its short-name redirect:
+    # the article moved to "Edward II" and the redirect page, with its own history, took the
+    # old title. Asking by title returns that redirect's 2024 revision, which points at the
+    # title itself. The first page moved away from the title held it at the cut-off.
+    wiki = _FakeWiki(
+        {
+            "Edward II of England": _page(
+                "Edward II of England",
+                1004892,
+                1207264863,
+                "2024-02-14T10:53:05Z",
+                "#REDIRECT [[Edward II of England]]",
+            ),
+            "Edward II": _page("Edward II", 9, 1240000002, "2024-09-01T00:00:00Z", "king"),
+        },
+        moves={"Edward II of England": [("2025-03-01T00:00:00Z", 9)]},
+    )
+    revision = fs.resolve_revision(wiki, fs.PageRef(_EN, "Edward II of England"))
+    assert (revision.page_id, revision.revision_id) == (9, 1240000002)
+
+
+def test_two_articles_swapped_after_the_cut_off_never_serve_the_wrong_one() -> None:
+    # INVARIANT: the article served is the one that held the title AT the cut-off. When two
+    # articles swap titles, asking by title returns a real article with real 2024 history,
+    # just the wrong one, and nothing downstream could notice.
+    wiki = _FakeWiki(
+        {
+            "Mercury": _page("Mercury", 2, 1230000002, "2024-05-01T00:00:00Z", "the element"),
+            "Mercury (planet)": _page(
+                "Mercury (planet)", 1, 1230000001, "2024-05-01T00:00:00Z", "the planet"
+            ),
+        },
+        moves={"Mercury": [("2025-01-01T00:00:00Z", 1)]},
+    )
+    revision = fs.resolve_revision(wiki, fs.PageRef(_EN, "Mercury"))
+    assert (revision.page_id, revision.revision_id) == (1, 1230000001)
+
+
 def test_a_page_with_no_revision_before_the_cut_off_is_refused_by_name() -> None:
     with pytest.raises(fs.SnapshotError, match="Created later"):
         fs.resolve_revision(_FakeWiki({}), fs.PageRef(_EN, "Created later"))

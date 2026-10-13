@@ -14,8 +14,8 @@ Stages, in the order they run:
    no scheme, a fragment, two URLs glued into one item, a search URL, a ``w.wiki`` short link,
    a title percent-encoded twice, a note pasted after the title).
 3. Find each page's last revision BEFORE the 2024-09-19 cut-off (``resolve_revision``),
-   following a redirect that was in place then. A page renamed since is found through the
-   move log by its page id, never through today's redirect, which can be re-pointed.
+   following a redirect that was in place then. Which page held a title at the cut-off is read
+   from the move log (pages get renamed and swapped); today's redirects are never followed.
 4. Fetch each revision's rendered HTML and turn it into text (``article_text``): body, headings,
    tables and infoboxes kept as pipe rows; references, navigation boxes, hatnotes, images and
    the reference sections dropped.
@@ -205,18 +205,25 @@ def _title(parts: urllib.parse.SplitResult) -> str | None:
 def resolve_revision(wiki: Wiki, ref: PageRef, hops: int = 0) -> Revision:
     """The last revision of ``ref`` before the cut-off, through any redirect or later rename.
 
-    A page that was a redirect at the cut-off is followed as it pointed THEN. A page renamed
-    after the cut-off took its whole history to the new title, so its old title has none
-    before the cut-off; the first rename logged after the cut-off names the page id, and the
-    revision is fetched by that id. Today's redirect at the old title is never followed: it
-    can be re-pointed ("The Beatles discography" now lands on "The Beatles"). Refuses after
-    ``_MAX_REDIRECTS`` hops, so a redirect loop terminates.
+    A history belongs to a page, not a title, so the first question is WHICH page held the
+    title at the cut-off. If any page was moved away from the title after the cut-off, the
+    first one moved away held it then; its revision is fetched by page id. Only when nothing
+    moved is the title asked directly. Asking by title first would fail two ways: a page
+    swap (the "Edward II of England" article moved to "Edward II", and its short-name
+    redirect took the title, history and all) returns the wrong page's 2024 revision, and
+    today's redirect at a renamed title can be re-pointed ("The Beatles discography" now
+    lands on "The Beatles"), so it is never followed. A page that was a redirect at the
+    cut-off is followed as it pointed THEN. Refuses after ``_MAX_REDIRECTS`` hops, so a
+    redirect loop terminates.
     """
     if hops > _MAX_REDIRECTS:
         raise SnapshotError(f"{ref.wiki}: {ref.title}: more than {_MAX_REDIRECTS} redirects")
-    page: dict[str, Any] = _revisions(wiki, ref.wiki, {"titles": ref.title})
-    if not page.get("revisions"):
-        page = _revisions(wiki, ref.wiki, {"pageids": str(_renamed_page_id(wiki, ref))})
+    moved_away: int | None = _first_page_moved_away(wiki, ref)
+    page: dict[str, Any] = _revisions(
+        wiki,
+        ref.wiki,
+        {"titles": ref.title} if moved_away is None else {"pageids": str(moved_away)},
+    )
     revisions: list[dict[str, Any]] = page.get("revisions") or []
     if not revisions:
         raise SnapshotError(f"{ref.wiki}: {ref.title}: no revision before the cut-off {CUTOFF}")
@@ -245,10 +252,10 @@ def _revisions(wiki: Wiki, on: str, page: dict[str, str]) -> dict[str, Any]:
     )["query"]["pages"][0]
 
 
-def _renamed_page_id(wiki: Wiki, ref: PageRef) -> int:
-    """The id of the page renamed away from ``ref``'s title first after the cut-off."""
-    # INVARIANT: only the FIRST rename after the cut-off counts; an earlier rename moved a
-    # different page away, and a later one is a page that took the title over afterwards.
+def _first_page_moved_away(wiki: Wiki, ref: PageRef) -> int | None:
+    """The id of the first page moved away from ``ref``'s title after the cut-off, if any."""
+    # INVARIANT: only the FIRST move after the cut-off counts; an earlier move took a
+    # different page away, and a later one moved a page that took the title over afterwards.
     events: list[dict[str, Any]] = (
         wiki.get(
             ref.wiki,
@@ -264,9 +271,7 @@ def _renamed_page_id(wiki: Wiki, ref: PageRef) -> int:
         )["query"].get("logevents")
         or []
     )
-    if not events:
-        raise SnapshotError(f"{ref.wiki}: {ref.title}: no revision before the cut-off {CUTOFF}")
-    return int(events[0]["logpage"])
+    return int(events[0]["logpage"]) if events else None
 
 
 def _pinned(wiki: str, page: dict[str, Any], revision: dict[str, Any], source: str) -> Revision:
