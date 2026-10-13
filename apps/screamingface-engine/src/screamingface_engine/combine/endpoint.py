@@ -46,6 +46,7 @@ from screamingface_engine.combine.ports import (
     ACCOUNTING_SIGNALS,
     FIELD_SIGNAL_PREFIX,
     JUDGE_SIGNAL,
+    MAX_OUTPUT_READ_BYTES,
     READING_TO_ANSWER,
     AbstainReason,
     AccountingReader,
@@ -93,7 +94,6 @@ from screamingface_engine.combine.spec import (
 COMBINE_ROUTE = "/ensemble/combine/v1"
 MAX_SPEC_BYTES = 64 * 1024
 MAX_CONTEXT_BYTES = 64 * 1024 * 1024
-MAX_OUTPUT_READ_BYTES = 1024 * 1024
 MAX_RESULT_BYTES = 8 * 1024 * 1024
 _BINDING = re.compile(r"synthesis_\d+")  # same \d+ as benchmarks/operation_outputs.py
 
