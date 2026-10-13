@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, cast
 
-from screamingface._signals import Signal, _Comparison, _comparison
+from screamingface._signals import JUDGE_SIGNAL, Signal, _Comparison, _comparison
 from screamingface.blocks import (
     _BLOCK_FORMS,
     _MAX_K,
@@ -284,11 +284,32 @@ def _check_filter_where(where: object) -> None:
         raise TypeError(
             "Filter where must be sf.matches(...) or a signal comparison like sf.signal(key) >= 0.6"
         )
-    if isinstance(where, _Comparison):
-        _refuse_judge_signal(
-            where.signal,
-            "Filter",
-            "sf.Rank(k, by=sf.Judge(..., returns='scores')), which keeps the k best-judged members",
+
+
+def _check_filter_judge(where: Matches | _Comparison, judge: object) -> None:
+    """The Filter pairing rule (FJ-E3, FJ-E4), the same rule as Vote's: a score:judge comparison
+    and a scores judge go together. The Engine reads score:judge strictly, so a lone half would
+    fail after the member calls are paid. The messages never echo the rubric."""
+
+    reads_judge = isinstance(where, _Comparison) and where.signal.key == JUDGE_SIGNAL
+    if judge is None:
+        if reads_judge:
+            raise ValueError(
+                f"Filter where=sf.signal({JUDGE_SIGNAL!r}) needs a judge on the same reducer: "
+                "add judge=sf.Judge(..., returns='scores')"
+            )
+        return
+    if not isinstance(judge, Judge):
+        raise TypeError("Filter judge must be an sf.Judge")
+    if judge.returns != "scores":
+        raise ValueError(
+            "Filter judge needs sf.Judge(..., returns='scores'): "
+            "the filter reads one score per member"
+        )
+    _refuse_min_order_judge(judge, "Filter")  # P6 / JO-D1: refuses order="min"
+    if not reads_judge:
+        raise ValueError(
+            f"Filter judge is read only by a where=sf.signal({JUDGE_SIGNAL!r}) comparison"
         )
 
 
@@ -306,6 +327,12 @@ class Filter(Reducer):
     ``sf.signal("field:x") == True`` also passes a numeric ``1.0``: a signal holds a float, so
     ``True`` means ``1.0`` to the Engine. Compare with ``== 1`` for the number, or keep the bool in
     your JSON and read it through ``sf.Extract`` and ``sf.matches``.
+
+    ``judge=sf.Judge(..., returns="scores")`` goes with
+    ``where=sf.signal("score:judge") <op> x`` and never alone: one judge call scores every member,
+    and the Filter keeps each member whose score passes. The judge is always told that a higher
+    number is better, also for ``<``. A half pair, a label judge or an ``order="min"`` judge raises
+    when the Filter is built.
     """
 
     name: str
@@ -323,6 +350,7 @@ class Filter(Reducer):
         _check_filter_where(where)
         if extract is not None and not isinstance(extract, Extract):
             raise TypeError("Filter extract must be an sf.Extract")
+        _check_filter_judge(where, judge)
         object.__setattr__(self, "name", "filter")
         object.__setattr__(self, "where", where)
         object.__setattr__(self, "extract", extract)
@@ -341,25 +369,37 @@ class Filter(Reducer):
             select=_Step("kept"),
         )
         reads = where.signal if isinstance(where, _Comparison) else None
-        return _ReducerPlan("filter", "selection", steps, benchmark_rule=benchmark, reads=reads)
+        calls = () if self.judge is None else (self.judge._signal_call(),)
+        return _ReducerPlan(
+            "filter", "selection", steps, benchmark_rule=benchmark, reads=reads, signal_calls=calls
+        )
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Filter:
+        return cls._rebuild(spec, ())
+
+    @classmethod
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Filter:
+        # A judge call means a judge Filter; judge_from_signals refuses any other call.
+        judge = judge_from_signals(signals, "scores") if signals else None
         reduce = _spec_steps(spec)["reduce"]
         where = _decoded("filter", _recovered_where, {} if reduce is None else reduce[1])
-        filtered = _decoded("filter", cls, where=where, extract=_recovered_extract(spec))
+        filtered = _decoded(
+            "filter", cls, where=where, extract=_recovered_extract(spec), judge=judge
+        )
         _require_steps(spec, filtered._plan().steps, "filter")
         return filtered
 
     def _python(self) -> str:
-        return self._render("sf.Filter")
+        return self._render("sf.Filter", _as_python)
 
     def __repr__(self) -> str:
-        return self._render("Filter")
+        return self._render("Filter", repr)
 
-    def _render(self, head: str) -> str:
+    def _render(self, head: str, show: Callable[[object], str]) -> str:
         extract = "" if self.extract is None else f", extract={self.extract._python()}"
-        return f"{head}(where={self.where._python()}{extract})"
+        judge = "" if self.judge is None else f", judge={show(self.judge)}"
+        return f"{head}(where={self.where._python()}{extract}{judge})"
 
     __hash__: ClassVar[Any] = None
 
@@ -390,14 +430,18 @@ def _filter_from_options(options: Mapping[str, object]) -> Filter:
     return Filter(
         where=cast("Matches | _Comparison", options["where"]),
         extract=cast("Extract | None", options.get("extract")),
+        judge=cast("Judge | None", options.get("judge")),
     )
 
 
 def _filter_options(named: Reducer) -> Mapping[str, object]:
+    """The canonical options of a filter block, in op-table row order (where, extract, judge)."""
+
     filtered = cast("Filter", named)
     return {
         "where": filtered.where,
         **({} if filtered.extract is None else {"extract": filtered.extract}),
+        **({} if filtered.judge is None else {"judge": filtered.judge}),
     }
 
 

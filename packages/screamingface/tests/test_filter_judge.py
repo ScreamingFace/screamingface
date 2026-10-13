@@ -150,11 +150,13 @@ def test_sdk_filter_refuses_a_label_or_min_judge() -> None:
 
     with pytest.raises(
         ValueError, match=r"Filter judge needs sf\.Judge\(\.\.\., returns='scores'\)"
-    ):
+    ) as caught:
         sf.Reduce("filter", where=JUDGED, judge=label)
+    assert SECRET not in str(caught.value)
     with pytest.raises(ValueError) as caught:
         sf.Reduce("filter", where=JUDGED, judge=low)
     assert "order" in str(caught.value)
+    assert SECRET not in str(caught.value)
 
 
 # --- FJ#11: the url4 round trip rebuilds a judge Filter and the filter block --------------------
