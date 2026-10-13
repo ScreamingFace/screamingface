@@ -348,6 +348,28 @@ async def test_a_redraw_that_parses_counts_where_the_hand_built_grader_dropped_t
     assert outcome.checks[0]["evidence"][0]["metadata"]["judge_redraws"] == 1
 
 
+@pytest.mark.asyncio
+async def test_an_empty_middle_pass_scores_zero_but_an_empty_last_pass_drops_out(
+    judge: _ScriptedJudge,
+) -> None:
+    """WHY pinned: which pass the judge failed changes the score, as it did in the hand-built
+    grader (its run list stopped at the last valid pass). Case 2 has one line, MET in two
+    passes; with no verdict in pass 2 the empty pass still counts and scores 0 → 2/3, with no
+    verdict in pass 3 it drops out → 1.0. Whether an empty pass should count as missing
+    wherever it sits is an open owner call; this test turns red the day it is decided."""
+
+    middle: CaseGradeOutcome = await _grade(2)
+    # The first grading drew every scripted reply; re-script all three passes for the second.
+    judge.scripts[("Names the new rate.", 1)] = [_MET]
+    judge.scripts[("Names the new rate.", 2)] = [_MET]
+    judge.scripts[("Names the new rate.", 3)] = ["maybe"] * 3
+
+    last: CaseGradeOutcome = await _grade(2)
+
+    assert middle.score == 0.6667
+    assert last.score == 1.0
+
+
 # ── the judge's wire ──────────────────────────────────────────────────────────────────────
 
 

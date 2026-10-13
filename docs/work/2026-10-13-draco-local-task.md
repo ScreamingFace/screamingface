@@ -113,9 +113,30 @@ grading rule, score; and the recorded draco-3pass golden must replay unchanged (
   extra), and the SDK quickstart (README, notebooks 00 and 01) uses draco; they now point to an
   inspect-capable Engine (`just local-stack-notebooks` serves one). Owner decision pending: keep
   that, or switch the quickstart Benchmark.
+- **Review fixes (second commit set):** (5) `scoring.py` moved unchanged but its tests had gone
+  with the folder; they are restored as `tests/unit/inspect/test_local_task_draco_scoring.py`
+  (14 tests, import repointed). Dropped: the three tests of helpers the move deleted,
+  `case_results.group_by_judge_pass` (2 tests; the scorer groups per pass itself, pinned by
+  `test_local_task_draco.py`) and `grade._mean_optional_grade_metrics` (1 test; no Candidate-level
+  accuracy mean is published on the thinner Report). Mutation check: scoring an absent Factual
+  Accuracy axis as 0.0 turns the restored file red and leaves `test_local_task_draco.py` green.
+  (6) The Report's "Grading did not fully land" warning (`report_view.py` `_grading_html`) can no
+  longer fire for draco: the hand-built `grade.py` summed each Case's `verdicts_rejected` /
+  `invalid` / `missing` into the Candidate's metrics, and the scorer now keeps its verdict counts
+  in each Case's Check evidence only. Not rebuilt here (decision 1, the thinner Report); a Known
+  limitation, owner call. (7) Which pass came back empty changes the score (an empty middle pass
+  scores 0, an empty last pass drops out), as it did hand-built; pinned by
+  `test_an_empty_middle_pass_scores_zero_but_an_empty_last_pass_drops_out`, owner call whether to
+  treat an empty pass as missing wherever it sits. (8) `BenchmarkAggregation`'s error-case,
+  missing-material and hook-failure hooks lost their only user (draco's `grade.py`) and are
+  removed with their five tests; `healthbench/prepare.py` carries the importlib rationale it
+  pointed to in the deleted draco preparer; the 429 rehearsal is renamed (it no longer asserts
+  retryability). (9) Source citations go in the Task README, not the `.py` headers: the paper's
+  arXiv version was never recorded; `scoring.py`'s reference is linked at `619b9009`. A header
+  edit would move both revisions and the golden.
 - **Owner-verify:** (1) the next Engine image build prepares the `draco` and `draco-3pass` bundles
   and their Case Digests match; (2) one paid draco-3pass run after merge on an Engine with the
   inspect extra, its score read beside the golden's 0.3592 (the replay already proves the
   recorded bytes and score; this run checks the live search and judge path only); (3) notebooks 00
   and 06 opened against `just local-stack-notebooks` once; (4) the quickstart decision in
-  deviation (4).
+  deviation (4); (5) the lost grading warning, fix (6); (6) the empty-pass rule, fix (7).

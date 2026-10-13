@@ -153,30 +153,6 @@ type MissingCaseResult = Callable[
     [SelectedCase, int, list[dict[str, Any]] | None], CaseResult | None
 ]
 
-#: A benchmark-owned replacement for the whole error-case CaseResult — called as
-#: ``(selected, selected_index, row)`` where ``row`` carries the ``"error"`` payload.
-#: WHY (OME-1100): draco publishes the UPSTREAM error's own code ("rate_limited",
-#: "provider_error") on a candidate-stage failure with no grade envelope, where the
-#: shared-grading default publishes the fixed ``case_error`` code with an empty grade — the
-#: e2e failure tapes pin draco's shape byte-for-byte.
-type ErrorCaseResult = Callable[[SelectedCase, int, Mapping[str, Any]], CaseResult]
-
-#: A benchmark-owned replacement for the whole missing-material CaseResult — called as
-#: ``(selected, selected_index, row_or_None)`` when ``grading_material`` returned
-#: ``None``. WHY (OME-1100): draco pins ``missing_case_rubric`` with a ``row_index``
-#: and no grade envelope, with the Candidate's answer retained off the row.
-type MissingMaterialResult = Callable[[SelectedCase, int, Mapping[str, Any] | None], CaseResult]
-
-#: A benchmark-owned replacement for the whole hook-failure CaseResult — called as
-#: ``(selected, selected_index, row, outcome)`` when the benchmark's ``grade_case``
-#: returned a ``failure_code``. WHY (OME-1100): draco's incomplete Case keeps its
-#: full zeroed metric block and its judge checks in the grade (audit material) with
-#: a ``row_index`` failure, where the default assembly publishes empty metrics with
-#: judged/expected counts.
-type HookFailureResult = Callable[
-    [SelectedCase, int, Mapping[str, Any], CaseGradeOutcome], CaseResult
-]
-
 
 class _Omitted:
     """Sentinel: the benchmark's missing-case hook filed nothing for this Case.
@@ -210,20 +186,8 @@ class BenchmarkAggregation:
             (OME-1101): ifeval's recorded golden pins its own collected-row wording
             (stage "grading", the diagnostic's code), and OME-981 owns the
             candidate-vs-grading boundary decision — the shared grading code must not default it.
-        error_case_result: optional benchmark-owned builder for the WHOLE error-case
-            CaseResult. A benchmark that sets it also owns the rung's RANK: its error
-            rows are reported before the material rung (draco reports a broken row
-            over its own missing rubric). ``None`` keeps the ``case_error`` default.
-        missing_material_result: optional benchmark-owned builder for the WHOLE
-            missing-material CaseResult. ``None`` keeps the ``missing_rubric_asset``
-            default.
-        hook_failure_result: optional benchmark-owned builder for the WHOLE CaseResult
-            of a hook-reported failure (``grade_case`` returned a ``failure_code``).
-            ``None`` keeps the default assembly (empty metrics, judged/expected
-            metadata).
         missing_material_code: the published failure code when a Case's grading
-            material is unusable (the default missing-material rung only — a
-            ``missing_material_result`` hook owns its whole shape). WHY benchmark-named
+            material is unusable. WHY benchmark-named
             (OME-1149): the rubric benchmarks say ``missing_rubric_asset``, but an MCQ
             benchmark's material is its answer key — publishing a rubric-flavored code
             there would contradict its own message.
@@ -238,9 +202,6 @@ class BenchmarkAggregation:
     grading_failure_code: str
     grading_failure_message: str
     missing_case_result: MissingCaseResult | None = None
-    error_case_result: ErrorCaseResult | None = None
-    missing_material_result: MissingMaterialResult | None = None
-    hook_failure_result: HookFailureResult | None = None
     missing_material_code: str = "missing_rubric_asset"
     inverted_grade: bool = False
     # FEATURE (OME-1268): the row's declared Named Score keys, headline first. When set, a
@@ -558,9 +519,7 @@ class BenchmarkAggregation:
                     material=material,
                 )
             )
-            result = self._graded_result(
-                selected_case, selected_index, row, outcome, extra_metadata
-            )
+            result = self._graded_result(selected_case, row, outcome, extra_metadata)
         return result
 
     def _ladder_result(
@@ -587,12 +546,8 @@ class BenchmarkAggregation:
                 default_code=self.grading_failure_code,
                 default_message=self.grading_failure_message,
             )
-        elif self.error_case_result is not None and row is not None and "error" in row:
-            # A benchmark that owns its error cases also owns their rank: the broken row
-            # is reported before the benchmark's own missing material (draco's order).
-            result = self.error_case_result(selected, selected_index, row)
         elif material is None:
-            result = self._missing_material(selected, selected_index, row, extra_metadata)
+            result = self._missing_material(selected, row, extra_metadata)
         elif row is None:
             result = self._missing_case(selected, selected_index, indexed, case_id, extra_metadata)
         elif "error" in row:
@@ -605,14 +560,11 @@ class BenchmarkAggregation:
     def _missing_material(
         self,
         selected: SelectedCase,
-        selected_index: int,
         row: Mapping[str, Any] | None,
         extra_metadata: Mapping[str, Any],
     ) -> CaseResult:
-        """The missing-material rung: benchmark-owned shape when the hook is set."""
+        """The missing-material rung: the Benchmark's missing-material code, no grade."""
 
-        if self.missing_material_result is not None:
-            return self.missing_material_result(selected, selected_index, row)
         failure: dict[str, Any] = self._failure(
             int(selected.case_id), "grading", self.missing_material_code
         )
@@ -641,16 +593,11 @@ class BenchmarkAggregation:
     def _graded_result(
         self,
         selected: SelectedCase,
-        selected_index: int,
         row: Mapping[str, Any],
         outcome: CaseGradeOutcome,
         extra_metadata: Mapping[str, Any],
     ) -> CaseResult:
         if outcome.failure_code is not None:
-            if self.hook_failure_result is not None:
-                # The benchmark owns the whole failed shape (draco keeps its zeroed
-                # metric block and judge checks as audit material in the grade).
-                return self.hook_failure_result(selected, selected_index, row, outcome)
             failure: dict[str, Any] = self._failure(
                 int(selected.case_id),
                 "grading",
@@ -942,11 +889,8 @@ def _source_error(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
 
 __all__ = [
     "CaseGradeOutcome",
-    "ErrorCaseResult",
-    "MissingMaterialResult",
     "GradeCase",
     "GradeRequest",
-    "HookFailureResult",
     "MissingCaseResult",
     "BenchmarkAggregation",
 ]

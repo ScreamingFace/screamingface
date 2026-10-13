@@ -43,6 +43,16 @@ instructions (`prompts.py`):
 - a Case with no valid verdict at all fails as `judge_reply_invalid`, never scored 0; the
   headline is the mean over graded Cases, to 4 places.
 
+**Sources.** The judge instructions in `prompts.py` are the paper's Appendix C.5 as the reference
+harness carries them; which arXiv version of 2602.11685 they were checked against was not
+recorded when the hand-built folder copied them, so the claim they rest on is "equal to the
+hand-built Benchmark's bytes" (pinned by `test_local_task_draco.py`), not "equal to version N".
+The formulas in `scoring.py` mirror
+[`benchmarking/graders/rubric.py`](https://github.com/OpenMined/screamingface-benchmarks/blob/619b900946ee529ad7a55d7c5fb65a290d873d94/benchmarking/graders/rubric.py)
+at `619b9009`, that file's last change (2026-07-21) before the hand-built copy was written
+(2026-08-07). These citations live here, not in the `.py` headers, because every `.py` byte is
+Benchmark identity: editing a header would move both revisions and the draco-3pass golden.
+
 The judge is `openrouter/google/gemini-3.1-pro-preview` (the paper's Gemini-3-Pro Preview was
 shut down; Google named this its successor) at temperature 0.2, reasoning effort low, 4096 max
 tokens, no web search: the row's `JudgeSpec`, the hand-built pins.

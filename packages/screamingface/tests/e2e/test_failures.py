@@ -548,7 +548,7 @@ def test_a_token_capped_judge_lands_as_a_named_grading_failure_never_an_envelope
 
 
 @pytest.mark.e2e
-def test_a_rate_limited_judge_lands_as_a_retryable_grading_failure(
+def test_a_rate_limited_judge_lands_as_a_grading_failure_that_keeps_its_cause(
     failure_stack: _FailureStack,
 ) -> None:
     # The other GH #740 trigger: a judge-side 429 must keep the gateway-authored cause on
