@@ -147,11 +147,26 @@ class JudgeSpec:
             ``(("temperature", "0"),)``) — benchmark identity too.
         model_role: the inspect model role this judge fills, or None when the scorer
             names its judge in a kwarg. Benchmark identity when set.
+        seed_per_pass: the scorer grades over judge passes and names pass ``k`` as
+            ``GenerateConfig(seed=k)``; the judge call then carries ``seed=k`` after the
+            pinned params, so N passes are N requests, never one cached reply (OME-1527
+            R12). Benchmark identity when set. A pinned ``seed`` beside it is refused.
     """
 
     model: str
     params: tuple[tuple[str, str], ...] = ()
     model_role: str | None = None
+    seed_per_pass: bool = False
+
+    def __post_init__(self) -> None:
+        """Refuse a row that pins a seed AND gives each judge pass its own."""
+
+        if self.seed_per_pass and any(name == "seed" for name, _ in self.params):
+            raise ValueError(
+                f"judge {self.model!r} pins a seed and declares seed_per_pass — each judge "
+                "pass sends its own seed, so a pinned one would put two on the call; drop "
+                "one (OME-1527 R12)"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,6 +392,9 @@ def single_shot_benchmark(
                         # WHY conditional again: a named judge's pins must stay
                         # byte-identical, so FrontierScience's revision holds (OME-1370).
                         *(() if judge.model_role is None else (f"judge_role={judge.model_role}",)),
+                        # WHY conditional: no published row gives its passes seeds, so
+                        # every judged revision holds (OME-1527 R12).
+                        *(("judge_seed_per_pass=True",) if judge.seed_per_pass else ()),
                     )
                 ),
             )
@@ -829,6 +847,7 @@ def _judged_aggregate(
             fetch=fetch,
             params=benchmark.judge.params,
             benchmark_id=benchmark.benchmark.id,
+            seed_per_pass=benchmark.judge.seed_per_pass,
         )
         with ExitStack() as scope:
             scope.enter_context(bound_judge_transport(transport))

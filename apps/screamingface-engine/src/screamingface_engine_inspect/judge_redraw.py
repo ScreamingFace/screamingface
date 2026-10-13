@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
 
-from inspect_ai.model import ChatMessage, Model, ModelOutput
+from inspect_ai.model import ChatMessage, GenerateConfig, Model, ModelOutput
 
 from screamingface_engine_inspect.judge_provider import JudgeReplyBlank, fresh_judge_draw
 
@@ -51,6 +51,7 @@ async def judge_until_parsed[Verdict](
     parse: Callable[[str], Verdict | None],
     *,
     item: str,
+    judge_pass: int | None = None,
 ) -> JudgedItem[Verdict]:
     """Ask the judge about one item, and ask again while its reply won't parse.
 
@@ -62,7 +63,8 @@ async def judge_until_parsed[Verdict](
 
     1. Ask: send ``prompt`` with inspect's cache off (``cache=False``), so an eval-level
        ``GenerateConfig(cache=True)`` can't replay a reply. The first ask otherwise behaves
-       like any judge call, AI Gateway cache included.
+       like any judge call, AI Gateway cache included. With ``judge_pass``, every draw
+       names that pass, so the provider sends the pass's seed (OME-1527 R12).
     2. Parse: ``parse`` returns the verdict, or ``None`` when the reply is unparseable. A
        blank reply never reaches ``parse``: the provider refuses it as
        :class:`JudgeReplyBlank`, which counts here as unparseable too. Only that error is
@@ -70,7 +72,8 @@ async def judge_until_parsed[Verdict](
     3. Redraw: on ``None``, ask again inside :func:`fresh_judge_draw`, which makes the
        gateway skip its exact-request cache for that call. Gotcha: the redraw is the SAME
        bytes as the first ask, so without the opt-out the cache would hand back the same
-       broken text and every redraw would fail identically. Limit: leaving the cache only
+       broken text and every redraw would fail identically. A redraw inside pass ``k``
+       keeps pass ``k``'s seed: only the cache policy changes. Limit: leaving the cache only
        buys a fresh SAMPLE. A judge pinned at ``temperature=0`` decodes near-greedily, so
        the same bytes can bring the same bad reply back, and the redraw may be a wasted
        call; redrawing pays off when the judge samples.
@@ -89,6 +92,9 @@ async def judge_until_parsed[Verdict](
         parse: reply text → verdict; ``None`` means "no verdict in this reply". It must not
             raise for a merely malformed reply, or the item fails without a redraw.
         item: names the item in the error (e.g. ``"case 7 rubric r2"``).
+        judge_pass: the judge pass this item belongs to, sent as ``GenerateConfig(seed=k)``
+            on every draw; only a row declaring ``JudgeSpec(seed_per_pass=True)`` admits it.
+            ``None`` (the default) sends no seed, as before.
 
     Returns:
         The parsed verdict and the number of redraws it took.
@@ -98,14 +104,15 @@ async def judge_until_parsed[Verdict](
     """
 
     reply: str = ""
+    config: GenerateConfig = GenerateConfig(seed=judge_pass)
     for redraws in range(1 + MAX_JUDGE_REDRAWS):
         # Stage 1 / 3 — ask; every draw after the first leaves the gateway cache.
         try:
             if redraws:
                 with fresh_judge_draw():
-                    output: ModelOutput = await judge.generate(prompt, cache=False)
+                    output: ModelOutput = await judge.generate(prompt, config=config, cache=False)
             else:
-                output = await judge.generate(prompt, cache=False)
+                output = await judge.generate(prompt, config=config, cache=False)
         except JudgeReplyBlank:
             # Stage 2 — a blank reply has no verdict: unparseable, so it costs a redraw.
             reply = ""
