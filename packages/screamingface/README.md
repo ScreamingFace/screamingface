@@ -324,8 +324,10 @@ same_chain = draft.then(review).then(final)
 ```
 
 The first Pipeline stage receives the Candidate input; each later stage receives only the previous
-stage's answer. No original input or accumulated history is injected implicitly. Pipelines and
-complete Fusions compose recursively, including in the synthesis role:
+stage's answer. No original input or accumulated history is injected implicitly. The one exception
+is the stage after a `sf.Rank` or a `sf.Filter`: its selection JSON also holds the input of that
+Fusion (see "Rank and Concat selections"). Pipelines and complete Fusions compose recursively,
+including in the synthesis role:
 
 ```python
 judge = sf.Model("openrouter/anthropic/claude-opus-4.8")
@@ -642,7 +644,8 @@ needs `by_signal@1` and `best_holder@1`.
 A selection is a hand-off to the next stage. It is not an answer. `sf.Rank` keeps the top `k`
 original member texts. `sf.Concat` joins all the member texts. Neither one rewrites a text. A Fusion
 with a selection must be followed by another stage of a `sf.Pipeline`, and that stage receives the
-selection and nothing else.
+selection. After a `sf.Rank` or a `sf.Filter`, the selection also holds the input of the Fusion, so
+the next stage sees the question. After a `sf.Concat`, it is the joined text only.
 
 ```python
 ranked = sf.Pipeline(
@@ -668,7 +671,11 @@ joined = sf.Fusion(routes, synthesizer=sf.Concat(separator="\n\n---\n\n", label=
 `sf.Rank(k, by=sf.Judge(..., returns="scores"))` scores the members with a judge, and
 `sf.Rank(k, by_field="score")` reads a number from the JSON reply of each member (`by_field` is a
 field path like `score` or `result.score[0]`). The next stage receives this JSON, best member first:
-`{"selected":[{"id":"member_2","text":"..."},{"id":"member_4","text":"..."}]}`. A tie at the cut
+`{"input":"...","selected":[{"id":"member_2","text":"..."},{"id":"member_4","text":"..."}]}`.
+`input` is the input of this Fusion, character for character: the Case input when the Fusion is the
+first stage, or the answer of the previous stage when it is not. A conversation input arrives as its
+JSON text. The input is never cut: a selection of more than 8 MiB fails with
+`combine_input_too_large`. The url4 of the candidate does not change. A tie at the cut
 goes to the earlier member, and the evidence sets `tie`. `k` is from 1 to 256 and must not be more
 than the number of members. If fewer than `k` members have a usable score, the combine step
 abstains with `cut_not_met`, and the next stage gets an empty text. The judge call and the scores
@@ -705,8 +712,9 @@ and `sf.Reduce("concat", separator=..., label=...)`. Each compiles to the same u
 The compiler checks the place of a selection before any call. A Fusion with `Rank`, `Concat` or
 `Filter` cannot be the last step of a candidate, cannot be a member of another Fusion (also not
 through a `sf.Pipeline` that ends in one), and cannot be a member of a corrective loop. Each case
-raises `ValueError`. The next stage does not receive the original question or the other member
-texts, so put the task in the prompt of that stage. This needs an Engine whose operator catalog has
+raises `ValueError`. After a Rank or a Filter, the next stage receives the input of the Fusion and
+the kept member texts, never the texts that were cut. After a Concat, it receives only the joined
+text, so put the task in the prompt of that stage. This needs an Engine whose operator catalog has
 `scores@1` and `top_k@1` for `Rank` by a judge or by a field, `by_signal@1` and `top_k@1` for `Rank`
 by a signal, or `join@1` and `all@1` for `Concat`.
 

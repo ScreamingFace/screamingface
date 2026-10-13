@@ -40,7 +40,14 @@ compiled url4 stay the same. Spec: `docs/spec/2026-10-13-e4b-combine-extensions/
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message> (A, B, C)
-- **Gates:** <run_gates.py result line / counts, per stack, with and without append-only>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** As planned. Commit A (`54a385468`) holds the ledger, the 3 engine test files, the 2 SDK test files, the 3 pinned test edits and the stub in `ports.py`. Commit B (`090a6e5f6`) changes `endpoint.py` and `selection.py`. Commit C changes `packages/screamingface/README.md` and `packages/screamingface/CHANGELOG.md`, and this ledger.
+- **Commits:** `54a385468` — test(screamingface-engine): RED for E4b unit 1 selection-input (A). `090a6e5f6` — feat(engine): put the Fusion input into the top_k@1 and kept@1 selection (B). Commit C — docs(sdk): the stage after a Rank or Filter sees the Fusion input (selection-input).
+- **Gates:**
+  - RED (engine, focused): 15 failed, 358 passed. All 15 fail on an assertion. None fails on an import or attribute error.
+  - GREEN (engine, focused): 373 passed.
+  - SDK CHAR: `test_selection_input_bytes.py` and `test_e4b_schema_pins.py`, 4 passed. Doc goldens, 40 passed.
+  - `screamingface`, with append-only: ALL GATES GREEN.
+  - `repo`, with append-only: ALL GATES GREEN.
+  - `screamingface-engine`, with append-only: FAILED on the append-only check only. Offenders: `tests/unit/test_combine_rank_world.py`, `tests/unit/test_sdk_candidate_contracts.py`, `tests/unit/test_combine_selection.py`. These are the three approved pinned files.
+  - `screamingface-engine`, with `--skip-append-only`: ALL GATES GREEN (ruff check, ruff format, pyright, layering, pytest with coverage).
+- **Deviations:** The ledger status stays `in_progress`. The owner must approve the three pinned test edits before this unit is done (spec §7). No code deviation.
