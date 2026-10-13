@@ -236,7 +236,9 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
             one_of=("by", "by_field", "by_signal"),
             named="sf.Rank",
         ),
-        "filter": _OpRow("filter", ("select",), ("where",), ("extract",), named="sf.Filter"),
+        "filter": _OpRow(
+            "filter", ("select",), ("where",), ("extract", "judge"), named="sf.Filter"
+        ),
         "pick_field": _OpRow(
             "pick",
             ("select",),
