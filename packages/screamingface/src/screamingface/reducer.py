@@ -515,19 +515,29 @@ class Vote(Reducer):
     __hash__: ClassVar[Any] = None
 
 
+_MEDIAN_JUDGE_USE = "authored weights or another signal, such as sf.signal('field:confidence')"
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Median(Reducer):
-    """Median of the members' numeric answers: the nearest member's text, or the number itself."""
+    """Median of the members' numeric answers: the nearest member's text, or the number itself.
+
+    ``weights`` (one positive number per member, or ``sf.signal(key)``) makes it a weighted median:
+    a member with a missing or non-positive weight is dropped and is never the nearest pick.
+    """
 
     name: str
     extract: str
     select: str
+    weights: tuple[float, ...] | Signal | None
 
     def __init__(
-        self, *, extract: str = "last_number", select: str = "nearest", weights: None = None
+        self,
+        *,
+        extract: str = "last_number",
+        select: str = "nearest",
+        weights: Sequence[float] | Signal | None = None,
     ) -> None:
-        if weights is not None:
-            raise TypeError("weights apply to Vote only")
         _Step(extract)
         _Step(select)
         if _op_name(extract) == BENCHMARK_EXTRACT:
@@ -537,39 +547,64 @@ class Median(Reducer):
             )
         if _op_name(select) not in _MEDIAN_SELECTS:
             raise ValueError(f"Median select must be 'nearest' or 'value', not {select!r}")
+        checked = None if weights is None else _weights_option(weights, "Median weights")
+        if isinstance(checked, Signal):
+            _refuse_judge_signal(checked, "Median", _MEDIAN_JUDGE_USE)
         object.__setattr__(self, "name", "median")
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "select", select)
+        object.__setattr__(self, "weights", checked)
 
     def _plan(self) -> _ReducerPlan:
         steps = _Steps(
-            reduce=_Step("median"),
+            reduce=_Step("median" if self.weights is None else "weighted_median"),
             select=_Step(self.select),
             extract=_Step(self.extract),
             normalize=_Step("numeric"),
         )
-        return _ReducerPlan("median", "answer", steps)
+        return _ReducerPlan("median", "answer", steps, self.weights)
+
+    def _check_members(self, count: int) -> None:
+        if isinstance(self.weights, tuple) and len(self.weights) != count:
+            raise ValueError(f"{self.name} has {len(self.weights)} weights for {count} members")
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Median:
         ops = _spec_ops(spec, "median")
         extract = ops["extract"]
         select = ops["select"]
+        weights = _median_weights(spec)
+        reduce_name = "median" if weights is None else "weighted_median"
         if (
             extract is None
             or select is None
             or _op_name(ops["normalize"]) != "numeric"
-            or _op_name(ops["reduce"]) != "median"
+            or _op_name(ops["reduce"]) != reduce_name
             or _op_name(select) not in _MEDIAN_SELECTS
-            or spec["weights"] is not None
         ):
             raise _cannot_rebuild("median")
-        return cls(extract=extract, select=select)
+        return _decoded("median", cls, extract=extract, select=select, weights=weights)
 
     def __repr__(self) -> str:
-        return f"Median(extract={self.extract!r}, select={self.select!r})"
+        return self._render("Median", repr)
+
+    def _python(self) -> str:
+        return self._render("sf.Median", _as_python)
+
+    def _render(self, head: str, show: Callable[[object], str]) -> str:
+        weights = "" if self.weights is None else f", weights={show(self.weights)}"
+        return f"{head}(extract={self.extract!r}, select={self.select!r}{weights})"
 
     __hash__: ClassVar[Any] = None
+
+
+def _median_weights(spec: Mapping[str, object]) -> tuple[float, ...] | Signal | None:
+    """The weights of a decoded median spec; a shape a Median cannot hold is "cannot rebuild"."""
+
+    try:
+        return _recovered_weights(spec)
+    except ValueError as exc:
+        raise _cannot_rebuild("median") from exc
 
 
 @dataclass(frozen=True, slots=True, init=False)

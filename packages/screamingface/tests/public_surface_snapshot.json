@@ -658,10 +658,11 @@
       "Median": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, extract: 'str' = 'last_number', select: 'str' = 'nearest', weights: 'None' = None) -> 'None'",
+          "__init__": "method (self, *, extract: 'str' = 'last_number', select: 'str' = 'nearest', weights: 'Sequence[float] | Signal | None' = None) -> 'None'",
           "extract": "field",
           "name": "field",
-          "select": "field"
+          "select": "field",
+          "weights": "field"
         }
       },
       "MemberResult": {
