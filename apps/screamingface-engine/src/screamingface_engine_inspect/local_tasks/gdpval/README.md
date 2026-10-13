@@ -22,7 +22,8 @@ are positions in it).
 URL the row gives on the dataset's moving branch, and flattens it to text with pdfplumber or
 python-docx (`references.py`, the `benchmarks` extra; build time only). Those URLs are not
 pinned, exactly as before the move: a changed file changes the flattened text, which breaks the
-Case Digest and fails the build loudly.
+Case Digest. A PR image build then fails; a main or release build skips gdpval-text with a
+warning in the build log and serves the other Benchmarks.
 
 ## The prompt
 

@@ -68,8 +68,8 @@ inspect = [
     # pin it, so resolving this extra alone floats `datasets` to whatever is newest. The
     # preparer's extraction is part of the answer key, so a float means two builds of the
     # same board revision can ask different questions. Pinning it here is what makes the
-    # version a reviewable decision instead of a resolution accident. Keep in step with
-    # `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
+    # version a reviewable decision instead of a resolution accident. A Benchmark's Case
+    # Digest is what notices a version that changes its Cases.
     "datasets==5.0.1",
     # WHY here, not in `benchmarks`: MATH's second scorer (expression_exact_match_sympy, the
     # Minerva-style symbolic equivalence) imports sympy at GRADING time, which runs in the
