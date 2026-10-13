@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 from uuid import UUID
@@ -15,6 +15,7 @@ from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.plugin_base import credential_service_provider_for
 from aigateway.core.provider_access.connection_locator import credential_name_from_locator
 from aigateway.core.provider_access.refresh_guard import ConnectionRefreshOwner, guard_refresh
+from aigateway.core.provider_access.writer_floor import mark_error_checked
 
 
 class OAuthConnectionStoreLike(Protocol):
@@ -81,6 +82,7 @@ class OAuthConnectionTokenService:
         credential_store: Any,
         http_client_factory_for,
         strategy_cache: StrategyCacheLike,
+        observe_pair: Callable[[OAuthConnection], Awaitable[Any]] | None = None,
     ) -> OAuthConnectionToken:
         connection = await store.get(account_id, connection_id)
         if connection is None:
@@ -124,6 +126,9 @@ class OAuthConnectionTokenService:
         if strategy is None:
             raise OAuthConnectionTokenError(400, {"code": "provider_does_not_use_oauth"})
         token_strategy = cast(TokenWithExpiryStrategy, strategy)
+        # WHY (OME-1497, G0 §5.3): the pair observed before the provider call, so a rejection that
+        # arrives after an ownership change does not mark the new owner's credential.
+        observed = None if observe_pair is None else await observe_pair(connection)
 
         try:
             access_token, expires_at_ms, refreshed = await token_strategy.get_token_with_expiry()
@@ -135,7 +140,7 @@ class OAuthConnectionTokenService:
             # Credential missing, or the refresh token was rejected by the provider
             # (revoked / invalid_grant). The connection cannot recover without a new
             # browser auth, so mark it errored and tell the caller to re-auth.
-            await store.mark_error(connection, str(exc))
+            await mark_error_checked(store, connection, str(exc), observed=observed)
             raise OAuthConnectionTokenError(
                 401, {"code": "auth_required", "message": str(exc)}
             ) from exc
