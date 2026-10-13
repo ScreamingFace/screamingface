@@ -1,0 +1,14 @@
+{
+  "issue": "OME-E4B-judge-order",
+  "branch": "e4b-judge-order",
+  "approver": "owner",
+  "date": "2026-10-13",
+  "scope": "Unit 5 (judge order): the public-surface snapshot adds the sf.Judge order argument. No other test changes.",
+  "reason": "Owner approved these pinned test edits in chat on 2026-10-13 (E4b part 1, plan section 6 plus the errata the build reported). The issue id and branch are placeholders until the Linear issue is filed at PR-open; rename the file and update issue and branch then.",
+  "files": {
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "e11797349144ce62db42617293d6bbdf7019fd56",
+      "approved_blob": "49c4b7bfeff79c7365ce3fdb753c87d0eb01f9ab"
+    }
+  }
+}
