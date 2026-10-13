@@ -311,14 +311,22 @@ class Filter(Reducer):
     name: str
     where: Matches | _Comparison
     extract: Extract | None
+    judge: Judge | None
 
-    def __init__(self, *, where: Matches | _Comparison, extract: Extract | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        where: Matches | _Comparison,
+        extract: Extract | None = None,
+        judge: Judge | None = None,
+    ) -> None:
         _check_filter_where(where)
         if extract is not None and not isinstance(extract, Extract):
             raise TypeError("Filter extract must be an sf.Extract")
         object.__setattr__(self, "name", "filter")
         object.__setattr__(self, "where", where)
         object.__setattr__(self, "extract", extract)
+        object.__setattr__(self, "judge", judge)
 
     def _plan(self) -> _ReducerPlan:
         extract, normalize, benchmark = (
