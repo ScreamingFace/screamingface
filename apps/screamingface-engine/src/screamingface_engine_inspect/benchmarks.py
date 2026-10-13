@@ -45,6 +45,7 @@ from screamingface_engine_inspect.prepare import (
 from screamingface_engine_inspect.single_shot import (
     ImportedBenchmark,
     JudgeSpec,
+    RetrievalPolicyDeclaration,
     imported_benchmark_id,
     install_imported_benchmark,
     single_shot_benchmark,
@@ -166,6 +167,11 @@ class BenchmarkSpec:
     #: reduces each Case's Attempt Scores with it before the metric reads them, as inspect
     #: does (OME-1527 x OME-1458). Required exactly then; Benchmark identity when set.
     epoch_reducer: str | None = None
+    #: The exam's web-search rule for its Candidate (OME-1527, R13): search on, the declared
+    #: domains never reached (draco bans the sites hosting its answers). None, on every row
+    #: today, keeps the Candidate call retrieval-free. Benchmark identity when set, so no
+    #: other row moves. The search loop itself is the Candidate's; the row only sets the ceiling.
+    retrieval_policy: RetrievalPolicyDeclaration | None = None
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -4188,6 +4194,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         whole_run_headline=spec.whole_run_headline,
         epoch_reducer_factory=_epoch_reducer_factory(spec),
         attempts=spec.attempts,
+        retrieval_policy=spec.retrieval_policy,
         **_provenance_of(spec),
     )
 
