@@ -757,6 +757,70 @@ dropped, and `None` when the member failed to answer. The block form is
 `sf.Reduce("filter", where=..., extract=...)`. The place rules of "Rank and Concat selections" apply
 to a Filter too. This needs an Engine whose operator catalog has `filter@1` and `kept@1`.
 
+### Combine recipes
+
+Each row is one combine scenario with a recipe that you can copy. Each recipe runs offline in the
+Engine's tests, from the url4 that the SDK compiles. A scenario that needs two values from each
+member (an answer and a confidence) asks each member for one JSON reply. Ask every member for the
+same confidence scale, for example 0 to 1. The Engine cannot see that one member writes 80 and
+another member writes 0.8.
+
+| S | Scenario | Recipe |
+|---|---|---|
+| S1 | Read a number from each answer and return the median number | `s1_median_number` |
+| S2 | Read a number from each answer and return the answer nearest the median | `s2_median_member` |
+| S5 | Return the answer with the highest confidence | `s5_max_confidence` |
+| S7 | Keep the 2 answers with the highest confidence, then a writer combines them | `s7_top_confidence` |
+| S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` |
+| S9 | Keep the answers with a confidence above 0.7, then a writer combines them | `s9_confident_only` |
+| S10 | A judge scores each answer, keep the best 2, then a writer combines them | `s10_judge_top` |
+| S11 | A judge scores each answer and returns the best answer | `s11_judge_best` |
+
+```python
+import screamingface as sf
+
+routes = ["provider/alpha", "provider/beta", "provider/gamma"]
+# Ask every member for the same JSON reply and the same confidence scale (0 to 1).
+reply_json = (
+    "Answer the request. Reply with only one JSON object: "
+    '{"answer": "<your answer>", "confidence": <a number from 0 to 1>}.'
+)
+json_members = [sf.Model(route, prompt=reply_json) for route in routes]
+writer = sf.Model(
+    "provider/writer", prompt="Write the final answer to the input from the selected answers."
+)
+judge = sf.Judge(
+    "provider/judge", returns="scores", rubric="Give a higher number to a more correct answer."
+)
+
+s1_median_number = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number", select="value"))
+s2_median_member = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number"))
+s5_max_confidence = sf.Fusion(json_members, synthesizer=sf.Pick("confidence", order="max"))
+s7_top_confidence = sf.Pipeline(
+    [sf.Fusion(json_members, synthesizer=sf.Rank(k=2, by_field="confidence")), writer]
+)
+s8_argmax_confidence = sf.Fusion(
+    json_members, synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max")
+)
+s9_confident_only = sf.Pipeline(
+    [
+        sf.Fusion(json_members, synthesizer=sf.Filter(where=sf.signal("field:confidence") > 0.7)),
+        writer,
+    ]
+)
+s10_judge_top = sf.Pipeline([sf.Fusion(routes, synthesizer=sf.Rank(k=2, by=judge)), writer])
+s11_judge_best = sf.Fusion(routes, synthesizer=judge)
+```
+
+The writer after a Rank or a Filter gets one JSON object: the Case input and the kept member
+texts (see "Rank and Concat selections"). `sf.Rank` gives the kept members best first, and
+`sf.Filter` gives them in author order. The `>` test of `sf.Filter` is strict: a confidence of
+exactly 0.7 is not kept. When no member passes, the Filter abstains with `no_votes` and the writer
+gets an empty text (see "Filter selection"). A member whose reply is not JSON has no confidence, so
+`sf.Pick` never returns it. When no member has a confidence, the Case abstains. A judge reply that
+is not one JSON object with a finite score for each member fails the Case with
+`judge_reply_invalid`.
+
 ### Fusion as a named recipe
 
 `sf.Fusion(members, synthesizer=sf.Model(p))` is the named recipe Fan-out, then
