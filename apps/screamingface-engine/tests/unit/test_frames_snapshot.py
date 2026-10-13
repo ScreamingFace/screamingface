@@ -5,6 +5,7 @@ published as a pinned dataset; these tests are the only check on what goes into 
 names the reason a rule exists.
 """
 
+import gzip
 import hashlib
 import importlib.util
 import json
@@ -513,3 +514,38 @@ def test_years_after_the_cut_off_that_only_templates_wrote_are_flagged() -> None
     )
     questions = [fs.Question(0, "Q?", ["https://en.wikipedia.org/wiki/Harriet_Lane"])]
     assert fs.build_snapshot(questions, wiki).articles[0]["years_from_templates"] == ["2025"]
+
+
+class _GzipResponse:
+    """Stand-in for one HTTP response that arrives gzip-compressed."""
+
+    def __init__(self, body: bytes) -> None:
+        self.headers: dict[str, str] = {"Content-Encoding": "gzip"}
+        self._body: bytes = gzip.compress(body)
+
+    def read(self) -> bytes:
+        """The bytes as they came over the wire, still compressed."""
+        return self._body
+
+    def __enter__(self) -> "_GzipResponse":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+def test_the_api_is_asked_for_gzip_and_the_answer_is_unpacked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WHY: a full build downloads the drawn HTML of ~2,500 articles, about 1 GB uncompressed;
+    # gzip cuts that several times over, which matters on a metered link and is what
+    # Wikipedia's API etiquette asks for. The cache must still hold plain JSON.
+    sent: list[Any] = []
+
+    def fake_urlopen(request: Any, timeout: int) -> _GzipResponse:
+        sent.append(request)
+        return _GzipResponse(b'{"ok": true}')
+
+    monkeypatch.setattr(fs.urllib.request, "urlopen", fake_urlopen)
+    assert fs._fetch("https://en.wikipedia.org/w/api.php?x=1") == b'{"ok": true}'
+    assert sent[0].get_header("Accept-encoding") == "gzip"

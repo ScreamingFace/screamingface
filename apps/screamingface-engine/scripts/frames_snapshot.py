@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import ast
 import csv
+import gzip
 import hashlib
 import json
 import re
@@ -592,19 +593,23 @@ class HttpWiki:
 
 def _fetch(url: str) -> bytes:
     """GET with a project User-Agent; back off and retry on 429, 5xx, lag and network loss."""
+    # WHY gzip: the drawn HTML of every article is about 1 GB uncompressed and several times
+    # smaller compressed; Wikipedia's API etiquette asks clients to accept it.
     request: urllib.request.Request = urllib.request.Request(
-        url, headers={"User-Agent": USER_AGENT}
+        url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "gzip"}
     )
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
                 body: bytes = response.read()
+                if response.headers.get("Content-Encoding") == "gzip":
+                    body = gzip.decompress(body)
             if b'"code":"maxlag"' not in body:
                 return body
         except urllib.error.HTTPError as failed:
             if failed.code not in _RETRY_STATUS:
                 raise SnapshotError(f"{url}: HTTP {failed.code}") from failed
-        except (urllib.error.URLError, TimeoutError) as lost:
+        except (urllib.error.URLError, TimeoutError, gzip.BadGzipFile, EOFError) as lost:
             if attempt == _MAX_ATTEMPTS:
                 raise SnapshotError(f"{url}: {lost}") from lost
         time.sleep(2**attempt)

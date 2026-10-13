@@ -66,7 +66,7 @@ dropped) and writes one JSONL snapshot the owner publishes on Hugging Face. The 
   `tests/unit/data/frames_snapshot/` (not `fixtures/` as planned).
 - **Commits:** the builder; then the move-log rename lookup, the known deleted pages, the two
   odd links and the per-article `years_from_templates` flag (2026-10-13).
-- **Gates:** `tests/unit/test_frames_snapshot.py` 37 passed; ruff check + format and pyright
+- **Gates:** `tests/unit/test_frames_snapshot.py` 38 passed; ruff check + format and pyright
   clean on both files. Full suite left to CI.
 - **Deviations:** which page held a title at the cut-off is read from the move log FIRST,
   by page id (the first full build refused 5 pages swapped after the cut-off, e.g. "Edward
