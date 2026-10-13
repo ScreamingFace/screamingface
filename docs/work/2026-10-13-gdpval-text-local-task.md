@@ -36,6 +36,8 @@ Benchmark's): prompt bytes, grading rule, score.
   declared on both sides (the SDK refuses an undeclared code when it reads a Report).
 - SDK: drop gdpval from the hand-built prepare list, the e2e replay tuple and the shared-bundle
   map; notebook 10's setup cell says it needs an inspect-capable Engine.
+- Delete the e2e golden triple (`gdpval-text.golden.json`, snapshot, manifest) and its
+  `.gitignore` exception (owner decision 2026-10-13).
 
 ## Test plan
 
@@ -59,7 +61,8 @@ Benchmark's): prompt bytes, grading rule, score.
   the declaration and family tables, the revision literal, the activity helper);
   `docs/adding-a-benchmark-manually.md` (two stale gdpval examples); the SDK's paid
   case-provenance map and test, the e2e slice tool's bundle map; and
-  `.claude/test-change-approvals/OME-1527.json` (rewritten for this branch).
+  `.claude/test-change-approvals/OME-1527.json` (rewritten for this branch); the e2e golden
+  triple deleted with its `.gitignore` exception.
 - **Import:** `importer …gdpval.gdpval:gdpval_text --key gdpval-text --no-answer-key
   --keep-sample-metadata` (HF_HUB_DISABLE_XET=1, `benchmarks` extra): 102 Cases, Case Digest
   `06dd52ec…`, Case Source `openai/gdpval` @ `11e7900c` (the hand-built pin). The 58 reference
@@ -86,18 +89,24 @@ Benchmark's): prompt bytes, grading rule, score.
   hook + CI. Append-only check run by hand (the hook passes silently in worktrees, bug
   `OME-1575`): it FAILS only on the 7 deleted `test_gdpval_*.py` files, which the manifest
   cannot approve; every edited test passes through `OME-1527.json`. The deletions are the
-  owner's decision on OME-1527 (Work order #10: the folder and its tests go).
+  owner's decision on OME-1527 (Work order #10: the folder and its tests go). The SDK's check
+  FAILS only on the 3 deleted e2e golden files (golden, snapshot, manifest), deleted by the
+  owner's decision of 2026-10-13; every edited SDK test passes through the manifest.
+  Size: the owner waived the ~500-line cap for this PR (deletions are mechanical, ~125 test
+  lines are canned data).
 - **Deviations:** (1) the plugin aggregate had no failure message for `judge_reply_invalid`,
   so a Case whose judge never parsed crashed the whole aggregate with a KeyError (the redraw
   helper, #1321, had no consumer until now); one line in `single_shot.py`, pinned by the
   headline test. (2) The hand-built `prepare.py` tests (fetch atomicity, selection, rubric
   validation) were not ported; the loader keeps the same logic and the Case Digest seals its
-  output. (3) The e2e golden triple (`gdpval-text.golden.json`, snapshot, manifest) is left on
-  disk unreferenced: the replay stack syncs the Engine without the inspect extra, so it cannot
-  serve a local Task (contracteval and musique have no golden for the same reason).
+  output. (3) The e2e golden triple (`gdpval-text.golden.json`, snapshot, manifest) is deleted
+  (owner decision 2026-10-13): the replay stack syncs the Engine without the inspect extra, so
+  it cannot serve a local Task (contracteval and musique have no golden for the same reason);
+  this migration's acceptance check is the one paid run, not a re-record. (4) The shared
+  judge-reply parser and redraw helper are not pinned into this Benchmark's revision; accepted
+  by the owner, like every imported Benchmark's dependence on shared harness code.
 - **Owner-verify:** (1) the next Engine image build prepares the `gdpval-text` bundle (needs the
   `benchmarks` extra, as before) and its Case Digest matches; (2) one paid gdpval-text run after
   merge on an Engine with the inspect extra, its score read beside the hand-built golden's
-  0.8044 (25 Cases, the open panel); (3) the golden re-record: decide whether the e2e replay
-  stack learns to serve inspect boards (then re-record the triple, paid) or the triple is
-  deleted; (4) notebook 10 opened against `just local-stack-notebooks` once.
+  0.8044 (25 Cases, the open panel) — this run is the migration's acceptance check, no golden
+  re-record; (3) notebook 10 opened against `just local-stack-notebooks` once.
