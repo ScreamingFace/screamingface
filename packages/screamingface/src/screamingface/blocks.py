@@ -548,12 +548,8 @@ def _numeric_extract(extract: object, op: str) -> Extract:
     return Extract(extract.rule, normalize="numeric", **extract.args)
 
 
-def _median_extract(extract: object) -> Extract:
-    return _numeric_extract(extract, "median")
-
-
 def _canonical_median(checked: dict[str, object]) -> None:
-    checked["extract"] = _median_extract(checked["extract"])
+    checked["extract"] = _numeric_extract(checked["extract"], "median")
     weights = checked.get("weights")
     if isinstance(weights, Signal):
         _refuse_judge_signal(weights, "sf.Reduce('median')", _MEDIAN_JUDGE_USE)
@@ -710,7 +706,8 @@ def _rebuild_vote(spec: Mapping[str, object], *, judge: Judge | None = None) -> 
     raise ValueError("a vote shape this SDK version cannot rebuild")
 
 
-_MEDIAN_MODES: Mapping[str, ReduceMode] = MappingProxyType(
+# The select op of a median or a mean block -> its sf.Reduce mode.
+_NUMERIC_MODES: Mapping[str, ReduceMode] = MappingProxyType(
     {"nearest": "select", "value": "compute"}
 )
 
@@ -725,11 +722,8 @@ def _rebuild_median(spec: Mapping[str, object]) -> Reduce:
     extract = _extract_from_spec(spec, "numeric")
     options: dict[str, Any] = {} if weights is None else {"weights": weights}
     return Reduce(
-        "median", mode=_MEDIAN_MODES[_op_name(spec["select"])], extract=extract, **options
+        "median", mode=_NUMERIC_MODES[_op_name(spec["select"])], extract=extract, **options
     )
-
-
-_MEAN_MODES: Mapping[str, ReduceMode] = MappingProxyType({"value": "compute", "nearest": "select"})
 
 
 def _rebuild_mean(spec: Mapping[str, object]) -> Reduce:
@@ -741,7 +735,7 @@ def _rebuild_mean(spec: Mapping[str, object]) -> Reduce:
         raise ValueError("a mean shape this SDK version cannot rebuild")
     extract = _extract_from_spec(spec, "numeric")
     options: dict[str, Any] = {} if weights is None else {"weights": weights}
-    return Reduce("mean", mode=_MEAN_MODES[_op_name(spec["select"])], extract=extract, **options)
+    return Reduce("mean", mode=_NUMERIC_MODES[_op_name(spec["select"])], extract=extract, **options)
 
 
 _REBUILD: Mapping[str, Callable[[Mapping[str, object]], Reduce]] = MappingProxyType(

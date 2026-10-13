@@ -493,6 +493,12 @@ def _output_field(value: object) -> str | None:
     return value
 
 
+def _output_arg(output: str | None) -> dict[str, str]:
+    """``{"output": output}`` for a select step's args, or ``{}`` when there is no output."""
+
+    return {} if output is None else {"output": output}
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Pick(Reducer):
     """The member whose JSON field is the largest, the smallest or equal to a value, unchanged.
@@ -552,7 +558,7 @@ class Pick(Reducer):
         object.__setattr__(self, "output", chosen_output)
 
     def _plan(self) -> _ReducerPlan:
-        output = {} if self.output is None else {"output": self.output}
+        output = _output_arg(self.output)
         if self.by_signal is not None:
             return _signal_plan(self.by_signal, cast("str", self.order), self.output)
         assert self.field is not None  # a Pick holds a field or a signal
@@ -578,18 +584,23 @@ class Pick(Reducer):
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Pick:
-        reduce = _spec_steps(spec)["reduce"]
+        steps = _spec_steps(spec)
+        reduce = steps["reduce"]
         if reduce is not None and _op_name(reduce[0]) == "by_signal":
-            return cls._from_signal_spec(spec, reduce[1])
+            return cls._from_signal_spec(spec, reduce[1], steps["select"])
         return cls._from_field_spec(spec)
 
     @classmethod
-    def _from_signal_spec(cls, spec: Mapping[str, object], args: Mapping[str, object]) -> Pick:
+    def _from_signal_spec(
+        cls,
+        spec: Mapping[str, object],
+        args: Mapping[str, object],
+        select: tuple[str, Mapping[str, object]] | None,
+    ) -> Pick:
         key, order = args.get("key"), args.get("order")
         if not isinstance(key, str) or order not in ("max", "min"):
             raise _cannot_rebuild("pick")
         signal = _decoded("pick", Signal, key)  # a key this SDK does not know is a hand edit
-        select = _spec_steps(spec)["select"]
         output = None if select is None else select[1].get("output")
         pick = _decoded("pick", cls, by_signal=signal, order=order, output=output)
         _require_steps(spec, pick._plan().steps, "pick")
@@ -642,9 +653,7 @@ def _signal_plan(signal: Signal, order: str, output: str | None = None) -> _Redu
 
     steps = _Steps(
         reduce=_Step("by_signal", {"key": signal.key, "order": order}),
-        select=_Step(
-            "best_holder", {"order": order, **({} if output is None else {"output": output})}
-        ),
+        select=_Step("best_holder", {"order": order, **_output_arg(output)}),
     )
     return _ReducerPlan("pick", "answer", steps, reads=signal)
 
@@ -693,18 +702,9 @@ def _pick_options(named: Reducer) -> Mapping[str, object]:
 
     pick = cast("Pick", named)
     if pick.order is not None:
-        return {
-            "field": pick.field,
-            "order": pick.order,
-            **({} if pick.output is None else {"output": pick.output}),
-        }
+        return {"field": pick.field, "order": pick.order, **_output_arg(pick.output)}
     normalize = {} if pick.normalize is None else {"normalize": pick.normalize}
-    return {
-        "field": pick.field,
-        **normalize,
-        "equals": pick.equals,
-        **({} if pick.output is None else {"output": pick.output}),
-    }
+    return {"field": pick.field, **normalize, "equals": pick.equals, **_output_arg(pick.output)}
 
 
 def _merge_from_options(options: Mapping[str, object]) -> Merge:
@@ -729,7 +729,7 @@ def _argmax_options(named: Reducer) -> Mapping[str, object]:
     return {
         "by_signal": pick.by_signal,
         **({"order": "min"} if pick.order == "min" else {}),
-        **({} if pick.output is None else {"output": pick.output}),
+        **_output_arg(pick.output),
     }
 
 
