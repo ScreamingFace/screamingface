@@ -121,11 +121,24 @@ _FAILURE_MESSAGES: Mapping[str, str] = {
 
 # WHY this text and nothing richer: mid-run feedback crosses into the candidate's
 # context, so it must never carry the answer key or the scorer's explanation (which may
-# quote it). Wrong-ness is the entire message; the sealed envelope holds.
+# quote it). Wrong-ness is the entire message; the sealed envelope holds. The one exception
+# is a row the owner allowed to send its scorer's own words (``scorer_draft_feedback``):
+# those come from a key the scorer fills for the Candidate, never from its explanation.
 _CHECK_FEEDBACK = (
     "The committed answer does not match the expected solution. "
     "Re-derive the result step by step and commit a corrected final answer."
 )
+
+#: The ``Score.metadata`` key a scorer fills with its own Draft Feedback (OME-1527, R9):
+#: ``{"satisfaction": <0..1>, "feedback": "<words for the Candidate>"}``. Read only on a row
+#: that sets ``scorer_draft_feedback``; the lane forwards these two values and nothing else
+#: of the Score (never its explanation, answer, other metadata, or the Case's target).
+DRAFT_FEEDBACK_METADATA_KEY = "draft_feedback"
+
+#: The longest scorer feedback a check forwards. IFEval's worst Case, every instruction
+#: failed, renders 413 characters of the checker's own words (all 541 Cases measured,
+#: 2026-10-13); the bound leaves room for that and refuses a scorer that dumps more.
+_SCORER_FEEDBACK_MAX_CHARS = 2_000
 
 
 class AggregateError(ValueError):
@@ -276,6 +289,10 @@ class ImportedBenchmark:
     #: Serve each Case's input to the Candidate as the candidate-input envelope rather than
     #: as plain text (OME-1527); False on every imported row. Hashed by the factory.
     candidate_input_envelope: bool = False
+    #: Draft Feedback carries the scorer's own partial score and words, read from
+    #: ``Score.metadata[DRAFT_FEEDBACK_METADATA_KEY]`` (OME-1527, R9), instead of the fixed
+    #: sentence; False on every imported row. Hashed by the factory.
+    scorer_draft_feedback: bool = False
 
     def aggregation(
         self, kept_scores: MutableMapping[int, Any] | None = None
@@ -361,6 +378,7 @@ def single_shot_benchmark(
     attempts: int = 1,
     retrieval_policy: RetrievalPolicyDeclaration | None = None,
     candidate_input_envelope: bool = False,
+    scorer_draft_feedback: bool = False,
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -425,6 +443,10 @@ def single_shot_benchmark(
             the envelope; a Fusion synthesizer is pasted ``$input`` raw, so only this keeps a
             migrated Benchmark's Fusion bytes, and its recorded golden, unchanged. The scorer
             and ``cases.json`` keep plain text. Hashed into the revision below when set.
+        scorer_draft_feedback: the Draft Feedback check sends the scorer's own partial
+            score and words (OME-1527, R9) instead of 0-or-1 and the fixed sentence. Needs
+            ``with_check_surface``, which only the owner turns on for a Benchmark. Hashed
+            into the revision below when set.
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -445,6 +467,13 @@ def single_shot_benchmark(
         raise ValueError(
             f"{benchmark_id}: a Benchmark serving its Candidate the input envelope cannot "
             "declare a check surface"
+        )
+    if scorer_draft_feedback and not with_check_surface:
+        # WHY: the scorer's words only ever travel through the Draft Feedback offer; asking
+        # for them without the offer is a row that misread what it turned on.
+        raise ValueError(
+            f"{benchmark_id}: scorer_draft_feedback needs a Draft Feedback offer "
+            "(with_check_surface=True)"
         )
     # WHY: pins are newline-joined below; a pin containing "\n" would make two
     # different pin lists hash identically — refused, never coerced.
@@ -489,6 +518,9 @@ def single_shot_benchmark(
                 # WHY conditional (OME-1527): the envelope changes what a Fusion synthesizer
                 # reads, so it is identity; unset adds nothing, so no imported revision moves.
                 *(("candidate_input=envelope",) if candidate_input_envelope else ()),
+                # WHY conditional (OME-1527, R9): what the Candidate is told mid-run is
+                # identity; unset adds nothing, so no published revision moves.
+                *(("draft_feedback=scorer",) if scorer_draft_feedback else ()),
             )
         ).encode()
     ).hexdigest()[:16]
@@ -570,6 +602,7 @@ def single_shot_benchmark(
         whole_run_headline=whole_run_headline,
         epoch_reducer_factory=epoch_reducer_factory,
         candidate_input_envelope=candidate_input_envelope,
+        scorer_draft_feedback=scorer_draft_feedback,
     )
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept
@@ -855,7 +888,9 @@ def check_surface_verdict(
     Input-addressed (the OME-796 port rule): a black-box ``$candidate`` only ever sees
     ``$input``, so the case resolves by exact prompt text. The verdict record is the
     sealed-envelope boundary — it carries pass/fail and sanitized feedback, NEVER the
-    answer key or the scorer's explanation (which may quote it).
+    answer key or the scorer's explanation (which may quote it). On a row with
+    ``scorer_draft_feedback`` the satisfaction and the words are the ones the scorer wrote
+    for the Candidate (:func:`_scorer_draft_feedback`), still never its explanation.
 
     AIDEV-NOTE: each call re-reads cases.json (linear scan) and rebuilds the
     BenchmarkAggregation + scorer + a fresh executor — fine at proof-benchmark scale, but cache a
@@ -886,14 +921,83 @@ def check_surface_verdict(
         raise ValueError(_FAILURE_MESSAGES.get(outcome.failure_code, outcome.failure_code))
     assert outcome.score is not None
     passed: bool = outcome.score >= 1.0
+    satisfaction: float = outcome.score
+    feedback: str = "" if passed else _CHECK_FEEDBACK
+    if benchmark.scorer_draft_feedback:
+        satisfaction, words = _scorer_draft_feedback(outcome, passed)
+        feedback = "" if passed else words
     return {
         "schema": DRAFT_FEEDBACK_SCHEMA,
         "passed": passed,
-        "satisfaction": outcome.score,
-        "feedback": "" if passed else _CHECK_FEEDBACK,
+        "satisfaction": satisfaction,
+        "feedback": feedback,
         "answer": answer,
         "invocation": invocation,
     }
+
+
+def _scorer_draft_feedback(outcome: CaseGradeOutcome, passed: bool) -> tuple[float, str]:
+    """Take the partial score and words a scorer wrote for the Candidate, and check them.
+
+    Think of it as a sealed envelope the examiner marks "may be handed to the student":
+    the lane opens only that envelope. Everything else the examiner wrote (the
+    explanation, the answer it extracted, its other notes, and the Case's target) stays
+    in the marking room, because only this one key is read.
+
+    Stages, in execution order:
+
+    1. Find the envelope: ``Score.metadata[DRAFT_FEEDBACK_METADATA_KEY]`` of the headline
+       scorer, as the scorer adapter copied it onto the Case's first Check.
+    2. Check its shape: exactly ``satisfaction`` and ``feedback``; a number in [0, 1] that
+       agrees with the verdict (a passing draft is fully satisfied, a failing one is not);
+       words no longer than ``_SCORER_FEEDBACK_MAX_CHARS``, and present when the draft
+       fails, since the loop needs something to react to.
+    3. Refuse anything else by raising ``ValueError``. The check route turns that into
+       ``benchmark_unavailable``; the message names the problem, never the scorer's text.
+
+    Worked example (IFEval, 1 of 3 instructions met): metadata ``{"draft_feedback":
+    {"satisfaction": 0.3333, "feedback": "The answer failed these requirements: ..."}}``
+    → ``(0.3333, "The answer failed these requirements: ...")``; the strict headline 0.0
+    still decides ``passed``.
+
+    Args:
+        outcome: the Case's graded outcome from the scorer adapter.
+        passed: the verdict, from the Case score.
+
+    Returns:
+        The satisfaction and the feedback words, both safe to send as the scorer wrote them.
+    """
+
+    # Stage 1 — the one key this lane reads.
+    evidence: Mapping[str, Any] = outcome.checks[0]["evidence"][0]
+    envelope: object = evidence.get("metadata", {}).get(DRAFT_FEEDBACK_METADATA_KEY)
+    # Stage 2-3 — its shape, or a refusal that quotes nothing the scorer wrote.
+    if not isinstance(envelope, Mapping) or set(envelope) != {"satisfaction", "feedback"}:
+        raise ValueError(
+            f"the scorer's Score.metadata[{DRAFT_FEEDBACK_METADATA_KEY!r}] must hold exactly "
+            "satisfaction and feedback"
+        )
+    satisfaction: object = envelope["satisfaction"]
+    words: object = envelope["feedback"]
+    if (
+        isinstance(satisfaction, bool)
+        or not isinstance(satisfaction, int | float)
+        or not 0.0 <= satisfaction <= 1.0
+    ):
+        raise ValueError("the scorer's draft-feedback satisfaction must be a number in [0, 1]")
+    if (satisfaction >= 1.0) != passed:
+        raise ValueError(
+            "the scorer's draft-feedback satisfaction disagrees with its verdict "
+            "(only a passing draft is fully satisfied)"
+        )
+    if not isinstance(words, str) or len(words) > _SCORER_FEEDBACK_MAX_CHARS:
+        raise ValueError(
+            f"the scorer's draft-feedback words must be text of at most "
+            f"{_SCORER_FEEDBACK_MAX_CHARS} characters"
+        )
+    if not passed and not words.strip():
+        raise ValueError("the scorer gave no draft-feedback words for a failing draft")
+    return float(satisfaction), words
 
 
 def benchmark_aggregate(
@@ -1323,6 +1427,7 @@ async def _awaited[T](coroutine: Awaitable[T]) -> T:
 
 
 __all__ = [
+    "DRAFT_FEEDBACK_METADATA_KEY",
     "AggregateError",
     "ImportedBenchmark",
     "JudgeSpec",
