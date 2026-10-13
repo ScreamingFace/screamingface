@@ -298,7 +298,7 @@ class CombineEvidence:
             object.__setattr__(self, name, value)
 
     def to_dict(self) -> dict[str, object]:
-        data: dict[str, object] = {
+        return {
             "schema": COMBINE_EVIDENCE_SCHEMA,
             "kind": self.kind,
             "reducer": self.reducer,
@@ -312,20 +312,15 @@ class CombineEvidence:
             "agreement": self.agreement,
             "tie": self.tie,
             "median": self.median,
+            # E4b P8: optional on the wire, only the mean reducer writes it
+            **({} if self.mean is None else {"mean": self.mean}),
+            "presentation_order": self.presentation_order,
+            "separator_collision": self.separator_collision,
+            "signal": None if self.signal is None else self.signal.to_dict(),
+            "result": self.result.to_dict(),
+            "dropped": self.dropped,
+            "finish_reason": self.finish_reason,
         }
-        if self.mean is not None:  # E4b P8: optional on the wire, only the mean reducer writes it
-            data["mean"] = self.mean
-        data.update(
-            {
-                "presentation_order": self.presentation_order,
-                "separator_collision": self.separator_collision,
-                "signal": None if self.signal is None else self.signal.to_dict(),
-                "result": self.result.to_dict(),
-                "dropped": self.dropped,
-                "finish_reason": self.finish_reason,
-            }
-        )
-        return data
 
 
 def _text(value: object, label: str) -> str:
