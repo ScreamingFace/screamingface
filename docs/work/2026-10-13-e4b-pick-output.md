@@ -81,3 +81,34 @@ usable field abstains with the new reason `output_missing` and never falls back 
   the SDK bad-name and `output` length rows (PO#11b, the 64-character case), the drift guard
   `test_pick_output_url4_fixture_matches_the_sdk_compiler` (fixtures made by the stub), the
   rebuild refusal for `output=7` (PO#16 tamper), and the golden meta test (PO#13).
+
+### Review fixes (fix commit)
+
+- Q-C: `ports.output_field_text` has one return now. It reads the field with `walk_field_path`
+  and catches `ValueError` with `contextlib.suppress`. The behavior is the same; the PO#4, #6,
+  #7 and #10 rows pin it. Ruff PLR0911 is green. This change went into the feat commit
+  (06cabe358), because the pre-commit ruff hook refused the commit without it.
+- Q-A: `ST/test_pick_output.py::test_pick_repr_and_python_show_the_output` expected
+  `sf.signal(...)` in `repr`. `Signal.__repr__` gives `signal(...)`, and
+  `ST/test_pick_by_signal.py:106` pins that form. The oracle now says
+  `Pick(by_signal=signal('field:confidence'), order='max', output='answer')`. The `_python()`
+  assertion keeps `sf.signal(...)`.
+- Q-B: `ST/test_frozen_record_fields.py:184` counts the engine evidence scenarios. The two new
+  scenarios make 28 (was 26). Plan erratum: this file needs owner approval.
+- Q-D: the two new scenario names are added AFTER the `SCENARIOS` dict and the `_EXPECTED_NAMES`
+  set (unit spec §2.9 c-d default form), not inside them. The append-only gate no longer flags
+  these two files.
+- Optional MINOR findings (an `_output_arg` helper, one shared `OUTPUT_FIELD` regex and args
+  schema, no second `_spec_steps` call): not done. They are optional and change no behavior.
+
+### Final gates (after the review fixes, `--base e4b-filter-judge`)
+
+- screamingface-engine: append-only red with 5 offenders (all on the approval list):
+  `evidence_cases.json`, `screamingface.combine-evidence.v1.json`, `best_holder@1.json`,
+  `by_field@1.json`, `test_rest_operators.py`. With `--skip-append-only`: ALL GATES GREEN
+  (ruff check, ruff format, pyright, check_layering, pytest with coverage).
+- screamingface: append-only red with 3 offenders (all on the approval list):
+  `screamingface.answer.v1.json`, `public_surface_snapshot.json`,
+  `test_frozen_record_fields.py`. With `--skip-append-only`: ALL GATES GREEN (ruff check,
+  ruff format, pyright, pytest with coverage, check_notebooks, uv build, check_distribution).
+- repo: ALL GATES GREEN.

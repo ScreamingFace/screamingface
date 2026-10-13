@@ -318,9 +318,9 @@ SCENARIOS: dict[str, Callable[[], CombineEvidence]] = {
     "filter_none_pass": _filter_none_pass,
     "merge_abstain": _merge_abstain,
     "mean_weighted_value": _mean_weighted_value,
-    "pick_output": _pick_output,
-    "pick_output_missing": _pick_output_missing,
 }
+SCENARIOS["pick_output"] = _pick_output
+SCENARIOS["pick_output_missing"] = _pick_output_missing
 
 
 def canonical_evidence(evidence: CombineEvidence) -> str:
