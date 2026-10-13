@@ -36,7 +36,6 @@ from screamingface_engine.benchmarks.aggregation import CandidateScore
 from screamingface_engine.benchmarks.case_context import case_scope
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import (
-    CANDIDATE_INPUT_SCHEMA,
     CANDIDATE_RESULT_SCHEMA,
     CaseGrade,
     CaseResult,
@@ -86,6 +85,10 @@ from screamingface_engine.benchmarks.shared_grading.case_grades import (
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload
 from screamingface_engine.retrieval_policy import normalize_excluded_domains
+from screamingface_engine_inspect.conversation_input import (
+    conversation_input,
+    conversation_messages,
+)
 from screamingface_engine_inspect.envelopes import (
     CHECK_SCHEMA,
     build_case_grade,
@@ -737,19 +740,15 @@ def _enveloped_inputs(cases_json: str) -> str:
     Worked example: input ``"Draft the memo."`` is served as
     ``{"schema":"screamingface.candidate-input.v1","messages":[{"role":"user","content":
     "Draft the memo."}]}`` — compact separators, non-ASCII kept as is, which is what
-    hand-built gdpval's ``case_input`` wrote, so the Candidate call's bytes do not move.
+    hand-built gdpval's ``case_input`` wrote, so the Candidate call's bytes do not move. A
+    conversation Case (R14) is already that envelope and is served as written, never wrapped
+    twice.
     """
 
     rows: list[dict[str, Any]] = json.loads(cases_json)
     for row in rows:
-        row["input"] = json.dumps(
-            {
-                "schema": CANDIDATE_INPUT_SCHEMA,
-                "messages": [{"role": "user", "content": row["input"]}],
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
+        if conversation_messages(row["input"]) is None:
+            row["input"] = conversation_input([{"role": "user", "content": row["input"]}])
     return json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
 
 
