@@ -140,7 +140,7 @@ async def judge_until_parsed[Verdict](
         item: names the item in the error (e.g. ``"case 7 rubric r2"``).
         judge_pass: the judge pass this item belongs to, sent as ``GenerateConfig(seed=k)``
             on every draw; only a row declaring ``JudgeSpec(seed_per_pass=True)`` admits it.
-            ``None`` (the default) sends no seed, as before.
+            ``None`` (the default) sends no seed, as before; such a row refuses ``None``.
 
     Returns:
         The parsed verdict and the number of redraws it took.

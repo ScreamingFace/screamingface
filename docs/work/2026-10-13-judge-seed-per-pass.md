@@ -66,5 +66,8 @@ pinned params plus `seed=k`. Every other setting stays refused; rows that do not
   before. The pass number maps to the seed unchanged (`seed=k`), the hand-built draco judge's own
   mapping. Also fixed in passing because the change needs it: the accounting registration now
   keys on the call's own params (seed included), or a seeded pass's cost would miss its Case.
+- **Review fix:** on an opted-in row the provider now refuses a judge call that names no pass
+  (unseeded passes would be identical requests the cache folds into one fake vote); a
+  single-pass Benchmark simply does not opt in. Pinned by a new test in the same file.
 - **Owner-verify:** nothing to press here; no row opts in. The first paid check is draco's
   migration run (Work order #18), which should show 3 or 5 distinct judge requests per Case.

@@ -158,7 +158,8 @@ class JudgeSpec:
         seed_per_pass: the scorer grades over judge passes and names pass ``k`` as
             ``GenerateConfig(seed=k)``; the judge call then carries ``seed=k`` after the
             pinned params, so N passes are N requests, never one cached reply (OME-1527
-            R12). Benchmark identity when set. A pinned ``seed`` beside it is refused.
+            R12). Benchmark identity when set. A pinned ``seed`` beside it is refused, and
+            so is a judge call that names no pass.
     """
 
     model: str
