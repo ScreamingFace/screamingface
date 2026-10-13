@@ -3956,6 +3956,104 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         named_scores=("musique_answer_f1", "musique_answer_em", "musique_support_f1"),
     ),
     BenchmarkSpec(
+        key="arc_agi_2",
+        title="ARC-AGI-2",
+        description=(
+            "120 visual puzzles from the ARC-AGI-2 public evaluation set. Each task shows 2 to 6 "
+            "example pairs of coloured grids (rows of the digits 0 to 9, up to 30 by 30) and asks "
+            "for the output grid of a new input; 45 tasks have two or three test grids, so the "
+            "run has 167 Cases, one per test grid. The prompt and the reply parser are the ARC "
+            "Prize harness's own (a \\boxed{} grid, else the last JSON grid in the reply), and "
+            "a grid counts only if every cell matches. The Candidate gets two Attempts per grid "
+            "and the grid is solved if either matches. The Headline Score is the ARC Prize's: "
+            "the mean over tasks of grids solved / grids in the task, so a task with two grids "
+            "and one solved scores 0.5. A failed Case counts 0 in its task; but one failed "
+            "Attempt (a reply cut at the token cap) fails the whole Case, where the harness "
+            "still credits the other Attempt, and a task whose every grid failed drops out of "
+            "the mean, where the harness counts it 0. Named Deviation: when a reply holds no "
+            "readable grid the harness asks the model again to extract one (OpenAI-style and "
+            "Anthropic models) or re-asks the question; here that Attempt scores 0. So a run "
+            'whose Report shows no failed Case and no "no grid found" Attempt is scored '
+            "exactly as the harness scores the same replies; answers still vary from run to "
+            "run, and the Candidate's "
+            "settings (temperature, reasoning effort, token cap) must match to compare. Answers "
+            "run to 2,760 characters before any reasoning, so a low token cap fails Attempts. "
+            "The Human Baseline, 0.75, is per task: the share of human attempts that solved a "
+            "task, averaged over the final tasks, where a task counts only if all its grids are "
+            "right (66% per test grid). "
+            "The Frontier Score is from the ARC Prize's semi-private set, a different 120 tasks "
+            "calibrated to the same human difficulty, so it sits beside our public-eval number "
+            "rather than on the same scale. The public set has been on GitHub since March 2025 "
+            "and may be in a model's training data."
+        ),
+        focus="Abstract reasoning: infer a grid transformation from a few examples",
+        dataset_url=(
+            "https://github.com/arcprize/ARC-AGI-2/tree/f3283f727488ad98fe575ea6a5ac981e4a188e49"
+        ),
+        # Frontier models still fail most grids at moderate cost; the top verified scores
+        # needed maximum reasoning effort (OME-1476).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.arc_agi_2.arc_agi_2:arc_agi_2 — a LOCAL
+        #   Task (OME-1476): the ARC Prize harness's prompt and parser in inspect's shape, so
+        #   there is no eval.yaml and no inspect porter to credit; every field below was written
+        #   by hand from the paper, the data repo and the harness.
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2505.11831",
+        authors="Chollet et al., 2025",
+        citation=(
+            "@misc{chollet2025arcagi2,\n"
+            "    title = {ARC-AGI-2: A New Challenge for Frontier AI Reasoning Systems},\n"
+            "    author = {Fran\\c{c}ois Chollet and Mike Knoop and Gregory Kamradt and Bryan "
+            "Landers and Henry Pinkard},\n"
+            "    year = {2025},\n"
+            "    eprint = {2505.11831},\n"
+            "    archivePrefix = {arXiv},\n"
+            "    primaryClass = {cs.AI},\n"
+            "    url = {https://arxiv.org/abs/2505.11831},\n"
+            "}"
+        ),
+        homepage_url="https://arcprize.org/arc-agi/2/",
+        harness_url=(
+            "https://github.com/arcprize/arc-agi-benchmarking/tree/"
+            "9e2828fb5bd3ab43f6b9fc545595b82b67473b93"
+        ),
+        license="Apache-2.0",
+        license_note=(
+            "The ARC-AGI-2 tasks are Apache-2.0 (arcprize/ARC-AGI-2 LICENSE); Cases are served "
+            "from GitHub's archive of that repo at commit f3283f72, sha256-checked at every "
+            "build. The copied reply parser is MIT (arcprize/arc-agi-benchmarking)."
+        ),
+        # Per TASK, like our headline: on the final ARC-AGI-2 tasks (after selection and
+        # validation, all subsets), "aggregating results by task, 75% of human attempts were
+        # successfully completed" (arXiv 2505.11831 §5). The paper counts a task attempt correct
+        # only when all its test pairs are, so it is stricter than our per-grid partial credit.
+        # The same section gives 66% per test pair (pooled over attempts) and 62% on the
+        # pre-curation candidate pairs; neither is per task.
+        human_baseline=HumanBaseline(score=0.75, source_url="https://arxiv.org/abs/2505.11831"),
+        # Best ARC Prize-verified score found on 2026-10-12, on the SEMI-PRIVATE set, not the
+        # public eval (see the description). Owner to confirm against the live leaderboard.
+        frontier_score=FrontierScore(
+            score=0.925,
+            model="GPT-5.6 Sol (max reasoning)",
+            source_url="https://arcprize.org/leaderboard",
+            as_of="2026-08",
+        ),
+        notebook="16_arc_agi_2",
+        scorer="screamingface_engine_inspect.local_tasks.arc_agi_2.arc_agi_2:arc_exact_match",
+        # Reviewed (OME-1476): arc_per_task_accuracy is a mean of per-task shares in [0, 1],
+        # higher is better — a valid Headline Score.
+        whole_run_metric=(
+            "screamingface_engine_inspect.local_tasks.arc_agi_2.arc_agi_2:arc_per_task_accuracy"
+        ),
+        # The Task's epochs=2 are any-match: each Case is asked
+        # 2 times and a Check is met if any Attempt met it.
+        attempts=2,
+        # The whole-run metric reads each Case's Attempt Scores reduced by the
+        # Task's own reducer, as inspect does before any metric runs.
+        epoch_reducer="max",
+    ),
+    BenchmarkSpec(
         key="contracteval",
         title="ContractEval",
         description=(

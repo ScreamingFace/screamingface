@@ -1234,6 +1234,20 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # CC BY 4.0 per the authors' repo; the mirror ships no card (OME-1513).
         license="cc-by-4.0",
     ),
+    # arc_agi_2 — imported by Task replay on 2026-10-12 from
+    #   screamingface_engine_inspect.local_tasks.arc_agi_2.arc_agi_2:arc_agi_2.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://codeload.github.com/arcprize/ARC-AGI-2/zip/f3283f727488ad98fe575ea6a5ac981e4a188e49
+    #     pin sha256 c3f9f6975d8432133419fd0e1677c42289666517af4e6f83d8a291690e14d49f
+    "arc_agi_2": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.arc_agi_2.arc_agi_2:arc_agi_2",
+        case_count=167,
+        case_digest="4e0367c8929afd2d6dbef0a0e3b83e0bb3204a742c768114f50119d4be19768a",
+        case_set_digest="d4184f55dc938879b5d86d70a62373e8d58bc861c3e63114ad382b8dd0c618b5",
+        keep_sample_metadata=True,
+        # Apache-2.0 per the data repo's LICENSE at f3283f72; no dataset card (OME-1476).
+        license="apache-2.0",
+    ),
     # contracteval — imported by Task replay on 2026-10-12 from
     #   screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):

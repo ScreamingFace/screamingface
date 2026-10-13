@@ -62,6 +62,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "13_contracteval.ipynb": _contracteval_e2e(),
         "14_report_accounting.ipynb": _notebook(*accounting_cells()),
         "15_musique.ipynb": _musique_e2e(),
+        "16_arc_agi_2.ipynb": _arc_agi_2_e2e(),
     }
 
 
@@ -1889,6 +1890,123 @@ only brake. Raise it in steps and read the cost in `report.usage` as you go.
 
 The dev set has been public since 2022 and may be in a model's training data; a high score
 says the model answers these questions, not that it would answer new ones."""),
+    )
+
+
+def _arc_agi_2_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# ARC-AGI-2 — grid puzzles, two Attempts per grid, scored per task
+
+[ARC-AGI-2](https://arxiv.org/abs/2505.11831) is the ARC Prize's puzzle exam. Each task shows a
+few example pairs of coloured grids (rows of the digits 0 to 9, up to 30 by 30) and asks for the
+output grid of one or more new inputs. This board runs the **public evaluation set**: 120 tasks,
+167 test grids, one Case per test grid.
+
+The question and the way a reply is read are the ARC Prize harness's own; a grid counts only if
+every cell matches. **Each grid gets two Attempts** and is solved if either matches, so a run
+costs two Candidate Invocations per grid. The headline is the ARC Prize's: the mean over tasks of
+grids solved / grids in the task, so a task with two grids and one solved scores 0.5.
+
+**Three things to know before reading a score.**
+
+- **The Frontier Score is from a different set of tasks.** The ARC Prize verifies scores on its
+  semi-private set; this board runs the public one. They are calibrated to the same human
+  difficulty, so our number sits beside theirs, not on the same scale.
+- **A run equals the harness's scoring only when it is clean:** no failed Case and no
+  `no grid found` Attempt. The harness rescues an unreadable reply with an extra model call or a
+  re-ask; this board scores it 0. One Attempt cut off at the token cap fails the whole Case.
+- **Give the model room.** An answer grid alone runs to 2,760 characters; with reasoning on top,
+  a low `max_tokens` fails Attempts."""),
+        nbformat.v4.new_markdown_cell("""\
+## 0. Before running
+
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
+
+```bash
+screamingface prepare arc_agi_2  # first run only: download the pinned task zip from GitHub
+screamingface up                 # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
+```
+
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
+Stack management stays outside the notebook so **Run All** never starts or stops local
+services."""),
+        nbformat.v4.new_code_cell("""\
+import screamingface as sf
+
+sf.connect()"""),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Read the board's card
+
+`arc_agi_2` is a Benchmark we author ourselves (origin `screamingface`), served through the same
+machinery as the imported inspect_evals boards. The card carries the data pin, the two Attempts
+and the Frontier Score with its caveat."""),
+        nbformat.v4.new_code_cell("""\
+sf.benchmarks.get("arc_agi_2")"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Run a few grids with one model
+
+A grid's prompt is a median of about 7,000 characters of example grids; the answer is a grid.
+Reasoning helps on these puzzles, so leave a lot of room in `max_tokens`."""),
+        nbformat.v4.new_code_cell("""\
+# No `temperature` here on purpose: several current reasoning models reject the parameter
+# outright (see 13_contracteval for the provider-by-provider detail).
+PARAMS = {"max_tokens": 32768}
+
+solo = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+report = sf.evaluate(solo, benchmark="arc_agi_2", limit=5)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. See which Attempt solved each grid
+
+Every Case keeps both Attempts with their own score, so you can tell a grid solved on the first
+try from one rescued by the second. A failed Case lists its failures instead."""),
+        nbformat.v4.new_code_cell("""\
+for case in report.candidates.only.cases:
+    if case.attempts is None:
+        print(case.case_id, case.status)
+        continue
+    marks = [
+        (attempt.attempt, attempt.status, None if attempt.grade is None else attempt.grade.score)
+        for attempt in case.attempts
+    ]
+    print(case.case_id, case.status, marks)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Compare a Fusion against the same model
+
+A synthesiser can compare the members' grids cell by cell and pick, or repair, one. It must end
+its reply with the grid itself, as JSON, or the reader finds nothing to mark."""),
+        nbformat.v4.new_code_cell("""\
+SYNTHESIS_PROMPT = (
+    "You are given several assistants' answers to a grid puzzle: example input/output pairs and "
+    "a test input. Check each proposed output grid against the pattern in the examples, then "
+    "give one final output grid. End your reply with that grid alone, as a JSON list of rows."
+)
+
+member1 = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+member2 = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARAMS)
+synth = sf.Model(
+    model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
+)
+panel = sf.Fusion(name="arc_panel", members=[member1, member2], synthesizer=synth)
+
+fusion_report = sf.evaluate(panel, benchmark="arc_agi_2", limit=5)
+fusion_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. Before you scale up
+
+A `limit=N` run is a smoke test, not a ranking: five grids say little about 120 tasks, and the
+first grids all come from the first few tasks.
+
+**Know what the full set costs before you start it.** One pass is 334 Candidate Invocations per
+Candidate (167 grids × 2 Attempts) and about 2.6M characters of prompt, before any reasoning
+tokens, which on these puzzles usually dominate. There is no spend cap in this stack, so
+`limit` is the only brake. Raise it in steps and read the cost in `report.usage` as you go.
+
+The public set has been on GitHub since March 2025 and may be in a model's training data; a
+high score says the model solves these puzzles, not that it would solve new ones."""),
     )
 
 

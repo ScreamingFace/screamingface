@@ -250,6 +250,8 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-squad": ("coverage_declare", "single_shot", "medium"),
         # OME-1513: a local Task keeps its bare key as its id — nothing came from inspect_evals.
         "musique": ("coverage_declare", "single_shot", "hard"),
+        # OME-1476: the second local Task, and the first published Benchmark with Attempts.
+        "arc_agi_2": ("coverage_declare", "single_shot", "hard"),
         # OME-1527: ContractEval moved from its hand-built folder to a local Task, keeping its
         # id and declaration. It answers each Case once; a reply quoting the wrong sentences is
         # GRADED (0.0, and it keeps its cell in the confusion matrix), so only never-graded

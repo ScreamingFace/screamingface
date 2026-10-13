@@ -121,6 +121,14 @@ def test_the_derived_seed_is_stable_and_differs_per_attempt() -> None:
     assert all(0 <= int(seed) < 2**31 for seed in seeds)
 
 
+def test_the_derived_seed_keeps_its_published_value() -> None:
+    # INVARIANT: a seeded run replays every Attempt from the gateway cache only while this
+    # formula stands. The test above checks stability WITHIN one run; this pins the values
+    # ACROSS releases (OME-1476: ARC-AGI-2 is the first published Benchmark with Attempts), so a
+    # changed formula is a visible decision, never a silent cache miss on rerun.
+    assert (derive_attempt_seed("7", 2), derive_attempt_seed("7", 3)) == ("851700294", "399059846")
+
+
 # --- the cache control ------------------------------------------------------------------
 
 
