@@ -63,18 +63,24 @@ def mode(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     return _tally(combine_input.voters, "mode@1", lambda answer: Decimal(1))
 
 
-def _signal_weight(answer: Answer, op_id: str = "weighted_mode@1") -> Decimal | None:
+def _signal_weight(answer: Answer, op_id: str) -> Decimal | None:
     """A fixed weight as authored; a missing signal weight does not vote (SR-D1)."""
     if answer.weight is None and not answer.signals:
         raise SpecInvalid(f"{op_id} needs weights")
     return answer.weight
 
 
-def weighted_mode(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
-    """The member's weight per vote; a voter whose signal weight is missing does not vote."""
-    weighted = tuple(a for a in combine_input.voters if _signal_weight(a) is not None)
+def _weighted_voters(combine_input: CombineInput, op_id: str) -> tuple[Answer, ...]:
+    """The voters with a usable weight; the others are dropped (ans:Q2). None left is NoVotes."""
+    weighted = tuple(a for a in combine_input.voters if _signal_weight(a, op_id) is not None)
     if not weighted:
         raise NoVotes("no voter has a usable weight")
+    return weighted
+
+
+def weighted_mode(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
+    """The member's weight per vote; a voter whose signal weight is missing does not vote."""
+    weighted = _weighted_voters(combine_input, "weighted_mode@1")
     return _tally(weighted, "weighted_mode@1", lambda a: cast(Decimal, a.weight))
 
 
@@ -102,9 +108,7 @@ def weighted_median(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     this value and the next one, so equal weights give the median@1 result (P3).
     """
     op_id = "weighted_median@1"
-    weighted = tuple(a for a in combine_input.voters if _signal_weight(a, op_id) is not None)
-    if not weighted:
-        raise NoVotes("no voter has a usable weight")
+    weighted = _weighted_voters(combine_input, op_id)
     pairs = sorted(
         ((_decimal(answer, op_id), cast(Decimal, answer.weight)) for answer in weighted),
         key=lambda pair: pair[0],
@@ -147,12 +151,9 @@ def mean(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
 
 def weighted_mean(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     """sum(w * x) / sum(w) over the voters with a usable weight; the others are dropped (ans:Q2)."""
-    weighted = tuple(
-        a for a in combine_input.voters if _signal_weight(a, "weighted_mean@1") is not None
-    )
-    if not weighted:
-        raise NoVotes("no voter has a usable weight")
-    pairs = [(_decimal(a, "weighted_mean@1"), cast(Decimal, a.weight)) for a in weighted]
+    op_id = "weighted_mean@1"
+    weighted = _weighted_voters(combine_input, op_id)
+    pairs = [(_decimal(a, op_id), cast(Decimal, a.weight)) for a in weighted]
     return Reduction(statistic=_mean_of(pairs), participants=tuple(a.member_id for a in weighted))
 
 
