@@ -370,6 +370,23 @@ def test_a_page_created_after_the_cut_off_never_counts_as_the_one_that_held_the_
     assert (revision.page_id, revision.revision_id) == (1, 1245000000)
 
 
+def test_a_title_nobody_moved_costs_one_move_log_call() -> None:
+    # WHY: almost every one of the ~2,500 gold titles was never moved; asking the log a second
+    # time for "more moves" after an empty answer adds ~2,500 calls and ~20 minutes a build.
+    fake = _FakeWiki({"Harriet Lane": _page("Harriet Lane", 1, 100, "2024-01-01T00:00:00Z", "a")})
+    log_calls: list[dict[str, str]] = []
+    answer = fake.get
+
+    def counting_get(wiki: str, params: dict[str, str]) -> dict[str, Any]:
+        if params.get("list") == "logevents":
+            log_calls.append(params)
+        return answer(wiki, params)
+
+    fake.get = counting_get
+    fs.resolve_revision(fake, fs.PageRef(_EN, "Harriet Lane"))
+    assert len(log_calls) == 1
+
+
 def test_a_page_with_no_revision_before_the_cut_off_is_refused_by_name() -> None:
     with pytest.raises(fs.SnapshotError, match="Created later"):
         fs.resolve_revision(_FakeWiki({}), fs.PageRef(_EN, "Created later"))

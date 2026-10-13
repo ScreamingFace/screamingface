@@ -262,10 +262,13 @@ def _page_at_cutoff(wiki: Wiki, ref: PageRef) -> dict[str, Any]:
     # the title over afterwards. The first move is asked alone, then more only when that
     # page is younger than the cut-off (rare), so the common case costs one small call.
     for limit in (_FIRST_MOVE, _MORE_MOVES):
-        for page_id in _pages_moved_away(wiki, ref, limit):
+        moved: list[int] = _pages_moved_away(wiki, ref, limit)
+        for page_id in moved:
             page: dict[str, Any] = _revisions(wiki, ref.wiki, {"pageids": str(page_id)})
             if page.get("revisions"):
                 return page
+        if len(moved) < limit:
+            break  # WHY: the log has no more moves to ask for
     return _revisions(wiki, ref.wiki, {"titles": ref.title})
 
 
