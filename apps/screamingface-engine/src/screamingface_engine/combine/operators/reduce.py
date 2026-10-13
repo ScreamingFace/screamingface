@@ -94,6 +94,16 @@ def median(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
         return Reduction(statistic=(numbers[middle - 1] + numbers[middle]) / 2)
 
 
+def weighted_median(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
+    """The value where the running weight first reaches half the total weight (WM-1, WM-2).
+
+    Participants are the voters with a usable weight. They are sorted by value; the stable sort
+    keeps author order among equal values. At exactly half the weight the result is the mean of
+    this value and the next one, so equal weights give the median@1 result (P3).
+    """
+    raise NotImplementedError("weighted_median@1 lands in the GREEN commit")
+
+
 def _mean_of(pairs: Sequence[tuple[Decimal, Decimal]]) -> Decimal:
     """sum(w * x) / sum(w): exact sums in DECIMAL_CONTEXT, then ONE division to 34 digits (P1)."""
     with localcontext(DECIMAL_CONTEXT):
