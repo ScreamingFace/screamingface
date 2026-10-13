@@ -22,7 +22,7 @@ worst-30 Fusion golden unchanged (decision 5).
 
 - `screamingface_engine_inspect/conversation_input.py` (new): seal a conversation into the
   envelope (the hand-built preparer's exact bytes) and open a Case input back into turns.
-- `capture.py`: a run of system/user/assistant text turns ending on a user turn becomes the
+- `capture.py`: a run of user/assistant text turns ending on a user turn becomes the
   envelope; the one-prompt shape keeps its plain text and bytes.
 - `scorer_adapter.py`: a conversation Case's state is rebuilt as its turns.
 - `single_shot.py`: `candidate_input_envelope` leaves an input that is already an envelope as
@@ -32,7 +32,8 @@ worst-30 Fusion golden unchanged (decision 5).
 
 - `tests/unit/inspect/test_conversation_cases.py` (new): the written bytes equal a literal
   printed from hand-built healthbench's `envelope()` and that function itself; a one-prompt
-  Case keeps its text; a system turn inside a conversation keeps its role; tool turns and
+  Case keeps its text (its system text folded ahead of the prompt); a system turn inside a
+  conversation is refused; a blank turn anywhere in a conversation is refused; tool turns and
   tool-calling assistant turns refused; the Case Digest seals every turn; the envelope flag
   serves a conversation as written; the scorer sees the turns; plain prompts (JSON included)
   are never read as conversations; a broken envelope is refused.
@@ -63,7 +64,13 @@ worst-30 Fusion golden unchanged (decision 5).
 - **Deviations:** (1) No row flag: a conversation becomes the envelope whenever capture sees
   one, because these shapes were refused until now, so no imported Benchmark's Cases change.
   (2) Turns need not alternate (the connector and inspect don't require it); only the last turn
-  must be the user's. (3) A system turn inside a conversation keeps its role; a system turn
-  before a single prompt is still folded into the text, as before, so one-prompt Cases keep
-  their bytes.
+  must be the user's. (3) Review fix: a system turn inside a conversation is refused, by the rule the
+  one-prompt fold already follows (a Benchmark cannot address the Candidate's system role); a
+  system turn before a single prompt is still folded into the text, so one-prompt Cases keep
+  their bytes. Hand-built healthbench would have sent a system turn with its role, so a
+  healthbench row with one would differ; the HF file has none (525 rows: 777 user, 252
+  assistant turns, 0 system), and worst-30 is a subset of those rows. (4) Review fix: a blank
+  or whitespace turn anywhere in a conversation is refused, as hand-built healthbench's
+  `case_messages` refused it (any role, any position, `not content.strip()`); the HF file has
+  0 such turns. One-prompt Cases are not checked, so no imported Benchmark's import changes.
 - **Owner-verify:** none for this unit; row 20 replays the worst-30 golden.

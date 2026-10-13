@@ -106,8 +106,9 @@ def test_a_fixed_conversation_is_written_as_the_hand_built_envelope() -> None:
 
 
 def test_a_one_prompt_case_keeps_its_plain_text() -> None:
-    """A system turn then one user turn is still one prompt, joined as before: those Cases,
-    and every published revision built on them, do not move."""
+    """A system turn then one user turn is still one prompt, its system text folded ahead of
+    the question as before (a Benchmark cannot address the Candidate's system role): those
+    Cases, and every published revision built on them, do not move."""
 
     written: str = _captured(
         [ChatMessageSystem(content="Be brief."), ChatMessageUser(content="What is 6 times 7?")]
@@ -116,16 +117,26 @@ def test_a_one_prompt_case_keeps_its_plain_text() -> None:
     assert written == "Be brief.\n\nWhat is 6 times 7?"
 
 
-def test_a_system_turn_inside_a_conversation_keeps_its_role() -> None:
-    """In a conversation, the system turn is a turn: the envelope carries it by role, as the
-    hand-built envelope would, instead of folding it into the first prompt."""
+def test_a_system_turn_inside_a_conversation_is_refused() -> None:
+    """The system role is the Candidate's, so a Benchmark never sets it. A one-prompt Case
+    folds its system text into the prompt; a conversation has no single prompt to fold into,
+    so it is refused by name instead of being sent with the Candidate's role."""
 
-    written: str = _captured([ChatMessageSystem(content="You are a nurse."), *_chat(TURNS)])
+    with pytest.raises(CaptureError, match="case 1: the solver sent a system turn inside a conv"):
+        _captured([ChatMessageSystem(content="You are a nurse."), *_chat(TURNS)])
 
-    assert conversation_messages(written) == [
-        {"role": "system", "content": "You are a nurse."},
-        *TURNS,
-    ]
+
+@pytest.mark.parametrize("blank", ["", "   \n\t"])
+@pytest.mark.parametrize("position", [0, 1, 2])
+def test_a_blank_turn_in_a_conversation_is_refused(blank: str, position: int) -> None:
+    """Any empty or whitespace turn, wherever it sits, is a damaged row: the Candidate would
+    be paid to answer nothing. Hand-built healthbench's preparer refused the same rows."""
+
+    turns: list[dict[str, str]] = [dict(turn) for turn in TURNS]
+    turns[position]["content"] = blank
+
+    with pytest.raises(CaptureError, match=f"case 1: conversation turn {position + 1} .* is empty"):
+        _captured(_chat(turns))
 
 
 def test_an_assistant_turn_that_calls_tools_is_refused() -> None:
