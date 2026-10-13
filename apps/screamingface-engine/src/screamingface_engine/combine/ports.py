@@ -215,11 +215,16 @@ class Answer:
 @dataclass(frozen=True, slots=True)
 class CombineInput:
     """Everything a reduce or select step may read. ``outputs`` holds every member's original
-    text (also members marked too_large); never iterate it for order -- use ``answers``."""
+    text (also members marked too_large); never iterate it for order -- use ``answers``.
+
+    ``input`` is the combine context ``input``, verbatim (E4b CI-I1). The endpoint always sets it;
+    ``None`` means a test built the value without a context.
+    """
 
     answers: tuple[Answer, ...]
     outputs: Mapping[str, str]
     signals: Mapping[str, str]
+    input: str | None = None
 
     @property
     def members(self) -> tuple[str, ...]:
