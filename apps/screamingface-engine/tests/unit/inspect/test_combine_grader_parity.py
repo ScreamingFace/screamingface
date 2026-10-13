@@ -1,3 +1,6 @@
+# pyright: reportMissingImports=false
+# WHY file-level: this suite imports the `inspect` extra's packages, absent in the
+# default (extra-less) install the typecheck gate runs against.
 """The combine reads a numeric answer the way Inspect's own grader does (OME-1289, E4a, unit 2).
 
 FEATURE: two members whose answers Inspect would grade equal land in one tally row.
