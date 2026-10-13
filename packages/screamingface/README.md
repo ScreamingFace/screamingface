@@ -467,9 +467,8 @@ member's `weight` and each answer's summed `score`.
 A weight that is zero, negative, not finite or above `sys.float_info.max / 256` raises `ValueError`
 at `sf.Vote(...)`, and a weight that is not a number raises `TypeError`. A wrong number of weights
 raises `ValueError` when the Fusion is built. All of these raise before any call. Weights apply to
-`sf.Vote` and `sf.Mean`; `sf.Median` takes the same weights (see "Weighted median" below).
-`sf.signal("score:judge")` needs a judge
-on the same vote (see "Judge synthesizer" below).
+`sf.Vote`, `sf.Mean` and `sf.Median` (see "Weighted median" above). `sf.signal("score:judge")`
+needs a judge on the same vote (see "Judge synthesizer" below).
 
 The accounting keys are `cost_usd`, `latency_ms`, `tokens_in` and `tokens_out`. For a member they
 are the sum over the model calls that member made, which the Engine finds by each call's route and
@@ -793,7 +792,7 @@ another member writes 0.8.
 | S2 | Read a number from each answer and return the answer nearest the median | `s2_median_member` |
 | S3 | Read a number from each answer and return the mean, with fixed weights | `s3_mean_static` |
 | S4 | Read the answer and the confidence of each JSON reply and return the mean weighted by confidence | `s4_mean_by_confidence` |
-| S4, median form | Read the answer and the confidence of each JSON reply and return the median weighted by confidence | `sf.Reduce("median", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"))` (inline, not in the code block) |
+| S4, median form | Read the answer and the confidence of each JSON reply and return the median weighted by confidence | `sf.Reduce("median", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"))` |
 | S5 | Return the answer with the highest confidence | `s5_max_confidence` |
 | S7 | Keep the 2 answers with the highest confidence, then a writer combines them | `s7_top_confidence` |
 | S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` |
