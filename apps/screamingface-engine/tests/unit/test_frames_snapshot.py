@@ -119,6 +119,14 @@ def test_text_is_byte_stable_for_the_same_html() -> None:
             "Video assistant referee",
         ),
         ("https://w.wiki/ASFv", _EN, "Harry C. Bradley (actor)"),
+        # Question 764 percent-encodes its apostrophe twice: %2527 -> %27 -> '.
+        (
+            "https://en.wikipedia.org/wiki/2021_French_Open_%E2%80%93_Men%2527s_singles",
+            _EN,
+            "2021 French Open – Men's singles",
+        ),
+        # Question 644 has a note pasted into the URL after the title.
+        ("https://en.wikipedia.org/wiki/Pok%C3%A9mon (NOT REQUIRED, BUT HELPFUL)", _EN, "Pokémon"),
         (
             "https://en.wikipedia.org/w/index.php?search=Polytrichum+piliferum"
             "&title=Special:Search&profile=advanced&fulltext=1&ns0=1",
@@ -165,32 +173,46 @@ def test_glued_links_split_and_padding_is_stripped() -> None:
 
 
 class _FakeWiki:
-    """Stand-in for the MediaWiki API: answers the two queries the builder makes.
+    """Stand-in for the MediaWiki API: answers the queries the builder makes.
 
-    It simulates page histories and today's redirects; it does NOT simulate rate limits,
-    lag or network errors, which the real client's retry loop handles.
+    It simulates page histories (by title and by page id) and the move log; it does NOT
+    simulate rate limits, lag or network errors, which the real client's retry loop handles.
+    It answers no "where does this title redirect today" query: the builder must never ask.
     """
 
     def __init__(
         self,
         history: dict[str, dict[str, Any]],
-        redirects: dict[str, str] | None = None,
+        moves: dict[str, list[tuple[str, int]]] | None = None,
         html: dict[int, str] | None = None,
     ) -> None:
         self.history = history
-        self.redirects = redirects or {}
+        self.moves = moves or {}
         self.html = html or {}
 
     def get(self, wiki: str, params: dict[str, str]) -> dict[str, Any]:
-        """Answer a revisions query, a redirect query or a parse call."""
+        """Answer a parse call or a query."""
         if params["action"] == "parse":
             return {"parse": {"text": self.html[int(params["oldid"])]}}
-        title: str = params["titles"]
-        if "redirects" in params:
-            target: str | None = self.redirects.get(title)
-            return {"query": {"redirects": [{"from": title, "to": target}] if target else []}}
-        missing: dict[str, Any] = {"title": title, "missing": True}
-        return {"query": {"pages": [self.history.get(title, missing)]}}
+        return {"query": self._query(params)}
+
+    def _query(self, params: dict[str, str]) -> dict[str, Any]:
+        """Answer a move-log query or a revisions query."""
+        if params.get("list") == "logevents":
+            after: list[tuple[str, int]] = sorted(
+                move
+                for move in self.moves.get(params["letitle"], [])
+                if move[0] >= params["lestart"]
+            )
+            return {"logevents": [{"timestamp": at, "logpage": page} for at, page in after[:1]]}
+        return {"pages": [self._page(params)]}
+
+    def _page(self, params: dict[str, str]) -> dict[str, Any]:
+        """One page by id or by title, or a missing page."""
+        if "pageids" in params:
+            by_id: dict[int, dict[str, Any]] = {p["pageid"]: p for p in self.history.values()}
+            return by_id.get(int(params["pageids"]), {"missing": True})
+        return self.history.get(params["titles"], {"title": params["titles"], "missing": True})
 
 
 def _page(title: str, page_id: int, revid: int, timestamp: str, content: str) -> dict[str, Any]:
@@ -233,15 +255,65 @@ def test_a_redirect_at_the_cut_off_is_followed_to_its_article() -> None:
     assert (revision.title, revision.revision_id) == ("Bucking horse", 1240000000)
 
 
-def test_a_page_moved_after_the_cut_off_is_found_through_todays_redirect() -> None:
-    # WHY: a move after the cut-off leaves only a new redirect at the old title, with no
-    # history before the cut-off; the history moved with the page.
+def test_a_page_renamed_after_the_cut_off_is_found_by_its_page_id() -> None:
+    # WHY: a rename moves the page and its whole history to the new title and leaves a fresh
+    # redirect at the old one, so the old title has no revision before the cut-off. The move
+    # log names the page id, which no rename changes. 41 FRAMES titles were renamed this way.
     wiki = _FakeWiki(
-        {"New name": _page("New name", 3, 1230000000, "2024-06-01T00:00:00Z", "text")},
-        redirects={"Old name": "New name"},
+        {"Daikin Park": _page("Daikin Park", 3, 1230000000, "2024-06-01T00:00:00Z", "text")},
+        moves={"Minute Maid Park": [("2024-11-18T00:00:00Z", 3)]},
     )
-    revision = fs.resolve_revision(wiki, fs.PageRef(_EN, "Old name"))
-    assert (revision.title, revision.revision_id) == ("New name", 1230000000)
+    revision = fs.resolve_revision(wiki, fs.PageRef(_EN, "Minute Maid Park"))
+    assert (revision.page_id, revision.revision_id) == (3, 1230000000)
+
+
+def test_a_renamed_page_is_never_found_through_todays_redirect() -> None:
+    # WHY: a redirect can be re-pointed after a rename. "The Beatles discography" was renamed
+    # "The Beatles albums discography" in October 2024, and its leftover redirect now lands on
+    # "The Beatles"; following it would serve question 665 the band's article without a word.
+    # Both pages exist here, so landing on the wrong one would pass silently.
+    wiki = _FakeWiki(
+        {
+            "The Beatles albums discography": _page(
+                "The Beatles albums discography", 7, 1244000000, "2024-09-10T00:00:00Z", "albums"
+            ),
+            "The Beatles": _page("The Beatles", 8, 1245000000, "2024-09-12T00:00:00Z", "band"),
+        },
+        moves={"The Beatles discography": [("2024-10-05T14:58:12Z", 7)]},
+    )
+    revision = fs.resolve_revision(wiki, fs.PageRef(_EN, "The Beatles discography"))
+    assert (revision.title, revision.page_id) == ("The Beatles albums discography", 7)
+
+
+def test_only_the_first_rename_after_the_cut_off_counts() -> None:
+    # WHY: a title can be renamed, reused and renamed again. A 2006 rename moved a different
+    # page away; only the page renamed away after the cut-off held this title at the cut-off.
+    wiki = _FakeWiki(
+        {
+            "List of current United States representatives": _page(
+                "List of current United States representatives",
+                5,
+                1240000001,
+                "2024-09-01T00:00:00Z",
+                "current",
+            ),
+            "List of members of the 109th United States House of Representatives": _page(
+                "List of members of the 109th United States House of Representatives",
+                4,
+                1200000000,
+                "2024-01-01T00:00:00Z",
+                "109th",
+            ),
+        },
+        moves={
+            "List of current members of the United States House of Representatives": [
+                ("2006-01-01T00:00:00Z", 4),
+                ("2025-02-05T00:00:00Z", 5),
+            ]
+        },
+    )
+    old_title: str = "List of current members of the United States House of Representatives"
+    assert fs.resolve_revision(wiki, fs.PageRef(_EN, old_title)).page_id == 5
 
 
 def test_a_page_with_no_revision_before_the_cut_off_is_refused_by_name() -> None:
@@ -340,6 +412,7 @@ def test_written_files_are_byte_identical_on_a_rebuild(tmp_path: Path) -> None:
         "revision_timestamp",
         "links",
         "text",
+        "years_from_templates",
     }
 
 
@@ -353,3 +426,51 @@ def test_each_question_row_carries_its_prompt_hash_so_the_loader_can_check_align
     first: dict[str, Any] = json.loads(lines[0])
     assert first["index"] == 0
     assert first["prompt_sha256"] == hashlib.sha256(b"Q0?").hexdigest()
+
+
+def test_a_known_deleted_page_is_named_on_its_question_and_not_refused() -> None:
+    # WHY (decision 9): two gold articles were deleted and only Wikipedia admins can read
+    # them. Refusing would block every build forever; dropping them silently would hide it.
+    # The question row names what is missing, so the Task can drop or keep the question.
+    questions = [
+        fs.Question(
+            540,
+            "Which Mexican player?",
+            [
+                "https://en.wikipedia.org/wiki/Alpha",
+                "https://en.wikipedia.org/wiki/Jack_Vance_(tennis)",
+            ],
+        )
+    ]
+    snapshot = fs.build_snapshot(questions, _two_question_wiki())
+    row: dict[str, Any] = snapshot.questions[0]
+    assert row["articles"] == ["en.wikipedia.org/100"]
+    assert row["missing_articles"] == [
+        {"wiki": _EN, "title": "Jack Vance (tennis)", "deleted": "2024-11-15"}
+    ]
+    assert [a["title"] for a in snapshot.articles] == ["Alpha"]
+
+
+def test_a_missing_page_not_on_the_deleted_list_is_still_refused() -> None:
+    # INVARIANT: the deleted list is an exception for two named pages, not a way for a newly
+    # deleted article to drop out of the snapshot unnoticed.
+    questions = [fs.Question(0, "Q?", ["https://en.wikipedia.org/wiki/Deleted_next_year"])]
+    with pytest.raises(fs.SnapshotError, match="Deleted next year"):
+        fs.build_snapshot(questions, _two_question_wiki())
+
+
+def test_years_after_the_cut_off_that_only_templates_wrote_are_flagged() -> None:
+    # WHY: Wikipedia draws an old revision with TODAY's templates, so Harriet Lane's 2024
+    # revision renders "equivalent to $14,300,000 in 2025". A year after the cut-off that the
+    # revision's own source never writes can only have come from a template. 2026 here is in
+    # the source (a planned event) and 2023 is before the cut-off, so neither is flagged.
+    source: str = "$400,000 ({{Inflation|US|400000|1854}}) A 2026 reunion is planned. In 2023 she"
+    html: str = (
+        "<p>$400,000 (equivalent to $14,300,000 in 2025) A 2026 reunion is planned. In 2023 she</p>"
+    )
+    wiki = _FakeWiki(
+        {"Harriet Lane": _page("Harriet Lane", 416378, 1234251973, "2024-07-13T11:11:17Z", source)},
+        html={1234251973: html},
+    )
+    questions = [fs.Question(0, "Q?", ["https://en.wikipedia.org/wiki/Harriet_Lane"])]
+    assert fs.build_snapshot(questions, wiki).articles[0]["years_from_templates"] == ["2025"]

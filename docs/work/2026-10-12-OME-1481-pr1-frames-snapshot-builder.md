@@ -15,7 +15,7 @@ articles into every prompt. This unit adds the builder that fetches each gold ar
 at its last revision before 2024-09-19, turns the rendered page into plain text (body,
 headings, tables and infoboxes kept; references, navigation boxes, hatnotes and images
 dropped) and writes one JSONL snapshot the owner publishes on Hugging Face. The FRAMES Task
-(PR 2) then pins that snapshot by commit and sha256. Decisions 6 to 8 on OME-1481.
+(PR 2) then pins that snapshot by commit and sha256. Decisions 6 to 10 on OME-1481 (10: serve the drawn text, measured 2026-10-13).
 
 ## Planned changes
 
@@ -39,9 +39,17 @@ dropped) and writes one JSONL snapshot the owner publishes on Hugging Face. The 
   missing scheme, fragment, percent-encoding, two URLs glued with ", ", `index.php?title=`,
   the search URL and the `w.wiki` short link (explicit table), `simple.wikipedia.org`.
 - Revision resolution (fake API): the last revision before the cut-off wins; a redirect at
-  the cut-off is followed; a page moved after the cut-off is found through today's redirect;
-  a page with no revision before the cut-off is refused by name; all refusals are reported
-  together, and nothing is written.
+  the cut-off is followed; a page renamed after the cut-off is found through the move log by
+  its page id, never through today's redirect (which can be re-pointed: The Beatles
+  discography → The Beatles); only the first rename after the cut-off counts; a page with no
+  revision before the cut-off is refused by name; all refusals are reported together, and
+  nothing is written.
+- Known deleted pages (decision 9): the two named pages are listed on their question row as
+  missing, never refused; any other missing page is still refused.
+- The two odd links: a title percent-encoded twice (question 764) and a note pasted into the
+  URL (question 644) each resolve to their one page.
+- Each article row flags the years after the cut-off that only today's templates wrote
+  (`years_from_templates`), so the drift decision 10 accepts stays visible per article.
 - Writer: rows sorted, byte-identical on a re-run, each row lists every link spelling that
   maps to it, every revision timestamp before the cut-off.
 
@@ -53,7 +61,14 @@ dropped) and writes one JSONL snapshot the owner publishes on Hugging Face. The 
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** `apps/screamingface-engine/scripts/frames_snapshot.py`,
+  `apps/screamingface-engine/tests/unit/test_frames_snapshot.py`, fixtures under
+  `tests/unit/data/frames_snapshot/` (not `fixtures/` as planned).
+- **Commits:** the builder; then the move-log rename lookup, the known deleted pages, the two
+  odd links and the per-article `years_from_templates` flag (2026-10-13).
+- **Gates:** `tests/unit/test_frames_snapshot.py` 35 passed; ruff check + format and pyright
+  clean on both files. Full suite left to CI.
+- **Deviations:** renamed pages go through the move log by page id, not today's redirect (the
+  redirect test from the first commit was replaced: "The Beatles discography" now redirects
+  to "The Beatles"). The builder file is 658 lines, over the 450-line guideline. Not yet run
+  against live Wikipedia: the full build and the snapshot publish are still to do.

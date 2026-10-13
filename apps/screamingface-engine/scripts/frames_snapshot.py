@@ -11,9 +11,11 @@ Stages, in the order they run:
 
 1. Read the questions file at its pinned Hugging Face commit, checking its sha256.
 2. Clean every link into one page (``page_ref``): FRAMES spells links many ways (mobile host,
-   no scheme, a fragment, two URLs glued into one item, a search URL, a ``w.wiki`` short link).
+   no scheme, a fragment, two URLs glued into one item, a search URL, a ``w.wiki`` short link,
+   a title percent-encoded twice, a note pasted after the title).
 3. Find each page's last revision BEFORE the 2024-09-19 cut-off (``resolve_revision``),
-   following a redirect that was in place then, or today's redirect when the page moved later.
+   following a redirect that was in place then. A page renamed since is found through the
+   move log by its page id, never through today's redirect, which can be re-pointed.
 4. Fetch each revision's rendered HTML and turn it into text (``article_text``): body, headings,
    tables and infoboxes kept as pipe rows; references, navigation boxes, hatnotes, images and
    the reference sections dropped.
@@ -21,7 +23,9 @@ Stages, in the order they run:
    question: its articles in link order, and its prompt's sha256), then print their sha256s.
 
 Every refusal (a link with no page, a page with no revision before the cut-off) is collected
-and reported together, and nothing is written: an article is never silently dropped.
+and reported together, and nothing is written: an article is never silently dropped. The one
+exception is ``_DELETED``: two pages only Wikipedia admins can read, each named on its
+question row as missing (decision 9).
 
 Network: only ``huggingface.co`` (stage 1) and the Wikipedia API (stages 3-4), sequentially,
 with a User-Agent naming the project. Responses are cached under ``--cache-dir`` so a re-run
@@ -71,7 +75,22 @@ _LINK_PAGES: dict[str, tuple[str, str]] = {
     "https://w.wiki/ASFv": ("en.wikipedia.org", "Harry C. Bradley (actor)"),
     "https://en.wikipedia.org/w/index.php?search=Polytrichum+piliferum&title=Special:Search"
     "&profile=advanced&fulltext=1&ns0=1": ("en.wikipedia.org", "Polytrichum piliferum"),
+    # Question 644: a note to the question writers pasted into the URL after the title.
+    "https://en.wikipedia.org/wiki/Pok%C3%A9mon (NOT REQUIRED, BUT HELPFUL)": (
+        "en.wikipedia.org",
+        "Pokémon",
+    ),
 }
+# WHY a table (OME-1481 decision 9): these two gold articles were deleted, and a deleted
+# revision is readable only by Wikipedia admins. Refusing would block every build; dropping
+# them silently would hide it. Each is named on its question row instead, with the date it
+# was deleted (from the deletion log, checked 2026-10-13).
+_DELETED: dict[tuple[str, str], str] = {
+    ("en.wikipedia.org", "Nemanja Marković"): "2024-07-01",
+    ("en.wikipedia.org", "Jack Vance (tennis)"): "2024-11-15",
+}
+_YEAR: re.Pattern[str] = re.compile(r"\b20[2-9]\d\b")
+_FIRST_YEAR_AFTER_CUTOFF: int = 2025
 _GLUED: re.Pattern[str] = re.compile(r",\s*(?=(?:https?://|en\.))")
 _REDIRECT: re.Pattern[str] = re.compile(r"^\s*#REDIRECT\s*\[\[([^\]|#]+)", re.IGNORECASE)
 _MAX_REDIRECTS: int = 3
@@ -103,6 +122,8 @@ class Revision:
     page_id: int
     revision_id: int
     timestamp: str
+    # WHY kept: the revision's own wikitext tells which rendered years only a template wrote.
+    source: str = field(default="", compare=False, repr=False)
 
     @property
     def key(self) -> str:
@@ -170,7 +191,11 @@ def _title(parts: urllib.parse.SplitResult) -> str | None:
         raw = None if raw is None or raw.startswith("Special:") else raw
     if not raw:
         return None
-    title: str = urllib.parse.unquote(raw).replace("_", " ").strip()
+    # WHY until stable: question 764 encodes its apostrophe twice, %2527 -> %27 -> '.
+    title: str = urllib.parse.unquote(raw)
+    while (decoded := urllib.parse.unquote(title)) != title:
+        title = decoded
+    title = title.replace("_", " ").strip()
     return title[:1].upper() + title[1:]
 
 
@@ -178,59 +203,73 @@ def _title(parts: urllib.parse.SplitResult) -> str | None:
 
 
 def resolve_revision(wiki: Wiki, ref: PageRef, hops: int = 0) -> Revision:
-    """The last revision of ``ref`` before the cut-off, through any redirect.
+    """The last revision of ``ref`` before the cut-off, through any redirect or later rename.
 
-    A page that was a redirect at the cut-off is followed as it pointed THEN; a page with no
-    history before the cut-off (moved since, which moves its history too) is followed through
-    TODAY's redirect. Refuses after ``_MAX_REDIRECTS`` hops, so a redirect loop terminates.
+    A page that was a redirect at the cut-off is followed as it pointed THEN. A page renamed
+    after the cut-off took its whole history to the new title, so its old title has none
+    before the cut-off; the first rename logged after the cut-off names the page id, and the
+    revision is fetched by that id. Today's redirect at the old title is never followed: it
+    can be re-pointed ("The Beatles discography" now lands on "The Beatles"). Refuses after
+    ``_MAX_REDIRECTS`` hops, so a redirect loop terminates.
     """
     if hops > _MAX_REDIRECTS:
         raise SnapshotError(f"{ref.wiki}: {ref.title}: more than {_MAX_REDIRECTS} redirects")
-    page: dict[str, Any] = _revisions(wiki, ref)["query"]["pages"][0]
+    page: dict[str, Any] = _revisions(wiki, ref.wiki, {"titles": ref.title})
+    if not page.get("revisions"):
+        page = _revisions(wiki, ref.wiki, {"pageids": str(_renamed_page_id(wiki, ref))})
     revisions: list[dict[str, Any]] = page.get("revisions") or []
     if not revisions:
-        return resolve_revision(wiki, _moved_to(wiki, ref), hops + 1)
+        raise SnapshotError(f"{ref.wiki}: {ref.title}: no revision before the cut-off {CUTOFF}")
     revision: dict[str, Any] = revisions[0]
-    target: re.Match[str] | None = _REDIRECT.match(revision["slots"]["main"]["content"])
+    content: str = revision["slots"]["main"]["content"]
+    target: re.Match[str] | None = _REDIRECT.match(content)
     if target:
         return resolve_revision(wiki, PageRef(ref.wiki, target.group(1).strip()), hops + 1)
-    return _pinned(ref.wiki, page, revision)
+    return _pinned(ref.wiki, page, revision, content)
 
 
-def _revisions(wiki: Wiki, ref: PageRef) -> dict[str, Any]:
-    """Ask for the newest revision at or before the last second before the cut-off."""
+def _revisions(wiki: Wiki, on: str, page: dict[str, str]) -> dict[str, Any]:
+    """The page (named by title or by id) with its newest revision before the cut-off."""
     return wiki.get(
-        ref.wiki,
+        on,
         {
             "action": "query",
             "prop": "revisions",
-            "titles": ref.title,
+            **page,
             "rvprop": "ids|timestamp|content",
             "rvslots": "main",
             "rvlimit": "1",
             "rvdir": "older",
             "rvstart": _LAST_SECOND,
         },
-    )
+    )["query"]["pages"][0]
 
 
-def _moved_to(wiki: Wiki, ref: PageRef) -> PageRef:
-    """Where today's redirect at ``ref`` points; refuses a page that has none."""
-    answer: dict[str, Any] = wiki.get(
-        ref.wiki,
-        {
-            "action": "query",
-            "titles": ref.title,
-            "redirects": "1",
-        },
+def _renamed_page_id(wiki: Wiki, ref: PageRef) -> int:
+    """The id of the page renamed away from ``ref``'s title first after the cut-off."""
+    # INVARIANT: only the FIRST rename after the cut-off counts; an earlier rename moved a
+    # different page away, and a later one is a page that took the title over afterwards.
+    events: list[dict[str, Any]] = (
+        wiki.get(
+            ref.wiki,
+            {
+                "action": "query",
+                "list": "logevents",
+                "letype": "move",
+                "letitle": ref.title,
+                "lestart": CUTOFF,
+                "ledir": "newer",
+                "lelimit": "1",
+            },
+        )["query"].get("logevents")
+        or []
     )
-    redirects: list[dict[str, Any]] = answer["query"].get("redirects") or []
-    if not redirects:
+    if not events:
         raise SnapshotError(f"{ref.wiki}: {ref.title}: no revision before the cut-off {CUTOFF}")
-    return PageRef(ref.wiki, redirects[0]["to"])
+    return int(events[0]["logpage"])
 
 
-def _pinned(wiki: str, page: dict[str, Any], revision: dict[str, Any]) -> Revision:
+def _pinned(wiki: str, page: dict[str, Any], revision: dict[str, Any], source: str) -> Revision:
     """Build the pinned Revision, refusing one that is not strictly before the cut-off."""
     # INVARIANT: no snapshot article postdates the cut-off, whatever the API returned.
     if revision["timestamp"] >= CUTOFF:
@@ -238,7 +277,9 @@ def _pinned(wiki: str, page: dict[str, Any], revision: dict[str, Any]) -> Revisi
             f"{wiki}: {page['title']}: revision {revision['revid']} at {revision['timestamp']}"
             f" is not before the cut-off {CUTOFF}"
         )
-    return Revision(wiki, page["title"], page["pageid"], revision["revid"], revision["timestamp"])
+    return Revision(
+        wiki, page["title"], page["pageid"], revision["revid"], revision["timestamp"], source
+    )
 
 
 # --- stage 4: rendered HTML → text ----------------------------------------------------------
@@ -407,7 +448,7 @@ def build_snapshot(questions: Sequence[Question], wiki: Wiki) -> Snapshot:
     """
     refs, refusals = _page_refs(questions)
     revisions: dict[PageRef, Revision] = {}
-    for ref in sorted(set(refs.values())):
+    for ref in sorted(set(refs.values()) - _deleted_refs()):
         try:
             revisions[ref] = resolve_revision(wiki, ref)
         except SnapshotError as refused:
@@ -417,12 +458,18 @@ def build_snapshot(questions: Sequence[Question], wiki: Wiki) -> Snapshot:
     by_key: dict[str, Revision] = {revision.key: revision for revision in revisions.values()}
     links: dict[str, set[str]] = {key: set() for key in by_key}
     for link, ref in refs.items():
-        links[revisions[ref].key].add(link)
+        if ref in revisions:
+            links[revisions[ref].key].add(link)
     snapshot: Snapshot = Snapshot()
     for key in sorted(by_key, key=lambda k: (by_key[k].wiki, by_key[k].title, k)):
         snapshot.articles.append(_article_row(wiki, by_key[key], sorted(links[key])))
     snapshot.questions = [_question_row(q, refs, revisions) for q in questions]
     return snapshot
+
+
+def _deleted_refs() -> set[PageRef]:
+    """The known deleted pages, as the refs a cleaned link maps to."""
+    return {PageRef(wiki, title) for wiki, title in _DELETED}
 
 
 def _page_refs(questions: Sequence[Question]) -> tuple[dict[str, PageRef], list[str]]:
@@ -450,6 +497,7 @@ def _article_row(wiki: Wiki, revision: Revision, links: list[str]) -> dict[str, 
             "disablelimitreport": "1",
         },
     )
+    text: str = article_text(parsed["parse"]["text"]).rstrip("\n")
     return {
         "key": revision.key,
         "wiki": revision.wiki,
@@ -458,19 +506,36 @@ def _article_row(wiki: Wiki, revision: Revision, links: list[str]) -> dict[str, 
         "revision_id": revision.revision_id,
         "revision_timestamp": revision.timestamp,
         "links": links,
-        "text": article_text(parsed["parse"]["text"]).rstrip("\n"),
+        "text": text,
+        "years_from_templates": _years_from_templates(text, revision.source),
     }
+
+
+def _years_from_templates(text: str, source: str) -> list[str]:
+    """Years after the cut-off that the text shows but the revision's own source never writes.
+
+    Wikipedia draws an old revision with TODAY's templates (decision 10 accepts it), so a
+    2024 revision can read "equivalent to $14,300,000 in 2025". A year the source itself
+    writes, such as a planned 2026 event, is the editor's and is not flagged.
+    """
+    written: set[str] = set(_YEAR.findall(source))
+    return sorted({y for y in _YEAR.findall(text) if int(y) >= _FIRST_YEAR_AFTER_CUTOFF} - written)
 
 
 def _question_row(
     question: Question, refs: dict[str, PageRef], revisions: dict[PageRef, Revision]
 ) -> dict[str, Any]:
-    """One ``questions.jsonl`` row: its articles in link order, each once."""
-    keys: list[str] = [revisions[refs[link]].key for link in split_links(question.links)]
+    """One ``questions.jsonl`` row: its articles in link order, each once, and any it lacks."""
+    pages: list[PageRef] = list(dict.fromkeys(refs[link] for link in split_links(question.links)))
     return {
         "index": question.index,
         "prompt_sha256": hashlib.sha256(question.prompt.encode("utf-8")).hexdigest(),
-        "articles": list(dict.fromkeys(keys)),
+        "articles": list(dict.fromkeys(revisions[p].key for p in pages if p in revisions)),
+        "missing_articles": [
+            {"wiki": p.wiki, "title": p.title, "deleted": _DELETED[(p.wiki, p.title)]}
+            for p in pages
+            if p not in revisions
+        ],
     }
 
 
