@@ -495,9 +495,10 @@
       "Judge": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, model: 'str', *, returns: 'JudgeReturns', rubric: 'str', params: 'Mapping[str, str | int | float | bool] | None' = None) -> 'None'",
+          "__init__": "method (self, model: 'str', *, returns: 'JudgeReturns', rubric: 'str', params: 'Mapping[str, str | int | float | bool] | None' = None, order: \"Literal['max', 'min']\" = 'max') -> 'None'",
           "model": "field",
           "name": "field",
+          "order": "field",
           "params": "field",
           "returns": "field",
           "rubric": "field"
