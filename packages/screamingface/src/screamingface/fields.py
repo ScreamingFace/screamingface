@@ -497,6 +497,7 @@ class Pick(Reducer):
     order: Literal["max", "min"] | None
     equals: str | None
     normalize: FieldNormalizer | None
+    output: str | None
 
     def __init__(
         self,
@@ -506,6 +507,7 @@ class Pick(Reducer):
         order: Literal["max", "min"] | None = None,
         equals: str | int | float | bool | None = None,
         normalize: FieldNormalizer | None = None,
+        output: str | None = None,
     ) -> None:
         if (field is None) == (by_signal is None):
             raise ValueError(
@@ -526,6 +528,7 @@ class Pick(Reducer):
         object.__setattr__(self, "order", order)
         object.__setattr__(self, "equals", target)
         object.__setattr__(self, "normalize", chosen)
+        object.__setattr__(self, "output", output)
 
     def _plan(self) -> _ReducerPlan:
         if self.by_signal is not None:

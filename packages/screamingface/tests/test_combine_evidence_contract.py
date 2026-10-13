@@ -35,6 +35,8 @@ _EXPECTED_NAMES = {
     "merge_abstain",
     "merge_model_field",
     "pick",
+    "pick_output",
+    "pick_output_missing",
     "projection",
     "rank_by_judge",
     "rank_by_signal",
