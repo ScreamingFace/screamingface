@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-13
-finished:
+finished: 2026-10-13
 ---
 
 # e4b-filter-judge — Filter by judge score (`sf.Filter(..., judge=...)`)
@@ -58,7 +58,15 @@ The Engine does not change. CHAR tests pin its `filter@1` read of `score:judge`.
   `ST/test_filter_judge_url4_fixture.py`, `ET/test_combine_filter_judge.py`,
   `ET/test_sdk_filter_judge_contract.py`, and the signature-only stub in `S/selection.py`.
   The fixture data file and the pinned edits come in commit B.
-- **Commits:** commit A (RED), sha to be filled after commit.
+- **Commits:** A `397976023` (RED, ledger and tests); B `72e9b9f31` (GREEN, code, pinned edits,
+  fixture); C (docs, README and CHANGELOG, this ledger close-out).
+- **Commit B (GREEN) gate result:** `run_gates.py screamingface-engine`: ALL GATES GREEN.
+  `run_gates.py repo`: ALL GATES GREEN. `run_gates.py screamingface`: append-only lists exactly
+  `packages/screamingface/tests/test_filter.py` and `packages/screamingface/tests/public_surface_snapshot.json`;
+  with `--skip-append-only`: ALL GATES GREEN (4203 passed, 32 skipped, coverage 97%).
+- **Test edits after RED:** `tests/test_filter.py` line 343 (PINNED regex); `public_surface_snapshot.json`
+  (PINNED, regenerated: two Filter lines only); `tests/test_filter_judge.py` (triage condition 8: one
+  `SECRET not in` assertion for each block-form refusal in `test_sdk_filter_refuses_a_label_or_min_judge`).
 - **RED run (commit A, SDK focused and full suite):** 9 failed, 4194 passed, 32 skipped. The red
   tests are the 8 FJ tests and the public surface snapshot (expected, pinned in commit B).
 - **RED reasons (commit A):**
@@ -85,3 +93,7 @@ The Engine does not change. CHAR tests pin its `filter@1` read of `score:judge`.
   - FJ#11 block, repr and tampered checks are in their own test
     (`test_filter_block_and_repr_rebuild_the_judge_filter`), because the round-trip test hit ruff
     PLR0915. The assertions are the same.
+  - GREEN deviations: the `Filter` docstring had no `score:judge` sentence to change, so only the
+    judge paragraph was added. The README S10 threshold variant is a new row ("S10, threshold form"),
+    the same pattern as "S4, median form" and "S11, min form", and not an edit of the S10 cell. The
+    README recipe test (`-k readme_combine_recipes`) passes; it reads only code blocks.

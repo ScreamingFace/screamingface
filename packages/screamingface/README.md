@@ -724,16 +724,31 @@ plain `bool`, and a comparison is not a `bool` (`if sf.signal("cost_usd") < 1:` 
 `sf.signal("field:x") == True` also passes a member whose number is `1.0`, because a signal holds a
 float. A member with no value for the signal, or that failed to answer, is dropped.
 An accounting key (`cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`) reads the model calls of
-each member, and `sf.signal("score:judge")` is refused. A regex reads the original text of the
+each member, and `sf.signal("score:judge")` needs `judge=sf.Judge(..., returns="scores")` on the same Filter. A regex reads the original text of the
 member, never the extracted answer. `extract=` reads each answer first: a member whose answer
 cannot be read is dropped, and the report shows the value it read.
+
+A Filter can keep the members that a judge scores high enough. One judge call scores every
+member, and the Filter keeps each member whose score passes the test:
+
+```python
+judged = sf.Filter(
+    where=sf.signal("score:judge") >= 7,
+    judge=sf.Judge("openai/gpt-5.5", returns="scores", rubric="Score each draft from 0 to 10."),
+)
+```
+
+`where=sf.signal("score:judge")` and `judge=` go together: one without the other raises
+`ValueError`. The judge must return scores, and it is always told that a higher number is
+better (a judge with `order="min"` is refused). A judge reply that is not one finite score for
+each member fails the Case with `judge_reply_invalid`.
 
 A Filter that keeps no member abstains: its `combine` evidence has the result `abstain` with the
 reason `no_votes`, and the next stage gets an empty text. (The Case is not marked `abstained`, because
 a Filter is never the final step.) The report shows a pass mark in
 `members[].score` of the `combine` evidence: `1.0` when the member is kept, `0.0` when it is
 dropped, and `None` when the member failed to answer. The block form is
-`sf.Reduce("filter", where=..., extract=...)`. The place rules of "Rank and Concat selections" apply
+`sf.Reduce("filter", where=..., extract=..., judge=...)`. The place rules of "Rank and Concat selections" apply
 to a Filter too. This needs an Engine whose operator catalog has `filter@1` and `kept@1`.
 
 ### Combine recipes
@@ -756,6 +771,7 @@ another member writes 0.8.
 | S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` |
 | S9 | Keep the answers with a confidence above 0.7, then a writer combines them | `s9_confident_only` |
 | S10 | A judge scores each answer, keep the best 2, then a writer combines them | `s10_judge_top` |
+| S10, threshold form | A judge scores each answer, keep the answers with a score of 7 or more (see "Filter selection") | `sf.Filter(where=sf.signal("score:judge") >= 7, judge=sf.Judge(m, returns="scores", rubric=R))` |
 | S11 | A judge scores each answer and returns the best answer | `s11_judge_best` |
 | S11, min form | A judge scores each answer with a lower number as better, and returns the answer with the lowest score | `sf.Judge(m, returns="scores", rubric=R, order="min")` |
 
