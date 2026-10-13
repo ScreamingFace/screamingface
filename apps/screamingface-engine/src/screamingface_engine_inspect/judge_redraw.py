@@ -22,7 +22,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Final
 
-from inspect_ai.model import ChatMessage, Model, ModelOutput
+from inspect_ai.model import ChatMessage, GenerateConfig, Model, ModelOutput
 
 from screamingface_engine_inspect.judge_provider import JudgeReplyBlank, fresh_judge_draw
 
@@ -91,6 +91,7 @@ async def judge_until_parsed[Verdict](
     parse: Callable[[str], Verdict | None],
     *,
     item: str,
+    judge_pass: int | None = None,
 ) -> JudgedItem[Verdict]:
     """Ask the judge about one item, and ask again while its reply won't parse.
 
@@ -102,7 +103,8 @@ async def judge_until_parsed[Verdict](
 
     1. Ask: send ``prompt`` with inspect's cache off (``cache=False``), so an eval-level
        ``GenerateConfig(cache=True)`` can't replay a reply. The first ask otherwise behaves
-       like any judge call, AI Gateway cache included.
+       like any judge call, AI Gateway cache included. With ``judge_pass``, every draw
+       names that pass, so the provider sends the pass's seed (OME-1527 R12).
     2. Parse: ``parse`` returns the verdict, or ``None`` when the reply is unparseable. A
        blank reply never reaches ``parse``: the provider refuses it as
        :class:`JudgeReplyBlank`, which counts here as unparseable too.
@@ -110,7 +112,8 @@ async def judge_until_parsed[Verdict](
        a. after an unparseable reply, a REDRAW inside :func:`fresh_judge_draw`, which makes
           the gateway skip its exact-request cache. Gotcha: the redraw is the SAME bytes as
           the first ask, so without the opt-out the cache would hand back the same broken
-          text. Once a reply failed to parse, every later ask stays fresh, because the cache
+          text. A redraw inside pass ``k`` keeps pass ``k``'s seed: only the cache policy
+          changes. Once a reply failed to parse, every later ask stays fresh, because the cache
           still holds that broken reply. Limit: a judge pinned at ``temperature=0`` can send
           the same bad reply again; redrawing pays off when the judge samples.
        b. after a temporary gateway failure (429 or 5xx, ``permanent=False``), a RETRY after
@@ -135,6 +138,9 @@ async def judge_until_parsed[Verdict](
         parse: reply text → verdict; ``None`` means "no verdict in this reply". It must not
             raise for a merely malformed reply, or the item fails without a redraw.
         item: names the item in the error (e.g. ``"case 7 rubric r2"``).
+        judge_pass: the judge pass this item belongs to, sent as ``GenerateConfig(seed=k)``
+            on every draw; only a row declaring ``JudgeSpec(seed_per_pass=True)`` admits it.
+            ``None`` (the default) sends no seed, as before.
 
     Returns:
         The parsed verdict and the number of redraws it took.
@@ -145,15 +151,16 @@ async def judge_until_parsed[Verdict](
     """
 
     reply: str = ""
+    config: GenerateConfig = GenerateConfig(seed=judge_pass)
     unparseable: int = 0
     for ask in range(1 + MAX_JUDGE_REDRAWS):
         # Stage 1 / 3a — ask; once a reply failed to parse, every ask leaves the gateway cache.
         try:
             if unparseable:
                 with fresh_judge_draw():
-                    output: ModelOutput = await judge.generate(prompt, cache=False)
+                    output: ModelOutput = await judge.generate(prompt, config=config, cache=False)
             else:
-                output = await judge.generate(prompt, cache=False)
+                output = await judge.generate(prompt, config=config, cache=False)
         except JudgeReplyBlank:
             # Stage 2 — a blank reply has no verdict: unparseable, so it costs a redraw.
             reply = ""

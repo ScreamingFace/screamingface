@@ -53,6 +53,7 @@ from screamingface_engine_inspect.provenance_facts import read_provenance_facts
 if TYPE_CHECKING:
     # WHY type-only: import_replay imports this module, so a runtime import would cycle.
     from screamingface_engine_inspect.import_replay import TaskReplayImport
+    from screamingface_engine_inspect.single_shot import RetrievalPolicyDeclaration
 
 #: Dataset licenses cleared for the public catalogue. A card naming any other is written as
 #: TODO with the card's value in the review note, for the owner to decide (D13).
@@ -856,6 +857,21 @@ def _add_task_replay_arguments(parser: argparse.ArgumentParser) -> None:
         "name: the one that is the Benchmark's headline score, e.g. f1; the others are "
         "published beside it as run metrics (OME-1527)",
     )
+    parser.add_argument(
+        "--retrieval-policy",
+        default=None,
+        metavar="ID",
+        help="the exam lets the Candidate search the web under this named policy, e.g. "
+        "draco/reproduction; needs --retrieval-excluded-domain (OME-1527)",
+    )
+    parser.add_argument(
+        "--retrieval-excluded-domain",
+        action="append",
+        default=[],
+        metavar="DOMAIN",
+        help="with --retrieval-policy, a bare domain the Candidate must never reach "
+        "(repeatable), e.g. arxiv.org",
+    )
 
 
 def _import_by_task_replay_cli(
@@ -889,6 +905,7 @@ def _import_by_task_replay_cli(
             "--whole-run-headline names a number the honoured whole-run metric returns; it "
             "needs --whole-run-metric honour"
         )
+    retrieval_policy: RetrievalPolicyDeclaration | None = _retrieval_policy_of(args)
     empty_key_option: dict[str, Any] = (
         {"empty_answer_key_allowed": True} if args.empty_answer_key_allowed else {}
     )
@@ -916,6 +933,7 @@ def _import_by_task_replay_cli(
         card_license=card.card_says,
         provenance=read_provenance_facts(args.task_ref, fetch=arxiv_fetch),
         whole_run_headline=args.whole_run_headline,
+        retrieval_policy=retrieval_policy,
     )
     sources: str = "\n".join(f"  {source.as_comment()}" for source in imported.case_sources)
     print(
@@ -928,6 +946,25 @@ def _import_by_task_replay_cli(
         "a human decides the license and reviews the diff before merge.",
         file=sys.stderr,
     )
+
+
+def _retrieval_policy_of(args: argparse.Namespace) -> RetrievalPolicyDeclaration | None:
+    """The row's retrieval policy from its two flags, refused before any replay runs."""
+
+    if args.retrieval_policy is None:
+        if args.retrieval_excluded_domain:
+            raise ImporterError("--retrieval-excluded-domain needs --retrieval-policy")
+        return None
+    # WHY lazy: single_shot pulls in the Engine's benchmark modules, which only this flag needs.
+    from screamingface_engine_inspect.single_shot import RetrievalPolicyDeclaration
+
+    try:
+        return RetrievalPolicyDeclaration(
+            policy_id=args.retrieval_policy,
+            excluded_domains=tuple(args.retrieval_excluded_domain),
+        )
+    except ValueError as exc:
+        raise ImporterError(str(exc)) from None
 
 
 def _parse_task_args(pairs: list[str]) -> dict[str, Any]:

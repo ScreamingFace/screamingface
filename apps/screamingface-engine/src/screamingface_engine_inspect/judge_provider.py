@@ -19,7 +19,9 @@ Stages, in execution order (see :meth:`_GatewayJudgeModelAPI.generate`):
               loudly, a judge call may NEVER leave the engine except through the
               node's model route; a tool-bearing call refuses (plain chat only);
               and any config field outside the transport allowlist refuses by
-              name — the wire carries only the row's pinned params.
+              name — the wire carries only the row's pinned params. One
+              exception, on a row that declares judge passes: ``seed`` is read
+              as the pass number and sent as the pass's seed (OME-1527 R12).
     Stage 2 — fold the judge's chat messages into the candidate input envelope
               (``screamingface.candidate-input.v1``), the exact shape the
               connector's ``_messages`` decoder reads. Tool messages refuse —
@@ -46,7 +48,7 @@ import json
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 from inspect_ai.model import (
     ChatMessage,
@@ -66,6 +68,7 @@ from inspect_ai.tool import ToolChoice, ToolInfo
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.request_scope import RequestScope, current_scope, request_scope
 from screamingface_engine.world.fresh_judge_retry import without_gateway_cache
+from screamingface_engine.world.request_parameters import ANSWER_SEED_PARAM
 from url4.wire.subrequest import encode_subrequest
 
 #: One in-process node fetch: a relative sub-request URL in, the completion text out.
@@ -77,6 +80,11 @@ PROVIDER_NAME = "screamingface"
 #: Chat roles the candidate input envelope admits — the connector's own closed set
 #: minus "developer", which inspect's message types never produce.
 _ENVELOPE_ROLES = frozenset({"system", "user", "assistant"})
+
+#: The highest judge pass a scorer may name. Far above any pass count a Benchmark declares
+#: (draco grades 5), and low enough that a real seed (a hash, a timestamp) refuses instead of
+#: passing as a pass number.
+MAX_JUDGE_PASS: Final[int] = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +104,10 @@ class JudgeTransport:
     #: judge call registers against its Case's evidence, so the run's payload-free
     #: grading join attributes the judge's tokens/cost/latency per Case.
     benchmark_id: str | None = None
+    #: The row grades over judge passes (OME-1527 R12): a scorer may then name pass ``k`` as
+    #: ``GenerateConfig(seed=k)``, sent as ``seed=k`` after the pinned params. False refuses
+    #: a scorer's seed like any other grade-affecting setting.
+    seed_per_pass: bool = False
 
 
 class JudgeReplyBlank(RuntimeError):
@@ -214,7 +226,8 @@ class _GatewayJudgeModelAPI(ModelAPI):
             tool_choice: ignored; meaningless once ``tools`` is refused.
             config: inspect's per-call settings; only transport-level fields are
                 allowed (Stage 1) — grade-affecting ones belong in the row's
-                pinned params.
+                pinned params. On a row with ``seed_per_pass``, ``seed`` is the judge
+                pass number (``0..MAX_JUDGE_PASS``).
 
         Returns:
             The completion text as inspect's ``ModelOutput``.
@@ -233,7 +246,15 @@ class _GatewayJudgeModelAPI(ModelAPI):
                 "scope); a call graded without its requested tools would be a "
                 "silently different exam (OME-1240)"
             )
-        _refuse_config_overrides(config)
+        # A row that declares judge passes admits GenerateConfig.seed as the pass number;
+        # every other row refuses it with the rest.
+        allowed: frozenset[str] = (
+            _TRANSPORT_CONFIG_FIELDS | {"seed"}
+            if transport.seed_per_pass
+            else _TRANSPORT_CONFIG_FIELDS
+        )
+        _refuse_config_overrides(config, allowed)
+        params: tuple[tuple[str, str], ...] = _params_with_pass_seed(transport, config.seed)
         # Stage 2-3 — envelope the messages, call the route.
         context: str = json.dumps(
             {
@@ -242,10 +263,8 @@ class _GatewayJudgeModelAPI(ModelAPI):
             },
             separators=(",", ":"),
         )
-        target: str = encode_subrequest(
-            "/" + self.model_name, context, None, tuple(transport.params)
-        )
-        _register_against_the_case(transport, "/" + self.model_name, context)
+        target: str = encode_subrequest("/" + self.model_name, context, None, params)
+        _register_against_the_case(transport, "/" + self.model_name, params, context)
         with _gateway_cache_opt_out() if _fresh_draw.get() else nullcontext():
             completion: str = await transport.fetch(target)
         if not completion.strip():
@@ -283,8 +302,8 @@ _TRANSPORT_CONFIG_FIELDS = frozenset(
 )
 
 
-def _refuse_config_overrides(config: GenerateConfig) -> None:
-    """Refuse any eval-supplied setting outside the transport allowlist, by name.
+def _refuse_config_overrides(config: GenerateConfig, allowed: frozenset[str]) -> None:
+    """Refuse any eval-supplied setting outside the ``allowed`` fields, by name.
 
     WHY allow-then-refuse (never a forbidden list): the transport sends only the
     JudgeSpec's pinned params, so an unlisted field is a field the judge silently
@@ -295,7 +314,7 @@ def _refuse_config_overrides(config: GenerateConfig) -> None:
     overridden: list[str] = sorted(
         name
         for name, value in config.model_dump().items()
-        if value is not None and name not in _TRANSPORT_CONFIG_FIELDS
+        if value is not None and name not in allowed
     )
     if overridden:
         raise RuntimeError(
@@ -305,13 +324,41 @@ def _refuse_config_overrides(config: GenerateConfig) -> None:
         )
 
 
-def _register_against_the_case(transport: JudgeTransport, path: str, context: str) -> None:
+def _params_with_pass_seed(
+    transport: JudgeTransport, judge_pass: int | None
+) -> tuple[tuple[str, str], ...]:
+    """The wire params of one judge call: the row's pins, then the pass's seed if one is named.
+
+    Think of the passes as numbered exam copies: pass ``k`` is stamped ``seed=k``, so the
+    gateway's exact-request cache files each pass under its own slot. Worked example: pins
+    ``(("temperature", "0"),)`` and ``GenerateConfig(seed=2)`` → ``(("temperature", "0"),
+    ("seed", "2"))``. WHY the pass number itself is the seed: it is the hand-built draco
+    judge's own mapping (``(*JUDGE_PARAMS, ("seed", str(run)))``), stable across reruns, so a
+    rerun may reuse a pass's slot while two passes of one run never share one. Only reached
+    with a seed on a ``seed_per_pass`` transport; Stage 1 refused it everywhere else.
+    """
+
+    if judge_pass is None:
+        return tuple(transport.params)
+    if not 0 <= judge_pass <= MAX_JUDGE_PASS:
+        raise RuntimeError(
+            f"the scorer sent seed={judge_pass}, which is not a judge pass number "
+            f"(0..{MAX_JUDGE_PASS}) — on this row the seed names the judge pass, and the "
+            "pass number becomes the pinned seed (OME-1527 R12)"
+        )
+    return (*transport.params, (ANSWER_SEED_PARAM, str(judge_pass)))
+
+
+def _register_against_the_case(
+    transport: JudgeTransport, path: str, params: Sequence[tuple[str, str]], context: str
+) -> None:
     """Key this judge call to its Case's evidence for the run's accounting join.
 
     The identity must be byte-identical to what the connector records
     (``operation_call_identity`` on the decoded Request): the path, the decoded
     params, the envelope context, and the empty intent the wire carries when
-    ``encode_subrequest`` is given none. The owner names the scorer adapter's fixed
+    ``encode_subrequest`` is given none. ``params`` are the call's own (a pass's seed
+    included), never only the row's pins. The owner names the scorer adapter's fixed
     evidence shape (one check "1", sequence 1). A no-op outside a run's capture
     or when the transport carries no benchmark — tests and the draft-feedback offer stay
     join-free.
@@ -334,7 +381,7 @@ def _register_against_the_case(transport: JudgeTransport, path: str, context: st
             sequence=1,
         ),
         path=path,
-        params=dict(transport.params),
+        params=dict(params),
         context=context,
         intent="",
     )
@@ -353,6 +400,7 @@ def _message(message: ChatMessage) -> dict[str, str]:
 
 
 __all__ = [
+    "MAX_JUDGE_PASS",
     "PROVIDER_NAME",
     "JudgeFetch",
     "JudgeReplyBlank",
