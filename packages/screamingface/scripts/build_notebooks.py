@@ -1956,6 +1956,10 @@ Reasoning helps on these puzzles, so leave a lot of room in `max_tokens`."""),
 PARAMS = {"max_tokens": 32768}
 
 solo = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+solo"""),
+        nbformat.v4.new_markdown_cell("""\
+⚠️ Running the below code will cost money 💵"""),
+        nbformat.v4.new_code_cell("""\
 report = sf.evaluate(solo, benchmark="arc_agi_2", limit=5)
 report"""),
         nbformat.v4.new_markdown_cell("""\
@@ -1991,8 +1995,11 @@ synth = sf.Model(
     model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
 )
 panel = sf.Fusion(name="arc_panel", members=[member1, member2], synthesizer=synth)
-
-fusion_report = sf.evaluate(panel, benchmark="arc_agi_2", limit=5)
+panel"""),
+        nbformat.v4.new_markdown_cell("""\
+⚠️ Running the below code will cost money 💵"""),
+        nbformat.v4.new_code_cell("""\
+fusion_report = sf.evaluate(panel, benchmark="arc_agi_2", limit=2)
 fusion_report"""),
         nbformat.v4.new_markdown_cell("""\
 ## 5. Before you scale up
