@@ -250,7 +250,7 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
             "median", ("select", "compute"), ("extract",), ("weights",), named="sf.Median"
         ),
         "mean": _OpRow("mean", ("compute", "select"), ("extract",), ("weights",), named="sf.Mean"),
-        "judge": _OpRow("judge", ("select",), ("judge",), ("rubric",), named="sf.Judge"),
+        "judge": _OpRow("judge", ("select",), ("judge",), ("rubric", "order"), named="sf.Judge"),
         "merge": _OpRow("merge", ("compute",), ("fields",), named="sf.Merge"),
         "context": _OpRow("context", ("compute",), (), named="the Fusion recipe rewrite"),
     }

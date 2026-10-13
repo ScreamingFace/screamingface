@@ -330,7 +330,11 @@ def _refuse_min_order_judge(judge: Judge, label: str) -> None:
     order=), so a second order would conflict. The message never echoes the rubric.
     """
 
-    del judge, label  # STUB (unit 5 commit A): no check yet
+    if judge.order == "min":
+        raise ValueError(
+            f"{label} cannot use sf.Judge(..., order='min'): a judge with order='min' works only "
+            "as the Fusion synthesizer; give this judge the default order='max'"
+        )
 
 
 def _check_judge_weights(weights: object, judge: object, label: str) -> None:
@@ -350,6 +354,7 @@ def _check_judge_weights(weights: object, judge: object, label: str) -> None:
                 f"{label} judge needs sf.Judge(..., returns='scores'): "
                 "the vote reads one score per member"
             )
+        _refuse_min_order_judge(judge, label)
         if not _reads_judge(weights):
             raise ValueError(f"{label} judge is read only by weights=sf.signal('score:judge')")
     elif _reads_judge(weights):
