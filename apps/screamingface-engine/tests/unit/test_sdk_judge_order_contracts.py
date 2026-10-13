@@ -79,9 +79,9 @@ async def test_engine_runs_sdk_judge_order_min_and_returns_the_lowest_member_tex
     assert len(judge_calls) == 1
     system = judge_calls[0]["messages"][0]
     assert system["role"] == "system"
-    # WHY " " between the first line and the text: the url4 carries a newline of the intent text
-    # as a line separator; see test_sdk_candidate_contracts.py.
+    # WHY U+2028: url4 carries a newline of the intent text as a line separator; see
+    # test_sdk_candidate_contracts.py.
     assert system["content"].startswith(
-        "judge-template@1 returns=scores order=min You are a judge."
+        "judge-template@1 returns=scores order=min You are a judge."
     )
     assert "A lower number means a better answer." in system["content"]
