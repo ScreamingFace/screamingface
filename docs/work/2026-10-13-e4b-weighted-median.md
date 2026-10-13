@@ -95,6 +95,24 @@ url4 bytes. PRD: `docs/spec/2026-10-13-e4b-combine-extensions/prd/weighted-media
   - The RED check (§5.2) was not run again in this session. The RED evidence below comes from
     commit A.
   - Commit B has no ledger change. The spec puts the Outcome after the gates.
+  - The `weighted_median` descriptor text adds "; a member with no usable weight is dropped." to
+    the spec text. It matches the `weighted_mean` sibling.
+
+## Review fixes (fix commit)
+
+- Docs only: README cross-reference now says "above". The Weights paragraph is reflowed and names
+  `sf.Median`. The S4 median row no longer has the "(inline, not in the code block)" note.
+- No code or test change.
+- Open for the owner: approval of the two `test_combine_spec.py` edits. They are not in the
+  pre-approved list. `test_only_the_vote_reducer_takes_weights` now leaves out `median`. The
+  block in `test_weights_accept_a_signal_ref_and_reject_unknown_keys` now uses `reducer="pick"`
+  instead of `reducer="median"`. Both edits follow the Q5 `REDUCER_RULES` change.
+- Open for the owner: the `test_signal_weighted_vote.py` edit covers more than lines 32-35. It
+  also changes the module docstring INVARIANT and removes the block-refusal pin for
+  `option 'weights'`. Show the full diff at approval.
+- Optional, not done: rename `test_only_the_vote_reducer_takes_weights`. Refactor the duplicated
+  weight filter in `weighted_mode`, `weighted_mean` and `weighted_median`. Unify the Median and
+  Mean idioms in the SDK.
 
 ## RED evidence (commit A)
 
