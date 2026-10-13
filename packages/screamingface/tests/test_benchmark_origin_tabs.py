@@ -25,7 +25,7 @@ import screamingface as sf
 from screamingface.discovery import Benchmark
 from screamingface.errors import PlanningError
 
-LEADERBOARD_URL = "https://leaderboard.dev.screamingface.ai/"
+LEADERBOARD_URL = "https://leaderboard.screamingface.ai/"
 INSPECT_EVALS_URL = "https://ukgovernmentbeis.github.io/inspect_evals/"
 
 
