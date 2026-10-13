@@ -17,4 +17,4 @@ and frontierscience local runs) to prod unchanged, so prod reruns of those board
 Follows `OME-1526` (dev → prod).
 
 - 2026-10-13: filed and started; source inspected, offline delta = all 120,198 rows new.
-- 2026-10-13: done. 120,174 rows loaded into prod (insert-only, 24 prod-held keys kept); verified in-pod; probe on gdpval-text and frontierscience: 0 misses, $0.
+- 2026-10-13: done. 120,174 rows loaded into prod (insert-only, 24 prod-held keys kept); verified in-pod; probes on gdpval-text, frontierscience and contracteval: 0 misses, $0.

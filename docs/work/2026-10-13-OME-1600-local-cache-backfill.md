@@ -77,8 +77,11 @@ No repo code changes. Operational steps:
   24 excluded keys still hold prod's own answers.
 - **Probe (one case each, SDK 0.1.2, prod engine, never submitted):** gdpval-text 56 hits / 0 misses /
   $0 spend (saved $0.85, all priced); inspect-frontierscience 1 hit / 0 misses / $0, but the case
-  scored null (judge not reached; cause not checked). contracteval not probed: its stored summaries
-  carry no recipe.
+  scored null (judge not reached; cause not checked).
+- **Probe 2 (2026-10-14, same setup, never submitted):** inspect-frontierscience 3 cases, 5 hits /
+  0 misses / $0, score 0.6 (case 1 failed again, cases 2-3 scored); contracteval 2 cases with the
+  rebuilt `claude-fable-5.1` recipe (same `max_tokens=32768`, `reasoning_effort=high` as the stored
+  recipes), 2 hits / 0 misses / $0, score 1.0. All three boards hit with 0 misses.
 - **Commits:** the docs PR that lands this ledger and the mirror.
 - **Gates:** docs only; CI on the PR.
 - **Deviations:** the 24 keys prod already held (different answers) were excluded by owner decision,
