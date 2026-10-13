@@ -1,0 +1,46 @@
+{
+  "issue": "OME-E4B-mean",
+  "branch": "e4b-mean",
+  "approver": "owner",
+  "date": "2026-10-13",
+  "scope": "Unit 3 (mean): additive mean entries in the combine-spec and combine-evidence v1 schemas, evidence_cases.json and the flow fixtures; new mean scenarios in the evidence contract tests and the coverage check; the public-surface snapshot adds sf.Mean; the frozen-record field list adds mean; test_blocks_reduce uses 'trimmed_mean' as its unknown op because 'mean' is now valid.",
+  "reason": "Owner approved these pinned test edits in chat on 2026-10-13 (E4b part 1, plan section 6 plus the errata the build reported). The issue id and branch are placeholders until the Linear issue is filed at PR-open; rename the file and update issue and branch then.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json": {
+      "base_blob": "d887d258ea6240fd743c521ec7a4537b5374457c",
+      "approved_blob": "f97795862b12edcf15500759df28754f3a39f19d"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "1ea397c4ad6ee207cdb294b9d73f4e9210a1ad8a",
+      "approved_blob": "26cb38e59b53ce740af29129f2423a597ec9a084"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json": {
+      "base_blob": "8771ccbf726a11adf2b02a95c3326f1484705391",
+      "approved_blob": "c36a0d394e6edcaab5dc205fbfdae4b68eece1c6"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_evidence_contract_fixture.py": {
+      "base_blob": "3c1f26b9e6d667847bc89361187d4264b69425fa",
+      "approved_blob": "d54833d8e1eb2f84ca782d828de56ef461840a58"
+    },
+    "packages/screamingface/tests/_combine_flow_fixtures.py": {
+      "base_blob": "b1e31955174e4aa22012bce7b09cddcd7afca3b1",
+      "approved_blob": "7fdfa77ee0f429111d1abe0cb9c0fe57befce72d"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "a58b973a3778b281ec6a1183db8935ae74a6657c",
+      "approved_blob": "e562d0d28901596ea980b39c018ddba504475499"
+    },
+    "packages/screamingface/tests/test_blocks_reduce.py": {
+      "base_blob": "34a0015d02809e9e5f786787cee587f29986647d",
+      "approved_blob": "839288828f8c2d82c65846444810584a34778c09"
+    },
+    "packages/screamingface/tests/test_combine_evidence_contract.py": {
+      "base_blob": "f2cc7e0feb6413805786ddad7a16bf9585f52c1f",
+      "approved_blob": "2e188a0e2fa9ba5f6b1b959418e7f0d6dc4eb919"
+    },
+    "packages/screamingface/tests/test_frozen_record_fields.py": {
+      "base_blob": "82ed5776236a206e304aa5a416c9f3ea040b3128",
+      "approved_blob": "e6f801b00132b32815ab7872c940bd6d9917c7ce"
+    }
+  }
+}
