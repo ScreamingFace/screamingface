@@ -264,3 +264,16 @@ class CredentialAuthorityUnavailable(ProviderAccessRefusal):
     def __init__(self, provider: str) -> None:
         super().__init__(f"credential authority for {provider} is unavailable")
         self.provider = provider
+
+
+class PairNotManageable(ProviderAccessRefusal):
+    """A mutation on a pair the successor cannot address (`ambiguous`) or manage (`unresolved`).
+
+    # INVARIANT: refused before any write and before the provider key check; part 3 of G1 lets
+    # the legacy OAuth shadow identity proof turn one `unresolved` shape into a mutation.
+    """
+
+    def __init__(self, provider: str, kind: Literal["ambiguous", "unresolved"]) -> None:
+        super().__init__(f"credential pair for {provider} is {kind}")
+        self.provider = provider
+        self.kind: Literal["ambiguous", "unresolved"] = kind

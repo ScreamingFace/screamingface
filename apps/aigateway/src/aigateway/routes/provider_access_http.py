@@ -19,6 +19,7 @@ from ..core.provider_access import (
     CredentialStoreReadUnavailable,
     CredentialStoreUnavailable,
     PairConflict,
+    PairNotManageable,
     ProviderAccessRefusal,
     ProviderUnknown,
     Selector,
@@ -213,6 +214,8 @@ _PAIR_CONFLICT_MESSAGES = {
     ),
 }
 _STORE_READ_MESSAGE = "Credential store is temporarily unavailable. Try again."
+_WRITE_CONFLICT_MESSAGE = "Credential update conflicted. Try again."
+_SUPERSEDED_MESSAGE = "Credential state changed. Reload before submitting another change."
 _AUTHORITY_MESSAGE = "Credential state is temporarily unavailable. Retry later."
 
 
@@ -238,7 +241,38 @@ def render_successor_refusal(exc: ProviderAccessRefusal) -> HTTPException:
                 "provider": exc.provider,
             },
         )
+    if isinstance(exc, PairNotManageable):
+        return HTTPException(
+            status_code=409, detail=pair_conflict_detail(PairConflict(exc.provider, exc.kind))
+        )
+    if isinstance(exc, WriteConflict):
+        return _successor_write_conflict(exc)
     return render_refusal(exc)
+
+
+def _successor_write_conflict(exc: WriteConflict) -> HTTPException:
+    """Both legacy subjects collapse to one superseded 409 (§7); retry exhaustion stays a 503.
+
+    # WHY no subject split: the successor has no Profile or Connection vocabulary — a client only
+    # needs to know whether to retry (503) or reload (409). A superseded 409 is never retried.
+    """
+    if exc.kind == "retry_exhausted":
+        return HTTPException(
+            status_code=503,
+            detail={
+                "code": "credential_write_conflict",
+                "message": _WRITE_CONFLICT_MESSAGE,
+                "provider": exc.provider,
+            },
+        )
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "credential_publication_superseded",
+            "message": _SUPERSEDED_MESSAGE,
+            "provider": exc.provider,
+        },
+    )
 
 
 @contextmanager

@@ -9,7 +9,7 @@
 # INVARIANT: unknown or inconsistent stored state raises `CredentialAuthorityUnavailable`; it is
 # never rendered as a credential or as its absence. Only expected storage failures become
 # `CredentialStoreReadUnavailable`; a programming error propagates.
-# AIDEV-NOTE: the G1 mutations (PUT/DELETE through the bridge, the shadow identity proof) reuse
+# NOTE: the G1 mutations (PUT/DELETE through the bridge, the shadow identity proof) reuse
 # `classify_pair`; its `row` is the §5 row number, so a mutation dispatches on the same table.
 """
 
@@ -215,14 +215,18 @@ def listing(disposition: PairDisposition) -> PairCredential | PairConflict | Non
             document.last_refreshed_at,
         )
     if disposition.row in (5, 9) and disposition.connection is not None:
-        connection = disposition.connection
-        return PairCredential(
-            provider,
-            _AUTH_TYPES[connection.auth_type],
-            _STATE_FOR_STATUS[connection.status],
-            connection.last_refreshed_at,
-        )
+        return connection_credential(disposition.connection)
     return None
+
+
+def connection_credential(connection: OAuthConnection) -> PairCredential:
+    """The neutral view of a Connection that `_require_known` (or a write) has vetted."""
+    return PairCredential(
+        connection.provider,
+        _AUTH_TYPES[connection.auth_type],
+        _STATE_FOR_STATUS[connection.status],
+        connection.last_refreshed_at,
+    )
 
 
 @contextmanager
@@ -252,8 +256,7 @@ async def pair_inventory(app: Any, account_id: str) -> PairInventory:
                 | {provider for provider, _generation in before}
             )
             authorities = {
-                provider: await _read_marker(markers, account_id, provider)
-                for provider in providers
+                provider: await read_marker(markers, account_id, provider) for provider in providers
             }
             after = await _read_generations(markers, account_id)
         if _stable_inventory_snapshot(before, after, authorities):
@@ -301,9 +304,7 @@ def _project_inventory(
     return PairInventory(tuple(credentials), tuple(conflicts))
 
 
-async def _read_marker(
-    markers: PairAuthorityStore, account_id: str, provider: str
-) -> PairAuthority:
+async def read_marker(markers: PairAuthorityStore, account_id: str, provider: str) -> PairAuthority:
     try:
         return await markers.read(account_id, provider)
     except ValueError as exc:
@@ -332,7 +333,9 @@ __all__ = [
     "PairDisposition",
     "PairInventory",
     "classify_pair",
+    "connection_credential",
     "listing",
     "pair_inventory",
+    "read_marker",
     "store_reads",
 ]
