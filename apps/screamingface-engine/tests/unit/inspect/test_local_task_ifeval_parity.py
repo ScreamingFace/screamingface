@@ -39,6 +39,7 @@ import json
 import random
 from importlib import resources
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -179,7 +180,9 @@ def test_global_metrics_match_the_official_formulas() -> None:
             response,
         )
         scores.append(SampleScore(score=Score(value=0, metadata={"instructions": records})))
-    ours = ifeval_accuracy()(scores)
+    # Any: inspect types a metric's input as list[Score]; it is handed SampleScores at run time.
+    tally: Any = ifeval_accuracy()
+    ours = tally(scores)
 
     # The headline is prompt-level strict; the other three are pooled exactly as the reference
     # pools them. The metric rounds to 4 decimals for presentation — the reference does not — so

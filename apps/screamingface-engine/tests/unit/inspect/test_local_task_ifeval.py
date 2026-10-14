@@ -265,9 +265,9 @@ def test_instruction_level_accuracy_is_pooled_over_the_runs_instructions() -> No
         ]
         return SampleScore(score=Score(value=0, metadata={"instructions": records}))
 
-    numbers: Any = ifeval_accuracy()(
-        [case([True], [True]), case([False] * 3, [True, False, False])]
-    )
+    # Any: inspect types a metric's input as list[Score]; it is handed SampleScores at run time.
+    tally: Any = ifeval_accuracy()
+    numbers: Any = tally([case([True], [True]), case([False] * 3, [True, False, False])])
 
     assert numbers == {
         "prompt_level_strict_accuracy": 0.5,
