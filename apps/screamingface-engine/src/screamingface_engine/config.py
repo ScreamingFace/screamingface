@@ -363,6 +363,13 @@ class Settings(BaseSettings):
     # `RLIMIT_AS` bounds VIRTUAL address space (heap + mapped libraries), which is larger than
     # the RSS a cgroup limit measures.
     worker_memory_budget_bytes: int = Field(default=DEFAULT_WORKER_MEMORY_BUDGET_BYTES, ge=1)
+    # The per-run RESIDENT budget (OME-1607): the worker reads each run's process-tree RSS and
+    # stops a run that goes past it with a permanent `memory_budget_exceeded`. WHY next to the
+    # address-space cap above and not instead of it: native libraries reserve address space they
+    # never touch (pyarrow's mimalloc 1 GiB, OpenBLAS per CPU), so RLIMIT_AS alone killed a run
+    # with 459 MiB resident; RSS is what the pod's cgroup limit counts. None (the default, and
+    # local mode) watches nothing; the chart sets it to `perRunCharge.memoryLimitMi`.
+    worker_resident_budget_bytes: int | None = Field(default=None, ge=1)
     # Warm children per worker (uniform executor PRD 03): child processes that already did
     # their per-process work and wait for a run. None (the default) means one per slot; 0
     # spawns on the claim — through the same READY/spec/ACK protocol. Capped at the slots.

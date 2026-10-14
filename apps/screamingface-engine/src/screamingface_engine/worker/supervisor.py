@@ -37,7 +37,12 @@ from screamingface_engine.runner_queue import (
     decode_message,
     topic_of_message,
 )
-from screamingface_engine.subjects import ENQUEUED_AT_HEADER, ownership_subject_for
+from screamingface_engine.subjects import (
+    ENQUEUED_AT_HEADER,
+    RUN_ROOT_NODE,
+    ownership_subject_for,
+)
+from screamingface_engine.worker.memory_watch import MEMORY_POLL_S, RunMemoryGuard
 from screamingface_engine.worker.metrics import WorkerMetrics
 from screamingface_engine.worker.warm_pool import SPAWN_FAILED, LaunchFailed
 from url4.streaming.protocol import (
@@ -74,6 +79,17 @@ KILLED = "killed"
 """The child was killed by a signal."""
 CHILD_EXITED = "child_exited"
 """The child exited non-zero on its own."""
+MEMORY_BUDGET_EXCEEDED = "memory_budget_exceeded"
+"""The run's RESIDENT memory (its process tree) went past the per-run budget; the worker stopped
+it (OME-1607). Permanent: the same run would fail the same way, so it is not redelivered."""
+
+# Codes whose terminal frame says "do not retry": the run itself, not the substrate, is at fault.
+_PERMANENT_CODES = frozenset({MEMORY_BUDGET_EXCEEDED})
+
+# How long a FAILED child's stderr may still drain after its exit before the classifier reads
+# what it said (a `MemoryError` names the address-space cap). The pipe usually ends at the exit;
+# this only bounds a slow drain, it never delays a clean exit.
+OUTPUT_SETTLE_S = 0.5
 
 UNSUPPORTED_SPEC_VERSION = "unsupported_spec_version"
 """The run message's major version is unknown to this worker (erd.md §2)."""
@@ -247,6 +263,15 @@ class DirectLauncher:
         )
 
 
+async def _cancel_quietly(*tasks: asyncio.Task[Any] | None) -> None:
+    """Cancel and reap side tasks that may already be done; never raise their cancellation."""
+    for task in tasks:
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
 class RunSupervisor:
     """Supervise one claimed run: dedupe, spawn, heartbeat, hard wall, classify, ack.
 
@@ -278,8 +303,17 @@ class RunSupervisor:
         metrics: WorkerMetrics | None = None,
         reclaim: Callable[[str], Awaitable[None]] | None = None,
         trim_retained: Callable[[str], Awaitable[None]] | None = None,
+        resident_budget_bytes: int | None = None,
+        memory_poll_s: float = MEMORY_POLL_S,
     ) -> None:
         self._publisher = publisher
+        # The per-run RESIDENT budget (OME-1607): None watches nothing. The address-space cap
+        # (`memory_budget_bytes`, the exec wrapper's RLIMIT_AS) stays the runaway backstop.
+        self._memory = RunMemoryGuard(
+            resident_budget_bytes=resident_budget_bytes,
+            address_space_bytes=memory_budget_bytes,
+            poll_s=memory_poll_s,
+        )
         # ONE of the two: production hands in the warm child pool; the `spawn=` seam (a fake
         # process with a whole cold environment) is what the supervisor's own tests drive.
         if (launcher is None) == (spawn is None):
@@ -479,7 +513,7 @@ class RunSupervisor:
         to SIGTERM it would pay for a process, and a model call or two, to arrive back here.
         """
         await self._publish_terminal(
-            topic, "stopped", CANCELLED, "the run was cancelled by its owner"
+            topic, "stopped", CANCELLED, "the run was cancelled by its owner", started=False
         )
         await msg.ack()
 
@@ -536,6 +570,7 @@ class RunSupervisor:
             "failed",
             UNSUPPORTED_SPEC_VERSION,
             f"run message version {version!r} is not supported by this worker",
+            started=False,
         )
         await msg.ack()
         return True
@@ -579,7 +614,11 @@ class RunSupervisor:
         if not self._capability_expired(msg):
             return False
         await self._publish_terminal(
-            topic, "failed", QUEUE_EXPIRED, "the run's capability expired while queued"
+            topic,
+            "failed",
+            QUEUE_EXPIRED,
+            "the run's capability expired while queued",
+            started=False,
         )
         await msg.ack()
         return True
@@ -620,7 +659,7 @@ class RunSupervisor:
                 # The run cannot start at all — a named failure beats silence, and the
                 # message is acked so the run is not redelivered to fail the same way.
                 code = exc.code if isinstance(exc, LaunchFailed) else SPAWN_FAILED
-                await self._publish_terminal(topic, "failed", code, str(exc))
+                await self._publish_terminal(topic, "failed", code, str(exc), started=False)
                 await msg.ack()
                 return
             self._children.add(proc)
@@ -649,12 +688,20 @@ class RunSupervisor:
         heartbeat = asyncio.create_task(self._heartbeat(msg, topic))
         output = asyncio.create_task(self._forward_output(proc, topic))
         try:
-            outcome = await self._wait_for_child(proc, self._hard_wall_s(env))
+            outcome = await self._wait_for_child(proc, self._hard_wall_s(env), topic=topic)
+            if outcome == "finished" and proc.returncode not in (0, None):
+                # Let the failed child's last stderr lines (a `MemoryError`) reach the
+                # classifier; bounded, and never on a clean exit.
+                await asyncio.wait({output}, timeout=OUTPUT_SETTLE_S)
             if self._metrics is not None and proc.returncode is not None:
                 # The child's exit code, labeled by code — 137 is the OOM kill the
                 # Observability section names explicitly.
                 self._metrics.child_exit_codes.labels(code=str(proc.returncode)).inc()
-            classification = self._classify(outcome, proc.returncode, topic)
+            classification = (
+                ("failed", MEMORY_BUDGET_EXCEEDED, self._memory.breach_message(topic))
+                if outcome == "memory"
+                else self._classify(outcome, proc.returncode, topic)
+            )
             await self._publish_if_needed(topic, classification)
             await msg.ack()
         finally:
@@ -672,6 +719,7 @@ class RunSupervisor:
                 ):
                     logger.warning("run supervision task failed during cleanup: %r", result)
             self._release_child(proc, topic)
+            self._memory.forget(topic)
             if proc.returncode is None:
                 # A cancelled supervisor (a sibling failed and the TaskGroup unwound)
                 # must not orphan its child.
@@ -944,26 +992,28 @@ class RunSupervisor:
             grace_s = job_env.DEFAULT_STREAM_GRACE_S
         return deadline_s + grace_s + self._deadline_margin_s
 
-    async def _wait_for_child(self, proc: _ChildProcess, hard_wall_s: float | None) -> str:
+    async def _wait_for_child(
+        self, proc: _ChildProcess, hard_wall_s: float | None, *, topic: str | None = None
+    ) -> str:
         """Wait for the child to exit, bounded by the hard wall; return how it ended.
 
         ``"finished"`` — the child exited on its own. ``"draining"`` — the drain handler
         fired (the supervisor terminated THIS child): it exited from the SIGTERM within the
         kill grace, or had to be SIGKILL'd. ``"deadline"`` — the hard wall expired and the
-        worker killed it.
+        worker killed it. ``"memory"`` — the run's resident memory went past its budget
+        (OME-1607) and the worker killed it, the same SIGTERM-then-SIGKILL as the wall.
         """
         wait_task = asyncio.create_task(proc.wait())
         term_task = asyncio.create_task(self._terminating.wait())
+        memory_task = self._memory.watch(getattr(proc, "pid", None)) if topic else None
         try:
             done, _ = await asyncio.wait(
-                {wait_task, term_task},
+                {task for task in (wait_task, term_task, memory_task) if task is not None},
                 timeout=hard_wall_s,
                 return_when=asyncio.FIRST_COMPLETED,
             )
         finally:
-            term_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await term_task
+            await _cancel_quietly(term_task, memory_task)
         if term_task in done:
             # Checked BEFORE `wait_task in done`, deliberately: when BOTH completed — the
             # drain fired and the child exited in the same scheduling batch — the exit is
@@ -971,30 +1021,41 @@ class RunSupervisor:
             # operationally the same event). Reading that race as a natural "finished"
             # would hand the classifier a drain kill as the child's own exit, and a child
             # that dies from the SIGTERM (rc -15) would be published as a failure.
-            # The drain phase fired for THIS child — its phase-2 pass SIGTERMs every child
-            # still registered, within one poll of it appearing (review follow-up), and the
-            # child that ignores the SIGTERM gets the kill-grace backstop below.
-            try:
-                await asyncio.wait_for(wait_task, timeout=self._kill_grace_s)
-            except TimeoutError:
-                # WHY a FRESH `proc.wait()` and not `await wait_task`: `wait_for`
-                # CANCELLED `wait_task` when it timed out, and awaiting a cancelled
-                # task re-raises `CancelledError` — which would abort `supervise`
-                # before the `Terminated(stopped, worker_draining)` frame and the ack,
-                # and the run would redeliver and execute twice. Reap on a new wait,
-                # the same shape `_kill_with_grace` uses.
-                proc.kill()
-            await proc.wait()
-            return "draining"
+            return await self._finish_drained(proc, wait_task)
         if wait_task in done:
+            # Checked BEFORE the memory watch: a child that ended in the same batch as a
+            # breach ended on its own, and its own frame stands.
             await wait_task
             return "finished"
-        # The hard wall expired: SIGTERM, then SIGKILL.
-        wait_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await wait_task
+        # The hard wall expired, or the run went over its resident budget: SIGTERM, then
+        # SIGKILL — one kill path for both.
+        await _cancel_quietly(wait_task)
         await self._kill_with_grace(proc)
-        return "deadline"
+        outcome = "deadline"
+        if memory_task is not None and memory_task in done and topic is not None:
+            self._memory.record_breach(topic, memory_task.result())
+            outcome = "memory"
+        return outcome
+
+    async def _finish_drained(self, proc: _ChildProcess, wait_task: asyncio.Task[int]) -> str:
+        """The drain phase fired for THIS child: let it exit within the kill grace, or kill it.
+
+        Its phase-2 pass SIGTERMs every child still registered, within one poll of it
+        appearing (review follow-up), and the child that ignores the SIGTERM gets the
+        kill-grace backstop below.
+        """
+        try:
+            await asyncio.wait_for(wait_task, timeout=self._kill_grace_s)
+        except TimeoutError:
+            # WHY a FRESH `proc.wait()` and not `await wait_task`: `wait_for`
+            # CANCELLED `wait_task` when it timed out, and awaiting a cancelled
+            # task re-raises `CancelledError` — which would abort `supervise`
+            # before the `Terminated(stopped, worker_draining)` frame and the ack,
+            # and the run would redeliver and execute twice. Reap on a new wait,
+            # the same shape `_kill_with_grace` uses.
+            proc.kill()
+        await proc.wait()
+        return "draining"
 
     async def _kill_with_grace(self, proc: _ChildProcess) -> None:
         """SIGTERM, then SIGKILL after ``kill_grace_s`` — the hard-wall backstop."""
@@ -1062,7 +1123,9 @@ class RunSupervisor:
             status, code, message = (
                 "failed",
                 CHILD_EXITED,
-                f"the run exited with status {returncode}",
+                # The address-space backstop (RLIMIT_AS) may be the cause: the code stays
+                # `child_exited` (Linux CI pins it); the note names the cause and the value.
+                f"the run exited with status {returncode}{self._memory.exit_note(topic)}",
             )
         return status, code, message
 
@@ -1114,6 +1177,8 @@ class RunSupervisor:
                 line = await stream.readline()
                 if not line:
                     return
+                if level == logging.WARNING:
+                    self._memory.note_stderr(topic, line)
                 logger.log(
                     level, "run output topic=%s %s", topic, line.decode(errors="replace").rstrip()
                 )
@@ -1124,12 +1189,21 @@ class RunSupervisor:
         )
 
     async def _publish_terminal(
-        self, topic: str, status: TerminalStatus, code: str, message: str
+        self, topic: str, status: TerminalStatus, code: str, message: str, *, started: bool = True
     ) -> None:
         """Publish a named terminal frame to the run's subject.
 
-        The frame is a root frame (``source`` is the run's own), so a client attached to
-        the run sees it as the run's outcome. This is an UNSEQUENCED frame (I-EV3):
+        The frame is a root frame: its ``source`` is the run's ROOT node (`RUN_ROOT_NODE`, the
+        node the child's `lifecycle.run` publishes under), so a client attached to the run sees it
+        as the run's outcome. The transport source ``/trace/<topic>`` is NOT the root — a client
+        ignores a terminal from it and keeps waiting (OME-1607).
+
+        ``started=False`` is for a run whose child never started (expired in the queue, a refused
+        spec, a failed launch, a cancel before the child existed): no root node ever published,
+        so the frame keeps the transport source. A client of such a run has no root to wait on —
+        it ends on the first terminal it reads.
+
+        This is an UNSEQUENCED frame (I-EV3):
         `JetStreamPublisher.publish_next` reads the subject's last frame and appends this one
         at `last + 1` under `Nats-Expected-Last-Subject-Sequence` — the broker no longer
         assigns the sequence — so the client's replay cursor advances past it exactly as it
@@ -1140,12 +1214,12 @@ class RunSupervisor:
             topic,
             TerminatedEvent(
                 id=uuid.uuid4().hex,
-                source=source_for(topic),
+                source=source_for(topic, RUN_ROOT_NODE) if started else source_for(topic),
                 subject=topic,
                 time=datetime.now(UTC),
                 data=TerminatedData(
                     status=status,
-                    error=ErrorInfo(code=code, message=message),
+                    error=ErrorInfo(code=code, message=message, permanent=code in _PERMANENT_CODES),
                 ),
             ),
         )
@@ -1160,6 +1234,7 @@ __all__ = [
     "HEARTBEAT_INTERVAL_S",
     "KILL_GRACE_S",
     "KILLED",
+    "MEMORY_BUDGET_EXCEEDED",
     "OOM_KILLED",
     "OWNERSHIP_PROBE_TIMEOUT_S",
     "QUEUE_EXPIRED",
