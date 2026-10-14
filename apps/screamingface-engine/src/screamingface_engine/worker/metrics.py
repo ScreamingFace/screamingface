@@ -56,6 +56,7 @@ class WorkerMetrics:
     child_boot_s: Histogram
     started: Counter
     drains: Counter
+    terminals: Counter
 
 
 def build_worker_metrics() -> WorkerMetrics:
@@ -158,6 +159,15 @@ def build_worker_metrics() -> WorkerMetrics:
         drains=Counter(
             "screamingface_engine_worker_drains_total",
             "Drain events (SIGTERM received, stopped pulling).",
+            registry=registry,
+        ),
+        # OME-1607: every terminal frame the WORKER writes (the child published none), by its
+        # code — `memory_budget_exceeded` apart from `oom_killed`, `deadline_exceeded`, a cancel.
+        # `child_exit_codes` cannot tell them apart: a memory stop and a cancel both exit -15.
+        terminals=Counter(
+            "screamingface_engine_worker_terminals_total",
+            "Terminal frames the worker wrote for runs whose child published none, by code.",
+            ["code"],
             registry=registry,
         ),
     )

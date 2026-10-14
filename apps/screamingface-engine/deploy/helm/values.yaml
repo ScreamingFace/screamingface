@@ -604,7 +604,11 @@ runnerPool:
     # The address-space backstop (the child's RLIMIT_AS) as a multiple of `memoryLimitMi`. It
     # only stops a runaway allocation; it must sit well above the resident budget, because
     # native libraries reserve address space they never touch. The chart refuses < 2.
-    addressSpaceFactor: 4
+    # WHY 2: it keeps the 2 GiB the code has always defaulted to at the 1 Gi charge, and a
+    # `draco-3pass` run measured 849 MiB of address space at its 444 MiB resident peak once the
+    # runner env stopped the native reservations — while a bigger factor would let one runaway
+    # child grow toward the whole pod limit before the 2 s resident watch sees it.
+    addressSpaceFactor: 2
   overhead:
     # The worker process's own footprint (the claim loop, the NATS clients, the supervisor).
     cpuMillicores: 100

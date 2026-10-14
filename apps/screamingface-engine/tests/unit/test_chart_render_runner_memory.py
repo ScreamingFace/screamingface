@@ -81,7 +81,7 @@ def test_runner_children_reserve_no_address_space_they_never_use() -> None:
 def test_the_per_slot_charge_is_each_run_s_resident_budget_and_sets_its_backstop() -> None:
     env = _worker_env(_render())
     assert env["URL4_CLOUD_WORKER_RESIDENT_BUDGET_BYTES"] == str(1024 * _MIB)
-    assert env["URL4_CLOUD_WORKER_MEMORY_BUDGET_BYTES"] == str(4 * 1024 * _MIB)
+    assert env["URL4_CLOUD_WORKER_MEMORY_BUDGET_BYTES"] == str(2 * 1024 * _MIB)
 
 
 def test_one_per_slot_value_moves_the_budget_the_backstop_and_the_pod_limit_together() -> None:

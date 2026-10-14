@@ -513,7 +513,11 @@ class RunSupervisor:
         to SIGTERM it would pay for a process, and a model call or two, to arrive back here.
         """
         await self._publish_terminal(
-            topic, "stopped", CANCELLED, "the run was cancelled by its owner", started=False
+            topic,
+            "stopped",
+            CANCELLED,
+            "the run was cancelled by its owner",
+            started=self._redelivered(msg),
         )
         await msg.ack()
 
@@ -570,7 +574,7 @@ class RunSupervisor:
             "failed",
             UNSUPPORTED_SPEC_VERSION,
             f"run message version {version!r} is not supported by this worker",
-            started=False,
+            started=self._redelivered(msg),
         )
         await msg.ack()
         return True
@@ -618,7 +622,7 @@ class RunSupervisor:
             "failed",
             QUEUE_EXPIRED,
             "the run's capability expired while queued",
-            started=False,
+            started=self._redelivered(msg),
         )
         await msg.ack()
         return True
@@ -659,7 +663,8 @@ class RunSupervisor:
                 # The run cannot start at all — a named failure beats silence, and the
                 # message is acked so the run is not redelivered to fail the same way.
                 code = exc.code if isinstance(exc, LaunchFailed) else SPAWN_FAILED
-                await self._publish_terminal(topic, "failed", code, str(exc), started=False)
+                # Root source: an ACK timeout can race a child that already started.
+                await self._publish_terminal(topic, "failed", code, str(exc))
                 await msg.ack()
                 return
             self._children.add(proc)
@@ -1032,8 +1037,21 @@ class RunSupervisor:
         await _cancel_quietly(wait_task)
         await self._kill_with_grace(proc)
         outcome = "deadline"
-        if memory_task is not None and memory_task in done and topic is not None:
-            self._memory.record_breach(topic, memory_task.result())
+        if (
+            memory_task is not None
+            and memory_task in done
+            and not memory_task.cancelled()
+            and memory_task.exception() is None
+            and topic is not None
+        ):
+            reading = memory_task.result()
+            self._memory.record_breach(topic, reading)
+            logger.warning(
+                "run %s used %d bytes of resident memory, over its budget of %s; stopped it",
+                topic,
+                reading,
+                self._memory.resident_budget_bytes,
+            )
             outcome = "memory"
         return outcome
 
@@ -1198,10 +1216,12 @@ class RunSupervisor:
         as the run's outcome. The transport source ``/trace/<topic>`` is NOT the root — a client
         ignores a terminal from it and keeps waiting (OME-1607).
 
-        ``started=False`` is for a run whose child never started (expired in the queue, a refused
-        spec, a failed launch, a cancel before the child existed): no root node ever published,
-        so the frame keeps the transport source. A client of such a run has no root to wait on —
-        it ends on the first terminal it reads.
+        ``started=False`` is for a FIRST delivery that never reached a child (expired in the
+        queue, a refused spec, a cancel before the child existed): no root node was ever
+        published, so the frame keeps the transport source, and a client of such a run ends on the
+        first terminal it reads. A redelivery passes ``started=True``: the earlier delivery's
+        child may have published the root before its worker died, and a client that saw it waits
+        for a root terminal.
 
         This is an UNSEQUENCED frame (I-EV3):
         `JetStreamPublisher.publish_next` reads the subject's last frame and appends this one
@@ -1209,6 +1229,8 @@ class RunSupervisor:
         assigns the sequence — so the client's replay cursor advances past it exactly as it
         would past the child's own terminal frame.
         """
+        if self._metrics is not None:
+            self._metrics.terminals.labels(code=code).inc()
         await self._publisher.ensure_stream(topic)
         await self._publisher.publish(
             topic,

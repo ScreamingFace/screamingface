@@ -17,8 +17,11 @@ Linux only. Where ``/proc`` is absent (macOS) or the run has already exited, a r
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 PROC = Path("/proc")
 
@@ -28,22 +31,23 @@ PROC = Path("/proc")
 MEMORY_POLL_S = 2.0
 
 
-def _parent_of(stat: str) -> int | None:
+def _parent_of(stat: bytes) -> int | None:
     """The parent pid in a ``/proc/<pid>/stat`` line.
 
-    WHY split at the LAST ``)``: field 2 is the command name in parentheses, and it may itself
-    hold spaces and parentheses; every field after it is plain.
+    WHY bytes, and WHY split at the LAST ``)``: field 2 is the command name in parentheses — it
+    may hold spaces and parentheses, and the kernel cuts it at 15 BYTES, which can split a
+    multi-byte character, so the line is not always valid UTF-8. Every field after it is plain.
     """
     try:
-        return int(stat[stat.rindex(")") + 2 :].split()[1])
+        return int(stat[stat.rindex(b")") + 2 :].split()[1])
     except (ValueError, IndexError):
         return None
 
 
 def _rss_bytes(status: Path) -> int | None:
     try:
-        for line in status.read_text().splitlines():
-            if line.startswith("VmRSS:"):
+        for line in status.read_bytes().splitlines():
+            if line.startswith(b"VmRSS:"):
                 return int(line.split()[1]) * 1024
     except (OSError, ValueError, IndexError):
         return None
@@ -56,11 +60,15 @@ def process_tree_rss_bytes(root_pid: int, proc: Path = PROC) -> int | None:
     if root_rss is None:
         return None
     children: dict[int, list[int]] = {}
-    for entry in proc.iterdir():
+    try:
+        entries = list(proc.iterdir())
+    except OSError:
+        return None  # an unreadable /proc (too many open files): unknown, never "over"
+    for entry in entries:
         if not entry.name.isdigit():
             continue
         try:
-            parent = _parent_of((entry / "stat").read_text())
+            parent = _parent_of((entry / "stat").read_bytes())
         except OSError:
             continue  # exited between the listing and the read
         if parent is not None:
@@ -82,11 +90,15 @@ async def first_reading_over(
 ) -> int:
     """Return the first reading of ``pid``'s tree above ``budget_bytes``; never return otherwise.
 
-    An unknown reading (``None``) is skipped, not counted as a breach: the worker never stops a
-    run on a measurement it could not make.
+    An unknown reading — ``None``, or a reader that RAISES — is skipped, not counted as a
+    breach: the worker never stops a run on a measurement it could not make.
     """
     while True:
-        reading = await asyncio.to_thread(read, pid)
+        try:
+            reading = await asyncio.to_thread(read, pid)
+        except Exception as exc:  # noqa: BLE001 — WHY broad: any failure is "unknown", never "kill"
+            logger.debug("resident memory of pid %s unreadable: %s", pid, type(exc).__name__)
+            reading = None
         if reading is not None and reading > budget_bytes:
             return reading
         await asyncio.sleep(poll_s)
@@ -117,7 +129,10 @@ class RunMemoryGuard:
 
     def watch(self, pid: int | None) -> asyncio.Task[int] | None:
         """A task that ends with the first reading over budget; ``None`` when nothing is watched."""
-        if self.resident_budget_bytes is None or pid is None:
+        if self.resident_budget_bytes is None:
+            return None
+        if pid is None:
+            logger.debug("a child with no pid: its resident memory is not watched")
             return None
         return asyncio.create_task(
             first_reading_over(
@@ -132,8 +147,13 @@ class RunMemoryGuard:
         self._breaches[topic] = reading
 
     def note_stderr(self, topic: str, line: bytes) -> None:
-        """Remember that the run's child said `MemoryError` (its address-space cap fired)."""
-        if b"MemoryError" in line:
+        """Remember that the run's child DIED of `MemoryError` (its address-space cap fired).
+
+        Only the traceback's last line — the exception itself, ``MemoryError`` or
+        ``MemoryError: …`` — counts; a log line that merely mentions one is not the run dying.
+        """
+        stripped = line.strip()
+        if stripped == b"MemoryError" or stripped.startswith(b"MemoryError:"):
             self._memory_errors.add(topic)
 
     def breach_message(self, topic: str) -> str:

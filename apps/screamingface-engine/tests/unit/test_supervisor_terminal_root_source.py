@@ -8,9 +8,11 @@ carried the TRANSPORT source `/trace/<topic>`, so the SDK accepted them as a non
 kept waiting: a run whose child died stayed "waiting" in the notebook for ever.
 
 These tests pin ONE root for one run: the supervisor's frame and the child's lifecycle use the
-same node, `RUN_ROOT_NODE`. A run whose child never STARTED (expired in the queue, a failed
-launch) has no root node at all — no root `Spawned` was ever published — so its frame keeps the
-transport source; a client of such a run ends on the first terminal it reads.
+same node, `RUN_ROOT_NODE`. A FIRST delivery that never reached a child (expired in the queue)
+has no root node at all, so its frame keeps the transport source; a client of such a run ends on
+the first terminal it reads. A REDELIVERY may follow a child that did publish the root (its
+worker died), and a failed launch may have raced a child that already started (an ACK timeout):
+those frames name the root, so a client that saw the root still ends.
 """
 
 import asyncio
@@ -33,7 +35,9 @@ pytestmark = pytest.mark.asyncio
 
 
 class _Msg:
-    def __init__(self, topic: str, *, deadline_s: float = 60, queued_for_s: float = 0.0) -> None:
+    def __init__(
+        self, topic: str, *, deadline_s: float = 60, queued_for_s: float = 0.0, delivered: int = 1
+    ) -> None:
         self.data = json.dumps(
             {
                 job_env.TOPIC: topic,
@@ -43,7 +47,7 @@ class _Msg:
             }
         ).encode()
         self.metadata = SimpleNamespace(
-            timestamp=datetime.now(UTC) - timedelta(seconds=queued_for_s), num_delivered=1
+            timestamp=datetime.now(UTC) - timedelta(seconds=queued_for_s), num_delivered=delivered
         )
         self.headers = None
         self.acked = False
@@ -179,14 +183,14 @@ async def test_a_cancelled_run_ends_with_the_root_source() -> None:
     assert frame.source == _root("t-cancel")
 
 
-async def test_a_failed_launch_keeps_the_transport_source() -> None:
-    """The child never started: there is no root node to name."""
+async def test_a_failed_launch_names_the_root() -> None:
+    """An ACK timeout can race a child that already started and published its root."""
     publisher = _Publisher()
     failure = LaunchFailed("spawn_failed", "the child never became ready")
     worker = _worker(publisher, _Launcher(failure))
     await worker._supervisor.supervise(_Msg("t-launch"))  # type: ignore[arg-type]
     [frame] = publisher.published
-    assert frame.source == source_for("t-launch")
+    assert frame.source == _root("t-launch")
 
 
 async def test_a_run_expired_in_the_queue_keeps_the_transport_source() -> None:
@@ -213,3 +217,14 @@ async def test_the_child_s_lifecycle_runs_under_the_same_root_node(monkeypatch) 
     params = SimpleNamespace(topic="t-child", url4="'hi'", deadline_s=1.0, client_version=None)
     await runner_main._run_and_log(SimpleNamespace(), SimpleNamespace(), params, None)  # type: ignore[arg-type]  # noqa: SLF001
     assert seen["node"] == RUN_ROOT_NODE
+
+
+async def test_a_redelivered_run_expired_in_the_queue_names_the_root() -> None:
+    """The first delivery's child may have published the root before its worker died."""
+    publisher = _Publisher()
+    worker = _worker(publisher, _Launcher(_Proc(code=0)))
+    msg = _Msg("t-redelivered", deadline_s=1, queued_for_s=3600, delivered=2)
+    await worker._supervisor.supervise(msg)  # type: ignore[arg-type]
+    [frame] = publisher.published
+    assert frame.data.error.code == "queue_expired"
+    assert frame.source == _root("t-redelivered")

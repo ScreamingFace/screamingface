@@ -23,6 +23,7 @@ from screamingface_engine.config import Settings
 from screamingface_engine.subjects import RUN_ROOT_NODE
 from screamingface_engine.worker.loop import Worker
 from screamingface_engine.worker.memory_watch import process_tree_rss_bytes
+from screamingface_engine.worker.metrics import build_worker_metrics
 from screamingface_engine.worker.supervisor import CHILD_EXITED, MEMORY_BUDGET_EXCEEDED
 from url4.streaming.protocol import source_for
 
@@ -139,7 +140,14 @@ class _Launcher:
         return self._procs[env[job_env.TOPIC]]
 
 
-def _worker(publisher: _Publisher, procs: dict[str, _Proc], *, budget: int | None, reads: Any):
+def _worker(
+    publisher: _Publisher,
+    procs: dict[str, _Proc],
+    *,
+    budget: int | None,
+    reads: Any,
+    metrics: Any = None,
+):
     worker = Worker(
         queue=SimpleNamespace(),  # type: ignore[arg-type]
         publisher=publisher,  # type: ignore[arg-type]
@@ -151,6 +159,7 @@ def _worker(publisher: _Publisher, procs: dict[str, _Proc], *, budget: int | Non
         spawn=lambda *a, **k: None,  # type: ignore[arg-type,return-value]  # replaced below
         deadline_margin_s=0.05,
         kill_grace_s=0.05,
+        metrics=metrics,
     )
     supervisor = worker._supervisor
     supervisor._launcher = _Launcher(procs)  # noqa: SLF001 - the seams under test
@@ -246,3 +255,64 @@ async def test_the_resident_budget_is_read_from_the_environment(monkeypatch) -> 
     assert Settings().worker_resident_budget_bytes is None
     monkeypatch.setenv("URL4_CLOUD_WORKER_RESIDENT_BUDGET_BYTES", str(1024**3))
     assert Settings().worker_resident_budget_bytes == 1024**3
+
+
+async def test_a_failing_memory_reading_never_stops_a_run() -> None:
+    """A reader that RAISES (a `/proc` read error, too many open files) is an unknown reading:
+    the run is not killed, the supervisor does not raise, the message is acked normally."""
+    publisher = _Publisher()
+    proc = _Proc(pid=10, code=0, after_s=0.1)
+
+    def broken(pid: int) -> int:
+        raise OSError(24, "Too many open files")
+
+    worker = _worker(publisher, {"t-broken": proc}, budget=100, reads=broken)
+    msg = _Msg("t-broken")
+    await asyncio.wait_for(worker._supervisor.supervise(msg), timeout=5)  # type: ignore[arg-type]
+    assert proc.terminated == 0 and proc.returncode == 0
+    assert publisher.published == []
+    assert msg.acked
+
+
+async def test_a_process_name_cut_inside_a_utf8_character_is_read(tmp_path: Path) -> None:
+    """The kernel cuts `comm` at 15 bytes, which can split a multi-byte character: the stat
+    line is not valid UTF-8, and the tree walk must still read it."""
+    _fake_proc(tmp_path, 10, 1, 300_000)
+    child = tmp_path / "30"
+    child.mkdir()
+    (child / "stat").write_bytes(b"30 (abcdefghijklm\xc3) S 10 30 30 0 -1 4194560 0 0\n")
+    (child / "status").write_bytes(b"Name:\tabcdefghijklm\xc3\nVmRSS:\t1000 kB\n")
+    assert process_tree_rss_bytes(10, proc=tmp_path) == (300_000 + 1_000) * 1024
+
+
+async def test_a_memory_stop_is_visible_to_operators(caplog: pytest.LogCaptureFixture) -> None:
+    """A warning names the run, the reading and the budget; the worker's terminal counter
+    counts the frame by its code, so dashboards can tell memory stops from other kills."""
+    publisher = _Publisher()
+    metrics = build_worker_metrics()
+    worker = _worker(
+        publisher, {"t-seen": _Proc(pid=10)}, budget=100, reads=lambda pid: 150, metrics=metrics
+    )
+    with caplog.at_level("WARNING"):
+        await asyncio.wait_for(worker._supervisor.supervise(_Msg("t-seen")), timeout=5)  # type: ignore[arg-type]
+    assert any(
+        "t-seen" in record.getMessage() and "150" in record.getMessage()
+        for record in caplog.records
+    )
+    counted = metrics.registry.get_sample_value(
+        "screamingface_engine_worker_terminals_total", {"code": MEMORY_BUDGET_EXCEEDED}
+    )
+    assert counted == 1
+
+
+async def test_only_a_memory_error_line_names_the_address_space_cause() -> None:
+    """A tool's log line that merely MENTIONS MemoryError is not the run dying of one."""
+    stderr = asyncio.StreamReader()
+    stderr.feed_data(b"warning: retrying after MemoryError in a subprocess\n")
+    stderr.feed_eof()
+    publisher = _Publisher()
+    proc = _Proc(pid=10, code=1, after_s=0.05, stderr=stderr)
+    worker = _worker(publisher, {"t-mention": proc}, budget=None, reads=lambda pid: None)
+    await asyncio.wait_for(worker._supervisor.supervise(_Msg("t-mention")), timeout=5)  # type: ignore[arg-type]
+    [frame] = publisher.published
+    assert "address-space" not in frame.data.error.message
