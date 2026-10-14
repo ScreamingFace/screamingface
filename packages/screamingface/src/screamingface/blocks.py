@@ -556,7 +556,7 @@ _SELECT_CHOICES: Mapping[str, str] = MappingProxyType(
 def _numeric_select(
     op: str, mode: ReduceMode | None, options: dict[str, object]
 ) -> tuple[ReduceMode | None, dict[str, object]]:
-    """The mode and the other options of a block that may give ``select=`` (E4b playground fix).
+    """The mode and the other options of a block that may give ``select=`` (E4b P11).
 
     A median or a mean block takes ``select="nearest" | "value"``, the word of sf.Median and
     sf.Mean, as a second name for ``mode``. The block keeps only the mode, so the url4, the
