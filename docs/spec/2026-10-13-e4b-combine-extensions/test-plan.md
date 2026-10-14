@@ -27,8 +27,8 @@ schema, `MN` mean, `WM` weighted median, `JO` judge order, `FJ` filter by judge,
 - GREEN is the smallest change. Refactor on green only.
 - One behavior for each test. The test name states the behavior.
 - Each user decision has a test that fails if the decision breaks, except where noted:
-  Q1 MN#17 · Q2 MN#2, MN#3, WM#5, WM#7 · Q3 MN#23 · Q4 FJ#7, RC#4 · Q5 CS#3–5 ·
-  Q6 no test (it places the work in E4b) · Q7 SI#3–4, SI#7 · Q8 RC#1–11 ·
+  Q1 MN#17 · Q2 MN#2, MN#3, WM#5, WM#7 · Q3 MN#23 · Q4 FJ#7, RC#4, ECE#1–2 · Q5 CS#3–5 ·
+  Q6 no test (it places the work in E4b) · Q7 SI#3–4, SI#7, SI#13, ECE#1–8 · Q8 RC#1–11 ·
   Q9 MN#11, WM#3, FJ#2, PO#2 · Q10 no test (deferred work) · Q11 JO#4 · Q12 PO#4–5 · Q13 SI#1.
 - The oracle for every number is hand-computed in the PRD (for example MN-2 = 37.5), never copied
   from the code's output.

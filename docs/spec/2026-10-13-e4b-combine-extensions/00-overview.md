@@ -108,6 +108,7 @@ using its pattern or extending its patterns in a compatible way" (2026-10-13).
 | P9 | `Reduction.participants` keeps weight-dropped members out of `nearest` (ans:Q2). | [erd §5](erd.md) |
 | P10 | `sf.Mean` takes `extract` as an operator name, like `sf.Median`. A JSON-field extract (S4) uses the block form `sf.Reduce("mean", extract=sf.Extract("field", path=...))`. | [mean](prd/mean.md) §2 |
 | P11 | The `median` and `mean` blocks take `select="nearest" \| "value"`, the word of `sf.Median` and `sf.Mean`, as a second name for `mode` (playground fix, 2026-10-14). The block keeps only the mode, so no url4 changes. `sf.Median` and `sf.Mean` keep `extract` as an operator name (P10). | [weighted-median](prd/weighted-median.md) WM-5, [mean](prd/mean.md) §3 |
+| P12 | An abstained Rank or Filter step (ans:Q4) still hands the next stage the input (ans:Q7): its output is the empty envelope `{"input":"...","selected":[]}`, and the abstain stays in its evidence. When the step is the last step of a url4, the Case abstains with the empty answer, as before. The 8 MiB result cap applies (SI-E2). Playground fix, 2026-10-14. | [selection-input](prd/selection-input.md) SI-E1 |
 
 ## 7. Open and deferred
 
@@ -126,7 +127,7 @@ Scope notes from [proposed] items (the user can change them before the build):
   the first Pipeline stage, that is the previous stage's output, not the Case question
   ([selection-input](prd/selection-input.md) SI-D2).
 - **N3** A Case input of more than about 8 MiB makes a Rank or Filter call fail on the result cap
-  (SI-E2). Benchmark inputs today are far smaller.
+  (SI-E2), also when the call abstains (P12). Benchmark inputs today are far smaller.
 
 ## 8. What changes for related epics
 

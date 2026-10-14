@@ -77,8 +77,12 @@ without the input, or a Case input over a few MiB is real. Then add an opt-out a
 
 ### 3.2 Error paths
 
-- **SI-E1** Given a Rank that abstains (`cut_not_met`), then there is no envelope, and the Case
-  abstains as today. [existing E/combine/operators/selection.py:86-89]
+- **SI-E1** Given a Rank that abstains (`cut_not_met`) or a Filter that keeps no member
+  (`no_votes`), then the step evidence has the abstain, and the step output is the empty
+  envelope `{"input":"<input>","selected":[]}`. The next stage runs and gets it. When the step is
+  the last step of a url4, the Case abstains with the empty answer. [stated ans:Q7]
+  [stated ans:Q4] (Erratum, 2026-10-14: this said "there is no envelope, and the Case abstains".
+  The writer then got an empty text and replied that there was no question.)
 - **SI-E2** Given an envelope over `MAX_RESULT_BYTES` (8 MiB), then the combine call fails with the
   same code as any oversized result today. It does not truncate the input. [existing E/combine/endpoint.py:475]
 
@@ -134,6 +138,6 @@ Order: core-out (engine envelope, then the world-level writer message, then docs
 | 10 | `conversation_input_appears_as_json_text_in_the_envelope` | unit | SI-D1 | M×M | no special case |
 | 11 | `oversized_envelope_fails_like_any_oversized_result` | unit | SI-E2, SI-D3 | M×L | no change; pins the cap |
 | 12 | `selection_feeding_a_fusion_stage_gets_the_envelope` | integration | SI-D5 | M×L | no change |
-| 13 | `rank_cut_not_met_abstains_without_an_envelope` | unit | SI-E1 | M×L | no change |
+| 13 | `rank_cut_not_met_abstains_with_the_empty_envelope` | unit | SI-E1 | H×M | `_abstain` writes the empty envelope for a select operator with `envelope` (fix 2026-10-14) |
 
 SI-D6 has no test: it adds no new trust boundary. See test-plan §5.

@@ -79,7 +79,9 @@ replies, when `run_candidate` runs it, then the final answer is the stated value
 
 ### 3.2 Error paths
 
-- **RC-E1** S9 with no confidence above 0.7 → the Case abstains with `no_votes`. [stated ans:Q4]
+- **RC-E1** S9 with no confidence above 0.7 → the Filter step abstains with `no_votes`, and the
+  writer gets `{"input":"<Case input>","selected":[]}`. The Case completes with the writer's
+  answer. [stated ans:Q4] [stated ans:Q7] (Erratum, 2026-10-14: this said "the Case abstains".)
 - **RC-E2** S5 with a member that replies plain text, not JSON → that member has no value and is not
   picked. If no member has a value, the Case abstains. [existing E/combine/operators/fields.py:132]
 - **RC-E3** S10 with a judge reply that is not strict JSON → the Case fails with
@@ -117,7 +119,7 @@ and depend on [selection-input](selection-input.md).
 | 1 | `recipe_s10_rank_by_judge_then_writer_runs_end_to_end` | integration | RC-7 | H×H | new fixture `recipe_s10.url4` |
 | 2 | `recipe_s9_filter_confidence_then_writer_runs_end_to_end` | integration | RC-6, RC-D2 | H×H | new fixture; strict `>` at exactly 0.7 |
 | 3 | `recipe_s7_rank_by_field_then_writer_runs_end_to_end` | integration | RC-4 | H×H | new fixture |
-| 4 | `recipe_s9_with_no_pass_abstains` | integration | RC-E1 | H×M | same fixture |
+| 4 | `recipe_s9_with_no_pass_abstains` | integration | RC-E1 | H×M | same fixture; the writer gets the empty envelope (fix 2026-10-14) |
 | 5 | `recipe_s10_with_invalid_judge_reply_fails_permanently` | integration | RC-E3 | H×M | same fixture |
 | 6 | `recipe_s11_judge_argmax_returns_the_best_member_text` | integration | RC-8 | H×M | new fixture |
 | 7 | `recipe_s8_pick_by_field_signal_max_runs_end_to_end` | integration | RC-5 | M×M | new fixture; `order="max"` |
