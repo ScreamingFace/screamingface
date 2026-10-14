@@ -98,6 +98,14 @@ from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload,
 #: bound on them.
 CASE_GRADING_CONCURRENCY: int = 4
 
+#: How far ahead of the clerk the marking room may start Cases, as a multiple of its seats
+#: (OME-1607). A Case started is a Case held in memory until the clerk hands it over — its task,
+#: its context, and whatever its grading left there (inspect's Transcript keeps every judge call
+#: with the full report prompt). Starting every Case up front held all of them: 100 Cases ×
+#: ~74 judge calls was the `draco-3pass` child's memory. Twice the seats keeps every seat busy
+#: while the clerk waits on one slow Case, and bounds what is held by the window, not the run.
+MARKING_WINDOW_FACTOR: int = 2
+
 logger = logging.getLogger(__name__)
 
 # WHY these codes are never forgiven on an abstained Case (OME-1289): they say the PREPARED
@@ -383,14 +391,17 @@ class BenchmarkAggregation:
 
         - Stage 1-2 — every collected row is validated and filed before any Case is
           marked (the same rule as :meth:`iter_case_results`).
-        - Stage 4a — one task per selected Case, all started in roll-call order; a seat
-          (the semaphore) caps how many are inside the hook at once. Each task runs in
-          its own copy of the caller's context, so the grading scope a hook raises
-          (``grading_call_scope``) is task-local and every judge call books to its own
-          Case.
+        - Stage 4a — one task per selected Case, started in roll-call order but only within
+          a window of ``MARKING_WINDOW_FACTOR`` × the seats ahead of the clerk (OME-1607); a
+          seat (the semaphore) caps how many are inside the hook at once. Each task runs in
+          its own copy of the caller's context (one copy taken before the first Case), so
+          the grading scope a hook raises (``grading_call_scope``) is task-local and every
+          judge call books to its own Case.
         - Stage 4b — the clerk awaits the tasks in roll-call order and yields each result
           once it and every Case before it are marked: Cases [1, 2, 3] finishing 2, 3, 1
-          still yield 1, 2, 3.
+          still yield 1, 2, 3. A Case handed over is let go at once — its task and its
+          context, with everything its grading left there — and the next Case in the
+          window starts. Memory is bounded by the window, not by the number of Cases.
         - On a raise, the first raising Case in roll-call order is the exception that
           leaves (the one serial marking would have raised), and every unfinished task is
           cancelled before it does.
@@ -404,45 +415,25 @@ class BenchmarkAggregation:
         # Stage 1-2 — validate and file every row first.
         case_ids: tuple[int, ...] = tuple(int(selected.case_id) for selected in selected_cases)
         indexed: CaseGradeIndex = self.reader.index(raw_case_grades, case_ids)
-        seats: asyncio.Semaphore = asyncio.Semaphore(self.case_grading_concurrency)
 
-        async def seated(index: int, selected: SelectedCase) -> CaseResult | None:
-            """Mark one Case once a seat is free — the same ladder as serial marking."""
+        async def mark(index: int) -> CaseResult | None:
+            return await self.case_result(
+                selected_cases[index], index, indexed, grading_material, case_metadata
+            )
 
-            async with seats:
-                try:
-                    return await self.case_result(
-                        selected, index, indexed, grading_material, case_metadata
-                    )
-                except Exception:
-                    # WHY here, still seated: releasing the seat first would let the
-                    # next waiting Case in to start a paid judge call before any
-                    # cancel lands. `tasks` is complete by now — no task body runs
-                    # before the list below is built.
-                    for later in tasks[index + 1 :]:
-                        later.cancel()
-                    raise
-
-        # Stage 4a — start every Case; the seats bound how many are marked at once.
-        tasks: list[asyncio.Task[CaseResult | None]] = [
-            asyncio.create_task(seated(index, selected))
-            for index, selected in enumerate(selected_cases)
-        ]
+        room = _MarkingWindow(mark, len(selected_cases), self.case_grading_concurrency)
+        # Stage 4a — start the first window; the seats bound how many are marked at once.
+        room.start_up_to(room.window)
         try:
             # Stage 4b — hand results over in roll-call order.
-            for task in tasks:
-                # WHY shield: a bare await hands a run's cancel to this one task first,
-                # which frees its seat to the next waiting Case before the `finally`
-                # below cancels the rest; shielded, the `finally` cancels them together.
-                result: CaseResult | None = await asyncio.shield(task)
+            for index in range(len(selected_cases)):
+                result: CaseResult | None = await room.hand_over(index)
                 if result is not None:
                     yield result
         finally:
             # WHY: a raise or a cancelled run must not leave Cases being marked (and
             # judges being paid) after the aggregate has given up.
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await room.cancel_all()
 
     async def case_result(
         self,
@@ -963,3 +954,70 @@ __all__ = [
     "MissingCaseResult",
     "BenchmarkAggregation",
 ]
+
+
+class _MarkingWindow:
+    """The Cases the marking room has started and not yet handed over (OME-1527, OME-1607).
+
+    Seats (a semaphore) bound how many Cases are inside the grade hook at once; the window
+    bounds how many are STARTED ahead of the clerk — and so how many are held in memory, each
+    with its task, its context, and what its grading left there.
+    """
+
+    def __init__(
+        self, mark: Callable[[int], Awaitable[CaseResult | None]], cases: int, seats: int
+    ) -> None:
+        self._mark = mark
+        self._cases = cases
+        self._seats = asyncio.Semaphore(seats)
+        self.window = MARKING_WINDOW_FACTOR * max(1, seats)
+        # WHY one copy taken now: tasks are created as the clerk advances, and the caller's
+        # context may change between the items it consumes. Every Case gets its own copy of
+        # the context the aggregate was CALLED in — what starting them all up front gave.
+        self._caller_context = contextvars.copy_context()
+        self._started: dict[int, asyncio.Task[CaseResult | None]] = {}
+        self._next = 0
+        self._failed = False
+
+    async def _seated(self, index: int) -> CaseResult | None:
+        """Mark one Case once a seat is free — the same ladder as serial marking."""
+
+        async with self._seats:
+            try:
+                return await self._mark(index)
+            except Exception:
+                # WHY here, still seated: releasing the seat first would let the next waiting
+                # Case in to start a paid judge call before any cancel lands. `_failed` stops
+                # the clerk starting any new Case.
+                self._failed = True
+                for later_index, later in self._started.items():
+                    if later_index > index:
+                        later.cancel()
+                raise
+
+    def start_up_to(self, limit: int) -> None:
+        """Start Cases in roll-call order below ``limit`` — never after a Case raised."""
+
+        while not self._failed and self._next < min(limit, self._cases):
+            self._started[self._next] = asyncio.create_task(
+                self._seated(self._next), context=self._caller_context.copy()
+            )
+            self._next += 1
+
+    async def hand_over(self, index: int) -> CaseResult | None:
+        """Case ``index``'s result once it is marked; then let it go and widen the window."""
+
+        # WHY shield: a bare await hands a run's cancel to this one task first, which frees
+        # its seat to the next waiting Case before `cancel_all` cancels the rest; shielded,
+        # `cancel_all` cancels them together.
+        result = await asyncio.shield(self._started[index])
+        # Let the handed-over Case go — task, context and all — then start the next Case the
+        # window now allows.
+        del self._started[index]
+        self.start_up_to(index + 1 + self.window)
+        return result
+
+    async def cancel_all(self) -> None:
+        for task in self._started.values():
+            task.cancel()
+        await asyncio.gather(*self._started.values(), return_exceptions=True)
