@@ -6,7 +6,8 @@ where the case-evaluation route decoded the error object as a typed grading reco
 masked the real failure with "invalid Criterion envelope". These tests pin the two halves
 of the repair:
 
-- the inner fan-outs (DRACO criteria, HealthBench rubric items) now fail fast, so the
+- the inner fan-out (HealthBench rubric items; DRACO's criteria too, until OME-1527 moved it
+  to a local inspect Task) now fails fast, so the
   original error propagates to the shared ``preserve_candidate_outcome()`` boundary
   instead of being collected as a malformed grading record;
 - url4's collect payload carries the exception's own ``code`` and ``retryable`` beside
@@ -22,23 +23,19 @@ from unittest import mock
 import httpx
 import pytest
 
+# WHY imported: the e2e half below needs a prepared HealthBench answer key, and this is the
+# writer its own runtime tests use.
+from test_healthbench_dual_benchmark_runtime import _write_full_assets  # noqa: E402
+
 from screamingface_engine.benchmarks.contract import (
     CandidateResult,
     encode_candidate_invocation,
 )
 from screamingface_engine.benchmarks.definition import link_candidate
-from screamingface_engine.benchmarks.draco import grade as draco_agg
-from screamingface_engine.benchmarks.draco import prepare
-from screamingface_engine.benchmarks.draco.definition import DRACO
-from screamingface_engine.benchmarks.draco.variant import (
-    JUDGE_MODEL,
-    build_draco_protocol,
-)
-from screamingface_engine.benchmarks.draco.variant import (
-    Routes as DracoRoutes,
-)
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.benchmarks.healthbench import grade as healthbench_agg
+from screamingface_engine.benchmarks.healthbench.definition import HEALTHBENCH_WORST30
+from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.variant import (
     Routes as HealthRoutes,
 )
@@ -57,30 +54,18 @@ from url4 import RelExpr, render, text
 
 pytestmark = pytest.mark.asyncio
 
-_RUBRIC = {
-    "sections": [
-        {"id": "Factual Accuracy", "criteria": [{"id": "a1", "weight": 2, "requirement": "x"}]}
-    ]
-}
-
 _CANDIDATE_MODEL = "openrouter/deepseek/deepseek-v4-pro"
 
 
 # --- the protocol fan-outs fail fast ---------------------------------------------------
 
 
-async def test_draco_inner_grading_fanout_fails_fast() -> None:
-    routes = DracoRoutes.for_variant("draco", "0123456789abcdef")
-    rendered = render(build_draco_protocol(routes, case_count=1, judge_passes=5))
-    # Exactly ONE explicit fail-fast policy: the inner criterion fan-out. The outer Case
-    # fan-out and the preserve_candidate_outcome boundary keep the collect default, which
-    # renders nothing (collect IS the default).
-    assert rendered.count(";iteration.on_error=fail") == 1
-
-
 async def test_healthbench_inner_grading_fanout_fails_fast() -> None:
     routes = HealthRoutes.for_variant("healthbench-worst30", "0123456789abcdef")
     rendered = render(build_variant_protocol(routes, case_count=1, available_case_count=1))
+    # Exactly ONE explicit fail-fast policy: the inner rubric fan-out. The outer Case
+    # fan-out and the preserve_candidate_outcome boundary keep the collect default, which
+    # renders nothing (collect IS the default).
     assert rendered.count(";iteration.on_error=fail") == 1
 
 
@@ -111,82 +96,6 @@ def _error_row(
     if permanent is not None:
         error["permanent"] = permanent
     return {"error": error}
-
-
-async def test_draco_grading_error_preserves_code_and_retryable() -> None:
-    rows = json.dumps(
-        [
-            _execution(
-                1,
-                "the candidate answer",
-                _error_row(code="rate_limited", retryable=True),
-            )
-        ]
-    )
-    result = draco_agg.aggregate(
-        rows,
-        {1: _RUBRIC},
-        "draco",
-        selected_cases=[{"id": 1, "input": "Question 1"}],
-        judge_passes=5,
-    )
-
-    (case,) = result["cases"]
-    assert case["status"] == "failed"
-    assert case["output"] == "the candidate answer"
-    assert case["grade"]["score"] is None
-    (failure,) = case["failures"]
-    assert failure == {
-        "stage": "grading",
-        "code": "rate_limited",
-        "message": "upstream judge rate limited",
-        "retryable": True,
-        "case_id": 1,
-        "metadata": {"error_kind": "ResolutionError"},
-    }
-    assert "Criterion envelope" not in failure["message"]
-
-
-async def test_draco_grading_failure_keeps_a_permanent_classification() -> None:
-    result = draco_agg.aggregate(
-        json.dumps(
-            [
-                _execution(
-                    1,
-                    "the candidate answer",
-                    _error_row(code="aigateway_bad_response", permanent=True),
-                )
-            ]
-        ),
-        {1: _RUBRIC},
-        "draco",
-        selected_cases=[{"id": 1, "input": "Question 1"}],
-        judge_passes=5,
-    )
-
-    (case,) = result["cases"]
-    (failure,) = case["failures"]
-    assert failure["code"] == "aigateway_bad_response"
-    assert failure["retryable"] is False
-
-
-async def test_draco_grading_failure_without_code_falls_back_to_the_default() -> None:
-    # A legacy collect payload (kind + message only) still renders, with the benchmark's
-    # declared default code — backward compatible with pre-OME-924 error cases.
-    result = draco_agg.aggregate(
-        json.dumps([_execution(1, "the candidate answer", _error_row())]),
-        {1: _RUBRIC},
-        "draco",
-        selected_cases=[{"id": 1, "input": "Question 1"}],
-        judge_passes=5,
-    )
-
-    (case,) = result["cases"]
-    (failure,) = case["failures"]
-    assert failure["stage"] == "grading"
-    assert failure["code"] == "draco_grading_failed"
-    assert failure["retryable"] is None
-    assert failure["message"] == "upstream judge rate limited"
 
 
 def _write_healthbench_case(root: Path) -> None:
@@ -225,18 +134,51 @@ async def test_healthbench_grading_error_preserves_code_and_retryable(tmp_path: 
     assert failure["metadata"] == {"error_kind": "ResolutionError"}
 
 
-# --- end to end: a real judge 429 through the full DRACO protocol -----------------------
+def _healthbench_failure(tmp_path: Path, grading: object) -> dict[str, object]:
+    """Aggregate one HealthBench Case whose grading collected ``grading``; its one Failure."""
 
-
-def _draco_assets(root: Path) -> Path:
-    bundle = root / "draco"
-    prepare.build(
-        [
-            {"problem": f"Question {index}", "answer": json.dumps(_RUBRIC), "domain": "finance"}
-            for index in range(1, 101)
-        ],
-        bundle,
+    _write_healthbench_case(tmp_path)
+    result = healthbench_agg.aggregate(
+        json.dumps([_execution(1, "the candidate answer", grading)]),
+        tmp_path,
+        benchmark_id="healthbench-test",
+        benchmark_revision="revision",
+        case_ids=(1,),
+        mean=sum,
     )
+    (case,) = result["cases"]
+    (failure,) = case["failures"]
+    return failure
+
+
+async def test_a_grading_failure_keeps_a_permanent_classification(tmp_path: Path) -> None:
+    # Moved from DRACO's aggregate (OME-1527): the same shared `public_error` rendering.
+    failure = _healthbench_failure(
+        tmp_path, _error_row(code="aigateway_bad_response", permanent=True)
+    )
+
+    assert failure["code"] == "aigateway_bad_response"
+    assert failure["retryable"] is False
+
+
+async def test_a_grading_failure_without_code_falls_back_to_the_default(tmp_path: Path) -> None:
+    # A legacy collect payload (kind + message only) still renders, with the benchmark's
+    # declared default code — backward compatible with pre-OME-924 error cases.
+    failure = _healthbench_failure(tmp_path, _error_row())
+
+    assert failure["stage"] == "grading"
+    assert failure["code"] == "healthbench_grading_failed"
+    assert failure["retryable"] is None
+    assert failure["message"] == "upstream judge rate limited"
+
+
+# --- end to end: a real judge 429 through the full HealthBench protocol ------------------
+
+
+def _healthbench_assets(root: Path) -> Path:
+    # WHY HealthBench (OME-1527): DRACO was this suite's full-protocol subject until it moved to
+    # a local inspect Task; HealthBench is the hand-built judged Benchmark left.
+    _write_full_assets(root / "healthbench")
     return root
 
 
@@ -255,7 +197,7 @@ async def _judge_429_world(
     AigatewayWorld,
     list[dict[str, object]],
 ]:
-    """A full DRACO world whose judge route answers 429 and candidates answer fine."""
+    """A full HealthBench world whose judge route answers 429 and candidates answer fine."""
     requests: list[dict[str, object]] = []
 
     def gateway(request: httpx.Request) -> httpx.Response:
@@ -297,7 +239,9 @@ async def _judge_429_world(
         tavily_client=tavily,
     )
     install_candidate_invocation(world.node)
-    BenchmarkRegistry((DRACO,)).install(world.node, assets_root=_draco_assets(tmp_path))
+    BenchmarkRegistry((HEALTHBENCH_WORST30,)).install(
+        world.node, assets_root=_healthbench_assets(tmp_path)
+    )
     return client, tavily, world, requests
 
 
@@ -310,7 +254,7 @@ async def test_a_judge_429_lands_as_the_original_grading_error(tmp_path: Path) -
         context="$input",
         intent=text("Answer the question."),
     )
-    linked = link_candidate(candidate_expression, DRACO.build(1))
+    linked = link_candidate(candidate_expression, HEALTHBENCH_WORST30.build(1))
     try:
         result = await world.node.evaluate(linked)
     finally:
@@ -344,7 +288,7 @@ async def _judge_transport_world(
     AigatewayWorld,
     list[dict[str, object]],
 ]:
-    """A full DRACO world whose judge route raises httpx.ReadError and candidates answer fine.
+    """A full HealthBench world whose judge route raises httpx.ReadError; candidates answer fine.
 
     ``fail_first_judge_posts``: raise ReadError for the first N judge POSTs, then answer
     with a valid verdict. None → always raise for judge POSTs.
@@ -367,7 +311,7 @@ async def _judge_transport_world(
                         {
                             "message": {
                                 "content": json.dumps(
-                                    {"explanation": "evidence", "criterion_status": "MET"}
+                                    {"explanation": "evidence", "criteria_met": True}
                                 )
                             },
                             "finish_reason": "stop",
@@ -402,7 +346,9 @@ async def _judge_transport_world(
         tavily_client=tavily,
     )
     install_candidate_invocation(world.node)
-    BenchmarkRegistry((DRACO,)).install(world.node, assets_root=_draco_assets(tmp_path))
+    BenchmarkRegistry((HEALTHBENCH_WORST30,)).install(
+        world.node, assets_root=_healthbench_assets(tmp_path)
+    )
     return client, tavily, world, requests
 
 
@@ -423,7 +369,7 @@ async def test_a_judge_transport_error_is_retried_and_the_case_is_graded(
         context="$input",
         intent=text("Answer the question."),
     )
-    linked = link_candidate(candidate_expression, DRACO.build(1))
+    linked = link_candidate(candidate_expression, HEALTHBENCH_WORST30.build(1))
     try:
         with (
             mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
@@ -453,7 +399,7 @@ async def test_a_judge_transport_error_exhaustion_lands_as_aigateway_transport_e
 
     WHY (OME-1016): after the connector's bounded retries, the failure must render as
     ``aigateway_transport_error`` with ``retryable=true`` and a non-empty message —
-    never the opaque ``draco_grading_failed`` fallback.
+    never the opaque ``healthbench_grading_failed`` fallback.
     """
     client, tavily, world, requests = await _judge_transport_world(tmp_path)
     candidate_expression = RelExpr(
@@ -461,7 +407,7 @@ async def test_a_judge_transport_error_exhaustion_lands_as_aigateway_transport_e
         context="$input",
         intent=text("Answer the question."),
     )
-    linked = link_candidate(candidate_expression, DRACO.build(1))
+    linked = link_candidate(candidate_expression, HEALTHBENCH_WORST30.build(1))
     try:
         with (
             mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),

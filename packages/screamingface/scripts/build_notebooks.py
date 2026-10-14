@@ -115,13 +115,19 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface prepare draco  # first run only: download pinned Benchmark assets
-screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services."""),
+management stays outside the notebook so **Run All** never starts or stops local services.
+
+**`draco` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
+shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
+boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
+recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
+set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting the kernel (see
+`12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -244,13 +250,19 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface prepare draco  # first run only: download pinned Benchmark assets
-screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services."""),
+management stays outside the notebook so **Run All** never starts or stops local services.
+
+**`draco` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
+shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
+boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
+recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
+set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting the kernel (see
+`12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf"""),
         nbformat.v4.new_markdown_cell("""\
@@ -775,13 +787,19 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface prepare draco  # first run only: download pinned Benchmark assets
-screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services."""),
+management stays outside the notebook so **Run All** never starts or stops local services.
+
+**`draco` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
+shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
+boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
+recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
+set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting the kernel (see
+`12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_markdown_cell("""\
 Export `TAVILY_API_KEY` before `screamingface up`: the Gemini, Kimi, DeepSeek, and
 Qwen answer routes use its guarded tool loop, and the Engine fails before model spend when that

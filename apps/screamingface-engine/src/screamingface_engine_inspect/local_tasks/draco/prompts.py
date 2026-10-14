@@ -1,4 +1,17 @@
-"""The pinned DRACO Judge instructions; Candidate policy belongs to the SDK user."""
+"""The DRACO judge prompt — the exact bytes one judge call sees for one criterion.
+
+Think of it as the examiner's instruction sheet plus one marking slip: the sheet (the paper's
+Appendix C.5 instructions) is the judge's system message, and the slip (criterion type, the
+criterion, the question, the answer) is its user message. The Candidate's own prompt is just
+the research question, so it needs no template here.
+
+INVARIANT: both texts are Benchmark identity (this package's source is pinned into the
+revision, OME-1527) AND the gateway's cache key: they equal, byte for byte, what the
+hand-built Benchmark sent, so its recorded replies still answer them. Two quirks of that
+history stay on purpose: the fields of the slip are joined by U+2028 LINE SEPARATOR, and the
+sheet's line breaks are U+2028 too (the hand-built route carried it through a url4 intent,
+which holds no raw newline). Neither is ever a newline.
+"""
 
 # Appendix C.5, byte-for-byte aligned with the reference DRACO harness. Identifier association is
 # deliberately absent: the Engine already knows the criterion and binds it after the Judge call.
@@ -112,7 +125,7 @@ Return only raw JSON starting with {, no back-ticks, no 'json' prefix."""
 
 
 def judge_context(*, criterion_type: str, criterion: str, question: str, answer: str) -> str:
-    """Render the canonical URL4/Gateway Judge context bytes."""
+    """The marking slip for one criterion: its type, its text, the question, the answer."""
 
     return "\u2028".join(
         (
@@ -132,12 +145,16 @@ def judge_context(*, criterion_type: str, criterion: str, question: str, answer:
     )
 
 
-def judge_intent() -> str:
-    """Render the canonical URL4-safe Judge instruction bytes."""
+def judge_system_text() -> str:
+    """The instruction sheet as the judge receives it: newlines and tabs folded, nothing else.
 
-    normalized = JUDGE_INSTRUCTIONS.replace("\r\n", "\n").replace("\r", "\n")
+    Worked example: a newline, then a tab → ``U+2028``, then a space. A control character the
+    fold leaves behind refuses loudly instead of reaching the judge.
+    """
+
+    normalized: str = JUDGE_INSTRUCTIONS.replace("\r\n", "\n").replace("\r", "\n")
     normalized = normalized.replace("\n", "\u2028").replace("\t", " ")
-    unsupported = next(
+    unsupported: str | None = next(
         (character for character in normalized if character < " " or character == "\x7f"),
         None,
     )
@@ -145,7 +162,11 @@ def judge_intent() -> str:
         raise ValueError(
             f"Benchmark prompt contains unsupported control character U+{ord(unsupported):04X}"
         )
-    return normalized.replace("$", "$$")
+    return normalized
 
 
-__all__ = ["JUDGE_INSTRUCTIONS", "judge_context", "judge_intent"]
+#: The judge's system message, computed once.
+JUDGE_SYSTEM: str = judge_system_text()
+
+
+__all__ = ["JUDGE_INSTRUCTIONS", "JUDGE_SYSTEM", "judge_context", "judge_system_text"]

@@ -20,9 +20,13 @@ Install the SDK, notebook tools, and local services together:
 
 ```bash
 pip install "screamingface[runtime,notebook]"
-screamingface prepare draco  # first run only
+screamingface prepare --all  # first run only
 screamingface up
 ```
+
+`draco`, the Benchmark the examples below use, is a local inspect Task: the plain `screamingface up`
+Engine does not list it. From a checkout, `just local-stack-notebooks` serves an Engine with the
+`inspect` extra beside the stack; otherwise point `SCREAMINGFACE_ENGINE_URL` at such an Engine.
 
 `screamingface up` starts AI Gateway, Scoreboard, and the Engine in the background. Use
 `screamingface status`, `screamingface doctor`, `screamingface logs`, `screamingface restart`, and

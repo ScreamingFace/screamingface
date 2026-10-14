@@ -1,14 +1,114 @@
 {
   "issue": "OME-1527",
-  "branch": "OME-1527-pr19-conversation-cases",
-  "approver": "owner — OME-1527 Work order #19 (R14) approved on the ticket: a Case's prompt can be a fixed conversation, still one Candidate call; to confirm in PR review",
+  "branch": "OME-1527-pr18-draco-local-task",
+  "approver": "owner — OME-1527 Work order #18 approved on the ticket (draco and draco-3pass as local Tasks, their hand-built folder and tests deleted, each revision moving once; decision 1: the thinner Report; decision 5: old goldens replay unchanged); to confirm in PR review",
   "date": "2026-10-13",
-  "scope": "(1) test_capture.py: test_a_multi_turn_prompt_is_refused becomes test_a_conversation_that_ends_on_an_assistant_turn_is_refused. The rule it pinned (any assistant turn refuses the Case) is the one R14 replaces: a conversation ending on a user turn is now a Case, pinned in the new test_conversation_cases.py. The test keeps pinning a refusal, now the one that still holds (a conversation ending on the assistant's turn), with the same Sample shape minus its last user turn. Test bodies not listed here are unchanged.",
-  "reason": "OME-1527 Work order #19 (R14) lets capture write a fixed conversation as the candidate-input envelope; the one capture test that pinned its refusal is narrowed to the shape still refused.",
+  "scope": "(1) test_benchmark_stage_parity.py, test_builtin_early_score_timing.py, test_early_grade_compatibility.py, tests/activity_recipe_helpers.py, test_native_case_index.py: the draco asset branch, the draco judge route and DRACO_3PASS go with the folder. (2) tests/fixtures/early_grade_compatibility.json: the draco and draco-3pass boards leave the hand-built baseline. (3) test_benchmark_asset_isolation.py: the unprepared-Benchmark test moves its subject from DRACO to HealthBench (same assertion: it fails at its own route, named by itself); the reads-assets-once test goes with DRACO's lazy memo, which no other hand-built runtime has. (4) test_benchmark_deployment.py: DracoPrepareError leaves the family-error parametrize; the family-guard and --bundle/--list-bundles examples use ifeval, a bundle the extra-less Engine still declares. (5) test_benchmark_outcome_conformance.py: the draco aggregate leaves the cross-Benchmark parametrize. (6) test_benchmark_protocol.py: the two DRACO expression tests and DRACO's url4 pin go with the folder (its expression is pinned by its published revision and its e2e golden now). (7) test_benchmark_provenance.py: the draco factory pass-through test goes with the factory. (8) test_finalized_missing_progress.py, test_grading_error_integrity.py, test_inspect_deployment_discovery.py: the hand-built subject moves from DRACO to HealthBench (or IFEval as a registration stand-in), same assertions; the DRACO-only fan-out and aggregate tests go, their two public_error cases re-asserted on HealthBench's aggregate. (9) test_fresh_judge_retry.py: the draco whole-Case case and its pre-fix revision literals go with the folder; healthbench cases unchanged. (10) _bundle_provenance_checks.py: docstring counts three hand-built preparers. (11) test_benchmark_declaration.py: the draco and draco-3pass rows move from the hand-built table to the plugin table, same declarations; draco leaves the shared-scored-path family loop. (12) test_published_revisions.py: two added literals (draco, draco-3pass). (13) test_inspect_imported_benchmarks.py: two _EXPECTED_FAMILIES rows (judged). (14) packages/screamingface/tests/e2e/test_boards.py, e2e/fixtures/slice_snapshot.py: draco-3pass reads its own local-Task bundle. (15) packages/screamingface/tests/e2e/fixtures/goldens/draco-3pass.golden.json: only revision and expression_sha regenerated from the free replay; score, statuses and failures unchanged (decision 5). (16) packages/screamingface/tests/e2e/test_failures.py: the docstring's policy chain names the local Task; the rehearsal needs the draco-3pass bundle; the judge-cutoff case accepts an unstated retryability; the judge token-cap and judge-429 cases pin scorer_error with the cause in the Check evidence instead of the connector's code on the Failure (the judge runs inside the Task's scorer now). (17) packages/screamingface/tests/paid/_case_provenance.py: draco-3pass leaves the shared-bundle map. (18) packages/screamingface/tests/test_runtime_cli.py: the manifest-status test moves its subject to healthbench and draco leaves the fingerprint parametrize. Deleted, which the manifest cannot approve: the 17 test_draco_*.py files and tests/unit/benchmark_support.py (orphaned: its one user was the deleted draco fresh-retry case) (owner decision, OME-1527 Work order #18). Test bodies not listed here are unchanged. (19) test_shared_grading_aggregation.py (review fix): the five tests of the error-case, missing-material and hook-failure hooks go with those hooks, which draco's deleted grade.py was the only user of. (20) test_failures.py (review fix): the 429 rehearsal is renamed, since it no longer asserts retryability.",
+  "reason": "OME-1527 moves draco and draco-3pass from their hand-built folder to one local inspect Task package under the same ids. Tests that drove the deleted routes go or move to another hand-built Benchmark; registry tables move the rows from the hand-built side to the plugin side; the revision literals record the one deliberate move; the e2e failure rehearsals follow the judge into the Task's scorer.",
   "files": {
-    "apps/screamingface-engine/tests/unit/inspect/test_capture.py": {
-      "base_blob": "f628f2a8f8e4273b50ac8e4b0753547513037f65",
-      "approved_blob": "ce99efa79a7106ec09faf6153465a7324f78799a"
+    "apps/screamingface-engine/tests/activity_recipe_helpers.py": {
+      "base_blob": "fcc8b62c3ec12cfb0054dbfcf16e42c61307770a",
+      "approved_blob": "7e2ef235c9b4fb743d54934a54cc4e976fd4bc12"
+    },
+    "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
+      "base_blob": "549349f13b727fdbf511e7dca609357801eae2ff",
+      "approved_blob": "86e7a89a5f6a36e88f06c245d3ea94dce399fd10"
+    },
+    "apps/screamingface-engine/tests/unit/_bundle_provenance_checks.py": {
+      "base_blob": "520b2e29c751224516e1a670eb4d52b11e95d9f4",
+      "approved_blob": "8410770df8305b2a288c7d074f56b7cf4da94a81"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "c81ce799079128beb5c81315d81a95e86c66cba9",
+      "approved_blob": "b519ccef4477f04c52683e2ff851a7de075fcc8b"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "aa75272c1c56428e9c33f6f21541a0837d0522c1",
+      "approved_blob": "0273fadd845d432a2203e3e43a55f5a2ef308618"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "b916a87c5d053b2736f7ade240e6f649a059be30",
+      "approved_blob": "9e861260c18123db0b2cc1422a04c2448990ae96"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_asset_isolation.py": {
+      "base_blob": "4ad01e3cf8d9c8ca057a11193e9fdbf25ce8ed31",
+      "approved_blob": "dfe9e17c85ebb498513bf17ceacc3cfe2a57304e"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_deployment.py": {
+      "base_blob": "1dfa418223a63b1b1d4b1919874be626a2b733c5",
+      "approved_blob": "b9120580542cdde04c76f9170bc054293fd1dea5"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_outcome_conformance.py": {
+      "base_blob": "b0677981c9334421674ef53904c00c9d5646612d",
+      "approved_blob": "03de77751a5cf1089a8df0eb9aa01ed311edc531"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_protocol.py": {
+      "base_blob": "414fee27b23f26db99985e1f2f1ece6687cb9015",
+      "approved_blob": "09652eead11812d4af37665071e29070d6eecea4"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_provenance.py": {
+      "base_blob": "78671d37d5999aa20bc50b7257d3644868d40f5d",
+      "approved_blob": "390f1b764cf643ce431023dca2e3863a6fe813d2"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_stage_parity.py": {
+      "base_blob": "9baec1a5be45265fe05fc928d68c4f7a8b1a98fe",
+      "approved_blob": "1c4ed516bf90da14f5b0ee3e58df77d1d1ba06eb"
+    },
+    "apps/screamingface-engine/tests/unit/test_builtin_early_score_timing.py": {
+      "base_blob": "1478b93b5b0e05be815c73f5884fffe3670f5345",
+      "approved_blob": "f878b543c20a83f50ba86e3b9636c3c9ff9a2c34"
+    },
+    "apps/screamingface-engine/tests/unit/test_early_grade_compatibility.py": {
+      "base_blob": "e4b9c9bb0469706916440b05a6fc49b4ad57170c",
+      "approved_blob": "d03510ea089ff5734052b6c2256453ed9e337a04"
+    },
+    "apps/screamingface-engine/tests/unit/test_finalized_missing_progress.py": {
+      "base_blob": "e5b7381c459bc8603ff136c3dbdbb5efe9e50986",
+      "approved_blob": "15cacbffc25ee9e3553ff83123b6e131cd2f0946"
+    },
+    "apps/screamingface-engine/tests/unit/test_fresh_judge_retry.py": {
+      "base_blob": "06fe3ee86fa9ae967ad4ddfc4d5dde46a4625f2d",
+      "approved_blob": "e3b01d94dbecdce82223ce443d95c1e52be528a1"
+    },
+    "apps/screamingface-engine/tests/unit/test_grading_error_integrity.py": {
+      "base_blob": "4a1e12a50b8cac440f932f76180d4d828a6f087f",
+      "approved_blob": "7ebca6020b3c4d5255404c8d2f2aeb68d9c35f16"
+    },
+    "apps/screamingface-engine/tests/unit/test_inspect_deployment_discovery.py": {
+      "base_blob": "305b26fcbbcccb455c862490f6026d54f9eb62c9",
+      "approved_blob": "14b154e312f38aec86c12984d08b0e60b3858876"
+    },
+    "apps/screamingface-engine/tests/unit/test_native_case_index.py": {
+      "base_blob": "741157a2b6a651938d2097523771bb1ab47c6dd2",
+      "approved_blob": "068360123427962b70e730452c2c2bc1af7580b7"
+    },
+    "packages/screamingface/tests/e2e/fixtures/goldens/draco-3pass.golden.json": {
+      "base_blob": "bb5ddebb3bdc3b9c58f2d28b0b47410c678eb8a8",
+      "approved_blob": "a15a4a137bf1cafc3f7caa86bb9f0760dd1517e5"
+    },
+    "packages/screamingface/tests/e2e/fixtures/slice_snapshot.py": {
+      "base_blob": "6b170c9a80f162dab193eeb0b3f68d65ef93f82e",
+      "approved_blob": "13efb8023b874b9e9ac5c2a3397ea480f4e5019a"
+    },
+    "packages/screamingface/tests/e2e/test_boards.py": {
+      "base_blob": "ff16a51948349aa5416def5f9b6d55ec9479c690",
+      "approved_blob": "78910643f7eea525f413bceca45bb8d8caec58ca"
+    },
+    "packages/screamingface/tests/e2e/test_failures.py": {
+      "base_blob": "f5aec738ebacc8cd9456ba8bb3c4df35751d5824",
+      "approved_blob": "9b26d9a479dade3571b06256e807eab2b84cd2ea"
+    },
+    "packages/screamingface/tests/paid/_case_provenance.py": {
+      "base_blob": "7bdbe6190949270ea1ad6bb34f19fe8a873643f0",
+      "approved_blob": "9c8a72572f7a23239c2656054fa533c3b7c65c83"
+    },
+    "packages/screamingface/tests/test_runtime_cli.py": {
+      "base_blob": "045f3510ed599d05b170f6286571dfe9b2c88be5",
+      "approved_blob": "5b2e0d97df7f42ea259bba8359013e8d4ae979c9"
+    },
+    "apps/screamingface-engine/tests/unit/test_shared_grading_aggregation.py": {
+      "base_blob": "698b83105b260082f58f16dd9627bc7d0ddb48de",
+      "approved_blob": "fe7dc7a42f4b5b1e3a5b9334e9776e23b975dfb2"
     }
   }
 }

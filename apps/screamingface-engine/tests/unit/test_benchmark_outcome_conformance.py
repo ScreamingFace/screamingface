@@ -10,7 +10,6 @@ from typing import Any
 import pytest
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.draco.grade import aggregate as aggregate_draco
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.benchmarks.healthbench.grade import aggregate as aggregate_healthbench
 from screamingface_engine.benchmarks.healthbench.scoring import unclipped_mean
@@ -30,15 +29,6 @@ def _ifeval(_root: Path, row: dict[str, object]) -> dict[str, Any]:
     return aggregate_ifeval(json.dumps([row]), spec, "ifeval", [1], selected_case_count=1)
 
 
-def _draco(_root: Path, row: dict[str, object]) -> dict[str, Any]:
-    return aggregate_draco(
-        json.dumps([row]),
-        rubrics={},
-        benchmark_id="draco",
-        selected_cases=[{"id": 1, "input": "Question"}],
-    )
-
-
 def _healthbench(root: Path, row: dict[str, object]) -> dict[str, Any]:
     (root / "cases.json").write_text(
         json.dumps([{"id": 1, "input": "Patient question"}]),
@@ -54,7 +44,7 @@ def _healthbench(root: Path, row: dict[str, object]) -> dict[str, Any]:
     )
 
 
-@pytest.mark.parametrize("aggregate", (_ifeval, _draco, _healthbench))
+@pytest.mark.parametrize("aggregate", (_ifeval, _healthbench))
 @pytest.mark.parametrize("refusal", ("I cannot answer that.", None))
 def test_refusal_survives_a_later_grading_failure_across_benchmarks(
     tmp_path: Path,
@@ -101,7 +91,7 @@ def test_refusal_survives_a_later_grading_failure_across_benchmarks(
     ]
 
 
-@pytest.mark.parametrize("aggregate", (_ifeval, _draco, _healthbench))
+@pytest.mark.parametrize("aggregate", (_ifeval, _healthbench))
 def test_case_execution_identity_mismatch_fails_loudly_across_benchmarks(
     tmp_path: Path,
     aggregate: AggregateFixture,

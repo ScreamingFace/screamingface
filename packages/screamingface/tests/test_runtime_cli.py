@@ -267,27 +267,28 @@ def test_benchmark_manifest_distinguishes_prepared_stale_and_incomplete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = RuntimeConfig(data_dir=tmp_path)
-    destination = config.assets_dir / "draco"
+    destination = config.assets_dir / "healthbench"
     destination.mkdir(parents=True)
-    monkeypatch.setattr(cli, "_benchmark_fingerprint", lambda _name: "draco:revision")
+    monkeypatch.setattr(cli, "_benchmark_fingerprint", lambda _name: "healthbench:revision")
 
-    assert cli._benchmark_status(config, "draco") == "incomplete"
-    for relative in ("criteria", "rubrics"):
-        (destination / relative).mkdir()
+    assert cli._benchmark_status(config, "healthbench") == "incomplete"
+    # WHY healthbench (OME-1527): draco, the original subject, is a local inspect Task now
+    # and its bundle is the Engine's to prepare, not this command's.
+    (destination / "rubrics").mkdir()
     (destination / "cases.json").write_text('[{"id":1}]')
     cli._write_json_atomic(
         cli._benchmark_manifest_path(destination),
-        {"fingerprint": "draco:old"},
+        {"fingerprint": "healthbench:old"},
     )
-    assert cli._benchmark_status(config, "draco") == "stale"
+    assert cli._benchmark_status(config, "healthbench") == "stale"
     cli._write_json_atomic(
         cli._benchmark_manifest_path(destination),
-        {"fingerprint": "draco:revision"},
+        {"fingerprint": "healthbench:revision"},
     )
-    assert cli._benchmark_status(config, "draco") == "prepared"
+    assert cli._benchmark_status(config, "healthbench") == "prepared"
 
 
-@pytest.mark.parametrize("name", ("draco", "ifeval", "healthbench", "medxpert"))
+@pytest.mark.parametrize("name", ("ifeval", "healthbench", "medxpert"))
 def test_benchmark_fingerprint_uses_engine_preparation_revision(
     name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

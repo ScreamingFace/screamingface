@@ -344,33 +344,9 @@ def test_fields_that_always_exist_do_not_accept_not_published(field: str) -> Non
 # --- the factories thread provenance through verbatim ---------------------------------------
 
 
-def test_the_draco_factory_passes_provenance_through_and_keeps_its_revision() -> None:
-    # WHY the factory and not `Benchmark` directly: a hand-built Benchmark's one authoring
-    # site is its definition module's factory call, so a field the factory drops on the
-    # floor is a field no DRACO board can ever declare (the OME-1257 difficulty precedent).
-    from screamingface_engine.benchmarks.draco.definition import DRACO
-    from screamingface_engine.benchmarks.draco.variant import draco_benchmark
-
-    _, benchmark = draco_benchmark(
-        id="draco",
-        title="DRACO",
-        description="probe",
-        judge_passes=5,
-        protocol_revision="five-pass-reproduction-v1",
-        difficulty="hard",
-        paper_url="https://arxiv.org/abs/2600.00001",
-        harness_url="https://github.com/perplexity-ai/draco/tree/1a2b3c4d5e6f/eval",
-        notebook="06_draco",
-    )
-
-    assert benchmark.paper_url == "https://arxiv.org/abs/2600.00001"
-    assert benchmark.catalog_entry()["notebook"] == "06_draco"
-    assert benchmark.revision == DRACO.revision
-
-
 def test_the_healthbench_and_gdpval_factories_pass_provenance_through() -> None:
-    # OME-1527: the gdpval factory went with its hand-built folder (gdpval-text is a local
-    # inspect Task now); the healthbench half stands.
+    # OME-1527: the gdpval and draco factories went with their hand-built folders (both are
+    # local inspect Tasks now); the healthbench half stands.
     from screamingface_engine.benchmarks.healthbench.scoring import unclipped_mean
     from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS
     from screamingface_engine.benchmarks.healthbench.subset import subset_sha as hb_sha

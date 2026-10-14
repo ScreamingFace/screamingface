@@ -10,10 +10,6 @@ from screamingface_engine.benchmarks.deployment import (
     BenchmarkRegistration,
 )
 from screamingface_engine.benchmarks.discovery import discovered_registrations
-from screamingface_engine.benchmarks.draco.definition import (
-    ASSET_BUNDLE_ID as DRACO_ASSET_BUNDLE_ID,
-)
-from screamingface_engine.benchmarks.draco.definition import DRACO, DRACO_3PASS
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_PROFESSIONAL,
     HEALTHBENCH_WORST30,
@@ -31,15 +27,9 @@ from screamingface_engine.benchmarks.medxpert.definition import (
 from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 
 
-def _prepare_draco(out: Path) -> Mapping[str, Any]:
+def _prepare_ifeval(out: Path) -> Mapping[str, Any]:
     # WHY lazy: image-building code and its optional dataset dependency stay out of the runtime
     # import graph. The deployment carries the adapter, but imports it only when building assets.
-    from screamingface_engine.benchmarks.draco.prepare import prepare
-
-    return prepare(out)
-
-
-def _prepare_ifeval(out: Path) -> Mapping[str, Any]:
     from screamingface_engine.benchmarks.ifeval.prepare import prepare
 
     return prepare(out)
@@ -57,7 +47,6 @@ def _prepare_healthbench(out: Path) -> Mapping[str, Any]:
     return prepare(out)
 
 
-DRACO_ASSETS = BenchmarkAssetBundle(id=DRACO_ASSET_BUNDLE_ID, prepare=_prepare_draco)
 IFEVAL_ASSETS = BenchmarkAssetBundle(id=IFEVAL_ASSET_BUNDLE_ID, prepare=_prepare_ifeval)
 MEDXPERT_ASSETS = BenchmarkAssetBundle(id=MEDXPERT_ASSET_BUNDLE_ID, prepare=_prepare_medxpert)
 HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
@@ -68,11 +57,8 @@ HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
 # WHY: this composition is the single source for both runtime discovery and image construction.
 # Benchmarks that read one physical asset set intentionally share a bundle and the deployment
 # prepares it once: the two HealthBench benchmarks are independent identities over one prepared
-# answer key, and the two DRACO benchmarks re-run the same archived case/rubric assets with
-# different judge-pass counts.
+# answer key.
 BUILTIN_REGISTRATIONS = (
-    BenchmarkRegistration(benchmark=DRACO, asset_bundle=DRACO_ASSETS),
-    BenchmarkRegistration(benchmark=DRACO_3PASS, asset_bundle=DRACO_ASSETS),
     BenchmarkRegistration(benchmark=IFEVAL, asset_bundle=IFEVAL_ASSETS),
     BenchmarkRegistration(
         benchmark=HEALTHBENCH_WORST30,

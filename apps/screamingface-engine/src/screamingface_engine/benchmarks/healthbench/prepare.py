@@ -79,7 +79,10 @@ def load_rows() -> list[dict[str, Any]]:
     moved to image build time and pinned to one revision.
 
     ``datasets`` is NOT a dependency of screamingface-engine — this runs at image build time on a
-    machine that has it (see the draco preparer for the importlib rationale).
+    machine that has it. WHY ``importlib`` rather than a plain import: a static import would make
+    this optional build-time package look like a hard dependency to every reader and to the type
+    checker, for a module a deployed Job never imports (the pattern ``url4.peer.server`` uses
+    for its optional uvicorn extra).
     """
 
     try:

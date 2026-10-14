@@ -90,7 +90,8 @@ uv run --with datasets python -m screamingface_engine.benchmarks.medxpert.prepar
 - Pin everything in `pins.py`, fold it into `compute_revision()` — the revision is in
   every route path, so a re-print of the paper is a new, distinguishable exam.
 - Assets land under `$URL4_BENCHMARK_ASSETS` (default `/opt/benchmarks`), one directory
-  per bundle id; two benchmarks may share one bundle (draco/draco-3pass do).
+  per bundle id; two benchmarks may share one bundle (healthbench-worst30 and
+  healthbench-professional do).
 
 ## Step 3 — the case-row shapes
 
@@ -196,8 +197,9 @@ _PATH = BenchmarkAggregation(
 
 then call `_PATH.aggregate(raw_case_grades, benchmark_id=..., benchmark_revision=...,
 selected_cases=..., grading_material=..., scorer=..., case_metadata=...)`. Four optional
-hooks let a benchmark reshape a ladder rung's result — `ifeval` sets `missing_case_result`,
-`draco` sets all four; don't set any until a golden or a spec forces you to. For the
+hooks let a benchmark reshape a ladder rung's result — `ifeval` sets `missing_case_result`
+(draco set all four until it became a local Task); don't set any until a golden or a spec
+forces you to. For the
 scorer: rubric benchmarks use the shared `mean_scorer(mean)` (`benchmarks/shared_grading/mean_scorer.py`, fixed metric
 vocabulary); other benchmarks pass their own function (medxpert's `_accuracy`, ifeval's
 `_ifeval_score`).

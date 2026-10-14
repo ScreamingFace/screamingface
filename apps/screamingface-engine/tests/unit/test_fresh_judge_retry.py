@@ -6,8 +6,8 @@ reply the verdict cannot parse fails the route with ``judge_reply_invalid``, and
 source's ``;retry=`` asks the Judge again. That retry sends the same bytes, and the AI
 Gateway's global request cache has already stored the garbled reply (it stores any successful
 reply), so before this fix every retry got the same garbled reply back and the Case failed.
-draco nests its Judge the same way but records a garbled reply as invalid Evidence instead of
-retrying it; its test pins that the fix leaves it alone.
+draco nested its Judge the same way but recorded a garbled reply as invalid Evidence instead of
+retrying it; its test went with it when OME-1527 moved draco to a local Task.
 
 STORY: as someone running one of these Benchmarks with the hosted cache on, a garbled judge reply
 costs one extra judge call, not the whole Case.
@@ -24,16 +24,12 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
-from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
-from benchmark_support import install_benchmarks
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
-from screamingface_engine.benchmarks.draco.definition import DRACO
-from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as DRACO_JUDGE
 from screamingface_engine.benchmarks.failure_classes import JUDGE_REPLY_INVALID_CODE
 from screamingface_engine.benchmarks.healthbench import runtime as healthbench_runtime
 from screamingface_engine.benchmarks.healthbench.revision_inputs import (
@@ -60,7 +56,7 @@ from screamingface_engine.world.connector import (
     build_aigateway_world,
 )
 from screamingface_engine.world.fresh_judge_retry import scope_for_this_send
-from url4 import Node, RelExpr, Text, build, expr, render, src, text
+from url4 import RelExpr, Text, expr, render
 from url4.core.errors import ResolutionError
 from url4.dag import GuardNode, GuardRetry, current_guard_retry, run
 from url4.io.static import StaticIOLayer
@@ -71,7 +67,6 @@ pytestmark = pytest.mark.asyncio
 _OPT_OUT: dict[str, bool] = {"use-cache": False}
 _GARBLED = "I think the answer is fine"  # prose: no JSON, no verdict field
 _RUBRIC_VERDICT = json.dumps({"explanation": "ok", "criteria_met": True})
-_CRITERION_VERDICT = json.dumps({"explanation": "ok", "criterion_status": "MET"})
 _CANDIDATE_MODEL = "openrouter/anthropic/claude-opus-4.8"
 _CANDIDATE_ANSWER = "Four."
 _VERDICT_ROUTE = "/verdict"
@@ -299,69 +294,6 @@ async def test_every_retry_after_unparseable_replies_skips_the_cache(
     assert [body.get("cache") for body in gateway.judge_bodies()] == [None, _OPT_OUT, _OPT_OUT]
 
 
-# --- draco: a whole Case through the real Engine, with accounting -------------------------
-
-
-def _draco_assets(root: Path) -> None:
-    """One-criterion DRACO assets for all 100 Cases (the Benchmark preflights every Case)."""
-    (root / "criteria").mkdir(parents=True)
-    (root / "rubrics").mkdir()
-    cases: list[dict[str, object]] = [
-        {"id": case_id, "input": f"Question {case_id}", "domain": "Arithmetic"}
-        for case_id in range(1, 101)
-    ]
-    (root / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
-    criteria = [{"id": "answer", "requirement": "Answers.", "criterion_type": "positive"}]
-    rubric = {"sections": [{"id": "correctness", "criteria": [{"id": "answer", "weight": 3}]}]}
-    for case_id in range(1, 101):
-        (root / "criteria" / f"{case_id}.json").write_text(json.dumps(criteria), encoding="utf-8")
-        (root / "rubrics" / f"{case_id}.json").write_text(json.dumps(rubric), encoding="utf-8")
-
-
-def _linked_draco_case() -> str:
-    """One DRACO Case with a single-model Candidate, linked the way a run submits it."""
-    candidate: Node = RelExpr(
-        path=f"/{_CANDIDATE_MODEL}", context="$input", intent=text("Answer exactly.")
-    )
-    benchmark = DRACO.resource(1)["url4"]
-    assert isinstance(benchmark, str)
-    return render(
-        expr(
-            src(text(render(candidate)), name="candidate", weight=0.0),
-            build(benchmark),
-            intent=text(""),
-        )
-    )
-
-
-async def test_draco_records_a_garbled_pass_as_invalid_evidence_and_never_opts_out(
-    tmp_path: Path,
-) -> None:
-    # WHY draco is pinned, not changed: its verdict route RETURNS an unparseable reply as invalid
-    # Evidence instead of raising, so its ;retry= fires only on 429/5xx/transport failures and a
-    # garbled pass is never re-asked — there is no cache echo to fix. This pins that the fix
-    # leaves draco's sends alone: one send per pass, none opted out, the Case still graded.
-    _draco_assets(tmp_path / "draco")
-    gateway = _CachingGateway(DRACO_JUDGE, [_GARBLED], _CRITERION_VERDICT)
-
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(gateway), base_url="http://aigateway.test"
-    ) as client:
-        world = await _world(gateway, client)
-        install_benchmarks(world.node, tmp_path, benchmarks=(DRACO,))
-        try:
-            result = await world.node.evaluate(_linked_draco_case())
-        finally:
-            await world.aclose()
-
-    (case,) = json.loads(result.text)["cases"]
-    assert case["status"] == "scored"
-    assert case["grade"]["metrics"]["verdicts_invalid"] == 1
-    judge_bodies = gateway.judge_bodies()
-    assert len(judge_bodies) == case["grade"]["metrics"]["verdicts_expected"]
-    assert all("cache" not in body for body in judge_bodies)
-
-
 # --- the helper on its own: what an opted-out send keeps ----------------------------------
 
 
@@ -434,8 +366,6 @@ async def test_an_unguarded_call_keeps_the_callers_scope() -> None:
 _REVISIONS_BEFORE_THE_FIX: dict[str, str] = {
     "healthbench-worst30": "39cfd96b068f7230",
     "healthbench-professional": "d8fb037307f35415",
-    "draco": "62718f04ea1a980f",
-    "draco-3pass": "2634cec91fd0f19a",
 }
 
 

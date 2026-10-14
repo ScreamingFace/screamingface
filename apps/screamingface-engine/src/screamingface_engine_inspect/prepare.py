@@ -1297,6 +1297,40 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # README, as the hand-built Benchmark recorded it (OME-1455).
         license="unknown",
     ),
+    # draco — imported by Task replay on 2026-10-13 from
+    #   screamingface_engine_inspect.local_tasks.draco.draco:draco.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face perplexity-ai/draco
+    #     pin revision ce076749809027649ebd331bcb70f42bf720d387
+    "draco": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.draco.draco:draco",
+        case_count=100,
+        case_digest="2302f1a52ca207d97d22226eab3b82656f9a771a90c3182479a24331da33ebe6",
+        case_set_digest="60275b3d9fdded54be2305efa0b6089dd4aba2ddd881e21342ed994f0e726957",
+        keep_sample_metadata=True,
+        has_answer_key=False,
+        source_pins={
+            "perplexity-ai/draco": "ce076749809027649ebd331bcb70f42bf720d387",
+        },
+        license="mit",
+    ),
+    # draco-3pass — imported by Task replay on 2026-10-13 from
+    #   screamingface_engine_inspect.local_tasks.draco.draco:draco_3pass.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face perplexity-ai/draco
+    #     pin revision ce076749809027649ebd331bcb70f42bf720d387
+    "draco-3pass": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.draco.draco:draco_3pass",
+        case_count=100,
+        case_digest="2302f1a52ca207d97d22226eab3b82656f9a771a90c3182479a24331da33ebe6",
+        case_set_digest="60275b3d9fdded54be2305efa0b6089dd4aba2ddd881e21342ed994f0e726957",
+        keep_sample_metadata=True,
+        has_answer_key=False,
+        source_pins={
+            "perplexity-ai/draco": "ce076749809027649ebd331bcb70f42bf720d387",
+        },
+        license="mit",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

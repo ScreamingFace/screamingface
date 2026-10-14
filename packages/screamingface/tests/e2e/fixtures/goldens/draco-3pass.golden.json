@@ -1,12 +1,12 @@
 {
   "schema": "screamingface.golden-report.v1",
   "board": "draco-3pass",
-  "revision": "2634cec91fd0f19a",
+  "revision": "e8c3ad925dcd4d4a",
   "models": [
     "openrouter/google/gemini-3-flash-preview"
   ],
   "limit": null,
-  "expression_sha": "f896d89be023dea054cba3709784afc0d1c791a8617b82c5be095a853bbdbc48",
+  "expression_sha": "5f6526fdfb79c29887d4762b25dd081f4c1c5c8d1f9226b19e25ec3d3f4f488f",
   "final_score": "0.3592",
   "case_count": 100,
   "gradeable_count": 100,

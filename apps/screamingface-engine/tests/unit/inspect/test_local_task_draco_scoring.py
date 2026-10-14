@@ -1,6 +1,13 @@
-"""DRACO's exact per-case scoring arithmetic."""
+"""DRACO's exact per-case scoring arithmetic, on the local Task's moved ``scoring.py``.
 
-from screamingface_engine.benchmarks.draco import case_results, grade, scoring
+Restored from the hand-built folder's ``tests/unit/test_draco_scoring.py`` (OME-1527 row 18):
+``scoring.py`` moved unchanged, so its tests move with it. Dropped: the tests of
+``case_results.group_by_judge_pass`` and ``grade._mean_optional_grade_metrics``, two helpers
+the move deleted (the scorer now groups verdicts per pass itself; ``test_local_task_draco.py``
+pins that grouping).
+"""
+
+from screamingface_engine_inspect.local_tasks.draco import scoring
 
 _RUBRIC = {
     "sections": [
@@ -82,25 +89,6 @@ def test_coverage_reports_the_judged_fraction() -> None:
     assert scoring.score_case(_RUBRIC, [judged])["coverage"] == 0.75
 
 
-def test_runs_are_grouped_in_order_so_each_pass_scores_independently() -> None:
-    verdicts = [
-        {"case_id": 1, "criterion_id": "a1", "sequence": n, "criterion_status": status}
-        for n, status in enumerate(("MET", "UNMET", "MET"), start=1)
-    ]
-
-    assert case_results.group_by_judge_pass(verdicts) == [{"a1": True}, {"a1": False}, {"a1": True}]
-
-
-def test_a_criterion_with_fewer_passes_drops_out_of_the_missing_run() -> None:
-    verdicts = [
-        {"case_id": 1, "criterion_id": "a1", "sequence": 1, "criterion_status": "MET"},
-        {"case_id": 1, "criterion_id": "a1", "sequence": 2, "criterion_status": "MET"},
-        {"case_id": 1, "criterion_id": "a2", "sequence": 1, "criterion_status": "MET"},
-    ]
-
-    assert case_results.group_by_judge_pass(verdicts) == [{"a1": True, "a2": True}, {"a1": True}]
-
-
 def test_score_case_means_the_runs_and_reports_the_spread() -> None:
     scored = scoring.score_case(
         _RUBRIC,
@@ -137,15 +125,6 @@ def test_a_rubric_without_a_factual_accuracy_axis_reports_unknown_not_zero() -> 
     assert scored["normalized_score"] == 1.0
     assert scored["accuracy"] is None
     assert scored["accuracy_pass_rate"] is None
-
-
-def test_a_case_missing_the_accuracy_axis_is_skipped_by_the_candidate_mean() -> None:
-    """A Case that never observed the axis must not drag the Candidate mean toward zero."""
-    with_axis = {"grade": {"metrics": {"accuracy": 0.8}}}
-    without_axis = {"grade": {"metrics": {"accuracy": None}}}
-
-    assert grade._mean_optional_grade_metrics([with_axis, without_axis], "accuracy") == 0.8
-    assert grade._mean_optional_grade_metrics([without_axis], "accuracy") is None
 
 
 def test_a_single_run_reports_zero_spread() -> None:

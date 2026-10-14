@@ -41,9 +41,9 @@
 # installed package, which path-depends on `packages/url4`.
 #
 # AIDEV-NOTE: datasets are welded to an image, so adding a benchmark means a rebuild. Anyone who
-# can pull the image has the rubrics — accepted: DRACO's rubrics are PUBLIC (the upstream
-# `perplexity-ai/draco` dataset downloads without credentials, and each Case Result publishes its
-# graded criteria), so this image needs no registry secrecy. The alternative is a mounted volume
+# can pull the image has the rubrics — accepted: the rubric datasets are PUBLIC (e.g. DRACO's
+# `perplexity-ai/draco` downloads without credentials, and each Case Result publishes its graded
+# criteria), so this image needs no registry secrecy. The alternative is a mounted volume
 # plus `URL4_RUNNER_CONFIG` pointing beside it — which needs a volume the Job spec does not have
 # today (read-only rootfs, one emptyDir at /tmp). Decide before this leaves experimentation.
 
@@ -104,7 +104,7 @@ FROM ${BASE} AS runtime
 LABEL org.opencontainers.image.title="screamingface-engine-benchmark" \
       org.opencontainers.image.description="screamingface-engine Runner with registered Benchmark assets"
 USER 0
-# `rubrics/` ships too — DRACO's installed runtime reads it off disk. It is deliberately NOT a
+# `rubrics/` ships too — HealthBench's installed runtime reads it off disk. It is deliberately NOT a
 # data route: the weights must be unreachable from an expression, or a judge prompt could be
 # handed the thing it is being kept blind to.
 COPY --from=prepare --chown=1000:1000 /opt/benchmarks /opt/benchmarks

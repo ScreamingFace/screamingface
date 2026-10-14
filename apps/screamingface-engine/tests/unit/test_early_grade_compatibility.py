@@ -99,10 +99,9 @@ def _install_calls(node, calls):
         calls.append((request.path, request.context, request.intent, request.params))
         return '{"explanation":"ok","criteria_met":true,"criterion_status":"MET"}'
 
-    from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as draco
     from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL as health
 
-    for model in {draco, health}:
+    for model in {health}:
         node.endpoint("/" + model)(judge)
     for path in ("/writer", "/writer-b", "/synth"):
         node.endpoint(path)(answer)

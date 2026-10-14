@@ -98,6 +98,9 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "judge_reply_invalid",
         "invalid_case_evaluation",
         "ifeval_checker_failed",
+        # AIDEV-NOTE (OME-1527): nothing emits this since draco and draco-3pass became local
+        # Tasks; it stays declared because the SDK refuses an undeclared code when it reads a
+        # Report, so a draco Report made before the move must stay readable.
         "draco_grading_failed",
         # AIDEV-NOTE (OME-1527): nothing emits this since gdpval-text became a local Task; it
         # stays declared because the SDK refuses an undeclared code when it reads a Report, so
