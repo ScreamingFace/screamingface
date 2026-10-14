@@ -102,6 +102,7 @@ from screamingface_engine_inspect.revision_inputs import (
     PROTOCOL_REVISION,
     pinned_inspect_packages,
 )
+from screamingface_engine_inspect.verdict_counts import run_verdict_counts
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Request, Url4Node
 
@@ -1179,6 +1180,10 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
     Case; a column one graded Case could not fill is published as unknown, never over
     fewer Cases). Worked example, 2 graded Cases: f1 1.0 and 0.334, exact 1.0 and 0.0 →
     score 0.667, scores f1 0.667, exact 0.5.
+
+    A judging scorer's verdict counts (``verdicts_expected`` / ``accepted`` / ``rejected``,
+    OME-1527 row 18b) are added up over the same graded Cases, so the Report can warn when
+    grading did not fully land; a row whose scorer writes none publishes none.
     """
 
     graded: list[CaseGrade] = [
@@ -1192,6 +1197,7 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
         metrics={
             "correct": sum(1 for value in values if value >= 1.0),
             "scored_cases": len(values),
+            **run_verdict_counts(grade.metrics for grade in graded),
         },
         scores=_column_means(graded),
     )
