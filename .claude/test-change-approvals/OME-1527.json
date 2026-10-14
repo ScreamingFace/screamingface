@@ -1,14 +1,126 @@
 {
   "issue": "OME-1527",
-  "branch": "OME-1527-pr13-draft-feedback-without-answer-key",
-  "approver": "owner — OME-1527 Work order #13 (R10) approved on the ticket (an owner-allowed Benchmark may offer Draft Feedback with no answer key; the allow-list moves into the assembler); to confirm in PR review",
+  "branch": "OME-1527-pr15-ifeval-local-task",
+  "approver": "owner \u2014 OME-1527 Work order #15 (ifeval \u2192 local inspect Task) approved on the ticket, with decision 2 (Case ids renumber to 1..541) and decision 5 (the old golden replays unchanged; only revision, expression hash and the renumbered Case-id keys regenerate); to confirm in PR review",
   "date": "2026-10-14",
-  "scope": "(1) test_draft_feedback_offer_is_owner_opt_in.py: test_no_imported_row_asks_for_draft_feedback compares the rows asking for a check surface by catalogue id as a subset of the owner list (still empty today) instead of asserting no row at all, and pins the assembler's OWNER_ALLOWED_DRAFT_FEEDBACK to the test's own _OWNER_ALLOWED_OFFERS literal; the import line gains that constant. Test bodies not listed here are unchanged.",
-  "reason": "OME-1527 row 13 lets the one Benchmark the owner allowed (ifeval, as a local Task in row 15) offer Draft Feedback without an answer key. The row-level owner test asserted no imported row could ask for the offer; it now asserts only owner-allowed catalogue ids can, and that the assembler's copy of the list equals the owner's literal.",
+  "scope": "IFEval leaves the hand-built lane. (1) Tests that used the hand-built IFEval as their hand-built subject move to MedXpertQA (early grading, outcome conformance, protocol, deployment, discovery, abstain hoist) or drop the IFEval branch of a loop over the built-ins (stage parity, early score timing, the early-grade compatibility fixture loses its ifeval board). (2) Tests that needed IFEval's Draft Feedback or its grading lose those parts here and gain them in the inspect lane against the local Task (abstain_corrective part (b), abstain_families' IFEval section, combine_reducer_candidates' three IFEval tests, samples_seed_contract's SM-10). (3) Conformance tables gain the ifeval row: family reply_only with the owner's one Draft Feedback offer, stand-in metadata, an empty nltk corpus folder in stand-in bundles, the reply-only set, the whole-run metric opt-in list, the declaration table, the published revision literal. (4) Review fixes from #1399: test_no_imported_row_asks_for_draft_feedback renamed test_only_owner_allowed_rows_ask_for_draft_feedback, the catalogue-level offer test compares against the installed part of the allow-list, and the assembly test checks membership instead of the exact list. (5) SDK: the CLI fingerprint test no longer lists ifeval; the e2e golden's revision, expression hash and Case-id keys regenerate (official key -> position 1..541 in the pinned split), every recorded outcome unchanged.",
+  "reason": "OME-1527 row 15 moves ifeval to a local inspect Task and deletes the hand-built folder; every edited test either loses a subject that no longer exists, follows it to the inspect lane, or names the new row. Deleted and renamed test files cannot be approved here; the ledger lists them.",
   "files": {
+    "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
+      "base_blob": "86e7a89a5f6a36e88f06c245d3ea94dce399fd10",
+      "approved_blob": "99005dc8ab13fd273c65e03c67bf7951271d8b3d"
+    },
+    "apps/screamingface-engine/tests/unit/_bundle_provenance_checks.py": {
+      "base_blob": "8410770df8305b2a288c7d074f56b7cf4da94a81",
+      "approved_blob": "383765f9bd1ca6a52aa0458f8c6185a42dab7657"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
+      "base_blob": "1aca6eae516f0a2c52ef8f2e44bdfd1a2a01fdbb",
+      "approved_blob": "f2a70e3540a47409af485998de74c86481e25c6f"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "b519ccef4477f04c52683e2ff851a7de075fcc8b",
+      "approved_blob": "219b9342bbc170ae6fac9317e0a284b59e1bb3d6"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_imported_catalogue_activity.py": {
+      "base_blob": "cade69d956dfeaafed77c8dd1071841ff21d5742",
+      "approved_blob": "6ed4491dacadacdc783781176b0c0ff75022d652"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "0273fadd845d432a2203e3e43a55f5a2ef308618",
+      "approved_blob": "984d0a8213c29e87281656dc7fce1e4ff4c7cab6"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_task_replay_benchmarks.py": {
+      "base_blob": "f29143695922aa701834aa3c46670a4bac1317a2",
+      "approved_blob": "2e10b787e64549816e2ae9210292a00bbb055f63"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_judged_benchmark_assembly.py": {
+      "base_blob": "088e7fc68606ae535c99c678ae08dde2f550b8f1",
+      "approved_blob": "f9cdaa02f83da2eedae45bfa35d1907e3fdcc60c"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "9e861260c18123db0b2cc1422a04c2448990ae96",
+      "approved_blob": "0b23c56ec7d63d6ea50252d6d56b33043f3742fe"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
+      "base_blob": "701d8ef126d0e6dc8c3c85102410dd28b987563b",
+      "approved_blob": "930b446eafae9c5c0b04b7260bf001c2f99175e7"
+    },
+    "apps/screamingface-engine/tests/unit/test_abstain_corrective.py": {
+      "base_blob": "8f1326a8629ed5278de380c3648293243c213a46",
+      "approved_blob": "bd33ba16038bb8f2ccfb4740220c67e87bf0c7b1"
+    },
+    "apps/screamingface-engine/tests/unit/test_abstain_families.py": {
+      "base_blob": "abce72817e8b334dfb46373be27a8e1cf5788048",
+      "approved_blob": "cb2d74a12ef15dec1df118d171713e12de770746"
+    },
+    "apps/screamingface-engine/tests/unit/test_abstain_records.py": {
+      "base_blob": "0608310278ce30ee5b2bcd445c19e9c2eb39d29c",
+      "approved_blob": "6e6f7a5bb4c155f77542b61dab0cbe0f46d23634"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_deployment.py": {
+      "base_blob": "b9120580542cdde04c76f9170bc054293fd1dea5",
+      "approved_blob": "078f22d9cdb41bf25d43790b480bbb13e0e7c0bd"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_outcome_conformance.py": {
+      "base_blob": "03de77751a5cf1089a8df0eb9aa01ed311edc531",
+      "approved_blob": "8b9a0027269a0f912f9000c5e7c2acf6fe30eaf6"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_protocol.py": {
+      "base_blob": "09652eead11812d4af37665071e29070d6eecea4",
+      "approved_blob": "e7257623a8580523ca5b7d901ebbb5dc08c9f43b"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_stage_parity.py": {
+      "base_blob": "1c4ed516bf90da14f5b0ee3e58df77d1d1ba06eb",
+      "approved_blob": "8f409868b3bcf741b58bfa21de72b1bb56b62f9c"
+    },
+    "apps/screamingface-engine/tests/unit/test_builtin_early_score_timing.py": {
+      "base_blob": "f878b543c20a83f50ba86e3b9636c3c9ff9a2c34",
+      "approved_blob": "dd90100fb03c9e9f8c4c811e8b8dae2926362ebd"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_reducer_candidates.py": {
+      "base_blob": "0fd235a9ebe10e709df81e4d6497b98b9b3698af",
+      "approved_blob": "ed94dba2ce7ee399ec4925ffb40336a2070d3ba9"
+    },
     "apps/screamingface-engine/tests/unit/test_draft_feedback_offer_is_owner_opt_in.py": {
-      "base_blob": "f068767a50a51e902ca38bd8e2d5073785b40d6b",
-      "approved_blob": "fe6a6f1c783c3fe7cb788ece3ff143aaa90d13f3"
+      "base_blob": "fe6a6f1c783c3fe7cb788ece3ff143aaa90d13f3",
+      "approved_blob": "a35b4732332777789af270f4a15829b4a9933aef"
+    },
+    "apps/screamingface-engine/tests/unit/test_early_grade_connector_cache.py": {
+      "base_blob": "68348e7042578eb8f4049e333454253d32f6e47a",
+      "approved_blob": "ff865228298d60669740be2f27fb56d0455434f1"
+    },
+    "apps/screamingface-engine/tests/unit/test_early_grade_safety.py": {
+      "base_blob": "36a17820828e900da39f0acf0ea995cc545aa125",
+      "approved_blob": "f94ba2d45b3fd3e14ce61f80284861b9469fb222"
+    },
+    "apps/screamingface-engine/tests/unit/test_early_grader_crashes.py": {
+      "base_blob": "2286988a25ffce9c87debd283d7b2b588c308726",
+      "approved_blob": "f3fb7e304e72d1d6161e538eac691b73137e4ce2"
+    },
+    "apps/screamingface-engine/tests/unit/test_finalized_missing_progress.py": {
+      "base_blob": "15cacbffc25ee9e3553ff83123b6e131cd2f0946",
+      "approved_blob": "a320ee868150c8727d17c4923c36ff6a1c7ff8ec"
+    },
+    "apps/screamingface-engine/tests/unit/test_inspect_deployment_discovery.py": {
+      "base_blob": "14b154e312f38aec86c12984d08b0e60b3858876",
+      "approved_blob": "45de9a61c69892d067d3b37b79e8f307a53f526c"
+    },
+    "apps/screamingface-engine/tests/unit/test_provisional_scores.py": {
+      "base_blob": "1af91758e81a47ad1791d496e80ad4f40006e707",
+      "approved_blob": "7d7c917c01bcf59b25ec44c7aa2737ad2444078c"
+    },
+    "apps/screamingface-engine/tests/unit/test_samples_seed_contract.py": {
+      "base_blob": "8116417ca24c2016ec37f2342ae8d7f19cb13555",
+      "approved_blob": "2ec417ddee532746610e9d214d554d0521c3d846"
+    },
+    "packages/screamingface/tests/e2e/fixtures/goldens/ifeval.golden.json": {
+      "base_blob": "99d60de5335c883a21aba1a933137d160a2dfd41",
+      "approved_blob": "bcadc4ad20b60cbf1de70f2c86d80adf34097064"
+    },
+    "packages/screamingface/tests/test_runtime_cli.py": {
+      "base_blob": "5b2e0d97df7f42ea259bba8359013e8d4ae979c9",
+      "approved_blob": "d0614bb78e279002cbc7402e0f8d34d74cb34dfa"
     }
   }
 }
