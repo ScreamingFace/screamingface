@@ -8,6 +8,9 @@ import skips the pro-tier Judges of the rubric Benchmarks.
 
 The `benchmarks` field (OME-1522) is the short list that replaces the scope: when the
 owner names Benchmark ids, exactly those go in the basket, whatever the scope says.
+
+Whenever ifeval lands in the basket, by scope or by name, it also runs a second time as a
+Corrective Loop (OME-1527 row 15b, `_panel.CORRECTIVE_RUN`), so its retry chain is proven.
 """
 
 from __future__ import annotations
@@ -15,6 +18,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
+
+from _panel import CORRECTIVE_BENCHMARK
 
 #: Set by the workflow's `scope` input and the just recipe's `scope` argument.
 SCOPE_ENV: Final = "SCREAMINGFACE_PAID_SCOPE"
@@ -152,6 +157,8 @@ class ShelfPick:
     problems: list[str]
     #: The start line's wording, e.g. "named musique (scope all ignored)" or "scope all".
     picked_by: str
+    #: The picked Benchmarks that also run as a Corrective Loop: ["ifeval"] or [].
+    corrective: list[str]
 
 
 def pick_from_env(listed: list[tuple[str, str]], environ: Mapping[str, str]) -> ShelfPick:
@@ -166,7 +173,8 @@ def pick_from_env(listed: list[tuple[str, str]], environ: Mapping[str, str]) -> 
         environ: the process environment (`os.environ` in the paid test).
 
     Returns:
-        The pick; its problems must fail the press before any spend.
+        The pick; its problems must fail the press before any spend. Its `corrective`
+        list holds ifeval exactly when ifeval is among its boards.
 
     Raises:
         UnknownScopeError: for a scope word nobody defined (the paid_stack fixture has
@@ -178,4 +186,5 @@ def pick_from_env(listed: list[tuple[str, str]], environ: Mapping[str, str]) -> 
     picked_by: str = (
         f"named {', '.join(named)} (scope {scope} ignored)" if named else f"scope {scope}"
     )
-    return ShelfPick(boards=boards, problems=problems, picked_by=picked_by)
+    corrective: list[str] = [board for board in boards if board == CORRECTIVE_BENCHMARK]
+    return ShelfPick(boards=boards, problems=problems, picked_by=picked_by, corrective=corrective)

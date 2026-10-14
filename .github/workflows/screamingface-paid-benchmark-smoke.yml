@@ -1,7 +1,9 @@
 # The paid Benchmark smoke (OME-1275): run every Benchmark the engine serves once for
 # real — Imported (inspect evals) and hand-built alike — as a Fusion of three
 # flash-tier seeded models, 2 Cases per Benchmark, through the full product path, and
-# fail on any infrastructure failure code.
+# fail on any infrastructure failure code. When ifeval is picked it also runs as a
+# Corrective Loop (8 Cases, entry `ifeval · corrective loop`), so its Draft Feedback
+# retry chain is proven too; see packages/screamingface/tests/paid/_panel.py.
 #
 # workflow_dispatch ONLY, on purpose: this lane spends real money (bounded: 2 Cases
 # per Benchmark) through the OPENROUTER_API_KEY repo secret. It is a button the

@@ -99,3 +99,57 @@ def test_compiled_panel_forwards_reasoning_effort_on_the_qwen_call_only() -> Non
     assert assignments[_QWEN]["max_tokens"] == 65536
     raised_cap = [model for model, params in assignments.items() if params["max_tokens"] == 65536]
     assert raised_cap == [_QWEN]
+
+
+# --- The Corrective Loop entry (OME-1527 row 15b) ---
+
+
+def test_corrective_loop_models_are_gateway_seeds() -> None:
+    """INVARIANT: the loop's members AND its judge are aigateway seeds, checked for $0.
+
+    Same bug class as the Fusion panel above: an unseeded judge 404s only when a round
+    fails and the coaching call fires, so it could hide for several presses.
+    """
+    from _panel import CORRECTIVE_JUDGE_MODEL, CORRECTIVE_MEMBER_MODELS
+
+    seeds_source: str = _SEEDS_FILE.read_text(encoding="utf-8")
+    roster: tuple[str, ...] = (*CORRECTIVE_MEMBER_MODELS, CORRECTIVE_JUDGE_MODEL)
+    missing: list[str] = [model for model in roster if f'"{model}"' not in seeds_source]
+    assert not missing, (
+        f"paid-lane Corrective Loop models missing from the gateway seed list ({_SEEDS_FILE}): "
+        f"{missing} — a live run would 404 at dispatch"
+    )
+
+
+def test_corrective_loop_is_the_golden_members_with_a_non_reasoning_judge() -> None:
+    """The built loop is what the chosen Case limit was measured against.
+
+    WHY these exact values: CORRECTIVE_CASE_LIMIT=8 was picked from the recorded ifeval
+    golden, where ministral-3b and phi-4 at temperature 0 with that prompt failed round 1
+    on Cases 6 and 8. Swap a member, its prompt or its params and that evidence no longer
+    applies. The judge carries no reasoning_effort and no prompt of its own, so its coaching
+    reply cannot be eaten by thinking (the golden's reasoning judge died that way on Case 10).
+    """
+    from _panel import corrective_loop
+
+    import screamingface as sf
+
+    loop = corrective_loop()
+
+    assert isinstance(loop, sf.CorrectiveLoop)
+    assert loop.max_rounds == 3
+    members: list[sf.Model] = [member for member in loop.members if isinstance(member, sf.Model)]
+    assert [member.model for member in members] == [
+        "openrouter/mistralai/ministral-3b-2512",
+        "openrouter/microsoft/phi-4",
+    ]
+    for member in members:
+        assert dict(member.params) == {"max_tokens": 8192, "temperature": 0.0}
+        assert member.prompt == (
+            "Answer the request accurately and completely. "
+            "Follow every instruction and formatting constraint in the request."
+        )
+    assert isinstance(loop.judge, sf.Model)
+    assert loop.judge.model == "openrouter/anthropic/claude-haiku-4.5"
+    assert loop.judge.prompt is None
+    assert "reasoning_effort" not in dict(loop.judge.params)
