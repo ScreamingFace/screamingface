@@ -154,7 +154,6 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # table pins the reviewed outcome so a silent tier change trips loudly.
         "healthbench-professional": ("coverage_declare", "single_shot", "hard"),
         "healthbench-worst30": ("coverage_declare", "single_shot", "hard"),
-        "ifeval": ("coverage_declare", "single_shot", "medium"),
         # MedXpertQA invokes the Candidate twice per Case: turn 1 reasons, turn 2 commits against
         # a bare trigger. Its ungradeable Cases still go to the shared finalizer, hence
         # coverage_declare.
@@ -263,6 +262,10 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # graded Cases reach the mean — coverage_declare.
         "draco": ("coverage_declare", "single_shot", "hard"),
         "draco-3pass": ("coverage_declare", "single_shot", "hard"),
+        # OME-1527: ifeval moved the same way, keeping its id, declaration and tier. A Case the
+        # Candidate failed never reaches the checker, so only graded Cases reach the tally —
+        # coverage_declare.
+        "ifeval": ("coverage_declare", "single_shot", "medium"),
         "inspect-math": ("coverage_declare", "single_shot", "medium"),
     }
     actual = {
@@ -305,10 +308,10 @@ def test_each_benchmark_aggregate_reduces_through_the_shared_finalizer() -> None
     from screamingface_engine.benchmarks.shared_grading import benchmark_aggregation
 
     # These benchmarks funnel through the shared BenchmarkAggregation path (OME-1097; ifeval
-    # folded in OME-1101, draco in OME-1100), which itself reduces through the
-    # shared finalizer — same mechanism, one hop up.
+    # folded in OME-1101 and draco in OME-1100, both local inspect Tasks since OME-1527),
+    # which itself reduces through the shared finalizer — same mechanism, one hop up.
     assert benchmark_aggregation.finalize_candidate_result is aggregation.finalize_candidate_result
-    for family in ("healthbench", "ifeval"):
+    for family in ("healthbench",):
         module = importlib.import_module(f"screamingface_engine.benchmarks.{family}.grade")
         assert module.BenchmarkAggregation is benchmark_aggregation.BenchmarkAggregation, (
             f"{family} no longer reduces through the shared scored path"

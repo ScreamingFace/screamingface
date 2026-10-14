@@ -81,11 +81,11 @@ class BenchmarkSpec:
     scorer_kwargs: Mapping[str, Any] = field(default_factory=dict)
     #: Draft Feedback — the Corrective Loop's mid-run check (§4 dual registration). OFF unless
     #: the owner turns it on for this Benchmark by name (owner rule 2026-10-07, OME-1513):
-    #: never a default, never inferred from the grading family. Today only IFEval (hand-built)
-    #: carries an offer; no imported row does, and the importer never emits the field. A row
-    #: that sets True carries a comment naming the decision. MCQ rows can never carry it
-    #: (pass/fail over a handful of options is an elimination attack, OME-796); judged rows are
-    #: refused it at assembly (OME-1116).
+    #: never a default, never inferred from the grading family. Today only IFEval (a local
+    #: Task) carries an offer; no inspect_evals row does, and the importer never emits the
+    #: field. A row that sets True carries a comment naming the decision. MCQ rows can never
+    #: carry it (pass/fail over a handful of options is an elimination attack, OME-796); judged
+    #: rows are refused it at assembly (OME-1116).
     with_check_surface: bool = False
     multiple_correct: bool = False
     #: The benchmark's judge declaration (OME-1240): required exactly when the scorer
@@ -185,7 +185,7 @@ class BenchmarkSpec:
     #: under ``Score.metadata["draft_feedback"]`` for the Candidate (OME-1527, R9), instead of
     #: 0-or-1 and one fixed sentence. Only on a row with ``with_check_surface``, so only on a
     #: Benchmark the owner allowed; the owner reads that scorer's words before turning it on.
-    #: False on every row today. Benchmark identity when set.
+    #: Set on ifeval's row only. Benchmark identity when set.
     scorer_draft_feedback: bool = False
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
@@ -4443,6 +4443,84 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             as_of="2026-02",
         ),
         notebook="06_draco",
+    ),
+    BenchmarkSpec(
+        key="ifeval",
+        title="IFEval",
+        description=(
+            "The canonical 541-prompt instruction-following benchmark "
+            "(https://arxiv.org/abs/2311.07911), graded by deterministic strict and loose "
+            "verification with the official checker. Each Case invokes the Candidate exactly "
+            "once. The headline is prompt-level strict accuracy; instruction-level accuracy is "
+            "pooled over the run's instructions. Case ids are positions 1..541 in the pinned "
+            "dataset; one row (official key 2785) is patched to the official harness prompt, "
+            "whose text matches its graded constraints."
+        ),
+        focus="Instruction following",
+        dataset_url="https://huggingface.co/datasets/google/IFEval",
+        # Instruction following still trips strong models on strict verification, but the
+        # material itself is everyday prose, not expert work (OME-1257; the hand-built
+        # Benchmark's tier, kept).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.ifeval.ifeval:ifeval — a LOCAL Task
+        #   (OME-1527), the hand-built Benchmark moved into inspect's shape; every field below is
+        #   carried over from the hand-built definition (OME-1455 sources).
+        scorer="screamingface_engine_inspect.local_tasks.ifeval.ifeval:instruction_following",
+        # The vendored checker reads only the reply and the instructions in the Sample metadata;
+        # no Case has an answer key and no judge grades it.
+        scorer_reads_answer_key=False,
+        # The paper's four numbers from one dict Score, headline first (the published order).
+        named_scores=(
+            "prompt_level_strict_accuracy",
+            "inst_level_strict_accuracy",
+            "prompt_level_loose_accuracy",
+            "inst_level_loose_accuracy",
+        ),
+        # Reviewed: every key is a share of 0..1, higher is better. The headline is the
+        # prompt-level strict share; the instruction-level keys are pooled over the run's
+        # instructions and also fill those Named Score columns, never a mean of Case fractions.
+        whole_run_metric="screamingface_engine_inspect.local_tasks.ifeval.ifeval:ifeval_accuracy",
+        whole_run_headline="prompt_level_strict_accuracy",
+        # Draft Feedback ON (owner decision 2026-10-07, OME-1513; OWNER_ALLOWED_DRAFT_FEEDBACK):
+        # the published Corrective-Loop work targets IFEval, the checker is deterministic code
+        # (a mid-run check is free), and its instructions sit in the prompt, so the check
+        # hides nothing. The scorer sends what the hand-built route sent (OME-1527, R9): the
+        # fraction of instructions met and the checker's own words for each failed one.
+        with_check_surface=True,
+        scorer_draft_feedback=True,
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2311.07911",
+        authors="Zhou et al., 2023",
+        citation=(
+            "@misc{zhou2023instructionfollowingevaluationlargelanguage,\n"
+            "      title={Instruction-Following Evaluation for Large Language Models}, \n"
+            "      author={Jeffrey Zhou and Tianjian Lu and Swaroop Mishra and Siddhartha"
+            " Brahma and Sujoy Basu and Yi Luan and Denny Zhou and Le Hou},\n"
+            "      year={2023},\n"
+            "      eprint={2311.07911},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2311.07911}, \n"
+            "}"
+        ),
+        harness_url=(
+            "https://github.com/josejg/instruction_following_eval/tree/0c495b2f95155e8b10acb919ae283bfb4d5be6e2"
+        ),
+        license="Apache-2.0",
+        license_note=(
+            "google/IFEval dataset card; the vendored verifier (the bug-fixed fork inspect_evals "
+            "pins) is Apache-2.0."
+        ),
+        human_baseline=NotPublished(reason="the IFEval paper reports no human study"),
+        # Frontier score: IFEval accuracy (variant not stated in the source).
+        frontier_score=FrontierScore(
+            score=0.948,
+            model="GPT-5.2",
+            source_url="https://huggingface.co/Qwen/Qwen3.5-397B-A17B",
+            as_of="2026-02",
+        ),
+        notebook="07_ifeval",
     ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )

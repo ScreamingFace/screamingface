@@ -25,6 +25,7 @@ pytest.importorskip("inspect_evals")
 
 from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     BENCHMARKS,
+    OWNER_ALLOWED_DRAFT_FEEDBACK,
     benchmark_registrations,
     imported_benchmark,
 )
@@ -51,6 +52,10 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # over several seeded passes, one call per criterion per pass, so no Draft Feedback offer.
     "draco": "judged",
     "draco-3pass": "judged",
+    # OME-1527: the hand-built folder moved to a local Task; no answer key, graded by the
+    # vendored checker from the reply and the instructions alone. The owner's one Draft
+    # Feedback offer (OWNER_ALLOWED_DRAFT_FEEDBACK).
+    "ifeval": "reply_only",
     "mmlu": "mcq",
     "arc_easy": "mcq",
     "arc_challenge": "mcq",
@@ -200,10 +205,13 @@ def test_benchmark_row_declares_its_family_check_surface(key: str) -> None:
 
     benchmark = imported_benchmark(key).benchmark
     # OME-1513 (owner rule 2026-10-07): Draft Feedback is a per-Benchmark owner decision, never
-    # a family default. No imported row carries the offer today — "free_text" included, which
+    # a family default. No imported row carries the offer — "free_text" included, which
     # used to imply it; "mcq" (elimination attack), "judged" (no check-cost knob yet) and
     # "reply_only" (re-wording past a refusal regex) could never. A row the owner turns on
-    # by name is the exception this test will then have to list.
+    # by name is the exception this test lists: ifeval, a local Task since OME-1527.
+    if benchmark.id in OWNER_ALLOWED_DRAFT_FEEDBACK:
+        assert benchmark.check_surface is not None, key
+        return
     assert benchmark.check_surface is None, _EXPECTED_FAMILIES[key]
 
 

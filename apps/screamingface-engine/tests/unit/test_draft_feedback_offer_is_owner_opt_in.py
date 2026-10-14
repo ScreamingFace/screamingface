@@ -27,17 +27,20 @@ _OWNER_ALLOWED_OFFERS: frozenset[str] = frozenset({"ifeval"})
 
 def test_only_the_owner_allowed_benchmarks_advertise_draft_feedback() -> None:
     """INVARIANT: across every installed Benchmark, hand-built and imported alike, the set
-    that carries a check-surface offer is exactly the owner's allow-list."""
+    that carries a check-surface offer is exactly the owner's allow-list, as far as it is
+    installed. IFEval is a local inspect Task since OME-1527, so an Engine without the
+    `inspect` extra installs it not at all; the row test below holds the rule there."""
 
+    installed: set[str] = {b.id for b in BUILTIN_BENCHMARKS}
     offering: set[str] = {b.id for b in BUILTIN_BENCHMARKS if b.check_surface is not None}
 
-    assert offering == set(_OWNER_ALLOWED_OFFERS)
+    assert offering == _OWNER_ALLOWED_OFFERS & installed
 
 
-def test_no_imported_row_asks_for_draft_feedback() -> None:
+def test_only_owner_allowed_rows_ask_for_draft_feedback() -> None:
     """The row level too, so the rule holds even where the extra is not installed and the
     imported Benchmarks are not assembled into the catalogue: only a row whose catalogue id
-    the owner allowed sets the flag (none today; IFEval's local Task will, OME-1527 R10).
+    the owner allowed sets the flag (IFEval's local Task, OME-1527 R10).
 
     The assembler's own copy of the list must equal this one: this literal is the owner's
     gate, kept apart from the code, so widening the code's list alone turns this red."""

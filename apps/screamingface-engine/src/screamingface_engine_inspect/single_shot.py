@@ -1229,10 +1229,12 @@ def _whole_run_tally(
               beside its precision, recall and counts) must have the key the row names as
               its headline (``whole_run_headline``): that value is the Headline Score, and
               every other key joins the run's ``metrics`` beside the tally's own
-              ``correct`` and ``scored_cases``. Never a Named Score: a Named Score is the
-              mean of a column every graded Case carries, and precision has no per-Case
-              value. A row with Named Scores keeps the column means beside the headline,
-              with the headline column carrying the metric's number.
+              ``correct`` and ``scored_cases``. A key never becomes a Named Score of its
+              own: a Named Score is a column every graded Case carries, and precision has
+              no per-Case value. A row with Named Scores keeps the column means beside the
+              headline, with the headline column carrying the metric's number, and so does
+              any column whose name the dict also returns (ifeval's instruction-level
+              accuracy is pooled over the run's instructions, not a mean of Case fractions).
 
     Worked example (contracteval's shape): 10 Cases, 7 with no related clause, and the
     Candidate always answers "no related clause". The mean is 7/10 = 0.7, because it is
@@ -1297,15 +1299,35 @@ def _whole_run_tally(
         assert isinstance(headline, int | float)
         score: float = round(float(headline), 4)
         mean: CandidateScore = _accuracy(cases)
-        scores: dict[str, float | None] = dict(mean.scores)
-        if scores:
-            # INVARIANT: the headline column IS `score` (the Report shows them as one number).
-            scores[next(iter(scores))] = score
         return CandidateScore(
-            score=score, metrics=_beside(mean.metrics, run_metrics, name), scores=scores
+            score=score,
+            metrics=_beside(mean.metrics, run_metrics, name),
+            scores=_metric_columns(mean.scores, score, run_metrics),
         )
 
     return tally
+
+
+def _metric_columns(
+    column_means: Mapping[str, float | None],
+    score: float,
+    run_metrics: Mapping[str, int | float],
+) -> dict[str, float | None]:
+    """The Named Score columns beside a whole-run headline: the metric's numbers where it has them.
+
+    INVARIANT: the headline column IS ``score`` (the Report shows them as one number). A column
+    the metric's dict also names is the metric's number, rounded to 4 places, never the mean of
+    the Cases' values: ifeval pools its instructions, so Case A meeting 1 of 1 and Case B 0 of 3
+    is 0.25, where the mean of the Case fractions says 0.5. Every other column keeps its mean.
+    """
+
+    scores: dict[str, float | None] = dict(column_means)
+    if scores:
+        scores[next(iter(scores))] = score
+    for column in scores:
+        if column in run_metrics:
+            scores[column] = round(float(run_metrics[column]), 4)
+    return scores
 
 
 def _headline_and_run_metrics(

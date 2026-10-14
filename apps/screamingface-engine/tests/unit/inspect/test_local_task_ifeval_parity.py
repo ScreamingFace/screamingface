@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+# WHY file-level: the run-metric parity builds inspect Scores, absent in the extra-less install.
 """Golden parity: our IFEval grader equals the official fork's, on the official rows.
 
 FEATURE: the parity proof behind every published IFEval number.
@@ -6,7 +8,8 @@ because the grader is PROVEN equivalent to the community-standard fork (the pin
 inspect_evals uses), not asserted equivalent by a comment.
 
 What runs side by side, over all 541 official rows × a fixed response corpus:
-- OURS:      screamingface_engine.benchmarks.ifeval.grading.check_case
+- OURS:      screamingface_engine_inspect.local_tasks.ifeval.grading.check_case, and the
+             local Task's whole-run metric ``ifeval_accuracy`` for the four global numbers
 - REFERENCE: vendor/evaluation.py test_instruction_following (verbatim fork code)
 
 INVARIANT — verdict vectors must be IDENTICAL, not close. A single flipped bool is a
@@ -17,7 +20,7 @@ Carve-out (owner decision 2026-08-10): keys 1122 (`letter: '#'`) and 1129
 (`letter: '!'`) are EXCLUDED from parity — the official checker replaces their
 non-a-z dataset letters with random ones, and we deliberately honor the literal
 kwargs instead (grading._pinned_nonalpha_letter; RED coverage in
-test_ifeval_grading.py). Parity is proven on the remaining 539 rows.
+test_local_task_ifeval_grading.py). Parity is proven on the remaining 539 rows.
 
 Determinism: the official checker is deliberately random when a constraint kwarg is
 absent/invalid (the "Non-ASCII Roulette", LANL appendix A.4; e.g. an invalid
@@ -39,13 +42,22 @@ from pathlib import Path
 
 import pytest
 
-from screamingface_engine.benchmarks.ifeval.grade import _accuracy
-from screamingface_engine.benchmarks.ifeval.grading import check_case
-from screamingface_engine.benchmarks.ifeval.vendor import evaluation as official
+pytest.importorskip("inspect_ai")
+
+from inspect_ai.scorer import SampleScore, Score  # noqa: E402
+
+from screamingface_engine_inspect.local_tasks.ifeval.grading import check_case  # noqa: E402
+from screamingface_engine_inspect.local_tasks.ifeval.ifeval import (  # noqa: E402
+    ifeval_accuracy,
+    instruction_verdicts,
+)
+from screamingface_engine_inspect.local_tasks.ifeval.vendor import (  # noqa: E402
+    evaluation as official,
+)
 
 
 def _official_rows() -> list[dict]:
-    data = resources.files("screamingface_engine.benchmarks.ifeval.vendor").joinpath(
+    data = resources.files("screamingface_engine_inspect.local_tasks.ifeval.vendor").joinpath(
         "data/input_data.jsonl"
     )
     rows = [json.loads(line) for line in data.read_text("utf-8").splitlines() if line.strip()]
@@ -90,7 +102,7 @@ def _pinned_randomness(monkeypatch: pytest.MonkeyPatch) -> None:
 def _nltk_corpora() -> None:
     """Provision punkt/punkt_tab for sentence-count checkers, offline-first.
 
-    Runtime Jobs get tokenizer data from prepared assets (grading.configure_nltk);
+    Runtime Jobs get tokenizer data from the prepared bundle (the installer points nltk there);
     tests provision a user-level cache once and reuse it. The download only fires
     on a machine that has never run this test.
     """
@@ -114,7 +126,7 @@ def _responses_for(row: dict) -> tuple[str, ...]:
 # official checker replaces with random.choice(ascii_letters). We honor the literal
 # dataset letter instead (see grading._pinned_nonalpha_letter) — a deliberate, documented
 # divergence, so parity is proven over the other 539 rows and the divergent behavior is
-# pinned by its own tests in test_ifeval_grading.py.
+# pinned by its own tests in test_local_task_ifeval_grading.py.
 _HONORED_NONALPHA_LETTER_KEYS = frozenset({1122, 1129})
 
 
@@ -156,24 +168,28 @@ def test_global_metrics_match_the_official_formulas() -> None:
 
     reference = official.evaluate_instruction_following(rows, responses)
 
-    strict_all, loose_all, strict_flat, loose_flat = [], [], [], []
+    # The local Task's own tally: each Case's per-instruction verdicts, as its scorer files
+    # them, handed to the row's whole-run metric.
+    scores: list[SampleScore] = []
     for row, response in zip(rows, responses, strict=True):
-        ours = check_case(
-            instruction_id_list=row["instruction_id_list"],
-            kwargs_list=[kwargs or {} for kwargs in row["kwargs"]],
-            prompt=row["prompt"],
-            response=response,
+        records, _ = instruction_verdicts(
+            row["instruction_id_list"],
+            [kwargs or {} for kwargs in row["kwargs"]],
+            row["prompt"],
+            response,
         )
-        strict_all.append(all(ours["strict"]))
-        loose_all.append(all(ours["loose"]))
-        strict_flat.extend(bool(value) for value in ours["strict"])
-        loose_flat.extend(bool(value) for value in ours["loose"])
+        scores.append(SampleScore(score=Score(value=0, metadata={"instructions": records})))
+    ours = ifeval_accuracy()(scores)
 
-    # Mirrors aggregate.py's candidate-result metric expressions exactly (score =
-    # prompt-level strict; the other three under metrics). `_accuracy` rounds to 4
-    # decimals for presentation — the reference does not — so parity is
-    # ours == round(reference, 4), never approximate equality.
-    assert _accuracy(strict_all) == round(reference["prompt_level_strict_accuracy"], 4)
-    assert _accuracy(strict_flat) == round(reference["inst_level_strict_accuracy"], 4)
-    assert _accuracy(loose_all) == round(reference["prompt_level_loose_accuracy"], 4)
-    assert _accuracy(loose_flat) == round(reference["inst_level_loose_accuracy"], 4)
+    # The headline is prompt-level strict; the other three are pooled exactly as the reference
+    # pools them. The metric rounds to 4 decimals for presentation — the reference does not — so
+    # parity is ours == round(reference, 4), never approximate equality.
+    assert isinstance(ours, dict)
+    for key in (
+        "prompt_level_strict_accuracy",
+        "inst_level_strict_accuracy",
+        "prompt_level_loose_accuracy",
+        "inst_level_loose_accuracy",
+    ):
+        assert ours[key] == round(reference[key], 4), key
+    assert ours["pass_rate"] == ours["inst_level_strict_accuracy"]

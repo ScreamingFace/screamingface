@@ -36,7 +36,7 @@ dependencies = [
     # pydantic — it is NOT a base dependency of the engine, so that embedders who only run
     # expressions do not install a wire-format library they never import.
     "url4[streaming]",
-    # --- run mode only: the vendored IFEval verifier (benchmarks/ifeval/vendor) ---
+    # --- run mode only: the vendored IFEval verifier (local_tasks/ifeval/vendor) ---
     "immutabledict>=4.2.0",
     "langdetect>=1.0.9",
     "nltk>=3.9.1",
@@ -132,7 +132,7 @@ target-version = "py312"
 # StonyBrookNLP/musique@922ac98f (tests/unit/inspect/test_local_task_musique_vendor.py);
 # arc_agi_2 → arcprize/arc-agi-benchmarking@9e2828fb (test_local_task_arc_agi_2_vendor.py).
 extend-exclude = [
-    "src/screamingface_engine/benchmarks/ifeval/vendor",
+    "src/screamingface_engine_inspect/local_tasks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
     "src/screamingface_engine/combine/operators/_inspect_vendor.py",
@@ -161,7 +161,7 @@ known-first-party = [
 [tool.pyright]
 # Vendored official graders — see the WHY above `extend-exclude` under [tool.ruff].
 ignore = [
-    "src/screamingface_engine/benchmarks/ifeval/vendor",
+    "src/screamingface_engine_inspect/local_tasks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
     "src/screamingface_engine/combine/operators/_inspect_vendor.py",
@@ -186,7 +186,7 @@ markers = [
 [tool.coverage.run]
 # Vendored official graders — see the WHY above `extend-exclude` under [tool.ruff].
 omit = [
-    "src/screamingface_engine/benchmarks/ifeval/vendor/*",
+    "src/screamingface_engine_inspect/local_tasks/ifeval/vendor/*",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor/*",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor/*",
     "src/screamingface_engine/combine/operators/_inspect_vendor.py",

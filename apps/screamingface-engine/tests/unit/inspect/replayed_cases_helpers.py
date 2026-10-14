@@ -118,7 +118,9 @@ def replay_in_process_over_rows(
 #: Realistic stand-in Sample metadata for each Benchmark whose scorer reads a key (OME-1527).
 #: WHY: such scorers fail loudly on a missing key, since a real Case always carries it, so a
 #: lane grading over stand-in Cases hands the Benchmark the shape its real Cases have.
-#: musique: a real question cites 2 to 4 gold paragraphs.
+#: musique: a real question cites 2 to 4 gold paragraphs. ifeval: a real prompt carries at
+#: least one instruction, its arguments a list parallel to the ids.
 STAND_IN_METADATA: dict[str, dict[str, object]] = {
     "musique": {"supporting_idx": [3, 11]},
+    "ifeval": {"instruction_id_list": ["punctuation:no_comma"], "kwargs": [{}]},
 }

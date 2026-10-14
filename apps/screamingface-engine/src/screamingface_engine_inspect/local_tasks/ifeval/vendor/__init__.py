@@ -29,26 +29,27 @@ golden-parity work)
     exactly two consumers:
 
     1. The parity proof. ``..grading`` reimplements the fork's scoring
-       protocol; ``tests/unit/test_ifeval_golden_parity.py`` proves the
+       protocol; ``tests/unit/inspect/test_local_task_ifeval_parity.py`` proves the
        reimplementation equivalent by grading all 541 official rows
        (``data/input_data.jsonl``) twice — once with OUR grader, once with the
        fork's own ``test_instruction_following`` (``evaluation.py`` here) —
        and demanding identical verdict vectors. That proof is what makes our
        published IFEval scores comparable to everyone else's.
-    2. The dataset authority. ``..prepare`` downloads the runtime rows from a
+    2. The dataset authority. ``..ifeval.load_ifeval`` loads the rows from a
        pinned HuggingFace snapshot, then verifies each row against
        ``data/input_data.jsonl``. One known mismatch exists (key 2785's
        prompt); the official text here wins and gets patched in. Any other
        mismatch fails the build loudly.
 
-    The runtime dataset a Job serves still comes from the HuggingFace pin —
-    this copy is only the referee and the authority, never what candidates see.
+    The Cases a Job serves still come from the HuggingFace pin — this copy is
+    only the referee and the authority, never what candidates see.
 
 INVARIANT: please do not edit these files. This checker IS the exam — changing it
-changes every published IFEval score. Any intentional update must also update
-VERIFIER_REVISION in ``..definition`` so the exam's REVISION hash changes.
+changes every published IFEval score. Every ``.py`` byte here is hashed into the
+Benchmark revision (the local Task's ``task_source`` pin), so an edit moves it;
+an intentional update must also update the commit named above.
 
 AIDEV-NOTE: never call the fork's nltk download helper. The Job is offline with
-a read-only disk; tokenizer data comes from the prepared assets directory via
-``..grading.configure_nltk``.
+a read-only disk; tokenizer data comes from the prepared bundle's ``nltk_data/``,
+which the Benchmark's installer points nltk at.
 """

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from screamingface_engine.benchmarks.ifeval.grading import (
+from screamingface_engine_inspect.local_tasks.ifeval.grading import (
     check_case,
     describe_failures,
     describe_instructions,
