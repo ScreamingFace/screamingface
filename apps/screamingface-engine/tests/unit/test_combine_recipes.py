@@ -172,11 +172,12 @@ async def test_recipe_s9_with_no_pass_abstains() -> None:
     )
 
     synthesis = operation(record, "op_synthesis_1")
-    assert synthesis["output"] == ""
+    # E4b fix (2026-10-14): the Filter step abstains, and the writer still gets the Case input.
+    assert synthesis["output"] == '{"input":"what is 2 + 2?","selected":[]}'
     assert synthesis["combine"]["result"]["status"] == "abstain"
     assert synthesis["combine"]["result"]["reason"] == "no_votes"
     assert synthesis["combine"]["chosen"] == []
-    assert _writer_messages(seen) == [""]
+    assert _writer_messages(seen) == ['{"input":"what is 2 + 2?","selected":[]}']
     assert not record.get("abstained", False)
     assert record["output"] == "final answer"
 
