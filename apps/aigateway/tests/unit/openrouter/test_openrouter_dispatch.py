@@ -7,6 +7,8 @@ validated upstream ID), and the account-scoped ApiKeyStrategy lifecycle.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
@@ -21,6 +23,8 @@ from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
+
+from ..test_dispatch_failure_records import PROVIDER_TEXT, _Capture, _only_failure
 
 
 def _plugin(*, enabled: bool) -> OpenRouterProviderPlugin:
@@ -212,6 +216,19 @@ def enabled_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture
+def dispatch_records() -> Iterator[_Capture]:
+    # WHY a local fixture, not OME-968's `captured`: this module already uses `captured` as a
+    # local name. Same handler on the `aigateway` logger (propagation is disabled there).
+    handler = _Capture()
+    logger = logging.getLogger("aigateway")
+    logger.addHandler(handler)
+    try:
+        yield handler
+    finally:
+        logger.removeHandler(handler)
+
+
 @pytest.fixture(autouse=True)
 def _explicit_operational_outcome_validation(request: pytest.FixtureRequest) -> None:
     """Make OME-1250 route tests opt into validation instead of inheriting it silently."""
@@ -385,15 +402,25 @@ def test_openrouter_auth_rejection_projects_needs_reauth_without_lifecycle_error
     dispatched.assert_not_called()
 
 
-def test_openrouter_outcome_persistence_failure_preserves_the_provider_response(
-    enabled_openrouter, authenticated_client, monkeypatch
+def test_openrouter_outcome_persistence_failure_becomes_one_sanitized_502(
+    enabled_openrouter,
+    authenticated_client,
+    monkeypatch,
+    dispatch_records,
 ) -> None:
+    """A real migrated observation whose outcome persistence raises (OME-1461 review on #1230).
+
+    # WHY: supersedes #1240's preserve-the-402 contract (owner decision 2026-10-14, reviewer
+    # request): a store failure while recording the outcome is a gateway fault, so it reaches the
+    # one failure funnel and renders the sanitized 502 instead of being logged a second time.
+    # INVARIANT: exactly one WARNING+ record per failing call; class name only, no store text.
+    """
     account_id = _account_id(authenticated_client)
     created = _create_openrouter_connection(authenticated_client)
     authenticated_client.portal.call(_make_connection_effective, account_id, created["id"])
 
     async def unavailable(*_args, **_kwargs):
-        raise RuntimeError("store unavailable")
+        raise RuntimeError(PROVIDER_TEXT)
 
     monkeypatch.setattr(
         authenticated_client.app.state.credential_store,
@@ -419,11 +446,16 @@ def test_openrouter_outcome_persistence_failure_preserves_the_provider_response(
             },
         )
 
-    assert response.status_code == 402
-    assert response.json()["detail"] == {
-        "code": "insufficient_credits",
-        "message": "credits exhausted",
-    }
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "provider_error"
+    record = _only_failure(dispatch_records)
+    assert record.levelno == logging.ERROR
+    message = record.getMessage()
+    assert message.startswith("dispatch failed ")
+    assert "outcome=handler_error" in message
+    assert "handler_type=RuntimeError" in message
+    assert "status=502" in message
+    assert all("outcome persistence error" not in r.getMessage() for r in dispatch_records.records)
 
 
 def test_unclassified_openrouter_401_falls_back_to_legacy_connection_handling(

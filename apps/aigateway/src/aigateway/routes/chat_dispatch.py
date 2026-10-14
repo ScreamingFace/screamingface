@@ -71,23 +71,19 @@ async def _dispatch_failure_response(
     its revision-fenced observation. Every unclassified failure, including one
     carrying an observation, falls through to legacy op 5 when the provider's
     status hook marks it; other targets retain existing lifecycle semantics.
+
+    INVARIANT (OME-1461): never catches and logs its own failures — a raising outcome
+    persistence propagates to `_safe_dispatch_failure_response`, which renders the sanitized
+    502 and folds it into the ONE terminal record as `outcome=handler_error`.
     """
     access = provider_access_for(request.app)
     if observation is not None:
         operational_access = operational_access_for(request.app)
         outcome = _classified_operational_outcome(plugin, exc.status_code, exc.detail)
         if operational_access is not None and outcome is not None:
-            try:
-                rewritten = await operational_access.record_dispatch_outcome(
-                    target, observation, outcome, exc.detail, plugin=plugin
-                )
-            except Exception as failure:
-                logger.error(
-                    "dispatch outcome persistence error type=%s status=%s",
-                    type(failure).__name__,
-                    exc.status_code,
-                )
-                return exc
+            rewritten = await operational_access.record_dispatch_outcome(
+                target, observation, outcome, exc.detail, plugin=plugin
+            )
             if rewritten is None:
                 return exc
             return HTTPException(status_code=exc.status_code, detail=rewritten)

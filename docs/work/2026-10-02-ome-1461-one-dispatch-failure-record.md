@@ -3,7 +3,7 @@ ticket: OME-1461
 stack: aigateway
 status: done
 started: 2026-10-02
-finished: 2026-10-02
+finished: 2026-10-14
 ---
 
 # ome-1461-one-dispatch-failure-record — one record per dispatch failure, even when the handler raises
@@ -73,3 +73,19 @@ possible follow-up. Per-retry `aigw upstream overload` WARNINGs in `core/retry.p
   `--base $(git merge-base origin/main HEAD)`, append-only check green. Overlap: open PR #1153 (OME-1162) edits the
   `_dispatch_with_backpressure` / import hunks of the same file; this change touches only
   `_safe_dispatch_failure_response` and `log_dispatch_failure`, so the hunks do not intersect.
+
+## Revision 3 — PR #1230 review (2026-10-14)
+
+HupBaHa (CHANGES_REQUESTED): the migrated outcome-persistence path still logged twice —
+`_dispatch_failure_response` caught a raising `record_dispatch_outcome`, logged
+`dispatch outcome persistence error`, and the funnel then logged `dispatch failed outcome=mapped`.
+
+- **Change:** the inner `try/except` is gone; the failure propagates to
+  `_safe_dispatch_failure_response` → one sanitized 502 record `outcome=handler_error
+  handler_type=<Class>`.
+- **Contract change (owner decision 2026-10-14):** this reverses #1240's behaviour, where a store
+  failure preserved the provider's 402 `insufficient_credits` response. The client now gets 502
+  `provider_error` when outcome persistence fails. #1240's test was renamed and inverted
+  (`test_openrouter_outcome_persistence_failure_becomes_one_sanitized_502`, real migrated
+  observation + raising credential store); pinned in `.claude/test-change-approvals/OME-1461.json`.
+- Branch rebased on `origin/main` (628 commits, no conflicts).
