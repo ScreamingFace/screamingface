@@ -358,6 +358,8 @@ class OperatorDescriptor:
     ``args_schema`` is published as-is: ``{}`` for an operator without args, a JSON Schema object
     otherwise. ``check_args`` is what enforces the args, once per call, before any output is read.
     ``signal_read`` (reduce only) tells the core which signal these args read; it is not published.
+    ``envelope`` (select only) says the output is the selection envelope, so an abstain of the
+    call hands on the empty envelope (E4b fix 2026-10-14); it is not published.
     """
 
     name: str
@@ -378,6 +380,8 @@ class OperatorDescriptor:
             raise ValueError(f"invalid combine operator stage {self.stage!r}")
         if self.signal_read is not None and self.stage != "reduce":
             raise ValueError("only a reduce operator may declare a signal_read")
+        if self.envelope and self.stage != "select":
+            raise ValueError("only a select operator may hand on the envelope")
 
     @property
     def id(self) -> str:
@@ -468,6 +472,24 @@ def field_signal_value(text: str, path: str) -> float | None:
     if not found:
         return None
     return float(value) if isinstance(value, bool) else finite_float(value)
+
+
+# --- the selection envelope (E4b selection-input) -------------------------------------------
+
+
+def selection_envelope(chosen: Sequence[str], combine_input: CombineInput) -> str:
+    """The selection JSON: the Fusion's input and the chosen members' original texts, in order.
+
+    ``chosen`` empty gives the empty envelope ``{"input":"...","selected":[]}`` that an abstained
+    Rank or Filter hands to the next stage (E4b fix, 2026-10-14).
+    WHY ``None`` is left out: a ``CombineInput`` built without a context (a test helper) has no
+    input. The endpoint always sets it, so every combine call writes the ``input`` key.
+    """
+    selected = [{"id": member, "text": combine_input.outputs[member]} for member in chosen]
+    envelope: dict[str, object] = {"selected": selected}
+    if combine_input.input is not None:
+        envelope["input"] = combine_input.input
+    return canonical_json(envelope)
 
 
 # --- select output (E4b pick-output) ---------------------------------------------------------
@@ -740,6 +762,7 @@ __all__ = [
     "output_field_text",
     "parse_scores",
     "rejected",
+    "selection_envelope",
     "utf8_exceeds",
     "walk_field_path",
     "with_output",

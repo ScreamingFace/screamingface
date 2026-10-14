@@ -725,7 +725,8 @@ JSON text. The input is never cut: a selection of more than 8 MiB fails with
 `combine_input_too_large`. The url4 of the candidate does not change. A tie at the cut
 goes to the earlier member, and the evidence sets `tie`. `k` is from 1 to 256 and must not be more
 than the number of members. If fewer than `k` members have a usable score, the combine step
-abstains with `cut_not_met`, and the next stage gets an empty text. The judge call and the scores
+abstains with `cut_not_met`, and the next stage gets the input and no member,
+`{"input":"...","selected":[]}`. The judge call and the scores
 of all the members stay in the report (`op_judge_1` and the `combine` evidence), also for the members that do not continue. A judge reply
 that is not valid fails the Case with `judge_reply_invalid`, as for `sf.Judge`.
 
@@ -814,12 +815,13 @@ better (a judge with `order="min"` is refused). A judge reply that is not one fi
 each member fails the Case with `judge_reply_invalid`.
 
 A Filter that keeps no member abstains: its `combine` evidence has the result `abstain` with the
-reason `no_votes`, and the next stage gets an empty text. (The Case is not marked `abstained`,
-because a Filter is never the final step.) The report shows a pass mark in `members[].score` of the
-`combine` evidence: `1.0` when the member is kept, `0.0` when it is dropped, and `None` when the
-member failed to answer. The block form is `sf.Reduce("filter", where=..., extract=..., judge=...)`.
-The place rules of "Rank and Concat selections" apply to a Filter too. This needs an Engine whose
-operator catalog has `filter@1` and `kept@1`.
+reason `no_votes`. The next stage still runs, and it gets the input and no member:
+`{"input":"...","selected":[]}`. So a writer can say that no answer passed. (The Case is not marked
+`abstained`, because a Filter is never the final step.) The report shows a pass mark in
+`members[].score` of the `combine` evidence: `1.0` when the member is kept, `0.0` when it is
+dropped, and `None` when the member failed to answer. The block form is `sf.Reduce("filter",
+where=..., extract=..., judge=...)`. The place rules of "Rank and Concat selections" apply to a
+Filter too. This needs an Engine whose operator catalog has `filter@1` and `kept@1`.
 
 ### Combine recipes
 
@@ -901,9 +903,9 @@ The writer after a Rank or a Filter gets one JSON object: the Case input and the
 texts (see "Rank and Concat selections"). `sf.Rank` gives the kept members best first, and
 `sf.Filter` gives them in author order. The `>` test of `sf.Filter` is strict: a confidence of
 exactly 0.7 is not kept. When no member passes, the Filter abstains with `no_votes` and the writer
-gets an empty text (see "Filter selection"). A member whose reply is not JSON has no confidence, so
-`sf.Pick` never returns it. When no member has a confidence, the Case abstains. A judge reply that
-is not one JSON object with a finite score for each member fails the Case with
+gets `{"input":"...","selected":[]}` (see "Filter selection"). A member whose reply is not JSON has
+no confidence, so `sf.Pick` never returns it. When no member has a confidence, the Case abstains. A
+judge reply that is not one JSON object with a finite score for each member fails the Case with
 `judge_reply_invalid`.
 
 ### Fusion as a named recipe

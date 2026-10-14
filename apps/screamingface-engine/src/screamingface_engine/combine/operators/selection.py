@@ -5,7 +5,8 @@ keeps the k best-scored members in score order (the highest, or with ``order`` "
 ``kept`` keeps the members that passed a filter, in author order; ``join`` and ``all`` join every
 member, in author order, with visible boundaries. ``top_k`` and ``kept`` also copy the combine
 context ``input`` into their JSON (E4b ans:Q7), so the next stage sees the question; ``join`` and
-``all`` do not (ans:Q13).
+``all`` do not (ans:Q13). ``top_k`` and ``kept`` declare ``envelope``: when the call abstains, the
+endpoint hands on the empty envelope ``{"input": ..., "selected": []}`` (E4b fix 2026-10-14).
 STORY: as a researcher, "focus on the best three" is enforced by the engine and not asked of a
 prompt, and a multi-document hand-off does not go through a model that summarizes.
 
@@ -42,26 +43,13 @@ from screamingface_engine.combine.ports import (
     Selection,
     SignalOrder,
     SpecInvalid,
-    canonical_json,
+    selection_envelope,
 )
 
 _MAX_K = 256
 _ORDERS = get_args(SignalOrder)
 _MARKS = frozenset({Decimal(0), Decimal(1)})
 _MAX_SEPARATOR_CHARS = 1024
-
-
-def _selection_text(chosen: tuple[str, ...], combine_input: CombineInput) -> str:
-    """The selection JSON: the Fusion's input and the chosen members' original texts, in order.
-
-    WHY ``None`` is left out: a ``CombineInput`` built without a context (a test helper) has no
-    input. The endpoint always sets it, so every combine call writes the ``input`` key.
-    """
-    selected = [{"id": member, "text": combine_input.outputs[member]} for member in chosen]
-    envelope: dict[str, object] = {"selected": selected}
-    if combine_input.input is not None:
-        envelope["input"] = combine_input.input
-    return canonical_json(envelope)
 
 
 def _check_top_k_args(args: OpArgs) -> None:
@@ -102,7 +90,7 @@ def top_k(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) ->
     chosen = tuple(member for member, _ in ranked[:k])
     return Selection(
         chosen=chosen,
-        output=_selection_text(chosen, combine_input),
+        output=selection_envelope(chosen, combine_input),
         tie=len(ranked) > k and ranked[k - 1][1] == ranked[k][1],
     )
 
@@ -121,7 +109,7 @@ def kept(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> 
     chosen = tuple(member for member in combine_input.members if marks.get(member) == 1)
     if not chosen:
         raise NoVotes("no member passed the filter", reason="no_votes")
-    return Selection(chosen=chosen, output=_selection_text(chosen, combine_input))
+    return Selection(chosen=chosen, output=selection_envelope(chosen, combine_input))
 
 
 def _check_join_args(args: OpArgs) -> None:
@@ -202,6 +190,7 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
             }
         ),
         check_args=_check_top_k_args,
+        envelope=True,
     ),
     OperatorDescriptor(
         "kept",
@@ -209,6 +198,7 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         "select",
         "Every member that passed, in author order, as the selection JSON.",
         kept,
+        envelope=True,
     ),
     OperatorDescriptor(
         "join",
