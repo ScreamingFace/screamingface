@@ -110,6 +110,12 @@ STYLE = f"""<style>
 }}
 {_theme_rules(".sf-ui", _LIGHT, _DARK)}
 .sf-ui,.sf-ui *{{box-sizing:border-box}}
+/* ipywidgets paints every nested widget color:var(--jp-widgets-color), which a host with no
+   JupyterLab theme (VS Code) resolves to black — black text on a dark panel. Take the ink back. */
+.sf-ui .widget-box,.sf-ui .widget-html{{color:inherit}}
+/* VS Code paints every widget output #fff !important, assuming widgets cannot theme; ours do,
+   so drop that white band — only around an output holding a panel, never other widgets. */
+.cell-output-ipywidget-background:has(.sf-ui){{background:transparent!important}}
 </style>"""
 
 __all__: list[str] = []
