@@ -139,9 +139,36 @@ letter).
   new subject (above); the corrective ones now run only in the inspect lane, so lane 1's coverage
   gate loses them. (3) `BenchmarkAggregation.missing_case_result` lost its last user (the hand-built
   IFEval) and is left in place: the parallel healthbench move edits the same file; owner call
-  whether to remove it here or there, as draco's fix (8) did for its hooks.
+  whether to remove it here or there, as draco's fix (8) did for its hooks. (4) The Benchmark now
+  publishes `dataset_url` (`https://huggingface.co/datasets/google/IFEval`), reversing a deliberate
+  choice: the hand-built definition left it out because "the IFEval dataset is vendored inside this
+  Engine, so no single public URL is authoritative" (added with the catalogue seeding in
+  `9077aceec`, pinned by `test_the_ifeval_benchmark_publishes_no_dataset_link`, deleted here with
+  the hand-built tests). That reason no longer holds: the Cases are now loaded from the Hub at the
+  pinned revision (the Case Source the importer records and the Case Digest seals), and the
+  vendored official file is only the authority they are checked against (key 2785 patched, any
+  other difference refused). The link names where the Cases come from, like every other imported
+  row's.
 - **Owner-verify:** (1) the next Engine image build prepares the `ifeval` bundle, its Case Digest
   and nltk digest match; (2) one paid IFEval Corrective Loop run after merge on an Engine with the
   inspect extra, its score read beside the golden's 0.9184 (the replay already proves the recorded
   bytes and score; this run checks the live path); (3) notebooks 07 and 09 opened against
   `just local-stack-notebooks` once; (4) the `missing_case_result` hook, deviation (3).
+- **Review fixes (#1407):** (a) nothing proved ifeval's checker reads the bundled punkt corpus
+  (#1388 deferred that proof to this PR; 64 of the 541 Cases tokenize): new
+  `test_ifeval_grades_with_the_bundled_tokenizers_and_no_network` runs Case Preparation's real
+  nltk step (downloads punkt and punkt_tab into the bundle and checks they seal to the row's
+  digest; needs the network, as the image build does, and never skips), then, with sockets and
+  nltk's downloader refused, nltk's path emptied and its loaded tokenizers forgotten, shows
+  counting sentences raises LookupError before install and three Cases (official keys 3739 twice,
+  2849) grade 1, 1, 0 after; `test_nltk_data_at_image_build.py`'s two "#15 does" placeholders
+  now name it. Mutation: the installer not pointing nltk at the bundle turns it red. (b) the
+  refusal of changed instruction ids or arguments was untested: new
+  `test_changed_instructions_are_refused_never_patched` (ids, kwargs; keys 1000 and 2785).
+  Mutation: replacing the check with `False` turns both red. (c) the root README's Quickstart
+  evaluates `ifeval`, which the plain Engine no longer lists: a note in the SDK README's words.
+  (d) deviation (4) above. Gates: with the inspect extra, `test_local_task_ifeval.py`,
+  `test_local_task_ifeval_grading.py`, `test_local_task_ifeval_parity.py`,
+  `test_nltk_data_at_image_build.py` 44 passed; extra-less, the two touched test files skip at
+  the `inspect_ai` import only; ruff, format and pyright (extra-less) clean on the three touched
+  test files; `OME-1527.json` approves the docstring-only edit of the image-build test.
