@@ -11,7 +11,7 @@ finished:
 ## Intent
 
 Two defects were found live on PR #1409 (OME-1601, E4b part 1). Each fix has its own section
-below, with its own plan, tests and outcome. Both fixes use one RED commit and one GREEN commit.
+below, with its own plan, tests and outcome. Each fix uses its own RED commit and its own GREEN commit.
 Spec: `docs/spec/2026-10-13-e4b-combine-extensions/`. No pinned test file changes
 (`.claude/test-change-approvals/OME-1601.json`).
 
@@ -65,15 +65,24 @@ tests, README, CHANGELOG), screamingface-engine (one offline recipe test and its
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** `packages/screamingface/src/screamingface/blocks.py`,
-  `packages/screamingface/src/screamingface/reducer.py` (docstring only),
-  `packages/screamingface/README.md`, `packages/screamingface/CHANGELOG.md`,
-  `apps/screamingface-engine/tests/unit/test_combine_recipes.py` (one assertion, see
-  Deviations), `apps/screamingface-engine/tests/unit/data/combine_contract/recipe_s4_median.url4`
-  (generated), `docs/spec/2026-10-13-e4b-combine-extensions/` (`00-overview.md`, `erd.md`,
-  `prd/mean.md`, `prd/weighted-median.md`, `prd/recipes.md`).
-- **Commits:** A `7c402d2d3` test(e4b): RED for select on the median and mean blocks; B (this
-  commit) fix(e4b): let the median and mean blocks take select.
+- **Actual files:**
+  - Commit A (RED) added this ledger, `packages/screamingface/tests/test_reduce_numeric_select.py`
+    (new), `packages/screamingface/tests/_combine_recipes.py` (one builder appended) and
+    `apps/screamingface-engine/tests/unit/test_combine_recipes.py` (one test appended).
+  - Commit B (GREEN) changed `packages/screamingface/src/screamingface/blocks.py`,
+    `packages/screamingface/src/screamingface/reducer.py` (docstring only),
+    `packages/screamingface/README.md`, `packages/screamingface/CHANGELOG.md`,
+    `apps/screamingface-engine/tests/unit/test_combine_recipes.py` (one changed assertion, see
+    Deviations), `apps/screamingface-engine/tests/unit/data/combine_contract/recipe_s4_median.url4`
+    (new, generated) and `docs/spec/2026-10-13-e4b-combine-extensions/` (`00-overview.md`,
+    `erd.md`, `prd/mean.md`, `prd/weighted-median.md`, `prd/recipes.md`).
+  - No pinned test changed.
+- **Commits:** A `7c402d2d3` test(e4b): RED for select on the median and mean blocks; B
+  `dcf5cf159` fix(e4b): let the median and mean blocks take select; C (this commit, review fixes)
+  fix(e4b): review fixes for reduce-select.
+- **Review round (commit C):** all three gates ran after the review fixes. screamingface-engine:
+  ALL GATES GREEN. screamingface: ALL GATES GREEN. repo: ALL GATES GREEN. Commit C changes only
+  one docstring tag in `blocks.py` and this ledger.
 - **Gates:** `screamingface-engine`: ALL GATES GREEN. `screamingface`: ALL GATES GREEN (the
   second run; see Deviations). `repo`: ALL GATES GREEN. Focused tests: SDK 177 passed; engine
   16 passed.
@@ -86,3 +95,13 @@ tests, README, CHANGELOG), screamingface-engine (one offline recipe test and its
     `tests/test_evaluation_outcome.py::test_a_callback_exception_aborts_the_evaluation_and_is_re_raised`.
     The test passed alone and in five repeated `-n 4` runs. The second full gate run passed. No
     code path of this fix touches that test. The failure looks like load-related timing.
+  - The commit A test file `test_combine_recipes.py` also got one test appended, and
+    `packages/screamingface/tests/_combine_recipes.py` got one builder appended
+    (`recipe_s4_median`). Both files are new on this PR. Each change is an append. No assertion
+    is removed or weakened.
+  - Review round (commit C): the review found no MAJOR finding. The assertion bullet above is
+    kept as recorded. The history is not rewritten, so commit A and commit B stay as they are.
+    The module-level invariant
+    `assert frozenset(_NUMERIC_MODES) == _NUMERIC_SELECTS` in `blocks.py` is kept because the spec
+    asked for it. The two choice-text copies (`_SELECT_CHOICES` and the `sf.Median` / `sf.Mean`
+    checks) stay as they are and are deferred.
