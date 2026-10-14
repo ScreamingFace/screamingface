@@ -1,10 +1,10 @@
 {
   "issue": "OME-1527",
-  "branch": "OME-1527-pr15-ifeval-local-task",
-  "approver": "owner \u2014 OME-1527 Work order #15 (ifeval \u2192 local inspect Task) approved on the ticket, with decision 2 (Case ids renumber to 1..541) and decision 5 (the old golden replays unchanged; only revision, expression hash and the renumbered Case-id keys regenerate); to confirm in PR review",
+  "branch": "OME-1527-pr15b-ifeval-corrective-smoke",
+  "approver": "owner \u2014 OME-1527 row 15b (the paid smoke also runs ifeval as a Corrective Loop) requested by the owner; carries over #1407's owner-approved entries (Work order #15, decisions 2 and 5) because this branch stacks on #1407 and the pre-push check diffs against main's merge base; to confirm in PR review",
   "date": "2026-10-14",
-  "scope": "IFEval leaves the hand-built lane. (1) Tests that used the hand-built IFEval as their hand-built subject move to MedXpertQA (early grading, outcome conformance, protocol, deployment, discovery, abstain hoist) or drop the IFEval branch of a loop over the built-ins (stage parity, early score timing, the early-grade compatibility fixture loses its ifeval board). (2) Tests that needed IFEval's Draft Feedback or its grading lose those parts here and gain them in the inspect lane against the local Task (abstain_corrective part (b), abstain_families' IFEval section, combine_reducer_candidates' three IFEval tests, samples_seed_contract's SM-10). (3) Conformance tables gain the ifeval row: family reply_only with the owner's one Draft Feedback offer, stand-in metadata, an empty nltk corpus folder in stand-in bundles, the reply-only set, the whole-run metric opt-in list, the declaration table, the published revision literal. (4) Review fixes from #1399: test_no_imported_row_asks_for_draft_feedback renamed test_only_owner_allowed_rows_ask_for_draft_feedback, the catalogue-level offer test compares against the installed part of the allow-list, and the assembly test checks membership instead of the exact list. (5) SDK: the CLI fingerprint test no longer lists ifeval; the e2e golden's revision, expression hash and Case-id keys regenerate (official key -> position 1..541 in the pinned split), every recorded outcome unchanged.",
-  "reason": "OME-1527 row 15 moves ifeval to a local inspect Task and deletes the hand-built folder; every edited test either loses a subject that no longer exists, follows it to the inspect lane, or names the new row. Deleted and renamed test files cannot be approved here; the ledger lists them.",
+  "scope": "IFEval leaves the hand-built lane. (1) Tests that used the hand-built IFEval as their hand-built subject move to MedXpertQA (early grading, outcome conformance, protocol, deployment, discovery, abstain hoist) or drop the IFEval branch of a loop over the built-ins (stage parity, early score timing, the early-grade compatibility fixture loses its ifeval board). (2) Tests that needed IFEval's Draft Feedback or its grading lose those parts here and gain them in the inspect lane against the local Task (abstain_corrective part (b), abstain_families' IFEval section, combine_reducer_candidates' three IFEval tests, samples_seed_contract's SM-10). (3) Conformance tables gain the ifeval row: family reply_only with the owner's one Draft Feedback offer, stand-in metadata, an empty nltk corpus folder in stand-in bundles, the reply-only set, the whole-run metric opt-in list, the declaration table, the published revision literal. (4) Review fixes from #1399: test_no_imported_row_asks_for_draft_feedback renamed test_only_owner_allowed_rows_ask_for_draft_feedback, the catalogue-level offer test compares against the installed part of the allow-list, and the assembly test checks membership instead of the exact list. (5) SDK: the CLI fingerprint test no longer lists ifeval; the e2e golden's revision, expression hash and Case-id keys regenerate (official key -> position 1..541 in the pinned split), every recorded outcome unchanged. (6) Row 15b, this branch: the paid smoke's referee takes the expected Case count, its shelf runner runs (Benchmark, how it runs) entries so ifeval also runs as a Corrective Loop and its Cases' rounds are read back (test_imported_board_smoke.py); the shelf pick names the Benchmarks that also run as a loop (_scope.py ShelfPick.corrective); the overview carries warnings that never fail a board (_board_summary.py).",
+  "reason": "OME-1527 row 15 moves ifeval to a local inspect Task and deletes the hand-built folder; every edited test either loses a subject that no longer exists, follows it to the inspect lane, or names the new row. Deleted and renamed test files cannot be approved here; the ledger lists them. Row 15b edits three paid-lane helpers in place because the smoke's entry shape changes from a bare Benchmark id to an entry; every pre-existing behaviour is kept (Fusion entries keep their names, Report files and Case count) and the free tests that call these helpers pass unchanged.",
   "files": {
     "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
       "base_blob": "86e7a89a5f6a36e88f06c245d3ea94dce399fd10",
@@ -117,6 +117,18 @@
     "packages/screamingface/tests/e2e/fixtures/goldens/ifeval.golden.json": {
       "base_blob": "99d60de5335c883a21aba1a933137d160a2dfd41",
       "approved_blob": "bcadc4ad20b60cbf1de70f2c86d80adf34097064"
+    },
+    "packages/screamingface/tests/paid/_board_summary.py": {
+      "base_blob": "0afbd8a9d2770e4f01234a13ec68bbdde592f155",
+      "approved_blob": "2005acead3eaab0fde81b6f66265994db41fef93"
+    },
+    "packages/screamingface/tests/paid/_scope.py": {
+      "base_blob": "9d592f22e95a587b63f008063fd2287e7dbe14fa",
+      "approved_blob": "bb5c9d6feb2a5ca9bc8656310202d4be0aaa8962"
+    },
+    "packages/screamingface/tests/paid/test_imported_board_smoke.py": {
+      "base_blob": "555a035a186013607ce073e4467959f799a53ba2",
+      "approved_blob": "b2b0b97726220e6398a84f5e0a059c9b454c3919"
     },
     "packages/screamingface/tests/test_runtime_cli.py": {
       "base_blob": "5b2e0d97df7f42ea259bba8359013e8d4ae979c9",
