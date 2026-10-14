@@ -596,7 +596,15 @@ runnerPool:
     # The old Runner Job's per-run numbers (requests 200m/256Mi, limits.memory 1Gi).
     cpuMillicores: 200
     memoryMi: 256
+    # The per-slot memory limit AND each run's RESIDENT budget (OME-1607): the worker stops a
+    # run whose process tree goes past it (`memory_budget_exceeded`, not redelivered) before the
+    # pod's cgroup OOM-kills it or a co-tenant. One value, so the pod limit and the run budget
+    # cannot disagree at any `workerSlots`.
     memoryLimitMi: 1024
+    # The address-space backstop (the child's RLIMIT_AS) as a multiple of `memoryLimitMi`. It
+    # only stops a runaway allocation; it must sit well above the resident budget, because
+    # native libraries reserve address space they never touch. The chart refuses < 2.
+    addressSpaceFactor: 4
   overhead:
     # The worker process's own footprint (the claim loop, the NATS clients, the supervisor).
     cpuMillicores: 100
