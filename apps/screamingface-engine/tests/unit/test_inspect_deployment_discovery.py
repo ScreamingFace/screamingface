@@ -28,7 +28,7 @@ from screamingface_engine.benchmarks.discovery import (
     ENTRY_POINT_GROUP,
     discovered_registrations,
 )
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
+from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 
 
 class _FakeEntryPoint:
@@ -43,10 +43,11 @@ class _FakeEntryPoint:
 
 
 def _registration() -> BenchmarkRegistration:
-    # WHY a real Benchmark (IFEval): BenchmarkRegistration type-checks its fields, and
-    # this suite is about the discovery loop, not about authoring a fake benchmark.
+    # WHY a real Benchmark (MedXpertQA, since IFEval became a local Task in OME-1527):
+    # BenchmarkRegistration type-checks its fields, and this suite is about the discovery
+    # loop, not about authoring a fake benchmark.
     bundle = BenchmarkAssetBundle(id="fake-plugin-bundle", prepare=lambda out: {})
-    return BenchmarkRegistration(benchmark=IFEVAL, asset_bundle=bundle)
+    return BenchmarkRegistration(benchmark=MEDXPERT, asset_bundle=bundle)
 
 
 def test_group_name_is_the_spec_contract() -> None:

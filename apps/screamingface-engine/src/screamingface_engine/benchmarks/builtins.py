@@ -17,25 +17,15 @@ from screamingface_engine.benchmarks.healthbench.definition import (
 from screamingface_engine.benchmarks.healthbench.variant import (
     ASSET_BUNDLE_ID as HEALTHBENCH_ASSET_BUNDLE_ID,
 )
-from screamingface_engine.benchmarks.ifeval.definition import (
-    ASSET_BUNDLE_ID as IFEVAL_ASSET_BUNDLE_ID,
-)
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 from screamingface_engine.benchmarks.medxpert.definition import (
     ASSET_BUNDLE_ID as MEDXPERT_ASSET_BUNDLE_ID,
 )
 from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 
 
-def _prepare_ifeval(out: Path) -> Mapping[str, Any]:
+def _prepare_medxpert(out: Path) -> Mapping[str, Any]:
     # WHY lazy: image-building code and its optional dataset dependency stay out of the runtime
     # import graph. The deployment carries the adapter, but imports it only when building assets.
-    from screamingface_engine.benchmarks.ifeval.prepare import prepare
-
-    return prepare(out)
-
-
-def _prepare_medxpert(out: Path) -> Mapping[str, Any]:
     from screamingface_engine.benchmarks.medxpert.prepare import prepare
 
     return prepare(out)
@@ -47,7 +37,6 @@ def _prepare_healthbench(out: Path) -> Mapping[str, Any]:
     return prepare(out)
 
 
-IFEVAL_ASSETS = BenchmarkAssetBundle(id=IFEVAL_ASSET_BUNDLE_ID, prepare=_prepare_ifeval)
 MEDXPERT_ASSETS = BenchmarkAssetBundle(id=MEDXPERT_ASSET_BUNDLE_ID, prepare=_prepare_medxpert)
 HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
     id=HEALTHBENCH_ASSET_BUNDLE_ID,
@@ -59,7 +48,6 @@ HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
 # prepares it once: the two HealthBench benchmarks are independent identities over one prepared
 # answer key.
 BUILTIN_REGISTRATIONS = (
-    BenchmarkRegistration(benchmark=IFEVAL, asset_bundle=IFEVAL_ASSETS),
     BenchmarkRegistration(
         benchmark=HEALTHBENCH_WORST30,
         asset_bundle=HEALTHBENCH_ASSETS,

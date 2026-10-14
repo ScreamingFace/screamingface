@@ -27,7 +27,7 @@ from screamingface_engine.benchmarks.deployment import (
 from screamingface_engine.benchmarks.healthbench.prepare import (
     PrepareError as HealthBenchPrepareError,
 )
-from screamingface_engine.benchmarks.ifeval.prepare import PrepareError as IFEvalPrepareError
+from screamingface_engine.benchmarks.medxpert.prepare import PrepareError as MedXpertPrepareError
 from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
 from url4 import Text
 from url4.peer.server import Url4Node
@@ -208,7 +208,7 @@ def test_an_unknown_bundle_id_is_refused_before_any_preparer_runs(
 
 @pytest.mark.parametrize(
     "error_type",
-    (HealthBenchPrepareError, IFEvalPrepareError),
+    (HealthBenchPrepareError, MedXpertPrepareError),
 )
 def test_family_preparation_refusals_share_the_operator_error_boundary(
     error_type: type[Exception],
@@ -400,7 +400,7 @@ def test_the_family_guard_does_not_flag_the_orchestrator_itself() -> None:
         _FAMILY_PREPARER.search("screamingface_engine.benchmarks.registry.prepare_everything()")
         is None
     )
-    assert _FAMILY_PREPARER.search("-m screamingface_engine.benchmarks.ifeval.prepare --out /x")
+    assert _FAMILY_PREPARER.search("-m screamingface_engine.benchmarks.medxpert.prepare --out /x")
 
 
 def test_the_family_guard_covers_every_family_preparer_package() -> None:
@@ -610,18 +610,18 @@ def test_prepare_cli_prepares_only_the_bundles_named_on_the_command_line(
     def prepare(root: Path, on_prepared: Any = None, *, only: Any = None) -> dict[str, Any]:
         seen["only"] = only
         if on_prepared is not None:
-            on_prepared("ifeval", {"cases": 1})
-        return {"ifeval": {"cases": 1}}
+            on_prepared("medxpert", {"cases": 1})
+        return {"medxpert": {"cases": 1}}
 
     monkeypatch.setattr(prepare_module, "prepare_builtin_assets", prepare)
 
     # A REAL bundle id: main() refuses an undeclared one before any preparer runs, so a
     # made-up name would exercise the refusal rather than the forwarding this test pins.
-    assert prepare_module.main(["--root", str(tmp_path), "--bundle", "ifeval"]) == 0
+    assert prepare_module.main(["--root", str(tmp_path), "--bundle", "medxpert"]) == 0
 
-    assert seen["only"] == ("ifeval",)
+    assert seen["only"] == ("medxpert",)
     records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert [record["bundle"] for record in records] == ["ifeval"]
+    assert [record["bundle"] for record in records] == ["medxpert"]
 
 
 def test_prepare_cli_lists_bundle_ids_without_preparing_anything(
@@ -639,7 +639,7 @@ def test_prepare_cli_lists_bundle_ids_without_preparing_anything(
 
     listed = capsys.readouterr().out.split()
     assert listed == sorted(listed)
-    assert "ifeval" in listed
+    assert "medxpert" in listed
 
 
 def test_every_benchmark_image_build_passes_the_hugging_face_token_secret() -> None:

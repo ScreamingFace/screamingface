@@ -4,7 +4,6 @@ import json
 
 import pytest
 from test_healthbench_dual_benchmark_runtime import _write_full_assets as healthbench_assets
-from test_ifeval_case_evaluation_route import _assets as ifeval_assets
 from test_medxpert_protocol_turns import _assets as medxpert_assets
 
 from screamingface_engine.activity.observer import ActivityObserver
@@ -21,9 +20,6 @@ def assets(registration, root, monkeypatch):
     name = registration.asset_bundle.id
     if name == "healthbench":
         healthbench_assets(root / name)
-    elif name == "ifeval":
-        (root / name).mkdir()
-        ifeval_assets(root / name)
     elif name == "medxpert":
         medxpert_assets(root, 1)
 

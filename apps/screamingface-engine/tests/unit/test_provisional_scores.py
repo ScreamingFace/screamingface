@@ -1,17 +1,20 @@
-"""Provisional snapshots observe canonical grades without controlling execution."""
+"""Provisional snapshots observe canonical grades without controlling execution.
+
+MedXpertQA is the real-expression subject since OME-1527 moved IFEval to a local inspect Task.
+"""
 
 import asyncio
 import json
 
 import pytest
 from test_graded_result_transport import _result
-from test_ifeval_incremental_proof import _assets
+from test_medxpert_protocol_turns import _assets
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.aggregation import CandidateScore
+from screamingface_engine.benchmarks.case_context import current_case_position
 from screamingface_engine.benchmarks.definition import link_candidate
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
-from screamingface_engine.benchmarks.ifeval.runtime import install
+from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.benchmarks.progress import completed_case
 from screamingface_engine.observations import RunObservations
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
@@ -57,9 +60,9 @@ def test_observer_failure_does_not_change_execution(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_real_expression_emits_score_while_second_answer_is_blocked(tmp_path):
-    _assets(tmp_path)
+    _assets(tmp_path, 2)
     node = Url4Node("test")
-    install(node, tmp_path)
+    MEDXPERT.install(node, tmp_path)
     install_candidate_invocation(node)
     waiting, release = asyncio.Event(), asyncio.Event()
     events = []
@@ -70,17 +73,17 @@ async def test_real_expression_emits_score_while_second_answer_is_blocked(tmp_pa
                 events.append(dict(event.attributes))
 
     async def answer(request):
-        if "(2)" in request.context:
+        if current_case_position() == (2, 2):
             waiting.set()
             await release.wait()
-        return "Fresh tea"
+        return "(E) Fresh tea"
 
     node.endpoint("/proof")(answer)
     run = RunObservations((ActivityObserver,))
     with run.bind():
         task = asyncio.create_task(
             execute(
-                link_candidate("/proof($input)!answer", IFEVAL.protocol(2)),
+                link_candidate("/proof($input)!answer", MEDXPERT.protocol(2)),
                 io=node,
                 observer=Observer(),
             )

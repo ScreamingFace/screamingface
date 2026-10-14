@@ -5,7 +5,6 @@ import json
 
 import pytest
 from test_benchmark_stage_parity import assets
-from test_ifeval_incremental_proof import _assets as ifeval_assets
 from test_medxpert_protocol_turns import _assets as medxpert_assets
 
 from screamingface_engine.activity.observer import ActivityObserver
@@ -14,6 +13,7 @@ from screamingface_engine.benchmarks.case_context import current_case_position
 from screamingface_engine.benchmarks.definition import link_candidate
 from screamingface_engine.observations import RunObservations
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from url4 import RelExpr, Text, expr, render, src
 from url4.dag import run as execute
 from url4.observe import Log
 from url4.peer.server import Url4Node
@@ -60,13 +60,27 @@ async def test_score_precedes_second_case_completion(tmp_path, monkeypatch, regi
 
 def _assets(tmp_path, monkeypatch, registration):
     name = registration.asset_bundle.id
-    if name == "ifeval":
-        (tmp_path / name).mkdir()
-        ifeval_assets(tmp_path / name)
-    elif name == "medxpert":
+    if name == "medxpert":
         medxpert_assets(tmp_path, 2)
     else:
         assets(registration, tmp_path, monkeypatch)
+
+
+async def _call(node: Url4Node, route: str, payload: str, intent: str) -> str:
+    """Call one route on ``node`` with ``payload`` as its context; the route's text back.
+
+    Moved here from the hand-built IFEval's incremental proof (OME-1527) for the tests that
+    still call one route directly.
+    """
+
+    expression = expr(
+        src(Text(payload), name="payload", weight=0.0),
+        src(
+            RelExpr(path=route, context="$payload", intent=Text(intent)), name="result", weight=0.0
+        ),
+        intent=Text("$result"),
+    )
+    return (await node.evaluate(render(expression))).text
 
 
 def _judges(node):

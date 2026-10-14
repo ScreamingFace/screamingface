@@ -1,8 +1,9 @@
 """Shared checks for the provenance block a hand-built preparer writes (OME-1492 PR 3).
 
-Each of the three hand-built preparers (ifeval, healthbench, medxpert) appends one test to its
-own prepare test file; this module holds the checks they all make, so the three tests state
-only what differs: the source, the counts, the Case text.
+Each of the two hand-built preparers (healthbench, medxpert) appends one test to its own
+prepare test file; this module holds the checks they both make, so the two tests state only
+what differs: the source, the counts, the Case text. (ifeval's left with its folder when it
+became a local inspect Task, OME-1527.)
 """
 
 from __future__ import annotations
