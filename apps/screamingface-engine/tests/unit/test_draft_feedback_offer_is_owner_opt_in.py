@@ -17,7 +17,7 @@ import pytest
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_REGISTRATIONS
 from screamingface_engine.benchmarks.definition import Benchmark
-from screamingface_engine_inspect.benchmarks import BENCHMARKS
+from screamingface_engine_inspect.benchmarks import BENCHMARKS, OWNER_ALLOWED_DRAFT_FEEDBACK
 from screamingface_engine_inspect.single_shot import imported_benchmark_id
 from url4.peer.server import Url4Node
 
@@ -36,11 +36,20 @@ def test_only_the_owner_allowed_benchmarks_advertise_draft_feedback() -> None:
 
 def test_no_imported_row_asks_for_draft_feedback() -> None:
     """The row level too, so the rule holds even where the extra is not installed and the
-    imported Benchmarks are not assembled into the catalogue: no spec row sets the flag."""
+    imported Benchmarks are not assembled into the catalogue: only a row whose catalogue id
+    the owner allowed sets the flag (none today; IFEval's local Task will, OME-1527 R10).
 
-    asking: list[str] = [spec.key for spec in BENCHMARKS if spec.with_check_surface]
+    The assembler's own copy of the list must equal this one: this literal is the owner's
+    gate, kept apart from the code, so widening the code's list alone turns this red."""
 
-    assert asking == []
+    asking: set[str] = {
+        imported_benchmark_id(spec.key, spec.origin)
+        for spec in BENCHMARKS
+        if spec.with_check_surface
+    }
+
+    assert asking <= _OWNER_ALLOWED_OFFERS
+    assert OWNER_ALLOWED_DRAFT_FEEDBACK == _OWNER_ALLOWED_OFFERS
 
 
 #: Every hand-built Benchmark whose Draft Feedback offer is off (the imported rows get the same

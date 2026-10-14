@@ -681,3 +681,100 @@ def test_empty_keys_as_answers_are_refused_the_check_surface(
 
     with pytest.raises(ValueError, match="check surface"):
         _assembled(_own_scorer_spec(with_check_surface=True), monkeypatch)
+
+
+# ── Draft Feedback without an answer key: only on a Benchmark the owner allowed (R10) ──
+
+#: The eval's own scorer of an IFEval-shaped Benchmark: it grades the reply against the
+#: instructions in each Sample's metadata, never a key. A stand-in reference only; assembly
+#: never imports it.
+_INSTRUCTION_SCORER: str = "stand_in_ifeval.scorers:instructions_followed"
+
+
+def _ifeval_shaped_spec(**overrides: Any) -> BenchmarkSpec:
+    """A key-less, judge-less local-Task row keyed "ifeval" (catalogue id "ifeval", the one
+    the owner allowed), asking for Draft Feedback."""
+
+    values: dict[str, Any] = {
+        "key": "ifeval",
+        "origin": "screamingface",
+        "scorer": _INSTRUCTION_SCORER,
+        "with_check_surface": True,
+    }
+    values.update(overrides)
+    return _reply_only_spec(**values)
+
+
+def _ifeval_cases(monkeypatch: pytest.MonkeyPatch, **cases: Any) -> None:
+    """Give the "ifeval" key a Cases row (gsm8k's, standing in) with no answer key, unless
+    the test overrides that."""
+
+    from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES
+
+    monkeypatch.setitem(
+        TASK_REPLAY_CASES,
+        "ifeval",
+        replace(TASK_REPLAY_CASES["gsm8k"], **{"has_answer_key": False, **cases}),
+    )
+
+
+def test_the_owner_allowed_benchmark_offers_draft_feedback_without_an_answer_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OME-1527 R10: IFEval has no key; its instructions sit in the prompt, so a mid-run
+    check leaks nothing, and re-wording a draft until the checker passes IS the task the
+    Corrective Loop's paper studied. The owner allowed it by name, so it assembles with
+    the offer on (the 2026-10-05 refusal keeps every other reply-only row)."""
+
+    _ifeval_cases(monkeypatch)
+
+    assembled: Any = _assembled(_ifeval_shaped_spec(), monkeypatch)
+
+    assert benchmarks.OWNER_ALLOWED_DRAFT_FEEDBACK == frozenset({"ifeval"})
+    assert assembled.benchmark.id == "ifeval"
+    assert assembled.benchmark.check_surface is not None
+
+
+def test_a_reply_only_benchmark_the_owner_never_named_is_still_refused_draft_feedback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exception is the owner's list, not the row's shape: the same IFEval-shaped row
+    under another catalogue id is refused, so a refusal-regex Benchmark (mitre_frr) can
+    never earn the offer by looking like IFEval."""
+
+    from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES
+
+    _ifeval_cases(monkeypatch)
+    monkeypatch.setitem(TASK_REPLAY_CASES, "ifeval_twin", TASK_REPLAY_CASES["ifeval"])
+
+    with pytest.raises(ValueError, match="ifeval_twin: .*OWNER_ALLOWED_DRAFT_FEEDBACK"):
+        _assembled(_ifeval_shaped_spec(key="ifeval_twin"), monkeypatch)
+
+
+def test_an_inspect_evals_row_keyed_ifeval_is_not_the_benchmark_the_owner_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WHY catalogue ids, not row keys: an inspect_evals row keyed "ifeval" is served as
+    "inspect-ifeval", a different Benchmark with a different scorer, which the owner never
+    read or allowed."""
+
+    _ifeval_cases(monkeypatch)
+
+    with pytest.raises(ValueError, match="inspect-ifeval: .*OWNER_ALLOWED_DRAFT_FEEDBACK"):
+        _assembled(_ifeval_shaped_spec(origin="inspect_evals"), monkeypatch)
+
+
+def test_the_owner_allowed_benchmark_is_still_refused_draft_feedback_over_an_empty_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exception lifts only the reply-only refusal. Draft Feedback over an empty key
+    tells a fusion "no clause here" mid-run, which is the answer itself, so that refusal
+    stands even for a Benchmark the owner allowed."""
+
+    _ifeval_cases(monkeypatch, has_answer_key=True, empty_answer_key_allowed=True)
+    spec: BenchmarkSpec = _ifeval_shaped_spec(
+        scorer=_EMPTY_KEY_SCORER, scorer_reads_answer_key=True
+    )
+
+    with pytest.raises(ValueError, match="would leak the answer"):
+        _assembled(spec, monkeypatch)

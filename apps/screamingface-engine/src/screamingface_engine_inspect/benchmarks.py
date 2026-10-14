@@ -4833,6 +4833,14 @@ def _check_model_role_judge(spec: BenchmarkSpec, role: str, judge_kwargs: dict[s
         )
 
 
+#: The catalogue ids (``imported_benchmark_id``) of the Benchmarks the owner has allowed to
+#: offer Draft Feedback with no answer key: a reply-only row asking for a check surface
+#: assembles only if its id is here. Only the owner edits this set, one Benchmark at a time
+#: by name (owner rule 2026-10-07, OME-1513: Draft Feedback is never a default and never
+#: inferred). Catalogue ids, not row keys: an inspect_evals row keyed "ifeval" is served as
+#: "inspect-ifeval", a Benchmark the owner never allowed.
+OWNER_ALLOWED_DRAFT_FEEDBACK: frozenset[str] = frozenset({"ifeval"})
+
 #: The placeholder inspect's model-graded templates use for the answer key.
 _ANSWER_KEY_FIELD = "criterion"
 
@@ -4903,7 +4911,8 @@ def _check_reply_only_claim(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec
     INVARIANT: the claim stands only on a row with no answer key, no judge, and the eval's
     own scorer. Anywhere else it is a second, unchecked answer to a question something else
     already answers (the key itself, the judge prompt), or false outright (inspect's
-    built-ins all compare against the key). Such a row also offers no check surface.
+    built-ins all compare against the key). Such a row also offers no check surface,
+    unless the owner allowed its Benchmark by name (``OWNER_ALLOWED_DRAFT_FEEDBACK``).
     """
 
     if cases_spec.has_answer_key:
@@ -4921,12 +4930,17 @@ def _check_reply_only_claim(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec
             f"{spec.key}: scorer_reads_answer_key=False on inspect's built-in {spec.scorer}, "
             "which compares every reply against the key"
         )
-    if spec.with_check_surface:
+    benchmark_id: str = imported_benchmark_id(spec.key, spec.origin)
+    if spec.with_check_surface and benchmark_id not in OWNER_ALLOWED_DRAFT_FEEDBACK:
         # WHY (owner decision 2026-10-05): a pass/fail check over a reply-only scorer such
         # as a refusal regex lets a fusion re-word a draft until it slips past.
+        # WHY the owner's exception is safe (ifeval): its instructions sit in the prompt and
+        # no key is hidden, so the check leaks nothing; re-wording a draft until the checker
+        # passes IS the task the Corrective Loop's paper studied on IFEval (OME-1527, R10).
         raise ValueError(
-            f"{spec.key}: scorer_reads_answer_key=False with a check surface; a reply-only "
-            "benchmark offers no mid-run check (set with_check_surface=False)"
+            f"{benchmark_id}: scorer_reads_answer_key=False with a check surface; a "
+            "reply-only benchmark offers no mid-run check unless the owner allowed it by "
+            "name in OWNER_ALLOWED_DRAFT_FEEDBACK (set with_check_surface=False)"
         )
 
 
