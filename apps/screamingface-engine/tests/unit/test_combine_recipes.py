@@ -388,3 +388,43 @@ async def test_engine_runs_mean_block_weighted_by_field_confidence() -> None:
     ]
     assert combine["signal"] == {"key": "field:confidence", "order": None}
     assert combine["operators"] == ["json_field@1", "numeric@1", "weighted_mean@1", "value@1"]
+
+
+@pytest.mark.asyncio
+async def test_recipe_s4_median_value_returns_the_weighted_median_number() -> None:
+    # Oracle (weighted-median PRD §3, WM-5): gamma has confidence 0, so it is dropped. The running
+    # weights of 10 (0.6) and 20 (0.3) are 0.6 and 0.9; 0.6 >= 0.9 / 2, so the median is 10. The
+    # plain median of 10, 20, 99 is 20, and select="nearest" returns alpha's whole JSON reply.
+    record = await run_candidate(
+        _recipe("recipe_s4_median.url4"),
+        _models(
+            {
+                "provider/alpha": '{"answer": 10, "confidence": 0.6}',
+                "provider/beta": '{"answer": 20, "confidence": 0.3}',
+                "provider/gamma": '{"answer": 99, "confidence": 0}',
+            }
+        ),
+        "miss",
+    )
+
+    assert record["status"] == "completed"
+    assert record["output"] == "10"
+    combine = operation(record, "op_synthesis_1")["combine"]
+    assert combine["reducer"] == "median"
+    assert combine["median"] == "10"
+    assert combine["mean"] is None
+    assert combine["result"] == {
+        "member_id": None,
+        "reason": None,
+        "status": "answered",
+        "value": "10",
+    }
+    assert combine["chosen"] == []
+    assert [m["weight"] for m in combine["members"]] == [0.6, 0.3, None]
+    assert [m["signals"] for m in combine["members"]] == [
+        {"field:confidence": 0.6},
+        {"field:confidence": 0.3},
+        {"field:confidence": 0.0},
+    ]
+    assert combine["signal"] == {"key": "field:confidence", "order": None}
+    assert combine["operators"] == ["json_field@1", "numeric@1", "weighted_median@1", "value@1"]
