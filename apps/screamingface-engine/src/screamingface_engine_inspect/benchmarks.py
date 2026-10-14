@@ -4731,8 +4731,16 @@ def _check_judge_declaration(spec: BenchmarkSpec) -> None:
     model would call that provider directly, unmetered). A judge that fills a model role
     (``JudgeSpec.model_role``) is the exception to "the scorer calls it": the scorer
     names no judge, so :func:`_check_model_role_judge` checks that instead.
+
+    Two judges hide from the kwargs (OME-1602, F2): a list of judges under a judge kwarg
+    (only one can be pinned, so the rest would be called unmetered), and a scorer whose
+    constructor reaches a judge on a judge-free row (a judge parameter nobody passes, or a
+    ``get_model`` call in its body). The constructor is read from its source by
+    :func:`~screamingface_engine_inspect.judge_shape.judge_shape`, never imported.
     """
 
+    _check_no_judge_panel(spec)
+    _check_extra_scorers_reach_no_judge(spec)
     called: list[str] = [
         value
         for value in spec.scorer_kwargs.values()
@@ -4774,8 +4782,68 @@ def _check_judge_declaration(spec: BenchmarkSpec) -> None:
                 'or, with no model kwarg, declare JudgeSpec(..., model_role="grader") so the '
                 "grader role binds to the pinned judge (OME-1370)"
             )
+        _check_scorer_reaches_no_judge(spec, scorer_name)
         return
     _check_declared_judge(spec, spec.judge, called, judge_kwargs)
+
+
+def _check_no_judge_panel(spec: BenchmarkSpec) -> None:
+    """Refuse a list of judges under any judge kwarg (OME-1602, F2).
+
+    WHY: a Benchmark pins ONE judge into its identity. fortress passes
+    ``grader_models=[...]``; the old check found the declared judge among the kwarg values
+    and passed, and every other judge in the list would be called unmetered.
+    """
+
+    # WHY lazy: only the judge check reads the judge-shape module; it imports no eval.
+    from screamingface_engine_inspect.judge_shape import JUDGE_PARAMETERS
+
+    for name, value in spec.scorer_kwargs.items():
+        if name in JUDGE_PARAMETERS and isinstance(value, list | tuple):
+            raise ValueError(
+                f"{spec.key}: scorer kwarg {name} names a panel of {len(value)} judges; a "
+                "Benchmark pins one judge, and the others would be called unmetered, outside "
+                "benchmark identity (OME-1602)"
+            )
+
+
+def _check_extra_scorers_reach_no_judge(spec: BenchmarkSpec) -> None:
+    """Refuse an extra scorer that reaches a judge, whatever the row declares (OME-1602, F2).
+
+    WHY every extra scorer: each is built bare at grading time (no kwargs reach it), so a
+    judge it reaches is never the row's pinned one. The source is read, never imported.
+    """
+
+    from screamingface_engine_inspect.judge_shape import JudgeShape, judge_shape
+
+    for reference in spec.extra_scorers:
+        shape: JudgeShape = judge_shape(reference)
+        if shape.reaches_a_judge:
+            raise ValueError(
+                f"{spec.key}: extra scorer {reference.rpartition(':')[2]} reaches a judge "
+                f"({shape.described()}); an extra scorer is built bare at grading time, so that "
+                "judge would grade outside benchmark identity (OME-1602)"
+            )
+
+
+def _check_scorer_reaches_no_judge(spec: BenchmarkSpec, scorer_name: str) -> None:
+    """Refuse a judge-free row whose scorer constructor still reaches a judge (OME-1602, F2).
+
+    niah's scorer takes ``judge_model`` and grades with its default when nobody passes it;
+    simpleqa's asks for the grader role inside its body. Neither shows in the kwargs, so
+    the row would grade with a judge outside benchmark identity. The source is read, never
+    imported: assembly runs on the Engine's run path.
+    """
+
+    from screamingface_engine_inspect.judge_shape import JudgeShape, judge_shape
+
+    shape: JudgeShape = judge_shape(spec.scorer)
+    if shape.reaches_a_judge:
+        raise ValueError(
+            f"{spec.key}: scorer {scorer_name} reaches a judge ({shape.described()}) but the "
+            "row declares no judge, so it would grade outside benchmark identity; declare "
+            "judge=JudgeSpec(...) and pin the judge (OME-1602)"
+        )
 
 
 def _check_declared_judge(

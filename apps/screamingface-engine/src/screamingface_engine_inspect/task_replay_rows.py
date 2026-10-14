@@ -211,6 +211,7 @@ def _refuse_injectable_import(
         imported.facts.whole_run_metric,
         imported.facts.mean_instead_of,
         imported.facts.epoch_reducer,
+        imported.facts.judge_role,
     ]
     # WHY a looser rule for these: they land only inside comments; only a line break or
     # another control character could end the comment and start code.
@@ -408,7 +409,9 @@ def _benchmark_row_lines(
             facts.scorer_kwargs,
             facts.custom_metrics,
             facts.mcq,
-            _is_judged_by(facts.scorer, facts.scorer_kwargs),
+            # WHY the role too: a scorer that asks for the grader role names no judge in its
+            # kwargs, and still grades with one (OME-1602, F2).
+            _is_judged_by(facts.scorer, facts.scorer_kwargs) or facts.judge_role is not None,
             extra_scorers=facts.extra_scorers,
             named_scores=facts.named_scores,
             dropped_scorers=facts.dropped_scorers,
@@ -417,6 +420,7 @@ def _benchmark_row_lines(
             whole_run_metric=facts.whole_run_metric,
             mean_instead_of=facts.mean_instead_of,
             whole_run_headline=whole_run_headline,
+            judge_role=facts.judge_role,
         )
     )
     if facts.attempts > 1:

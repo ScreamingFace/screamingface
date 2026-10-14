@@ -108,6 +108,9 @@ class TaskReplayFacts:
     #: The Task's own any-of-N epoch reducer by inspect's name (``max``), only when Attempts
     #: meet an honoured whole-run metric (OME-1527); None on every other import.
     epoch_reducer: str | None = None
+    #: The model role the scorer asks for in its body (``"grader"``), so the row's TODO judge
+    #: fills that role (OME-1602, F2); None on every other import.
+    judge_role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -302,6 +305,7 @@ def _facts_of(
         mean_instead_of=scorers.mean_instead_of,
         attempts=attempts,
         epoch_reducer=epoch_reducer,
+        judge_role=scorers.judge_role,
     )
 
 
