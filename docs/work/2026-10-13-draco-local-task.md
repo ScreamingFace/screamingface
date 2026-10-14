@@ -116,9 +116,10 @@ grading rule, score; and the recorded draco-3pass golden must replay unchanged (
 - **Merge with main (2026-10-14):** OME-1289's abstain work landed `tests/unit/test_abstain_draco.py`,
   which drives the deleted hand-built `draco/grade.py`; it goes with the folder, as OME-1289 itself
   did for ContractEval (`a4297d4e9`). The plugin lane carries the abstain mark to shared grading
-  (`test_abstain_inspect.py`), so an abstained draco Case still scores 0.0. One edge moves: an
-  abstained Case whose judge gave NO usable verdict was kept at 0.0 by the hand-built grader; on
-  the local Task the scorer raises after its redraws and the Case fails as `judge_reply_invalid`.
+  (`test_abstain_inspect.py`), so an abstained draco Case still scores 0.0, and one whose judge
+  gave NO usable verdict is kept at 0.0 too, as the hand-built grader kept it. Its replacement is
+  `test_an_abstained_case_costs_one_case_at_zero_whatever_the_judge_said` in
+  `test_local_task_draco.py` (mutation: dropping the lane's abstain hoist turns it red).
   Main's `_hook_failure` (dispatching to the deleted `hook_failure_result`) is folded back into
   `_graded_result`; its abstain handling (`_abstained_grade_kept`) is kept as main wrote it.
 - **Review fixes (second commit set):** (5) `scoring.py` moved unchanged but its tests had gone

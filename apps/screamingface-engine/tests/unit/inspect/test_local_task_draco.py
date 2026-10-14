@@ -41,6 +41,9 @@ pytest.importorskip("inspect_ai")
 from inspect_ai.dataset import Sample  # noqa: E402
 from test_whole_run_metric import _row  # noqa: E402
 
+from screamingface_engine.benchmarks.case_records import CANDIDATE_ABSTAINED  # noqa: E402
+from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
 from screamingface_engine.benchmarks.provenance import provenance_gaps  # noqa: E402
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (  # noqa: E402
     CaseGradeOutcome,
@@ -49,6 +52,7 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
 from screamingface_engine.request_scope import RequestScope, request_scope  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BENCHMARKS, imported_benchmark  # noqa: E402
+from screamingface_engine_inspect.envelopes import CHECK_SCHEMA, build_case_grade  # noqa: E402
 from screamingface_engine_inspect.judge_provider import (  # noqa: E402
     JudgeTransport,
     bound_judge_transport,
@@ -368,6 +372,66 @@ async def test_an_empty_middle_pass_scores_zero_but_an_empty_last_pass_drops_out
 
     assert middle.score == 0.6667
     assert last.score == 1.0
+
+
+# ── an abstained Candidate (OME-1289) ─────────────────────────────────────────────────────
+
+
+def _abstained_row(case_id: int) -> dict[str, object]:
+    """One graded-answer row for a Candidate that abstained: an empty answer carrying the mark."""
+
+    record: dict[str, object] = {
+        "schema": CHECK_SCHEMA,
+        "case_id": case_id,
+        "attempt": 1,
+        "answer": "",
+        "status": "completed",
+        "refusal": None,
+        "finish_reason": "stop",
+        "execution": None,
+        CANDIDATE_ABSTAINED: True,
+    }
+    return graded_answer_payload(
+        case_id,
+        encode_candidate_invocation("", "stop", None, abstained=True),
+        [build_case_grade(case_id, [record])],
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_abstained_case_costs_one_case_at_zero_whatever_the_judge_said(
+    tmp_path: Path, judge: _ScriptedJudge
+) -> None:
+    """WHY (OME-1289): a Fusion that found no answer costs one Case, never a hole in the mean.
+    Case 1 answers (0.5). Case 3 abstains, yet the judge still rates its empty answer and its
+    scripted verdicts would score 0.3333: the lane replaces that with 0.0 and keeps the judge's
+    check. Case 4 abstains and its judge never gives a verdict, which fails an answered Case
+    (`judge_reply_invalid`); abstained, it is kept at 0.0 as the hand-built grader kept it
+    (`test_abstain_draco.py`, deleted with the folder). Headline (0.5 + 0.0 + 0.0) / 3."""
+
+    prepared: list[PreparedCase] = [
+        {
+            "case": {"id": index, "case_id": str(index), "input": _CASES[index - 1][0]},
+            "grading_material": _material(index),
+        }
+        for index in (1, 2, 3, 4)
+    ]
+    _write_cases(prepared, tmp_path)
+    rows: str = json.dumps([_row(1, _CASES[0][1]), _abstained_row(3), _abstained_row(4)])
+
+    result: dict[str, Any] = await benchmark_aggregate_async(
+        imported_benchmark("draco-3pass"), rows, tmp_path, case_ids=(1, 3, 4)
+    )
+
+    answered, abstained, unjudged = result["cases"]
+    assert (answered["status"], answered["grade"]["score"]) == ("scored", 0.5)
+    assert (abstained["status"], abstained["grade"]["score"]) == ("scored", 0.0)
+    assert abstained.get("abstained") is True
+    assert abstained["grade"]["checks"][0]["evidence"][0]["metadata"]["items"]
+    assert (unjudged["status"], unjudged["grade"]["score"]) == ("scored", 0.0)
+    assert unjudged.get("abstained") is True
+    assert unjudged["failures"] == []
+    assert result["score"] == 0.1667
 
 
 # ── the judge's wire ──────────────────────────────────────────────────────────────────────
