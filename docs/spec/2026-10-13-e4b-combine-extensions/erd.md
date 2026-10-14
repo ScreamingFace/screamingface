@@ -124,6 +124,12 @@ the 8 MiB result cap. [stated ans:Q7] [existing E/combine/ports.py:540-544]
 [existing E/combine/endpoint.py:95-97,475]
 `join@1` and `all@1` (Concat) do not change. [stated ans:Q13]
 
+**Empty envelope (fix 2026-10-14).** When a `top_k@1` or `kept@1` call abstains, its output is
+`{"input":"<Case input>","selected":[]}`, not the empty text. The evidence keeps the abstain. The
+descriptor flag `OperatorDescriptor.envelope` (select operators only; not in the catalog) marks
+these two operators, and `ports.selection_envelope` builds both envelopes. [stated ans:Q7]
+[stated ans:Q4]
+
 **Change to Selection.output.** When `by_field@1` or `best_holder@1` has an `output` arg, `output`
 is the chosen member's field value as text: a JSON string as it is, any other JSON value as
 canonical JSON. [stated ans:Q9]

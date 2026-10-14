@@ -40,10 +40,14 @@ See `docs/spec/2026-10-02-e4a-gap-closure/contracts.md`.
   [stated ans:Q7] [stated ans:Q13]
 - **Policies.** The edge is `($synthesis_N)`, and the bytes are unchanged (SI-4). The connector puts
   the text into the user message as it is. [existing E/world/connector.py:1475-1483]
-- **Failure behavior.** An abstained selection makes no envelope. The Case abstains before the
-  next stage runs. [existing E/combine/endpoint.py:280-303] An envelope over the 8 MiB result cap
-  fails the call like any oversized result. The input is never truncated. [existing E/combine/endpoint.py:97,475]
-- **Contract tests.** SI#3, SI#4, SI#7, SI#8, SI#11, RC#1–3.
+- **Failure behavior.** An abstained selection (`cut_not_met`, `no_votes`) keeps the abstain in
+  its evidence, and its output is the empty envelope `{"input":"<input>","selected":[]}`. The
+  next stage runs and gets it (ans:Q7 with ans:Q4, overview §6 P12). When the selection is the
+  last step of a url4, the Case abstains with the empty answer. (Erratum, 2026-10-14: this said
+  "the Case abstains before the next stage runs". The next stage ran and got an empty text.) An
+  envelope over the 8 MiB result cap, also an empty one, fails the call like any oversized
+  result. The input is never truncated. [existing E/combine/endpoint.py:97,475]
+- **Contract tests.** SI#3, SI#4, SI#7, SI#8, SI#11, SI#13, RC#1–4, FJ#7, ECE#1–8.
 
 ## C3 Judge call — combine compile → judge model, sync
 

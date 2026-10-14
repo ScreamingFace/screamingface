@@ -18,7 +18,8 @@ top-N"), and the judge counterpart of S9 ("keep >value"). [stated prompt] [state
 ## 2. Background and constraints
 
 - The user selected "Filter by judge score" as an extra. [stated ans:Q9]
-- When no member passes, the Case abstains, the same as today. [stated ans:Q4]
+- When no member passes, the Filter step abstains, the same as today. [stated ans:Q4] The next
+  stage gets `{"input":"<input>","selected":[]}` (overview §6 P12, fix 2026-10-14).
 - A bad judge reply fails the Case with `judge_reply_invalid` (permanent), the same as every judge
   path. [existing E/combine/ports.py:121-125]
 
@@ -57,8 +58,9 @@ does. The `filter` block in `S/blocks.py` takes the same `judge` option.
 
 ### 3.2 Error paths
 
-- **FJ-E1** Given no member at or over the threshold, then the Case abstains with `no_votes`.
-  [stated ans:Q4]
+- **FJ-E1** Given no member at or over the threshold, then the Filter step abstains with
+  `no_votes`, and its output is the empty envelope `{"input":"<input>","selected":[]}`.
+  [stated ans:Q4] [stated ans:Q7]
 - **FJ-E2** Given a judge reply that is not strict JSON scores, then the Case fails with
   `judge_reply_invalid`. It does not abstain. [existing E/combine/ports.py:121-125]
 - **FJ-E3** Given `where=sf.signal("score:judge") >= 7` and no `judge`, then the SDK raises
@@ -103,7 +105,7 @@ Order: characterize the engine threshold on `score:judge`, then the SDK delta.
 | 4 | `sdk_filter_judge_without_score_judge_where_is_refused` | unit | FJ-E4 | M×M | pairing rule |
 | 5 | `sdk_filter_refuses_a_label_or_min_judge` | unit | FJ-D2 | M×M | shared judge check |
 | 6 | `engine_filter_by_judge_evidence_has_signal_values_and_marks` | unit | FJ-2 | M×M | no change |
-| 7 | `engine_filter_by_judge_with_no_pass_abstains` | unit | FJ-E1 | H×M | no change |
+| 7 | `engine_filter_by_judge_with_no_pass_abstains` | unit | FJ-E1 | H×M | the empty envelope (fix 2026-10-14) |
 | 8 | `engine_filter_by_judge_with_invalid_reply_fails_permanently` | unit | FJ-E2 | H×M | no change |
 | 9 | `engine_filter_by_judge_drops_a_missing_panel_member` | unit | FJ-D1 | H×M | no change |
 | 10 | `engine_filter_by_judge_less_than_keeps_low_scores` | unit | FJ-D4 | M×L | no change |
