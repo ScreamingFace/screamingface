@@ -151,7 +151,7 @@ def _aggregation(**overrides: object) -> BenchmarkAggregation:
 
 
 def _aggregated(aggregation: BenchmarkAggregation) -> dict[str, object]:
-    from screamingface_engine.benchmarks.shared_grading.mean_scorer import mean_scorer
+    from test_shared_grading_aggregation import mean_score
 
     return aggregation.aggregate(
         "[]",
@@ -159,7 +159,7 @@ def _aggregated(aggregation: BenchmarkAggregation) -> dict[str, object]:
         benchmark_revision="revision",
         selected_cases=[SelectedCase(case_id=1, input="input 1", metadata={})],
         grading_material=lambda case_id: None,
-        scorer=mean_scorer(lambda scores: None),
+        scorer=mean_score,
     )
 
 

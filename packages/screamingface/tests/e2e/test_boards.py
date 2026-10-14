@@ -59,13 +59,14 @@ BOARDS = (
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
 
-#: Which prepared-asset bundle each board reads (bundles are shared across variants).
+#: Which prepared-asset bundle each board reads. A local Task's bundle has its own id
+#: (OME-1527); only a hand-built board ever shared one.
 _ASSET_BUNDLE = {
     "draco": "draco",
     "draco-3pass": "draco-3pass",
     "ifeval": "ifeval",
-    "healthbench-worst30": "healthbench",
-    "healthbench-professional": "healthbench",
+    "healthbench-worst30": "healthbench-worst30",
+    "healthbench-professional": "healthbench-professional",
     # A local Task's bundle has its own id; the Engine's preparer writes it (OME-1527).
     "gdpval-text": "gdpval-text",
 }

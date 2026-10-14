@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_healthbench_runtime import _ANSWER, _write_assets
 from test_shared_grading_aggregation import (
     MESSAGES,
     _aggregate,
@@ -37,12 +36,6 @@ from screamingface_engine.benchmarks.graded_answer import (
     graded_answer_payload,
     install_graded_answer_endpoint,
 )
-from screamingface_engine.benchmarks.healthbench.definition import (
-    HEALTHBENCH_WORST30,
-    WORST30_VARIANT,
-)
-from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL
-from screamingface_engine.benchmarks.healthbench.runtime import install as install_healthbench
 from screamingface_engine.benchmarks.ifeval.definition import IFEVAL, install_ifeval
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     CaseGradeOutcome,
@@ -257,53 +250,6 @@ async def test_abstained_case_score_replaced_native(tmp_path: Path) -> None:
     assert [check["outcome"] for check in abstained["grade"]["checks"]] == ["UNMET"]
     # F9: only `score` is replaced; the grader's own secondary verdicts are kept.
     assert abstained["grade"]["metrics"]["follow_all_strict"] is False
-
-
-# --- HealthBench (judge graded) end to end ----------------------------------------------------
-
-
-async def _healthbench_run(tmp_path: Path, reply: str) -> tuple[dict[str, Any], int]:
-    _write_assets(tmp_path)
-    node = Url4Node("test")
-    install_healthbench(node, tmp_path, WORST30_VARIANT)
-    install_graded_answer_endpoint(node)
-    judge_calls: list[str] = []
-
-    @node.endpoint(CANDIDATE_ROUTE)
-    def candidate(request: Request) -> str:
-        return reply
-
-    @node.endpoint(f"/{JUDGE_MODEL}")
-    def judge(request: Request) -> str:
-        judge_calls.append(request.context)
-        return '{"explanation": "it asks which study", "criteria_met": true}'
-
-    expression = expr(
-        src(Text("unused-candidate-recipe"), name="candidate", weight=0.0),
-        src(HEALTHBENCH_WORST30.protocol(1), name="exam", weight=0.0),
-        intent=Text("$exam"),
-    )
-    result = json.loads((await node.evaluate(render(expression))).text)
-    return result, len(judge_calls)
-
-
-@pytest.mark.asyncio
-async def test_abstained_case_grade_replaced_judge_graded(tmp_path: Path) -> None:
-    result, judge_calls = await _healthbench_run(tmp_path / "abstained", _ABST)
-    control, control_calls = await _healthbench_run(
-        tmp_path / "answered", encode_candidate_invocation(_ANSWER, "stop", None)
-    )
-
-    case = result["cases"][0]
-    assert judge_calls == 1  # the grader still ran, once, on the empty answer
-    assert case["status"] == "scored"
-    assert case["grade"]["score"] == 0.0  # the MET judge would have given 1.0
-    assert (case["grade"]["metrics"]["judged"], case["grade"]["metrics"]["expected"]) == (1, 1)
-    assert case["grade"]["checks"][0]["outcome"] == "MET"
-    assert case.get("abstained") is True
-    assert result["score"] == 0.0
-    assert (control["score"], control_calls) == (1.0, 1)
-    assert "abstained" not in control["cases"][0]
 
 
 def test_an_abstained_case_stays_at_zero_on_a_refusal_rate_benchmark(

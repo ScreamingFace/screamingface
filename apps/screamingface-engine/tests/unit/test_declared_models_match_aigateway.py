@@ -323,8 +323,8 @@ def test_no_previously_declared_route_disappeared() -> None:
 def test_the_pinned_benchmark_judges_survived_the_migration() -> None:
     """INVARIANT: a different judge materially changes scores, so these two ids are contracts.
 
-    DRACO's judge is pinned by arXiv:2602.11685 §4.2; HealthBench's by
-    `benchmarks/healthbench/definition.py::JUDGE_MODEL`.
+    DRACO's judge is pinned by arXiv:2602.11685 §4.2; HealthBench's by its rows' `JudgeSpec`
+    (`screamingface_engine_inspect/benchmarks.py`).
     """
     assert "openrouter/google/gemini-3.1-pro-preview" in BUILTIN_MODEL_WORLD.routable
     assert "openrouter/openai/gpt-5.4" in BUILTIN_MODEL_WORLD.routable

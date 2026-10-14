@@ -20,7 +20,6 @@ from screamingface_engine.benchmarks.graded_answer import (
     GRADED_ANSWER_SCHEMA,
     install_graded_answer_endpoint,
 )
-from screamingface_engine.benchmarks.healthbench.definition import HEALTHBENCH_WORST30
 from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
@@ -263,13 +262,9 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
-        # OME-1527: DRACO left this table when it became a local inspect Task; its
-        # expression is pinned by its published revision and its e2e golden instead.
+        # OME-1527: DRACO, then HealthBench, left this table when each became a local inspect
+        # Task; their expressions are pinned by their published revisions and e2e goldens.
         (IFEVAL, "ffc22c70f6f9bdc9b036ad884f4aa67c8d0df880c070e624748a81b7944bd3e7"),
-        (
-            HEALTHBENCH_WORST30,
-            "e180999b91c3c2f8b62583056d1310f62f3e06b396ef571837ce7b1aadd4a359",
-        ),
     ),
 )
 def test_canonical_benchmark_url4_is_pinned_byte_for_byte(

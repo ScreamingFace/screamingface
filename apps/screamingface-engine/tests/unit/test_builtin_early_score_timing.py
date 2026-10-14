@@ -69,15 +69,6 @@ def _assets(tmp_path, monkeypatch, registration):
         assets(registration, tmp_path, monkeypatch)
 
 
-def _judges(node):
-    from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL as health
-
-    for model in {health}:
-        node.endpoint("/" + model)(
-            lambda request: '{"explanation":"ok","criteria_met":true,"criterion_status":"MET"}'
-        )
-
-
 def _observe(node, waiting, release):
     snapshots = []
 
@@ -94,7 +85,6 @@ def _observe(node, waiting, release):
 
     for path in ("/writer", "/writer-b", "/synth"):
         node.endpoint(path)(answer)
-    _judges(node)
     return snapshots, Collector()
 
 

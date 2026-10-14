@@ -11,19 +11,16 @@ mark is byte for byte what it was.
 
 from __future__ import annotations
 
-import copy
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
-from test_healthbench_aggregate import _case_row, _grading
 from test_ifeval_case_evaluation_route import _assets as _ifeval_assets
 
 from screamingface_engine.benchmarks.case_records import build_case_record
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer, candidate_answer
-from screamingface_engine.benchmarks.healthbench.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.ifeval import grade as ifeval_grade
 from screamingface_engine.benchmarks.ifeval.case_grade import build_case_grade as ifeval_case_grade
 from screamingface_engine.benchmarks.ifeval.definition import CHECK_ROUTE
@@ -129,28 +126,6 @@ async def test_a_marked_record_survives_its_hoist(family: str, tmp_path: Path) -
     assert _candidate_fields(marked).abstained is True
     assert "candidate_abstained" not in _hoisted(plain)
     assert _candidate_fields(plain).abstained is False
-
-
-def _accepted(grading: dict[str, Any]) -> bool:
-    try:
-        decode_case_grade(grading, 1)
-    except ValueError:
-        return False
-    return True
-
-
-def test_healthbench_accepts_the_mark_on_its_case_record_and_nothing_else() -> None:
-    grading = _grading(_case_row(1, {1: True}))
-    assert _accepted(grading)
-    marked = copy.deepcopy(grading)
-    marked["case"]["output"] = marked["case"]["answer"] = ""
-    marked["case"]["candidate_abstained"] = True
-
-    assert _accepted(marked)
-    marked["case"]["candidate_abstained"] = False
-    assert not _accepted(marked)
-    marked["case"]["candidate_abstained"] = "yes"
-    assert not _accepted(marked)
 
 
 def test_candidate_fields_read_the_mark_only_when_it_is_true() -> None:

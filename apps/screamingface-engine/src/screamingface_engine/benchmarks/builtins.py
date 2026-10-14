@@ -10,13 +10,6 @@ from screamingface_engine.benchmarks.deployment import (
     BenchmarkRegistration,
 )
 from screamingface_engine.benchmarks.discovery import discovered_registrations
-from screamingface_engine.benchmarks.healthbench.definition import (
-    HEALTHBENCH_PROFESSIONAL,
-    HEALTHBENCH_WORST30,
-)
-from screamingface_engine.benchmarks.healthbench.variant import (
-    ASSET_BUNDLE_ID as HEALTHBENCH_ASSET_BUNDLE_ID,
-)
 from screamingface_engine.benchmarks.ifeval.definition import (
     ASSET_BUNDLE_ID as IFEVAL_ASSET_BUNDLE_ID,
 )
@@ -41,33 +34,12 @@ def _prepare_medxpert(out: Path) -> Mapping[str, Any]:
     return prepare(out)
 
 
-def _prepare_healthbench(out: Path) -> Mapping[str, Any]:
-    from screamingface_engine.benchmarks.healthbench.prepare import prepare
-
-    return prepare(out)
-
-
 IFEVAL_ASSETS = BenchmarkAssetBundle(id=IFEVAL_ASSET_BUNDLE_ID, prepare=_prepare_ifeval)
 MEDXPERT_ASSETS = BenchmarkAssetBundle(id=MEDXPERT_ASSET_BUNDLE_ID, prepare=_prepare_medxpert)
-HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
-    id=HEALTHBENCH_ASSET_BUNDLE_ID,
-    prepare=_prepare_healthbench,
-)
 
 # WHY: this composition is the single source for both runtime discovery and image construction.
-# Benchmarks that read one physical asset set intentionally share a bundle and the deployment
-# prepares it once: the two HealthBench benchmarks are independent identities over one prepared
-# answer key.
 BUILTIN_REGISTRATIONS = (
     BenchmarkRegistration(benchmark=IFEVAL, asset_bundle=IFEVAL_ASSETS),
-    BenchmarkRegistration(
-        benchmark=HEALTHBENCH_WORST30,
-        asset_bundle=HEALTHBENCH_ASSETS,
-    ),
-    BenchmarkRegistration(
-        benchmark=HEALTHBENCH_PROFESSIONAL,
-        asset_bundle=HEALTHBENCH_ASSETS,
-    ),
     BenchmarkRegistration(benchmark=MEDXPERT, asset_bundle=MEDXPERT_ASSETS),
 )
 # FEATURE: plugin-contributed benchmarks (OME-1115). The built-in tuple comes first and the

@@ -246,9 +246,8 @@ class BenchmarkAggregation:
             grading_material: per-Case loader for the benchmark's grading material;
                 ``None`` marks the material unusable (``missing_material_code``).
             scorer: the benchmark-level reduction, the benchmark's whole ``CandidateScore``
-                builder. Rubric benchmarks bind ``mean_scorer(mean)`` (fixed rubric
-                vocabulary, mean the only choice); a non-rubric benchmark (ifeval)
-                supplies its published metric vocabulary here (OME-1101).
+                builder: each benchmark supplies its published metric vocabulary here
+                (OME-1101; medxpert's ``_accuracy``, ifeval's ``score_cases``).
             case_metadata: optional per-Case loader for PUBLIC report metadata that
                 does not ride the row (OME-1149: MedXpertQA's slice tags live in the
                 private answer asset). Merged into the shared grading code-assembled scored and
@@ -635,8 +634,8 @@ class BenchmarkAggregation:
 
         AIDEV-NOTE (OME-1289, erd section 9): "ignored" means the grader ran and still returned
         grade material (metrics or checks). A failure that left neither is NOT ignored, because
-        a scored Case with `metrics={}` breaks the scorers that read them: `mean_scorer` and
-        `draco_scorer` read `metrics[key]`, and ContractEval would read an abstained positive
+        a scored Case with `metrics={}` breaks the scorers that read them (a scorer reading
+        `metrics[key]` raises), and ContractEval would read an abstained positive
         row as a false positive (`bool(metrics.get("is_positive"))`), which its INVARIANT
         forbids. That Case stays failed. An asset-defect code stays failed too. Every outcome is
         logged with the Case id and code only.

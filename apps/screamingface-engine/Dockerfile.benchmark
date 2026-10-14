@@ -104,9 +104,9 @@ FROM ${BASE} AS runtime
 LABEL org.opencontainers.image.title="screamingface-engine-benchmark" \
       org.opencontainers.image.description="screamingface-engine Runner with registered Benchmark assets"
 USER 0
-# `rubrics/` ships too — HealthBench's installed runtime reads it off disk. It is deliberately NOT a
-# data route: the weights must be unreachable from an expression, or a judge prompt could be
-# handed the thing it is being kept blind to.
+# The private Grading Material ships too (`targets/`, `answers/`) — the installed runtimes read
+# it off disk. It is deliberately NOT a data route: rubric points must be unreachable from an
+# expression, or a judge prompt could be handed the thing it is being kept blind to.
 COPY --from=prepare --chown=1000:1000 /opt/benchmarks /opt/benchmarks
 # The Benchmark definition installs its own namespaced routes. This one root points those routes
 # at the immutable assets baked into this image; the shared url4.toml remains model-only.
