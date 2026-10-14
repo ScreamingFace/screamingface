@@ -15,7 +15,9 @@ THE STAND-IN, named once for every test below: gsm8k's real BenchmarkSpec row ov
 Preparation row that declares two nltk resources, with a canned one-Case replay and an
 ``nltk.download`` that writes two small fixture folders. It simulates the image build's
 fetch and the grading job's lookup; it does NOT prove the real nltk index serves these
-bytes (the next image build does) or that ifeval's checker tokenizes with them (#15 does).
+bytes (the next image build does) or that ifeval's checker tokenizes with them
+(``test_local_task_ifeval.py::test_ifeval_grades_with_the_bundled_tokenizers_and_no_network``
+does, over the real download).
 """
 
 from __future__ import annotations
@@ -235,7 +237,8 @@ def test_grading_resolves_the_corpus_from_the_bundle_with_the_network_off(
     """The installer points nltk at <bundle>/nltk_data, so a lookup succeeds offline.
 
     Stand-in limit: this proves nltk FINDS the resource in the bundle; the fixture files are
-    not a real tokenizer, so it does not prove a sentence splits (ifeval's #15 does).
+    not a real tokenizer, so it does not prove a sentence splits (ifeval's
+    ``test_ifeval_grades_with_the_bundled_tokenizers_and_no_network`` does).
     """
 
     imported: Any = _assembled(

@@ -18,8 +18,11 @@ What these tests pin, and why:
   golden against its 50 Cases, plus five drafts against all 541 Cases): 0 differ;
 - the pooled instruction-level accuracy, never a mean of Case fractions (the worked example
   of the metric's docstring);
+- the tokenizers: Cases whose checker counts sentences or words grade with the punkt and
+  punkt_tab the image build packs into the bundle, with the network off (R8's proof);
 - the Candidate's prompt: the official prompt of every row, byte for byte, with the one known
-  Hub divergence (official key 2785) patched and any other refused;
+  Hub divergence (official key 2785) patched and any other refused, and changed instruction
+  ids or arguments refused for every key;
 - the rows: id `ifeval`, origin `screamingface`, no answer key, no judge, Draft Feedback on
   with the scorer's own words, four Named Scores headline first, the pooled whole-run metric.
 
@@ -30,6 +33,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import socket
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +42,7 @@ import pytest
 
 pytest.importorskip("inspect_ai")
 
+import nltk  # noqa: E402
 from inspect_ai.dataset import Sample  # noqa: E402
 from inspect_ai.scorer import SampleScore, Score  # noqa: E402
 from local_ifeval_helpers import write_ifeval_bundle  # noqa: E402
@@ -44,6 +50,7 @@ from test_local_task_draco import _abstained_row  # noqa: E402
 from test_whole_run_metric import _row  # noqa: E402
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
+from screamingface_engine.benchmarks.nltk_data import NLTK_DATA_DIR  # noqa: E402
 from screamingface_engine.benchmarks.provenance import provenance_gaps  # noqa: E402
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (  # noqa: E402
     CaseGradeOutcome,
@@ -61,8 +68,10 @@ from screamingface_engine_inspect.local_tasks.ifeval.ifeval import (  # noqa: E4
     record_to_sample,
     verify_against_official,
 )
+from screamingface_engine_inspect.local_tasks.ifeval.vendor import instructions_util  # noqa: E402
 from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES, prepared_case  # noqa: E402
 from screamingface_engine_inspect.single_shot import benchmark_aggregate_async  # noqa: E402
+from screamingface_engine_inspect.task_replay import _prepare_nltk_data  # noqa: E402
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
 from url4.peer.server import Url4Node  # noqa: E402
 
@@ -300,6 +309,87 @@ async def test_an_abstained_case_costs_one_case_and_its_instructions(tmp_path: P
     assert result["metrics"]["inst_level_strict_accuracy"] == 0.25
 
 
+# ── the tokenizer corpus: fetched at image build, read offline at grading ─────────────────
+
+#: Three Cases whose checker tokenizes with nltk: (official key, reply). Key 3739 asks for
+#: fewer than 3 sentences (punkt's sentence splitter counts them), key 2849 for at least 2
+#: all-capital words (nltk's word tokenizer, which reads punkt_tab, finds them).
+_TOKENIZED_CASES: list[tuple[int, str]] = [
+    # 2 sentences, because punkt knows "Mr." ends no sentence; splitting on every full stop
+    # would count 3 and fail it.
+    (3739, "It is Mr. Green. He is jealous."),
+    (2849, "THE GUY from NANTUCKET."),
+    (3739, "One cat. Two dogs. Three birds."),
+]
+
+
+def _no_network(*_: Any, **__: Any) -> None:
+    """The grading job's egress: none."""
+
+    raise OSError("network disabled in this test")
+
+
+@pytest.mark.asyncio
+async def test_ifeval_grades_with_the_bundled_tokenizers_and_no_network(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """64 of the 541 Cases tokenize with nltk, and the grading job has no network, so their
+    checker must read the punkt and punkt_tab the image build packed into the bundle.
+
+    The build half is the real one: Case Preparation's own nltk step downloads both resources
+    into the bundle and checks they seal to the row's pinned digest (so this test needs the
+    network, as the image build does, and fails loudly without it; it never skips). The
+    grading half runs with sockets and nltk's downloader refused, nltk's search path emptied
+    (no machine corpus can answer) and its loaded tokenizers forgotten: before the installer
+    points nltk at the bundle, counting sentences raises LookupError; after, the three Cases
+    grade as the checker says.
+    """
+
+    bundle: Path = tmp_path / "ifeval"
+    write_ifeval_bundle(
+        bundle,
+        [
+            (
+                _OFFICIAL[key]["prompt"],
+                _OFFICIAL[key]["instruction_id_list"],
+                _OFFICIAL[key]["kwargs"],
+            )
+            for key, _ in _TOKENIZED_CASES
+        ],
+    )
+    # WHY a fresh path list: nltk's search path is process-wide; the build's download
+    # registers the bundle in it, and a developer's ~/nltk_data must not answer either way.
+    monkeypatch.setattr(nltk.data, "path", [])
+    _prepare_nltk_data(TASK_REPLAY_CASES["ifeval"], bundle)
+
+    # The grading job is another process: nothing on its path, nothing loaded yet.
+    monkeypatch.setattr(nltk.data, "path", [])
+    monkeypatch.setattr(nltk.data, "_resource_cache", {})
+    monkeypatch.setattr(socket.socket, "connect", _no_network)
+    monkeypatch.setattr(nltk, "download", _no_network)
+    instructions_util._get_sentence_tokenizer.cache_clear()
+    nltk.tokenize._get_punkt_tokenizer.cache_clear()
+    try:
+        with pytest.raises(LookupError):
+            instructions_util.count_sentences("One. Two.")
+
+        imported_benchmark("ifeval").benchmark.install(Url4Node("ifeval-offline"), tmp_path)
+        rows: str = json.dumps(
+            [_row(index, reply) for index, (_, reply) in enumerate(_TOKENIZED_CASES, 1)]
+        )
+        result: dict[str, Any] = await benchmark_aggregate_async(
+            imported_benchmark("ifeval"), rows, bundle, case_ids=(1, 2, 3)
+        )
+    finally:
+        # The tokenizers loaded from this test's bundle must not outlive it.
+        instructions_util._get_sentence_tokenizer.cache_clear()
+        nltk.tokenize._get_punkt_tokenizer.cache_clear()
+
+    assert nltk.data.path == [str(bundle / NLTK_DATA_DIR)]
+    assert [case["status"] for case in result["cases"]] == ["scored"] * 3
+    assert [case["grade"]["score"] for case in result["cases"]] == [1.0, 1.0, 0.0]
+
+
 # ── the Draft Feedback record: the hand-built route's bytes ───────────────────────────────
 
 
@@ -408,6 +498,41 @@ def test_the_one_known_hub_divergence_is_patched_and_any_other_refused() -> None
     hub[0] = {**hub[0], "prompt": hub[0]["prompt"] + " "}
     with pytest.raises(ValueError, match=f"key {hub[0]['key']}: the prompt diverges"):
         verify_against_official(hub, official)
+
+
+def _first_argument_changed(row: dict[str, Any]) -> dict[str, Any]:
+    """The row with its first instruction asking for 2 highlights (key 2785: 3 → 2; key 1000:
+    an argument its no_comma instruction never had)."""
+
+    return {**row, "kwargs": [{**row["kwargs"][0], "num_highlights": 2}, *row["kwargs"][1:]]}
+
+
+def _last_instruction_changed(row: dict[str, Any]) -> dict[str, Any]:
+    """The row with its last instruction swapped for no_comma (neither key ends with it)."""
+
+    ids: list[str] = row["instruction_id_list"]
+    return {**row, "instruction_id_list": [*ids[:-1], "punctuation:no_comma"]}
+
+
+@pytest.mark.parametrize(
+    "change",
+    [_first_argument_changed, _last_instruction_changed],
+    ids=["kwargs", "instruction-ids"],
+)
+def test_changed_instructions_are_refused_never_patched(
+    change: Callable[[dict[str, Any]], dict[str, Any]],
+) -> None:
+    """The ids and arguments ARE the grading rule, so a Hub row whose instructions differ from
+    the official file's is a different exam: refused, never patched. Also for key 2785, whose
+    prompt IS patched: only its prompt text is a known, reviewed divergence."""
+
+    official: list[dict[str, Any]] = official_rows()
+    for key in (1000, 2785):
+        hub: list[dict[str, Any]] = [
+            change(dict(row)) if row["key"] == key else dict(row) for row in official
+        ]
+        with pytest.raises(ValueError, match=f"key {key}: instruction ids/kwargs diverge"):
+            verify_against_official(hub, official)
 
 
 def test_a_row_carries_its_instructions_privately_with_null_arguments_dropped() -> None:
