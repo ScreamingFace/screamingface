@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1601
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-13
-finished:
+finished: 2026-10-13
 ---
 
 # e4b-selection-input — the stage after a Rank or Filter sees the Fusion input (E4b unit 1)

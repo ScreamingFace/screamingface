@@ -1,10 +1,10 @@
 {
-  "issue": "OME-E4B",
-  "branch": "e4b-combine-extensions",
+  "issue": "OME-1601",
+  "branch": "OME-1601-e4b-combine-extensions",
   "approver": "owner",
   "date": "2026-10-13",
   "scope": "E4b part 1, all units on one branch. Unit 6 (Filter by judge score): test_filter changes one expected refusal message, because a judge with returns='scores' is now a valid Filter input; the public-surface snapshot adds the Filter judge argument. Unit 5 (judge order): the public-surface snapshot adds the sf.Judge order argument. No other test changes. Unit 3 (mean): additive mean entries in the combine-spec and combine-evidence v1 schemas, evidence_cases.json and the flow fixtures; new mean scenarios in the evidence contract tests and the coverage check; the public-surface snapshot adds sf.Mean; the frozen-record field list adds mean; test_blocks_reduce uses 'trimmed_mean' as its unknown op because 'mean' is now valid. Unit 7 (Pick output): additive output field in the combine-evidence and answer v1 schemas, the by_field@1 and best_holder@1 golden fixtures and evidence_cases.json (two new scenarios); test_rest_operators expects the output argument in the operator descriptor; test_frozen_record_fields counts 28 scenarios, not 26; the public-surface snapshot adds the Pick output argument. Unit 1 (Q6): the stage after Rank or Filter gets {input, selected}. Only the expected selection envelopes in three engine tests change to add the Case input. No assertion is removed. Unit 4 (weighted median): median now takes weights (Q5), so test_only_the_vote_reducer_takes_weights drops 'median' and one reducer='median' sample becomes 'pick'; test_signal_weighted_vote expects the new median weight message; flow fixtures add weighted_median@1; the public-surface snapshot adds the weights argument.",
-  "reason": "Owner approved these pinned test edits in chat on 2026-10-13 (E4b part 1, plan section 6 plus the errata the build reported), then asked to put the whole stack on one branch. The issue id is a placeholder until the Linear issue is filed at PR-open; rename the file and update the issue field then.",
+  "reason": "Owner approved these pinned test edits in chat on 2026-10-13 (E4b part 1, plan section 6 plus the errata the build reported), for the single E4b branch filed as OME-1601 under epic OME-1290.",
   "files": {
     "apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json": {
       "base_blob": "d887d258ea6240fd743c521ec7a4537b5374457c",

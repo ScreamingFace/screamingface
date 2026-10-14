@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1601
 stack: screamingface-engine + screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-13
-finished:
+finished: 2026-10-13
 ---
 
 # e4b-pick-output — Pick outputs one JSON field (E4b unit 7)

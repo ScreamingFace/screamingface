@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1601
 stack: repo
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-13
-finished:
+finished: 2026-10-13
 ---
 
 # e4b-combine-extensions — E4b part 1 spec and plan (docs only)
