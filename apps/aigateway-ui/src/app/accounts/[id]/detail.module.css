@@ -107,12 +107,18 @@
   color: var(--text-2);
 }
 
-/* The masked label ("API key ····WXYZ") is a fixed-width string an operator compares against
-   another one, so it is set in mono and never wrapped mid-value. */
-.labelCell {
+/* Conflicting pairs, inside an error notice: one line per provider, the provider id in mono so it
+   reads as the identifier it is. */
+.conflicts {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-5);
+}
+
+.conflictProvider {
   font-family: var(--f-mono);
-  font-variant-numeric: tabular-nums slashed-zero;
-  white-space: nowrap;
+  font-weight: var(--weight-medium);
 }
 
 .rowActions {

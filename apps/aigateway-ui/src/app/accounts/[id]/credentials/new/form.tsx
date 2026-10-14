@@ -11,12 +11,18 @@
  *
  * INVARIANT: the api_key control has no `value` and no `defaultValue`, from any source, ever. It
  * is write-only: the operator types a key, the action forwards it, and the browser never sees it
- * again — not on a re-render, not after a failed submit, not from the gateway (which returns only
- * a masked label). `form.test.tsx` pins this.
+ * again — not on a re-render, not after a failed submit, not from the gateway (which returns
+ * nothing derived from the key). `form.test.tsx` pins this.
  *
  * INVARIANT (OME-1138 Stage C, OME-1322): no saved request defaults. Parameters such as model,
  * temperature or max tokens are the caller's, per request — this form offers no control for them
- * and posts only account, provider, name and key.
+ * and posts only provider and key.
+ *
+ * INVARIANT: no account id is posted. The page binds it on the server; a hidden field would be a
+ * target the browser could rewrite.
+ *
+ * INVARIANT (D18 §8): no profile name. The pair `(account, provider)` is the credential's whole
+ * address, so there is no name control, no hidden name and no `default` to keep.
  */
 
 import { useActionState, type ReactNode } from "react";
@@ -35,7 +41,6 @@ import styles from "./form.module.css";
 export type CredentialFormAction = (state: FormState, formData: FormData) => Promise<ActionState>;
 
 export type CredentialFormProps = {
-  accountId: string;
   /**
    * Provider ids the gateway advertises. EMPTY IS MEANINGFUL: it means discovery failed, and the
    * form falls back to a typed provider id rather than blocking the operator behind a list it
@@ -67,7 +72,6 @@ export function CredentialForm({ action, ...rest }: CredentialFormProps) {
  * — directly from a state object instead of by driving a submit.
  */
 export function CredentialFields({
-  accountId,
   providers,
   cancelHref,
   state,
@@ -79,9 +83,9 @@ export function CredentialFields({
   const providerFailure = on("provider");
   const keyFailure = on("api_key");
 
-  // A failure with no field, or one naming the hidden account id, has no control to sit under —
-  // it is said at the top of the form or it is not said at all.
-  const formFailure = failure && (!failure.field || failure.field === "account_id") ? failure : null;
+  // A failure with no field has no control to sit under — it is said at the top of the form or it
+  // is not said at all.
+  const formFailure = failure && !failure.field ? failure : null;
 
   return (
     <>
@@ -95,13 +99,6 @@ export function CredentialFields({
           Returning to the account.
         </Notice>
       ) : null}
-
-      {/*
-        The account is fixed by the URL, so it is a hidden field rather than a control. React does
-        not require an onChange for `type="hidden"`, and the action re-checks it: a tampered value
-        buys nothing, because the gateway authorizes every call against the caller's own identity.
-      */}
-      <input type="hidden" name="account_id" value={accountId} />
 
       {providers.length > 0 ? (
         <Field
@@ -134,21 +131,8 @@ export function CredentialFields({
       )}
 
       <Field
-        label="Profile name"
-        hint={
-          <>
-            This legacy name is required by the current admin API. Keep it as <code>default</code>;
-            requests resolve the effective credential for this account and provider rather than
-            selecting one by name.
-          </>
-        }
-      >
-        <Input name="name" defaultValue="default" required autoComplete="off" spellCheck={false} />
-      </Field>
-
-      <Field
         label="API key"
-        hint="Sent straight to the gateway and stored encrypted. It is never shown again — only the last four characters are kept, as a label. To change it later, paste a new key."
+        hint="Sent straight to the gateway and stored encrypted. It is never shown again. Attaching a key for a provider that already has one replaces it."
         error={keyErrorFor(keyFailure)}
       >
         {/* INVARIANT: no value, no defaultValue. Write-only — see the file header. */}

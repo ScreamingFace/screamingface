@@ -20,7 +20,7 @@ vi.mock("next/headers", () => ({
   headers: async () => ({ get: (name: string) => incoming.get(name.toLowerCase()) ?? null }),
 }));
 
-const { listAccounts, setApiKey, uploadCacheSnapshot } = await import("./client");
+const { listAccounts, setConnectionApiKey, uploadCacheSnapshot } = await import("./client");
 
 const BASE = "http://gateway.test:9105";
 const SECRET = "sk-live-0123456789abcdef";
@@ -95,6 +95,28 @@ describe("a failing admin call", () => {
     expect(records()).toEqual([expect.objectContaining({ level: "warn", kind: "forbidden", status: 403 })]);
   });
 
+  it.each([
+    ["credential_publication_superseded", "superseded"],
+    ["credential_pair_ambiguous", "ambiguous"],
+    ["credential_pair_unresolved", "unresolved"],
+  ])("logs a pair refusal (%s) at warn: the gateway answered and refused this request", async (code, kind) => {
+    fetchMock.mockReturnValueOnce(respond(409, { detail: { code, message: "m", provider: "p" } }));
+
+    await expect(listAccounts()).rejects.toMatchObject({ kind });
+
+    expect(records()).toEqual([expect.objectContaining({ level: "warn", kind, status: 409 })]);
+  });
+
+  it("logs a credential storage outage at error: the console cannot be served", async () => {
+    fetchMock.mockReturnValueOnce(
+      respond(503, { detail: { code: "credential_store_read_unavailable", message: "m" } }),
+    );
+
+    await expect(listAccounts()).rejects.toMatchObject({ kind: "temporary" });
+
+    expect(records()).toEqual([expect.objectContaining({ level: "error", kind: "temporary", status: 503 })]);
+  });
+
   it("logs an unreachable gateway at error with status 0", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("connect ECONNREFUSED"));
 
@@ -117,11 +139,11 @@ describe("a failing admin call", () => {
   it("names the method of a write", async () => {
     fetchMock.mockReturnValueOnce(respond(422, { detail: { message: "bad key" } }));
 
-    await expect(setApiKey("acct-1", "anthropic", "default", { api_key: SECRET })).rejects.toBeTruthy();
+    await expect(setConnectionApiKey("acct-1", "anthropic", { api_key: SECRET })).rejects.toBeTruthy();
 
     expect(records()[0]).toMatchObject({
       method: "PUT",
-      path: "/v1/admin/accounts/acct-1/profiles/anthropic/default/api-key",
+      path: "/v1/admin/accounts/acct-1/connections/anthropic/api-key",
       kind: "invalid",
     });
   });
@@ -132,7 +154,7 @@ describe("a failing admin call", () => {
       respond(422, { detail: { message: `Provider said: invalid key ${SECRET}` } }),
     );
 
-    await expect(setApiKey("acct-1", "anthropic", "default", { api_key: SECRET })).rejects.toBeTruthy();
+    await expect(setConnectionApiKey("acct-1", "anthropic", { api_key: SECRET })).rejects.toBeTruthy();
 
     expect(records()).toHaveLength(1);
     expect(rawLines()).not.toContain(SECRET);

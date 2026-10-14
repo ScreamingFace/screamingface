@@ -20,7 +20,6 @@ const stubAction = async (): Promise<ActionState> => ({ ok: true });
 function renderFields(overrides: Partial<Parameters<typeof CredentialFields>[0]> = {}) {
   return render(
     <CredentialFields
-      accountId="acct-1"
       providers={["anthropic", "openai"]}
       cancelHref="/accounts/acct-1"
       state={null}
@@ -38,8 +37,7 @@ describe("the API key control", () => {
   it("is a write-only password field with no value of any kind", () => {
     render(
       <CredentialForm
-        accountId="acct-1"
-        providers={["openai"]}
+          providers={["openai"]}
         cancelHref="/accounts/acct-1"
         action={stubAction}
       />,
@@ -137,25 +135,33 @@ describe("the provider control", () => {
 });
 
 describe("the rest of the form", () => {
-  it("submits the account from the URL as a hidden field", () => {
+  // INVARIANT: the account is bound on the server by the page, so the browser posts none — a
+  // hidden field would be a target the browser could rewrite.
+  it("posts no account id of its own", () => {
     const { container } = renderFields();
 
-    const hidden = container.querySelector<HTMLInputElement>('input[name="account_id"]');
-    expect(hidden).not.toBeNull();
-    expect(hidden).toHaveValue("acct-1");
+    expect(container.querySelector('[name="account_id"]')).toBeNull();
   });
 
-  it("keeps the legacy default name without presenting it as a request selector", () => {
+  // INVARIANT (D18 §8): the account and provider are the whole address. No name control, no
+  // hidden name, and no copy that tells the operator a name exists.
+  it("asks for no profile name in any form", () => {
+    const { container } = renderFields();
+
+    expect(screen.queryByLabelText(/name/i)).toBeNull();
+    expect(container.querySelector('[name="name"]')).toBeNull();
+    expect(screen.queryByText(/default/)).toBeNull();
+  });
+
+  it("does not promise a stored hint of the key the gateway no longer returns", () => {
     renderFields();
 
-    expect(screen.getByLabelText(/profile name/i)).toHaveValue("default");
-    expect(screen.queryByText(/X-Profile/)).not.toBeInTheDocument();
-    expect(screen.getByText(/effective credential for this account and provider/i)).toBeInTheDocument();
+    expect(screen.queryByText(/last four characters/i)).toBeNull();
   });
 
   it("speaks a failure with no control of its own at the top of the form", () => {
     renderFields({
-      state: { ok: false, error: "No account was identified for this key.", field: "account_id" },
+      state: { ok: false, error: "No account was identified for this key." },
     });
 
     const alert = screen.getByRole("alert");
@@ -211,10 +217,10 @@ describe("saved request defaults (OME-1322)", () => {
     expect(container.querySelector("fieldset")).toBeNull();
   });
 
-  it("still submits the account, provider, name and write-only key", () => {
+  it("still submits the provider and write-only key — and nothing else", () => {
     const { container } = renderFields();
 
     const names = Array.from(container.querySelectorAll("[name]"), (el) => el.getAttribute("name"));
-    expect(names).toEqual(["account_id", "provider", "name", "api_key"]);
+    expect(names).toEqual(["provider", "api_key"]);
   });
 });

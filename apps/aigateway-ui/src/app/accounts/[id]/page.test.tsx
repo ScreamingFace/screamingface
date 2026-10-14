@@ -9,12 +9,12 @@
  * the react-server condition where it throws by design; `next build` still sees the real module,
  * so the client/server split is enforced where it actually matters.
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("server-only", () => ({}));
 
 const getAccount = vi.fn();
-const listProfiles = vi.fn();
+const listConnections = vi.fn();
 
 // Spread the real module so `AdminApiError` keeps ONE identity — `describeFailure` narrows with
 // `instanceof`, and a second copy of the class would make every refusal look like a bug.
@@ -23,19 +23,21 @@ vi.mock("@/lib/aigateway/client", async (importOriginal) => {
   return {
     ...actual,
     getAccount: (...args: unknown[]) => getAccount(...args),
-    listProfiles: (...args: unknown[]) => listProfiles(...args),
+    listConnections: (...args: unknown[]) => listConnections(...args),
   };
 });
 
+const deleteConnectionAction = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
+const setAccountActiveAction = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 vi.mock("@/app/actions", () => ({
-  setAccountActiveAction: vi.fn(async () => ({ ok: true })),
-  deleteProfileAction: vi.fn(async () => ({ ok: true })),
+  setAccountActiveAction: (...args: unknown[]) => setAccountActiveAction(...args),
+  deleteConnectionAction: (...args: unknown[]) => deleteConnectionAction(...args),
 }));
 
 const { AdminApiError } = await import("@/lib/aigateway/client");
 const { default: Page } = await import("./page");
 type AdminAccount = import("@/lib/aigateway/client").AdminAccount;
-type AdminProfile = import("@/lib/aigateway/client").AdminProfile;
+type AdminConnection = import("@/lib/aigateway/client").AdminConnection;
 
 function account(overrides: Partial<AdminAccount> = {}): AdminAccount {
   return {
@@ -49,26 +51,22 @@ function account(overrides: Partial<AdminAccount> = {}): AdminAccount {
   };
 }
 
-function profile(overrides: Partial<AdminProfile> = {}): AdminProfile {
+function connection(overrides: Partial<AdminConnection> = {}): AdminConnection {
   return {
-    id: "acc-1:anthropic:default",
-    account_id: "acc-1",
     provider: "anthropic",
-    name: "default",
-    account_label: "API key ····WXYZ",
-    state: "authenticated",
     auth_type: "api_key",
-    defaults: {},
+    credential_state: "active",
+    masked_key_hint: null,
     last_refreshed_at: null,
     ...overrides,
-  } as AdminProfile;
+  };
 }
 
 const props = { params: Promise.resolve({ id: "acc-1" }) };
 
 beforeEach(() => {
   getAccount.mockReset().mockResolvedValue(account());
-  listProfiles.mockReset().mockResolvedValue({ profiles: [] });
+  listConnections.mockReset().mockResolvedValue({ connections: [], conflicts: [] });
 });
 
 it("names the tenant it is showing", async () => {
@@ -83,15 +81,66 @@ it("reads the account and its credentials in one round trip, not two", async () 
   await Page({ params: Promise.resolve({ id: "acc-1" }) });
 
   expect(getAccount).toHaveBeenCalledWith("acc-1");
-  expect(listProfiles).toHaveBeenCalledWith("acc-1");
+  expect(listConnections).toHaveBeenCalledWith("acc-1");
 });
 
-it("shows an attached credential by its masked label", async () => {
-  listProfiles.mockResolvedValue({ profiles: [profile()] });
+it("shows an attached credential by its provider, with a detach control for that provider", async () => {
+  listConnections.mockResolvedValue({ connections: [connection()], conflicts: [] });
 
-  render(await Page({ params: Promise.resolve({ id: "acc-1" }) }));
+  render(await Page(props));
 
-  expect(screen.getByText("API key ····WXYZ")).toBeInTheDocument();
+  expect(screen.getByRole("cell", { name: "anthropic" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Detach anthropic" })).toBeInTheDocument();
+  expect(screen.queryByText(/profile name/i)).not.toBeInTheDocument();
+});
+
+it("binds Detach to this account and that provider, in that order", async () => {
+  // Both are strings, so a swapped bind type-checks — and would send
+  // DELETE /v1/admin/accounts/<provider>/connections/<account>.
+  listConnections.mockResolvedValue({ connections: [connection()], conflicts: [] });
+  deleteConnectionAction.mockClear();
+
+  render(await Page(props));
+  fireEvent.click(screen.getByRole("button", { name: "Detach anthropic" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm detaching anthropic" }));
+
+  await waitFor(() => expect(deleteConnectionAction).toHaveBeenCalledTimes(1));
+  expect(deleteConnectionAction.mock.calls[0].slice(0, 2)).toEqual(["acc-1", "anthropic"]);
+});
+
+it("binds Deactivate to this account and the opposite of its current state", async () => {
+  setAccountActiveAction.mockClear();
+
+  render(await Page(props));
+  fireEvent.click(screen.getByRole("button", { name: "Deactivate tenant" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm deactivation" }));
+
+  await waitFor(() => expect(setAccountActiveAction).toHaveBeenCalledTimes(1));
+  expect(setAccountActiveAction.mock.calls[0].slice(0, 2)).toEqual(["acc-1", false]);
+});
+
+it("lists a pair the gateway cannot address, without a control and without the empty state", async () => {
+  listConnections.mockResolvedValue({
+    connections: [],
+    conflicts: [{ provider: "openai", code: "credential_pair_ambiguous", message: "m" }],
+  });
+
+  render(await Page(props));
+
+  expect(screen.getByRole("listitem")).toHaveTextContent("openai");
+  expect(screen.queryByRole("button", { name: /detach openai/i })).not.toBeInTheDocument();
+  // The tenant HAS a credential for openai — it just cannot be managed here — so "no credentials
+  // attached" would be false.
+  expect(screen.queryByText(/no credentials attached/i)).not.toBeInTheDocument();
+});
+
+it("reads a credential storage outage as temporary, not as a disabled admin API", async () => {
+  listConnections.mockRejectedValue(new AdminApiError("temporary", 503, "m"));
+
+  render(await Page(props));
+
+  expect(screen.queryByText(/not enabled/i)).not.toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent(/reload the page to try again/i);
 });
 
 it("explains the consequence when a tenant has no credentials", async () => {
@@ -104,7 +153,7 @@ it("explains the consequence when a tenant has no credentials", async () => {
 
 it("says no such tenant rather than a generic refusal", async () => {
   getAccount.mockRejectedValue(new AdminApiError("not_found", 404, "nope"));
-  listProfiles.mockRejectedValue(new AdminApiError("not_found", 404, "nope"));
+  listConnections.mockRejectedValue(new AdminApiError("not_found", 404, "nope"));
 
   render(await Page({ params: Promise.resolve({ id: "missing" }) }));
 
@@ -113,7 +162,7 @@ it("says no such tenant rather than a generic refusal", async () => {
 
 it("replaces the whole surface when the caller is not an administrator", async () => {
   getAccount.mockRejectedValue(new AdminApiError("forbidden", 403, "nope"));
-  listProfiles.mockRejectedValue(new AdminApiError("forbidden", 403, "nope"));
+  listConnections.mockRejectedValue(new AdminApiError("forbidden", 403, "nope"));
 
   render(await Page(props));
 
@@ -126,7 +175,7 @@ it("lets a real bug reach the error boundary", async () => {
   // `describeFailure` rethrows anything that is not an AdminApiError. Flattening a TypeError into
   // tidy copy would hide the bug behind a page that looks like a permissions problem.
   getAccount.mockRejectedValue(new TypeError("boom"));
-  listProfiles.mockRejectedValue(new TypeError("boom"));
+  listConnections.mockRejectedValue(new TypeError("boom"));
 
   await expect(Page(props)).rejects.toThrow(TypeError);
 });
