@@ -20,7 +20,6 @@ const stubAction = async (): Promise<ActionState> => ({ ok: true });
 function renderFields(overrides: Partial<Parameters<typeof CredentialFields>[0]> = {}) {
   return render(
     <CredentialFields
-      accountId="acct-1"
       providers={["anthropic", "openai"]}
       cancelHref="/accounts/acct-1"
       state={null}
@@ -38,8 +37,7 @@ describe("the API key control", () => {
   it("is a write-only password field with no value of any kind", () => {
     render(
       <CredentialForm
-        accountId="acct-1"
-        providers={["openai"]}
+          providers={["openai"]}
         cancelHref="/accounts/acct-1"
         action={stubAction}
       />,
@@ -137,12 +135,12 @@ describe("the provider control", () => {
 });
 
 describe("the rest of the form", () => {
-  it("submits the account from the URL as a hidden field", () => {
+  // INVARIANT: the account is bound on the server by the page, so the browser posts none — a
+  // hidden field would be a target the browser could rewrite.
+  it("posts no account id of its own", () => {
     const { container } = renderFields();
 
-    const hidden = container.querySelector<HTMLInputElement>('input[name="account_id"]');
-    expect(hidden).not.toBeNull();
-    expect(hidden).toHaveValue("acct-1");
+    expect(container.querySelector('[name="account_id"]')).toBeNull();
   });
 
   // INVARIANT (D18 §8): the account and provider are the whole address. No name control, no
@@ -163,7 +161,7 @@ describe("the rest of the form", () => {
 
   it("speaks a failure with no control of its own at the top of the form", () => {
     renderFields({
-      state: { ok: false, error: "No account was identified for this key.", field: "account_id" },
+      state: { ok: false, error: "No account was identified for this key." },
     });
 
     const alert = screen.getByRole("alert");
@@ -219,10 +217,10 @@ describe("saved request defaults (OME-1322)", () => {
     expect(container.querySelector("fieldset")).toBeNull();
   });
 
-  it("still submits the account, provider and write-only key — and nothing else", () => {
+  it("still submits the provider and write-only key — and nothing else", () => {
     const { container } = renderFields();
 
     const names = Array.from(container.querySelectorAll("[name]"), (el) => el.getAttribute("name"));
-    expect(names).toEqual(["account_id", "provider", "api_key"]);
+    expect(names).toEqual(["provider", "api_key"]);
   });
 });

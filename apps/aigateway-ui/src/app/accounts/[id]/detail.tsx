@@ -114,8 +114,9 @@ export type CredentialsTableProps = {
 /**
  * One row per provider: the pair `(account, provider)` is a credential's whole address (D18 §3).
  *
- * INVARIANT: no name and no label column. Cells are read field by field from the DTO, so anything
- * a stale row still carries is never rendered.
+ * INVARIANT: no name, label or key-hint column. Cells are read field by field from the DTO, so
+ * anything a stale row still carries is never rendered. `masked_key_hint` is always null in this
+ * landing and D18 leaves a hint column out of scope: a column of dashes would suggest one is coming.
  */
 export function CredentialsTable({ connections, renderActions }: CredentialsTableProps) {
   return (
@@ -123,7 +124,6 @@ export function CredentialsTable({ connections, renderActions }: CredentialsTabl
       <THead>
         <TR>
           <TH>Provider</TH>
-          <TH>Key hint</TH>
           <TH>State</TH>
           <TH>Auth type</TH>
           <TH>Last refreshed</TH>
@@ -136,9 +136,6 @@ export function CredentialsTable({ connections, renderActions }: CredentialsTabl
           return (
             <TR key={connection.provider}>
               <TD>{connection.provider}</TD>
-              {/* Printed exactly as received. The gateway sends null in this landing — it has no
-                  trusted hint source — and nothing here derives one. */}
-              <TD className={styles.hintCell}>{connection.masked_key_hint || NO_VALUE}</TD>
               <TD>
                 <Badge tone={state.tone}>{state.label}</Badge>
               </TD>

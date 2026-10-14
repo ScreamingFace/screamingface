@@ -174,7 +174,9 @@ function safeJson(text: string): unknown {
  */
 function segment(value: string): string {
   if (value === "" || value === "." || value === "..") {
-    throw new AdminApiError("invalid", 0, "That identifier is not a valid path segment.");
+    throw new AdminApiError("invalid", 0, "That identifier is not a valid path segment.", {
+      code: "invalid_path_segment",
+    });
   }
   return encodeURIComponent(value);
 }

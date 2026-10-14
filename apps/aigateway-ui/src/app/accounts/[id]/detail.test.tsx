@@ -135,7 +135,6 @@ describe("CredentialsTable", () => {
     const headers = screen.getAllByRole("columnheader").map((cell) => cell.textContent);
     expect(headers).toEqual([
       "Provider",
-      "Key hint",
       "State",
       "Auth type",
       "Last refreshed",
@@ -143,15 +142,9 @@ describe("CredentialsTable", () => {
     ]);
   });
 
-  it("dashes the key hint the gateway does not provide", () => {
-    // D18 §3: `masked_key_hint` is always null in this landing; nothing here derives one.
-    render(<CredentialsTable connections={[connection()]} renderActions={() => null} />);
-
-    const cells = within(screen.getAllByRole("row")[1]).getAllByRole("cell");
-    expect(cells[1]).toHaveTextContent(NO_VALUE);
-  });
-
-  it("renders a key hint exactly as received when the gateway sends one", () => {
+  // D18 §3 and its out-of-scope list: `masked_key_hint` is always null in this landing and a hint
+  // column is not part of D18, so the console shows none — not even a column of dashes.
+  it("shows no key hint, even when the gateway sends one", () => {
     render(
       <CredentialsTable
         connections={[connection({ masked_key_hint: "····WXYZ" })]}
@@ -159,7 +152,8 @@ describe("CredentialsTable", () => {
       />,
     );
 
-    expect(screen.getByText("····WXYZ")).toBeInTheDocument();
+    expect(screen.queryByText("····WXYZ")).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /hint/i })).not.toBeInTheDocument();
   });
 
   it("renders a row per provider, with its own actions", () => {

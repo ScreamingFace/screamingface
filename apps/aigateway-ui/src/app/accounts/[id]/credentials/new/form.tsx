@@ -16,7 +16,10 @@
  *
  * INVARIANT (OME-1138 Stage C, OME-1322): no saved request defaults. Parameters such as model,
  * temperature or max tokens are the caller's, per request — this form offers no control for them
- * and posts only account, provider and key.
+ * and posts only provider and key.
+ *
+ * INVARIANT: no account id is posted. The page binds it on the server; a hidden field would be a
+ * target the browser could rewrite.
  *
  * INVARIANT (D18 §8): no profile name. The pair `(account, provider)` is the credential's whole
  * address, so there is no name control, no hidden name and no `default` to keep.
@@ -38,7 +41,6 @@ import styles from "./form.module.css";
 export type CredentialFormAction = (state: FormState, formData: FormData) => Promise<ActionState>;
 
 export type CredentialFormProps = {
-  accountId: string;
   /**
    * Provider ids the gateway advertises. EMPTY IS MEANINGFUL: it means discovery failed, and the
    * form falls back to a typed provider id rather than blocking the operator behind a list it
@@ -70,7 +72,6 @@ export function CredentialForm({ action, ...rest }: CredentialFormProps) {
  * — directly from a state object instead of by driving a submit.
  */
 export function CredentialFields({
-  accountId,
   providers,
   cancelHref,
   state,
@@ -82,9 +83,9 @@ export function CredentialFields({
   const providerFailure = on("provider");
   const keyFailure = on("api_key");
 
-  // A failure with no field, or one naming the hidden account id, has no control to sit under —
-  // it is said at the top of the form or it is not said at all.
-  const formFailure = failure && (!failure.field || failure.field === "account_id") ? failure : null;
+  // A failure with no field has no control to sit under — it is said at the top of the form or it
+  // is not said at all.
+  const formFailure = failure && !failure.field ? failure : null;
 
   return (
     <>
@@ -98,13 +99,6 @@ export function CredentialFields({
           Returning to the account.
         </Notice>
       ) : null}
-
-      {/*
-        The account is fixed by the URL, so it is a hidden field rather than a control. React does
-        not require an onChange for `type="hidden"`, and the action re-checks it: a tampered value
-        buys nothing, because the gateway authorizes every call against the caller's own identity.
-      */}
-      <input type="hidden" name="account_id" value={accountId} />
 
       {providers.length > 0 ? (
         <Field

@@ -84,7 +84,7 @@ All under `apps/aigateway-ui/src/`.
 - **Commits:** see the PR.
 - **Gates:** `uv run .claude/scripts/run_gates.py aigateway-ui --base origin/main` → ALL GATES
   GREEN (append-only check through the OME-1498 manifest, npm ci, lint, lint:css, typecheck,
-  build, test:ci; 20 files, 300 tests after the review fixes). Browser smoke: against a local Gateway built from
+  build, test:ci; 20 files, 307 tests after both rounds of review fixes). Browser smoke: against a local Gateway built from
   `3bfa2fd24` (SQLite, header auth) the empty list rendered and a key PUT through the form reached
   `PUT …/connections/openai/api-key`, answered 422 and showed the provider refusal with the key
   field empty; against a mocked Gateway the table, Key hint dash, conflict list, a 204 DELETE and a
@@ -108,3 +108,14 @@ All under `apps/aigateway-ui/src/`.
   - A page test pins the Detach bind order (account, then provider).
   - `CLAUDE.md`: the OAuth guardrail now says OAuth connections are listed and can be detached.
   - Not changed: `README.md` still says "finds a profile"; left for a follow-up.
+- **PR review fixes (second round):**
+  - Target integrity: `setApiKeyAction(accountId, …)` takes the account from the page, which
+    closes over it; the form posts no `account_id`. Detach and Deactivate were `.bind`-ed, and
+    `.bind` arguments come back from the browser as plain data, so they now close over their
+    targets too. Checked in the build output: all three targets go through
+    `encryptActionBoundArgs`.
+  - The Key hint column, its CSS and its render tests are removed: D18 leaves a hint column out
+    of scope and `masked_key_hint` is always `null`. The field stays in the generated type.
+  - `AdminApiError` carries the gateway `code`. `unknown_provider`, `api_key_not_supported` and
+    the local `invalid_path_segment` refusal land under the provider control with their own copy;
+    key-validation failures stay under the key.

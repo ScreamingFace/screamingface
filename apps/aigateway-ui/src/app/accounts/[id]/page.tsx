@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import type { ActionState } from "@/app/actions";
 import { deleteConnectionAction, setAccountActiveAction } from "@/app/actions";
 import { Notice } from "@/components/ui";
 import type { AdminAccount, AdminConnectionList } from "@/lib/aigateway/client";
@@ -117,9 +118,7 @@ export default async function AccountDetailPage({ params }: PageProps) {
             renderActions={(connection) => (
               <DeleteConnectionButton
                 provider={connection.provider}
-                // Bound on the server: the client component receives a reference, never the
-                // account id as browser-supplied input it could be tricked into changing.
-                action={deleteConnectionAction.bind(null, account.id, connection.provider)}
+                action={detachAction(account.id, connection.provider)}
               />
             )}
           />
@@ -135,9 +134,31 @@ export default async function AccountDetailPage({ params }: PageProps) {
         <AccountStatusControl
           key={String(account.is_active)}
           isActive={account.is_active}
-          action={setAccountActiveAction.bind(null, account.id, !account.is_active)}
+          action={statusAction(account.id, !account.is_active)}
         />
       </section>
     </main>
   );
+}
+
+/*
+ * Server actions with their target CLOSED OVER, not `.bind`-ed.
+ *
+ * INVARIANT: an allowlisted admin may manage any tenant, so the gateway cannot tell a swapped
+ * account id from a real one. `.bind` arguments travel back from the browser as plain data and can
+ * be rewritten; closed-over values are encrypted and authenticated by Next per build, so the
+ * action acts on exactly the account and provider this page rendered.
+ */
+function detachAction(accountId: string, provider: string) {
+  return async function detach(): Promise<ActionState> {
+    "use server";
+    return deleteConnectionAction(accountId, provider);
+  };
+}
+
+function statusAction(accountId: string, isActive: boolean) {
+  return async function setStatus(): Promise<ActionState> {
+    "use server";
+    return setAccountActiveAction(accountId, isActive);
+  };
 }

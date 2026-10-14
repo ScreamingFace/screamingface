@@ -107,14 +107,6 @@
   color: var(--text-2);
 }
 
-/* A masked key hint ("····WXYZ") is a fixed-width string an operator compares against another
-   one, so it is set in mono and never wrapped mid-value. */
-.hintCell {
-  font-family: var(--f-mono);
-  font-variant-numeric: tabular-nums slashed-zero;
-  white-space: nowrap;
-}
-
 /* Conflicting pairs, inside an error notice: one line per provider, the provider id in mono so it
    reads as the identifier it is. */
 .conflicts {

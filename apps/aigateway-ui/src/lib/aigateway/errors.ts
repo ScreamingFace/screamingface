@@ -40,6 +40,12 @@ export class AdminApiError extends Error {
   readonly kind: AdminErrorKind;
   readonly status: number;
   readonly detail: unknown;
+  /**
+   * The gateway's own error code, when it sent one. The kind says what to DO; the code says what
+   * was at fault — `unknown_provider` and a refused key are both answers to one form, but they sit
+   * under different controls.
+   */
+  readonly code: string | undefined;
 
   constructor(kind: AdminErrorKind, status: number, message: string, detail?: unknown) {
     super(message);
@@ -47,7 +53,16 @@ export class AdminApiError extends Error {
     this.kind = kind;
     this.status = status;
     this.detail = detail;
+    this.code = codeOf(detail);
   }
+}
+
+function codeOf(detail: unknown): string | undefined {
+  const code =
+    typeof detail === "object" && detail !== null && "code" in detail
+      ? (detail as { code?: unknown }).code
+      : undefined;
+  return typeof code === "string" ? code : undefined;
 }
 
 /**
@@ -77,12 +92,9 @@ const CODE_KINDS: Readonly<Record<string, AdminErrorKind>> = {
 };
 
 export function classify(status: number, detail: unknown): AdminErrorKind {
-  const code =
-    typeof detail === "object" && detail !== null && "code" in detail
-      ? (detail as { code?: unknown }).code
-      : undefined;
+  const code = codeOf(detail);
   // `Object.hasOwn`, not `in`: a code of `constructor` must not resolve through the prototype.
-  if (typeof code === "string" && Object.hasOwn(CODE_KINDS, code)) return CODE_KINDS[code];
+  if (code !== undefined && Object.hasOwn(CODE_KINDS, code)) return CODE_KINDS[code];
   if (status === 401) return "unauthenticated";
   if (status === 403) return "forbidden";
   if (status === 404) return "not_found";

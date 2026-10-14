@@ -160,6 +160,15 @@ describe("path segments are encoded", () => {
     );
   });
 
+  it("keeps the gateway's code on the error, so a caller can tell faults of one kind apart", async () => {
+    fetchMock.mockReturnValueOnce(respond(404, { detail: { code: "unknown_provider", provider: "x" } }));
+
+    await expect(setConnectionApiKey("acc-1", "x", { api_key: "k" })).rejects.toMatchObject({
+      kind: "not_found",
+      code: "unknown_provider",
+    });
+  });
+
   it.each(["", ".", ".."])(
     "refuses a %j segment, which a URL parser would collapse into the parent path",
     async (provider) => {
@@ -167,6 +176,7 @@ describe("path segments are encoded", () => {
       // `/connections/../api-key` would become `/v1/admin/accounts/<id>/api-key`.
       await expect(setConnectionApiKey("acc-1", provider, { api_key: "k" })).rejects.toMatchObject({
         kind: "invalid",
+        code: "invalid_path_segment",
       });
       expect(fetchMock).not.toHaveBeenCalled();
     },

@@ -28,7 +28,24 @@ vi.mock("@/lib/aigateway/client", async (importOriginal) => {
   };
 });
 
-vi.mock("@/app/actions", () => ({ setApiKeyAction: vi.fn(async () => ({ ok: true })) }));
+const setApiKeyAction = vi.fn(async (..._args: unknown[]) => ({ ok: false, error: "x" }));
+vi.mock("@/app/actions", () => ({
+  setApiKeyAction: (...args: unknown[]) => setApiKeyAction(...args),
+}));
+
+// Capture the action the page hands the form, while still rendering the real form.
+type FormProps = import("./form").CredentialFormProps;
+let formProps: FormProps | undefined;
+vi.mock("./form", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./form")>();
+  return {
+    ...actual,
+    CredentialForm: (props: FormProps) => {
+      formProps = props;
+      return actual.CredentialForm(props);
+    },
+  };
+});
 
 const { AdminApiError } = await import("@/lib/aigateway/client");
 const { default: Page } = await import("./page");
@@ -116,4 +133,18 @@ it("lets a real bug reach the error boundary", async () => {
   getAccount.mockRejectedValue(new TypeError("boom"));
 
   await expect(Page(props())).rejects.toThrow(TypeError);
+});
+
+it("binds the write to the account it rendered, whatever the browser posts", async () => {
+  // The browser only holds an opaque reference to the page's action; the account id is closed
+  // over on the server. A posted `account_id` from a rewritten form must not retarget the write.
+  render(await Page(props()));
+  const posted = new FormData();
+  posted.append("account_id", "acc-other-tenant");
+  posted.append("provider", "openai");
+  posted.append("api_key", "k");
+
+  await formProps!.action(null, posted);
+
+  expect(setApiKeyAction).toHaveBeenCalledWith("acc-1", null, posted);
 });

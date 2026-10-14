@@ -134,23 +134,66 @@ describe("setAccountActiveAction", () => {
 });
 
 describe("setApiKeyAction", () => {
-  const base = { account_id: "a1", provider: "openai", api_key: "sk-live-secret-value" };
+  const base = { provider: "openai", api_key: "sk-live-secret-value" };
 
   const badInput: Array<{ patch: Record<string, string>; error: string; field: string }> = [
-    {
-      patch: { account_id: "" },
-      error: "No account was identified for this key.",
-      field: "account_id",
-    },
     { patch: { provider: "" }, error: "Choose a provider.", field: "provider" },
     { patch: { api_key: "  " }, error: "Paste the provider API key.", field: "api_key" },
   ];
 
   it.each(badInput)("rejects a bad $field before calling the gateway", async ({ patch, error, field }) => {
-    const state = await setApiKeyAction(null, form({ ...base, ...patch }));
+    const state = await setApiKeyAction("a1", null, form({ ...base, ...patch }));
 
     expect(state).toEqual({ ok: false, error, field });
     expect(setConnectionApiKey).not.toHaveBeenCalled();
+  });
+
+  // INVARIANT: the target account is the one the page rendered, bound on the server. A posted
+  // `account_id` — a tampered form, or a stale one from another tenant's page — never addresses
+  // the write: an allowlisted admin may manage any tenant, so the gateway cannot catch a swap.
+  it("writes to the bound account, never to a posted account_id", async () => {
+    setConnectionApiKey.mockResolvedValue({ provider: "openai" });
+
+    await setApiKeyAction("a1", null, form({ ...base, account_id: "acc-other-tenant" }));
+
+    expect(setConnectionApiKey).toHaveBeenCalledWith("a1", "openai", {
+      api_key: "sk-live-secret-value",
+    });
+  });
+
+  it("refuses to write when no account was bound, without naming a control", async () => {
+    const state = await setApiKeyAction("", null, form(base));
+
+    expect(state).toEqual({ ok: false, error: "No account was identified for this key." });
+    expect(setConnectionApiKey).not.toHaveBeenCalled();
+  });
+
+  // The provider control is the one at fault for these, not the key: an operator typing a provider
+  // id by hand (discovery failed) must see the error under what they typed.
+  it.each([
+    [new AdminApiError("not_found", 404, "x", { code: "unknown_provider", provider: "opnai" }), /no provider/i],
+    [new AdminApiError("unknown", 400, "x", { code: "api_key_not_supported", provider: "oauth-only" }), /does not take an API key/i],
+    [new AdminApiError("invalid", 0, "x", { code: "invalid_path_segment" }), /not a valid provider id/i],
+  ])("puts a provider fault under the provider control: %o", async (error, message) => {
+    setConnectionApiKey.mockRejectedValue(error);
+
+    const state = await setApiKeyAction("a1", null, form(base));
+
+    expect(state).toMatchObject({ ok: false, field: "provider" });
+    expect((state as { error: string }).error).toMatch(message);
+  });
+
+  it("keeps the provider's refusal of the key under the key control", async () => {
+    setConnectionApiKey.mockRejectedValue(
+      new AdminApiError("invalid", 422, "The provider rejected this API key.", {
+        code: "api_key_invalid",
+        provider: "openai",
+      }),
+    );
+
+    const state = await setApiKeyAction("a1", null, form(base));
+
+    expect(state).toMatchObject({ ok: false, field: "api_key", kind: "invalid" });
   });
 
   it("NEVER returns the raw key, even if the gateway echoes it back", async () => {
@@ -158,7 +201,7 @@ describe("setApiKeyAction", () => {
       new AdminApiError("invalid", 422, "Input should be valid: sk-live-secret-value"),
     );
 
-    const state = await setApiKeyAction(null, form(base));
+    const state = await setApiKeyAction("a1", null, form(base));
 
     expect(state).toEqual({
       ok: false,
@@ -172,7 +215,7 @@ describe("setApiKeyAction", () => {
   it("keeps a gateway message that does not contain the key", async () => {
     setConnectionApiKey.mockRejectedValue(new AdminApiError("invalid", 422, "The provider rejected this key."));
 
-    const state = await setApiKeyAction(null, form(base));
+    const state = await setApiKeyAction("a1", null, form(base));
 
     expect(state).toEqual({
       ok: false,
@@ -188,7 +231,7 @@ describe("setApiKeyAction", () => {
   it("carries the gateway's error kind so a form can tell the causes apart", async () => {
     setConnectionApiKey.mockRejectedValue(new AdminApiError("unreachable", 0, "The gateway did not answer."));
 
-    const state = await setApiKeyAction(null, form(base));
+    const state = await setApiKeyAction("a1", null, form(base));
 
     expect(state).toEqual({
       ok: false,
@@ -199,7 +242,7 @@ describe("setApiKeyAction", () => {
   });
 
   it("leaves the kind off a refusal this module made without asking the gateway", async () => {
-    const state = await setApiKeyAction(null, form({ ...base, api_key: "" }));
+    const state = await setApiKeyAction("a1", null, form({ ...base, api_key: "" }));
 
     expect(state).not.toHaveProperty("kind");
   });
@@ -209,7 +252,7 @@ describe("setApiKeyAction", () => {
       new AdminApiError("superseded", 409, "Credential state changed. Reload before submitting another change."),
     );
 
-    const state = await setApiKeyAction(null, form(base));
+    const state = await setApiKeyAction("a1", null, form(base));
 
     expect(state).toMatchObject({ ok: false, field: "api_key", kind: "superseded" });
     expect((state as { error: string }).error).toMatch(/reload/i);
@@ -262,7 +305,7 @@ describe("deleteConnectionAction", () => {
 export {};
 
 describe("setApiKeyAction without saved defaults (OME-1322)", () => {
-  const base = { account_id: "a1", provider: "openai", api_key: "sk-live-secret-value" };
+  const base = { provider: "openai", api_key: "sk-live-secret-value" };
   // Every field the retired "Defaults (optional)" fieldset once posted — the numeric ones
   // malformed, because a stale form must neither be forwarded nor be refused over them.
   const staleDefaults = {
@@ -277,7 +320,7 @@ describe("setApiKeyAction without saved defaults (OME-1322)", () => {
   it("forwards only the key, ignoring stale default fields in the submission", async () => {
     setConnectionApiKey.mockResolvedValue({ id: "p1" });
 
-    const state = await setApiKeyAction(null, form({ ...base, name: "primary", ...staleDefaults }));
+    const state = await setApiKeyAction("a1", null, form({ ...base, name: "primary", ...staleDefaults }));
 
     expect(state).toEqual({ ok: true });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
@@ -294,8 +337,8 @@ describe("setApiKeyAction without saved defaults (OME-1322)", () => {
   it("never forwards a profile name, posted or defaulted", async () => {
     setConnectionApiKey.mockResolvedValue({ provider: "openai" });
 
-    await setApiKeyAction(null, form(base));
-    await setApiKeyAction(null, form({ ...base, name: "batch" }));
+    await setApiKeyAction("a1", null, form(base));
+    await setApiKeyAction("a1", null, form({ ...base, name: "batch" }));
 
     for (const call of setConnectionApiKey.mock.calls) {
       expect(call).toEqual(["a1", "openai", { api_key: "sk-live-secret-value" }]);

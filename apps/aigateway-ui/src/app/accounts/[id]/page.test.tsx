@@ -28,8 +28,9 @@ vi.mock("@/lib/aigateway/client", async (importOriginal) => {
 });
 
 const deleteConnectionAction = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
+const setAccountActiveAction = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 vi.mock("@/app/actions", () => ({
-  setAccountActiveAction: vi.fn(async () => ({ ok: true })),
+  setAccountActiveAction: (...args: unknown[]) => setAccountActiveAction(...args),
   deleteConnectionAction: (...args: unknown[]) => deleteConnectionAction(...args),
 }));
 
@@ -105,6 +106,17 @@ it("binds Detach to this account and that provider, in that order", async () => 
 
   await waitFor(() => expect(deleteConnectionAction).toHaveBeenCalledTimes(1));
   expect(deleteConnectionAction.mock.calls[0].slice(0, 2)).toEqual(["acc-1", "anthropic"]);
+});
+
+it("binds Deactivate to this account and the opposite of its current state", async () => {
+  setAccountActiveAction.mockClear();
+
+  render(await Page(props));
+  fireEvent.click(screen.getByRole("button", { name: "Deactivate tenant" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm deactivation" }));
+
+  await waitFor(() => expect(setAccountActiveAction).toHaveBeenCalledTimes(1));
+  expect(setAccountActiveAction.mock.calls[0].slice(0, 2)).toEqual(["acc-1", false]);
 });
 
 it("lists a pair the gateway cannot address, without a control and without the empty state", async () => {
