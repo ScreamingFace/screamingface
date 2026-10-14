@@ -27,6 +27,7 @@ from screamingface_engine.run_evidence import (
     log_terminated,
     outcome_of,
 )
+from screamingface_engine.subjects import RUN_ROOT_NODE
 from url4.streaming.interfaces import (
     EventPublisher,
     Executor,
@@ -287,6 +288,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
                 ProvenanceExecutor(executor, client_version),
                 topic,
                 url4,
+                node=RUN_ROOT_NODE,
                 traceparent=run_traceparent,
                 deadline_s=deadline_s,
             ),

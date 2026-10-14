@@ -64,6 +64,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequen
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import aclosing
 from dataclasses import dataclass, field, replace
+from functools import partial
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import (
@@ -97,6 +98,7 @@ from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload,
 #: the node's own model route, not the run's bounded I/O layer, so this is the only
 #: bound on them.
 CASE_GRADING_CONCURRENCY: int = 4
+
 
 logger = logging.getLogger(__name__)
 
@@ -390,7 +392,11 @@ class BenchmarkAggregation:
           Case.
         - Stage 4b — the clerk awaits the tasks in roll-call order and yields each result
           once it and every Case before it are marked: Cases [1, 2, 3] finishing 2, 3, 1
-          still yield 1, 2, 3.
+          still yield 1, 2, 3. A Case's task is let go the moment it FINISHES (OME-1607):
+          only its outcome waits for the clerk. A finished task kept its context, and the
+          context kept what grading left there — inspect's Transcript, with every judge call
+          and its full prompt — so keeping every task to the end held the whole run's judge
+          traffic in memory. Now memory holds the seated Cases' contexts, not the run's.
         - On a raise, the first raising Case in roll-call order is the exception that
           leaves (the one serial marking would have raised), and every unfinished task is
           cancelled before it does.
@@ -404,45 +410,24 @@ class BenchmarkAggregation:
         # Stage 1-2 — validate and file every row first.
         case_ids: tuple[int, ...] = tuple(int(selected.case_id) for selected in selected_cases)
         indexed: CaseGradeIndex = self.reader.index(raw_case_grades, case_ids)
-        seats: asyncio.Semaphore = asyncio.Semaphore(self.case_grading_concurrency)
 
-        async def seated(index: int, selected: SelectedCase) -> CaseResult | None:
-            """Mark one Case once a seat is free — the same ladder as serial marking."""
-
-            async with seats:
-                try:
-                    return await self.case_result(
-                        selected, index, indexed, grading_material, case_metadata
-                    )
-                except Exception:
-                    # WHY here, still seated: releasing the seat first would let the
-                    # next waiting Case in to start a paid judge call before any
-                    # cancel lands. `tasks` is complete by now — no task body runs
-                    # before the list below is built.
-                    for later in tasks[index + 1 :]:
-                        later.cancel()
-                    raise
+        async def mark(index: int) -> CaseResult | None:
+            return await self.case_result(
+                selected_cases[index], index, indexed, grading_material, case_metadata
+            )
 
         # Stage 4a — start every Case; the seats bound how many are marked at once.
-        tasks: list[asyncio.Task[CaseResult | None]] = [
-            asyncio.create_task(seated(index, selected))
-            for index, selected in enumerate(selected_cases)
-        ]
+        room = _MarkingRoom(mark, len(selected_cases), self.case_grading_concurrency)
         try:
             # Stage 4b — hand results over in roll-call order.
-            for task in tasks:
-                # WHY shield: a bare await hands a run's cancel to this one task first,
-                # which frees its seat to the next waiting Case before the `finally`
-                # below cancels the rest; shielded, the `finally` cancels them together.
-                result: CaseResult | None = await asyncio.shield(task)
+            for index in range(len(selected_cases)):
+                result: CaseResult | None = await room.outcome(index)
                 if result is not None:
                     yield result
         finally:
             # WHY: a raise or a cancelled run must not leave Cases being marked (and
             # judges being paid) after the aggregate has given up.
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await room.cancel_all()
 
     async def case_result(
         self,
@@ -963,3 +948,79 @@ __all__ = [
     "MissingCaseResult",
     "BenchmarkAggregation",
 ]
+
+
+class _MarkingRoom:
+    """Every Case's marking task, and each Case's outcome for the clerk (OME-1527, OME-1607).
+
+    All tasks start at once in roll-call order; the seats (a semaphore) bound how many are inside
+    the grade hook. A task is RELEASED the moment it finishes: a done-callback moves its outcome
+    into the Case's future and drops the task, so the task's context — and whatever its grading
+    left there — is freed while the clerk still waits on an earlier Case.
+    """
+
+    def __init__(
+        self, mark: Callable[[int], Awaitable[CaseResult | None]], cases: int, seats: int
+    ) -> None:
+        self._mark = mark
+        self._seats = asyncio.Semaphore(seats)
+        loop = asyncio.get_running_loop()
+        self._outcomes: list[asyncio.Future[CaseResult | None]] = [
+            loop.create_future() for _ in range(cases)
+        ]
+        self._tasks: list[asyncio.Task[CaseResult | None] | None] = []
+        for index in range(cases):
+            task = asyncio.create_task(self._seated(index))
+            task.add_done_callback(partial(self._release, index))
+            self._tasks.append(task)
+
+    async def _seated(self, index: int) -> CaseResult | None:
+        """Mark one Case once a seat is free — the same ladder as serial marking."""
+
+        async with self._seats:
+            try:
+                return await self._mark(index)
+            except Exception:
+                # WHY here, still seated: releasing the seat first would let the next waiting
+                # Case in to start a paid judge call before any cancel lands. Every task exists
+                # by now — none runs before the room has created them all.
+                for later in self._tasks[index + 1 :]:
+                    if later is not None:
+                        later.cancel()
+                raise
+
+    def _release(self, index: int, task: asyncio.Task[CaseResult | None]) -> None:
+        """Hand a finished task's outcome to its Case's future, then let the task go."""
+
+        self._tasks[index] = None
+        outcome = self._outcomes[index]
+        if outcome.done():  # the clerk gave up on this Case (a cancelled run)
+            if not task.cancelled():
+                task.exception()  # retrieved: no "exception never retrieved" warning
+            return
+        if task.cancelled():
+            outcome.cancel()
+        elif (error := task.exception()) is not None:
+            outcome.set_exception(error)
+        else:
+            outcome.set_result(task.result())
+
+    async def outcome(self, index: int) -> CaseResult | None:
+        """Case ``index``'s result once it is marked (its raise, if it raised).
+
+        WHY a future and not the task: a run's cancel reaching this await cancels the future
+        only, never the Case's task — the task cannot free its seat to the next waiting Case
+        before `cancel_all` cancels every Case together (what shielding the task gave).
+        """
+        return await self._outcomes[index]
+
+    async def cancel_all(self) -> None:
+        pending = [task for task in self._tasks if task is not None]
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        for outcome in self._outcomes:
+            if outcome.done() and not outcome.cancelled():
+                outcome.exception()  # retrieved: a later Case's raise the clerk never read
+            elif not outcome.done():
+                outcome.cancel()

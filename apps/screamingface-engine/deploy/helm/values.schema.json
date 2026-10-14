@@ -212,7 +212,13 @@
             },
             "memoryLimitMi": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "description": "The per-slot memory limit and each run's RESIDENT budget: the worker stops a run whose process tree goes past it (memory_budget_exceeded, OME-1607)."
+            },
+            "addressSpaceFactor": {
+              "type": "integer",
+              "minimum": 2,
+              "description": "The address-space backstop (the child's RLIMIT_AS) as a multiple of memoryLimitMi. It must sit well above the resident budget: native libraries reserve address space they never touch (OME-1607)."
             }
           },
           "required": [

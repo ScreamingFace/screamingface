@@ -124,6 +124,7 @@ class Worker:
         drain_grace_s: float,
         io_capacity: int,
         memory_budget_bytes: int,
+        resident_budget_bytes: int | None = None,
         spawn: Callable[..., Awaitable[_ChildProcess]] | None = None,
         warm_children: int = 0,
         reclaim: Callable[[str], Awaitable[None]] | None = None,
@@ -219,6 +220,7 @@ class Worker:
             # Ungated: the supervisor only trims on its reclaim path, which `reclaim` gates.
             trim_retained=trim_retained,
             memory_budget_bytes=memory_budget_bytes,
+            resident_budget_bytes=resident_budget_bytes,
             io_capacity=io_capacity,
             draining=self._draining,
             terminating=self._terminating,
@@ -637,6 +639,7 @@ def run_worker(settings: Settings | None = None) -> None:
                 drain_grace_s=settings.worker_drain_grace_s,
                 io_capacity=settings.worker_io_capacity,
                 memory_budget_bytes=settings.worker_memory_budget_bytes,
+                resident_budget_bytes=settings.worker_resident_budget_bytes,
                 reclaim=publisher.delete_stream,
                 trim_retained=publisher.trim_retained,
                 warm_children=(

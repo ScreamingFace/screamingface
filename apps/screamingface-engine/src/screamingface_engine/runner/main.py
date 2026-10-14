@@ -40,6 +40,7 @@ from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.runner.summary import RunSummary
+from screamingface_engine.subjects import RUN_ROOT_NODE
 from screamingface_engine.tracing.loader import load_span_sink
 from screamingface_engine.tracing.relay import SpanRelay
 from screamingface_engine.world.config import AigatewaySection, WorldConfig, load_config
@@ -625,6 +626,7 @@ async def _run_and_log(
             ProvenanceExecutor(executor, params.client_version),
             params.topic,
             params.url4,
+            node=RUN_ROOT_NODE,
             traceparent=traceparent,
             deadline_s=params.deadline_s,
         )

@@ -200,6 +200,18 @@ spec:
             # historical derived product so an upgrade changes no running deployment.
             # (The value binds at consumer creation — re-capping a live queue means deleting
             # and rebuilding the durable consumers, which a cutover already implies.)
+            {{- /* One per-slot value (OME-1607): `perRunCharge.memoryLimitMi` is the pod limit's
+            per-slot share AND each run's RESIDENT budget, which the worker enforces on the run's
+            process tree (`memory_budget_exceeded`). RLIMIT_AS stays the runaway backstop, a
+            stated multiple of the budget: native libraries reserve address space they never
+            touch, so a backstop near the budget would fire on reservations, not on use. */}}
+            {{- if lt (int .Values.runnerPool.perRunCharge.addressSpaceFactor) 2 }}
+            {{- fail "runnerPool.perRunCharge.addressSpaceFactor must be at least 2: the address-space backstop (RLIMIT_AS) counts reserved, never-used address space, so a backstop at or below the resident budget fires on reservations before the run uses its budget" }}
+            {{- end }}
+            - name: URL4_CLOUD_WORKER_RESIDENT_BUDGET_BYTES
+              value: {{ mul (int64 .Values.runnerPool.perRunCharge.memoryLimitMi) 1048576 | quote }}
+            - name: URL4_CLOUD_WORKER_MEMORY_BUDGET_BYTES
+              value: {{ mul (int64 .Values.runnerPool.perRunCharge.memoryLimitMi) (int64 .Values.runnerPool.perRunCharge.addressSpaceFactor) 1048576 | quote }}
             - name: URL4_CLOUD_RUN_QUEUE_MAX_ACK_PENDING
               value: {{ .Values.runnerPool.maxAckPending | default (mul .Values.runnerPool.replicas .Values.runnerPool.workerSlots) | quote }}
           # Liveness on the metrics endpoint: the scrape server runs in its own thread, so
