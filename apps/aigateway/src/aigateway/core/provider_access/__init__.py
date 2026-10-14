@@ -53,6 +53,7 @@ from .pair_admin import (
     pair_inventory,
     store_reads,
 )
+from .pair_admin_writes import PairMutation, delete_pair, set_pair_api_key
 from .pair_authority import (
     MigrationState,
     PairAuthority,
@@ -92,6 +93,7 @@ from .types import (
     CredentialStoreUnavailable,
     CredentialSummary,
     CredentialTarget,
+    PairNotManageable,
     ProviderAccessRefusal,
     ProviderUnknown,
     RequestDefaults,
@@ -145,6 +147,8 @@ __all__ = [
     "PairCredential",
     "PairDisposition",
     "PairInventory",
+    "PairMutation",
+    "PairNotManageable",
     "PairAuthorityStore",
     "ProfileBackedCredentialAdmin",
     "ProfileBackedProviderAccess",
@@ -181,6 +185,8 @@ __all__ = [
     "claim_observed",
     "claim_pair",
     "classify_pair",
+    "delete_pair",
+    "set_pair_api_key",
     "complete_connection_oauth",
     "context_stamp",
     "contract_auth_mode",

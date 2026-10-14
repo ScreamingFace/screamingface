@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, SecretStr
 
 from .profile_models import AuthType
 
@@ -38,3 +38,15 @@ class AdminConnectionConflictOut(BaseModel):
 class AdminConnectionList(BaseModel):
     connections: list[AdminConnectionOut]
     conflicts: list[AdminConnectionConflictOut]
+
+
+# NOTE: published in OpenAPI only. The route reads the raw body in an auth-dependent
+# dependency (§6.1) so authentication runs before JSON parsing and every refusal is the secret-safe
+# successor 422 — a validation error built from this model would echo input. A docstring here
+# becomes the public OpenAPI `description`, so internal notes stay in comments.
+class SetAdminConnectionApiKeyRequest(BaseModel):
+    """The one API key to attach to the provider."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    api_key: SecretStr
