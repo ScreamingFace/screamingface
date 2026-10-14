@@ -27,6 +27,7 @@ import sys
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -71,6 +72,7 @@ from screamingface_engine_inspect.envelopes import CHECK_SCHEMA, build_case_grad
 from screamingface_engine_inspect.import_replay import TaskReplayFacts, _facts_of  # noqa: E402
 from screamingface_engine_inspect.prepare import PreparedCase, _write_cases  # noqa: E402
 from screamingface_engine_inspect.scorer_adapter import inspect_grade_case  # noqa: E402
+from screamingface_engine_inspect.scorer_metrics import zero_sample_score  # noqa: E402
 from screamingface_engine_inspect.single_shot import (  # noqa: E402
     AggregateError,
     ImportedBenchmark,
@@ -663,6 +665,55 @@ async def test_a_case_whose_attempt_failed_reaches_the_metric_only_if_the_reduce
         match=r"Case 1's Attempts reduce to nan for per_task_accuracy, but fold to 1.0",
     ):
         await _aggregate_attempts(benchmark, tmp_path, grids)
+
+
+# ── 3b. one number per Case: the metric reads the score each Case Result shows ─────────────
+
+
+def test_an_abstained_case_reaches_the_metric_at_zero_with_its_metadata_kept() -> None:
+    """WHY (OME-1289, review finding on #1403): the abstain rule scores an abstained Case 0.0
+    whatever its grader said, so the metric must read 0.0 too. Only the value changes: a
+    metric that places the Case by its Score metadata (contracteval's F1 cell) still can. A
+    Case whose grader failed has no kept Score, so a bare 0.0 stands in for it."""
+
+    kept: SampleScore = SampleScore(
+        score=Score(value=1.0, answer="", metadata={"is_positive": True}),
+        sample_id=4,
+        sample_metadata={"has_clause": True},
+    )
+
+    zeroed: SampleScore = zero_sample_score(kept, 4)
+    bare: SampleScore = zero_sample_score(None, 5)
+
+    assert zeroed.score.value == 0.0
+    assert (zeroed.score.metadata, zeroed.sample_metadata) == (
+        {"is_positive": True},
+        {"has_clause": True},
+    )
+    assert kept.score.value == 1.0  # the kept Score itself is never rewritten
+    assert (bare.score.value, bare.sample_id) == (0.0, 5)
+
+
+def test_a_case_whose_score_is_not_its_case_result_score_is_refused_by_the_metrics_name() -> None:
+    """INVARIANT (review finding on #1403): the metric and the Report read one number per
+    Case, Attempts or not. A graded Case whose Score says 1.0 while its Case Result shows 0.0
+    fails by the metric's name rather than publish a headline no Case Result explains. The
+    Case score is rounded to 4 places, so 3/7 agrees with 0.4286."""
+
+    # Stand-ins for Case Results: only the fields the check reads (id, grade score, attempts).
+    split: Any = SimpleNamespace(case_id="1", grade=SimpleNamespace(score=0.0), attempts=None)
+    rounded: Any = SimpleNamespace(case_id="2", grade=SimpleNamespace(score=0.4286), attempts=None)
+
+    with pytest.raises(
+        AggregateError,
+        match=r"Case 1's Score is 1.0 for found_rate, but its Case Result shows 0.0",
+    ):
+        single_shot._check_scores_agree(
+            [split], [SampleScore(score=Score(value=1.0), sample_id=1)], "found_rate"
+        )
+    single_shot._check_scores_agree(
+        [rounded], [SampleScore(score=Score(value=3 / 7), sample_id=2)], "found_rate"
+    )
 
 
 # ── 4. the row ───────────────────────────────────────────────────────────────────────────

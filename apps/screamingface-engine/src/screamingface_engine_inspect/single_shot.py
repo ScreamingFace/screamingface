@@ -1218,9 +1218,12 @@ def _whole_run_tally(
               never reaches a metric, as with the mean). Each one's Score was filed by the
               scorer adapter in ``kept`` under its Case id, already reduced the way inspect
               reduces a Sample before any metric runs. For a Case asked several times
-              (Attempts), that is the Task's own any-of-N reducer over its Attempt Scores,
-              and it must equal the Case's folded score, so the metric and the Report read
-              one number per Case.
+              (Attempts), that is the Task's own any-of-N reducer over its Attempt Scores.
+              An abstained Case (OME-1289) is handed over at 0.0, the score its Case Result
+              shows whatever the judge said, with the kept Score's metadata; when its grader
+              failed, so inspect filed no Score, a bare 0.0 Score stands in. Every Case's
+              Score must then equal its Case Result's score, so the metric and the Report
+              read one number per Case.
     Stage 2 — call the metric: a plain function from the same package the scorer came
               from. No ``eval()``, no solver, no model call. It is third-party code, so
               anything it raises (a metadata key the Cases lack) fails the tally by the
@@ -1244,8 +1247,9 @@ def _whole_run_tally(
     Raises:
         AggregateError: naming the metric, when it asks inspect for unreduced Scores (the
             store holds reduced ones, so it would read numbers inspect never hands it), when
-            a Case's reduced Attempt Scores disagree with its folded score (``pass_at_2`` over
-            a Case whose second Attempt failed reduces to nan, as in inspect), when it
+            a graded Case that did not abstain kept no Score, when a Case's Score disagrees
+            with its Case Result's score (``pass_at_2`` over a Case whose second Attempt
+            failed reduces to nan, as in inspect), when it
             raises, or when its headline is not a finite number up to 1. A Headline Score
             is higher-is-better up to 1, so xstest's 0..100 ``refusal_rate`` is refused,
             never clipped or rescaled. For a dict, also when the row names no headline key,
@@ -1272,12 +1276,10 @@ def _whole_run_tally(
         )
 
     def tally(cases: Sequence[CaseResult]) -> CandidateScore:
-        # Stage 1 — the graded Cases' kept Scores, in roll-call order.
-        try:
-            samples: list[Any] = [kept[int(case.case_id)] for case in cases]
-        except KeyError as missing:
-            raise AggregateError(f"graded Case {missing} kept no Score for {name}") from None
-        _check_attempts_agree(cases, samples, name)
+        # Stage 1 — the graded Cases' Scores, in roll-call order; an abstained Case's is 0.0,
+        # the score its Case Result shows (OME-1289), kept Score or not.
+        samples: list[Any] = [_metric_sample(case, kept, name) for case in cases]
+        _check_scores_agree(cases, samples, name)
         # Stage 2 — the eval's own tally sheet. WHY catch everything: the metric is the
         # eval's code, and a bare KeyError after every Candidate call is paid names nothing.
         try:
@@ -1376,30 +1378,59 @@ def _beside(
     return {**tally_metrics, **run_metrics}
 
 
-def _check_attempts_agree(
+def _metric_sample(case: CaseResult, kept: Mapping[int, Any], metric_name: str) -> Any:
+    """The Score one graded Case hands the whole-run metric: its kept Score, or 0.0 when it
+    abstained (OME-1289), the score its Case Result shows whatever the judge said.
+
+    WHY an abstained Case needs no kept Score: the abstain rule keeps it at 0.0 even when its
+    grader failed, and then inspect filed none; the run must not stop after every model call
+    is paid. Any other graded Case without one is a filing bug, refused by the metric's name.
+    """
+
+    from screamingface_engine_inspect.scorer_metrics import zero_sample_score
+
+    case_id: int = int(case.case_id)
+    if case.abstained:
+        return zero_sample_score(kept.get(case_id), case_id)
+    if case_id not in kept:
+        raise AggregateError(f"graded Case {case_id} kept no Score for {metric_name}")
+    return kept[case_id]
+
+
+def _check_scores_agree(
     cases: Sequence[CaseResult], samples: Sequence[Any], metric_name: str
 ) -> None:
-    """Refuse a Case with Attempts whose reduced Score is not the score its Case Result shows.
+    """Refuse a graded Case whose Score is not the score its Case Result shows.
 
-    INVARIANT (OME-1527 x OME-1458): the metric and the Report read one number per Case. The
-    fold credits a Check met by any graded Attempt; inspect's any-of-N reducers compute the
-    same over 0/1 Attempt Scores, so they agree, except where the reducer reads the Attempts
-    differently: ``pass_at(2)`` over a Case whose second Attempt failed has one Score, which
-    inspect reduces to nan, while the fold scores the graded one.
+    INVARIANT (OME-1527): the metric and the Report read one number per Case, so any split
+    fails by the metric's name here rather than publish a headline no Case Result explains.
+    Attempts (OME-1458) can split them: the fold credits a Check met by any graded Attempt,
+    and inspect's any-of-N reducers compute the same over 0/1 Attempt Scores, except
+    ``pass_at(2)`` over a Case whose second Attempt failed, which inspect reduces to nan while
+    the fold scores the graded one. So can any rewrite of a Case score the tally does not
+    also hand the metric (the abstain rule's 0.0 is handed over in Stage 1 of the tally). The
+    Case score is rounded to 4 places, so the Score is compared at that precision.
     """
 
     from screamingface_engine_inspect.scorer_metrics import score_value_as_float
 
     for case, sample in zip(cases, samples, strict=True):
-        if case.attempts is None or case.grade is None:
+        if case.grade is None:
             continue
-        reduced: float = score_value_as_float(sample.score.value)
-        if reduced != case.grade.score:
+        value: float = score_value_as_float(sample.score.value)
+        if round(value, 4) == case.grade.score:
+            continue
+        if case.attempts is not None:
             raise AggregateError(
-                f"graded Case {case.case_id}'s Attempts reduce to {reduced} for {metric_name}, "
+                f"graded Case {case.case_id}'s Attempts reduce to {value} for {metric_name}, "
                 f"but fold to {case.grade.score}; the metric would read a number the Case "
                 "Result does not show"
             )
+        raise AggregateError(
+            f"graded Case {case.case_id}'s Score is {value} for {metric_name}, but its Case "
+            f"Result shows {case.grade.score}; the metric would read a number the Case "
+            "Result does not show"
+        )
 
 
 def _is_headline(value: object) -> bool:

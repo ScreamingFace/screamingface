@@ -375,21 +375,24 @@ async def test_the_run_publishes_its_verdict_counts_for_the_grading_warning(
     ) == (10, 10, 0)
 
 
+@pytest.mark.parametrize("key", _KEYS)
 @pytest.mark.asyncio
 async def test_an_abstained_case_costs_one_case_at_zero_though_the_judge_still_rates_it(
-    tmp_path: Path, judge: _ScriptedJudge, prepared: list[PreparedCase]
+    key: str, tmp_path: Path, judge: _ScriptedJudge, prepared: list[PreparedCase]
 ) -> None:
     """WHY (OME-1289): a Fusion that found no answer costs one Case, never a hole in the mean.
     Case 1 answers (0.25). Case 4 abstains, yet the judge still rates its empty answer and its
     scripted verdicts (met, met) would score 1.0: the lane replaces that with 0.0 and keeps the
     judge's Check, as the hand-built Benchmark did (its end-to-end abstain test went with the
-    folder). Headline (0.25 + 0.0) / 2 = 0.125."""
+    folder). Headline (0.25 + 0.0) / 2 = 0.125 on BOTH Benchmarks: professional's whole-run
+    metric (the official clip) must read the 0.0 the Case Result shows, not the judge's 1.0,
+    or it would publish (0.25 + 1.0) / 2 = 0.625 (review finding on #1403)."""
 
     _write_cases(prepared, tmp_path)
     rows: str = json.dumps([_row(1, _CASES[0][1]), _abstained_row(4)])
 
     result: dict[str, Any] = await benchmark_aggregate_async(
-        imported_benchmark("healthbench-worst30"), rows, tmp_path, case_ids=(1, 4)
+        imported_benchmark(key), rows, tmp_path, case_ids=(1, 4)
     )
 
     answered, abstained = result["cases"]
@@ -400,6 +403,32 @@ async def test_an_abstained_case_costs_one_case_at_zero_though_the_judge_still_r
         "items"
     ]
     assert [item["met"] for item in items] == [True, True]
+    assert result["score"] == 0.125
+
+
+@pytest.mark.parametrize("key", _KEYS)
+@pytest.mark.asyncio
+async def test_an_abstained_case_whose_judge_fails_still_costs_one_case_at_zero(
+    key: str, tmp_path: Path, judge: _ScriptedJudge, prepared: list[PreparedCase]
+) -> None:
+    """WHY (OME-1289): the abstain rule keeps an abstained Case at 0.0 even when its grader
+    fails, so the run still has a number after every model call is paid. Case 5 abstains and
+    its judge never gives line 1 a verdict (the scorer fails, so inspect files no Score for
+    it): the Case Result shows 0.0, and professional's whole-run metric must read that 0.0
+    too, never stop the run because the Case has no Score (review finding on #1403).
+    Headline (0.25 + 0.0) / 2 = 0.125 on both Benchmarks."""
+
+    _write_cases(prepared, tmp_path)
+    rows: str = json.dumps([_row(1, _CASES[0][1]), _abstained_row(5)])
+
+    result: dict[str, Any] = await benchmark_aggregate_async(
+        imported_benchmark(key), rows, tmp_path, case_ids=(1, 5)
+    )
+
+    answered, abstained = result["cases"]
+    assert (answered["status"], answered["grade"]["score"]) == ("scored", 0.25)
+    assert (abstained["status"], abstained["grade"]["score"]) == ("scored", 0.0)
+    assert abstained.get("abstained") is True
     assert result["score"] == 0.125
 
 

@@ -154,6 +154,21 @@ def score_value_as_float(value: Any) -> float:
     return float(value_to_float()(value))
 
 
+def zero_sample_score(kept: Any | None, sample_id: int) -> Any:
+    """A Case's mark rewritten to 0.0 for a whole-run metric: the kept one with its value
+    replaced and its metadata kept, or a bare 0.0 Score when inspect filed none.
+
+    WHY keep the metadata: a metric may read it to place the Case (contracteval's F1 files it
+    in a cell by ``is_positive``), and only the value is what the abstain rule changes.
+    """
+
+    from inspect_ai.scorer import SampleScore, Score
+
+    if kept is None:
+        return SampleScore(score=Score(value=0.0), sample_id=sample_id)
+    return kept.model_copy(update={"score": kept.score.model_copy(update={"value": 0.0})})
+
+
 def scorer_registry_name(scorer: Any) -> str:
     """The unqualified registry name of a scorer or its constructor (``f1`` for
     ``inspect_ai.scorer.f1``) — the name a Named Score column carries.
