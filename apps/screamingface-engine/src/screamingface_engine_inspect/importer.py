@@ -41,8 +41,10 @@ import json
 import re
 import sys
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from inspect import BoundArguments, Parameter, Signature
 from pathlib import Path
 from types import CodeType, FunctionType
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -399,15 +401,23 @@ def _check_kept_scorers(
 
 def _resolve_scorer(scorer: Any, module: Any) -> tuple[str, dict[str, Any], str]:
     """One scorer as a dotted constructor reference, its literal creation kwargs, and its
-    registry name."""
+    registry name.
+
+    The kwargs are inspect's LOG of the creation arguments. When the import child's recorder
+    kept the arguments as passed (:func:`recorded_scorer_arguments`), each logged value must
+    be the argument itself, or the scorer is refused by name (OME-1602, F1). Without a
+    record (an in-process caller) the log is read as before.
+    """
 
     from inspect_ai._util.registry import registry_info, registry_params
 
     registry_name: str = registry_info(scorer).name
     package, _, name = registry_name.rpartition("/")
-    params: dict[str, Any] = {
-        key: value for key, value in registry_params(scorer).items() if _is_literal(value)
-    }
+    logged: dict[str, Any] = dict(registry_params(scorer))
+    passed: dict[str, Any] | None = getattr(scorer, _PASSED_ARGUMENTS, None)
+    if passed is not None:
+        _refuse_unwritable_arguments(name, logged, passed)
+    params: dict[str, Any] = {key: value for key, value in logged.items() if _is_literal(value)}
     if package == "inspect_ai":
         import inspect_ai.scorer as scorer_module
 
@@ -420,6 +430,108 @@ def _resolve_scorer(scorer: Any, module: Any) -> tuple[str, dict[str, Any], str]
         f"cannot resolve scorer {registry_name!r} to an importable constructor — "
         "add the row by hand with the eval's own scorer reference"
     )
+
+
+#: The attribute the recorder sets on each scorer it sees: the creation arguments as passed.
+_PASSED_ARGUMENTS: str = "__screamingface_passed_arguments__"
+
+#: Stands for an argument the record lacks, so it can never equal a logged value.
+_NOT_RECORDED: object = object()
+
+
+@contextmanager
+def recorded_scorer_arguments() -> Iterator[None]:
+    """While open, every scorer created keeps its arguments exactly as the eval passed them.
+
+    WHY: inspect logs a scorer's creation arguments in a form it can serialise, and the row is
+    written from that log. A function becomes its name (drop's ``answer_fn`` is logged as
+    ``'extract_answer'``) and an object becomes a dict or its type's name, so the log alone
+    cannot tell a real string from a function's name (OME-1602, F1). The record sits on the
+    scorer object itself, beside inspect's own registry attributes, with ``**kwargs``
+    flattened the way inspect flattens them, so the two compare key by key.
+
+    AIDEV-NOTE: this wraps the private ``inspect_ai.scorer._scorer.registry_tag`` (pinned
+    inspect_ai 0.3.263), the call every ``@scorer`` constructor makes once it has built the
+    scorer; ``scorer_wrapper`` looks the name up at call time, so rebinding it here is seen.
+    Re-verify on any pin bump.
+    """
+
+    from inspect_ai.scorer import _scorer as scorer_module
+
+    # WHY getattr: the module re-exports registry_tag by name only, not as public API.
+    original: Callable[..., None] = getattr(scorer_module, "registry_tag")
+
+    def recording_tag(
+        constructor: Callable[..., Any], tagged: object, info: Any, /, *args: Any, **kwargs: Any
+    ) -> None:
+        """inspect's registry_tag, then the arguments as passed, kept on the scorer."""
+
+        original(constructor, tagged, info, *args, **kwargs)
+        setattr(tagged, _PASSED_ARGUMENTS, _passed_arguments(constructor, args, kwargs))
+
+    setattr(scorer_module, "registry_tag", recording_tag)
+    try:
+        yield
+    finally:
+        setattr(scorer_module, "registry_tag", original)
+
+
+def _passed_arguments(
+    constructor: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    """The arguments bound to the constructor's parameters, ``**kwargs`` flattened by name, as
+    inspect's ``extract_named_params`` binds them (without defaults)."""
+
+    signature: Signature = Signature.from_callable(constructor)
+    bound: BoundArguments = signature.bind(*args, **kwargs)
+    variadic: str | None = next(
+        (
+            name
+            for name, parameter in signature.parameters.items()
+            if parameter.kind is Parameter.VAR_KEYWORD
+        ),
+        None,
+    )
+    passed: dict[str, Any] = {}
+    for name, value in bound.arguments.items():
+        if name == variadic and isinstance(value, dict):
+            passed.update(value)
+        else:
+            passed[name] = value
+    return passed
+
+
+def _refuse_unwritable_arguments(
+    scorer_name: str, logged: Mapping[str, Any], passed: Mapping[str, Any]
+) -> None:
+    """Refuse a scorer whose logged argument is not the argument the eval passed (F1).
+
+    An argument is faithful only when the passed value is a plain literal AND equals what
+    inspect logged (a tuple equals the list it is logged as). Example: ``keyed(answer_fn=
+    extract_answer)`` logs ``answer_fn='extract_answer'``; the passed value is a function,
+    not a literal, so it is refused. This also refuses an object the old reader dropped or
+    wrote as its logged dict.
+    """
+
+    for argument, logged_value in logged.items():
+        value: Any = passed.get(argument, _NOT_RECORDED)
+        if _is_literal(value) and _as_logged(value) == logged_value:
+            continue
+        raise ImporterError(
+            f"scorer {scorer_name} is created with {argument}={logged_value!r}, but that is how "
+            f"inspect logs a {type(value).__name__} it cannot write down; the row would "
+            "rebuild the scorer with a different value. Add the row by hand (OME-1602)"
+        )
+
+
+def _as_logged(value: Any) -> Any:
+    """A literal as inspect logs it: tuples become lists, inside containers too."""
+
+    if isinstance(value, dict):
+        return {key: _as_logged(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_as_logged(item) for item in value]
+    return value
 
 
 def _solver_list(solvers: Any) -> list[Any]:
