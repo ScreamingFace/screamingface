@@ -1,0 +1,38 @@
+{
+  "issue": "OME-1498",
+  "branch": "OME-1498-admin-ui-connection-api",
+  "approver": "owner (in the OME-1498 session, 2026-10-14)",
+  "date": "2026-10-14",
+  "scope": "Admin UI moves from the name-addressed Profile admin routes to the pair-addressed Connection admin API (D18). Tests that pinned listProfiles, setApiKey, deleteProfile, deleteProfileAction, the default-name fallback, the Name and Label columns and the Profile name field are rewritten to listConnections, setConnectionApiKey, deleteConnection, deleteConnectionAction, the Key hint column and a form without a name. The protective invariants carry over unchanged: write-only key, secret scrub, encoded path segments, arm-before-delete, bug rethrow, success-only revalidation, body exactly {api_key}, nothing upstream-derived in a log line.",
+  "reason": "Owner decision 2026-10-14: remove the legacy UI code instead of keeping it beside the new code, and rewrite the prior tests to the new contract (spec docs/spec/2026-10-02-provider-credential-admin-contract.md section 8 requires removing the name field, the Name column, name bindings and the default fallback).",
+  "files": {
+    "apps/aigateway-ui/src/app/accounts/[id]/credentials/new/form.test.tsx": {
+      "base_blob": "b1c628cc07387a033f0e86f44ca4a29a5375ce06",
+      "approved_blob": "8f8694e0dcfdb0e039b36ee907320cfe0a50dd25"
+    },
+    "apps/aigateway-ui/src/app/accounts/[id]/credentials/new/page.test.tsx": {
+      "base_blob": "2a23abb7326370e55d00b0a7e3db6400bb649457",
+      "approved_blob": "0cbcedbbd55aa43827cd4871eb10e989eb3feb85"
+    },
+    "apps/aigateway-ui/src/app/accounts/[id]/detail.test.tsx": {
+      "base_blob": "b59f26612d3d06651c72536d808b8b271634ceeb",
+      "approved_blob": "e9adbb2a866caa7f82e959fb02a569865a2e81f8"
+    },
+    "apps/aigateway-ui/src/app/accounts/[id]/page.test.tsx": {
+      "base_blob": "8258b70558a233c322b663ed4b5d5de5b36372f3",
+      "approved_blob": "31d573dd6eb0c969bd5f4046fa49d32ece064430"
+    },
+    "apps/aigateway-ui/src/app/actions.test.ts": {
+      "base_blob": "a1c57a5355fa8a0b48badc5d84b0f494af8c907f",
+      "approved_blob": "6bef361a29de830df3c8ff68bf65db6e037bff6a"
+    },
+    "apps/aigateway-ui/src/lib/aigateway/client-log.test.ts": {
+      "base_blob": "1f690fd8b510f5ed2d37755971a4ce3895bda4c0",
+      "approved_blob": "2c2efe62a486fe71e5de6f6f9e3cae159c3e7870"
+    },
+    "apps/aigateway-ui/src/lib/aigateway/client.test.ts": {
+      "base_blob": "40d438bf71b42810da1a92959d4cfef8b406d079",
+      "approved_blob": "a8817e54db6322b1a15fbaa957b8aa5d47ee0ed9"
+    }
+  }
+}

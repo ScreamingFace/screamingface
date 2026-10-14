@@ -11,12 +11,13 @@
   authority. This app never keeps a copy, never gates on an email itself, and renders whatever
   the API returns — a 403 becomes the not-an-admin page.
 - **API keys are write-only.** Submitted, never rendered back, never logged, never round-tripped
-  through a form's default value. aigateway returns only a masked `account_label`.
+  through a form's default value. aigateway returns nothing derived from the key: the
+  pair-addressed credential API's `masked_key_hint` is always `null`.
 - **`X-User-Email` is read from the incoming request, never constructed.** It arrives from Envoy
   after Cloudflare Access verified it. Do not accept it as a query parameter, a cookie, or user
   input of any kind.
-- **No OAuth.** Credentials in this console are static provider API keys. aigateway's OAuth
-  profile/connection endpoints exist but are deliberately not surfaced here.
+- **No OAuth sign-in.** Credentials attached here are static provider API keys. An OAuth
+  connection made elsewhere is listed and can be detached, but this console never starts a flow.
 - **Design law is the `screamingface-design` skill — SFDS v2**, vendored at
   `src/brand/tokens/tokens.css` from `brand.screamingface.ai`. (This replaced the OpenMined Design
   System in OME-716; an owner decision reversed by an owner decision. Do not reintroduce OMDS.)

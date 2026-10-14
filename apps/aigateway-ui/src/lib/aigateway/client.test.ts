@@ -22,11 +22,12 @@ const {
   AdminApiError,
   callerEmail,
   createAccount,
-  deleteProfile,
+  deleteConnection,
   getAccount,
   listAccounts,
+  listConnections,
   listProviders,
-  setApiKey,
+  setConnectionApiKey,
 } = await import("./client");
 
 const BASE = "http://gateway.test:9105";
@@ -144,17 +145,37 @@ describe("path segments are encoded", () => {
 
   it("encodes the provider segment", async () => {
     // `provider` is free text whenever discovery fails and the form falls back to a typed id.
-    await deleteProfile("acc-1", "../..", "default");
+    await deleteConnection("acc-1", "../..");
 
     // `encodeURIComponent("../..")` is `..%2F..` — what matters is that no literal `/` survives
     // inside the segment, so the path cannot grow a level.
-    expect(new URL(requestedUrl()).pathname).toContain("/profiles/..%2F../default");
+    expect(new URL(requestedUrl()).pathname).toBe("/v1/admin/accounts/acc-1/connections/..%2F..");
   });
 
-  it("encodes the profile name segment", async () => {
-    await setApiKey("acc-1", "anthropic", "with space", { api_key: "k" });
+  it("encodes the provider segment of a key write", async () => {
+    await setConnectionApiKey("acc-1", "with space", { api_key: "k" });
 
-    expect(new URL(requestedUrl()).pathname).toContain("with%20space");
+    expect(new URL(requestedUrl()).pathname).toBe(
+      "/v1/admin/accounts/acc-1/connections/with%20space/api-key",
+    );
+  });
+
+  it.each(["", ".", ".."])(
+    "refuses a %j segment, which a URL parser would collapse into the parent path",
+    async (provider) => {
+      // `encodeURIComponent` leaves dots alone, and `%2E` is a dot segment to the URL parser too:
+      // `/connections/../api-key` would become `/v1/admin/accounts/<id>/api-key`.
+      await expect(setConnectionApiKey("acc-1", provider, { api_key: "k" })).rejects.toMatchObject({
+        kind: "invalid",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("encodes the account segment of the credential list", async () => {
+    await listConnections("a/b");
+
+    expect(new URL(requestedUrl()).pathname).toBe("/v1/admin/accounts/a%2Fb/connections");
   });
 });
 
@@ -263,7 +284,7 @@ describe("responses", () => {
   it("tolerates an empty 204", async () => {
     fetchMock.mockReturnValueOnce(respond(204));
 
-    await expect(deleteProfile("a", "p", "n")).resolves.toBeUndefined();
+    await expect(deleteConnection("a", "p")).resolves.toBeUndefined();
   });
 
   it("is never served from cache", async () => {
@@ -280,25 +301,126 @@ describe("responses", () => {
   });
 });
 
-// --- the key write carries no saved defaults (OME-1322) -----------------------------------------
+// --- the pair-addressed credential API (OME-1498, D18 §2-§4) -------------------------------------
 
-describe("setApiKey", () => {
-  // INVARIANT (OME-1138 Stage C, UI-first): the console never authors saved Profile defaults. The
-  // body is exactly `{ "api_key": … }` — no `defaults` property, not even `null` — so the gateway's
-  // later rejection of defaults-carrying writes cannot trip on this console.
-  it("sends a body whose only key is api_key, on the unchanged legacy endpoint", async () => {
-    fetchMock.mockImplementation(() => respond(200, { id: "p1" }));
-    // WHY a non-literal: a stale caller object can still carry the old property at runtime, and
-    // the wire must not follow it.
-    const stale = { api_key: "sk-live-secret-value", defaults: null };
+describe("listConnections", () => {
+  it("reads one account's credentials by pair, with its conflicts", async () => {
+    const list = {
+      connections: [
+        {
+          provider: "openai",
+          auth_type: "api_key",
+          credential_state: "active",
+          masked_key_hint: null,
+          last_refreshed_at: null,
+        },
+      ],
+      conflicts: [{ provider: "anthropic", code: "credential_pair_ambiguous", message: "m" }],
+    };
+    fetchMock.mockReturnValueOnce(respond(200, list));
 
-    await setApiKey("acc-1", "openai", "default", stale);
+    await expect(listConnections("acc-1")).resolves.toEqual(list);
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(new URL(url).pathname).toBe("/v1/admin/accounts/acc-1/profiles/openai/default/api-key");
+    expect(new URL(url).pathname).toBe("/v1/admin/accounts/acc-1/connections");
+    expect(init.method ?? "GET").toBe("GET");
+  });
+});
+
+describe("setConnectionApiKey", () => {
+  // INVARIANT (D18 §2, §6.1): the successor PUT accepts exactly `{ "api_key": … }` and refuses any
+  // other property with 422 — so the body is built from `api_key` alone, never by serialising the
+  // caller's object, which can still carry a stale `name` or `defaults` at runtime.
+  it("sends a body whose only key is api_key, addressed by account and provider only", async () => {
+    fetchMock.mockImplementation(() => respond(200, { provider: "openai" }));
+    const stale = { api_key: "sk-live-secret-value", defaults: null, name: "default" };
+
+    await setConnectionApiKey("acc-1", "openai", stale);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(new URL(url).pathname).toBe("/v1/admin/accounts/acc-1/connections/openai/api-key");
     expect(init.method).toBe("PUT");
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-    expect(Object.keys(body)).toEqual(["api_key"]);
     expect(body).toEqual({ api_key: "sk-live-secret-value" });
+  });
+});
+
+describe("deleteConnection", () => {
+  it("disconnects a provider by pair and answers nothing", async () => {
+    fetchMock.mockReturnValueOnce(respond(204));
+
+    await expect(deleteConnection("acc-1", "openai")).resolves.toBeUndefined();
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(new URL(url).pathname).toBe("/v1/admin/accounts/acc-1/connections/openai");
+    expect(init.method).toBe("DELETE");
+  });
+});
+
+describe("successor error codes are dispatched before the status (D18 §7)", () => {
+  it.each([
+    // Retryable: the gateway lost a CAS after its own retries, beside the legacy index conflict.
+    [503, "credential_write_conflict", "conflict"],
+    [503, "profile_index_conflict", "conflict"],
+    // Never retried: the state moved, or the pair cannot be addressed or managed safely.
+    [409, "credential_publication_superseded", "superseded"],
+    [409, "credential_pair_ambiguous", "ambiguous"],
+    [409, "credential_pair_unresolved", "unresolved"],
+    // A storage or authority outage is temporary — not the admin API being switched off.
+    [503, "credential_authority_unavailable", "temporary"],
+    [503, "credential_store_read_unavailable", "temporary"],
+    [503, "credential_store_unavailable", "temporary"],
+  ])("maps %i %s to kind %s", async (status, code, kind) => {
+    fetchMock.mockReturnValueOnce(
+      respond(status, { detail: { code, message: "controlled", provider: "openai" } }),
+    );
+
+    await expect(listConnections("acc-1")).rejects.toMatchObject({ kind, status });
+  });
+
+  it.each([
+    // The provider refused the key itself: the operator fixes it at the provider, not here.
+    [403, "api_key_permission_denied", "invalid"],
+    [402, "api_key_no_quota", "invalid"],
+    // The provider's key check could not run just now — retry later, nothing is misconfigured.
+    [429, "api_key_validation_rate_limited", "temporary"],
+    [503, "api_key_validation_unavailable", "temporary"],
+    // Neither "not an administrator" nor "admin API disabled": the gateway's own copy says it.
+    [503, "api_key_validation_misconfigured", "unknown"],
+  ])("maps the key check's %i %s to kind %s, not to the status's advice", async (status, code, kind) => {
+    fetchMock.mockReturnValueOnce(respond(status, { detail: { code, message: "gateway copy" } }));
+
+    await expect(setConnectionApiKey("acc-1", "openai", { api_key: "k" })).rejects.toMatchObject({
+      kind,
+      message: "gateway copy",
+    });
+  });
+
+  it("keeps a bare or unknown-coded 503 as the deployment-level unavailable", async () => {
+    fetchMock.mockReturnValueOnce(respond(503, { detail: "Admin API is disabled" }));
+    await expect(listConnections("acc-1")).rejects.toMatchObject({ kind: "unavailable" });
+
+    fetchMock.mockReturnValueOnce(respond(503, { detail: { code: "admin_api_disabled" } }));
+    await expect(listConnections("acc-1")).rejects.toMatchObject({ kind: "unavailable" });
+  });
+
+  it("falls back to the status for a code it does not know, even an inherited property name", async () => {
+    fetchMock.mockReturnValueOnce(respond(409, { detail: { code: "constructor" } }));
+
+    await expect(listConnections("acc-1")).rejects.toMatchObject({ kind: "conflict" });
+  });
+
+  it("keeps the gateway's controlled message and detail on the error", async () => {
+    const detail = {
+      code: "credential_pair_unresolved",
+      message: "The provider credential cannot be managed safely. Resolve its state before retrying.",
+      provider: "openai",
+    };
+    fetchMock.mockReturnValueOnce(respond(409, { detail }));
+
+    await expect(deleteConnection("acc-1", "openai")).rejects.toMatchObject({
+      message: detail.message,
+      detail,
+    });
   });
 });

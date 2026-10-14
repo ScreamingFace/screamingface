@@ -14,8 +14,8 @@ vi.mock("next/cache", () => ({ revalidatePath: (...args: unknown[]) => revalidat
 
 const createAccount = vi.fn();
 const patchAccount = vi.fn();
-const setApiKey = vi.fn();
-const deleteProfile = vi.fn();
+const setConnectionApiKey = vi.fn();
+const deleteConnection = vi.fn();
 
 // Spread the real module so `AdminApiError` keeps ONE identity — `describeFailure` narrows with
 // `instanceof`, and a second copy of the class would make every error look like a bug instead.
@@ -25,13 +25,13 @@ vi.mock("@/lib/aigateway/client", async (importOriginal) => {
     ...actual,
     createAccount: (...args: unknown[]) => createAccount(...args),
     patchAccount: (...args: unknown[]) => patchAccount(...args),
-    setApiKey: (...args: unknown[]) => setApiKey(...args),
-    deleteProfile: (...args: unknown[]) => deleteProfile(...args),
+    setConnectionApiKey: (...args: unknown[]) => setConnectionApiKey(...args),
+    deleteConnection: (...args: unknown[]) => deleteConnection(...args),
   };
 });
 
 const { AdminApiError } = await import("@/lib/aigateway/client");
-const { createAccountAction, deleteProfileAction, setAccountActiveAction, setApiKeyAction } =
+const { createAccountAction, deleteConnectionAction, setAccountActiveAction, setApiKeyAction } =
   await import("./actions");
 
 function form(fields: Record<string, string>): FormData {
@@ -150,11 +150,11 @@ describe("setApiKeyAction", () => {
     const state = await setApiKeyAction(null, form({ ...base, ...patch }));
 
     expect(state).toEqual({ ok: false, error, field });
-    expect(setApiKey).not.toHaveBeenCalled();
+    expect(setConnectionApiKey).not.toHaveBeenCalled();
   });
 
   it("NEVER returns the raw key, even if the gateway echoes it back", async () => {
-    setApiKey.mockRejectedValue(
+    setConnectionApiKey.mockRejectedValue(
       new AdminApiError("invalid", 422, "Input should be valid: sk-live-secret-value"),
     );
 
@@ -170,7 +170,7 @@ describe("setApiKeyAction", () => {
   });
 
   it("keeps a gateway message that does not contain the key", async () => {
-    setApiKey.mockRejectedValue(new AdminApiError("invalid", 422, "The provider rejected this key."));
+    setConnectionApiKey.mockRejectedValue(new AdminApiError("invalid", 422, "The provider rejected this key."));
 
     const state = await setApiKeyAction(null, form(base));
 
@@ -186,7 +186,7 @@ describe("setApiKeyAction", () => {
   // needs different words from a gateway that could not be reached, and the two arrive on the
   // same field with messages that cannot be told apart programmatically.
   it("carries the gateway's error kind so a form can tell the causes apart", async () => {
-    setApiKey.mockRejectedValue(new AdminApiError("unreachable", 0, "The gateway did not answer."));
+    setConnectionApiKey.mockRejectedValue(new AdminApiError("unreachable", 0, "The gateway did not answer."));
 
     const state = await setApiKeyAction(null, form(base));
 
@@ -203,42 +203,57 @@ describe("setApiKeyAction", () => {
 
     expect(state).not.toHaveProperty("kind");
   });
+
+  it("tells the operator to reload, not resubmit, when the credential changed meanwhile", async () => {
+    setConnectionApiKey.mockRejectedValue(
+      new AdminApiError("superseded", 409, "Credential state changed. Reload before submitting another change."),
+    );
+
+    const state = await setApiKeyAction(null, form(base));
+
+    expect(state).toMatchObject({ ok: false, field: "api_key", kind: "superseded" });
+    expect((state as { error: string }).error).toMatch(/reload/i);
+    expect(JSON.stringify(state)).not.toContain("sk-live-secret-value");
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
 });
 
-describe("deleteProfileAction", () => {
-  it("detaches the credential and purges the console", async () => {
-    deleteProfile.mockResolvedValue(undefined);
+describe("deleteConnectionAction", () => {
+  it("disconnects the provider by pair and purges the console", async () => {
+    deleteConnection.mockResolvedValue(undefined);
 
-    const state = await deleteProfileAction("a1", "openai", "default");
+    const state = await deleteConnectionAction("a1", "openai");
 
-    expect(deleteProfile).toHaveBeenCalledWith("a1", "openai", "default");
+    expect(deleteConnection).toHaveBeenCalledWith("a1", "openai");
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
     expect(state).toEqual({ ok: true });
   });
 
   it.each([
-    { accountId: "", provider: "openai", name: "default", missing: "account" },
-    { accountId: "a1", provider: "", name: "default", missing: "provider" },
-    { accountId: "a1", provider: "openai", name: "", missing: "name" },
-  ])("refuses a credential with no $missing", async ({ accountId, provider, name }) => {
-    const state = await deleteProfileAction(accountId, provider, name);
+    { accountId: "", provider: "openai", missing: "account" },
+    { accountId: "a1", provider: "", missing: "provider" },
+  ])("refuses a credential with no $missing", async ({ accountId, provider }) => {
+    const state = await deleteConnectionAction(accountId, provider);
 
     expect(state).toEqual({ ok: false, error: "That credential could not be identified." });
-    expect(deleteProfile).not.toHaveBeenCalled();
+    expect(deleteConnection).not.toHaveBeenCalled();
   });
 
-  it("surfaces a not-found as a plain message", async () => {
-    deleteProfile.mockRejectedValue(
-      new AdminApiError("not_found", 404, "No such profile on this account."),
-    );
+  it("carries a pair refusal's kind and leaves the cache alone", async () => {
+    deleteConnection.mockRejectedValue(new AdminApiError("ambiguous", 409, "ambiguous"));
 
-    const state = await deleteProfileAction("a1", "openai", "default");
+    const state = await deleteConnectionAction("a1", "openai");
 
-    expect(state).toEqual({
-      ok: false,
-      error: "No such profile on this account.",
-      kind: "not_found",
-    });
+    expect(state).toMatchObject({ ok: false, kind: "ambiguous" });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a gateway message for a refusal without its own advice", async () => {
+    deleteConnection.mockRejectedValue(new AdminApiError("not_found", 404, "No such account."));
+
+    const state = await deleteConnectionAction("a1", "openai");
+
+    expect(state).toEqual({ ok: false, error: "No such account.", kind: "not_found" });
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 });
@@ -260,27 +275,31 @@ describe("setApiKeyAction without saved defaults (OME-1322)", () => {
   };
 
   it("forwards only the key, ignoring stale default fields in the submission", async () => {
-    setApiKey.mockResolvedValue({ id: "p1" });
+    setConnectionApiKey.mockResolvedValue({ id: "p1" });
 
     const state = await setApiKeyAction(null, form({ ...base, name: "primary", ...staleDefaults }));
 
     expect(state).toEqual({ ok: true });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
-    expect(setApiKey).toHaveBeenCalledTimes(1);
-    expect(setApiKey).toHaveBeenCalledWith("a1", "openai", "primary", {
+    expect(setConnectionApiKey).toHaveBeenCalledTimes(1);
+    expect(setConnectionApiKey).toHaveBeenCalledWith("a1", "openai", {
       api_key: "sk-live-secret-value",
     });
     // INVARIANT: no `defaults` property at all — `null` would still be a defaults write.
-    expect(Object.keys(setApiKey.mock.calls[0][3] as object)).toEqual(["api_key"]);
+    expect(Object.keys(setConnectionApiKey.mock.calls[0][2] as object)).toEqual(["api_key"]);
   });
 
-  it("still names the default profile when the name is blank", async () => {
-    setApiKey.mockResolvedValue({ id: "p1" });
+  // INVARIANT (D18 §8): the pair is the address. A stale form that still posts `name` neither
+  // selects a credential nor gets a `default` substituted for it.
+  it("never forwards a profile name, posted or defaulted", async () => {
+    setConnectionApiKey.mockResolvedValue({ provider: "openai" });
 
     await setApiKeyAction(null, form(base));
+    await setApiKeyAction(null, form({ ...base, name: "batch" }));
 
-    expect(setApiKey).toHaveBeenCalledWith("a1", "openai", "default", {
-      api_key: "sk-live-secret-value",
-    });
+    for (const call of setConnectionApiKey.mock.calls) {
+      expect(call).toEqual(["a1", "openai", { api_key: "sk-live-secret-value" }]);
+    }
+    expect(JSON.stringify(setConnectionApiKey.mock.calls)).not.toMatch(/default|batch/);
   });
 });

@@ -89,6 +89,14 @@ it("keeps the key input write-only", async () => {
   expect(input).not.toHaveAttribute("value");
 });
 
+it("promises no key hint and no profile the pair-addressed API does not have", async () => {
+  // D18 §3: the gateway returns no key hint in this landing, and the pair is the address.
+  render(await Page(props()));
+
+  expect(screen.queryByText(/last four characters/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/profile/i)).not.toBeInTheDocument();
+});
+
 it("turns a missing tenant into a real 404", async () => {
   getAccount.mockRejectedValue(new AdminApiError("not_found", 404, "nope"));
 

@@ -4,11 +4,11 @@
  * Activate / deactivate a tenant.
  *
  * INVARIANT: no `@/lib/*` import — the server action arrives as a prop, already bound to this
- * account and to the state it moves to. See `delete-profile-button.tsx` for the same rule.
+ * account and to the state it moves to. See `delete-connection-button.tsx` for the same rule.
  *
  * The copy states the actual consequence, verified against the gateway: `account_for_identity`
  * returns None for a deactivated account and `current_account` turns that into
- * `401 Account not found or inactive`, on every request, in both auth modes. The profiles are left
+ * `401 Account not found or inactive`, on every request, in both auth modes. The credentials are left
  * alone, so this is a lockout and not a deletion.
  */
 
@@ -28,11 +28,11 @@ export type AccountStatusControlProps = {
 const ACTIVE_COPY =
   "Deactivating locks this tenant out of the gateway. Every request it sends is refused with " +
   "401 the moment the gateway resolves the account, whatever credentials are attached. The " +
-  "profiles below are left in place, so reactivating restores service without re-entering a key.";
+  "credentials below are left in place, so reactivating restores service without re-entering a key.";
 
 const INACTIVE_COPY =
   "This tenant is locked out. The gateway refuses each of its requests with 401 until it is " +
-  "reactivated; the profiles below stay attached and start working again the moment it is.";
+  "reactivated; the credentials below stay attached and start working again the moment it is.";
 
 export function AccountStatusControl({ isActive, action }: AccountStatusControlProps) {
   const [armed, setArmed] = useState(false);

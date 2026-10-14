@@ -145,12 +145,20 @@ describe("the rest of the form", () => {
     expect(hidden).toHaveValue("acct-1");
   });
 
-  it("keeps the legacy default name without presenting it as a request selector", () => {
+  // INVARIANT (D18 §8): the account and provider are the whole address. No name control, no
+  // hidden name, and no copy that tells the operator a name exists.
+  it("asks for no profile name in any form", () => {
+    const { container } = renderFields();
+
+    expect(screen.queryByLabelText(/name/i)).toBeNull();
+    expect(container.querySelector('[name="name"]')).toBeNull();
+    expect(screen.queryByText(/default/)).toBeNull();
+  });
+
+  it("does not promise a stored hint of the key the gateway no longer returns", () => {
     renderFields();
 
-    expect(screen.getByLabelText(/profile name/i)).toHaveValue("default");
-    expect(screen.queryByText(/X-Profile/)).not.toBeInTheDocument();
-    expect(screen.getByText(/effective credential for this account and provider/i)).toBeInTheDocument();
+    expect(screen.queryByText(/last four characters/i)).toBeNull();
   });
 
   it("speaks a failure with no control of its own at the top of the form", () => {
@@ -211,10 +219,10 @@ describe("saved request defaults (OME-1322)", () => {
     expect(container.querySelector("fieldset")).toBeNull();
   });
 
-  it("still submits the account, provider, name and write-only key", () => {
+  it("still submits the account, provider and write-only key — and nothing else", () => {
     const { container } = renderFields();
 
     const names = Array.from(container.querySelectorAll("[name]"), (el) => el.getAttribute("name"));
-    expect(names).toEqual(["account_id", "provider", "name", "api_key"]);
+    expect(names).toEqual(["account_id", "provider", "api_key"]);
   });
 });

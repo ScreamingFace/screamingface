@@ -74,8 +74,8 @@ export default async function AttachCredentialPage({ params }: PageProps) {
   async function attachKey(prevState: FormState, formData: FormData): Promise<ActionState> {
     "use server";
     const state = await setApiKeyAction(prevState, formData);
-    // `setApiKeyAction` has already purged the cache, so the account page renders the new profile
-    // rather than the list it was showing a moment ago.
+    // `setApiKeyAction` has already purged the cache, so the account page renders the new
+    // credential rather than the list it was showing a moment ago.
     if (state.ok) redirect(accountHref);
     return state;
   }
@@ -86,8 +86,8 @@ export default async function AttachCredentialPage({ params }: PageProps) {
       <h1 className="page-title">Attach a provider API key</h1>
       <p className="lede">
         The gateway will use this key for every request{" "}
-        {account.display_name ?? account.username} makes against this profile. It is stored
-        encrypted and never shown again — only its last four characters come back, as a label.
+        {account.display_name ?? account.username} makes to this provider, replacing any key it
+        already holds there. It is stored encrypted and never shown again.
       </p>
 
       {account.is_active ? null : (

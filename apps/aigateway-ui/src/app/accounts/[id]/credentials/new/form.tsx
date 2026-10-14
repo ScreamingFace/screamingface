@@ -11,12 +11,15 @@
  *
  * INVARIANT: the api_key control has no `value` and no `defaultValue`, from any source, ever. It
  * is write-only: the operator types a key, the action forwards it, and the browser never sees it
- * again — not on a re-render, not after a failed submit, not from the gateway (which returns only
- * a masked label). `form.test.tsx` pins this.
+ * again — not on a re-render, not after a failed submit, not from the gateway (which returns
+ * nothing derived from the key). `form.test.tsx` pins this.
  *
  * INVARIANT (OME-1138 Stage C, OME-1322): no saved request defaults. Parameters such as model,
  * temperature or max tokens are the caller's, per request — this form offers no control for them
- * and posts only account, provider, name and key.
+ * and posts only account, provider and key.
+ *
+ * INVARIANT (D18 §8): no profile name. The pair `(account, provider)` is the credential's whole
+ * address, so there is no name control, no hidden name and no `default` to keep.
  */
 
 import { useActionState, type ReactNode } from "react";
@@ -134,21 +137,8 @@ export function CredentialFields({
       )}
 
       <Field
-        label="Profile name"
-        hint={
-          <>
-            This legacy name is required by the current admin API. Keep it as <code>default</code>;
-            requests resolve the effective credential for this account and provider rather than
-            selecting one by name.
-          </>
-        }
-      >
-        <Input name="name" defaultValue="default" required autoComplete="off" spellCheck={false} />
-      </Field>
-
-      <Field
         label="API key"
-        hint="Sent straight to the gateway and stored encrypted. It is never shown again — only the last four characters are kept, as a label. To change it later, paste a new key."
+        hint="Sent straight to the gateway and stored encrypted. It is never shown again. Attaching a key for a provider that already has one replaces it."
         error={keyErrorFor(keyFailure)}
       >
         {/* INVARIANT: no value, no defaultValue. Write-only — see the file header. */}
