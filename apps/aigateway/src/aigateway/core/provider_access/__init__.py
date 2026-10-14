@@ -42,7 +42,23 @@ from .connection_oauth import (
     fail_connection_oauth,
 )
 from .defaults import apply_defaults
-from .pair_authority import PairAuthority, PairAuthorityConflict, PairAuthorityStore
+from .pair_admin import (
+    CredentialState,
+    PairConflict,
+    PairConflictKind,
+    PairCredential,
+    PairDisposition,
+    PairInventory,
+    classify_pair,
+    pair_inventory,
+    store_reads,
+)
+from .pair_authority import (
+    MigrationState,
+    PairAuthority,
+    PairAuthorityConflict,
+    PairAuthorityStore,
+)
 from .ports import ProviderAccess, ProviderCredentialAdmin, ProviderOperationalAccess
 from .profile_admin import (
     ProfileBackedCredentialAdmin,
@@ -71,6 +87,8 @@ from .types import (
     Authorization,
     AvailabilityRow,
     AvailabilityStatus,
+    CredentialAuthorityUnavailable,
+    CredentialStoreReadUnavailable,
     CredentialStoreUnavailable,
     CredentialSummary,
     CredentialTarget,
@@ -111,13 +129,22 @@ __all__ = [
     "ConnectionBackedCredentialAdmin",
     "ConnectionBackedProviderAccess",
     "ConnectionRefreshOwner",
+    "CredentialAuthorityUnavailable",
+    "CredentialState",
+    "CredentialStoreReadUnavailable",
     "CredentialStoreUnavailable",
+    "MigrationState",
     "CredentialSummary",
     "CredentialTarget",
     "FacadeTarget",
     "MigratedFlow",
     "PairAuthority",
     "PairAuthorityConflict",
+    "PairConflict",
+    "PairConflictKind",
+    "PairCredential",
+    "PairDisposition",
+    "PairInventory",
     "PairAuthorityStore",
     "ProfileBackedCredentialAdmin",
     "ProfileBackedProviderAccess",
@@ -153,6 +180,7 @@ __all__ = [
     "claim_native_write",
     "claim_observed",
     "claim_pair",
+    "classify_pair",
     "complete_connection_oauth",
     "context_stamp",
     "contract_auth_mode",
@@ -171,6 +199,7 @@ __all__ = [
     "mark_profile_error_fresh",
     "oauth_connection_store",
     "operational_access_for",
+    "pair_inventory",
     "patch_facade",
     "profileless_auth_mode",
     "provider_access_for",
@@ -181,6 +210,7 @@ __all__ = [
     "reauth_url_for",
     "republish_effective_api_key",
     "retire_effective",
+    "store_reads",
     "summary_of",
     "target_from_legacy",
 ]

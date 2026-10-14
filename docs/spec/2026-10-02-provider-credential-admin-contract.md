@@ -127,7 +127,7 @@ credential namespace; a malformed locator is never re-addressed by a fallback fo
 | # | State | LIST / mutation |
 | --- | --- | --- |
 | 1 | Store read failure | 503 `credential_store_read_unavailable`; the whole LIST refuses |
-| 2 | Unknown marker/state/auth type; inconsistent reference; malformed or out-of-scope locator | 503 `credential_authority_unavailable`; nothing is guessed |
+| 2 | Unknown marker/Connection state/auth type; inconsistent reference; malformed or out-of-scope locator | 503 `credential_authority_unavailable`; nothing is guessed. An invalid value inside the unified per-account Profile index makes that whole document unreadable and uses row 1 instead, because no provider can be named safely |
 | 3 | More than one Profile document or more than one live Connection | conflict / 409 `credential_pair_ambiguous`, whatever the marker |
 | 4 | Valid `quarantined` | conflict / 409 `credential_pair_unresolved`; quarantine is never lifted automatically |
 | 5 | `migrated` with a valid non-null effective reference | that row, including `pending`/`error` and Connection-only; a referenced missing or revoked row → 503 `credential_authority_unavailable` |
@@ -369,9 +369,10 @@ Profile and native DELETE keep their own status and body.
 Other authentication, provider and key-validation failures keep their existing contract; no broad
 rename. The existing HTTP error envelope stays. A pair error detail is exactly
 `{code, message, provider}`; a whole-account read failure is `{code, message}`; a per-provider LIST
-conflict is the pair detail without the outer envelope. An unknown migration state or an invalid
-auth state becomes the typed authority-unavailable outcome, never a raw `ValueError`. No
-migration-required code exists on the wire.
+conflict is the pair detail without the outer envelope. An unknown migration state or invalid
+Connection auth state becomes the typed authority-unavailable outcome, never a raw `ValueError`.
+An invalid Profile value inside the unified account index is the whole-account
+store-read-unavailable case from row 1. No migration-required code exists on the wire.
 
 The existing legacy outcomes are unchanged — 503 `profile_index_conflict`, 409 `profile_conflict`
 and 409 `connection_conflict` (`routes/provider_access_http.py::_write_conflict`) — with their
