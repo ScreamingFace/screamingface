@@ -412,7 +412,7 @@ async def test_recipe_s4_median_value_returns_the_weighted_median_number() -> No
     combine = operation(record, "op_synthesis_1")["combine"]
     assert combine["reducer"] == "median"
     assert combine["median"] == "10"
-    assert combine["mean"] is None
+    assert "mean" not in combine
     assert combine["result"] == {
         "member_id": None,
         "reason": None,

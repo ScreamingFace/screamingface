@@ -390,8 +390,10 @@ half, the answer is the mean of that value and the next one, so equal weights gi
 median. A member with a missing or non-positive weight is dropped. It is never the nearest pick.
 When no member is left, the Case abstains. For a number in a JSON reply, use the block form
 `sf.Reduce("median", extract=sf.Extract("field", path="answer"),
-weights=sf.signal("field:confidence"))`. A `sf.signal("score:judge")` weight raises
-`ValueError`: a Median has no judge.
+weights=sf.signal("field:confidence"), select="value")`. The block form takes `select=` as
+`sf.Median` does: `select="value"` returns the median number, and the default
+`select="nearest"` returns the text of the nearest member. A `sf.signal("score:judge")` weight
+raises `ValueError`: a Median has no judge.
 
 `sf.Mean` returns the mean of the members' numbers (`select="value"`, the default) or the text of
 the member nearest the mean (`select="nearest"`). Give it weights to make some members count more:
@@ -403,7 +405,8 @@ by_mean = sf.Fusion(routes, synthesizer=sf.Mean(weights=[1, 1, 2]))
 The sums are exact, and the division is rounded to 34 significant digits. A member with no usable
 weight is dropped: it is not in the mean and it is never the nearest member. For a number in a
 JSON reply, use the block form `sf.Reduce("mean", extract=sf.Extract("field", path="answer"),
-weights=sf.signal("field:confidence"))` (see "Combine recipes").
+weights=sf.signal("field:confidence"))` (see "Combine recipes"). The block form also takes
+`select="nearest"`.
 
 To group answers the way the benchmark grades them, let the benchmark choose the extract rule. The
 SDK reads the rule from the benchmark before any spend:
@@ -832,7 +835,7 @@ another member writes 0.8.
 | S2 | Read a number from each answer and return the answer nearest the median | `s2_median_member` |
 | S3 | Read a number from each answer and return the mean, with fixed weights | `s3_mean_static` |
 | S4 | Read the answer and the confidence of each JSON reply and return the mean weighted by confidence | `s4_mean_by_confidence` |
-| S4, median form | Read the answer and the confidence of each JSON reply and return the median weighted by confidence | `sf.Reduce("median", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"))` |
+| S4, median form | Read the answer and the confidence of each JSON reply and return the median weighted by confidence | `s4_median_by_confidence` or `sf.Reduce("median", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"), select="value")` |
 | S5 | Return the answer with the highest confidence | `s5_max_confidence` or `sf.Pick(..., output="answer")` |
 | S7 | Keep the 2 answers with the highest confidence, then a writer combines them | `s7_top_confidence` |
 | S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` or `sf.Pick(..., output="answer")` |
@@ -866,6 +869,15 @@ s4_mean_by_confidence = sf.Fusion(
     json_members,
     synthesizer=sf.Reduce(
         "mean", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence")
+    ),
+)
+s4_median_by_confidence = sf.Fusion(
+    json_members,
+    synthesizer=sf.Reduce(
+        "median",
+        extract=sf.Extract("field", path="answer"),
+        weights=sf.signal("field:confidence"),
+        select="value",
     ),
 )
 s5_max_confidence = sf.Fusion(json_members, synthesizer=sf.Pick("confidence", order="max"))

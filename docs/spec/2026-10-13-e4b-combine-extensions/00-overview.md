@@ -107,6 +107,7 @@ using its pattern or extending its patterns in a compatible way" (2026-10-13).
 | P8 | The evidence gets an optional `mean` field, and `median` is `null` for the `mean` reducer. The weighted median uses `median`. | [erd §7](erd.md) |
 | P9 | `Reduction.participants` keeps weight-dropped members out of `nearest` (ans:Q2). | [erd §5](erd.md) |
 | P10 | `sf.Mean` takes `extract` as an operator name, like `sf.Median`. A JSON-field extract (S4) uses the block form `sf.Reduce("mean", extract=sf.Extract("field", path=...))`. | [mean](prd/mean.md) §2 |
+| P11 | The `median` and `mean` blocks take `select="nearest" \| "value"`, the word of `sf.Median` and `sf.Mean`, as a second name for `mode` (playground fix, 2026-10-14). The block keeps only the mode, so no url4 changes. `sf.Median` and `sf.Mean` keep `extract` as an operator name (P10). | [weighted-median](prd/weighted-median.md) WM-5, [mean](prd/mean.md) §3 |
 
 ## 7. Open and deferred
 

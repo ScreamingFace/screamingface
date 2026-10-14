@@ -163,6 +163,7 @@ SDK mirror: [existing S/combine_evidence.py:213-227].
 |---|---|---|
 | `sf.Mean(*, extract="last_number", select="value", weights=None)` | new | [stated ans:Q1] [stated ans:Q9] |
 | `sf.Median(..., weights=None)` | `weights` is accepted (today it raises `TypeError`) | [stated ans:Q9] [existing S/reducer.py:523-527] |
+| `sf.Reduce("median" \| "mean", ..., select=...)` | `select="nearest" \| "value"` is a second name for `mode="select" \| "compute"`; the block stores only the mode, so the url4 does not change | [playground fix 2026-10-14] |
 | `sf.Judge(..., order="max")` | new `order: "max" \| "min"` | [stated prompt] [stated ans:Q11] |
 | `sf.Filter(..., judge=None)` | new `judge` | [stated ans:Q9] |
 | `sf.Pick(..., output=None)` | new `output` | [stated ans:Q9] |
