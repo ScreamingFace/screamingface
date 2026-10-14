@@ -7,7 +7,7 @@
 # INVARIANT: the first matching row decides; LIST never writes, never advances a marker and never
 # reads a provider credential; unknown or inconsistent state is never rendered as `active` or as
 # absence.
-# AIDEV-NOTE: the inventory runs over the real stores. A state no writer can produce today (an
+# NOTE: the inventory runs over the real stores. A state no writer can produce today (an
 # unknown status, a malformed locator) is planted with a raw update — that is what row 2 is for.
 """
 
