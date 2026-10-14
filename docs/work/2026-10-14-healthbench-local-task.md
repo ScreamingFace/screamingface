@@ -174,6 +174,16 @@ says the hand-built lane is for MedXpertQA.
   still pass. Pinned by the abstain test now run on both keys, a new variant where the
   abstained Case's judge fails (0.125 on both keys, no crash), and two tests in
   `test_whole_run_metric.py` (`zero_sample_score` keeps the metadata; a split Case is refused).
+  Second round: the check read a kept Score with inspect's `value_to_float`, which reads a dict
+  value as 0.0, so once #1407 lands every passing ifeval Case (dict Score, Named Scores, a
+  whole-run metric) would compare 0.0 with 1.0 and stop the run. It now reads the Score as the
+  scorer adapter does for the Case Result (`whole_run_grade`: a dict by its headline column);
+  an abstained dict value has every column zeroed; and a zeroed Score's metadata carries
+  `candidate_abstained: True`, the contract a metric reading verdicts from the metadata
+  (ifeval's) must honour (not the bare `abstained`, which contracteval's metadata already uses
+  for a "no related clause" reply). Pinned in `test_whole_run_metric.py` by a dict-valued
+  Named Score stand-in with a whole-run metric, a mismatched dict Case, and the mark on both
+  zeroed Scores.
   (2) `judge_redraw.py`'s `JudgedItem` docstring named `judge_invalid_replies`, which this PR
   deleted; it now names the `judge_redraws` evidence key. (3) `prompts.py` links simple-evals at
   `blob/main` while both rows cite `652c89d0…`. The header was left as is: `task_source` hashes

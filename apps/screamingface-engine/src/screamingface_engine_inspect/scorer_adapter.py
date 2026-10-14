@@ -507,6 +507,26 @@ def _dict_shape_problem(raw: object, names: tuple[str, ...]) -> str | None:
     return f"missing declared score key {missing[0]!r}" if missing else None
 
 
+def whole_run_grade(value: object, headline_name: str | None) -> float | None:
+    """The Case score a kept Score stands for on a row that honours a whole-run metric, read
+    as Stage 4 reads it for the Case Result: a dict value by its headline column (what
+    ``_dict_outcome`` publishes), anything else as itself; ``None`` means unmappable.
+
+    WHY inspect's letters and no flip: such a row may not rewrite its grades (the row check
+    refuses ``verdict_grades`` and ``inverted_grade`` beside a whole-run metric), so Stage 4
+    reads its headline exactly so. Worked example, ifeval's shape:
+    ``{"prompt_level_strict_accuracy": 1.0, "inst_level_strict_accuracy": 0.5}`` with that
+    headline → 1.0, where inspect's ``value_to_float`` reads the whole dict as 0.0.
+    """
+
+    raw: object = (
+        value.get(headline_name)
+        if isinstance(value, Mapping) and headline_name is not None
+        else value
+    )
+    return _score_as_float(raw, _INSPECT_LETTER_SCORE_VALUES, False)
+
+
 def _case_score(grade: float, inverted_grade: bool) -> float | None:
     """Our Case score from the eval's grade — itself, or 1 − grade on a should-refuse
     Benchmark (OME-1400); ``None`` means no score exists (failed by name, never coerced).
@@ -751,4 +771,4 @@ def _failure(code: str, detail: str, score: Score | None = None) -> CaseGradeOut
     )
 
 
-__all__ = ["inspect_grade_case"]
+__all__ = ["inspect_grade_case", "whole_run_grade"]

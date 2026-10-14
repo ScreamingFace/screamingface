@@ -57,6 +57,7 @@ from inspect_ai.scorer._reducer.registry import reducer_log_names  # noqa: E402
 from inspect_ai.solver import TaskState  # noqa: E402
 from test_importer_whole_run_choice import _row as _rendered_row  # noqa: E402
 
+from screamingface_engine.benchmarks.case_records import CANDIDATE_ABSTAINED  # noqa: E402
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import (  # noqa: E402
     CASE_ATTEMPTS_SCHEMA,
@@ -672,37 +673,117 @@ async def test_a_case_whose_attempt_failed_reaches_the_metric_only_if_the_reduce
 
 def test_an_abstained_case_reaches_the_metric_at_zero_with_its_metadata_kept() -> None:
     """WHY (OME-1289, review finding on #1403): the abstain rule scores an abstained Case 0.0
-    whatever its grader said, so the metric must read 0.0 too. Only the value changes: a
-    metric that places the Case by its Score metadata (contracteval's F1 cell) still can. A
-    Case whose grader failed has no kept Score, so a bare 0.0 stands in for it."""
+    whatever its grader said, so the metric must read 0.0 too. The value changes (every column
+    of a dict value, so its shape stays), the metadata is kept (contracteval's F1 still finds
+    the Case's cell) and gains the lane's ``candidate_abstained`` mark: the contract a metric
+    that reads verdicts from the metadata (ifeval's) must honour. A Case whose grader failed has
+    no kept Score, so a bare 0.0 stands in for it, marked the same way."""
 
     kept: SampleScore = SampleScore(
         score=Score(value=1.0, answer="", metadata={"is_positive": True}),
         sample_id=4,
         sample_metadata={"has_clause": True},
     )
+    columns: SampleScore = SampleScore(
+        score=Score(value={"strict": 1.0, "loose": 1.0}, metadata={"instructions": ["met"]}),
+        sample_id=6,
+    )
 
     zeroed: SampleScore = zero_sample_score(kept, 4)
+    zeroed_columns: SampleScore = zero_sample_score(columns, 6)
     bare: SampleScore = zero_sample_score(None, 5)
 
     assert zeroed.score.value == 0.0
     assert (zeroed.score.metadata, zeroed.sample_metadata) == (
-        {"is_positive": True},
+        {"is_positive": True, CANDIDATE_ABSTAINED: True},
         {"has_clause": True},
     )
-    assert kept.score.value == 1.0  # the kept Score itself is never rewritten
+    assert zeroed_columns.score.value == {"strict": 0.0, "loose": 0.0}
+    assert zeroed_columns.score.metadata == {"instructions": ["met"], CANDIDATE_ABSTAINED: True}
+    # the kept Score itself is never rewritten
+    assert (kept.score.value, kept.score.metadata) == (1.0, {"is_positive": True})
     assert (bare.score.value, bare.sample_id) == (0.0, 5)
+    assert bare.score.metadata == {CANDIDATE_ABSTAINED: True}
+
+
+@scorer(metrics=[accuracy()])
+def clause_columns() -> Scorer:
+    """Stand-in for ifeval's scorer: ONE Score whose value is a dict of Named Score columns,
+    the headline ``strict`` first (ifeval's ``prompt_level_strict_accuracy``), then ``loose``.
+    It does not reproduce ifeval's grading; it only gives the tally a dict-valued mark."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        found: float = 1.0 if target.text in state.output.completion else 0.0
+        return Score(value={"strict": found, "loose": 1.0}, answer=state.output.completion)
+
+    return score
+
+
+@metric
+def strict_rate() -> Metric:
+    """A whole-run metric over dict values, as ifeval's reads them: the mean strict column."""
+
+    def compute(scores: list[SampleScore]) -> float:
+        return sum(float(sample.score.value["strict"]) for sample in scores) / len(scores)
+
+    return compute
+
+
+@pytest.mark.asyncio
+async def test_a_dict_valued_named_score_case_is_read_by_its_headline_column(
+    tmp_path: Path,
+) -> None:
+    """WHY (review finding on #1403, ifeval on #1407): a dict-valued Score's number is its
+    headline column, as the scorer adapter reads it for the Case Result. inspect's
+    ``value_to_float`` reads a whole dict as 0.0, so the check would compare 0.0 with the
+    passing Case's 1.0 and stop every run. Case 1 passes (1.0), Case 2 does not (0.0):
+    headline 0.5."""
+
+    benchmark: ImportedBenchmark = single_shot_benchmark(
+        benchmark_key="clause-columns",
+        title="Clause columns",
+        description="An ifeval-shaped stand-in: one dict-valued scorer, two Named Scores.",
+        focus="Contracts",
+        dataset_url="https://example.test/contracts",
+        case_count=2,
+        revision_pins=("stand-in",),
+        scorer_factory=clause_columns,
+        named_scores=("strict", "loose"),
+        prepare=lambda out: {},
+        install=lambda node, assets: None,
+        with_check_surface=False,
+        difficulty="easy",
+        whole_run_metric_factory=strict_rate,
+    )
+
+    result: dict[str, Any] = await _aggregate(
+        benchmark, tmp_path, [True, True], ["clause 1", "nothing"]
+    )
+
+    assert [case["grade"]["score"] for case in result["cases"]] == [1.0, 0.0]
+    assert result["score"] == 0.5
 
 
 def test_a_case_whose_score_is_not_its_case_result_score_is_refused_by_the_metrics_name() -> None:
     """INVARIANT (review finding on #1403): the metric and the Report read one number per
     Case, Attempts or not. A graded Case whose Score says 1.0 while its Case Result shows 0.0
-    fails by the metric's name rather than publish a headline no Case Result explains. The
-    Case score is rounded to 4 places, so 3/7 agrees with 0.4286."""
+    fails by the metric's name rather than publish a headline no Case Result explains, a
+    dict-valued Score by its headline column too. The Case score is rounded to 4 places, so
+    3/7 agrees with 0.4286."""
 
-    # Stand-ins for Case Results: only the fields the check reads (id, grade score, attempts).
-    split: Any = SimpleNamespace(case_id="1", grade=SimpleNamespace(score=0.0), attempts=None)
-    rounded: Any = SimpleNamespace(case_id="2", grade=SimpleNamespace(score=0.4286), attempts=None)
+    # Stand-ins for Case Results: only the fields the check reads (id, grade score and Named
+    # Scores, attempts).
+    split: Any = SimpleNamespace(
+        case_id="1", grade=SimpleNamespace(score=0.0, scores={}), attempts=None
+    )
+    split_columns: Any = SimpleNamespace(
+        case_id="3",
+        grade=SimpleNamespace(score=0.0, scores={"strict": 0.0, "loose": 1.0}),
+        attempts=None,
+    )
+    rounded: Any = SimpleNamespace(
+        case_id="2", grade=SimpleNamespace(score=0.4286, scores={}), attempts=None
+    )
 
     with pytest.raises(
         AggregateError,
@@ -710,6 +791,15 @@ def test_a_case_whose_score_is_not_its_case_result_score_is_refused_by_the_metri
     ):
         single_shot._check_scores_agree(
             [split], [SampleScore(score=Score(value=1.0), sample_id=1)], "found_rate"
+        )
+    with pytest.raises(
+        AggregateError,
+        match=r"Case 3's Score is 1.0 for strict_rate, but its Case Result shows 0.0",
+    ):
+        single_shot._check_scores_agree(
+            [split_columns],
+            [SampleScore(score=Score(value={"strict": 1.0, "loose": 1.0}), sample_id=3)],
+            "strict_rate",
         )
     single_shot._check_scores_agree(
         [rounded], [SampleScore(score=Score(value=3 / 7), sample_id=2)], "found_rate"

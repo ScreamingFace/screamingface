@@ -155,18 +155,36 @@ def score_value_as_float(value: Any) -> float:
 
 
 def zero_sample_score(kept: Any | None, sample_id: int) -> Any:
-    """A Case's mark rewritten to 0.0 for a whole-run metric: the kept one with its value
-    replaced and its metadata kept, or a bare 0.0 Score when inspect filed none.
+    """A Case's mark rewritten to 0.0 for a whole-run metric, marked as an abstain: the kept
+    one with its value zeroed and its metadata kept, or a bare 0.0 Score when inspect filed
+    none.
 
     WHY keep the metadata: a metric may read it to place the Case (contracteval's F1 files it
-    in a cell by ``is_positive``), and only the value is what the abstain rule changes.
+    in a cell by ``is_positive``), and only the value is what the abstain rule changes. A dict
+    value (ifeval's Named Score columns) has every column zeroed, so its shape stays.
+
+    CONTRACT: the metadata gains ``candidate_abstained: True`` (the lane's abstain mark,
+    ``CANDIDATE_ABSTAINED``), on the bare Score too. A metric that reads verdicts from the
+    metadata rather than the value (ifeval's instruction verdicts) must honour it and count the
+    Case as failing every verdict; the kept verdicts are the judge's view of an empty answer.
+    WHY not the bare word ``abstained``: contracteval's metadata already uses it for a reply
+    declining ("no related clause"), a different fact.
     """
 
     from inspect_ai.scorer import SampleScore, Score
 
+    from screamingface_engine.benchmarks.case_records import CANDIDATE_ABSTAINED
+
     if kept is None:
-        return SampleScore(score=Score(value=0.0), sample_id=sample_id)
-    return kept.model_copy(update={"score": kept.score.model_copy(update={"value": 0.0})})
+        return SampleScore(
+            score=Score(value=0.0, metadata={CANDIDATE_ABSTAINED: True}), sample_id=sample_id
+        )
+    value: object = kept.score.value
+    zeroed: object = dict.fromkeys(value, 0.0) if isinstance(value, dict) else 0.0
+    metadata: dict[str, Any] = {**(kept.score.metadata or {}), CANDIDATE_ABSTAINED: True}
+    return kept.model_copy(
+        update={"score": kept.score.model_copy(update={"value": zeroed, "metadata": metadata})}
+    )
 
 
 def scorer_registry_name(scorer: Any) -> str:

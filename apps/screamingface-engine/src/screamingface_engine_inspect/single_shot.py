@@ -1385,6 +1385,11 @@ def _metric_sample(case: CaseResult, kept: Mapping[int, Any], metric_name: str) 
     WHY an abstained Case needs no kept Score: the abstain rule keeps it at 0.0 even when its
     grader failed, and then inspect filed none; the run must not stop after every model call
     is paid. Any other graded Case without one is a filing bug, refused by the metric's name.
+
+    CONTRACT for a metric that reads verdicts from the Score metadata instead of the value
+    (ifeval pools ``metadata["instructions"]``): the zeroed Score keeps the grader's real
+    verdicts there, so such a metric must count a Score whose metadata carries
+    ``candidate_abstained: True`` as failing every verdict, or it would credit an abstain.
     """
 
     from screamingface_engine_inspect.scorer_metrics import zero_sample_score
@@ -1409,17 +1414,27 @@ def _check_scores_agree(
     ``pass_at(2)`` over a Case whose second Attempt failed, which inspect reduces to nan while
     the fold scores the graded one. So can any rewrite of a Case score the tally does not
     also hand the metric (the abstain rule's 0.0 is handed over in Stage 1 of the tally). The
-    Case score is rounded to 4 places, so the Score is compared at that precision.
+    Score is read as the scorer adapter read it for the Case Result, a dict value by its
+    headline column (the first Named Score), never by inspect's ``value_to_float``, which
+    reads a whole dict as 0.0. The Case score is rounded to 4 places, so the Score is
+    compared at that precision.
     """
 
-    from screamingface_engine_inspect.scorer_metrics import score_value_as_float
+    from screamingface_engine_inspect.scorer_adapter import whole_run_grade
 
     for case, sample in zip(cases, samples, strict=True):
         if case.grade is None:
             continue
-        value: float = score_value_as_float(sample.score.value)
-        if round(value, 4) == case.grade.score:
+        # The Named Scores are published headline first, so the first is the dict's headline.
+        headline_name: str | None = next(iter(case.grade.scores), None)
+        grade: float | None = whole_run_grade(sample.score.value, headline_name)
+        if grade is not None and round(grade, 4) == case.grade.score:
             continue
+        value: object = (
+            sample.score.value.get(headline_name)
+            if isinstance(sample.score.value, Mapping)
+            else sample.score.value
+        )
         if case.attempts is not None:
             raise AggregateError(
                 f"graded Case {case.case_id}'s Attempts reduce to {value} for {metric_name}, "
