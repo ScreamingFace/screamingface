@@ -60,7 +60,10 @@ class Coordinator:
     def begin(
         self, name: str, workflow: str, interface: str, origin: str, mode: str
     ) -> Operation | None:
-        if origin not in {"python", "local_jupyter", "cli"} or mode not in {"byok", "hosted"}:
+        if origin not in {"python", "local_jupyter", "cli", "colab"} or mode not in {
+            "byok",
+            "hosted",
+        }:
             _LOG.debug("Analytics skipped: unavailable operation metadata")
             return None
         with self._lock:
@@ -96,7 +99,10 @@ class Coordinator:
             "id_scope": "session",
         }
         if consent.installation_id:
-            fields.update(persistent_id=consent.installation_id, id_scope="installation")
+            fields.update(
+                persistent_id=consent.installation_id,
+                id_scope="browser" if origin == "colab" else "installation",
+            )
         return fields
 
     def finish(self, operation: Operation, outcome: str) -> None:

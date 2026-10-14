@@ -12,23 +12,33 @@ _session_only = False
 
 def _disabled() -> bool:
     value = os.getenv("DO_NOT_TRACK", "").strip().lower()
-    return (
-        _process_disabled
-        or "google.colab" in sys.modules
-        or value not in {"", "0", "false", "no", "off"}
-    )
+    return _process_disabled or value not in {"", "0", "false", "no", "off"}
 
 
 def _consent() -> Consent:
     if _disabled():
         return Consent()
-    if _session_only:
-        return Consent("accepted")
-    return LocalConsentStore(config_path()).read()
+    if "google.colab" in sys.modules:
+        from screamingface._analytics.colab import bridge
+
+        return bridge().read()
+    return Consent("accepted") if _session_only else LocalConsentStore(config_path()).read()
 
 
 def status() -> dict:
-    """Return local choice and effective state without creating files or identifiers."""
+    """Return choice and effective state without creating files or identifiers."""
+    if "google.colab" in sys.modules:
+        from screamingface._analytics.colab import bridge
+
+        saved = bridge().read()
+        return {
+            "choice": saved.choice,
+            "enabled": not _disabled() and saved.choice == "accepted",
+            "scope": "browser",
+            "installation_id": None,
+            "persistent_id": saved.installation_id,
+            "pending": bridge().pending,
+        }
     saved = LocalConsentStore(config_path()).read()
     active = _consent()
     return {
@@ -45,6 +55,15 @@ def enable(*, persist: bool = True) -> dict:
     _process_disabled = False
     if _disabled():
         return status()
+    if "google.colab" in sys.modules:
+        from screamingface._analytics.colab import bridge
+
+        if not persist:
+            raise ValueError(
+                "Colab analytics requires browser consent; persist=False is unsupported"
+            )
+        bridge().control("accept")
+        return status()
     _session_only = not persist
     if persist:
         LocalConsentStore(config_path()).change("accepted")
@@ -58,6 +77,11 @@ def disable(*, process_only: bool = False) -> dict:
     from screamingface._analytics.wiring import clear
 
     clear()
+    if "google.colab" in sys.modules:
+        from screamingface._analytics.colab import bridge
+
+        bridge().stop(persist=not process_only)
+        return status()
     if not process_only:
         LocalConsentStore(config_path()).change("declined")
     return status()
@@ -68,6 +92,12 @@ def reset_identifier() -> dict:
     from screamingface._analytics.wiring import clear
 
     clear()
+    if "google.colab" in sys.modules:
+        from screamingface._analytics.colab import bridge
+
+        if not _disabled() and bridge().read().choice == "accepted":
+            bridge().control("reset")
+        return status()
     if not _disabled() and not _session_only:
         LocalConsentStore(config_path()).change("accepted", rotate=True)
     return status()
