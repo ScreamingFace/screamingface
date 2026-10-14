@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import unicodedata
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal
+
+from screamingface.reducer import Reducer
 
 if TYPE_CHECKING:
     from screamingface.pipeline import Pipeline
@@ -46,6 +49,24 @@ def _name(value: object, label: str) -> str:
     return text
 
 
+def _inferred_name(members: Sequence[Recipe]) -> str:
+    """The name a Fusion or CorrectiveLoop gets from its members: their names joined by ``+``."""
+
+    return "+".join(member.name for member in members)
+
+
+def _inferred_self_name(member: Recipe) -> str:
+    """The name a SelfCorrective gets from its member: the member's own name."""
+
+    return member.name
+
+
+def _kept_name(name: str, inferred: str) -> str | None:
+    """``name=`` for a rebuilt value: None (infer again) when ``name`` was the inferred one."""
+
+    return None if name == inferred else name
+
+
 def _model_route(value: object) -> str:
     return _name(value, "model route")
 
@@ -57,6 +78,8 @@ def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recip
         from screamingface.model import Model
 
         return Model(value)
+    if isinstance(value, Reducer):
+        raise TypeError(f"{label} cannot be a reducer: a reducer must be a Fusion synthesizer")
     if not _is_supported_recipe(value):
         raise TypeError(f"{label} must be a model route or sf.Model, sf.Fusion, or sf.Pipeline")
     assert isinstance(value, Recipe)

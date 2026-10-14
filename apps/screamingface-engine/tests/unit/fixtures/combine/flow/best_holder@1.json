@@ -1,0 +1,30 @@
+{
+ "op": "best_holder@1",
+ "stage": "select",
+ "cases": [
+  {"name": "max picks the highest", "args": {"order": "max"},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"scores": {"member_1": "0.2", "member_2": "0.9", "member_3": "0.5"}}},
+   "expect": {"chosen": ["member_2"], "output": null, "tie": false, "agreement": null}},
+  {"name": "min picks the lowest", "args": {"order": "min"},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"scores": {"member_1": "0.2", "member_2": "0.9", "member_3": "0.5"}}},
+   "expect": {"chosen": ["member_1"], "output": null, "tie": false, "agreement": null}},
+  {"name": "max tie goes to author order", "args": {"order": "max"},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"scores": {"member_1": "0.9", "member_2": "0.5", "member_3": "0.9"}}},
+   "expect": {"chosen": ["member_1"], "output": null, "tie": true, "agreement": null}},
+  {"name": "min tie goes to author order", "args": {"order": "min"},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"scores": {"member_1": "0.5", "member_2": "0.2", "member_3": "0.2"}}},
+   "expect": {"chosen": ["member_2"], "output": null, "tie": true, "agreement": null}},
+  {"name": "a member without a score is skipped", "args": {"order": "max"},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"scores": {"member_1": "1", "member_3": "2"}}},
+   "expect": {"chosen": ["member_3"], "output": null, "tie": false, "agreement": null}},
+  {"name": "no scores", "args": {"order": "max"},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {}},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "args: order is missing", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"scores": {"member_1": "0.2", "member_2": "0.9", "member_3": "0.5"}}},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "args: order is not max or min", "args": {"order": "middle"},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"scores": {"member_1": "0.2", "member_2": "0.9", "member_3": "0.5"}}},
+   "expect": {"error": "combine_spec_invalid"}}
+ ]
+}

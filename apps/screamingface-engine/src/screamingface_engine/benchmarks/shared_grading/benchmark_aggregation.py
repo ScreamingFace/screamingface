@@ -59,10 +59,11 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import json
+import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import aclosing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import (
@@ -76,6 +77,7 @@ from screamingface_engine.benchmarks.aggregation import (
     refusal_case_result,
     scored_case_result,
 )
+from screamingface_engine.benchmarks.case_records import abstain_mark
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult, Failure
 from screamingface_engine.benchmarks.graded_answer import GradedAnswer
 from screamingface_engine.benchmarks.progress import completed_case, grading_progress
@@ -95,6 +97,15 @@ from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload,
 #: the node's own model route, not the run's bounded I/O layer, so this is the only
 #: bound on them.
 CASE_GRADING_CONCURRENCY: int = 4
+
+logger = logging.getLogger(__name__)
+
+# WHY these codes are never forgiven on an abstained Case (OME-1289): they say the PREPARED
+# ASSET is broken (a rubric with no positive-points item, a key whose polarity disagrees with the
+# run), which tells nothing about the answer. The report must keep an asset defect distinguishable
+# from judge loss (see `rubric.py`, "a prepared-asset defect, not judge loss"), so the Case stays
+# failed even though the grader returned metrics.
+_ASSET_DEFECT_CODES = frozenset({"no_positive_points", "polarity_mismatch"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -538,6 +549,10 @@ class BenchmarkAggregation:
         grading_failure: GradedAnswer | None = indexed.grading_failures.get(case_id)
         if grading_failure is not None:
             assert grading_failure.error is not None
+            if grading_failure.candidate.abstained:
+                logger.warning(
+                    "abstained Case %s: the grading step failed; the Case stays failed", case_id
+                )
             result = grading_failure_case_result(
                 selected_case=selected,
                 candidate=grading_failure.candidate,
@@ -597,6 +612,8 @@ class BenchmarkAggregation:
         outcome: CaseGradeOutcome,
         extra_metadata: Mapping[str, Any],
     ) -> CaseResult:
+        if outcome.failure_code is not None and self._abstained_grade_kept(selected, row, outcome):
+            outcome = replace(outcome, score=0.0, failure_code=None)
         if outcome.failure_code is not None:
             failure: dict[str, Any] = self._failure(
                 int(selected.case_id),
@@ -607,6 +624,48 @@ class BenchmarkAggregation:
             )
             return self._failed_result(selected, row, outcome.checks, failure, extra_metadata)
         return self._scored_result(selected, row, outcome, extra_metadata)
+
+    def _abstained_grade_kept(
+        self,
+        selected: SelectedCase,
+        row: Mapping[str, Any],
+        outcome: CaseGradeOutcome,
+    ) -> bool:
+        """Whether a grader failure on an abstained Case is ignored (the Case scores 0.0).
+
+        AIDEV-NOTE (OME-1289, erd section 9): "ignored" means the grader ran and still returned
+        grade material (metrics or checks). A failure that left neither is NOT ignored, because
+        a scored Case with `metrics={}` breaks the scorers that read them: `mean_scorer` and
+        `draco_scorer` read `metrics[key]`, and ContractEval would read an abstained positive
+        row as a false positive (`bool(metrics.get("is_positive"))`), which its INVARIANT
+        forbids. That Case stays failed. An asset-defect code stays failed too. Every outcome is
+        logged with the Case id and code only.
+        """
+
+        if not _candidate_fields(row).abstained:
+            return False
+        if outcome.failure_code in _ASSET_DEFECT_CODES:
+            logger.warning(
+                "abstained Case %s: asset defect %s; the Case stays failed",
+                int(selected.case_id),
+                outcome.failure_code,
+            )
+            return False
+        kept = bool(outcome.metrics or outcome.checks)
+        case_id = int(selected.case_id)
+        if kept:
+            logger.warning(
+                "abstained Case %s: grader failure %s ignored; scored 0.0",
+                case_id,
+                outcome.failure_code,
+            )
+        else:
+            logger.warning(
+                "abstained Case %s: grader failure %s left no grade; the Case stays failed",
+                case_id,
+                outcome.failure_code,
+            )
+        return kept
 
     def _scored_result(
         self,
@@ -619,11 +678,17 @@ class BenchmarkAggregation:
         fields: CandidateFields = _candidate_fields(row)
         grade: dict[str, Any] = {
             "method": self.method,
-            "score": round(outcome.score, 4),
+            # INVARIANT (OME-1289): an abstained Case scores 0.0 whatever the grader said about
+            # the empty answer; only `score` is replaced, so the metrics and checks stay.
+            "score": 0.0 if fields.abstained else round(outcome.score, 4),
             "metrics": dict(outcome.metrics),
             "checks": list(outcome.checks),
         }
-        if self.named_scores:
+        if self.named_scores and fields.abstained:
+            # WHY every column is 0.0 (OME-1289 with OME-1268): the headline must equal the Case
+            # score, and a kept grader failure on an abstained Case has no columns to read.
+            grade["scores"] = dict.fromkeys(self.named_scores, 0.0)
+        elif self.named_scores:
             grade["scores"] = self._named_scores(outcome)
         elif outcome.scores:
             # WHY refuse, not publish: a column nobody declared would reach the wire under
@@ -644,7 +709,7 @@ class BenchmarkAggregation:
             # WHY (OME-1037): the builder decides scored-vs-failed — a graded
             # refusal with text is scored; a textless provider decline is failed.
             return refusal_case_result(refusal=fields.refusal, **common)
-        return scored_case_result(output=fields.output, **common)
+        return scored_case_result(output=fields.output, abstained=fields.abstained, **common)
 
     def _named_scores(self, outcome: CaseGradeOutcome) -> dict[str, float | None]:
         """The Case's Named Scores as the grade publishes them: declared keys, headline first.
@@ -820,7 +885,9 @@ class CandidateFields:
     ``output``/``finish_reason``/``refusal`` are ``None`` unless the row carried a
     usable string (a blank refusal is unusable): "no usable answer" is a grading fact
     here, never a validation error. ``status``/``execution``/``operations`` pass
-    through untouched — the result builders own their interpretation.
+    through untouched — the result builders own their interpretation. ``abstained`` is the
+    Candidate's abstain mark (OME-1289): true only when the row carried
+    ``candidate_abstained: true``.
     """
 
     status: Any
@@ -830,6 +897,7 @@ class CandidateFields:
     execution: Any
     operations: Any
     metadata: dict[str, Any]
+    abstained: bool = False
 
 
 def _candidate_fields(row: Mapping[str, Any] | None) -> CandidateFields:
@@ -858,6 +926,7 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> CandidateFields:
         execution=case.get("execution"),
         operations=case.get("operations"),
         metadata=dict(metadata) if isinstance(metadata, Mapping) else {},
+        abstained=bool(abstain_mark(case)),
     )
 
 

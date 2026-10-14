@@ -111,6 +111,11 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "benchmark_contract_error",
         "benchmark_definition_error",
         "upstream_error",
+        # WHY (OME-1289): the E4a combine endpoint raises these three; judge_reply_invalid
+        # is reused for an unparseable judge reply, not added.
+        "combine_spec_invalid",
+        "combine_operator_unknown",
+        "combine_input_too_large",
     }
 )
 # WHY a pattern beside the set: the engine's connector mints one code per HTTP status
@@ -301,6 +306,19 @@ def _nonblank_text(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} must be a non-empty string")
     return value
+
+
+def _required_number(value: object, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"{label} must be a finite number")
+    selected = float(value)
+    if selected in {float("inf"), float("-inf")} or selected != selected:
+        raise ValueError(f"{label} must be a finite number")
+    return selected
+
+
+def _optional_number(value: object, label: str) -> float | None:
+    return None if value is None else _required_number(value, label)
 
 
 def _case_id(value: object, label: str = "Case Result case_id") -> CaseId:

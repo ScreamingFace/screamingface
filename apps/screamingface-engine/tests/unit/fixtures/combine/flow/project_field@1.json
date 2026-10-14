@@ -1,0 +1,27 @@
+{
+ "op": "project_field@1",
+ "stage": "reduce",
+ "cases": [
+  {"name": "values of one field by member", "args": {"field": "summary"},
+   "input": {"readings": [{"member": "member_1", "raw": "{\"summary\":\"a\"}", "value": "{\"summary\":\"a\"}", "status": "voted", "weight": null}, {"member": "member_2", "raw": "{\"summary\":\"b\",\"x\":1}", "value": "{\"summary\":\"b\",\"x\":1}", "status": "voted", "weight": null}, {"member": "member_3", "raw": "{\"x\":2}", "value": "{\"x\":2}", "status": "voted", "weight": null}]},
+   "expect": {"text": "{\"member_1\":\"a\",\"member_2\":\"b\"}", "fields": [{"field": "summary", "rule": "project", "values": {"member_1": "a", "member_2": "b"}, "result": null}]}},
+  {"name": "null is absent", "args": {"field": "summary"},
+   "input": {"readings": [{"member": "member_1", "raw": "{\"summary\":null}", "value": "{\"summary\":null}", "status": "voted", "weight": null}, {"member": "member_2", "raw": "{\"summary\":\"b\"}", "value": "{\"summary\":\"b\"}", "status": "voted", "weight": null}]},
+   "expect": {"text": "{\"member_2\":\"b\"}", "fields": [{"field": "summary", "rule": "project", "values": {"member_2": "b"}, "result": null}]}},
+  {"name": "values keep their JSON type", "args": {"field": "summary"},
+   "input": {"readings": [{"member": "member_1", "raw": "{\"summary\":{\"k\":[1]}}", "value": "{\"summary\":{\"k\":[1]}}", "status": "voted", "weight": null}, {"member": "member_2", "raw": "{\"summary\":2.5}", "value": "{\"summary\":2.5}", "status": "voted", "weight": null}]},
+   "expect": {"text": "{\"member_1\":{\"k\":[1]},\"member_2\":2.5}", "fields": [{"field": "summary", "rule": "project", "values": {"member_1": {"k": [1]}, "member_2": 2.5}, "result": null}]}},
+  {"name": "no member has the field", "args": {"field": "summary"},
+   "input": {"readings": [{"member": "member_1", "raw": "{\"x\":1}", "value": "{\"x\":1}", "status": "voted", "weight": null}, {"member": "member_2", "raw": "{\"summary\":null}", "value": "{\"summary\":null}", "status": "voted", "weight": null}]},
+   "expect": {"abstain": "no_votes"}},
+  {"name": "dotted field name", "args": {"field": "a.b"},
+   "input": {"readings": [{"member": "member_1", "raw": "{\"a\":1}", "value": "{\"a\":1}", "status": "voted", "weight": null}]},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "extra key", "args": {"field": "summary", "x": 1},
+   "input": {"readings": [{"member": "member_1", "raw": "{\"summary\":1}", "value": "{\"summary\":1}", "status": "voted", "weight": null}]},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "a voter value that is not json", "args": {"field": "summary"},
+   "input": {"readings": [{"member": "member_1", "raw": "{oops", "value": "{oops", "status": "voted", "weight": null}]},
+   "expect": {"error": "combine_spec_invalid"}}
+ ]
+}

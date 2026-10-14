@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import Literal, cast, overload
 from uuid import UUID
 
+from screamingface._case_views import case_trace
 from screamingface._client_provenance import client_version as _client_version
 from screamingface._evaluation.model import _canonical_url4
 from screamingface._immutable_json import freeze_mapping, thaw_mapping
@@ -36,11 +37,14 @@ from screamingface.case_result import (
     Check,
     Evidence,
     EvidenceProducer,
+    _bind_operation_graph,
     named_scores,
 )
+from screamingface.combine_evidence import CombineEvidence
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.operation_accounting import OperationAccounting, OperationCache
+from screamingface.report_trace import TRACE_SCHEMA, TraceEntry
 from screamingface.url4 import Url4
 
 type RecipeKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
@@ -358,14 +362,7 @@ class CandidateResult:
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
-        if isinstance(cache_hits, bool) or not isinstance(cache_hits, int) or cache_hits < 0:
-            raise ValueError("Candidate cache_hits must be a non-negative integer")
-        if cache_unpriced_hits is not None and (
-            isinstance(cache_unpriced_hits, bool)
-            or not isinstance(cache_unpriced_hits, int)
-            or cache_unpriced_hits < 0
-        ):
-            raise ValueError("Candidate cache_unpriced_hits must be a non-negative integer or None")
+        _check_cache_counts(cache_hits, cache_unpriced_hits)
         selected_copy, selected_capture = _capture(frozen_copy_id, capture_status)
         selected_score = _optional_number(score, "Candidate score")
         selected_coverage = _coverage(coverage)
@@ -455,11 +452,20 @@ class CandidateResult:
         }
         for attribute, value in values.items():
             object.__setattr__(self, attribute, value)
+        # INVARIANT: last, after every validation. The binding is write-once, so a Candidate that
+        # fails must leave its Cases unbound for the next one.
+        _bind_graphs(selected_cases, selected_operations)
 
     @property
     def accounting(self) -> AccountingBreakdown:
         """Derived operation, stage, model, member and Case accounting views."""
         return accounting_breakdown(self)
+
+    @property
+    def abstained_count(self) -> int:
+        """How many Cases the combine step abstained on (derived; not in ``to_dict``)."""
+
+        return sum(case.abstained for case in self.cases)
 
     @property
     def metrics(self) -> Mapping[str, object]:
@@ -633,6 +639,14 @@ class Report:
         # WHY: returning a string still allocates its bytes; avoid also holding every
         # candidate's case dictionaries at once. File export remains bounded.
         return "".join(iter_report_json(self))
+
+    def trace_dict(self) -> dict[str, object]:
+        """The per-Case traces as ``screamingface.report-trace.v1`` (derived; not report.v1)."""
+
+        return {
+            "schema": TRACE_SCHEMA,
+            "candidates": [_candidate_trace(candidate) for candidate in self.candidates],
+        }
 
     def export(
         self,
@@ -949,6 +963,50 @@ def _optional_number(value: object, label: str) -> float | None:
     return selected
 
 
+def _candidate_trace(candidate: CandidateResult) -> dict[str, object]:
+    # WHY the graph is passed explicitly: it is always the Candidate's own, whatever a shared
+    # Case happens to be bound to.
+    graph = {operation.id: operation for operation in candidate.operations}
+    return {
+        "candidate": candidate.name,
+        "cases": [
+            {
+                "case_id": case.case_id,
+                "entries": [entry.to_dict() for entry in case_trace(case, graph)],
+            }
+            for case in candidate.cases
+        ],
+    }
+
+
+def _check_cache_counts(cache_hits: object, cache_unpriced_hits: object) -> None:
+    """A Candidate's cache-hit counts: non-negative integers (unpriced hits may be None)."""
+
+    if isinstance(cache_hits, bool) or not isinstance(cache_hits, int) or cache_hits < 0:
+        raise ValueError("Candidate cache_hits must be a non-negative integer")
+    if cache_unpriced_hits is not None and (
+        isinstance(cache_unpriced_hits, bool)
+        or not isinstance(cache_unpriced_hits, int)
+        or cache_unpriced_hits < 0
+    ):
+        raise ValueError("Candidate cache_unpriced_hits must be a non-negative integer or None")
+
+
+def _bind_graphs(cases: Sequence[CaseResult], operations: Sequence[OperationInfo]) -> None:
+    """Bind this Candidate's operation graph to each of its Cases, in place (never a copy)."""
+
+    from screamingface._results.cases import DiskCases
+
+    items = cases._items if isinstance(cases, _CaseResults) else cases
+    # WHY: a saved report's Cases decode only when read (OME-1570); walking them here would
+    # decode every Case, so the disk sequence binds each Case as it decodes it.
+    if isinstance(items, DiskCases):
+        items.bind_operations(operations)
+        return
+    for case in items:
+        _bind_operation_graph(case, operations)
+
+
 def _coverage(value: object) -> float:
     selected = _optional_number(value, "Candidate coverage")
     if selected is None:
@@ -1018,6 +1076,7 @@ __all__ = [
     "CaseResult",
     "CandidateResult",
     "Check",
+    "CombineEvidence",
     "Evidence",
     "EvidenceProducer",
     "Failure",
@@ -1026,5 +1085,6 @@ __all__ = [
     "OperationCache",
     "OperationInfo",
     "Report",
+    "TraceEntry",
     "Usage",
 ]

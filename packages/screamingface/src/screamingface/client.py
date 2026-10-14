@@ -61,7 +61,7 @@ class Client:
             _client_caller_auth,
         )
         from screamingface._engine.benchmark import BenchmarkResources
-        from screamingface._engine.catalog import Benchmarks, Models
+        from screamingface._engine.catalog import Benchmarks, Models, OperatorCatalogResource
         from screamingface._engine.connections import Connections
         from screamingface._engine.transport import Url4CloudTransport
         from screamingface._scoreboard.leaderboards import Leaderboards
@@ -101,6 +101,7 @@ class Client:
         self.models: Models = Models(self._http_get, self._engine_url)
         self.benchmarks: Benchmarks = Benchmarks(self._http_get, self._engine_url)
         self._benchmark_resources = BenchmarkResources(self._http)
+        self._operator_catalog = OperatorCatalogResource(self._http)
         self.connections: Connections = Connections(self._http_request, self._engine_url)
         self.leaderboards: Leaderboards = Leaderboards(
             self._scoreboard_request,
@@ -266,6 +267,7 @@ class Client:
                 progress,
                 answer_seed=selected_seed,
                 capture=capture,
+                load_operators=self._operator_catalog.load,
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
@@ -281,6 +283,7 @@ class Client:
             progress,
             answer_seed=selected_seed,
             capture=capture,
+            load_operators=self._operator_catalog.load,
         )
 
     def reproduce(
@@ -423,7 +426,11 @@ class AsyncClient:
             _client_caller_auth,
         )
         from screamingface._engine.benchmark import AsyncBenchmarkResources
-        from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels
+        from screamingface._engine.catalog import (
+            AsyncBenchmarks,
+            AsyncModels,
+            AsyncOperatorCatalogResource,
+        )
         from screamingface._engine.connections import AsyncConnections
         from screamingface._engine.transport import AsyncUrl4CloudTransport
         from screamingface._scoreboard.leaderboards import AsyncLeaderboards
@@ -465,6 +472,7 @@ class AsyncClient:
         self.models: AsyncModels = AsyncModels(self._http_get, self._engine_url)
         self.benchmarks: AsyncBenchmarks = AsyncBenchmarks(self._http_get, self._engine_url)
         self._benchmark_resources = AsyncBenchmarkResources(self._http)
+        self._operator_catalog = AsyncOperatorCatalogResource(self._http)
         self.connections: AsyncConnections = AsyncConnections(self._http_request, self._engine_url)
         self.leaderboards: AsyncLeaderboards = AsyncLeaderboards(
             self._scoreboard_request,
@@ -629,6 +637,7 @@ class AsyncClient:
                 progress,
                 answer_seed=selected_seed,
                 capture=capture,
+                load_operators=self._operator_catalog.load,
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
@@ -644,6 +653,7 @@ class AsyncClient:
             progress,
             answer_seed=selected_seed,
             capture=capture,
+            load_operators=self._operator_catalog.load,
         )
 
     async def reproduce(

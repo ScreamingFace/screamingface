@@ -14,6 +14,7 @@ from screamingface._ui.card_style import CARD_STYLE
 from screamingface._ui.engine_origin import _is_hosted_engine
 from screamingface._ui.style import NO_MATH
 from screamingface.recipe import _recipe_kind
+from screamingface.reducer import Reducer
 
 if TYPE_CHECKING:
     from typing import Protocol
@@ -441,20 +442,27 @@ def _recipe_detail(recipe: Recipe, *, index: int | None = None) -> str:
     )
 
 
-def _synthesizer_fields(recipe: Recipe) -> str:
-    route = getattr(recipe, "model", None)
+def _synthesizer_fields(synthesizer: Recipe | Reducer) -> str:
+    if isinstance(synthesizer, Reducer):
+        return _field(
+            "synthesizer",
+            f"<span class='sf-mono'>{escape(synthesizer.name)}</span>"
+            "<div class='sf-card__hint'>reducer</div>",
+            wide=True,
+        )
+    route = getattr(synthesizer, "model", None)
     if route is None:
         value = (
-            f"<span class='sf-mono'>{escape(recipe.name)}</span>"
-            f"<div class='sf-card__hint'>nested {escape(_recipe_kind(recipe))}</div>"
+            f"<span class='sf-mono'>{escape(synthesizer.name)}</span>"
+            f"<div class='sf-card__hint'>nested {escape(_recipe_kind(synthesizer))}</div>"
         )
         return _field("synthesizer", value, wide=True)
 
     fields = _field("synthesizer", _mono(str(route)), wide=True)
-    prompt = getattr(recipe, "prompt", None)
+    prompt = getattr(synthesizer, "prompt", None)
     if prompt is not None:
         fields += _field("prompt", escape(str(prompt)), wide=True)
-    params = getattr(recipe, "params", None)
+    params = getattr(synthesizer, "params", None)
     if params:
         fields += _field("params", _params(params), wide=True)
     return fields

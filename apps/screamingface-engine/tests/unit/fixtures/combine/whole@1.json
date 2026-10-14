@@ -1,0 +1,12 @@
+{
+ "op": "whole@1",
+ "stage": "extract",
+ "cases": [
+  {"name": "kept as is", "args": {},
+   "input": "  Paris. ",
+   "expect": {"status": "voted", "value": "  Paris. "}},
+  {"name": "blank", "args": {},
+   "input": "   \n",
+   "expect": {"status": "empty", "value": null}}
+ ]
+}

@@ -1,0 +1,12 @@
+{
+ "op": "value@1",
+ "stage": "select",
+ "cases": [
+  {"name": "median 21", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "20", "value": "20", "status": "voted", "weight": null}, {"member": "member_2", "raw": "22", "value": "22", "status": "voted", "weight": null}], "reduction": {"tally": null, "statistic": "21"}},
+   "expect": {"chosen": [], "output": "21", "tie": false, "agreement": null}},
+  {"name": "median 2.50", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "2", "value": "2", "status": "voted", "weight": null}, {"member": "member_2", "raw": "3", "value": "3", "status": "voted", "weight": null}], "reduction": {"tally": null, "statistic": "2.50"}},
+   "expect": {"chosen": [], "output": "2.5", "tie": false, "agreement": null}}
+ ]
+}

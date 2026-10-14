@@ -108,11 +108,14 @@ class CacheOutcome:
     """
     age_s: int | None
     retried: bool = False
-    """Whether a transport retry preceded the round trip that produced this outcome.
+    """Whether a transport retry preceded this round trip after a failure that may have reached
+    the gateway — so a lost attempt may have been billed (OME-1220). A connect-phase failure,
+    which proves nothing was sent, does not set it (`connector._NEVER_SENT`).
 
     A retried attempt may ALREADY have been processed and billed upstream with only its response
     lost, so a hit that follows one cannot prove the cache avoided anything — the row it hit may
-    be the one the lost attempt just paid for and wrote. Carried here rather than derived later
+    be the one the lost attempt just paid for and wrote — and a miss's own price covers only the
+    attempt that answered. Both are reported unpriced. Carried here rather than derived later
     because only the posting function knows it happened, and the fact dies with the response.
 
     Defaulted `False` so every existing construction site keeps its meaning: absent evidence of a

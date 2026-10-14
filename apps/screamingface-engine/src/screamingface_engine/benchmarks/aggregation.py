@@ -199,6 +199,7 @@ def scored_case_result(
     metadata: Mapping[str, Any] | None = None,
     execution: CorrectiveLoopOutcome | Mapping[str, Any] | None = None,
     operations: Sequence[OperationOutput | Mapping[str, Any]] | None = None,
+    abstained: bool = False,
 ) -> CaseResult:
     """Construct one scored Case without exposing the wire envelope to adapters."""
 
@@ -217,6 +218,7 @@ def scored_case_result(
         failures=[],
         metadata=_case_metadata(selected_case, metadata),
         operations=_operation_outputs(operations),
+        abstained=abstained,
     )
 
 

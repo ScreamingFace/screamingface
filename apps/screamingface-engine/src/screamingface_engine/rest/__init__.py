@@ -10,6 +10,7 @@ from screamingface_engine.rest.benchmarks import router as benchmark_router
 from screamingface_engine.rest.catalog import router as catalog_router
 from screamingface_engine.rest.connections import router as connection_router
 from screamingface_engine.rest.interest import DenyAllGate, SubscriberGate
+from screamingface_engine.rest.operators import router as operator_router
 from screamingface_engine.rest.routes import router
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "benchmark_router",
     "catalog_router",
     "connection_router",
+    "operator_router",
     "router",
 ]

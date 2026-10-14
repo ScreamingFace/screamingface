@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+import warnings
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
 from url4 import Node, RelExpr, RenderError, Text, expr, render, src, struct
 
+from screamingface._environment import SDK_PACKAGE_ROOT
+from screamingface._evaluation.combine_sources import CallFingerprint, _SourceCall, member_sources
+from screamingface._evaluation.combine_spec import (
+    COMBINE_ROUTE,
+    accounting_signal,
+    combine_spec_text,
+)
+from screamingface._evaluation.fusion_recipe import rewrite_fusion_recipe
 from screamingface._evaluation.model import (
     _compiled_operation,
     _member_projection,
@@ -25,6 +36,8 @@ from screamingface._evaluation.topology import (
     _RecipeTopology,
     _topology_source,
 )
+from screamingface._operation_bindings import OPERATION_BINDING_PARAM
+from screamingface.blocks import Reduce
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
 from screamingface.fusion import Fusion
@@ -32,9 +45,13 @@ from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
+from screamingface.reducer import Reducer
+from screamingface.warnings import DuplicateMembersWarning
 
 if TYPE_CHECKING:
+    from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
     from screamingface._evaluation.benchmark import _CheckSurface
+    from screamingface._evaluation.operators import _OperatorCatalog
 
 type _CandidateKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
 
@@ -58,22 +75,49 @@ class _ResolvedRecipe:
     models: tuple[str, ...]
     topology: _RecipeTopology
     members: tuple[_ResolvedRecipe, ...] = ()
+    calls: tuple[_SourceCall, ...] = ()
+    # The reducer's label ("Rank", "Concat", "Reduce('top_k')") when this Recipe's output is a
+    # selection for the next Pipeline stage, else None; also the flag the compile checks read.
+    selection: str | None = None
 
 
 def compile_candidate(
     recipe: Recipe,
     *,
     check_surface: _CheckSurface | None = None,
+    operators: _OperatorCatalog | None = None,
+    benchmark_rule: _BenchmarkAnswerRule | None = None,
 ) -> _CompiledCandidate:
     """Compile one complete, benchmark-independent Recipe into Candidate URL4.
 
     ``check_surface`` is the ONE benchmark-supplied compilation input: a
     corrective loop renders the manifest's advertised check route into its
     check steps (never a hardcoded path). Non-loop Recipes ignore it.
+
+    ``operators`` is the Engine's combine-operator catalog (OME-1289): a reducer
+    pins its operator names against it, and a Recipe without a reducer ignores it.
+
+    ``benchmark_rule`` is the benchmark's answer rule, read only by ``extract='benchmark'``.
     """
 
+    recipe = rewrite_fusion_recipe(recipe)
     try:
-        return _CandidateCompiler(check_surface=check_surface).compile(recipe)
+        first = _CandidateCompiler(
+            check_surface=check_surface, operators=operators, benchmark_rule=benchmark_rule
+        )
+        compiled = first.compile(recipe)
+        if not first.reads_accounting:
+            return compiled
+        # WHY a second pass: I-C2 counts claimants over the whole expression, which is known only
+        # after a full compile (a later stage or a sibling Fusion may reuse a member's call). The
+        # compile is deterministic, so both passes see the same calls.
+        return _CandidateCompiler(
+            check_surface=check_surface,
+            operators=operators,
+            benchmark_rule=benchmark_rule,
+            claims=first.claims,
+            warned_fusions=first.warned_fusions,
+        ).compile(recipe)
     except RenderError as exc:
         raise PlanningError(
             "The SDK could not encode Candidate generation parameters for the SF Engine",
@@ -83,18 +127,80 @@ def compile_candidate(
         ) from exc
 
 
+def recipes_need_operators(recipes: Sequence[Recipe]) -> bool:
+    """Whether any Recipe holds a reducer, i.e. compiling needs the Engine's operator catalog."""
+
+    return any(_needs_operators(recipe) for recipe in recipes)
+
+
+def _needs_operators(value: Recipe | Reducer) -> bool:
+    if isinstance(value, Reducer):
+        needed = value._compiles_to_combine()
+    else:
+        needed = any(_needs_operators(child) for child in _children(value))
+    return needed
+
+
+def _children(value: Recipe) -> tuple[Recipe | Reducer, ...]:
+    if isinstance(value, Fusion):
+        children: tuple[Recipe | Reducer, ...] = (*value.members, value.synthesizer)
+    elif isinstance(value, Pipeline):
+        children = value.stages
+    elif isinstance(value, CorrectiveLoop):
+        children = (*value.members, value.judge)
+    elif isinstance(value, SelfCorrective):
+        children = (value.member,)
+    else:
+        children = ()
+    return children
+
+
 class _CandidateCompiler:
     """Compile one immutable Recipe while preserving every declared invocation position."""
 
-    def __init__(self, *, check_surface: _CheckSurface | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        check_surface: _CheckSurface | None = None,
+        operators: _OperatorCatalog | None = None,
+        benchmark_rule: _BenchmarkAnswerRule | None = None,
+        claims: Mapping[CallFingerprint, int] | None = None,
+        warned_fusions: set[int] | None = None,
+    ) -> None:
         self._sources: list[Node] = []
         self._operations: list[OperationInfo] = []
         self._parameter_assignments: list[_ModelParameterAssignment] = []
         self._active: set[int] = set()
+        self._warned_fusions: set[int] = set() if warned_fusions is None else warned_fusions
         self._model_count = 0
         self._synthesis_count = 0
         self._panel_count = 0
+        self._judge_count = 0
+        self._writer_count = 0
         self._check_surface = check_surface
+        self._operators = operators
+        self._benchmark_rule = benchmark_rule
+        self._claims = claims
+        self._fingerprints: Counter[CallFingerprint] = Counter()
+        self._reads_accounting = False
+
+    @property
+    def claims(self) -> Mapping[CallFingerprint, int]:
+        """How many model calls of this compile send each (path, params) fingerprint."""
+
+        return MappingProxyType(self._fingerprints)
+
+    @property
+    def reads_accounting(self) -> bool:
+        """Whether a reducer of this compile read an accounting signal (it needs `sources`)."""
+
+        return self._reads_accounting
+
+    @property
+    def warned_fusions(self) -> set[int]:
+        """The Fusions that already warned about duplicate members (pass 2 must not warn again)."""
+
+        return self._warned_fusions
 
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
         if getattr(recipe, "optional", False):
@@ -107,6 +213,11 @@ class _CandidateCompiler:
             root = _compile_corrective(self, recipe, self._check_surface)
         else:
             root = self._recipe(recipe)
+            if root.selection is not None:
+                raise ValueError(
+                    f"a {root.selection} must be followed by another stage: {recipe.name!r} "
+                    "ends the candidate with a selection"
+                )
         members = (
             tuple(
                 _member_projection(
@@ -152,6 +263,11 @@ class _CandidateCompiler:
             input_dependencies=input_dependencies,
             synthesis=synthesis,
         )
+        if resolved.selection is not None:
+            raise ValueError(
+                f"a {resolved.selection} cannot feed a corrective loop: its selection goes "
+                "only to the next Pipeline stage"
+            )
         captured = tuple(self._sources[start:])
         del self._sources[start:]
         return resolved, captured
@@ -199,6 +315,7 @@ class _CandidateCompiler:
                 )
                 for member in fusion.members
             )
+            _reject_selection_members(members)
             return self._fusion(fusion, members, input_context=input_context)
         captured = tuple(
             self._capture_recipe(
@@ -210,6 +327,7 @@ class _CandidateCompiler:
             for member in fusion.members
         )
         members = tuple(member for member, _ in captured)
+        _reject_selection_members(members)
         self._panel_count += 1
         panel = f"panel_{self._panel_count}"
         slots = tuple(
@@ -224,9 +342,19 @@ class _CandidateCompiler:
         # Only complete member results contribute. Metadata, intermediate stages,
         # the upstream input, and synthesis must never count toward this floor.
         quorum = len(members) if fusion.quorum == "all" else fusion.quorum
+        # WHY broadcast for a reducer (OME-1289 unit 13): the text panel joins `member_i: answer`
+        # lines that a combine call cannot split safely; the broadcast panel gives one JSON row
+        # per member that answered, named and exact. A model reads the text panel, as before.
+        reads_rows = isinstance(fusion.synthesizer, Reducer)
         self._sources.append(
-            src(expr(*slots, intent=Text(""), params={"quorum": quorum}), name=panel, weight=0.0)
+            src(
+                expr(*slots, intent=Text(""), broadcast=reads_rows, params={"quorum": quorum}),
+                name=panel,
+                weight=0.0,
+            )
         )
+        if reads_rows:
+            return self._fusion(fusion, members, input_context=input_context, panel=f"${panel}")
         context = render(struct({"input": input_context, "outputs": f"${panel}"}))
         return self._fusion(fusion, members, input_context=input_context, context=context)
 
@@ -245,10 +373,11 @@ class _CandidateCompiler:
         self._model_count += 1
         binding = f"model_{self._model_count}"
         operation_id = f"op_{binding}"
+        call = self._count_call(binding, _model_route(route), params)
         self._sources.append(
             src(
                 RelExpr(
-                    path=_model_route(route),
+                    path=call.path,
                     context=input_context,
                     intent=Text(_url4_text(prompt)),
                     params=params,
@@ -280,7 +409,17 @@ class _CandidateCompiler:
                 named=model._sample_id is not None,
                 role="synthesis" if synthesis else "model",
             ),
+            calls=(call,),
         )
+
+    def _count_call(
+        self, binding: str, path: str, params: tuple[tuple[str, str], ...]
+    ) -> _SourceCall:
+        """Record one model call of the expression (combine calls are never counted)."""
+
+        call = _SourceCall(binding, path, params)
+        self._fingerprints[call.fingerprint] += 1
+        return call
 
     def _fusion(
         self,
@@ -289,71 +428,112 @@ class _CandidateCompiler:
         *,
         input_context: str,
         context: str | None = None,
+        panel: str | None = None,
     ) -> _ResolvedRecipe:
-        self._synthesis_count += 1
-        binding = f"synthesis_{self._synthesis_count}"
+        binding = self._next_binding("synthesis")
         operation_id = f"op_{binding}"
-        models = tuple(model for member in members for model in member.models)
-        context = context if context is not None else _fusion_context(input_context, members)
         dependencies = tuple(member.operation_id for member in members)
-        if isinstance(fusion.synthesizer, Model):
-            synthesizer = _canonical_model(fusion.synthesizer.model)
-            prompt = fusion.synthesizer.prompt or DEFAULT_SYNTHESIS_PROMPT
-            self._sources.append(
-                src(
-                    RelExpr(
-                        path=_model_route(synthesizer),
-                        context=context,
-                        intent=Text(_url4_text(prompt)),
-                        params=resolved_params(fusion.synthesizer.params),
-                    ),
-                    name=binding,
-                    weight=0.0,
-                )
-            )
-            self._operations.append(
-                _compiled_operation(
-                    id=operation_id,
-                    kind="synthesis",
-                    label=f"{fusion.name} synthesis",
-                    depends_on=dependencies,
-                )
-            )
-            self._record_parameter_assignment(
-                operation_id,
+        synthesizer = fusion.synthesizer
+        if isinstance(synthesizer, Reducer):
+            return self._reducer_synthesizer(
+                fusion,
                 synthesizer,
-                fusion.synthesizer.params,
-            )
-            result = _ResolvedRecipe(
-                reference=f"${binding}",
+                members,
+                binding=binding,
                 operation_id=operation_id,
-                name=fusion.name,
-                kind="fusion",
-                models=_ordered_unique((*models, synthesizer)),
-                topology=_RecipeTopology(
-                    kind="fusion",
-                    quorum=fusion.quorum,
-                    optional=fusion.optional,
-                    name=fusion.name,
-                    binding=binding,
-                    members=tuple(_required_topology(member) for member in members),
-                    synthesizer=_RecipeTopology(
-                        kind="model",
-                        name=fusion.synthesizer.name,
-                        binding=binding,
-                        named=fusion.synthesizer._sample_id is not None,
-                        role="synthesis",
-                    ),
-                ),
-                members=members,
+                input_context=input_context,
+                dependencies=dependencies,
+                panel=panel,
             )
-            return result
+        context = context if context is not None else _fusion_context(input_context, members)
+        if isinstance(synthesizer, Model):
+            return self._model_synthesizer(
+                fusion,
+                synthesizer,
+                members,
+                binding=binding,
+                operation_id=operation_id,
+                context=context,
+                dependencies=dependencies,
+            )
+        return self._recipe_synthesizer(
+            fusion, synthesizer, members, context=context, dependencies=dependencies
+        )
 
+    def _model_synthesizer(
+        self,
+        fusion: Fusion,
+        model: Model,
+        members: tuple[_ResolvedRecipe, ...],
+        *,
+        binding: str,
+        operation_id: str,
+        context: str,
+        dependencies: tuple[str, ...],
+    ) -> _ResolvedRecipe:
+        synthesizer = _canonical_model(model.model)
+        prompt = model.prompt or DEFAULT_SYNTHESIS_PROMPT
+        call = self._count_call(binding, _model_route(synthesizer), resolved_params(model.params))
+        self._sources.append(
+            src(
+                RelExpr(
+                    path=call.path,
+                    context=context,
+                    intent=Text(_url4_text(prompt)),
+                    params=call.params,
+                ),
+                name=binding,
+                weight=0.0,
+            )
+        )
+        self._operations.append(
+            _compiled_operation(
+                id=operation_id,
+                kind="synthesis",
+                label=f"{fusion.name} synthesis",
+                depends_on=dependencies,
+            )
+        )
+        self._record_parameter_assignment(operation_id, synthesizer, model.params)
+        return _ResolvedRecipe(
+            reference=f"${binding}",
+            operation_id=operation_id,
+            name=fusion.name,
+            kind="fusion",
+            models=_ordered_unique((*_member_models(members), synthesizer)),
+            topology=_RecipeTopology(
+                kind="fusion",
+                quorum=fusion.quorum,
+                optional=fusion.optional,
+                name=fusion.name,
+                binding=binding,
+                members=tuple(_required_topology(member) for member in members),
+                synthesizer=_RecipeTopology(
+                    kind="model",
+                    name=model.name,
+                    binding=binding,
+                    named=model._sample_id is not None,
+                    role="synthesis",
+                ),
+            ),
+            members=members,
+            calls=(*_member_calls(members), call),
+        )
+
+    def _recipe_synthesizer(
+        self,
+        fusion: Fusion,
+        synthesizer: Recipe,
+        members: tuple[_ResolvedRecipe, ...],
+        *,
+        context: str,
+        dependencies: tuple[str, ...],
+    ) -> _ResolvedRecipe:
         # WHY: a complete Recipe used as the synthesizer receives the same explicit
         # question-and-panel value as a direct Model synthesizer. Its internal serial or
         # parallel topology remains ordinary Recipe compilation rather than a special path.
         resolved_synthesizer = self._recipe(
-            fusion.synthesizer,
+            synthesizer,
             input_context=context,
             input_dependencies=dependencies,
             synthesis=True,
@@ -363,7 +543,7 @@ class _CandidateCompiler:
             operation_id=resolved_synthesizer.operation_id,
             name=fusion.name,
             kind="fusion",
-            models=_ordered_unique((*models, *resolved_synthesizer.models)),
+            models=_ordered_unique((*_member_models(members), *resolved_synthesizer.models)),
             topology=_RecipeTopology(
                 kind="fusion",
                 quorum=fusion.quorum,
@@ -374,7 +554,108 @@ class _CandidateCompiler:
                 synthesizer=_required_topology(resolved_synthesizer),
             ),
             members=members,
+            calls=(*_member_calls(members), *resolved_synthesizer.calls),
+            selection=resolved_synthesizer.selection,
         )
+
+    def _reducer_synthesizer(
+        self,
+        fusion: Fusion,
+        reducer: Reducer,
+        members: tuple[_ResolvedRecipe, ...],
+        *,
+        binding: str,
+        operation_id: str,
+        input_context: str,
+        dependencies: tuple[str, ...],
+        panel: str | None = None,
+    ) -> _ResolvedRecipe:
+        """Compile a reducer to ONE combine call whose intent is the canonical spec.
+
+        WHY the ``binding`` param: the Engine attributes an operation's output by the
+        call's ``(path, params)`` fingerprint, and every combine call shares one path,
+        so the binding name is what keeps two reducers' evidence apart. ``panel`` is the
+        reference of a quorum Fusion's broadcast panel; the combine call and its signal calls
+        then read it in place of every member's output.
+        """
+
+        if self._operators is None:
+            raise ValueError(
+                "a reducer needs the SF Engine operator catalog to compile; "
+                "evaluate it through an sf.Client"
+            )
+        # WHY once per Fusion object: a corrective loop recompiles its member Fusion every round.
+        if id(fusion) not in self._warned_fusions:
+            self._warned_fusions.add(id(fusion))
+            _warn_duplicate_members(fusion)
+        spec = combine_spec_text(
+            reducer,
+            member_count=len(members),
+            operators=self._operators,
+            benchmark_rule=self._benchmark_rule,
+        )
+        sources = self._claim_accounting_sources(reducer, members)
+        # Lazy: reducer_signals imports this module's helpers at module top.
+        from screamingface._evaluation.reducer_signals import _compile_signals
+
+        plan = reducer._plan()
+        signals = _compile_signals(
+            self,
+            fusion,
+            plan,
+            members,
+            input_context=input_context,
+            dependencies=dependencies,
+            panel=panel,
+        )
+        # The combine call reads the same question-and-panel value a Model synthesizer does,
+        # plus the references of the model calls it reads (the signals).
+        self._append_combine(
+            binding=binding,
+            operation_id=operation_id,
+            context=_fusion_context(
+                input_context, members, signals.references, sources=sources, panel=panel
+            ),
+            spec_text=spec,
+            label=f"{fusion.name} combine",
+            depends_on=(*dependencies, *signals.operation_ids),
+        )
+        return _ResolvedRecipe(
+            reference=f"${binding}",
+            operation_id=operation_id,
+            name=fusion.name,
+            kind="fusion",
+            models=_ordered_unique((*_member_models(members), *signals.models)),
+            topology=_RecipeTopology(
+                kind="fusion",
+                quorum=fusion.quorum,
+                optional=fusion.optional,
+                name=fusion.name,
+                binding=binding,
+                members=tuple(_required_topology(member) for member in members),
+                synthesizer=_RecipeTopology(
+                    kind="reducer",
+                    name=reducer.name,
+                    binding=binding,
+                    signals=signals.topology,
+                ),
+            ),
+            members=members,
+            # AIDEV-NOTE: the combine call itself is never a claimant; judge and writer calls
+            # stay out too, because their `binding` param already makes their fingerprint unique.
+            calls=_member_calls(members),
+            selection=_selection_label(reducer) if plan.kind == "selection" else None,
+        )
+
+    def _claim_accounting_sources(
+        self, reducer: Reducer, members: tuple[_ResolvedRecipe, ...]
+    ) -> dict[str, dict[str, dict[str, str]]] | None:
+        """The context `sources`, only when the reducer reads an accounting signal (SG#5, SG#6)."""
+
+        if accounting_signal(reducer) is None:
+            return None
+        self._reads_accounting = True
+        return member_sources([member.calls for member in members], self._claims or {})
 
     def _pipeline(
         self,
@@ -387,6 +668,7 @@ class _CandidateCompiler:
         context = input_context
         dependencies = input_dependencies
         models: tuple[str, ...] = ()
+        calls: tuple[_SourceCall, ...] = ()
         resolved: _ResolvedRecipe | None = None
         stage_topologies: list[_RecipeTopology] = []
         for index, stage in enumerate(pipeline.stages):
@@ -399,6 +681,7 @@ class _CandidateCompiler:
             context = resolved.reference
             dependencies = (resolved.operation_id,)
             models = _ordered_unique((*models, *resolved.models))
+            calls = (*calls, *resolved.calls)
             stage_topologies.append(_required_topology(resolved))
         assert resolved is not None
         return _ResolvedRecipe(
@@ -415,7 +698,56 @@ class _CandidateCompiler:
                 named=pipeline._is_named,
                 stages=tuple(stage_topologies),
             ),
+            calls=calls,
+            selection=resolved.selection,
         )
+
+    def _append_combine(
+        self,
+        *,
+        binding: str,
+        operation_id: str,
+        context: str,
+        spec_text: str,
+        label: str,
+        depends_on: tuple[str, ...],
+    ) -> None:
+        """Attach one ``/ensemble/combine/v1`` source and its ``combine`` operation."""
+
+        self._sources.append(
+            src(
+                RelExpr(
+                    path=COMBINE_ROUTE,
+                    context=context,
+                    intent=Text(spec_text),
+                    params=((OPERATION_BINDING_PARAM, binding),),
+                ),
+                name=binding,
+                weight=0.0,
+            )
+        )
+        self._operations.append(
+            _compiled_operation(id=operation_id, kind="combine", label=label, depends_on=depends_on)
+        )
+
+    def _next_binding(self, prefix: Literal["synthesis", "judge", "writer"]) -> str:
+        """The next ``<prefix>_N`` binding; each prefix counts on its own."""
+
+        if prefix == "synthesis":
+            self._synthesis_count += 1
+            number = self._synthesis_count
+        elif prefix == "judge":
+            self._judge_count += 1
+            number = self._judge_count
+        else:
+            self._writer_count += 1
+            number = self._writer_count
+        return f"{prefix}_{number}"
+
+    def _append_operation(self, operation: OperationInfo) -> None:
+        """Attach one operation owned by a composite compiler extension."""
+
+        self._operations.append(operation)
 
     def _record_parameter_assignment(
         self,
@@ -434,19 +766,99 @@ class _CandidateCompiler:
         )
 
 
-def _fusion_context(input_context: str, members: tuple[_ResolvedRecipe, ...]) -> str:
-    """Build canonical JSON at runtime so arbitrary answers remain safely escaped."""
+def _fusion_context(
+    input_context: str,
+    members: tuple[_ResolvedRecipe, ...],
+    signals: Mapping[str, str] | None = None,
+    *,
+    sources: Mapping[str, object] | None = None,
+    panel: str | None = None,
+) -> str:
+    """Build canonical JSON at runtime so arbitrary answers remain safely escaped.
 
-    return render(
-        struct(
-            {
-                "input": input_context,
-                "outputs": {
-                    f"member_{index}": member.reference for index, member in enumerate(members, 1)
-                },
-            }
-        )
-    )
+    Key order is input, outputs (or panel), signals, sources. ``signals`` (the references of the
+    model calls a reducer reads) is written only when not empty, and ``sources`` only when given,
+    so a Fusion without them keeps its exact bytes (SG#6). ``panel`` replaces ``outputs`` for a
+    quorum Fusion: it lists only the members that answered (OME-1557).
+    """
+
+    value: dict[str, object] = {"input": input_context}
+    if panel is None:
+        value["outputs"] = {
+            f"member_{index}": member.reference for index, member in enumerate(members, 1)
+        }
+    else:
+        value["panel"] = panel
+    if signals:
+        value["signals"] = dict(signals)
+    if sources is not None:
+        value["sources"] = sources
+    return render(struct(value))
+
+
+def _warn_duplicate_members(fusion: Fusion) -> None:
+    """Warn for each group of direct Model members that send one identical request.
+
+    Any reducer synthesizer triggers it, a named reducer or an sf.Reduce block alike (BK-D7): the
+    check runs in _reducer_synthesizer, which every Reducer reaches.
+
+    WHY: the gateway keys its response cache on the request, so equal members may be served
+    by one cached answer and a vote would count it N times. The key is what the compiler
+    actually sends (canonical route, effective prompt, encoded params), so names never count
+    and a spelling that renders the same request is the same member. Recipe members are
+    skipped: their inner requests are compiled elsewhere.
+    """
+
+    groups: dict[tuple[str, str, tuple[tuple[str, str], ...]], list[int]] = {}
+    for position, member in enumerate(fusion.members, start=1):
+        if isinstance(member, Model):
+            key = (
+                _canonical_model(member.model),
+                member.prompt or DEFAULT_ANSWER_PROMPT,
+                tuple(sorted(resolved_params(member.params))),
+            )
+            groups.setdefault(key, []).append(position)
+    for (route, _prompt, _params), positions in groups.items():
+        if len(positions) >= 2:
+            warnings.warn(
+                f"Fusion {fusion.name!r}: members {_positions(positions)} send the same request "
+                f"to {route!r}; identical requests may be served by one cached answer. "
+                "Use sf.samples() for independent samples.",
+                DuplicateMembersWarning,
+                skip_file_prefixes=(SDK_PACKAGE_ROOT,),
+            )
+
+
+def _positions(positions: list[int]) -> str:
+    head = ", ".join(str(position) for position in positions[:-1])
+    return f"{head} and {positions[-1]}"
+
+
+def _member_calls(members: tuple[_ResolvedRecipe, ...]) -> tuple[_SourceCall, ...]:
+    return tuple(call for member in members for call in member.calls)
+
+
+def _member_models(members: tuple[_ResolvedRecipe, ...]) -> tuple[str, ...]:
+    return tuple(route for member in members for route in member.models)
+
+
+def _reject_selection_members(members: tuple[_ResolvedRecipe, ...]) -> None:
+    """A selection goes only to the next Pipeline stage, so it can never be a Fusion member."""
+
+    for member in members:
+        if member.selection is not None:
+            raise ValueError(
+                f"a {member.selection} Fusion cannot be a Fusion member: its selection goes "
+                "only to the next Pipeline stage"
+            )
+
+
+def _selection_label(reducer: Reducer) -> str:
+    """What a selection compile check calls this reducer: the class, or the block and its op."""
+
+    if isinstance(reducer, Reduce):
+        return f"Reduce({reducer.op!r})"
+    return type(reducer).__name__
 
 
 def _required_topology(value: _ResolvedRecipe) -> _RecipeTopology:

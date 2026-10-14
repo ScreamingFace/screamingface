@@ -1,0 +1,18 @@
+{
+ "op": "by_label@1",
+ "stage": "select",
+ "cases": [
+  {"name": "label member_2", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"judge": {"raw": "member_2", "returns": "label", "parsed": "member_2"}}},
+   "expect": {"chosen": ["member_2"], "output": null, "tie": false, "agreement": null}},
+  {"name": "no judge reading", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {}},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "scores judge reading", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"judge": {"raw": "{}", "returns": "scores", "parsed": {"member_1": 1.0, "member_2": 2.0, "member_3": 3.0}}}},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "args are refused", "args": {"x": 1},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"judge": {"raw": "member_2", "returns": "label", "parsed": "member_2"}}},
+   "expect": {"error": "combine_spec_invalid"}}
+ ]
+}

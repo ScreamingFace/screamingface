@@ -32,7 +32,9 @@ from screamingface_engine.benchmarks import (
     assets_root,
 )
 from screamingface_engine.benchmarks.registry import served_routes
+from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.combine import install_combine_runtime
 from screamingface_engine.world.config import (
     AigatewaySection,
     ModelSpec,
@@ -247,6 +249,10 @@ async def build_world(
                 # capability, not benchmark surface — installed once beside the candidate
                 # invocation for every world that runs benchmarks.
                 install_corrective_runtime(world.node)
+                # The deterministic combine endpoint (OME-1289 E4a) is engine capability too:
+                # one route, the built-in operators, installed once for every benchmark world and
+                # never a direct mount (the snapshot above is taken before it exists).
+                install_combine_runtime(world.node, BUILTIN_OPERATORS)
                 benchmarks.install(
                     world.node,
                     assets_root=(

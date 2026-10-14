@@ -11,9 +11,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..profile_models import AuthType, ProfileDefaults
+
+if TYPE_CHECKING:
+    from .pair_authority import PairAuthority
 
 # WHY an alias, not a new model: the defaults a request is completed with ARE today's stored
 # `ProfileDefaults`, field for field. Naming them at the port lets the backing change (a slot on
@@ -62,6 +65,9 @@ class CredentialTarget:
     reauth_url: str | None
     defaults: RequestDefaults
     _backing: Any = field(default=None, repr=False, compare=False)
+    # WHY (OME-1497, G0 §5.3): the pair a non-migrated resolve read, so the request's error marks
+    # can check it was not moved during the provider call. Private like `_backing`.
+    _observed_pair: PairAuthority | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)

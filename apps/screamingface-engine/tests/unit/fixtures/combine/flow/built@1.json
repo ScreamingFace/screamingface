@@ -1,0 +1,18 @@
+{
+ "op": "built@1",
+ "stage": "select",
+ "cases": [
+  {"name": "emits the built text", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "x", "value": "x", "status": "voted", "weight": null}, {"member": "member_2", "raw": "y", "value": "y", "status": "voted", "weight": null}], "reduction": {"text": "{\"a\":1}"}},
+   "expect": {"chosen": [], "output": "{\"a\":1}", "tie": false, "agreement": null}},
+  {"name": "emits an empty built text", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "x", "value": "x", "status": "voted", "weight": null}, {"member": "member_2", "raw": "y", "value": "y", "status": "voted", "weight": null}], "reduction": {"text": ""}},
+   "expect": {"chosen": [], "output": "", "tie": false, "agreement": null}},
+  {"name": "no built text", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "x", "value": "x", "status": "voted", "weight": null}, {"member": "member_2", "raw": "y", "value": "y", "status": "voted", "weight": null}], "reduction": {}},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "takes no args", "args": {"x": 1},
+   "input": {"readings": [{"member": "member_1", "raw": "x", "value": "x", "status": "voted", "weight": null}, {"member": "member_2", "raw": "y", "value": "y", "status": "voted", "weight": null}], "reduction": {"text": "{}"}},
+   "expect": {"error": "combine_spec_invalid"}}
+ ]
+}

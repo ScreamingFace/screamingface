@@ -6,8 +6,9 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
+from screamingface._case_views import case_answers, case_trace
 from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json, thaw_mapping
 from screamingface._report_primitives import (
     CaseId,
@@ -15,8 +16,15 @@ from screamingface._report_primitives import (
     _case_id,
     _nonblank_text,
     _nonempty_text,
+    _optional_number,
 )
+from screamingface.answer import Answer
+from screamingface.combine_evidence import CombineEvidence
 from screamingface.operation_accounting import OperationAccounting
+
+if TYPE_CHECKING:
+    from screamingface.operation import OperationInfo
+    from screamingface.report_trace import TraceEntry
 
 # The Engine's versioned wrapper for native multi-turn Candidate input; kept in lock-step
 # with url4-cloud's `benchmarks/contract.py` CANDIDATE_INPUT_SCHEMA.
@@ -294,6 +302,7 @@ class CaseOperation:
     output: str | None
     finish_reason: str | None
     accounting: OperationAccounting | None = None
+    combine: CombineEvidence | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -309,9 +318,11 @@ class CaseOperation:
             )
         if self.accounting is not None and not isinstance(self.accounting, OperationAccounting):
             raise TypeError("Case Operation accounting must be an sf.OperationAccounting or None")
+        if self.combine is not None and not isinstance(self.combine, CombineEvidence):
+            raise TypeError("Case Operation combine must be an sf.report.CombineEvidence or None")
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        selected: dict[str, object] = {
             "operation_id": self.operation_id,
             "output": self.output,
             "finish_reason": self.finish_reason,
@@ -319,6 +330,11 @@ class CaseOperation:
             # a reader can tell "no accounting retained" from "older payload".
             "accounting": None if self.accounting is None else self.accounting.to_dict(),
         }
+        # INVARIANT: absence stays absence — the Engine leaves `combine` out for every
+        # operation that is not a deterministic combine, so the export does too.
+        if self.combine is not None:
+            selected["combine"] = self.combine.to_dict()
+        return selected
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,6 +417,12 @@ class CaseResult:
     operations: tuple[CaseOperation, ...] | None
     attempts: tuple[CaseAttempt, ...] | None
     _metadata: Mapping[str, object] = field(repr=False)
+    abstained: bool
+    # AIDEV-NOTE: write-once, set by CandidateResult for the Candidate that holds this Case; a
+    # Case shared by two Candidates keeps its first graph. Never serialized, never compared.
+    _operation_graph: Mapping[str, OperationInfo] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     def __init__(
         self,
@@ -418,6 +440,7 @@ class CaseResult:
         rounds_executed: int | None = None,
         operations: Sequence[CaseOperation] | None = None,
         attempts: Sequence[CaseAttempt] | None = None,
+        abstained: bool = False,
     ) -> None:
         case_id = _case_id(case_id)
         input = _nonempty_text(input, "Case Result input")
@@ -447,6 +470,7 @@ class CaseResult:
             output,
             selected_failures,
         )
+        abstained = _validated_abstained(abstained, status, grade, output, refusal)
         values = {
             "status": status,
             "case_id": case_id,
@@ -461,6 +485,8 @@ class CaseResult:
             "operations": selected_operations,
             "attempts": selected_attempts,
             "_metadata": freeze_mapping(metadata, "Case Result metadata"),
+            "_operation_graph": None,
+            "abstained": abstained,
         }
         for name, value in values.items():
             object.__setattr__(self, name, value)
@@ -534,6 +560,23 @@ class CaseResult:
                 return content
         return turns[0][1]
 
+    def answers(self, operation_id: str | None = None) -> tuple[Answer, ...]:
+        """What each member, then each combine step, answered, in author order.
+
+        Empty when the Case has no operations or no combine step. ``operation_id`` limits it to one
+        combine operation; an id that is not an operation of this Case raises ValueError.
+        """
+
+        return case_answers(self, operation_id)
+
+    def trace(self) -> tuple[TraceEntry, ...]:
+        """What every block did for this Case, in order (model calls, extracts, reduce).
+
+        Empty when the Case has no operations. Derived; never part of ``to_dict``.
+        """
+
+        return case_trace(self, self._operation_graph)
+
     def to_dict(self) -> dict[str, object]:
         selected = {
             "status": self.status,
@@ -555,6 +598,9 @@ class CaseResult:
         # INVARIANT (OME-1458): a Benchmark without Attempts exports byte-identically.
         if self.attempts is not None:
             selected["attempts"] = [attempt.to_dict() for attempt in self.attempts]
+        # INVARIANT: the mark appears only when true, so every other Case exports unchanged.
+        if self.abstained:
+            selected["abstained"] = True
         return selected
 
 
@@ -596,6 +642,14 @@ def _validated_attempts(
     return selected
 
 
+def _bind_operation_graph(case: CaseResult, operations: Sequence[OperationInfo]) -> None:
+    """Give a Case the operation graph of its Candidate, once, in place (never a copy)."""
+
+    if case._operation_graph is None:
+        graph = MappingProxyType({operation.id: operation for operation in operations})
+        object.__setattr__(case, "_operation_graph", graph)
+
+
 def _decode_candidate_envelope(value: object) -> tuple[tuple[str, str], ...] | None:
     """Decode the versioned chat envelope; ``None`` for anything that is not exactly it."""
 
@@ -624,8 +678,33 @@ def _turn(message: object) -> tuple[str, str] | None:
     return (role, content) if isinstance(role, str) and isinstance(content, str) else None
 
 
-def _optional_number(value: object, label: str) -> float | None:
-    return None if value is None else _required_number(value, label)
+def _validated_abstained(
+    abstained: object,
+    status: CaseStatus,
+    grade: CaseGrade | None,
+    output: str | None,
+    refusal: str | None,
+) -> bool:
+    if not isinstance(abstained, bool):
+        raise TypeError("Case Result abstained must be a bool")
+    if abstained:
+        _require_abstained(status, grade, output, refusal)
+    return abstained
+
+
+def _require_abstained(
+    status: CaseStatus, grade: CaseGrade | None, output: str | None, refusal: str | None
+) -> None:
+    """An abstained Case is a scored empty answer with score 0.0 (the Engine's mirror rule)."""
+
+    if (
+        status != "scored"
+        or grade is None
+        or grade.score != 0.0
+        or output != ""
+        or refusal is not None
+    ):
+        raise ValueError("an abstained Case is a scored empty answer with score 0.0")
 
 
 def _validate_execution(
@@ -683,15 +762,6 @@ def _string(value: object, label: str) -> str:
     if not isinstance(value, str):
         raise TypeError(f"{label} must be text")
     return value
-
-
-def _required_number(value: object, label: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise TypeError(f"{label} must be a finite number")
-    selected = float(value)
-    if selected in {float("inf"), float("-inf")} or selected != selected:
-        raise ValueError(f"{label} must be a finite number")
-    return selected
 
 
 def _validate_case_outcome(

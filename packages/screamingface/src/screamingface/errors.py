@@ -84,6 +84,12 @@ class PlanningError(_DiagnosticError):
     _default_code: str = "planning_failed"
 
 
+class EngineCapabilityError(PlanningError):
+    """The configured SF Engine lacks a capability this Evaluation needs (for example reducers)."""
+
+    _default_code: str = "engine_capability_missing"
+
+
 class ExecutionError(_DiagnosticError):
     """A Run ended without a valid Report.
 
@@ -232,6 +238,7 @@ def _scoreboard_hint(scoreboard_url: str | None) -> str:
 
 __all__ = [
     "AuthenticationError",
+    "EngineCapabilityError",
     "EngineUnavailableError",
     "ExecutionError",
     "LeaderboardError",

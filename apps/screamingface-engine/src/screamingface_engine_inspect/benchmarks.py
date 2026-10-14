@@ -27,7 +27,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, cast
 
-from screamingface_engine.benchmarks.definition import BenchmarkOrigin, DifficultyTier
+from screamingface_engine.benchmarks.definition import AnswerRule, BenchmarkOrigin, DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
 from screamingface_engine.benchmarks.nltk_data import (
     NLTK_DATA_DIR,
@@ -181,6 +181,9 @@ class BenchmarkSpec:
     #: Benchmark did (OME-1527). Only a migrated hand-built row sets it, to keep its Candidate
     #: bytes (and Fusion golden) unchanged; False everywhere else. Benchmark identity when set.
     candidate_input_envelope: bool = False
+    #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
+    #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
+    answer_rule: AnswerRule | None = None
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -288,6 +291,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer_kwargs={"numeric": True},
         # No Draft Feedback offer (with_check_surface stays False): the offer is a
         # per-Benchmark owner call, and today only IFEval carries one (OME-1513).
+        answer_rule=AnswerRule(
+            extract="inspect_number@1",
+            normalize="inspect_numeric@1",
+            grader="inspect_ai.scorer:match(numeric=True)@0.3.263",
+        ),
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/2110.14168",
@@ -873,6 +881,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
         upstream_case_count=30,
+        answer_rule=AnswerRule(
+            extract="inspect_aime@1",
+            normalize="inspect_numeric@1",
+            grader="inspect_evals.aime2024.aime2024:aime_scorer@0.20.0",
+        ),
     ),
     BenchmarkSpec(
         key="aime25",
@@ -921,6 +934,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
         upstream_case_count=30,
+        answer_rule=AnswerRule(
+            extract="inspect_aime@1",
+            normalize="inspect_numeric@1",
+            grader="inspect_evals.aime2025.aime2025:aime_scorer@0.20.0",
+        ),
     ),
     BenchmarkSpec(
         key="musr",
@@ -4493,6 +4511,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         attempts=spec.attempts,
         retrieval_policy=spec.retrieval_policy,
         candidate_input_envelope=spec.candidate_input_envelope,
+        answer_rule=spec.answer_rule,
         **_provenance_of(spec),
     )
 

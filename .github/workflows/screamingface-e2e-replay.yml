@@ -53,12 +53,31 @@ jobs:
         uses: actions/cache@v6
         with:
           path: /tmp/screamingface-data/benchmark-assets
-          key: benchmark-assets-${{ hashFiles('apps/screamingface-engine/src/screamingface_engine/benchmarks/**', 'apps/screamingface-engine/src/screamingface_engine_inspect/local_tasks/**', 'apps/screamingface-engine/src/screamingface_engine_inspect/prepare.py') }}
+          key: benchmark-assets-${{ hashFiles('apps/screamingface-engine/src/screamingface_engine/benchmarks/**', 'apps/screamingface-engine/src/screamingface_engine_inspect/**', 'packages/screamingface/tests/e2e/fixtures/goldens/inspect-gsm8k-vote.reducer-golden.json', 'packages/screamingface/tests/e2e/fixtures/goldens/inspect-gsm8k-fusion.fusion-golden.json') }}
 
       - name: Prepare benchmark assets
         # --extra runtime: `screamingface prepare` imports the embedded-server module,
         # whose deps (uvicorn et al.) live in the user-facing runtime extra.
         run: uv run --extra runtime screamingface prepare --all --data-dir /tmp/screamingface-data
+
+      # The reducer and fusion lanes (OME-1289 E4a, test_reducer_replay.py and test_fusion_replay.py)
+      # replay the IMPORTED board `inspect-gsm8k`, whose bundle is built by the Engine's own
+      # preparer and only with its `benchmarks` extra (the SDK step above never builds it). The
+      # marker file makes a cache hit skip the download; a miss costs one GSM8K download from
+      # Hugging Face (no token needed).
+      # The harness re-syncs the engine venv WITHOUT the extra for the other lanes, so this sync
+      # only makes the preparer importable. Gated on the lanes' goldens: until the user records
+      # the fixtures of one lane that lane skips, so the sync and the download would be spent for
+      # nothing. Both goldens are also part of the cache key above, so the first run after a lane's
+      # fixtures land misses the cache, prepares the bundle and saves it.
+      - name: Prepare the imported GSM8K assets
+        if: hashFiles('packages/screamingface/tests/e2e/fixtures/goldens/inspect-gsm8k-vote.reducer-golden.json', 'packages/screamingface/tests/e2e/fixtures/goldens/inspect-gsm8k-fusion.fusion-golden.json') != ''
+        working-directory: apps/screamingface-engine
+        run: |
+          uv sync --extra benchmarks
+          if [ ! -f /tmp/screamingface-data/benchmark-assets/inspect-gsm8k/cases.json ]; then
+            uv run python -m screamingface_engine.benchmarks.prepare --root /tmp/screamingface-data/benchmark-assets --bundle inspect-gsm8k
+          fi
 
       # A local Task's bundle (OME-1527: gdpval-text, draco and draco-3pass moved from hand-built
       # folders) is not in `screamingface prepare`; the Engine's own preparer writes it, as the
