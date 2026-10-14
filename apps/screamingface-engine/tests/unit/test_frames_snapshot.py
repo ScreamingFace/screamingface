@@ -458,8 +458,13 @@ def test_build_reports_every_refusal_together_and_returns_nothing() -> None:
     ]
     with pytest.raises(fs.SnapshotError) as refused:
         fs.build_snapshot(questions, _two_question_wiki())
-    assert "Missing one" in str(refused.value)
-    assert "de.wikipedia.org" in str(refused.value)
+    # WHY whole lines: each refusal must name its page or link, one per line, after the header.
+    lines: list[str] = str(refused.value).splitlines()
+    assert lines[0] == "refused, nothing written:"
+    assert set(lines[1:]) == {
+        "question 1: link names no page on a FRAMES wiki: https://de.wikipedia.org/wiki/Berlin",
+        f"en.wikipedia.org: Missing one: no revision before the cut-off {fs.CUTOFF}",
+    }
 
 
 def test_written_files_are_byte_identical_on_a_rebuild(tmp_path: Path) -> None:
