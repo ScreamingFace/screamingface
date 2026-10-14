@@ -29,7 +29,7 @@ from ..plugin_base import credential_service_provider_for
 from ..profile_models import AuthType, Profile, ProfileState
 from ..secrets.mixin import SecretDecryptionError
 from ..storage_outages import STORAGE_OUTAGES
-from .pair_authority import PairAuthority, PairAuthorityStore
+from .pair_authority import PairAuthority, PairAuthorityDataError, PairAuthorityStore
 from .types import CredentialAuthorityUnavailable, CredentialStoreReadUnavailable
 
 CredentialState = Literal["active", "pending", "error"]
@@ -50,6 +50,7 @@ _STATE_FOR_PROFILE: dict[ProfileState, CredentialState] = {
 # WHY these and no others: an unreachable database, a failed query or an undecodable or invalid
 # metadata index is an outage of the store; anything else is a bug and must not read as "empty".
 _STORE_READ_FAILURES = (*STORAGE_OUTAGES, SecretDecryptionError, ValidationError)
+_INVENTORY_READ_ATTEMPTS = 2
 
 
 @dataclass(frozen=True)
@@ -106,23 +107,26 @@ def classify_pair(
     provider = marker.provider
     if marker.effective_connection_id is not None and marker.migration_state != "migrated":
         raise CredentialAuthorityUnavailable(provider)
+    locator_provider = credential_provider or credential_service_provider_for(None, provider)
     for connection in connections:
-        _require_known(connection, provider, credential_provider, marker.account_id)
+        _require_known(connection, provider, locator_provider, marker.account_id)
     if len(documents) > 1 or len(connections) > 1:
         return PairDisposition(3, marker)
-    if credential_provider is None:
-        # WHY after rows 2-3: an unknown provider changes neither an inconsistency nor an
-        # ambiguity; it only means no plugin can manage the pair. A pair with no candidate at all
-        # (a marker left by a disconnect) lists nothing, like rows 6 and 7.
-        if not documents and not connections:
-            return PairDisposition(7, marker)
-        return PairDisposition(11, marker)
     if marker.migration_state == "quarantined":
         return PairDisposition(4, marker)
     document = documents[0] if documents else None
     connection = connections[0] if connections else None
     if marker.migration_state == "migrated":
-        return _migrated(marker, document, connection)
+        migrated = _migrated(marker, document, connection)
+        if credential_provider is None and migrated.row != 6:
+            return PairDisposition(11, marker, document=document, connection=connection)
+        return migrated
+    if credential_provider is None:
+        # WHY after rows 2-4 and migrated validation: an unknown plugin cannot make an
+        # inconsistency disappear. Only a structurally valid candidate becomes unresolved.
+        if document is None and connection is None:
+            return PairDisposition(7, marker)
+        return PairDisposition(11, marker, document=document, connection=connection)
     return _legacy_authority(marker, document, connection, credential_provider)
 
 
@@ -163,15 +167,11 @@ def _migrated(
 
 
 def _require_known(
-    connection: OAuthConnection, provider: str, credential_provider: str | None, account_id: str
+    connection: OAuthConnection, provider: str, credential_provider: str, account_id: str
 ) -> None:
     if connection.status not in _STATE_FOR_STATUS or connection.auth_type not in _AUTH_TYPES:
         raise CredentialAuthorityUnavailable(provider)
-    # WHY skipped for an unknown provider: its namespace is the plugin's; the pair is listed as
-    # unresolved and never managed, so no address is ever derived from the locator.
-    if credential_provider is not None and not _in_scope(
-        connection.credential_locator, credential_provider, account_id
-    ):
+    if not _in_scope(connection.credential_locator, credential_provider, account_id):
         raise CredentialAuthorityUnavailable(provider)
 
 
@@ -241,17 +241,49 @@ def store_reads() -> Iterator[None]:
 async def pair_inventory(app: Any, account_id: str) -> PairInventory:
     """Every pair of the account through the §5 table — the successor LIST (§4)."""
     markers = PairAuthorityStore()
-    with store_reads():
-        documents = await app.state.profile_index.list(account_id)
-        connections = await OAuthConnectionStore().list(account_id)
-        marked = await markers.providers(account_id)
-    providers = sorted(
-        {d.provider for d in documents} | {c.provider for c in connections} | set(marked)
+    for _attempt in range(_INVENTORY_READ_ATTEMPTS):
+        with store_reads():
+            before = await _read_generations(markers, account_id)
+            documents = await app.state.profile_index.list(account_id)
+            connections = await OAuthConnectionStore().list(account_id)
+            providers = sorted(
+                {d.provider for d in documents}
+                | {c.provider for c in connections}
+                | {provider for provider, _generation in before}
+            )
+            authorities = {
+                provider: await _read_marker(markers, account_id, provider)
+                for provider in providers
+            }
+            after = await _read_generations(markers, account_id)
+        if _stable_inventory_snapshot(before, after, authorities):
+            return _project_inventory(app, documents, connections, authorities)
+    raise CredentialStoreReadUnavailable()
+
+
+def _stable_inventory_snapshot(
+    before: tuple[tuple[str, int], ...],
+    after: tuple[tuple[str, int], ...],
+    authorities: Mapping[str, PairAuthority],
+) -> bool:
+    if before != after:
+        return False
+    generations = dict(after)
+    return all(
+        marker.generation == generations.get(provider, 0)
+        for provider, marker in authorities.items()
     )
+
+
+def _project_inventory(
+    app: Any,
+    documents: Sequence[Profile],
+    connections: Sequence[OAuthConnection],
+    authorities: Mapping[str, PairAuthority],
+) -> PairInventory:
     credentials: list[PairCredential] = []
     conflicts: list[PairConflict] = []
-    for provider in providers:
-        marker = await _read_marker(markers, account_id, provider)
+    for provider, marker in authorities.items():
         plugin = app.state.providers.get(provider)
         disposition = classify_pair(
             marker,
@@ -277,6 +309,17 @@ async def _read_marker(
     except ValueError as exc:
         # WHY ValueError: `PairAuthorityStore` refuses an unknown stored state with it.
         raise CredentialAuthorityUnavailable(provider) from exc
+    except _STORE_READ_FAILURES as exc:
+        raise CredentialStoreReadUnavailable() from exc
+
+
+async def _read_generations(
+    markers: PairAuthorityStore, account_id: str
+) -> tuple[tuple[str, int], ...]:
+    try:
+        return await markers.generations(account_id)
+    except PairAuthorityDataError as exc:
+        raise CredentialAuthorityUnavailable(exc.provider) from exc
     except _STORE_READ_FAILURES as exc:
         raise CredentialStoreReadUnavailable() from exc
 

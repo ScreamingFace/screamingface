@@ -113,5 +113,35 @@ RED first:
     the pair generation. (2) A genuine bug still answers the app-wide 500 without `no-store` —
     that handler runs outside the route and its body is generic. (3) An invalid value inside the
     index is a whole-account `credential_store_read_unavailable`, not `credential_authority_
-    unavailable`: the index is one document, so the provider cannot be named. (4) Schema drift
-    (a missing migration) is reported as unavailable, like any `OperationalError` today.
+     unavailable`: the index is one document, so the provider cannot be named. (4) Schema drift
+     (a missing migration) is reported as unavailable, like any `OperationalError` today.
+
+## Post-review correction — 2026-10-14
+
+Independent review returned `NOT READY` on the ordered disposition, multi-read consistency and
+response-hygiene boundaries. This correction will:
+
+- run marker/reference/locator, ambiguity, quarantine and migrated-reference checks before the
+  unknown-provider rendering decision;
+- fence LIST with a bounded optimistic pair-generation snapshot, retry once when ownership changes
+  across the candidate reads, then refuse the whole request as temporarily unavailable;
+- render an unexpected route exception through the existing sanitized 500 handler inside the route
+  wrapper so `private, no-store` remains mandatory without leaking exception text;
+- narrow driver outage matching from every `OSError` to connection/timeout failures;
+- make both nullable DTO fields required on the wire and in OpenAPI;
+- align the normative contract with the owner-confirmed whole-account store-read refusal for an
+  invalid unified Profile index, whose provider cannot be named safely.
+
+Acceptance: every reproduced counterexample fails closed; a one-time concurrent generation move is
+retried into a stable truthful view, persistent movement refuses; all prior tests plus focused race,
+unexpected-500, outage-taxonomy and OpenAPI regressions pass; full Gateway gates and independent
+security re-review are green.
+
+Post-review outcome: ordered unknown-provider/quarantine/migrated checks are fail-closed, shipped
+credential namespace aliases remain valid without a loaded plugin, persisted nonpositive generations
+are refused, LIST retries one ownership-generation movement and rejects persistent movement, and every
+standard method on the canonical/trailing path is authenticated, audited and `private, no-store`.
+Verification: 636 provider-access/admin tests, 20 PostgreSQL writer/fence races, the real PostgreSQL
+interleaving regression, and the full AIGateway gate pass. Independent pair-security and route-privacy
+re-reviews both report `READY`; the latter exercised 36 method/path/auth combinations. No model or
+migration changed.

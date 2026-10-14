@@ -16,7 +16,7 @@ from collections.abc import Callable, Coroutine
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -29,6 +29,7 @@ from ..core.admin_connection_schemas import (
 )
 from ..core.auth.admin import AdminPrincipal, CurrentAdmin
 from ..core.provider_access import SelectorUnsupported, pair_inventory, store_reads
+from ..unhandled_errors import unhandled_exception_handler
 from .admin import AdminAuditRoute, _note_actor, _require_account
 from .provider_access_http import (
     pair_conflict_detail,
@@ -37,6 +38,7 @@ from .provider_access_http import (
 )
 
 NO_STORE = "private, no-store"
+_UNSUPPORTED_METHODS = ["CONNECT", "DELETE", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"]
 
 
 class AdminConnectionsRoute(AdminAuditRoute):
@@ -60,6 +62,10 @@ class AdminConnectionsRoute(AdminAuditRoute):
                     RequestValidationError, request_validation_exception_handler
                 )
                 response = await handler(request, exc)
+            except Exception as exc:
+                # INVARIANT: the route's mandatory no-store policy includes an unexpected 500.
+                # Reuse the app's fixed, sanitized handler; never render exception text here.
+                response = await unhandled_exception_handler(request, exc)
             response.headers["Cache-Control"] = NO_STORE
             return response
 
@@ -105,6 +111,7 @@ async def list_admin_account_connections(
                 provider=credential.provider,
                 auth_type=credential.auth_type,
                 credential_state=credential.credential_state,
+                masked_key_hint=None,
                 last_refreshed_at=credential.last_refreshed_at,
             )
             for credential in inventory.credentials
@@ -114,3 +121,30 @@ async def list_admin_account_connections(
             for conflict in inventory.conflicts
         ],
     )
+
+
+@router.api_route(
+    "/accounts/{account_id}/connections",
+    methods=_UNSUPPORTED_METHODS,
+    include_in_schema=False,
+)
+async def reject_admin_connections_method(
+    request: Request, admin: SuccessorAdmin, account_id: UUID
+) -> None:
+    """Authenticate and audit an unsupported method instead of Starlette's unaudited 405."""
+    del request, admin, account_id
+    raise HTTPException(status_code=405, headers={"Allow": "GET"})
+
+
+@router.api_route(
+    "/accounts/{account_id}/connections/",
+    methods=["GET", *_UNSUPPORTED_METHODS],
+    include_in_schema=False,
+)
+async def redirect_admin_connections_trailing_slash(
+    request: Request, admin: SuccessorAdmin, account_id: UUID
+) -> None:
+    """Authenticate and audit the canonical-path redirect."""
+    del admin, account_id
+    location = str(request.url.replace(path=request.url.path.rstrip("/")))
+    raise HTTPException(status_code=307, headers={"Location": location})

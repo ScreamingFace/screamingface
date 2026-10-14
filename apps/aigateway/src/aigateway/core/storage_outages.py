@@ -22,8 +22,8 @@ STORAGE_OUTAGES: tuple[type[Exception], ...] = (
     asyncpg_exceptions.OperatorInterventionError,
     asyncpg_exceptions.InsufficientResourcesError,
     asyncpg_exceptions.InterfaceError,
-    # `ConnectionError` and `TimeoutError` are both `OSError`s.
-    OSError,
+    ConnectionError,
+    TimeoutError,
 )
 
 __all__ = ["STORAGE_OUTAGES"]

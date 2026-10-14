@@ -303,6 +303,7 @@ def test_the_openapi_contract_names_the_successor_and_keeps_the_legacy_operation
     for name in ("AdminConnectionOut", "AdminConnectionConflictOut", "AdminConnectionList"):
         assert name in components
     assert set(components["AdminConnectionOut"]["properties"]) == DTO_FIELDS
+    assert set(components["AdminConnectionOut"]["required"]) == DTO_FIELDS
     # The legacy surface is unchanged.
     assert "get" in schema["paths"]["/v1/admin/accounts/{account_id}/profiles"]
     assert "AdminProfileOut" in components
@@ -330,4 +331,83 @@ def test_a_store_outage_at_the_account_lookup_is_a_503_and_not_cached(
         }
     }
     assert "server closed" not in resp.text
+    assert resp.headers["cache-control"] == NO_STORE
+
+
+def test_an_unexpected_500_is_sanitized_and_not_cached(client, admin_client, monkeypatch) -> None:
+    tenant = _create_account(admin_client, "unexpected@openmined.org")
+
+    async def broken(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("must-not-cross")
+
+    monkeypatch.setattr(admin_connections, "_require_account", broken)
+    no_raise = TestClient(
+        admin_client.app,
+        client=("10.1.2.3", 50000),
+        raise_server_exceptions=False,
+    )
+
+    resp = _list(no_raise, tenant)
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"]["code"] == "gateway_internal_error"
+    assert "must-not-cross" not in resp.text
+    assert resp.headers["cache-control"] == NO_STORE
+
+
+@pytest.mark.parametrize("method", ["POST", "OPTIONS", "CONNECT", "TRACE"])
+def test_an_authenticated_unsupported_method_is_audited_and_not_cached(
+    admin_client, caplog, method
+) -> None:
+    account_id = str(uuid4())
+    caplog.set_level(logging.INFO, logger="aigateway.routes.admin")
+
+    resp = admin_client.request(
+        method,
+        f"/v1/admin/accounts/{account_id}/connections",
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 405
+    assert resp.headers["cache-control"] == NO_STORE
+    lines = [
+        record.getMessage() for record in caplog.records if "admin_action" in record.getMessage()
+    ]
+    assert any(f"actor={ADMIN}" in line and "status_code=405" in line for line in lines), lines
+
+
+def test_an_unauthenticated_unsupported_method_is_401_and_not_cached(admin_client) -> None:
+    resp = admin_client.post(f"/v1/admin/accounts/{uuid4()}/connections")
+
+    assert resp.status_code == 401
+    assert resp.headers["cache-control"] == NO_STORE
+
+
+def test_an_authenticated_trailing_slash_redirect_is_audited_and_not_cached(
+    admin_client, caplog
+) -> None:
+    account_id = str(uuid4())
+    caplog.set_level(logging.INFO, logger="aigateway.routes.admin")
+
+    resp = admin_client.get(
+        f"/v1/admin/accounts/{account_id}/connections/",
+        headers=_headers(),
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 307
+    assert resp.headers["cache-control"] == NO_STORE
+    lines = [
+        record.getMessage() for record in caplog.records if "admin_action" in record.getMessage()
+    ]
+    assert any(f"actor={ADMIN}" in line and "status_code=307" in line for line in lines), lines
+
+
+def test_an_unauthenticated_trailing_slash_request_is_401_and_not_cached(admin_client) -> None:
+    resp = admin_client.get(
+        f"/v1/admin/accounts/{uuid4()}/connections/",
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 401
     assert resp.headers["cache-control"] == NO_STORE

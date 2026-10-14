@@ -23,8 +23,8 @@ class AdminConnectionOut(BaseModel):
     provider: str
     auth_type: AuthType
     credential_state: Literal["active", "pending", "error"]
-    masked_key_hint: str | None = None
-    last_refreshed_at: datetime | None = None
+    masked_key_hint: str | None
+    last_refreshed_at: datetime | None
 
 
 class AdminConnectionConflictOut(BaseModel):
