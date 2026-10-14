@@ -174,6 +174,14 @@
     });
   }
 
+  // WHY a chart-local formatter for the y-axis ticks: the shared score formatter keeps six
+  // significant digits ("0.515175"), which is right for a table cell and a tooltip, but a tick
+  // that long ran into the rotated "Score" title. Ticks sit at quarters of the score range,
+  // so two decimals name them; point tooltips keep the full precision.
+  function formatScoreTick(value) {
+    return value.toFixed(2);
+  }
+
   function describePoint(point, formatCost, formatScore) {
     var cost = point.cost === null
       ? "cost not reported"
@@ -183,7 +191,7 @@
     if (point.isLeader) states.push("highest score");
     if (point.cost === null) states.push("excluded from Pareto comparison");
     return point.specId + ": score " + formatScore(point.score) + ", " + cost +
-      (states.length ? "; " + states.join("; ") : "; dominated");
+      (states.length ? "; " + states.join("; ") : "; not on the Pareto frontier");
   }
 
   function renderMarker(svg, point, x, y, kind, formatScore, formatCost) {
@@ -206,7 +214,7 @@
     svg.appendChild(group);
   }
 
-  function renderAxes(svg, model, box, formatScore, formatCost) {
+  function renderAxes(svg, model, box, formatCost) {
     tickPositions(model.scoreDomain).forEach(function (t) {
       var y = box.top + (1 - t) * box.height;
       var value = atScale(t, model.scoreDomain, "linear");
@@ -220,7 +228,7 @@
         x: box.left - 12,
         y: y + 4,
         "text-anchor": "end",
-      }, formatScore(value)));
+      }, formatScoreTick(value)));
     });
     buildCostTicks(model.costDomain, model.costScale, formatCost).forEach(function (tick) {
       var x = box.left + tick.position * box.width;
@@ -277,7 +285,7 @@
       preserveAspectRatio: "xMidYMid meet",
       focusable: "false",
     });
-    renderAxes(svg, model, box, options.formatScore, options.formatCost);
+    renderAxes(svg, model, box, options.formatCost);
 
     if (model.frontier.length > 1) {
       var vertices = model.frontier.map(function (point) {
@@ -351,6 +359,7 @@
     buildChartModel: buildChartModel,
     buildCostTicks: buildCostTicks,
     describePoint: describePoint,
+    formatScoreTick: formatScoreTick,
     render: render,
   };
 });

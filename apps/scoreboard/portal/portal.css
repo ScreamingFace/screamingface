@@ -599,3 +599,26 @@ td.col-open { white-space: nowrap; }
 @media (max-width: 620px) {
   .subscribe .signup { max-width: none; }
 }
+
+/* ---- grant banner: one thin strip above the rail on every page ----------------------- */
+/* WHY plain tokens only: the strip is an announcement, not the win, so it takes no gold and
+   no new colour. The surface fill plus a hairline seam set it apart from the rail below it,
+   square and shadowless per the system, and both flip with the theme. It is not sticky: the
+   rail pins itself at top 0, so the strip scrolls away and never stacks two bars. */
+.grant-banner {
+  display: block; padding: var(--space-2) var(--space-5);
+  background: var(--surface); border-bottom: var(--border-hairline) solid var(--line);
+  font-family: var(--f-sans); font-size: var(--text-sm); line-height: var(--leading-snug);
+  text-align: center; color: var(--ink);
+}
+.grant-banner__link { color: var(--ink); }
+.grant-banner__link:hover { text-decoration-color: var(--ink); }
+@media (max-width: 620px) {
+  .grant-banner { padding: var(--space-2) var(--space-4); }
+}
+/* WHY the toggle anchors to the rail: style.css pins it `position: fixed` at half the rail
+   height from the VIEWPORT top, which assumed the rail starts at y=0. With the banner above,
+   it sat inside the banner until the page scrolled. The rail is already sticky (see "rail
+   pinning" above), so positioning the toggle against the rail keeps the same offset inside
+   the rail at every scroll position, on desktop and on the wrapped mobile rail. */
+.rail .toggle { position: absolute; }

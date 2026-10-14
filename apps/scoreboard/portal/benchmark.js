@@ -21,9 +21,10 @@
     // and it stole width from `.cell-wrap`'s 192px cap, wrapping long spec names).
     { key: "__mark", label: "", sort: null, cls: "col-mark" },
     // Nothing in the payload names a fusion; `spec_id` is the available identifier.
-    // The header stays "Spec" so it describes what the cell actually holds; the
-    // SOTA mark slot leads this cell, which is the "mark leads the name" part.
-    { key: "spec_id", label: "Spec", sort: "string", dir: "asc" },
+    // WHY the header says "Submission": visitors read each row as one submission, so the
+    // visible word is "Submission" while the payload key stays `spec_id`. The SOTA mark
+    // slot leads this cell, which is the "mark leads the name" part.
+    { key: "spec_id", label: "Submission", sort: "string", dir: "asc" },
     // Likewise "Models": `ran_with_providers` is provider names, not model
     // identities, and providers.length > 1 is not a valid fusion/solo test,
     // so the header says what the cell holds.
@@ -248,7 +249,7 @@
     }
 
     var best = bestScore(entries);
-    // Bare numbers: the .stats cell labels ("Specs shown") already carry the words.
+    // Bare numbers: the .stats cell labels ("Submissions shown") already carry the words.
     document.getElementById("summary-best").textContent = P.formatScore(best);
     document.getElementById("summary-specs").textContent = entries.length.toLocaleString();
     summaryNode.hidden = false;

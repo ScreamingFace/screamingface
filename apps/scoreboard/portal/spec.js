@@ -103,7 +103,7 @@
       specId = P.requireParam("spec");
     } catch (e) {
       P.setStatus(statusNode, "error", "");
-      statusNode.appendChild(document.createTextNode("Missing benchmark or spec. "));
+      statusNode.appendChild(document.createTextNode("Missing benchmark or submission. "));
       statusNode.appendChild(P.link(null, "index.html", "Return to the benchmark list."));
       return;
     }
@@ -120,7 +120,7 @@
     setBenchmarkName(benchmarkId);
     document.title = specId + " — screamingface";
 
-    P.showLoading(statusNode, "Loading spec history…");
+    P.showLoading(statusNode, "Loading submission history…");
     contentNode.hidden = true;
 
     resolveBenchmarkName(benchmarkId).then(setBenchmarkName);
@@ -129,7 +129,7 @@
       function (data) {
         var submissions = (data && data.submissions) || [];
         if (submissions.length === 0) {
-          P.showEmpty(statusNode, "No submissions for this spec yet.");
+          P.showEmpty(statusNode, "No runs of this submission yet.");
           return;
         }
 
@@ -151,7 +151,7 @@
       function (err) {
         P.showError(statusNode, P.describeError(err, {
           notFound: "Benchmark not found.",
-          generic: "Could not load spec history — try again later.",
+          generic: "Could not load submission history. Try again later.",
         }));
       }
     );

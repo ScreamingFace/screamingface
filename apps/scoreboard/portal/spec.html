@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>screamingface — spec history</title>
-  <meta name="description" content="Submission history for a screamingface benchmark spec, with scores and a local rerun link.">
+  <title>screamingface — submission history</title>
+  <meta name="description" content="Run history for a screamingface benchmark submission, with scores and a local rerun link.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
   <link rel="stylesheet" href="fonts.css">
   <link rel="stylesheet" href="tokens.css">
@@ -16,12 +16,15 @@
   <script src="analytics.js"></script>
 </head>
 <body>
+  <aside class="grant-banner" aria-label="Announcement">
+    <a class="grant-banner__link" href="https://openmined.org/research/grants/" target="_blank" rel="noopener">Open call for research grants to explore ensembles &amp; routers →</a>
+  </aside>
   <div class="rail" data-section="nav">
     <a class="brand" href="index.html"><span class="m" aria-hidden="true">😱</span> screamingface</a><span class="sep">/</span>
-    <nav class="crumbs"><a id="back-link" href="#" hidden></a><a href="#" class="here">spec</a></nav>
+    <nav class="crumbs"><a id="back-link" href="#" hidden></a><a href="#" class="here">submission</a></nav>
     <span class="spacer"></span>
     <nav class="rail-nav" aria-label="Site">
-      <a class="rail-link" href="index.html#benchmarks">benchmarks</a>
+      <a class="rail-link" href="index.html">home</a>
       <a class="rail-link" href="about.html">about</a>
       <a class="rail-link" href="https://github.com/ScreamingFace/screamingface" target="_blank" rel="noopener">github</a>
       <a class="rail-link" href="https://docs.screamingface.ai" target="_blank" rel="noopener">docs</a>
@@ -31,7 +34,7 @@
 
   <div class="wrap">
     <header class="masthead" data-section="header">
-      <div class="eyebrow">Spec history</div>
+      <div class="eyebrow">Submission history</div>
       <h1>Run history</h1>
     </header>
 
@@ -48,7 +51,7 @@
     <div id="spec-status" class="state" role="status" aria-live="polite">Loading…</div>
 
     <div id="spec-content" hidden>
-      <div class="stats" aria-label="Spec summary">
+      <div class="stats" aria-label="Submission summary">
         <div class="s"><span class="k">Best score</span><div class="v gain" id="best-score">—</div></div>
         <div class="s"><span class="k">Submissions</span><div class="v" id="submission-count">—</div></div>
         <div class="s"><span class="k">Reproduce</span><div id="run-region" class="run-region" hidden></div></div>
