@@ -20,6 +20,7 @@ from screamingface.reducer import (
     _MAX_REDUCER_MEMBERS,
     _MEAN_SIGNAL_USE,
     _MEDIAN_JUDGE_USE,
+    _NUMERIC_SELECTS,
     BENCHMARK_EXTRACT,
     Reducer,
     _check_judge_weights,
@@ -421,7 +422,12 @@ _CHECKS: Mapping[str, Callable[[str, object], object]] = MappingProxyType(
 @dataclass(frozen=True, slots=True, init=False, eq=False)
 class Reduce(Reducer):
     """One reduce block in the Fusion synthesizer slot; compiles to the same combine call as its
-    named form (block-api ans:Q1). select returns original member text; compute builds a value."""
+    named form (block-api ans:Q1). select returns original member text; compute builds a value.
+
+    A median or a mean block also takes ``select="nearest" | "value"``, the word of sf.Median and
+    sf.Mean, in place of ``mode``: "nearest" is mode "select" and "value" is mode "compute". The
+    block keeps only the mode, so both spellings are one block, with one repr and one url4.
+    """
 
     name: str
     op: str
@@ -434,6 +440,7 @@ class Reduce(Reducer):
         row = _OPS.get(op)
         if row is None:
             raise ValueError(f"unknown sf.Reduce op {op!r}; the v1 ops are {', '.join(_OPS)}")
+        mode, options = _numeric_select(op, mode, options)
         selected_mode = _resolve_mode(op, row, mode)
         _check_option_names(op, row, options)
         checked = {
@@ -530,13 +537,42 @@ def _check_option_names(op: str, row: _OpRow, options: Mapping[str, object]) -> 
     allowed = (*row.required, *row.optional)
     for name in options:
         if name not in allowed:
-            takes = ", ".join(allowed) if allowed else "no options"
+            named = (*allowed, "select") if op in _SELECT_CHOICES else allowed
+            takes = ", ".join(named) if named else "no options"
             raise ValueError(f"sf.Reduce({op!r}) does not take option {name!r}; it takes {takes}")
     for name in row.required:
         if name not in options:
             raise ValueError(f"sf.Reduce({op!r}) needs option {name!r}")
     if row.one_of and sum(name in options for name in row.one_of) != 1:
         raise ValueError(f"sf.Reduce({op!r}) needs exactly one of {', '.join(row.one_of)}")
+
+
+# op -> its select words as an error names them, the default first (the sf.Median / sf.Mean order)
+_SELECT_CHOICES: Mapping[str, str] = MappingProxyType(
+    {"median": "'nearest' or 'value'", "mean": "'value' or 'nearest'"}
+)
+
+
+def _numeric_select(
+    op: str, mode: ReduceMode | None, options: dict[str, object]
+) -> tuple[ReduceMode | None, dict[str, object]]:
+    """The mode and the other options of a block that may give ``select=`` (E4b playground fix).
+
+    A median or a mean block takes ``select="nearest" | "value"``, the word of sf.Median and
+    sf.Mean, as a second name for ``mode``. The block keeps only the mode, so the url4, the
+    evidence and the repr do not change. A short name only: blocks never pin a version (D-13).
+    """
+
+    choices = _SELECT_CHOICES.get(op)
+    if choices is None or "select" not in options:
+        return mode, options
+    rest = dict(options)
+    select = rest.pop("select")
+    if mode is not None:
+        raise ValueError(f"sf.Reduce({op!r}) takes mode or select, not both")
+    if not isinstance(select, str) or select not in _NUMERIC_MODES:
+        raise ValueError(f"sf.Reduce({op!r}) option 'select' must be {choices}, not {select!r}")
+    return _NUMERIC_MODES[select], rest
 
 
 def _numeric_extract(extract: object, op: str) -> Extract:
@@ -710,6 +746,8 @@ def _rebuild_vote(spec: Mapping[str, object], *, judge: Judge | None = None) -> 
 _NUMERIC_MODES: Mapping[str, ReduceMode] = MappingProxyType(
     {"nearest": "select", "value": "compute"}
 )
+# INVARIANT: the block select words are the select words of sf.Median and sf.Mean (one vocabulary).
+assert frozenset(_NUMERIC_MODES) == _NUMERIC_SELECTS
 
 
 def _rebuild_median(spec: Mapping[str, object]) -> Reduce:

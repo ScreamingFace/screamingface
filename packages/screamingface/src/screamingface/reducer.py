@@ -643,7 +643,9 @@ class Median(Reducer):
     """Median of the members' numeric answers: the nearest member's text, or the number itself.
 
     ``weights`` (one positive number per member, or ``sf.signal(key)``) makes it a weighted median:
-    a member with a missing or non-positive weight is dropped and is never the nearest pick.
+    a member with a missing or non-positive weight is dropped and is never the nearest pick. For a
+    JSON field answer, use ``sf.Reduce("median", extract=sf.Extract("field", path=...),
+    select=...)``.
     """
 
     name: str
