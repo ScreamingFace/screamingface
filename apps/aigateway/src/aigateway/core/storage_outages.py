@@ -6,7 +6,7 @@
 # exception. A refusal that promises "temporarily unavailable" must recognise those too.
 # INVARIANT: only storage-availability failures belong here. A programming error is never on this
 # list, so it still surfaces as a 500 instead of passing for an outage.
-# AIDEV-NOTE: `OperationalError` also carries schema drift (a missing migration): it is reported as
+# NOTE: `OperationalError` also carries schema drift (a missing migration): it is reported as
 # unavailable — the request cannot be served either way, and the log keeps the class name.
 """
 
