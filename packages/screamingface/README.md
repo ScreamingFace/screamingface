@@ -1248,7 +1248,7 @@ disclosures reuse the cache without decoding Cases; missing, stale or malformed 
 rebuild, and a read-only cache location still returns derived values. Per-Case HTML still
 materializes its rendered output. Automatic lifecycle discovery remains a separate follow-up.
 
-## Optional local analytics
+## Optional analytics (dev preview)
 
 Analytics is off until you explicitly opt in. In local Python or Jupyter:
 
@@ -1297,7 +1297,33 @@ in evaluation, never waits for delivery at shutdown, and may lose events. Consen
 is rechecked before dispatch and retry; already dispatched requests can complete
 after opt-out. There is no durable event spool.
 
-Colab analytics remains disabled until the separate consent/cookie bridge is ready.
-There is no identity linking. Raw-event retention is 90 days; disabling or resetting
-an identifier does not delete previously accepted events. Production rollout still
-requires verification of deployment retention and the historical deletion process.
+In Colab, explicit `sf.connect()` setup starts a consent-only browser bridge in a
+background worker. Unknown consent shows the same nonblocking disclosure. Use
+`sf.analytics.enable()` to accept or `sf.analytics.disable()` to decline; controls
+return immediately with `pending=True` until the browser acknowledges the choice.
+Inspect `sf.analytics.status()` in a later cell. Operations begun before consent
+is confirmed are skipped, never replayed retroactively.
+
+Colab uses the dev service's `/bridge/consent` iframe and cookie-checked
+`/bridge/id/events` route. The runtime never receives the cookie itself or sends
+events directly to `/v1/events`. The status has `scope="browser"` and an anonymous
+`persistent_id`; `installation_id` is absent in meaning (`None`). No local consent
+file is used. `persist=False` is unsupported in Colab because the server requires
+browser consent for every batch. Process-only disable does not alter remembered
+browser consent; normal disable requests a persisted decline. DNT suppresses all
+requests, including decline persistence, so it cannot clear existing browser cookies.
+
+The Colab queue holds at most 100 events, with one daemon worker and no retry.
+Each exchange has a two-second Python timeout and a shorter browser deadline.
+Blocked storage or browser errors fail closed; there is no runtime HTTP fallback.
+Late replies cannot re-enable the kernel after opt-out. Already-dispatched requests
+may complete; successful persisted decline prevents subsequent bridge delivery.
+Cookie continuity is per browser profile/Colab partition, not cross-browser identity.
+Safari may show a first-run Colab JavaScript-output warning, also reproduced without
+this bridge. Real Colab background-worker verification remains a release gate.
+
+There is no identity linking. **The 90-day raw-event retention target is not yet
+enforced in dev.** PostHog's current event retention follows its plan, and the
+session-recording retention setting does not control these events. Disabling or
+resetting an identifier does not delete previously accepted events. Production
+rollout requires an enforceable deletion policy and verified IP handling.

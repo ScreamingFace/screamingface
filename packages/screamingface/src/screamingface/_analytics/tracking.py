@@ -39,7 +39,7 @@ def _prepare(name: str, interface: str, args: tuple, kwargs: dict):
 
         endpoint = getattr(default_client(), "engine_url", None)
         candidate = args[0] if args else kwargs.get("candidates")
-    if not isinstance(endpoint, str) or wiring.origin() == "colab":
+    if not isinstance(endpoint, str):
         return None
     workflow = (
         "submission"

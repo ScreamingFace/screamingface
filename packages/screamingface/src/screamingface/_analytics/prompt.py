@@ -7,7 +7,8 @@ from screamingface._analytics.wiring import origin
 NOTICE = (
     "Optional ScreamingFace analytics is off. Share evaluation/submission starts and outcomes, "
     "coarse timing, SDK version and local/hosted mode using random installation/session IDs. "
-    "No prompts, responses, scores, credentials or email. Raw events are retained up to 90 days. "
+    "No prompts, responses, scores, credentials or email. "
+    "Dev events use PostHog plan retention; 90-day deletion is not yet enforced. "
     "Allow: sf.analytics.enable() · Decline: sf.analytics.disable(). "
     "Your choice is remembered; continuing without choosing leaves analytics off. "
     "Opting out or resetting your ID does not delete past events."
@@ -19,7 +20,13 @@ def offer() -> None:
     global _shown
     from screamingface import analytics
 
-    if _shown or analytics._disabled() or origin() == "colab":
+    if _shown or analytics._disabled():
+        return
+    if origin() == "colab":
+        from screamingface._analytics.colab import bridge
+
+        _shown = True
+        bridge().control("state")
         return
     if not sys.stdin.isatty() and origin() != "local_jupyter":
         return

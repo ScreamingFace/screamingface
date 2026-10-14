@@ -36,7 +36,12 @@ def coordinator() -> Coordinator:
     with _lock:
         if _coordinator is None:
             endpoint = "https://analytics.dev.screamingface.ai/v1/events"
-            sink = BackgroundSink(endpoint, lambda event: selected.accepts(event))
+            if origin() == "colab":
+                from screamingface._analytics.colab import bridge
+
+                sink = bridge()
+            else:
+                sink = BackgroundSink(endpoint, lambda event: selected.accepts(event))
             selected = Coordinator(Preferences(), sink, version=resolve_version())
             _coordinator = selected
         return _coordinator
