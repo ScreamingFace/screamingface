@@ -45,7 +45,9 @@ def write_ifeval_bundle(root: Path, cases: Sequence[IFEvalCase]) -> None:
     """Prepare ``cases`` as IFEval Cases 1..N into ``root`` (assets/ifeval), as the build does.
 
     The nltk folder is created empty: the installer refuses a finished bundle without one, and
-    none of the tests' instructions reads a tokenizer.
+    the callers' instructions read no tokenizer, except the one test that then fills the folder
+    the way the image build does
+    (``test_ifeval_grades_with_the_bundled_tokenizers_and_no_network``).
     """
 
     prepared: list[PreparedCase] = []
