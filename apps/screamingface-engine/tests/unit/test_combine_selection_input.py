@@ -8,7 +8,8 @@ STORY: as a benchmark author, the writer after a Rank or a Filter can answer a d
 in each Case, and I do not have to put the question into the writer prompt.
 INVARIANT defended: the input is copied verbatim (CI-I1, SI-D4); an envelope over the 8 MiB result
 cap fails with the same code as any oversized output, and the input is never cut (SI-E2); a cut
-that is not met abstains and makes no envelope (SI-E1).
+that is not met abstains and hands on the empty envelope ``{"input":"...","selected":[]}`` (SI-E1,
+E4b fix 2026-10-14).
 """
 
 from __future__ import annotations
@@ -188,7 +189,7 @@ def test_oversized_envelope_fails_like_any_oversized_result() -> None:
 # --- SI#13 SI-E1 --------------------------------------------------------------------------------
 
 
-def test_rank_cut_not_met_abstains_without_an_envelope() -> None:
+def test_rank_cut_not_met_abstains_with_the_empty_envelope() -> None:
     # member_2 has no "score" field, so only two members are ranked and k=3 is not met
     outcome = run(
         spec_text(rank_spec(3, 3, "field")),
@@ -196,8 +197,11 @@ def test_rank_cut_not_met_abstains_without_an_envelope() -> None:
         registry=BUILTIN_OPERATORS,
     )
 
-    assert outcome.output == ""
+    # E4b fix (2026-10-14): the abstain hands on the empty envelope, with the input
+    assert outcome.output == '{"input":"What is 6*7?","selected":[]}'
     assert (outcome.evidence.result.status, outcome.evidence.result.reason) == (
         "abstain",
         "cut_not_met",
     )
+    assert (outcome.evidence.chosen, outcome.evidence.built) == ([], False)
+    assert [m.score for m in outcome.evidence.members] == [5.0, None, 7.0]
