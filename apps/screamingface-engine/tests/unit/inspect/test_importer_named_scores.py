@@ -508,3 +508,46 @@ def test_the_import_child_records_scorer_arguments_so_a_function_argument_is_ref
 
     with pytest.raises(TaskReplayError, match=r"answer_fn='extract_answer'"):
         replay_for_import(f"{guarded_eval}:function_argument", None)
+
+
+# F5 — an extra scorer's own whole-run metric
+
+from inspect_ai.scorer import Metric, SampleScore, exact, metric  # noqa: E402
+
+
+@metric
+def harmonic_balance() -> Metric:
+    """A stand-in for stereoset's whole-run formula: not a mean of the per-Case scores."""
+
+    def compute(scores: list[SampleScore]) -> float:
+        return 0.0
+
+    return compute
+
+
+@scorer(metrics=[harmonic_balance()])
+def balanced() -> Scorer:
+    """A stand-in for stereoset's second scorer, scored over the run by its own formula."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        return Score(value=1.0)
+
+    return score
+
+
+def _one_sample_task(scorers: Scorer | list[Scorer]) -> Task:
+    """One-Sample Task with the given scorers, built in this process."""
+
+    return Task(dataset=MemoryDataset([Sample(input="q", target="a")]), scorer=scorers)
+
+
+def test_an_extra_scorer_with_its_own_whole_run_metric_is_refused() -> None:
+    """stereoset's shape: only the headline's metric was checked, so the extra scorer's
+    formula quietly became a mean published under its Named Score column."""
+
+    task: Task = _one_sample_task([exact(), balanced()])
+
+    with pytest.raises(
+        ImporterError, match=r"extra scorer balanced scores the whole run with harmonic_balance"
+    ):
+        _scorer_facts(task, sys.modules[__name__])

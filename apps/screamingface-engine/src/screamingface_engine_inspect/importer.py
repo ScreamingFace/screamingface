@@ -378,9 +378,17 @@ def _check_kept_scorers(
     (benchmarks.py keeps kwargs for the headline scorer only), so `match(numeric=True)`
     written as `match()` would pin the wrong configuration into the Revision as faithful —
     "1,889" grades C upstream and I here. Never truncated, never silent.
+    WHY refuse an extra scorer whose whole-run metric is not a mean (OME-1602, F5): a Named
+    Score column is the mean of that scorer's per-Case scores, so stereoset's formula would
+    be published as a mean under its name. Only the headline's metric was checked before.
     """
 
     from inspect_ai._util.registry import registry_params
+
+    from screamingface_engine_inspect.scorer_metrics import (
+        headline_metric_kind,
+        headline_metric_name,
+    )
 
     names: list[str] = [resolved[index][2] for index in kept]
     if len(set(names)) != len(names):
@@ -396,6 +404,13 @@ def _check_kept_scorers(
                 f"extra scorer {extra_name} ({extra_ref}) is created with arguments {params}, "
                 "which the Benchmark row cannot carry for a non-headline scorer; add the row "
                 "by hand or drop it by name"
+            )
+        if headline_metric_kind(declared[index]) != "mean":
+            metric: str = headline_metric_name(declared[index]) or "<none>"
+            raise ImporterError(
+                f"extra scorer {extra_name} scores the whole run with {metric}, not a mean; "
+                "its Named Score column would publish a mean under its name. Add the row by "
+                "hand (OME-1602)"
             )
 
 
