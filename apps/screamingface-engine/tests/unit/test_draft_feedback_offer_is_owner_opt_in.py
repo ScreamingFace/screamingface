@@ -18,6 +18,7 @@ import pytest
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_REGISTRATIONS
 from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine_inspect.benchmarks import BENCHMARKS
+from screamingface_engine_inspect.single_shot import imported_benchmark_id
 from url4.peer.server import Url4Node
 
 #: The Benchmarks the owner has allowed to advertise Draft Feedback.
@@ -69,3 +70,19 @@ def test_an_offer_that_is_off_is_not_reachable_by_url4_string(
         route for route in node.processor_routes() if "/check-surface" in route
     ]
     assert check_routes == []
+
+
+def test_only_an_owner_allowed_benchmark_sends_its_scorers_own_words() -> None:
+    """INVARIANT (OME-1527, R9): a row may send the Candidate its scorer's own Draft Feedback
+    words only on a Benchmark this allow-list names. Those words cross into the Candidate's
+    context, so the owner, having read that scorer, is the one who turns them on."""
+
+    # WHY catalogue ids, not row keys: the allow-list names catalogue ids, and an inspect_evals
+    # row keyed "ifeval" is served as "inspect-ifeval", a Benchmark the owner never allowed.
+    asking: set[str] = {
+        imported_benchmark_id(spec.key, spec.origin)
+        for spec in BENCHMARKS
+        if spec.scorer_draft_feedback
+    }
+
+    assert asking <= _OWNER_ALLOWED_OFFERS

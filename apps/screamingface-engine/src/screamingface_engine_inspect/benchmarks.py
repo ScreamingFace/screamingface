@@ -181,6 +181,12 @@ class BenchmarkSpec:
     #: Benchmark did (OME-1527). Only a migrated hand-built row sets it, to keep its Candidate
     #: bytes (and Fusion golden) unchanged; False everywhere else. Benchmark identity when set.
     candidate_input_envelope: bool = False
+    #: Draft Feedback sends the scorer's own partial score and words, which the scorer writes
+    #: under ``Score.metadata["draft_feedback"]`` for the Candidate (OME-1527, R9), instead of
+    #: 0-or-1 and one fixed sentence. Only on a row with ``with_check_surface``, so only on a
+    #: Benchmark the owner allowed; the owner reads that scorer's words before turning it on.
+    #: False on every row today. Benchmark identity when set.
+    scorer_draft_feedback: bool = False
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
     answer_rule: AnswerRule | None = None
@@ -4319,6 +4325,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         attempts=spec.attempts,
         retrieval_policy=spec.retrieval_policy,
         candidate_input_envelope=spec.candidate_input_envelope,
+        scorer_draft_feedback=spec.scorer_draft_feedback,
         answer_rule=spec.answer_rule,
         **_provenance_of(spec),
     )
