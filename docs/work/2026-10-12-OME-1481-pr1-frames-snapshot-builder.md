@@ -1,9 +1,9 @@
 ---
 ticket: OME-1481
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-12
-finished:
+finished: 2026-10-14
 ---
 
 # OME-1481-pr1-frames-snapshot-builder — freeze FRAMES' gold Wikipedia articles into one pinned snapshot file
@@ -28,7 +28,7 @@ dropped) and writes one JSONL snapshot the owner publishes on Hugging Face. The 
 - `apps/screamingface-engine/tests/unit/test_frames_snapshot.py` — new
 - `apps/screamingface-engine/tests/unit/fixtures/frames_snapshot/` — real article HTML
   excerpts (CC BY-SA 4.0, attributed in a README beside them)
-- `docs/tasks/2026-10-12-OME-1481-frames-articles-given.md` — mirror
+- `docs/tasks/2026-10-05-OME-1481-frames-articles-given.md` — mirror
 
 ## Test plan
 
