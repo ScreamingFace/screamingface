@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -169,6 +170,7 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
         name: str,
         raw_api_key: str,
         expected_live: frozenset[UUID] | None = None,
+        claim_check: Callable[[], Awaitable[None]] | None = None,
     ) -> tuple[OAuthConnection, Profile]:
         """Publish `pair` as `migrated` with an active API-key Connection and its mirror.
 
@@ -176,6 +178,8 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
         address. Fenced on `pair.generation`, so a pair captured as `none` is adopted (the G1
         bridge) and a stale capture loses. `expected_live`, when given, is the pair's live rows
         the caller classified: any other live row found after the claim supersedes the write.
+        `claim_check`, when given, runs right after that check, still before any index, row or
+        blob write (the row-11 shadow identity re-read).
         """
         credential_provider = credential_service_provider_for(plugin, provider)
         connection_id = reuse.id if reuse is not None else uuid4()
@@ -230,6 +234,8 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
                     await _require_live(
                         account_id, provider, expected_live | {connection.id}, requested=name
                     )
+                if claim_check is not None:
+                    await claim_check()
                 # INVARIANT (OME-307 Unit 3, kept): an observed document publishes conditionally
                 # so a concurrent removal wins; a first mirror is an unconditional create.
                 if document_observed:
