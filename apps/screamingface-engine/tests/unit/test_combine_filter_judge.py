@@ -102,7 +102,8 @@ def test_engine_filter_by_judge_evidence_has_signal_values_and_marks() -> None:
 def test_engine_filter_by_judge_with_no_pass_abstains() -> None:
     outcome = _run("ge", '{"member_1": 2, "member_2": 4, "member_3": 6.5}')
 
-    assert outcome.output == ""
+    # E4b fix (2026-10-14): the abstain hands on the empty envelope, with the input
+    assert outcome.output == '{"input":"q","selected":[]}'
     assert outcome.evidence.result == ResultRecord(
         member_id=None, value=None, status="abstain", reason="no_votes"
     )
