@@ -7,6 +7,8 @@ on:
       - "packages/url4/**"
       # the gateway-owned cache-hit fixture that tests/unit/test_cache_hit_contract.py consumes
       - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
+      # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
+      - "packages/screamingface/tests/_combine_flow_fixtures.py"
       - ".github/workflows/screamingface-engine-tests.yml"
   pull_request:
     paths:
@@ -15,6 +17,8 @@ on:
       - "packages/url4/**"
       # the gateway-owned cache-hit fixture that tests/unit/test_cache_hit_contract.py consumes
       - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
+      # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
+      - "packages/screamingface/tests/_combine_flow_fixtures.py"
       - ".github/workflows/screamingface-engine-tests.yml"
   workflow_dispatch:
 

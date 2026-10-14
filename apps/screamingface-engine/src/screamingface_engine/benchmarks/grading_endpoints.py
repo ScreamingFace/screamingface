@@ -41,6 +41,7 @@ class CandidateAnswer:
     refusal: str | None
     execution: CorrectiveLoopOutcome | None
     operations: tuple[OperationOutput, ...] | None = None
+    abstained: bool = False
 
 
 def candidate_answer(value: str) -> CandidateAnswer:
@@ -55,6 +56,7 @@ def candidate_answer(value: str) -> CandidateAnswer:
         refusal=invocation.refusal,
         execution=invocation.execution,
         operations=None if invocation.operations is None else tuple(invocation.operations),
+        abstained=invocation.abstained,
     )
 
 

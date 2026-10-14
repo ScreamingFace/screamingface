@@ -24,7 +24,9 @@ Stages, in execution order (see :func:`inspect_grade_case`):
               ``choice()`` scorer reads marks the ``multiple_choice`` solver would have
               left, and we import no solver, so the marking is part of building the
               state their scorer expects. Keyed off the MATERIAL's shape, never off
-              which scorer — still zero per-scorer branches.
+              which scorer — still zero per-scorer branches. A conversation Case (its
+              input is the candidate-input envelope, OME-1527 R14) is opened back into
+              its turns, so the scorer reads the chat the Candidate was shown.
     Stage 3 — await their scorer. A raise becomes the named failure code
               ``scorer_error`` with the exception's words as evidence, never a crash of
               the whole aggregate — except a judge that never gave a parseable verdict
@@ -56,7 +58,13 @@ import math
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from typing import Any
 
-from inspect_ai.model import ChatMessageUser, ModelOutput
+from inspect_ai.model import (
+    ChatMessage,
+    ChatMessageAssistant,
+    ChatMessageSystem,
+    ChatMessageUser,
+    ModelOutput,
+)
 from inspect_ai.scorer import SampleScore, Score, Scorer, ScoreReducer, Target, mean_score
 from inspect_ai.solver import TaskState
 from inspect_ai.solver._multiple_choice import (
@@ -72,6 +80,7 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload
 from screamingface_engine.grading_call_scope import grading_call_scope
+from screamingface_engine_inspect.conversation_input import conversation_messages
 from screamingface_engine_inspect.judge_redraw import JudgeReplyUnparseable
 
 #: Score string verdicts → floats, per inspect's own vocabulary: CORRECT / INCORRECT /
@@ -493,12 +502,17 @@ def _task_state(request: GradeRequest, multiple_correct: bool) -> tuple[TaskStat
     completion: str = "" if request.answer is None else _text(request.answer, "answer")
     material: Mapping[str, Any] = _material(request.material)
     choices: list[str] | None = _choices(material)
+    # WHY two builds of the chat: inspect keeps the Sample's input and the running messages
+    # as separate lists, so a scorer that edits one never edits the other.
+    conversation: list[dict[str, str]] | None = conversation_messages(input_text)
     state = TaskState(
         model=_CANDIDATE_MODEL,  # type: ignore[arg-type]  # ModelName is a str alias at runtime
         sample_id=int(request.case_id),
         epoch=1,
-        input=input_text,
-        messages=[ChatMessageUser(content=input_text)],
+        input=input_text if conversation is None else _chat(conversation),
+        messages=(
+            [ChatMessageUser(content=input_text)] if conversation is None else _chat(conversation)
+        ),
         choices=choices,
         output=ModelOutput.from_content(model=_CANDIDATE_MODEL, content=completion),
         # WHY: metadata-dispatching scorers (frontierscience's format field) read
@@ -511,6 +525,17 @@ def _task_state(request: GradeRequest, multiple_correct: bool) -> tuple[TaskStat
         # state.choices; we import no solver, so the marking replays THEIR functions.
         set_choices_based_on_generated_response(state, parse_answers(state, multiple_correct))
     return state, Target(material["target"])
+
+
+def _chat(conversation: list[dict[str, str]]) -> list[ChatMessage]:
+    """A conversation Case's turns as the inspect messages a Sample would have held."""
+
+    kinds: dict[str, type[ChatMessageSystem | ChatMessageUser | ChatMessageAssistant]] = {
+        "system": ChatMessageSystem,
+        "user": ChatMessageUser,
+        "assistant": ChatMessageAssistant,
+    }
+    return [kinds[turn["role"]](content=turn["content"]) for turn in conversation]
 
 
 def _text(payload: CasePayload, label: str) -> str:

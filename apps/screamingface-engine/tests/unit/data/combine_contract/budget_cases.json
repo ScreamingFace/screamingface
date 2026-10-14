@@ -1,0 +1,166 @@
+{
+  "usd_three_calls": {
+    "unit": "usd",
+    "cap": 0.01,
+    "spent": 0.006,
+    "remaining": 0.004,
+    "unpriced_charges": 0,
+    "charges": [
+      {
+        "operation_id": "op_model_1",
+        "member_id": "member_1",
+        "stage": "model",
+        "amount": 0.002,
+        "source": "live",
+        "remaining_after": 0.008
+      },
+      {
+        "operation_id": "op_model_2",
+        "member_id": "member_2",
+        "stage": "model",
+        "amount": 0.003,
+        "source": "live",
+        "remaining_after": 0.005
+      },
+      {
+        "operation_id": "op_model_3",
+        "member_id": "member_3",
+        "stage": "model",
+        "amount": 0.001,
+        "source": "live",
+        "remaining_after": 0.004
+      }
+    ],
+    "refused": []
+  },
+  "usd_cache_hit": {
+    "unit": "usd",
+    "cap": 0.01,
+    "spent": 0.0062,
+    "remaining": 0.0038,
+    "unpriced_charges": 0,
+    "charges": [
+      {
+        "operation_id": "op_model_1",
+        "member_id": "member_1",
+        "stage": "model",
+        "amount": 0.002,
+        "source": "live",
+        "remaining_after": 0.008
+      },
+      {
+        "operation_id": "op_model_2",
+        "member_id": "member_2",
+        "stage": "model",
+        "amount": 0.0042,
+        "source": "cache_reference",
+        "remaining_after": 0.0038
+      }
+    ],
+    "refused": []
+  },
+  "tokens": {
+    "unit": "tokens",
+    "cap": 1000.0,
+    "spent": 395.0,
+    "remaining": 605.0,
+    "unpriced_charges": 0,
+    "charges": [
+      {
+        "operation_id": "op_model_1",
+        "member_id": null,
+        "stage": "model",
+        "amount": 150.0,
+        "source": "live",
+        "remaining_after": 850.0
+      },
+      {
+        "operation_id": "op_judge_1",
+        "member_id": null,
+        "stage": "judge",
+        "amount": 245.0,
+        "source": "live",
+        "remaining_after": 605.0
+      }
+    ],
+    "refused": []
+  },
+  "unpriced": {
+    "unit": "usd",
+    "cap": 0.01,
+    "spent": 0.002,
+    "remaining": 0.008,
+    "unpriced_charges": 1,
+    "charges": [
+      {
+        "operation_id": "op_model_1",
+        "member_id": "member_1",
+        "stage": "model",
+        "amount": 0.002,
+        "source": "live",
+        "remaining_after": 0.008
+      },
+      {
+        "operation_id": "op_model_2",
+        "member_id": "member_2",
+        "stage": "model",
+        "amount": null,
+        "source": "unpriced",
+        "remaining_after": 0.008
+      }
+    ],
+    "refused": []
+  },
+  "overrun": {
+    "unit": "usd",
+    "cap": 0.005,
+    "spent": 0.007,
+    "remaining": 0.0,
+    "unpriced_charges": 0,
+    "charges": [
+      {
+        "operation_id": "op_model_1",
+        "member_id": "member_1",
+        "stage": "model",
+        "amount": 0.004,
+        "source": "live",
+        "remaining_after": 0.001
+      },
+      {
+        "operation_id": "op_model_2",
+        "member_id": "member_2",
+        "stage": "model",
+        "amount": 0.003,
+        "source": "live",
+        "remaining_after": 0.0
+      }
+    ],
+    "refused": []
+  },
+  "refused": {
+    "unit": "usd",
+    "cap": 0.01,
+    "spent": 0.009,
+    "remaining": 0.001,
+    "unpriced_charges": 0,
+    "charges": [
+      {
+        "operation_id": "op_model_1",
+        "member_id": "member_1",
+        "stage": "model",
+        "amount": 0.009,
+        "source": "live",
+        "remaining_after": 0.001
+      }
+    ],
+    "refused": [
+      {
+        "operation_id": "op_model_2",
+        "member_id": "member_2",
+        "stage": "model",
+        "estimated": 0.02,
+        "reason": "would_exceed_cap"
+      }
+    ]
+  }
+}

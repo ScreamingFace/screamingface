@@ -14,6 +14,7 @@ from screamingface._named_values import _NamedValues
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.recipe import Recipe
+from screamingface.reducer import Reducer
 
 type CandidateKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
 
@@ -304,7 +305,18 @@ def _compiled_evaluation(
     return evaluation
 
 
+def _reject_reducers(value: object) -> None:
+    items = (
+        value if isinstance(value, Sequence) and not isinstance(value, str | bytes) else (value,)
+    )
+    if any(isinstance(item, Reducer) for item in items):
+        raise TypeError(
+            "a reducer is not a complete Candidate: a reducer must be a Fusion synthesizer"
+        )
+
+
 def _candidate_values(value: Recipe | Sequence[Recipe]) -> tuple[Recipe, ...]:
+    _reject_reducers(value)
     if isinstance(value, Recipe):
         values = (value,)
     elif isinstance(value, Sequence) and not isinstance(value, str | bytes):

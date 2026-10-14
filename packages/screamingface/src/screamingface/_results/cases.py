@@ -13,7 +13,7 @@ from contextlib import closing
 from decimal import Decimal
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
 
 import ijson
 from ijson.common import ObjectBuilder
@@ -22,8 +22,11 @@ from screamingface._report_primitives import CaseId
 from screamingface._results.index_integrity import digest, matches, publish, reusable
 from screamingface._results.store import sync_directory
 from screamingface._results.unicode_validation import validate_unicode
-from screamingface.case_result import CaseResult
+from screamingface.case_result import CaseResult, _bind_operation_graph
 from screamingface.errors import ExecutionError
+
+if TYPE_CHECKING:
+    from screamingface.operation import OperationInfo
 
 
 class DiskCases(Sequence[CaseResult]):
@@ -33,6 +36,22 @@ class DiskCases(Sequence[CaseResult]):
         self.path = path.resolve()
         self._count = count
         self.gradeable = gradeable
+        self._operations: tuple[OperationInfo, ...] | None = None
+
+    def bind_operations(self, operations: Sequence[OperationInfo]) -> None:
+        """Give every Case this sequence decodes its Candidate's operation graph (OME-1289).
+
+        WHY not bind each Case now: a saved Case decodes only when read (OME-1570), and a
+        decoded Case is never cached, so the graph binds at each decode instead.
+        """
+
+        self._operations = tuple(operations)
+
+    def _decode(self, body: str) -> CaseResult:
+        case = _decode(body)
+        if self._operations is not None:
+            _bind_operation_graph(case, self._operations)
+        return case
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)
@@ -57,19 +76,19 @@ class DiskCases(Sequence[CaseResult]):
             row = db.execute("SELECT body FROM cases WHERE position=?", (selected,)).fetchone()
         if row is None:
             raise ExecutionError("Saved result index is incomplete; recover the run again")
-        return _decode(row[0])
+        return self._decode(row[0])
 
     def __iter__(self) -> Iterator[CaseResult]:
         with closing(self._connect()) as db:
             for row in db.execute("SELECT body FROM cases ORDER BY position"):
-                yield _decode(row[0])
+                yield self._decode(row[0])
 
     def by_id(self, case_id: CaseId) -> CaseResult:
         with closing(self._connect()) as db:
             row = db.execute("SELECT body FROM cases WHERE id=?", (json.dumps(case_id),)).fetchone()
         if row is None:
             raise KeyError(f"unknown Case id {case_id!r}")
-        return _decode(row[0])
+        return self._decode(row[0])
 
     def failures(self):
         from screamingface._evaluation.results import _failure

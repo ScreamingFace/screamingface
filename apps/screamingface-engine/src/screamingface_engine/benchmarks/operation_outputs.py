@@ -9,9 +9,9 @@ so a Fusion case artifact can say which member produced which answer.
 Stages, in execution order:
 
 1. Parse the candidate expression the adapter already holds and select its
-   named ``model_N`` / ``synthesis_N`` sources — the identical naming rule the
-   Client's operation projection uses (``operation_id = "op_" + binding``), so
-   both sides agree with no protocol change.
+   named ``model_N`` / ``synthesis_N`` / ``judge_N`` / ``writer_N`` sources — the
+   identical naming rule the Client's operation projection uses
+   (``operation_id = "op_" + binding``), so both sides agree with no protocol change.
 2. Fingerprint each source as (path, sorted params). Two members on the same
    model route with different params (e.g. temperature) stay distinct.
 3. Join recorded calls to bindings by fingerprint. A fingerprint claimed by ONE
@@ -20,6 +20,10 @@ Stages, in execution order:
    If any claimant belongs to an optional subtree, the observations cannot prove
    which operation answered; output and finish reason stay null for every claimant.
    Never make a positional guess.
+   Combine evidence (OME-1289) follows the stricter rule: it is attributed only
+   when ONE binding claims the fingerprint, never when several do, even if their
+   recorded outputs are identical.
+   The abstain mark (OME-1289) reads the final operation's evidence.
 
 Worked example — members ``/alpha?temperature=0.0``, ``/beta`` and synthesis
 ``/alpha?temperature=0.5`` with calls [(alpha@0.0 → "A"), (beta → "B"),
@@ -38,12 +42,17 @@ from screamingface_engine.benchmarks.contract import OperationOutput
 from screamingface_engine.operation_accounting import combine_operation_accounting
 from screamingface_engine.operation_calls import OperationCall
 from url4.core.errors import ParseError
-from url4.core.nodes import Expression, RelExpr, Source, walk
+from url4.core.nodes import Expression, RelExpr, Source, Text, walk
 from url4.core.parser import build
 
 # INVARIANT: kept in lock-step with the Client's operation projection, where
-# `operation_id = "op_" + binding` and bindings are model_N / synthesis_N.
-_BINDING = re.compile(r"^(?:model|synthesis)_\d+$")
+# `operation_id = "op_" + binding` and bindings are model_N / synthesis_N / judge_N / writer_N
+# (OME-1289 E4a). `tests/unit/data/combine_contract/binding_names.json` pins this pattern in
+# both packages.
+_BINDING = re.compile(r"^(?:model|synthesis|judge|writer)_\d+$")
+
+# The root intent that names exactly one source (`$synthesis_1`), nothing else around it.
+_FINAL_REFERENCE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 
 type _Fingerprint = tuple[str, tuple[tuple[str, str], ...]]
 
@@ -82,6 +91,39 @@ def attribute_operation_outputs(
     return operations
 
 
+def final_operation_abstained(
+    expression: str, operations: Sequence[OperationOutput] | None
+) -> bool:
+    """True when the expression's result IS one attributed combine operation that abstained.
+
+    The final node is the source the root intent names when that intent is exactly `$name`;
+    its evidence is the attributed `op_<name>` operation's `combine` (last call, one claimant).
+    Prose intents, other roots and unattributed names are never marked (OME-1289, erd section 9).
+    """
+
+    if operations is None or (name := _final_reference(expression)) is None:
+        return False
+    matches = [op for op in operations if op.operation_id == f"op_{name}"]
+    return (
+        len(matches) == 1
+        and matches[0].combine is not None
+        and matches[0].combine.result.status == "abstain"
+    )
+
+
+def _final_reference(expression: str) -> str | None:
+    """The `name` of a root intent that is exactly `$name`; None for any other root."""
+
+    try:
+        node = build(expression)
+    except ParseError:
+        return None
+    if not isinstance(node, Expression) or not isinstance(node.intent, Text):
+        return None
+    matched = _FINAL_REFERENCE.fullmatch(node.intent.value)
+    return None if matched is None else matched.group(1)
+
+
 def _attributed(
     binding: _OperationBinding,
     by_fingerprint: dict[_Fingerprint, list[OperationCall]],
@@ -91,12 +133,16 @@ def _attributed(
     output: str | None = None
     finish_reason: str | None = None
     accounting = None
+    combine = None
     matched = [] if binding.fingerprint is None else by_fingerprint.get(binding.fingerprint, [])
     if matched and claims.get(binding.fingerprint or ("", ()), 0) == 1:
         # One claimant: every matched call IS this operation; the last one is terminal
         # (a corrective re-invocation repeats the operation, and only its final answer
         # is the one the Candidate used).
         output, finish_reason = matched[-1].output, matched[-1].finish_reason
+        # A combine call's evidence follows the same last-call rule, and only a ONE-claimant
+        # fingerprint may carry it (the ambiguous branch below never invents evidence).
+        combine = matched[-1].combine
         if all(call.accounting is not None for call in matched):
             accounting = combine_operation_accounting(
                 [call.accounting for call in matched if call.accounting is not None]
@@ -112,6 +158,7 @@ def _attributed(
         output=output,
         finish_reason=finish_reason,
         accounting=accounting,
+        combine=combine,
     )
 
 
@@ -171,4 +218,4 @@ def _fingerprint(value: object) -> _Fingerprint | None:
     return (value.path, params)
 
 
-__all__ = ["attribute_operation_outputs"]
+__all__ = ["attribute_operation_outputs", "final_operation_abstained"]

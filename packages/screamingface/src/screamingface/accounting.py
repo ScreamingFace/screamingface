@@ -35,6 +35,13 @@ class AccountingRow:
     accounting: OperationAccounting | None
 
 
+# The model-call operation kinds and the stage each is accounted under. A judge or writer call is
+# reducer work, so it is a synthesis row. Any other kind (a combine step) makes no model call.
+_ACCOUNTED_STAGES: Mapping[str, Literal["generation", "synthesis"]] = MappingProxyType(
+    {"model": "generation", "synthesis": "synthesis", "judge": "synthesis", "writer": "synthesis"}
+)
+
+
 @dataclass(frozen=True, slots=True)
 class AccountingSummary:
     """Strict field-wise totals over a group, not estimates of absent work."""
@@ -252,14 +259,15 @@ def _candidate_rows(
     members = {m.operation_id for m in candidate.members if m.kind == "model"}
     rows = []
     for op in candidate.operations:
-        if op.kind not in {"model", "synthesis"}:
+        stage = _ACCOUNTED_STAGES.get(op.kind)
+        if stage is None:  # a combine step makes no model call
             continue
         record = retained.get(op.id)
         value = record.accounting if record else None
         rows.append(
             AccountingRow(
                 case.case_id,
-                "synthesis" if op.kind == "synthesis" else "generation",
+                stage,
                 op.id,
                 op.label,
                 op.id if op.id in members else None,

@@ -98,6 +98,63 @@ async def hold_observed(observed: PairAuthority | None) -> None:
         await hold_pair(observed)
 
 
+async def check_observed(observed: PairAuthority | None) -> None:
+    """The §5.3 check for a writer that never changes the owner: the pair must not have moved.
+
+    A marked pair is held at the observed generation. An unmarked observation has no row to lock,
+    so it requires the marker to be still absent: one that appeared since is an ownership change.
+    """
+    if observed is None or not fences_writer(observed):
+        return
+    if observed.generation != UNMARKED_GENERATION:
+        await hold_pair(observed)
+        return
+    appeared = (
+        await ProviderCredentialSlot.filter(
+            account_id=observed.account_id, provider=observed.provider
+        )
+        .select_for_update()
+        .first()
+    )
+    if appeared is not None:
+        raise PairAuthorityConflict(observed.provider, observed.generation)
+
+
+async def observe_pair_of(connection: Any) -> PairAuthority:
+    """The pair a Connection-owned flow observes before its provider call."""
+    return await PairAuthorityStore().read(str(connection.account_id), connection.provider)
+
+
+async def mark_error_checked(
+    store: Any, connection: Any, message: str, *, observed: PairAuthority | None
+) -> None:
+    """Mark a Connection `error` only while its pair sits at the observed generation (§5.3).
+
+    # WHY: an API-key Connection is re-keyed in place (same row, still `active`), so a stale
+    # rejection of the old key would otherwise mark the new key `error`.
+    # INVARIANT: a lost check marks nothing and never advances; the caller's answer is unchanged.
+    # AIDEV-NOTE: nothing to check (no observation, or a `migrated` pair) marks exactly as before,
+    # outside any transaction — the token service's store fakes rely on that.
+    """
+    if observed is None or not fences_writer(observed):
+        await store.mark_error(connection, message)
+        return
+    try:
+        async with in_transaction():
+            await check_observed(observed)
+            await store.mark_error(connection, message)
+            # WHY re-check: on an unmarked pair there is no row to lock, so a first claim still
+            # uncommitted at the check hides from it while its key write holds the Connection row;
+            # the mark waits on that row, and this statement then sees the committed marker.
+            await check_observed(observed)
+    except PairAuthorityConflict:
+        logger.info(
+            "error mark skipped: %s pair moved since generation %d",
+            observed.provider,
+            observed.generation,
+        )
+
+
 async def bootstrap_under_the_floor(
     plugin: Any, *, account_id: str, credential_store: Any, index_store: Any
 ) -> None:
@@ -132,9 +189,12 @@ async def bootstrap_under_the_floor(
 
 __all__ = [
     "bootstrap_under_the_floor",
+    "check_observed",
     "claim_observed",
     "claim_pair",
     "fences_writer",
     "hold_observed",
     "hold_pair",
+    "mark_error_checked",
+    "observe_pair_of",
 ]

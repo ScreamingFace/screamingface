@@ -6,7 +6,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
-from screamingface.recipe import Recipe, _name, _optional, _recipe
+from screamingface.recipe import Recipe, _inferred_name, _name, _optional, _recipe
+from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -17,11 +18,16 @@ class Fusion(Recipe):
     Member Recipes marked ``optional=True`` tolerate failure; required members
     must succeed. ``all`` requires every member; zero permits
     synthesis with no successful member. The synthesizer itself stays required.
+
+    ``sf.Fusion(members, synthesizer=sf.Model(p))`` is the named recipe Fan-out →
+    ``Reduce.compute(context)`` → Model. Its block form,
+    ``sf.Pipeline([sf.Fusion(members, synthesizer=sf.Reduce("context")), sf.Model(p)])``,
+    compiles to the same url4 byte for byte.
     """
 
     name: str
     members: tuple[Recipe, ...]
-    synthesizer: Recipe
+    synthesizer: Recipe | Reducer
     quorum: int | Literal["all"]
     optional: bool
 
@@ -30,7 +36,7 @@ class Fusion(Recipe):
         members: Sequence[str | Recipe],
         *,
         name: str | None = None,
-        synthesizer: str | Recipe,
+        synthesizer: str | Recipe | Reducer,
         quorum: int | Literal["all"] = "all",
         optional: bool = False,
     ) -> None:
@@ -38,14 +44,14 @@ class Fusion(Recipe):
         optional = _optional(optional)
         object.__setattr__(self, "quorum", _quorum(quorum, len(selected_members)))
         object.__setattr__(self, "optional", optional)
-        inferred_name = "+".join(member.name for member in selected_members)
+        inferred_name = _inferred_name(selected_members)
         object.__setattr__(
             self,
             "name",
             inferred_name if name is None else _name(name, "fusion name"),
         )
         object.__setattr__(self, "members", selected_members)
-        object.__setattr__(self, "synthesizer", _recipe(synthesizer, "Fusion synthesizer"))
+        object.__setattr__(self, "synthesizer", _synthesizer(synthesizer, selected_members))
 
     @property
     def _recipe_marker(self) -> None:
@@ -56,7 +62,7 @@ class Fusion(Recipe):
         members = ", ".join(
             repr(member) if member.optional else repr(member.name) for member in self.members
         )
-        inferred_name = "+".join(member.name for member in self.members)
+        inferred_name = _inferred_name(self.members)
         arguments = [f"[{members}]"]
         if self.name != inferred_name:
             arguments.append(f"name={self.name!r}")
@@ -83,6 +89,18 @@ def _quorum(value: object, member_count: int) -> int | Literal["all"]:
     if value < 0 or value > member_count:
         raise ValueError("Fusion quorum must be between zero and the member count")
     return value
+
+
+def _synthesizer(value: object, members: tuple[Recipe, ...]) -> Recipe | Reducer:
+    if isinstance(value, Reducer):
+        if value._compiles_to_combine() and len(members) > _MAX_REDUCER_MEMBERS:
+            raise ValueError(
+                f"a reducer Fusion supports at most {_MAX_REDUCER_MEMBERS} members, "
+                f"not {len(members)}"
+            )
+        value._check_members(len(members))
+        return value
+    return _recipe(value, "Fusion synthesizer")
 
 
 def _members(values: object) -> tuple[Recipe, ...]:

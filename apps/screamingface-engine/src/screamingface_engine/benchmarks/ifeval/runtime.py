@@ -8,6 +8,7 @@ from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_grading_report import report_case_grading
+from screamingface_engine.benchmarks.case_records import answer_abstain_mark
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA
 from screamingface_engine.benchmarks.failure_classes import (
@@ -122,6 +123,7 @@ def _check(root: Path):
                     ]
                 }
             ),
+            **answer_abstain_mark(candidate),
             "instruction_id_list": spec["instruction_id_list"],
             "descriptions": grading.describe_instructions(
                 instruction_id_list=spec["instruction_id_list"],

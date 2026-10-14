@@ -10,6 +10,7 @@ from typing import Literal, cast
 
 from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY, SCORES_KEY
 from screamingface._core.ports import _RunOutcome
+from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface._evaluation.model import Candidate, _compiled_evaluation, _Evaluation
 from screamingface._evaluation.operation_accounting import decode_operation_accounting
 from screamingface._report_primitives import CaseId
@@ -378,7 +379,7 @@ def _case_result(value: object) -> CaseResult:
         # content still decodes strictly below.
         # WHY: `attempts` (OME-1458) is optional the same way — present only when the
         # Benchmark declares more than one Attempt per Case.
-        optional={"operations", "attempts"},
+        optional={"operations", "attempts", "abstained"},
         label="Case Result",
     )
     case_id = _case_id(raw.get("case_id"), "Case Result case_id")
@@ -411,6 +412,7 @@ def _case_result(value: object) -> CaseResult:
             metadata=_mapping(_required(raw, "metadata", "Case Result"), "Case Result metadata"),
             operations=operations,
             attempts=attempts,
+            abstained=_abstained(raw),
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Case Result is invalid: {exc}") from exc
@@ -452,6 +454,16 @@ def _case_attempt(value: object) -> CaseAttempt:
         raise ExecutionError(f"Case Attempt is invalid: {exc}") from exc
 
 
+def _abstained(raw: Mapping[str, object]) -> bool:
+    """The optional abstained mark: absent is False; when present it must be exactly true."""
+
+    if "abstained" not in raw:
+        return False
+    if raw["abstained"] is not True:
+        raise ExecutionError("Case Result abstained must be true when present")
+    return True
+
+
 def _case_operations(value: object) -> tuple[CaseOperation, ...]:
     return tuple(_case_operation(item) for item in _sequence(value, "Case Result operations"))
 
@@ -461,9 +473,11 @@ def _case_operation(value: object) -> CaseOperation:
     _keys(
         raw,
         required={"operation_id", "output", "finish_reason", "accounting"},
+        optional={"combine"},
         label="Case Operation",
     )
     finish_reason_value = raw.get("finish_reason")
+    combine = decode_combine_evidence(raw.get("combine"), "Case Operation combine")
     try:
         return CaseOperation(
             operation_id=_nonempty_text(raw.get("operation_id"), "Case Operation operation_id"),
@@ -476,6 +490,7 @@ def _case_operation(value: object) -> CaseOperation:
             accounting=decode_operation_accounting(
                 raw.get("accounting"), "Case Operation accounting"
             ),
+            combine=combine,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Case Operation is invalid: {exc}") from exc

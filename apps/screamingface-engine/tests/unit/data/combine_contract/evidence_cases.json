@@ -1,0 +1,1925 @@
+{
+  "vote_tie": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "mode@1",
+      "first_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "9",
+        "value": "9",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "12",
+        "value": "12",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "9",
+        "value": "9",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_4",
+        "raw": "12",
+        "value": "12",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "9",
+        "score": 2.0,
+        "holders": [
+          "member_1",
+          "member_3"
+        ]
+      },
+      {
+        "value": "12",
+        "score": 2.0,
+        "holders": [
+          "member_2",
+          "member_4"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1"
+    ],
+    "built": false,
+    "agreement": 0.5,
+    "tie": true,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": "member_1",
+      "value": "9",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "vote_weighted": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "weighted_mode@1",
+      "max_weight_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "9",
+        "value": "9",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": 3.0,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "9",
+        "value": "9",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": 3.0,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "12",
+        "value": "12",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": 1.0,
+        "score": null
+      },
+      {
+        "member_id": "member_4",
+        "raw": "12",
+        "value": "12",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": 1.0,
+        "score": null
+      },
+      {
+        "member_id": "member_5",
+        "raw": "12",
+        "value": "12",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": 1.0,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "9",
+        "score": 6.0,
+        "holders": [
+          "member_1",
+          "member_2"
+        ]
+      },
+      {
+        "value": "12",
+        "score": 3.0,
+        "holders": [
+          "member_3",
+          "member_4",
+          "member_5"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1"
+    ],
+    "built": false,
+    "agreement": 0.6666666666666666,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": "member_1",
+      "value": "9",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "median_value": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "median",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "median@1",
+      "value@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "10",
+        "value": "10",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "20",
+        "value": "20",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "40",
+        "value": "40",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_4",
+        "raw": null,
+        "value": null,
+        "status": "fail",
+        "reason": "empty",
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": "20",
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": null,
+      "value": "20",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 1,
+    "finish_reason": "stop"
+  },
+  "judge_label": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "judge",
+    "operators": [
+      "label@1",
+      "by_label@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": {
+      "raw": " member_2\n",
+      "returns": "label",
+      "parsed": "member_2"
+    },
+    "fields": null,
+    "chosen": [
+      "member_2"
+    ],
+    "built": false,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": "author",
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": "member_2",
+      "value": null,
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "judge_scores": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "judge",
+    "operators": [
+      "scores@1",
+      "max_score@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": 0.2
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": 0.9
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": 0.9
+      }
+    ],
+    "tally": null,
+    "judge": {
+      "raw": "{\"member_1\":0.2,\"member_2\":0.9,\"member_3\":0.9}",
+      "returns": "scores",
+      "parsed": {
+        "member_1": 0.2,
+        "member_2": 0.9,
+        "member_3": 0.9
+      }
+    },
+    "fields": null,
+    "chosen": [
+      "member_2"
+    ],
+    "built": false,
+    "agreement": null,
+    "tie": true,
+    "median": null,
+    "presentation_order": "author",
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": "member_2",
+      "value": null,
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "pick": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "pick",
+    "operators": [
+      "json_field@1",
+      "numeric@1",
+      "values@1",
+      "by_field@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "0.4",
+        "value": "0.4",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "0.9",
+        "value": "0.9",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "0.7",
+        "value": "0.7",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": [
+      {
+        "field": "confidence",
+        "rule": "values",
+        "values": {
+          "member_1": "0.4",
+          "member_2": "0.9",
+          "member_3": "0.7"
+        },
+        "result": null
+      }
+    ],
+    "chosen": [
+      "member_2"
+    ],
+    "built": false,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": "member_2",
+      "value": "0.9",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "merge_model_field": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "merge",
+    "operators": [
+      "json_object@1",
+      "field_rules@1",
+      "built@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "{\"answer\":\"Paris.\",\"score\":3}",
+        "value": "{\"answer\":\"Paris.\",\"score\":3}",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "{\"answer\":\"paris\",\"score\":5}",
+        "value": "{\"answer\":\"paris\",\"score\":5}",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "{\"answer\":\"Lyon\",\"score\":\"high\"}",
+        "value": "{\"answer\":\"Lyon\",\"score\":\"high\"}",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": [
+      {
+        "field": "answer",
+        "rule": "majority",
+        "values": {
+          "member_1": "Paris.",
+          "member_2": "paris",
+          "member_3": "Lyon"
+        },
+        "result": "Paris."
+      },
+      {
+        "field": "score",
+        "rule": "max",
+        "values": {
+          "member_1": 3,
+          "member_2": 5,
+          "member_3": "high"
+        },
+        "result": 5
+      },
+      {
+        "field": "summary",
+        "rule": "model",
+        "values": {},
+        "result": "Two of three members say Paris."
+      }
+    ],
+    "chosen": [],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": null,
+      "value": "{\"answer\":\"Paris.\",\"score\":5,\"summary\":\"Two of three members say Paris.\"}",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "projection": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "projection",
+    "reducer": "project",
+    "operators": [
+      "json_object@1",
+      "project_field@1",
+      "built@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "{\"answer\":\"A\"}",
+        "value": "{\"answer\":\"A\"}",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "{\"answer\":\"B\"}",
+        "value": "{\"answer\":\"B\"}",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "{\"other\":1}",
+        "value": "{\"other\":1}",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": [
+      {
+        "field": "answer",
+        "rule": "project",
+        "values": {
+          "member_1": "A",
+          "member_2": "B"
+        },
+        "result": null
+      }
+    ],
+    "chosen": [],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": null,
+      "value": "{\"member_1\":\"A\",\"member_2\":\"B\"}",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "rank_by_judge": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "selection",
+    "reducer": "rank",
+    "operators": [
+      "scores@1",
+      "top_k@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": 0.1
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": 0.8
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": 0.5
+      },
+      {
+        "member_id": "member_4",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": 0.8
+      }
+    ],
+    "tally": null,
+    "judge": {
+      "raw": "{\"member_1\":0.1,\"member_2\":0.8,\"member_3\":0.5,\"member_4\":0.8}",
+      "returns": "scores",
+      "parsed": {
+        "member_1": 0.1,
+        "member_2": 0.8,
+        "member_3": 0.5,
+        "member_4": 0.8
+      }
+    },
+    "fields": null,
+    "chosen": [
+      "member_2",
+      "member_4"
+    ],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": "author",
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "concat_collision": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "selection",
+    "reducer": "concat",
+    "operators": [
+      "join@1",
+      "all@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1",
+      "member_2",
+      "member_3"
+    ],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": true,
+    "signal": null,
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "vote_one_failed": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "mode@1",
+      "first_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "42",
+        "value": "42",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "fail",
+        "reason": "empty",
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "42",
+        "value": "42",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "42",
+        "score": 2.0,
+        "holders": [
+          "member_1",
+          "member_3"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1"
+    ],
+    "built": false,
+    "agreement": 1.0,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": "member_1",
+      "value": "42",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 1,
+    "finish_reason": "stop"
+  },
+  "vote_abstain": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "mode@1",
+      "first_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "fail",
+        "reason": "empty",
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "fail",
+        "reason": "empty",
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "fail",
+        "reason": "empty",
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [],
+    "built": false,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "abstain",
+      "reason": "no_votes"
+    },
+    "dropped": 3,
+    "finish_reason": "stop"
+  },
+  "vote_field_signal": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "json_field@1",
+      "text@1",
+      "weighted_mode@1",
+      "max_weight_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "A",
+        "value": "a",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.9
+        },
+        "weight": 0.9,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "B",
+        "value": "b",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.3
+        },
+        "weight": 0.3,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "B",
+        "value": "b",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.4
+        },
+        "weight": 0.4,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "a",
+        "score": 0.9,
+        "holders": [
+          "member_1"
+        ]
+      },
+      {
+        "value": "b",
+        "score": 0.7,
+        "holders": [
+          "member_2",
+          "member_3"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1"
+    ],
+    "built": false,
+    "agreement": 0.5625,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "field:confidence",
+      "order": null
+    },
+    "result": {
+      "member_id": "member_1",
+      "value": "a",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "median_nearest": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "median",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "median@1",
+      "nearest@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "10",
+        "value": "10",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "20",
+        "value": "20",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "40",
+        "value": "40",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_4",
+        "raw": null,
+        "value": null,
+        "status": "fail",
+        "reason": "empty",
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_2"
+    ],
+    "built": false,
+    "agreement": 0.3333333333333333,
+    "tie": false,
+    "median": "20",
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": "member_2",
+      "value": "20",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 1,
+    "finish_reason": "stop"
+  },
+  "regex_no_match": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "regex@1",
+      "text@1",
+      "mode@1",
+      "first_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "B",
+        "value": "b",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "b",
+        "value": "b",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "fail",
+        "reason": "no_match",
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "b",
+        "score": 2.0,
+        "holders": [
+          "member_1",
+          "member_2"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1"
+    ],
+    "built": false,
+    "agreement": 1.0,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": "member_1",
+      "value": "b",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 1,
+    "finish_reason": "stop"
+  },
+  "set_normalized": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "whole@1",
+      "set@1",
+      "mode@1",
+      "first_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "[\"Paris\",\"Rome\"]",
+        "value": "[\"paris\",\"rome\"]",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "rome, paris",
+        "value": "[\"paris\",\"rome\"]",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "Berlin",
+        "value": "[\"berlin\"]",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "[\"paris\",\"rome\"]",
+        "score": 2.0,
+        "holders": [
+          "member_1",
+          "member_2"
+        ]
+      },
+      {
+        "value": "[\"berlin\"]",
+        "score": 1.0,
+        "holders": [
+          "member_3"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1"
+    ],
+    "built": false,
+    "agreement": 0.6666666666666666,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": "member_1",
+      "value": "[\"paris\",\"rome\"]",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "vote_cost_signal": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "weighted_mode@1",
+      "max_weight_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "9",
+        "value": "9",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "cost_usd": 0.004
+        },
+        "weight": 0.004,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "9",
+        "value": "9",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "cost_usd": 0.001
+        },
+        "weight": 0.001,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "12",
+        "value": "12",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "cost_usd": 0.002
+        },
+        "weight": 0.002,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "9",
+        "score": 0.005,
+        "holders": [
+          "member_1",
+          "member_2"
+        ]
+      },
+      {
+        "value": "12",
+        "score": 0.002,
+        "holders": [
+          "member_3"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1"
+    ],
+    "built": false,
+    "agreement": 0.7142857142857143,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "cost_usd",
+      "order": null
+    },
+    "result": {
+      "member_id": "member_1",
+      "value": "9",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "vote_judge_weights": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "weighted_mode@1",
+      "max_weight_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "9",
+        "value": "9",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "score:judge": 0.2
+        },
+        "weight": 0.2,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "9",
+        "value": "9",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "score:judge": 0.9
+        },
+        "weight": 0.9,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "12",
+        "value": "12",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "score:judge": 0.5
+        },
+        "weight": 0.5,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "9",
+        "score": 1.1,
+        "holders": [
+          "member_1",
+          "member_2"
+        ]
+      },
+      {
+        "value": "12",
+        "score": 0.5,
+        "holders": [
+          "member_3"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_2"
+    ],
+    "built": false,
+    "agreement": 0.6875,
+    "tie": false,
+    "median": null,
+    "presentation_order": "author",
+    "separator_collision": null,
+    "signal": {
+      "key": "score:judge",
+      "order": null
+    },
+    "result": {
+      "member_id": "member_2",
+      "value": "9",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "argmax_cost_min": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "pick",
+    "operators": [
+      "by_signal@1",
+      "best_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "cost_usd": 0.004
+        },
+        "weight": null,
+        "score": 0.004
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "cost_usd": 0.001
+        },
+        "weight": null,
+        "score": 0.001
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "cost_usd": 0.002
+        },
+        "weight": null,
+        "score": 0.002
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_2"
+    ],
+    "built": false,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "cost_usd",
+      "order": "min"
+    },
+    "result": {
+      "member_id": "member_2",
+      "value": null,
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "rank_by_signal": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "selection",
+    "reducer": "rank",
+    "operators": [
+      "by_signal@1",
+      "top_k@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:score": 0.3
+        },
+        "weight": null,
+        "score": 0.3
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:score": 0.9
+        },
+        "weight": null,
+        "score": 0.9
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:score": 0.6
+        },
+        "weight": null,
+        "score": 0.6
+      },
+      {
+        "member_id": "member_4",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:score": 0.1
+        },
+        "weight": null,
+        "score": 0.1
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_2",
+      "member_3"
+    ],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "field:score",
+      "order": "max"
+    },
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "rank_cut_not_met": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "selection",
+    "reducer": "rank",
+    "operators": [
+      "by_signal@1",
+      "top_k@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:score": 0.3
+        },
+        "weight": null,
+        "score": 0.3
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:score": null
+        },
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:score": 0.6
+        },
+        "weight": null,
+        "score": 0.6
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [],
+    "built": false,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "field:score",
+      "order": "max"
+    },
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "abstain",
+      "reason": "cut_not_met"
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "filter_threshold": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "selection",
+    "reducer": "filter",
+    "operators": [
+      "filter@1",
+      "kept@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.9
+        },
+        "weight": null,
+        "score": 1.0
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.2
+        },
+        "weight": null,
+        "score": 0.0
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.7
+        },
+        "weight": null,
+        "score": 1.0
+      },
+      {
+        "member_id": "member_4",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.5
+        },
+        "weight": null,
+        "score": 0.0
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1",
+      "member_3"
+    ],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "field:confidence",
+      "order": null
+    },
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "filter_pattern": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "selection",
+    "reducer": "filter",
+    "operators": [
+      "filter@1",
+      "kept@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": 1.0
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": 0.0
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": 1.0
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1",
+      "member_3"
+    ],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "filter_none_pass": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "selection",
+    "reducer": "filter",
+    "operators": [
+      "filter@1",
+      "kept@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.9
+        },
+        "weight": null,
+        "score": 0.0
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.2
+        },
+        "weight": null,
+        "score": 0.0
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.7
+        },
+        "weight": null,
+        "score": 0.0
+      },
+      {
+        "member_id": "member_4",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.5
+        },
+        "weight": null,
+        "score": 0.0
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [],
+    "built": false,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "field:confidence",
+      "order": null
+    },
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "abstain",
+      "reason": "no_votes"
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "merge_abstain": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "merge",
+    "operators": [
+      "json_object@1",
+      "field_rules@1",
+      "built@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "{\"x\":1}",
+        "value": "{\"x\":1}",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "{\"y\":2}",
+        "value": "{\"y\":2}",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "{\"z\":3}",
+        "value": "{\"z\":3}",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [],
+    "built": false,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "abstain",
+      "reason": "no_votes"
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  }
+}

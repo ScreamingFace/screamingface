@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from decimal import Decimal, localcontext
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from screamingface_engine.combine.ports import ACCOUNTING_SIGNALS
 
 _FIXED_POINT_USD = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 
@@ -107,6 +111,46 @@ def combine_operation_accounting(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class SignalAccounting:
+    """The ORIGINAL call's numbers for ``Answer`` signals (erd 4.3).
+
+    In-process only: never on the wire and never part of ``OperationAccounting``, whose cache-hit
+    zeros stay true (a hit costs nothing now). ``None`` means unknown, never zero.
+    """
+
+    cost_usd: float | None = None
+    latency_ms: float | None = None
+    tokens_in: float | None = None
+    tokens_out: float | None = None
+
+    def as_signals(self) -> dict[str, float | None]:
+        """The numbers keyed by the combine accounting signal names, in their pinned order."""
+        numbers = (self.cost_usd, self.latency_ms, self.tokens_in, self.tokens_out)
+        return dict(zip(ACCOUNTING_SIGNALS, numbers, strict=True))
+
+
+def combine_signal_accounting(rounds: Sequence[SignalAccounting]) -> SignalAccounting:
+    """Fold the rounds of one semantic operation (a tool loop). Empty -> all None.
+
+    Per field: None if any round is None (absence is contagious, as in ``combine_operation_
+    accounting``), else ``math.fsum`` so the order of summing can never change a float.
+    """
+    if not rounds:
+        return SignalAccounting()
+    return SignalAccounting(
+        cost_usd=_fsum(round.cost_usd for round in rounds),
+        latency_ms=_fsum(round.latency_ms for round in rounds),
+        tokens_in=_fsum(round.tokens_in for round in rounds),
+        tokens_out=_fsum(round.tokens_out for round in rounds),
+    )
+
+
+def _fsum(values: Iterable[float | None]) -> float | None:
+    rows = tuple(values)
+    return math.fsum(value for value in rows if value is not None) if None not in rows else None
+
+
 def _agreed(values: Iterable[str | None]) -> str | None:
     rows = tuple(values)
     first = rows[0]
@@ -138,5 +182,7 @@ __all__ = [
     "OperationAccounting",
     "OperationCache",
     "OperationUsage",
+    "SignalAccounting",
     "combine_operation_accounting",
+    "combine_signal_accounting",
 ]

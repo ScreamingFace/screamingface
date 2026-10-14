@@ -1,0 +1,18 @@
+{
+ "op": "max_score@1",
+ "stage": "select",
+ "cases": [
+  {"name": "clear winner", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"scores": {"member_1": "0.2", "member_2": "0.9", "member_3": "0.5"}}},
+   "expect": {"chosen": ["member_2"], "output": null, "tie": false, "agreement": null}},
+  {"name": "tie goes to author order", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"scores": {"member_1": "0.9", "member_2": "0.5", "member_3": "0.9"}}},
+   "expect": {"chosen": ["member_1"], "output": null, "tie": true, "agreement": null}},
+  {"name": "no scores", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {}},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "args are refused", "args": {"x": 1},
+   "input": {"readings": [{"member": "member_1", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_2", "raw": null, "value": null, "status": "voted", "weight": null}, {"member": "member_3", "raw": null, "value": null, "status": "voted", "weight": null}], "reduction": {"scores": {"member_1": "1", "member_2": "2", "member_3": "3"}}},
+   "expect": {"error": "combine_spec_invalid"}}
+ ]
+}

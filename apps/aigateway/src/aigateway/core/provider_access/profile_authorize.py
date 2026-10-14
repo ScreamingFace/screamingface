@@ -34,6 +34,7 @@ from .types import (
     UnsupportedAuthMode,
     WriteConflict,
 )
+from .writer_floor import mark_error_checked
 
 
 def reauth_url_for(
@@ -166,7 +167,9 @@ async def _refuse_unusable(
     credential_strategy_cache(app).evict(credential_name)
     profile, connection = backing_rows(target)
     if connection is not None:
-        await oauth_connection_store(app).mark_error(connection, str(exc))
+        await mark_error_checked(
+            oauth_connection_store(app), connection, str(exc), observed=target._observed_pair
+        )
         if isinstance(exc, AuthError):
             invalidate_session(plugin, credential_name)
     elif profile is not None and isinstance(exc, AuthError):
@@ -251,8 +254,11 @@ async def record_dispatch_failure(
     body = detail if isinstance(detail, dict) else {"message": str(detail)}
     profile, connection = backing_rows(target)
     if connection is not None:
-        await oauth_connection_store(app).mark_error(
-            connection, str(body.get("message", str(detail)))
+        await mark_error_checked(
+            oauth_connection_store(app),
+            connection,
+            str(body.get("message", str(detail))),
+            observed=target._observed_pair,
         )
         invalidate_session(plugin, credential_name)
         return None

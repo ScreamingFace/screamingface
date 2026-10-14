@@ -1,0 +1,5 @@
+{
+  "pattern": "^(?:model|synthesis|judge|writer)_\\d+$",
+  "accept": ["model_1", "synthesis_2", "judge_3", "writer_4"],
+  "reject": ["answer_5", "model_", "Model_1", "judge-1", "writer_x", "loop_candidate", "synthesis_1 ", ""]
+}

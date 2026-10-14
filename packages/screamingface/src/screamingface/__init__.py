@@ -10,8 +10,12 @@ from screamingface._default_client import (
     reproduce,
 )
 from screamingface._reproduction import Reproduction, ReproductionOutcome
+from screamingface._samples import samples
+from screamingface._signals import signal
 from screamingface._ui.connections import ConnectionPanel
 from screamingface._version import resolve_version
+from screamingface.answer import Answer
+from screamingface.blocks import Extract, Reduce, matches
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
@@ -26,6 +30,7 @@ from screamingface.discovery import (
 )
 from screamingface.errors import (
     AuthenticationError,
+    EngineCapabilityError,
     EngineUnavailableError,
     ExecutionError,
     LeaderboardError,
@@ -34,7 +39,9 @@ from screamingface.errors import (
     ScreamingFaceError,
 )
 from screamingface.events import Event
+from screamingface.fields import FieldRule, Merge, Pick
 from screamingface.fusion import Fusion
+from screamingface.judge import Judge
 from screamingface.leaderboard import (
     Leaderboard,
     LeaderboardBaseline,
@@ -48,6 +55,7 @@ from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
+from screamingface.reducer import Median, Vote
 from screamingface.report import (
     CandidateResult,
     CaseGrade,
@@ -62,8 +70,13 @@ from screamingface.report import (
     Report,
     Usage,
 )
+from screamingface.selection import Concat, Filter, Rank
 from screamingface.url4 import Url4
-from screamingface.warnings import EvaluationWarning
+from screamingface.warnings import (
+    DuplicateMembersWarning,
+    EvaluationWarning,
+    FixedSeedSittingWarning,
+)
 
 # The installed distribution's version, resolved once at import — see `_version.py`.
 __version__ = resolve_version()
@@ -71,6 +84,7 @@ __version__ = resolve_version()
 __all__ = [
     "__version__",
     "reports",
+    "Answer",
     "AsyncClient",
     "AuthenticationError",
     "Benchmark",
@@ -80,6 +94,7 @@ __all__ = [
     "CandidateResult",
     "Check",
     "Client",
+    "Concat",
     "Connection",
     "ConnectionPanel",
     "CorrectiveLoop",
@@ -89,16 +104,24 @@ __all__ = [
     "connect",
     "connections",
     "disconnect",
+    "DuplicateMembersWarning",
     "Evidence",
     "EvidenceProducer",
     "Event",
+    "EngineCapabilityError",
     "EngineUnavailableError",
     "ExecutionError",
+    "Extract",
     "EvaluationWarning",
     "evaluate",
     "reproduce",
+    "samples",
     "Failure",
+    "FieldRule",
+    "Filter",
+    "FixedSeedSittingWarning",
     "Fusion",
+    "Judge",
     "Leaderboard",
     "LeaderboardBaseline",
     "LeaderboardEntry",
@@ -106,7 +129,10 @@ __all__ = [
     "LeaderboardInfo",
     "LeaderboardRankingNotice",
     "LeaderboardScore",
+    "matches",
     "MemberResult",
+    "Median",
+    "Merge",
     "Model",
     "ModelCapability",
     "ModelDetails",
@@ -115,20 +141,25 @@ __all__ = [
     "ModelParameterSchema",
     "OperationInfo",
     "OAuthFlow",
+    "Pick",
     "PlanningError",
     "Pipeline",
     "ProviderConnectionError",
+    "Rank",
     "Recipe",
+    "Reduce",
     "Report",
     "Reproduction",
     "ReproductionOutcome",
     "ScoreMetadataEvent",
     "ScreamingFaceError",
     "SelfCorrective",
+    "signal",
     "OperationAccounting",
     "OperationCache",
     "Usage",
     "Url4",
+    "Vote",
     "benchmarks",
     "events",
     "leaderboards",

@@ -34,14 +34,15 @@ from typing import Any, Unpack
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.aggregation import CandidateScore
 from screamingface_engine.benchmarks.case_context import case_scope
+from screamingface_engine.benchmarks.case_records import abstain_mark, answer_abstain_mark
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import (
-    CANDIDATE_INPUT_SCHEMA,
     CANDIDATE_RESULT_SCHEMA,
     CaseGrade,
     CaseResult,
 )
 from screamingface_engine.benchmarks.definition import (
+    AnswerRule,
     Benchmark,
     BenchmarkDeclaration,
     BenchmarkOrigin,
@@ -86,6 +87,10 @@ from screamingface_engine.benchmarks.shared_grading.case_grades import (
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload
 from screamingface_engine.retrieval_policy import normalize_excluded_domains
+from screamingface_engine_inspect.conversation_input import (
+    conversation_input,
+    conversation_messages,
+)
 from screamingface_engine_inspect.envelopes import (
     CHECK_SCHEMA,
     build_case_grade,
@@ -171,7 +176,8 @@ class JudgeSpec:
         seed_per_pass: the scorer grades over judge passes and names pass ``k`` as
             ``GenerateConfig(seed=k)``; the judge call then carries ``seed=k`` after the
             pinned params, so N passes are N requests, never one cached reply (OME-1527
-            R12). Benchmark identity when set. A pinned ``seed`` beside it is refused.
+            R12). Benchmark identity when set. A pinned ``seed`` beside it is refused, and
+            so is a judge call that names no pass.
     """
 
     model: str
@@ -379,6 +385,7 @@ def single_shot_benchmark(
     retrieval_policy: RetrievalPolicyDeclaration | None = None,
     candidate_input_envelope: bool = False,
     scorer_draft_feedback: bool = False,
+    answer_rule: AnswerRule | None = None,
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -447,6 +454,8 @@ def single_shot_benchmark(
             score and words (OME-1527, R9) instead of 0-or-1 and the fixed sentence. Needs
             ``with_check_surface``, which only the owner turns on for a Benchmark. Hashed
             into the revision below when set.
+        answer_rule: how the grader reads an answer, as pinned combine operator ids (OME-1289).
+            Published in the catalog; NOT hashed into the revision (like ``focus``).
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -474,6 +483,18 @@ def single_shot_benchmark(
         raise ValueError(
             f"{benchmark_id}: scorer_draft_feedback needs a Draft Feedback offer "
             "(with_check_surface=True)"
+        )
+    if (
+        judge is not None
+        and retrieval_policy is not None
+        and ("web_search", "false") not in judge.params
+    ):
+        # WHY (OME-1527, R13): the policy reaches the Candidate call only. A judge call that
+        # names no web_search searches whenever its route can (a route's default is on), so on a
+        # searching exam it could look the answer up — the judge pins it off, as draco's does.
+        raise ValueError(
+            f"{benchmark_id}: a row with retrieval policy {retrieval_policy.policy_id} must pin "
+            "its judge's web search off — add ('web_search', 'false') to JudgeSpec.params"
         )
     # WHY: pins are newline-joined below; a pin containing "\n" would make two
     # different pin lists hash identically — refused, never coerced.
@@ -555,6 +576,7 @@ def single_shot_benchmark(
         dataset_url=dataset_url,
         # Benchmark Provenance, baselines, notebook (OME-1455): authored on the BenchmarkSpec
         # row like `difficulty`, threaded through verbatim; shapes checked by `Benchmark`.
+        answer_rule=answer_rule,
         **provenance,
         declaration=BenchmarkDeclaration(
             # WHY "coverage_declare": imported benchmarks reduce through the shared
@@ -770,19 +792,15 @@ def _enveloped_inputs(cases_json: str) -> str:
     Worked example: input ``"Draft the memo."`` is served as
     ``{"schema":"screamingface.candidate-input.v1","messages":[{"role":"user","content":
     "Draft the memo."}]}`` — compact separators, non-ASCII kept as is, which is what
-    hand-built gdpval's ``case_input`` wrote, so the Candidate call's bytes do not move.
+    hand-built gdpval's ``case_input`` wrote, so the Candidate call's bytes do not move. A
+    conversation Case (R14) is already that envelope and is served as written, never wrapped
+    twice.
     """
 
     rows: list[dict[str, Any]] = json.loads(cases_json)
     for row in rows:
-        row["input"] = json.dumps(
-            {
-                "schema": CANDIDATE_INPUT_SCHEMA,
-                "messages": [{"role": "user", "content": row["input"]}],
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
+        if conversation_messages(row["input"]) is None:
+            row["input"] = conversation_input([{"role": "user", "content": row["input"]}])
     return json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -828,6 +846,7 @@ def _check(root: Path) -> Callable[[Request], str]:
                     ]
                 }
             ),
+            **answer_abstain_mark(answer),
         }
         return compact_json(record)
 
@@ -1113,6 +1132,8 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
             "refusal": attempt.get("refusal"),
             "execution": attempt.get("execution"),
             "operations": attempt.get("operations"),
+            # The abstain mark rides the hoisted row (OME-1289).
+            **abstain_mark(attempt),
             "metadata": {},
         },
         "attempt": dict(attempt),

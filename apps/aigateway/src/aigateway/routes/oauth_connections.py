@@ -47,6 +47,7 @@ from aigateway.core.provider_access import (
     retire_effective,
 )
 from aigateway.core.provider_access.connection_locator import credential_strategy_for_connection
+from aigateway.core.provider_access.writer_floor import mark_error_checked, observe_pair_of
 
 from .api_key_validation import normalize_api_key, require_valid_api_key
 from .auth import _close_loopback_callback, _redirect_uri_for
@@ -477,6 +478,7 @@ async def get_connection_token(
                 request.app.state, f"{provider}_http_factory", None
             ),
             strategy_cache=credential_strategy_cache(request.app),
+            observe_pair=observe_pair_of,
         )
     except OAuthConnectionTokenError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
@@ -530,6 +532,7 @@ async def refresh_connection(
     )
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
+    observed = await observe_pair_of(connection)
     try:
         await strategy.refresh_credentials()
     except RefreshSuperseded as exc:
@@ -537,7 +540,8 @@ async def refresh_connection(
         credential_strategy_cache(request.app).evict(credential_name)
         raise HTTPException(status_code=409, detail={"code": "connection_conflict"}) from exc
     except (CredentialNotFoundError, AuthError) as exc:
-        await store.mark_error(connection, str(exc))
+        # INVARIANT (OME-1497, G0 §5.3): marked only while the pair is where this refresh saw it.
+        await mark_error_checked(store, connection, str(exc), observed=observed)
         credential_strategy_cache(request.app).evict(credential_name)
         raise HTTPException(
             status_code=401, detail={"code": "auth_required", "message": str(exc)}

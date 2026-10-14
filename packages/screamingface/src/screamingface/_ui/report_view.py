@@ -329,6 +329,11 @@ def _strip_html(report: Report) -> str:
     )
 
 
+def _abstained_text(candidate: CandidateResult) -> str:
+    count = candidate.abstained_count
+    return f" · {count} abstained" if count > 0 else ""
+
+
 def _card_html(
     candidate: CandidateResult,
     report: Report,
@@ -351,7 +356,7 @@ def _card_html(
     runs = _metric(metrics, "n_runs")
     # Repeat count belongs in the context line: a 7th figure would orphan a grid row.
     repeats = f" · {int(runs)} runs" if runs and runs > 1 else ""
-    ctx = f"· {report.benchmark.id} · {state}{repeats}"
+    ctx = f"· {report.benchmark.id} · {state}{repeats}{_abstained_text(candidate)}"
     # The fusion edge marks a rankable result. Any finite benchmark-native score —
     # including zero and negative (HealthBench worst-30 is all-negative) — is a real
     # outcome worth highlighting; only an unscored candidate stays neutral (OME-866:

@@ -336,20 +336,21 @@ def test_a_task_with_a_sandbox_is_refused_before_any_sample_runs() -> None:
         captured_case_records(task, _spec())
 
 
-def test_a_multi_turn_prompt_is_refused() -> None:
-    """A Case is one text for the Candidate; a conversation with an assistant turn is not."""
+def test_a_conversation_that_ends_on_an_assistant_turn_is_refused() -> None:
+    """A fixed conversation is a Case (OME-1527, R14; see test_conversation_cases.py), but
+    only when it ends on the user turn the Candidate answers; one that ends on the assistant's
+    own turn leaves the Candidate nothing to reply to."""
 
     sample = Sample(
         input=[
             ChatMessageUser(content="What is 2 plus 2?"),
             ChatMessageAssistant(content="4"),
-            ChatMessageUser(content="And 6 times 7?"),
         ],
-        target="42",
+        target="4",
     )
     task = Task(dataset=MemoryDataset([sample]))
 
-    with pytest.raises(CaptureError, match="case 1: .*3 messages.*assistant"):
+    with pytest.raises(CaptureError, match="case 1: .*2 messages.*assistant.*ends on the user"):
         captured_case_records(task, _spec())
 
 

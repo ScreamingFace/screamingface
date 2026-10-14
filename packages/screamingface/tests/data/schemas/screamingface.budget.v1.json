@@ -1,0 +1,48 @@
+{
+  "Budget": [
+    "unit",
+    "cap"
+  ],
+  "BudgetCharge": [
+    "operation_id",
+    "member_id",
+    "stage",
+    "amount",
+    "source",
+    "remaining_after"
+  ],
+  "BudgetRefusal": [
+    "operation_id",
+    "member_id",
+    "stage",
+    "estimated",
+    "reason"
+  ],
+  "BudgetState": [
+    "unit",
+    "cap",
+    "spent",
+    "remaining",
+    "unpriced_charges",
+    "charges",
+    "refused"
+  ],
+  "refusal_reason": [
+    "would_exceed_cap"
+  ],
+  "source": [
+    "live",
+    "cache_reference",
+    "unpriced"
+  ],
+  "stage": [
+    "model",
+    "synthesis",
+    "judge",
+    "writer"
+  ],
+  "unit": [
+    "usd",
+    "tokens"
+  ]
+}
