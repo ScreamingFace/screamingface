@@ -56,6 +56,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 from inspect_ai.model import (
@@ -82,6 +83,7 @@ from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload
 from screamingface_engine.grading_call_scope import grading_call_scope
 from screamingface_engine_inspect.conversation_input import conversation_messages
 from screamingface_engine_inspect.judge_redraw import JudgeReplyUnparseable
+from screamingface_engine_inspect.verdict_counts import case_verdict_counts
 
 #: Score string verdicts → floats, per inspect's own vocabulary: CORRECT / INCORRECT /
 #: PARTIAL / NOANSWER. Closed on purpose (see the module invariant).
@@ -194,21 +196,27 @@ def inspect_grade_case(
             # code from any of ~94 community evals; ANY raise must become this benchmark's
             # named failure, not an aborted aggregate for the other 49 Cases.
             return _failure(_raise_code(exc), f"{type(exc).__name__}: {exc}")
-        # Stage 4 — copy their mark back onto our form.
-        outcome: CaseGradeOutcome = (
-            _outcome(score, state.output.completion, inverted_grade, word_grades, case_insensitive)
-            if not names
-            else await _named_outcome(
-                request.case_id,
-                score,
-                state,
-                target,
-                names,
-                extras,
-                inverted_grade,
-                word_grades,
-                case_insensitive,
-            )
+        # Stage 4 — copy their mark back onto our form; a judging scorer's verdict counts
+        # ride the Case's grade metrics, for the run's grading warning (OME-1527 row 18b).
+        outcome: CaseGradeOutcome = _with_verdict_counts(
+            (
+                _outcome(
+                    score, state.output.completion, inverted_grade, word_grades, case_insensitive
+                )
+                if not names
+                else await _named_outcome(
+                    request.case_id,
+                    score,
+                    state,
+                    target,
+                    names,
+                    extras,
+                    inverted_grade,
+                    word_grades,
+                    case_insensitive,
+                )
+            ),
+            score,
         )
         if file_score is not None and outcome.failure_code is None and score is not None:
             file_score(int(request.case_id), score, state)
@@ -246,6 +254,24 @@ def _outcome(
     return CaseGradeOutcome(
         score=case_score, metrics={}, checks=[_check(score, grade, case_score, completion)]
     )
+
+
+def _with_verdict_counts(outcome: CaseGradeOutcome, score: Score | None) -> CaseGradeOutcome:
+    """Copy the headline scorer's judge-verdict counts onto a graded Case's grade metrics.
+
+    A failed Case, or a scorer that writes no counts, leaves the outcome untouched; bad
+    counts fail the Case as ``invalid_score_value`` naming the problem, never a warning
+    built on garbage. Only the headline Score is read: it is the one the Case's verdicts
+    are judged for.
+    """
+
+    if outcome.failure_code is not None or score is None:
+        return outcome
+    try:
+        counts: dict[str, int] = case_verdict_counts(score.metadata)
+    except ValueError as exc:
+        return _failure("invalid_score_value", str(exc), score)
+    return replace(outcome, metrics={**outcome.metrics, **counts}) if counts else outcome
 
 
 def _score_filer(
