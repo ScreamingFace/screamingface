@@ -65,7 +65,24 @@ tests, README, CHANGELOG), screamingface-engine (one offline recipe test and its
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** (commit B)
-- **Commits:** (commit B)
-- **Gates:** (commit B)
-- **Deviations:** (commit B)
+- **Actual files:** `packages/screamingface/src/screamingface/blocks.py`,
+  `packages/screamingface/src/screamingface/reducer.py` (docstring only),
+  `packages/screamingface/README.md`, `packages/screamingface/CHANGELOG.md`,
+  `apps/screamingface-engine/tests/unit/test_combine_recipes.py` (one assertion, see
+  Deviations), `apps/screamingface-engine/tests/unit/data/combine_contract/recipe_s4_median.url4`
+  (generated), `docs/spec/2026-10-13-e4b-combine-extensions/` (`00-overview.md`, `erd.md`,
+  `prd/mean.md`, `prd/weighted-median.md`, `prd/recipes.md`).
+- **Commits:** A `7c402d2d3` test(e4b): RED for select on the median and mean blocks; B (this
+  commit) fix(e4b): let the median and mean blocks take select.
+- **Gates:** `screamingface-engine`: ALL GATES GREEN. `screamingface`: ALL GATES GREEN (the
+  second run; see Deviations). `repo`: ALL GATES GREEN. Focused tests: SDK 177 passed; engine
+  16 passed.
+- **Deviations:**
+  - The engine test `test_recipe_s4_median_value_returns_the_weighted_median_number` asserted
+    `combine["mean"] is None`. The key is absent for a median. The evidence contract writes
+    `mean` only for the `mean` reducer (`evidence.py`, `exclude_if`). The assertion now reads
+    `"mean" not in combine`. This edit is in a file this PR added (commit A).
+  - The first `screamingface` gate run failed one timing test:
+    `tests/test_evaluation_outcome.py::test_a_callback_exception_aborts_the_evaluation_and_is_re_raised`.
+    The test passed alone and in five repeated `-n 4` runs. The second full gate run passed. No
+    code path of this fix touches that test. The failure looks like load-related timing.

@@ -34,6 +34,12 @@ robust number-combine can still use static or confidence weights.
 `weighted_median@1` uses the weight check and sets `participants`, as in [mean](mean.md) §3.
 With no weights, the bytes do not change.
 
+**Delta (playground fix, 2026-10-14).** The `median` block also takes `select="nearest" |
+"value"`, the word of `sf.Median`. `select="value"` is `mode="compute"`, and `select="nearest"`
+(the default) is `mode="select"`. The block keeps only the mode, so the url4 and the evidence do
+not change. Before the fix, the block refused `select=`, and the README "S4, median form"
+returned the nearest member's whole JSON reply.
+
 ## 3. Scenarios and acceptance criteria
 
 **Definition [proposed].** Sort the participants (members with a usable weight) by value, ascending.
@@ -52,6 +58,10 @@ With equal weights, this rule gives the same result as `median@1`.
   original text of the participant nearest the weighted median. [existing S/reducer.py:523-525]
 - **WM-4** Given `sf.Median()` with no weights, then the compiled url4 is byte-identical to today.
   [implied]
+- **WM-5** Given `sf.Reduce("median", extract=sf.Extract("field", path="answer"),
+  weights=sf.signal("field:confidence"), select="value")` and JSON replies 10 (confidence 0.6),
+  20 (0.3) and 99 (0), then the answer is `"10"`, the weighted median number, and not the JSON
+  reply of a member. [playground fix 2026-10-14]
 
 ### 3.2 Error paths
 
@@ -107,3 +117,5 @@ Order: characterize the unweighted median, then build the weighted operator core
 | 13 | `sdk_median_with_weights_compiles_weighted_median` | unit | WM-3 | H×M | remove the `TypeError` (approved edit of `test_signal_weighted_vote.py:32-35`) |
 | 14 | `sdk_reduce_block_median_accepts_weights_and_round_trips` | unit | [existing S/blocks.py:246] | M×M | `_OPS["median"]` option, rebuild row |
 | 15 | `engine_runs_median_block_weighted_by_field_confidence` | integration | WM-3 | M×M | `run_candidate`, JSON replies |
+| 16 | `numeric_block_select_is_a_second_name_for_mode` and the select refusals | unit | WM-5 | H×M | `_numeric_select` in `S/blocks.py` |
+| 17 | `recipe_s4_median_value_returns_the_weighted_median_number` | integration | WM-5 | H×M | `recipe_s4_median.url4`, `run_candidate` |

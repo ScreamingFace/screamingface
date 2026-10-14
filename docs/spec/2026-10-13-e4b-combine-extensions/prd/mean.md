@@ -44,7 +44,9 @@ sf.Mean(*, extract="last_number", select="value", weights=None)
 # weights: None, a tuple with one positive number per member, or sf.signal(key)
 
 sf.Reduce("mean", mode="compute" | "select", extract=sf.Extract(...), weights=...)
-# block form; "compute" (default) = select "value", "select" = select "nearest"
+sf.Reduce("mean", select="value" | "nearest", extract=sf.Extract(...), weights=...)
+# block form; "compute" (default) = select "value", "select" = select "nearest".
+# select= is a second name for mode= (playground fix, 2026-10-14). Give one of the two.
 ```
 
 Compile [proposed]: `reducer: "mean"`, `normalize: numeric@1`, `reduce: mean@1` (no weights) or

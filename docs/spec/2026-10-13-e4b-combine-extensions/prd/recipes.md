@@ -47,6 +47,7 @@ Recipe map. "New" means the feature comes from another E4b PRD, and that PRD own
 | S2 | … → choose the median → return the original model answer | `sf.Median(extract="last_number")` | this PRD (RC-2) |
 | S3 | … → weighted average with static weights | `sf.Mean(weights=(…))` | [mean](mean.md) MN#22 |
 | S4 | two numbers → weighted average by verbalized confidence | `sf.Reduce("mean", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"))` | [mean](mean.md) MN#23 |
+| S4 median | two numbers → weighted median by verbalized confidence | `sf.Reduce("median", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"), select="value")` | [weighted-median](weighted-median.md) WM#17 |
 | S5 | two numbers → response with maximum confidence | `sf.Pick("confidence", order="max")` (full text) or `output="answer"` | this PRD (RC-3); output: [pick-output](pick-output.md) PO#17 |
 | S7 | confidence → keep top-N → model synthesizer | `Pipeline([Fusion(…, synthesizer=sf.Rank(k=N, by_field="confidence")), sf.Model(…)])` | this PRD (RC-4) |
 | S8 | confidence → argmax → response from model chosen | `sf.Pick(by_signal=sf.signal("field:confidence"), order="max")` | this PRD (RC-5) |

@@ -4,6 +4,8 @@
 
 ### Fixes
 
+* **screamingface:** `sf.Reduce("median", ...)` and `sf.Reduce("mean", ...)` take `select="nearest"|"value"`, the word of `sf.Median` and `sf.Mean` (E4b). `select="value"` is `mode="compute"` and returns the number; `select="nearest"` is `mode="select"` and returns the text of the nearest member. The defaults do not change: `nearest` for the median block and `value` for the mean block. Before this fix the median block refused `select=`, so the README recipe for a median weighted by the confidence of a JSON reply returned the nearest member's whole JSON reply. Now `sf.Reduce("median", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"), select="value")` returns the weighted median number. The block keeps only the mode: the url4, the combine evidence and the repr do not change, and `Url4(...).to_python()` writes the block back with `mode="compute"`. A `select` that is not `nearest` or `value`, or a block that gives both `mode=` and `select=`, raises `ValueError`. No Engine change.
+
 * Show optional Model, Pipeline, and Fusion members in `Fusion` repr so member failure policy is visible (`OME-1557`). Required members retain their compact name-only representation.
 
 * Preserve upstream answers across composed quorum panels and reject executable quorum/member policy that disagrees with default-valued Recipe metadata during export and replay (`OME-1557`). Composed quorum Recipes require an Engine containing the patched URL4 runtime; deploy the Engine operation-reporting update as well to retain member outputs and accounting.
