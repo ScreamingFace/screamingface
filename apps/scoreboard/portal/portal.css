@@ -611,8 +611,6 @@ td.col-open { white-space: nowrap; }
   font-family: var(--f-sans); font-size: var(--text-sm); line-height: var(--leading-snug);
   text-align: center; color: var(--ink);
 }
-.grant-banner__link { color: var(--ink); }
-.grant-banner__link:hover { text-decoration-color: var(--ink); }
 @media (max-width: 620px) {
   .grant-banner { padding: var(--space-2) var(--space-4); }
 }

@@ -255,3 +255,62 @@ def test_history_page_says_submission_in_its_visible_copy() -> None:
     assert doc.one("nav", "crumbs").one("a", "here").text() == "submission"
     assert doc.one("header", "masthead").one("div", "eyebrow").text() == "Submission history"
     assert doc.one("div", "stats").attrs.get("aria-label") == "Submission summary"
+
+
+# ---- review round 1: per-row items are runs; no em dash in visible prose -------------------
+
+
+def test_history_page_calls_each_row_a_run() -> None:
+    doc = _page("spec.html")
+    count = doc.one(id="submission-count")
+    assert count.parent is not None
+
+    assert count.parent.one("span", "k").text() == "Runs"
+    assert doc.one("table").attrs.get("aria-label") == "Run history"
+
+
+def test_history_note_points_to_the_client_not_the_desktop_app() -> None:
+    note = _page("spec.html").one("div", "note")
+    kicker = note.one("span", "kicker")
+    body = " ".join(
+        (child if isinstance(child, str) else child.text())
+        for child in note.children
+        if child is not kicker
+    )
+
+    assert " ".join(body.split()) == (
+        "History is newest-first. The Copy button copies the newest run's url4 expression. "
+        "Run it with the screamingface client to check the latest result before trusting it."
+    )
+
+
+def test_about_how_it_works_recipe_sentence_has_no_dash() -> None:
+    block = _page("about.html").one("section", **{"data-section": "how-it-works"})
+    paragraphs = [p.text() for p in block.find("p")]
+
+    assert paragraphs[1] == (
+        "Every row on the board is a recipe, one url4 line that holds the whole run: the models "
+        "and their versions, the prompts, the seeds, the benchmark and its revision, the full "
+        "cost. Calls are pinned and runs feed a shared cache, so replaying a published row is "
+        "free and building on one costs only the calls that are new, reducing the cost of "
+        "exploring new compositions."
+    )
+
+
+def test_about_contribute_sentence_has_no_dash() -> None:
+    block = _page("about.html").one("section", **{"data-section": "contribute"})
+    paragraphs = [p.text() for p in block.find("p")]
+
+    assert paragraphs[0] == (
+        "Anyone can submit. Compose a method using screamingface, compile it to a url4 recipe, "
+        "and publish it. Code and recipes are open under Apache-2.0, and you keep authorship."
+    )
+
+
+def test_board_legend_frontier_item_uses_a_colon() -> None:
+    item = _page("benchmark.html").one(id="legend-pareto")
+
+    assert item.text() == (
+        "on the Pareto frontier: no submission has an equal-or-higher score at an "
+        "equal-or-lower cost, with one strict improvement"
+    )

@@ -91,3 +91,30 @@ The "remove portal" item is already done on main by #1308.
     a substring search over the file or a DOM shim. They were checked by review.
   - Known edge: y-tick labels at 2 decimals can repeat on a board whose top score is under 0.04
     (quarters of the range round together). No current board is that low.
+
+## Review round 1 (owner-approved 2026-10-14)
+
+- **Changes:** on spec.html, each row is a "run": the stat label is "Runs", the table aria-label is "Run
+  history", and spec.js says "latest run". The page eyebrow, title and crumb stay "submission". The
+  y-axis now uses round ticks: `buildScoreTicks` picks the smallest 1/2/2.5/5 x 10^k step that needs
+  at most 6 ticks, extends the score domain top to the next multiple, and labels each multiple with
+  exactly the step's decimals. Points plot against the extended domain. This replaces round 0's
+  2-decimal `formatScoreTick`, which is removed. The chart's fallback label is "Unnamed submission".
+  Em dashes are removed from the about How it works and Contribute sentences, the spec.html note
+  (which drops the retired desktop-app reference) and the board legend. The two
+  `.grant-banner__link` colour rules that duplicated the base `a` rules are removed.
+- **Tests:** `test_portal_launch_copy.py` gains 5 parsed-text cases (26 in total).
+  `pareto-chart-launch-copy.test.js` is now 12 cases: the nice-tick domains 0.6869, 0.03, 1.0,
+  all-negative, off-step negative floor, 0-100, a magnitude sweep and the single-value case, plus
+  the model's extended domain, "Unnamed submission" and the 2 `describePoint` cases. The 2-decimal
+  formatter cases went with the formatter. That file is new in this PR, so this is not a prior-test
+  change. No prior test changed in this round.
+- **Deviations:**
+  - The spec.html note keeps its leading "History is newest-first." and only the sentences the
+    review quoted are replaced.
+  - Tick labels keep one decimal count across the axis ("0.0", "0.2", ...), not a bare "0", so the
+    column of labels lines up.
+  - A single-value board keeps one centred tick labelled with the exact value, unchanged from
+    before; the pinned degenerate-domain test requires that.
+  - Visual check: chart harness renders for a 0.69 board, a tiny 0.026 board and a negative
+    -1.143..0.5 board. All labels clear the "Score" title.

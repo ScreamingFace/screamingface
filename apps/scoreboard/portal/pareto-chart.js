@@ -33,7 +33,7 @@
     var cost = L.costNumber(entry);
     return {
       entry: entry,
-      specId: String(entry.spec_id || "Unnamed spec"),
+      specId: String(entry.spec_id || "Unnamed submission"),
       score: entry.score,
       cost: cost !== null && cost >= 0 ? cost : null,
       isFrontier: false,
@@ -41,6 +41,51 @@
       x: 0,
       y: 0,
     };
+  }
+
+  var NICE_MANTISSAS = [1, 2, 2.5, 5];
+  var MAX_SCORE_TICKS = 6;
+
+  // WHY round ticks: quarter positions over the raw data range produced labels like
+  // "0.515175" (which ran into the rotated "Score" title) and, once rounded, labels that could
+  // repeat on a low-scoring board. The axis instead climbs in a 1/2/2.5/5 x 10^k step, picks the
+  // smallest such step that needs at most six ticks, and extends the top to the next multiple of
+  // it. Each label carries exactly the decimals the step needs, so every label is exact and none
+  // repeat. The floor stays where the data puts it (0, or the lowest negative score); only
+  // multiples of the step inside the axis are labelled.
+  function niceStep(low, high) {
+    var exponent = Math.floor(Math.log10(high - low)) - 2;
+    for (;; exponent += 1) {
+      for (var i = 0; i < NICE_MANTISSAS.length; i += 1) {
+        var mantissa = NICE_MANTISSAS[i];
+        var decimals = Math.max(0, -exponent + (mantissa === 2.5 ? 1 : 0));
+        var step = Number((mantissa * Math.pow(10, exponent)).toFixed(decimals));
+        var first = Math.ceil(Number((low / step).toFixed(9)));
+        var last = Math.ceil(Number((high / step).toFixed(9)));
+        if (last - first + 1 <= MAX_SCORE_TICKS) {
+          return { step: step, decimals: decimals, first: first, last: last };
+        }
+      }
+    }
+  }
+
+  function buildScoreTicks(low, high) {
+    if (low === high) {
+      return { domain: [low, high], ticks: [{ position: 0.5, value: low, label: String(low) }] };
+    }
+    var nice = niceStep(low, high);
+    var top = Number((nice.last * nice.step).toFixed(nice.decimals));
+    var ticks = [];
+    for (var k = nice.first; k <= nice.last; k += 1) {
+      var value = Number((k * nice.step).toFixed(nice.decimals));
+      ticks.push({
+        position: normalize(value, low, top, false),
+        value: value,
+        // `+ 0` folds a computed -0 into 0 so the zero tick never reads "-0.0".
+        label: (value + 0).toFixed(nice.decimals),
+      });
+    }
+    return { domain: [low, top], ticks: ticks };
   }
 
   // One model feeds every visual element in the chart. Membership is never recomputed here:
@@ -74,6 +119,8 @@
     // engages when costMin > 0, so the two never collide.
     var scoreFloor = Math.min(0, scoreMin);
     var costFloor = logarithmic ? costMin : 0;
+    var scoreAxis = buildScoreTicks(scoreFloor, scoreMax);
+    var scoreTop = scoreAxis.domain[1];
 
     var priced = pricedSources.map(function (point) {
       return {
@@ -84,13 +131,13 @@
         isFrontier: L.isParetoMarked(point.entry),
         isLeader: point.isLeader,
         x: normalize(point.cost, costFloor, costMax, logarithmic),
-        y: normalize(point.score, scoreFloor, scoreMax, false),
+        y: normalize(point.score, scoreFloor, scoreTop, false),
       };
     });
     var unpriced = sources
       .filter(function (point) { return point.cost === null; })
       .map(function (point) {
-        point.y = normalize(point.score, scoreFloor, scoreMax, false);
+        point.y = normalize(point.score, scoreFloor, scoreTop, false);
         return point;
       });
     var frontier = priced
@@ -104,7 +151,8 @@
       frontier: frontier,
       costScale: logarithmic ? "log" : "linear",
       costDomain: [costFloor, costMax],
-      scoreDomain: [scoreFloor, scoreMax],
+      scoreDomain: scoreAxis.domain,
+      scoreTicks: scoreAxis.ticks,
       leaderScore: leaderScore,
     };
   }
@@ -174,14 +222,6 @@
     });
   }
 
-  // WHY a chart-local formatter for the y-axis ticks: the shared score formatter keeps six
-  // significant digits ("0.515175"), which is right for a table cell and a tooltip, but a tick
-  // that long ran into the rotated "Score" title. Ticks sit at quarters of the score range,
-  // so two decimals name them; point tooltips keep the full precision.
-  function formatScoreTick(value) {
-    return value.toFixed(2);
-  }
-
   function describePoint(point, formatCost, formatScore) {
     var cost = point.cost === null
       ? "cost not reported"
@@ -215,9 +255,8 @@
   }
 
   function renderAxes(svg, model, box, formatCost) {
-    tickPositions(model.scoreDomain).forEach(function (t) {
-      var y = box.top + (1 - t) * box.height;
-      var value = atScale(t, model.scoreDomain, "linear");
+    model.scoreTicks.forEach(function (tick) {
+      var y = box.top + (1 - tick.position) * box.height;
       svg.appendChild(svgElement("line", "pareto-chart__grid", {
         x1: box.left,
         y1: y,
@@ -228,7 +267,7 @@
         x: box.left - 12,
         y: y + 4,
         "text-anchor": "end",
-      }, formatScoreTick(value)));
+      }, tick.label));
     });
     buildCostTicks(model.costDomain, model.costScale, formatCost).forEach(function (tick) {
       var x = box.left + tick.position * box.width;
@@ -359,7 +398,7 @@
     buildChartModel: buildChartModel,
     buildCostTicks: buildCostTicks,
     describePoint: describePoint,
-    formatScoreTick: formatScoreTick,
+    buildScoreTicks: buildScoreTicks,
     render: render,
   };
 });

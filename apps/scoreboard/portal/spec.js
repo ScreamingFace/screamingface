@@ -84,7 +84,7 @@
       function () {
         // Hide the button and show a quiet note rather than a hard error.
         P.clear(regionNode);
-        regionNode.appendChild(P.el("p", "quiet", "Run link unavailable for the latest submission."));
+        regionNode.appendChild(P.el("p", "quiet", "Run link unavailable for the latest run."));
         regionNode.hidden = false;
       }
     );
@@ -135,7 +135,7 @@
 
         var best = Math.max.apply(null, submissions.map(function (s) { return s.score; }));
         document.getElementById("best-score").textContent = P.formatScore(best);
-        // Bare number: the .stats cell label ("Submissions") carries the word.
+        // Bare number: the .stats cell label ("Runs") carries the word.
         document.getElementById("submission-count").textContent = submissions.length.toLocaleString();
 
         var body = document.getElementById("history-body");
