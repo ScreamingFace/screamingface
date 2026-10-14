@@ -157,3 +157,16 @@ def recipe_s4() -> sf.Recipe:
             weights=sf.signal("field:confidence"),
         ),
     )
+
+
+@recipe("S4, median form", "recipe_s4_median.url4", "s4_median_by_confidence")
+def recipe_s4_median() -> sf.Recipe:
+    return sf.Fusion(
+        _json_members(),
+        synthesizer=sf.Reduce(
+            "median",
+            extract=sf.Extract("field", path="answer"),
+            weights=sf.signal("field:confidence"),
+            select="value",
+        ),
+    )
