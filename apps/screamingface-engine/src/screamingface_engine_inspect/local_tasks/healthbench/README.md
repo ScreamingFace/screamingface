@@ -51,6 +51,12 @@ byte) once per rubric line, as one user message with no system message:
   `healthbench_clipped_mean`, the reference's `np.clip(mean, 0, 1)` over the run (clipping the
   mean is not the mean of clipped Case scores).
 
+The reference is simple-evals' [`healthbench_eval.py` at
+`652c89d`](https://github.com/openai/simple-evals/blob/652c89d0ca9df547706735883097e9537d40dc47/healthbench_eval.py),
+the commit both rows cite. The `blob/main` links in the `prompts.py` and `scoring.py` headers
+name the same file; they stay unpinned because editing any `.py` file here moves both
+revisions and the golden (see Identity).
+
 The judge is `openrouter/openai/gpt-5.4` (the official judge is an OpenAI-internal snapshot we
 cannot reach) with no web search, a 4096 max-token cap and no temperature: the row's
 `JudgeSpec`, the hand-built pins. Every judge request equals the hand-built one byte for byte

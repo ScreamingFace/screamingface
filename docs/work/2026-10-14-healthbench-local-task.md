@@ -160,6 +160,27 @@ says the hand-built lane is for MedXpertQA.
   is the lane's Benchmark and that IFEval still lives there until its own move (row 15) lands;
   OME-1527 acceptance 3 is fully true once that PR merges. (4) The paid case-provenance helper's
   shared-bundle map lost its last entries and went, with its test (no Benchmark shares a bundle).
+- **Review fixes (#1403):** (1) The whole-run metric skipped the abstain rule (OME-1289): it read
+  the raw inspect Scores the adapter kept, so on professional an abstained Case the judge rated
+  1.0 made the headline (0.25 + 1.0) / 2 = 0.625 while its Case Result showed 0.0 (headline
+  should be 0.125), and an abstained Case whose judge failed (kept at 0.0, but no Score filed)
+  stopped the run with `AggregateError` after every model call was paid. Both reproduced red on
+  the pushed head. The tally now hands the metric 0.0 for every abstained Case (the kept Score
+  with only its value replaced, or a bare 0.0 Score when none was filed), and its consistency
+  check, which compared only Cases with Attempts, now refuses by the metric's name any graded
+  Case whose Score is not its Case Result score (compared at the score's 4 places). The fix is
+  in the shared tally, so it is lane-wide: contracteval's F1, ARC-AGI-2's per-task accuracy and
+  (on #1407) IFEval's metrics read the same 0.0; contracteval's, ARC-AGI-2's and draco's tests
+  still pass. Pinned by the abstain test now run on both keys, a new variant where the
+  abstained Case's judge fails (0.125 on both keys, no crash), and two tests in
+  `test_whole_run_metric.py` (`zero_sample_score` keeps the metadata; a split Case is refused).
+  (2) `judge_redraw.py`'s `JudgedItem` docstring named `judge_invalid_replies`, which this PR
+  deleted; it now names the `judge_redraws` evidence key. (3) `prompts.py` links simple-evals at
+  `blob/main` while both rows cite `652c89d0…`. The header was left as is: `task_source` hashes
+  every `.py` file in the package, so editing it moves both revisions and the golden again
+  (draco's deviation 9 chose the README for the same reason). The pinned link went into the
+  Task README instead, which is not hashed. No revision moved (`test_published_revisions`
+  passes), so the golden replay was not re-run.
 - **Owner-verify:** (1) the next Engine image build prepares the `healthbench-worst30` and
   `healthbench-professional` bundles and their Case Digests match; (2) one paid healthbench-worst30
   run after merge on an Engine with the inspect extra, its score read beside the golden's −0.091
