@@ -196,6 +196,19 @@ Decisions: Q3, Q4, P1, P2, P3, P4, P5, P13.
   "on both sides". `S/combine_evidence.py` gets `_never_excluded`.
 - D-3: PRD EX-1 says member 3 has `value: "B"`. With the `text@1` normalizer the value is `"b"`
   and the raw is `"B"`. The tests use the exact engine values.
+- D-4 (review round 1): PRD row EX#3 asks for a property over the goldens and over
+  `evidence_cases.json`. The unit spec narrows it to the SCENARIOS (`evidence_cases.json`). The
+  operators do not change, so the golden operator suite still guards the goldens.
+- D-5 (review round 1): PRD row EX-D8 asks that the quorum and the coverage counts do not change.
+  The evidence does not expose a quorum or a coverage field. The test
+  `test_dropped_and_quorum_ignore_excluded_members` checks `dropped` only. No assertion was added.
+- D-6 (review round 1): the test name `test_sdk_run_shows_excluded_member_in_case_answers` comes
+  from the PRD and is kept. The test checks the engine run record. The SDK `case.answers()` view is
+  checked by `ST/test_member_exclusion.py::test_case_answers_show_the_excluded_status_and_value`.
+- D-7 (review round 1): the RED commit subject is `test(screamingface-engine): RED for E4b part 2
+  unit 2 member-exclusion`. Spec section 7 names a different subject. The history is not rewritten.
+- Owner approval, X-5: the owner must approve X-5 (`test_frozen_record_fields.py`, line 184,
+  28 to 30) together with X-1, X-2, X-3 and X-4. Unit 3 changes this count again.
 
 ### Outcome (fill at the end — required before COMMIT)
 
@@ -223,7 +236,28 @@ Decisions: Q3, Q4, P1, P2, P3, P4, P5, P13.
   Python 3.9 (`def accumulate[T: ...]` is a syntax error). Under the project Python 3.13 it prints
   `LAYERING OK`. This is an environment issue, not a code defect. The engine gate uses the venv and
   passes.
-- **RED log:** see the section above (commit A).
+- **RED log:** Run at commit A (after the stubs and the RED tests, before the commit).
+  - Engine, focused list of unit spec section 5.2 (`pytest -q -rfE`): 22 failed, 553 passed.
+    - PASS (CHAR or GUARD, as the table says): EX#1 `test_weighted_vote_drops_a_member_with_no_usable_weight`,
+      EX#2 `test_filter_gives_a_missing_signal_mark_zero`, EX#11 `test_authored_weights_never_exclude`,
+      EX#12(a) `test_signal_weight_on_an_unweighted_op_never_excludes` (3 cases).
+    - FAIL on an assertion (the behavior is not there yet, the status is still `answered`):
+      EX#3 (`changed` is an empty set), EX#4, EX#5 (`_rows` lists `answered`), EX#6, EX#7, EX#8, EX#9,
+      EX#10 (3 cases), EX#13, EX#15, EX#16 (2 cases), EX#17, EX#18(a) (`DID NOT RAISE ValidationError`),
+      EX#12(b) (the set of weighted ops is empty), EX#18 world (`members` status), and the byte-for-byte
+      fixture check and count check on the two new scenarios (`KeyError`), and the X-4 line
+      (`test_voter_with_missing_or_invalid_weight_signal_does_not_vote`, `assert False`).
+    - Row 9(c) (the pattern form) is the third assert of the row 9 test. It is not reached at commit A,
+      because (a) fails first. A probe of (c) alone, at commit A, gave pass (`_rows` all answered).
+  - SDK, list of unit spec section 5.2 (`pytest -q -rfE`): 7 failed, 118 passed.
+    - PASS: ES#10 `test_sdk_decodes_excluded_rank_and_cut` (CHAR), ES#12 second function
+      `test_case_answer_of_x1_wire_is_excluded`.
+    - FAIL: ES#12 first function (`set()` is not a superset), EX#14 SDK (`DID NOT RAISE ExecutionError`),
+      ES#5 (`set()` is not a superset), round trip of the two new names (`KeyError`), the name set
+      of the engine fixture (`_EXPECTED_NAMES` has the two new names, the fixture does not yet), and `test_fixture_answers_and_traces_use_the_frozen_fields`
+      (`assert 28 == 30`, X-5).
+  - No collection error on either side. `ruff check`, `ruff format --check` and `pyright` pass on the
+    new and the touched test files. `check_layering.py` prints LAYERING OK.
 - **Approval blobs** (`git rev-parse 0f4b9e292:<path>` → `git hash-object <path>` after commit B):
   - X-1 `apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json`:
     `ecf2f814a51548ff56df7a12d2f51fd6beab2b44` → `46fa01af12e63b03b12dba799e9bde29aaf30a45`
@@ -238,3 +272,21 @@ Decisions: Q3, Q4, P1, P2, P3, P4, P5, P13.
 - **Flakes:** none seen in the runs above.
 - **Process notes:** `ruff format` reflowed one `members=[...]` line in `endpoint.py` before the
   engine gate. This is a format-only change.
+
+### Review round 1 (fix commit)
+
+- **Findings applied:** the RED log is restored in the Outcome (the pointer to commit A is
+  replaced). One comment is added to `ET/test_combine_member_exclusion_world.py`, above the test
+  that keeps the PRD name. The comment names the SDK half of the row (ST/test_member_exclusion.py).
+- **Findings not applied, no change:** the optional quorum or coverage assertion (EX-D8), because
+  no such field is exposed (D-5). The `_exclusion` duplicate read (P13 pins it). The shared
+  helper copies in the tests (the spec allows all three copies). The commit subject (D-7). The
+  narrower EX#3 scope (D-4, documented).
+- **Behavior change:** none. No test was added, weakened or removed in this round. No pinned
+  file changed in this round.
+- **Gates (this round):** `run_gates.py screamingface-engine --base 0f4b9e292`: the append-only
+  check lists X-1, X-4 and P-1 (the same files as before). `--skip-append-only`: ALL GATES GREEN.
+  `run_gates.py screamingface --base 0f4b9e292`: the append-only check lists P-2, P-3, P-4 and X-5.
+  `--skip-append-only`: ALL GATES GREEN. `run_gates.py repo --base 0f4b9e292`: ALL GATES GREEN,
+  the append-only check passes.
+- **Flakes:** none in this round.
