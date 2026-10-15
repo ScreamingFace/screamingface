@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1631
 stack: aigateway
-status: planned   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-15
-finished:
+finished: 2026-10-16
 ---
 
 # community-cache — page the community cache to signed-in callers, load it into local SQLite (epic OME-1311, PR 1/3)
@@ -70,7 +70,31 @@ SQLite loader the local runtime calls per page. The Engine proxy (PR 2) and
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned — `core/request_cache/community_pages.py`,
+  `core/request_cache/sqlite_loader.py`, `routes/cache_entries.py`, migration
+  `0015_cache_entry_write_order.py` with the `Meta.indexes` entry on `RequestCacheEntry`,
+  `main.py` (router), `DEPLOYMENT.md` section. Tests: `test_community_cache_pages.py`,
+  `test_cache_entries_route.py`, `test_community_cache_loader.py`,
+  `test_migration_0015_cache_entry_write_order.py`, and Postgres evidence in
+  `tests/integration/test_community_cache_pages_postgres.py`.
+- **Commits:** `docs: spec and plan for pulling the community cache into local engines`;
+  `feat(aigateway): page the community cache to signed-in callers and load pages into SQLite`.
+- **Gates:** format, lint, pyright green; full suite 5,840 passed / 118 skipped with 2 failures
+  that are now fixed (the 0011 index tests below); total coverage 93%, new route module 100%.
+  New and touched migration tests (0010/0011/0015) 20 passed. Postgres (`AIGW_TEST_PG=1`,
+  OrbStack): the 5 new/pinned tests pass; of the full Postgres suite 73 passed, 5 failed only
+  because `pg_dump` is not installed locally (snapshot-upload tests; CI has it) and 1 OAuth
+  test timed out under parallel load and passed on rerun.
 - **Deviations:**
+  - Prior tests changed (owner-approved, `.claude/test-change-approvals/OME-1631.json`): the
+    0010 SQLite + Postgres and two 0011 index-set tests migrated to *head* and compared the exact
+    index set 0010/0011 leave; 0015's new index broke that. Each now migrates to its own
+    migration; no assertion changed.
+  - `check_revisions` compares the revisions both sides report, and requires
+    `parameter_contract` on both. An adapter revision only one side has is not a mismatch: a
+    local process may load fewer provider plugins, and rows for a provider it lacks are never
+    looked up there.
+  - The migration was generated with `tortoise makemigrations` and the autodetector's known
+    `OAuthConnection.account` `AlterField` dropped, as in 0012/0014.
+  - `main.py` was already over 450 lines (506); this unit adds 2.
+  - Installed the mandatory `tortoise-dev` companion skill (user scope) at the user's request.
