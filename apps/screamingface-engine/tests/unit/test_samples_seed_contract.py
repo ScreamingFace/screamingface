@@ -6,7 +6,9 @@ STORY: as a researcher running a samples vote with a declared answer seed, I wan
 N requests that differ only in their own seed, and to fail loudly when a gateway rejects the seed.
 INVARIANT defended: a call's own ``seed`` always wins over the run's ambient answer seed, including
 ``0``; and the data file under ``data/combine_contract/`` is what the SDK compiles (the SDK drift
-guard keeps it byte-equal), so these tests run the real compiler output.
+guard keeps it byte-equal), so these tests run the real compiler output. SM-10 (a gateway that
+rejects the seed fails the Case) grades through IFEval, a local inspect Task since OME-1527, so it
+lives in ``inspect/test_combine_candidates_on_ifeval.py``.
 
 Most tests here pin behavior that already exists (CHAR); they pass on their first run by design.
 """
@@ -20,11 +22,8 @@ from typing import Any
 import httpx
 import pytest
 from test_answer_seed_threading import _bodies, _candidate_wrapped
-from test_corrective_loop_e2e import _assets
 
-from screamingface_engine.benchmarks import BenchmarkRegistry, link_candidate
 from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
@@ -147,51 +146,3 @@ async def test_samples_vote_replays_identically() -> None:
 
     assert sorted(first.contents) == sorted(second.contents)
     assert first_text == second_text
-
-
-@pytest.mark.asyncio
-async def test_gateway_seed_rejection_fails_the_case(tmp_path: Path) -> None:
-    """SM-10: a gateway that rejects ``seed`` fails the case, with the gateway's code kept.
-
-    The PRD said ``model_parameter_invalid``; the code produces ``upstream_error`` because the
-    gateway's code is not a declared failure code, so the aggregation folds it and keeps the
-    original spelling in ``metadata.source_code`` (aggregation.public_error). Pinned as it is.
-    """
-    _assets(tmp_path / "ifeval")
-
-    def reject(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            400,
-            json={"detail": {"code": "unsupported_parameters", "message": "seed is not supported"}},
-        )
-
-    client = httpx.AsyncClient(
-        transport=httpx.MockTransport(reject), base_url="http://aigateway.test"
-    )
-    world = await build_aigateway_world(
-        AigatewayConfig(default_model=_MEMBER, models=(ModelSpec(id=_MEMBER),)), client=client
-    )
-    try:
-        install_candidate_invocation(world.node)
-        install_combine_runtime(world.node, BUILTIN_OPERATORS)
-        BenchmarkRegistry((IFEVAL,)).install(world.node, assets_root=tmp_path)
-        protocol = IFEVAL.resource(1)["url4"]
-        assert isinstance(protocol, str)
-        result = await world.node.evaluate(link_candidate(_CANDIDATE, protocol))
-    finally:
-        await world.aclose()
-        await client.aclose()
-
-    payload = json.loads(result.text)
-    case = payload["cases"][0]
-    assert case["status"] == "failed"
-    assert payload["score"] is None
-    failures = case["failures"]
-    assert len(failures) == 1
-    failure = failures[0]
-    assert (failure["stage"], failure["code"], failure["retryable"]) == (
-        "candidate",
-        "upstream_error",
-        False,
-    )
-    assert failure["metadata"]["source_code"] == "unsupported_parameters"

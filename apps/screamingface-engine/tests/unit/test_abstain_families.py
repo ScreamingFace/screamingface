@@ -4,7 +4,8 @@ FEATURE: when the Candidate abstained, the grader still runs on the empty answer
 metrics and checks, but the Case's score is replaced by 0.0 and the Case says ``abstained``
 (OME-1289, erd section 9). The benchmark score counts the Case like any other scored Case.
 STORY: as a researcher, a vote that found no answer costs the candidate exactly one wrong Case,
-in every benchmark family, and I can tell it from a wrong answer in the report.
+in every benchmark family, and I can tell it from a wrong answer in the report. IFEval's end to
+end case (a local inspect Task since OME-1527) is pinned in ``inspect/test_local_task_ifeval.py``.
 INVARIANT defended: "ignored" means the grader ran and still returned grade material. A grading
 step that left none (the ladder rung, a hook failure with no metrics and no checks) keeps the
 Case failed, because publishing a scored Case with ``metrics={}`` would break the scorers that
@@ -13,10 +14,8 @@ read them (the mean and the DRACO block).
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import replace
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -30,20 +29,15 @@ from test_shared_grading_aggregation import (
     _selected,
 )
 
-from screamingface_engine.benchmarks.case_request import candidate_input
-from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE, encode_candidate_invocation
+from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.graded_answer import (
     graded_answer_payload,
-    install_graded_answer_endpoint,
 )
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL, install_ifeval
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     CaseGradeOutcome,
     GradeRequest,
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload
-from url4 import Text, expr, render, src
-from url4.peer.server import Request, Url4Node
 
 _ABST = encode_candidate_invocation("", "stop", None, abstained=True)
 _LOGGER = "screamingface_engine.benchmarks.shared_grading.benchmark_aggregation"
@@ -194,62 +188,6 @@ def test_abstained_case_without_any_grade_stays_failed_and_is_logged(
     assert "abstained" not in failed
     assert failed["failures"][0]["code"] == "case_error"
     assert [r.args for r in _warnings(caplog)] == [(2, "case_error")]
-
-
-# --- IFEval end to end ------------------------------------------------------------------------
-
-
-def _two_case_ifeval_assets(root: Path) -> None:
-    (root / "instructions").mkdir(parents=True)
-    prompts = {1: "Describe tea without commas.", 2: "Describe coffee without commas."}
-    (root / "cases.json").write_text(
-        json.dumps([{"id": case_id, "input": prompt} for case_id, prompt in prompts.items()]),
-        encoding="utf-8",
-    )
-    for case_id, prompt in prompts.items():
-        (root / "instructions" / f"{case_id}.json").write_text(
-            json.dumps(
-                {
-                    "key": case_id,
-                    "prompt": prompt,
-                    "instruction_id_list": ["punctuation:no_comma"],
-                    "kwargs": [{}],
-                }
-            ),
-            encoding="utf-8",
-        )
-
-
-@pytest.mark.asyncio
-async def test_abstained_case_score_replaced_native(tmp_path: Path) -> None:
-    _two_case_ifeval_assets(tmp_path / "ifeval")
-    node = Url4Node("test")
-    install_ifeval(node, tmp_path)
-    install_graded_answer_endpoint(node)
-
-    @node.endpoint(CANDIDATE_ROUTE)
-    def candidate(request: Request) -> str:
-        _, case_id = candidate_input(request)
-        if str(case_id) == "2":
-            return _ABST
-        return encode_candidate_invocation("tea is warm", "stop", None)
-
-    expression = expr(
-        src(Text("unused-candidate-recipe"), name="candidate", weight=0.0),
-        src(IFEVAL.protocol(2), name="exam", weight=0.0),
-        intent=Text("$exam"),
-    )
-    result = json.loads((await node.evaluate(render(expression))).text)
-
-    assert result["score"] == 0.5
-    answered, abstained = result["cases"]
-    assert "abstained" not in answered
-    assert (abstained["status"], abstained["grade"]["score"]) == ("scored", 0.0)
-    assert abstained.get("abstained") is True
-    assert abstained["grade"]["method"] == "deterministic"
-    assert [check["outcome"] for check in abstained["grade"]["checks"]] == ["UNMET"]
-    # F9: only `score` is replaced; the grader's own secondary verdicts are kept.
-    assert abstained["grade"]["metrics"]["follow_all_strict"] is False
 
 
 def test_an_abstained_case_stays_at_zero_on_a_refusal_rate_benchmark(

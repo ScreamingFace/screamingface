@@ -3,7 +3,6 @@
 import json
 
 import pytest
-from test_ifeval_case_evaluation_route import _assets as ifeval_assets
 from test_medxpert_protocol_turns import _assets as medxpert_assets
 
 from screamingface_engine.activity.observer import ActivityObserver
@@ -18,10 +17,7 @@ from url4.peer.server import Url4Node
 
 def assets(registration, root, monkeypatch):
     name = registration.asset_bundle.id
-    if name == "ifeval":
-        (root / name).mkdir()
-        ifeval_assets(root / name)
-    elif name == "medxpert":
+    if name == "medxpert":
         medxpert_assets(root, 1)
 
 

@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+# WHY file-level: IFEval is a local inspect Task (OME-1527), absent in the extra-less install.
 """End-to-end: a CLIENT-compiled corrective loop executes on this engine.
 
 FEATURE: benchmark-independent corrective loop (OME-796) — both halves meeting.
@@ -6,7 +8,8 @@ by `screamingface`'s compiler (sf.CorrectiveLoop / sf.SelfCorrective against
 IFEval's advertised draft-feedback offer) and must run VERBATIM on a world holding the
 canonical IFEval benchmark plus the generic corrective runtime — byte-identical
 goldens are our side of the contract, and this file is re-recorded when either side's
-protocol changes.
+protocol changes. Since OME-1527 IFEval is a local inspect Task, so the one byte that moves
+is the check-surface route, which names the Benchmark's revision (``compiled_candidate``).
 
 The scenarios pin the LANL cost story with real request counts:
 - a round-1 pass costs exactly N member calls (no judge, no retries);
@@ -22,16 +25,22 @@ from pathlib import Path
 import httpx
 import pytest
 
-from screamingface_engine.benchmarks import BenchmarkRegistry, link_candidate
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
-from screamingface_engine.world.candidate_adapter import install_candidate_invocation
-from screamingface_engine.world.config import ModelSpec
-from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.world.corrective import install_corrective_runtime
+pytest.importorskip("inspect_ai")
+
+from local_ifeval_helpers import IFEVAL, compiled_candidate, write_ifeval_bundle  # noqa: E402
+
+from screamingface_engine.benchmarks import BenchmarkRegistry, link_candidate  # noqa: E402
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation  # noqa: E402
+from screamingface_engine.world.config import ModelSpec  # noqa: E402
+from screamingface_engine.world.connector import (  # noqa: E402
+    AigatewayConfig,
+    build_aigateway_world,
+)
+from screamingface_engine.world.corrective import install_corrective_runtime  # noqa: E402
 
 pytestmark = pytest.mark.asyncio
 
-_DATA = Path(__file__).parent / "data"
+_DATA = Path(__file__).parent.parent / "data"
 _CASE_PROMPT = "Describe tea without commas."
 # Graded against the two-constraint spec below (no_comma + english_lowercase):
 _FAIL_ANSWER = "Tea, is nice."  # comma + capital -> satisfaction 0.0
@@ -40,23 +49,9 @@ _PASS_ANSWER = "tea is warm and calming"  # passes both
 
 
 def _assets(root: Path) -> None:
-    (root / "instructions").mkdir(parents=True)
-    (root / "cases.json").write_text(
-        json.dumps([{"id": 1, "input": _CASE_PROMPT}]), encoding="utf-8"
-    )
-    (root / "instructions" / "1.json").write_text(
-        json.dumps(
-            {
-                "key": 1,
-                "prompt": _CASE_PROMPT,
-                "instruction_id_list": [
-                    "punctuation:no_comma",
-                    "change_case:english_lowercase",
-                ],
-                "kwargs": [{}, {}],
-            }
-        ),
-        encoding="utf-8",
+    write_ifeval_bundle(
+        root,
+        [(_CASE_PROMPT, ["punctuation:no_comma", "change_case:english_lowercase"], [{}, {}])],
     )
 
 
@@ -155,9 +150,7 @@ async def _run(
         install_candidate_invocation(world.node)
         install_corrective_runtime(world.node)
         BenchmarkRegistry((IFEVAL,)).install(world.node, assets_root=tmp_path)
-        # rstrip: the repo's end-of-file hook appends a newline the rendered
-        # expression never carries.
-        candidate_url4 = (_DATA / candidate_file).read_text(encoding="utf-8").rstrip("\n")
+        candidate_url4 = compiled_candidate(_DATA / candidate_file)
         protocol = IFEVAL.resource(1)["url4"]
         assert isinstance(protocol, str)
         result = await world.node.evaluate(link_candidate(candidate_url4, protocol))

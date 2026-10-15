@@ -1,9 +1,7 @@
-"""IFEval Engine-owned Benchmarks — deterministic verification, no grading Judge.
+"""IFEval as one local Task package: the loader, the vendored checker, the scorer, the task.
 
-FEATURE: the first judge-free benchmark — 541 instruction-following prompts graded by
-vendored deterministic code (arXiv:2311.07911), zero judge calls.
-STORY: as a researcher, I measure whether an ensemble's reducer PRESERVES instructions
-the members satisfied — the failure mode LLM synthesizers are known for.
+The package import runs before any module in it, so the nltk guard below is in place before
+the vendored checker imports nltk.
 """
 
 import os

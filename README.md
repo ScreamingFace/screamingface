@@ -56,6 +56,10 @@ pip install "screamingface[notebook]"
 
 > To run your own engine locally, add the `[runtime]` extra:
 > `pip install "screamingface[runtime]"`
+>
+> `ifeval`, the Benchmark below, is a local inspect Task: the plain `screamingface up` Engine
+> does not list it. From a checkout, `just local-stack-notebooks` serves an Engine with the
+> `inspect` extra beside the stack; otherwise point `engine_url` at such an Engine.
 
 ```python
 import screamingface as sf

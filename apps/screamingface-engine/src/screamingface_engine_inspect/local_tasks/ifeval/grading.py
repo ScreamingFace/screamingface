@@ -8,9 +8,9 @@ EXACTLY — the loose variant list, the empty-variant skip, and the ``prompt`` r
 the benchmark. A different reading is a different benchmark.
 
 ONE deliberate, documented divergence: ``keywords:letter_frequency`` kwargs whose letter is
-a single non-a-z character ('#' case 1122, '!' case 1129 — the only two in the dataset) are
-graded against the literal dataset character instead of the official checker's silent
-``random.choice(ascii_letters)`` replacement. Rationale, evidence, and the owner decision
+a single non-a-z character ('#' official key 1122, '!' key 1129 — the only two in the
+dataset) are graded against the literal dataset character instead of the official checker's
+silent ``random.choice(ascii_letters)`` replacement. Rationale, evidence, and the owner decision
 live on ``_pinned_nonalpha_letter``.
 """
 
@@ -18,10 +18,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import Any
-
-# WHY imported: the offline-corpus reader moved to a shared module the plugin lane's local
-# Tasks read too (OME-1527, R8); this name stays for the runtime and the tests.
-from screamingface_engine.benchmarks.nltk_data import configure_nltk
 
 
 def check_case(
@@ -108,8 +104,8 @@ def _pinned_nonalpha_letter(instruction_id: str, kwargs: Mapping[str, Any]) -> s
     Mental model: the official ``LetterFrequencyChecker`` has a bouncer at the door —
     any single character outside a-z (checked as ``ord(letter.lower())`` outside 97..122)
     is turned away and replaced by ``random.choice(ascii_letters)``. The official DATASET,
-    however, pins exactly two such letters: case 1122 ``'#'`` ("include at least 4
-    hashtags") and case 1129 ``'!'``. So upstream grades those prompts against a letter
+    however, pins exactly two such letters: official key 1122 ``'#'`` ("include at least 4
+    hashtags") and key 1129 ``'!'``. So upstream grades those prompts against a letter
     the prompt never mentioned — and a fresh random one per instantiation, which is how
     one live run showed a label demanding 'q', feedback demanding 'm', and loose failing
     while strict passed on the same answer.
@@ -157,7 +153,7 @@ def _build_instruction(
     helper — a direct ``build_description`` call reintroduces the random-letter split.
     """
 
-    from screamingface_engine.benchmarks.ifeval.vendor import instructions_registry
+    from screamingface_engine_inspect.local_tasks.ifeval.vendor import instructions_registry
 
     instruction_cls = instructions_registry.INSTRUCTION_DICT[instruction_id]
     instruction = instruction_cls(instruction_id)
@@ -201,4 +197,4 @@ def _follows(
     return any(response.strip() and instruction.check_following(response) for response in responses)
 
 
-__all__ = ["check_case", "configure_nltk", "describe_failures", "describe_instructions"]
+__all__ = ["check_case", "describe_failures", "describe_instructions"]

@@ -815,12 +815,14 @@ def test_no_published_row_opts_in_so_no_revision_moves() -> None:
 
     The rows that opt in, each by name, each an owner decision: contracteval (OME-1527, Work
     order #7: its hand-built headline was always the run's F1), ARC-AGI-2 (OME-1476: its
-    headline averages per task, not per grid) and healthbench-professional (OME-1527, Work
-    order #20: its hand-built headline was always the official clip of the run's mean). Any
-    other row joining this list is a new owner decision and must be named here."""
+    headline averages per task, not per grid), healthbench-professional (OME-1527, Work order
+    #20: its hand-built headline was always the official clip of the run's mean) and ifeval
+    (OME-1527, Work order #15: its hand-built instruction-level accuracy was always pooled over
+    the run's instructions). Any other row joining this list is a new owner decision and must be
+    named here."""
 
     opted_in: list[str] = [spec.key for spec in BENCHMARKS if spec.whole_run_metric is not None]
-    assert opted_in == ["arc_agi_2", "contracteval", "healthbench-professional"]
+    assert opted_in == ["arc_agi_2", "contracteval", "healthbench-professional", "ifeval"]
     assert all(
         benchmarks._whole_run_metric_pins(spec) == ()
         for spec in BENCHMARKS

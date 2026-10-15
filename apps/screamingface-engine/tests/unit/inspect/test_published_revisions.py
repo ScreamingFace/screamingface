@@ -53,6 +53,10 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # so their leaderboard results stay visible.
     "healthbench-worst30": "39cfd96b068f7230",
     "healthbench-professional": "d8fb037307f35415",
+    # OME-1527: ifeval moved from its hand-built folder to a local Task, its Case ids
+    # renumbered 1..541 (owner decision 2), and publishes its old revision (published_revision),
+    # so its leaderboard results stay visible.
+    "ifeval": "1cba769ece27f7ef",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
     "math": "1963559fac28e4a1",

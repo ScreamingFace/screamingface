@@ -1,158 +1,134 @@
 {
   "issue": "OME-1527",
-  "branch": "OME-1527-pr20-healthbench-local-task",
-  "approver": "owner — OME-1527 Work order #20 approved on the ticket (healthbench-worst30 and healthbench-professional as local Tasks, their hand-built folder and tests deleted, each keeping its published revision through published_revision (owner decision 2026-10-15, the golden replay as the equivalence proof); decision 1: the thinner Report; decision 5: the old golden replays unchanged; the worst-30 renumbering to 1..157 accepted); to confirm in PR review",
+  "branch": "OME-1527-pr15-ifeval-local-task",
+  "approver": "owner \u2014 OME-1527 Work order #15 (ifeval \u2192 local inspect Task) approved on the ticket, with decision 2 (Case ids renumber to 1..541) and decision 5 (the old golden replays unchanged; only revision, expression hash and the renumbered Case-id keys regenerate); to confirm in PR review",
   "date": "2026-10-14",
-  "scope": "(1) tests/activity_recipe_helpers.py, test_benchmark_stage_parity.py, test_builtin_early_score_timing.py, test_early_grade_compatibility.py: the healthbench asset branch and the healthbench judge route go with the folder (no judged hand-built Benchmark is left). (2) tests/fixtures/early_grade_compatibility.json: the healthbench-worst30 and healthbench-professional boards leave the hand-built baseline. (3) test_benchmark_asset_isolation.py, test_finalized_missing_progress.py, test_native_case_index.py: the hand-built subject moves from HealthBench to MedXpertQA, same assertions. (4) test_benchmark_deployment.py: HealthBench's PrepareError leaves the family-error parametrize, MedXpertQA's takes its place. (5) test_benchmark_outcome_conformance.py: the cross-Benchmark parametrize swaps the healthbench aggregate for MedXpertQA's, same assertions. (6) test_benchmark_protocol.py: HealthBench's url4 pin goes with the folder (its expression is pinned by its published revision and its e2e golden now). (7) test_benchmark_provenance.py: the healthbench factory pass-through test goes with the factory. (8) test_grading_error_integrity.py: the healthbench fan-out test and the three full-protocol judge tests (429, transport retry, transport exhaustion) go with the last judged hand-built Benchmark; the three public_error aggregate cases are re-asserted on MedXpertQA's aggregate, its default code medxpert_grading_failed. (9) test_fresh_judge_retry.py: the five healthbench rubric-verdict cases, their fake gateway and the pre-fix revision literals go with the folder and rubric_verdict_call; the three scope_for_this_send tests are unchanged. (10) test_abstain_families.py: the healthbench end-to-end abstain case goes (re-pinned on the local Task in test_local_task_healthbench.py). test_abstain_records.py: the healthbench decode case goes with case_grade.py. (11) test_conversation_cases.py: the hand-built envelope() cross-check goes with prepare.py; the literals it checked stay. (12) test_shared_grading_aggregation.py, test_shared_grading_case_grader.py, test_concurrent_case_grading.py, test_benchmark_inverted_grade.py: the deleted shared mean_scorer is replaced by a stand-in mean_score (plain mean, scored_cases only); its own metric-vocabulary test and the five rubric_grade_case tests go with those modules. test_concurrent_case_grading_memory.py (landed on main after this branch was cut, merged in): the same stand-in mean_score replaces mean_scorer(_mean) as its run scorer; it pins memory release, and no assertion changed. (13) test_shared_grading_judge_evidence.py: the rubric_evidence_record_key and extract_json_array tests go with those helpers (their only users were healthbench's verdict route and the rubric draft-feedback check). (14) test_token_exhaustion_legibility.py: the rubric draft-feedback check seam (2 tests) goes with rubric_draft_feedback.py. (15) _bundle_provenance_checks.py, test_declared_models_match_aigateway.py, test_model_seeds.py: comments repointed off deleted files. (16) test_benchmark_declaration.py: the two healthbench rows move from the hand-built table to the plugin table, same declarations; healthbench leaves the shared-scored-path family loop. (17) test_published_revisions.py: two added literals, the hand-built revisions both rows publish through published_revision (39cfd96b068f7230, d8fb037307f35415),. test_inspect_imported_benchmarks.py: two _EXPECTED_FAMILIES rows (judged). test_whole_run_metric.py: healthbench-professional joins the opted-in rows (its metric is the official clip); review fixes on #1403 add three tests (an abstained Case reaches the metric at 0.0 with its metadata kept and the candidate_abstained mark; a dict-valued Named Score Case is read by its headline column; a Case whose Score is not its Case Result score is refused by the metric's name), two stand-ins (clause_columns, strict_rate) and their three imports, no existing test body changed. (18) packages/screamingface/tests/e2e/test_boards.py, e2e/fixtures/slice_snapshot.py: both HealthBench boards read their own local-Task bundles. (19) packages/screamingface/tests/e2e/fixtures/goldens/healthbench-worst30.golden.json: revision kept at 39cfd96b068f7230 (published_revision), expression_sha regenerated from the free replay (the routes it renders carry the revision), and the Case keys renumbered from positions in the 525-row file to 1..157 by the frozen selection order (owner-accepted renumbering); every status, failure code, count and the score -0.091 unchanged (decision 5). (20) packages/screamingface/tests/paid/_case_provenance.py, test_case_provenance.py: no Benchmark shares a bundle any more, so the shared-bundle map and its test go. (21) packages/screamingface/tests/test_runtime_cli.py: the manifest-status test moves its subject to medxpert and healthbench leaves the fingerprint parametrize. Deleted or renamed, which the manifest cannot approve: test_healthbench_aggregate.py, test_healthbench_check_surface.py, test_healthbench_definition.py, test_healthbench_dual_benchmark_runtime.py, test_healthbench_prepare.py, test_healthbench_runtime.py, and test_healthbench_grading.py (moved to tests/unit/inspect/test_local_task_healthbench_scoring.py with its prompt and scoring tests) (owner decision, OME-1527 Work order #20). Test bodies not listed here are unchanged.",
-  "reason": "OME-1527 moves healthbench-worst30 and healthbench-professional from their hand-built folder to one local inspect Task package under the same ids, leaving MedXpertQA and IFEval as the only hand-built Benchmarks. Tests that drove the deleted routes go or move to MedXpertQA; tests of shared modules the move orphaned (the rubric grade hook, the shared mean scorer, the rubric draft-feedback check, the url4 rubric-verdict wiring) go with them; registry tables move the rows to the plugin side; the revision literals record the one deliberate move; the worst-30 golden keeps every recorded outcome, renumbered.",
+  "scope": "IFEval leaves the hand-built lane. (1) Tests that used the hand-built IFEval as their hand-built subject move to MedXpertQA (early grading, outcome conformance, protocol, deployment, discovery, abstain hoist) or drop the IFEval branch of a loop over the built-ins (stage parity, early score timing, the early-grade compatibility fixture loses its ifeval board). (2) Tests that needed IFEval's Draft Feedback or its grading lose those parts here and gain them in the inspect lane against the local Task (abstain_corrective part (b), abstain_families' IFEval section, combine_reducer_candidates' three IFEval tests, samples_seed_contract's SM-10). (3) Conformance tables gain the ifeval row: family reply_only with the owner's one Draft Feedback offer, stand-in metadata, an empty nltk corpus folder in stand-in bundles, the reply-only set, the whole-run metric opt-in list, the declaration table, the published revision literal. (4) Review fixes from #1399: test_no_imported_row_asks_for_draft_feedback renamed test_only_owner_allowed_rows_ask_for_draft_feedback, the catalogue-level offer test compares against the installed part of the allow-list, and the assembly test checks membership instead of the exact list. (5) SDK: the CLI fingerprint test no longer lists ifeval; the e2e golden's revision, expression hash and Case-id keys regenerate (official key -> position 1..541 in the pinned split), every recorded outcome unchanged. (6) Review fixes on #1407: test_nltk_data_at_image_build's docstrings name the new offline-tokenizer test in test_local_task_ifeval.py as the proof that ifeval's checker tokenizes with the bundled corpus, replacing the placeholder '#15 does' (docstrings only, no assertion changes). (7) Owner decision OME-1610 (a published revision must not move as a side effect of a code move): ifeval publishes its hand-built revision 1cba769ece27f7ef via a hand-set published_revision, so test_published_revisions pins 1cba769ece27f7ef again and the e2e golden's revision returns to 1cba769ece27f7ef; its expression_sha re-renders to 6411a99f\u2026 (the routes carry the revision) from the free replay, every status, failure and the 0.9184 score unchanged. Merge of main after #1403 (healthbench) landed, 2026-10-15: every list both PRs edited takes both moves (healthbench rows first, then ifeval); where each side kept the other's Benchmark as the hand-built subject, MedXpertQA is now the only one (deployment PrepareError family, outcome conformance, stage parity, the CLI fingerprint parametrize); test_benchmark_protocol's byte-for-byte expression table, emptied by both moves, pins MedXpertQA (1551a09b...) instead of going empty and silently skipping; test_benchmark_declaration's shared-scored-path loop goes (no hand-built Benchmark uses that path any more; the finalizer identity assertion stays); outcome conformance keeps this branch's medxpert fixture and drops main's duplicate; test_published_revision expects the three hand-set rows; test_abstain_families and test_abstain_records lose both end-to-end cases and their now-unused imports.",
+  "reason": "OME-1527 row 15 moves ifeval to a local inspect Task and deletes the hand-built folder; every edited test either loses a subject that no longer exists, follows it to the inspect lane, or names the new row. Deleted and renamed test files cannot be approved here; the ledger lists them.",
   "files": {
-    "apps/screamingface-engine/tests/activity_recipe_helpers.py": {
-      "base_blob": "7e2ef235c9b4fb743d54934a54cc4e976fd4bc12",
-      "approved_blob": "67715f39fb5b5d6489f36e64909a86b65d17de31"
-    },
     "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
-      "base_blob": "86e7a89a5f6a36e88f06c245d3ea94dce399fd10",
-      "approved_blob": "d559364152e73866cd3aadf7c1938a5c7c5389dc"
+      "base_blob": "d559364152e73866cd3aadf7c1938a5c7c5389dc",
+      "approved_blob": "d9f3a27b7643d659192d656c19be59fcce83e07f"
     },
     "apps/screamingface-engine/tests/unit/_bundle_provenance_checks.py": {
-      "base_blob": "8410770df8305b2a288c7d074f56b7cf4da94a81",
-      "approved_blob": "691a2ac69f9b03db7e5aeb4a0589a1107af3e439"
+      "base_blob": "691a2ac69f9b03db7e5aeb4a0589a1107af3e439",
+      "approved_blob": "199fd7a7e5dc74ce16047b9e473d7e52a3731e5e"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
+      "base_blob": "1aca6eae516f0a2c52ef8f2e44bdfd1a2a01fdbb",
+      "approved_blob": "f2a70e3540a47409af485998de74c86481e25c6f"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
-      "base_blob": "b519ccef4477f04c52683e2ff851a7de075fcc8b",
-      "approved_blob": "6ffdb646d519ffc5fd3b4d37d06c83ffec54a286"
+      "base_blob": "6ffdb646d519ffc5fd3b4d37d06c83ffec54a286",
+      "approved_blob": "581f1b33f27dc7e4b7ebc1d90e8b21faf739a537"
     },
-    "apps/screamingface-engine/tests/unit/inspect/test_conversation_cases.py": {
-      "base_blob": "43273c4dbc0c4dd0501ecc983130765b955f89e8",
-      "approved_blob": "3f09dbb478987025851edbafd090172f462e4208"
+    "apps/screamingface-engine/tests/unit/inspect/test_imported_catalogue_activity.py": {
+      "base_blob": "cade69d956dfeaafed77c8dd1071841ff21d5742",
+      "approved_blob": "6ed4491dacadacdc783781176b0c0ff75022d652"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
-      "base_blob": "0273fadd845d432a2203e3e43a55f5a2ef308618",
-      "approved_blob": "1f9a6988f8f75e07f4845c0f80942cbc51ded694"
+      "base_blob": "1f9a6988f8f75e07f4845c0f80942cbc51ded694",
+      "approved_blob": "b9a36b444f16254392904ce58d0e09e5f952bb88"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_task_replay_benchmarks.py": {
+      "base_blob": "f29143695922aa701834aa3c46670a4bac1317a2",
+      "approved_blob": "2e10b787e64549816e2ae9210292a00bbb055f63"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_judged_benchmark_assembly.py": {
+      "base_blob": "088e7fc68606ae535c99c678ae08dde2f550b8f1",
+      "approved_blob": "f9cdaa02f83da2eedae45bfa35d1907e3fdcc60c"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_nltk_data_at_image_build.py": {
+      "base_blob": "28c861cd05754da65e248bd9e4e0d1208f947112",
+      "approved_blob": "a116f430caab67db1d7417296e5b3c6450eca825"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revision.py": {
+      "base_blob": "7d9ffdd178e2095ae4a06dfab8cd9a5fb5e5ff1f",
+      "approved_blob": "9a1ee0fae1bbeac62fe82694af67cb0e52a3cde8"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "9e861260c18123db0b2cc1422a04c2448990ae96",
-      "approved_blob": "24fb98e4983c21094e469cef01fe4ce46ac5a15d"
+      "base_blob": "24fb98e4983c21094e469cef01fe4ce46ac5a15d",
+      "approved_blob": "8abe618b7c9e0dc14ed00d3086cd28791034c31b"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
-      "base_blob": "701d8ef126d0e6dc8c3c85102410dd28b987563b",
-      "approved_blob": "d15a23f4a36e8cd4483a88b996682166bb39f6ae"
+      "base_blob": "d15a23f4a36e8cd4483a88b996682166bb39f6ae",
+      "approved_blob": "9e0a9938d0c5cf10a0c9f89c823afebc503b6fc2"
+    },
+    "apps/screamingface-engine/tests/unit/test_abstain_corrective.py": {
+      "base_blob": "8f1326a8629ed5278de380c3648293243c213a46",
+      "approved_blob": "bd33ba16038bb8f2ccfb4740220c67e87bf0c7b1"
     },
     "apps/screamingface-engine/tests/unit/test_abstain_families.py": {
-      "base_blob": "abce72817e8b334dfb46373be27a8e1cf5788048",
-      "approved_blob": "f06ff3016c0bfe8a32231024c847ebbc05209938"
+      "base_blob": "f06ff3016c0bfe8a32231024c847ebbc05209938",
+      "approved_blob": "d66fe23e57a8ad6150765687d2ec99bbd1b057cc"
     },
     "apps/screamingface-engine/tests/unit/test_abstain_records.py": {
-      "base_blob": "0608310278ce30ee5b2bcd445c19e9c2eb39d29c",
-      "approved_blob": "2630311c734edd77efc99281518b66c0376e8c8a"
-    },
-    "apps/screamingface-engine/tests/unit/test_benchmark_asset_isolation.py": {
-      "base_blob": "dfe9e17c85ebb498513bf17ceacc3cfe2a57304e",
-      "approved_blob": "d9eba2d976ccec3502303e69d7c552d8ef7700ce"
+      "base_blob": "2630311c734edd77efc99281518b66c0376e8c8a",
+      "approved_blob": "197cd18c60db22ebc9926b257b35b6b5929790dd"
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_deployment.py": {
-      "base_blob": "b9120580542cdde04c76f9170bc054293fd1dea5",
-      "approved_blob": "d286bf5c035df754cb34323e0d498ff28bc575d3"
-    },
-    "apps/screamingface-engine/tests/unit/test_benchmark_inverted_grade.py": {
-      "base_blob": "e63962faf6930d182e5588e7d1b51fb15dce65e6",
-      "approved_blob": "cf9787ff1b1202169f92c3831af048805abad698"
+      "base_blob": "d286bf5c035df754cb34323e0d498ff28bc575d3",
+      "approved_blob": "e46cf7a861f06c36f7fcda50d9ea83ba4eca7ce5"
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_outcome_conformance.py": {
-      "base_blob": "03de77751a5cf1089a8df0eb9aa01ed311edc531",
-      "approved_blob": "4c0e5527d408fab9cebb2a9f6215322ff6e00683"
+      "base_blob": "4c0e5527d408fab9cebb2a9f6215322ff6e00683",
+      "approved_blob": "73b2048772b56b5f1171119fd551eb9b5de9f814"
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_protocol.py": {
-      "base_blob": "09652eead11812d4af37665071e29070d6eecea4",
-      "approved_blob": "52d8b9725f6ca891e375c708f64fa845ba630d88"
-    },
-    "apps/screamingface-engine/tests/unit/test_benchmark_provenance.py": {
-      "base_blob": "390f1b764cf643ce431023dca2e3863a6fe813d2",
-      "approved_blob": "4d4ea0d22c1c849558a08d226f6ba31ac9fae2fb"
+      "base_blob": "52d8b9725f6ca891e375c708f64fa845ba630d88",
+      "approved_blob": "55e579a3c4ece0f0314b00b7be7e37b88808ef0f"
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_stage_parity.py": {
-      "base_blob": "1c4ed516bf90da14f5b0ee3e58df77d1d1ba06eb",
-      "approved_blob": "cb1d78a4cf74b6a3606d01cb57c2274e0cd0ddcf"
+      "base_blob": "cb1d78a4cf74b6a3606d01cb57c2274e0cd0ddcf",
+      "approved_blob": "62eae257051a39973afdcf0fe02d907361d3402b"
     },
     "apps/screamingface-engine/tests/unit/test_builtin_early_score_timing.py": {
-      "base_blob": "f878b543c20a83f50ba86e3b9636c3c9ff9a2c34",
-      "approved_blob": "9797334e9109337977149939ddff94c860b9c5bf"
+      "base_blob": "9797334e9109337977149939ddff94c860b9c5bf",
+      "approved_blob": "4af482ccba76ccb496021395f9fe80261039d2ae"
     },
-    "apps/screamingface-engine/tests/unit/test_concurrent_case_grading.py": {
-      "base_blob": "0694b072c85ab132f53295d857ab973ec9ed2331",
-      "approved_blob": "5eda1547c370431acb9ca6e1fff8e48ebcb66697"
+    "apps/screamingface-engine/tests/unit/test_combine_reducer_candidates.py": {
+      "base_blob": "0fd235a9ebe10e709df81e4d6497b98b9b3698af",
+      "approved_blob": "ed94dba2ce7ee399ec4925ffb40336a2070d3ba9"
     },
-    "apps/screamingface-engine/tests/unit/test_concurrent_case_grading_memory.py": {
-      "base_blob": "1100296d53245417be3ec38b94ca3a3af77a08fa",
-      "approved_blob": "9ff6dfb7f3d631c6c6f87ec424e30f1cd4e77602"
+    "apps/screamingface-engine/tests/unit/test_draft_feedback_offer_is_owner_opt_in.py": {
+      "base_blob": "fe6a6f1c783c3fe7cb788ece3ff143aaa90d13f3",
+      "approved_blob": "a35b4732332777789af270f4a15829b4a9933aef"
     },
-    "apps/screamingface-engine/tests/unit/test_declared_models_match_aigateway.py": {
-      "base_blob": "52ff2ca7a03de13b992ffdb6441588ae0a08ff38",
-      "approved_blob": "4d7253a458ac6f6ff3363c808a2c4ab701296389"
+    "apps/screamingface-engine/tests/unit/test_early_grade_connector_cache.py": {
+      "base_blob": "68348e7042578eb8f4049e333454253d32f6e47a",
+      "approved_blob": "ff865228298d60669740be2f27fb56d0455434f1"
     },
-    "apps/screamingface-engine/tests/unit/test_early_grade_compatibility.py": {
-      "base_blob": "d03510ea089ff5734052b6c2256453ed9e337a04",
-      "approved_blob": "386fe61ec4abc083a376b3308d648581cab621c7"
+    "apps/screamingface-engine/tests/unit/test_early_grade_safety.py": {
+      "base_blob": "36a17820828e900da39f0acf0ea995cc545aa125",
+      "approved_blob": "f94ba2d45b3fd3e14ce61f80284861b9469fb222"
+    },
+    "apps/screamingface-engine/tests/unit/test_early_grader_crashes.py": {
+      "base_blob": "2286988a25ffce9c87debd283d7b2b588c308726",
+      "approved_blob": "f3fb7e304e72d1d6161e538eac691b73137e4ce2"
     },
     "apps/screamingface-engine/tests/unit/test_finalized_missing_progress.py": {
-      "base_blob": "15cacbffc25ee9e3553ff83123b6e131cd2f0946",
-      "approved_blob": "e35417aec13abdad25521b337d4d1cf8ccb6db13"
+      "base_blob": "e35417aec13abdad25521b337d4d1cf8ccb6db13",
+      "approved_blob": "6c905d4ce7e62eb09ec677849412e80f41dbd89d"
     },
-    "apps/screamingface-engine/tests/unit/test_fresh_judge_retry.py": {
-      "base_blob": "e3b01d94dbecdce82223ce443d95c1e52be528a1",
-      "approved_blob": "f56218ab6f40ed1d5c11745e437a45525b07db35"
+    "apps/screamingface-engine/tests/unit/test_inspect_deployment_discovery.py": {
+      "base_blob": "14b154e312f38aec86c12984d08b0e60b3858876",
+      "approved_blob": "45de9a61c69892d067d3b37b79e8f307a53f526c"
     },
-    "apps/screamingface-engine/tests/unit/test_grading_error_integrity.py": {
-      "base_blob": "7ebca6020b3c4d5255404c8d2f2aeb68d9c35f16",
-      "approved_blob": "2f518c737eb5606a5fa984af93973164d77b9113"
+    "apps/screamingface-engine/tests/unit/test_provisional_scores.py": {
+      "base_blob": "1af91758e81a47ad1791d496e80ad4f40006e707",
+      "approved_blob": "7d7c917c01bcf59b25ec44c7aa2737ad2444078c"
     },
-    "apps/screamingface-engine/tests/unit/test_model_seeds.py": {
-      "base_blob": "86bf4bcd3450119deaa481e9213dc61fedaa2f24",
-      "approved_blob": "967991660ff10770d188d0d82c03ddc08470ad24"
+    "apps/screamingface-engine/tests/unit/test_samples_seed_contract.py": {
+      "base_blob": "8116417ca24c2016ec37f2342ae8d7f19cb13555",
+      "approved_blob": "2ec417ddee532746610e9d214d554d0521c3d846"
     },
-    "apps/screamingface-engine/tests/unit/test_native_case_index.py": {
-      "base_blob": "068360123427962b70e730452c2c2bc1af7580b7",
-      "approved_blob": "8d229fb741f78073bed430440092d30ca48611b1"
-    },
-    "apps/screamingface-engine/tests/unit/test_shared_grading_aggregation.py": {
-      "base_blob": "fe7dc7a42f4b5b1e3a5b9334e9776e23b975dfb2",
-      "approved_blob": "67257b080441bf122b458cd04c9429a17366025f"
-    },
-    "apps/screamingface-engine/tests/unit/test_shared_grading_case_grader.py": {
-      "base_blob": "d74c26b6f31a908c96e689bfb472361e2037c0e0",
-      "approved_blob": "93d7b88c20274bb8e8eae04979d2237082950444"
-    },
-    "apps/screamingface-engine/tests/unit/test_shared_grading_judge_evidence.py": {
-      "base_blob": "d739270611adacc6d56f5461d9a4a3989e5803a6",
-      "approved_blob": "33ac62062b053de434dc7bce12c0c4bc8b7282a2"
-    },
-    "apps/screamingface-engine/tests/unit/test_token_exhaustion_legibility.py": {
-      "base_blob": "0a092e2432e54b386e7684c5229e9ce1671fa373",
-      "approved_blob": "2336cdc7e63353cdf14e51981cc0262c2590bfa9"
-    },
-    "packages/screamingface/tests/e2e/fixtures/goldens/healthbench-worst30.golden.json": {
-      "base_blob": "e66a05f98692a9c577f034d057bad5799afd8bb5",
-      "approved_blob": "199a6ce45fe94430fee654163bf52503b89bc023"
-    },
-    "packages/screamingface/tests/e2e/fixtures/slice_snapshot.py": {
-      "base_blob": "13efb8023b874b9e9ac5c2a3397ea480f4e5019a",
-      "approved_blob": "b1cfcfddfef6e7b334b76b281d28d53b16a9fcfd"
-    },
-    "packages/screamingface/tests/e2e/test_boards.py": {
-      "base_blob": "78910643f7eea525f413bceca45bb8d8caec58ca",
-      "approved_blob": "44a6e6f42224296747bbed997c223f2a7440c75f"
-    },
-    "packages/screamingface/tests/paid/_case_provenance.py": {
-      "base_blob": "9c8a72572f7a23239c2656054fa533c3b7c65c83",
-      "approved_blob": "bbfaa17fb60d40793ea723e3258f9c462e0a7d6a"
-    },
-    "packages/screamingface/tests/paid/test_case_provenance.py": {
-      "base_blob": "996227be2c3bfc54e2820ddbd4226bdd1ab7bcd8",
-      "approved_blob": "0021386cc70d1d155fe5b1c04de327cd956433eb"
+    "packages/screamingface/tests/e2e/fixtures/goldens/ifeval.golden.json": {
+      "base_blob": "99d60de5335c883a21aba1a933137d160a2dfd41",
+      "approved_blob": "26e67739ada9821634c1e527af0963169738e369"
     },
     "packages/screamingface/tests/test_runtime_cli.py": {
-      "base_blob": "5b2e0d97df7f42ea259bba8359013e8d4ae979c9",
-      "approved_blob": "279aea83f8aa63687266d029e2e2318212b54f7a"
+      "base_blob": "279aea83f8aa63687266d029e2e2318212b54f7a",
+      "approved_blob": "92951ac8cdeb8f9e6bcbdee5d3acd5ffcdcc4223"
     }
   }
 }

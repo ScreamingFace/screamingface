@@ -12,19 +12,11 @@ mark is byte for byte what it was.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
-
-import pytest
-from test_ifeval_case_evaluation_route import _assets as _ifeval_assets
 
 from screamingface_engine.benchmarks.case_records import build_case_record
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer, candidate_answer
-from screamingface_engine.benchmarks.ifeval import grade as ifeval_grade
-from screamingface_engine.benchmarks.ifeval.case_grade import build_case_grade as ifeval_case_grade
-from screamingface_engine.benchmarks.ifeval.definition import CHECK_ROUTE
-from screamingface_engine.benchmarks.ifeval.runtime import install as install_ifeval_runtime
 from screamingface_engine.benchmarks.medxpert import aggregate as medxpert_aggregate
 from screamingface_engine.benchmarks.medxpert.case_grade import (
     CHECK_SCHEMA as MEDXPERT_CHECK_SCHEMA,
@@ -34,8 +26,6 @@ from screamingface_engine.benchmarks.medxpert.case_grade import (
 )
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import _candidate_fields
 from screamingface_engine.benchmarks.shared_grading.serving import candidate_record
-from url4 import RelExpr, Text, expr, render, src
-from url4.peer.server import Url4Node
 
 _ABST = encode_candidate_invocation("", "stop", None, abstained=True)
 _PLAIN = encode_candidate_invocation("a plain answer", "stop", None)
@@ -70,24 +60,6 @@ def test_the_shared_case_record_marks_only_an_abstained_candidate() -> None:
     )
 
 
-async def _ifeval_record(tmp_path: Path, reply: str) -> dict[str, Any]:
-    _ifeval_assets(tmp_path)
-    node = Url4Node("test")
-    install_ifeval_runtime(node, tmp_path)
-    expression = expr(
-        src(Text(reply), name="candidate_result", weight=0.0),
-        src(
-            RelExpr(path=CHECK_ROUTE, context="$candidate_result", intent=Text("1:1")),
-            name="record",
-            weight=0.0,
-        ),
-        intent=Text("$record"),
-    )
-    record = json.loads((await node.evaluate(render(expression))).text)
-    assert isinstance(record, dict)
-    return record
-
-
 def _medxpert_record(reply: str) -> dict[str, Any]:
     """The record ``medxpert.runtime._check`` builds, through the same ``candidate_record``."""
     return candidate_record(
@@ -105,22 +77,20 @@ def _hoisted(row: dict[str, Any]) -> dict[str, Any]:
     return case
 
 
-async def _hoisted_row(family: str, root: Path, reply: str) -> dict[str, Any]:
-    """The row one family's decoder hoists from the real check record for ``reply``."""
-    if family == "ifeval":
-        record = await _ifeval_record(root, reply)
-        specs = {1: {"instruction_id_list": ["punctuation:no_comma"]}}
-        return ifeval_grade._decode(specs)(ifeval_case_grade(1, [record]), 1)
+def _hoisted_row(reply: str) -> dict[str, Any]:
+    """The row MedXpertQA's decoder hoists from the real check record for ``reply``.
+
+    IFEval's hoist was pinned here too until IFEval became a local inspect Task (OME-1527); the
+    plugin lane's hoist is pinned in ``inspect/test_abstain_inspect.py``.
+    """
     record = _medxpert_record(reply)
     return medxpert_aggregate._decode(medxpert_case_grade(1, [record]), 1)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("family", ["ifeval", "medxpert"])
-async def test_a_marked_record_survives_its_hoist(family: str, tmp_path: Path) -> None:
+def test_a_marked_record_survives_its_hoist() -> None:
     """A hoist that forgets the mark would silently grade an abstained Case as answered."""
-    marked = await _hoisted_row(family, tmp_path / "marked", _ABST)
-    plain = await _hoisted_row(family, tmp_path / "plain", _PLAIN)
+    marked = _hoisted_row(_ABST)
+    plain = _hoisted_row(_PLAIN)
 
     assert _hoisted(marked).get("candidate_abstained") is True
     assert _candidate_fields(marked).abstained is True

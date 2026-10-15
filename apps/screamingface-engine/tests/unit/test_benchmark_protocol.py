@@ -20,7 +20,7 @@ from screamingface_engine.benchmarks.graded_answer import (
     GRADED_ANSWER_SCHEMA,
     install_graded_answer_endpoint,
 )
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
+from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
@@ -262,9 +262,11 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
-        # OME-1527: DRACO, then HealthBench, left this table when each became a local inspect
-        # Task; their expressions are pinned by their published revisions and e2e goldens.
-        (IFEVAL, "ffc22c70f6f9bdc9b036ad884f4aa67c8d0df880c070e624748a81b7944bd3e7"),
+        # OME-1527: DRACO, HealthBench and IFEval left this table when each became a local
+        # inspect Task; their expressions are pinned by their published revisions and e2e
+        # goldens. MedXpertQA, the last hand-built Benchmark, keeps the table from going empty
+        # (an empty parametrize would skip this test silently).
+        (MEDXPERT, "1551a09b0c2385a7a7fb4ed9fad2734f540ee83660cb660fae2bf71a2bbe08b8"),
     ),
 )
 def test_canonical_benchmark_url4_is_pinned_byte_for_byte(
@@ -275,8 +277,9 @@ def test_canonical_benchmark_url4_is_pinned_byte_for_byte(
     assert hashlib.sha256(url4.encode()).hexdigest() == expected_sha256
 
 
-def test_canonical_ifeval_binds_the_exact_selected_count_for_aggregation() -> None:
-    assert "!'aggregate:2'" in render(IFEVAL.build(2))
+def test_canonical_medxpert_binds_the_exact_selected_count_for_aggregation() -> None:
+    # MedXpertQA stands in since IFEval, the original subject, became a local Task (OME-1527).
+    assert "!'aggregate:2'" in render(MEDXPERT.build(2))
 
 
 @pytest.mark.asyncio

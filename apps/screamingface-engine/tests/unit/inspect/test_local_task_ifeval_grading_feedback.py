@@ -13,7 +13,7 @@ check-surface adapter, and its leak guard is the contract every future adapter
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.ifeval.grading import describe_failures
+from screamingface_engine_inspect.local_tasks.ifeval.grading import describe_failures
 
 _SPECS = {
     1: {

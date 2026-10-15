@@ -42,8 +42,8 @@ runs:
 <img src="diagrams/benchmark-authoring-seam.png" width="1350">
 
 Realistic size, from the benchmarks in production: a novel grading mode is
-`medxpert/aggregate.py` (245 lines) or `ifeval/grade.py` (401) plus its protocol/runtime
-modules.
+`medxpert/aggregate.py` (245 lines; ifeval's `grade.py` was 401 before it became a local Task)
+plus its protocol/runtime modules.
 Everything below is walked against MedXpertQA (`benchmarks/medxpert/`), the newest benchmark
 — when a step says "copy the shape", that is the module to open.
 
@@ -112,7 +112,7 @@ Two row shapes, one public, one benchmark-owned:
   `CaseGradeReader.decode_case_grade` shapes it; the one sub-key the shared grading code reads is
   `row["case"]` — the candidate fields (`status`, `output`, `finish_reason`, `refusal`,
   `execution`, `operations`, `metadata`) — so your decode must hoist that mapping (copy
-  `medxpert/aggregate.py` or `ifeval/grade.py`).
+  `medxpert/aggregate.py`).
 
 Inputs and answers cross the seam as kind-tagged payloads (`benchmarks/shared_grading/payloads.py`);
 `TextPayload` (`kind="text"`) is the only kind implemented — `text+attachments` and
@@ -199,10 +199,10 @@ _PATH = BenchmarkAggregation(
 
 then call `_PATH.aggregate(raw_case_grades, benchmark_id=..., benchmark_revision=...,
 selected_cases=..., grading_material=..., scorer=..., case_metadata=...)`. Four optional
-hooks let a benchmark reshape a ladder rung's result — `ifeval` sets `missing_case_result`
-(draco set all four until it became a local Task); don't set any until a golden or a spec
+hooks let a benchmark reshape a ladder rung's result (ifeval set `missing_case_result` and draco
+set all four until they became local Tasks); don't set any until a golden or a spec
 forces you to. For the
-scorer, pass your own function (medxpert's `_accuracy`, ifeval's `score_cases`).
+scorer, pass your own function (medxpert's `_accuracy`).
 
 The protocol surface — the url4 template in `definition.py` (`build`) plus the FastAPI
 routes in `runtime.py` (`install`) — follows one rule: **one explicit route per

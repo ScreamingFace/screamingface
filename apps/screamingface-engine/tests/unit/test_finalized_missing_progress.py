@@ -7,8 +7,7 @@ inspect Tasks.
 import json
 
 import pytest
-from test_builtin_early_score_timing import _assets
-from test_ifeval_incremental_proof import _call
+from test_builtin_early_score_timing import _assets, _call
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.builtins import BUILTIN_REGISTRATIONS

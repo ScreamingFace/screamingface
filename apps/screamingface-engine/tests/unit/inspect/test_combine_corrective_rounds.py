@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+# WHY file-level: IFEval is a local inspect Task (OME-1527), absent in the extra-less install.
 """A corrective loop whose member is a reducer Fusion runs on the Engine (OME-1289 E4a, unit 11).
 
 FEATURE: ``sf.CorrectiveLoop([sf.Fusion([...], synthesizer=sf.Vote()), "prov/member-d"], ...)``
@@ -21,20 +23,28 @@ from pathlib import Path
 
 import httpx
 import pytest
-from test_corrective_loop_e2e import _assets, _chat
 
-from screamingface_engine.benchmarks import BenchmarkRegistry, link_candidate
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
-from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
-from screamingface_engine.world.candidate_adapter import install_candidate_invocation
-from screamingface_engine.world.combine import install_combine_runtime
-from screamingface_engine.world.config import ModelSpec
-from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.world.corrective import install_corrective_runtime
+pytest.importorskip("inspect_ai")
+
+from local_ifeval_helpers import IFEVAL, compiled_candidate  # noqa: E402
+from test_corrective_loop_e2e import _assets, _chat  # noqa: E402
+
+from screamingface_engine.benchmarks import BenchmarkRegistry, link_candidate  # noqa: E402
+from screamingface_engine.combine.builtins import BUILTIN_OPERATORS  # noqa: E402
+from screamingface_engine.world.candidate_adapter import (  # noqa: E402
+    install_candidate_invocation,
+)
+from screamingface_engine.world.combine import install_combine_runtime  # noqa: E402
+from screamingface_engine.world.config import ModelSpec  # noqa: E402
+from screamingface_engine.world.connector import (  # noqa: E402
+    AigatewayConfig,
+    build_aigateway_world,
+)
+from screamingface_engine.world.corrective import install_corrective_runtime  # noqa: E402
 
 pytestmark = pytest.mark.asyncio
 
-_CONTRACT = Path(__file__).parent / "data" / "combine_contract"
+_CONTRACT = Path(__file__).parent.parent / "data" / "combine_contract"
 _VOTERS = ("prov/member-a", "prov/member-b", "prov/member-c")
 _MODELS = (*_VOTERS, "prov/member-d", "prov/judge")
 # Graded against the two-constraint spec of test_corrective_loop_e2e (no_comma + english_lowercase):
@@ -83,10 +93,7 @@ async def test_corrective_loop_with_a_reducer_member_reports_no_operation_eviden
         install_corrective_runtime(world.node)
         install_combine_runtime(world.node, BUILTIN_OPERATORS)
         BenchmarkRegistry((IFEVAL,)).install(world.node, assets_root=tmp_path)
-        # rstrip: the repo's end-of-file hook appends a newline the expression never carries.
-        candidate_url4 = (
-            (_CONTRACT / "corrective_vote_candidate.url4").read_text(encoding="utf-8").rstrip("\n")
-        )
+        candidate_url4 = compiled_candidate(_CONTRACT / "corrective_vote_candidate.url4")
         protocol = IFEVAL.resource(1)["url4"]
         assert isinstance(protocol, str)
         result = await world.node.evaluate(link_candidate(candidate_url4, protocol))

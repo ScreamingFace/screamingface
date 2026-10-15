@@ -2,12 +2,11 @@
 
 FEATURE: a Candidate compiled by ``sf.Fusion(..., synthesizer=sf.Vote(...))`` runs VERBATIM
 (``combine_contract/*.url4`` are written by the SDK; its drift guard keeps them current).
-STORY: as a researcher, a vote with no usable answer abstains the case (scored 0.0, flagged), a
-member failure fails the candidate exactly like a model synthesizer, the grader reads the chosen
-member's text byte for byte, two reducers and two turns keep their own evidence.
+STORY: as a researcher, two reducers and two turns keep their own evidence.
 
-PRD ids: VT-5 (now the abstain outcome, GE-1), VT-12, VT-13 (IFEval twin), EV-6, EV-13. These are
-contract pins: the Engine already delivers the behavior, so they pass on their first run by design.
+PRD ids: EV-6, EV-13. These are contract pins: the Engine already delivers the behavior, so they
+pass on their first run by design. VT-5, VT-12 and VT-13 graded a vote through IFEval, a local
+inspect Task since OME-1527, so they live in ``inspect/test_combine_candidates_on_ifeval.py``.
 """
 
 from __future__ import annotations
@@ -19,7 +18,6 @@ from typing import Any
 
 import httpx
 import pytest
-from test_corrective_loop_e2e import _assets, _chat
 from test_medxpert_protocol_turns import _TRIGGER_MARK, _message_text
 from test_medxpert_protocol_turns import _assets as _medxpert_assets
 
@@ -30,7 +28,6 @@ from screamingface_engine.benchmarks.contract import (
     OperationOutput,
     decode_candidate_invocation_record,
 )
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
 from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
@@ -45,6 +42,18 @@ _CONTRACT = Path(__file__).parent / "data" / "combine_contract"
 _MEMBERS = ("prov/member-a", "prov/member-b", "prov/member-c")
 
 type _Replies = Mapping[str, str | httpx.Response]
+
+
+def _chat(content: str) -> httpx.Response:
+    """One chat completion carrying ``content``, as the gateway sends it."""
+
+    return httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 4, "completion_tokens": 2},
+        },
+    )
 
 
 def _contract(name: str) -> str:
@@ -63,91 +72,6 @@ def _by_model(
         return _chat(reply) if isinstance(reply, str) else reply
 
     return respond
-
-
-async def _ifeval_case(
-    tmp_path: Path, candidate_file: str, replies: _Replies
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    _assets(tmp_path / "ifeval")
-    client = httpx.AsyncClient(
-        transport=httpx.MockTransport(_by_model(replies)), base_url="http://aigateway.test"
-    )
-    world = await build_aigateway_world(
-        AigatewayConfig(
-            default_model="prov/member-a",
-            models=tuple(ModelSpec(id=m) for m in (*_MEMBERS, "prov/synth")),
-        ),
-        client=client,
-    )
-    try:
-        install_candidate_invocation(world.node)
-        install_combine_runtime(world.node, BUILTIN_OPERATORS)
-        BenchmarkRegistry((IFEVAL,)).install(world.node, assets_root=tmp_path)
-        protocol = IFEVAL.resource(1)["url4"]
-        assert isinstance(protocol, str)
-        result = await world.node.evaluate(link_candidate(_contract(candidate_file), protocol))
-    finally:
-        await world.aclose()
-        await client.aclose()
-    payload = json.loads(result.text)
-    return payload, payload["cases"][0]
-
-
-async def test_no_votes_abstains_the_case(tmp_path: Path) -> None:
-    replies: _Replies = dict.fromkeys(_MEMBERS, "tea has no digits")
-    result, case = await _ifeval_case(tmp_path, "vote_candidate.url4", replies)
-    # An abstain is an answer of "no answer": the case is scored 0.0, not failed (GE-1).
-    assert case["status"] == "scored"
-    assert case["abstained"] is True
-    assert case["output"] == ""
-    assert case["grade"]["score"] == 0.0
-    assert case["failures"] == []
-    assert result["score"] == 0.0
-    synthesis = {op["operation_id"]: op for op in case["operations"]}["op_synthesis_1"]
-    evidence = synthesis["combine"]
-    assert evidence["result"] == {
-        "member_id": None,
-        "value": None,
-        "status": "abstain",
-        "reason": "no_votes",
-    }
-    assert evidence["dropped"] == 3
-
-
-async def test_member_failure_fails_candidate_like_model_synthesizer(tmp_path: Path) -> None:
-    replies: dict[str, str | httpx.Response] = {
-        "prov/member-a": "tea 1",
-        "prov/member-b": httpx.Response(400),
-        "prov/member-c": "tea 1",
-        "prov/synth": "tea 1",
-    }
-    shapes = []
-    for name in ("vote_candidate.url4", "model_synthesizer_candidate.url4"):
-        _, case = await _ifeval_case(tmp_path / name, name, replies)
-        assert case["status"] == "failed"
-        shapes.append(
-            [(f["stage"], f["code"], f["retryable"], f["message"]) for f in case["failures"]]
-        )
-    expected = [
-        ("candidate", "aigateway_http_400", False, "aigateway request failed with status 400")
-    ]
-    assert shapes == [expected, expected]
-
-
-async def test_ifeval_grades_the_chosen_member_text_verbatim(tmp_path: Path) -> None:
-    replies: _Replies = {
-        "prov/member-a": "tea is warm 2",
-        "prov/member-b": "Tea, maybe 3",
-        "prov/member-c": "tea calms 2",
-    }
-    result, case = await _ifeval_case(tmp_path, "vote_candidate.url4", replies)
-    assert case["output"] == "tea is warm 2"
-    assert case["status"] == "scored"
-    assert result["score"] == 1.0
-    operations = {operation["operation_id"]: operation for operation in case["operations"]}
-    synthesis = operations["op_synthesis_1"]
-    assert synthesis["combine"]["chosen"] == ["member_1"]
-    assert synthesis["output"] == replies["prov/member-a"]
 
 
 _TWO_REDUCERS = {

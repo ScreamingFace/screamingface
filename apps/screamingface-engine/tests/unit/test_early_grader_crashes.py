@@ -1,14 +1,17 @@
-"""Execution bugs in the grade fold cannot become ordinary candidate failures."""
+"""Execution bugs in the grade fold cannot become ordinary candidate failures.
+
+MedXpertQA is the real-execution subject since OME-1527 moved IFEval to a local inspect Task.
+"""
 
 import asyncio
+from dataclasses import replace
 
 import pytest
-from test_ifeval_incremental_proof import _assets
+from test_medxpert_protocol_turns import _assets
 
 from screamingface_engine.benchmarks.definition import link_candidate
-from screamingface_engine.benchmarks.ifeval import grade
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
-from screamingface_engine.benchmarks.ifeval.runtime import install
+from screamingface_engine.benchmarks.medxpert import aggregate
+from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from url4.peer.server import Url4Node
 
@@ -16,21 +19,21 @@ from url4.peer.server import Url4Node
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [RuntimeError, AttributeError, ZeroDivisionError])
 async def test_grader_crash_fails_real_execution(tmp_path, monkeypatch, error):
-    _assets(tmp_path)
-    original = grade._grade_case
+    _assets(tmp_path, 2)
+    original = aggregate._PATH.grade_case
 
     async def crash(request):
         if request.case_id == 2:
             raise error("private grading detail")
         return await original(request)
 
-    monkeypatch.setattr(grade, "_grade_case", crash)
+    monkeypatch.setattr(aggregate, "_PATH", replace(aggregate._PATH, grade_case=crash))
     node = Url4Node("test")
-    install(node, tmp_path)
+    MEDXPERT.install(node, tmp_path)
     install_candidate_invocation(node)
-    node.endpoint("/candidate")(lambda request: "Fresh tea")
+    node.endpoint("/candidate")(lambda request: "(E) Fresh tea")
     with pytest.raises(Exception) as caught:
-        await node.evaluate(link_candidate("/candidate($input)!answer", IFEVAL.protocol(2)))
+        await node.evaluate(link_candidate("/candidate($input)!answer", MEDXPERT.protocol(2)))
     assert "private grading detail" not in str(caught.value)
 
 
