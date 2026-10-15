@@ -584,6 +584,18 @@ def _names_the_model() -> Solver:
 
 
 @solver
+def _names_the_model_by_an_unbound_role() -> Solver:
+    """A solver that fetches a role nobody binds and gives no default: inspect then hands back
+    the model under test, so the prompt is worded for it all the same."""
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        state.user_prompt.text = f"{state.user_prompt.text} (for {get_model(role='grader').name})"
+        return state
+
+    return solve
+
+
+@solver
 def _reads_the_state_model() -> Solver:
     """persistbench's shape: the system prompt names ``str(state.model)``."""
 
@@ -609,6 +621,19 @@ def test_a_solver_reading_the_model_under_test_is_refused_because_the_case_is_bu
     Case was cut or worded for "none" and every Candidate got that Case."""
 
     task = _one_sample_task([_names_the_model(), generate()])
+
+    with pytest.raises(
+        CaptureError, match=r"case 1: the solver read the model under test at test_capture\.py:\d+"
+    ):
+        captured_case_records(task, _spec())
+
+
+@pytest.mark.usefixtures("child_model_name")
+def test_an_unbound_role_read_is_refused_because_it_falls_back_to_the_model_under_test() -> None:
+    """get_model(role=...) with the role unbound and no default returns the active model, so
+    it is a read of the model under test like any other; skipping role reads let it through."""
+
+    task = _one_sample_task([_names_the_model_by_an_unbound_role(), generate()])
 
     with pytest.raises(
         CaptureError, match=r"case 1: the solver read the model under test at test_capture\.py:\d+"

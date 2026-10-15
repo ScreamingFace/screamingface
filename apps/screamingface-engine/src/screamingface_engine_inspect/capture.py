@@ -114,10 +114,11 @@ def model_reads() -> Iterator[list[ModelRead]]:
     "none" (OME-1602, F3). Reads are recorded, never raised here, so the chain still runs as
     inspect would and a chain that fails for its own reason is named by that reason.
 
-    What is seen: every ``get_model()`` that resolves the active model (a ``role=`` read is
-    a judge's, which :mod:`~screamingface_engine_inspect.judge_shape` reads), plus each read
-    of a TaskState's model name made through :func:`_watched_model_name`. Reads made by
-    inspect's own code are not the eval's and are skipped.
+    What is seen: every ``get_model()`` that resolves the active model, plus each read of a
+    TaskState's model name made through :func:`_watched_model_name`. That includes a
+    ``role=`` read: with the role unbound and no ``default``, inspect falls back to the
+    active model, so ``get_model(role="grader")`` in a solver reads the model under test.
+    Reads made by inspect's own code are not the eval's and are skipped.
 
     AIDEV-NOTE: this wraps the private ``inspect_ai.model._model.active_model`` (pinned
     inspect_ai 0.3.263), which every ``get_model()`` with no model, role match or default
@@ -137,8 +138,7 @@ def model_reads() -> Iterator[list[ModelRead]]:
         frame: FrameType | None = currentframe()
         caller: FrameType | None = None if frame is None else frame.f_back
         if caller is not None and caller.f_code is get_model_code:
-            if caller.f_locals.get("role") is None:
-                _note_read(caller.f_back, reads)
+            _note_read(caller.f_back, reads)
         return original()
 
     setattr(model_module, "active_model", watched_active_model)

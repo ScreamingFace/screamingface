@@ -55,5 +55,11 @@ Benchmark.
 - **Deviations:** the answered pass uses a Python profiling hook so it sees `get_model` calls
   the eval bound by name at import; an independent review asked for role and by-name fetches
   to be caught.
+- **Second review (2026-10-15):** the model-read watch skipped any `get_model(role=...)`, but
+  with the role unbound and no default inspect returns the model under test, so a solver could
+  still word its Case for "none". The filter is gone and a regression test pins it; no
+  single-turn row's solver or task function makes such a read. After rebasing on PR 2's
+  review fix: `test_capture.py`, `test_import_replay.py`, `test_task_replay.py`,
+  `test_importer_named_scores.py`, `test_judge_shape.py`: 173 passed.
 - **Owner verify:** PR 4 needs the owner's call on exempting infinite_bench_math_find, whose
   Cases are identical under every model name (inputs 116,289 to 120,155 characters).
