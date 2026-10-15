@@ -366,6 +366,8 @@ class OperatorDescriptor:
     ``signal_read`` (reduce only) tells the core which signal these args read; it is not published.
     ``envelope`` (select only) says the output is the selection envelope, so an abstain of the
     call hands on the empty envelope (E4b fix 2026-10-14); it is not published.
+    ``ranks`` and ``cut`` (select only) give the evidence each scored member's rank and the cut of
+    the step (E4b part 2, P6, P7); they are not published.
     ``reads_weights`` (reduce only) says the operator counts each member's weight, so a member
     with no usable signal weight is left out and its record says ``excluded`` / ``no_weight``
     (E4b part 2, X1); it is not published.
@@ -396,6 +398,8 @@ class OperatorDescriptor:
             raise ValueError("only a select operator may hand on the envelope")
         if self.reads_weights and self.stage != "reduce":
             raise ValueError("only a reduce operator may read the member weights")
+        if (self.ranks is not None or self.cut is not None) and self.stage != "select":
+            raise ValueError("only a select operator may declare ranks or a cut")
 
     @property
     def id(self) -> str:

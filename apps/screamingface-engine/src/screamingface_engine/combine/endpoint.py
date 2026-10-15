@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from types import MappingProxyType
@@ -37,6 +37,7 @@ from pydantic import ValidationError
 from screamingface_engine.combine.evidence import (
     AnswerRecord,
     CombineEvidence,
+    CutRecord,
     FieldReadingRecord,
     JudgeReadingRecord,
     ResultRecord,
@@ -55,6 +56,7 @@ from screamingface_engine.combine.ports import (
     AnswerReason,
     CombineError,
     CombineInput,
+    Cut,
     EvidenceKind,
     ExcludeReason,
     Extractor,
@@ -128,7 +130,11 @@ class _Exclusion:
 
 @dataclass(frozen=True, slots=True)
 class _Plan:
-    """The four resolved stages of one call; ``extract`` and ``normalize`` may be absent."""
+    """The four resolved stages of one call; ``extract`` and ``normalize`` may be absent.
+
+    ``ranks`` and ``cut``: the hooks of a select step that ranks (``top_k@1``); the cut is read
+    once from the checked args.
+    """
 
     extract: _Step[Extractor] | None
     normalize: _Step[Normalizer] | None
@@ -137,6 +143,8 @@ class _Plan:
     signal: SignalRead | None = None
     envelope: bool = False
     excludes: _Exclusion | None = None
+    ranks: Callable[[Reduction, CombineInput, OpArgs], Mapping[str, int]] | None = None
+    cut: Cut | None = None
 
     @property
     def operators(self) -> tuple[str, ...]:
@@ -375,6 +383,16 @@ def _bind(descriptor: OperatorDescriptor | None, step: StepSpec | None) -> _Step
     return _Step(descriptor.id, descriptor.run, MappingProxyType(dict(step.args)))
 
 
+def _cut(select: OperatorDescriptor | None, step: StepSpec | None) -> Cut | None:
+    """The cut that the select step declares (``top_k@1``), from its args; else None.
+
+    Call it only after ``_bind`` checked the select args: the hook reads ``k`` without a check.
+    """
+    if select is None or select.cut is None or step is None:
+        return None
+    return select.cut(step.args)
+
+
 def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     # WHY resolve ALL four steps before checking any args: an unknown operator is the more basic
     # failure, so it wins over bad args of an earlier step. Stage order: extract, normalize,
@@ -392,6 +410,10 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
         signal=_signal_read(spec, reduce, bound_reduce),
         envelope=select is not None and select.envelope,
         excludes=_exclusion(spec, reduce, bound_reduce),
+        ranks=None if select is None else select.ranks,
+        # WHY after select=: keyword arguments run left to right, so _bind has checked the select
+        # args (k is an int from 1 to 256) before the cut hook reads them.
+        cut=_cut(select, spec.select),
     )
 
 
@@ -579,13 +601,18 @@ def _evidence(
     # An abstain has no selection, and none or only part of a reduction (a select step may abstain).
     reduction = Reduction() if reduction is None else reduction
     scores = reduction.scores or {}
+    # E4b part 2 (P6, P7): the rank of each scored member of a top_k@1 step, also on an abstain.
+    ranks = {} if plan.ranks is None else plan.ranks(reduction, combine_input, plan.select.args)
     statistic = reduction.statistic
     is_mean = spec.reducer == "mean"
     return CombineEvidence(
         kind=REDUCER_RULES[spec.reducer].kind,
         reducer=spec.reducer,
         operators=list(plan.operators),
-        members=[_member_record(answer, scores, plan.excludes) for answer in combine_input.answers],
+        members=[
+            _member_record(answer, scores, plan.excludes, rank=ranks.get(answer.member_id))
+            for answer in combine_input.answers
+        ],
         tally=_tally_records(reduction),
         judge=_judge_record(reduction),
         fields=_field_records(reduction, plan.reduce.op_id),
@@ -604,6 +631,7 @@ def _evidence(
         signal=None
         if plan.signal is None
         else SignalRecord(key=plan.signal.key, order=plan.signal.order),
+        cut=None if plan.cut is None else CutRecord(k=plan.cut.k, order=plan.cut.order),
         result=result,
         dropped=sum(answer.status == "fail" for answer in combine_input.answers),
         finish_reason="stop",
@@ -611,7 +639,11 @@ def _evidence(
 
 
 def _member_record(
-    answer: Answer, scores: Mapping[str, Decimal], excludes: _Exclusion | None
+    answer: Answer,
+    scores: Mapping[str, Decimal],
+    excludes: _Exclusion | None,
+    *,
+    rank: int | None,
 ) -> AnswerRecord:
     status, reason = _record_status(answer, excludes)
     return AnswerRecord(
@@ -623,6 +655,7 @@ def _member_record(
         signals=dict(answer.signals),
         weight=None if answer.weight is None else _finite(answer.weight),
         score=_finite(scores[answer.member_id]) if answer.member_id in scores else None,
+        rank=rank,
     )
 
 
