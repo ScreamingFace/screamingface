@@ -1,0 +1,38 @@
+{
+  "issue": "OME-E4B-P3",
+  "branch": "e4b-signal-sources",
+  "approver": "owner",
+  "date": "2026-10-15",
+  "scope": "E4b part 3 (signal sources v1), all units on one branch. Unit 2 (ans:Q1): the combine-spec v1 schema gains the optional declared signals map, and the combine-evidence v1 schema the declared field; test_signals no longer refuses 'cost' at sf.signal, because it is a valid declared name (the error moves to the Fusion); the public-surface snapshot adds Fusion signals and sf.Verbalized. Unit 3 (ans:Q5, P13): one new failure code, logprobs_unsupported: test_e4b_catalog_pins counts 66 codes and names it, test_failure_classes adds it to the agreed set, test_terminal_error_detail allow-lists its engine-written text. Unit 4: the combine-spec v1 schema adds the logprob and entropy source shapes; the public-surface snapshot adds sf.Logprob and sf.Entropy. No assertion is removed or weakened.",
+  "reason": "Owner approved these 7 pinned test edits in chat on 2026-10-15 after the build reported them (plan section 6 plus the build errata). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "c191827c4e963d59b13a77daa8ba9f8eac4f810c",
+      "approved_blob": "615fb55848f568742a806ade156ea47f26d2b6d4"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json": {
+      "base_blob": "c36a0d394e6edcaab5dc205fbfdae4b68eece1c6",
+      "approved_blob": "b3acb2a5cd5c489c570a57384cd40fa5c9f30273"
+    },
+    "apps/screamingface-engine/tests/unit/test_e4b_catalog_pins.py": {
+      "base_blob": "60a41ea9c7ea5001b2d4d298db5f34367deb74a2",
+      "approved_blob": "2fe20d9b61f54f95375331977ce9c51c8a675471"
+    },
+    "apps/screamingface-engine/tests/unit/test_failure_classes.py": {
+      "base_blob": "1d214eff0af8da49d40f642d5377583209835d12",
+      "approved_blob": "6d8699ab03d5e02491e30bed688356b974d7caad"
+    },
+    "apps/screamingface-engine/tests/unit/test_terminal_error_detail.py": {
+      "base_blob": "6c6824dfd7b379e0efccddd4e3c43b35cb2f7758",
+      "approved_blob": "31a4e7875a33f83816768fda200f39b1c337db58"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "489b8a57e3c20c8038085c80fa06a23fb595c178",
+      "approved_blob": "77a76cc650d3366f512913c7a1d0fa3d7391b760"
+    },
+    "packages/screamingface/tests/test_signals.py": {
+      "base_blob": "9c24fb382a80860cdfc625814218f9d5e4458a15",
+      "approved_blob": "e252090bc9e93210f7a1e3a073d8b097079f2cb3"
+    }
+  }
+}
