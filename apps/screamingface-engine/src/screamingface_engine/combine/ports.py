@@ -377,6 +377,7 @@ class OperatorDescriptor:
     check_args: ArgsCheck = no_args
     signal_read: Callable[[OpArgs], SignalRead | None] | None = None
     envelope: bool = False
+    reads_weights: bool = False
 
     def __post_init__(self) -> None:
         version_ok = not isinstance(self.version, bool) and 1 <= self.version <= 999_999
