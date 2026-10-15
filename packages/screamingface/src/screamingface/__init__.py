@@ -71,6 +71,7 @@ from screamingface.report import (
     Usage,
 )
 from screamingface.selection import Concat, Filter, Rank
+from screamingface.signal_sources import Verbalized
 from screamingface.url4 import Url4
 from screamingface.warnings import (
     DuplicateMembersWarning,
@@ -163,6 +164,7 @@ __all__ = [
     "Usage",
     "Url4",
     "Vote",
+    "Verbalized",
     "benchmarks",
     "events",
     "leaderboards",

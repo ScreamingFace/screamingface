@@ -419,6 +419,23 @@ class OperatorDescriptor:
 # --- signals ----------------------------------------------------------------------------------
 # AIDEV-NOTE: a copy of url4's field-path grammar (dag/semantics/ensemble.py `_PATH`), extended with
 # a leading `[N]` segment; it lives in ports so json_field@1 (unit 2) and the core share one walk.
+SourceRead = Callable[[str, OpArgs], float | None]
+
+
+@dataclass(frozen=True, slots=True)
+class SourceDescriptor:
+    """A declared signal source that reads one member text (E4b part 3, P7): ``verbalized``.
+
+    ``check_args`` raises ``SpecInvalid`` for args the source refuses (once per call, before any
+    output is read). ``read`` is pure and linear in the text, like an extractor, and returns a
+    number or None. Not published in ``GET /v1/operators``.
+    """
+
+    name: str
+    check_args: ArgsCheck
+    read: SourceRead
+
+
 _FIELD_KEY = r"[A-Za-z_][A-Za-z0-9_]*"
 _FIELD_INDEX = r"\[(?:0|[1-9][0-9]*)\]"
 FIELD_PATH = re.compile(rf"(?:{_FIELD_KEY}|{_FIELD_INDEX})(?:\.{_FIELD_KEY}|{_FIELD_INDEX})*")
@@ -478,6 +495,11 @@ def is_signal_key(key: object) -> bool:
     return key.startswith(FIELD_SIGNAL_PREFIX) and (
         FIELD_PATH.fullmatch(key[len(FIELD_SIGNAL_PREFIX) :]) is not None
     )
+
+
+def is_signal_name(key: object) -> bool:
+    """E4b P1: a declared name: [a-z][a-z0-9_]{0,31}, not an E4a key, no reserved prefix."""
+    return False
 
 
 def finite_float(value: object) -> float | None:
@@ -786,6 +808,8 @@ __all__ = [
     "Selection",
     "SignalOrder",
     "SignalRead",
+    "SourceDescriptor",
+    "SourceRead",
     "SpecInvalid",
     "Stage",
     "StageResult",
@@ -800,6 +824,7 @@ __all__ = [
     "field_value_text",
     "finite_float",
     "is_signal_key",
+    "is_signal_name",
     "json_depth",
     "judge_reply",
     "loads_bounded",

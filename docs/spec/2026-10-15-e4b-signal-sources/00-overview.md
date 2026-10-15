@@ -169,4 +169,11 @@ and `by_signal@1.json:23`. The E4a design record `docs/spec/2026-10-02-e4a-gap-c
 
 ## 10. Build errata
 
-None yet.
+- **E1 (unit 2):** the verbalized reader reaches the combine core through the registry as a `SourceDescriptor`, because the layering gate forbids the core to import a plugin or `re2`.
+- **E2 (unit 2):** `Answer.signals` keeps only the read key; the evidence `members[].signals` holds every declared name.
+- **E3 (unit 2):** DS#16 covers only "authored params stay"; the drop of injected params moves to units 3 and 4 (LP#14, EN#13).
+- **E4 (unit 2):** DS#7 tests the "one entropy" rule with a test-local source class, because `sf.Entropy` comes in unit 4.
+- **E5 (unit 2):** the SDK `CombineSignal` keeps its E4a-only public constructor; a declared read uses the private `CombineSignal._declared`.
+- **E6 (unit 2):** `by_signal@1` and `filter@1` accept the declared-name syntax in their arguments; the plan-level check refuses a name the spec does not declare.
+- **E7 (unit 2):** VB#8 runs its own SDK-compiled fixture `verbalized_vote_candidate.url4`; it is not a README recipe (recipes are unit 5).
+- **E8 (unit 2):** the append-only gate passes for the four pinned files only through the approval manifest `.claude/test-change-approvals/OME-1290.json`, which stays PENDING owner approval.
