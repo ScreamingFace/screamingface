@@ -26,11 +26,11 @@ _DATA = Path(__file__).parent / "data"
         ),
         (
             "report_v1_combine_report.json",
-            "5a2fb135562809c5b4fea75f77e8b956b04f3e682266444789b2c1a020204eb6",
+            "85fb1253ee37e8debd0efcb5380309e5ac271aed613bfece466dc523e5de911a",
         ),
         (
             "report_v1_vote_median_report.json",
-            "26c73070b80bb1ce95d8b34f03f1ada35c08a0152533775a8a081180f1a968b7",
+            "47c658fbaf7d126da62fb64464c04879b2ae2c70f5f03aa9050c744bb38bc390",
         ),
     ],
 )

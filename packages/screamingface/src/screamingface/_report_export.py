@@ -15,8 +15,7 @@ if TYPE_CHECKING:
 
 def iter_report_json(report: Report) -> Iterator[str]:
     candidates = (
-        candidate._export_fields(cases=(case.to_dict() for case in candidate.cases))
-        for candidate in report.candidates
+        candidate._export_fields(cases=candidate._export_cases()) for candidate in report.candidates
     )
     yield from _chunks(report._export_fields(candidates=candidates))
 
