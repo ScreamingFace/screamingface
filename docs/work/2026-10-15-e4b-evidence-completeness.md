@@ -65,14 +65,25 @@ evidence without a new value keeps its v1 bytes (P11). Decisions: Q3, Q4, P2, P3
 
 - D-1: `test_pick_output.py::test_answer_v1_lists_output_missing` pins the exact `reason` list of
   `answer.v1.json`. P12 adds two words to that list, so this test must change. It is an extra
-  pinned edit (P-4) that plan §6 did not list.
+  pinned edit (P-4) that plan §6 did not list. The edit adds two lines and changes no other line.
+- D-2: The `sf.Answer` excluded checks are in a helper, `_check_excluded`, called from
+  `_check_status`. The spec puts them in `_check_status`. Ruff C901 (9 > 8) and PLR0912 (8 > 7)
+  failed on the inline form. The helper has the same checks and messages.
+- D-3: `ruff check --fix` sorted the import block of `combine/evidence.py`. The module docstring
+  was re-wrapped by `ruff format`. Neither change alters behavior.
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:** RED committed (commit A). GREEN (commit B) is not yet done.
-- **Actual files:** commit A: the ledger, `apps/screamingface-engine/tests/unit/test_combine_evidence_words.py`, `packages/screamingface/tests/test_evidence_words.py`, the `CombineCut` stub in `packages/screamingface/src/screamingface/combine_evidence.py`.
-- **Commits:** A (RED, see the git log of the branch), B pending.
-- **Gates:** pending (filled at commit B).
+- **Status:** done. Commit A is the RED commit. Commit B is the GREEN commit (the commit after
+  this ledger text). Unit 1 is complete. The part is not complete.
+- **Actual files:** commit A (RED): the ledger, `apps/screamingface-engine/tests/unit/test_combine_evidence_words.py`, `packages/screamingface/tests/test_evidence_words.py`, the `CombineCut` stub in `packages/screamingface/src/screamingface/combine_evidence.py`. Commit B (GREEN): `apps/screamingface-engine/src/screamingface_engine/combine/ports.py`, `apps/screamingface-engine/src/screamingface_engine/combine/evidence.py`, `packages/screamingface/src/screamingface/answer.py`, `packages/screamingface/src/screamingface/combine_evidence.py`, `packages/screamingface/src/screamingface/_evaluation/combine_evidence.py`, `packages/screamingface/src/screamingface/report.py`, the pinned files P-1 to P-4, and this ledger.
+- **Commits:** A `cd9c8bcf5` (RED). B: the GREEN commit, message `feat(e4b): the excluded status, the rank and the cut in the combine evidence (part 2 unit 1)`.
+- **Gates** (`run_gates.py <stack> --base 0f4b9e292`):
+  - `screamingface-engine`: green with `--skip-append-only`. ruff check, ruff format, pyright, layering and pytest with coverage pass. Append-only check fails and lists exactly P-1.
+  - `screamingface`: green with `--skip-append-only`. ruff check, ruff format, pyright, pytest with coverage (95 %), notebooks, build and distribution check pass. Append-only check fails and lists exactly P-2, P-3 and P-4.
+  - `repo`: green (append-only check passes for this stack).
+  - Focused tests (plan §5.2) pass: engine 199 and 187 for the two lists; SDK pass; `test_combine_evidence_words.py` 35 and `test_evidence_words.py` 38 pass (all RED tests of this unit are green).
+  - No flaky test in this run. Retries: 0.
 - **RED log:** Run at commit A (base `ad443b3f4` plus the RED files).
   - Engine `tests/unit/test_combine_evidence_words.py`: 28 passed (ES#1, CHAR, 28 cases), 7 failed.
     Failing tests: `test_answer_record_accepts_excluded_with_an_exclude_reason` (ES#2, Literal
@@ -92,4 +103,8 @@ evidence without a new value keeps its v1 bytes (P11). Decisions: Q3, Q4, P2, P3
   - Pyright on the new test files reports only the words and attributes that GREEN adds
     (`excluded`, `no_signal`, `no_weight`, `rank`, `cut`, `RecordStatus`). The stub and the
     deliberately invalid `CombineCut` inputs add no error.
-- **Approval blobs:** pending (filled at commit B).
+- **Approval blobs** (`git rev-parse 0f4b9e292:<path>` → after commit B `git hash-object <path>`):
+  - P-1 `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`: `c191827c4e963d59b13a77daa8ba9f8eac4f810c` → `454353044494ce12ed269123a9627384a4ce1343`
+  - P-2 `packages/screamingface/tests/data/schemas/screamingface.answer.v1.json`: `d179ec29bf6aa230a3019cdd2da955be4c18e87a` → `6524c2d068967d7f3455329323aa9dbd02ca5065`
+  - P-3 `packages/screamingface/tests/public_surface_snapshot.json`: `489b8a57e3c20c8038085c80fa06a23fb595c178` → `1d1f27ea7439a13a11a81802633a2cb88256053f`
+  - P-4 `packages/screamingface/tests/test_pick_output.py`: `26d21c21f5faf4aaf5f42e9f45a96ecf00a95c27` → `03c12205ca6e56715e55f754c7f5e016ffbe6082`

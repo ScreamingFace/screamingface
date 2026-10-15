@@ -3,6 +3,15 @@
 INVARIANT: the Literals below are the E4a answer vocabulary of the Engine's combine/ports.py
 (AnswerStatus, MemberStatus, AnswerReason, AbstainReason, SignalOrder); the sets are derived from
 them so each vocabulary has one source.
+INVARIANT: the words map to the Engine's combine/ports.py words (E4b part 2, review m8):
+
+- SDK ``MemberStatus`` = Engine ``RecordStatus`` (the status of an evidence record), not the
+  Engine ``MemberStatus`` (the status of the core ``Answer`` that an operator reads).
+- SDK ``AnswerReason`` = Engine ``AnswerReason`` | Engine ``ExcludeReason``.
+- SDK ``ExcludeReason`` = Engine ``ExcludeReason``.
+- SDK ``AnswerStatus`` = Engine ``AnswerStatus`` | {"excluded"}: the Case view makes an
+  ``Answer`` from an evidence record, so an excluded member keeps its status.
+- SDK ``AbstainReason`` and ``SignalOrder`` = the Engine words of the same name.
 """
 
 from __future__ import annotations
@@ -17,9 +26,10 @@ from screamingface._report_primitives import _optional_number
 
 # Not in ``__all__``: the schema id of the frozen field set, not public surface.
 ANSWER_SCHEMA = "screamingface.answer.v1"
-type AnswerStatus = Literal["answered", "abstain", "fail"]
-type MemberStatus = Literal["answered", "fail"]
+type AnswerStatus = Literal["answered", "abstain", "fail", "excluded"]
+type MemberStatus = Literal["answered", "fail", "excluded"]
 type AbstainReason = Literal["no_votes", "cut_not_met", "output_missing"]
+type ExcludeReason = Literal["no_signal", "no_weight"]
 type AnswerReason = Literal[
     "empty",
     "not_numeric",
@@ -32,6 +42,9 @@ type AnswerReason = Literal[
     "no_votes",
     "cut_not_met",
     "output_missing",
+    # A rule of the combine step left an answered member out (E4b part 2): no signal, no weight.
+    "no_signal",
+    "no_weight",
 ]
 type SignalOrder = Literal["max", "min"]
 
@@ -39,6 +52,7 @@ ANSWER_STATUSES: frozenset[str] = frozenset(get_args(AnswerStatus.__value__))
 MEMBER_STATUSES: frozenset[str] = frozenset(get_args(MemberStatus.__value__))
 ANSWER_REASONS: frozenset[str] = frozenset(get_args(AnswerReason.__value__))
 ABSTAIN_REASONS: frozenset[str] = frozenset(get_args(AbstainReason.__value__))
+EXCLUDE_REASONS: frozenset[str] = frozenset(get_args(ExcludeReason.__value__))
 SIGNAL_ORDERS: frozenset[str] = frozenset(get_args(SignalOrder.__value__))
 _MEMBER_ID = re.compile(r"member_[1-9][0-9]*")
 
@@ -65,6 +79,8 @@ class Answer:
 
     text is the member's original output joined through the Candidate operation DAG; None when the
     Engine could not attribute it. A computed Answer has member_id None unless a select chose one.
+    An excluded Answer (status "excluded") names its member, keeps its value, and has the reason
+    no_signal or no_weight.
     """
 
     member_id: str | None
@@ -129,14 +145,23 @@ def _check_status(answer: Answer) -> None:
         raise ValueError("Answer reason must be an answer reason")
     if (answer.reason is None) != (answer.status == "answered"):
         raise ValueError("Answer has a reason exactly when it did not answer")
-    if answer.status != "answered" and answer.value is not None:
-        raise ValueError("Answer has a value only when it answered")
+    if answer.status not in ("answered", "excluded") and answer.value is not None:
+        raise ValueError("Answer has a value only when it answered or was excluded")
     if answer.status == "abstain" and (
         answer.member_id is not None or answer.reason not in ABSTAIN_REASONS
     ):
         raise ValueError("an abstain Answer has no member and an abstain reason")
     if answer.status == "fail" and answer.reason in ABSTAIN_REASONS:
         raise ValueError("a failed Answer has a failure reason, not an abstain reason")
+    _check_excluded(answer)
+
+
+def _check_excluded(answer: Answer) -> None:
+    # WHY a helper: _check_status reached the complexity limit of ruff C901 and PLR0912.
+    if (answer.status == "excluded") != (answer.reason in EXCLUDE_REASONS):
+        raise ValueError("Answer has an exclude reason exactly when it was excluded")
+    if answer.status == "excluded" and answer.member_id is None:
+        raise ValueError("an excluded Answer names its member")
 
 
 __all__ = ["Answer"]
