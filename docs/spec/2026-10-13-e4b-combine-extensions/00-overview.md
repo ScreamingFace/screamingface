@@ -1,7 +1,9 @@
 # E4b part 1: combine extensions — overview
 
-**Status:** draft, waiting for review (2026-10-13). **Epic:** E4b (Linear id set at PR-open).
-**Base:** branch `e4a-integrated` (the full E4a stack OME-1578..OME-1593 on origin/main `3cf66b545`).
+**Status:** approved (2026-10-13), built on 2026-10-13 and 2026-10-14, in review as PR #1409.
+**Epic:** E4b (OME-1290). **Leaf:** OME-1601.
+**Base:** written on branch `e4a-integrated` (the full E4a stack OME-1578..OME-1593 on origin/main
+`3cf66b545`). E4a merged into main on 2026-10-13 (`d0ec10795`). The build is on `origin/main`.
 
 ## 1. Summary
 
@@ -131,11 +133,21 @@ Scope notes from [proposed] items (the user can change them before the build):
 
 ## 8. What changes for related epics
 
-- **E4a (OME-1289).** Nothing in its PRs changes. E4b builds on `e4a-integrated`. When the E4a
-  review changes the stack, move E4b with `git rebase --onto <new tip> e4a-integrated <branch>`.
-- **E4a docs.** After E4b merges, the README rule "the next stage does not receive the original
-  question" (README.md:657-659) is no longer true for Rank and Filter.
+- **E4a (OME-1289).** Nothing in its PRs changes. E4a merged into main on 2026-10-13
+  (`d0ec10795`), and E4b moved onto `origin/main` with its content unchanged.
+- **E4a docs.** The README rule "the next stage does not receive the original question" is
+  replaced for Rank and Filter in this part (selection-input docs commit).
 
 ## 9. Build errata
 
-None yet.
+Each ledger in `docs/work/2026-10-13-e4b-*.md` and `docs/work/2026-10-14-e4b-playground-fixes.md`
+records its own deviations. These change the spec:
+
+| # | Erratum | Record |
+|---|---|---|
+| ER1 | RC-E1 and contracts C2 said that an empty Filter makes the Case abstain before the next stage runs. In fact, the next stage ran with an empty text. P12 replaces both: the next stage gets the empty envelope. | [contracts](contracts.md) C2, playground-fixes ledger |
+| ER2 | P11 and P12 were added after the build, from a live test on 2026-10-14. | playground-fixes ledger |
+| ER3 | `ST/test_frozen_record_fields.py` needed an owner-approved edit (two new evidence scenarios, 26 to 28). The plan did not list it. The owner approved it with the other 18 files. | pick-output ledger Q-B, `.claude/test-change-approvals/OME-1601.json` |
+| ER4 | The dedup step left the engine copies of the field-name regex (F7-engine). `ST/tests/unit/test_signal_key_conformance.py` reads the literal regex in `E/combine/operators/fields.py`, so removing them needs an owner-approved test edit. | dedup ledger |
+| ER5 | A writer call after a Rank or a Filter misses the request cache once, because its input now carries the envelope. | selection-input ledger, review note 5 |
+| ER6 | The README recipe table gets three extra rows: "S4, median form", "S10, threshold form" and "S11, min form". They are not edits of the S4, S10 and S11 rows. | filter-judge and judge-order ledgers |

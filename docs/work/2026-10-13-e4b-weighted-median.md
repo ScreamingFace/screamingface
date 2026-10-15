@@ -110,6 +110,9 @@ url4 bytes. PRD: `docs/spec/2026-10-13-e4b-combine-extensions/prd/weighted-media
 - Open for the owner: the `test_signal_weighted_vote.py` edit covers more than lines 32-35. It
   also changes the module docstring INVARIANT and removes the block-refusal pin for
   `option 'weights'`. Show the full diff at approval.
+- Resolved 2026-10-13: the owner approved the `test_combine_spec.py` and
+  `test_signal_weighted_vote.py` edits. Both are pinned in
+  `.claude/test-change-approvals/OME-1601.json`.
 - Optional, not done: rename `test_only_the_vote_reducer_takes_weights`. Refactor the duplicated
   weight filter in `weighted_mode`, `weighted_mean` and `weighted_median`. Unify the Median and
   Mean idioms in the SDK.
