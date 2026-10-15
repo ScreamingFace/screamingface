@@ -51,12 +51,14 @@ a notebook that explains the long prompts, the 200k window, the Judge and the co
   and CI.
 - **Numbers in the notebook:** from the prepared bundle: 822 Cases, 76,504,153 prompt
   characters (mean 93,071, longest 728,489), about 19M input tokens per panel member at ~4
-  characters a token.
+  characters a token; the synthesiser reads the articles too, so a two-member panel is about
+  57M.
 - **Deviations:** no e2e golden. The e2e lane's golden needs one paid recorded run first
   (`tests/e2e/README.md` step ③, the owner's); the board is not added to the lane's `BOARDS`
   until a recording exists. Not executed against a stack: ships output-free like every example.
 - **Owner-verify:** (1) open `17_frames.ipynb` against `just local-stack-notebooks` and run it
-  with `limit=5`, checking that the Judge's explanation and the reasoning types print per case;
+  with `limit=5`, checking that the Judge's explanation and the reasoning types print per scored
+  case and the failure codes per failed case;
   (2) one paid full run of a solo Candidate on `frames_oracle` (ticket acceptance 7) to put
   beside the paper's 0.729, confirm the tier (`medium`), and record it for the e2e golden
   (`just e2e-bless …`, a follow-up PR).

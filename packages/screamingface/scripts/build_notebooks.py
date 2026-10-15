@@ -2049,7 +2049,7 @@ def _frames_oracle_e2e() -> NotebookNode:
 
 [FRAMES](https://arxiv.org/abs/2409.12941) asks questions that each need facts from 2 to 23
 Wikipedia articles: numbers to compute, tables to read, several constraints to meet, dates to
-order. This board runs the paper's **Oracle** setting: every question comes with all of its gold
+order. This Benchmark runs the paper's **Oracle** setting: every question comes with all of its gold
 articles pasted into the prompt, so nothing is searched and the score measures reading and
 reasoning, not retrieval. 822 of the 824 questions; two are left out because their own articles
 cannot answer them.
@@ -2062,11 +2062,13 @@ case.
 **Three things to know before reading a score.**
 
 - **The prompts are long.** A case averages about 93,000 characters of articles (roughly 23,000
-  tokens) and the longest about 728,000 (roughly 180,000). Use a model with a context window of
-  at least 200k tokens: a prompt that does not fit fails its case as `aigateway_http_400`, and
-  the case leaves Coverage instead of scoring 0.
+  tokens) and the longest about 728,000 (roughly 180,000 at four characters a token; tables
+  and numbers often tokenise denser). Use a model with a context window of at least 200k
+  tokens, and expect the longest few cases to be tight even there, tighter still for a
+  synthesiser, which also reads the members' answers. A prompt that does not fit fails its case
+  as `aigateway_http_400`, and the case leaves Coverage instead of scoring 0.
 - **The paper's 0.729 is Gemini-Pro-1.5 rated by Gemini-Pro-1.5.** Our Judge is the house judge
-  every judged board here uses, so our scores sit beside the paper's, not on its exact scale.
+  every judged Benchmark here uses, so our scores sit beside the paper's, not on its exact scale.
 - **The articles are 2024 revisions drawn with today's templates.** A few tables show a value from
   2025 or later, and a few templates deleted since draw only their name; the snapshot's card
   lists both."""),
@@ -2090,10 +2092,10 @@ import screamingface as sf
 
 sf.connect()"""),
         nbformat.v4.new_markdown_cell("""\
-## 1. Read the board's card
+## 1. Read the Benchmark's card
 
 `frames_oracle` is a Benchmark we author ourselves (origin `screamingface`). The card carries the
-two pinned sources (the questions, and the article snapshot), the Judge pinned on the board, and
+two pinned sources (the questions, and the article snapshot), the Judge the Benchmark pins, and
 the paper's score with its caveat."""),
         nbformat.v4.new_code_cell("""\
 sf.benchmarks.get("frames_oracle")"""),
@@ -2115,9 +2117,9 @@ report"""),
         nbformat.v4.new_markdown_cell("""\
 ## 3. Compare a Fusion against the same model
 
-Every member reads every article, so a two-member panel costs about twice the input tokens of one
-model. What a panel can add here is a second reading of the numbers and tables, where the paper
-found most of its errors."""),
+Every member and the synthesiser read every article, so a two-member panel costs about three
+times the input tokens of one model. What a panel can add here is a second reading of the
+numbers and tables, where the paper found most of its errors."""),
         nbformat.v4.new_code_cell("""\
 SYNTHESIS_PROMPT = (
     "You are given several assistants' answers to a question that combines facts from several "
@@ -2141,12 +2143,12 @@ Each case carries one check: the Judge's verdict. Its evidence holds the Judge's
 the question's reasoning types (numerical, tabular, multiple constraints, temporal,
 post-processing), so a wrong answer can be read, and a run can be cut by type the way the paper's
 Figure 3 cuts it. A case whose Judge never gave a decision, or whose prompt did not fit the
-model, shows as failed with its reason."""),
+model, shows as failed with its failure codes instead."""),
         nbformat.v4.new_code_cell("""\
 for case in fusion_report.candidates.only.cases:
     grade = case.grade
-    if grade is None:
-        print(case.case_id, case.status)
+    if grade is None or case.failures:
+        print(case.case_id, case.status, [failure.code for failure in case.failures])
         continue
     verdict = grade.checks[0].evidence[0]
     print(
@@ -2165,9 +2167,10 @@ cases will not sample them evenly, so a point or two between two systems is nois
 set before quoting a comparison.
 
 **Know what the full set costs before you start it.** One pass over all 822 questions is roughly
-**19M input tokens per panel member**, plus one short Judge call per case. There is no spend cap
-in this stack, so `limit` is the only brake. Raise it in steps and read the cost in
-`report.usage` as you go.
+**19M input tokens per panel member** — multiply by your members, and again by the
+synthesiser, which reads every article as well as their answers: about 57M for the two-member
+panel above. Add one short Judge call per case. There is no spend cap in this stack, so `limit`
+is the only brake. Raise it in steps and read the cost in `report.usage` as you go.
 
 The questions and their Wikipedia articles have been public since 2024 and may be in a model's
 training data; a high score says the model answers these questions, not that it would answer new
