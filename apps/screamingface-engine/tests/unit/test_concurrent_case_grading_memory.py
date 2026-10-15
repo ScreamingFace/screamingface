@@ -23,7 +23,14 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
-from test_shared_grading_aggregation import _envelope, _grading, _Hook, _mean, _path, _selected
+from test_shared_grading_aggregation import (
+    _envelope,
+    _grading,
+    _Hook,
+    _path,
+    _selected,
+    mean_score,
+)
 
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     CASE_GRADING_CONCURRENCY,
@@ -31,7 +38,6 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
     CaseGradeOutcome,
     GradeRequest,
 )
-from screamingface_engine.benchmarks.shared_grading.mean_scorer import mean_scorer
 
 _SCORED = CaseGradeOutcome(
     score=0.5, metrics={"judged": 2, "expected": 2, "invalid_replies": 0}, checks=[]
@@ -66,7 +72,9 @@ async def _aggregate(path: BenchmarkAggregation, case_ids: Sequence[int]) -> dic
         benchmark_revision="rev",
         selected_cases=_selected(*case_ids),
         grading_material=lambda case_id: (5, -3),
-        scorer=mean_scorer(_mean),
+        # WHY the stand-in mean: the shared rubric mean_scorer went with HealthBench's
+        # hand-built folder (OME-1527); these tests pin memory, not the run's number.
+        scorer=mean_score,
     )
 
 

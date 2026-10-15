@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from test_ifeval_incremental_proof import _call
+from test_builtin_early_score_timing import _call
 from test_shared_grading_aggregation import _envelope, _grading, _Hook, _path, _selected
 
 from screamingface_engine.activity.observer import ActivityObserver

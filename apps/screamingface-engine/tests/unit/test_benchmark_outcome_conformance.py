@@ -1,4 +1,8 @@
-"""Cross-Benchmark conformance for shared terminal Candidate outcomes."""
+"""Cross-Benchmark conformance for shared terminal Candidate outcomes.
+
+MedXpertQA stands in for the deterministic family since OME-1527 moved IFEval, the original
+one, to a local inspect Task.
+"""
 
 from __future__ import annotations
 
@@ -8,43 +12,20 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from test_medxpert_aggregate import _aggregate as aggregate_medxpert
+from test_medxpert_aggregate import _root as medxpert_root
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
-from screamingface_engine.benchmarks.healthbench.grade import aggregate as aggregate_healthbench
-from screamingface_engine.benchmarks.healthbench.scoring import unclipped_mean
-from screamingface_engine.benchmarks.ifeval.grade import aggregate as aggregate_ifeval
 
 AggregateFixture = Callable[[Path, dict[str, object]], dict[str, Any]]
 
 
-def _ifeval(_root: Path, row: dict[str, object]) -> dict[str, Any]:
-    spec = {
-        1: {
-            "prompt": "Return exactly one word.",
-            "instruction_id_list": ["length_constraints:number_words"],
-            "kwargs": [{"relation": "at most", "num_words": 1}],
-        }
-    }
-    return aggregate_ifeval(json.dumps([row]), spec, "ifeval", [1], selected_case_count=1)
+def _medxpert(root: Path, row: dict[str, object]) -> dict[str, Any]:
+    return aggregate_medxpert(medxpert_root(root, (1,)), json.dumps([row]), (1,))
 
 
-def _healthbench(root: Path, row: dict[str, object]) -> dict[str, Any]:
-    (root / "cases.json").write_text(
-        json.dumps([{"id": 1, "input": "Patient question"}]),
-        encoding="utf-8",
-    )
-    return aggregate_healthbench(
-        json.dumps([row]),
-        root,
-        benchmark_id="healthbench-worst30",
-        benchmark_revision="fixture",
-        case_ids=(1,),
-        mean=unclipped_mean,
-    )
-
-
-@pytest.mark.parametrize("aggregate", (_ifeval, _healthbench))
+@pytest.mark.parametrize("aggregate", (_medxpert,))
 @pytest.mark.parametrize("refusal", ("I cannot answer that.", None))
 def test_refusal_survives_a_later_grading_failure_across_benchmarks(
     tmp_path: Path,
@@ -91,7 +72,7 @@ def test_refusal_survives_a_later_grading_failure_across_benchmarks(
     ]
 
 
-@pytest.mark.parametrize("aggregate", (_ifeval, _healthbench))
+@pytest.mark.parametrize("aggregate", (_medxpert,))
 def test_case_execution_identity_mismatch_fails_loudly_across_benchmarks(
     tmp_path: Path,
     aggregate: AggregateFixture,

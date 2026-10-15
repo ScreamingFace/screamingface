@@ -29,6 +29,7 @@ from test_inspect_imported_benchmarks import _EXPECTED_FAMILIES  # noqa: E402
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
+from screamingface_engine.benchmarks.nltk_data import NLTK_DATA_DIR  # noqa: E402
 from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     BENCHMARKS,
     ImportedBenchmark,
@@ -88,6 +89,10 @@ def _node(benchmark: ImportedBenchmark, cases: list[PreparedCase], root: Path) -
     """A url4 node serving the Benchmark over two prepared Cases in its asset layout."""
 
     _write_cases(cases, root / benchmark.benchmark.id)
+    # WHY the corpus folder (OME-1527 R8): a row whose grader reads an nltk corpus (ifeval)
+    # installs only from a bundle that has one; these stand-in Cases read no tokenizer, so it
+    # stays empty, and every other row ignores it.
+    (root / benchmark.benchmark.id / NLTK_DATA_DIR).mkdir()
     node: Url4Node = Url4Node("test")
     benchmark.benchmark.install(node, root)
     return node
@@ -435,11 +440,12 @@ _REPLY_ONLY_KEYS: tuple[str, ...] = tuple(
 )
 
 
-def test_mitre_frr_is_the_one_reply_only_benchmark() -> None:
+def test_mitre_frr_and_ifeval_are_the_reply_only_benchmarks() -> None:
     """The per-row check below covers every row that makes the claim; this pins that the set
-    is not silently empty (a typo in the flag would skip the check altogether)."""
+    is not silently empty (a typo in the flag would skip the check altogether). ifeval joined
+    when it became a local Task (OME-1527): its checker reads the reply and the instructions."""
 
-    assert _REPLY_ONLY_KEYS == ("cyse4_mitre_frr",)
+    assert _REPLY_ONLY_KEYS == ("cyse4_mitre_frr", "ifeval")
 
 
 @pytest.mark.asyncio
@@ -453,14 +459,22 @@ async def test_a_reply_only_scorer_grades_the_same_with_or_without_a_key(
     scorer passes it, whatever grades it gives these two replies (review on #1222)."""
 
     benchmark: ImportedBenchmark = imported_benchmark(key)
+    # A scorer that reads Sample metadata (ifeval's instructions) gets the realistic stand-in
+    # its real Cases carry, on both sides, so only the key differs.
+    metadata: dict[str, object] = (
+        {"metadata": STAND_IN_METADATA[key]} if key in STAND_IN_METADATA else {}
+    )
+    keyless: list[PreparedCase] = [
+        {"case": case["case"], "grading_material": {"target": "", **metadata}}
+        for case in _KEYLESS_CASES
+    ]
     keyed: list[PreparedCase] = [
-        {"case": case["case"], "grading_material": {"target": "B"}} for case in _KEYLESS_CASES
+        {"case": case["case"], "grading_material": {"target": "B", **metadata}}
+        for case in _KEYLESS_CASES
     ]
     replies: list[str] = [_ANSWER, _REFUSAL]
 
-    without_key = await _scores(
-        _node(benchmark, _KEYLESS_CASES, tmp_path / "a"), benchmark, replies
-    )
+    without_key = await _scores(_node(benchmark, keyless, tmp_path / "a"), benchmark, replies)
     with_key = await _scores(_node(benchmark, keyed, tmp_path / "b"), benchmark, replies)
 
     assert without_key == with_key

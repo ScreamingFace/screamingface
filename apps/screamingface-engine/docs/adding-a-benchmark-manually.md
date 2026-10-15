@@ -14,6 +14,13 @@
 >
 > **Importing an existing inspect_evals benchmark?** Same doc — that is a data operation,
 > not an authoring project.
+>
+> **Who is still on this lane (OME-1527).** MedXpertQA is the one Benchmark the lane exists
+> for. IFEval still lives here until its own move to a local Task lands (OME-1527, Work order
+> row 15). Every judged rubric Benchmark moved out: ContractEval, GDPval-text, DRACO and,
+> last, HealthBench (worst-30 and professional) are local Tasks under `local_tasks/`, so a new
+> rubric Benchmark copies `local_tasks/healthbench/` or `local_tasks/gdpval/`, never a folder
+> here.
 
 **TLDR: a benchmark is an exam, and you only author the exam-specific parts. You bring
 the question paper (dataset mapping), the rule for grading one answer (`grade_case`),
@@ -34,9 +41,9 @@ runs:
 
 <img src="diagrams/benchmark-authoring-seam.png" width="1350">
 
-Realistic size, from the benchmarks in production: a rubric benchmark on the shared factories is
-~145 lines of grading code (`healthbench/grade.py`); a novel grading mode is larger
-(`medxpert/aggregate.py` 245, `ifeval/grade.py` 401) plus its protocol/runtime modules.
+Realistic size, from the benchmarks in production: a novel grading mode is
+`medxpert/aggregate.py` (245 lines; ifeval's `grade.py` was 401 before it became a local Task)
+plus its protocol/runtime modules.
 Everything below is walked against MedXpertQA (`benchmarks/medxpert/`), the newest benchmark
 — when a step says "copy the shape", that is the module to open.
 
@@ -90,8 +97,8 @@ uv run --with datasets python -m screamingface_engine.benchmarks.medxpert.prepar
 - Pin everything in `pins.py`, fold it into `compute_revision()` — the revision is in
   every route path, so a re-print of the paper is a new, distinguishable exam.
 - Assets land under `$URL4_BENCHMARK_ASSETS` (default `/opt/benchmarks`), one directory
-  per bundle id; two benchmarks may share one bundle (healthbench-worst30 and
-  healthbench-professional do).
+  per bundle id; two benchmarks may share one bundle (hand-built healthbench-worst30 and
+  healthbench-professional did, before they became local Tasks).
 
 ## Step 3 — the case-row shapes
 
@@ -105,7 +112,7 @@ Two row shapes, one public, one benchmark-owned:
   `CaseGradeReader.decode_case_grade` shapes it; the one sub-key the shared grading code reads is
   `row["case"]` — the candidate fields (`status`, `output`, `finish_reason`, `refusal`,
   `execution`, `operations`, `metadata`) — so your decode must hoist that mapping (copy
-  `medxpert/aggregate.py` or `ifeval/grade.py`).
+  `medxpert/aggregate.py`).
 
 Inputs and answers cross the seam as kind-tagged payloads (`benchmarks/shared_grading/payloads.py`);
 `TextPayload` (`kind="text"`) is the only kind implemented — `text+attachments` and
@@ -153,17 +160,12 @@ Read the example's grammar: `material` is the answer key your benchmark prepared
 `Check`/`Evidence`-shaped dicts (`benchmarks/contract.py`) so the judge's work is
 auditable per Case.
 
-**Rubric benchmarks don't write this at all.** The shared factory gives you the judged
-marking rule in one line (`benchmarks/shared_grading/rubric.py`):
-
-```python
-grade_case = rubric_grade_case(case_score=case_score, judge_producer_id="healthbench/judge")
-```
-
-where `case_score: (points, verdicts) -> float | None` is your benchmark's official scoring
-formula. The factory owns the two rubric failure codes (`"incomplete_verdicts"`,
-`"no_positive_points"`) and judge replies are parsed by the one shared parser
-(`benchmarks/shared_grading/judge_evidence.py`) — never write your own.
+**A judged rubric Benchmark does not belong here.** It is a local inspect Task: its scorer
+asks the judge one rubric line at a time through `judge_until_parsed`
+(`screamingface_engine_inspect/judge_redraw.py`) and parses each reply with the one shared
+parser (`benchmarks/shared_grading/judge_evidence.py`) — never write your own. Copy
+`local_tasks/healthbench/` (points rubric, one judge pass) or `local_tasks/draco/` (weighted
+rubric, several passes).
 
 ## Step 5 — declare the cover sheet and wire the path
 
@@ -197,12 +199,10 @@ _PATH = BenchmarkAggregation(
 
 then call `_PATH.aggregate(raw_case_grades, benchmark_id=..., benchmark_revision=...,
 selected_cases=..., grading_material=..., scorer=..., case_metadata=...)`. Four optional
-hooks let a benchmark reshape a ladder rung's result — `ifeval` sets `missing_case_result`
-(draco set all four until it became a local Task); don't set any until a golden or a spec
+hooks let a benchmark reshape a ladder rung's result (ifeval set `missing_case_result` and draco
+set all four until they became local Tasks); don't set any until a golden or a spec
 forces you to. For the
-scorer: rubric benchmarks use the shared `mean_scorer(mean)` (`benchmarks/shared_grading/mean_scorer.py`, fixed metric
-vocabulary); other benchmarks pass their own function (medxpert's `_accuracy`, ifeval's
-`_ifeval_score`).
+scorer, pass your own function (medxpert's `_accuracy`).
 
 The protocol surface — the url4 template in `definition.py` (`build`) plus the FastAPI
 routes in `runtime.py` (`install`) — follows one rule: **one explicit route per
@@ -231,7 +231,7 @@ Shared implementations already observe their work:
 | --- | --- |
 | `benchmarks/shared_grading/serving.py` cases handler | Loading cases |
 | `world/candidate_adapter.py` | Answering, within the candidate's decoded case scope |
-| `benchmarks/grading_endpoints.py` case/attempt reduction factories and `benchmarks/rubric_draft_feedback.py` | Grading |
+| `benchmarks/grading_endpoints.py` case/attempt reduction factories | Grading |
 | `benchmarks/grading_endpoints.py` sync and async aggregation factories | Aggregating |
 
 Do not decorate these handlers again at registration. For a benchmark-owned loader, checker
@@ -258,8 +258,8 @@ not the concrete activity plugin. With observation disabled, results must be unc
 A handler's stage completion does not mean the entire case has been graded. For native
 benchmarks, call `report_case_grading(case_id, "started")` from
 `benchmarks/case_grading_report.py` after decoding the authoritative Case ID at the first
-benchmark grading handoff (checker or task preparer). Follow `medxpert/runtime.py` for
-a direct checker, or the rubric benchmarks for task preparation. Keep the shared
+benchmark grading handoff (checker or task preparer). Follow `medxpert/runtime.py` (a
+direct checker). Keep the shared
 `preserve_candidate_outcome` / case-execution path: its outcome handler reports
 `"completed"` or `"failed"`. Do not emit completion at every intermediate checker.
 

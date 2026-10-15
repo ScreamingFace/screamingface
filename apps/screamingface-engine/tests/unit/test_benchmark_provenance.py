@@ -341,35 +341,6 @@ def test_fields_that_always_exist_do_not_accept_not_published(field: str) -> Non
         _benchmark(**cast(dict[str, Any], {field: NotPublished(reason="n/a")}))
 
 
-# --- the factories thread provenance through verbatim ---------------------------------------
-
-
-def test_the_healthbench_and_gdpval_factories_pass_provenance_through() -> None:
-    # OME-1527: the gdpval and draco factories went with their hand-built folders (both are
-    # local inspect Tasks now); the healthbench half stands.
-    from screamingface_engine.benchmarks.healthbench.scoring import unclipped_mean
-    from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS
-    from screamingface_engine.benchmarks.healthbench.subset import subset_sha as hb_sha
-    from screamingface_engine.benchmarks.healthbench.variant import healthbench_benchmark
-
-    _, healthbench = healthbench_benchmark(
-        id="healthbench-worst30",
-        title="HB",
-        description="probe",
-        case_ids=WORST30_CASE_IDS,
-        protocol_revision="worst30-per-item-v2",
-        scoring="unclipped-mean-v1",
-        mean=unclipped_mean,
-        selection_sha=hb_sha(),
-        difficulty="hard",
-        license="MIT",
-        human_baseline=HumanBaseline(score=0.5, source_url=_PAPER),
-    )
-
-    assert healthbench.catalog_entry()["license"] == "MIT"
-    assert healthbench.catalog_entry()["human_baseline"] == {"score": 0.5, "source_url": _PAPER}
-
-
 # --- a literal TODO is refused by name, like difficulty="TODO" --------------------------------
 
 

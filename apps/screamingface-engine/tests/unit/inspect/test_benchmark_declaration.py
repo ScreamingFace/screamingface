@@ -8,8 +8,6 @@ semantics for every benchmark at once.
 
 from __future__ import annotations
 
-import importlib
-
 import pytest
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
@@ -152,9 +150,6 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # OME-1257 third element: the hand-assigned difficulty tier. The rationale for
         # each assignment lives as a comment at the benchmark's own declaration site; this
         # table pins the reviewed outcome so a silent tier change trips loudly.
-        "healthbench-professional": ("coverage_declare", "single_shot", "hard"),
-        "healthbench-worst30": ("coverage_declare", "single_shot", "hard"),
-        "ifeval": ("coverage_declare", "single_shot", "medium"),
         # MedXpertQA invokes the Candidate twice per Case: turn 1 reasons, turn 2 commits against
         # a bare trigger. Its ungradeable Cases still go to the shared finalizer, hence
         # coverage_declare.
@@ -263,6 +258,15 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # graded Cases reach the mean — coverage_declare.
         "draco": ("coverage_declare", "single_shot", "hard"),
         "draco-3pass": ("coverage_declare", "single_shot", "hard"),
+        # OME-1527: healthbench-worst30 and healthbench-professional moved the same way, keeping
+        # their ids and declarations. A Case whose judge never gives a verdict fails by name, so
+        # only graded Cases reach the mean (or professional's clip of it) — coverage_declare.
+        "healthbench-worst30": ("coverage_declare", "single_shot", "hard"),
+        "healthbench-professional": ("coverage_declare", "single_shot", "hard"),
+        # OME-1527: ifeval moved the same way, keeping its id, declaration and tier. A Case the
+        # Candidate failed never reaches the checker, so only graded Cases reach the tally —
+        # coverage_declare.
+        "ifeval": ("coverage_declare", "single_shot", "medium"),
         # OME-1481: FRAMES with its gold articles given, a local Task. A Case whose judge
         # never decides, or whose prompt overflows the Candidate's window, fails by name, so
         # only graded Cases reach the mean — coverage_declare.
@@ -308,12 +312,7 @@ def test_each_benchmark_aggregate_reduces_through_the_shared_finalizer() -> None
     from screamingface_engine.benchmarks import aggregation
     from screamingface_engine.benchmarks.shared_grading import benchmark_aggregation
 
-    # These benchmarks funnel through the shared BenchmarkAggregation path (OME-1097; ifeval
-    # folded in OME-1101, draco in OME-1100), which itself reduces through the
-    # shared finalizer — same mechanism, one hop up.
+    # The shared BenchmarkAggregation path (OME-1097) reduces through the shared finalizer —
+    # same mechanism, one hop up. No hand-built Benchmark uses it any more: healthbench,
+    # ifeval (folded in OME-1101) and draco (OME-1100) are local inspect Tasks since OME-1527.
     assert benchmark_aggregation.finalize_candidate_result is aggregation.finalize_candidate_result
-    for family in ("healthbench", "ifeval"):
-        module = importlib.import_module(f"screamingface_engine.benchmarks.{family}.grade")
-        assert module.BenchmarkAggregation is benchmark_aggregation.BenchmarkAggregation, (
-            f"{family} no longer reduces through the shared scored path"
-        )

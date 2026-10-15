@@ -1,19 +1,23 @@
-"""Early grading preserves real connector cache accounting without provider calls."""
+"""Early grading preserves real connector cache accounting without provider calls.
+
+MedXpertQA is the subject since OME-1527 moved IFEval, the original one, to a local inspect Task:
+each Case asks the model twice (a reasoning turn, then the commit turn).
+"""
 
 import json
+from dataclasses import replace
 from decimal import Decimal
 
 import httpx
 import pytest
 from test_cache_hit_tokens import _HIT_HEADERS, _MODEL, _body, _Recorder, _served_aigw
 from test_early_grade_compatibility import BASELINE
-from test_ifeval_incremental_proof import _assets
-from test_ifeval_production_grades import _count_grades
+from test_medxpert_protocol_turns import _assets
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.definition import link_candidate
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
-from screamingface_engine.benchmarks.ifeval.runtime import install
+from screamingface_engine.benchmarks.medxpert import aggregate
+from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.observations import RunObservations
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from screamingface_engine.world.config import ModelSpec
@@ -26,7 +30,7 @@ from url4.dag import run as url4_run
 async def test_cached_connector_requests_results_and_consumption_match(
     tmp_path, monkeypatch, observed
 ):
-    _assets(tmp_path)
+    _assets(tmp_path, 2)
     marked = _count_grades(monkeypatch)
     calls, reports, snapshots = [], [], []
     monkeypatch.setattr(
@@ -46,20 +50,35 @@ async def test_cached_connector_requests_results_and_consumption_match(
         transport=httpx.MockTransport(handle), base_url="http://aigateway.test"
     ) as client:
         world = await build_aigateway_world(cfg, client=client)
-        install(world.node, tmp_path)
+        MEDXPERT.install(world.node, tmp_path)
         install_candidate_invocation(world.node)
-        for protocol in (BASELINE["ifeval"]["protocols"]["2"], IFEVAL.protocol(2)):
+        for protocol in (BASELINE["medxpert"]["protocols"]["2"], MEDXPERT.protocol(2)):
             reports.append(await _evaluate(world.node, protocol, observed))
         await world.node.aclose()
     assert reports[0] == reports[1]
-    assert len(calls) == 4
-    assert calls[:2] == calls[2:]
+    # Two Cases x two turns, once per protocol.
+    assert len(calls) == 8
+    assert calls[:4] == calls[4:]
     assert marked == [1, 2, 1, 2]
     if observed:
         assert snapshots[-1]["sf.progress.completed"] == 2
         assert snapshots[-1]["sf.progress.graded"] == 2
     else:
         assert snapshots == []
+
+
+def _count_grades(monkeypatch):
+    """Record each Case MedXpertQA's grade hook marks, in order."""
+
+    marked = []
+    original = aggregate._PATH.grade_case
+
+    async def counted(request):
+        marked.append(request.case_id)
+        return await original(request)
+
+    monkeypatch.setattr(aggregate, "_PATH", replace(aggregate._PATH, grade_case=counted))
+    return marked
 
 
 async def _evaluate(node, protocol, observed):
@@ -76,7 +95,7 @@ async def _evaluate(node, protocol, observed):
             )
     finally:
         await observations.aclose()
-    assert len(rec.usages) == 2
+    assert len(rec.usages) == 4
     for usage in rec.usages:
         assert (
             usage.input_tokens,

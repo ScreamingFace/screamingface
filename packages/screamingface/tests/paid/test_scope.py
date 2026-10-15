@@ -182,3 +182,42 @@ def test_an_unknown_name_from_the_env_var_is_a_problem() -> None:
 
     assert len(pick.problems) == 1
     assert "'musqiue'" in pick.problems[0]
+
+
+# --- ifeval also runs as a Corrective Loop (OME-1527 row 15b). ---
+
+# Stand-in listing with ifeval, origin as the Engine lists it after the local-Task move
+# (hand-built: it keeps origin "screamingface"). It simulates `client.benchmarks.list()`.
+_LISTED_WITH_IFEVAL: list[tuple[str, str]] = [
+    ("inspect-gsm8k", "inspect_evals"),
+    ("ifeval", "screamingface"),
+    ("draco", "screamingface"),
+]
+
+
+def test_naming_ifeval_adds_the_corrective_loop_entry() -> None:
+    """`benchmarks=ifeval` runs ifeval twice: once as the Fusion, once as the loop.
+
+    The owner presses with exactly this to read the retry chain, so the loop entry must
+    not depend on the scope word.
+    """
+    pick: ShelfPick = pick_from_env(_LISTED_WITH_IFEVAL, {NAMED_ENV: "ifeval"})
+
+    assert pick.boards == ["ifeval"]
+    assert pick.corrective == ["ifeval"]
+
+
+def test_a_scope_that_picks_ifeval_adds_the_corrective_loop_entry() -> None:
+    pick: ShelfPick = pick_from_env(_LISTED_WITH_IFEVAL, {SCOPE_ENV: "hand-built"})
+
+    assert pick.boards == ["ifeval", "draco"]
+    assert pick.corrective == ["ifeval"]
+
+
+def test_a_pick_without_ifeval_adds_no_corrective_loop_entry() -> None:
+    """A press that does not run ifeval must not pay for its loop either."""
+    by_scope: ShelfPick = pick_from_env(_LISTED_WITH_IFEVAL, {SCOPE_ENV: "imported"})
+    by_name: ShelfPick = pick_from_env(_LISTED_WITH_IFEVAL, {NAMED_ENV: "draco"})
+
+    assert by_scope.corrective == []
+    assert by_name.corrective == []

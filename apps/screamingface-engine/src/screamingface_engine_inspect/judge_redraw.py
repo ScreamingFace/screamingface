@@ -77,8 +77,9 @@ def _backoff_wait(retry: int, exc: Exception) -> float:
 class JudgedItem[Verdict]:
     """One judged item: the parsed verdict and how many redraws it took (0 = first ask).
 
-    ``redraws`` is what a scorer puts in ``Score.metadata`` to feed ``judge_invalid_replies``.
-    It counts unparseable replies only; a re-ask after a temporary gateway failure is not one.
+    ``redraws`` is what a scorer puts in ``Score.metadata`` (``judge_redraws``), so a Case's
+    evidence shows how many replies its judge had to redraw. It counts unparseable replies
+    only; a re-ask after a temporary gateway failure is not one.
     """
 
     verdict: Verdict

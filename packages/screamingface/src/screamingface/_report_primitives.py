@@ -64,6 +64,9 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "corrective_role_failed",
         "judge_reply_invalid",
         "invalid_case_evaluation",
+        # AIDEV-NOTE (OME-1527): nothing emits this since ifeval became a local Task; it stays
+        # declared because the SDK refuses an undeclared code when it reads a Report, so an
+        # ifeval Report made before the move must stay readable.
         "ifeval_checker_failed",
         # AIDEV-NOTE (OME-1527): nothing emits this since draco and draco-3pass became local
         # Tasks; it stays declared because the SDK refuses an undeclared code when it reads a

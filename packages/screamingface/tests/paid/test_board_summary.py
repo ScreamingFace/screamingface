@@ -8,6 +8,7 @@ where the money went, which board is close to the token budget.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -153,4 +154,40 @@ def test_markdown_table_ends_with_a_total_row(tmp_path: Path) -> None:
     assert last_row == (
         "| **Total** | 1/2 ok | 2/4 | 2/2 | $0.0132 | 16.9k | 17m02s wall | — "
         "| model_token_cap ×2 (reported as missing_case_row) |"
+    )
+
+
+# --- Warnings (OME-1527 row 15b): loud in every overview, never a failure. ---
+
+
+def _warned(tmp_path: Path) -> list[BoardSummary]:
+    """A healthy Corrective Loop entry whose chain did not run, beside a healthy board."""
+    report: Path = _write_report(tmp_path / "ok.json", [_case("scored"), _case("scored")])
+    loop: BoardSummary = summarize_board("ifeval · corrective loop", [], 30.0, report)
+    return [
+        dataclasses.replace(loop, warnings=("chain not exercised: x",)),
+        summarize_board("inspect-ok", [], 18.0, report),
+    ]
+
+
+def test_a_warning_never_fails_the_board(tmp_path: Path) -> None:
+    """Owner decision: a press where every Case passed round 1 is unlucky, not broken."""
+    loop: BoardSummary = _warned(tmp_path)[0]
+
+    assert loop.ok
+    assert detail_lines(loop)[-1] == "    WARNING chain not exercised: x"
+
+
+def test_the_log_block_and_the_run_page_both_carry_the_warning(tmp_path: Path) -> None:
+    """The warning sits where the owner reads the verdict: the end-of-run block and the
+    CI page, under the table so the table's own last row stays the total."""
+    summaries: list[BoardSummary] = _warned(tmp_path)
+
+    lines: list[str] = run_summary_lines(summaries, wall_seconds=60.0)
+    markdown: str = run_summary_markdown(summaries, wall_seconds=60.0)
+
+    assert lines[0].startswith("[paid smoke] 2/2 ok · 0 failed")
+    assert lines[1:] == ["  WARNING  ifeval · corrective loop  chain not exercised: x"]
+    assert markdown.rstrip("\n").splitlines()[-1] == (
+        "> ⚠️ **ifeval · corrective loop** — chain not exercised: x"
     )

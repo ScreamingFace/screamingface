@@ -162,7 +162,7 @@ def _local_benchmarks(env: Mapping[str, str]) -> BenchmarkRegistry:
     WHY not the builtins unconditionally (which is what this used to be): `benchmarks.install()`
     runs while the WORLD is built — before, and independent of, what the expression addresses —
     so a Benchmark whose assets are absent fails EVERY run, including one that references no
-    Benchmark at all. IFEval's cases live at ``/opt/benchmarks/ifeval/cases.json``, a path the
+    Benchmark at all. MedXpertQA's cases live at ``/opt/benchmarks/medxpert/cases.json``, a path the
     Dockerfile creates and a source checkout does not, so the default was guaranteed to fail
     exactly where local mode is meant to be usable (OME-795).
 

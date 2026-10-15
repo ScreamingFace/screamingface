@@ -1,14 +1,22 @@
 {
   "issue": "OME-1527",
-  "branch": "OME-1527-pr13-draft-feedback-without-answer-key",
-  "approver": "owner — OME-1527 Work order #13 (R10) approved on the ticket (an owner-allowed Benchmark may offer Draft Feedback with no answer key; the allow-list moves into the assembler); to confirm in PR review",
+  "branch": "OME-1527-pr15b-ifeval-corrective-smoke",
+  "approver": "owner \u2014 OME-1527 row 15b (the paid smoke also runs ifeval as a Corrective Loop) requested by the owner; to confirm in PR review",
   "date": "2026-10-14",
-  "scope": "(1) test_draft_feedback_offer_is_owner_opt_in.py: test_no_imported_row_asks_for_draft_feedback compares the rows asking for a check surface by catalogue id as a subset of the owner list (still empty today) instead of asserting no row at all, and pins the assembler's OWNER_ALLOWED_DRAFT_FEEDBACK to the test's own _OWNER_ALLOWED_OFFERS literal; the import line gains that constant. Test bodies not listed here are unchanged.",
-  "reason": "OME-1527 row 13 lets the one Benchmark the owner allowed (ifeval, as a local Task in row 15) offer Draft Feedback without an answer key. The row-level owner test asserted no imported row could ask for the offer; it now asserts only owner-allowed catalogue ids can, and that the assembler's copy of the list equals the owner's literal.",
+  "scope": "Row 15b, after #1407 (ifeval \u2192 local inspect Task) merged: the paid smoke's referee takes the expected Case count, its shelf runner runs (Benchmark, how it runs) entries so ifeval also runs as a Corrective Loop and its Cases' rounds are read back (test_imported_board_smoke.py); the shelf pick names the Benchmarks that also run as a loop (_scope.py ShelfPick.corrective); the overview carries warnings that never fail a board (_board_summary.py).",
+  "reason": "Row 15b edits three paid-lane helpers in place because the smoke's entry shape changes from a bare Benchmark id to an entry; every pre-existing behaviour is kept (Fusion entries keep their names, Report files and Case count) and the free tests that call these helpers pass unchanged.",
   "files": {
-    "apps/screamingface-engine/tests/unit/test_draft_feedback_offer_is_owner_opt_in.py": {
-      "base_blob": "f068767a50a51e902ca38bd8e2d5073785b40d6b",
-      "approved_blob": "fe6a6f1c783c3fe7cb788ece3ff143aaa90d13f3"
+    "packages/screamingface/tests/paid/_board_summary.py": {
+      "base_blob": "0afbd8a9d2770e4f01234a13ec68bbdde592f155",
+      "approved_blob": "2005acead3eaab0fde81b6f66265994db41fef93"
+    },
+    "packages/screamingface/tests/paid/_scope.py": {
+      "base_blob": "9d592f22e95a587b63f008063fd2287e7dbe14fa",
+      "approved_blob": "bb5c9d6feb2a5ca9bc8656310202d4be0aaa8962"
+    },
+    "packages/screamingface/tests/paid/test_imported_board_smoke.py": {
+      "base_blob": "555a035a186013607ce073e4467959f799a53ba2",
+      "approved_blob": "b2b0b97726220e6398a84f5e0a059c9b454c3919"
     }
   }
 }

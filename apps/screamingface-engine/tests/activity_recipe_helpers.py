@@ -6,7 +6,6 @@ import httpx
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.definition import link_candidate
-from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL as HEALTH_JUDGE
 from screamingface_engine.grading_accounting import capture_grading_requests
 from screamingface_engine.observations import RunObservations
 from screamingface_engine.operation_calls import capture_request_accounting
@@ -45,9 +44,7 @@ async def _run(registration, root, fusion):
                 base_url="http://gateway",
                 default_model="writer",
                 allow_outbound=False,
-                models=tuple(
-                    ModelSpec(id=m, web_search=True) for m in {"writer", "synth", HEALTH_JUDGE}
-                ),
+                models=tuple(ModelSpec(id=m, web_search=True) for m in {"writer", "synth"}),
             ),
             client=client,
             tavily_api_key="test-only",

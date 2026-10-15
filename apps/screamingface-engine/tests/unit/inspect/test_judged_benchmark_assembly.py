@@ -730,7 +730,8 @@ def test_the_owner_allowed_benchmark_offers_draft_feedback_without_an_answer_key
 
     assembled: Any = _assembled(_ifeval_shaped_spec(), monkeypatch)
 
-    assert benchmarks.OWNER_ALLOWED_DRAFT_FEEDBACK == frozenset({"ifeval"})
+    # The exact list is the owner test's pin (test_draft_feedback_offer_is_owner_opt_in.py).
+    assert "ifeval" in benchmarks.OWNER_ALLOWED_DRAFT_FEEDBACK
     assert assembled.benchmark.id == "ifeval"
     assert assembled.benchmark.check_surface is not None
 

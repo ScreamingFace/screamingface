@@ -32,7 +32,6 @@ from inspect_ai.scorer import Score, Target  # noqa: E402
 from inspect_ai.solver import TaskState  # noqa: E402
 from inspect_ai.tool import ToolCall  # noqa: E402
 
-from screamingface_engine.benchmarks.healthbench.prepare import envelope  # noqa: E402
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (  # noqa: E402
     GradeRequest,
 )
@@ -102,7 +101,6 @@ def test_a_fixed_conversation_is_written_as_the_hand_built_envelope() -> None:
     written: str = _captured(_chat(TURNS))
 
     assert written == HAND_BUILT_BYTES
-    assert written == envelope(TURNS), "the literal must still be the hand-built preparer's"
 
 
 def test_a_one_prompt_case_keeps_its_plain_text() -> None:
@@ -196,7 +194,11 @@ def test_the_envelope_flag_serves_a_conversation_as_written(tmp_path: Path) -> N
 
     served: list[dict[str, Any]] = json.loads(_cases(tmp_path, envelope=True)())
 
-    assert served[0]["input"] == envelope([{"role": "user", "content": "Dos días."}])
+    # The hand-built preparer's bytes for a one-message chat, pasted like HAND_BUILT_BYTES.
+    assert served[0]["input"] == (
+        '{"schema":"screamingface.candidate-input.v1","messages":['
+        '{"role":"user","content":"Dos días."}]}'
+    )
     assert served[1]["input"] == HAND_BUILT_BYTES
 
 
