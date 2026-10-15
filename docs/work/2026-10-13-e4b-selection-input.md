@@ -57,3 +57,6 @@ compiled url4 stay the same. Spec: `docs/spec/2026-10-13-e4b-combine-extensions/
   - `screamingface`, with append-only: NOT VERIFIED in this round. The SDK pytest run (`-n auto`) stopped at about 98% in one run, with all workers idle. The rerun hung in the same way. A serial run did not finish. The round 1 run was green. This round changed one README sentence only.
   - Append-only offenders (unchanged): the three approved pinned files.
 - **Deviations:** The ledger status stays `in_progress`. The owner must approve the three pinned test edits before this unit is done (spec §7). No code deviation. Writer calls after a Rank or a Filter miss the request cache once (review note 5). The SDK gate needs a clean run before the PR opens.
+- **Resolved 2026-10-13:** the owner approved the three pinned test edits (pinned in
+  `.claude/test-change-approvals/OME-1601.json`), and the status is `done`. The SDK gate was green
+  before PR #1409 opened.
