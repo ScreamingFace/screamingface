@@ -268,4 +268,9 @@ def _tally_html(evidence: CombineEvidence) -> str:
     return _table(head, rows)
 
 
+def combine_summary_html(candidate: CandidateResult) -> str:
+    """Per reducer step: chosen and excluded counts, and declared-signal means (ans:Q1, P13)."""
+    return ""  # RED stub (E4b part 4 unit 4): GREEN fills it and wires it into _card_html
+
+
 __all__: list[str] = []
