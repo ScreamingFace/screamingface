@@ -1,0 +1,54 @@
+{
+  "issue": "OME-E4B-P2",
+  "branch": "e4b-evidence-completeness",
+  "approver": "owner",
+  "date": "2026-10-15",
+  "scope": "E4b part 2 (evidence completeness), all units on one branch. Unit 1: additive excluded status, reasons, rank and cut in the combine-evidence v1 and answer v1 schemas; the public-surface snapshot adds the new names; test_pick_output's exact reason list gains no_signal and no_weight. Unit 2 (ans:Q3): evidence_cases.json regenerated (rank_cut_not_met and mean_weighted_value show excluded; new exclusion cases), new scenarios in the engine and SDK evidence contract lists; test_combine_weighted_vote expects excluded/no_weight instead of answered for a voter without a weight; test_frozen_record_fields counts the new cases. Unit 3: new rank cases (evidence_cases.json, scenario lists, case count 30 to 32 under the owner's standing rule). Unit 4 (ans:Q4): report-trace v1 reduce entry gains judge_operation_id and judge_model; test_e4b_schema_pins updates that schema's sha256. Unit 5: the public-surface snapshot adds the judge-writer warning. No assertion is removed or weakened.",
+  "reason": "Owner approved these 11 pinned test edits in chat on 2026-10-15 after the build reported them (plan section 6 plus the build errata). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json": {
+      "base_blob": "ecf2f814a51548ff56df7a12d2f51fd6beab2b44",
+      "approved_blob": "22d54b15b8c5d8f312b1a962ef6f590b61aa4791"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "c191827c4e963d59b13a77daa8ba9f8eac4f810c",
+      "approved_blob": "454353044494ce12ed269123a9627384a4ce1343"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_evidence_contract_fixture.py": {
+      "base_blob": "f55477f5d3686514d18ad1cb0f7183c6cb6385cf",
+      "approved_blob": "b7100e62690d9dd01432ae599547906618924c4e"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_weighted_vote.py": {
+      "base_blob": "e70c69eebbd2fe2333a14c28ddfe69644e19e7de",
+      "approved_blob": "16e266abff3ec3f1b55f952ba1b56922aa37d275"
+    },
+    "packages/screamingface/tests/data/schemas/screamingface.answer.v1.json": {
+      "base_blob": "d179ec29bf6aa230a3019cdd2da955be4c18e87a",
+      "approved_blob": "6524c2d068967d7f3455329323aa9dbd02ca5065"
+    },
+    "packages/screamingface/tests/data/schemas/screamingface.report-trace.v1.json": {
+      "base_blob": "47ddb41471b85c91b666d6a4ef053aa432e3e024",
+      "approved_blob": "9777fa55f21c48bff574337e21b9837dbec496e1"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "489b8a57e3c20c8038085c80fa06a23fb595c178",
+      "approved_blob": "48f0254369557cc83f4a622adce5ab82c51e1b52"
+    },
+    "packages/screamingface/tests/test_combine_evidence_contract.py": {
+      "base_blob": "fab1c0db10ea4f66ca5f2d8642937d255e7165c4",
+      "approved_blob": "3aaa863684aa156cd2b80e0bcd30e08d33c406fd"
+    },
+    "packages/screamingface/tests/test_e4b_schema_pins.py": {
+      "base_blob": "d9b23d45a22d474a1d7c3024ce064a9ace23a4d3",
+      "approved_blob": "8a32a2c2f6ba4a7f8f0581e722139415e784b39b"
+    },
+    "packages/screamingface/tests/test_frozen_record_fields.py": {
+      "base_blob": "c6b98604a87c661ede9e7b275fd6fbdd455045e1",
+      "approved_blob": "b0f1493ec8e1616c733b193f14b7c8ef280234b8"
+    },
+    "packages/screamingface/tests/test_pick_output.py": {
+      "base_blob": "26d21c21f5faf4aaf5f42e9f45a96ecf00a95c27",
+      "approved_blob": "03c12205ca6e56715e55f754c7f5e016ffbe6082"
+    }
+  }
+}
