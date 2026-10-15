@@ -187,13 +187,12 @@ class BenchmarkSpec:
     #: Benchmark the owner allowed; the owner reads that scorer's words before turning it on.
     #: Set on ifeval's row only. Benchmark identity when set.
     scorer_draft_feedback: bool = False
-    #: The revision this Benchmark publishes (its routes, ``Benchmark.revision``, everything),
-    #: hand-set (OME-1610); None publishes the computed fingerprint. WHY: published IDs are
-    #: what submissions and the leaderboard key on, so they move only by a deliberate bump with
-    #: owner sign-off, never because a computed fingerprint changed. No runtime comparison:
-    #: test_published_revisions holds the fingerprint each one stands for, so a stale one fails
-    #: CI, never assembly on prod. Set only with proof the exam is unchanged (a recorded golden
-    #: that replays with zero misses). NOT part of the revision. None on every other row.
+    #: The revision this Benchmark publishes (its routes, ``Benchmark.revision``), in place of
+    #: the computed fingerprint (OME-1527). WHY: published ids are what submissions and the
+    #: leaderboard key on, so they are never moved by a computed fingerprint, only by a
+    #: deliberate bump with owner sign-off (OME-1610). Never compared at runtime; the alarm is
+    #: the row's pinned fingerprint in ``test_published_revisions``. NOT part of the revision.
+    #: None, on every row but the migrated healthbench pair, publishes the computed fingerprint.
     published_revision: str | None = None
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
@@ -4497,9 +4496,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # fraction of instructions met and the checker's own words for each failed one.
         with_check_surface=True,
         scorer_draft_feedback=True,
-        # Publishes the hand-built Benchmark's revision, so its leaderboard results stay
-        # visible (owner decision, OME-1610): the recorded Corrective Loop golden replays with
-        # zero misses on the local Task, the proof the exam is unchanged.
+        # The hand-built Benchmark's published revision, so its leaderboard results stay
+        # visible (owner decision, OME-1610); the recorded Corrective Loop golden replays with
+        # zero misses on the local Task. Its computed fingerprint is pinned in the tests.
         published_revision="1cba769ece27f7ef",
         origin="screamingface",
         paper_url="https://arxiv.org/abs/2311.07911",

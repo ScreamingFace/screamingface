@@ -268,9 +268,9 @@ class ImportedBenchmark:
     check_surface_route: str
     case_evaluation_route: str
     aggregate_route: str
-    #: The fingerprint the factory computes from every revision input, always set. It equals
-    #: ``benchmark.revision`` unless the row hand-sets a ``published_revision`` (OME-1610);
-    #: test_published_revisions compares it against each pinned row's recorded fingerprint.
+    #: The revision the identity inputs compute: equal to ``benchmark.revision`` unless the
+    #: row sets ``published_revision``. Tests pin it, so a changed exam is still noticed while
+    #: the published id stays put (OME-1527).
     computed_revision: str
     #: The benchmark's judge declaration; None for every string-match benchmark (OME-1240).
     judge: JudgeSpec | None = None
@@ -460,12 +460,13 @@ def single_shot_benchmark(
             score and words (OME-1527, R9) instead of 0-or-1 and the fixed sentence. Needs
             ``with_check_surface``, which only the owner turns on for a Benchmark. Hashed
             into the revision below when set.
-        published_revision: the revision this Benchmark publishes, hand-set (OME-1610); None
-            publishes the computed fingerprint. WHY: published IDs are what submissions and
-            the leaderboard key on, so they move only by a deliberate bump with owner
-            sign-off, never because a computed fingerprint changed. Published as is, with no
-            runtime comparison: a stale fingerprint fails a test in CI, never assembly on
-            prod. NOT hashed into the revision: it names the revision, so it cannot feed it.
+        published_revision: the revision this Benchmark publishes (routes,
+            ``Benchmark.revision``) instead of the computed fingerprint (OME-1527). WHY:
+            published ids are what submissions and the leaderboard key on, so they are never
+            moved by a computed fingerprint, only by a deliberate bump (OME-1610). Never
+            compared at runtime: a stale fingerprint fails CI (``test_published_revisions``),
+            never a deployed Engine. NOT hashed into the revision. None publishes the
+            computed fingerprint.
         answer_rule: how the grader reads an answer, as pinned combine operator ids (OME-1289).
             Published in the catalog; NOT hashed into the revision (like ``focus``).
 
@@ -557,6 +558,9 @@ def single_shot_benchmark(
             )
         ).encode()
     ).hexdigest()[:16]
+    # WHY no comparison here: a row that sets published_revision publishes it whatever the
+    # fingerprint computes to, so a changed exam can never take a Benchmark down in prod; the
+    # alarm is the pinned fingerprint in test_published_revisions (OME-1527, OME-1610).
     revision: str = published_revision or computed_revision
     prefix: str = f"/benchmarks/{benchmark_id}/{revision}"
     routes: dict[str, str] = {

@@ -165,7 +165,11 @@ letter).
   of 50, every status and failure as recorded; golden unchanged by the redesign). This replaces an
   earlier round's `kept_revision=(published, stands_for)`, cherry-picked from #1403's `5f3df2ed2`,
   which refused assembly on a mismatch; the owner redesigned it so prod never refuses. #1403 makes
-  the identical change for healthbench: `test_only_rows_with_an_equivalence_proof_set_a_published_revision`
+  the identical change for healthbench (`5263997b2`), and this branch mirrors it byte for byte to
+  avoid add/add conflicts: the `single_shot.py` hunks, the `BenchmarkSpec` field and its
+  `_assemble` line, `test_published_revision.py` but its expected rows, and the `_FINGERPRINTS`
+  block of `test_published_revisions.py` but its rows. (So the field's comment says "every row but
+  the migrated healthbench pair", true once both merge, not on this branch alone.) `test_only_rows_with_an_equivalence_proof_set_a_published_revision`
   expects `{"ifeval": …}` here and #1403 its healthbench pair, as do the two `_FINGERPRINTS` dicts;
   whichever of the two merges second resolves both to the union of the three rows. (6) The abstain contract for the whole-run metric (#1403 hands it an abstained
   Case's Score zeroed and marked `candidate_abstained`, the lane's `CANDIDATE_ABSTAINED`, sometimes
