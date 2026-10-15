@@ -2,4 +2,4 @@
 //
 // Every code sample interpolates this constant, so replacing the value here
 // updates all of them.
-export const SF_ENGINE_URL = 'https://fusion.dev.screamingface.ai'
+export const SF_ENGINE_URL = 'https://fusion.screamingface.ai'

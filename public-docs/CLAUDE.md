@@ -133,8 +133,9 @@ export const sfClientNavigation: NavEntry[] = [
 
 **Versioning.** `sf-client.ts` also exports `sfClientVersion`
 (`{ prefix, label, url }`), rendered once in the sidebar footer rather than on
-each page. It is a commit while `screamingface` is unpublished; when the package
-ships to PyPI only that object changes.
+each page. It names the `screamingface` release the pages were verified against
+(currently 0.1.3, linking its PyPI page); re-verifying against a newer release
+changes only that object.
 
 **How pages consume it:**
 
