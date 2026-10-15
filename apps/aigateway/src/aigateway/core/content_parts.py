@@ -25,6 +25,12 @@ _DATA_URI_RE = re.compile(
 )
 _REMOTE_SCHEMES = ("https://", "http://")
 _MEDIA_TYPES = frozenset({"image_url", "file"})
+# WHY: the Chat Completions `image_url.detail` set. Responses also has "original", but a caller
+# speaking Chat Completions cannot send it, so anything outside this set is a malformed request.
+_IMAGE_DETAILS = frozenset({"auto", "low", "high"})
+# INVARIANT: scope is images and PDFs (OME-1541 spec). An audio/video payload wrapped in an image
+# or file envelope is refused by MIME, not dispatched under the wrong part type.
+_FILE_MIMES = frozenset({"application/pdf"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +46,7 @@ class MediaPart:
     mime: str
     data: str
     filename: str | None = None
+    detail: str | None = None
 
     @property
     def data_uri(self) -> str:
@@ -51,6 +58,7 @@ class RemoteImagePart:
     """An image the caller referenced by URL. The gateway never fetches it (SSRF)."""
 
     url: str
+    detail: str | None = None
 
 
 ContentPart = TextPart | MediaPart | RemoteImagePart
@@ -152,23 +160,43 @@ def _parse_item(item: Mapping[str, Any], provider: str) -> ContentPart | None:
     text = item.get("text") or item.get("content")
     if isinstance(text, str):
         return TextPart(text)
-    if isinstance(part_type, str) and part_type not in {"text", *_MEDIA_TYPES}:
-        # INVARIANT: an unknown typed part with no text (audio, video, …) is refused — it is
-        # exactly the silent drop this module exists to end.
-        raise UnsupportedContentPart(provider=provider, part_type=part_type, reason="unsupported")
-    return None
+    if part_type == "text":
+        # an empty text part was skipped by the old flatten; still is
+        return None
+    # INVARIANT: fail closed — an unknown typed part (audio, video, …) or an untyped mapping
+    # that carries no text is refused. Skipping it is exactly the silent drop this module ends.
+    raise UnsupportedContentPart(
+        provider=provider,
+        part_type=part_type if isinstance(part_type, str) else "untyped",
+        reason="unsupported",
+    )
 
 
 def _parse_image(value: Any, provider: str) -> MediaPart | RemoteImagePart:
     url = value.get("url") if isinstance(value, Mapping) else value
+    detail = _image_detail(value, provider)
     if isinstance(url, str):
         match = _DATA_URI_RE.match(url)
         if match is not None:
-            return MediaPart(kind="image", mime=match["mime"].lower(), data=match["data"])
+            mime = match["mime"].lower()
+            if not mime.startswith("image/"):
+                raise UnsupportedContentPart(
+                    provider=provider, part_type="image_url", reason=f"unsupported_mime {mime}"
+                )
+            return MediaPart(kind="image", mime=mime, data=match["data"], detail=detail)
         if url.startswith(_REMOTE_SCHEMES):
-            return RemoteImagePart(url)
+            return RemoteImagePart(url, detail=detail)
     raise UnsupportedContentPart(
         provider=provider, part_type="image_url", reason="expected a base64 data URI or http(s) URL"
+    )
+
+
+def _image_detail(value: Any, provider: str) -> str | None:
+    detail = value.get("detail") if isinstance(value, Mapping) else None
+    if detail is None or detail in _IMAGE_DETAILS:
+        return detail
+    raise UnsupportedContentPart(
+        provider=provider, part_type="image_url", reason=f"invalid detail {detail!r}"
     )
 
 
@@ -181,10 +209,15 @@ def _parse_file(value: Any, provider: str) -> MediaPart:
         raise UnsupportedContentPart(
             provider=provider, part_type="file", reason="expected base64 file_data"
         )
+    mime = match["mime"].lower()
+    if mime not in _FILE_MIMES:
+        raise UnsupportedContentPart(
+            provider=provider, part_type="file", reason=f"unsupported_mime {mime}"
+        )
     filename = value.get("filename") if isinstance(value, Mapping) else None
     return MediaPart(
         kind="file",
-        mime=match["mime"].lower(),
+        mime=mime,
         data=match["data"],
         filename=filename if isinstance(filename, str) and filename else None,
     )

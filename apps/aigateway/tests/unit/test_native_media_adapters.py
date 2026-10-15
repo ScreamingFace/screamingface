@@ -149,8 +149,8 @@ def test_codex_user_media_becomes_input_parts_in_order() -> None:
             "role": "user",
             "content": [
                 {"type": "input_text", "text": "look"},
-                {"type": "input_image", "image_url": PNG_URI},
-                {"type": "input_image", "image_url": "https://example.com/a.png"},
+                {"type": "input_image", "image_url": PNG_URI, "detail": "auto"},
+                {"type": "input_image", "image_url": "https://example.com/a.png", "detail": "auto"},
                 {"type": "input_file", "filename": "r.pdf", "file_data": PDF_URI},
             ],
         }
@@ -231,3 +231,64 @@ def test_prepare_chat_body_remote_image_only_for_codex(
     with pytest.raises(UnsupportedContentPart) as caught:
         plugin.prepare_chat_body(body)
     assert caught.value.info["reason"] == "remote_url"
+
+
+# --- review of PR #1431 -----------------------------------------------------------------------
+
+
+def test_codex_input_image_always_carries_detail() -> None:
+    # WHY: `detail` is Required on the Responses `input_image` (openai 2.53.0); an omitted
+    # Chat Completions detail maps to "auto", an explicit one is preserved.
+    def image(url: str, detail: str | None = None) -> dict[str, Any]:
+        inner: dict[str, Any] = {"url": url}
+        if detail is not None:
+            inner["detail"] = detail
+        return {"type": "image_url", "image_url": inner}
+
+    payload = _build_payload(
+        "codex/gpt-5.4-mini",
+        [
+            {
+                "role": "user",
+                "content": [
+                    image(PNG_URI, "high"),
+                    image("https://example.com/a.png", "low"),
+                    image(PNG_URI),
+                ],
+            }
+        ],
+        {},
+    )
+    assert payload["input"][0]["content"] == [
+        {"type": "input_image", "image_url": PNG_URI, "detail": "high"},
+        {"type": "input_image", "image_url": "https://example.com/a.png", "detail": "low"},
+        {"type": "input_image", "image_url": PNG_URI, "detail": "auto"},
+    ]
+
+
+@pytest.mark.parametrize("build", GEMINI_BUILDERS)
+def test_gemini_ignores_detail(build) -> None:
+    part = {"type": "image_url", "image_url": {"url": PNG_URI, "detail": "high"}}
+    body = build([{"role": "user", "content": [part]}], {})
+    assert body["contents"][0]["parts"] == [
+        {"inlineData": {"mimeType": "image/png", "data": PNG_B64}}
+    ]
+
+
+@pytest.mark.parametrize(("provider", "plugin"), _plugins())
+@pytest.mark.parametrize(
+    "part",
+    [
+        {"type": "image_url", "image_url": {"url": "data:audio/wav;base64,UklGRg=="}},
+        {"type": "file", "file": {"file_data": "data:video/mp4;base64,AAAAIGZ0eXA="}},
+        {},
+    ],
+)
+def test_prepare_chat_body_refuses_wrapped_av_and_untyped_parts(
+    provider: str, plugin: Any, part: dict[str, Any]
+) -> None:
+    body = {"model": "m", "messages": [{"role": "user", "content": ["hi", part]}]}
+    with pytest.raises(UnsupportedContentPart) as caught:
+        plugin.prepare_chat_body(body)
+    assert caught.value.status_code == 422
+    assert caught.value.info["provider"] == provider

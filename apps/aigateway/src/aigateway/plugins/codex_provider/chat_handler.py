@@ -53,12 +53,18 @@ def _input_part(part: ContentPart) -> dict[str, Any]:
         return {"type": "input_text", "text": part.text}
     if isinstance(part, RemoteImagePart):
         # WHY: OpenAI fetches https image URLs itself, so the gateway passes them through.
-        return {"type": "input_image", "image_url": part.url}
+        return _input_image(part.url, part.detail)
     if part.kind == "image":
-        return {"type": "input_image", "image_url": part.data_uri}
+        return _input_image(part.data_uri, part.detail)
     # WHY: the Responses API requires a filename alongside inline `file_data`.
     filename = part.filename or f"attachment.{part.mime.rsplit('/', 1)[-1]}"
     return {"type": "input_file", "filename": filename, "file_data": part.data_uri}
+
+
+def _input_image(url: str, detail: str | None) -> dict[str, Any]:
+    # WHY: `detail` is Required on a Responses `input_image`; an omitted Chat Completions detail
+    # means "auto" there, so the default is explicit rather than left to the backend.
+    return {"type": "input_image", "image_url": url, "detail": detail or "auto"}
 
 
 def _build_payload(model: str, messages: list[dict[str, Any]], optional_params: dict) -> dict:

@@ -45,4 +45,9 @@ See `docs/plan/2026-10-15-provider-native-media.md` steps 1–5.
   - `UnsupportedContentPart.info` carries a typed copy of the detail (`HTTPException.detail` is `str`).
   - Cache: the three providers use the default `CacheBypass`, so no drop-era answer can be
     served from the exact-request cache.
+  - PR #1431 review: image `detail` carried through (Codex `input_image.detail` is Required,
+    default `auto`); `image_url` must be `image/*` and `file` must be `application/pdf`; untyped
+    non-text mappings are refused (`part_type: untyped`). Two PR-local tests changed with owner
+    approval (`{}` no longer skippable; Codex payload pinned without `detail`); gates run with
+    `--skip-append-only` for that change only.
   - Not yet verified live: the external 12-call run after the staging deploy answers `OME-1598`.

@@ -51,7 +51,7 @@ def _file(data: str, filename: str | None = None) -> dict[str, Any]:
         ([{"type": "input_text", "text": "a"}], [TextPart("a")]),
         ([{"content": "a"}], [TextPart("a")]),
         # empty text and non-dict junk were skipped before, and still are
-        ([{"type": "text", "text": ""}, None, 3, {}], []),
+        ([{"type": "text", "text": ""}, {"type": "text"}, None, 3], []),
     ],
 )
 def test_parse_text_content(content: Any, expected: list[Any]) -> None:
@@ -204,3 +204,73 @@ def test_check_messages_skips_non_dict_messages() -> None:
         media_roles=frozenset({"user"}),
         allow_remote_images=False,
     )
+
+
+# --- review of PR #1431: detail, MIME family, untyped parts ----------------------------------
+
+
+@pytest.mark.parametrize("detail", ["auto", "low", "high"])
+def test_parse_image_keeps_detail(detail: str) -> None:
+    data = {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/png;base64,{PNG_B64}", "detail": detail},
+    }
+    remote = {
+        "type": "image_url",
+        "image_url": {"url": "https://example.com/a.png", "detail": detail},
+    }
+    assert parse_content([data, remote], provider="p") == [
+        MediaPart(kind="image", mime="image/png", data=PNG_B64, detail=detail),
+        RemoteImagePart("https://example.com/a.png", detail=detail),
+    ]
+
+
+def test_parse_image_without_detail_leaves_it_unset() -> None:
+    assert parse_content([_image("https://example.com/a.png")], provider="p") == [
+        RemoteImagePart("https://example.com/a.png", detail=None)
+    ]
+
+
+def test_parse_image_refuses_unknown_detail() -> None:
+    part = {
+        "type": "image_url",
+        "image_url": {"url": "https://example.com/a.png", "detail": "ultra"},
+    }
+    with pytest.raises(UnsupportedContentPart) as caught:
+        parse_content([part], provider="codex")
+    assert caught.value.info["part_type"] == "image_url"
+    assert caught.value.info["reason"] == "invalid detail 'ultra'"
+
+
+@pytest.mark.parametrize(
+    ("part", "part_type", "mime"),
+    [
+        # INVARIANT: an audio/video payload wrapped in an image or file envelope is refused,
+        # never dispatched as input_image / input_file / inlineData.
+        (_image("data:audio/wav;base64,UklGRg=="), "image_url", "audio/wav"),
+        (_image("data:video/mp4;base64,AAAAIGZ0eXA="), "image_url", "video/mp4"),
+        (_image(f"data:application/pdf;base64,{PDF_B64}"), "image_url", "application/pdf"),
+        (_file("data:video/mp4;base64,AAAAIGZ0eXA="), "file", "video/mp4"),
+        (_file("data:audio/mpeg;base64,SUQz"), "file", "audio/mpeg"),
+        (_file(f"data:image/png;base64,{PNG_B64}"), "file", "image/png"),
+    ],
+)
+def test_parse_refuses_mime_outside_the_part_family(
+    part: dict[str, Any], part_type: str, mime: str
+) -> None:
+    with pytest.raises(UnsupportedContentPart) as caught:
+        parse_content([part], provider="gemini-cli")
+    assert caught.value.info["part_type"] == part_type
+    assert caught.value.info["reason"] == f"unsupported_mime {mime}"
+
+
+@pytest.mark.parametrize(
+    "part",
+    [{}, {"image": "x"}, {"type": 7}, {"text": 3}, {"content": ["nested"]}],
+)
+def test_parse_refuses_untyped_non_text_mapping(part: dict[str, Any]) -> None:
+    # INVARIANT: fail closed — a mapping that is neither text nor a known media part is
+    # refused, not skipped (skipping is the silent drop this module exists to end).
+    with pytest.raises(UnsupportedContentPart) as caught:
+        parse_content([part], provider="p")
+    assert caught.value.info["part_type"] == "untyped"
