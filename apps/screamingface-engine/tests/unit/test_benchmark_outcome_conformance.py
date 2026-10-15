@@ -17,8 +17,6 @@ from test_medxpert_aggregate import _root as medxpert_root
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
-from screamingface_engine.benchmarks.healthbench.grade import aggregate as aggregate_healthbench
-from screamingface_engine.benchmarks.healthbench.scoring import unclipped_mean
 
 AggregateFixture = Callable[[Path, dict[str, object]], dict[str, Any]]
 
@@ -27,22 +25,7 @@ def _medxpert(root: Path, row: dict[str, object]) -> dict[str, Any]:
     return aggregate_medxpert(medxpert_root(root, (1,)), json.dumps([row]), (1,))
 
 
-def _healthbench(root: Path, row: dict[str, object]) -> dict[str, Any]:
-    (root / "cases.json").write_text(
-        json.dumps([{"id": 1, "input": "Patient question"}]),
-        encoding="utf-8",
-    )
-    return aggregate_healthbench(
-        json.dumps([row]),
-        root,
-        benchmark_id="healthbench-worst30",
-        benchmark_revision="fixture",
-        case_ids=(1,),
-        mean=unclipped_mean,
-    )
-
-
-@pytest.mark.parametrize("aggregate", (_medxpert, _healthbench))
+@pytest.mark.parametrize("aggregate", (_medxpert,))
 @pytest.mark.parametrize("refusal", ("I cannot answer that.", None))
 def test_refusal_survives_a_later_grading_failure_across_benchmarks(
     tmp_path: Path,
@@ -89,7 +72,7 @@ def test_refusal_survives_a_later_grading_failure_across_benchmarks(
     ]
 
 
-@pytest.mark.parametrize("aggregate", (_medxpert, _healthbench))
+@pytest.mark.parametrize("aggregate", (_medxpert,))
 def test_case_execution_identity_mismatch_fails_loudly_across_benchmarks(
     tmp_path: Path,
     aggregate: AggregateFixture,

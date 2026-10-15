@@ -43,7 +43,7 @@ def test_the_default_route_is_routable() -> None:
 
 def test_the_pinned_benchmark_judges_are_routable() -> None:
     # INVARIANT: a different judge materially changes benchmark scores (DRACO arXiv:2602.11685
-    # §4.2 pins its judge; healthbench/definition.py pins JUDGE_MODEL). Both must stay routes.
+    # §4.2 pins its judge; the healthbench rows' JudgeSpec pins theirs). Both must stay routes.
     assert "openrouter/google/gemini-3.1-pro-preview" in BUILTIN_MODEL_WORLD.routable
     assert "openrouter/openai/gpt-5.4" in BUILTIN_MODEL_WORLD.routable
 

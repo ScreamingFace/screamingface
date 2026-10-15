@@ -53,12 +53,15 @@ mode the named codes exist to prevent, so the mapping here is explicit and close
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
-from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, MutableMapping, Sequence
 from dataclasses import replace
 from typing import Any
 
+from inspect_ai.log._transcript import Transcript
+from inspect_ai.log._transcript import _transcript as _inspect_transcript
 from inspect_ai.model import (
     ChatMessage,
     ChatMessageAssistant,
@@ -222,10 +225,17 @@ def inspect_grade_case(
             file_score(int(request.case_id), score, state)
         return outcome
 
+    return _observed(grade)
+
+
+def _observed(grade: GradeCase) -> GradeCase:
+    """Report each Case's grading activity around ``grade``, in its own inspect Transcript."""
+
     async def observed(request: GradeRequest) -> CaseGradeOutcome:
         report_case_grading(request.case_id, "started")
         try:
-            outcome = await grade(request)
+            with _case_transcript():
+                outcome = await grade(request)
         except Exception:
             report_case_grading(request.case_id, "failed")
             raise
@@ -233,6 +243,26 @@ def inspect_grade_case(
         return outcome
 
     return observed
+
+
+@contextlib.contextmanager
+def _case_transcript() -> Iterator[None]:
+    """Give one Case's grading its own inspect Transcript; put the caller's back after (OME-1607).
+
+    inspect appends every model call a scorer makes (a judge's `ModelEvent`, full prompt
+    included) to the CURRENT Transcript — a ContextVar. Unbound, it is created lazily in the
+    task that first asks; bound in the context the aggregate was called in, every Case's task
+    inherits the SAME one and the run's judge calls pile up in one list. The engine never reads
+    a Transcript, so each Case gets a fresh one that dies with it.
+
+    WHY the private ContextVar: inspect has `init_transcript` but no way to restore the previous
+    value; set/reset on the variable itself is the only exact undo. inspect-ai is pinned.
+    """
+    token = _inspect_transcript.set(Transcript())
+    try:
+        yield
+    finally:
+        _inspect_transcript.reset(token)
 
 
 def _outcome(
@@ -507,6 +537,26 @@ def _dict_shape_problem(raw: object, names: tuple[str, ...]) -> str | None:
     return f"missing declared score key {missing[0]!r}" if missing else None
 
 
+def whole_run_grade(value: object, headline_name: str | None) -> float | None:
+    """The Case score a kept Score stands for on a row that honours a whole-run metric, read
+    as Stage 4 reads it for the Case Result: a dict value by its headline column (what
+    ``_dict_outcome`` publishes), anything else as itself; ``None`` means unmappable.
+
+    WHY inspect's letters and no flip: such a row may not rewrite its grades (the row check
+    refuses ``verdict_grades`` and ``inverted_grade`` beside a whole-run metric), so Stage 4
+    reads its headline exactly so. Worked example, ifeval's shape:
+    ``{"prompt_level_strict_accuracy": 1.0, "inst_level_strict_accuracy": 0.5}`` with that
+    headline → 1.0, where inspect's ``value_to_float`` reads the whole dict as 0.0.
+    """
+
+    raw: object = (
+        value.get(headline_name)
+        if isinstance(value, Mapping) and headline_name is not None
+        else value
+    )
+    return _score_as_float(raw, _INSPECT_LETTER_SCORE_VALUES, False)
+
+
 def _case_score(grade: float, inverted_grade: bool) -> float | None:
     """Our Case score from the eval's grade — itself, or 1 − grade on a should-refuse
     Benchmark (OME-1400); ``None`` means no score exists (failed by name, never coerced).
@@ -751,4 +801,4 @@ def _failure(code: str, detail: str, score: Score | None = None) -> CaseGradeOut
     )
 
 
-__all__ = ["inspect_grade_case"]
+__all__ = ["inspect_grade_case", "whole_run_grade"]

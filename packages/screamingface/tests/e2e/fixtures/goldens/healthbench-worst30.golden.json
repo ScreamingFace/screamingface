@@ -8,363 +8,363 @@
     "openrouter/tencent/hy3"
   ],
   "limit": null,
-  "expression_sha": "51598e8126b5fbe7766a13acab43c45809bfca4a36e87ee2d57d51713efbf1f6",
+  "expression_sha": "ba3d12d1a27dab1892eff15b9c76681c10c011f76352bfb61f19e4b294de35d1",
   "final_score": "-0.091",
   "case_count": 157,
   "gradeable_count": 124,
   "case_statuses": {
-    "1": "failed",
-    "10": "scored",
+    "1": "scored",
+    "10": "failed",
     "100": "scored",
     "101": "scored",
     "102": "scored",
     "103": "scored",
     "104": "scored",
     "105": "scored",
+    "106": "failed",
+    "107": "scored",
     "108": "scored",
-    "111": "scored",
-    "113": "failed",
+    "109": "scored",
+    "11": "scored",
+    "110": "scored",
+    "111": "failed",
+    "112": "scored",
+    "113": "scored",
+    "114": "scored",
+    "115": "scored",
+    "116": "scored",
+    "117": "scored",
+    "118": "scored",
+    "119": "scored",
+    "12": "failed",
+    "120": "scored",
+    "121": "scored",
+    "122": "scored",
+    "123": "scored",
+    "124": "failed",
     "125": "scored",
-    "127": "scored",
-    "129": "failed",
+    "126": "failed",
+    "127": "failed",
+    "128": "scored",
+    "129": "scored",
+    "13": "failed",
     "130": "scored",
+    "131": "failed",
+    "132": "scored",
+    "133": "failed",
     "134": "scored",
-    "135": "scored",
+    "135": "failed",
     "136": "scored",
+    "137": "scored",
+    "138": "scored",
     "139": "scored",
+    "14": "failed",
+    "140": "failed",
+    "141": "scored",
     "142": "scored",
+    "143": "failed",
+    "144": "failed",
     "145": "scored",
+    "146": "scored",
+    "147": "failed",
+    "148": "failed",
     "149": "scored",
     "15": "scored",
     "150": "scored",
+    "151": "failed",
     "152": "scored",
-    "153": "scored",
-    "154": "scored",
-    "166": "scored",
-    "167": "failed",
+    "153": "failed",
+    "154": "failed",
+    "155": "scored",
+    "156": "scored",
+    "157": "scored",
+    "16": "scored",
     "17": "scored",
-    "172": "scored",
-    "173": "scored",
-    "174": "scored",
-    "176": "scored",
-    "186": "failed",
+    "18": "scored",
     "19": "scored",
-    "190": "scored",
-    "191": "failed",
-    "197": "scored",
-    "198": "scored",
+    "2": "scored",
     "20": "scored",
-    "202": "scored",
-    "203": "scored",
-    "204": "scored",
     "21": "scored",
-    "212": "scored",
-    "213": "scored",
-    "214": "scored",
-    "215": "failed",
-    "216": "failed",
-    "217": "scored",
-    "220": "scored",
-    "221": "scored",
+    "22": "scored",
+    "23": "scored",
     "24": "scored",
-    "241": "failed",
     "25": "scored",
-    "256": "scored",
-    "26": "failed",
-    "261": "scored",
-    "276": "scored",
-    "280": "scored",
-    "286": "scored",
-    "292": "scored",
-    "293": "scored",
-    "297": "scored",
-    "300": "scored",
-    "317": "failed",
-    "321": "scored",
-    "322": "scored",
-    "328": "scored",
-    "331": "scored",
-    "335": "scored",
-    "336": "failed",
-    "340": "scored",
-    "349": "failed",
-    "350": "failed",
-    "351": "scored",
-    "352": "scored",
-    "355": "scored",
-    "356": "scored",
-    "359": "failed",
-    "363": "scored",
-    "365": "scored",
-    "366": "failed",
-    "370": "failed",
-    "373": "failed",
-    "376": "scored",
-    "377": "scored",
-    "379": "scored",
+    "26": "scored",
+    "27": "failed",
+    "28": "scored",
+    "29": "scored",
+    "3": "scored",
+    "30": "scored",
+    "31": "failed",
+    "32": "scored",
+    "33": "scored",
+    "34": "scored",
+    "35": "scored",
+    "36": "scored",
+    "37": "scored",
     "38": "scored",
-    "386": "scored",
-    "393": "scored",
-    "394": "failed",
-    "395": "scored",
-    "396": "scored",
-    "398": "scored",
-    "399": "scored",
+    "39": "failed",
+    "4": "scored",
     "40": "scored",
-    "400": "scored",
-    "401": "scored",
-    "402": "scored",
-    "403": "scored",
-    "408": "failed",
     "41": "scored",
-    "418": "scored",
-    "419": "failed",
-    "42": "failed",
-    "420": "failed",
-    "422": "scored",
-    "424": "failed",
-    "427": "failed",
-    "428": "failed",
-    "429": "scored",
+    "42": "scored",
     "43": "scored",
-    "431": "scored",
-    "438": "scored",
     "44": "scored",
-    "449": "scored",
-    "455": "scored",
-    "459": "scored",
+    "45": "scored",
     "46": "scored",
-    "461": "scored",
-    "462": "scored",
-    "463": "scored",
-    "465": "scored",
-    "467": "scored",
-    "472": "scored",
-    "477": "scored",
-    "479": "scored",
+    "47": "scored",
     "48": "scored",
-    "481": "scored",
-    "484": "scored",
-    "492": "failed",
-    "493": "failed",
-    "494": "scored",
-    "502": "scored",
-    "505": "failed",
-    "510": "scored",
-    "511": "scored",
-    "512": "scored",
-    "515": "scored",
-    "518": "failed",
-    "521": "failed",
-    "523": "scored",
-    "524": "scored",
-    "525": "scored",
+    "49": "failed",
+    "5": "scored",
+    "50": "scored",
+    "51": "scored",
+    "52": "scored",
+    "53": "failed",
+    "54": "scored",
+    "55": "scored",
+    "56": "scored",
+    "57": "scored",
+    "58": "scored",
+    "59": "scored",
+    "6": "scored",
+    "60": "failed",
+    "61": "scored",
     "62": "scored",
     "63": "scored",
     "64": "scored",
-    "67": "failed",
+    "65": "failed",
+    "66": "scored",
+    "67": "scored",
+    "68": "scored",
     "69": "scored",
     "7": "scored",
+    "70": "scored",
+    "71": "scored",
+    "72": "scored",
+    "73": "scored",
+    "74": "scored",
+    "75": "failed",
     "76": "scored",
     "77": "scored",
-    "78": "scored",
+    "78": "failed",
+    "79": "scored",
+    "8": "scored",
+    "80": "failed",
+    "81": "scored",
+    "82": "failed",
+    "83": "scored",
+    "84": "scored",
+    "85": "failed",
+    "86": "failed",
+    "87": "scored",
+    "88": "scored",
+    "89": "scored",
+    "9": "scored",
+    "90": "scored",
     "91": "scored",
-    "99": "failed"
+    "92": "scored",
+    "93": "scored",
+    "94": "scored",
+    "95": "scored",
+    "96": "scored",
+    "97": "scored",
+    "98": "scored",
+    "99": "scored"
   },
   "case_failures": {
-    "1": [
+    "10": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "113": [
+    "106": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "129": [
+    "111": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "167": [
+    "12": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "186": [
+    "124": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "191": [
+    "126": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "215": [
+    "127": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "216": [
+    "13": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "241": [
+    "131": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "26": [
+    "133": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "317": [
+    "135": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "336": [
+    "14": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "349": [
+    "140": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "350": [
+    "143": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "359": [
+    "144": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "366": [
+    "147": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "370": [
+    "148": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "373": [
+    "151": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "394": [
+    "153": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "408": [
+    "154": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "419": [
+    "27": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "42": [
+    "31": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "420": [
+    "39": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "424": [
+    "49": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "427": [
+    "53": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "428": [
+    "60": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "492": [
+    "65": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "493": [
+    "75": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "505": [
+    "78": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "518": [
+    "80": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "521": [
+    "82": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "67": [
+    "85": [
       {
         "stage": "candidate",
         "code": "upstream_error"
       }
     ],
-    "99": [
+    "86": [
       {
         "stage": "candidate",
         "code": "upstream_error"

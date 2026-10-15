@@ -129,8 +129,8 @@ _ASSET_BUNDLE = {
     "draco": "draco",
     "draco-3pass": "draco-3pass",
     "ifeval": "ifeval",
-    "healthbench-worst30": "healthbench",
-    "healthbench-professional": "healthbench",
+    "healthbench-worst30": "healthbench-worst30",
+    "healthbench-professional": "healthbench-professional",
     "gdpval-text": "gdpval-text",
 }
 

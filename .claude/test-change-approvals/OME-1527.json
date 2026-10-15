@@ -3,32 +3,32 @@
   "branch": "OME-1527-pr15b-ifeval-corrective-smoke",
   "approver": "owner \u2014 OME-1527 row 15b (the paid smoke also runs ifeval as a Corrective Loop) requested by the owner; carries over #1407's owner-approved entries (Work order #15, decisions 2 and 5) because this branch stacks on #1407 and the pre-push check diffs against main's merge base; to confirm in PR review",
   "date": "2026-10-14",
-  "scope": "IFEval leaves the hand-built lane. (1) Tests that used the hand-built IFEval as their hand-built subject move to MedXpertQA (early grading, outcome conformance, protocol, deployment, discovery, abstain hoist) or drop the IFEval branch of a loop over the built-ins (stage parity, early score timing, the early-grade compatibility fixture loses its ifeval board). (2) Tests that needed IFEval's Draft Feedback or its grading lose those parts here and gain them in the inspect lane against the local Task (abstain_corrective part (b), abstain_families' IFEval section, combine_reducer_candidates' three IFEval tests, samples_seed_contract's SM-10). (3) Conformance tables gain the ifeval row: family reply_only with the owner's one Draft Feedback offer, stand-in metadata, an empty nltk corpus folder in stand-in bundles, the reply-only set, the whole-run metric opt-in list, the declaration table, the published revision literal. (4) Review fixes from #1399: test_no_imported_row_asks_for_draft_feedback renamed test_only_owner_allowed_rows_ask_for_draft_feedback, the catalogue-level offer test compares against the installed part of the allow-list, and the assembly test checks membership instead of the exact list. (5) SDK: the CLI fingerprint test no longer lists ifeval; the e2e golden's revision, expression hash and Case-id keys regenerate (official key -> position 1..541 in the pinned split), every recorded outcome unchanged. (6) Row 15b, this branch: the paid smoke's referee takes the expected Case count, its shelf runner runs (Benchmark, how it runs) entries so ifeval also runs as a Corrective Loop and its Cases' rounds are read back (test_imported_board_smoke.py); the shelf pick names the Benchmarks that also run as a loop (_scope.py ShelfPick.corrective); the overview carries warnings that never fail a board (_board_summary.py). (7) Review fixes on #1407, merged in: test_nltk_data_at_image_build's docstrings name the new offline-tokenizer test in test_local_task_ifeval.py as the proof that ifeval's checker tokenizes with the bundled corpus (docstrings only, no assertion changes). (8) Owner decision OME-1610 (a published revision must not move as a side effect of a code move): ifeval publishes its hand-built revision 1cba769ece27f7ef via a hand-set published_revision, so test_published_revisions pins 1cba769ece27f7ef again and the e2e golden's revision returns to 1cba769ece27f7ef; its expression_sha re-renders to 6411a99f\u2026 (the routes carry the revision) from the free replay, every status, failure and the 0.9184 score unchanged.",
+  "scope": "IFEval leaves the hand-built lane. (1) Tests that used the hand-built IFEval as their hand-built subject move to MedXpertQA (early grading, outcome conformance, protocol, deployment, discovery, abstain hoist) or drop the IFEval branch of a loop over the built-ins (stage parity, early score timing, the early-grade compatibility fixture loses its ifeval board). (2) Tests that needed IFEval's Draft Feedback or its grading lose those parts here and gain them in the inspect lane against the local Task (abstain_corrective part (b), abstain_families' IFEval section, combine_reducer_candidates' three IFEval tests, samples_seed_contract's SM-10). (3) Conformance tables gain the ifeval row: family reply_only with the owner's one Draft Feedback offer, stand-in metadata, an empty nltk corpus folder in stand-in bundles, the reply-only set, the whole-run metric opt-in list, the declaration table, the published revision literal. (4) Review fixes from #1399: test_no_imported_row_asks_for_draft_feedback renamed test_only_owner_allowed_rows_ask_for_draft_feedback, the catalogue-level offer test compares against the installed part of the allow-list, and the assembly test checks membership instead of the exact list. (5) SDK: the CLI fingerprint test no longer lists ifeval; the e2e golden's revision, expression hash and Case-id keys regenerate (official key -> position 1..541 in the pinned split), every recorded outcome unchanged. (6) Review fixes on #1407: test_nltk_data_at_image_build's docstrings name the new offline-tokenizer test in test_local_task_ifeval.py as the proof that ifeval's checker tokenizes with the bundled corpus, replacing the placeholder '#15 does' (docstrings only, no assertion changes). (7) Owner decision OME-1610 (a published revision must not move as a side effect of a code move): ifeval publishes its hand-built revision 1cba769ece27f7ef via a hand-set published_revision, so test_published_revisions pins 1cba769ece27f7ef again and the e2e golden's revision returns to 1cba769ece27f7ef; its expression_sha re-renders to 6411a99f\u2026 (the routes carry the revision) from the free replay, every status, failure and the 0.9184 score unchanged. Merge of main after #1403 (healthbench) landed, 2026-10-15: every list both PRs edited takes both moves (healthbench rows first, then ifeval); where each side kept the other's Benchmark as the hand-built subject, MedXpertQA is now the only one (deployment PrepareError family, outcome conformance, stage parity, the CLI fingerprint parametrize); test_benchmark_protocol's byte-for-byte expression table, emptied by both moves, pins MedXpertQA (1551a09b...) instead of going empty and silently skipping; test_benchmark_declaration's shared-scored-path loop goes (no hand-built Benchmark uses that path any more; the finalizer identity assertion stays); outcome conformance keeps this branch's medxpert fixture and drops main's duplicate; test_published_revision expects the three hand-set rows; test_abstain_families and test_abstain_records lose both end-to-end cases and their now-unused imports. (8) Row 15b, this branch: the paid smoke's referee takes the expected Case count, its shelf runner runs (Benchmark, how it runs) entries so ifeval also runs as a Corrective Loop and its Cases' rounds are read back (test_imported_board_smoke.py); the shelf pick names the Benchmarks that also run as a loop (_scope.py ShelfPick.corrective); the overview carries warnings that never fail a board (_board_summary.py).",
   "reason": "OME-1527 row 15 moves ifeval to a local inspect Task and deletes the hand-built folder; every edited test either loses a subject that no longer exists, follows it to the inspect lane, or names the new row. Deleted and renamed test files cannot be approved here; the ledger lists them. Row 15b edits three paid-lane helpers in place because the smoke's entry shape changes from a bare Benchmark id to an entry; every pre-existing behaviour is kept (Fusion entries keep their names, Report files and Case count) and the free tests that call these helpers pass unchanged.",
   "files": {
     "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
-      "base_blob": "86e7a89a5f6a36e88f06c245d3ea94dce399fd10",
-      "approved_blob": "99005dc8ab13fd273c65e03c67bf7951271d8b3d"
+      "base_blob": "d559364152e73866cd3aadf7c1938a5c7c5389dc",
+      "approved_blob": "d9f3a27b7643d659192d656c19be59fcce83e07f"
     },
     "apps/screamingface-engine/tests/unit/_bundle_provenance_checks.py": {
-      "base_blob": "8410770df8305b2a288c7d074f56b7cf4da94a81",
-      "approved_blob": "383765f9bd1ca6a52aa0458f8c6185a42dab7657"
+      "base_blob": "691a2ac69f9b03db7e5aeb4a0589a1107af3e439",
+      "approved_blob": "199fd7a7e5dc74ce16047b9e473d7e52a3731e5e"
     },
     "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
       "base_blob": "1aca6eae516f0a2c52ef8f2e44bdfd1a2a01fdbb",
       "approved_blob": "f2a70e3540a47409af485998de74c86481e25c6f"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
-      "base_blob": "b519ccef4477f04c52683e2ff851a7de075fcc8b",
-      "approved_blob": "219b9342bbc170ae6fac9317e0a284b59e1bb3d6"
+      "base_blob": "6ffdb646d519ffc5fd3b4d37d06c83ffec54a286",
+      "approved_blob": "581f1b33f27dc7e4b7ebc1d90e8b21faf739a537"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_imported_catalogue_activity.py": {
       "base_blob": "cade69d956dfeaafed77c8dd1071841ff21d5742",
       "approved_blob": "6ed4491dacadacdc783781176b0c0ff75022d652"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
-      "base_blob": "0273fadd845d432a2203e3e43a55f5a2ef308618",
-      "approved_blob": "984d0a8213c29e87281656dc7fce1e4ff4c7cab6"
+      "base_blob": "1f9a6988f8f75e07f4845c0f80942cbc51ded694",
+      "approved_blob": "b9a36b444f16254392904ce58d0e09e5f952bb88"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_task_replay_benchmarks.py": {
       "base_blob": "f29143695922aa701834aa3c46670a4bac1317a2",
@@ -38,45 +38,53 @@
       "base_blob": "088e7fc68606ae535c99c678ae08dde2f550b8f1",
       "approved_blob": "f9cdaa02f83da2eedae45bfa35d1907e3fdcc60c"
     },
+    "apps/screamingface-engine/tests/unit/inspect/test_nltk_data_at_image_build.py": {
+      "base_blob": "28c861cd05754da65e248bd9e4e0d1208f947112",
+      "approved_blob": "a116f430caab67db1d7417296e5b3c6450eca825"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revision.py": {
+      "base_blob": "7d9ffdd178e2095ae4a06dfab8cd9a5fb5e5ff1f",
+      "approved_blob": "9a1ee0fae1bbeac62fe82694af67cb0e52a3cde8"
+    },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "9e861260c18123db0b2cc1422a04c2448990ae96",
-      "approved_blob": "95a1fb380ec1591e42d9fbb5468ae7903e29d5be"
+      "base_blob": "24fb98e4983c21094e469cef01fe4ce46ac5a15d",
+      "approved_blob": "8abe618b7c9e0dc14ed00d3086cd28791034c31b"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
-      "base_blob": "701d8ef126d0e6dc8c3c85102410dd28b987563b",
-      "approved_blob": "930b446eafae9c5c0b04b7260bf001c2f99175e7"
+      "base_blob": "d15a23f4a36e8cd4483a88b996682166bb39f6ae",
+      "approved_blob": "9e0a9938d0c5cf10a0c9f89c823afebc503b6fc2"
     },
     "apps/screamingface-engine/tests/unit/test_abstain_corrective.py": {
       "base_blob": "8f1326a8629ed5278de380c3648293243c213a46",
       "approved_blob": "bd33ba16038bb8f2ccfb4740220c67e87bf0c7b1"
     },
     "apps/screamingface-engine/tests/unit/test_abstain_families.py": {
-      "base_blob": "abce72817e8b334dfb46373be27a8e1cf5788048",
-      "approved_blob": "cb2d74a12ef15dec1df118d171713e12de770746"
+      "base_blob": "f06ff3016c0bfe8a32231024c847ebbc05209938",
+      "approved_blob": "d66fe23e57a8ad6150765687d2ec99bbd1b057cc"
     },
     "apps/screamingface-engine/tests/unit/test_abstain_records.py": {
-      "base_blob": "0608310278ce30ee5b2bcd445c19e9c2eb39d29c",
-      "approved_blob": "6e6f7a5bb4c155f77542b61dab0cbe0f46d23634"
+      "base_blob": "2630311c734edd77efc99281518b66c0376e8c8a",
+      "approved_blob": "197cd18c60db22ebc9926b257b35b6b5929790dd"
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_deployment.py": {
-      "base_blob": "b9120580542cdde04c76f9170bc054293fd1dea5",
-      "approved_blob": "078f22d9cdb41bf25d43790b480bbb13e0e7c0bd"
+      "base_blob": "d286bf5c035df754cb34323e0d498ff28bc575d3",
+      "approved_blob": "e46cf7a861f06c36f7fcda50d9ea83ba4eca7ce5"
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_outcome_conformance.py": {
-      "base_blob": "03de77751a5cf1089a8df0eb9aa01ed311edc531",
-      "approved_blob": "8b9a0027269a0f912f9000c5e7c2acf6fe30eaf6"
+      "base_blob": "4c0e5527d408fab9cebb2a9f6215322ff6e00683",
+      "approved_blob": "73b2048772b56b5f1171119fd551eb9b5de9f814"
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_protocol.py": {
-      "base_blob": "09652eead11812d4af37665071e29070d6eecea4",
-      "approved_blob": "e7257623a8580523ca5b7d901ebbb5dc08c9f43b"
+      "base_blob": "52d8b9725f6ca891e375c708f64fa845ba630d88",
+      "approved_blob": "55e579a3c4ece0f0314b00b7be7e37b88808ef0f"
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_stage_parity.py": {
-      "base_blob": "1c4ed516bf90da14f5b0ee3e58df77d1d1ba06eb",
-      "approved_blob": "8f409868b3bcf741b58bfa21de72b1bb56b62f9c"
+      "base_blob": "cb1d78a4cf74b6a3606d01cb57c2274e0cd0ddcf",
+      "approved_blob": "62eae257051a39973afdcf0fe02d907361d3402b"
     },
     "apps/screamingface-engine/tests/unit/test_builtin_early_score_timing.py": {
-      "base_blob": "f878b543c20a83f50ba86e3b9636c3c9ff9a2c34",
-      "approved_blob": "dd90100fb03c9e9f8c4c811e8b8dae2926362ebd"
+      "base_blob": "9797334e9109337977149939ddff94c860b9c5bf",
+      "approved_blob": "4af482ccba76ccb496021395f9fe80261039d2ae"
     },
     "apps/screamingface-engine/tests/unit/test_combine_reducer_candidates.py": {
       "base_blob": "0fd235a9ebe10e709df81e4d6497b98b9b3698af",
@@ -99,8 +107,8 @@
       "approved_blob": "f3fb7e304e72d1d6161e538eac691b73137e4ce2"
     },
     "apps/screamingface-engine/tests/unit/test_finalized_missing_progress.py": {
-      "base_blob": "15cacbffc25ee9e3553ff83123b6e131cd2f0946",
-      "approved_blob": "a320ee868150c8727d17c4923c36ff6a1c7ff8ec"
+      "base_blob": "e35417aec13abdad25521b337d4d1cf8ccb6db13",
+      "approved_blob": "6c905d4ce7e62eb09ec677849412e80f41dbd89d"
     },
     "apps/screamingface-engine/tests/unit/test_inspect_deployment_discovery.py": {
       "base_blob": "14b154e312f38aec86c12984d08b0e60b3858876",
@@ -118,6 +126,10 @@
       "base_blob": "99d60de5335c883a21aba1a933137d160a2dfd41",
       "approved_blob": "26e67739ada9821634c1e527af0963169738e369"
     },
+    "packages/screamingface/tests/test_runtime_cli.py": {
+      "base_blob": "279aea83f8aa63687266d029e2e2318212b54f7a",
+      "approved_blob": "92951ac8cdeb8f9e6bcbdee5d3acd5ffcdcc4223"
+    },
     "packages/screamingface/tests/paid/_board_summary.py": {
       "base_blob": "0afbd8a9d2770e4f01234a13ec68bbdde592f155",
       "approved_blob": "2005acead3eaab0fde81b6f66265994db41fef93"
@@ -129,14 +141,6 @@
     "packages/screamingface/tests/paid/test_imported_board_smoke.py": {
       "base_blob": "555a035a186013607ce073e4467959f799a53ba2",
       "approved_blob": "b2b0b97726220e6398a84f5e0a059c9b454c3919"
-    },
-    "packages/screamingface/tests/test_runtime_cli.py": {
-      "base_blob": "5b2e0d97df7f42ea259bba8359013e8d4ae979c9",
-      "approved_blob": "d0614bb78e279002cbc7402e0f8d34d74cb34dfa"
-    },
-    "apps/screamingface-engine/tests/unit/inspect/test_nltk_data_at_image_build.py": {
-      "base_blob": "28c861cd05754da65e248bd9e4e0d1208f947112",
-      "approved_blob": "a116f430caab67db1d7417296e5b3c6450eca825"
     }
   }
 }

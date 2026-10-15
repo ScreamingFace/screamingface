@@ -69,6 +69,37 @@ export function describeFailure(error: unknown): AdminGateFailure {
         message: "A concurrent write won. Nothing was lost — try again.",
         retryable: true,
       };
+    // D18 §7: the three pair refusals below are never "try again". Repeating the write would
+    // either overwrite a change the operator has not seen or meet the same refusal.
+    case "superseded":
+      return {
+        title: "The credential changed",
+        message:
+          "This credential changed while the request was in flight. Reload the page and review it before submitting another change.",
+        retryable: false,
+      };
+    case "ambiguous":
+      return {
+        title: "Credential cannot be addressed",
+        message:
+          "This tenant has more than one credential for this provider, so the console cannot tell which one to change. Resolve the duplicate before managing it here.",
+        retryable: false,
+      };
+    case "unresolved":
+      return {
+        title: "Credential needs an operator",
+        message:
+          "This provider's credential is in a state the console cannot manage safely. An operator must resolve it before it can be changed here.",
+        retryable: false,
+      };
+    case "temporary":
+      return {
+        title: "Credential service temporarily unavailable",
+        // WHY the gateway's words: a storage outage and a provider key check that could not run
+        // share this kind, and only the message says which one the operator is waiting on.
+        message: error.message,
+        retryable: true,
+      };
     default:
       return { title: "Request refused", message: error.message, retryable: false };
   }

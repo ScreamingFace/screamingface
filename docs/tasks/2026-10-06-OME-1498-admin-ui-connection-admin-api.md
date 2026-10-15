@@ -1,7 +1,7 @@
 ---
 id: OME-1498
 linear_url: https://linear.app/openmined/issue/OME-1498/move-admin-ui-credential-management-to-the-pair-addressed-connection
-status: backlog   # Linear is the authority; blocked until OME-1497 G1 is deployed
+status: in_review   # Linear is the authority; OME-1497 G1 merged (#1397, #1405, #1408)
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous, blocked]
@@ -24,4 +24,4 @@ always-`null` `masked_key_hint`; dispatches the successor error codes before the
 
 Contract: `docs/spec/2026-10-02-provider-credential-admin-contract.md` §2–§4, §7, §8.
 Plan: `docs/plan/2026-10-02-provider-credential-admin-contract.md` (section D).
-Ledger: created when implementation starts.
+Ledger: `docs/work/2026-10-14-ui-connection-admin.md`.

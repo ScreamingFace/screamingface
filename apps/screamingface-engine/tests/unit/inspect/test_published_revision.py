@@ -94,7 +94,10 @@ def test_only_rows_with_an_equivalence_proof_set_a_published_revision() -> None:
         if spec.published_revision is not None
     }
 
-    # ifeval (OME-1527 row 15): the hand-built revision, kept on the local Task.
+    # healthbench (OME-1527 row 20) and ifeval (row 15): the hand-built revisions, kept on the
+    # local Tasks.
     assert hand_set == {
+        "healthbench-worst30": "39cfd96b068f7230",
+        "healthbench-professional": "d8fb037307f35415",
         "ifeval": "1cba769ece27f7ef",
     }

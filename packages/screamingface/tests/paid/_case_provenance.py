@@ -59,22 +59,14 @@ _URL_SAFE: Final = ":/?#@!$&'*+,;=%"
 #: The folder, inside the log folder, the debug bundle carries the labels in.
 LABELS_DIR: Final = "provenance"
 
-#: The Benchmarks that read another Benchmark's bundle (the Engine's ``builtins.py`` pairs
-#: them). Every other Benchmark's bundle folder has the Benchmark's own id. Repeated here
-#: for the same reason as ``PROVENANCE_FILE``: the SDK venv cannot import the Engine.
-_SHARED_BUNDLE: Final[dict[str, str]] = {
-    "healthbench-worst30": "healthbench",
-    "healthbench-professional": "healthbench",
-}
-
 
 def provenance_markdown(benchmarks: list[str], assets_root: Path) -> str:
     """One Markdown table row per Benchmark, sorted by name, read from its bundle.
 
     Args:
-        benchmarks: the Benchmark ids this press ran. A Benchmark on a shared bundle
-            (``_SHARED_BUNDLE``) reads that bundle's file; every other one reads the
-            folder with its own id.
+        benchmarks: the Benchmark ids this press ran. Each reads the bundle folder with its
+            own id: no Benchmark shares a bundle since OME-1527 moved the last pairs
+            (draco-3pass, both HealthBench Benchmarks) to local inspect Tasks.
         assets_root: the prepared assets root the stack served from.
 
     Returns:
@@ -96,8 +88,8 @@ def copy_labels(benchmarks: list[str], assets_root: Path, log_dir: Path) -> None
     """Copy each Benchmark's label to ``log_dir/provenance/<benchmark>.json`` for the bundle.
 
     Example: a press over ``inspect-race_h`` and ``draco-3pass`` leaves
-    ``provenance/inspect-race_h.json`` and ``provenance/draco-3pass.json`` (draco's label: the
-    two share a bundle), one file per row of the table.
+    ``provenance/inspect-race_h.json`` and ``provenance/draco-3pass.json``, one file per row
+    of the table.
 
     INVARIANT: labels only, never ``cases.json``: some datasets are gated on Hugging Face, and
     anyone who can read the repo can download the bundle. A Benchmark with no label is skipped;
@@ -120,8 +112,8 @@ def copy_labels(benchmarks: list[str], assets_root: Path, log_dir: Path) -> None
 
 
 def _label_path(benchmark: str, assets_root: Path) -> Path:
-    """Where a Benchmark's label sits: its own bundle, or the bundle it shares."""
-    return assets_root / _SHARED_BUNDLE.get(benchmark, benchmark) / PROVENANCE_FILE
+    """Where a Benchmark's label sits: its own bundle."""
+    return assets_root / benchmark / PROVENANCE_FILE
 
 
 def _row(benchmark: str, path: Path) -> str:

@@ -62,3 +62,48 @@ test("labelFor never returns an empty label", () => {
   assert.equal(A.labelFor({ text: "   " }), "(unlabelled)");
   assert.equal(A.labelFor({}), "(unlabelled)");
 });
+
+test("selfExclusion reads only 1 and 0", () => {
+  assert.deepEqual(A.selfExclusion("?plausible_ignore=1", "leaderboard.screamingface.ai").ignore, "1");
+  assert.deepEqual(A.selfExclusion("?plausible_ignore=0", "leaderboard.screamingface.ai").ignore, "0");
+  assert.deepEqual(A.selfExclusion("?plausible_ignore=yes", "leaderboard.screamingface.ai"), { ignore: null, next: null });
+  assert.deepEqual(A.selfExclusion("?id=draco", "leaderboard.screamingface.ai"), { ignore: null, next: null });
+  assert.deepEqual(A.selfExclusion("", "leaderboard.screamingface.ai"), { ignore: null, next: null });
+});
+
+test("selfExclusion hops to docs only from production, and only when asked", () => {
+  assert.equal(
+    A.selfExclusion("?plausible_ignore=1&hop=1", "leaderboard.screamingface.ai").next,
+    "https://docs.screamingface.ai/?plausible_ignore=1&hop=1"
+  );
+  assert.equal(A.selfExclusion("?plausible_ignore=1", "leaderboard.screamingface.ai").next, null);
+  assert.equal(A.selfExclusion("?plausible_ignore=1&hop=1", "leaderboard.dev.screamingface.ai").next, null);
+  assert.equal(A.selfExclusion("?plausible_ignore=1&hop=1", "localhost").next, null);
+  assert.equal(A.selfExclusion("?plausible_ignore=1&hop=1", "leaderboard.dev.screamingface.ai").ignore, "1");
+});
+
+test("applySelfExclusion sets, clears, and forwards", () => {
+  function fakeRoot(search, hostname) {
+    const store = new Map();
+    const root = {
+      location: { search, hostname, replaced: null, replace(url) { this.replaced = url; } },
+      localStorage: { setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k), getItem: (k) => store.get(k) ?? null },
+    };
+    return { root, store };
+  }
+  let f = fakeRoot("?plausible_ignore=1&hop=1", "leaderboard.screamingface.ai");
+  A.applySelfExclusion(f.root);
+  assert.equal(f.store.get("plausible_ignore"), "true");
+  assert.equal(f.root.location.replaced, "https://docs.screamingface.ai/?plausible_ignore=1&hop=1");
+
+  f = fakeRoot("?plausible_ignore=0&hop=1", "leaderboard.dev.screamingface.ai");
+  f.store.set("plausible_ignore", "true");
+  A.applySelfExclusion(f.root);
+  assert.equal(f.store.get("plausible_ignore"), undefined);
+  assert.equal(f.root.location.replaced, null);
+
+  f = fakeRoot("?id=draco", "leaderboard.screamingface.ai");
+  A.applySelfExclusion(f.root);
+  assert.equal(f.store.has("plausible_ignore"), false);
+  assert.equal(f.root.location.replaced, null);
+});

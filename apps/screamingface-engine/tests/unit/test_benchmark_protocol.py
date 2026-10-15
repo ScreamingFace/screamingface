@@ -20,7 +20,6 @@ from screamingface_engine.benchmarks.graded_answer import (
     GRADED_ANSWER_SCHEMA,
     install_graded_answer_endpoint,
 )
-from screamingface_engine.benchmarks.healthbench.definition import HEALTHBENCH_WORST30
 from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
@@ -263,12 +262,11 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
-        # OME-1527: DRACO and IFEval left this table when they became local inspect Tasks;
-        # their expressions are pinned by their published revisions and e2e goldens instead.
-        (
-            HEALTHBENCH_WORST30,
-            "e180999b91c3c2f8b62583056d1310f62f3e06b396ef571837ce7b1aadd4a359",
-        ),
+        # OME-1527: DRACO, HealthBench and IFEval left this table when each became a local
+        # inspect Task; their expressions are pinned by their published revisions and e2e
+        # goldens. MedXpertQA, the last hand-built Benchmark, keeps the table from going empty
+        # (an empty parametrize would skip this test silently).
+        (MEDXPERT, "1551a09b0c2385a7a7fb4ed9fad2734f540ee83660cb660fae2bf71a2bbe08b8"),
     ),
 )
 def test_canonical_benchmark_url4_is_pinned_byte_for_byte(

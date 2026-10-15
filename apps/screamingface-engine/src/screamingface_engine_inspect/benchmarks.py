@@ -4452,6 +4452,196 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         notebook="06_draco",
     ),
     BenchmarkSpec(
+        key="healthbench-worst30",
+        title="HealthBench Worst-30% Challenge",
+        description=(
+            "The 157 hardest conversations from HealthBench Professional — the 30% that "
+            "top models score worst on. An AI judge grades each answer against a "
+            "physician-written rubric; safety mistakes subtract points, so per-case scores "
+            "can be negative. Challenge score = plain average of the 157 case scores, "
+            "negatives kept (the official HealthBench score floors negative averages at 0, "
+            "which would flatten this hard subset to all-zeros)."
+        ),
+        focus="Clinical safety, hardest cases",
+        dataset_url="https://huggingface.co/datasets/openai/healthbench",
+        # By construction the 30% of the benchmark top models score worst on (OME-1257; the
+        # hand-built Benchmark's tier, kept).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_worst30
+        #   — a LOCAL Task (OME-1527), the hand-built Benchmark moved into inspect's shape; every
+        #   field below is carried over from the hand-built definition (OME-1455 sources).
+        # The headline is the plain mean of the Case scores, negatives kept: the challenge
+        # metric, so no whole-run metric (the Task declares only mean and stderr).
+        scorer="screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_rubric",
+        scorer_kwargs={"judge_model": "screamingface/openrouter/openai/gpt-5.4"},
+        judge=JudgeSpec(
+            # The official professional judge is ResponsesSampler(model="gpt-5.4-2026-03-05",
+            # reasoning_effort="low"), an OpenAI-internal snapshot pin we cannot reach;
+            # OpenRouter routes the floating slug (a named deviation, as hand-built).
+            model="openrouter/openai/gpt-5.4",
+            # The hand-built JUDGE_PARAMS, same values in the same order (so the same wire and
+            # the same recorded replies): grading is retrieval-free, and 4096 is an Engine-side
+            # safety cap the official judge does not send. NO temperature, on purpose: the
+            # official judge sends none, and a redraw needs a fresh sample to turn a malformed
+            # reply into a parseable one.
+            params=(
+                ("web_search", "false"),
+                ("max_tokens", "4096"),
+            ),
+        ),
+        # Judged benchmark, and no owner decision to offer one (OME-1513): no Draft Feedback.
+        with_check_surface=False,
+        # The hand-built HealthBench sent its Candidate every Case as the input envelope (a
+        # one-message chat too), and a Fusion's synthesizer reads `$input` raw: kept, so the
+        # move leaves Fusion bytes and the recorded e2e golden unchanged (OME-1527 decision 5).
+        # A conversation Case is already that envelope and is served as written.
+        candidate_input_envelope=True,
+        # The hand-built Benchmark's published revision, so its leaderboard results stay
+        # visible (owner decision, OME-1527); the recorded worst-30 golden replays with zero
+        # misses on the local Task. Its computed fingerprint is pinned in the tests.
+        published_revision="39cfd96b068f7230",
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2604.27470",
+        authors="Hicks et al., 2026",
+        citation=(
+            "@misc{hicks2026healthbenchprofessionalevaluatinglarge,\n"
+            "      title={HealthBench Professional: Evaluating Large Language Models on R"
+            "eal Clinician Chats}, \n"
+            "      author={Rebecca Soskin Hicks and Mikhail Trofimov and Dominick Lim and"
+            " Rahul K. Arora and Foivos Tsimpourlas and Preston Bowman and Michael Sharma"
+            "n and Chi Tong and Kavin Karthik and Arnav Dugar and Akshay Jagadeesh and Kh"
+            "aled Saab and Johannes Heidecke and Ashley Alexander and Nate Gross and Kara"
+            "n Singhal},\n"
+            "      year={2026},\n"
+            "      eprint={2604.27470},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2604.27470}, \n"
+            "}"
+        ),
+        harness_url=(
+            "https://github.com/openai/simple-evals/blob/652c89d0ca9df547706735883097e9537d40dc47/healthbench_eval.py"
+        ),
+        license="MIT",
+        license_note=(
+            "openai/healthbench-professional dataset card; the simple-evals harness is MIT. The "
+            "worst-30% selection is ours, frozen (local_tasks/healthbench/subset.py)."
+        ),
+        content_warning=(
+            "Clinical conversations, including emergencies and self-harm scenarios, graded on "
+            "safety."
+        ),
+        human_baseline=NotPublished(
+            reason="the worst-30% selection is ours; no human was measured on it",
+        ),
+        frontier_score=NotPublished(
+            reason=(
+                "the worst-30% selection is ours (frozen in local_tasks/healthbench/subset.py); "
+                "nothing is published on it"
+            ),
+        ),
+        notebook="08_healthbench",
+    ),
+    BenchmarkSpec(
+        key="healthbench-professional",
+        title="HealthBench Professional",
+        description=(
+            "The complete 525-conversation HealthBench Professional exam. An AI judge grades "
+            "each answer against a physician-written rubric; safety mistakes subtract points, "
+            "so an individual case can score below zero. Benchmark score = the official "
+            "HealthBench metric — the average of the 525 case scores, floored at 0 — so it "
+            "lines up with published HealthBench numbers."
+        ),
+        focus="Clinical safety, full official exam",
+        dataset_url="https://huggingface.co/datasets/openai/healthbench",
+        # Physician-rubric clinical safety: published frontier scores sit well under
+        # saturation, so the full benchmark is frontier work too (OME-1257; the hand-built
+        # Benchmark's tier, kept).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.healthbench.healthbench:
+        #   healthbench_professional — a LOCAL Task (OME-1527), the hand-built Benchmark moved
+        #   into inspect's shape; every field below is carried over from the hand-built
+        #   definition (OME-1455 sources).
+        scorer="screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_rubric",
+        scorer_kwargs={"judge_model": "screamingface/openrouter/openai/gpt-5.4"},
+        judge=JudgeSpec(
+            # The official professional judge is ResponsesSampler(model="gpt-5.4-2026-03-05",
+            # reasoning_effort="low"), an OpenAI-internal snapshot pin we cannot reach;
+            # OpenRouter routes the floating slug (a named deviation, as hand-built).
+            model="openrouter/openai/gpt-5.4",
+            # The hand-built JUDGE_PARAMS, same values in the same order (so the same wire and
+            # the same recorded replies): grading is retrieval-free, and 4096 is an Engine-side
+            # safety cap the official judge does not send. NO temperature, on purpose: the
+            # official judge sends none, and a redraw needs a fresh sample to turn a malformed
+            # reply into a parseable one.
+            params=(
+                ("web_search", "false"),
+                ("max_tokens", "4096"),
+            ),
+        ),
+        # Judged benchmark, and no owner decision to offer one (OME-1513): no Draft Feedback.
+        with_check_surface=False,
+        # The hand-built HealthBench sent its Candidate every Case as the input envelope (a
+        # one-message chat too), and a Fusion's synthesizer reads `$input` raw: kept, so the
+        # move leaves Fusion bytes and the recorded e2e golden unchanged (OME-1527 decision 5).
+        # A conversation Case is already that envelope and is served as written.
+        candidate_input_envelope=True,
+        # The hand-built Benchmark's published revision, so its leaderboard results stay
+        # visible (owner decision, OME-1527). It has no golden of its own: it shares worst-30's
+        # Task package, judge and grader, and all 525 of its Candidate inputs and 1,135 judge
+        # prompts were compared at import (0 differ). Its computed fingerprint is pinned in
+        # the tests.
+        published_revision="d8fb037307f35415",
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2604.27470",
+        authors="Hicks et al., 2026",
+        citation=(
+            "@misc{hicks2026healthbenchprofessionalevaluatinglarge,\n"
+            "      title={HealthBench Professional: Evaluating Large Language Models on R"
+            "eal Clinician Chats}, \n"
+            "      author={Rebecca Soskin Hicks and Mikhail Trofimov and Dominick Lim and"
+            " Rahul K. Arora and Foivos Tsimpourlas and Preston Bowman and Michael Sharma"
+            "n and Chi Tong and Kavin Karthik and Arnav Dugar and Akshay Jagadeesh and Kh"
+            "aled Saab and Johannes Heidecke and Ashley Alexander and Nate Gross and Kara"
+            "n Singhal},\n"
+            "      year={2026},\n"
+            "      eprint={2604.27470},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2604.27470}, \n"
+            "}"
+        ),
+        harness_url=(
+            "https://github.com/openai/simple-evals/blob/652c89d0ca9df547706735883097e9537d40dc47/healthbench_eval.py"
+        ),
+        license="MIT",
+        license_note=(
+            "openai/healthbench-professional dataset card; the simple-evals harness is MIT."
+        ),
+        content_warning=(
+            "Clinical conversations, including emergencies and self-harm scenarios, graded on "
+            "safety."
+        ),
+        # Human baseline: specialty-matched physicians writing responses with unbounded time.
+        human_baseline=HumanBaseline(score=0.437, source_url="https://arxiv.org/abs/2604.27470"),
+        # Frontier score: HealthBench Professional rubric score, length-adjusted.
+        frontier_score=FrontierScore(
+            score=0.647,
+            model="GPT-6 Astra",
+            source_url="https://deploymentsafety.openai.com/gpt-6-astra",
+            as_of="2026-09",
+        ),
+        notebook="08_healthbench",
+        # Reviewed (OME-1527, R1): the official HealthBench metric, the mean of the Case scores
+        # clipped to 0..1 — higher is better, at most 1, a valid Headline Score. Clipping the
+        # run's mean is not the mean of clipped Case scores, hence the eval's own metric.
+        whole_run_metric=(
+            "screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_clipped_mean"
+        ),
+    ),
+    BenchmarkSpec(
         key="ifeval",
         title="IFEval",
         description=(

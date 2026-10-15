@@ -22,9 +22,7 @@ import pytest
 from screamingface_engine.benchmarks.shared_grading.judge_evidence import (
     JudgeEvidence,
     JudgeReplyFormat,
-    extract_json_array,
     parse_judge_evidence,
-    rubric_evidence_record_key,
 )
 
 # The two real payload dialects, spelled the way the benchmarks declare them.
@@ -234,29 +232,3 @@ def test_a_blank_producer_id_is_refused() -> None:
     # cannot be audited after the fact.
     with pytest.raises(ValueError):
         parse_judge_evidence("{}", shape=BOOL_SHAPE, identity=(("case_id", 1),), producer_id="  ")
-
-
-# --- shared rubric wiring (healthbench and gdpval were byte-identical) -------------------
-
-
-def test_rubric_evidence_record_key_decodes_case_and_rubric_ids() -> None:
-    assert rubric_evidence_record_key("12:34") == (12, 34)
-
-
-@pytest.mark.parametrize("value", ["", "12", "12:", ":34", "a:b", "0:1", "1:0", "-1:2"])
-def test_rubric_evidence_record_key_rejects_malformed_or_non_positive(value: str) -> None:
-    with pytest.raises(ValueError):
-        rubric_evidence_record_key(value)
-
-
-# --- the draft-feedback offer's array recovery shares the same JSON-recovery primitive ----------
-
-
-def test_extract_json_array_reads_a_fenced_ordinal_reply() -> None:
-    reply = '```json\n[{"id": 1, "status": "MET"}]\n```'
-    assert extract_json_array(reply) == [{"id": 1, "status": "MET"}]
-
-
-def test_extract_json_array_refuses_replies_with_no_array() -> None:
-    assert extract_json_array("no verdicts here") is None
-    assert extract_json_array("") is None

@@ -1331,6 +1331,40 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         },
         license="mit",
     ),
+    # healthbench-worst30 — imported by Task replay on 2026-10-14 from
+    #   screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_worst30.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face openai/healthbench-professional
+    #     pin revision 349962fd46dd02343a0d8a606491baf59154ea1a
+    "healthbench-worst30": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_worst30",
+        case_count=157,
+        case_digest="086738fb3d284b945f3bf3fb09bcf0b444a51e10dafade271f0ef99b887cc75f",
+        case_set_digest="ab8bde58ce0e4278c05c89273228a7585d1f80652ec4fb62ccb19f9bb4c48cf4",
+        keep_sample_metadata=True,
+        has_answer_key=False,
+        source_pins={
+            "openai/healthbench-professional": "349962fd46dd02343a0d8a606491baf59154ea1a",
+        },
+        license="mit",
+    ),
+    # healthbench-professional — imported by Task replay on 2026-10-14 from
+    #   screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_professional.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face openai/healthbench-professional
+    #     pin revision 349962fd46dd02343a0d8a606491baf59154ea1a
+    "healthbench-professional": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_professional",
+        case_count=525,
+        case_digest="9d6822d920be0ad69d8d6d7b75ad8ed3c1cdbb745952310768a976864259253b",
+        case_set_digest="5d8f22a6faf64c2ef18d10608ce08ae8a2c44dde1d8522badb7c1dddc5d2f732",
+        keep_sample_metadata=True,
+        has_answer_key=False,
+        source_pins={
+            "openai/healthbench-professional": "349962fd46dd02343a0d8a606491baf59154ea1a",
+        },
+        license="mit",
+    ),
     # ifeval — imported by Task replay on 2026-10-14 from
     #   screamingface_engine_inspect.local_tasks.ifeval.ifeval:ifeval.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):

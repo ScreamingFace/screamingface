@@ -42,9 +42,7 @@ from screamingface_engine.benchmarks.shared_grading.case_grades import (
     CaseGradeReader,
     read_selected_cases,
 )
-from screamingface_engine.benchmarks.shared_grading.mean_scorer import mean_scorer
 from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload, TextPayload
-from screamingface_engine.benchmarks.shared_grading.rubric import rubric_grade_case
 
 MESSAGES = {
     "missing_rubric_asset": "test: rubric asset gone",
@@ -68,6 +66,23 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
 
 def _mean(scores: Sequence[float]) -> float | None:
     return sum(scores) / len(scores) if scores else None
+
+
+def mean_score(cases: Sequence[CaseResult]) -> CandidateScore:
+    """A stand-in run scorer: the plain mean of the graded Cases' scores, to 4 places.
+
+    WHY a stand-in: the shared rubric ``mean_scorer`` these tests used went with its last
+    user, HealthBench's hand-built folder (OME-1527); the marking room takes any scorer.
+    """
+
+    scores: list[float] = [
+        float(case.grade.score)
+        for case in cases
+        if case.grade is not None and case.grade.score is not None
+    ]
+    mean: float | None = _mean(scores)
+    assert mean is not None, "a run scorer is called only with graded Cases"
+    return CandidateScore(score=round(mean, 4), metrics={"scored_cases": len(scores)})
 
 
 def _grading(case_id: int, *, status: str = "completed", **extra: Any) -> dict[str, Any]:
@@ -150,7 +165,7 @@ def _aggregate(
         benchmark_revision="rev",
         selected_cases=selected,
         grading_material=lambda case_id: material,
-        scorer=mean_scorer(_mean),
+        scorer=mean_score,
     )
 
 
@@ -310,54 +325,6 @@ def test_every_selected_case_stays_on_the_roll_call() -> None:
     assert result["coverage"] == 0.5
 
 
-# ── the shared benchmark scorer: mean is the parameter, vocabulary is fixed ──────
-
-
-def test_variant_metric_vocabulary_is_pinned_and_the_mean_is_the_benchmarks() -> None:
-    graded = CaseGradeOutcome(
-        score=1.0,
-        metrics={"judged": 2, "expected": 2, "invalid_replies": 1},
-        checks=[
-            {
-                "type": "rubric_item",
-                "id": "1",
-                "label": "[1] c1",
-                "outcome": "MET",
-                "evidence": [],
-                "metadata": {},
-            },
-            {
-                "type": "rubric_item",
-                "id": "2",
-                "label": "[1] c2",
-                "outcome": "UNMET",
-                "evidence": [],
-                "metadata": {},
-            },
-        ],
-    )
-    hook = _Hook(graded)
-    result = _aggregate(
-        _path(hook),
-        [_envelope(1, _grading(1)), _envelope(2, _grading(2))],
-        _selected(1, 2),
-    )
-
-    assert result["score"] == 1.0  # _mean over [1.0, 1.0]
-    assert set(result["metrics"]) == {
-        "pass_rate",
-        "scored_cases",
-        "score_sd",
-        "verdict_coverage",
-        "judge_invalid_replies",
-    }
-    assert result["metrics"]["scored_cases"] == 2
-    assert result["metrics"]["pass_rate"] == 0.5  # 2 MET of 4 judged
-    assert result["metrics"]["judge_invalid_replies"] == 2
-    assert result["metrics"]["verdict_coverage"] == 1.0
-    assert result["metrics"]["score_sd"] == 0.0
-
-
 # ── the scorer is a benchmark parameter: metric vocabulary is the benchmark's ───────
 
 
@@ -437,7 +404,7 @@ def test_a_benchmark_owned_missing_row_hook_replaces_the_default_result() -> Non
         benchmark_revision="rev",
         selected_cases=_selected(1),
         grading_material=lambda case_id: (5,),
-        scorer=mean_scorer(_mean),
+        scorer=mean_score,
     )
 
     assert hook.requests == []
@@ -501,7 +468,7 @@ def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:
         benchmark_revision="rev",
         selected_cases=_selected(1),
         grading_material=lambda case_id: (5,),
-        scorer=mean_scorer(_mean),
+        scorer=mean_score,
     )
 
     assert seen == [None]
@@ -521,7 +488,7 @@ def test_a_missing_row_hook_may_omit_the_case_for_the_finalizer() -> None:
         benchmark_revision="rev",
         selected_cases=_selected(1, 2),
         grading_material=lambda case_id: (5,),
-        scorer=mean_scorer(_mean),
+        scorer=mean_score,
     )
 
     case = result["cases"][1]
@@ -545,7 +512,7 @@ def test_case_metadata_rides_scored_and_failed_results() -> None:
         benchmark_revision="rev",
         selected_cases=_selected(1, 2),
         grading_material=lambda case_id: (5,),
-        scorer=mean_scorer(_mean),
+        scorer=mean_score,
         case_metadata=lambda case_id: {"body_system": f"slice-{case_id}"},
     )
 
@@ -579,138 +546,13 @@ def test_the_material_missing_code_is_benchmark_named() -> None:
         benchmark_revision="rev",
         selected_cases=_selected(1),
         grading_material=lambda case_id: None,
-        scorer=mean_scorer(_mean),
+        scorer=mean_score,
     )
 
     assert hook.requests == []
     failure = result["cases"][0]["failures"][0]
     assert (failure["stage"], failure["code"]) == ("grading", "missing_answer_asset")
     assert failure["message"] == "test: answer key gone"
-
-
-# ── the shared rubric hook factory: both benchmarks' marking, written once ──────
-
-
-def _evidence(rubric_id: int, met: bool | None) -> dict[str, Any]:
-    """met=None models an invalid judge reply."""
-
-    valid = met is not None
-    # WHY no producer_id: proves the factory stamps the benchmark's judge identity onto
-    # replies that arrive without one — even a malformed reply has a known producer.
-    evidence: dict[str, Any] = {
-        "rubric_id": rubric_id,
-        "producer_type": "model",
-        "valid": valid,
-        "raw_output": "{}",
-    }
-    if valid:
-        evidence["criteria_met"] = met
-        evidence["explanation"] = "…"
-    else:
-        evidence["reason"] = "malformed"
-    return evidence
-
-
-def _evaluations(verdicts: Mapping[int, bool | None]) -> list[dict[str, Any]]:
-    return [
-        {
-            "rubric_id": rubric_id,
-            "rubric": {"rubric_item": f"[1] c{rubric_id}"},
-            "evidence": _evidence(rubric_id, met),
-        }
-        for rubric_id, met in verdicts.items()
-    ]
-
-
-def _case_score(points: Sequence[int], verdicts: Mapping[int, bool]) -> float | None:
-    best = sum(point for point in points if point > 0)
-    if best <= 0:
-        return None
-    earned = sum(point for index, point in enumerate(points, start=1) if verdicts.get(index))
-    return earned / best
-
-
-def _request(verdicts: Mapping[int, bool | None], points: Sequence[int] | None) -> GradeRequest:
-    return GradeRequest(
-        case_id=1,
-        input=TextPayload(text="input-1"),
-        answer=TextPayload(text="output-1"),
-        row={"case": {"status": "completed"}, "rubric_evaluations": _evaluations(verdicts)},
-        material=points,
-    )
-
-
-def _run_hook(request: GradeRequest) -> CaseGradeOutcome:
-    hook = rubric_grade_case(case_score=_case_score, judge_producer_id="test/judge")
-
-    async def call() -> CaseGradeOutcome:
-        return await hook(request)
-
-    return asyncio.run(call())
-
-
-def _grade(verdicts: Mapping[int, bool | None], points: Sequence[int] | None) -> CaseGradeOutcome:
-    return _run_hook(_request(verdicts, points))
-
-
-def test_rubric_hook_scores_complete_verdicts_with_the_benchmark_formula() -> None:
-    outcome = _grade({1: True, 2: False, 3: True}, [5, 3, -3])
-
-    assert outcome.failure_code is None
-    assert outcome.score == pytest.approx((5 - 3) / 8)
-    assert outcome.metrics == {"judged": 3, "expected": 3, "invalid_replies": 0}
-    checks = list(outcome.checks)
-    assert [check["outcome"] for check in checks] == ["MET", "UNMET", "MET"]
-    assert [check["metadata"] for check in checks] == [
-        {"points": 5},
-        {"points": 3},
-        {"points": -3},
-    ]
-    assert checks[0]["evidence"][0]["producer"]["id"] == "test/judge"
-
-
-def test_rubric_hook_reports_incomplete_verdicts_never_a_default() -> None:
-    # INVARIANT: a missing verdict on a penalty item would erase the penalty —
-    # partial verdict sets fail, they are never defaulted to "not hit".
-    outcome = _grade({1: True}, [5, -3])
-
-    assert outcome.failure_code == "incomplete_verdicts"
-    assert outcome.score is None
-    assert outcome.metrics == {"judged": 1, "expected": 2, "invalid_replies": 0}
-
-
-def test_rubric_hook_counts_invalid_replies_and_fails_the_case() -> None:
-    outcome = _grade({1: True, 2: None}, [5, -3])
-
-    assert outcome.failure_code == "incomplete_verdicts"
-    assert outcome.metrics["invalid_replies"] == 1
-    # The invalid reply's check stays outcome-less: unjudged, not failed.
-    invalid_check = list(outcome.checks)[1]
-    assert "outcome" not in invalid_check
-    assert invalid_check["evidence"][0]["metadata"] == {"rejection_reason": "malformed"}
-
-
-def test_rubric_hook_names_a_complete_but_unscorable_case() -> None:
-    outcome = _grade({1: True, 2: True}, [0, -3])
-
-    assert outcome.failure_code == "no_positive_points"
-    assert outcome.score is None
-
-
-def test_rubric_hook_dedupes_duplicate_judge_entries() -> None:
-    # Retry noise: the same rubric_id judged twice must not widen judged counts.
-    evaluations = _evaluations({1: True}) + _evaluations({1: False})
-    request = GradeRequest(
-        case_id=1,
-        input=TextPayload(text="input-1"),
-        answer=None,
-        row={"case": {"status": "completed"}, "rubric_evaluations": evaluations},
-        material=[5],
-    )
-    outcome = _run_hook(request)
-
-    assert outcome.metrics["judged"] == 1
-    assert len(list(outcome.checks)) == 1  # last entry wins, one check per rubric_id
 
 
 # ── the shared selected-cases reader ────────────────────────────────────────
@@ -800,7 +642,7 @@ def test_the_async_aggregate_face_runs_hooks_on_the_callers_loop() -> None:
             benchmark_revision="rev",
             selected_cases=_selected(1),
             grading_material=lambda case_id: (5, -3),
-            scorer=mean_scorer(_mean),
+            scorer=mean_score,
         )
         assert seen_loops == [outer]
         return result

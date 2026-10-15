@@ -12,6 +12,14 @@ from __future__ import annotations
 
 PREFIX = "url4-cloud"
 
+# The run's ROOT node (OME-1607): the node every run's `lifecycle.run` publishes its root frames
+# under, so the root CloudEvents `source` is `/trace/<topic>/node/<RUN_ROOT_NODE>`. A client ends a
+# run only on a `Terminated` from that source. The child passes it to `lifecycle.run` explicitly,
+# and the worker writes its own terminal frames (crash, OOM, wall, drain, cancel) under it, so the
+# two can never name different roots — before OME-1607 the worker used the transport source and
+# every client waited for ever on a run whose child had died.
+RUN_ROOT_NODE = "root"
+
 # The durable run queue (OME-1088): ONE stream for every run, unlike the per-run event streams,
 # so it is named OUTSIDE the per-run `url4-cloud_` prefix — see `owns_stream` for why that is
 # load-bearing. Per-caller subjects (`url4-runq.<bucket>`, a stable hash of the caller's identity

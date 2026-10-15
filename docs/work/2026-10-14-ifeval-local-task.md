@@ -113,6 +113,12 @@ letter).
 - **Revision:** published `1cba769ece27f7ef`, unchanged (hand-set, deviation (5)); the local Task's
   fingerprint is `ada07458a23c55ab` (it was `9d88d67cf2ce2be5` before the abstain contract,
   deviation (6), edited the Task's source).
+- **Merge after #1403 (2026-10-15):** main took healthbench's move first, so 22 files conflicted;
+  every shared list takes both moves, and MedXpertQA is the only hand-built Benchmark left. Two
+  judgment calls: the byte-for-byte expression table (both rows gone) now pins MedXpertQA
+  (`1551a09b…`) rather than going empty and skipping silently, and the shared-scored-path loop in
+  `test_benchmark_declaration.py` goes (no hand-built family uses that path). The approvals
+  manifest is re-based on main.
 - **Report:** as decided for the other moves, thinner. Kept: the headline, the four hand-built run
   metrics under their keys (the card's `pass_rate` included). New: four Named Scores (instruction
   levels pooled), the tally's `correct` and `scored_cases`. Lost: one Check per instruction

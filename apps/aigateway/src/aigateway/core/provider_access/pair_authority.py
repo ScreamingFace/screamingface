@@ -61,6 +61,14 @@ class PairAuthorityConflict(Exception):
         self.expected_generation = expected_generation
 
 
+class PairAuthorityDataError(ValueError):
+    """A persisted marker violates the authority value contract."""
+
+    def __init__(self, provider: str) -> None:
+        super().__init__(f"invalid pair authority for {provider}")
+        self.provider = provider
+
+
 def _checked_state(value: object) -> MigrationState:
     if value not in MIGRATION_STATES:
         # INVARIANT: an unknown stored state is refused, never read as `none` — guessing the owner
@@ -70,12 +78,20 @@ def _checked_state(value: object) -> MigrationState:
 
 
 def _view(account_id: str, row: dict[str, Any]) -> PairAuthority:
+    provider = str(row["provider"])
+    generation = row["generation"]
+    if type(generation) is not int or generation < 1:
+        raise PairAuthorityDataError(provider)
+    try:
+        state = _checked_state(row["migration_state"])
+    except ValueError as exc:
+        raise PairAuthorityDataError(provider) from exc
     return PairAuthority(
         account_id=account_id,
-        provider=row["provider"],
-        migration_state=_checked_state(row["migration_state"]),
+        provider=provider,
+        migration_state=state,
         effective_connection_id=row["effective_connection_id"],
-        generation=row["generation"],
+        generation=generation,
         migration_note=row["migration_note"],
     )
 
@@ -101,6 +117,34 @@ class PairAuthorityStore:
             .values(*_COLUMNS)
         )
         return tuple(_view(account_id, row) for row in rows)
+
+    async def providers(self, account_id: str) -> tuple[str, ...]:
+        """The marked providers of the account, by provider, without judging their state.
+
+        # WHY: `list` refuses the whole account on one unknown state; a caller that must name
+        # the refused pair reads the providers here and each pair through `read`.
+        """
+        rows = (
+            await ProviderCredentialSlot.filter(account_id=account_id)
+            .order_by("provider")
+            .values_list("provider", flat=True)
+        )
+        return tuple(str(row) for row in rows)
+
+    async def generations(self, account_id: str) -> tuple[tuple[str, int], ...]:
+        """The account's pair-generation fence, without parsing authority state."""
+        rows = (
+            await ProviderCredentialSlot.filter(account_id=account_id)
+            .order_by("provider")
+            .values_list("provider", "generation")
+        )
+        result: list[tuple[str, int]] = []
+        for provider_value, generation in rows:
+            provider = str(provider_value)
+            if type(generation) is not int or generation < 1:
+                raise PairAuthorityDataError(provider)
+            result.append((provider, generation))
+        return tuple(result)
 
     async def advance(
         self,
@@ -155,5 +199,6 @@ __all__ = [
     "MigrationState",
     "PairAuthority",
     "PairAuthorityConflict",
+    "PairAuthorityDataError",
     "PairAuthorityStore",
 ]

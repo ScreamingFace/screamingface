@@ -75,6 +75,17 @@ data:
   # (`screamingface-engine.tracingEnv`), so the run's spans and the App's `url4.accept` parent
   # cannot be sent to two different places. The rationale for each key lives with the helper.
   {{- include "screamingface-engine.tracingEnv" . }}
+  {{- /* No child reserves address space it never uses (OME-1607). Measured on a `draco-3pass`
+  run: pyarrow's default pool (mimalloc) reserves a 1 GiB arena on its first allocation, and
+  OpenBLAS a buffer per NODE CPU (so more on bigger nodes). Under the child's RLIMIT_AS that left
+  ~700 MiB of the 2 GiB for the run's work, and the run died of MemoryError with 459 MiB
+  resident. The system allocator and one native thread per library remove both reservations
+  (the same imports: 1,566 MiB of address space before, 339 MiB after). A run does no heavy
+  numerics in-process, so one BLAS/OpenMP thread costs it nothing. */}}
+  ARROW_DEFAULT_MEMORY_POOL: "system"
+  OPENBLAS_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
   # NOTE: OTEL_EXPORTER_OTLP_HEADERS is deliberately ABSENT here, for the same reason as the S3
   # secret key below — it carries the collector credential.
   # NOTE: URL4_CLOUD_ARTIFACT_S3_SECRET_KEY is deliberately ABSENT here. It travels by Secret

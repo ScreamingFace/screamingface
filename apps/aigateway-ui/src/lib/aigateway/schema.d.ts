@@ -193,6 +193,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/accounts/{account_id}/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Admin Account Connections
+         * @description List one tenant's provider credentials: one Connection or one conflict per provider.
+         */
+        get: operations["list_admin_account_connections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/accounts/{account_id}/connections/{provider}/api-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Admin Account Connection Api Key
+         * @description Attach or replace a tenant's provider API key; the pair's one credential becomes it.
+         */
+        put: operations["set_admin_account_connection_api_key"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/accounts/{account_id}/connections/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Admin Account Connection
+         * @description Disconnect a tenant's provider; repeating it on a disconnected provider also answers 204.
+         */
+        delete: operations["delete_admin_account_connection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/cache/info": {
         parameters: {
             query?: never;
@@ -812,6 +872,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/frozen-copies/{copy_id}/chat/completions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replay Chat Completions */
+        post: operations["replay_chat_completions_v1_frozen_copies__copy_id__chat_completions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/frozen-copies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open Frozen Copy */
+        post: operations["open_frozen_copy_v1_frozen_copies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/frozen-copies/{copy_id}/seal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Seal Frozen Copy */
+        post: operations["seal_frozen_copy_v1_frozen_copies__copy_id__seal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/frozen-copies/{copy_id}/tool-results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Capture Tool Result */
+        post: operations["capture_tool_result_v1_frozen_copies__copy_id__tool_results_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/frozen-copies/{copy_id}/tool-results/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Look Up Tool Result */
+        post: operations["look_up_tool_result_v1_frozen_copies__copy_id__tool_results_lookup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -961,6 +1106,50 @@ export interface components {
             refusal?: string | null;
             /** Error */
             error?: string | null;
+        };
+        /**
+         * AdminConnectionConflictOut
+         * @description A provider whose credential cannot be addressed or managed safely (§4).
+         */
+        AdminConnectionConflictOut: {
+            /** Provider */
+            provider: string;
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "credential_pair_ambiguous" | "credential_pair_unresolved";
+            /** Message */
+            message: string;
+        };
+        /** AdminConnectionList */
+        AdminConnectionList: {
+            /** Connections */
+            connections: components["schemas"]["AdminConnectionOut"][];
+            /** Conflicts */
+            conflicts: components["schemas"]["AdminConnectionConflictOut"][];
+        };
+        /**
+         * AdminConnectionOut
+         * @description The one credential of an `(account, provider)` pair.
+         */
+        AdminConnectionOut: {
+            /** Provider */
+            provider: string;
+            /**
+             * Auth Type
+             * @enum {string}
+             */
+            auth_type: "oauth" | "api_key";
+            /**
+             * Credential State
+             * @enum {string}
+             */
+            credential_state: "active" | "pending" | "error";
+            /** Masked Key Hint */
+            masked_key_hint: string | null;
+            /** Last Refreshed At */
+            last_refreshed_at: string | null;
         };
         /** AdminProfileList */
         AdminProfileList: {
@@ -1255,6 +1444,14 @@ export interface components {
          */
         ProfileState: "pending" | "authenticated" | "error";
         /**
+         * Provenance
+         * @description Q28: the engine's version, stored on the copy at seal.
+         */
+        Provenance: {
+            /** Engine Version */
+            engine_version: string;
+        };
+        /**
          * ProviderAccessAvailability
          * @description The listing body: `{"providers": [{"provider": ..., "status": ...}]}`.
          */
@@ -1274,6 +1471,10 @@ export interface components {
              * @enum {string}
              */
             status: "not_connected" | "pending" | "connected" | "needs_reauth" | "error";
+        };
+        /** SealRequest */
+        SealRequest: {
+            provenance?: components["schemas"]["Provenance"] | null;
         };
         /**
          * SetAdminApiKeyRequest
@@ -1331,6 +1532,22 @@ export interface components {
              * @default 600
              */
             expires_in: number;
+        };
+        /** ToolLookupRequest */
+        ToolLookupRequest: {
+            /** Description */
+            description: {
+                [key: string]: unknown;
+            };
+        };
+        /** ToolResultRequest */
+        ToolResultRequest: {
+            /** Description */
+            description: {
+                [key: string]: unknown;
+            };
+            /** Result */
+            result: string;
         };
         /** ValidateApiKeyRequest */
         ValidateApiKeyRequest: {
@@ -1760,6 +1977,109 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AdminProfileOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_admin_account_connections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminConnectionList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_admin_account_connection_api_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Api Key
+                     * Format: password
+                     */
+                    api_key: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminConnectionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_admin_account_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2906,6 +3226,170 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    replay_chat_completions_v1_frozen_copies__copy_id__chat_completions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                copy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    open_frozen_copy_v1_frozen_copies_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    seal_frozen_copy_v1_frozen_copies__copy_id__seal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                copy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SealRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    capture_tool_result_v1_frozen_copies__copy_id__tool_results_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                copy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToolResultRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    look_up_tool_result_v1_frozen_copies__copy_id__tool_results_lookup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                copy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToolLookupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

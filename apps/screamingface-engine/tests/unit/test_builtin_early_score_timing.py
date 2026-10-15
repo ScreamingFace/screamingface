@@ -83,15 +83,6 @@ async def _call(node: Url4Node, route: str, payload: str, intent: str) -> str:
     return (await node.evaluate(render(expression))).text
 
 
-def _judges(node):
-    from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL as health
-
-    for model in {health}:
-        node.endpoint("/" + model)(
-            lambda request: '{"explanation":"ok","criteria_met":true,"criterion_status":"MET"}'
-        )
-
-
 def _observe(node, waiting, release):
     snapshots = []
 
@@ -108,7 +99,6 @@ def _observe(node, waiting, release):
 
     for path in ("/writer", "/writer-b", "/synth"):
         node.endpoint(path)(answer)
-    _judges(node)
     return snapshots, Collector()
 
 

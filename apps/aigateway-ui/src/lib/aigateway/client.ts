@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 
 import { log } from "@/lib/log";
 
+import { AdminApiError, REFUSALS, classify, messageFor } from "./errors";
 import type { components } from "./schema";
 
 /**
@@ -19,54 +20,19 @@ import type { components } from "./schema";
  * having re-verified Cloudflare Access's assertion against Cloudflare's JWKS.
  */
 
+export { AdminApiError, type AdminErrorKind } from "./errors";
+
 export type AdminAccount = components["schemas"]["AdminAccountOut"];
 export type AdminAccountList = components["schemas"]["AdminAccountList"];
-export type AdminProfile = components["schemas"]["AdminProfileOut"];
-export type AdminProfileList = components["schemas"]["AdminProfileList"];
+export type AdminConnection = components["schemas"]["AdminConnectionOut"];
+export type AdminConnectionConflict = components["schemas"]["AdminConnectionConflictOut"];
+export type AdminConnectionList = components["schemas"]["AdminConnectionList"];
 
 /** The identity header Envoy injects. Mirrors `HEADER_USER_EMAIL` in aigateway. */
 const IDENTITY_HEADER = "x-user-email";
 
 /** The per-request id Envoy stamps on every request it routes. Read, never minted, here. */
 const REQUEST_ID_HEADER = "x-request-id";
-
-/**
- * Why the caller could not be served — each maps to a different thing the operator must DO, which
- * is why they are distinct types rather than one message string.
- *
- * - `forbidden` — identified, not an administrator. Nothing to retry.
- * - `unauthenticated` — no identity reached the gateway. The mesh is misconfigured, or this is
- *   local development without the header.
- * - `unavailable` — the gateway cannot serve this API at all: no allowlist configured, or it is
- *   running in `jwt` mode. A DEPLOYMENT problem, not a request problem.
- * - `conflict` — a concurrent write lost the profile-index CAS (`profile_index_conflict`).
- *   Genuinely retryable, and the only one where "try again" is the right advice.
- * - `invalid` — the gateway rejected the input (422), e.g. a malformed address or a key the
- *   provider refused. Carries the detail so a form can show it.
- */
-export type AdminErrorKind =
-  | "forbidden"
-  | "unauthenticated"
-  | "unavailable"
-  | "conflict"
-  | "invalid"
-  | "not_found"
-  | "unreachable"
-  | "unknown";
-
-export class AdminApiError extends Error {
-  readonly kind: AdminErrorKind;
-  readonly status: number;
-  readonly detail: unknown;
-
-  constructor(kind: AdminErrorKind, status: number, message: string, detail?: unknown) {
-    super(message);
-    this.name = "AdminApiError";
-    this.kind = kind;
-    this.status = status;
-    this.detail = detail;
-  }
-}
 
 function baseUrl(): string {
   const configured = process.env.AIGATEWAY_ADMIN_BASE_URL;
@@ -105,59 +71,6 @@ export async function callerEmail(): Promise<string | null> {
   }
   return null;
 }
-
-function classify(status: number, detail: unknown): AdminErrorKind {
-  if (status === 401) return "unauthenticated";
-  if (status === 403) return "forbidden";
-  if (status === 404) return "not_found";
-  if (status === 422) return "invalid";
-  if (status === 409) return "conflict";
-  if (status === 503) {
-    // The gateway uses 503 for two unrelated things. `profile_index_conflict` is a lost CAS on a
-    // concurrent profile write and IS retryable; a bare 503 means the admin API is switched off at
-    // the deployment level and retrying will never help. Telling them apart is the difference
-    // between "try again" and "go fix your configuration".
-    const code =
-      typeof detail === "object" && detail !== null && "code" in detail
-        ? (detail as { code?: unknown }).code
-        : undefined;
-    return code === "profile_index_conflict" ? "conflict" : "unavailable";
-  }
-  return "unknown";
-}
-
-function messageFor(kind: AdminErrorKind, detail: unknown): string {
-  if (typeof detail === "object" && detail !== null && "message" in detail) {
-    const message = (detail as { message?: unknown }).message;
-    if (typeof message === "string" && message) return message;
-  }
-  if (typeof detail === "string" && detail) return detail;
-  switch (kind) {
-    case "forbidden":
-      return "This account is not an administrator of this gateway.";
-    case "unauthenticated":
-      return "No verified identity reached the gateway.";
-    case "unavailable":
-      return "The gateway is not configured to serve the admin API.";
-    case "conflict":
-      return "Another change landed first. Try again.";
-    default:
-      return "The gateway rejected this request.";
-  }
-}
-
-/**
- * Kinds where the gateway answered and refused THIS request — expected in normal operation, so
- * they log at `warn`. Everything else (unavailable, unreachable, unknown) means the console cannot
- * be served and logs at `error`. The split is what gives `LOG_LEVEL=error` a meaning.
- */
-const REFUSALS: ReadonlySet<AdminErrorKind> = new Set<AdminErrorKind>([
-  "forbidden",
-  "unauthenticated",
-  "invalid",
-  "not_found",
-  "conflict",
-]);
 
 /**
  * Run one admin call; if it fails with an `AdminApiError`, write exactly one server-side line
@@ -255,10 +168,16 @@ function safeJson(text: string): unknown {
  * text whenever discovery fails and the form falls back to a typed id — and the resulting request
  * carries the admin's forwarded identity.
  *
- * An earlier version encoded `name` and not the others, which is how the gap hid: the inconsistency
- * inside one template literal read as deliberate.
+ * Encoding is not enough for `.` and `..`: `encodeURIComponent` leaves dots alone and the URL
+ * parser treats `%2E` as a dot too, so `/connections/..` still collapses into its parent. An empty
+ * segment silently addresses the parent collection. All three are refused before any request.
  */
 function segment(value: string): string {
+  if (value === "" || value === "." || value === "..") {
+    throw new AdminApiError("invalid", 0, "That identifier is not a valid path segment.", {
+      code: "invalid_path_segment",
+    });
+  }
   return encodeURIComponent(value);
 }
 
@@ -299,38 +218,36 @@ export async function patchAccount(
   });
 }
 
-export async function listProfiles(accountId: string): Promise<AdminProfileList> {
-  return request<AdminProfileList>(`/v1/admin/accounts/${segment(accountId)}/profiles`);
+/**
+ * One tenant's credentials, one per provider: a Connection, or a conflict the console cannot act
+ * on (D18 §4). The pair `(account, provider)` is the whole address — there is no name.
+ */
+export async function listConnections(accountId: string): Promise<AdminConnectionList> {
+  return request<AdminConnectionList>(`/v1/admin/accounts/${segment(accountId)}/connections`);
 }
 
 /**
  * Attach or replace a tenant's provider API key.
  *
- * INVARIANT: the raw key travels one way. aigateway returns only a masked `account_label`, and
- * nothing here retains, logs, or echoes the value it was given.
+ * INVARIANT: the raw key travels one way, and the body is exactly `{ "api_key": … }`. It is built
+ * from `api_key` alone rather than by serialising `input`: a stale caller object can still carry
+ * `name` or `defaults` at runtime, and the successor PUT refuses any other property with 422.
  */
-export async function setApiKey(
+export async function setConnectionApiKey(
   accountId: string,
   provider: string,
-  name: string,
   input: { api_key: string },
-): Promise<AdminProfile> {
-  // WHY build the body from `api_key` alone rather than serialising `input`: a stale caller object
-  // can still carry `defaults` at runtime, and the gateway will refuse defaults-carrying writes
-  // (OME-1138 Stage C). The body is exactly `{ "api_key": … }` — no `defaults`, not even `null`.
-  return request<AdminProfile>(
-    `/v1/admin/accounts/${segment(accountId)}/profiles/${segment(provider)}/${segment(name)}/api-key`,
+): Promise<AdminConnection> {
+  return request<AdminConnection>(
+    `/v1/admin/accounts/${segment(accountId)}/connections/${segment(provider)}/api-key`,
     { method: "PUT", body: JSON.stringify({ api_key: input.api_key }) },
   );
 }
 
-export async function deleteProfile(
-  accountId: string,
-  provider: string,
-  name: string,
-): Promise<void> {
+/** Disconnect a tenant's provider. A repeat on a disconnected provider is also a 204. */
+export async function deleteConnection(accountId: string, provider: string): Promise<void> {
   await request<void>(
-    `/v1/admin/accounts/${segment(accountId)}/profiles/${segment(provider)}/${segment(name)}`,
+    `/v1/admin/accounts/${segment(accountId)}/connections/${segment(provider)}`,
     { method: "DELETE" },
   );
 }

@@ -23,6 +23,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
+from test_shared_grading_aggregation import mean_score
 
 from screamingface_engine.benchmarks.aggregation import SelectedCase
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
@@ -33,7 +34,6 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
     GradeRequest,
 )
 from screamingface_engine.benchmarks.shared_grading.case_grades import CaseGradeReader
-from screamingface_engine.benchmarks.shared_grading.mean_scorer import mean_scorer
 
 MESSAGES = {
     "missing_rubric_asset": "test: rubric asset gone",
@@ -125,7 +125,7 @@ def _case_result(
         benchmark_revision="rev",
         selected_cases=[CASE],
         grading_material=lambda case_id: points,
-        scorer=mean_scorer(lambda scores: sum(scores) / len(scores) if scores else None),
+        scorer=mean_score,
     )
     return result["cases"][0]
 
