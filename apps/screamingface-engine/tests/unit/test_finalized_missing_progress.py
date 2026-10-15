@@ -1,6 +1,7 @@
 """A hand-built omitted-row ladder finalizes failures that still count as completed.
 
-HealthBench is the subject since OME-1527 moved DRACO, the original one, to a local inspect Task.
+MedXpertQA is the subject since OME-1527 moved DRACO, the original one, then HealthBench, to local
+inspect Tasks.
 """
 
 import json
@@ -11,7 +12,7 @@ from test_ifeval_incremental_proof import _call
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.builtins import BUILTIN_REGISTRATIONS
-from screamingface_engine.benchmarks.healthbench.definition import HEALTHBENCH_WORST30
+from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.observations import RunObservations
 from url4.peer.server import Url4Node
 
@@ -19,10 +20,10 @@ from url4.peer.server import Url4Node
 @pytest.mark.asyncio
 @pytest.mark.parametrize("suffix", ["", "/graded"])
 async def test_finalized_missing_cases_publish_completion(tmp_path, monkeypatch, suffix):
-    registration = next(r for r in BUILTIN_REGISTRATIONS if r.benchmark.id == "healthbench-worst30")
+    registration = next(r for r in BUILTIN_REGISTRATIONS if r.benchmark.id == "medxpert")
     _assets(tmp_path, monkeypatch, registration)
     node = Url4Node("missing")
-    HEALTHBENCH_WORST30.install(node, tmp_path)
+    MEDXPERT.install(node, tmp_path)
     snapshots = []
     monkeypatch.setattr(
         "screamingface_engine.benchmarks.progress.current_log_sink",
@@ -34,7 +35,7 @@ async def test_finalized_missing_cases_publish_completion(tmp_path, monkeypatch,
             result = json.loads(
                 await _call(
                     node,
-                    f"/benchmarks/healthbench-worst30/{HEALTHBENCH_WORST30.revision}/aggregate{suffix}",
+                    f"/benchmarks/medxpert/{MEDXPERT.revision}/aggregate{suffix}",
                     "[]",
                     "aggregate:2",
                 )

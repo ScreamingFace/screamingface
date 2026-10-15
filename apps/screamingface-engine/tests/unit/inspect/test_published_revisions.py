@@ -48,6 +48,11 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # revision moves once. The draco-3pass e2e golden replays unchanged against the new one.
     "draco": "c6fb6f500dc58622",
     "draco-3pass": "e8c3ad925dcd4d4a",
+    # OME-1527: healthbench-worst30 and healthbench-professional moved from their hand-built
+    # folder to one local Task package and publish their old revisions (published_revision),
+    # so their leaderboard results stay visible.
+    "healthbench-worst30": "39cfd96b068f7230",
+    "healthbench-professional": "d8fb037307f35415",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
     "math": "1963559fac28e4a1",

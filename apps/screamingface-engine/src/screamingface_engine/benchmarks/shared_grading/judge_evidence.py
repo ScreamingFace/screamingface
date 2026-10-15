@@ -207,7 +207,7 @@ def _payload(shape: JudgeReplyFormat, decoded: Mapping[str, Any]) -> tuple[tuple
     return (("explanation", explanation), (shape.status_field, status))
 
 
-# --- JSON recovery — shared by every dialect and the draft-feedback offer -----------------------
+# --- JSON recovery — shared by every dialect ---------------------------------------------------
 
 
 def extract_json_object(raw: object) -> Any:
@@ -226,15 +226,6 @@ def extract_json_object(raw: object) -> Any:
         return json.loads(text)
     except json.JSONDecodeError:
         return _first_json_value(text, "{")
-
-
-def extract_json_array(reply: str) -> list[object] | None:
-    """The first JSON array embedded in a judge reply, or None — the draft feedback's shape."""
-
-    if not isinstance(reply, str):
-        return None
-    decoded = _first_json_value(_without_fences(reply), "[")
-    return decoded if isinstance(decoded, list) else None
 
 
 def _without_fences(text: str) -> str:
@@ -259,14 +250,6 @@ def _first_json_value(text: str, opener: str) -> Any:
 # --- shared scalar validation ------------------------------------------------------------
 
 
-def require_positive_int(value: object, label: str) -> int:
-    """One Engine-assigned positive integer id, or the field-specific ValueError."""
-
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise ValueError(f"{label} must be a positive integer")
-    return value
-
-
 def require_text(value: object, label: str) -> str:
     """One non-empty text field, unnormalized — evidence needs an attributable producer."""
 
@@ -275,72 +258,10 @@ def require_text(value: object, label: str) -> str:
     return value
 
 
-# --- shared rubric wiring (healthbench and gdpval were byte-identical copies) ------------
-
-
-def rubric_evidence_record_key(value: str) -> tuple[int, int]:
-    """Decode ``case_id:rubric_id`` — both Engine-assigned positive integers."""
-
-    case_text, separator, rubric_text = value.partition(":")
-    if not separator:
-        raise ValueError("rubric verdict binding must contain case_id:rubric_id")
-    try:
-        case_id = int(case_text)
-        rubric_id = int(rubric_text)
-    except ValueError as exc:
-        raise ValueError("rubric verdict case_id and rubric_id must be positive integers") from exc
-    if case_id < 1 or rubric_id < 1:
-        raise ValueError("rubric verdict case_id and rubric_id must be positive integers")
-    return case_id, rubric_id
-
-
-def rubric_verdict_call(judge: object, *, case_id: str, rubric_id: str, route: str, retry: int):
-    """Wrap a judge call so a parse retry redraws a FRESH judge sample.
-
-    The problem: a garbage reply is still a SUCCESSFUL model call, so ``;retry=`` on the
-    judge itself would never fire — there is no error to retry. The trick: nest the judge
-    INSIDE the verdict call as its context and put ``;retry=`` on the verdict, so a parse
-    failure re-resolves the whole nested expression and re-asks the judge. This is the
-    reference's own recovery loop (simple-evals ``grade_sample`` re-asks on bad JSON),
-    bounded at ``retry`` attempts instead of forever.
-
-    The re-ask sends the same bytes as the garbled ask, and the AI Gateway's request cache
-    stored that garbled reply. It is fresh only because the connector runs a retry caused by
-    ``judge_reply_invalid`` opted out of that cache (OME-1533, ``world/fresh_judge_retry.py``);
-    the verdict route must keep RAISING that code for a malformed reply, or the retry is lost.
-
-    INVARIANT: the judge never sees ``case_id`` or ``rubric_id`` — the Engine writes both
-    into the verdict route's intent, so identity is stamped rather than echoed.
-    """
-
-    from url4 import Node, RelExpr, Text, render, src
-
-    if not isinstance(judge, Node):
-        raise ValueError("verdict call needs a URL4 judge node")
-    if not isinstance(route, str) or not route.startswith("/"):
-        raise ValueError("rubric verdict route must be an absolute URL4 path")
-    if isinstance(retry, bool) or not isinstance(retry, int) or retry < 0:
-        raise ValueError("retry must be a non-negative integer")
-    return src(
-        RelExpr(
-            path=route,
-            context=render(judge, check=False),
-            intent=Text(f"{case_id}:{rubric_id}"),
-        ),
-        name="verdict",
-        weight=0.0,
-        retry=retry,
-    )
-
-
 __all__ = [
     "JudgeEvidence",
     "JudgeReplyFormat",
     "parse_judge_evidence",
-    "extract_json_array",
     "extract_json_object",
-    "require_positive_int",
     "require_text",
-    "rubric_evidence_record_key",
-    "rubric_verdict_call",
 ]

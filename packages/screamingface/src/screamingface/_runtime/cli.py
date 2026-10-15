@@ -26,7 +26,7 @@ from screamingface._runtime.config import RuntimeConfig, default_data_dir
 
 _STATE_VERSION = 1
 _PORT_DEFAULTS = {"gateway": 9105, "scoreboard": 9106, "engine": 9108}
-_BENCHMARKS = ("ifeval", "healthbench", "medxpert")
+_BENCHMARKS = ("ifeval", "medxpert")
 # WHY 15: enough to carry the failing import plus its traceback into the `up` error;
 # short enough that the message stays readable where it lands (OME-1036).
 _STARTUP_LOG_TAIL_LINES = 15
@@ -818,7 +818,6 @@ def _benchmark_fingerprint(name: str) -> str:
 def _validate_benchmark_output(name: str, destination: Path) -> list[str]:
     required = {
         "ifeval": ("cases.json", "instructions", "nltk_data"),
-        "healthbench": ("cases.json", "rubrics"),
         # WHY "answers" and not "rubrics": MedXpertQA is graded by exact letter match, so its
         # private asset is a one-letter answer key per case, not a scored checklist.
         "medxpert": ("cases.json", "answers"),

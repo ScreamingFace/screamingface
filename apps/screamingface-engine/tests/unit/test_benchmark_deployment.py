@@ -24,10 +24,8 @@ from screamingface_engine.benchmarks.deployment import (
     BenchmarkDeployment,
     BenchmarkRegistration,
 )
-from screamingface_engine.benchmarks.healthbench.prepare import (
-    PrepareError as HealthBenchPrepareError,
-)
 from screamingface_engine.benchmarks.ifeval.prepare import PrepareError as IFEvalPrepareError
+from screamingface_engine.benchmarks.medxpert.prepare import PrepareError as MedXpertPrepareError
 from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
 from url4 import Text
 from url4.peer.server import Url4Node
@@ -208,7 +206,7 @@ def test_an_unknown_bundle_id_is_refused_before_any_preparer_runs(
 
 @pytest.mark.parametrize(
     "error_type",
-    (HealthBenchPrepareError, IFEvalPrepareError),
+    (MedXpertPrepareError, IFEvalPrepareError),
 )
 def test_family_preparation_refusals_share_the_operator_error_boundary(
     error_type: type[Exception],

@@ -1,22 +1,20 @@
-"""The frozen worst-30% subset of HealthBench Professional — the challenge's case list.
+"""The frozen worst-30% subset of HealthBench Professional — the challenge's Case list.
 
 Provenance: the 157 rows (30% of 525) where models score worst — ranked by the mean
 per-case rubric score across a full-dataset panel run of 15 evaluators (8 solo models +
 7 fusions) conducted in July 2026. The subset keeps the lowest-scoring 30% of that
 ranking, ordered hardest first.
 
-INVARIANT: this tuple is FROZEN. Its sha participates in the worst30 revision hash, so
-any edit changes every route address — an old expression physically cannot resolve
-against a changed subset. Never regenerate it from live data.
+INVARIANT: this tuple is FROZEN. Its order is the Case order (Case k is the k-th id here), and
+the Case Digest seals it, so any edit is a new Benchmark revision (the Task's source is pinned
+too). Never regenerate it from live data.
 """
 
-# ruff: noqa: E501 — generated frozen id table; three-per-line keeps diffs reviewable.
+# ruff: noqa: E501 — generated frozen id table; one id per line keeps diffs reviewable.
 from __future__ import annotations
 
-import hashlib
-
-# WHY: HF row ids from openai/healthbench-professional (the dataset's stable identity),
-# not positional indices — prepare.py maps them to Engine case ids at build time.
+# WHY: HF row ids from openai/healthbench-professional (the dataset's stable identity), not
+# positions in the file: this Benchmark's identity IS a selection out of the 525.
 WORST30_HF_IDS: tuple[str, ...] = (
     "b3d32c955eca9915b39e7844142e0a7c",
     "79d2e7c5e03aa4949d55bf2bbd819ceb",
@@ -175,175 +173,4 @@ WORST30_HF_IDS: tuple[str, ...] = (
     "95e372d4acf027eadf6534a7dae70e96",
     "068abd7e3805cfacf547bedf2be204d5",
     "11cb964a58ffb9fb7abda7c811ca305f",
-)
-
-
-def subset_sha() -> str:
-    """The revision-participating fingerprint of the frozen id list."""
-
-    return hashlib.sha256("\n".join(WORST30_HF_IDS).encode()).hexdigest()
-
-
-# WHY: Engine case ids are 1-based positions in the HF professional file's row order —
-# the exact rule prepare.py uses to number cases.json. Keeping the mapping frozen here
-# (rather than derived at import) lets the control plane pin `case_ids` without reading
-# any dataset asset. prepare.py re-derives and ASSERTS this mapping at image build.
-WORST30_CASE_IDS: tuple[int, ...] = (
-    20,
-    467,
-    459,
-    153,
-    328,
-    429,
-    512,
-    149,
-    418,
-    394,
-    25,
-    129,
-    241,
-    505,
-    481,
-    276,
-    174,
-    399,
-    494,
-    198,
-    43,
-    173,
-    221,
-    135,
-    376,
-    395,
-    191,
-    136,
-    197,
-    91,
-    493,
-    477,
-    152,
-    286,
-    462,
-    331,
-    400,
-    217,
-    428,
-    465,
-    523,
-    145,
-    280,
-    300,
-    21,
-    463,
-    166,
-    101,
-    216,
-    398,
-    502,
-    438,
-    42,
-    100,
-    340,
-    393,
-    422,
-    139,
-    7,
-    99,
-    38,
-    134,
-    403,
-    396,
-    26,
-    41,
-    69,
-    77,
-    103,
-    154,
-    203,
-    212,
-    214,
-    213,
-    215,
-    356,
-    355,
-    370,
-    386,
-    419,
-    449,
-    492,
-    511,
-    510,
-    518,
-    373,
-    379,
-    176,
-    204,
-    19,
-    46,
-    76,
-    220,
-    261,
-    377,
-    524,
-    525,
-    292,
-    24,
-    190,
-    15,
-    363,
-    401,
-    455,
-    48,
-    186,
-    64,
-    104,
-    297,
-    321,
-    424,
-    352,
-    484,
-    431,
-    515,
-    40,
-    472,
-    256,
-    62,
-    125,
-    130,
-    202,
-    335,
-    408,
-    479,
-    336,
-    349,
-    293,
-    10,
-    102,
-    366,
-    365,
-    167,
-    322,
-    350,
-    105,
-    17,
-    63,
-    78,
-    113,
-    172,
-    351,
-    359,
-    521,
-    142,
-    150,
-    1,
-    420,
-    402,
-    461,
-    67,
-    108,
-    317,
-    427,
-    44,
-    111,
-    127,
 )

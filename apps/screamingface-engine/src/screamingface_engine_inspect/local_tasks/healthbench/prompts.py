@@ -7,7 +7,7 @@ Source: https://github.com/openai/simple-evals/blob/main/healthbench_eval.py
 
 Do NOT edit — including its own typos ("Only return true is all", "critera"):
 any byte change breaks grading-protocol parity and is pinned by sha in
-``tests/unit/test_healthbench_definition.py``. Placeholders are ``<<conversation>>`` /
+``tests/unit/inspect/test_local_task_healthbench.py``. Placeholders are ``<<conversation>>`` /
 ``<<rubric_item>>``, filled via ``str.replace`` — the body contains JSON braces, so
 ``str.format`` would explode.
 """

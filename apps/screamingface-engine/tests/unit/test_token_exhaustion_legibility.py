@@ -8,11 +8,10 @@ debugs the gateway instead of raising one parameter.
 STORY: as a researcher whose candidate or check judge runs out of tokens, the failure
 tells me the model hit its token budget, which budget, and where to raise it.
 
-Two seams, mirroring where the signal exists:
-  1. the connector holds `finish_reason` + the request's `max_tokens` — classification
-     happens there (`model_token_cap`), like refusals already do (OME-679);
-  2. `rubric_check._judged` holds the check judge's configured params — its failure
-     message names the judge budget and the check_policy that pins it.
+The seam is where the signal exists: the connector holds `finish_reason` + the request's
+`max_tokens`, so classification happens there (`model_token_cap`), like refusals already do
+(OME-679). A second seam, the hand-built rubric check judge naming its own budget, went with
+its last user, HealthBench's folder, when OME-1527 moved it to a local inspect Task.
 
 A separate module from `test_finish_reason_capture.py` per that file's own note: the
 append-only gate reads growth of an existing test file as modification.
@@ -20,23 +19,13 @@ append-only gate reads growth of an existing test file as modification.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import cast
-
 import httpx
 import pytest
 
-from screamingface_engine.benchmarks.rubric_draft_feedback import (
-    CHECK_ATTEMPTS,
-    RubricDraftFeedback,
-    RubricFileLayout,
-    _judged,
-)
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
-from url4.peer.server import Url4Node
 
 _MODEL = "anthropic/claude-haiku-4-5"
 
@@ -127,73 +116,3 @@ async def test_content_filter_still_wins_over_length() -> None:
         await _run(body, f"/{_MODEL}(ctx)!go")
 
     assert exc_info.value.code == "provider_refusal"
-
-
-# ── seam 2: the check judge's failure names its budget and the policy that pins it ────────
-
-
-_CHECK = RubricDraftFeedback(
-    label="DRACO",
-    criterion="draco-pass.v1",
-    threshold=0.7,
-    shape=RubricFileLayout(
-        layout="flat",
-        items="items",
-        id_field="id",
-        text_field="text",
-        weight_field="weight",
-    ),
-    judge_model="openrouter/google/gemini-3.1-pro-preview",
-    judge_params=(("temperature", "0.2"), ("max_tokens", "32768")),
-    feedback="severity",
-)
-
-_CRITERIA = ({"id": "c1", "text": "says hi", "weight": 1.0, "area": ""},)
-
-
-class _ProseJudge:
-    """A judge whose replies never decode — the retry-exhaustion path."""
-
-    async def evaluate(self, expression: str, *, env: dict) -> SimpleNamespace:
-        return SimpleNamespace(text="I think the response is fine overall.")
-
-
-class _StarvedJudge:
-    """A judge whose model call itself dies on the token cap — the propagation path."""
-
-    async def evaluate(self, expression: str, *, env: dict) -> SimpleNamespace:
-        raise ResolutionError(
-            "model ran out of tokens before completing an answer",
-            code="model_token_cap",
-            permanent=True,
-        )
-
-
-@pytest.mark.asyncio
-async def test_unusable_verdicts_name_the_judge_budget_and_its_home() -> None:
-    with pytest.raises(ResolutionError) as exc_info:
-        # The fakes satisfy the one method _judged calls; cast supplies the port type.
-        await _judged(
-            cast(Url4Node, _ProseJudge()), _CHECK, question="q", answer="a", criteria=_CRITERIA
-        )
-
-    message = str(exc_info.value)
-    assert f"in {CHECK_ATTEMPTS} attempts" in message
-    # The knob and where it lives: the budget value and the policy module that sets it.
-    assert "max_tokens=32768" in message
-    assert "check_policy" in message
-
-
-@pytest.mark.asyncio
-async def test_starved_judge_failure_names_the_check_judge() -> None:
-    # When the judge call itself dies on the cap, the message must still attribute the
-    # failure to the CHECK JUDGE (not the candidate) and keep the token-cap cause.
-    with pytest.raises(ResolutionError) as exc_info:
-        await _judged(
-            cast(Url4Node, _StarvedJudge()), _CHECK, question="q", answer="a", criteria=_CRITERIA
-        )
-
-    message = str(exc_info.value)
-    assert "check judge" in message
-    assert "ran out of tokens" in message
-    assert "max_tokens=32768" in message

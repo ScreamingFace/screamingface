@@ -153,35 +153,6 @@ _GDPVAL: dict[str, Any] = {
 }
 
 
-def test_a_benchmark_on_a_shared_bundle_reads_that_bundle(tmp_path: Path) -> None:
-    """draco-3pass and both HealthBench Benchmarks have no folder of their own (gdpval-text
-    left the map in OME-1527: a local Task's bundle folder has its own id).
-
-    WHY it matters: without the map their rows read "not recorded" while the bundle they
-    actually ran on holds a block, which would send on-call looking for a missing file.
-    """
-    _bundle(
-        tmp_path,
-        "healthbench",
-        {**_GDPVAL, "samples": {"yielded": 525, "excluded": 0, "kept": 525}},
-    )
-    _bundle(tmp_path, "draco", {**_GDPVAL, "samples": {"yielded": 100, "excluded": 0, "kept": 100}})
-    benchmarks: list[str] = [
-        "healthbench-worst30",
-        "healthbench-professional",
-        "draco-3pass",
-        "draco",
-    ]
-
-    markdown: str = provenance_markdown(benchmarks, tmp_path)
-
-    assert "525 of 525" in _row(markdown, "healthbench-worst30")
-    assert "525 of 525" in _row(markdown, "healthbench-professional")
-    assert "100 of 100" in _row(markdown, "draco-3pass")
-    # A Benchmark whose bundle shares its id still reads its own folder.
-    assert "100 of 100" in _row(markdown, "draco")
-
-
 def test_a_hand_built_block_with_empty_pins_renders(tmp_path: Path) -> None:
     """A hand-built preparer never runs inspect, so its block has no inspect-evals pin."""
     _bundle(tmp_path, "medxpert", {**_GDPVAL, "samples": {"yielded": 3, "excluded": 0, "kept": 3}})

@@ -14,7 +14,14 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
-from test_shared_grading_aggregation import _envelope, _grading, _Hook, _mean, _path, _selected
+from test_shared_grading_aggregation import (
+    _envelope,
+    _grading,
+    _Hook,
+    _path,
+    _selected,
+    mean_score,
+)
 
 from screamingface_engine.benchmarks.aggregation import finalize_candidate_result
 from screamingface_engine.benchmarks.contract import CaseResult
@@ -25,7 +32,6 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
     CaseGradeOutcome,
     GradeRequest,
 )
-from screamingface_engine.benchmarks.shared_grading.mean_scorer import mean_scorer
 
 _SCORED = CaseGradeOutcome(
     score=0.5, metrics={"judged": 2, "expected": 2, "invalid_replies": 0}, checks=[]
@@ -58,7 +64,7 @@ async def _aggregate(
         benchmark_revision="rev",
         selected_cases=_selected(*case_ids),
         grading_material=lambda case_id: (5, -3),
-        scorer=mean_scorer(_mean),
+        scorer=mean_score,
     )
 
 
@@ -153,7 +159,7 @@ async def test_a_failing_case_publishes_exactly_what_serial_marking_publishes() 
         benchmark_revision="rev",
         selected_cases=_selected(1, 2, 3, 4),
         cases=serial,
-        scorer=mean_scorer(_mean),
+        scorer=mean_score,
     ).as_payload()
     assert concurrent == expected
     codes: list[Any] = [[f["code"] for f in case["failures"]] for case in concurrent["cases"]]

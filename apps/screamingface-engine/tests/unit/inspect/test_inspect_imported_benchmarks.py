@@ -51,6 +51,10 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # over several seeded passes, one call per criterion per pass, so no Draft Feedback offer.
     "draco": "judged",
     "draco-3pass": "judged",
+    # OME-1527: the hand-built folder moved to one local Task package; rubric-graded by a pinned
+    # judge, one call per rubric line, so no Draft Feedback offer.
+    "healthbench-worst30": "judged",
+    "healthbench-professional": "judged",
     "mmlu": "mcq",
     "arc_easy": "mcq",
     "arc_challenge": "mcq",

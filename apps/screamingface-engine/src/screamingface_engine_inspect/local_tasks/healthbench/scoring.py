@@ -1,17 +1,17 @@
-"""Pure HealthBench scoring primitives — the per-Case math, and BOTH benchmark-level metrics.
+"""Pure HealthBench scoring primitives — the per-Case math, and the official whole-run clip.
 
 Mirrors the reference ``calculate_score`` (simple-evals ``healthbench_eval.py``): a Case
 score is achieved points over the sum of POSITIVE points, negatives subtract, and the
-per-Case value is UNCLAMPED. That half is shared by every HealthBench benchmark.
+per-Case value is UNCLAMPED. That half is shared by both HealthBench Benchmarks.
 
-The benchmark-level reduction is where the two benchmarks part, and each picks its own here:
+The whole-run reduction is where the two Benchmarks part:
 
 - ``clipped_mean`` — the OFFICIAL metric (``np.clip(mean, 0, 1)``), used by the full
-  525-case professional benchmark so its number is comparable to published figures.
-- ``unclipped_mean`` — the challenge metric, used by the worst-30% benchmark. It DIVERGES
-  from the reference deliberately: on that subset every serious baseline mean is
-  negative, so the official clip would flatten the whole leaderboard to 0.00. Never
-  present an unclipped score as an official HealthBench score.
+  525-case professional Benchmark so its number is comparable to published figures.
+- the worst-30% Benchmark keeps the plain mean of its Case scores, negatives kept (the plugin
+  lane's own tally). It DIVERGES from the reference deliberately: on that subset every serious
+  baseline mean is negative, so the official clip would flatten the whole leaderboard to 0.00.
+  Never present an unclipped score as an official HealthBench score.
 """
 
 from __future__ import annotations
@@ -76,14 +76,6 @@ def case_score(
     return achieved / denominator
 
 
-def unclipped_mean(values: Sequence[float]) -> float | None:
-    """The challenge aggregate — the raw mean, NO ``max(0, …)`` clip (see module WHY)."""
-
-    if not values:
-        return None
-    return sum(values) / len(values)
-
-
 def clipped_mean(values: Sequence[float]) -> float | None:
     """The OFFICIAL HealthBench benchmark metric — the reference's ``np.clip(mean, 0, 1)``.
 
@@ -113,4 +105,4 @@ def clipped_mean(values: Sequence[float]) -> float | None:
     return min(1.0, max(0.0, sum(values) / len(values)))
 
 
-__all__ = ["case_score", "clipped_mean", "unclipped_mean"]
+__all__ = ["case_score", "clipped_mean"]

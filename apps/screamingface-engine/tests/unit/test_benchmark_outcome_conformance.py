@@ -11,9 +11,8 @@ import pytest
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
-from screamingface_engine.benchmarks.healthbench.grade import aggregate as aggregate_healthbench
-from screamingface_engine.benchmarks.healthbench.scoring import unclipped_mean
 from screamingface_engine.benchmarks.ifeval.grade import aggregate as aggregate_ifeval
+from screamingface_engine.benchmarks.medxpert.aggregate import aggregate as aggregate_medxpert
 
 AggregateFixture = Callable[[Path, dict[str, object]], dict[str, Any]]
 
@@ -29,22 +28,25 @@ def _ifeval(_root: Path, row: dict[str, object]) -> dict[str, Any]:
     return aggregate_ifeval(json.dumps([row]), spec, "ifeval", [1], selected_case_count=1)
 
 
-def _healthbench(root: Path, row: dict[str, object]) -> dict[str, Any]:
+def _medxpert(root: Path, row: dict[str, object]) -> dict[str, Any]:
+    # WHY MedXpertQA: the last hand-built Benchmark beside IFEval once OME-1527 moved
+    # HealthBench (and DRACO before it) to local inspect Tasks.
     (root / "cases.json").write_text(
         json.dumps([{"id": 1, "input": "Patient question"}]),
         encoding="utf-8",
     )
-    return aggregate_healthbench(
+    (root / "answers").mkdir()
+    (root / "answers" / "1.json").write_text(json.dumps({"label": "C"}), encoding="utf-8")
+    return aggregate_medxpert(
         json.dumps([row]),
         root,
-        benchmark_id="healthbench-worst30",
+        benchmark_id="medxpert",
         benchmark_revision="fixture",
         case_ids=(1,),
-        mean=unclipped_mean,
     )
 
 
-@pytest.mark.parametrize("aggregate", (_ifeval, _healthbench))
+@pytest.mark.parametrize("aggregate", (_ifeval, _medxpert))
 @pytest.mark.parametrize("refusal", ("I cannot answer that.", None))
 def test_refusal_survives_a_later_grading_failure_across_benchmarks(
     tmp_path: Path,
@@ -91,7 +93,7 @@ def test_refusal_survives_a_later_grading_failure_across_benchmarks(
     ]
 
 
-@pytest.mark.parametrize("aggregate", (_ifeval, _healthbench))
+@pytest.mark.parametrize("aggregate", (_ifeval, _medxpert))
 def test_case_execution_identity_mismatch_fails_loudly_across_benchmarks(
     tmp_path: Path,
     aggregate: AggregateFixture,

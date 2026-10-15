@@ -224,7 +224,8 @@ not hours):
   - `judge=JudgeSpec(model=..., params=...)` is declared, and the SAME model appears as
     a `screamingface/<model>` value in `scorer_kwargs` — assembly cross-checks both
     directions, but the reviewer confirms the chosen judge is the intended house judge
-    (precedent: HealthBench's judge model and params, `benchmarks/healthbench/revision_inputs.py`).
+    (precedent: HealthBench's judge model and params, the `healthbench-worst30` row's `JudgeSpec`
+    in `screamingface_engine_inspect/benchmarks.py`).
   - The judge model, its params, and the judge prompt (template/instructions kwargs)
     are benchmark identity — expect the revision to move if any of them changes.
   - If the scorer dispatches on Sample metadata (frontierscience's `format`), the
