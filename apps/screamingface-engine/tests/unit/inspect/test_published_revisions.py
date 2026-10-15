@@ -49,9 +49,9 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "draco": "c6fb6f500dc58622",
     "draco-3pass": "e8c3ad925dcd4d4a",
     # OME-1527: ifeval moved from its hand-built folder to a local Task, its Case ids
-    # renumbered 1..541 (owner decision 2), and KEEPS its published revision (kept_revision,
-    # OME-1610), so its leaderboard results stay visible; it computes to ada07458a23c55ab, and
-    # the ifeval e2e golden replaying with zero misses is the proof the exam is unchanged.
+    # renumbered 1..541 (owner decision 2), and publishes its old revision (published_revision),
+    # so its leaderboard results stay visible; its computed fingerprint is pinned in
+    # _FINGERPRINTS below.
     "ifeval": "1cba769ece27f7ef",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
@@ -81,6 +81,31 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
 @pytest.mark.parametrize(("key", "revision"), sorted(_PUBLISHED_REVISIONS.items()))
 def test_published_benchmark_revision_is_byte_identical(key: str, revision: str) -> None:
     assert imported_benchmark(key).benchmark.revision == revision
+
+
+#: key → the fingerprint its identity inputs compute, for every row that publishes a hand-set
+#: ``published_revision`` (OME-1527). The published id never moves with the fingerprint, so
+#: this pin is the only alarm that the exam (Cases, grading rule, judge) may have changed.
+_FINGERPRINTS: dict[str, str] = {
+    "ifeval": "ada07458a23c55ab",
+}
+
+
+@pytest.mark.parametrize(("key", "fingerprint"), sorted(_FINGERPRINTS.items()))
+def test_a_pinned_benchmark_still_computes_the_fingerprint_its_published_revision_stands_for(
+    key: str, fingerprint: str
+) -> None:
+    """WHY: a row with ``published_revision`` publishes it whatever its inputs compute to, so a
+    real exam change would otherwise pass silently under the old id. The message tells the
+    reader which of the two acts the diff needs."""
+
+    computed: str = imported_benchmark(key).computed_revision
+    assert computed == fingerprint, (
+        f"{key}'s fingerprint changed from {fingerprint} to {computed}. If the exam did not "
+        "change (questions, grading rule, judge), update this fingerprint only. If it did, "
+        "changing published_revision hides every existing leaderboard result and makes "
+        "submissions outdated — needs a deliberate bump with owner sign-off (OME-1610)."
+    )
 
 
 #: OME-1460: every Task-replay Benchmark with no Hugging Face Case Source, as served on main
