@@ -704,15 +704,16 @@ it. SDK only. No engine change.
 - **Status:** done. The GREEN code passes all 23 JW items. The `screamingface` and `repo` gates
   are green. The `screamingface` append-only check is red for the pinned edits of units 1 to 4
   and for the pinned edit of this unit. The owner must approve them before the part can merge.
+  This unit makes one PINNED edit: `packages/screamingface/tests/public_surface_snapshot.json`
+  (owner approval required). No other existing test changed in this unit.
 - **Actual files:** commit A (RED): `packages/screamingface/tests/test_judge_writer_warning.py`
   (new), `packages/screamingface/src/screamingface/warnings.py` (stub), this section.
   Commit B (GREEN): `packages/screamingface/src/screamingface/_evaluation/candidate.py`,
   `packages/screamingface/src/screamingface/url4.py`,
   `packages/screamingface/src/screamingface/__init__.py`,
-  `packages/screamingface/tests/public_surface_snapshot.json` (regenerated, two hunks: one
-  `__all__` line and one class entry), this section.
-- **Commits:** A (RED): `b41932b25`. B (GREEN): the commit that holds this section (its hash is
-  not known inside its own text).
+  `packages/screamingface/tests/public_surface_snapshot.json` (PINNED edit, regenerated, two
+  hunks: one `__all__` line and one class entry), this section.
+- **Commits:** A (RED): `b41932b25`. B (GREEN): `ae7370e9f`.
 - **Gates:**
   - `run_gates.py screamingface --base 0f4b9e292`: the append-only check FAILS. It lists six
     files: `tests/data/schemas/screamingface.answer.v1.json` (P-2, unit 1),
@@ -722,6 +723,10 @@ it. SDK only. No engine change.
     (X-5, units 2 and 3), `tests/test_pick_output.py` (P-4, unit 1). This unit adds no test edit
     other than the snapshot. The rerun with `--skip-append-only` is ALL GATES GREEN (ruff check,
     ruff format, pyright, pytest with coverage, notebooks, build, distribution check).
+  - Gates at HEAD (checked 10-15, after units 2 to 6 landed; the review fix of unit 3 and the
+    unit 6 docs are in HEAD): `run_gates.py screamingface --base 0f4b9e292` fails only on the
+    append-only check, with the six offenders above. `--skip-append-only` ALL GATES GREEN.
+    `run_gates.py repo --base 0f4b9e292` ALL GATES GREEN. No flake was seen.
   - `run_gates.py repo --base 0f4b9e292`: ALL GATES GREEN (the append-only check passes).
   - `ruff check`, `ruff format --check` and `pyright` in `packages/screamingface`: clean.
   - Focused set (`test_judge_writer_warning.py`, `test_duplicate_members_warning.py`,
