@@ -116,4 +116,5 @@ def test_only_rows_with_an_equivalence_proof_keep_a_revision() -> None:
         spec.key: spec.kept_revision for spec in BENCHMARKS if spec.kept_revision is not None
     }
 
-    assert keeping == {}
+    # ifeval (OME-1527 row 15, OME-1610): the hand-built revision, kept on the local Task.
+    assert keeping == {"ifeval": ("1cba769ece27f7ef", "9d88d67cf2ce2be5")}

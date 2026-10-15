@@ -34,7 +34,8 @@ IFEVAL: Benchmark = imported_benchmark("ifeval").benchmark
 
 #: The check-surface route the SDK compiled into the Candidates under ``tests/unit/data/``
 #: when IFEval was hand-built. The SDK's drift guard reads the route from those files, so they
-#: keep it; :func:`compiled_candidate` swaps in the route IFEval advertises today.
+#: keep it; :func:`compiled_candidate` swaps in the route IFEval advertises today (the same
+#: route while it keeps its published revision, OME-1610).
 HAND_BUILT_CHECK_ROUTE: str = "/benchmarks/ifeval/1cba769ece27f7ef/check-surface"
 
 #: One instruction set: (prompt, instruction ids, their arguments).
