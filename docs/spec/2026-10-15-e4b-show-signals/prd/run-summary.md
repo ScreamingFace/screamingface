@@ -56,17 +56,19 @@ and `excluded: dict[str, int]` (member id → count, insertion order = first see
 both counts to 0 when new, adds 1 to `chosen` when `row.member_id in evidence.chosen`, adds 1 to
 `excluded` when `row.status == "excluded"`, and appends each non-None `row.signals` value.
 
-`_summary_html` writes (no whitespace between tags):
+`_summary_html` writes (no whitespace between tags), with `_label` and `_table` of
+[case-pane](case-pane.md) §2 (P20):
 
 ```text
-<div class='sf-cmb__h' title='{escape(operation_id)}'>{escape(label)} · {escape(reducer)} · {N} case|cases</div>
-<table class='sf-cmb__t'><thead><tr><th>member</th><th>chosen</th><th>excluded</th>
-  {<th title='{escape("source: " + source)}'>{escape(name)} mean</th> per declared name}</tr></thead>
-<tbody>{<tr><td>{member}</td><td>{chosen} of {N}</td><td>{excluded}</td>{mean cells}</tr> per member}</tbody></table>
+<div class='sf-cmb__h' title='{escape(operation_id)}'>{escape(_label(graph, operation_id))} · {escape(reducer)} · {N} case|cases</div>
+{_table(head, rows)}, where
+  head = <th scope='col'>member</th><th scope='col'>chosen</th><th scope='col'>excluded</th>
+         {<th scope='col' title='{escape("source: " + source)}'>{escape(name)} mean</th> per declared name}
+  rows = {<tr><td>{escape(member)}</td><td>{chosen} of {N}</td><td>{excluded} of {N}</td>{mean cells}</tr> per member}
 ```
 
-- `label` = `graph[operation_id].label` when present, else `operation_id`. `case` when N == 1, else
-  `cases`.
+- `case` when N == 1, else `cases`. `chosen` and `excluded` both show `{count} of {N}`, so the two
+  columns read the same way (P13).
 - A mean cell is `<td>` + `number_html(mean, "no Case gave a value")` + ` <span class='sf-cmb__nn'>n={n}</span></td>`,
   where `n` = the number of values and `mean = math.fsum(values) / n` (None when n == 0).
 
@@ -86,20 +88,20 @@ both counts to 0 when new, adds 1 to `chosen` when `row.member_id in evidence.ch
 
   then the block is `<div class='sf-detail__k'>combine</div>`, the heading is
   `<div class='sf-cmb__h' title='op_synthesis_1'>synthesis · vote · 3 cases</div>`, the header is
-  `<tr><th>member</th><th>chosen</th><th>excluded</th><th title='source: verbalized'>conf mean</th></tr>`,
+  `<tr><th scope='col'>member</th><th scope='col'>chosen</th><th scope='col'>excluded</th><th scope='col' title='source: verbalized'>conf mean</th></tr>`,
   and the rows are exactly:
-  `<tr><td>member_1</td><td>2 of 3</td><td>0</td><td><span class='sf-cmb__n' title='80.0'>80</span> <span class='sf-cmb__nn'>n=3</span></td></tr>`,
-  `<tr><td>member_2</td><td>1 of 3</td><td>0</td><td><span class='sf-cmb__n' title='65.0'>65</span> <span class='sf-cmb__nn'>n=2</span></td></tr>`,
-  `<tr><td>member_3</td><td>0 of 3</td><td>1</td><td><span class='sf-cmb__n' title='45.0'>45</span> <span class='sf-cmb__nn'>n=2</span></td></tr>`.
+  `<tr><td>member_1</td><td>2 of 3</td><td>0 of 3</td><td><span class='sf-cmb__n' title='80.0'>80</span> <span class='sf-cmb__nn'>n=3</span></td></tr>`,
+  `<tr><td>member_2</td><td>1 of 3</td><td>0 of 3</td><td><span class='sf-cmb__n' title='65.0'>65</span> <span class='sf-cmb__nn'>n=2</span></td></tr>`,
+  `<tr><td>member_3</td><td>0 of 3</td><td>1 of 3</td><td><span class='sf-cmb__n' title='45.0'>45</span> <span class='sf-cmb__nn'>n=2</span></td></tr>`.
   Hand-computed: member_1 (90+80+70)/3 = 80; member_2 (60+70)/2 = 65; member_3 (50+40)/2 = 45.
   [stated ans:Q1]
 - **RS-2** Given two Cases where member_1 has conf 0.1 and 0.2, then its mean cell shows
   `<span class='sf-cmb__n' title='0.15000000000000002'>0.15</span> <span class='sf-cmb__nn'>n=2</span>`
   (`math.fsum([0.1, 0.2]) / 2 == 0.15000000000000002`). [stated ans:Q3]
 - **RS-3** Given the Cases `vote_one_failed` and `vote_abstain` (no declared signal), then the header
-  is `<tr><th>member</th><th>chosen</th><th>excluded</th></tr>`, the heading ends
-  `synthesis · vote · 2 cases`, member_1 shows `1 of 2`, member_2 and member_3 show `0 of 2`, and
-  every `excluded` cell is `0`. [stated ans:Q1] (ans:Q2: every reducer step)
+  is `<tr><th scope='col'>member</th><th scope='col'>chosen</th><th scope='col'>excluded</th></tr>`,
+  the heading ends `synthesis · vote · 2 cases`, member_1 shows `1 of 2`, member_2 and member_3 show
+  `0 of 2`, and every `excluded` cell is `0 of 2`. [stated ans:Q1] (ans:Q2: every reducer step)
 
 ### 3.2 Error paths
 
@@ -113,9 +115,9 @@ both counts to 0 when new, adds 1 to `chosen` when `row.member_id in evidence.ch
 
 - **RS-D1** (H×M) [proposed] P8 Given the label `a<b>` and a declared source `<x>`, then the card
   holds `a&lt;b&gt;` and `title='source: &lt;x&gt;'`, and not `a<b>` or `<x>`.
-- **RS-D2** (M×M) [proposed] P13 Given one Case with two combine operations (`op_synthesis_1`
-  label `synthesis`, then `op_synthesis_2` label `outer`), then there are two headings, `synthesis`
-  first.
+- **RS-D2** (M×M) [proposed] P13 Given the graph and the Case of [case-pane](case-pane.md) CP-D2
+  (`op_synthesis_1` label `synthesis` with `vote_one_failed`, then `op_synthesis_2` label `outer`
+  with `median_nearest`), then there are two headings, `synthesis` first.
 - **RS-D3** (M×M) [proposed] P15 Given a model-only Case, an Attempts Case (operations only on the
   Attempts) and one combine Case, then the heading says `1 case`.
 - **RS-D4** (M×L) [proposed] P13 Given a combine Candidate, then in the card
@@ -140,6 +142,9 @@ both counts to 0 when new, adds 1 to `chosen` when `row.member_id in evidence.ch
 None.
 
 ## 7. TDD plan
+
+RED stub: `combine_summary_html` returns `""` (it does not raise). Wire its call into `_card_html`
+in the GREEN commit, so RS#1, RS#2 and the existing report-HTML tests stay green in the RED commit.
 
 Test file: `ST/test_combine_run_summary.py` (new). Render the card with
 `_card_html(candidate, report)` and the block with `combine_summary_html(candidate)`. Build the

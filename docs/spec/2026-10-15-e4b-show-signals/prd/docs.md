@@ -51,12 +51,15 @@ export key.
      member was chosen, how often it was excluded, and the mean of each declared signal with `n`,
      the number of Cases that gave a value.
    - "**The export.**" — `report.export()` and `report.to_dict()` add a `trace` key to each Case
-     with a combine step. It holds the same entries as `report.trace_dict()`. The trace has no
-     member output text. The other keys do not change, and the schema stays `report.v1`.
+     with a combine step. It holds the same entries as `report.trace_dict()`. The trace holds no
+     member output text except each member's extracted `raw` and `value`. For `whole@1` and
+     `json_object@1` these are the whole reply. The other keys do not change, and the schema stays
+     `report.v1`.
    And one sentence: "Numbers show 4 significant digits; hover a number to see the exact stored
    value. A missing value is an em dash; hover it to see why."
-3. CHANGELOG, `## Unreleased`, `### Features`: one new bullet, the first bullet of that list (before
-   the part 3 "Signal sources" bullet). Proposed text:
+3. CHANGELOG: one new bullet, the first bullet under the first `### Features` of `## Unreleased`
+   (CHANGELOG.md:17; `## Unreleased` has a second `### Features` at line 53), before the part 3
+   "Signal sources" bullet. Proposed text:
    "* **screamingface:** show the combine steps in the report (E4b part 4). The Case pane has a
    Combine section for every reducer step, with the step facts and one row per member (status and
    reason, value, weight, score, rank, each signal, chosen). Each Candidate card has a summary per
@@ -75,7 +78,8 @@ export key.
   `**The Case pane.**`, `**The run summary.**`, `**The export.**`, `4 significant digits`,
   `an em dash`, `` `trace` `` and `` `report.trace_dict()` ``. [stated ans:Q1–Q3]
 - **DC-2** Given the CHANGELOG, then exactly one `## Unreleased` bullet holds `E4b part 4`; it is the
-  first bullet after `### Features`; it ends with `No Engine change.` [proposed]
+  first bullet under the first `### Features` of `## Unreleased`, before the part 3 "Signal
+  sources" bullet; it ends with `No Engine change.` [proposed]
 
 ### 3.3 Derived scenarios (risk-ordered)
 
@@ -98,14 +102,16 @@ None.
 
 ## 7. TDD plan
 
-Test file: `ST/test_show_signals_docs.py` (new). Copy `_section` and `_unreleased_entries` from
-`ST/test_evidence_completeness_docs.py:30-45` (do not import private helpers of another test
-module).
+Test file: `ST/test_show_signals_docs.py` (new). Import `_section` from
+`test_evidence_completeness_docs` (`ST/test_evidence_completeness_docs.py:28-36`; the house
+allows it, for example `ST/test_frozen_record_fields.py:24`, see [test-plan](../test-plan.md) §2).
+For DC#4, split `## Unreleased` at its FIRST `### Features` heading and take the first `* ` bullet
+after it; `_unreleased_entries` does not tell the two `### Features` lists apart.
 
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
 | 1 | CHAR `readme_has_the_browse_and_accounting_sections_in_order` | unit | [existing README.md:1333,1362] | L×L | passes today and after |
 | 2 | `readme_documents_the_combine_section_the_summary_and_the_export` | unit | DC-1 | M×M | new README section |
 | 3 | `deterministic_synthesizers_section_points_to_the_trace_key` | unit | DC-D2 | L×M | README sentence |
-| 4 | `changelog_has_one_part_4_bullet_first_in_features` | unit | DC-2 | M×M | new bullet |
+| 4 | `changelog_has_one_part_4_bullet_first_in_features` | unit | DC-2 | M×M | new bullet, first under the first `### Features` (CHANGELOG.md:17) |
 | 5 | `part_4_bullet_holds_no_token_that_other_docs_tests_count` | unit | DC-D1 | M×M | bullet text |

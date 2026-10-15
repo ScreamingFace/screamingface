@@ -38,9 +38,11 @@ erDiagram
 **Invariants.**
 
 - **EC-I1** The exported Case minus `trace` equals `case.to_dict()`. [proposed] P2
-- **EC-I2** `trace` equals the `entries` of the same Case in `report.trace_dict()`.
-  [existing S/report.py:643-649,966-979] [proposed]
-- **EC-I3** `trace` holds no member output text (I-E1 of the trace). [existing S/report_trace.py:1-6]
+- **EC-I2** `trace` equals the `entries` of the same Case in `report.trace_dict()`. One private
+  function, `_case_entries(case, graph)`, builds both. [existing S/report.py:643-649,966-979]
+  [proposed] P20
+- **EC-I3** `trace` holds no member output text except each member's extracted `raw` and `value`.
+  For `whole@1` and `json_object@1` these are the whole reply (N1). [existing S/report_trace.py:1-6]
 - **EC-I4** `case.to_dict()` itself never has `trace`, so the Engine wire mirror and the strict
   decoder stay as they are. [existing S/_evaluation/results.py:360-383]
 - **EC-I5** The report root keeps `"schema": "screamingface.report.v1"`. [existing S/report.py:626-634]
@@ -58,6 +60,11 @@ The kinds and their field sets do not change. The export reuses `TraceEntry.to_d
 **Input.** One `CaseOperation` with `combine` (the `CombineEvidence`), the `reduce` entry of the same
 `operation_id` in `case_trace(case, graph)`, and `graph = {op.id: op for op in candidate.operations}`.
 [existing S/_case_views.py:105-116,157-171] [existing S/combine_evidence.py:259-389]
+
+**Short section (P19).** A `CaseOperation` with `combine is None` whose graph node has
+`kind == "combine"` gets only the heading and one chip `evidence · —` (title
+`no combine evidence recorded for this step`). [stated ans:Q2] [existing S/_case_views.py:128-130]
+[existing E/benchmarks/operation_outputs.py:150-157]
 
 **Facts (chips, in this order).**
 
@@ -95,10 +102,13 @@ A C7 header has a title when it says something: `source: {source}` for a declare
 
 **Invariants.**
 
-- **CS-I1** One section per combine operation of the Case, in operation order. [stated ans:Q2]
-- **CS-I2** A Case with no combine evidence has no section and no `sf-cmb` markup. [proposed] P18
+- **CS-I1** One section per combine step of the Case, in operation order. A combine step is an
+  operation with `combine`, or an operation whose graph node has `kind == "combine"` (P19).
+  Attempts are the one exception (P15). [stated ans:Q2]
+- **CS-I2** A Case with no combine step has no section and no `sf-cmb` markup. [proposed] P18
 - **CS-I3** Every member row of the evidence has exactly one table row, in author order. [stated ans:Q1]
-- **CS-I4** Every text from data is escaped. [proposed] P8
+- **CS-I4** Every text from data is escaped, in the cell and header text and in each attribute:
+  member ids, values, signal keys, labels, the judge model, reasons and sources. [proposed] P8
 
 ## 5. Step summary (HTML view, one combine `operation_id` over all Cases of one Candidate)
 
@@ -111,7 +121,7 @@ A C7 header has a title when it says something: `source: {source}` for a declare
 | `reducer` | from the first evidence seen | `evidence.reducer` |
 | `cases` (N) | Cases with evidence for this operation | count |
 | per member `chosen` | Cases where the member id is in `evidence.chosen` | [proposed] P13 |
-| per member `excluded` | Cases where the member row has `status == "excluded"` | [proposed] P13 |
+| per member `excluded` | Cases where the member row has `status == "excluded"`; shown `{excluded} of {N}`, as `chosen` | [proposed] P13 |
 | per member, per declared name: `mean`, `n` | `fsum(values) / n` over the member's non-None values; `n` = their count | [stated ans:Q1]; [proposed] P13 |
 | declared names | ordered union of `evidence.declared` keys | part 3 |
 
@@ -138,6 +148,10 @@ A C7 header has a title when it says something: `source: {source}` for a declare
 - report.v1 gets one optional key. A reader that ignores unknown keys reads the new export. A
   reader with a closed key set for the Case object must add `trace`. The SDK itself does not read
   report.v1 back (checked: no decoder of `screamingface.report.v1` in `S/`). [proposed] P1
-- The e2e report readers read Case keys with `.get` and stay compatible
-  (`ST/e2e/fixtures/report_tape.py:227`, `ST/e2e/harness/reducer_golden.py:226,294`). [existing]
+- The e2e goldens (`ST/e2e/fixtures/goldens/*.golden.json`, `screamingface.golden-report.v1`) hold
+  no Case object and do not change. The reducer and fusion lanes read exported Cases as dicts
+  (`ST/e2e/fixtures/reducer_lane.py:444`, `ST/e2e/fixtures/report_tape.py:227`), with no strict
+  decode. A later bless re-records `report.json` with `trace`, and no lane reads it. The
+  `format="inspect"` export (`S/_inspect_log/payload.py`) does not use `case.to_dict()` and does
+  not change. [existing]
 - No Engine, wire, url4 or schema id change, so no Engine migration.
