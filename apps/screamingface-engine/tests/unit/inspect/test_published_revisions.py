@@ -48,10 +48,11 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # revision moves once. The draco-3pass e2e golden replays unchanged against the new one.
     "draco": "c6fb6f500dc58622",
     "draco-3pass": "e8c3ad925dcd4d4a",
-    # OME-1527: ifeval moved from its hand-built folder (1cba769ece27f7ef) to a local Task, its
-    # Case ids renumbered 1..541 (owner decision 2); owner-accepted (no external users), the
-    # revision moves once. The ifeval e2e golden replays unchanged against the new one.
-    "ifeval": "9d88d67cf2ce2be5",
+    # OME-1527: ifeval moved from its hand-built folder to a local Task, its Case ids
+    # renumbered 1..541 (owner decision 2), and KEEPS its published revision (kept_revision,
+    # OME-1610), so its leaderboard results stay visible; it computes to ada07458a23c55ab, and
+    # the ifeval e2e golden replaying with zero misses is the proof the exam is unchanged.
+    "ifeval": "1cba769ece27f7ef",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
     "math": "1963559fac28e4a1",

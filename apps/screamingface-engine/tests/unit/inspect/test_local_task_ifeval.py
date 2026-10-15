@@ -17,7 +17,8 @@ What these tests pin, and why:
   deletion the same comparison ran over 11,505 drafts (the 176 recorded replies of the ifeval
   golden against its 50 Cases, plus five drafts against all 541 Cases): 0 differ;
 - the pooled instruction-level accuracy, never a mean of Case fractions (the worked example
-  of the metric's docstring);
+  of the metric's docstring), and an abstained Case's Score (marked ``candidate_abstained``,
+  with or without its instructions) counted as a failed prompt whatever its verdicts say;
 - the tokenizers: Cases whose checker counts sentences or words grade with the punkt and
   punkt_tab the image build packs into the bundle, with the network off (R8's proof);
 - the Candidate's prompt: the official prompt of every row, byte for byte, with the one known
@@ -49,6 +50,7 @@ from local_ifeval_helpers import write_ifeval_bundle  # noqa: E402
 from test_local_task_draco import _abstained_row  # noqa: E402
 from test_whole_run_metric import _row  # noqa: E402
 
+from screamingface_engine.benchmarks.case_records import CANDIDATE_ABSTAINED  # noqa: E402
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.nltk_data import NLTK_DATA_DIR  # noqa: E402
 from screamingface_engine.benchmarks.provenance import provenance_gaps  # noqa: E402
@@ -285,6 +287,71 @@ def test_instruction_level_accuracy_is_pooled_over_the_runs_instructions() -> No
         "inst_level_loose_accuracy": 0.5,
         "pass_rate": 0.25,
     }
+
+
+def _verdicts(strict: list[bool], loose: list[bool]) -> list[dict[str, Any]]:
+    """Per-instruction records as the scorer files them in a Score's metadata."""
+
+    return [
+        {"id": "x", "description": "d", "strict": met, "loose": loosely}
+        for met, loosely in zip(strict, loose, strict=True)
+    ]
+
+
+def test_an_abstained_score_fails_its_prompt_and_every_listed_instruction() -> None:
+    """WHY: the lane hands the metric an abstained Case's Score zeroed and marked
+    ``candidate_abstained``, keeping the checker's verdicts on the empty answer in its metadata;
+    an abstain earns nothing, so those verdicts never count, even when they say "met". Case A
+    follows 1 of 1; abstained Case B lists 3 instructions all marked met → strict and loose
+    prompt-level 1/2, instruction-level 1/4 (crediting B's verdicts would say 4/4)."""
+
+    followed: SampleScore = SampleScore(
+        score=Score(value=0, metadata={"instructions": _verdicts([True], [True])})
+    )
+    abstained: SampleScore = SampleScore(
+        score=Score(
+            value=0.0,
+            metadata={
+                "instructions": _verdicts([True] * 3, [True] * 3),
+                CANDIDATE_ABSTAINED: True,
+            },
+        )
+    )
+    # Any: inspect types a metric's input as list[Score]; it is handed SampleScores at run time.
+    tally: Any = ifeval_accuracy()
+
+    assert tally([followed, abstained]) == {
+        "prompt_level_strict_accuracy": 0.5,
+        "inst_level_strict_accuracy": 0.25,
+        "prompt_level_loose_accuracy": 0.5,
+        "inst_level_loose_accuracy": 0.25,
+        "pass_rate": 0.25,
+    }
+
+
+def test_a_bare_abstained_score_is_one_failed_prompt_with_no_instructions() -> None:
+    """When inspect filed no Score for an abstained Case, the metric gets a bare 0.0 marked
+    ``candidate_abstained`` with no ``instructions``: it fails one prompt and adds no
+    instructions (the count is unknown, and a guessed one would be a wrong number). Case A
+    follows 1 of 1 → prompt-level 1/2, instruction-level 1/1. Unmarked, the same bare Score is
+    still refused: only the abstain mark excuses missing verdicts."""
+
+    followed: SampleScore = SampleScore(
+        score=Score(value=0, metadata={"instructions": _verdicts([True], [True])})
+    )
+    bare: SampleScore = SampleScore(score=Score(value=0.0, metadata={CANDIDATE_ABSTAINED: True}))
+    # Any: inspect types a metric's input as list[Score]; it is handed SampleScores at run time.
+    tally: Any = ifeval_accuracy()
+
+    assert tally([followed, bare]) == {
+        "prompt_level_strict_accuracy": 0.5,
+        "inst_level_strict_accuracy": 1.0,
+        "prompt_level_loose_accuracy": 0.5,
+        "inst_level_loose_accuracy": 1.0,
+        "pass_rate": 1.0,
+    }
+    with pytest.raises(KeyError, match="instructions"):
+        tally([followed, SampleScore(score=Score(value=0.0))])
 
 
 @pytest.mark.asyncio
