@@ -17,6 +17,9 @@ from _signal_world import operation, run_candidate
 _DATA = Path(__file__).parent / "data" / "combine_contract"
 
 
+# WHY the name is the PRD name: this test checks the engine run record only. The SDK
+# case.answers() half of this row is
+# ST/test_member_exclusion.py::test_case_answers_show_the_excluded_status_and_value.
 @pytest.mark.asyncio
 async def test_sdk_run_shows_excluded_member_in_case_answers() -> None:
     path = _DATA / "weighted_median_confidence_candidate.url4"
