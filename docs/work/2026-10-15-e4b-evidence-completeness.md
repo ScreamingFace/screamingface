@@ -70,7 +70,8 @@ evidence without a new value keeps its v1 bytes (P11). Decisions: Q3, Q4, P2, P3
   `_check_status`. The spec puts them in `_check_status`. Ruff C901 (9 > 8) and PLR0912 (8 > 7)
   failed on the inline form. The helper has the same checks and messages.
 - D-3: `ruff check --fix` sorted the import block of `combine/evidence.py`. The module docstring
-  was re-wrapped by `ruff format`. Neither change alters behavior.
+  was wrapped by hand in the GREEN commit. Neither change alters behavior. Review round 1 (below)
+  re-wrapped that docstring again.
 
 ### Outcome (fill at the end — required before COMMIT)
 
@@ -108,3 +109,21 @@ evidence without a new value keeps its v1 bytes (P11). Decisions: Q3, Q4, P2, P3
   - P-2 `packages/screamingface/tests/data/schemas/screamingface.answer.v1.json`: `d179ec29bf6aa230a3019cdd2da955be4c18e87a` → `6524c2d068967d7f3455329323aa9dbd02ca5065`
   - P-3 `packages/screamingface/tests/public_surface_snapshot.json`: `489b8a57e3c20c8038085c80fa06a23fb595c178` → `1d1f27ea7439a13a11a81802633a2cb88256053f`
   - P-4 `packages/screamingface/tests/test_pick_output.py`: `26d21c21f5faf4aaf5f42e9f45a96ecf00a95c27` → `03c12205ca6e56715e55f754c7f5e016ffbe6082`
+
+### Review round 1 (fix commit)
+
+- **Input:** the design review of commit B. Four MINOR findings. No BLOCKER or MAJOR finding.
+- **R1-1 (SDK `answer.py` docstring):** the old first INVARIANT line still said that the Literals
+  were the E4a words. That line contradicted the mapping that follows it. Fix: the module docstring
+  now has the text of unit spec §2.3 step 1. No behavior change. No new test: the words are
+  already checked by ES#8 (`"RecordStatus"` and `"ExcludeReason"` in the docstring).
+- **R1-2 (process, P-4):** the P-4 edit to `test_pick_output.py` is not in plan §6. The owner
+  approval list must name P-4. The orchestrator owns this step. No code change in this unit.
+- **R1-3 (Engine `combine/evidence.py` docstring):** the INVARIANT paragraph had a short broken
+  line. Fix: the paragraph is re-wrapped to 100 columns. No behavior change.
+- **R1-4 (`test_evidence_words.py`, ES#13):** the test `test_trace_extract_entry_carries_the_excluded_status`
+  had `@requires_engine_app`, but it reads no Engine file. Fix: the decorator is removed. The test
+  is new in commit A (not a pre-existing test), so this is not a weakening. The test now runs in an
+  SDK-only install.
+- **R1-5 (`sf.Answer` checks):** the reviewer accepted the helper `_check_excluded` (D-2). No change.
+- **Pinned edits in this round:** none. P-1, P-2, P-3 and P-4 keep their blobs from commit B.
