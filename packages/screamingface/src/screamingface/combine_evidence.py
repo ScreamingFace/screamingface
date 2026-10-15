@@ -140,6 +140,20 @@ class CombineSignal:
 
 
 @dataclass(frozen=True, slots=True)
+class CombineCut:
+    """Stub (E4b part 2 unit 1 RED): the GREEN commit replaces it."""
+
+    k: int
+    order: SignalOrder
+
+    def __post_init__(self) -> None:
+        raise NotImplementedError("E4b part 2 unit 1: CombineCut")
+
+    def to_dict(self) -> dict[str, object]:
+        raise NotImplementedError("E4b part 2 unit 1: CombineCut")
+
+
+@dataclass(frozen=True, slots=True)
 class CombineTallyRow:
     """One candidate value of a vote: its score and the members holding it."""
 
