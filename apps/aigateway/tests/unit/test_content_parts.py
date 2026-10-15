@@ -274,3 +274,17 @@ def test_parse_refuses_untyped_non_text_mapping(part: dict[str, Any]) -> None:
     with pytest.raises(UnsupportedContentPart) as caught:
         parse_content([part], provider="p")
     assert caught.value.info["part_type"] == "untyped"
+
+
+@pytest.mark.parametrize("detail", [[], {}, ["high"], {"level": "high"}, 1, True])
+def test_parse_image_refuses_non_string_detail_with_422(detail: Any) -> None:
+    # INVARIANT: content is untrusted JSON — an unhashable `detail` must reach the typed 422,
+    # never a TypeError (a 500) from set membership.
+    part = {
+        "type": "image_url",
+        "image_url": {"url": "https://example.com/x.png", "detail": detail},
+    }
+    with pytest.raises(UnsupportedContentPart) as caught:
+        parse_content([part], provider="codex")
+    assert caught.value.info["part_type"] == "image_url"
+    assert caught.value.info["reason"] == f"invalid detail {detail!r}"

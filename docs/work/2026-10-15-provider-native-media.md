@@ -50,4 +50,6 @@ See `docs/plan/2026-10-15-provider-native-media.md` steps 1–5.
     non-text mappings are refused (`part_type: untyped`). Two PR-local tests changed with owner
     approval (`{}` no longer skippable; Codex payload pinned without `detail`); gates run with
     `--skip-append-only` for that change only.
+  - PR #1431 follow-up review: a non-string `image_url.detail` (list/dict, unhashable) raised
+    TypeError → 500; now a typed 422. Tests appended only.
   - Not yet verified live: the external 12-call run after the staging deploy answers `OME-1598`.

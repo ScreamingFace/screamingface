@@ -24,7 +24,6 @@ _DATA_URI_RE = re.compile(
     r"^data:(?P<mime>[\w.+-]+/[\w.+-]+)(?:;[^;,]*)*;base64,(?P<data>.+)$", re.DOTALL
 )
 _REMOTE_SCHEMES = ("https://", "http://")
-_MEDIA_TYPES = frozenset({"image_url", "file"})
 # WHY: the Chat Completions `image_url.detail` set. Responses also has "original", but a caller
 # speaking Chat Completions cannot send it, so anything outside this set is a malformed request.
 _IMAGE_DETAILS = frozenset({"auto", "low", "high"})
@@ -193,7 +192,9 @@ def _parse_image(value: Any, provider: str) -> MediaPart | RemoteImagePart:
 
 def _image_detail(value: Any, provider: str) -> str | None:
     detail = value.get("detail") if isinstance(value, Mapping) else None
-    if detail is None or detail in _IMAGE_DETAILS:
+    # WHY isinstance first: `detail` is untrusted JSON; a list/dict is unhashable, and set
+    # membership on it would raise TypeError (a 500) instead of the typed 422.
+    if detail is None or (isinstance(detail, str) and detail in _IMAGE_DETAILS):
         return detail
     raise UnsupportedContentPart(
         provider=provider, part_type="image_url", reason=f"invalid detail {detail!r}"

@@ -292,3 +292,16 @@ def test_prepare_chat_body_refuses_wrapped_av_and_untyped_parts(
         plugin.prepare_chat_body(body)
     assert caught.value.status_code == 422
     assert caught.value.info["provider"] == provider
+
+
+@pytest.mark.parametrize(("provider", "plugin"), _plugins())
+@pytest.mark.parametrize("detail", [[], {}])
+def test_prepare_chat_body_refuses_unhashable_detail_with_422(
+    provider: str, plugin: Any, detail: Any
+) -> None:
+    part = {"type": "image_url", "image_url": {"url": PNG_URI, "detail": detail}}
+    body = {"model": "m", "messages": [{"role": "user", "content": [part]}]}
+    with pytest.raises(UnsupportedContentPart) as caught:
+        plugin.prepare_chat_body(body)
+    assert caught.value.status_code == 422
+    assert caught.value.info["provider"] == provider
