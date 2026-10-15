@@ -62,7 +62,6 @@ from screamingface_engine_inspect.prepare import (  # noqa: E402
 )
 from screamingface_engine_inspect.single_shot import benchmark_aggregate_async  # noqa: E402
 from url4.core.errors import ResolutionError  # noqa: E402
-from url4.dag.nodes._shared import _error_payload  # noqa: E402
 from url4.wire.subrequest import decode_subrequest_http, extract_expression_params  # noqa: E402
 
 #: FRAMES row 0, as published: its question and gold answer. The two articles are shortened
@@ -309,6 +308,21 @@ async def test_each_judge_call_carries_figure_6_the_reply_and_the_pinned_params(
     ]
 
 
+def _collected_failure(error: ResolutionError) -> dict[str, object]:
+    """The row a run collects for a Case whose Candidate call raised: the error's own code and
+    retryability, as url4's collect writes it (the shape `test_ifeval_provider_failure_stage`
+    pins through the real candidate boundary)."""
+
+    return {
+        "error": {
+            "kind": "CandidateExecutionError",
+            "message": str(error),
+            "code": error.code,
+            "retryable": not error.permanent,
+        }
+    }
+
+
 @pytest.mark.asyncio
 async def test_an_over_window_prompt_fails_its_case_and_the_run_completes(
     tmp_path: Path, judge: _ScriptedJudge
@@ -331,7 +345,7 @@ async def test_an_over_window_prompt_fails_its_case_and_the_run_completes(
     with pytest.raises(ResolutionError) as over_window:
         _raise_for_status(httpx.Response(400))
     rows: str = json.dumps(
-        [_row(1, "Jane Ballou"), _error_payload(over_window.value), _row(3, "Jane Lane")]
+        [_row(1, "Jane Ballou"), _collected_failure(over_window.value), _row(3, "Jane Lane")]
     )
 
     result: dict[str, Any] = await benchmark_aggregate_async(
