@@ -1,6 +1,6 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
-stack: repo, aigateway
+stack: repo, aigateway, screamingface-engine, screamingface
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-15
 finished:
@@ -185,3 +185,127 @@ No live call. The fixes use only the recorded answers.
    change `test_the_embedded_http_200_parameter_refusal_keeps_its_mapping` with it.
 3. At PR-open, replace "E4b part 3" in the gateway comments (`provenance.py`,
    `dispatch_errors.py`, `plugin.py`) with the OME id.
+
+## Unit 2 — declared signals and verbalized
+
+### Intent
+
+Let a reducer Fusion declare named signal sources (`signals=`) and read them with
+`sf.signal(name)`. Add the first source, `sf.Verbalized(pattern)`: the number that a member states
+in its text. A rule that reads an undeclared name fails in the Fusion constructor, before any
+call (ans:Q1). The engine records every declared name for every member (ans:Q7) and writes the
+optional evidence key `declared` (P11). A Fusion that declares nothing compiles to the same bytes.
+
+### Planned changes
+
+- SDK: `S/_signals.py` (`is_signal_name`, the name constants, the new refusal text),
+  `S/_regex_rule.py` (`check_signal_pattern`), new `S/signal_sources.py` (`SignalSource`,
+  `Verbalized`, `declared_from_spec`, `python_signals`), `S/fusion.py` (`signals=`, name and read
+  checks), `S/_evaluation/fusion_recipe.py` (keep `signals` in the rewrites),
+  `S/_evaluation/combine_spec.py` (emit and decode `signals`), `S/_evaluation/candidate.py`,
+  `S/url4.py` (`to_python` rebuild), `S/combine_evidence.py` and `S/_evaluation/combine_evidence.py`
+  (`declared`), `S/__init__.py` (`sf.Verbalized`).
+- Engine: `E/combine/ports.py` (`is_signal_name`, `SourceDescriptor`), `E/combine/registry.py`
+  (`sources=`, `source()`), `E/combine/operators/extract.py` (`check_signal_pattern`,
+  `verbalized_value`, `SOURCES`), `E/combine/builtins.py` (`BUILTIN_SOURCES`),
+  `E/combine/operators/signals.py` (arg checks accept a declared name), `E/combine/spec.py`
+  (`signals`, `VerbalizedSource`), `E/combine/endpoint.py` (plan-level key check, values of every
+  declared name), `E/combine/evidence.py` (`declared`).
+- Data: the combine-spec and combine-evidence v1 schema snapshots, `ST/public_surface_snapshot.json`,
+  new `ET/data/combine_contract/verbalized_vote_candidate.url4`, the pinned edit of
+  `ST/test_signals.py:33`, the approval manifest `.claude/test-change-approvals/OME-1290.json`
+  (PENDING owner approval).
+
+### Design notes (errata E1–E8, also in 00-overview §10)
+
+- E1: the verbalized reader reaches the combine core through the registry (`SourceDescriptor`),
+  because the layering gate forbids the core to import a plugin or `re2`.
+- E2: operators see only the read key in `Answer.signals`; the evidence records every declared
+  name. A declared name in `Answer.signals` would change `weighted_mode@1` without weights.
+- E3: DS#16 tests only "authored params stay"; the drop of injected params is LP#14 and EN#13.
+- E4: DS#7 tests the "one entropy" rule with a test-local source, because `sf.Entropy` is unit 4.
+- E5: the SDK `CombineSignal` keeps its E4a-only constructor (pins); a declared read uses
+  `CombineSignal._declared`, and `CombineEvidence` checks the name is in `declared`.
+- E6: `by_signal@1` and `filter@1` accept the declared-name syntax in their args; the plan-level
+  check refuses a name that the spec does not declare.
+- E7: VB#8 runs its own SDK-compiled fixture, not a README recipe (recipes are unit 5).
+- E8: the append-only gate passes through a PENDING approval manifest; the owner must approve it.
+
+### Test plan
+
+27 rows: DS#1–16, VB#1–11, in the PRD order. CHAR: DS#1, DS#2, DS#3. RED for the other 24. New
+test files: `ST/test_declared_signals.py`, `ST/test_verbalized.py`,
+`ST/test_verbalized_contract_fixture.py`, `ST/unit/test_declared_name_conformance.py` (guard),
+`ET/test_combine_declared_signals.py`, `ET/test_combine_verbalized.py`,
+`ET/test_combine_verbalized_run.py`. Every oracle is hand-computed in the unit spec. No live call.
+
+### Acceptance
+
+- The 27 rows pass; the three CHAR rows passed before the change too.
+- No compiled url4, golden fixture or evidence byte of an existing case changes.
+- `run_gates.py screamingface-engine|screamingface|repo --base 0f4b9e292`: ALL GATES GREEN.
+- The pinned edits are exactly the four files of the manifest.
+
+### Unit 2 RED record (commit A, 2026-10-15)
+
+Run: the six new test files, and `tests/test_signals.py`, in each package. No live call.
+
+- **CHAR, pass before and after:** DS#1, DS#2 (`ST/test_declared_signals.py`), DS#3 (three cases,
+  `ET/test_combine_declared_signals.py`).
+- **RED, fails on behavior (one line per row):**
+  - DS#4 `NotImplementedError: E4b part 3 unit 2` (the `Fusion(signals=)` stub, positive first).
+  - DS#5 `NotImplementedError` (same stub, positive first).
+  - DS#6 `ValueError: unknown signal key 'cost'` (today's closed key rule in `sf.signal`).
+  - DS#7 `NotImplementedError` (the `Fusion(signals=)` stub).
+  - DS#8 `NotImplementedError` (the `Fusion(signals=)` stub).
+  - DS#9 `ValueError: unknown signal key 'conf'` (today's closed key rule, raised by `sf.signal`).
+  - DS#10 `ValidationError: 3 validation errors for CombineSpec` (closed spec: `signals` extra).
+  - DS#11 `SpecInvalid: combine spec is invalid: signals: Extra inputs are not permitted`.
+  - DS#12 `SpecInvalid` (the same closed-spec message).
+  - DS#13 `SpecInvalid` (the same closed-spec message).
+  - DS#14 `NotImplementedError` (the `Fusion(signals=)` stub).
+  - DS#15 `ExecutionError: ev contains unsupported field 'declared'`.
+  - DS#16 `NotImplementedError` (the `Fusion(signals=)` stub).
+  - VB#1 `NotImplementedError` in `verbalized_value`.
+  - VB#2 `NotImplementedError` in `verbalized_value`.
+  - VB#3 `NotImplementedError` in `verbalized_value`.
+  - VB#4, engine half: `NotImplementedError` in `check_signal_pattern`.
+  - VB#4, SDK half: `NotImplementedError` (the `sf.Verbalized.__init__` stub).
+  - VB#5 `NotImplementedError` in `verbalized_value`.
+  - VB#6 `NotImplementedError` in `verbalized_value`.
+  - VB#7, engine half: `NotImplementedError` in `verbalized_value`.
+  - VB#7, SDK half: `NotImplementedError` (the `sf.Verbalized.__init__` stub).
+  - VB#8 `AssertionError: combine_contract/verbalized_vote_candidate.url4 is missing` (commit B
+    writes the fixture).
+  - VB#9 `SpecInvalid` (closed spec: `signals` extra, and `weights.signal` not known).
+  - VB#10 `NotImplementedError` in `verbalized_value`.
+  - VB#11 `NotImplementedError` (the `sf.Verbalized.__init__` stub).
+- **Support test, no row:** `ST/test_verbalized_contract_fixture.py` fails with
+  `AssertionError: ... verbalized_vote_candidate.url4 is missing` until commit B.
+- **Pinned edit, passes:** `ST/test_signals.py` (the `cost` item is removed from the refused keys).
+- **Totals:** SDK 13 failed, 9 passed (the failed count includes the fixture support test). Engine 14
+  failed, 3 passed (the three DS#3 cases).
+
+### Unit 2 deviations at commit A
+
+1. **DS#1, the text check.** The row says `'"signals"' not in compile_recipe(name)`. That is false
+   for the committed bytes: the judge topology of `recipe_s10.url4` and `recipe_s11_max.url4` has a
+   `"signals"` list (the judge reads its signals). The test now asserts
+   `"signals" not in spec_of(text)`, the decoded combine spec. The byte equality with
+   `read_contract(name)` is unchanged.
+2. **DS#9 and DS#14, decode helper.** The row uses `_calls(build(url4))[...].raw_intent`, a
+   helper that is not importable. The test uses `spec_of(url4)` from `tests/_vote_run_fixtures.py`
+   (the same decode), and `screamingface.url4._calls` where it needs the call.
+3. **DS#5, the `field:x` case.** The row says `match "not a declared name"`. The §2.4 text
+   (`_name_rejection`) gives `E4a signal key` for `field:x`, because `field:x` is a valid E4a field
+   key (the same class as `score:judge`, which the row matches with `E4a signal key`). The test
+   matches `E4a signal key`. Owner decision needed: keep the §2.4 text (this test), or change the
+   §2.4 text and the test.
+4. **VB#9 and the engine helpers.** The spec `real_vote(**overrides)` passes `reduce=` twice when a
+   row overrides `reduce` (a `TypeError`). The helper merges the overrides into the defaults before
+   `vote_spec`. The oracles are unchanged.
+5. **Pinned edits made at commit A:** `ST/test_signals.py:33` only. The manifest
+   `.claude/test-change-approvals/OME-1290.json` and the three data snapshots are commit B work.
+   Commit A therefore fails the append-only check for `ST/test_signals.py`, as E8 says.
+6. **VB#10 chosen N.** `N = 1000`: `re2.compile("Confidence: ([0-9]{1,1000})").programsize == 2017`,
+   inside [1000, 5000].

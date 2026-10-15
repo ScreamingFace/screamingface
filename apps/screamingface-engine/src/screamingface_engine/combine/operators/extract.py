@@ -241,6 +241,14 @@ _ASCII_DIGIT = re.compile(r"[0-9]")
 _BOX = "\\boxed{"
 
 
+def check_signal_pattern(args: OpArgs) -> None:
+    raise NotImplementedError("E4b part 3 unit 2")
+
+
+def verbalized_value(text: str, args: OpArgs, /) -> float | None:
+    raise NotImplementedError("E4b part 3 unit 2")
+
+
 def _inspect_number_word(value: str) -> str | None:
     """The value side of inspect_ai match_str(location="end", numeric=True) (SP/inspect_ai/
     scorer/_common.py:49-73): strip, casefold, strip_numeric_punctuation, split on \\s+, then the

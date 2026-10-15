@@ -11,6 +11,7 @@ from screamingface._evaluation.operators import STAGES, Stage, _OperatorCatalog
 from screamingface._immutable_json import thaw_mapping
 from screamingface._signals import ACCOUNTING_SIGNALS, Signal
 from screamingface.reducer import REDUCER_NAMES, Reducer, _read_signal, _Step
+from screamingface.signal_sources import SignalSource
 
 COMBINE_ROUTE = "/ensemble/combine/v1"
 COMBINE_MODEL = COMBINE_ROUTE.removeprefix("/")  # how url4._calls sees the route
@@ -46,12 +47,15 @@ def combine_spec_text(
     member_count: int,
     operators: _OperatorCatalog,
     benchmark_rule: _BenchmarkAnswerRule | None = None,
+    signals: Mapping[str, SignalSource] | None = None,
 ) -> str:
     """Build the canonical combine spec for ``reducer`` with every operator pinned.
 
     ``benchmark_rule`` is read only by ``extract='benchmark'`` (GP-1).
     """
 
+    if signals:
+        raise NotImplementedError("E4b part 3 unit 2")
     plan = resolve_benchmark_rule(reducer._plan(), benchmark_rule, operators)
     if plan.reducer not in REDUCER_NAMES:
         raise ValueError(f"{plan.reducer!r} is not a known reducer")

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
 from screamingface.recipe import Recipe, _inferred_name, _name, _optional, _recipe
 from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer
+from screamingface.signal_sources import SignalSource
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -30,12 +31,14 @@ class Fusion(Recipe):
     synthesizer: Recipe | Reducer
     quorum: int | Literal["all"]
     optional: bool
+    signals: Mapping[str, SignalSource] | None
 
     def __init__(
         self,
         members: Sequence[str | Recipe],
         *,
         name: str | None = None,
+        signals: Mapping[str, SignalSource] | None = None,
         synthesizer: str | Recipe | Reducer,
         quorum: int | Literal["all"] = "all",
         optional: bool = False,
@@ -44,6 +47,9 @@ class Fusion(Recipe):
         optional = _optional(optional)
         object.__setattr__(self, "quorum", _quorum(quorum, len(selected_members)))
         object.__setattr__(self, "optional", optional)
+        if signals is not None:
+            raise NotImplementedError("E4b part 3 unit 2")
+        object.__setattr__(self, "signals", None)
         inferred_name = _inferred_name(selected_members)
         object.__setattr__(
             self,
