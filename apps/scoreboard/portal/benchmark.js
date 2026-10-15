@@ -313,18 +313,29 @@
   }
   // The chart module owns modelling and SVG; this page owns only
   // lifecycle wiring, keeping chart concerns separate from page rendering.
+  // WHY guarded: the chart is a visual summary of the table, never a gate on it. Any error
+  // while drawing (an unforeseen score range, a missing browser API) hides the chart and
+  // leaves the table, summary and legend exactly as they would be without it.
   function renderParetoChart(entries) {
     var section = document.getElementById("pareto-chart-section");
     var container = document.getElementById("pareto-chart");
     if (!section || !container || !window.SFParetoChart) return;
-    window.SFParetoChart.render({
-      section: section,
-      container: container,
-      meta: document.getElementById("pareto-chart-meta"),
-      entries: entries,
-      formatScore: P.formatScore,
-      formatCost: L.formatCost,
-    });
+    var meta = document.getElementById("pareto-chart-meta");
+    try {
+      window.SFParetoChart.render({
+        section: section,
+        container: container,
+        meta: meta,
+        entries: entries,
+        formatScore: P.formatScore,
+        formatCost: L.formatCost,
+      });
+    } catch (err) {
+      P.clear(container);
+      if (meta) meta.textContent = "";
+      section.hidden = true;
+      if (window.console && console.error) console.error("Pareto chart not drawn:", err);
+    }
   }
 
   // Tab strip renders across all pages regardless of whether the current
@@ -399,18 +410,17 @@
           // column headers plus the empty-state line and nothing misleading.
           renderSummary(state.entries);
           renderClimb(state.entries);
-          renderParetoChart(state.entries);
           renderHead(document.getElementById("leaderboard-head"));
           P.clear(document.getElementById("leaderboard-body"));
           P.showEmpty(statusNode, "No submissions yet. Be the first.");
           wrap.hidden = false;
           // No rows at all: the key would point at nothing.
           legend.hidden = true;
+          renderParetoChart(state.entries);
           return;
         }
         renderSummary(state.entries);
         renderClimb(state.entries);
-        renderParetoChart(state.entries);
         renderHead(document.getElementById("leaderboard-head"));
         renderBody(document.getElementById("leaderboard-body"));
         P.setStatus(statusNode, null);
@@ -421,6 +431,8 @@
         // here is good value', which is the opposite of what the gate is saying.
         legendPareto.hidden = !state.entries.some(L.isParetoMarked);
         legend.hidden = false;
+        // Last, after the table is visible: the chart can only ever add to the page.
+        renderParetoChart(state.entries);
       },
       function (err) {
         if (err && err.status === 404) {

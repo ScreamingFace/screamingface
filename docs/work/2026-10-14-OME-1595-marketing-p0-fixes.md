@@ -118,3 +118,40 @@ The "remove portal" item is already done on main by #1308.
     before; the pinned degenerate-domain test requires that.
   - Visual check: chart harness renders for a 0.69 board, a tiny 0.026 board and a negative
     -1.143..0.5 board. All labels clear the "Score" title.
+
+## Review round 2 (Dmitry's CHANGES_REQUESTED; owner-approved 2026-10-15)
+
+- **Finding:** `buildScoreTicks(0, 1e-101)` threw a RangeError from toFixed. `(-1e308, 1e308)`
+  produced a null top and a "NaN" label. `(0, 1e-20)` gave 23-character labels. Because
+  benchmark.js drew the chart before the table, a throw left a valid board on "Loading…" with the
+  table hidden.
+- **Changes:**
+  - `pareto-chart.js`: the round-step search is bounded and returns null when it cannot fit. Its
+    result is validated: finite domain and values, top >= high, positions in [0, 1], labels that
+    are finite, unique and at most 6 characters. Any failure falls back to two endpoint ticks
+    (floor and highest score) in short scientific form ("1.0e-101", "-1.0e308"). That form adds
+    significant figures only until the two labels differ, and truncates toward zero where rounding
+    would overflow ("1.7e308" for MAX_VALUE). The top is never below the highest score, on either
+    path: the round path steps up once when nine-decimal rounding lands short. `normalize` halves
+    every term when the range overflows, so points stay finite. A single-value board's mid-axis
+    label is kept brief ("0.515").
+  - `benchmark.js`: chart rendering runs last, after the table, summary and legend are visible. It
+    is wrapped in try/catch: on any error the chart is cleared and hidden, and the error goes to
+    `console.error`.
+- **Tests:** `pareto-chart-launch-copy.test.js` gains 7 cases (19 in total). They cover the
+  extreme-range sweep (0..1e-101, 0..1e-20, -1e308..1e308, 0..1e300, 0..MIN_VALUE, 0..MAX_VALUE,
+  -MAX_VALUE..0, 0..123456789), the exact fallback labels, distinct labels for near-equal
+  endpoints, top >= high after rounding, finite in-canvas points for extreme scores, the 6-character
+  cap and the brief single-value label. New `benchmark-chart-isolation.test.js` (3 cases) loads the
+  real leaderboard-logic.js, main.js and benchmark.js into a vm fake DOM with a throwing chart. It
+  checks that the table head, rows, summary and legend render and are visible, that only the chart
+  section is hidden and empty, and that the status ends as it does on a board whose chart renders.
+  It is wired by name into scoreboard-tests.yml and the card's gate line. No prior test changed.
+- **Deviations:**
+  - The round-label cap is 6 characters, not the ~8 the owner suggested. A round label can sit
+    level with the vertically centred "Score" title, and in the harness an 8-character label at
+    that height reaches the title. The two fallback labels sit at the top and bottom and may run
+    to 8 or 9 characters.
+  - Two endpoints that agree to about 11 digits cannot have labels that are both unique and short.
+    There, uniqueness wins and the label may exceed the length bound; this case is tested.
+  - A single-value board's label at extreme magnitudes ("1.2e-101") still sits mid-axis.
