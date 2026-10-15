@@ -263,13 +263,13 @@ def test_only_a_web_address_becomes_a_link(tmp_path: Path) -> None:
 
 
 def test_each_picked_benchmarks_label_is_copied_for_the_debug_bundle(tmp_path: Path) -> None:
-    """The labels outlive the runner: one ``provenance/<benchmark>.json`` per Benchmark, a
-    shared bundle's label under each Benchmark that reads it, and a missing one skipped."""
+    """The labels outlive the runner: one ``provenance/<benchmark>.json`` per Benchmark, read
+    from its own bundle (no Benchmark shares one since OME-1527), and a missing one skipped."""
     assets: Path = tmp_path / "assets"
     _bundle(assets, "inspect-race_h", _RACE_H)
     _bundle(
         assets,
-        "draco",
+        "draco-3pass",
         _one_source(
             {
                 "kind": "hugging-face",
@@ -287,7 +287,7 @@ def test_each_picked_benchmarks_label_is_copied_for_the_debug_bundle(tmp_path: P
     assert copied == ["draco-3pass.json", "inspect-race_h.json"]
     assert json.loads((log_dir / "provenance" / "inspect-race_h.json").read_text()) == _RACE_H
     assert (log_dir / "provenance" / "draco-3pass.json").read_bytes() == (
-        assets / "draco" / "provenance.json"
+        assets / "draco-3pass" / "provenance.json"
     ).read_bytes()
 
 
