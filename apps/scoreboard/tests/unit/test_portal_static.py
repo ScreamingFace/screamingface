@@ -56,6 +56,26 @@ def test_portal_pages_include_plausible_analytics(tmp_path: Path) -> None:
             assert "plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js" in response.text, path
 
 
+def test_portal_pages_carry_a_link_preview_image_served_from_this_origin(tmp_path: Path) -> None:
+    """Every page shares as a large-image card, and the card image is one this app serves.
+
+    Without og:image, Slack, X and LinkedIn render a shared board link as a grey placeholder.
+    Crawlers need an absolute URL, so the tag names the public host; the path it names must
+    still resolve here, so the image cannot drift out of the vendored assets unnoticed.
+    """
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        for path in ("/index.html", "/about.html", "/benchmark.html", "/spec.html", "/data.html"):
+            markup = client.get(path).text
+            assert '<meta name="twitter:card" content="summary_large_image">' in markup, path
+            match = re.search(
+                r'<meta property="og:image" content="https://[^/"]+(/[^"]+)">', markup
+            )
+            assert match is not None, f"{path} has no absolute og:image"
+            asset = client.get(match.group(1))
+            assert asset.status_code == 200, f"{path} names an og:image this app does not serve"
+            assert asset.headers["content-type"] == "image/png"
+
+
 def test_about_page_is_public_structured_and_linked(tmp_path: Path) -> None:
     """A short About page, public, with its four sections, and linked from the rail on every page.
 
