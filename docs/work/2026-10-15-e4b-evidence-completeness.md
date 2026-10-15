@@ -719,3 +719,57 @@ it. SDK only. No engine change.
 - **Approval blobs:** `packages/screamingface/tests/public_surface_snapshot.json`: base blob
   `489b8a57e3c20c8038085c80fa06a23fb595c178` (`git rev-parse 0f4b9e292:...`) and approved blob
   `48f0254369557cc83f4a622adce5ab82c51e1b52` (`git hash-object ...` after commit B).
+
+## Unit 6 — docs (README and CHANGELOG)
+
+### Intent
+
+This unit tells the SDK user what part 2 changed. The member status `"excluded"` has the reasons
+`no_signal` and `no_weight` (ans:Q3). A Rank step has `rank` and `cut` (P6, P7). The trace
+`reduce` entry has the judge link `judge_operation_id` and `judge_model` (ans:Q4, P8). The public
+`sf.JudgeWriterWarning` is a warning (ans:Q1, ans:Q2, P10). This unit changes docs only. It changes
+no code, no snapshot, no golden and no url4 file.
+
+### Planned changes
+
+- `packages/screamingface/README.md`: insertions only. "Members left out" (R1). One sentence each
+  for the weighted median, the mean, the weighted vote, Pick by signal, Rank by signal and Filter
+  (R2 to R6, R8). "Rank and cut in the evidence" (R7). "The judge in the trace" and "The judge and
+  the writer", with a `warnings` snippet (R9).
+- `packages/screamingface/CHANGELOG.md`: four bullets B1 to B4 after the pick-output bullet.
+- New `packages/screamingface/tests/test_evidence_completeness_docs.py`: doc guards D6#1 to D6#4.
+
+### Test plan
+
+- The PRDs give this unit no TDD rows and name no doc-example test. Four unit-local doc guards:
+  D6#1 excluded status and reasons, D6#2 rank and cut (oracle RK-1, worked by hand), D6#3 judge
+  trace link and warning, D6#4 CHANGELOG bullets. Each guard checks the branch code name first,
+  then the doc text.
+- Regression (CHAR, no edit): the CHANGELOG checks in `test_mean.py` and `test_pick_output.py`,
+  `test_combine_recipes_readme.py`, and the Fusion doc goldens.
+- Stubs: none. The tests use only names of units 1 to 5.
+
+### Acceptance
+
+- D6#1 to D6#4 pass. The regression tests pass.
+- The README diff has 0 removed lines. Every added line has at most 100 characters.
+- `run_gates.py screamingface --base <unit 5 tip>`: all green, append-only included.
+- `run_gates.py screamingface --base 0f4b9e292`: the append-only offenders are only the unit 1 to 5
+  pinned files. All other gates are green. `run_gates.py repo --base 0f4b9e292`: all green.
+
+### Outcome (fill before commit B)
+
+- **Actual files:** <as planned | list>
+- **Commits:** <sha A> — test(e4b): RED doc guards for part 2 unit 6; <sha B> — docs(e4b): README
+  and CHANGELOG for evidence completeness
+- **RED record (commit A):** <4 failed, each on its first doc assertion; code checks passed>
+- **Gates:** <screamingface --base unit-5 tip: ...> <screamingface --base 0f4b9e292: append-only
+  offenders: ...; with --skip-append-only: ...> <repo: ...>
+- **Deviations:**
+  - Plan §2 row 6 names `CHANGELOG.md`. There is no root CHANGELOG; the file is
+    `packages/screamingface/CHANGELOG.md`.
+  - Plan §2 row 6 names the owner approval manifest. It is not written in this unit: the owner
+    approves after the run.
+  - The PRDs name no doc test; D6#1 to D6#4 are unit-local guards (precedent: the pick-output
+    CHANGELOG test, `docs/work/2026-10-13-e4b-pick-output.md`).
+  - <any other>
