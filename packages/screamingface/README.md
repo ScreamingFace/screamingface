@@ -344,6 +344,7 @@ feeds another stage (a Rank or a Filter) never does.
 answer is the first value where the running weight reaches half the total weight. At exactly
 half, the answer is the mean of that value and the next one, so equal weights give the plain
 median. A member with a missing or non-positive weight is dropped. It is never the nearest pick.
+The evidence shows that member with the status `"excluded"` and the reason `no_weight`.
 When no member is left, the Case abstains. For a number in a JSON reply, use the block form
 `sf.Reduce("median", extract=sf.Extract("field", path="answer"),
 weights=sf.signal("field:confidence"), select="value")`. The block form takes `select=` as
@@ -363,6 +364,8 @@ weight is dropped: it is not in the mean and it is never the nearest member. For
 JSON reply, use the block form `sf.Reduce("mean", extract=sf.Extract("field", path="answer"),
 weights=sf.signal("field:confidence"))` (see "Combine recipes"). The block form also takes
 `select="nearest"`.
+The evidence shows a member with no usable weight with the status `"excluded"` and the reason
+`no_weight`.
 
 To group answers the way the benchmark grades them, let the benchmark choose the extract rule. The
 SDK reads the rule from the benchmark before any spend:
@@ -423,6 +426,8 @@ Each answer scores the sum of the weights of the members who gave it. The answer
 heaviest member who gave the winning answer (the first in author order on equal weights). A member
 with no weight does not vote, and when no member is left the Case abstains. The report shows each
 member's `weight` and each answer's summed `score`.
+A member whose signal weight is not usable has the status `"excluded"` and the reason `no_weight`
+in the evidence.
 
 A weight that is zero, negative, not finite or above `sys.float_info.max / 256` raises `ValueError`
 at `sf.Vote(...)`, and a weight that is not a number raises `TypeError`. A wrong number of weights
@@ -442,6 +447,20 @@ A cached replay reads each call's original cost, latency and tokens, so it gives
 and the same tally. A fresh live rerun can give a different `latency_ms` (and a different cost, if
 prices changed). Only `cost_usd` is proven end to end by the paid replay lane. `latency_ms`,
 `tokens_in` and `tokens_out` are carried by the cache metadata and covered by unit tests only.
+
+**Members left out.** A step that reads a signal or a signal weight leaves out a member that has
+no value for it. The evidence row of that member has `status: "excluded"` and the reason
+`no_signal` (no value for the signal that the step reads: `sf.Rank(by_signal=...)`,
+`sf.Pick(by_signal=...)` or `sf.Filter(where=sf.signal(...) ...)`) or `no_weight` (no usable
+signal weight in a weighted `sf.Vote`, `sf.Median` or `sf.Mean`: missing, zero, negative or too
+large). `case.answers()` gives that member `sf.Answer(status="excluded", reason="no_signal")` (or
+`reason="no_weight"`), with the value it read, and the trace `extract` entry shows the same status
+and reason. The row is written also when the step abstains because no member is left. A member
+that failed keeps `status: "fail"` and its own reason, also when its signal is missing. Fixed
+weights (a list) never leave a member out. An excluded member is not a failure: `dropped` and the
+quorum count only failed members. The answer of the Case does not change. Only the evidence says
+more. So `sf.Answer.status` can now also be `"excluded"`. This needs an Engine and an SDK from the
+same release: an older SDK cannot read evidence with an excluded member.
 
 ### Judge synthesizer
 
@@ -539,6 +558,33 @@ applies to the reply: a malformed or too large reply, a `NaN` or an infinite sco
 with `judge_reply_invalid`. It never counts as "no weight", which would hide the defect behind an
 abstain.
 
+**The judge in the trace.** In `case.trace()` and `report.trace_dict()`, the `reduce` entry of a
+step that reads a judge names the judge call: `judge_operation_id` is the operation of the judge
+(for example `op_judge_1`), and `judge_model` is the `model` of that operation's `model_call`
+entry. This holds for `sf.Judge`, for `sf.Rank(by=sf.Judge(...))` (see "Rank and Concat
+selections"), and for a Vote or a Filter that reads `sf.signal("score:judge")`. For any other step,
+both keys are `None`. The SDK reads the link from the operation graph of the Case and never
+guesses: both keys are `None` for a Case result with no operation graph, and for a step with no
+judge operation or with more than one. `judge_model` is `None` when the judge call has no
+accounting. The url4 does not change, so a judge url4 compiled before this change rebuilds, and
+its trace links the judge too. The `combine` evidence itself has no judge model.
+
+**The judge and the writer.** The model that scores the members should not also write the
+answer. When a stage that reads a judge is followed directly by a model stage (an `sf.Model` or a
+route string) with the same model as the judge, the SDK emits `sf.JudgeWriterWarning` (an
+`sf.EvaluationWarning`) when it compiles the Pipeline, before any call. The warning names the
+Pipeline, the two stage positions and the route. It does not stop the run and does not change the
+url4. Two spellings of one route (with and without the provider prefix that the SDK adds) are one
+model, as for `sf.DuplicateMembersWarning`. The SDK sends the warning once per Pipeline object,
+and not again when it rebuilds a url4. Only the next stage is checked: a writer that is a Fusion
+or a nested Pipeline is not. If one model in both roles is what you want, silence the warning:
+
+```python
+import warnings
+
+warnings.filterwarnings("ignore", category=sf.JudgeWriterWarning)
+```
+
 ### Pick and merge JSON fields
 
 If the members reply with JSON, a rule can choose or build the answer. No model writes it.
@@ -591,6 +637,8 @@ SDK adds `sources` to the combine context (the model calls of each member), as i
 `sf.Vote`; a member with a call that appears twice in the Candidate gets no value. `score:judge` raises
 `ValueError`: this reducer has no judge. Use `sf.Judge(..., returns="scores")`, which picks the member
 with the highest judge score. A `Pick` takes a field or `by_signal=`, not both.
+In the evidence, a member with no value for the signal has the status `"excluded"` and the reason
+`no_signal`.
 
 `output="answer"` (on a field Pick or on `by_signal=`) makes the answer one top-level field of the
 winner's JSON reply, not its whole text. A string is returned without its quotes, and any other
@@ -699,6 +747,8 @@ the members with the lowest values, for example the cheapest members. `order=` a
 and `by_field=`. Give exactly one of `by`, `by_field` and `by_signal`; two, or none, raise
 `ValueError`. A member with no value for the signal is not ranked. `sf.signal("score:judge")` is
 refused, because a Rank with no judge has no judge score: use `by=sf.Judge(..., returns="scores")`.
+In the evidence, a member with no value for the signal has the status `"excluded"` and the reason
+`no_signal`.
 
 ```python
 cheapest_two = sf.Pipeline(
@@ -708,6 +758,17 @@ cheapest_two = sf.Pipeline(
     ]
 )
 ```
+
+**Rank and cut in the evidence.** The `combine` evidence of a Rank gives each member with a score
+its `rank` (`CombineAnswerRow.rank`): 1 is the best, and equal scores take author order, so no two
+members share a rank. A member with no score (it failed or was excluded) has no rank. The evidence
+also has the `cut` (`CombineEvidence.cut`, a `sf.report.CombineCut`) with `k` and `order`. The
+default order is written as `"max"`. The chosen members are exactly the members with a `rank` of
+`cut.k` or less, best first. For `cheapest_two` with the costs member_1 0.03, member_2 0.01,
+member_3 0.02 and member_4 0.01, the ranks are member_2 1, member_4 2, member_3 3 and member_1 4,
+the chosen members are member_2 and member_4, and the cut is `{"k": 2, "order": "min"}`. When the
+step abstains with `cut_not_met`, the ranks and the cut are still written. Only a Rank has a rank
+and a cut. A Filter and a Pick have neither, and their evidence keeps its keys.
 
 The block forms are `sf.Reduce("top_k", k=2, by_signal=..., order=...)` (also `by=` and `by_field=`)
 and `sf.Reduce("concat", separator=..., label=...)`. Each compiles to the same url4 as `sf.Rank` and
@@ -778,6 +839,9 @@ reason `no_votes`. The next stage still runs, and it gets the input and no membe
 dropped, and `None` when the member failed to answer. The block form is `sf.Reduce("filter",
 where=..., extract=..., judge=...)`. The place rules of "Rank and Concat selections" apply to a
 Filter too. This needs an Engine whose operator catalog has `filter@1` and `kept@1`.
+
+A member with no value for the signal of `where=` keeps the mark `0.0`. In the evidence, it has
+the status `"excluded"` and the reason `no_signal`.
 
 ### Combine recipes
 

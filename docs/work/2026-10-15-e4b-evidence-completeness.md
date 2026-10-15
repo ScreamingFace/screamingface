@@ -757,14 +757,17 @@ no code, no snapshot, no golden and no url4 file.
 - `run_gates.py screamingface --base 0f4b9e292`: the append-only offenders are only the unit 1 to 5
   pinned files. All other gates are green. `run_gates.py repo --base 0f4b9e292`: all green.
 
-### Outcome (fill before commit B)
+### Outcome
 
-- **Actual files:** <as planned | list>
-- **Commits:** <sha A> — test(e4b): RED doc guards for part 2 unit 6; <sha B> — docs(e4b): README
-  and CHANGELOG for evidence completeness
-- **RED record (commit A):** <4 failed, each on its first doc assertion; code checks passed>
-- **Gates:** <screamingface --base unit-5 tip: ...> <screamingface --base 0f4b9e292: append-only
-  offenders: ...; with --skip-append-only: ...> <repo: ...>
+- **Actual files:** as planned. The README and CHANGELOG edits are
+  insert-only: README 64 lines added, 0 removed; CHANGELOG 8 lines added (four bullets, a blank
+  line before each).
+- **Commits:** 7bcf10dc0 (full sha 7bcf10dc094daa2f34866d9022017bb84694e221) — test(e4b): RED doc
+  guards for part 2 unit 6; the docs commit (GREEN) is the tip of this branch after unit 6.
+- **RED record (commit A):** 4 failed, each on its first doc assertion (D6#1 `'**Members left
+  out.**'`, D6#2 `'**Rank and cut in the evidence.**'`, D6#3 `'**The judge in the trace.**'`,
+  D6#4 `` `no_weight` `` count 0 != 1). The code checks passed. No ImportError.
+- **Gates:** screamingface --base ae7370e9f (unit 5 tip): ALL GATES GREEN, append-only included. screamingface --base 0f4b9e292: the append-only check is red only for the unit 1 to 4 pinned files: `tests/data/schemas/screamingface.answer.v1.json` (P-2), `tests/data/schemas/screamingface.report-trace.v1.json` (U4-P1), `tests/public_surface_snapshot.json` (P-3), `tests/test_pick_output.py` (P-4), `tests/test_e4b_schema_pins.py` (U4-P2), `tests/test_frozen_record_fields.py` (X-5, D-2, D-3). No offender is a file of unit 6. With --skip-append-only: ALL GATES GREEN. repo --base 0f4b9e292: ALL GATES GREEN. Flakes seen: none. Pinned edits in unit 6: none.
 - **Deviations:**
   - Plan §2 row 6 names `CHANGELOG.md`. There is no root CHANGELOG; the file is
     `packages/screamingface/CHANGELOG.md`.
@@ -772,4 +775,9 @@ no code, no snapshot, no golden and no url4 file.
     approves after the run.
   - The PRDs name no doc test; D6#1 to D6#4 are unit-local guards (precedent: the pick-output
     CHANGELOG test, `docs/work/2026-10-13-e4b-pick-output.md`).
-  - <any other>
+  - The unit spec (§2.0) names a commit A that holds the ledger and the RED tests. Both landed in
+    commit 7bcf10dc0 before this run. The docs commit is the one GREEN commit. No commit C.
+  - The CHANGELOG bullets B1 to B4 are longer than 100 characters each. The spec wants one line
+    per bullet. The 100-character limit of §2.2 applies to the README only; the README has 0
+    added lines over 100.
+  - The §2.0 upstream check printed `True` on all eight lines. No upstream artifact was missing.
