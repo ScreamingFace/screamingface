@@ -54,8 +54,8 @@ unit makes each such shape a named outcome (F2) and adds no Benchmark.
   `test_import_replay.py`: 179 passed. ruff check and format, pyright, and extra-less pyright
   on the touched files: clean.
 - **Blast radius:** assembly over all 65 BenchmarkSpec rows refuses none; the judged rows it
-  reads (frontierscience, gdpval-text, draco ×2) already pin a judge. A re-import of gdpval or
-  draco would now write a TODO judge row; their rows on main don't change.
+  reads (frontierscience, gdpval-text, draco ×2) already pin a judge through `judge_model`, and
+  their scorers ask for no role, so a re-import writes the same row.
 - **Deviations:** the static reader moved out of `importer.py` into its own module during the
   build. An independent review found two missed shapes (a default judge on an extra scorer, a
   role held in a variable); both are fixed here, the variable case failing closed.
