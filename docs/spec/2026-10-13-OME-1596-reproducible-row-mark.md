@@ -40,6 +40,8 @@ Same rules on submit and on edit (one shared validator, like `_validate_bounded_
 | Unknown keys (owner, 2026-10-15) | text ≤ 500 characters, a finite number, or a boolean; lists, objects and null are refused |
 | Matching | every `authors_metadata` key is an email that appears in `authors` (after the same normalization `authors` uses) |
 | Errors | 422 naming the field and the key, one per problem |
+| Two keys for one author (owner, 2026-10-15) | two `authors_metadata` keys equal after casefolding are refused with a 422 naming the field and both keys |
+| Matching without `authors` (owner, 2026-10-15) | keys match the credit line the row shows: `authors`, or `[submitted_by]` when `authors` is null; checked in the store under the row lock on submit, same-owner resubmit and PATCH |
 
 ## 4. Publication and masking (piece 3, approved 2026-10-15, option A)
 

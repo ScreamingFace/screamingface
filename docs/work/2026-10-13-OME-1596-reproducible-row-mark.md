@@ -64,7 +64,16 @@ Spec §7 and the Linear issue's acceptance list.
   - Migration 0021 and its guard were also exercised by hand on PostgreSQL 17 (docker): the guard
     refused a board with a duplicate copy and applied nothing; after the duplicate was cleared, it
     applied, and a second score naming the same copy was refused by the constraint.
-  - Row 3 is paused on two owner decisions (casefold-duplicate author keys; matching when
-    `authors` is absent). Decided 2026-10-15 for row 3: `paper_metadata.url` and `paper_url`
-    disagreeing is a 422; `paper_metadata` without `url` clears `paper_url`; `null` clears both;
-    a url alone stores `paper_metadata` as `{}`.
+  - Row 3, owner decisions of 2026-10-15 the spec left open (spec section 3 gains (b) and (c)):
+    (a) `paper_metadata.url` and `paper_url` disagreeing is a 422; `paper_metadata` without `url`
+    clears `paper_url`; `null` clears both; a url alone stores `paper_metadata` as `{}`.
+    (b) two `authors_metadata` keys equal after casefolding are a 422 naming the field and both
+    keys. (c) without `authors`, keys match the shown credit line (`authors`, or
+    `[submitted_by]`), checked in the store under the row lock on submit, resubmit and PATCH.
+  - Row 3: `_validate_paper_url` moved unchanged from `schemas.py` into the new
+    `scores/credit_metadata.py` (imported back under its old name) so `paper_metadata.url` and
+    `paper_url` share it without a circular import. A resubmit treats a missing object as "not
+    given" (the existing resubmit rule), so `null` clears only through PATCH. The edit-log event
+    fields for the objects are excluded when null, so events about `authors` or `paper_url`
+    alone read as before. The history route (`HistorySubmission`) carries no metadata: it does
+    not carry `paper_url` either, and the spec page reads both from `GET /v1/scores/{id}`.

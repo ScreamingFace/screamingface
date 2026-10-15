@@ -20,6 +20,7 @@ from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
 from tortoise.exceptions import OperationalError
 
 from scoreboard.config import AuthMode, Settings
@@ -55,6 +56,7 @@ from scoreboard.scores.schemas import (
     ValidationErrorResponse,
 )
 from scoreboard.scores.store import (
+    AuthorsMetadataMismatch,
     BenchmarkVisibilityChanged,
     ConcurrentScoreUpdate,
     PrivateBoardRequiresIdentity,
@@ -236,6 +238,25 @@ def _score_not_found() -> HTTPException:
     )
 
 
+def _unmatched_authors_metadata(exc: AuthorsMetadataMismatch) -> RequestValidationError:
+    """The store's matching refusal as the framework's own 422: one entry per unmatched key.
+
+    WHY the framework's shape: the shape checks on the same field already answer this way (from the
+    request schema), so a client reads every `authors_metadata` problem the same way.
+    """
+    return RequestValidationError(
+        [
+            {
+                "type": "authors_metadata_unmatched",
+                "loc": ("body", *problem.loc),
+                "msg": problem.message,
+                "input": problem.loc[-1],
+            }
+            for problem in exc.problems
+        ]
+    )
+
+
 def _field_error_detail(field: str, message: str) -> dict[str, str]:
     return FieldErrorDetail(field=field, message=message).model_dump()
 
@@ -343,6 +364,8 @@ async def submit_score(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=CONCURRENT_UPDATE_DETAIL,
             ) from exc
+        except AuthorsMetadataMismatch as exc:
+            raise _unmatched_authors_metadata(exc) from exc
         except PrivateBoardRequiresIdentity as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -513,10 +536,12 @@ async def patch_score(
     response: Response,
     identity: VerifiedIdentity,
 ) -> ScoreSchema:
-    """Edit the authors and paper link of a score you submitted (E14 A1).
+    """Edit the authors, paper link and metadata of a score you submitted (E14 A1, OME-1596).
 
-    An absent key leaves the field unchanged; `paper_url: null` clears the link. Every change is
-    logged (`GET /v1/scores/{id}/metadata-events`); a request that changes nothing is a no-op.
+    An absent key leaves the field unchanged; `paper_url: null` clears the link. A sent
+    `authors_metadata` or `paper_metadata` replaces the whole object and `null` clears it
+    (`paper_metadata: null` also clears the link). Every change is logged
+    (`GET /v1/scores/{id}/metadata-events`); a request that changes nothing is a no-op.
     """
     score, private = await _load_owned_score(request, score_id, identity)
     if private:
@@ -532,6 +557,8 @@ async def patch_score(
             benchmark_id=cast(str, getattr(score, "benchmark_id")),
             expect_private=private,
         )
+    except AuthorsMetadataMismatch as exc:
+        raise _unmatched_authors_metadata(exc) from exc
     except BenchmarkVisibilityChanged as exc:
         # The board changed between the check above and the locked write. Same answer as the
         # resubmit path: nothing is wrong with the request, and a retry sees one consistent view.

@@ -24,6 +24,12 @@ from tortoise.transactions import in_transaction
 from scoreboard.classification.openness import Openness
 from scoreboard.db import DEFAULT_CONNECTION
 
+from .credit_metadata import (
+    MetadataProblem,
+    keep_matching_authors,
+    split_paper_metadata,
+    unmatched_author_keys,
+)
 from .frontier import FrontierMember, HistoryRow
 from .models import Benchmark, IdempotencyKey, Score, ScoreMetadataEvent, ScoreReproduction
 from .pareto import ParetoEntry
@@ -258,6 +264,8 @@ def _derived_providers(submission: ScoreSubmission) -> list[str]:
 _REPLAY_FIELDS: tuple[str, ...] = (
     "authors",
     "paper_url",
+    "authors_metadata",
+    "paper_metadata",
     "metadata",
     "models",
     "ran_with_providers",
@@ -277,6 +285,8 @@ _REPLAY_FIELDS: tuple[str, ...] = (
 _ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {
     "authors",
     "paper_url",
+    "authors_metadata",
+    "paper_metadata",
     "metadata",
     "frozen_copy_id",
     "capture_status",
@@ -288,7 +298,57 @@ _ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {
 # FEATURE: OME-1307 — the two display-only fields a submitter may correct after the fact, and the
 # two the edit log records. A change to either, from a PATCH or from a same-owner resubmit, dates
 # the row (`metadata_updated_at`) and writes one `ScoreMetadataEvent`.
-_METADATA_FIELDS: tuple[str, ...] = ("authors", "paper_url")
+# OME-1596 adds the two metadata objects: display-only like the others, and logged the same way.
+_METADATA_FIELDS: tuple[str, ...] = ("authors", "paper_url", "authors_metadata", "paper_metadata")
+
+
+class AuthorsMetadataMismatch(Exception):
+    """`authors_metadata` names someone who is not in the credit line the row would hold.
+
+    FEATURE: OME-1596 (spec section 3, matching). Raised under the row lock, so the check and the
+    write see the same `authors`. The routes answer it as a 422 with one entry per key.
+    """
+
+    def __init__(self, problems: list[MetadataProblem]) -> None:
+        super().__init__("authors_metadata names an author who is not credited")
+        self.problems = problems
+
+
+def _paper_metadata_updates(value: Mapping[str, object] | None) -> dict[str, object]:
+    """The stored columns for a SENT `paper_metadata`: the object without `url`, and the link.
+
+    INVARIANT (owner, 2026-10-15): the object is replaced whole, so `null` clears the object AND
+    the link, an object without `url` clears the link, and a url alone stores `{}`.
+    """
+    if value is None:
+        return {"paper_metadata": None, "paper_url": None}
+    stored, url = split_paper_metadata(value)
+    return {"paper_metadata": stored, "paper_url": url}
+
+
+def _settle_authors_metadata(updates: dict[str, object], locked: Score) -> None:
+    """Match a sent `authors_metadata`, or prune the stored one, against the row's new authors.
+
+    Called with the LOCKED row (or, on insert, a row not yet written), so the credit line it reads
+    is the one the write produces: `authors` after this update, or `[submitted_by]` when that is
+    null (owner, 2026-10-15).
+
+    INVARIANT: a sent object must match whole (else `AuthorsMetadataMismatch`, nothing written); an
+    unsent one loses the entries of authors this update removes, in the same edit (spec section 2).
+    """
+    credit_line = _resolved_authors(
+        cast("list[str] | None", updates.get("authors", locked.authors)), locked.submitted_by
+    )
+    if "authors_metadata" in updates:
+        sent = cast("dict[str, object] | None", updates["authors_metadata"])
+        problems = [] if sent is None else unmatched_author_keys(sent, credit_line)
+        if problems:
+            raise AuthorsMetadataMismatch(problems)
+        return
+    if "authors" in updates and locked.authors_metadata is not None:
+        kept = keep_matching_authors(locked.authors_metadata, credit_line)
+        if kept != locked.authors_metadata:
+            updates["authors_metadata"] = kept
 
 
 def _metadata_changes(locked: Score, proposed: Mapping[str, object]) -> dict[str, object]:
@@ -332,6 +392,10 @@ async def _log_metadata_event(
         new_authors=changes.get("authors", locked.authors),
         old_paper_url=locked.paper_url,
         new_paper_url=changes.get("paper_url", locked.paper_url),
+        old_authors_metadata=locked.authors_metadata,
+        new_authors_metadata=changes.get("authors_metadata", locked.authors_metadata),
+        old_paper_metadata=locked.paper_metadata,
+        new_paper_metadata=changes.get("paper_metadata", locked.paper_metadata),
     )
 
 
@@ -362,6 +426,20 @@ def _frozen_copy_fills(submission: ScoreSubmission, existing: Score) -> dict[str
     return fills
 
 
+def _credit_metadata_replay(submission: ScoreSubmission) -> dict[str, object]:
+    """FEATURE: OME-1596 — a resubmit REPLACES each metadata object it sends, like `authors`.
+
+    `None` is "not given" here (an older SDK never sends them), so nothing is cleared by omission.
+    Matching and pruning against the credit line happen later, under the row lock.
+    """
+    updates: dict[str, object] = {}
+    if submission.authors_metadata is not None:
+        updates["authors_metadata"] = submission.authors_metadata
+    if submission.paper_metadata is not None:
+        updates.update(_paper_metadata_updates(submission.paper_metadata))
+    return updates
+
+
 def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
     """The ONLY fields a replay of an existing recipe may correct on the stored row.
 
@@ -387,6 +465,7 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
     # replaying without it cannot erase the stored link.
     if submission.paper_url is not None:
         updates["paper_url"] = submission.paper_url
+    updates.update(_credit_metadata_replay(submission))
     if submission.metadata is not None:
         updates["metadata"] = submission.metadata
     # FEATURE: OME-1181 — how a row submitted before OME-1180 ever becomes classifiable.
@@ -479,6 +558,14 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "authors": submission.authors,
         # Deliberately absent from _content_hash: display-only, like `authors`.
         "paper_url": submission.paper_url,
+        # FEATURE: OME-1596 — display-only too. A sent `paper_metadata` carries the link as `url`;
+        # the two spellings were checked equal, so the split below only moves it to `paper_url`.
+        "authors_metadata": submission.authors_metadata,
+        **(
+            {}
+            if submission.paper_metadata is None
+            else _paper_metadata_updates(submission.paper_metadata)
+        ),
         "models": submission.models,
         "score": submission.score,
         "total_questions": submission.total_questions,
@@ -992,6 +1079,18 @@ def _build_history_inputs_query(
     return query.orderby(scores.submitted_at).orderby(scores.id)
 
 
+def _patch_proposal(changes: Mapping[str, object]) -> dict[str, object]:
+    """A PATCH body as the columns it writes: `paper_metadata` splits into itself and `paper_url`.
+
+    The route has already checked that a `paper_url` sent beside it is the same link.
+    """
+    proposed = {name: value for name, value in changes.items() if name != "paper_metadata"}
+    if "paper_metadata" in changes:
+        sent = cast("Mapping[str, object] | None", changes["paper_metadata"])
+        proposed.update(_paper_metadata_updates(sent))
+    return proposed
+
+
 class ScoreStore:
     async def register_benchmark(
         self,
@@ -1228,6 +1327,13 @@ class ScoreStore:
                 reclaimable = reclaimable | Q(scheme__isnull=True) | ~Q(scheme=KEY_SCHEME)
             await IdempotencyKey.filter(reclaimable, key=stored_key).using_db(connection).delete()
 
+        # FEATURE: OME-1596 — every `authors_metadata` key must be credited on the row being
+        # written. Checked before the insert, inside its transaction, so a refusal writes nothing.
+        if submission.authors_metadata is not None:
+            credit_line = _resolved_authors(submission.authors, submission.submitted_by)
+            problems = unmatched_author_keys(submission.authors_metadata, credit_line)
+            if problems:
+                raise AuthorsMetadataMismatch(problems)
         score = await Score.create(
             using_db=connection, **_submission_to_kwargs(submission, content_hash)
         )
@@ -1394,6 +1500,7 @@ class ScoreStore:
             raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
 
         updates = _replay_updates(submission, locked)
+        _settle_authors_metadata(updates, locked)
         # FEATURE: OME-1307 — authors and paper link are replaced when given, so a resubmit that
         # really changes one is an edit: it dates the row and writes one `resubmit` event, in this
         # same locked transaction. `enriched_at` is a separate stamp and is not touched by them.
@@ -1484,7 +1591,7 @@ class ScoreStore:
         benchmark_id: str,
         expect_private: bool,
     ) -> ScoreSchema | None:
-        """Apply a submitter's edit of `authors` / `paper_url`, and return the score as it now is.
+        """Apply a submitter's edit of the credit fields, and return the score as it now is.
 
         Returns None when the score no longer exists. The CALLER has already established that
         ``edited_by`` owns the row; ownership never changes, so it is not re-proved under the lock.
@@ -1494,8 +1601,9 @@ class ScoreStore:
         chains without a gap. A request that changes nothing writes nothing, and leaves
         `metadata_updated_at` alone.
 
-        INVARIANT: only `authors` and `paper_url` can be written here, and neither one touches
-        `enriched_at`, the ranking inputs or `content_hash`: both are display-only.
+        INVARIANT: only the credit fields (`authors`, `paper_url`, and since OME-1596
+        `authors_metadata` and `paper_metadata`) can be written here, and none of them touches
+        `enriched_at`, the ranking inputs or `content_hash`: all are display-only.
 
         INVARIANT: the board is re-checked INSIDE the transaction, first and under its lock, the way
         the resubmit path does. The route decided who may edit from a read taken before this
@@ -1511,7 +1619,9 @@ class ScoreStore:
             locked = await self.metadata_row_query(score_id, connection=connection).first()
             if locked is None:
                 return None
-            applied = _metadata_changes(locked, changes)
+            proposed = _patch_proposal(changes)
+            _settle_authors_metadata(proposed, locked)
+            applied = _metadata_changes(locked, proposed)
             if applied:
                 stamp = datetime.now(UTC)
                 await (
