@@ -582,3 +582,37 @@ Decisions: Q1, Q2, Q4, P8, P9; E4b part 1 ans:Q5 (additive edit, same v1 id).
   U4-P2 (one sha256 string in `test_e4b_schema_pins.py`, line 25). No other existing test was
   changed. `test_frozen_record_fields.py` was not touched in this unit (no evidence case was
   added, so no bump).
+
+### Review round 1 (fix commit)
+
+- **Input:** the design review of commits A and B. Six MINOR findings. No BLOCKER, MAJOR or
+  behavior finding.
+- **Applied:** this section only. No finding asks for a code or test change that the unit spec
+  allows without consent.
+- **Not applied, routed to the orchestrator:**
+  - U4-P2 `packages/screamingface/tests/test_e4b_schema_pins.py` (one sha256 string, line 25) is
+    not in the task PINNED list. The unit spec planned it as D-4.1. The owner must approve blob
+    `8a32a2c2f6ba4a7f8f0581e722139415e784b39b` (base `d9b23d45…`). No code change.
+  - U4-P1 `packages/screamingface/tests/data/schemas/screamingface.report-trace.v1.json`: record
+    the owner approval of blob `9777fa55f21c48bff574337e21b9837dbec496e1` (base `47ddb414…`).
+  - The RED commit subject `9f89fc00a` differs from the spec §8 subject. The commit is not amended.
+- **Not applied, optional, no change:**
+  - The rename of the view helper `_reads_judge` in `_case_views.py` to `_evidence_reads_judge`.
+    The unit spec fixes the current name. `reducer.py` has an unrelated `_reads_judge(weights)`.
+    A later unit (unit 5 works in the reducer area) can rename it if the orchestrator wants that.
+  - The judge link is a `Mapping[str, str | None]` with two keys, read by `_reduce_data`. The
+    spec requires this shape. A later cleanup can use a tuple.
+  - Two docstrings in `tests/test_judge_link_trace.py` (JM#2 and `_linked_case`) cite line
+    ranges in `_case_views.py` that are now out of date. The spec dictated the text. It is a test
+    edit after RED, so it needs orchestrator consent.
+- **Behavior change:** none. No code, test or pinned data file changed in this round.
+- **Pinned edits in this round:** none. U4-P1 and U4-P2 stay as listed above.
+- **Gates (this round, `run_gates.py <stack> --base 0f4b9e292`):**
+  - `screamingface`: the append-only check fails and lists the same 6 files (P-2
+    `screamingface.answer.v1.json`, U4-P1 `screamingface.report-trace.v1.json`, P-3
+    `public_surface_snapshot.json`, U4-P2 `test_e4b_schema_pins.py`, X-5
+    `test_frozen_record_fields.py`, P-4 `test_pick_output.py`). With `--skip-append-only`: ALL
+    GATES GREEN (ruff check, ruff format, pyright, pytest with coverage, notebooks, build,
+    distribution check).
+  - `repo`: ALL GATES GREEN, the append-only check passes.
+- **Flakes:** none in this round.
