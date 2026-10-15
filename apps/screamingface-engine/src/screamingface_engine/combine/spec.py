@@ -228,6 +228,7 @@ def _check_signals(spec: CombineSpec) -> None:
     if "signals" not in spec.model_fields_set:
         return
     signals = spec.signals
+    # WHY an explicit null is refused although the schema types it: no declaration omits the key.
     if signals is None or not 1 <= len(signals) <= MAX_DECLARED_SIGNALS:
         raise ValueError(f"signals must declare 1 to {MAX_DECLARED_SIGNALS} names")
     if not all(is_signal_name(name) for name in signals):
@@ -487,11 +488,11 @@ __all__ = [
     "REDUCE_SELECT_RULES",
     "CombineContext",
     "CombineSpec",
-    "VerbalizedSource",
     "Presence",
     "ReducerRule",
     "SignalWeights",
     "StepSpec",
+    "VerbalizedSource",
     "canonical_params",
     "parse_context",
     "parse_spec",

@@ -226,3 +226,22 @@ def test_empty_panel_and_missing_member_get_none_for_declared_names() -> None:
         {"conf": 30.0},
     ]
     assert partial.output == "Confidence: 90\nA"
+
+
+# --- DS#10 (guard): a bad declaration is refused without its name or pattern in the message ----
+
+
+def test_a_bad_declaration_message_does_not_echo_the_name_or_the_pattern() -> None:
+    bad_declarations: list[Any] = [
+        {"Conf_zq": CONF_ENTRY},
+        {"logprob_zq": CONF_ENTRY},
+        {f"zq{index}": CONF_ENTRY for index in range(9)},
+        {"zq_conf": {"source": "consistency"}},
+        {"zq_conf": {**CONF_ENTRY, "flags": 1}},
+        {"conf": {"source": "verbalized", "pattern": "zq(("}},
+        {"conf": {"source": "verbalized", "pattern": "zq[0-9]+"}},
+    ]
+    for declaration in bad_declarations:
+        code, message = _code({**conf_weighted_vote(), "signals": declaration})
+        assert code == "combine_spec_invalid"
+        assert "zq" not in message.lower()

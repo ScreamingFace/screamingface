@@ -338,3 +338,42 @@ Run: the six new test files, and `tests/test_signals.py`, in each package. No li
   3. **`_check_declared` in `S/fusion.py`.** A new private helper, so that the Fusion constructor
      passes the ruff complexity rules. No behavior change.
   4. **`# noqa: PLR0911` on `endpoint._signal_numbers`.** The review fixes below remove it.
+
+### Unit 2 review fixes — outcome
+
+- **DS#14 oracle (MAJOR):** amended in commit B as erratum E9 (see deviation 1 above). The url4
+  rebuild code did not change.
+- **Unit completion (MAJOR):** commit B is made; the outcome section above is written; the three
+  gates ran after the fixes (see below). The stray `packages/screamingface/.coverage.*` files were
+  deleted; files were staged by name only.
+- **DS#15 narrowing edit:** kept; it is in deviation 2 above as an owner-review item.
+- **`_is_signals`** in `S/_evaluation/combine_spec.py` moved directly after `_is_step`, above
+  `spec_operator_pairs` and `__all__`.
+- **`endpoint._signal_values`** dispatches a declared name to `_declared_numbers` through a
+  `by_name` map. `_signal_numbers` has its E4a signature `(key, spec, context, accounting)` again,
+  and the `# noqa: PLR0911` is gone.
+- **`__all__` order:** `DECLARED_NAME` and `RESERVED_NAME_PREFIXES` in `E/combine/ports.py`, and
+  `VerbalizedSource` in `E/combine/spec.py`, are in their sorted places (`ruff --select RUF022`
+  passes).
+- **DS#10 guard:** a NEW test, `test_a_bad_declaration_message_does_not_echo_the_name_or_the_pattern`,
+  is appended to `ET/test_combine_declared_signals.py`. It uses `zq`-marked names and patterns in
+  seven bad declarations and asserts `zq` is not in the message. The existing DS#10 test did not
+  change. No RED was possible: the behavior was already correct; the test is a guard.
+- **`signals: null` (schema says valid, validator refuses):** a `# WHY` comment in
+  `E/combine/spec.py::_check_signals` records that an explicit null is refused and a spec with no
+  declaration omits the key. Deviation: the finding suggested a docstring line, but the
+  `VerbalizedSource` and `CombineSpec` docstrings are the `description` fields of the pinned
+  combine-spec schema snapshot, so a docstring edit changes a pinned file. The comment does not.
+  The validation did not change.
+- **No change (by the finding):** the unit 4 forward fit of `_Declared.read` and
+  `CombineSpec.signals` (unit 4 spec must say how to generalize: a per-member record reader or a
+  source-kind tag, and a discriminated union on `source`); the two `{name!r: source}` repr helpers.
+- **Pinned files:** none changed by the fixes. The four manifest blobs still agree with
+  `git hash-object`.
+- **Gates (after the fixes):** `run_gates.py screamingface-engine --base 0f4b9e292` ALL GATES
+  GREEN (append-only with the two approved OME-1290 schema transitions, ruff, format, pyright,
+  layering, pytest with coverage >= 80). `run_gates.py screamingface --base 0f4b9e292` ALL GATES
+  GREEN (append-only with the two approved OME-1290 transitions, ruff, format, pyright, pytest with
+  coverage >= 95, notebooks, build, distribution check). `run_gates.py repo --base 0f4b9e292` ALL
+  GATES GREEN. No flaky test failed.
+- **Commit:** `fix(e4b): review fixes for E4b part 3 unit 2`.

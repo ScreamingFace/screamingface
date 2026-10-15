@@ -266,7 +266,13 @@ def _signal_values(
         # WHY no read (OME-1557): an empty quorum panel abstains with no_votes; reading a signal
         # over no member (a judge reply above all) could only refuse a Case that has no answer.
         return {member: {key: None for key in keys} for member in spec.members}
-    columns = {key: _signal_numbers(key, plan, spec, context, accounting) for key in keys}
+    by_name = {item.name: item for item in plan.declared}
+    columns = {
+        key: _declared_numbers(by_name[key], spec, context)
+        if key in by_name
+        else _signal_numbers(key, spec, context, accounting)
+        for key in keys
+    }
     return {member: {key: columns[key][member] for key in keys} for member in spec.members}
 
 
@@ -275,17 +281,13 @@ def _recorded_keys(plan: _Plan) -> tuple[str, ...]:
     return (*read, *(item.name for item in plan.declared if item.name not in read))
 
 
-def _signal_numbers(  # noqa: PLR0911 - one branch per kind of signal source
+def _signal_numbers(
     key: str,
-    plan: _Plan,
     spec: CombineSpec,
     context: CombineContext,
     accounting: AccountingReader | None,
 ) -> Mapping[str, float | None]:
     """One number (or None) for each member, from the source that the signal key names."""
-    declared = next((item for item in plan.declared if item.name == key), None)
-    if declared is not None:
-        return _declared_numbers(declared, spec, context)
     if key in ACCOUNTING_SIGNALS:
         return _accounting_numbers(key, spec, context, accounting)
     if key == JUDGE_SIGNAL:

@@ -174,6 +174,14 @@ def _is_step(step: object) -> bool:
     )
 
 
+def _is_signals(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and bool(value)
+        and all(isinstance(name, str) and isinstance(entry, dict) for name, entry in value.items())
+    )
+
+
 def spec_operator_pairs(spec: Mapping[str, object]) -> tuple[tuple[Stage, str], ...]:
     """The (stage, pinned id) pairs a decoded spec uses, in step order."""
 
@@ -186,11 +194,3 @@ def spec_operator_pairs(spec: Mapping[str, object]) -> tuple[tuple[Stage, str], 
 
 
 __all__: list[str] = []
-
-
-def _is_signals(value: object) -> bool:
-    return (
-        isinstance(value, dict)
-        and bool(value)
-        and all(isinstance(name, str) and isinstance(entry, dict) for name, entry in value.items())
-    )
