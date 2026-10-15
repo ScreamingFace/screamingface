@@ -38,7 +38,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_EVEN, Context, Decimal
 from types import MappingProxyType
-from typing import ClassVar, Literal, Protocol, cast
+from typing import ClassVar, Literal, Protocol, cast, get_args
 
 Stage = Literal["extract", "normalize", "reduce", "select"]
 Reducer = Literal[
@@ -66,6 +66,12 @@ AnswerReason = Literal[
 ]
 ABSTAIN_REASONS: tuple[AbstainReason, ...] = ("no_votes", "cut_not_met", "output_missing")
 SignalOrder = Literal["max", "min"]
+# E4b part 2 (ans:Q3, P2): the status of an evidence record. "excluded" exists only in the
+# record: the core Answer keeps MemberStatus (I-A3), so no operator ever sees it.
+RecordStatus = Literal["answered", "fail", "excluded"]
+# Why a rule of the step left an answered member out (erd §6, X1 and X2).
+ExcludeReason = Literal["no_signal", "no_weight"]
+EXCLUDE_REASONS = cast("tuple[ExcludeReason, ...]", get_args(ExcludeReason))
 OpArgs = Mapping[str, object]
 
 STAGES: tuple[Stage, ...] = ("extract", "normalize", "reduce", "select")
@@ -619,6 +625,18 @@ class SignalRead:
     order: SignalOrder | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class Cut:
+    """The cut of a ``top_k@1`` step: keep the first ``k`` scored members in ``order``.
+
+    The ``cut`` hook of a select operator returns it (E4b part 2, unit 3). The endpoint writes it
+    as the evidence ``CutRecord``. ``order`` is always filled in: "max" when the args omit it.
+    """
+
+    k: int
+    order: SignalOrder
+
+
 # Same shape as ``benchmarks/operation_outputs._Fingerprint``: (call.path, call.params).
 CallFingerprint = tuple[str, tuple[tuple[str, str], ...]]
 MemberSources = Mapping[str, Mapping[str, CallFingerprint]]
@@ -712,6 +730,7 @@ __all__ = [
     "ABSTAIN_REASONS",
     "ACCOUNTING_SIGNALS",
     "DECIMAL_CONTEXT",
+    "EXCLUDE_REASONS",
     "FIELD_PATH",
     "FIELD_SIGNAL_PREFIX",
     "JUDGE_SIGNAL",
@@ -730,7 +749,9 @@ __all__ = [
     "CallFingerprint",
     "CombineError",
     "CombineInput",
+    "Cut",
     "EvidenceKind",
+    "ExcludeReason",
     "Extractor",
     "FieldReading",
     "InputTooLarge",
@@ -745,6 +766,7 @@ __all__ = [
     "OperatorDescriptor",
     "OperatorUnknown",
     "ReadingStatus",
+    "RecordStatus",
     "ReduceOp",
     "Reducer",
     "Reduction",

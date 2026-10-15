@@ -24,6 +24,7 @@ from screamingface.answer import (
 from screamingface.combine_evidence import (
     COMBINE_EVIDENCE_SCHEMA,
     CombineAnswerRow,
+    CombineCut,
     CombineEvidence,
     CombineFieldReading,
     CombineJudgeReading,
@@ -57,8 +58,11 @@ _EVIDENCE_KEYS = {
     "dropped",
     "finish_reason",
 }
-_OPTIONAL_EVIDENCE_KEYS = frozenset({"mean"})  # E4b P8: written only by the mean reducer
+# E4b P8 mean (mean reducer only); E4b part 2 cut (top_k@1 only).
+_OPTIONAL_EVIDENCE_KEYS = frozenset({"mean", "cut"})
 _MEMBER_KEYS = {"member_id", "raw", "value", "status", "reason", "signals", "weight", "score"}
+_OPTIONAL_MEMBER_KEYS = frozenset({"rank"})  # E4b part 2: written only by a top_k@1 step
+_CUT_KEYS = {"k", "order"}
 _RESULT_KEYS = {"member_id", "value", "status", "reason"}
 _SIGNAL_KEYS = {"key", "order"}
 _RESULT_STATUSES = frozenset({"answered", "abstain"})
@@ -106,6 +110,7 @@ def decode_combine_evidence(value: object, label: str) -> CombineEvidence | None
                 raw["separator_collision"], f"{label} separator_collision"
             ),
             signal=_signal(raw["signal"], f"{label} signal"),
+            cut=_cut(raw.get("cut"), f"{label} cut"),
             result=_result(raw["result"], f"{label} result"),
             dropped=_integer(raw["dropped"], f"{label} dropped"),
             finish_reason=_text(raw["finish_reason"], f"{label} finish_reason"),
@@ -116,7 +121,7 @@ def decode_combine_evidence(value: object, label: str) -> CombineEvidence | None
 
 def _member_reading(value: object, label: str) -> CombineAnswerRow:
     raw = _mapping(value, label)
-    _exact_keys(raw, _MEMBER_KEYS, label)
+    _exact_keys(raw, _MEMBER_KEYS | {key for key in _OPTIONAL_MEMBER_KEYS if key in raw}, label)
     return CombineAnswerRow(
         member_id=_text(raw["member_id"], f"{label} member_id"),
         raw=_optional_text(raw["raw"], f"{label} raw"),
@@ -128,6 +133,7 @@ def _member_reading(value: object, label: str) -> CombineAnswerRow:
         signals=_signals(raw["signals"], f"{label} signals"),
         weight=_optional_number(raw["weight"], f"{label} weight"),
         score=_optional_number(raw["score"], f"{label} score"),
+        rank=_optional_integer(raw.get("rank"), f"{label} rank"),
     )
 
 
@@ -155,6 +161,17 @@ def _signal(value: object, label: str) -> CombineSignal | None:
         order=cast(
             SignalOrder | None, _optional_word(raw["order"], SIGNAL_ORDERS, f"{label} order")
         ),
+    )
+
+
+def _cut(value: object, label: str) -> CombineCut | None:
+    if value is None:
+        return None
+    raw = _mapping(value, label)
+    _exact_keys(raw, _CUT_KEYS, label)
+    return CombineCut(
+        k=_integer(raw["k"], f"{label} k"),
+        order=cast(SignalOrder, _word(raw["order"], SIGNAL_ORDERS, f"{label} order")),
     )
 
 
@@ -186,6 +203,10 @@ def _integer(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ExecutionError(f"{label} must be an integer")
     return value
+
+
+def _optional_integer(value: object, label: str) -> int | None:
+    return None if value is None else _integer(value, label)
 
 
 def _tally_row(value: object, label: str) -> CombineTallyRow:

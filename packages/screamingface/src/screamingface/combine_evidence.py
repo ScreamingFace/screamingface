@@ -20,6 +20,7 @@ from screamingface.answer import (
     _MEMBER_ID,
     ABSTAIN_REASONS,
     ANSWER_REASONS,
+    EXCLUDE_REASONS,
     MEMBER_STATUSES,
     SIGNAL_ORDERS,
     AbstainReason,
@@ -28,7 +29,7 @@ from screamingface.answer import (
     SignalOrder,
     frozen_signals,
 )
-from screamingface.reducer import REDUCER_KINDS, REDUCER_NAMES, _ReducerKind
+from screamingface.reducer import _MAX_REDUCER_MEMBERS, REDUCER_KINDS, REDUCER_NAMES, _ReducerKind
 
 COMBINE_EVIDENCE_SCHEMA = "screamingface.combine-evidence.v1"
 
@@ -40,6 +41,7 @@ type JudgeReturns = Literal["label", "scores"]
 _RESULT_STATUSES = frozenset(get_args(ResultStatus.__value__))
 _RETURNS = frozenset(get_args(JudgeReturns.__value__))
 _OPERATOR_ID = re.compile(r"[a-z][a-z0-9_]*@[1-9][0-9]*")
+_MAX_CUT_K = _MAX_REDUCER_MEMBERS  # the bound of sf.Rank k (blocks.py _MAX_K)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +49,8 @@ class CombineAnswerRow:
     """What the combine step read from one member's answer (the evidence Answer row, no text).
 
     INVARIANT (I-E1): the member text lives on the member operation's own output, never here.
+    ``status`` "excluded" (E4b part 2): the member answered and a rule of the step left it out; the
+    row keeps its value. ``rank`` (a top_k@1 step only) is 1 for the first member in the cut order.
     """
 
     member_id: str
@@ -57,6 +61,7 @@ class CombineAnswerRow:
     signals: Mapping[str, float | None]
     weight: float | None = None
     score: float | None = None
+    rank: int | None = None
 
     def __post_init__(self) -> None:
         _member_id(self.member_id, "Combine answer row member_id")
@@ -66,18 +71,23 @@ class CombineAnswerRow:
         if self.reason is not None:
             _one_of(self.reason, ANSWER_REASONS, "Combine answer row reason")
         if (self.reason is None) != (self.status == "answered"):
-            raise ValueError("Combine answer row has a reason exactly when it failed")
+            raise ValueError("Combine answer row has a reason exactly when it did not answer")
         if self.status == "fail" and self.value is not None:
             raise ValueError("Combine answer row of a failed member has no value")
         if self.status == "fail" and self.reason in ABSTAIN_REASONS:
             raise ValueError(
                 "Combine answer row of a failed member has a failure reason, not an abstain reason"
             )
+        if (self.status == "excluded") != (self.reason in EXCLUDE_REASONS):
+            raise ValueError(
+                "Combine answer row has an exclude reason exactly when it was excluded"
+            )
         object.__setattr__(self, "signals", frozen_signals(self.signals, "Combine answer signals"))
         object.__setattr__(
             self, "weight", _optional_number(self.weight, "Combine answer row weight")
         )
         object.__setattr__(self, "score", _optional_number(self.score, "Combine answer row score"))
+        object.__setattr__(self, "rank", _rank(self.rank, self.score))
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -89,6 +99,8 @@ class CombineAnswerRow:
             "signals": dict(self.signals),
             "weight": self.weight,
             "score": self.score,
+            # E4b part 2: optional on the wire
+            **({} if self.rank is None else {"rank": self.rank}),
         }
 
 
@@ -141,16 +153,24 @@ class CombineSignal:
 
 @dataclass(frozen=True, slots=True)
 class CombineCut:
-    """Stub (E4b part 2 unit 1 RED): the GREEN commit replaces it."""
+    """The cut of a top-k step (``sf.Rank``): keep the first ``k`` scored members in ``order``.
+
+    Each member row has its ``rank``; when the step answered, the chosen members are the rows
+    with ``rank <= k``.
+    """
 
     k: int
     order: SignalOrder
 
     def __post_init__(self) -> None:
-        raise NotImplementedError("E4b part 2 unit 1: CombineCut")
+        if isinstance(self.k, bool) or not isinstance(self.k, int):
+            raise TypeError("Combine cut k must be an integer")
+        if not 1 <= self.k <= _MAX_CUT_K:
+            raise ValueError(f"Combine cut k must be between 1 and {_MAX_CUT_K}")
+        _one_of(self.order, SIGNAL_ORDERS, "Combine cut order")
 
     def to_dict(self) -> dict[str, object]:
-        raise NotImplementedError("E4b part 2 unit 1: CombineCut")
+        return {"k": self.k, "order": self.order}
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +263,7 @@ class CombineEvidence:
     presentation_order: Literal["author"] | None
     separator_collision: bool | None
     signal: CombineSignal | None
+    cut: CombineCut | None
     result: CombineResult
     dropped: int
     finish_reason: str
@@ -269,6 +290,7 @@ class CombineEvidence:
         presentation_order: Literal["author"] | None = None,
         separator_collision: bool | None = None,
         signal: CombineSignal | None = None,
+        cut: CombineCut | None = None,
     ) -> None:
         _one_of(kind, REDUCER_KINDS, "Combine evidence kind")
         _one_of(reducer, REDUCER_NAMES, "Combine evidence reducer")
@@ -284,6 +306,7 @@ class CombineEvidence:
         for row in selected_tally or ():
             _subset(row.holders, member_ids, "Combine tally holders")
         selected_dropped = _dropped(dropped, selected_members)
+        _ranks(selected_members)
         selected_result = _result(result, tuple(chosen), built)
         values = {
             "kind": kind,
@@ -304,6 +327,7 @@ class CombineEvidence:
                 separator_collision, "Combine evidence separator_collision"
             ),
             "signal": _optional_instance(signal, CombineSignal, "Combine evidence signal"),
+            "cut": _optional_instance(cut, CombineCut, "Combine evidence cut"),
             "result": selected_result,
             "dropped": selected_dropped,
             "finish_reason": _nonblank_text(finish_reason, "Combine evidence finish_reason"),
@@ -331,6 +355,7 @@ class CombineEvidence:
             "presentation_order": self.presentation_order,
             "separator_collision": self.separator_collision,
             "signal": None if self.signal is None else self.signal.to_dict(),
+            **({} if self.cut is None else {"cut": self.cut.to_dict()}),  # E4b part 2: optional
             "result": self.result.to_dict(),
             "dropped": self.dropped,
             "finish_reason": self.finish_reason,
@@ -396,6 +421,26 @@ def _dropped(value: object, members: tuple[CombineAnswerRow, ...]) -> int:
     return value
 
 
+def _rank(value: object, score: float | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("Combine answer row rank must be an integer")
+    if value < 1:
+        raise ValueError("Combine answer row rank must be at least 1")
+    if score is None:
+        raise ValueError("Combine answer row rank needs a score")
+    return value
+
+
+def _ranks(members: tuple[CombineAnswerRow, ...]) -> None:
+    """AR-I4: when one row has a rank, the ranks are 1..n over the rows with a score."""
+    ranks = sorted(row.rank for row in members if row.rank is not None)
+    scored = sum(row.score is not None for row in members)
+    if ranks and ranks != list(range(1, scored + 1)):
+        raise ValueError("Combine evidence ranks must be 1..n over the members with a score")
+
+
 def _result(value: object, chosen: tuple[str, ...], built: object) -> CombineResult:
     if not isinstance(value, CombineResult):
         raise TypeError("Combine evidence result must be a CombineResult")
@@ -453,6 +498,7 @@ def _optional_instance[T](value: object, kind: type[T], label: str) -> T | None:
 __all__ = [
     "COMBINE_EVIDENCE_SCHEMA",
     "CombineAnswerRow",
+    "CombineCut",
     "CombineEvidence",
     "CombineFieldReading",
     "CombineJudgeReading",

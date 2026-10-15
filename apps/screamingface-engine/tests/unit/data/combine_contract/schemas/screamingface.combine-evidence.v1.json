@@ -8,6 +8,18 @@
           "title": "Member Id",
           "type": "string"
         },
+        "rank": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rank"
+        },
         "raw": {
           "anyOf": [
             {
@@ -33,6 +45,13 @@
                 "no_votes",
                 "cut_not_met",
                 "output_missing"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "no_signal",
+                "no_weight"
               ],
               "type": "string"
             },
@@ -70,7 +89,8 @@
         "status": {
           "enum": [
             "answered",
-            "fail"
+            "fail",
+            "excluded"
           ],
           "title": "Status",
           "type": "string"
@@ -109,6 +129,32 @@
         "score"
       ],
       "title": "AnswerRecord",
+      "type": "object"
+    },
+    "CutRecord": {
+      "additionalProperties": false,
+      "description": "The cut of a ``top_k@1`` step: keep the first ``k`` scored members in ``order``.",
+      "properties": {
+        "k": {
+          "maximum": 256,
+          "minimum": 1,
+          "title": "K",
+          "type": "integer"
+        },
+        "order": {
+          "enum": [
+            "max",
+            "min"
+          ],
+          "title": "Order",
+          "type": "string"
+        }
+      },
+      "required": [
+        "k",
+        "order"
+      ],
+      "title": "CutRecord",
       "type": "object"
     },
     "FieldReadingRecord": {
@@ -327,6 +373,17 @@
       },
       "title": "Chosen",
       "type": "array"
+    },
+    "cut": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CutRecord"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "dropped": {
       "title": "Dropped",
