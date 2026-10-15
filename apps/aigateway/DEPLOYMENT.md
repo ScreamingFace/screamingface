@@ -459,6 +459,38 @@ run had no hits of that provenance.
 Neither total changes `cost_usd`. A hit still counts as `0` spend in the run cost. **Neither
 total is submitted to the leaderboard.**
 
+## The Community Cache Download (OME-1311)
+
+`GET /v1/cache/entries` lets a local engine pull the global cache into its own SQLite gateway,
+one page at a time. Spec: `docs/spec/2026-10-15-community-cache.md`.
+
+**Who can call it.** Any authenticated account — not only admins — and never an anonymous
+caller (401). The gateway has no public ingress, so in prod the route is reachable only once the
+Engine proxies it. There is no feature flag and no setting.
+
+**What crosses.** Rows of `request_cache_entries` only, minus `provider = 'tavily'` rows (their
+keys hash the caller's account id) and expired rows. Each row carries the key and prompt hashes,
+provider, model, the stored response text, its size, `created_at`, `updated_at`, `expires_at`
+and `metadata_json`. `id`, `hit_count` and `last_hit_at` never leave.
+
+**Shape.** NDJSON: a header line (`schema`, `revisions`, and `remaining` when the caller sends
+`count=true`), one line per row, a trailer line carrying `next`. Query parameters: `after` (the
+previous trailer's cursor), `limit` (1–5,000, default 5,000), `model` (repeatable, exact match on
+the stored model name), `count`. Gzip'd when the client accepts it. Pages run in
+`(updated_at, key_hash)` order on migration `0015`'s index, so a row written during a pull is
+reached by the same pull.
+
+**Cost.** Each page is read 100 rows at a time, each batch its own short indexed query, and
+written to the response as it goes: memory per request is about 100 rows whatever the page size,
+and no connection or transaction is held between batches. On 2026-10-15 prod data (~596k rows),
+an unfiltered pull was ~120 pages and ~400–500 MB gzip'd; gzip is the largest gateway cost
+(~57 ms per 1,000 rows). `count=true` runs one `count(*)` over the rows after the cursor.
+
+**The write-order invariant.** `updated_at` must change only when a row's content is written (a
+live insert or a snapshot restore), never on a hit. A hit that moved it would send that row to
+the end of the order, and every pull would re-send it. `test_a_cache_hit_leaves_updated_at_alone`
+pins this.
+
 ## The Tavily Retrieval Cache (OME-1043/OME-1044)
 
 `POST /v1/retrieval/tavily/cache/lookup` and `.../entries` cache the results of the Runner's

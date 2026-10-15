@@ -124,7 +124,7 @@ def test_0010_replaces_the_preflight_schema_with_one_cache_lane(
 ) -> None:
     db, url = populated_0009
 
-    _migrate(url)
+    _migrate(url, "models", "0010_simplify_request_cache")
 
     with sqlite3.connect(db) as conn:
         conn.row_factory = sqlite3.Row

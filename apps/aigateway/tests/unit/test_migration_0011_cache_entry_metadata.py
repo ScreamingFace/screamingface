@@ -179,7 +179,7 @@ def test_0011_does_not_rebuild_the_sqlite_table(
     root_before = _rootpage(db)
     indexes_before = _indexes(db)
 
-    _migrate(url)
+    _migrate(url, "models", "0011_cache_entry_metadata")
 
     assert _rootpage(db) == root_before, (
         "the table b-tree moved — a nullable ADD COLUMN must not rebuild it, and a rebuild "
@@ -216,7 +216,7 @@ def test_0011_downgrade_keeps_the_standalone_indexes(
     # RemoveField would silently leave every local database doing full scans on key_hash. The
     # column is unindexed: the index set must be IDENTICAL across the round trip.
     db, url, _key = populated_0010
-    _migrate(url)
+    _migrate(url, "models", "0011_cache_entry_metadata")
     indexes_before = _indexes(db)
 
     _downgrade(url, "0010_simplify_request_cache")

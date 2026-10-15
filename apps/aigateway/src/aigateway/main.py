@@ -64,6 +64,7 @@ from .routes import (
     api_key_validation,
     auth,
     auth_session,
+    cache_entries,
     chat,
     frozen_copies,
     health,
@@ -487,6 +488,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_connections.router)
     _describe_admin_security(app)
     app.include_router(admin_cache.router)
+    app.include_router(cache_entries.router)
     app.include_router(api_key_validation.router)
     app.include_router(auth.router)
     app.include_router(oauth_connections.router)
