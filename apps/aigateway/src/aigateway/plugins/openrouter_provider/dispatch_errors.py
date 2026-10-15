@@ -97,6 +97,35 @@ def _unexpected_routing_policy_error() -> _UnexpectedRoutingPolicyError:
     )
 
 
+class _UnsupportedParametersError(HTTPException):
+    """OpenRouter refused the request: no endpoint supports every supplied parameter."""
+
+    aigw_non_retryable = True
+
+
+def _unsupported_parameters_error() -> _UnsupportedParametersError:
+    """E4b part 3 (LC-E5, C4b): the gateway answer to OpenRouter's parameter refusal.
+
+    WHY a code of its own: the same 404 also means a routing-control refusal or a missing
+    model, so ``provider_error`` cannot tell a client "this model cannot honor a parameter
+    you sent". The engine maps this code (for a call that asked for ``logprobs``) to
+    ``logprobs_unsupported``.
+
+    INVARIANT: takes NO arguments and names no parameter. OpenRouter's text can name an
+    internal endpoint, and the gateway does not know which of the supplied parameters
+    failed, so the answer says only that one of them did. Status stays 404, as upstream
+    sent it; non-retryable, because the same request is refused again.
+    """
+    return _UnsupportedParametersError(
+        status_code=404,
+        detail={
+            "code": "unsupported_parameters",
+            "provider": "openrouter",
+            "message": "No upstream endpoint for this model supports every requested parameter.",
+        },
+    )
+
+
 class _EmbeddedProviderBodyError(NonRetryableProviderError):
     """A provider-authored HTTP-200 body that failed OpenRouter validation."""
 
