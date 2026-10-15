@@ -386,3 +386,69 @@ No public name, no new bound, no change to the trace, the export or any record.
     51,000" (the PRD estimate). The oracle (> 32,000, so the preview falls back) holds.
   - D-4: the PRD names six functions; the code has nine more private helpers so that each function
     stays inside the SDK ruff limits (C901 8, PLR0912 7, PLR0911 3). Behavior is the PRD §2 text.
+
+## Unit 4: the run summary in the Candidate card (`combine_summary_html`)
+
+### Intent
+
+PRD `run-summary`, rows RS#1–11 (ans:Q1 "Run-level summary", ans:Q2, ans:Q3; P5, P8, P13, P14,
+P15, P19, P20). Each Candidate card gets one "combine" block after the members block and before
+the accounting note. For each reducer step (combine `operation_id`), it shows the heading
+`{label} · {reducer} · N case|cases` and one row per member: chosen `{count} of {N}`, excluded
+`{count} of {N}`, and per declared signal the `math.fsum` mean (4 significant digits, the exact
+value as the title) with its count `n`. No block when no Case has combine evidence. Private code
+only; no public name.
+
+### Planned changes
+
+- `S/_ui/combine_view.py`: `combine_summary_html(candidate)`, `_StepSummary` (private mutable
+  dataclass), `_summary_html`, `_member_row`, `_mean_cell`; imports `math`, `dataclass`, `field`.
+  Reuses unit 2's `number_html` and unit 3's `_label` and `_table`.
+- `S/_ui/report_view.py`: import `combine_summary_html`; one line in `_card_html` between
+  `_members_html(candidate)` and `run_accounting_note(...)`.
+- New test file `ST/test_combine_run_summary.py` (11 tests).
+
+### Pinned edits
+
+None.
+
+### Test plan
+
+- 11 PRD rows, RS#1–11, in the PRD §7 order. CHAR: RS#1 (no evidence → no block), RS#2 (grid
+  before URL4). RED: RS#3–11.
+- Stub (commit A): `combine_summary_html` returns `""`, not wired. Each RED test fails on an
+  AssertionError, never on an import error.
+- Oracles hand-computed in the PRD: RS-1 means 80, 65, 45 (n 3, 2, 2), counts `2 of 3`, `1 of 3`,
+  `0 of 3`, member_3 excluded `1 of 3`; RS-2 title `0.15000000000000002`, text `0.15`.
+
+### Acceptance
+
+- RS#1–11 pass; the RED run was 9 failed, 2 passed.
+- No existing test file changes in this unit; the append-only check against the unit 3 tip is green.
+- `screamingface` gate green except the append-only check against `9f42391eb`, which lists only
+  the three unit 1 pinned files; green with `--skip-append-only`. `repo` gate green.
+
+### Deviations
+
+- D-1 (PRD §4 NFR wording): the NFR says memory is O(steps × members × signal names), not O(Cases).
+  The PRD §2 data shape keeps each non-None value in `values: dict[tuple[str, str], list[float]]`,
+  because `math.fsum` needs every value for the exact sum. So memory holds one float per member,
+  signal key and Case. This unit follows the §2 shape. Time is still one pass over the Cases.
+- D-2 (addition): RS#10 also checks the members block and the accounting note around the summary
+  (contract C3 "after the members block and before the accounting note"). So the test copy of
+  `_candidate` takes `members` and builds a Fusion card.
+- D-3 (oracle refinement): RS-D1 says "the card holds `a&lt;b&gt;`". The folded URL4 steps list
+  holds that text already today, so RS#7 checks the full summary heading string instead.
+- D-4 (helpers): `_member_row` and `_mean_cell` are two private helpers that the PRD does not name.
+  They split `_summary_html`; the output is the PRD §2 markup.
+
+### Outcome (fill at the end, before commit B)
+
+- **Status:**
+- **Actual files:**
+- **Commits:** A = …, B = …
+- **U3 (unit 3 tip):**
+- **RED log:** (the 9 FAILED lines)
+- **Gates:** screamingface vs 9f42391eb (append-only list), with --skip-append-only, vs U3; repo
+- **Flakes:**
+- **Deviations:** D-1 … D-4 above, plus any new one
