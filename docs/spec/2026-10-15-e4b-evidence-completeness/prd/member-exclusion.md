@@ -14,7 +14,7 @@ as a member that lost the vote.
 ## 2. Background and constraints
 
 - Epic OME-1290 behavior 1: "A missing signal: that member does not vote, and the report says
-  why." Behavior 2: "Missing signal excludes the member." [stated ans:Q1]
+  why." Behavior 2: "Missing signal excludes the member." [stated prompt]
 - The member gets the new status `"excluded"`, with a reason. The user chose this against the
   recommendation (a new field with the status kept). [stated ans:Q3]
 - The status and reason words are owned by [evidence-schema](evidence-schema.md).
@@ -38,6 +38,38 @@ as a member that lost the vote.
 ([erd §6](../erd.md), rows X1–X6), and writes it into the member record: `status: "excluded"` and
 `reason: "no_weight"` or `"no_signal"`. The core `Answer` and every operator do not change, so the
 answer of every Case stays the same. Only the record changes. [proposed]
+
+**Where it runs (review m9).** The rule has two parts in two fixed places, and nowhere else:
+
+1. `_plan` decides once per spec WHICH exclusion the step can make, and stores it on the plan:
+   ```python
+   @dataclass(frozen=True, slots=True)
+   class _Exclusion:
+       reason: ExcludeReason  # "no_weight" | "no_signal"
+       key: str  # the signal key the rule reads
+
+   def _exclusion(
+       spec: CombineSpec, reduce: OperatorDescriptor, bound: _Step[ReduceOp]
+   ) -> _Exclusion | None: ...
+
+   # _Plan gets: excludes: _Exclusion | None
+   ```
+2. `_member_record` (called only from `_evidence`, which both `_decide` and `_abstain` reach)
+   applies it to one member: an answered member with `answer.weight is None` (for `"no_weight"`)
+   or with `answer.signals[key] is None` (for `"no_signal"`) gets `status: "excluded"`.
+   [existing E/combine/endpoint.py:536-588]
+
+`_signal_read` merges the two signal sources into one `SignalRead`, so `_exclusion` does not read
+its result. It reads the two sources directly, as `_signal_read` does
+[existing E/combine/endpoint.py:381-397]:
+
+- X1 (`"no_weight"`): `isinstance(spec.weights, SignalWeights)` and `reduce.reads_weights` (the new
+  descriptor flag, True only for `weighted_mode@1`, `weighted_mean@1`, `weighted_median@1`). The key
+  is `spec.weights.signal`.
+- X2 (`"no_signal"`): `reduce.signal_read` is set and returns a read for `bound.args`
+  (`by_signal@1`, the threshold form of `filter@1`). The key is that read's key.
+- Both at once cannot happen: `_signal_read` already refuses a step that reads two signals
+  (`combine_spec_invalid`). None of the two: no exclusion.
 
 **Design note.** The brief proposed that each operator reports its excluded members. This PRD
 computes the exclusion in the endpoint instead, for two reasons. (1) When every member is left out,
