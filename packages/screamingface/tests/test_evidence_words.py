@@ -429,7 +429,6 @@ def test_sdk_decoder_still_refuses_unknown_keys() -> None:
 # --- ES#13: the trace extract entry shows the excluded status -----------------------------------
 
 
-@requires_engine_app
 def test_trace_extract_entry_carries_the_excluded_status() -> None:
     case, count = _fixture_case("excluded", _excluded_wire())
     assert count == 3

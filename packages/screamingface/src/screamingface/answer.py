@@ -1,9 +1,7 @@
 """The Answer vocabulary shared by combine evidence, Case views and the trace (OME-1289 gap).
 
-INVARIANT: the Literals below are the E4a answer vocabulary of the Engine's combine/ports.py
-(AnswerStatus, MemberStatus, AnswerReason, AbstainReason, SignalOrder); the sets are derived from
-them so each vocabulary has one source.
-INVARIANT: the words map to the Engine's combine/ports.py words (E4b part 2, review m8):
+INVARIANT: each Literal below is the one source of its words, and the sets are derived from it.
+The words map to the Engine's combine/ports.py words (E4b part 2, review m8):
 
 - SDK ``MemberStatus`` = Engine ``RecordStatus`` (the status of an evidence record), not the
   Engine ``MemberStatus`` (the status of the core ``Answer`` that an operator reads).
