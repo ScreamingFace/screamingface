@@ -111,13 +111,6 @@
         "cached_tokens": 0,
         "video_tokens": 0,
         "cache_creation_tokens": 0
-      },
-      "cost": 3.6e-06,
-      "is_byok": false,
-      "cost_details": {
-        "upstream_inference_cost": 3.6e-06,
-        "upstream_inference_prompt_cost": 3e-06,
-        "upstream_inference_completions_cost": 6e-07
       }
     }
   }
