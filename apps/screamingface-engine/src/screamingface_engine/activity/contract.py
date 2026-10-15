@@ -48,6 +48,7 @@ _FAILURE = frozenset(
         "provider_timeout",
         "provider_rate_limit",
         "provider_error",
+        "logprobs_unsupported",
     }
 )
 _IDENTIFIERS = frozenset({"model_id", "provider", "benchmark_id", "case_id"})

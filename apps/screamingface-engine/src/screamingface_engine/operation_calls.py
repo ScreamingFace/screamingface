@@ -180,6 +180,7 @@ def record_operation_call(
             finish_reason=finish_reason,
             accounting=accounting,
             signal_accounting=signal_accounting,
+            reply_logprobs=reply_logprobs,
         )
         for recorder in _recorders.get():
             recorder.append(call)

@@ -23,6 +23,7 @@ import httpx
 from screamingface_engine import engine_version, job_env
 from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
+from screamingface_engine.benchmarks.failure_classes import logprobs_unsupported
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.capture_outcomes import (
     CAPTURE_FIELD,
@@ -49,6 +50,7 @@ from screamingface_engine.network_policy import is_numeric_loopback_url
 from screamingface_engine.observations import ModelCall, current_model_call
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
+    ReplyLogprobs,
     SignalAccounting,
     combine_operation_accounting,
     combine_signal_accounting,
@@ -82,7 +84,7 @@ from screamingface_engine.world.model_response import (
     raise_if_unusable,
 )
 from screamingface_engine.world.models.registry import decode_route_id
-from screamingface_engine.world.reply_logprobs import reply_logprobs  # noqa: F401
+from screamingface_engine.world.reply_logprobs import reply_logprobs
 from screamingface_engine.world.request_parameters import (
     WEB_SEARCH_PARAM,
     apply_answer_seed,
@@ -157,6 +159,11 @@ _TRANSPORT_BACKOFF_JITTER_S = 0.25
 _IN_FLIGHT_HEARTBEAT_S = 60.0
 _IN_FLIGHT_HEARTBEAT_MAX_S = 600.0
 
+# The aigateway code for OpenRouter's refusal of a request whose model has no endpoint for every
+# requested parameter (E4b part 3 unit 1, C4b). Only with HTTP 404: a 400 with this code is the
+# gateway's own parameter-catalog refusal, which keeps its mapping.
+_PARAMETER_REFUSAL_CODE = "unsupported_parameters"
+
 
 async def _in_flight_heartbeat(model_id: str, started: float) -> None:
     """Announce a still-running round trip until the caller cancels this task."""
@@ -183,6 +190,7 @@ async def _logged_round_trip(
     operation_accounting: list[OperationAccounting | None],
     replay_frozen_copy: str | None = None,
     signal_accounting: list[SignalAccounting] | None = None,
+    reply_logprobs: list[ReplyLogprobs | None] | None = None,
 ) -> Choice:
     # FEATURE: OME-1161 exposes execution facts to optional, node-associated observers.
     async with ModelCall(real_model_id, current_log_sink()) as observation:
@@ -197,6 +205,7 @@ async def _logged_round_trip(
             signal_accounting=signal_accounting,
             observation=observation,
             replay_frozen_copy=replay_frozen_copy,
+            reply_logprobs=reply_logprobs,
         )
 
 
@@ -212,6 +221,7 @@ async def _observed_round_trip(
     observation: ModelCall,
     replay_frozen_copy: str | None,
     signal_accounting: list[SignalAccounting] | None = None,
+    reply_logprobs: list[ReplyLogprobs | None] | None = None,
 ) -> Choice:
     """One gateway round trip with its lifecycle in the log.
 
@@ -233,6 +243,7 @@ async def _observed_round_trip(
         data = _json_or_raise(resp)
         _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
         _retain_accounting(data, outcome, real_model_id, operation_accounting, signal_accounting)
+        _retain_reply_logprobs(data, body, reply_logprobs)
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most
         # needs to audit, and raising first would lose exactly the event OME-679 exists to
@@ -1045,7 +1056,7 @@ async def _fetch_completion(
     )
     if probe is not None:
         probe.read(resp)
-    _raise_for_status(resp)
+    _raise_for_status(resp, logprobs_requested=body.get("logprobs") is True)
     outcome = read_cache_outcome(resp.headers, retried=retried)
     if not requires_revalidation(cache, outcome):
         return resp, outcome
@@ -1060,7 +1071,7 @@ async def _fetch_completion(
     )
     if probe is not None:
         probe.read(resp)
-    _raise_for_status(resp)
+    _raise_for_status(resp, logprobs_requested=body.get("logprobs") is True)
     # INVARIANT (OME-1220): a possibly billed attempt lost on the FIRST round trip is still spend
     # this call cannot price, even though the re-issue that replaced it ran cleanly.
     return resp, read_cache_outcome(resp.headers, retried=retried or reissue_retried)
@@ -1204,7 +1215,7 @@ async def _fetch_replay(
         raise _replay_unavailable()
     # Any other failure status is the captured original error (it carries X-AIGW-Replay), raised as
     # the original run raised it.
-    _raise_for_status(resp)
+    _raise_for_status(resp, logprobs_requested=body.get("logprobs") is True)
     return resp, _REPLAYED
 
 
@@ -1291,6 +1302,7 @@ async def _chat_completion_loop(
     sampling = model_params(params)
     operation_accounting: list[OperationAccounting | None] = []
     signal_accounting: list[SignalAccounting] = []
+    reply_rounds: list[ReplyLogprobs | None] = []
     for _ in range(cfg.web_tool_max_iterations):
         # FEATURE (OME-1458): Attempt 2+ names itself to the gateway's cache on every round
         # trip of the turn; Attempt 1 adds nothing, so its body is byte-identical to before.
@@ -1311,6 +1323,7 @@ async def _chat_completion_loop(
             operation_accounting=operation_accounting,
             replay_frozen_copy=scope.replay_frozen_copy,
             signal_accounting=signal_accounting,
+            reply_logprobs=reply_rounds,
         )
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:
@@ -1324,6 +1337,7 @@ async def _chat_completion_loop(
                 choice.finish_reason,
                 combine_operation_accounting(operation_accounting),
                 combine_signal_accounting(signal_accounting),
+                reply_logprobs=reply_rounds[-1] if reply_rounds else None,
             )
             return content or ""
         messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
@@ -1390,6 +1404,35 @@ def _signal_accounting(aigw: object, cache: CacheOutcome) -> SignalAccounting:
         # already-consumed response, and the log names the exception type only.
         logger.warning("signal accounting unavailable after %s", type(exc).__name__)
         return SignalAccounting()
+
+
+def _retain_reply_logprobs(
+    data: Mapping[str, Any],
+    body: Mapping[str, object],
+    rounds: list[ReplyLogprobs | None] | None,
+) -> None:
+    """Keep one consumed response's reply log-probability numbers, when the caller collects them."""
+    if rounds is not None:
+        rounds.append(_reply_logprobs(data, body))
+
+
+def _reply_logprobs(data: Mapping[str, Any], body: Mapping[str, object]) -> ReplyLogprobs | None:
+    """Fail-open: the reply's log-probability numbers when the call asked for them, else None.
+
+    WHY only when asked: a call without `logprobs: true` keeps its exact cost and behavior (LC-D4).
+    """
+    if body.get("logprobs") is not True:
+        return None
+    top_k = body.get("top_logprobs")
+    try:
+        return reply_logprobs(
+            data, top_k if isinstance(top_k, int) and not isinstance(top_k, bool) else None
+        )
+    except Exception as exc:
+        # INVARIANT: same as `_signal_accounting` -- optional bookkeeping over an already-consumed
+        # response, and the log names the exception type only (never token text, OME-990).
+        logger.warning("reply logprobs unavailable after %s", type(exc).__name__)
+        return None
 
 
 def _raise_if_unusable_with_accounting(
@@ -1612,6 +1655,12 @@ def _raise_for_status(resp: httpx.Response, *, logprobs_requested: bool = False)
     `{"detail": {"code": "malformed_source", …}}` keeps the engine-authored
     `aigateway_http_<status>` code instead, and its text stays unvouched. Every other upstream
     code still passes through unchanged — that vocabulary is what the failure report reads.
+
+    FEATURE (E4b part 3, C4): a call that asked for token log-probabilities (`logprobs_requested`)
+    and that the gateway refused with HTTP 404 `unsupported_parameters` fails as
+    `logprobs_unsupported`, with fixed engine text and never the upstream text. Only the 404 maps.
+    WHY here and not in `_observed_round_trip`: the rule needs the HTTP status, and only this
+    function sees it; each caller holds the request body.
     """
     if 300 <= resp.status_code < 400:
         raise ResolutionError(
@@ -1635,6 +1684,8 @@ def _raise_for_status(resp: httpx.Response, *, logprobs_requested: bool = False)
             if isinstance(upstream_code, str) and upstream_code not in ENGINE_RESERVED_CODES:
                 code = upstream_code
             message = detail.get("message", message)
+    if logprobs_requested and resp.status_code == 404 and code == _PARAMETER_REFUSAL_CODE:
+        raise logprobs_unsupported()
     permanent = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
     raise ResolutionError(message, code=code, permanent=permanent)
 
