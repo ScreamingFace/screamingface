@@ -499,7 +499,26 @@ class CandidateResult:
         return round((self.completed_at - self.started_at).total_seconds() * 1000)
 
     def to_dict(self) -> dict[str, object]:
-        return self._export_fields(cases=[case.to_dict() for case in self.cases])
+        return self._export_fields(cases=list(self._export_cases()))
+
+    def _export_cases(self) -> Iterator[dict[str, object]]:
+        """Each Case as report.v1 exports it: ``case.to_dict()``, then ``trace`` (E4b part 4).
+
+        WHY not in ``CaseResult.to_dict``: that dict mirrors the Engine wire, and the strict
+        decoder refuses an unknown key (P2). WHY the Candidate graph: the same rule as
+        ``trace_dict``. WHY ``case.operations`` only: Attempt operations are not traced (P15).
+        """
+
+        graph = {operation.id: operation for operation in self.operations}
+        for case in self.cases:
+            selected = case.to_dict()
+            # INVARIANT (P1): the key appears only with combine evidence, so every other Case
+            # exports byte-identically, and it is the last key (after ``abstained``).
+            if case.operations is not None and any(
+                operation.combine is not None for operation in case.operations
+            ):
+                selected["trace"] = _case_entries(case, graph)
+            yield selected
 
     def _export_fields(self, *, cases: object) -> dict[str, object]:
         return {
@@ -660,7 +679,10 @@ class Report:
         return "".join(iter_report_json(self))
 
     def trace_dict(self) -> dict[str, object]:
-        """The per-Case traces as ``screamingface.report-trace.v1`` (derived; not report.v1)."""
+        """The per-Case traces as ``screamingface.report-trace.v1``.
+
+        Derived; the export also holds each Case's entries as its ``trace`` key (E4b part 4).
+        """
 
         return {
             "schema": TRACE_SCHEMA,
@@ -982,6 +1004,12 @@ def _optional_number(value: object, label: str) -> float | None:
     return selected
 
 
+def _case_entries(case: CaseResult, graph: Mapping[str, OperationInfo]) -> list[dict[str, object]]:
+    """One Case's report-trace.v1 entries: the one builder of trace_dict and the export (P20)."""
+
+    return [entry.to_dict() for entry in case_trace(case, graph)]
+
+
 def _candidate_trace(candidate: CandidateResult) -> dict[str, object]:
     # WHY the graph is passed explicitly: it is always the Candidate's own, whatever a shared
     # Case happens to be bound to.
@@ -991,7 +1019,7 @@ def _candidate_trace(candidate: CandidateResult) -> dict[str, object]:
         "cases": [
             {
                 "case_id": case.case_id,
-                "entries": [entry.to_dict() for entry in case_trace(case, graph)],
+                "entries": _case_entries(case, graph),
             }
             for case in candidate.cases
         ],
