@@ -73,11 +73,11 @@ The revision hashes the Case Digest (which seals every chat and every rubric), t
 reference, the Hub pin, the judge and its params, the envelope flag, the whole-run metric
 (professional) and the sha256 of every `.py` file in this package (`task_source=…`). Both rows
 publish the hand-built Benchmarks' ids instead (`published_revision`: `39cfd96b068f7230` and
-`d8fb037307f35415`), so their leaderboard results stay visible; the computed fingerprints are
-pinned in `tests/unit/inspect/test_published_revisions.py` (`_FINGERPRINTS`). Editing any input
-moves the fingerprint and fails that test: if the exam did not change, update the fingerprint
-only; if it did, changing the published id hides every existing result and needs a deliberate
-bump with owner sign-off (OME-1610). Say why in the PR either way.
+`d8fb037307f35415`), so their leaderboard results stay visible. Editing any input moves only
+the computed fingerprint, which these rows neither publish nor check (owner decision,
+2026-10-15), so no test fails. If the exam did change (questions, grading rule, judge),
+changing the published id hides every existing result and needs a deliberate bump with owner
+sign-off (OME-1610). Say why in the PR.
 
 ## Running it locally
 

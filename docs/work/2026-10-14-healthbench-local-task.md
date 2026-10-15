@@ -120,12 +120,12 @@ says the hand-built lane is for MedXpertQA.
   `d8fb037307f35415` and computes `44ddda05be338699`. The lane mechanism is a row field,
   `BenchmarkSpec.published_revision` (not a revision input): when set, the Benchmark publishes
   exactly that id (routes, `Benchmark.revision`) and never its computed fingerprint, with no
-  runtime comparison, so a mismatch can never take a Benchmark down in prod. The assembled
-  Benchmark keeps `computed_revision`, and `test_published_revisions.py` pins it per such row
-  (`_FINGERPRINTS`): a changed fingerprint fails CI with a message saying to update the
-  fingerprint if the exam did not change, or that changing the published id needs a deliberate
-  bump with owner sign-off (OME-1610). This replaced a first design (`kept_revision`) that
-  refused assembly on a mismatch; the owner chose CI over prod for that alarm. Professional has
+  runtime comparison, so a mismatch can never take a Benchmark down in prod. Nothing compares
+  the published id with the fingerprint, in prod or in CI (owner decision, 2026-10-15: the
+  fingerprint is not tested against the published id for now). A first design (`kept_revision`)
+  refused assembly on a mismatch; a second kept `computed_revision` on the assembled Benchmark
+  and pinned it per row in `test_published_revisions.py` (`_FINGERPRINTS`); the owner dropped
+  both, so a field existing only for a test does not ship. Professional has
   no golden of its own; its proof is the shared Task package plus all 525 inputs and 1,135 judge
   prompts compared at import. Reverted to the old ids: the two `test_published_revisions.py`
   literals and the golden's `revision`; the free replay then rendered a new `expression_sha`
@@ -133,9 +133,9 @@ says the hand-built lane is for MedXpertQA.
   because the expression's shape changed) and matched every status, failure code and −0.091
   with zero misses (re-run after the redesign: unchanged, passed). The scoreboard fixture
   (`engine_catalog.json`) and the SDK's synthetic tape and bless documents already held the old
-  ids. Pinned by `tests/unit/inspect/test_published_revision.py` and the fingerprint test
-  (mutation-checked: a one-line edit to the Task's `scoring.py` turns both fingerprint pins red
-  with that message while the published-id literals stay green).
+  ids. Pinned by `tests/unit/inspect/test_published_revision.py` (a hand-set id is what every
+  route carries, and a changed exam moves only an unset row's id) and the two published-id
+  literals in `test_published_revisions.py`.
 - **Report:** thinner, as decided: one Check per Case carrying each line's points, verdict and the
   judge's words, the redraw count and the verdict counts; no Check per rubric line; judge cost per
   Case. Kept: `scored_cases`. New: `correct`, `verdicts_expected` / `accepted` / `rejected`. Lost

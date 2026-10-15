@@ -2,9 +2,8 @@
 
 FEATURE: the published revision is what submissions and the leaderboard key on, so it is
 never moved by a computed fingerprint, only by a deliberate bump (OME-1610). A row that sets
-``published_revision`` publishes exactly that id, and the assembled Benchmark still exposes
-its ``computed_revision`` for the tests to pin: the alarm lives in CI, never in a deployed
-Engine (``test_published_revisions`` pins each hand-set row's fingerprint).
+``published_revision`` publishes exactly that id, and nothing compares it with the fingerprint
+(owner decision, 2026-10-15).
 
 Runs only with the `inspect` extra installed: the revision hashes the pinned inspect packages.
 """
@@ -59,10 +58,7 @@ def _routes(benchmark: ImportedBenchmark) -> list[str]:
 
 def test_a_published_revision_is_what_the_benchmark_publishes() -> None:
     """A submission recorded under the old id still resolves: ``Benchmark.revision`` and every
-    route carry it. The fingerprint is still computed (and not moved by the field, which is
-    no revision input) for the tests to pin. WHY no comparison at assembly: a changed exam
-    moves only the fingerprint, so it fails CI (test_published_revisions), never a deployed
-    Engine."""
+    route carry it, never the fingerprint the same exam computes."""
 
     plain: ImportedBenchmark = _assemble("published-plain", "exam=v1")
 
@@ -70,25 +66,27 @@ def test_a_published_revision_is_what_the_benchmark_publishes() -> None:
 
     assert kept.benchmark.revision == _OLD
     assert all(f"/{_OLD}/" in route for route in _routes(kept)), _routes(kept)
-    assert not any(plain.computed_revision in route for route in _routes(kept))
-    assert kept.computed_revision == plain.computed_revision
+    assert not any(plain.benchmark.revision in route for route in _routes(kept))
 
 
-def test_no_published_revision_publishes_the_computed_fingerprint() -> None:
-    """Unset, nothing changes: the published revision is the computed fingerprint, as for every
-    row today but the two healthbench Benchmarks."""
+def test_a_changed_exam_moves_only_an_unset_revision() -> None:
+    """Unset, nothing changes: the published revision is the computed fingerprint, so a changed
+    exam moves it, as for every row today but the two healthbench Benchmarks. Set, the same
+    change leaves the published id where it was (WHY: OME-1610, never moved as a side effect)."""
 
-    unset: ImportedBenchmark = _assemble("published-unset", "exam=v1")
+    unset_v1: ImportedBenchmark = _assemble("published-unset-v1", "exam=v1")
+    unset_v2: ImportedBenchmark = _assemble("published-unset-v2", "exam=v2")
+    kept_v2: ImportedBenchmark = _assemble("published-kept-v2", "exam=v2", _OLD)
 
-    assert unset.benchmark.revision == unset.computed_revision
-    assert all(f"/{unset.computed_revision}/" in route for route in _routes(unset))
+    assert unset_v1.benchmark.revision != unset_v2.benchmark.revision
+    assert all(f"/{unset_v2.benchmark.revision}/" in route for route in _routes(unset_v2))
+    assert kept_v2.benchmark.revision == _OLD
 
 
 def test_only_rows_with_an_equivalence_proof_set_a_published_revision() -> None:
     """INVARIANT: a hand-set published id is a per-Benchmark owner decision backed by proof
     that the exam is unchanged (a golden that replays with zero misses), never a default. Any
-    row joining this list is a new decision and must be named here, and its fingerprint pinned
-    in test_published_revisions."""
+    row joining this list is a new decision and must be named here."""
 
     hand_set: dict[str, str] = {
         spec.key: spec.published_revision
