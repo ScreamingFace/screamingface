@@ -60,6 +60,7 @@ from .routes import (
     accounts,
     admin,
     admin_cache,
+    admin_connections,
     api_key_validation,
     auth,
     auth_session,
@@ -483,6 +484,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_session.router)
     app.include_router(accounts.router)
     app.include_router(admin.router)
+    app.include_router(admin_connections.router)
     _describe_admin_security(app)
     app.include_router(admin_cache.router)
     app.include_router(api_key_validation.router)

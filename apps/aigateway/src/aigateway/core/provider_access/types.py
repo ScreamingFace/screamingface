@@ -241,3 +241,39 @@ class CredentialStoreUnavailable(ProviderAccessRefusal):
         super().__init__(f"could not {operation} {description}")
         self.description = description
         self.operation = operation
+
+
+class CredentialStoreReadUnavailable(ProviderAccessRefusal):
+    """The account's credential metadata could not be read (D18 §5 row 1; the successor only).
+
+    # INVARIANT: a whole-account refusal — never a partial or an empty inventory; the adapter
+    # exception is chained, never repeated.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("credential metadata could not be read")
+
+
+class CredentialAuthorityUnavailable(ProviderAccessRefusal):
+    """A pair's stored authority is unknown or inconsistent (D18 §5 row 2; the successor only).
+
+    # INVARIANT: nothing is guessed — an unknown state, a dangling reference or an out-of-scope
+    # locator is never rendered as a credential or as its absence.
+    """
+
+    def __init__(self, provider: str) -> None:
+        super().__init__(f"credential authority for {provider} is unavailable")
+        self.provider = provider
+
+
+class PairNotManageable(ProviderAccessRefusal):
+    """A mutation on a pair the successor cannot address (`ambiguous`) or manage (`unresolved`).
+
+    # INVARIANT: refused before any write and before the provider key check; part 3 of G1 lets
+    # the legacy OAuth shadow identity proof turn one `unresolved` shape into a mutation.
+    """
+
+    def __init__(self, provider: str, kind: Literal["ambiguous", "unresolved"]) -> None:
+        super().__init__(f"credential pair for {provider} is {kind}")
+        self.provider = provider
+        self.kind: Literal["ambiguous", "unresolved"] = kind

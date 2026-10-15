@@ -14,10 +14,7 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT
-from screamingface_engine.benchmarks.healthbench.definition import (
-    HEALTHBENCH_WORST30,
-    WORST30_VARIANT,
-)
+from screamingface_engine.benchmarks.medxpert.definition import CASES_ROUTE, MEDXPERT
 from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
@@ -42,10 +39,11 @@ def test_every_builtin_benchmark_installs_into_a_world_without_any_assets(tmp_pa
 async def test_an_unprepared_benchmark_fails_at_its_own_route_with_its_own_name(
     tmp_path: Path,
 ) -> None:
-    # WHY: laziness must not soften the failure — HealthBench without assets still fails
-    # loudly, at its own route, named as HealthBench, exactly as the eager path failed.
-    # (DRACO was the subject until OME-1527 moved it to a local inspect Task.)
+    # WHY: laziness must not soften the failure — MedXpertQA without assets still fails
+    # loudly, at its own route, named as MedXpertQA, exactly as the eager path failed.
+    # (DRACO, then HealthBench, were the subject until OME-1527 moved each to a local inspect
+    # Task; MedXpertQA is the last hand-built Benchmark.)
     node = Url4Node("test")
-    HEALTHBENCH_WORST30.install(node, tmp_path)
-    with pytest.raises(ResolutionError, match="HealthBench"):
-        await _resolve_data(node, WORST30_VARIANT.routes.cases)
+    MEDXPERT.install(node, tmp_path)
+    with pytest.raises(ResolutionError, match="MedXpertQA"):
+        await _resolve_data(node, CASES_ROUTE)

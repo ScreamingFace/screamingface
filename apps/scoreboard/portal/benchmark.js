@@ -138,8 +138,9 @@
 
   // The SFDS `.status` recipe, a square plus a sentence-case word. Deliberately NOT
   // `.status.on`: that state is success green, and green means verified in SFDS, which this is
-  // not. `.status--open` keeps the square neutral ink at full tone; closed takes the recipe's
-  // whisper off-state; unknown is a faint dash with the reason in its title.
+  // not. `.status--open` keeps the square neutral ink at full tone; `.status--closed` keeps the
+  // recipe's muted square with its word at --ink-2, which passes WCAG AA where the whisper
+  // off-state did not; unknown is a faint dash with the reason in its title.
   function renderOpenness(entry) {
     var label = L.opennessLabel(entry);
     var line = P.el("span", "weights-line");
@@ -150,7 +151,7 @@
       line.appendChild(P.el("span", "sr-only", " (" + label.title + ")"));
       return line;
     }
-    var status = P.el("span", label.tone === "open" ? "status status--open" : "status");
+    var status = P.el("span", label.tone === "open" ? "status status--open" : "status status--closed");
     var square = P.el("span", "sq");
     square.setAttribute("aria-hidden", "true");
     status.appendChild(square);

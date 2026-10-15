@@ -3,7 +3,6 @@
 import json
 
 import pytest
-from test_healthbench_dual_benchmark_runtime import _write_full_assets as healthbench_assets
 from test_medxpert_protocol_turns import _assets as medxpert_assets
 
 from screamingface_engine.activity.observer import ActivityObserver
@@ -18,9 +17,7 @@ from url4.peer.server import Url4Node
 
 def assets(registration, root, monkeypatch):
     name = registration.asset_bundle.id
-    if name == "healthbench":
-        healthbench_assets(root / name)
-    elif name == "medxpert":
+    if name == "medxpert":
         medxpert_assets(root, 1)
 
 
@@ -43,16 +40,6 @@ async def run_benchmark(registration, root, enabled):
         requests.append((request.path, request.context, request.intent))
         return "(E) Tea is a warm drink"
 
-    def judge(request):
-        requests.append((request.path, request.context, request.intent))
-        return '{"explanation":"ok","criteria_met":true,"criterion_status":"MET"}'
-
-    from screamingface_engine.benchmarks.healthbench.revision_inputs import (
-        JUDGE_MODEL as health_judge,
-    )
-
-    for model in {health_judge}:
-        node.endpoint("/" + model)(judge)
     expression = link_candidate(
         "(answer:0.0:/writer($input)!'Answer')!'$answer'", registration.benchmark.protocol(1)
     )

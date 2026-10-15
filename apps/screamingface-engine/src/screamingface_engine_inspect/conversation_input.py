@@ -7,7 +7,8 @@ the conversation travels inside the candidate-input envelope, the one text forma
 Engine already reads as chat messages. The connector opens it for a single model, a Fusion
 synthesizer reads it as written, and the scorer opens it again to rebuild the chat.
 
-The bytes are the hand-built preparers' (``benchmarks/healthbench/prepare.py`` ``envelope``):
+The bytes are the hand-built preparers' (hand-built healthbench's ``prepare.envelope``, deleted in
+OME-1527 row 20 once its local Task reproduced them):
 keys ``schema`` then ``messages``, each message ``role`` then ``content``, compact
 separators, non-ASCII kept as is. A migrated Benchmark's recorded calls then replay as hits.
 

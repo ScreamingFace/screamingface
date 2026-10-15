@@ -79,14 +79,14 @@ jobs:
             uv run python -m screamingface_engine.benchmarks.prepare --root /tmp/screamingface-data/benchmark-assets --bundle inspect-gsm8k
           fi
 
-      # A local Task's bundle (OME-1527: gdpval-text, draco, draco-3pass and ifeval moved from
-      # hand-built folders) is not in `screamingface prepare`; the Engine's own preparer writes
-      # it, as the image build does.
+      # A local Task's bundle (OME-1527: gdpval-text, draco, draco-3pass, healthbench-worst30
+      # and ifeval moved from hand-built folders) is not in `screamingface prepare`; the
+      # Engine's own preparer writes it, as the image build does.
       # It refuses a non-empty directory, so a bundle restored from the cache is kept as is.
       - name: Prepare the local-Task bundles a golden replays
         working-directory: apps/screamingface-engine
         run: |
-          for bundle in gdpval-text draco draco-3pass ifeval; do
+          for bundle in gdpval-text draco draco-3pass healthbench-worst30 ifeval; do
             if [ ! -f "/tmp/screamingface-data/benchmark-assets/$bundle/cases.json" ]; then
               uv run --extra benchmarks python -m screamingface_engine.benchmarks.prepare \
                 --root /tmp/screamingface-data/benchmark-assets --bundle "$bundle"

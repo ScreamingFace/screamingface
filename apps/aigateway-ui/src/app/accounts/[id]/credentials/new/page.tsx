@@ -67,15 +67,19 @@ export default async function AttachCredentialPage({ params }: PageProps) {
   }
 
   /*
-   * Wraps the shared action to own the one thing that IS route-specific: where to go on success.
-   * The action itself stays route-agnostic, and this closure is created on the server — the
-   * browser only ever holds a reference to it.
+   * Wraps the shared action to own what IS route-specific: which tenant the key is for, and where
+   * to go on success.
+   *
+   * INVARIANT: the account id is CLOSED OVER, not posted and not `.bind`-ed. Next encrypts and
+   * authenticates closed-over values per build, so the browser cannot rewrite them; `.bind`
+   * arguments, by contrast, travel back from the browser as plain data.
    */
+  const accountId = account.id;
   async function attachKey(prevState: FormState, formData: FormData): Promise<ActionState> {
     "use server";
-    const state = await setApiKeyAction(prevState, formData);
-    // `setApiKeyAction` has already purged the cache, so the account page renders the new profile
-    // rather than the list it was showing a moment ago.
+    const state = await setApiKeyAction(accountId, prevState, formData);
+    // `setApiKeyAction` has already purged the cache, so the account page renders the new
+    // credential rather than the list it was showing a moment ago.
     if (state.ok) redirect(accountHref);
     return state;
   }
@@ -86,8 +90,8 @@ export default async function AttachCredentialPage({ params }: PageProps) {
       <h1 className="page-title">Attach a provider API key</h1>
       <p className="lede">
         The gateway will use this key for every request{" "}
-        {account.display_name ?? account.username} makes against this profile. It is stored
-        encrypted and never shown again — only its last four characters come back, as a label.
+        {account.display_name ?? account.username} makes to this provider, replacing any key it
+        already holds there. It is stored encrypted and never shown again.
       </p>
 
       {account.is_active ? null : (
@@ -99,7 +103,6 @@ export default async function AttachCredentialPage({ params }: PageProps) {
       )}
 
       <CredentialForm
-        accountId={account.id}
         providers={providers}
         cancelHref={accountHref}
         action={attachKey}

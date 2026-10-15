@@ -17,9 +17,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from tortoise.transactions import in_transaction
 
@@ -153,6 +154,33 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
         # key becomes a NEW Connection addressing the requested name's Profile blob (D5: a rollback
         # finds it exactly where the legacy Profile would have written it).
         reuse = current if _is_effective(current) else None
+        connection, mirror = await self.publish_api_key(
+            account_id, provider, plugin, pair=pair, reuse=reuse, name=name, raw_api_key=raw_api_key
+        )
+        return summary_of(legacy_view(mirror, connection))
+
+    async def publish_api_key(
+        self,
+        account_id: str,
+        provider: str,
+        plugin: Any,
+        *,
+        pair: PairAuthority,
+        reuse: OAuthConnection | None,
+        name: str,
+        raw_api_key: str,
+        expected_live: frozenset[UUID] | None = None,
+        claim_check: Callable[[], Awaitable[None]] | None = None,
+    ) -> tuple[OAuthConnection, Profile]:
+        """Publish `pair` as `migrated` with an active API-key Connection and its mirror.
+
+        `reuse` keeps an existing row (its id and locator); None mints a row on `name`'s Profile
+        address. Fenced on `pair.generation`, so a pair captured as `none` is adopted (the G1
+        bridge) and a stale capture loses. `expected_live`, when given, is the pair's live rows
+        the caller classified: any other live row found after the claim supersedes the write.
+        `claim_check`, when given, runs right after that check, still before any index, row or
+        blob write (the row-11 shadow identity re-read).
+        """
         credential_provider = credential_service_provider_for(plugin, provider)
         connection_id = reuse.id if reuse is not None else uuid4()
         locator = (
@@ -202,6 +230,12 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
                     migration_state="migrated",
                     effective_connection_id=connection.id,
                 )
+                if expected_live is not None:
+                    await _require_live(
+                        account_id, provider, expected_live | {connection.id}, requested=name
+                    )
+                if claim_check is not None:
+                    await claim_check()
                 # INVARIANT (OME-307 Unit 3, kept): an observed document publishes conditionally
                 # so a concurrent removal wins; a first mirror is an unconditional create.
                 if document_observed:
@@ -231,7 +265,7 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
                 "retry_exhausted", subject="profile", provider=provider, requested=name
             ) from exc
         self._invalidate(plugin, credential_name)
-        return summary_of(legacy_view(mirror, connection))
+        return connection, mirror
 
     # --- op 9 ---------------------------------------------------------------------------------
 
@@ -320,6 +354,30 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
         return await oauth_connection_store(self._app).get(account_id, pair.effective_connection_id)
 
 
+async def live_connection_ids(account_id: str, provider: str) -> frozenset[UUID]:
+    """The ids of the pair's non-revoked Connections, read now."""
+    ids = (
+        await OAuthConnection.filter(account_id=account_id, provider=provider)
+        .exclude(status="revoked")
+        .values_list("id", flat=True)
+    )
+    return frozenset(UUID(str(value)) for value in ids)
+
+
+async def _require_live(
+    account_id: str, provider: str, expected: frozenset[UUID], *, requested: str
+) -> None:
+    """Inside the claim: the pair's live rows must be exactly the ones the caller classified.
+
+    # WHY: a native create on a `migrated` pair claims nothing (owner decision 2026-10-06), so the
+    # generation alone cannot see an extra candidate; a write over it would pick one silently.
+    """
+    if await live_connection_ids(account_id, provider) != expected:
+        raise WriteConflict(
+            "superseded", subject="connection", provider=provider, requested=requested
+        )
+
+
 async def _publish_api_key_on(
     store: OAuthConnectionStore, connection: OAuthConnection, *, provider: str, requested: str
 ) -> None:
@@ -348,4 +406,9 @@ async def _publish_api_key_on(
         )
 
 
-__all__ = ["ConnectionBackedCredentialAdmin", "api_key_mirror", "legacy_view"]
+__all__ = [
+    "ConnectionBackedCredentialAdmin",
+    "api_key_mirror",
+    "legacy_view",
+    "live_connection_ids",
+]

@@ -15,7 +15,11 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from ..core.provider_access import (
+    CredentialAuthorityUnavailable,
+    CredentialStoreReadUnavailable,
     CredentialStoreUnavailable,
+    PairConflict,
+    PairNotManageable,
     ProviderAccessRefusal,
     ProviderUnknown,
     Selector,
@@ -193,3 +197,88 @@ def legacy_delete_refusals_as_http() -> Iterator[None]:
         yield
     except ProviderAccessRefusal as exc:
         raise render_legacy_delete_refusal(exc) from exc
+
+
+# --- the D18 successor scope (OME-1497, G1; contract §7) -----------------------------------------
+# INVARIANT: these rows serve ONLY the `/v1/admin/accounts/{account_id}/connections` routes; the
+# legacy rows above keep their bodies, and a successor refusal never reaches `render_refusal`.
+
+_PAIR_CONFLICT_MESSAGES = {
+    "ambiguous": (
+        "credential_pair_ambiguous",
+        "The provider credential cannot be addressed unambiguously.",
+    ),
+    "unresolved": (
+        "credential_pair_unresolved",
+        "The provider credential cannot be managed safely. Resolve its state before retrying.",
+    ),
+}
+_STORE_READ_MESSAGE = "Credential store is temporarily unavailable. Try again."
+_WRITE_CONFLICT_MESSAGE = "Credential update conflicted. Try again."
+_SUPERSEDED_MESSAGE = "Credential state changed. Reload before submitting another change."
+_AUTHORITY_MESSAGE = "Credential state is temporarily unavailable. Retry later."
+
+
+def pair_conflict_detail(conflict: PairConflict) -> dict[str, str]:
+    """The pair detail `{code, message, provider}` — a LIST item, or a mutation's 409 body."""
+    code, message = _PAIR_CONFLICT_MESSAGES[conflict.kind]
+    return {"code": code, "message": message, "provider": conflict.provider}
+
+
+def render_successor_refusal(exc: ProviderAccessRefusal) -> HTTPException:
+    """The successor's status and body for one refusal; the shared rows serve the rest."""
+    if isinstance(exc, CredentialStoreReadUnavailable):
+        return HTTPException(
+            status_code=503,
+            detail={"code": "credential_store_read_unavailable", "message": _STORE_READ_MESSAGE},
+        )
+    if isinstance(exc, CredentialAuthorityUnavailable):
+        return HTTPException(
+            status_code=503,
+            detail={
+                "code": "credential_authority_unavailable",
+                "message": _AUTHORITY_MESSAGE,
+                "provider": exc.provider,
+            },
+        )
+    if isinstance(exc, PairNotManageable):
+        return HTTPException(
+            status_code=409, detail=pair_conflict_detail(PairConflict(exc.provider, exc.kind))
+        )
+    if isinstance(exc, WriteConflict):
+        return _successor_write_conflict(exc)
+    return render_refusal(exc)
+
+
+def _successor_write_conflict(exc: WriteConflict) -> HTTPException:
+    """Both legacy subjects collapse to one superseded 409 (§7); retry exhaustion stays a 503.
+
+    # WHY no subject split: the successor has no Profile or Connection vocabulary — a client only
+    # needs to know whether to retry (503) or reload (409). A superseded 409 is never retried.
+    """
+    if exc.kind == "retry_exhausted":
+        return HTTPException(
+            status_code=503,
+            detail={
+                "code": "credential_write_conflict",
+                "message": _WRITE_CONFLICT_MESSAGE,
+                "provider": exc.provider,
+            },
+        )
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "credential_publication_superseded",
+            "message": _SUPERSEDED_MESSAGE,
+            "provider": exc.provider,
+        },
+    )
+
+
+@contextmanager
+def successor_refusals_as_http() -> Iterator[None]:
+    """`refusals_as_http`, rendering through the successor scope first (§7)."""
+    try:
+        yield
+    except ProviderAccessRefusal as exc:
+        raise render_successor_refusal(exc) from exc
