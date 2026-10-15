@@ -346,7 +346,7 @@ PRD `rank-and-cut`, rows RK#1 to RK#13, and guard RK-N1. Decisions: P6, P7, P11,
   (D-3, 2026-10-15). All three stacks are green, except the append-only check of the two stacks
   that have pinned edits (see Gates). Commit B holds the code, the regenerated fixture, the count
   edit and this ledger text.
-- **Actual files (uncommitted, on top of commit A `a7abc2639`):**
+- **Actual files:**
   `apps/screamingface-engine/src/screamingface_engine/combine/ports.py` (one select-only check,
   one docstring sentence),
   `apps/screamingface-engine/src/screamingface_engine/combine/operators/selection.py` (`_ranked`,
@@ -354,7 +354,7 @@ PRD `rank-and-cut`, rows RK#1 to RK#13, and guard RK-N1. Decisions: P6, P7, P11,
   (`_Plan.ranks`, `_Plan.cut`, `_cut`, `_evidence`, `_member_record`),
   `apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json` (pinned, regenerated
   by the script of the spec §5; the diff check passes), and this ledger.
-- **Commits:** A `a7abc2639` (RED). Base of this unit: unit 2 tip `92cf6011e`. B: not made.
+- **Commits:** A `a7abc2639` (RED), B `e1e40d793` (GREEN); base 92cf6011e.
 - **Gates** (`run_gates.py <stack> --base 0f4b9e292`):
   - `screamingface-engine`: append-only check FAILS. It lists `evidence_cases.json` (this unit,
     pinned), `combine-evidence.v1.json` (unit 1, P-1) and `tests/unit/test_combine_weighted_vote.py`
@@ -439,10 +439,48 @@ PRD `rank-and-cut`, rows RK#1 to RK#13, and guard RK-N1. Decisions: P6, P7, P11,
     shares one ordering function, `_ranked`, and does not share one sort: `top_k` and
     `top_k_ranks` each sort once per call. The unit spec chose this design. It stays
     O(n log n) for n <= 256. No change.
-  - D-6 (review note): commit A uses the message style of the unit 2 RED commit `9b24dd9d9`, not
-    the spec §7 text. It is not amended. Commit B uses the spec §7 message.
+  - D-6 (review note): neither commit uses the spec §7 subject text. Spec §7 gives
+    `test(e4b): RED for rank and cut of a top-k step (part 2 unit 3)` for commit A and
+    `feat(e4b): write the rank and the cut of a top-k step in the combine evidence (part 2 unit 3)`
+    for commit B. The actual subjects are `test(screamingface-engine): RED for E4b part 2 unit 3
+    rank-cut` (commit A) and `feat(e4b): rank and cut in the combine evidence (E4b part 2 unit 3)`
+    (commit B). The subjects are not amended.
 - **Approval blobs** (for each pinned file: blob at `0f4b9e292`, blob at the unit 2 tip `92cf6011e`,
-  blob now (before commit B)):
+  blob at commit B `e1e40d793`):
   - `apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json`: `ecf2f814a51548ff56df7a12d2f51fd6beab2b44` → `46fa01af12e63b03b12dba799e9bde29aaf30a45` → `22d54b15b8c5d8f312b1a962ef6f590b61aa4791`
   - `apps/screamingface-engine/tests/unit/test_combine_evidence_contract_fixture.py`: `f55477f5d3686514d18ad1cb0f7183c6cb6385cf` → `57a6642a98463becd181db9f5284356c6aa9260a` → `b7100e62690d9dd01432ae599547906618924c4e`
   - `packages/screamingface/tests/test_combine_evidence_contract.py`: `fab1c0db10ea4f66ca5f2d8642937d255e7165c4` → `c92903a0a4f8d437f97c9be41e7a2f1e4153b7cb` → `3aaa863684aa156cd2b80e0bcd30e08d33c406fd`
+  - `packages/screamingface/tests/test_frozen_record_fields.py` (D-3, line 184): `c6b98604a87c661ede9e7b275fd6fbdd455045e1` → `e70218b1864a349f7fc2cf9c0700977c34be2953` → `b0f1493ec8e1616c733b193f14b7c8ef280234b8`
+
+### Review round 1 (fix commit)
+
+- **Input:** the design review of commit B. Three MINOR findings that concern the ledger text, and
+  four optional or informational notes. No BLOCKER, MAJOR or behavior finding.
+- **Applied (ledger only):**
+  - The Commits line is set to commit A `a7abc2639` (RED), commit B `e1e40d793` (GREEN), base
+    `92cf6011e`. The stale wording "uncommitted" and "B: not made" is removed.
+  - The approval blob line for commit B now reads "blob at commit B `e1e40d793`".
+  - D-6 now names the spec §7 subjects and the actual subjects. Neither commit is amended.
+  - The approval blob list has an entry for `packages/screamingface/tests/test_frozen_record_fields.py`
+    (D-3). The blobs are `c6b98604…` at the base, `e70218b1…` at the unit 2 tip and `b0f1493e…`
+    at commit B.
+- **Not applied, no change:**
+  - The optional `RankOp` alias for the hook type in `ports.py` and `endpoint.py`. The hook
+    signature is short, and both uses are in one unit. A later unit may add the alias.
+  - The `_cut` read order in `_plan`. The WHY comment documents the order, and the spec asks for
+    this shape. No later unit touches `_plan` in this part.
+  - The PRD NFR wording "one sort of top_k@1" (D-5). The code shares one ordering function. The
+    wording is left for a later docs pass.
+  - The `_ranked` double sort (D-5). Its cost is negligible for n <= 256.
+- **Behavior change:** none. No code, test or pinned data file changed in this round.
+- **Pinned edits in this round:** none. The four blobs of commit B stay as listed above.
+- **Gates (this round, `run_gates.py <stack> --base 0f4b9e292`):**
+  - `screamingface-engine`: the append-only check fails and lists the same 3 files
+    (`evidence_cases.json`, P-1 `combine-evidence.v1.json`, `test_combine_weighted_vote.py`, D-2).
+    With `--skip-append-only`: ALL GATES GREEN (ruff check, ruff format, pyright, layering, pytest
+    with coverage).
+  - `screamingface`: the append-only check fails and lists the same 4 files (P-2, P-3, P-4 and
+    `test_frozen_record_fields.py`, D-2 and D-3). With `--skip-append-only`: ALL GATES GREEN (ruff
+    check, ruff format, pyright, pytest with coverage, notebooks, build, distribution check).
+  - `repo`: ALL GATES GREEN, the append-only check passes.
+- **Flakes:** none in this round.
