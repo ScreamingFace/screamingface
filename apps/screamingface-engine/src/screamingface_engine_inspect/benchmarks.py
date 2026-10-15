@@ -187,6 +187,14 @@ class BenchmarkSpec:
     #: Benchmark the owner allowed; the owner reads that scorer's words before turning it on.
     #: Set on ifeval's row only. Benchmark identity when set.
     scorer_draft_feedback: bool = False
+    #: Keep a published revision across a migration (OME-1527): ``(published, stands_for)``.
+    #: The Benchmark publishes ``published`` (its routes, ``Benchmark.revision``, everything)
+    #: only while its revision computes to exactly ``stands_for``; any other value refuses
+    #: assembly by name. WHY: the published revision is what submissions and the leaderboard
+    #: key on, so moving it hides every existing result. Set only with proof that the exam is
+    #: unchanged: a migration whose recorded golden replays with zero misses. NOT part of the
+    #: revision (it names the revision; it cannot feed it). None on every other row.
+    kept_revision: tuple[str, str] | None = None
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
     answer_rule: AnswerRule | None = None
@@ -4596,6 +4604,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         retrieval_policy=spec.retrieval_policy,
         candidate_input_envelope=spec.candidate_input_envelope,
         scorer_draft_feedback=spec.scorer_draft_feedback,
+        kept_revision=spec.kept_revision,
         answer_rule=spec.answer_rule,
         **_provenance_of(spec),
     )
