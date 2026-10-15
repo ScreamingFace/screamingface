@@ -51,6 +51,9 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # over several seeded passes, one call per criterion per pass, so no Draft Feedback offer.
     "draco": "judged",
     "draco-3pass": "judged",
+    # OME-1481: a local Task; one pinned-judge verdict per Case (the paper's auto-rater), so no
+    # Draft Feedback offer.
+    "frames_oracle": "judged",
     "mmlu": "mcq",
     "arc_easy": "mcq",
     "arc_challenge": "mcq",

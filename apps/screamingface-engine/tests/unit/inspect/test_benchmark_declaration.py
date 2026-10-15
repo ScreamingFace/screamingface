@@ -263,6 +263,10 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # graded Cases reach the mean — coverage_declare.
         "draco": ("coverage_declare", "single_shot", "hard"),
         "draco-3pass": ("coverage_declare", "single_shot", "hard"),
+        # OME-1481: FRAMES with its gold articles given, a local Task. A Case whose judge
+        # never decides, or whose prompt overflows the Candidate's window, fails by name, so
+        # only graded Cases reach the mean — coverage_declare.
+        "frames_oracle": ("coverage_declare", "single_shot", "medium"),
         "inspect-math": ("coverage_declare", "single_shot", "medium"),
     }
     actual = {

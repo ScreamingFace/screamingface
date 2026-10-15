@@ -4444,6 +4444,86 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="06_draco",
     ),
+    BenchmarkSpec(
+        key="frames_oracle",
+        title="FRAMES (articles given)",
+        description=(
+            "822 of FRAMES' 824 multi-hop questions, in the paper's Oracle setting: each "
+            "question comes with all of its gold Wikipedia articles (2 to 23) pasted into the "
+            "prompt, so nothing is searched and the score measures reading and reasoning across "
+            "articles: numbers, tables, several constraints, dates. The articles are frozen at "
+            "their last revision before 2024-09-19, but Wikipedia draws an old revision with "
+            "today's templates, so a few tables show values from 2025 or later and a few "
+            "templates deleted since draw only their name. Two questions are left out because "
+            "their own articles cannot answer them (77 and 141). Prompts are long, about 78,000 "
+            "characters at the median: use a model with a context window of at least 200k "
+            "tokens, or expect Cases to fail as over-window. Grading is the paper's auto-rater "
+            "prompt, word for word, sent to our house Judge (the paper used Gemini-Pro-1.5): "
+            "TRUE scores 1, FALSE 0, and the headline is accuracy over graded Cases."
+        ),
+        focus="Multi-article reasoning with the evidence given",
+        dataset_url="https://huggingface.co/datasets/google/frames-benchmark",
+        # The paper's 2024 model scored 0.729 with the articles given; today's frontier models
+        # are expected higher but still miss numerical and tabular hops (OME-1481; the first
+        # paid run confirms the tier).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.frames.frames:frames_oracle — a LOCAL Task
+        #   (OME-1481): our own eval in inspect's shape, so there is no eval.yaml and no inspect
+        #   porter to credit; every field below was written by hand from the paper.
+        scorer="screamingface_engine_inspect.local_tasks.frames.frames:frames_judge",
+        scorer_kwargs={"judge_model": "screamingface/openrouter/openai/gpt-5.4"},
+        judge=JudgeSpec(
+            # NAMED DEVIATION: the paper rated with Gemini-Pro-1.5-0514. This Benchmark pins
+            # the house judge XSTest, CoCoNot, FrontierScience and HealthBench also call, for
+            # judge consistency across our judged Benchmarks (owner decision 2026-09-29).
+            model="openrouter/openai/gpt-5.4",
+            # HealthBench's judge-params precedent: grading is retrieval-free and the token cap
+            # is an engine-side safety bound. No temperature: the paper reports none, and a
+            # redraw needs a fresh sample.
+            params=(("web_search", "false"), ("max_tokens", "4096")),
+        ),
+        # Judged benchmark, and no owner decision to offer one (OME-1513): no Draft Feedback.
+        with_check_surface=False,
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2409.12941",
+        authors="Krishna et al., 2024",
+        citation=(
+            "@misc{krishna2024factfetchreasonunified,\n"
+            "      title={Fact, Fetch, and Reason: A Unified Evaluation of Retrieval-Augmented "
+            "Generation}, \n"
+            "      author={Satyapriya Krishna and Kalpesh Krishna and Anhad Mohananey and Steven "
+            "Schwarcz and Adam Stambler and Shyam Upadhyay and Manaal Faruqui},\n"
+            "      year={2024},\n"
+            "      eprint={2409.12941},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2409.12941}, \n"
+            "}"
+        ),
+        # No official harness: the paper links no code, so the harness link is the questions
+        # repo at the pinned commit.
+        harness_url=(
+            "https://huggingface.co/datasets/google/frames-benchmark/tree/58d9fb6330f3ab1316d1eca12e5e8ef23dcc22ef"
+        ),
+        license="Apache-2.0",
+        license_note=(
+            "The FRAMES questions are Apache-2.0 (google/frames-benchmark). The articles are "
+            "Wikipedia text, CC BY-SA 4.0, served from our snapshot "
+            "khoaguin/frames-wikipedia-2024-09-19 at commit 6ada7fb7, which attributes each "
+            "article by title and revision id."
+        ),
+        human_baseline=NotPublished(reason="the FRAMES paper reports no human accuracy"),
+        # The paper's Oracle Prompt row (Table 3): Gemini-Pro-1.5 with every gold article in
+        # its context.
+        frontier_score=FrontierScore(
+            score=0.729,
+            model="Gemini-Pro-1.5-0514",
+            source_url="https://arxiv.org/abs/2409.12941",
+            as_of="2024-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

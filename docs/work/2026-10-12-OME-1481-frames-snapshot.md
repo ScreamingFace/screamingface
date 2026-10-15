@@ -1,0 +1,103 @@
+---
+ticket: OME-1481
+stack: screamingface-engine
+status: done
+started: 2026-10-12
+finished: 2026-10-14
+---
+
+# OME-1481-frames-snapshot — freeze FRAMES' gold Wikipedia articles into one pinned snapshot file
+
+## Intent
+
+FRAMES ships Wikipedia links, not text, and the articles-given setting pastes the gold
+articles into every prompt. This unit adds the builder that fetches each gold article once,
+at its last revision before 2024-09-19, turns the rendered page into plain text (body,
+headings, tables and infoboxes kept; references, navigation boxes, hatnotes and images
+dropped) and writes one JSONL snapshot the owner publishes on Hugging Face. The FRAMES Task
+(PR 2) then pins that snapshot by commit and sha256. Decisions 6 to 10 on OME-1481 (10: serve the drawn text, measured 2026-10-13).
+
+## Planned changes
+
+- `apps/screamingface-engine/scripts/frames_snapshot.py` — new, stdlib only: link cleanup,
+  revision resolution at the cut-off, HTML → text, the JSONL writer, the CLI. It lives in
+  `scripts/`, not in `local_tasks/frames/`, because the Task package's every `.py` is hashed
+  into the Benchmark Revision (`task_source=`): a builder there would move the revision on an
+  edit that changes no Case. The snapshot's own sha256, pinned by the loader, is what covers
+  the text.
+- `apps/screamingface-engine/tests/unit/test_frames_snapshot.py` — new
+- `apps/screamingface-engine/tests/unit/fixtures/frames_snapshot/` — real article HTML
+  excerpts (CC BY-SA 4.0, attributed in a README beside them)
+- `docs/tasks/2026-10-05-OME-1481-frames-articles-given.md` — mirror
+
+## Test plan
+
+- HTML → text on real revisions: the infobox survives as `label | value` rows, a wikitable
+  survives as pipe rows, headings keep their level, and references, citation markers,
+  navboxes, hatnotes, images, styles and the References/External links sections are gone.
+- Link cleanup on every non-standard spelling FRAMES actually contains: mobile host,
+  missing scheme, fragment, percent-encoding, two URLs glued with ", ", `index.php?title=`,
+  the search URL and the `w.wiki` short link (explicit table), `simple.wikipedia.org`.
+- Revision resolution (fake API): the last revision before the cut-off wins; a redirect at
+  the cut-off is followed; a page renamed after the cut-off is found through the move log by
+  its page id, never through today's redirect (which can be re-pointed: The Beatles
+  discography → The Beatles); only the first rename after the cut-off counts; a page with no
+  revision before the cut-off is refused by name; all refusals are reported together, and
+  nothing is written.
+- Known deleted pages (decision 9): the two named pages are listed on their question row as
+  missing, never refused; any other missing page is still refused.
+- The two odd links: a title percent-encoded twice (question 764) and a note pasted into the
+  URL (question 644) each resolve to their one page.
+- Each article row flags the years after the cut-off that only today's templates wrote
+  (`years_from_templates`), so the drift decision 10 accepts stays visible per article.
+- Writer: rows sorted, byte-identical on a re-run, each row lists every link spelling that
+  maps to it, every revision timestamp before the cut-off.
+
+## Acceptance
+
+- One command builds the snapshot from the pinned questions file and prints its sha256,
+  article count and prompt-length summary; it refuses rather than drop an article.
+- Tests above pass in the extra-less Engine lane; ruff and pyright clean on touched files.
+
+## Outcome (fill at the end — required before COMMIT)
+
+- **Actual files:** `apps/screamingface-engine/scripts/frames_snapshot.py`,
+  `apps/screamingface-engine/tests/unit/test_frames_snapshot.py`, fixtures under
+  `tests/unit/data/frames_snapshot/` (not `fixtures/` as planned).
+- **Commits:** the builder; then the move-log rename lookup, the known deleted pages, the two
+  odd links and the per-article `years_from_templates` flag (2026-10-13).
+- **Gates:** `tests/unit/test_frames_snapshot.py` 40 passed; ruff check + format and pyright
+  clean on both files. Full suite left to CI.
+- **Deviations:** which page held a title at the cut-off is read from the move log FIRST,
+  by page id (the first full build refused 5 pages swapped after the cut-off, e.g. "Edward
+  II of England", whose title today holds its old short-name redirect); renamed pages never
+  go through today's redirect, and a page moved away that is younger than the cut-off is
+  skipped (a vandalism cleanup on "Dolly Parton" in August 2026) (the
+  redirect test from the first commit was replaced: "The Beatles discography" now redirects
+  to "The Beatles"). The builder file is 658 lines, over the 450-line guideline. Full build run
+  2026-10-13 (exit 0): 2,521 articles, 824 questions, every revision before the cut-off,
+  questions 141 and 540 name their deleted article; `articles.jsonl` sha256
+  `0e5e6e4759cb5415c8ef4f99608697e5647359fa45b36d0c25e381099912b646`, `questions.jsonl`
+  `1a1a6f1d831039ed993fc2f787f671b3e06fa6a20ee200f307a48221d0e10541`; a rebuild from the
+  cache gives the same bytes. Published 2026-10-14 as
+  `khoaguin/frames-wikipedia-2024-09-19` at commit
+  `72f946d2ed571163cb3dc3bb8c1975d7c2ff710e` (public; both sha256s re-checked from the
+  published copy).
+- **Where it landed (2026-10-14):** not in this repo. A review of the published snapshot
+  found template error text and a card that undercounted deleted templates; fixing it showed
+  the builder belongs beside its data, so `frames_snapshot.py`, its tests and test pages moved
+  to the dataset's `build/` folder and PR #1402 was closed unmerged (its last commit stays
+  readable as `refs/pull/1402/head`, `33b8cedc3`). Builder changes there: drop elements with
+  the `error`, `citation-comment` and `autonumber` classes and those drawn in the error colour
+  (`{{Lang}}` complaints); drop any section whose heading names only reference parts ("Notes
+  and references"); a second `parse&prop=templates` call per revision fills
+  `missing_templates` with Template-namespace pages marked `exists: false` whose stub shows in
+  the text. 51 tests pass; ruff and pyright clean under the Engine's config.
+- **Republished** at commit `6ada7fb7acfe0f1125b17337d1783b1f51ffd975`: same 2,521 revisions;
+  `articles.jsonl` sha256 `c93063fcdc98c5acc755131df9a86ff8bb236982bd7812699a55100bdd89f1db`,
+  `questions.jsonl` unchanged (`1a1a6f1d…`). Lua errors 4 → 0 articles, `{{Lang}}` errors
+  5 → 0, CS1 notes 6 → 0, combined reference headings 7 → 0. `missing_templates`: 259
+  articles, 213 questions; 223 of the articles lose only a language or pronunciation label,
+  43 (48 questions) lose other templates, including row 77's table. `years_from_templates`:
+  185 articles. A rebuild from the cache is byte-identical; the published copy was downloaded,
+  its sha256s re-checked and its tests run.

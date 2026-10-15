@@ -48,6 +48,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # revision moves once. The draco-3pass e2e golden replays unchanged against the new one.
     "draco": "c6fb6f500dc58622",
     "draco-3pass": "e8c3ad925dcd4d4a",
+    # OME-1481: FRAMES with its gold articles given, a local Task judged by the paper's prompt.
+    "frames_oracle": "eb27d52bf8431b07",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
     "math": "1963559fac28e4a1",

@@ -1331,6 +1331,37 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         },
         license="mit",
     ),
+    # frames_oracle — imported by Task replay on 2026-10-15 from
+    #   screamingface_engine_inspect.local_tasks.frames.frames:frames_oracle.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face google/frames-benchmark/test.tsv
+    #     pin revision 58d9fb6330f3ab1316d1eca12e5e8ef23dcc22ef
+    #   hugging-face khoaguin/frames-wikipedia-2024-09-19/questions.jsonl
+    #     pin revision 6ada7fb7acfe0f1125b17337d1783b1f51ffd975
+    #   hugging-face khoaguin/frames-wikipedia-2024-09-19/articles.jsonl
+    #     pin revision 6ada7fb7acfe0f1125b17337d1783b1f51ffd975
+    "frames_oracle": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.frames.frames:frames_oracle",
+        case_count=822,
+        case_digest="5ac0520bf7595baa4d7d115a588f563f519742fa2136a897c48e585d1b0ccb33",
+        case_set_digest="81382c566ebe0db9d64f3fb6818eeee5cb4883fc65bc24206ede67b51a937cc6",
+        keep_sample_metadata=True,
+        # NAMED DEVIATION (OME-1481 decisions 9 and 10): their own articles cannot answer
+        # them. Question 141's only source, "Nemanja Marković", was deleted from Wikipedia
+        # before the cut-off; question 77's answer sums urban-area populations from a table
+        # only a template deleted since 2024 drew. 822 of 824.
+        excluded_sample_ids=(
+            "77",
+            "141",
+        ),
+        source_pins={
+            "google/frames-benchmark": "58d9fb6330f3ab1316d1eca12e5e8ef23dcc22ef",
+            "khoaguin/frames-wikipedia-2024-09-19": "6ada7fb7acfe0f1125b17337d1783b1f51ffd975",
+        },
+        # Apache-2.0, the questions' licence (google/frames-benchmark card); the article text
+        # is CC BY-SA 4.0 from the snapshot, named in the row's licence note (OME-1481).
+        license="apache-2.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
