@@ -187,14 +187,14 @@ class BenchmarkSpec:
     #: Benchmark the owner allowed; the owner reads that scorer's words before turning it on.
     #: Set on ifeval's row only. Benchmark identity when set.
     scorer_draft_feedback: bool = False
-    #: Keep a published revision across a migration (OME-1527): ``(published, stands_for)``.
-    #: The Benchmark publishes ``published`` (its routes, ``Benchmark.revision``, everything)
-    #: only while its revision computes to exactly ``stands_for``; any other value refuses
-    #: assembly by name. WHY: the published revision is what submissions and the leaderboard
-    #: key on, so moving it hides every existing result. Set only with proof that the exam is
-    #: unchanged: a migration whose recorded golden replays with zero misses. NOT part of the
-    #: revision (it names the revision; it cannot feed it). None on every other row.
-    kept_revision: tuple[str, str] | None = None
+    #: The revision this Benchmark publishes (its routes, ``Benchmark.revision``, everything),
+    #: hand-set (OME-1610); None publishes the computed fingerprint. WHY: published IDs are
+    #: what submissions and the leaderboard key on, so they move only by a deliberate bump with
+    #: owner sign-off, never because a computed fingerprint changed. No runtime comparison:
+    #: test_published_revisions holds the fingerprint each one stands for, so a stale one fails
+    #: CI, never assembly on prod. Set only with proof the exam is unchanged (a recorded golden
+    #: that replays with zero misses). NOT part of the revision. None on every other row.
+    published_revision: str | None = None
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
     answer_rule: AnswerRule | None = None
@@ -4497,10 +4497,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # fraction of instructions met and the checker's own words for each failed one.
         with_check_surface=True,
         scorer_draft_feedback=True,
-        # Keeps the hand-built Benchmark's published revision, so its leaderboard results
-        # stay visible (owner decision, OME-1610): the recorded Corrective Loop golden replays
-        # with zero misses on the local Task, the proof the exam is unchanged.
-        kept_revision=("1cba769ece27f7ef", "ada07458a23c55ab"),
+        # Publishes the hand-built Benchmark's revision, so its leaderboard results stay
+        # visible (owner decision, OME-1610): the recorded Corrective Loop golden replays with
+        # zero misses on the local Task, the proof the exam is unchanged.
+        published_revision="1cba769ece27f7ef",
         origin="screamingface",
         paper_url="https://arxiv.org/abs/2311.07911",
         authors="Zhou et al., 2023",
@@ -4608,7 +4608,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         retrieval_policy=spec.retrieval_policy,
         candidate_input_envelope=spec.candidate_input_envelope,
         scorer_draft_feedback=spec.scorer_draft_feedback,
-        kept_revision=spec.kept_revision,
+        published_revision=spec.published_revision,
         answer_rule=spec.answer_rule,
         **_provenance_of(spec),
     )

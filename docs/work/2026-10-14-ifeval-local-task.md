@@ -105,13 +105,13 @@ letter).
   the zero-key replay stack from its 177-row snapshot, every Candidate, judge and coaching call
   answered from the cache (a miss fails loudly there): 0.9184, 49 of 50 scored, Case 10 (official
   1069) failed `candidate:model_token_cap`, as recorded. Changed in the golden: `expression_sha`
-  (`eef358f5…` → `6411a99f…`, re-rendered by the replay after the kept revision below; it read
+  (`eef358f5…` → `6411a99f…`, re-rendered by the replay once the published revision returned, deviation (5); it read
   `77cb3bc9…` while the revision had moved) and the Case-id keys of `case_statuses` /
   `case_failures`, remapped by one rule: official key → its 1-based position in the pinned split
   (which is also its row in the official file), re-sorted as the bless tool sorts them. Every
   status, failure and the score are unchanged.
-- **Revision:** published `1cba769ece27f7ef`, unchanged (kept, deviation (5)); the local Task
-  computes to `ada07458a23c55ab` (it computed to `9d88d67cf2ce2be5` before the abstain contract,
+- **Revision:** published `1cba769ece27f7ef`, unchanged (hand-set, deviation (5)); the local Task's
+  fingerprint is `ada07458a23c55ab` (it was `9d88d67cf2ce2be5` before the abstain contract,
   deviation (6), edited the Task's source).
 - **Report:** as decided for the other moves, thinner. Kept: the headline, the four hand-built run
   metrics under their keys (the card's `pass_rate` included). New: four Named Scores (instruction
@@ -151,21 +151,23 @@ letter).
   pinned revision (the Case Source the importer records and the Case Digest seals), and the
   vendored official file is only the authority they are checked against (key 2785 patched, any
   other difference refused). The link names where the Cases come from, like every other imported
-  row's. (5) ifeval KEEPS its published revision `1cba769ece27f7ef` (owner decision OME-1610: a
+  row's. (5) ifeval publishes its hand-built revision `1cba769ece27f7ef` (owner decision OME-1610: a
   Benchmark's published version must not move as a side effect of a code move; merging draco moved
-  draco-3pass's and hid its leaderboard results). The mechanism is #1403's commit `5f3df2ed2`,
-  cherry-picked so this PR merges before or after #1403: `BenchmarkSpec.kept_revision =
-  (published, stands_for)`, not hashed; the Benchmark publishes `published` only while its
-  revision computes to exactly `stands_for`, else assembly refuses by name. The ifeval row sets
-  `("1cba769ece27f7ef", "ada07458a23c55ab")`; the proof is the free Corrective Loop golden
-  replaying with zero misses on the final code (revision `1cba769ece27f7ef`, 0.9184, 49 of 50,
-  every status and failure as recorded). One conflict on the cherry-pick: `single_shot.py`, where
-  the commit's context held #1403's `_metric_sample` and `_check_scores_agree`, which this branch
-  does not have; resolved by inserting only `_published_revision` before this branch's
-  `_check_attempts_agree`, so the added lines are byte-identical to `5f3df2ed2`'s.
-  `test_only_rows_with_an_equivalence_proof_keep_a_revision` expects `{"ifeval": …}` here and
-  #1403 expects its healthbench pair: whichever of the two merges second resolves it to the union
-  of the three rows. (6) The abstain contract for the whole-run metric (#1403 hands it an abstained
+  draco-3pass's and hid its leaderboard results). `BenchmarkSpec.published_revision` is hand-set
+  and not hashed: the Engine publishes it as is (routes, `Benchmark.revision`) and NEVER the
+  computed fingerprint, with no runtime comparison and no assembly refusal, so a mismatch can never
+  take a Benchmark down on prod. The fingerprint is exposed as `ImportedBenchmark.computed_revision`,
+  and the alarm is a test: `test_published_revisions.py`'s `_FINGERPRINTS` records the fingerprint
+  each hand-set revision stands for (`ifeval`: `ada07458a23c55ab`), and
+  `test_a_pinned_benchmark_still_computes_the_fingerprint_its_published_revision_stands_for` fails
+  in CI, naming both values, when it moves. The proof the exam is unchanged is the free Corrective
+  Loop golden replaying with zero misses on the final code (revision `1cba769ece27f7ef`, 0.9184, 49
+  of 50, every status and failure as recorded; golden unchanged by the redesign). This replaces an
+  earlier round's `kept_revision=(published, stands_for)`, cherry-picked from #1403's `5f3df2ed2`,
+  which refused assembly on a mismatch; the owner redesigned it so prod never refuses. #1403 makes
+  the identical change for healthbench: `test_only_rows_with_an_equivalence_proof_set_a_published_revision`
+  expects `{"ifeval": …}` here and #1403 its healthbench pair, as do the two `_FINGERPRINTS` dicts;
+  whichever of the two merges second resolves both to the union of the three rows. (6) The abstain contract for the whole-run metric (#1403 hands it an abstained
   Case's Score zeroed and marked `candidate_abstained`, the lane's `CANDIDATE_ABSTAINED`, sometimes
   as a bare 0.0 with no metadata but the mark): `ifeval_accuracy` counts a marked Score as a prompt
   failed strictly and loosely whatever verdicts it carries; its listed instructions count as
@@ -200,9 +202,14 @@ letter).
   `test_an_abstained_score_fails_its_prompt_and_every_listed_instruction` and
   `test_a_bare_abstained_score_is_one_failed_prompt_with_no_instructions`; mutations (abstained
   prompt not forced to fail, mark ignored, bare Score read for its instructions) each turn one or
-  both red. With the inspect extra, `test_kept_revision.py`, `test_published_revisions.py`,
+  both red. With the inspect extra, `test_published_revisions.py`,
   `test_local_task_ifeval{,_grading,_parity}.py`, `test_task_replay_rows.py`,
   `test_inspect_task_replay_benchmarks.py` 253 passed, and the Corrective Loop / combine tests that
   read the check route 14 passed; the free ifeval golden replay passed; ruff, format and pyright
   (extra-less) clean on the touched files; `OME-1527.json` re-approves `test_published_revisions.py`
-  and the golden.
+  and the golden. Third round (OME-1610 redesign): `kept_revision` replaced by the hand-set
+  `published_revision` (deviation (5)); `test_kept_revision.py` becomes `test_published_revision.py`.
+  With the inspect extra, `test_published_revision.py`, `test_published_revisions.py`,
+  `test_local_task_ifeval.py`, `test_task_replay_rows.py`, `test_inspect_task_replay_benchmarks.py`
+  236 passed; a wrong recorded fingerprint fails with the bump message; the free ifeval golden
+  replay passed with the golden untouched; ruff, format and pyright (extra-less) clean.

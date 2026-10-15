@@ -83,8 +83,10 @@ Task reference, the Hub pin, the nltk corpus the checker reads (punkt and punkt_
 import and downloaded at every image build, since the grading job has no network), the Named
 Scores, the whole-run metric and its headline key, the Draft Feedback flag, and the sha256 of
 every `.py` file in this package, the vendored checker included (`task_source=…`). Editing any of
-them is a new Benchmark: update the literal in `tests/unit/inspect/test_published_revisions.py`
-and the ifeval e2e golden, and say why in the PR. Citations live in this README rather than in
+them moves the computed fingerprint. ifeval publishes a hand-set revision (`1cba769ece27f7ef`,
+OME-1610), so the Engine keeps serving it; `tests/unit/inspect/test_published_revisions.py` holds
+the fingerprint it stands for and fails. If the exam did not change, update that fingerprint
+only; if it did, bumping the published revision is an owner decision. Say why in the PR. Citations live in this README rather than in
 the `.py` headers for that reason.
 
 ## Running it locally

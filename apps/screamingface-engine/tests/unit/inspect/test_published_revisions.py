@@ -49,9 +49,10 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "draco": "c6fb6f500dc58622",
     "draco-3pass": "e8c3ad925dcd4d4a",
     # OME-1527: ifeval moved from its hand-built folder to a local Task, its Case ids
-    # renumbered 1..541 (owner decision 2), and KEEPS its published revision (kept_revision,
-    # OME-1610), so its leaderboard results stay visible; it computes to ada07458a23c55ab, and
-    # the ifeval e2e golden replaying with zero misses is the proof the exam is unchanged.
+    # renumbered 1..541 (owner decision 2), and publishes its hand-built revision
+    # (published_revision, OME-1610), so its leaderboard results stay visible; the fingerprint
+    # it stands for is in _FINGERPRINTS, and the ifeval e2e golden replaying with zero misses is
+    # the proof the exam is unchanged.
     "ifeval": "1cba769ece27f7ef",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
@@ -81,6 +82,30 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
 @pytest.mark.parametrize(("key", "revision"), sorted(_PUBLISHED_REVISIONS.items()))
 def test_published_benchmark_revision_is_byte_identical(key: str, revision: str) -> None:
     assert imported_benchmark(key).benchmark.revision == revision
+
+
+#: key → the fingerprint the factory computes, for every row whose ``published_revision`` is
+#: hand-set (OME-1610): the exact code, Cases and row its published revision stands for. The
+#: Engine publishes the hand-set revision whatever it computes, so this test is the only alarm.
+_FINGERPRINTS: dict[str, str] = {"ifeval": "ada07458a23c55ab"}
+
+
+@pytest.mark.parametrize(("key", "fingerprint"), sorted(_FINGERPRINTS.items()))
+def test_a_pinned_benchmark_still_computes_the_fingerprint_its_published_revision_stands_for(
+    key: str, fingerprint: str
+) -> None:
+    """WHY: a hand-set published revision never moves on its own, so an exam change under it
+    would be invisible on the leaderboard; this is where it gets noticed, in CI, never prod."""
+
+    imported = imported_benchmark(key)
+    computed: str = imported.computed_revision
+
+    assert computed == fingerprint, (
+        f"{imported.benchmark.id}'s fingerprint changed from {fingerprint} to {computed}. If the "
+        "exam did not change (questions, grading rule, judge), update this fingerprint only. If "
+        "it did, changing published_revision hides every existing leaderboard result and makes "
+        "submissions outdated: a deliberate bump with owner sign-off (OME-1610)."
+    )
 
 
 #: OME-1460: every Task-replay Benchmark with no Hugging Face Case Source, as served on main
