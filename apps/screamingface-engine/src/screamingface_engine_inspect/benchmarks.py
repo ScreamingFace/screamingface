@@ -190,8 +190,8 @@ class BenchmarkSpec:
     #: The revision this Benchmark publishes (its routes, ``Benchmark.revision``), in place of
     #: the computed fingerprint (OME-1527). WHY: published ids are what submissions and the
     #: leaderboard key on, so they are never moved by a computed fingerprint, only by a
-    #: deliberate bump with owner sign-off (OME-1610). Never compared at runtime; the alarm is
-    #: the row's pinned fingerprint in ``test_published_revisions``. NOT part of the revision.
+    #: deliberate bump with owner sign-off (OME-1610). Never compared with the fingerprint
+    #: (owner decision, 2026-10-15). NOT part of the revision.
     #: None, on every row but the migrated healthbench pair, publishes the computed fingerprint.
     published_revision: str | None = None
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only

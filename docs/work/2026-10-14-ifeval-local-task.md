@@ -156,22 +156,21 @@ letter).
   draco-3pass's and hid its leaderboard results). `BenchmarkSpec.published_revision` is hand-set
   and not hashed: the Engine publishes it as is (routes, `Benchmark.revision`) and NEVER the
   computed fingerprint, with no runtime comparison and no assembly refusal, so a mismatch can never
-  take a Benchmark down on prod. The fingerprint is exposed as `ImportedBenchmark.computed_revision`,
-  and the alarm is a test: `test_published_revisions.py`'s `_FINGERPRINTS` records the fingerprint
-  each hand-set revision stands for (`ifeval`: `ada07458a23c55ab`), and
-  `test_a_pinned_benchmark_still_computes_the_fingerprint_its_published_revision_stands_for` fails
-  in CI, naming both values, when it moves. The proof the exam is unchanged is the free Corrective
+  take a Benchmark down on prod. Nothing compares the published id with the fingerprint, in prod
+  or in CI (owner decision, 2026-10-15: not tested for now); an earlier round kept
+  `ImportedBenchmark.computed_revision` and pinned it in `test_published_revisions.py`'s
+  `_FINGERPRINTS`, and the owner dropped both so a field existing only for a test does not ship.
+  The proof the exam is unchanged is the free Corrective
   Loop golden replaying with zero misses on the final code (revision `1cba769ece27f7ef`, 0.9184, 49
   of 50, every status and failure as recorded; golden unchanged by the redesign). This replaces an
   earlier round's `kept_revision=(published, stands_for)`, cherry-picked from #1403's `5f3df2ed2`,
   which refused assembly on a mismatch; the owner redesigned it so prod never refuses. #1403 makes
   the identical change for healthbench (`5263997b2`), and this branch mirrors it byte for byte to
   avoid add/add conflicts: the `single_shot.py` hunks, the `BenchmarkSpec` field and its
-  `_assemble` line, `test_published_revision.py` but its expected rows, and the `_FINGERPRINTS`
-  block of `test_published_revisions.py` but its rows. (So the field's comment says "every row but
+  `_assemble` line, and `test_published_revision.py` but its expected rows. (So the field's comment says "every row but
   the migrated healthbench pair", true once both merge, not on this branch alone.) `test_only_rows_with_an_equivalence_proof_set_a_published_revision`
-  expects `{"ifeval": …}` here and #1403 its healthbench pair, as do the two `_FINGERPRINTS` dicts;
-  whichever of the two merges second resolves both to the union of the three rows. (6) The abstain contract for the whole-run metric (#1403 hands it an abstained
+  expects `{"ifeval": …}` here and #1403 its healthbench pair; whichever of the two merges second
+  resolves it to the union of the three rows. (6) The abstain contract for the whole-run metric (#1403 hands it an abstained
   Case's Score zeroed and marked `candidate_abstained`, the lane's `CANDIDATE_ABSTAINED`, sometimes
   as a bare 0.0 with no metadata but the mark): `ifeval_accuracy` counts a marked Score as a prompt
   failed strictly and loosely whatever verdicts it carries; its listed instructions count as
