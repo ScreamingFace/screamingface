@@ -36,21 +36,22 @@ from .types import (
 )
 from .writer_floor import mark_error_checked
 
+# FEATURE (OME-1209 Stage E, spec R2): every re-auth pointer names a live Connection route —
+# the Profile routes are retired, so a pointer at one would send the caller to a 410.
+CONNECTIONS_URL = "/v1/oauth/connections"
 
-def reauth_url_for(
-    provider: str,
-    profile_name: str,
-    auth_type: AuthType,
-    *,
-    connection_id: str | None = None,
-) -> str:
-    if connection_id is not None and auth_type == "api_key":
-        # An api-key CONNECTION re-keys via its own replace route; never send the user back to
-        # the legacy profile api-key endpoint, which would shadow connections on chat (SF-291
-        # review F3).
-        return f"/v1/oauth/connections/{connection_id}/api-key"
-    base = f"/v1/auth/{provider}/profiles/{profile_name}"
-    return f"{base}/api-key" if auth_type == "api_key" else base
+
+def reauth_url_for(auth_type: AuthType | None, *, connection_id: str | None = None) -> str:
+    """Where to repair an unusable credential; `None` when the target is unknown (resolve time).
+
+    # WHY the Connection id for an api-key target: re-keying THAT row replaces the credential chat
+    # reads; creating a new row would leave the pair's effective Connection untouched.
+    """
+    if auth_type != "api_key":
+        return CONNECTIONS_URL
+    if connection_id is not None:
+        return f"{CONNECTIONS_URL}/{connection_id}/api-key"
+    return f"{CONNECTIONS_URL}/api-key"
 
 
 def invalidate_session(plugin: Any, credential_name: str) -> None:

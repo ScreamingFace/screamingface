@@ -1,0 +1,58 @@
+{
+  "issue": "OME-1618",
+  "branch": "OME-1618-successor-reauth-url",
+  "approver": "owner (Stage E spec and plan accepted 2026-10-14)",
+  "date": "2026-10-15",
+  "scope": "Expected values only: every assertion that pinned a legacy re-auth URL (`/v1/auth/{provider}/profiles/{name}[/api-key]`) now pins its Connection successor (`/v1/oauth/connections`, `/v1/oauth/connections/api-key`, or `/v1/oauth/connections/{id}/api-key`). The fake provider access mirrors the new builder. `test_reauth_url_for_matches_the_legacy_shapes` becomes `..._successor_shapes` with the new builder signature. One docstring describing the old resolve-time URL is reworded. `test_an_api_key_profile_carries_the_api_key_reauth_url` joins NOT_REIMPORTED in the Connection-backed resolve contract, with an exact Connection twin added. No test removed, no inputs changed.",
+  "reason": "OME-1209 Stage E, spec R2: no reauth_url may point at a Profile route, because E3 retires those routes to 410. The owner accepted the Stage E spec and plan on 2026-10-14; plan \u00a73 E1 names this change.",
+  "files": {
+    "apps/aigateway/tests/unit/core/provider_access/provider_access_fake.py": {
+      "base_blob": "472d6a9368d05139bbaf39625511c700147c168f",
+      "approved_blob": "b4164a9b3b77a90b02a01a2cca0d1c4d5e646731"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_facades.py": {
+      "base_blob": "67630bc32386d5255ce9648345a7c81782da86fe",
+      "approved_blob": "8705b3d3d0267fb0a45ae80dd078820769023d70"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_refresh.py": {
+      "base_blob": "d097eef7290b04a6d88de23a0859f0ff52f2f2bc",
+      "approved_blob": "c18243e0502a95b27670938a2fea139576b2bffe"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_resolve_contract.py": {
+      "base_blob": "ea5c906f0791c6b2e9d7332c256b0df3aa8c883b",
+      "approved_blob": "aff1423b085baef13cbd6d20a285b862f0ea63b4"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_routing.py": {
+      "base_blob": "56418ae0020029340a23fa154f7e89214c000c18",
+      "approved_blob": "9e4fd4ebb68f4b7f21b3ee99bf0d92ff1715e7b2"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_authorize_contract.py": {
+      "base_blob": "11ce72b74701ff45e950e117accc7534f7e28461",
+      "approved_blob": "aa3a55b4270992fcd351cf68362123f847223077"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_helpers.py": {
+      "base_blob": "58a3027991ac2c9ee48f531ea334a41d24dccea2",
+      "approved_blob": "b6aaad3ee97efd9d3b609bc7de901d21aa6bd5d7"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_resolve_contract.py": {
+      "base_blob": "a96dfeb3bd1a3cf71d3462ea17590704c3fa11dd",
+      "approved_blob": "73a70b82c47d65bb3c2929f421df1872aae86929"
+    },
+    "apps/aigateway/tests/unit/gemini/test_gemini_routes.py": {
+      "base_blob": "df0f8021545df065d006b8c8b833291fc19a529c",
+      "approved_blob": "8dd25a5e7e3d3ab128a7e45afdb13ffe7fd93a4e"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_dispatch.py": {
+      "base_blob": "15087045bd63eedfa98518cbbaefc0d1080520c6",
+      "approved_blob": "43df1704885703bc43a8a54bbdae1c5cf6342600"
+    },
+    "apps/aigateway/tests/unit/test_chat_x_profile.py": {
+      "base_blob": "ab152a6176a069c30a5b3667126f596aef133e26",
+      "approved_blob": "9b5e4d26b89767519657cdfcb3978d13a9909bff"
+    },
+    "apps/aigateway/tests/unit/test_model_parameters_route.py": {
+      "base_blob": "5d237060d3dc2f3ea7cc9a90671ea41aa8485515",
+      "approved_blob": "3224e8620320a5106eccd9bd91fb4fe223f10633"
+    }
+  }
+}

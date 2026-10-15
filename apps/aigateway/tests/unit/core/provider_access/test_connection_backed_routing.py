@@ -34,7 +34,7 @@ from aigateway.core.provider_access import (
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 DEFAULT = Selector.from_header(None)
-LEGACY_URL = f"/v1/auth/{PROVIDER}/profiles/default"
+LEGACY_URL = "/v1/oauth/connections"
 
 
 def _resolve(harness: Any, selector: Selector = DEFAULT) -> Any:

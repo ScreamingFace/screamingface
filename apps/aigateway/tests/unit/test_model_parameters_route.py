@@ -295,7 +295,7 @@ async def test_auth_required_error_keeps_reauth_url_and_private_cache_policy(
     assert resp.status_code == 401
     detail = resp.json()["detail"]
     assert detail["code"] == "auth_required"
-    assert detail["reauth_url"] == "/v1/auth/anthropic/profiles/default"
+    assert detail["reauth_url"] == "/v1/oauth/connections"
     _assert_private_cache_policy(resp)
 
 

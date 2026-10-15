@@ -160,7 +160,7 @@ def test_an_authenticated_default_resolves_to_a_stored_target(harness: Harness) 
     assert target.auth_type == "oauth"
     assert target.credential_name == credential_name_for(harness.account_id, "default")
     assert target.defaults.system_prompt == "be brief"
-    assert target.reauth_url == f"/v1/auth/{PROVIDER}/profiles/default"
+    assert target.reauth_url == "/v1/oauth/connections"
     assert target.context_stamp.startswith(
         f"acct:{harness.account_id}|prof:{harness.account_id}:{PROVIDER}:default:authenticated:"
     )
@@ -172,7 +172,7 @@ def test_an_api_key_profile_carries_the_api_key_reauth_url(harness: Harness) -> 
     target = _resolve(harness, WORK)
 
     assert target.auth_type == "api_key"
-    assert target.reauth_url == f"/v1/auth/{PROVIDER}/profiles/work/api-key"
+    assert target.reauth_url == "/v1/oauth/connections/api-key"
 
 
 def test_a_pending_profile_is_refused_as_pending(harness: Harness) -> None:
@@ -185,14 +185,14 @@ def test_a_pending_profile_is_refused_as_pending(harness: Harness) -> None:
 
 
 def test_an_errored_profile_is_refused_with_the_legacy_reauth_url(harness: Harness) -> None:
-    """The resolve-time 401 names the bare profile URL even for an api-key profile — today's
-    `chat_credentials.py:272`, pinned as-is."""
+    """The resolve-time 401 names the Connection list even for an api-key profile: the target is
+    unknown before resolve succeeds."""
     harness.seed_profile(name="work", state=ProfileState.ERROR, auth_type="api_key")
 
     with pytest.raises(TargetReauthRequired) as info:
         _resolve(harness, WORK)
 
-    assert info.value.reauth_url == f"/v1/auth/{PROVIDER}/profiles/work"
+    assert info.value.reauth_url == "/v1/oauth/connections"
     assert info.value.requested == "work"
     assert info.value.message is None
 
@@ -219,7 +219,7 @@ def test_a_single_active_connection_serves_the_default_selector(harness: Harness
     assert target.context_stamp.startswith(
         f"acct:{harness.account_id}|conn:{connection_id}:active:"
     )
-    assert target.reauth_url == f"/v1/auth/{PROVIDER}/profiles/default"
+    assert target.reauth_url == "/v1/oauth/connections"
     assert target.defaults == RequestDefaults()
 
 

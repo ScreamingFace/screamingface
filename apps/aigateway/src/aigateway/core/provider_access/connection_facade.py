@@ -29,7 +29,7 @@ from .connection_admin import legacy_view
 from .connection_authority import LEGACY_STATE_FOR_STATUS
 from .connection_locator import credential_name_from_locator, credential_strategy_for_connection
 from .pair_authority import PairAuthorityStore
-from .profile_authorize import invalidate_session, oauth_connection_store
+from .profile_authorize import invalidate_session, oauth_connection_store, reauth_url_for
 from .refresh_guard import ConnectionRefreshOwner, guard_refresh
 from .types import TargetReauthRequired, UnsupportedAuthMode, WriteConflict
 
@@ -104,8 +104,7 @@ async def refresh_facade(
     connection = target.connection
     if connection is None:
         raise ValueError("refresh_facade needs a migrated target")
-    # INVARIANT (OME-1198, kept for the facade): the bare legacy URL, no `/api-key` suffix.
-    reauth_url = f"/v1/auth/{provider}/profiles/{name}"
+    reauth_url = reauth_url_for(None)
     if connection.status != "active":
         # INVARIANT (D-S2b3-5): an errored or pending authority is never refreshed — no network
         # call, no row or document mutation. SF-291: an errored OAuth Connection is superseded

@@ -206,16 +206,13 @@ def test_apply_authorization_keeps_a_non_bearer_authorization_header_out_of_api_
 @pytest.mark.parametrize(
     ("auth_type", "connection_id", "expected"),
     [
-        ("oauth", None, "/v1/auth/anthropic/profiles/work"),
-        ("api_key", None, "/v1/auth/anthropic/profiles/work/api-key"),
-        ("oauth", "c-1", "/v1/auth/anthropic/profiles/work"),
+        ("oauth", None, "/v1/oauth/connections"),
+        ("api_key", None, "/v1/oauth/connections/api-key"),
+        ("oauth", "c-1", "/v1/oauth/connections"),
         ("api_key", "c-1", "/v1/oauth/connections/c-1/api-key"),
     ],
 )
-def test_reauth_url_for_matches_the_legacy_shapes(
+def test_reauth_url_for_matches_the_successor_shapes(
     auth_type: str, connection_id: str | None, expected: str
 ) -> None:
-    assert (
-        reauth_url_for("anthropic", "work", cast(Any, auth_type), connection_id=connection_id)
-        == expected
-    )
+    assert reauth_url_for(cast(Any, auth_type), connection_id=connection_id) == expected

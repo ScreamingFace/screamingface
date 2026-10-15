@@ -34,7 +34,7 @@ ADMIN = "admin@openmined.org"
 CHAT_COMPLETION = (
     "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion"
 )
-REAUTH = f"/v1/auth/{PROVIDER}/profiles/default"
+REAUTH = "/v1/oauth/connections"
 
 
 @pytest.fixture
@@ -146,7 +146,7 @@ def test_migrated_api_key_401_keeps_legacy_handling_without_observing_anthropic(
     assert first.json()["detail"] == {
         "code": "auth_required",
         "message": "The stored provider credential was rejected.",
-        "reauth_url": f"{REAUTH}/api-key",
+        "reauth_url": f"{REAUTH}/{effective}/api-key",
     }
     assert connection(h, effective).status == "error"
     listed = {
