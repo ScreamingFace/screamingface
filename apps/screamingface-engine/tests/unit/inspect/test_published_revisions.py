@@ -49,10 +49,9 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "draco": "c6fb6f500dc58622",
     "draco-3pass": "e8c3ad925dcd4d4a",
     # OME-1527: healthbench-worst30 and healthbench-professional moved from their hand-built
-    # folder to one local Task package and KEEP their published revisions (kept_revision), so
-    # their leaderboard results stay visible; they compute to f12c3e30661ea9d3 and
-    # 44ddda05be338699, and the worst-30 e2e golden replaying with zero misses is the proof
-    # the exam is unchanged.
+    # folder to one local Task package and publish their old revisions (published_revision),
+    # so their leaderboard results stay visible; their computed fingerprints are pinned in
+    # _FINGERPRINTS below.
     "healthbench-worst30": "39cfd96b068f7230",
     "healthbench-professional": "d8fb037307f35415",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
@@ -83,6 +82,32 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
 @pytest.mark.parametrize(("key", "revision"), sorted(_PUBLISHED_REVISIONS.items()))
 def test_published_benchmark_revision_is_byte_identical(key: str, revision: str) -> None:
     assert imported_benchmark(key).benchmark.revision == revision
+
+
+#: key → the fingerprint its identity inputs compute, for every row that publishes a hand-set
+#: ``published_revision`` (OME-1527). The published id never moves with the fingerprint, so
+#: this pin is the only alarm that the exam (Cases, grading rule, judge) may have changed.
+_FINGERPRINTS: dict[str, str] = {
+    "healthbench-worst30": "f12c3e30661ea9d3",
+    "healthbench-professional": "44ddda05be338699",
+}
+
+
+@pytest.mark.parametrize(("key", "fingerprint"), sorted(_FINGERPRINTS.items()))
+def test_a_pinned_benchmark_still_computes_the_fingerprint_its_published_revision_stands_for(
+    key: str, fingerprint: str
+) -> None:
+    """WHY: a row with ``published_revision`` publishes it whatever its inputs compute to, so a
+    real exam change would otherwise pass silently under the old id. The message tells the
+    reader which of the two acts the diff needs."""
+
+    computed: str = imported_benchmark(key).computed_revision
+    assert computed == fingerprint, (
+        f"{key}'s fingerprint changed from {fingerprint} to {computed}. If the exam did not "
+        "change (questions, grading rule, judge), update this fingerprint only. If it did, "
+        "changing published_revision hides every existing leaderboard result and makes "
+        "submissions outdated — needs a deliberate bump with owner sign-off (OME-1610)."
+    )
 
 
 #: OME-1460: every Task-replay Benchmark with no Hugging Face Case Source, as served on main

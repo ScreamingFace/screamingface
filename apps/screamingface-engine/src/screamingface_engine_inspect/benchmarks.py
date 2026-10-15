@@ -187,14 +187,13 @@ class BenchmarkSpec:
     #: Benchmark the owner allowed; the owner reads that scorer's words before turning it on.
     #: False on every row today. Benchmark identity when set.
     scorer_draft_feedback: bool = False
-    #: Keep a published revision across a migration (OME-1527): ``(published, stands_for)``.
-    #: The Benchmark publishes ``published`` (its routes, ``Benchmark.revision``, everything)
-    #: only while its revision computes to exactly ``stands_for``; any other value refuses
-    #: assembly by name. WHY: the published revision is what submissions and the leaderboard
-    #: key on, so moving it hides every existing result. Set only with proof that the exam is
-    #: unchanged: a migration whose recorded golden replays with zero misses. NOT part of the
-    #: revision (it names the revision; it cannot feed it). None on every other row.
-    kept_revision: tuple[str, str] | None = None
+    #: The revision this Benchmark publishes (its routes, ``Benchmark.revision``), in place of
+    #: the computed fingerprint (OME-1527). WHY: published ids are what submissions and the
+    #: leaderboard key on, so they are never moved by a computed fingerprint, only by a
+    #: deliberate bump with owner sign-off (OME-1610). Never compared at runtime; the alarm is
+    #: the row's pinned fingerprint in ``test_published_revisions``. NOT part of the revision.
+    #: None, on every row but the migrated healthbench pair, publishes the computed fingerprint.
+    published_revision: str | None = None
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
     answer_rule: AnswerRule | None = None
@@ -4498,10 +4497,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # move leaves Fusion bytes and the recorded e2e golden unchanged (OME-1527 decision 5).
         # A conversation Case is already that envelope and is served as written.
         candidate_input_envelope=True,
-        # Keeps the hand-built Benchmark's published revision, so its leaderboard results
-        # stay visible (owner decision, OME-1527): the recorded worst-30 golden replays with
-        # zero misses on the local Task, the proof the exam is unchanged.
-        kept_revision=("39cfd96b068f7230", "f12c3e30661ea9d3"),
+        # The hand-built Benchmark's published revision, so its leaderboard results stay
+        # visible (owner decision, OME-1527); the recorded worst-30 golden replays with zero
+        # misses on the local Task. Its computed fingerprint is pinned in the tests.
+        published_revision="39cfd96b068f7230",
         origin="screamingface",
         paper_url="https://arxiv.org/abs/2604.27470",
         authors="Hicks et al., 2026",
@@ -4589,12 +4588,12 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # move leaves Fusion bytes and the recorded e2e golden unchanged (OME-1527 decision 5).
         # A conversation Case is already that envelope and is served as written.
         candidate_input_envelope=True,
-        # Keeps the hand-built Benchmark's published revision, so its leaderboard results
-        # stay visible (owner decision, OME-1527): the recorded worst-30 golden replays with
-        # zero misses on the local Task, the proof the exam is unchanged. Professional has no
-        # golden of its own: it shares that Task package, judge and grader, and all 525 of its
-        # Candidate inputs and 1,135 judge prompts were compared at import (0 differ).
-        kept_revision=("d8fb037307f35415", "44ddda05be338699"),
+        # The hand-built Benchmark's published revision, so its leaderboard results stay
+        # visible (owner decision, OME-1527). It has no golden of its own: it shares worst-30's
+        # Task package, judge and grader, and all 525 of its Candidate inputs and 1,135 judge
+        # prompts were compared at import (0 differ). Its computed fingerprint is pinned in
+        # the tests.
+        published_revision="d8fb037307f35415",
         origin="screamingface",
         paper_url="https://arxiv.org/abs/2604.27470",
         authors="Hicks et al., 2026",
@@ -4716,7 +4715,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         retrieval_policy=spec.retrieval_policy,
         candidate_input_envelope=spec.candidate_input_envelope,
         scorer_draft_feedback=spec.scorer_draft_feedback,
-        kept_revision=spec.kept_revision,
+        published_revision=spec.published_revision,
         answer_rule=spec.answer_rule,
         **_provenance_of(spec),
     )

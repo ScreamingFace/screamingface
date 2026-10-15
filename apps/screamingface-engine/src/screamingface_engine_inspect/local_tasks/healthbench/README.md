@@ -55,7 +55,7 @@ The reference is simple-evals' [`healthbench_eval.py` at
 `652c89d`](https://github.com/openai/simple-evals/blob/652c89d0ca9df547706735883097e9537d40dc47/healthbench_eval.py),
 the commit both rows cite. The `blob/main` links in the `prompts.py` and `scoring.py` headers
 name the same file; they stay unpinned because editing any `.py` file here moves both
-revisions and the golden (see Identity).
+fingerprints (see Identity).
 
 The judge is `openrouter/openai/gpt-5.4` (the official judge is an OpenAI-internal snapshot we
 cannot reach) with no web search, a 4096 max-token cap and no temperature: the row's
@@ -71,10 +71,13 @@ headline (`pass_rate`, `score_sd`, `verdict_coverage`, `judge_invalid_replies`) 
 
 The revision hashes the Case Digest (which seals every chat and every rubric), the Task
 reference, the Hub pin, the judge and its params, the envelope flag, the whole-run metric
-(professional) and the sha256 of every `.py` file in this package (`task_source=…`). Editing any
-of them is a new Benchmark: update the literals in
-`tests/unit/inspect/test_published_revisions.py` and the healthbench-worst30 e2e golden, and say
-why in the PR.
+(professional) and the sha256 of every `.py` file in this package (`task_source=…`). Both rows
+publish the hand-built Benchmarks' ids instead (`published_revision`: `39cfd96b068f7230` and
+`d8fb037307f35415`), so their leaderboard results stay visible; the computed fingerprints are
+pinned in `tests/unit/inspect/test_published_revisions.py` (`_FINGERPRINTS`). Editing any input
+moves the fingerprint and fails that test: if the exam did not change, update the fingerprint
+only; if it did, changing the published id hides every existing result and needs a deliberate
+bump with owner sign-off (OME-1610). Say why in the PR either way.
 
 ## Running it locally
 

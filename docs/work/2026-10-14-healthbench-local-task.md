@@ -49,7 +49,7 @@ says the hand-built lane is for MedXpertQA.
   `healthbench-worst30` bundle.
 - Keep the e2e golden (decision 5): it replays its recorded calls unchanged; `expression_sha`
   regenerates from the free replay. Both Benchmarks keep their published revisions through
-  `kept_revision` (owner decision, 2026-10-15); the golden replay is the equivalence proof.
+  `published_revision` (owner decision, 2026-10-15); the golden replay is the equivalence proof.
 
 ## Test plan
 
@@ -112,24 +112,30 @@ says the hand-built lane is for MedXpertQA.
 - **Conservation literals:** from the hand-built expression at `1bc092ff6`, driven end to end on
   the canned replies (routes, `;retry=2`, aggregate, both means): Case scores 0.25, 0.5, −2.5, 1.0
   and one failed Case (`judge_reply_invalid`); headlines worst-30 −0.1875, professional 0.0.
-- **Revision:** both Benchmarks keep their published revisions via `kept_revision`; the golden
-  replay is the equivalence proof (owner decision, 2026-10-15: merging draco #1395 moved
+- **Revision:** both Benchmarks keep their published revisions via `published_revision`; the
+  golden replay is the equivalence proof (owner decision, 2026-10-15: merging draco #1395 moved
   draco-3pass's revision and hid its leaderboard results, and the hand-built definition pinned
   worst-30's revision as FROZEN for that reason). healthbench-worst30 publishes
-  `39cfd96b068f7230` while it computes to `f12c3e30661ea9d3`, healthbench-professional
-  `d8fb037307f35415` while it computes to `44ddda05be338699`. The new lane mechanism
-  (`_published_revision` in `single_shot.py`, the `kept_revision` row field, not a revision
-  input) publishes the old id only while the revision computes to exactly the one it stands for
-  and refuses assembly by name otherwise, so any later change to the Task's code, Cases or row
-  stops assembly until someone re-proves equivalence or drops the pin. Professional has no golden
-  of its own; its proof is the shared Task package plus all 525 inputs and 1,135 judge prompts
-  compared at import. Reverted to the old ids: the two `test_published_revisions.py` literals and
-  the golden's `revision`; the free replay then rendered a new `expression_sha` (`ba3d12d1…`,
-  the routes carry the revision; the hand-built `51598e81…` does not return because the
-  expression's shape changed) and matched every status, failure code and −0.091 with zero
-  misses. The scoreboard fixture (`engine_catalog.json`) and the SDK's synthetic tape and bless
-  documents already held the old ids. Pinned by `tests/unit/inspect/test_kept_revision.py`
-  (mutation-checked: dropping the guard or publishing the computed id each turn one test red).
+  `39cfd96b068f7230` and computes `f12c3e30661ea9d3`; healthbench-professional publishes
+  `d8fb037307f35415` and computes `44ddda05be338699`. The lane mechanism is a row field,
+  `BenchmarkSpec.published_revision` (not a revision input): when set, the Benchmark publishes
+  exactly that id (routes, `Benchmark.revision`) and never its computed fingerprint, with no
+  runtime comparison, so a mismatch can never take a Benchmark down in prod. The assembled
+  Benchmark keeps `computed_revision`, and `test_published_revisions.py` pins it per such row
+  (`_FINGERPRINTS`): a changed fingerprint fails CI with a message saying to update the
+  fingerprint if the exam did not change, or that changing the published id needs a deliberate
+  bump with owner sign-off (OME-1610). This replaced a first design (`kept_revision`) that
+  refused assembly on a mismatch; the owner chose CI over prod for that alarm. Professional has
+  no golden of its own; its proof is the shared Task package plus all 525 inputs and 1,135 judge
+  prompts compared at import. Reverted to the old ids: the two `test_published_revisions.py`
+  literals and the golden's `revision`; the free replay then rendered a new `expression_sha`
+  (`ba3d12d1…`, the routes carry the revision; the hand-built `51598e81…` does not return
+  because the expression's shape changed) and matched every status, failure code and −0.091
+  with zero misses (re-run after the redesign: unchanged, passed). The scoreboard fixture
+  (`engine_catalog.json`) and the SDK's synthetic tape and bless documents already held the old
+  ids. Pinned by `tests/unit/inspect/test_published_revision.py` and the fingerprint test
+  (mutation-checked: a one-line edit to the Task's `scoring.py` turns both fingerprint pins red
+  with that message while the published-id literals stay green).
 - **Report:** thinner, as decided: one Check per Case carrying each line's points, verdict and the
   judge's words, the redraw count and the verdict counts; no Check per rubric line; judge cost per
   Case. Kept: `scored_cases`. New: `correct`, `verdicts_expected` / `accepted` / `rejected`. Lost
@@ -202,8 +208,8 @@ says the hand-built lane is for MedXpertQA.
   (2) `judge_redraw.py`'s `JudgedItem` docstring named `judge_invalid_replies`, which this PR
   deleted; it now names the `judge_redraws` evidence key. (3) `prompts.py` links simple-evals at
   `blob/main` while both rows cite `652c89d0…`. The header was left as is: `task_source` hashes
-  every `.py` file in the package, so editing it moves both computed revisions (and, since the
-  later `kept_revision` pins, stops assembly) and the golden again
+  every `.py` file in the package, so editing it moves both computed revisions (since the later
+  `published_revision` pins, only the fingerprints in the tests) and the golden again
   (draco's deviation 9 chose the README for the same reason). The pinned link went into the
   Task README instead, which is not hashed. No revision moved (`test_published_revisions`
   passes), so the golden replay was not re-run.
