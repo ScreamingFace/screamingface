@@ -60,8 +60,9 @@ Spec §7 and the Linear issue's acceptance list.
     `tests/portal/reproduced-count.test.js` deleted; `.github/workflows/scoreboard-tests.yml` and
     `.claude/sdlc.local.md` list the two new Node files.
   - Approved prior-test changes: `.claude/test-change-approvals/OME-1596.json`.
-- **Commits:** `8b8ee2246` storage; `8fa82a70c` metadata; `73f0cca3c` lookup; row 5 is the
-  commit that adds this outcome (`feat(scoreboard): offer a Reproduce button on captured rows`).
+- **Commits:** `8b8ee2246` storage; `8fa82a70c` metadata; `73f0cca3c` lookup; `0a7eb0feb` rows
+  and portal; then `fix(scoreboard): let a same-owner retry racing its first send dedup` (the
+  end-to-end regression below).
 - **Gates:** rows 2 to 4: `run_gates.py scoreboard --base origin/main` all green. Row 5: every
   scoreboard gate green (ruff, format, pyright, pytest with coverage, the Node portal suite);
   the append-only check reports only the owner-approved deletion of
@@ -111,3 +112,12 @@ Spec §7 and the Linear issue's acceptance list.
     exposed with the switch on `window.SFBenchmarkPage` so the portal tests can render both
     settings without editing the shipped constant. `createCopyButton` gained optional
     `ariaLabel` and `title`; the existing Copy button is unchanged.
+  - Regression found end to end after row 5: one owner sending the same submission with a
+    frozen copy several times at once got [201, 422, 422, 422, 422, 422] on PostgreSQL 17
+    (SQLite intermittent). The copy pre-check saw the row the first send had just committed and
+    refused before the insert's content-hash clash could route the retry to the dedup path. The
+    pre-check now leaves out a holder of the same recipe (same content hash); a different holder
+    is still refused. Regression test `tests/unit/test_pinned_cache_same_owner_race.py` drives the
+    race deterministically (the first dedup lookup misses while the row exists). The coordinator's
+    `samerace.py` now gives [200, 200, 200, 200, 200, 201] with one id, three rounds each, on
+    SQLite and on a throwaway postgres:17 container.

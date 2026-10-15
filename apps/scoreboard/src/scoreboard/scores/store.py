@@ -877,9 +877,20 @@ class FrozenCopyClaimed(Exception):
 
 
 async def _copy_held_elsewhere(
-    frozen_copy_id: str | None, other_than: Any, connection: Any
+    frozen_copy_id: str | None,
+    other_than: Any,
+    connection: Any,
+    same_recipe: str | None = None,
 ) -> bool:
-    """Whether a score other than ``other_than`` names ``frozen_copy_id``."""
+    """Whether a score other than ``other_than`` names ``frozen_copy_id``.
+
+    ``same_recipe`` (a content hash) also leaves out a holder that IS this submission's recipe.
+    INVARIANT (OME-1596): such a holder is the row this submission deduplicates onto (a retry
+    racing its own first send), and the insert's content-hash clash routes it to the dedup path,
+    which answers 200 with that row. Refusing it here answered 422 to a client's own retry (found
+    end to end: six parallel identical posts gave one 201 and five 422 on PostgreSQL 17). A holder
+    with a NULL content hash is never "the same recipe", so it still counts.
+    """
     if frozen_copy_id is None:
         return False
     holders = Score.filter(frozen_copy_id=frozen_copy_id)
@@ -887,6 +898,8 @@ async def _copy_held_elsewhere(
         holders = holders.using_db(connection)
     if other_than is not None:
         holders = holders.exclude(id=other_than)
+    if same_recipe is not None:
+        holders = holders.filter(Q(content_hash__isnull=True) | ~Q(content_hash=same_recipe))
     return await holders.exists()
 
 
@@ -1354,7 +1367,9 @@ class ScoreStore:
                 reclaimable = reclaimable | Q(scheme__isnull=True) | ~Q(scheme=KEY_SCHEME)
             await IdempotencyKey.filter(reclaimable, key=stored_key).using_db(connection).delete()
 
-        await self._precheck_copy_claim(connection, submission.frozen_copy_id, other_than=None)
+        await self._precheck_copy_claim(
+            connection, submission.frozen_copy_id, other_than=None, same_recipe=content_hash
+        )
         # FEATURE: OME-1596 — every `authors_metadata` key must be credited on the row being
         # written. Checked before the insert, inside its transaction, so a refusal writes nothing.
         if submission.authors_metadata is not None:
@@ -1793,14 +1808,20 @@ class ScoreStore:
         return row["total"], row["latest"]
 
     async def _precheck_copy_claim(
-        self, connection: Any, frozen_copy_id: str | None, *, other_than: Any
+        self,
+        connection: Any,
+        frozen_copy_id: str | None,
+        *,
+        other_than: Any,
+        same_recipe: str | None = None,
     ) -> None:
         """Refuse a copy another score already names, inside the write's transaction.
 
         A pre-check for a clear refusal only; the unique index is what guarantees the rule (a
         concurrent claim can commit after this read, and is mapped by `_refuse_claimed_copy`).
+        A holder of the same recipe is left to the dedup path (see `_copy_held_elsewhere`).
         """
-        if await _copy_held_elsewhere(frozen_copy_id, other_than, connection):
+        if await _copy_held_elsewhere(frozen_copy_id, other_than, connection, same_recipe):
             raise FrozenCopyClaimed(frozen_copy_id)
 
     async def _refuse_claimed_copy(self, frozen_copy_id: str | None, *, other_than: Any) -> None:
