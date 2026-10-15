@@ -615,7 +615,7 @@ def test_a_scorer_that_grades_with_the_model_under_test_is_refused() -> None:
     """A bare get_model() inside a scorer grades with the Candidate's own model; a Benchmark
     grades with a pinned judge, never the Candidate."""
 
-    with pytest.raises(ImporterError, match=r"asks_the_candidate grades with the model under test"):
+    with pytest.raises(ImporterError, match=r"asks_the_candidate reads the model under test"):
         _scorer_facts(_one_sample_task(asks_the_candidate()), sys.modules[__name__])
 
 
@@ -787,3 +787,71 @@ def test_a_role_held_in_a_variable_is_refused_because_no_row_can_name_it() -> No
 
     with pytest.raises(ImporterError, match=r"asks_a_role_it_was_given asks for a model role"):
         _scorer_facts(task, sys.modules[__name__])
+
+
+# Review findings on the second cut of F2 --------------------------------------------------
+
+from screamingface_engine_inspect.judge_shape import JudgeShape  # noqa: E402
+
+
+@scorer(metrics=[accuracy()])
+def asks_two_roles() -> Scorer:
+    """A scorer with a grader and a critic: the row can bind only one role to its judge."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        await get_model(role="grader").generate("Is it right?")
+        await get_model(role="critic").generate("Is it fair?")
+        return Score(value="C")
+
+    return score
+
+
+@scorer(metrics=[accuracy()])
+def asks_the_critic() -> Scorer:
+    """One role, but not the grader role assembly binds."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        await get_model(role="critic").generate("Is it fair?")
+        return Score(value="C")
+
+    return score
+
+
+def test_a_scorer_asking_two_roles_is_refused_because_the_second_would_go_unbound() -> None:
+    """The old reader kept roles[0] only, so a human pinned the grader and the critic role
+    graded with the Candidate's own model."""
+
+    with pytest.raises(ImporterError, match=r"asks_two_roles asks for the model role\(s\) "):
+        _scorer_facts(_one_sample_task(asks_two_roles()), sys.modules[__name__])
+
+
+def test_a_scorer_asking_a_role_other_than_grader_is_refused() -> None:
+    with pytest.raises(
+        ImporterError, match=r"asks_the_critic asks for the model role\(s\) 'critic'"
+    ):
+        _scorer_facts(_one_sample_task(asks_the_critic()), sys.modules[__name__])
+
+
+def test_a_scorer_the_reader_cannot_find_is_refused_because_unread_is_not_judge_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Before, a scorer whose source the reader could not find read as judge-free, and the
+    row landed with no judge bound (sciknoweval's shape reads the same way)."""
+
+    import screamingface_engine_inspect.importer as importer_module
+
+    monkeypatch.setattr(
+        importer_module, "judge_shape", lambda _reference: JudgeShape(unread=("no source",))
+    )
+
+    with pytest.raises(ImporterError, match=r"exact could not be read in full \(no source\)"):
+        _scorer_facts(_one_sample_task(exact()), sys.modules[__name__])
+
+
+def test_a_judge_parameter_left_at_its_default_renders_the_todo_judge() -> None:
+    """niah's shape used to render a judge-free row that only failed later, in CI's
+    assembly lane; the TODO judge fails it by name the moment it is reviewed."""
+
+    rows: TaskReplayRows = _rows(_facts(scorer=f"{__name__}:judged_by_default", scorer_kwargs={}))
+
+    assert 'judge=JudgeSpec(model="TODO"),' in rows.benchmark

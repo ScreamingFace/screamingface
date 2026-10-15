@@ -49,6 +49,7 @@ from screamingface_engine_inspect.importer import (
     ImporterError,
     _is_judged_by,
     _is_literal,
+    _leaves_a_judge_parameter_unpassed,
     _python_literal_source,
     _refuse_existing_rows,
     _scorer_lines,
@@ -409,9 +410,11 @@ def _benchmark_row_lines(
             facts.scorer_kwargs,
             facts.custom_metrics,
             facts.mcq,
-            # WHY the role too: a scorer that asks for the grader role names no judge in its
-            # kwargs, and still grades with one (OME-1602, F2).
-            _is_judged_by(facts.scorer, facts.scorer_kwargs) or facts.judge_role is not None,
+            # WHY the role and an unpassed judge parameter too: either way the scorer names
+            # no judge in its kwargs, and still grades with one (OME-1602, F2).
+            _is_judged_by(facts.scorer, facts.scorer_kwargs)
+            or facts.judge_role is not None
+            or _leaves_a_judge_parameter_unpassed(facts.scorer, facts.scorer_kwargs),
             extra_scorers=facts.extra_scorers,
             named_scores=facts.named_scores,
             dropped_scorers=facts.dropped_scorers,

@@ -585,10 +585,12 @@ def test_a_reply_only_row_is_refused_the_check_surface(monkeypatch: pytest.Monke
 
 # ── some Cases' empty key is their answer: only for the eval's own judge-free scorer (R5) ──
 
-#: The eval's own scorer of a Benchmark whose empty keys are answers, shaped like
-#: contracteval's (no clause spans → the right reply declines). A stand-in reference only;
-#: assembly never imports it.
-_EMPTY_KEY_SCORER: str = "stand_in_contracteval.scorers:quotes_every_span"
+#: The eval's own scorer of a Benchmark whose empty keys are answers: contracteval's (no
+#: clause spans → the right reply declines). Assembly reads its source to confirm it reaches
+#: no judge (a reference it cannot find is refused, OME-1602) and never imports it.
+_EMPTY_KEY_SCORER: str = (
+    "screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval_containment"
+)
 
 
 def _empty_key_snapshot(monkeypatch: pytest.MonkeyPatch, **cases: Any) -> None:
@@ -685,10 +687,10 @@ def test_empty_keys_as_answers_are_refused_the_check_surface(
 
 # ── Draft Feedback without an answer key: only on a Benchmark the owner allowed (R10) ──
 
-#: The eval's own scorer of an IFEval-shaped Benchmark: it grades the reply against the
-#: instructions in each Sample's metadata, never a key. A stand-in reference only; assembly
-#: never imports it.
-_INSTRUCTION_SCORER: str = "stand_in_ifeval.scorers:instructions_followed"
+#: The eval's own scorer of an IFEval Benchmark: it grades the reply against the
+#: instructions in each Sample's metadata, never a key. Assembly reads its source to confirm
+#: it reaches no judge (a reference it cannot find is refused, OME-1602) and never imports it.
+_INSTRUCTION_SCORER: str = "inspect_evals.ifeval.ifeval:instruction_following"
 
 
 def _ifeval_shaped_spec(**overrides: Any) -> BenchmarkSpec:
@@ -810,6 +812,12 @@ _UNIMPORTABLE_JUDGED_SCORERS: str = textwrap.dedent(
         async def score(state, target):
             return None
         return score
+
+    def asks_two_roles():
+        async def score(state, target):
+            await get_model(role="grader").generate("Is it right?")
+            await get_model(role="critic").generate("Is it fair?")
+        return score
     """
 )
 
@@ -890,6 +898,39 @@ def test_an_extra_scorer_that_reaches_a_judge_is_refused(
     )
 
     with pytest.raises(ValueError, match=r"extra scorer takes_a_judge reaches a judge"):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_role_judged_row_whose_scorer_asks_only_that_role_assembles(
+    judged_scorers: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = _judged_spec(
+        scorer=f"{judged_scorers}:asks_the_grader",
+        scorer_kwargs={},
+        judge=JudgeSpec(model="judge-4", model_role="grader"),
+    )
+
+    assert _assembled(spec, monkeypatch).judge is not None
+
+
+def test_a_role_judged_row_whose_scorer_asks_a_second_role_is_refused(
+    judged_scorers: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The row binds one role to its pinned judge; inspect hands the unbound second role
+    the Candidate's own model, so the Candidate would mark its own answers. Once a human
+    pins the judge, assembly is the only check that still reads the scorer."""
+
+    spec = _judged_spec(
+        scorer=f"{judged_scorers}:asks_two_roles",
+        scorer_kwargs={},
+        judge=JudgeSpec(model="judge-4", model_role="grader"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"the judge fills the 'grader' role, but the scorer also reaches the "
+        r"role\(s\) 'critic'",
+    ):
         _assembled(spec, monkeypatch)
 
 

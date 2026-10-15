@@ -4899,6 +4899,35 @@ def _check_model_role_judge(spec: BenchmarkSpec, role: str, judge_kwargs: dict[s
             f"{spec.key}: the scorer asks for the {asked!r} role but the judge fills "
             f"{role!r} — the pinned judge would never be called (OME-1370)"
         )
+    _check_scorer_asks_only_the_bound_role(spec, role)
+
+
+def _check_scorer_asks_only_the_bound_role(spec: BenchmarkSpec, role: str) -> None:
+    """Refuse a role-judged row whose scorer reaches any judge but the bound role (F2).
+
+    WHY re-read the scorer here: the row binds ONE role to its pinned judge, and inspect
+    hands every other role, or a bare ``get_model()``, the Candidate's own model, so the
+    Candidate would mark its own answers. Once a human pins the judge, this is the only
+    check that still reads the scorer. The source is read, never imported.
+    """
+
+    from screamingface_engine_inspect.judge_shape import JudgeShape, judge_shape
+
+    shape: JudgeShape = judge_shape(spec.scorer)
+    others: list[str] = [asked for asked, _ in shape.roles if asked != role]
+    if others or shape.model_under_test or shape.unread:
+        found: str = (
+            f"the role(s) {', '.join(map(repr, others))}"
+            if others
+            else f"get_model() in {shape.model_under_test[0]}"
+            if shape.model_under_test
+            else f"unread: {shape.unread[0]}"
+        )
+        raise ValueError(
+            f"{spec.key}: the judge fills the {role!r} role, but the scorer also reaches "
+            f"{found}; that judge is never bound, so it would grade with the Candidate's own "
+            "model (OME-1602)"
+        )
 
 
 #: The catalogue ids (``imported_benchmark_id``) of the Benchmarks the owner has allowed to

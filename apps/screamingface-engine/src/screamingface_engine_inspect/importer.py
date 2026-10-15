@@ -380,13 +380,23 @@ def _reaches_an_unseen_judge(params: Mapping[str, Any], shape: JudgeShape) -> bo
     return bool(_judge_panel(params) or shape.reaches_a_judge)
 
 
+#: The one model role a row binds to its pinned judge (assembly's supported roles, OME-1370).
+_GRADER_ROLE: str = "grader"
+
+
 def _unseen_judge_role(name: str, params: Mapping[str, Any], shape: JudgeShape) -> str | None:
-    """A single scorer's judge the kwargs do not name: refused for a panel or the model under
-    test, the role a judge must fill when the body asks for one, else None (F2).
+    """A single scorer's judge the kwargs do not name: refused for a panel, the model under
+    test, a role the reader cannot name, a scorer it could not read, or any role but one
+    ``grader``; the role a judge must fill when the body asks for one, else None (F2).
 
     WHY refuse a panel: a Benchmark pins one judge into its identity; every other judge in
     the list would be called unmetered. WHY refuse ``get_model()``: it grades with whatever
-    model is being evaluated, so the Candidate would mark its own answers.
+    model is being evaluated, or grades differently by its name (infinite_bench's math_calc
+    drops a number for "gpt" models), so Candidates would not be graded alike. WHY refuse
+    an unread scorer: "could not read" is never "judge-free" (sciknoweval picks its judge
+    from a lookup table). WHY one ``grader`` role: the row binds one role to its pinned
+    judge, and assembly binds only ``grader``; a second role would be left unbound at
+    grading, so inspect would hand it the Candidate's own model.
     """
 
     panel: tuple[str, int] | None = _judge_panel(params)
@@ -398,9 +408,10 @@ def _unseen_judge_role(name: str, params: Mapping[str, Any], shape: JudgeShape) 
         )
     if shape.model_under_test:
         raise ImporterError(
-            f"scorer {name} grades with the model under test (get_model() in "
-            f"{shape.model_under_test[0]}); a Benchmark grades with a pinned judge, never the "
-            "Candidate's own model. Add the row by hand (OME-1602)"
+            f"scorer {name} reads the model under test (get_model() in "
+            f"{shape.model_under_test[0]}): it grades with the Candidate's own model or "
+            "grades differently by the Candidate's name, so Candidates would not be graded "
+            "alike. Add the row by hand (OME-1602)"
         )
     unread: list[str] = [where for role, where in shape.roles if role == UNKNOWN_ROLE]
     if unread:
@@ -409,7 +420,19 @@ def _unseen_judge_role(name: str, params: Mapping[str, Any], shape: JudgeShape) 
             f"{unread[0]}), so no row can name the judge that fills it. Add the row by hand "
             "(OME-1602)"
         )
-    return shape.roles[0][0] if shape.roles else None
+    if shape.unread:
+        raise ImporterError(
+            f"scorer {name} could not be read in full ({shape.unread[0]}), so the importer "
+            "cannot tell whether it reaches a judge. Add the row by hand (OME-1602)"
+        )
+    roles: list[str] = [role for role, _ in shape.roles]
+    if len(roles) > 1 or (roles and roles[0] != _GRADER_ROLE):
+        raise ImporterError(
+            f"scorer {name} asks for the model role(s) {', '.join(map(repr, roles))}; a row "
+            f"binds its pinned judge to the one {_GRADER_ROLE!r} role, so any other role "
+            "would grade with the Candidate's own model. Add the row by hand (OME-1602)"
+        )
+    return roles[0] if roles else None
 
 
 def _whole_run_choice(
@@ -908,6 +931,17 @@ def _is_judged_by(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
     if scorer.rpartition(":")[2].startswith("model_graded_"):
         return True
     return any(name in _JUDGE_MODEL_KWARG_NAMES for name in scorer_kwargs)
+
+
+def _leaves_a_judge_parameter_unpassed(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
+    """True when the scorer constructor takes a judge parameter the row's kwargs leave at its
+    default (niah's ``judge_model``), so the scorer grades with a judge nobody pinned.
+
+    WHY at import: the row is then written judged, with the TODO judge, and fails by name
+    the moment it is reviewed, not later in CI's assembly lane (OME-1602, F2).
+    """
+
+    return any(name not in scorer_kwargs for name in judge_shape(scorer).parameters)
 
 
 def _python_literal_source(value: Any) -> str:
