@@ -616,3 +616,79 @@ Decisions: Q1, Q2, Q4, P8, P9; E4b part 1 ans:Q5 (additive edit, same v1 id).
     distribution check).
   - `repo`: ALL GATES GREEN, the append-only check passes.
 - **Flakes:** none in this round.
+
+## Unit 5: judge-writer warning (`sf.JudgeWriterWarning`)
+
+### Intent
+
+PRD `judge-writer-warning`, rows JW#1–11 (epic gap E2, ans:Q1, ans:Q2, ans:Q4, P9, P10). When a
+Pipeline stage reads a judge, and the next stage is a direct `sf.Model` with the same model, the
+SDK compile sends one `sf.JudgeWriterWarning`. The warning does not fail the compile. It does not
+change the url4. The compile sends it once for each Pipeline object. The url4 rebuild silences
+it. SDK only. No engine change.
+
+### Planned changes
+
+- `S/warnings.py`: `JudgeWriterWarning(EvaluationWarning)`. Commit A holds the stub (the class and
+  `__all__`). The `sf` export comes in commit B.
+- `S/_evaluation/candidate.py` (commit B): `_JUDGE_CALL_KEY`, `_warn_judge_writer`,
+  `_judge_route`, `_CandidateCompiler(warned_pipelines=...)`, the `warned_pipelines` property, the
+  check in `_pipeline`, and the second-pass plumbing in `compile_candidate`.
+- `S/url4.py` (commit B): `_require_recompiles` silences `JudgeWriterWarning`.
+- `S/__init__.py` (commit B): export `JudgeWriterWarning`.
+- New test: `ST/test_judge_writer_warning.py` (commit A, 23 test items, 11 rows).
+
+### Pinned edits (owner approval)
+
+- Planned, commit B only: `packages/screamingface/tests/public_surface_snapshot.json` (one
+  `__all__` line, one class entry).
+- Not needed: `packages/screamingface/tests/test_frozen_record_fields.py` (no evidence case is
+  added in this unit, so no bump).
+
+### Test plan
+
+- 11 PRD rows, 23 test items, in PRD risk order.
+- CHAR: JW#3 (1 item), JW#8 (4 items), JW#10 (2 items). These pass on the stub.
+- RED: JW#1, JW#2, JW#4, JW#5, JW#6, JW#7, JW#9, JW#11 (16 items). Each fails on the missing
+  warning, the missing error, or the missing export. None fails on an import, because the stub
+  makes `JudgeWriterWarning` importable.
+- JW#2 pins the url4 bytes of the JW-1 recipe (sha256 and length, taken from base `0f4b9e292`).
+
+### Acceptance
+
+- The judge Pipeline with the same writer model sends exactly one warning. The warning names
+  stages 1 and 2 and the canonical route.
+- A different writer model, a non-adjacent writer, a Fusion writer and a merge writer send none.
+- `warnings.simplefilter("error", sf.EvaluationWarning)` makes the compile raise the warning.
+- The url4 rebuild of a quorum judge Pipeline sends none.
+- `sf.JudgeWriterWarning` is public. The public surface snapshot changes by the two listed hunks.
+- `screamingface` gates green except the append-only check. That check lists only the plan §6
+  files. `repo` gate green.
+
+### Deviations
+
+- D-5.1: the `JudgeWriterWarning` docstring in `S/warnings.py` is 101 characters, one over the
+  line limit (E501). The text is the same as the spec. It is wrapped onto two lines, so the
+  docstring text does not change.
+- D-5.2: the test module types the synthesizer parameters with `Reducer` from
+  `screamingface.reducer`. `sf.Reducer` is not a public name, so pyright rejects it.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** in_progress. Commit A (RED) holds this section, the test file and the stub. Commit B
+  (GREEN) is not yet made.
+- **Actual files:** commit A: `packages/screamingface/tests/test_judge_writer_warning.py` (new),
+  `packages/screamingface/src/screamingface/warnings.py` (stub), this section.
+- **Commits:** A (RED): the hash is set after the commit. B (GREEN): not yet.
+- **Gates:** commit A: `ruff check`, `ruff format --check` and `pyright` in
+  `packages/screamingface` are clean. The full `run_gates.py` stacks run at commit B.
+- **RED log:** `uv run pytest tests/test_judge_writer_warning.py -q` in `packages/screamingface`:
+  `16 failed, 7 passed`. The 7 passing items are the CHAR rows (JW#3, JW#8 ×4, JW#10 ×2). The 16
+  failing items fail as follows:
+  - 14 items: `Failed: DID NOT WARN. No warnings of type (<class 'screamingface.warnings.JudgeWriterWarning'>,) were emitted.`
+  - 1 item (JW#5, `test_warning_as_error_raises_from_compile`): `Failed: DID NOT RAISE JudgeWriterWarning`.
+  - 1 item (JW#11, `test_judge_writer_warning_is_public`): `AssertionError: assert None is JudgeWriterWarning`.
+  No collection, import or attribute error.
+- **Approval blobs:** `packages/screamingface/tests/public_surface_snapshot.json` base blob
+  (`git rev-parse 0f4b9e292:packages/screamingface/tests/public_surface_snapshot.json`) and the
+  approved blob (after commit B) are filled at commit B.
