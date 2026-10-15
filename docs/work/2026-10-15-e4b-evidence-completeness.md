@@ -675,20 +675,47 @@ it. SDK only. No engine change.
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:** in_progress. Commit A (RED) holds this section, the test file and the stub. Commit B
-  (GREEN) is not yet made.
-- **Actual files:** commit A: `packages/screamingface/tests/test_judge_writer_warning.py` (new),
-  `packages/screamingface/src/screamingface/warnings.py` (stub), this section.
-- **Commits:** A (RED): the hash is set after the commit. B (GREEN): not yet.
-- **Gates:** commit A: `ruff check`, `ruff format --check` and `pyright` in
-  `packages/screamingface` are clean. The full `run_gates.py` stacks run at commit B.
-- **RED log:** `uv run pytest tests/test_judge_writer_warning.py -q` in `packages/screamingface`:
-  `16 failed, 7 passed`. The 7 passing items are the CHAR rows (JW#3, JW#8 ×4, JW#10 ×2). The 16
-  failing items fail as follows:
+- **Status:** done. The GREEN code passes all 23 JW items. The `screamingface` and `repo` gates
+  are green. The `screamingface` append-only check is red for the pinned edits of units 1 to 4
+  and for the pinned edit of this unit. The owner must approve them before the part can merge.
+- **Actual files:** commit A (RED): `packages/screamingface/tests/test_judge_writer_warning.py`
+  (new), `packages/screamingface/src/screamingface/warnings.py` (stub), this section.
+  Commit B (GREEN): `packages/screamingface/src/screamingface/_evaluation/candidate.py`,
+  `packages/screamingface/src/screamingface/url4.py`,
+  `packages/screamingface/src/screamingface/__init__.py`,
+  `packages/screamingface/tests/public_surface_snapshot.json` (regenerated, two hunks: one
+  `__all__` line and one class entry), this section.
+- **Commits:** A (RED): `b41932b25`. B (GREEN): the commit that holds this section (its hash is
+  not known inside its own text).
+- **Gates:**
+  - `run_gates.py screamingface --base 0f4b9e292`: the append-only check FAILS. It lists six
+    files: `tests/data/schemas/screamingface.answer.v1.json` (P-2, unit 1),
+    `tests/data/schemas/screamingface.report-trace.v1.json` (U4-P1, unit 4),
+    `tests/public_surface_snapshot.json` (P-3 and this unit's regeneration),
+    `tests/test_e4b_schema_pins.py` (U4-P2, unit 4), `tests/test_frozen_record_fields.py`
+    (X-5, units 2 and 3), `tests/test_pick_output.py` (P-4, unit 1). This unit adds no test edit
+    other than the snapshot. The rerun with `--skip-append-only` is ALL GATES GREEN (ruff check,
+    ruff format, pyright, pytest with coverage, notebooks, build, distribution check).
+  - `run_gates.py repo --base 0f4b9e292`: ALL GATES GREEN (the append-only check passes).
+  - `ruff check`, `ruff format --check` and `pyright` in `packages/screamingface`: clean.
+  - Focused set (`test_judge_writer_warning.py`, `test_duplicate_members_warning.py`,
+    `test_combine_sources.py`, `test_rank_concat_url4_round_trip.py`, `test_public_surface.py`):
+    80 passed.
+- **RED log:** commit A. `uv run pytest tests/test_judge_writer_warning.py -q` in
+  `packages/screamingface`: `16 failed, 7 passed`. The 7 passing items are the CHAR rows (JW#3,
+  JW#8 x4, JW#10 x2). The 16 failing items fail as follows:
   - 14 items: `Failed: DID NOT WARN. No warnings of type (<class 'screamingface.warnings.JudgeWriterWarning'>,) were emitted.`
   - 1 item (JW#5, `test_warning_as_error_raises_from_compile`): `Failed: DID NOT RAISE JudgeWriterWarning`.
   - 1 item (JW#11, `test_judge_writer_warning_is_public`): `AssertionError: assert None is JudgeWriterWarning`.
   No collection, import or attribute error.
-- **Approval blobs:** `packages/screamingface/tests/public_surface_snapshot.json` base blob
-  (`git rev-parse 0f4b9e292:packages/screamingface/tests/public_surface_snapshot.json`) and the
-  approved blob (after commit B) are filled at commit B.
+  Commit B: `test_judge_writer_warning.py` 23 passed.
+- **Deviations:**
+  - D-5.1: `_judge_route` returns twice, not four times. Ruff rule PLR0911 (more than three
+    returns) failed on the spec form. The guards now fold into one `if` and the last lookup
+    uses a list. The behavior is the same.
+  - D-5.2: no test edit. The line 184 case-count bump in `test_frozen_record_fields.py` was not
+    made, because this unit adds no evidence case.
+  - D-5.3: no commit C. The PRD has no docs task, and the spec says no commit C.
+- **Approval blobs:** `packages/screamingface/tests/public_surface_snapshot.json`: base blob
+  `489b8a57e3c20c8038085c80fa06a23fb595c178` (`git rev-parse 0f4b9e292:...`) and approved blob
+  `48f0254369557cc83f4a622adce5ab82c51e1b52` (`git hash-object ...` after commit B).

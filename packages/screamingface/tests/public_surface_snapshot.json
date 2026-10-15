@@ -33,6 +33,7 @@
       "FixedSeedSittingWarning",
       "Fusion",
       "Judge",
+      "JudgeWriterWarning",
       "Leaderboard",
       "LeaderboardBaseline",
       "LeaderboardEntry",
@@ -526,6 +527,16 @@
           "returns": "field",
           "rubric": "field"
         }
+      },
+      "JudgeWriterWarning": {
+        "catches_as": [
+          "EvaluationWarning",
+          "UserWarning",
+          "Warning",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
       },
       "Leaderboard": {
         "kind": "class",

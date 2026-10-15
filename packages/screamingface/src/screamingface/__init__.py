@@ -88,6 +88,7 @@ from screamingface.warnings import (
     DuplicateMembersWarning,
     EvaluationWarning,
     FixedSeedSittingWarning,
+    JudgeWriterWarning,
 )
 
 # The installed distribution's version, resolved once at import — see `_version.py`.
@@ -137,6 +138,7 @@ __all__ = [
     "FixedSeedSittingWarning",
     "Fusion",
     "Judge",
+    "JudgeWriterWarning",
     "Leaderboard",
     "LeaderboardBaseline",
     "LeaderboardEntry",
