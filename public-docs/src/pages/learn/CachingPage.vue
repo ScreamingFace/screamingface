@@ -75,11 +75,11 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <ul>
       <li>
-        <strong>Local.</strong> Run the engine on your own machine with your own provider keys. You
+        <strong>Local:</strong> Run the engine on your own machine with your own provider keys. You
         pay your providers directly, and there is no middleman on the local path.
       </li>
       <li>
-        <strong>Hosted.</strong> Use an engine we operate. It carries the shared cache, and we
+        <strong>Hosted:</strong> Use an engine we operate. It carries the shared cache, and we
         subsidize compute for chosen cohorts so that verifying and exploring stays cheap.
       </li>
     </ul>

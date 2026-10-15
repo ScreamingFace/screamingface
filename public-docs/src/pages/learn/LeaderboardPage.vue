@@ -56,25 +56,25 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
 
     <ul>
       <li>
-        <strong>Validation.</strong> The score is benchmark-native: the exact number the
+        <strong>Validation:</strong> The score is benchmark-native: the exact number the
         benchmark's own grading produced, fractional or negative included. The board checks it is
         a finite number and never recomputes, normalizes, or thresholds it — the benchmark is the
         sole authority on its formula.
       </li>
       <li>
-        <strong>Deduplication.</strong> Each submission is hashed over its recipe identity, meaning
+        <strong>Deduplication:</strong> Each submission is hashed over its recipe identity, meaning
         the benchmark, the spec, the expression, the result, and the providers. Identical content
         lands on the same entry rather than a second one. A resubmission inside a 24-hour
         idempotency window replays the original instead of creating a duplicate.
       </li>
       <li>
-        <strong>Verification.</strong> <code>verified_by_screamingface</code> is a property of the
+        <strong>Verification:</strong> <code>verified_by_screamingface</code> is a property of the
         engine that ran the submission: a run on the hosted engine is verified. A submission from a
         run on any other engine stays unverified until the hosted engine also runs it. It is the
         flag worth reading before you trust a row.
       </li>
       <li>
-        <strong>Ranking.</strong> The board keeps the best result per spec, ties broken by recency,
+        <strong>Ranking:</strong> The board keeps the best result per spec, ties broken by recency,
         and orders by score, descending. One recipe cannot crowd the board with near-identical
         attempts.
       </li>
