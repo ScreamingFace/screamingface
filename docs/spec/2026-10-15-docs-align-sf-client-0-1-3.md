@@ -29,6 +29,7 @@ The SF Client docs (`public-docs`) disagree with screamingface 0.1.3, the releas
 | D17 | The title "Reproduce DRACO state-of-the-art" stays. | Quickstart |
 | D18 | The `EngineUnavailableError` hint is not documented. | none |
 | D19 | Shared model calls: with the cache on, a model call runs once however many candidates use it. Calls are matched by a fingerprint of the route, prompt and parameters, not by model object, so two identical model objects share one call. The first candidate to run stores the response and the next one reuses it. | Caching, Engine, Overview, Quickstart |
+| D20 | Quickstart (Reproduce DRACO): the lineup is cut to the four candidates the page defines (`opus`, `gpt`, `gemini`, `frontier_trio`); the static mock panels and the BEST marker are removed; the provider list is the seven providers a local engine advertises. A local reader runs the steps on `ifeval`. | Quickstart |
 
 ## Corrections that need no decision
 
@@ -37,6 +38,7 @@ Each is verified false on 0.1.3.
 - Installation: `len(sf.__all__)  # 56` is 82; the `up` sample prints `Scoreboard`, not `Leaderboard`; the `web_search` check returns False on every route; the provider-plugin FAQ is stale (`screamingface up` enables OpenRouter); `login()` in a notebook only prints a link.
 - Connections guide and Quickstart: a local engine advertises 7 providers, not one; the demo panel lists Tavily, which is not a connection.
 - Models guide: the profile sample (12 parameters, `web_search`) and the `list()` counts are stale.
+- Quickstart: the 16-candidate lineup uses names the page never defines (`NameError`); the report view has no BEST marker, only score, coverage and cost; the `reasoning`-free compose block runs on 0.1.3 (`ifeval`, four candidates).
 - Evaluation guide: `cost_usd` is a real value, not `Decimal('0')`.
 - Events API: five event types, not four.
 - Errors API: `ScreamingFaceError` does not catch argument-validation errors; the `antigravity` `get` sample does not raise.

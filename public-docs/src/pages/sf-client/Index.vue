@@ -3,7 +3,6 @@ import { RouterLink } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import NbCell from '@/components/nb/NbCell.vue'
-import NbTextOut from '@/components/nb/NbTextOut.vue'
 import { SF_ENGINE_URL } from '@/lib/engine'
 import { useThemeStore } from '@/stores/themeStore'
 import {
@@ -29,8 +28,6 @@ fusion = sf.Fusion([gpt, flash], synthesizer="openrouter/openai/gpt-5.5")
 # Score the solo model beside the fusion, on the same cases.
 report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
 {c.name: c.score for c in report.candidates}`
-
-const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview': 1.0}`
 </script>
 
 <template>
@@ -70,34 +67,35 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
 
     <ul>
       <li>
-        <strong>Held-out grading.</strong> Benchmark answer keys, rubrics, and judges live on the
-        engine and are never returned to the Client, so a score does not rest on trusting whoever
-        produced it.
+        <strong>Held-out grading:</strong> The engine grades each case, so a score does not rest on
+        trusting whoever produced it. The run report returns the rubric criteria and the judge
+        model for each graded case, so you can see how a score was reached.
       </li>
       <li>
-        <strong>A reproducible artifact for every run.</strong> Each evaluation compiles to one
+        <strong>A reproducible artifact for every run:</strong> Each evaluation compiles to one
         <RouterLink to="/learn/url4">url4</RouterLink> expression recording the models, their
         parameters, and the benchmark revision that was used. Anyone holding it can run the same
         evaluation.
       </li>
       <li>
-        <strong>Your own providers.</strong> You connect the API keys you already have, and calls
-        are billed to your own accounts rather than resold to you.
+        <strong>Your own providers (local engine):</strong> You connect the API keys you already
+        have, and calls are billed to your own accounts rather than resold to you.
       </li>
       <li>
-        <strong>Caching.</strong> Every model response is
-        <RouterLink to="/learn/caching">cached</RouterLink> against its exact request, so comparing
-        many fusion candidates over one benchmark is billed only for the calls that have not been
-        made before. A model shared between two candidates answers once, and swapping a single
-        member re-uses what the others already produced.
+        <strong>Caching:</strong> With the <RouterLink to="/learn/caching">cache</RouterLink> on, a
+        model call that was made before is served from the cache. Calls are matched by route,
+        prompt and parameters, so comparing many fusion candidates over one benchmark is billed
+        only for the calls that have not been made before. A model shared between two candidates
+        runs once, and swapping a single member re-uses what the others already produced. A local
+        engine starts with the cache off.
       </li>
       <li>
-        <strong>Cost reported alongside accuracy.</strong> Tokens, spend, and duration stream while
+        <strong>Cost reported alongside accuracy:</strong> Tokens, spend, and duration stream while
         the run is in progress and are totalled per model and per fusion, so the price of a gain is
         visible at the same time as the gain.
       </li>
       <li>
-        <strong>Reusable recipes.</strong> Recipes published to the leaderboard can be imported,
+        <strong>Reusable recipes:</strong> Recipes published to the leaderboard can be imported,
         modified, and re-run, and on a hosted engine the cache is shared across the community, so
         repeating someone else's run usually costs a fraction of the original.
       </li>
@@ -151,8 +149,9 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
       </li>
       <li>
         <strong>A hosted engine</strong> runs the same software as a service and adds the shared
-        community cache, on compute we provide once you log in. It does not take your own provider
-        keys; bring-your-own-key is the local path, and your prompts run on an engine we operate.
+        community cache, on compute we provide once your account has been given access. To get
+        access, reach out to the OpenMined team. It does not take your own provider keys;
+        bring-your-own-key is the local path, and your prompts run on an engine we operate.
       </li>
     </ul>
 
@@ -164,14 +163,27 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
 
     <h2>The smallest example</h2>
 
+    <p>
+      This runs on a hosted engine, which needs an account with access. On a local engine, point
+      <code>engine_url</code> at <code>http://127.0.0.1:9108</code> and use
+      <code>benchmark="ifeval"</code>, which a local engine serves.
+    </p>
+
     <div class="not-prose">
-      <NbCell :count="1" :code="smallestExample"><NbTextOut :text="smallestExampleOut" /></NbCell>
+      <NbCell :count="1" :code="smallestExample" />
     </div>
 
     <p>
-      <code>score</code> is each candidate's accuracy over the same cases, where higher is better.
-      The report carries no baseline or gain field, because the comparison is simply that you ran
-      the solo model and the fusion in one call and can read both numbers.
+      <code>score</code> is each candidate's benchmark score over the same cases, where higher is
+      better. The report carries no baseline or gain field, because the comparison is simply that
+      you ran the solo model and the fusion in one call and can read both numbers. Scores for
+      <code>draco-3pass</code> are on the live
+      <a
+        href="https://leaderboard.screamingface.ai/benchmark.html?id=draco-3pass"
+        target="_blank"
+        rel="noopener"
+        >leaderboard</a
+      >.
     </p>
   </DocLayout>
 </template>

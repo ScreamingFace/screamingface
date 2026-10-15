@@ -3,6 +3,7 @@ import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import Note from '@/components/ui/Note.vue'
+import Tabs from '@/components/ui/Tabs.vue'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
@@ -10,7 +11,10 @@ import {
 
 const importCell = `import screamingface as sf`
 
-const connect = `sf.connect()  # opens the connection panel; log in when prompted`
+const connect = `sf.connect()  # opens the connection panel; click Log in`
+
+const connectLocal = `sf.configure(engine_url="http://127.0.0.1:9108")
+sf.connect("openrouter", api_key="sk-or-...")  # your own OpenRouter key`
 
 const build = `fusion = sf.Fusion(
     ["openrouter/openai/gpt-5.5", "openrouter/google/gemini-3-flash-preview"],
@@ -38,9 +42,10 @@ candidate.score`
 
     <Note>
       You need the Client installed (see
-      <RouterLink to="/sf-client/installation">Installation</RouterLink>). No provider keys needed
-      — the hosted engine supplies shared OpenRouter credits. You will log in with your browser in
-      step 2.
+      <RouterLink to="/sf-client/installation">Installation</RouterLink>) and an engine to run on.
+      On the hosted engine your account needs access, which the OpenMined team grants, and no
+      provider keys are needed. On a local engine you connect your own OpenRouter key. Step 2 shows
+      both.
     </Note>
 
     <h2>1 · Import the library</h2>
@@ -51,17 +56,35 @@ candidate.score`
       <NbCell :count="1" :code="importCell" />
     </div>
 
-    <h2>2 · Log in</h2>
+    <h2>2 · Connect to an engine</h2>
 
-    <p>
-      The hosted engine comes with shared OpenRouter credits — no key to paste. Call
-      <code>sf.connect()</code> to open the connection panel: it will prompt you to log in through
-      your browser, then show OpenRouter as connected.
-    </p>
+    <Tabs :labels="['Hosted engine', 'Your own engine']">
+      <template #tab-0>
+        <p>
+          The hosted engine comes with shared OpenRouter credits, so there is no key to paste. Call
+          <code>sf.connect()</code> to open the connection panel. It shows a Log in button; log in
+          through your browser. For an account with access the panel then lists OpenRouter as
+          connected. For an account without access every provider shows as unavailable, and an
+          evaluation is refused: ask the OpenMined team for access, or use your own engine.
+        </p>
 
-    <div class="not-prose">
-      <NbCell :count="2" :code="connect" />
-    </div>
+        <div class="not-prose">
+          <NbCell :count="2" :code="connect" />
+        </div>
+      </template>
+
+      <template #tab-1>
+        <p>
+          Start the local stack as described in
+          <RouterLink to="/sf-client/installation">Installation</RouterLink>, point the Client at it,
+          and connect your own OpenRouter key. A local engine needs no login.
+        </p>
+
+        <div class="not-prose">
+          <NbCell :count="2" :code="connectLocal" />
+        </div>
+      </template>
+    </Tabs>
 
     <h2>3 · Build the fusion</h2>
 
@@ -84,9 +107,10 @@ candidate.score`
     </p>
 
     <Note>
-      <code>ifeval</code> is one of several benchmarks the engine publishes. Others include
-      <code>draco</code> (deep research) and <code>healthbench-worst30</code> (hard medical
-      conversations); list everything available with <code>sf.benchmarks.list()</code>, and see
+      <code>ifeval</code> is one of several benchmarks. A local engine also serves
+      <code>healthbench-professional</code>, <code>healthbench-worst30</code> (hard medical
+      conversations) and <code>medxpert</code>; the hosted engine adds <code>draco</code> (deep
+      research) and more. List everything available with <code>sf.benchmarks.list()</code>, and see
       <RouterLink to="/sf-client/guides/benchmarks">Choose a benchmark</RouterLink> for how to pick
       one.
     </Note>
