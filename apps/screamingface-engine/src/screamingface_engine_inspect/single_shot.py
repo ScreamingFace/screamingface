@@ -386,6 +386,7 @@ def single_shot_benchmark(
     retrieval_policy: RetrievalPolicyDeclaration | None = None,
     candidate_input_envelope: bool = False,
     scorer_draft_feedback: bool = False,
+    kept_revision: tuple[str, str] | None = None,
     answer_rule: AnswerRule | None = None,
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
@@ -455,6 +456,9 @@ def single_shot_benchmark(
             score and words (OME-1527, R9) instead of 0-or-1 and the fixed sentence. Needs
             ``with_check_surface``, which only the owner turns on for a Benchmark. Hashed
             into the revision below when set.
+        kept_revision: ``(published, stands_for)`` — publish an older revision while the
+            computed one is exactly ``stands_for`` (OME-1527); see :func:`_published_revision`.
+            NOT hashed into the revision: it names the revision, so it cannot feed it.
         answer_rule: how the grader reads an answer, as pinned combine operator ids (OME-1289).
             Published in the catalog; NOT hashed into the revision (like ``focus``).
 
@@ -501,7 +505,7 @@ def single_shot_benchmark(
     # different pin lists hash identically — refused, never coerced.
     if any("\n" in pin for pin in revision_pins):
         raise ValueError(f"{benchmark_id}: revision_pins must not contain newlines")
-    revision: str = hashlib.sha256(
+    computed_revision: str = hashlib.sha256(
         "\n".join(
             (
                 *pinned_inspect_packages(),
@@ -546,6 +550,7 @@ def single_shot_benchmark(
             )
         ).encode()
     ).hexdigest()[:16]
+    revision: str = _published_revision(benchmark_id, computed_revision, kept_revision)
     prefix: str = f"/benchmarks/{benchmark_id}/{revision}"
     routes: dict[str, str] = {
         "cases": f"{prefix}/cases",
@@ -1376,6 +1381,36 @@ def _beside(
             "tally already publishes; rename the metric's key"
         )
     return {**tally_metrics, **run_metrics}
+
+
+def _published_revision(
+    benchmark_id: str, computed: str, kept_revision: tuple[str, str] | None
+) -> str:
+    """The revision a Benchmark publishes: the one it computes, or a kept older one while the
+    computed one is still exactly the fingerprint that older one stands for.
+
+    WHY keep one: the published revision is what submissions and the leaderboard key on, so
+    a migration that moves it hides every existing result, though the exam did not change. A
+    migration whose recorded golden replays with zero misses proves the exam unchanged, and
+    may keep the old revision; a pin is only set with that proof.
+
+    INVARIANT: a kept revision never hides a real exam change. It stands for one exact
+    computed fingerprint; any later change to the Task's code, Cases or row moves that
+    fingerprint and refuses assembly here, until someone re-proves equivalence or drops the
+    pin. Worked example (healthbench-worst30): ``("39cfd96b068f7230", "f12c3e30661ea9d3")``
+    publishes ``39cfd96b068f7230`` while the revision computes to ``f12c3e30661ea9d3``; a
+    one-byte edit to the Task makes it compute to something else, and assembly stops.
+    """
+
+    if kept_revision is None:
+        return computed
+    published, stands_for = kept_revision
+    if computed != stands_for:
+        raise ValueError(
+            f"{benchmark_id}: kept_revision stands for {stands_for} but the revision now "
+            f"computes to {computed}; the exam changed — drop the pin or re-prove equivalence"
+        )
+    return published
 
 
 def _metric_sample(case: CaseResult, kept: Mapping[int, Any], metric_name: str) -> Any:
