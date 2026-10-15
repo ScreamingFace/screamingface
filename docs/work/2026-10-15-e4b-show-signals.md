@@ -341,11 +341,33 @@ No public name, no new bound, no change to the trace, the export or any record.
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:**
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **RED log:**
+- **Status:** done. The GREEN code of the Case pane Combine section is on the branch. All 18 CP
+  rows pass. The gates are green, except the append-only check of `--base 9f42391eb`, which
+  lists only the three unit 1 pinned files (see Gates).
+- **Actual files:** `packages/screamingface/src/screamingface/_ui/combine_view.py` (the commit A
+  stub replaced by the GREEN code: imports, three constants, `combine_sections_html` and its
+  private helpers); `packages/screamingface/src/screamingface/_ui/report_view.py` (one import
+  line and the `body` expression of `_pane_html` with `combine_sections_html(candidate, case)`
+  between the failures and the checks); this ledger. The test file
+  `packages/screamingface/tests/test_combine_case_pane.py` was added in commit A only and is not
+  changed. No pinned file changed.
+- **Commits:** commit A `b912ae0c3` (`test(e4b): RED for E4b part 4 unit 3 case-pane`, as
+  committed by the RED step). Commit B is the next commit on the branch (`feat(e4b): show a
+  Combine section for each reducer step in the Case pane (part 4 unit 3)`), and it holds this
+  Outcome. No commit C: spec §7 asks for no docs in this unit (unit 5 holds README and CHANGELOG).
+- **Gates:** `screamingface --base 9f42391eb`: the append-only check lists ONLY the three unit 1
+  pinned files (`tests/data/report_v1_combine_report.json`,
+  `tests/data/report_v1_vote_median_report.json`, `tests/test_e4b_schema_pins.py`). This is the
+  expected result. Rerun with `--skip-append-only`: ALL GATES GREEN (ruff check, ruff format
+  --check, pyright, full pytest with the 95 percent floor, check_notebooks, uv build,
+  check_distribution). `screamingface --base d49e75ab2` (unit 2 tip): ALL GATES GREEN, the
+  append-only check included, with no skip flag. `repo --base 9f42391eb`: ALL GATES GREEN.
+  Focused: `tests/test_combine_case_pane.py` gives `18 passed`; the 19 other test files of the
+  second focused command of spec §5 give `301 passed`. `ruff check`, `ruff format --check` and `pyright`
+  are clean on the three touched Python files.
+- **RED log:** the RED step recorded the commit A state (commit message: 16 rows fail on an
+  assertion, 2 CHAR rows pass). This unit did not run the RED check again: commit A is not
+  checked out in this worktree.
 - **Deviations:** (pre-filled)
   - D-1: CP-E3 / CP#12 part 2. The PRD wire declares the name `<b>k</b>`
     (`declared {"<b>k</b>": {"source": "<x>"}}`). The SDK decoder refuses it: a declared NAME must
