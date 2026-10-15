@@ -67,6 +67,7 @@ There is no automated test setup in this project.
 | `/sf-client/api/reports`                  | `src/pages/sf-client/api/ReportsPage.vue`         |
 | `/sf-client/api/clients`                  | `src/pages/sf-client/api/ClientsPage.vue`         |
 | `/sf-client/api/fusions`                  | `src/pages/sf-client/api/FusionsPage.vue`         |
+| `/sf-client/api/reducers`                 | `src/pages/sf-client/api/ReducersPage.vue`        |
 | `/sf-client/api/pipelines`                | `src/pages/sf-client/api/PipelinesPage.vue`       |
 | `/sf-client/api/url4`                     | `src/pages/sf-client/api/Url4Page.vue`            |
 | `/sf-client/api/connections`              | `src/pages/sf-client/api/ConnectionsPage.vue`     |

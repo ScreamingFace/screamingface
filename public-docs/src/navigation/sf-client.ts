@@ -60,6 +60,7 @@ export const sfClientReferenceNavigation: NavEntry[] = [
           { title: 'Recipe', path: '/sf-client/api/recipes' },
           { title: 'Model', path: '/sf-client/api/models' },
           { title: 'Fusion', path: '/sf-client/api/fusions' },
+          { title: 'Reducers', path: '/sf-client/api/reducers' },
           { title: 'Pipeline', path: '/sf-client/api/pipelines' },
           { title: 'Url4', path: '/sf-client/api/url4' },
         ],

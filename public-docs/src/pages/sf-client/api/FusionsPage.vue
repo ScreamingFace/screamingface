@@ -13,7 +13,9 @@ const fusionSig = `sf.Fusion(
     members: Sequence[str | Recipe],
     *,
     name: str | None = None,
-    synthesizer: str | Recipe,
+    synthesizer: str | Recipe | Reducer,
+    quorum: int | Literal["all"] = "all",
+    optional: bool = False,
 )`
 
 const fusionExample = `fusion = sf.Fusion(
@@ -21,6 +23,16 @@ const fusionExample = `fusion = sf.Fusion(
     synthesizer="openrouter/moonshotai/kimi-k3",
 )
 report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
+
+const quorumExample = `fusion = sf.Fusion(
+    [
+        sf.Model("openrouter/deepseek/deepseek-v4-flash", name="a"),
+        sf.Model("openrouter/google/gemini-3.5-flash-lite", name="b"),
+        sf.Model("openrouter/anthropic/claude-haiku-4.5", name="c", optional=True),
+    ],
+    quorum=2,
+    synthesizer=sf.Vote(),
+)`
 </script>
 
 <template>
@@ -65,7 +77,27 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
         <tr>
           <td><code>synthesizer</code></td>
           <td><code>Recipe</code></td>
-          <td>The recipe that combines the members' answers into the single graded answer.</td>
+          <td>
+            The recipe that combines the members' answers into the single graded answer. It can also
+            be a <RouterLink to="/sf-client/api/reducers">reducer</RouterLink>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>quorum</code></td>
+          <td><code>int | "all"</code></td>
+          <td>
+            How many members must succeed, checked after the members finish. <code>"all"</code>
+            (the default) needs every member. <code>0</code> lets synthesis run with no successful
+            member, which is only valid when every member is optional.
+          </td>
+        </tr>
+        <tr>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            Whether this Fusion, as a member of another Fusion, may fail without stopping that
+            Fusion, as long as its quorum is met. The synthesizer itself stays required.
+          </td>
         </tr>
       </tbody>
     </table>
@@ -79,6 +111,19 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
 
     <div class="not-prose">
       <NbCell :count="1" :code="fusionExample" />
+    </div>
+
+    <p>
+      A member marked <code>optional=True</code> (on a <code>Model</code>, a
+      <code>Pipeline</code> or a <code>Fusion</code>) can fail while the run still synthesizes, as
+      long as at least <code>quorum</code> members succeed. A failed optional member appears as a
+      failed answer with the reason <code>missing</code> and never as a vote. A required member
+      that fails fails the candidate. <code>optional</code> is only valid in a Fusion's member
+      position.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="2" :code="quorumExample" />
     </div>
   </DocLayout>
 </template>

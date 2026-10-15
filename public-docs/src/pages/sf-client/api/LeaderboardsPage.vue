@@ -399,6 +399,16 @@ client.leaderboards.submit(
       Boards that predate a field leave it absent, and it reads as <code>None</code>.
     </p>
 
+    <h2>LeaderboardRankingNotice</h2>
+
+    <p>
+      <code>LeaderboardScore.ranking_notice</code> explains why a successfully published score will
+      not enter the current ranking, and is <code>None</code> when it will. A
+      <code>LeaderboardRankingNotice</code> has a <code>code</code>, the
+      <code>submitted_benchmark_revision</code> and the <code>registered_benchmark_revision</code>
+      of the board.
+    </p>
+
     <h2>ScoreMetadataEvent</h2>
 
     <p>

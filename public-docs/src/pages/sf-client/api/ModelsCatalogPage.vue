@@ -24,6 +24,7 @@ const modelSig = `sf.Model(
     name: str | None = None,
     prompt: str | None = None,
     params: Mapping[str, str | int | float | bool] | None = None,
+    optional: bool = False,
 )`
 </script>
 
@@ -95,6 +96,14 @@ const modelSig = `sf.Model(
             Only the params you set get sent, since the SDK adds no defaults. Transport, tool, and
             benchmark-protocol names (like <code>model</code>, <code>messages</code>,
             <code>tools</code>, <code>web_search</code>) are reserved and will be rejected.
+          </td>
+        </tr>
+        <tr>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            Whether this Model, as a Fusion member, may fail without stopping the Fusion while its
+            <RouterLink to="/sf-client/api/fusions">quorum</RouterLink> is met.
           </td>
         </tr>
       </tbody>

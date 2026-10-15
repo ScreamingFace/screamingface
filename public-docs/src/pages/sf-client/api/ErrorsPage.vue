@@ -67,7 +67,9 @@ with warnings.catch_warnings():
 
 Warning
 └── UserWarning
-    └── EvaluationWarning"
+    └── EvaluationWarning
+        ├── DuplicateMembersWarning
+        └── FixedSeedSittingWarning"
       language="text"
     />
 
@@ -200,6 +202,14 @@ Warning
       <NbCell :count="3" :code="attrs"><NbTextOut :text="attrsOut" /></NbCell>
     </div>
 
+    <p>
+      <code>EngineCapabilityError</code> is a <code>PlanningError</code> with the code
+      <code>engine_capability_missing</code>. It means the engine lacks a capability the evaluation
+      needs, for example the combine operators a
+      <RouterLink to="/sf-client/api/reducers">reducer</RouterLink> compiles to. It is raised
+      before anything is spent.
+    </p>
+
     <h2>Warnings</h2>
 
     <p>
@@ -208,6 +218,41 @@ Warning
       and it subclasses <code>UserWarning</code>, so it appears in normal warning output and
       <code>warnings.simplefilter</code> controls it.
     </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Warning</th>
+          <th>Emitted when</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>EvaluationWarning</code></td>
+          <td>
+            A submission carries a caveat. A run made with <code>limit</code> is a partial
+            submission, which is not directly comparable with a full run and does not enter the
+            ranking.
+          </td>
+        </tr>
+        <tr>
+          <td><code>DuplicateMembersWarning</code></td>
+          <td>
+            Two members of a reducer Fusion send the same request, so they may be one cached
+            answer. It is emitted once per group. Use <code>sf.samples()</code> for independent
+            samples.
+          </td>
+        </tr>
+        <tr>
+          <td><code>FixedSeedSittingWarning</code></td>
+          <td>
+            A run sets <code>answer_seed</code> while some calls set their own <code>seed</code>
+            (every <code>sf.samples()</code> member does). Those calls send the same request in
+            every sitting, so the spread across sittings is not measured. The run still goes on.
+          </td>
+        </tr>
+      </tbody>
+    </table>
 
     <Note>
       A warning does not invalidate a report. It means the score is less well supported than the
