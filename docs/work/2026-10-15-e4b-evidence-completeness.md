@@ -541,15 +541,44 @@ Decisions: Q1, Q2, Q4, P8, P9; E4b part 1 ans:Q5 (additive edit, same v1 id).
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:** in_progress. Commit A (RED) holds the ledger section and the test file. No code
-  change yet.
-- **Actual files:** `packages/screamingface/tests/test_judge_link_trace.py` (new, RED);
-  `docs/work/2026-10-15-e4b-evidence-completeness.md` (this section).
-- **Commits:** A `…` (RED, pending), B `…` (GREEN, pending), C `…` (ledger outcome, pending).
-- **Gates:** pending (the four runs of spec §5.4, with the append-only offender lists; they run
-  after commit B).
+- **Status:** done. Commit A (RED) holds the ledger section and the test file. Commit B (GREEN)
+  holds the code, the snapshot and the pin. Unit 4 is complete. The part is not complete.
+- **Actual files:** commit A: `packages/screamingface/tests/test_judge_link_trace.py` (new, RED),
+  this section. Commit B: `packages/screamingface/src/screamingface/_case_views.py`,
+  `packages/screamingface/src/screamingface/report_trace.py`,
+  `packages/screamingface/tests/data/schemas/screamingface.report-trace.v1.json` (U4-P1),
+  `packages/screamingface/tests/test_e4b_schema_pins.py` (U4-P2, one string).
+  Commit C: this section only. No README, CHANGELOG, url4, engine or combine spec file changes.
+- **Commits:** A `9f89fc00a` (RED). B `09d99c93d` (GREEN): `feat(screamingface): the trace reduce
+  entry links the judge operation and model (part 2 unit 4)`. C: the commit that adds this text.
+- **Gates:** (`run_gates.py <stack> --base 0f4b9e292` unless stated)
+  - `screamingface`, append-only ON: red ONLY at the append-only check. Offenders (every one is a
+    pinned file of units 1 to 4): `tests/data/schemas/screamingface.answer.v1.json` (P-2,
+    unit 1), `tests/public_surface_snapshot.json` (P-3, unit 1), `tests/test_pick_output.py`
+    (P-4, unit 1), `tests/test_frozen_record_fields.py` (X-5, units 2 and 3, owner-approved
+    D-3), `tests/data/schemas/screamingface.report-trace.v1.json` (U4-P1), and
+    `tests/test_e4b_schema_pins.py` (U4-P2).
+  - `screamingface`, `--skip-append-only`: ALL GATES GREEN (ruff check, ruff format, pyright,
+    pytest with coverage, notebooks, build, distribution check).
+  - `repo`, append-only ON: ALL GATES GREEN (append-only check passes for this stack).
+  - `screamingface`, `--base 6fb2b5a62` (this unit alone), append-only ON: red ONLY at the
+    append-only check. Offenders: `tests/data/schemas/screamingface.report-trace.v1.json` (U4-P1)
+    and `tests/test_e4b_schema_pins.py` (U4-P2). Both are the expected pins.
+  - Focused: `tests/test_judge_link_trace.py` 25 passed. Neighbors (plan §5.2 list, 16 files)
+    136 passed. Ruff check, ruff format and pyright are clean on the three touched files.
+  - No flaky test. Retries: 0.
 - **RED log:** commit A. `uv run pytest -q tests/test_judge_link_trace.py` in `packages/screamingface`:
   `7 passed, 18 failed`. No collection or import error. The 7 passing tests are the six JM#1
   url4 params and JM#2 (CHAR). Each of the 18 RED rows fails with `AssertionError` on a missing
   key (`assert {} == {'judge_operation_id': …}`) or on the field list (JM#12, `assert [...] == [...]`).
-- **Approval blobs:** pending (U4-P1 and U4-P2, after commit B).
+  After commit B the file gives `25 passed`.
+- **Approval blobs** (`git rev-parse 0f4b9e292:<path>` base, `git hash-object <path>` approved):
+  - U4-P1 `packages/screamingface/tests/data/schemas/screamingface.report-trace.v1.json`:
+    base `47ddb41471b85c91b666d6a4ef053aa432e3e024`, approved `9777fa55f21c48bff574337e21b9837dbec496e1`
+    (sha256 `687605763d666ce2ad69ef6e4c9420eb8ffa3f13e7e8a574f8a662510884567c`).
+  - U4-P2 `packages/screamingface/tests/test_e4b_schema_pins.py`: base
+    `d9b23d45a22d474a1d7c3024ce064a9ace23a4d3`, approved `8a32a2c2f6ba4a7f8f0581e722139415e784b39b`.
+- **Pinned edits in this unit:** U4-P1 (regenerated snapshot, `reduce` gains the two names) and
+  U4-P2 (one sha256 string in `test_e4b_schema_pins.py`, line 25). No other existing test was
+  changed. `test_frozen_record_fields.py` was not touched in this unit (no evidence case was
+  added, so no bump).
