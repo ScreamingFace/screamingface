@@ -507,3 +507,165 @@ the entropy of the recorded reply, 6.547567880357428e-07.
   6. GREEN (commit B): two lines longer than 100 characters (a comment in `error_text.py` and a
      docstring line in `world/reply_logprobs.py`) were wrapped by hand, because ruff format does not
      wrap comments or docstrings.
+
+## Unit 4 — logprob and entropy sources
+
+Status: in_progress (RED stage). Unit spec: v2 (`p3-unit4-logprob-entropy-v2.md`).
+
+### Intent
+
+Add the declared sources `sf.Logprob("mean" | "sum" | "prob")` and `sf.Entropy(top_logprobs=5)`.
+A Fusion that declares one of them asks each member call for logprobs. The SDK refuses the cases
+that cannot work, writes the context `sources`, and rebuilds from url4 without the injected params.
+The engine reads the declaration as a discriminated union. It turns the reply numbers of each
+member (unit 3) into the declared value. Rows: LP#1–14 and EN#1–13 (27 rows). This commit is the
+RED stage (commit A): the tests and the stubs only.
+
+### Step 0 — facts at the start
+
+- HEAD at start: `df3afd6cc5d3ee23f23105d29aa6c7ad6bbb467a`. The tree was clean.
+- Reference folder checksums: equal to the values in the unit spec §0.
+- `git apply --check` of the stub patch: passed.
+- SDK source API (unit 2): `SignalSource` has abstract `_spec()` and `_from_spec(entry)`, and a
+  concrete `_python()`. `fusion.signals` is None when nothing is declared.
+- Engine before this unit: `CombineSpec.signals: dict[str, VerbalizedSource] | None`. Every
+  declared entry resolves through `registry.source(...)`.
+- `reply_logprobs` has the residual entropy formula (unit 3, D-U3-4). EN#1–5 and EN#11 are CHAR
+  rows. EN#12 (LC#17) and LP#11 (LC#3) are CHAR rows too.
+- DS#7 is closed by unit 2, with a test-local fake. This unit adds the support test
+  `test_fusion_refuses_two_entropy_sources` with the real `sf.Entropy` (CHAR).
+- DS#16 is open. Its drop half closes in this unit with LP#14 and EN#13.
+- LC#15 is pinned by `ST/test_logprobs_parameter_preflight.py` (authored params, CHAR). Its
+  injected-params half (D-U3-6) closes with the LP#6 preflight test.
+- No helper fakes gateway logprobs for a full Candidate run. This unit creates
+  `ET/_logprob_world.py`.
+- No approval manifest exists (removed at `df3afd6cc`). The append-only gate has no manifest.
+
+### Planned changes
+
+- Commit A (this commit): stubs in `S/signal_sources.py`, `S/__init__.py` and
+  `E/combine/logprob_forms.py`. Seven new test files: six test modules and the helper
+  `ET/_logprob_world.py`. The existing surface test `ST/test_public_surface.py` does not change;
+  it fails in commit A because of the new exports.
+- Commit B (GREEN, not this commit): the SDK product code (`S/fusion.py`,
+  `S/_evaluation/candidate.py`, `S/url4.py`), the engine product code (`E/combine/spec.py`,
+  `E/combine/endpoint.py`), ten `ET/data/combine_contract/*.url4` fixtures, and two pinned files.
+- Pinned edits (owner approves; commit B only): `ST/public_surface_snapshot.json` (adds `Entropy`
+  and `Logprob`); `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json` (adds the
+  two source shapes; owner approved 2026-10-15).
+
+### Unit decisions (for owner review)
+
+- U4-D1: a Fusion that declares `sf.Logprob` or `sf.Entropy` refuses a member Model that sets
+  `logprobs` or `top_logprobs` itself. Reason: the injection owns these two params.
+- U4-D2: `sf.Logprob(form)` has no default. `sf.Entropy` is keyword-only with `top_logprobs=5`.
+- U4-D3: a bad `form` or `top_logprobs` (any type, also `bool` and `float`) raises `ValueError`.
+- U4-D4: the form arithmetic is the new pure core module `E/combine/logprob_forms.py`.
+- U4-D5: the injected params follow the author params: `logprobs` first, then `top_logprobs`.
+- U4-D6: the engine declaration is a discriminated union on `source`. `VerbalizedSource` does not
+  change.
+- U4-D7: a logprob or entropy name is a `_ReplyDeclared` in the plan, not a registry source.
+- U4-D8: one member reader call per combine call. `_accounting_numbers` is merged away.
+- U4-D9: the url4 rebuild drops the params that `injected_member_params(declared)` names. The
+  Fusion branch moves to `_fusion_from_topology` (ruff PLR0915).
+- U4-D10: the commit A stubs store the value with no check. `_spec`, `_from_spec`, `logprob_value`
+  and `entropy_value` raise `NotImplementedError("E4b part 3 unit 4")`.
+- U4-D11 (owner item): the `parse_context` text still says "when the spec reads an accounting
+  signal". The text is pinned, so it does not change here.
+- Erratum E-1: PRD LP-6 writes `sf.Rank(2, by=...)`. The API is `sf.Rank(k, *, by_signal=...)`.
+- Erratum E-2: PRD EN-2 says H = 0.2 and H = 0.6. The test uses H = ln 2 and H = ln 4. The oracle
+  is 1.5 · ln 2.
+- Erratum E-3: `sum([-0.1, -0.2, -0.3])` gives `-0.6`. The v1 claim of `-0.6000000000000001` is
+  false.
+- Erratum E-4: run the layering script with `uv run python`. The system `python3` is too old.
+- Erratum E-5: the source methods are unit 2's `_spec()` and `_from_spec()`, not `_wire()`.
+
+### Test plan
+
+- Source of the tests: the reference folder of the unit spec (copied, not rewritten). Their
+  checksums equal the spec §0 values.
+- RED rows: 19 of the 27 rows. CHAR rows: LP#11, EN#1–5, EN#11, EN#12 (8 rows).
+- Support tests (not counted in the 27): `test_logprob_refuses_an_unknown_form` (RED),
+  `test_declared_from_spec_rebuilds_and_refuses_logprob_and_entropy_entries` (RED),
+  `test_fusion_refuses_two_entropy_sources` (CHAR), `test_one_reader_call_feeds_the_reply_names_and_the_accounting_key`
+  (RED), and the 10-case fixture drift guard (RED).
+- The engine world tests read their fixtures inside the test body. In commit A they fail with
+  `AssertionError: combine_contract/<name> is missing`, not with a collection error.
+
+### Acceptance
+
+- Commit A: every RED row fails for the reason of §4 of the unit spec. Every CHAR row passes.
+  No `ImportError`, no `NameError`, no collection error.
+- Commit A: ruff check, ruff format --check and pyright pass in both stacks.
+- Final (after commit B): all 27 rows and the support tests pass; no existing fixture changes; the
+  combine-evidence schema does not change; the schema and surface diffs are additive.
+
+### Unit 4 outcome
+
+- Audit before commit A: the seven new test files are byte-equal to the reference test files. The
+  three product files are byte-equal to the result of the stub patch on `df3afd6cc`. No production
+  behavior is in the stubs. No existing test or pinned file changed in commit A.
+- RED (commit A), SDK (`test_logprob_source.py`, `test_entropy_source.py`,
+  `test_logprob_entropy_url4_fixtures.py`, `test_public_surface.py`): 34 failed, 11 passed. The 11
+  passes are the 3 LP#4 controls, the two-entropy support test and 7 other surface tests.
+- RED (commit A), engine (`test_logprob_forms.py`, `test_reply_entropy.py`,
+  `test_logprob_entropy_world.py`): 13 failed, 13 passed. The 13 passes are the CHAR rows.
+- Failure line per RED row:
+  - LP#4 `test_vote_weight_refuses_logprob_mean_and_sum_with_a_prob_hint` (6 cases) ->
+    `Failed: DID NOT RAISE ValueError`.
+  - LP#1 `test_logprob_forms_mean_sum_prob` -> `NotImplementedError: E4b part 3 unit 4`.
+  - LP#2 `test_logprob_of_zero_tokens_is_none` -> `NotImplementedError: E4b part 3 unit 4`.
+  - LP#5 `test_logprob_refuses_non_openrouter_and_recipe_members` ->
+    `Failed: DID NOT RAISE ValueError`.
+  - LP#6 `test_logprob_compiles_logprobs_true_on_each_member_call` and
+    `test_logprob_preflight_refuses_a_model_the_catalog_marks_without_logprobs` (2 cases) ->
+    `NotImplementedError: E4b part 3 unit 4` (from `Logprob._spec`).
+  - LP#7 `test_pick_max_by_logprob_mean` -> `AssertionError: combine_contract/logprob_pick_mean_candidate.url4 is missing - write it with the SDK`.
+  - LP#8 `test_vote_weighted_by_logprob_prob` -> `AssertionError: ... logprob_vote_prob_candidate.url4 is missing`.
+  - LP#3 `test_logprob_prob_underflow_is_none` -> `NotImplementedError: E4b part 3 unit 4`.
+  - LP#9 `test_filter_by_logprob_threshold_records_the_values` and
+    `test_steer_filter_records_the_member_mean_and_its_pass` -> `AssertionError: ...
+    logprob_filter_mean_candidate.url4 is missing` and `... logprob_steer_filter_candidate.url4 is missing`.
+  - LP#10 `test_samples_members_get_their_own_logprob` -> `AssertionError: ...
+    logprob_samples_pick_candidate.url4 is missing`.
+  - LP#12 `test_rank_by_logprob_mean_keeps_the_top_k` -> `AssertionError: ...
+    logprob_rank_mean_candidate.url4 is missing`.
+  - LP#13 SDK `test_pick_and_filter_accept_sum_and_prob` -> `NotImplementedError: E4b part 3 unit 4`;
+    engine `test_pick_and_filter_accept_sum_and_prob_in_the_engine` -> `AssertionError: ...
+    logprob_pick_sum_candidate.url4 is missing`.
+  - LP#14 `test_logprob_fusion_rebuilds_from_url4_without_injected_params` (2 cases) ->
+    `NotImplementedError: E4b part 3 unit 4`.
+  - EN#7 `test_vote_weight_refuses_entropy_with_an_order_min_hint` (3 cases) ->
+    `Failed: DID NOT RAISE ValueError`.
+  - EN#8 `test_entropy_compiles_top_logprobs_on_each_member_call` ->
+    `NotImplementedError: E4b part 3 unit 4`; `test_entropy_refuses_non_openrouter_and_recipe_members`
+    -> `Failed: DID NOT RAISE ValueError`.
+  - EN#9 `test_pick_min_by_entropy` -> `AssertionError: ... entropy_pick_min_candidate.url4 is missing`.
+  - EN#6 `test_entropy_refuses_bad_k` -> `Failed: DID NOT RAISE ValueError`.
+  - EN#10 `test_logprob_and_entropy_share_one_reply` -> `AssertionError: ...
+    logprob_entropy_shared_candidate.url4 is missing`.
+  - EN#13 `test_entropy_fusion_rebuilds_from_url4_without_injected_params` (2 cases) ->
+    `NotImplementedError: E4b part 3 unit 4`.
+- Support tests in commit A: `test_logprob_refuses_an_unknown_form` -> `DID NOT RAISE ValueError`;
+  `test_declared_from_spec_rebuilds_and_refuses_logprob_and_entropy_entries` ->
+  `NotImplementedError`; `test_one_reader_call_feeds_the_reply_names_and_the_accounting_key` ->
+  `SpecInvalid: combine spec is invalid: signals: Value error, signals must map declared names to
+  known sources`; `test_fusion_refuses_two_entropy_sources` passes (CHAR); the drift guard
+  `test_logprob_entropy_fixture_matches_the_sdk_compile` (10 cases) -> `AssertionError:
+  combine_contract/<name> is missing - run write_fixture()`. Note: the unit spec §4.3 expected
+  `NotImplementedError` from the builder for the drift guard. The reference test checks the
+  fixture file first, so the missing-fixture assertion comes first. The test file is byte-equal to
+  the reference; this is a note, not a change.
+- `test_public_surface_matches_the_committed_snapshot` fails in commit A (new exports). This is
+  expected; commit B regenerates the pinned snapshot.
+- CHAR rows (pass in commit A): LP#11, EN#1, EN#2, EN#3, EN#11, EN#12 (6 cases), EN#4, EN#5.
+- Other checks in commit A: ruff check, ruff format --check and pyright (0 errors) pass in both
+  stacks; the layering script passes; the SDK regression neighbours (98 passed) and the engine
+  regression neighbours (66 passed) pass with no fixture change.
+- Behavior RED of the world rows (after B2): not run yet (commit B).
+- Commits: commit A `test(e4b): RED for E4b part 3 unit 4 logprob-entropy`; commit B not done yet.
+- Pinned edits: none in commit A. Commit B changes the two pinned files.
+- Gates: not run in the RED stage (RED-step rule).
+- README and CHANGELOG notes for LP-D3 (`sum` favors short replies), EN-D5 (keep k small) and the
+  nats unit go to unit 5.
+- Deviations: none in commit A.

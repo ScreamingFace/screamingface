@@ -83,7 +83,7 @@ from screamingface.report import (
     Usage,
 )
 from screamingface.selection import Concat, Filter, Rank
-from screamingface.signal_sources import Verbalized
+from screamingface.signal_sources import Entropy, Logprob, Verbalized
 from screamingface.url4 import Url4
 from screamingface.warnings import (
     DuplicateMembersWarning,
@@ -126,6 +126,7 @@ __all__ = [
     "Event",
     "EngineCapabilityError",
     "EngineUnavailableError",
+    "Entropy",
     "ExecutionError",
     "Extract",
     "EvaluationWarning",
@@ -147,6 +148,7 @@ __all__ = [
     "LeaderboardInfo",
     "LeaderboardRankingNotice",
     "LeaderboardScore",
+    "Logprob",
     "matches",
     "MediaUnavailableError",
     "MemberResult",
