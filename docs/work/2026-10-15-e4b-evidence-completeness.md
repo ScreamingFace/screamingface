@@ -485,6 +485,32 @@ PRD `rank-and-cut`, rows RK#1 to RK#13, and guard RK-N1. Decisions: P6, P7, P11,
   - `repo`: ALL GATES GREEN, the append-only check passes.
 - **Flakes:** none in this round.
 
+### Review round 2 (fix check)
+
+- **Input:** the same design review of commit B, sent again to a new fix run. Three MINOR
+  findings about the ledger text, and four optional or informational notes.
+- **Check of the findings against the tree:** all three MINOR findings are already fixed in
+  commit `6fb2b5a62` (Review round 1 above). The Commits line reads `A a7abc2639 (RED), B
+  e1e40d793 (GREEN); base 92cf6011e`. The stale words "uncommitted" and "before commit B" are
+  gone. D-6 names both spec §7 subjects and the actual subjects. The approval blob list has the
+  `test_frozen_record_fields.py` entry (D-3). Each blob was checked with `git rev-parse` against
+  the tree at commit B. The pinned data and the test files are unchanged since commit B.
+- **Applied in this round:** no code, test or pinned data change. Only this ledger entry is new.
+- **Behavior change:** none. No RED test was needed, because no finding is about behavior.
+- **Gates (this round, on the branch tip, `run_gates.py <stack> --base 0f4b9e292`):**
+  - `screamingface-engine`: the append-only check fails and lists 3 files: `evidence_cases.json`
+    (unit 3, pinned), `combine-evidence.v1.json` (unit 1, P-1) and `test_combine_weighted_vote.py`
+    (unit 2, D-2). With `--skip-append-only`: ALL GATES GREEN.
+  - `screamingface`: the append-only check fails and lists the files of units 1 to 4 and unit 3
+    (`answer.v1.json`, `report-trace.v1.json`, `public_surface_snapshot.json`,
+    `test_e4b_schema_pins.py`, `test_frozen_record_fields.py`, `test_pick_output.py`). The
+    `report-trace.v1.json` and `test_e4b_schema_pins.py` entries belong to unit 4 (U4-P1, U4-P2),
+    not to this unit. With `--skip-append-only`: ALL GATES GREEN, the count at 32.
+  - `repo`: ALL GATES GREEN, the append-only check passes.
+- **Flakes:** none in this round.
+- **Not applied (optional notes, as in round 1):** the `RankOp` alias, the `_cut` read order in
+  `_plan`, the PRD NFR wording (D-5) and the `_ranked` double sort (D-5). No change.
+
 ## Unit 4 — judge link, SDK view (JM#1–12)
 
 ### Intent
