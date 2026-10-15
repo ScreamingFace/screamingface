@@ -210,7 +210,10 @@ def test_voter_with_missing_or_invalid_weight_signal_does_not_vote() -> None:
     assert [row.model_dump() for row in evidence.tally or []] == [
         {"value": "a", "score": 0.9, "holders": ["member_1"]}
     ]
-    assert all(row.weight is None and row.status == "answered" for row in evidence.members[1:])
+    assert all(
+        row.weight is None and (row.status, row.reason) == ("excluded", "no_weight")
+        for row in evidence.members[1:]
+    )
     assert [row.signals["field:confidence"] for row in evidence.members] == [
         0.9,
         None,

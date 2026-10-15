@@ -127,3 +127,102 @@ evidence without a new value keeps its v1 bytes (P11). Decisions: Q3, Q4, P2, P3
   SDK-only install.
 - **R1-5 (`sf.Answer` checks):** the reviewer accepted the helper `_check_excluded` (D-2). No change.
 - **Pinned edits in this round:** none. P-1, P-2, P-3 and P-4 keep their blobs from commit B.
+
+## Unit 2 — member exclusion (EX#1–18, ES#5, ES#10, ES#12)
+
+Status: in_progress (RED commit A being written).
+
+### Intent
+
+A member that a combine rule leaves out gets the record status `"excluded"`. The reason is
+`no_weight` or `no_signal`. The rule also applies when the step abstains. The endpoint computes
+the rule once from the plan (`_Plan.excludes`) and applies it in `_member_record`. No operator,
+no core `Answer` and no Case answer changes. A failed member stays `"fail"`. Both evidence
+validators refuse an evidence that chooses an excluded member (CE-I3).
+Decisions: Q3, Q4, P1, P2, P3, P4, P5, P13.
+
+### Planned changes
+
+- Engine: `E/combine/ports.py` (`OperatorDescriptor.reads_weights` and its guard),
+  `E/combine/operators/reduce.py` (`reads_weights=True` on `weighted_mode@1`,
+  `weighted_median@1`, `weighted_mean@1`), `E/combine/endpoint.py` (`_Exclusion`, `_exclusion`,
+  `_Plan.excludes`, `_member_record`, `_record_status`), `E/combine/evidence.py` (CE-I3 check).
+- SDK: `S/combine_evidence.py` (CE-I3 check `_never_excluded`). See D-2.
+- Tests (new): `ET/test_combine_member_exclusion.py`, `ET/test_combine_member_exclusion_world.py`,
+  `ST/test_member_exclusion.py`. Appended: `ET/test_combine_evidence_contract_fixture.py`
+  (`vote_weight_excluded`, `filter_signal_excluded`), `ST/test_combine_evidence_contract.py`
+  (`_EXPECTED_NAMES`, ES#5 test).
+
+### Pinned edits (owner approval)
+
+- X-1 `apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json`
+  (regenerated in commit B: two changed cases, two new cases).
+- X-2 `apps/screamingface-engine/tests/unit/test_combine_evidence_contract_fixture.py` (append
+  only; the gate does not flag it).
+- X-3 `packages/screamingface/tests/test_combine_evidence_contract.py` (append only; not flagged).
+- X-4 `apps/screamingface-engine/tests/unit/test_combine_weighted_vote.py` line 213: the members
+  with no usable weight are `excluded` / `no_weight`, not `answered`.
+- X-5 `packages/screamingface/tests/test_frozen_record_fields.py` line 184: 28 becomes 30 cases.
+  See D-1.
+
+### Test plan
+
+- 21 rows: EX#1–18, ES#5, ES#10, ES#12 (unit spec section 3).
+- CHAR rows first: EX#1 and EX#2 pass on the parent. ES#10 passes at commit A (unit 1 delivered
+  the decoder). GUARD rows EX#11 and EX#12(a) pass at commit A and must stay green.
+- RED stubs: `OperatorDescriptor.reads_weights` (field only) and `endpoint._exclusion` (returns
+  None, not wired into `_plan`). Every other RED row fails on the behavior.
+- Oracles are computed by hand (unit spec sections 2.9 and 3). Example: the X1 tally "a" is
+  0.9 + 0.4 = 1.3. The weighted median of 3 (0.3), 7 (0.3), 9 (0.4) is 7.
+
+### Acceptance
+
+- In a weighted vote by `field:confidence`, a member without confidence is `excluded` /
+  `no_weight` and keeps its value. The answer does not change (EX#4, EX#5).
+- A Pick, Rank or Filter by a signal shows a member without the signal as `excluded` /
+  `no_signal`. A Filter member keeps mark 0 (EX#6, EX#7, EX#9).
+- When every member is left out, the step abstains and every record is `excluded` (EX#5, EX#8).
+- A failed member stays `"fail"` (EX#10). Authored weights and unweighted operators never
+  exclude (EX#11, EX#12).
+- Only `rank_cut_not_met` and `mean_weighted_value` change in `evidence_cases.json`, plus the two
+  new cases. No schema snapshot, no url4 file and no golden operator fixture changes.
+
+### Deviations
+
+- D-1: `ST/test_frozen_record_fields.py::test_fixture_answers_and_traces_use_the_frozen_fields`
+  pins the number of engine fixture cases (28). The two new cases make it 30. This pinned edit
+  (X-5) is not in plan section 6. Unit 3 changes this count again.
+- D-2: plan section 2 lists no SDK file for unit 2, but PRD row EX#14 asks for the CE-I3 check
+  "on both sides". `S/combine_evidence.py` gets `_never_excluded`.
+- D-3: PRD EX-1 says member 3 has `value: "B"`. With the `text@1` normalizer the value is `"b"`
+  and the raw is `"B"`. The tests use the exact engine values.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** in_progress
+- **Actual files:** (pending)
+- **Commits:** A (RED): pending. B (GREEN): pending.
+- **Gates:** pending
+- **RED log:** Run at commit A (after the stubs and the RED tests, before the commit).
+  - Engine, focused list of unit spec section 5.2 (`pytest -q -rfE`): 22 failed, 553 passed.
+    - PASS (CHAR or GUARD, as the table says): EX#1 `test_weighted_vote_drops_a_member_with_no_usable_weight`,
+      EX#2 `test_filter_gives_a_missing_signal_mark_zero`, EX#11 `test_authored_weights_never_exclude`,
+      EX#12(a) `test_signal_weight_on_an_unweighted_op_never_excludes` (3 cases).
+    - FAIL on an assertion (the behavior is not there yet, the status is still `answered`):
+      EX#3 (`changed` is an empty set), EX#4, EX#5 (`_rows` lists `answered`), EX#6, EX#7, EX#8, EX#9,
+      EX#10 (3 cases), EX#13, EX#15, EX#16 (2 cases), EX#17, EX#18(a) (`DID NOT RAISE ValidationError`),
+      EX#12(b) (the set of weighted ops is empty), EX#18 world (`members` status), and the byte-for-byte
+      fixture check and count check on the two new scenarios (`KeyError`), and the X-4 line
+      (`test_voter_with_missing_or_invalid_weight_signal_does_not_vote`, `assert False`).
+    - Row 9(c) (the pattern form) is the third assert of the row 9 test. It is not reached at commit A,
+      because (a) fails first. A probe of (c) alone, at commit A, gave pass (`_rows` all answered).
+  - SDK, list of unit spec section 5.2 (`pytest -q -rfE`): 7 failed, 118 passed.
+    - PASS: ES#10 `test_sdk_decodes_excluded_rank_and_cut` (CHAR), ES#12 second function
+      `test_case_answer_of_x1_wire_is_excluded`.
+    - FAIL: ES#12 first function (`set()` is not a superset), EX#14 SDK (`DID NOT RAISE ExecutionError`),
+      ES#5 (`set()` is not a superset), round trip of the two new names (`KeyError`), the name set
+      of the engine fixture (`_EXPECTED_NAMES` has the two new names, the fixture does not yet), and `test_fixture_answers_and_traces_use_the_frozen_fields`
+      (`assert 28 == 30`, X-5).
+  - No collection error on either side. `ruff check`, `ruff format --check` and `pyright` pass on the
+    new and the touched test files. `check_layering.py` prints LAYERING OK.
+- **Approval blobs:** pending

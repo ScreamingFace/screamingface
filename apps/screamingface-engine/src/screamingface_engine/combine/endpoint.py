@@ -55,6 +55,7 @@ from screamingface_engine.combine.ports import (
     CombineError,
     CombineInput,
     EvidenceKind,
+    ExcludeReason,
     Extractor,
     InputTooLarge,
     Normalizer,
@@ -109,6 +110,18 @@ class _Step[F]:
     op_id: str
     run: F
     args: OpArgs
+
+
+@dataclass(frozen=True, slots=True)
+class _Exclusion:
+    """The one rule of a step that can leave a member out (E4b part 2, erd §6 X1-X2).
+
+    ``reason`` "no_weight": the step counts a signal weight, and the member has no usable one.
+    ``reason`` "no_signal": the reduce args read ``key``, and the member has no number for it.
+    """
+
+    reason: ExcludeReason
+    key: str  # the signal key the rule reads
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,6 +408,13 @@ def _signal_read(
     if from_weights is not None and from_reduce is not None:
         raise SpecInvalid("a combine step reads at most one signal")
     return from_reduce if from_weights is None else from_weights
+
+
+def _exclusion(
+    spec: CombineSpec, reduce: OperatorDescriptor, bound: _Step[ReduceOp]
+) -> _Exclusion | None:
+    """RED stub (E4b part 2 unit 2): commit B gives the rule."""
+    return None
 
 
 def _read_members(

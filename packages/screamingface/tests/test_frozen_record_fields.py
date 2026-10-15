@@ -181,7 +181,7 @@ def _fixture_case(name: str, wire: Any) -> tuple[sf.CaseResult, int]:
 def test_fixture_answers_and_traces_use_the_frozen_fields() -> None:
     wires = _engine_cases()
 
-    assert len(wires) == 28
+    assert len(wires) == 30
     for name, wire in wires.items():
         case, count = _fixture_case(name, wire)
         answers = case.answers()
