@@ -290,3 +290,65 @@ Decisions: Q3, Q4, P1, P2, P3, P4, P5, P13.
   `--skip-append-only`: ALL GATES GREEN. `run_gates.py repo --base 0f4b9e292`: ALL GATES GREEN,
   the append-only check passes.
 - **Flakes:** none in this round.
+
+## Unit 3 — rank and cut of a top-k step (`rank`, `cut`)
+
+### Intent
+
+This unit adds the rank and the cut of a `top_k@1` step. A `top_k@1` step writes the 1-based
+ordinal `rank` of each member that has a score. The evidence also writes the `cut` (`k`, and
+`order` with the default `"max"` filled in), also on an abstain. The rank and the cut come from
+one ordering function, `_ranked`, which `top_k` also uses. So `chosen` is always the members with
+`rank <= cut.k`, in rank order. No other step writes the keys, so their evidence keeps its v1
+bytes. No Case answer, no combine spec and no url4 file changes.
+
+PRD `rank-and-cut`, rows RK#1 to RK#13, and guard RK-N1. Decisions: P6, P7, P11, P14, Q3, Q4.
+
+### Planned changes
+
+- `E/combine/ports.py`: `OperatorDescriptor.ranks` and `.cut` (select only, not published).
+- `E/combine/operators/selection.py`: `_ranked` (the shared order). `top_k` uses it. `top_k_ranks`
+  and `top_k_cut` are registered on `top_k@1`.
+- `E/combine/endpoint.py`: `_Plan.ranks`, `_Plan.cut`, `_cut`. `_evidence` writes `rank` and
+  `cut`. `_member_record` takes `rank=`.
+- New tests: `ET/test_combine_rank_cut.py`, `ET/test_combine_rank_cut_world.py`,
+  `ST/test_combine_rank_cut.py`.
+- Pinned edits (owner approval): `ET/data/combine_contract/evidence_cases.json` (regenerated).
+  `rank_by_judge`, `rank_by_signal` and `rank_cut_not_met` gain `rank` and `cut`. New cases
+  `rank_min_cost` and `rank_reduce_abstain`. `ET/test_combine_evidence_contract_fixture.py` (two
+  scenario functions and two registrations). `ST/test_combine_evidence_contract.py` (one line in
+  `_EXPECTED_NAMES`).
+
+### Test plan
+
+- 13 PRD rows, RK#1 to RK#13, in the PRD order, plus guard RK-N1. CHAR: RK#1. RED: the others.
+  RK#13 has an engine half (run of `recipe_s10.url4`) and an SDK half (decode of `rank_min_cost`).
+- Stub (commit A): the two `OperatorDescriptor` fields only, with no check. Each RED test fails on
+  a value or on `DID NOT RAISE`. No RED test fails on an import error.
+- Invariants: ranks are 1..n over the scored members, ordinal, author order on ties. The cut is
+  written also on an abstain. Evidence of a step other than `top_k@1` keeps its bytes. Every
+  expected rank is computed by hand (PRD RK-1 to RK-3 and the RK#5 oracle).
+
+### Acceptance
+
+- `sf.Rank(2, by_signal=sf.signal("cost_usd"), order="min")` with costs 0.03, 0.01, 0.02, 0.01
+  gives ranks 4, 1, 3, 2, `chosen` `[member_2, member_4]` and `cut` `{"k": 2, "order": "min"}`.
+- A `cut_not_met` abstain writes the ranks of its scored members and the cut.
+- An unscored member has no `rank` key. No step other than `top_k@1` writes `rank` or `cut`.
+- `evidence_cases.json` changes only in the three rank cases, plus the two new cases. The diff
+  check of the plan passes.
+- Engine and SDK gates are green, except the append-only check. That check lists only the plan
+  section 6 files of units 1 to 3. The `repo` gate is green.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** RED (commit A). Not yet GREEN. Unit not done.
+- **Actual files:** (commit A) see Commits.
+- **Commits:** (commit A) pending the RED commit hash.
+- **Gates:** not run yet at commit A.
+- **RED log:** pending (filled in after the focused RED run).
+- **Deviations:** (pre-filled) D-1: plan §6 names only `rank_cut_not_met` among the changed
+  evidence cases. `rank_by_judge` and `rank_by_signal` are `top_k@1` steps too, so P6 and P7 make
+  them gain `rank` and `cut` as well. The pinned file is the same.
+- **Approval blobs:** for each pinned file: the blob at `0f4b9e292`, the blob at the unit 2 tip,
+  and the blob after commit B (plan section 5 command).

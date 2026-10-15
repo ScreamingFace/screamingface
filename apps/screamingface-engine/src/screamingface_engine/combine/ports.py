@@ -381,6 +381,8 @@ class OperatorDescriptor:
     signal_read: Callable[[OpArgs], SignalRead | None] | None = None
     envelope: bool = False
     reads_weights: bool = False
+    ranks: Callable[[Reduction, CombineInput, OpArgs], Mapping[str, int]] | None = None
+    cut: Callable[[OpArgs], Cut] | None = None
 
     def __post_init__(self) -> None:
         version_ok = not isinstance(self.version, bool) and 1 <= self.version <= 999_999

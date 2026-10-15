@@ -356,6 +356,26 @@ SCENARIOS["vote_weight_excluded"] = _vote_weight_excluded
 SCENARIOS["filter_signal_excluded"] = _filter_signal_excluded
 
 
+def _rank_min_cost() -> CombineEvidence:
+    # RK-1: costs 0.03, 0.01, 0.02, 0.01, cheapest first -> ranks 4, 1, 3, 2.
+    # The cut keeps member_2 and member_4.
+    return _evidence(
+        rank_signal_spec(4, 2, "cost_usd", "min"),
+        ["alpha", "beta", "gamma", "delta"],
+        sources=sources(4),
+        accounting=costs(0.03, 0.01, 0.02, 0.01),
+    )
+
+
+def _rank_reduce_abstain() -> CombineEvidence:
+    # RK-D5: no member has the signal, so the reduce step abstains; the cut is written, no rank.
+    return _evidence(rank_signal_spec(3, 2, "field:score", "max"), _score_texts(None, None, None))
+
+
+SCENARIOS["rank_min_cost"] = _rank_min_cost  # E4b part 2 unit 3
+SCENARIOS["rank_reduce_abstain"] = _rank_reduce_abstain  # E4b part 2 unit 3
+
+
 def canonical_evidence(evidence: CombineEvidence) -> str:
     """The bytes the Candidate envelope writes for one evidence (same encoder, same options)."""
     return json.dumps(evidence.model_dump(by_alias=True), ensure_ascii=False, separators=(",", ":"))
