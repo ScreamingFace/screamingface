@@ -4,10 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from difflib import get_close_matches
+from types import MappingProxyType
 from typing import Any, ClassVar, Literal
 
+from screamingface._signals import (
+    ACCOUNTING_SIGNALS,
+    MAX_DECLARED_SIGNALS,
+    RESERVED_NAME_PREFIXES,
+    is_signal_key,
+    is_signal_name,
+)
 from screamingface.recipe import Recipe, _inferred_name, _name, _optional, _recipe
-from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer
+from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer, _read_signal
 from screamingface.signal_sources import SignalSource
 
 
@@ -24,6 +33,11 @@ class Fusion(Recipe):
     ``Reduce.compute(context)`` → Model. Its block form,
     ``sf.Pipeline([sf.Fusion(members, synthesizer=sf.Reduce("context")), sf.Model(p)])``,
     compiles to the same url4 byte for byte.
+
+    ``signals=`` declares up to 8 named sources (``sf.Verbalized(...)``) that the members
+    carry. A reducer synthesizer reads one of them with ``sf.signal(name)``; a rule that reads a
+    name the Fusion does not declare fails here, before any member call. Only a reducer
+    synthesizer takes ``signals=``.
     """
 
     name: str
@@ -47,9 +61,6 @@ class Fusion(Recipe):
         optional = _optional(optional)
         object.__setattr__(self, "quorum", _quorum(quorum, len(selected_members)))
         object.__setattr__(self, "optional", optional)
-        if signals is not None:
-            raise NotImplementedError("E4b part 3 unit 2")
-        object.__setattr__(self, "signals", None)
         inferred_name = _inferred_name(selected_members)
         object.__setattr__(
             self,
@@ -58,6 +69,7 @@ class Fusion(Recipe):
         )
         object.__setattr__(self, "members", selected_members)
         object.__setattr__(self, "synthesizer", _synthesizer(synthesizer, selected_members))
+        object.__setattr__(self, "signals", _declared(signals, self.synthesizer))
 
     @property
     def _recipe_marker(self) -> None:
@@ -72,6 +84,8 @@ class Fusion(Recipe):
         arguments = [f"[{members}]"]
         if self.name != inferred_name:
             arguments.append(f"name={self.name!r}")
+        if self.signals is not None:
+            arguments.append(f"signals={_signals_repr(self.signals)}")
         arguments.append(f"synthesizer={self.synthesizer!r}")
         if self.quorum != "all":
             arguments.append(f"quorum={self.quorum!r}")
@@ -85,6 +99,87 @@ class Fusion(Recipe):
         return fusion_card_html(self)
 
     __hash__: ClassVar[Any] = None
+
+
+def _declared(value: object, synthesizer: Recipe | Reducer) -> Mapping[str, SignalSource] | None:
+    """The checked declaration (sorted by name), and every name the reducer reads (ans:Q1, P2)."""
+    declared = _declaration(value)
+    combine = isinstance(synthesizer, Reducer) and synthesizer._compiles_to_combine()
+    if declared is not None and not combine:
+        raise ValueError(
+            "Fusion signals= needs a reducer synthesizer such as sf.Vote, sf.Median, sf.Mean, "
+            "sf.Pick, sf.Rank or sf.Filter: a model synthesizer has no combine step to record them"
+        )
+    if combine:
+        assert isinstance(synthesizer, Reducer)
+        _check_reads(synthesizer, declared)
+    return declared
+
+
+def _declaration(value: object) -> Mapping[str, SignalSource] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError("Fusion signals must map names to sources such as sf.Verbalized(...)")
+    if not value:
+        return None  # signals={} is no declaration: the same bytes as none
+    if len(value) > MAX_DECLARED_SIGNALS:
+        raise ValueError(
+            f"a Fusion declares at most {MAX_DECLARED_SIGNALS} signals, not {len(value)}"
+        )
+    for name, source in value.items():
+        _check_declared(name, source)
+    if sum(source.source == "entropy" for source in value.values()) > 1:
+        raise ValueError(
+            "a Fusion declares at most one sf.Entropy source: every member call takes one "
+            "top_logprobs value"
+        )
+    return MappingProxyType(dict(sorted(value.items())))
+
+
+def _check_declared(name: object, source: object) -> None:
+    if not isinstance(name, str):
+        raise TypeError("Fusion signal names must be text")
+    if not is_signal_name(name):
+        raise ValueError(_name_rejection(name))
+    if not isinstance(source, SignalSource):
+        raise TypeError(f"Fusion signal {name!r} must be a source such as sf.Verbalized(...)")
+
+
+def _name_rejection(name: str) -> str:
+    if is_signal_key(name):
+        return (
+            f"{name!r} is an E4a signal key; read it with sf.signal({name!r}) and do not declare it"
+        )
+    if name.startswith(RESERVED_NAME_PREFIXES):
+        return (
+            f"{name!r} is reserved: a declared name must not start with logprob, entropy, "
+            "verbalized or consistency"
+        )
+    return f"{name!r} is not a declared name: a declared name matches [a-z][a-z0-9_]{{0,31}}"
+
+
+def _check_reads(reducer: Reducer, declared: Mapping[str, SignalSource] | None) -> None:
+    """A rule that reads a name this Fusion does not declare fails here, before any call (DS-E1)."""
+    signal = _read_signal(reducer._plan())
+    if signal is None or is_signal_key(signal.key):
+        return
+    names = () if declared is None else tuple(declared)
+    if signal.key in names:
+        return
+    listed = ", ".join(names) if names else "none"
+    message = (
+        f"the synthesizer reads sf.signal({signal.key!r}), which this Fusion does not declare "
+        f"(declared: {listed})"
+    )
+    hint = get_close_matches(signal.key, ACCOUNTING_SIGNALS, n=1)
+    if hint:
+        message += f"; did you mean {hint[0]}?"
+    raise ValueError(message)
+
+
+def _signals_repr(declared: Mapping[str, SignalSource]) -> str:
+    return "{" + ", ".join(f"{name!r}: {source!r}" for name, source in declared.items()) + "}"
 
 
 def _quorum(value: object, member_count: int) -> int | Literal["all"]:

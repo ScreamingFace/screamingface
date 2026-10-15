@@ -1,0 +1,26 @@
+{
+  "issue": "OME-1290",
+  "branch": "e4b-signal-sources",
+  "approver": "PENDING owner approval after the run (plan §6 item 3, unit 2)",
+  "date": "2026-10-15",
+  "scope": "E4b part 3, unit 2 (declared signals and sf.Verbalized). test_signals.py: 'cost' leaves the list of refused keys, because it is now a valid declared-name syntax (DS-D2); no other line changes. The combine-spec v1 schema gains the optional signals property; the combine-evidence v1 schema gains the optional declared property. The public-surface snapshot adds Fusion signals, sf.Verbalized and the CombineEvidence declared argument. Later units of part 3 update the approved blobs of the files they edit again.",
+  "reason": "Plan docs/plan/2026-10-15-e4b-signal-sources.md §6 item 3 lists these pinned edits for unit 2; the owner approves them after the run. Rename this file to the leaf OME id at PR-open.",
+  "files": {
+    "packages/screamingface/tests/test_signals.py": {
+      "base_blob": "9c24fb382a80860cdfc625814218f9d5e4458a15",
+      "approved_blob": "e252090bc9e93210f7a1e3a073d8b097079f2cb3"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "489b8a57e3c20c8038085c80fa06a23fb595c178",
+      "approved_blob": "d3ef76bfb32bf9e1cc2ac43ae674ace395e97a14"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json": {
+      "base_blob": "c36a0d394e6edcaab5dc205fbfdae4b68eece1c6",
+      "approved_blob": "179800a9d4b31df6482815c3e364b71f234f0aba"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "c191827c4e963d59b13a77daa8ba9f8eac4f810c",
+      "approved_blob": "615fb55848f568742a806ade156ea47f26d2b6d4"
+    }
+  }
+}

@@ -309,3 +309,32 @@ Run: the six new test files, and `tests/test_signals.py`, in each package. No li
    Commit A therefore fails the append-only check for `ST/test_signals.py`, as E8 says.
 6. **VB#10 chosen N.** `N = 1000`: `re2.compile("Confidence: ([0-9]{1,1000})").programsize == 2017`,
    inside [1000, 5000].
+
+### Unit 2 outcome
+
+- **Actual files:** the code of spec §2 (SDK and engine, as planned above), the regenerated
+  combine-spec and combine-evidence v1 schema snapshots, `ST/public_surface_snapshot.json`, the new
+  `ET/data/combine_contract/verbalized_vote_candidate.url4` (written by `write_fixture()`), the
+  conformance guard `ST/unit/test_declared_name_conformance.py`, and the approval manifest
+  `.claude/test-change-approvals/OME-1290.json` (approver PENDING). The four approved blobs agree
+  with `git hash-object` of the four pinned files.
+- **RED:** see "Unit 2 RED record" above. All 24 RED rows pass after commit B; the three CHAR rows
+  still pass.
+- **VB#10:** `N = 1000`; `re2.compile("Confidence: ([0-9]{1,1000})").programsize == 2017`.
+- **Commits:** `test(e4b): RED for declared signals and sf.Verbalized (E4b part 3 unit 2)`, then
+  `feat(e4b): declared signals and sf.Verbalized (E4b part 3 unit 2)`.
+- **Pinned edits:** `ST/test_signals.py:33` (the `cost` item), the two schema snapshots and
+  `ST/public_surface_snapshot.json`. All four are in the manifest, PENDING owner approval.
+- **Deviations (owner review):**
+  1. **DS#14 oracle, erratum E9.** `repr(rebuilt) == repr(fusion)` cannot pass. The url4 rebuild
+     of a Vote keeps the pinned operator ids (`extract='last_line@1'`, `normalize='text@1'`); the
+     pins `ST/test_judge_url4_round_trip.py:184` and `ST/test_reducer_recovery_preference.py`
+     require this. The test now asserts the exact rebuilt repr with the `@1` ids and the
+     `signals` text. `_compiled(rebuilt) == url4` and the authored-repr assert stay. The rebuild
+     code did not change. This is an edit of a RED-commit test.
+  2. **DS#15, pyright narrowing.** After RED, `evidence is not None and` and `plain is not None and`
+     were added to two asserts, because pyright refused the member access on the Optional result
+     of `decode_combine_evidence`. No assertion was removed. This is an edit of a RED-commit test.
+  3. **`_check_declared` in `S/fusion.py`.** A new private helper, so that the Fusion constructor
+     passes the ruff complexity rules. No behavior change.
+  4. **`# noqa: PLR0911` on `endpoint._signal_numbers`.** The review fixes below remove it.

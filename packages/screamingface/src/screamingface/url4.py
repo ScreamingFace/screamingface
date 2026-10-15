@@ -51,6 +51,7 @@ from screamingface._operation_bindings import (
 )
 from screamingface.blocks import Reduce
 from screamingface.reducer import Reducer, _ModelSignal
+from screamingface.signal_sources import SignalSource, declared_from_spec, python_signals
 from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
 if TYPE_CHECKING:
@@ -385,6 +386,9 @@ def _render_fusion_topology(
     inferred_name = "+".join(member.name for member in value.members)
     if value.name != inferred_name:
         lines.append(f"{prefix}    name={value.name!r},")
+    declared = _fusion_signals(value, calls)
+    if declared is not None:
+        lines.append(f"{prefix}    signals={python_signals(declared)},")
     synthesizer = _render_topology(value.synthesizer, calls, indent=indent + 4)
     synthesizer[0] = f"{prefix}    synthesizer={synthesizer[0].lstrip()}"
     synthesizer[-1] += ","
@@ -636,6 +640,7 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
         selected = Fusion(
             [_recipe_from_topology(member, calls) for member in value.members],
             name=value.name if value.name != inferred_name else None,
+            signals=_fusion_signals(value, calls),
             synthesizer=_synthesizer_from_topology(value.synthesizer, calls),
             quorum=value.quorum,
             optional=value.optional,
@@ -659,6 +664,19 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
             max_rounds=value.max_rounds,
         )
     return selected
+
+
+def _fusion_signals(
+    value: _RecipeTopology, calls: dict[str, _Call]
+) -> dict[str, SignalSource] | None:
+    """The declaration in a reducer Fusion's combine spec (E4b part 3), or None."""
+    synthesizer = value.synthesizer
+    if synthesizer is None or synthesizer.kind != "reducer":
+        return None
+    call = calls.get(synthesizer.binding)
+    if call is None:
+        raise ValueError(_MODEL_CALLS)
+    return declared_from_spec(decode_combine_spec(call.raw_intent).get("signals"))
 
 
 def _synthesizer_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe | Reducer:

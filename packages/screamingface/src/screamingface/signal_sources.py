@@ -12,7 +12,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import ClassVar
+
+from screamingface._regex_rule import check_signal_pattern
 
 
 class SignalSource(ABC):
@@ -27,7 +30,8 @@ class SignalSource(ABC):
     @classmethod
     @abstractmethod
     def _from_spec(cls, entry: Mapping[str, object]) -> SignalSource:
-        """Rebuild an equal source from its spec entry; ValueError when this SDK did not write."""
+        """Rebuild an equal source from its spec entry; ValueError when this SDK did not write
+        it."""
 
     def _python(self) -> str:
         return f"sf.{self!r}"
@@ -48,24 +52,65 @@ class Verbalized(SignalSource):
     ignore_case: bool
 
     def __init__(self, pattern: str, *, ignore_case: bool = False) -> None:
-        raise NotImplementedError("E4b part 3 unit 2")
+        check_signal_pattern(pattern, ignore_case, "sf.Verbalized")
+        object.__setattr__(self, "pattern", pattern)
+        object.__setattr__(self, "ignore_case", ignore_case)
+
+    def __repr__(self) -> str:
+        extra = ", ignore_case=True" if self.ignore_case else ""
+        return f"Verbalized({self.pattern!r}{extra})"
 
     def _spec(self) -> dict[str, object]:
-        raise NotImplementedError("E4b part 3 unit 2")
+        entry: dict[str, object] = {"source": "verbalized", "pattern": self.pattern}
+        if self.ignore_case:
+            entry["ignore_case"] = True  # WHY only when set: one spelling per declaration (DS-1)
+        return entry
 
     @classmethod
     def _from_spec(cls, entry: Mapping[str, object]) -> Verbalized:
-        raise NotImplementedError("E4b part 3 unit 2")
+        if entry.get("source") != "verbalized" or not set(entry) <= {
+            "source",
+            "pattern",
+            "ignore_case",
+        }:
+            raise ValueError(_CANNOT_REBUILD)
+        if "ignore_case" in entry and entry["ignore_case"] is not True:
+            raise ValueError(_CANNOT_REBUILD)  # this SDK writes ignore_case only as true
+        pattern = entry.get("pattern")
+        if not isinstance(pattern, str):
+            raise ValueError(_CANNOT_REBUILD)
+        return cls(pattern, ignore_case="ignore_case" in entry)
+
+
+_CANNOT_REBUILD = "URL4 Candidate has a signals declaration this SDK version cannot rebuild"
+# wire word -> class; unit 4 adds "logprob" and "entropy"
+_SOURCES: Mapping[str, type[SignalSource]] = MappingProxyType({"verbalized": Verbalized})
 
 
 def declared_from_spec(entries: object) -> dict[str, SignalSource] | None:
     """The declaration of a decoded combine spec (its ``signals`` value), or None when absent."""
-    raise NotImplementedError("E4b part 3 unit 2")
+    if entries is None:
+        return None
+    if not isinstance(entries, Mapping) or not entries:
+        raise ValueError(_CANNOT_REBUILD)
+    declared: dict[str, SignalSource] = {}
+    for name, entry in entries.items():
+        source = entry.get("source") if isinstance(entry, Mapping) else None
+        kind = _SOURCES.get(source) if isinstance(source, str) else None
+        if not isinstance(name, str) or kind is None or not isinstance(entry, Mapping):
+            raise ValueError(_CANNOT_REBUILD)
+        try:
+            declared[name] = kind._from_spec(entry)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(_CANNOT_REBUILD) from exc
+    return declared
 
 
 def python_signals(declared: Mapping[str, SignalSource]) -> str:
     """``{'conf': sf.Verbalized('...')}``: the ``signals=`` text of ``Url4.to_python``."""
-    raise NotImplementedError("E4b part 3 unit 2")
+    return (
+        "{" + ", ".join(f"{name!r}: {source._python()}" for name, source in declared.items()) + "}"
+    )
 
 
 __all__ = ["SignalSource", "Verbalized"]

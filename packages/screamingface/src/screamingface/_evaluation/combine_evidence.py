@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import Literal, cast
 
 from screamingface._evaluation.operation_accounting import _exact_keys, _mapping
+from screamingface._signals import is_signal_key
 from screamingface.answer import (
     ABSTAIN_REASONS,
     ANSWER_REASONS,
@@ -58,8 +59,9 @@ _EVIDENCE_KEYS = {
     "dropped",
     "finish_reason",
 }
-# E4b P8 mean (mean reducer only); E4b part 2 cut (top_k@1 only).
-_OPTIONAL_EVIDENCE_KEYS = frozenset({"mean", "cut"})
+# E4b P8 mean (mean reducer only); E4b part 2 cut (top_k@1 only); E4b part 3 P11 declared
+# (written only by a Fusion that declares signals).
+_OPTIONAL_EVIDENCE_KEYS = frozenset({"mean", "cut", "declared"})
 _MEMBER_KEYS = {"member_id", "raw", "value", "status", "reason", "signals", "weight", "score"}
 _OPTIONAL_MEMBER_KEYS = frozenset({"rank"})  # E4b part 2: written only by a top_k@1 step
 _CUT_KEYS = {"k", "order"}
@@ -84,6 +86,7 @@ def decode_combine_evidence(value: object, label: str) -> CombineEvidence | None
     _exact_keys(raw, _EVIDENCE_KEYS | {key for key in _OPTIONAL_EVIDENCE_KEYS if key in raw}, label)
     if raw["schema"] != COMBINE_EVIDENCE_SCHEMA:
         raise ExecutionError(f"{label} schema must be {COMBINE_EVIDENCE_SCHEMA!r}")
+    declared = _declared(raw.get("declared"), f"{label} declared")
     try:
         return CombineEvidence(
             kind=cast(CombineKind, _text(raw["kind"], f"{label} kind")),
@@ -109,8 +112,9 @@ def decode_combine_evidence(value: object, label: str) -> CombineEvidence | None
             separator_collision=_optional_boolean(
                 raw["separator_collision"], f"{label} separator_collision"
             ),
-            signal=_signal(raw["signal"], f"{label} signal"),
+            signal=_signal(raw["signal"], f"{label} signal", declared),
             cut=_cut(raw.get("cut"), f"{label} cut"),
+            declared=declared,
             result=_result(raw["result"], f"{label} result"),
             dropped=_integer(raw["dropped"], f"{label} dropped"),
             finish_reason=_text(raw["finish_reason"], f"{label} finish_reason"),
@@ -151,17 +155,25 @@ def _result(value: object, label: str) -> CombineResult:
     )
 
 
-def _signal(value: object, label: str) -> CombineSignal | None:
+def _signal(
+    value: object, label: str, declared: dict[str, dict[str, object]] | None
+) -> CombineSignal | None:
     if value is None:
         return None
     raw = _mapping(value, label)
     _exact_keys(raw, _SIGNAL_KEYS, label)
-    return CombineSignal(
-        key=_text(raw["key"], f"{label} key"),
-        order=cast(
-            SignalOrder | None, _optional_word(raw["order"], SIGNAL_ORDERS, f"{label} order")
-        ),
-    )
+    key = _text(raw["key"], f"{label} key")
+    order = cast(SignalOrder | None, _optional_word(raw["order"], SIGNAL_ORDERS, f"{label} order"))
+    if declared is not None and key in declared and not is_signal_key(key):
+        return CombineSignal._declared(key, order)
+    return CombineSignal(key=key, order=order)
+
+
+def _declared(value: object, label: str) -> dict[str, dict[str, object]] | None:
+    if value is None:
+        return None
+    raw = _mapping(value, label)
+    return {name: dict(_mapping(entry, f"{label} {name!r}")) for name, entry in raw.items()}
 
 
 def _cut(value: object, label: str) -> CombineCut | None:

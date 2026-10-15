@@ -36,6 +36,32 @@
       ],
       "title": "StepSpec",
       "type": "object"
+    },
+    "VerbalizedSource": {
+      "additionalProperties": false,
+      "description": "``{\"source\": \"verbalized\", \"pattern\": str, \"ignore_case\"?: bool}`` (E4b part 3).\n\nThe pattern rules (length, RE2 compile, one group) are the source plugin's; the endpoint checks\nthem at plan time through ``registry.source``.",
+      "properties": {
+        "ignore_case": {
+          "default": false,
+          "title": "Ignore Case",
+          "type": "boolean"
+        },
+        "pattern": {
+          "title": "Pattern",
+          "type": "string"
+        },
+        "source": {
+          "const": "verbalized",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "pattern"
+      ],
+      "title": "VerbalizedSource",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -95,6 +121,21 @@
     },
     "select": {
       "$ref": "#/$defs/StepSpec"
+    },
+    "signals": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/VerbalizedSource"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Signals"
     },
     "weights": {
       "anyOf": [

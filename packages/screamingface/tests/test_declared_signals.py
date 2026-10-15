@@ -266,7 +266,11 @@ def test_fusion_signals_round_trip_through_url4_rebuild_and_repr() -> None:
     exec(code, namespace)  # noqa: S102 - our own generated code
     rebuilt = namespace["candidate"]
     assert rebuilt.signals == {"conf": sf.Verbalized(CONF_PATTERN)}
-    assert repr(rebuilt) == repr(fusion)
+    # WHY: the url4 rebuild keeps the pinned operator ids ('@1'), erratum E9.
+    assert repr(rebuilt) == (
+        "Fusion(['a', 'b', 'c'], signals={'conf': Verbalized('Confidence: ([0-9]+)')}, "
+        "synthesizer=Vote(extract='last_line@1', normalize='text@1', weights=signal('conf')))"
+    )
     assert _compiled(rebuilt) == url4
 
 
@@ -282,7 +286,7 @@ def test_sdk_decoder_reads_declared_and_rejects_unknown_keys() -> None:
     wire["declared"] = declared
 
     evidence = decode_combine_evidence(wire, "ev")
-    assert evidence.declared == declared
+    assert evidence is not None and evidence.declared == declared  # WHY: pyright narrows it
     assert evidence.signal is not None and evidence.signal.key == "conf"
     dumped = evidence.to_dict()
     assert dumped["declared"] == declared
@@ -299,7 +303,7 @@ def test_sdk_decoder_reads_declared_and_rejects_unknown_keys() -> None:
         decode_combine_evidence({**wire, "declared": {"conf": {"pattern": "x"}}}, "ev")
 
     plain = decode_combine_evidence(evidence_wire(), "ev")
-    assert plain.declared is None
+    assert plain is not None and plain.declared is None  # WHY: pyright narrows it
     assert "declared" not in plain.to_dict()
 
     with pytest.raises(ValueError, match="signal key"):

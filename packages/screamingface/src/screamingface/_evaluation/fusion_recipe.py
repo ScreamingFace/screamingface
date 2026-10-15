@@ -74,6 +74,7 @@ def _fusion(fusion: Fusion, active: tuple[int, ...]) -> Recipe:
     return Fusion(
         members,
         name=_fusion_name(fusion),
+        signals=fusion.signals,
         synthesizer=synthesizer,
         quorum=fusion.quorum,
         optional=fusion.optional,
@@ -136,6 +137,7 @@ def _optional_fusion(stage: Recipe, optional: bool) -> Recipe:
     return Fusion(
         stage.members,
         name=_fusion_name(stage),
+        signals=stage.signals,
         synthesizer=stage.synthesizer,
         quorum=stage.quorum,
         optional=True,
