@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, cast
 
 from screamingface._regex_rule import check_signal_pattern
 
@@ -82,6 +82,9 @@ class Verbalized(SignalSource):
         return cls(pattern, ignore_case="ignore_case" in entry)
 
 
+_LOGPROB_FORMS: tuple[str, ...] = ("mean", "sum", "prob")
+_MIN_TOP_LOGPROBS = 1
+_MAX_TOP_LOGPROBS = 20
 _DEFAULT_TOP_LOGPROBS = 5  # owner decision Q8
 
 
@@ -99,17 +102,24 @@ class Logprob(SignalSource):
     form: Literal["mean", "sum", "prob"]
 
     def __init__(self, form: Literal["mean", "sum", "prob"]) -> None:
-        object.__setattr__(self, "form", form)  # RED stub (unit 4 commit A): no check yet
+        if not isinstance(form, str) or form not in _LOGPROB_FORMS:
+            raise ValueError(f"sf.Logprob form must be 'mean', 'sum' or 'prob', not {form!r}")
+        object.__setattr__(self, "form", form)
 
     def __repr__(self) -> str:
         return f"Logprob({self.form!r})"
 
     def _spec(self) -> dict[str, object]:
-        raise NotImplementedError("E4b part 3 unit 4")
+        return {"source": "logprob", "form": self.form}
 
     @classmethod
     def _from_spec(cls, entry: Mapping[str, object]) -> Logprob:
-        raise NotImplementedError("E4b part 3 unit 4")
+        form = entry.get("form")
+        if set(entry) != {"source", "form"} or entry.get("source") != "logprob":
+            raise ValueError(_CANNOT_REBUILD)
+        if not isinstance(form, str) or form not in _LOGPROB_FORMS:
+            raise ValueError(_CANNOT_REBUILD)
+        return cls(cast("Literal['mean', 'sum', 'prob']", form))
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -125,22 +135,59 @@ class Entropy(SignalSource):
     top_logprobs: int
 
     def __init__(self, *, top_logprobs: int = _DEFAULT_TOP_LOGPROBS) -> None:
-        object.__setattr__(self, "top_logprobs", top_logprobs)  # RED stub: no check yet
+        if (
+            isinstance(top_logprobs, bool)
+            or not isinstance(top_logprobs, int)
+            or not _MIN_TOP_LOGPROBS <= top_logprobs <= _MAX_TOP_LOGPROBS
+        ):
+            raise ValueError(
+                f"sf.Entropy top_logprobs must be an int from {_MIN_TOP_LOGPROBS} to "
+                f"{_MAX_TOP_LOGPROBS}, not {top_logprobs!r}"
+            )
+        object.__setattr__(self, "top_logprobs", top_logprobs)
 
     def __repr__(self) -> str:
         return f"Entropy(top_logprobs={self.top_logprobs!r})"
 
     def _spec(self) -> dict[str, object]:
-        raise NotImplementedError("E4b part 3 unit 4")
+        return {"source": "entropy", "top_logprobs": self.top_logprobs}
 
     @classmethod
     def _from_spec(cls, entry: Mapping[str, object]) -> Entropy:
-        raise NotImplementedError("E4b part 3 unit 4")
+        top_logprobs = entry.get("top_logprobs")
+        if set(entry) != {"source", "top_logprobs"} or entry.get("source") != "entropy":
+            raise ValueError(_CANNOT_REBUILD)
+        if isinstance(top_logprobs, bool) or not isinstance(top_logprobs, int):
+            raise ValueError(_CANNOT_REBUILD)
+        return cls(top_logprobs=top_logprobs)
+
+
+# The member params that a Logprob or Entropy declaration owns (P12, DS-D10, U4-D1).
+INJECTED_PARAMS: frozenset[str] = frozenset({"logprobs", "top_logprobs"})
+
+
+def injected_member_params(declared: Mapping[str, SignalSource] | None) -> dict[str, bool | int]:
+    """The params a declaration adds to every member call: ``logprobs=True`` for any
+    ``sf.Logprob`` or ``sf.Entropy``, then ``top_logprobs=k`` for the one ``sf.Entropy`` (DS-I2).
+    Empty when the declaration needs no logprobs.
+
+    INVARIANT (U4-D5, C2): ``logprobs`` is the first key, and ``top_logprobs`` never comes alone.
+    """
+    params: dict[str, bool | int] = {}
+    for source in (declared or {}).values():
+        if isinstance(source, Logprob | Entropy):
+            params["logprobs"] = True
+    for source in (declared or {}).values():
+        if isinstance(source, Entropy):
+            params["top_logprobs"] = source.top_logprobs
+    return params
 
 
 _CANNOT_REBUILD = "URL4 Candidate has a signals declaration this SDK version cannot rebuild"
-# wire word -> class; unit 4 commit B adds "logprob" and "entropy"
-_SOURCES: Mapping[str, type[SignalSource]] = MappingProxyType({"verbalized": Verbalized})
+# wire word -> class
+_SOURCES: Mapping[str, type[SignalSource]] = MappingProxyType(
+    {"verbalized": Verbalized, "logprob": Logprob, "entropy": Entropy}
+)
 
 
 def declared_from_spec(entries: object) -> dict[str, SignalSource] | None:

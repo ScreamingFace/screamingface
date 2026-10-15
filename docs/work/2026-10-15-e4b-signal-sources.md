@@ -510,7 +510,7 @@ the entropy of the recorded reply, 6.547567880357428e-07.
 
 ## Unit 4 — logprob and entropy sources
 
-Status: in_progress (RED stage). Unit spec: v2 (`p3-unit4-logprob-entropy-v2.md`).
+Status: done (commit B and the review fixes). Unit spec: v2 (`p3-unit4-logprob-entropy-v2.md`).
 
 ### Intent
 
@@ -662,10 +662,32 @@ RED stage (commit A): the tests and the stubs only.
 - Other checks in commit A: ruff check, ruff format --check and pyright (0 errors) pass in both
   stacks; the layering script passes; the SDK regression neighbours (98 passed) and the engine
   regression neighbours (66 passed) pass with no fixture change.
-- Behavior RED of the world rows (after B2): not run yet (commit B).
-- Commits: commit A `test(e4b): RED for E4b part 3 unit 4 logprob-entropy`; commit B not done yet.
-- Pinned edits: none in commit A. Commit B changes the two pinned files.
+- Behavior RED of the world rows (after B2, before B3): the 9 world tests fail with
+  `CandidateExecutionError: combine spec is invalid: signals: Value error, signals must map
+  declared names to known sources`. The one-reader test fails with `SpecInvalid` (same text).
+- Commits: commit A `test(e4b): RED for E4b part 3 unit 4 logprob-entropy`; commit B
+  `feat(e4b): sf.Logprob and sf.Entropy declared sources (E4b part 3 unit 4)`; review fix
+  commit `fix(e4b): review fixes for E4b part 3 unit 4`.
+- Pinned edits: none in commit A. Commit B changes the two pinned files (blob before at
+  `df3afd6cc` -> blob after):
+  - `ST/public_surface_snapshot.json`: `d3ef76bfb32bf9e1cc2ac43ae674ace395e97a14` ->
+    `77a76cc650d3366f512913c7a1d0fa3d7391b760` (18 lines added, 0 removed; byte-equal to the
+    reference).
+  - `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`:
+    `179800a9d4b31df6482815c3e364b71f234f0aba` -> `b3acb2a5cd5c489c570a57384cd40fa5c9f30273`
+    (+68/-1; byte-equal to the reference).
 - Gates: not run in the RED stage (RED-step rule).
+- Commit B checks: SDK focused run after B1: 34 passed, 11 failed (the 10-case drift guard and
+  the surface test, as expected). SDK regression neighbours: 98 passed. The 10 fixtures are
+  byte-equal to the reference. After B3: engine focused run 26 passed, engine regression
+  neighbours 66 passed, schema freeze 10 passed, layering OK. SDK new tests and the surface
+  test: 45 passed. Ruff check and ruff format are clean in both stacks. Pyright: 0 errors in
+  the SDK, 2 errors in the engine (see the next item).
+- Erratum E-6: the unit spec §0 says pyright had 0 errors at the commit B state. This is
+  false. U4-D6 makes `CombineSpec.signals` a union, so the unit 2 test line
+  `parsed.signals["conf"].pattern` in `ET/test_combine_declared_signals.py:103` gives 2
+  pyright errors (`reportAttributeAccessIssue` for `LogprobSource` and `EntropySource`). The
+  review fix commit closes this (next section).
 - README and CHANGELOG notes for LP-D3 (`sum` favors short replies), EN-D5 (keep k small) and the
   nats unit go to unit 5.
 - Deviations: none in commit A.

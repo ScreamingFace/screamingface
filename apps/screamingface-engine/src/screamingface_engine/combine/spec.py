@@ -20,7 +20,7 @@ import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import quote, unquote
 
 from pydantic import (
@@ -193,6 +193,33 @@ class VerbalizedSource(_SpecModel):
     ignore_case: bool = False
 
 
+class LogprobSource(_SpecModel):
+    """``{"source": "logprob", "form": "mean" | "sum" | "prob"}`` (E4b part 3).
+
+    The value comes from each member's reply log-probabilities (the member reader), not from its
+    text.
+    """
+
+    source: Literal["logprob"]
+    form: Literal["mean", "sum", "prob"]
+
+
+class EntropySource(_SpecModel):
+    """``{"source": "entropy", "top_logprobs": 1..20}`` (E4b part 3).
+
+    The value is the mean token entropy of each member's reply, in nats (the member reader).
+    """
+
+    source: Literal["entropy"]
+    top_logprobs: int = Field(ge=1, le=20)
+
+
+# WHY a tagged union: the `source` word picks the one model, so a bad entry fails on its own keys.
+DeclaredSource = Annotated[
+    VerbalizedSource | LogprobSource | EntropySource, Field(discriminator="source")
+]
+
+
 class CombineSpec(_SpecModel):
     """``screamingface.combine-spec.v1``: every key required, ``null`` only where typed."""
 
@@ -204,7 +231,7 @@ class CombineSpec(_SpecModel):
     reduce: StepSpec
     select: StepSpec
     weights: dict[str, float] | SignalWeights | None
-    signals: dict[str, VerbalizedSource] | None = None
+    signals: dict[str, DeclaredSource] | None = None
 
     @field_validator("signals", mode="wrap")
     @classmethod
@@ -294,6 +321,13 @@ def _check_mean_ops(reduce: StepSpec, select: StepSpec) -> None:
         raise ValueError("reducer mean requires a mean or weighted_mean reduce step")
     if select.op.partition("@")[0] not in selects:
         raise ValueError("reducer mean requires a value or nearest select step")
+
+
+def declares_reply_sources(spec: CombineSpec) -> bool:
+    """Whether the spec declares a logprob or entropy source: its context then carries
+    ``sources`` (erd §4), so the member reader can find each member's reply numbers."""
+    signals = spec.signals or {}
+    return any(isinstance(entry, LogprobSource | EntropySource) for entry in signals.values())
 
 
 def parse_spec(intent: str) -> CombineSpec:
@@ -488,12 +522,16 @@ __all__ = [
     "REDUCE_SELECT_RULES",
     "CombineContext",
     "CombineSpec",
+    "DeclaredSource",
+    "EntropySource",
+    "LogprobSource",
     "Presence",
     "ReducerRule",
     "SignalWeights",
     "StepSpec",
     "VerbalizedSource",
     "canonical_params",
+    "declares_reply_sources",
     "parse_context",
     "parse_spec",
 ]
