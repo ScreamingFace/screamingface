@@ -51,7 +51,9 @@ base_url = "http://127.0.0.1:9105"
 default_route = "/anthropic/claude-haiku-4-5"
 # Provider execution budget. Admission separately defaults to this same budget.
 # Set queue_timeout_s to override admission; HTTP transport covers both plus 5s.
-timeout_s = 600.0
+# OME-1616: 30 minutes, for long single calls (ARC-AGI-2). The gateway takes the smaller of this
+# and its own AIGW_PROVIDER_EXECUTION_TIMEOUT_S, so the gateway chart raises its cap to match.
+timeout_s = 1800.0
 web_tool_max_iterations = 12
 
 # Absolute-URL sources (`https://…`) are a real url4 feature and a Url4Node world has always

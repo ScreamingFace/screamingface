@@ -49,6 +49,13 @@ extraEnv:
   # OME-921: finite headroom above Engine's ~32-call fan-out; never set this to 0 in prod.
   - name: AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES
     value: '{"openrouter": 50}'
+  # OME-1616: one provider call may run 30 minutes. Keep these two equal to the Engine's
+  # `[aigateway] timeout_s`; the smallest of the three wins. REQUEST_TIMEOUT is LiteLLM's own
+  # HTTP timeout, which otherwise falls back to 600 s.
+  - name: AIGW_PROVIDER_EXECUTION_TIMEOUT_S
+    value: "1800"
+  - name: REQUEST_TIMEOUT
+    value: "1800"
 
 # Internal-only. There is no public route to the gateway, and that is load-bearing rather than
 # incidental — it is what makes the injected identity headers unforgeable.

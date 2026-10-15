@@ -387,6 +387,29 @@ check(
     "values-prod.yaml also admits the console (it overrides clientPodNames wholesale)",
 )
 
+
+# FEATURE (OME-1616): one model call may run for 30 minutes. The gateway cap and LiteLLM's own
+# HTTP timeout (600 s when `REQUEST_TIMEOUT` is unset) both sit under the Engine's budget, and the
+# smallest wins. INVARIANT: both renders carry them — `values-prod.yaml` replaces `extraEnv`
+# wholesale, so a default-only entry would never reach prod.
+def gateway_env(docs: list[dict]) -> dict[str, str]:
+    container = find(docs, "Deployment")["spec"]["template"]["spec"]["containers"][0]
+    return {
+        entry["name"]: entry.get("value") for entry in container.get("env", []) or []
+    }
+
+
+for label, docs in (("default", gw), ("values-prod.yaml", gw_prod)):
+    env = gateway_env(docs)
+    check(
+        env.get("AIGW_PROVIDER_EXECUTION_TIMEOUT_S") == "1800",
+        f"{label}: the gateway caps one provider call at 30 minutes",
+    )
+    check(
+        env.get("REQUEST_TIMEOUT") == "1800",
+        f"{label}: LiteLLM's HTTP timeout matches the gateway cap",
+    )
+
 print("\naigateway snapshot wiring (bundled Garage)")
 # The bundled Garage shares the release's selectorLabels (name+instance), so every selector
 # that must name ONE side needs the component label. These checks pin the review fix: the
