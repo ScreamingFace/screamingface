@@ -96,8 +96,8 @@ const components = [
 
     <p>
       There are two ways to run, and only the engine URL changes. A <strong>local</strong> engine
-      runs on your own machine, on your own keys, with its own cache, and nothing on the local path
-      takes a cut.
+      runs on your own machine, on your own keys, with its own cache (off until you turn it on), and
+      nothing on the local path takes a cut.
     </p>
 
     <figure class="not-prose diagram">
@@ -135,8 +135,9 @@ const components = [
       Provider credentials live behind the engine and gateway, never in the Client. A key is handed
       to the engine once, stored encrypted (AES-256-GCM), and used to reach providers on your
       behalf. The Client keeps none. In an evaluation, the benchmark prompts go out to the models,
-      but the answer keys and grading stay engine-side. That is what makes a verified result mean
-      something. The credential store is the
+      and the grading stays engine-side: the report returns each graded case's rubric criteria and
+      judge, but nothing about the grading can be changed from the Client. That is what makes a
+      verified result mean something. The credential store is the
       <a :href="`${GH}/apps/aigateway`" target="_blank" rel="noopener">AI gateway</a>'s encrypted
       <code>credential_blobs</code>; the master key (<code>AIGATEWAY_SECRET_KEY</code>) is never
       stored with the data or logged.
