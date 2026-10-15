@@ -794,11 +794,13 @@ no code, no snapshot, no golden and no url4 file.
   insert-only: README 64 lines added, 0 removed; CHANGELOG 8 lines added (four bullets, a blank
   line before each).
 - **Commits:** 7bcf10dc0 (full sha 7bcf10dc094daa2f34866d9022017bb84694e221) — test(e4b): RED doc
-  guards for part 2 unit 6; the docs commit (GREEN) is the tip of this branch after unit 6.
+  guards for part 2 unit 6; 1cad38fe1 — docs(e4b): README and CHANGELOG for evidence completeness
+  (part 2) (GREEN, the only code-free change of unit 6). The gate re-run at HEAD is recorded
+  in the commit after 1cad38fe1.
 - **RED record (commit A):** 4 failed, each on its first doc assertion (D6#1 `'**Members left
   out.**'`, D6#2 `'**Rank and cut in the evidence.**'`, D6#3 `'**The judge in the trace.**'`,
   D6#4 `` `no_weight` `` count 0 != 1). The code checks passed. No ImportError.
-- **Gates:** screamingface --base ae7370e9f (unit 5 tip): ALL GATES GREEN, append-only included. screamingface --base 0f4b9e292: the append-only check is red only for the unit 1 to 4 pinned files: `tests/data/schemas/screamingface.answer.v1.json` (P-2), `tests/data/schemas/screamingface.report-trace.v1.json` (U4-P1), `tests/public_surface_snapshot.json` (P-3), `tests/test_pick_output.py` (P-4), `tests/test_e4b_schema_pins.py` (U4-P2), `tests/test_frozen_record_fields.py` (X-5, D-2, D-3). No offender is a file of unit 6. With --skip-append-only: ALL GATES GREEN. repo --base 0f4b9e292: ALL GATES GREEN. Flakes seen: none. Pinned edits in unit 6: none.
+- **Gates:** screamingface --base ae7370e9f (unit 5 tip): ALL GATES GREEN, append-only included. screamingface --base 0f4b9e292: the append-only check is red only for the unit 1 to 4 pinned files: `tests/data/schemas/screamingface.answer.v1.json` (P-2), `tests/data/schemas/screamingface.report-trace.v1.json` (U4-P1), `tests/public_surface_snapshot.json` (P-3), `tests/test_pick_output.py` (P-4), `tests/test_e4b_schema_pins.py` (U4-P2), `tests/test_frozen_record_fields.py` (X-5, D-2, D-3). No offender is a file of unit 6. With --skip-append-only: ALL GATES GREEN. repo --base 0f4b9e292: ALL GATES GREEN. Flakes seen: none. Pinned edits in unit 6: none. Re-run at HEAD (the unit 6 docs, 1cad38fe1, and the ledger tip a73c080ad): the same results. The focused guards and the four regression files: 132 passed.
 - **Deviations:**
   - Plan §2 row 6 names `CHANGELOG.md`. There is no root CHANGELOG; the file is
     `packages/screamingface/CHANGELOG.md`.
