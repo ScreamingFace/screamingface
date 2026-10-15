@@ -249,7 +249,7 @@ async def test_gemini_dispatch_401_marks_profile_error_and_reauth_url(
     detail = resp.json()["detail"]
     assert detail["code"] == "auth_required"
     assert detail["message"] == "Gemini Code Assist rejected token"
-    assert detail["reauth_url"] == "/v1/auth/gemini-cli/profiles/default"
+    assert detail["reauth_url"] == "/v1/oauth/connections"
     assert invalidated == [credential_name]
     saved = await idx.get(account_id, "gemini-cli", "default")
     assert saved is not None
@@ -288,7 +288,7 @@ async def test_error_profile_is_rejected_before_dispatch(
     assert resp.status_code == 401
     detail = resp.json()["detail"]
     assert detail["code"] == "auth_required"
-    assert detail["reauth_url"] == "/v1/auth/gemini-cli/profiles/default"
+    assert detail["reauth_url"] == "/v1/oauth/connections"
     fake_chat.assert_not_called()
 
 
@@ -340,7 +340,7 @@ async def test_gemini_manual_refresh_error_marks_profile_error(
     assert resp.status_code == 401
     detail = resp.json()["detail"]
     assert detail["code"] == "auth_required"
-    assert detail["reauth_url"] == "/v1/auth/gemini-cli/profiles/default"
+    assert detail["reauth_url"] == "/v1/oauth/connections"
     saved = await idx.get(account_id, "gemini-cli", "default")
     assert saved is not None
     assert saved.state == ProfileState.ERROR

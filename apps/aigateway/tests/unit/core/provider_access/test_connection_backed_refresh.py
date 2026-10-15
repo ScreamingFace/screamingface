@@ -36,7 +36,7 @@ from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.core.profile_models import ProfileState, credential_name_for
 from aigateway.core.provider_access import connection_facade
 
-REAUTH = f"/v1/auth/{PROVIDER}/profiles/default"
+REAUTH = "/v1/oauth/connections"
 
 
 @pytest.fixture

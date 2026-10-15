@@ -397,7 +397,7 @@ def test_openrouter_auth_rejection_projects_needs_reauth_without_lifecycle_error
         "code": "auth_required",
         "provider": "openrouter",
         "name": "default",
-        "reauth_url": "/v1/auth/openrouter/profiles/default",
+        "reauth_url": "/v1/oauth/connections",
     }
     dispatched.assert_not_called()
 

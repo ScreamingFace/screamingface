@@ -109,11 +109,7 @@ class FakeProviderAccess:
         if profile.state is ProfileState.PENDING:
             raise TargetPending(provider, selector.name)
         if profile.state is ProfileState.ERROR:
-            raise TargetReauthRequired(
-                provider,
-                f"/v1/auth/{provider}/profiles/{selector.name}",
-                requested=selector.name,
-            )
+            raise TargetReauthRequired(provider, reauth_url_for(None), requested=selector.name)
         name = credential_name_for(account_id, selector.name)
         return CredentialTarget(
             kind="stored",
@@ -121,7 +117,7 @@ class FakeProviderAccess:
             credential_name=name,
             context_stamp=f"acct:{account_id}|prof:{account_id}:{provider}:{selector.name}:"
             f"{profile.state.value}:-",
-            reauth_url=reauth_url_for(provider, selector.name, cast(AuthType, profile.auth_type)),
+            reauth_url=reauth_url_for(cast(AuthType, profile.auth_type)),
             defaults=profile.defaults,
             _backing=("profile", (account_id, provider, selector.name)),
         )
@@ -149,10 +145,7 @@ class FakeProviderAccess:
                 credential_name=key,
                 context_stamp=f"acct:{account_id}|conn:{chosen.id}:{chosen.status}:-",
                 reauth_url=reauth_url_for(
-                    provider,
-                    selector.name,
-                    cast(AuthType, chosen.auth_type),
-                    connection_id=chosen.id,
+                    cast(AuthType, chosen.auth_type), connection_id=chosen.id
                 ),
                 defaults=RequestDefaults(),
                 _backing=("connection", chosen.id),

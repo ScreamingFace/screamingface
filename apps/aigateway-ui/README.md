@@ -14,8 +14,8 @@ that account, so a new caller authenticates successfully and immediately gets
 `404 profile_not_found`.
 
 This console is the operator-managed answer: an allowlisted admin creates accounts and attaches
-**static provider API keys** to them, so a caller's first request finds a profile. There is no
-OAuth in this app.
+**static provider API keys** to them as Connections, so a caller's first request finds a
+credential. There is no OAuth in this app.
 
 ## How access works
 

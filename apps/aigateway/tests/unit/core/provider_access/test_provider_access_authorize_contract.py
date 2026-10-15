@@ -110,7 +110,7 @@ def test_authorize_without_a_stored_credential_is_a_reauth_refusal_that_marks_no
         _authorize(harness, target)
 
     assert info.value.message
-    assert info.value.reauth_url == f"/v1/auth/{PROVIDER}/profiles/default"
+    assert info.value.reauth_url == "/v1/oauth/connections"
     assert harness.profile_state() == "authenticated"
 
 
@@ -272,7 +272,7 @@ def test_recording_a_dispatch_failure_on_a_profile_marks_it_and_rewrites_the_det
     assert rewritten == {
         "code": "auth_required",
         "message": "token expired",
-        "reauth_url": f"/v1/auth/{PROVIDER}/profiles/default",
+        "reauth_url": "/v1/oauth/connections",
     }
     assert harness.profile_state() == "error"
 
@@ -288,7 +288,7 @@ def test_recording_a_dispatch_failure_with_a_bare_message_defaults_the_code(
     assert rewritten == {
         "code": "auth_required",
         "message": "upstream said no",
-        "reauth_url": f"/v1/auth/{PROVIDER}/profiles/default",
+        "reauth_url": "/v1/oauth/connections",
     }
 
 

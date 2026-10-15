@@ -60,6 +60,7 @@ from ..core.provider_access import (
     hold_pair,
     patch_facade,
     provider_credential_admin_for,
+    reauth_url_for,
     refresh_facade,
 )
 from .api_key_validation import normalize_api_key, require_valid_api_key
@@ -210,7 +211,7 @@ async def _profile_refresh_lifecycle(
             detail={
                 "code": "auth_required",
                 "message": str(exc),
-                "reauth_url": f"/v1/auth/{provider}/profiles/{name}",
+                "reauth_url": reauth_url_for(None),
             },
         ) from exc
     else:

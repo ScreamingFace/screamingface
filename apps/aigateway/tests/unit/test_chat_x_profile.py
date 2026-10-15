@@ -948,7 +948,7 @@ async def test_chat_api_key_profile_missing_blob_returns_401(
     # The message is the actionable guidance the desktop surfaces (audit F26),
     # and the reauth_url must point at the api-key endpoint, not OAuth.
     assert "No API key stored" in detail["message"]
-    assert detail["reauth_url"] == "/v1/auth/anthropic/profiles/default/api-key"
+    assert detail["reauth_url"] == "/v1/oauth/connections/api-key"
 
 
 @pytest.mark.asyncio
@@ -1027,7 +1027,7 @@ async def test_chat_bad_anthropic_api_key_marks_profile_error(
 
     assert resp.status_code == 401
     assert resp.json()["detail"]["code"] == "auth_required"
-    assert resp.json()["detail"]["reauth_url"] == ("/v1/auth/anthropic/profiles/default/api-key")
+    assert resp.json()["detail"]["reauth_url"] == "/v1/oauth/connections/api-key"
     status = authenticated_client.get("/v1/auth/anthropic/profiles/default/status")
     assert status.json()["state"] == "error"
 

@@ -82,7 +82,7 @@ def profile_target(
         auth_type=auth_type,
         credential_name=credential_name_for(account_id, selector.name),
         context_stamp=context_stamp(account_id, profile, None),
-        reauth_url=reauth_url_for(provider, selector.name, auth_type),
+        reauth_url=reauth_url_for(auth_type),
         defaults=profile.defaults,
         _backing=profile,
     )
@@ -111,9 +111,7 @@ def connection_target(
             connection_id=connection.id,
         ),
         context_stamp=context_stamp(account_id, None, connection),
-        reauth_url=reauth_url_for(
-            provider, selector.name, auth_type, connection_id=str(connection.id)
-        ),
+        reauth_url=reauth_url_for(auth_type, connection_id=str(connection.id)),
         defaults=RequestDefaults(),
         _backing=connection,
     )
@@ -167,11 +165,7 @@ class ProfileBackedProviderAccess:
         if profile.state == ProfileState.PENDING:
             raise TargetPending(provider, selector.name)
         if profile.state == ProfileState.ERROR:
-            # INVARIANT (pinned by OME-1198): the resolve-time refusal names the BARE profile
-            # URL, with no `/api-key` suffix even for an api-key profile — today's behaviour.
-            raise TargetReauthRequired(
-                provider, f"/v1/auth/{provider}/profiles/{selector.name}", requested=selector.name
-            )
+            raise TargetReauthRequired(provider, reauth_url_for(None), requested=selector.name)
         return profile_target(account_id, provider, selector, profile)
 
     async def _resolve_without_profile(

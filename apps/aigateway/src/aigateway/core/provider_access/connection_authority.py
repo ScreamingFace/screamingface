@@ -97,11 +97,7 @@ def migrated_target(
     if connection.status == "pending":
         raise TargetPending(provider, selector.name)
     if connection.status != "active":
-        # INVARIANT (pinned by OME-1198 for Profiles, kept for the facade): the resolve-time
-        # refusal names the BARE legacy URL, no `/api-key` suffix even for an api-key credential.
-        raise TargetReauthRequired(
-            provider, f"/v1/auth/{provider}/profiles/{selector.name}", requested=selector.name
-        )
+        raise TargetReauthRequired(provider, reauth_url_for(None), requested=selector.name)
     auth_type = auth_type_of(None, connection)
     return CredentialTarget(
         kind="stored",
@@ -116,7 +112,7 @@ def migrated_target(
             connection_id=connection.id,
         ),
         context_stamp=context_stamp(account_id, None, connection),
-        reauth_url=reauth_url_for(provider, selector.name, auth_type),
+        reauth_url=reauth_url_for(auth_type, connection_id=str(connection.id)),
         defaults=document.defaults,
         _backing=MigratedBacking(connection),
     )
@@ -232,14 +228,7 @@ async def require_operational_access_migrated(
         return target
     state = await operational_state_migrated(app, target, plugin=plugin, provider=provider)
     if state is None or state.outcome == "needs_reauth":
-        # OME-1198 pins resolve-time refusals to the selected Profile name and its bare legacy URL.
-        # The target's own reauth URL is an authorize-time action and may carry `/api-key` or a
-        # Connection id, so it is deliberately not reused here.
-        raise TargetReauthRequired(
-            provider,
-            f"/v1/auth/{provider}/profiles/{requested}",
-            requested=requested,
-        )
+        raise TargetReauthRequired(provider, reauth_url_for(None), requested=requested)
     return target
 
 
