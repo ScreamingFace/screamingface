@@ -493,3 +493,57 @@ None.
     the first. Unit 3's Case pane call would then get the wrong function (pyright: `reportRedeclaration`
     and `reportCallIssue`). So the run-summary helper is named `_summary_row`. Its body and signature
     are the spec code. No unit 2 or unit 3 code changed.
+
+## Unit 5: docs (README and CHANGELOG)
+
+### Intent
+
+Tell the SDK user where part 4 shows the combine data (ans:Q1): the Combine section in the Case
+pane for every reducer step (ans:Q2), the run summary in each Candidate card, and the `trace` key
+in the JSON export. Say how numbers read (ans:Q3) and what the export holds (P1, N1). Docs only:
+no code, no snapshot, no golden and no url4 change.
+
+### Planned changes
+
+- `packages/screamingface/README.md` — R1: the `### Deterministic synthesizers` sentence about
+  report.v1 now names the `trace` key and the new section (3 lines replaced by 4). R2: the new
+  section `### Combine steps in the report` between `### Browse completed Case results` and
+  `### Completed accounting breakdown`.
+- `packages/screamingface/CHANGELOG.md` — B1: one part 4 bullet, the first under the first
+  `### Features` of `## Unreleased`, before the part 3 "Signal sources" bullet.
+- New `packages/screamingface/tests/test_show_signals_docs.py` — DC#1–DC#5. It imports `_section`
+  from `test_evidence_completeness_docs` (house precedent `ST/test_frozen_record_fields.py:24`).
+
+### Pinned edits
+
+None.
+
+### Test plan
+
+- DC#1 CHAR (Browse before Accounting). DC#2 the new section, its place and its phrases. DC#3 the
+  Deterministic synthesizers sentence. DC#4 one part 4 bullet, first under the first Features
+  list, before the part 3 bullet. DC#5 the bullet holds no token that other docs tests count.
+- Regression (CHAR, no edit): `test_evidence_completeness_docs.py`, the CHANGELOG checks of
+  `test_pick_output.py` and `test_mean.py`, the two recipe README tests, the Fusion doc goldens.
+
+### Acceptance
+
+- DC#1–DC#5 green; the regression tests green.
+- README diff: 3 removed lines, 34 added lines, no added line over 100 characters.
+- `run_gates.py screamingface --base <unit 4 tip>`: all green, append-only included.
+- `run_gates.py screamingface --base 9f42391eb`: append-only offenders are only the three unit 1
+  pinned files; with `--skip-append-only` all green. `run_gates.py repo --base 9f42391eb`: green.
+
+### Unit 5 outcome
+
+- **Status:** in progress. Commit A (RED) is the first step of this unit.
+- **Actual files:** `packages/screamingface/tests/test_show_signals_docs.py` (new).
+- **Commits:** A = (this commit) — test(e4b): RED for E4b part 4 unit 5 docs.
+- **Unit 4 tip (base of the unit 5 append-only check):** `d7754f48a`.
+- **RED record (commit A):** 4 failed (DC#2-5, each on a doc assertion), 1 passed (DC#1 CHAR).
+  Regression set (`test_evidence_completeness_docs.py`, `test_pick_output.py`, `test_mean.py`,
+  `test_signal_recipes_readme.py`, `test_combine_recipes_readme.py`, `test_fusion_doc_goldens.py`):
+  83 passed. `ruff format --check`, `ruff check` and `pyright` are clean on the new file.
+- **Gates:** pending (after commit C).
+- **Deviations:**
+  - The heading uses a colon (`## Unit 5: ...`) like the units 1–4 headings, not an em dash.
