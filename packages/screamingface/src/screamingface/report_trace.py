@@ -1,7 +1,8 @@
 """The per-Case trace record and its schema (OME-1289 gap, erd s8).
 
 INVARIANT: the field set of each kind is closed. A new kind or field needs
-screamingface.report-trace.v2. The trace never holds member text.
+screamingface.report-trace.v2, or an owner-approved edit of the v1 snapshot (E4b part 2 added
+judge_operation_id and judge_model to reduce, P8). The trace never holds member text.
 """
 
 from __future__ import annotations
@@ -40,6 +41,9 @@ TRACE_FIELDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "signal",
             "result",
             "dropped",
+            # E4b part 2 (P8, ans:Q4): the judge link, an owner-approved v1 edit
+            "judge_operation_id",
+            "judge_model",
         ),
         # reserved: no E4a producer (BU-D4)
         "budget": (
