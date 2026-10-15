@@ -21,27 +21,32 @@ const attrs = `e = sf.PlanningError("boom", code="model_unavailable", permanent=
 e.code, e.retryable, e.permanent, e.hint`
 const attrsOut = `('model_unavailable', False, True, None)`
 
-const real = `client.models.get("antigravity/gemini-3-flash")`
-const realOut = `ProviderConnectionError: Antigravity profile 'default' is not connected`
+const real = `sf.evaluate(sf.Model("openrouter/openai/gpt-5.5"), benchmark="ifeval", limit=1)`
+const realOut = `ProviderConnectionError: Provider 'openrouter' is not connected for Model 'openrouter/openai/gpt-5.5'`
 
 const warn = `import warnings
 
 with warnings.catch_warnings():
     warnings.simplefilter("error", sf.EvaluationWarning)
-    report = sf.evaluate(recipe, benchmark="draco", limit=1)`
+    # a run made with limit= is a partial submission, which warns
+    sf.leaderboards.submit(report.candidates.only)`
 </script>
 
 <template>
   <DocLayout
     title="Errors"
-    description="What the Client raises, and the warnings it emits when a run completes with a caveat."
+    description="What the Client raises, and the warnings it emits when a run or a submission carries a caveat."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      Everything the Client raises on purpose inherits from <code>ScreamingFaceError</code>, so one
-      <code>except</code> catches the lot. Six subclasses say where the failure happened, and each
-      carries a machine-readable code alongside its message.
+      Errors the Client raises about the engine, a provider, a leaderboard or an evaluation inherit
+      from <code>ScreamingFaceError</code>. Six subclasses say where the failure happened, and each
+      carries a machine-readable code alongside its message. Argument validation raises
+      <code>ValueError</code>, <code>TypeError</code> or <code>KeyError</code> instead (for example
+      <code>limit=0</code> raises <code>ValueError</code>), and a closed Client raises
+      <code>RuntimeError</code>. Catch <code>ScreamingFaceError</code> for runtime failures and let
+      validation errors surface.
     </p>
 
     <div class="not-prose">

@@ -11,12 +11,12 @@ import {
 
 const modelsRun = `import screamingface as sf
 
-client = sf.Client()
+client = sf.Client(engine_url="http://127.0.0.1:9108")
 client.models.list()[0]`
-const modelsRunOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=9, tools=2)`
+const modelsRunOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=5, tools=1)`
 
 const detailsRun = `client.models.get("anthropic/claude-opus-4-8")`
-const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthropic', scope='chat', parameters=9, tools=2, transport=3)`
+const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthropic', scope='account_profile', parameters=8, tools=1, transport=1)`
 
 const modelSig = `sf.Model(
     model: str,
@@ -247,7 +247,11 @@ const modelSig = `sf.Model(
         <tr>
           <td><code>scope</code></td>
           <td><code>str</code></td>
-          <td>What the route does, such as <code>chat</code>.</td>
+          <td>
+            Which profile this was built for. <code>'account_profile'</code> means the route as your
+            account's credential sees it, built from that profile's auth mode, rather than the
+            route in general.
+          </td>
         </tr>
         <tr>
           <td><code>auth_mode</code></td>
@@ -309,6 +313,15 @@ const modelSig = `sf.Model(
           <td>
             Whether the profile was served without a fresh observation. Mutually exclusive with
             <code>stale</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>execution_access</code></td>
+          <td><code>'configured'&nbsp;|&nbsp;'missing'&nbsp;|&nbsp;None</code></td>
+          <td>
+            Whether your account has provider access to run this route: <code>'configured'</code>
+            when it does, <code>'missing'</code> when it does not. <code>None</code> when the
+            gateway is too old to report it.
           </td>
         </tr>
       </tbody>

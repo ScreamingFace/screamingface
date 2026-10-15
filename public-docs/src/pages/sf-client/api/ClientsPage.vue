@@ -15,6 +15,10 @@ const clientSig = `sf.Client(
     *,
     engine_url: str = DEFAULT_ENGINE_URL,
     scoreboard_url: str = DEFAULT_SCOREBOARD_URL,
+    http_transport: httpx.BaseTransport | None = None,
+    scoreboard_transport: httpx.BaseTransport | None = None,
+    run_transport: SyncRunTransport | None = None,
+    save_results: bool = True,
 )`
 
 const basic = `import screamingface as sf
@@ -34,12 +38,6 @@ const evaluateSig = `Client.evaluate(
     capture: bool = True,
 ) -> Report`
 
-const reproduceSig = `Client.reproduce(
-    score: LeaderboardScore | UUID | str,
-    *,
-    record: bool = True,
-) -> Reproduction`
-
 const withBlock = `with sf.Client() as client:
     report = client.evaluate(
         sf.Model("openrouter/anthropic/claude-haiku-4.5"),
@@ -55,12 +53,12 @@ const asyncCode = `import asyncio
 import screamingface as sf
 
 async def main():
-    async with sf.AsyncClient(engine_url="${SF_ENGINE_URL}") as client:
+    async with sf.AsyncClient(engine_url="http://127.0.0.1:9108") as client:
         models = await client.models.list()
         return len(models), client.engine_url
 
-asyncio.run(main())`
-const asyncOut = `(29, '${SF_ENGINE_URL}')`
+asyncio.run(main())   # in a notebook: await main()`
+const asyncOut = `(109, 'http://127.0.0.1:9108')`
 </script>
 
 <template>
@@ -93,12 +91,49 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
     </div>
 
     <Note>
-      <code>DEFAULT_ENGINE_URL</code> is a hosted engine, so a <code>Client()</code> with no
-      arguments talks to one we operate. To use a local engine, pass its address explicitly, or set
-      <code>SCREAMINGFACE_ENGINE_URL</code> and use the module-level functions.
-      <code>DEFAULT_SCOREBOARD_URL</code> is the matching hosted ScreamingFace Leaderboard. Both
-      constants live in <code>screamingface.client</code>.
+      <code>DEFAULT_ENGINE_URL</code> is the hosted engine, <code>https://fusion.screamingface.ai</code>,
+      so a <code>Client()</code> with no arguments talks to one we operate. To use a local engine,
+      pass its address explicitly, or set <code>SCREAMINGFACE_ENGINE_URL</code> and use the
+      module-level functions. <code>DEFAULT_SCOREBOARD_URL</code> is the public ScreamingFace
+      Leaderboard, <code>https://leaderboard.screamingface.ai</code>. Both constants live in
+      <code>screamingface.client</code>.
     </Note>
+
+    <h3>Constructor arguments</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>engine_url</code> · <code>scoreboard_url</code></td>
+          <td>The engine and the leaderboard this Client talks to.</td>
+        </tr>
+        <tr>
+          <td>
+            <code>http_transport</code> · <code>scoreboard_transport</code> ·
+            <code>run_transport</code>
+          </td>
+          <td>
+            Transports for the engine, the leaderboard and the run stream. They are the seam for
+            tests and proxies, and constructor-only.
+          </td>
+        </tr>
+        <tr>
+          <td><code>save_results</code></td>
+          <td>
+            <code>True</code> by default: every completed report is saved to
+            <code>~/.screamingface/results</code>, and
+            <RouterLink to="/sf-client/api/reports">sf.reports</RouterLink> reopens it. Pass
+            <code>False</code> to keep reports in memory only.
+          </td>
+        </tr>
+      </tbody>
+    </table>
 
     <h3>Properties</h3>
 
@@ -195,8 +230,7 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td><code>benchmark</code></td>
           <td><code>str</code></td>
           <td>
-            The benchmark id, such as <code>ifeval</code>. A protocol variant is its own id, such as
-            <code>ifeval/self-corrective</code>, and it pins a different revision, so it changes
+            The benchmark id, such as <code>ifeval</code>. Each id pins a revision, so it decides
             what the result is comparable to. Required keyword argument.
           </td>
         </tr>
@@ -224,7 +258,7 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td>
             An integer that the engine sends to each model call as its <code>seed</code>, unless the
             call sets one. <code>None</code> (the default) runs unseeded. Not a <code>bool</code>.
-            The result keeps it, and a reproduction runs with it.
+            The result keeps it.
           </td>
         </tr>
         <tr>
@@ -232,27 +266,12 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td><code>bool</code></td>
           <td>
             On by default. <code>False</code> turns capture off. When capture is on, the engine
-            makes a frozen copy of each run, so the score can be reproduced later. Best effort. Read
-            <code>capture_status</code> on each
-            <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink>. See
-            <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
+            makes a frozen copy of each run. Best effort. Read <code>capture_status</code> on each
+            <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink>.
           </td>
         </tr>
       </tbody>
     </table>
-
-    <h3>reproduce()</h3>
-
-    <CodeBlock :code="reproduceSig" language="python" />
-
-    <p>
-      <code>reproduce()</code> runs a submitted score again against its frozen copy and returns a
-      <code>Reproduction</code>. <code>score</code> is a <code>LeaderboardScore</code> or its id.
-      <code>record=True</code> records an exact replay on the leaderboard. A confirmed replay pays
-      no provider. The
-      <RouterLink to="/sf-client/api/leaderboards">Leaderboards reference</RouterLink> lists the
-      outcomes and reasons.
-    </p>
 
     <h3>connect() and disconnect()</h3>
 
@@ -329,7 +348,7 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
     </table>
 
     <p>
-      <code>evaluate()</code>, <code>reproduce()</code>, <code>connect()</code>,
+      <code>evaluate()</code>, <code>connect()</code>,
       <code>disconnect()</code>, <code>login()</code> and <code>logout()</code> are all awaited. The
       properties (<code>engine_url</code>, <code>closed</code>, <code>authenticated</code>) are not.
     </p>

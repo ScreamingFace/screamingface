@@ -12,9 +12,9 @@ import {
 
 const listRun = `import screamingface as sf
 
-client = sf.Client()
+client = sf.Client(engine_url="http://127.0.0.1:9108")
 [(b.id, b.case_count) for b in client.benchmarks.list()]`
-const listRunOut = `[('draco', 100), ('draco/lite', 2), ('ifeval', 541), ('ifeval/self-corrective', 541)]`
+const listRunOut = `[('healthbench-professional', 525), ('healthbench-worst30', 157), ('ifeval', 541), ('medxpert', 2450)]`
 </script>
 
 <template>
@@ -36,7 +36,7 @@ const listRunOut = `[('draco', 100), ('draco/lite', 2), ('ifeval', 541), ('ifeva
     <p>
       A <RouterLink to="/sf-client/api/clients">Client</RouterLink> returns these values, which are
       all read-only, and assigning to a field raises
-      <code>FrozenInstanceError: cannot assign to field 'provider'</code>. They also never refresh
+      <code>FrozenInstanceError: cannot assign to field 'id'</code>. They also never refresh
       themselves, so the Client needs to be called again when current data is desired.
     </p>
 
@@ -45,9 +45,9 @@ const listRunOut = `[('draco', 100), ('draco/lite', 2), ('ifeval', 541), ('ifeva
     <p>
       A <code>Benchmark</code> is the engine's record of one benchmark, carrying its identity, its
       size, and what it measures. <code>client.benchmarks.get(id)</code> returns a single benchmark
-      and <code>client.benchmarks.list()</code> returns every benchmark the engine offers. Protocol
-      variants are separate entries with their own ids, so the list holds <code>ifeval</code> beside
-      <code>ifeval/self-corrective</code>.
+      and <code>client.benchmarks.list()</code> returns every benchmark the engine offers. The list
+      depends on the engine: a local engine returns the benchmarks it has prepared, and the hosted
+      engine returns more.
     </p>
 
     <div class="not-prose">
@@ -69,8 +69,9 @@ const listRunOut = `[('draco', 100), ('draco/lite', 2), ('ifeval', 541), ('ifeva
           <td><code>id</code></td>
           <td><code>str</code></td>
           <td>
-            Stable identifier, such as <code>ifeval</code> or <code>draco/lite</code>. This is what
-            you pass as <code>benchmark=</code> when evaluating.
+            Stable identifier, one flat lowercase identifier such as <code>ifeval</code> or
+            <code>draco-3pass</code>. This is what you pass as <code>benchmark=</code> when
+            evaluating.
           </td>
         </tr>
         <tr>
@@ -82,8 +83,7 @@ const listRunOut = `[('draco', 100), ('draco/lite', 2), ('ifeval', 541), ('ifeva
           <td><code>description</code></td>
           <td><code>str</code></td>
           <td>
-            Prose describing what the benchmark measures. For benchmarks with more than one protocol
-            it also states which method is the default and how the alternatives differ.
+            Prose describing what the benchmark measures and how it is graded.
           </td>
         </tr>
         <tr>
@@ -99,13 +99,74 @@ const listRunOut = `[('draco', 100), ('draco/lite', 2), ('ifeval', 541), ('ifeva
           <td><code>int</code></td>
           <td>How many cases the benchmark holds in total.</td>
         </tr>
+        <tr>
+          <td><code>origin</code></td>
+          <td><code>str</code></td>
+          <td>
+            Where the benchmark comes from, as the engine serves it. <code>'screamingface'</code>
+            when an older engine serves none.
+          </td>
+        </tr>
+        <tr>
+          <td><code>interaction</code></td>
+          <td><code>str | None</code></td>
+          <td>
+            How a case is asked, such as <code>'single_shot'</code> or <code>'multi_turn'</code>.
+            <code>None</code> when the engine does not serve it.
+          </td>
+        </tr>
+        <tr>
+          <td><code>difficulty</code></td>
+          <td><code>str | None</code></td>
+          <td>
+            The engine's tier for the benchmark, such as <code>'medium'</code> or
+            <code>'hard'</code>. <code>None</code> when the engine does not serve it.
+          </td>
+        </tr>
+        <tr>
+          <td><code>inverted_grade</code></td>
+          <td><code>bool</code></td>
+          <td>
+            <code>True</code> when every case score is already 1 minus the eval's grade, as for a
+            benchmark scored by refusal rate. It is a mark, not an instruction: never flip a score
+            with it.
+          </td>
+        </tr>
+        <tr>
+          <td><code>provenance</code></td>
+          <td><code>BenchmarkProvenance | None</code></td>
+          <td>
+            The benchmark's cover sheet: <code>paper_url</code>, <code>authors</code>,
+            <code>citation</code>, <code>inspect_contributors</code>, <code>homepage_url</code>,
+            <code>harness_url</code>, <code>license</code>, <code>license_note</code>,
+            <code>content_warning</code>, <code>human_baseline</code>, <code>frontier_score</code>
+            (each score a <code>PublishedScore</code> with <code>score</code>,
+            <code>source_url</code>, <code>model</code> and <code>as_of</code>) and
+            <code>notebook</code>. <code>None</code> when the engine serves none.
+          </td>
+        </tr>
+        <tr>
+          <td><code>saturation</code></td>
+          <td><code>str</code></td>
+          <td>
+            The engine's verdict on whether frontier models already top the benchmark:
+            <code>'saturated'</code>, <code>'open'</code> or <code>'unknown'</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>attempts</code></td>
+          <td><code>int</code></td>
+          <td>
+            How many times each case is asked. A check counts as met if any attempt met it.
+            <code>1</code> for an ordinary benchmark.
+          </td>
+        </tr>
       </tbody>
     </table>
 
     <Note>
       A <code>Benchmark</code> carries no case data. The Client cannot page a benchmark's prompts,
-      because the cases and their answer keys stay on the engine. Case text becomes visible after a
-      run, through the <code>CaseResult</code> values on
+      because the cases stay on the engine. Case text becomes visible after a run, through the <code>CaseResult</code> values on
       <RouterLink to="/sf-client/api/reports">CandidateResult.cases</RouterLink>.
     </Note>
 
@@ -151,6 +212,14 @@ const listRunOut = `[('draco', 100), ('draco/lite', 2), ('ifeval', 541), ('ifeva
           <td>
             The benchmark's full size. For what the run covered, read
             <code>report.case_count</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>inverted_grade</code></td>
+          <td><code>bool</code></td>
+          <td>
+            The benchmark's refusal-rate mark as it stood at the run. <code>False</code> for an
+            ordinary benchmark.
           </td>
         </tr>
       </tbody>

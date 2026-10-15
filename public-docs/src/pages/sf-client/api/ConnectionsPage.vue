@@ -26,6 +26,14 @@ panel.connections`
       <RouterLink to="/sf-client/guides/connections">Connections guide</RouterLink>.
     </p>
 
+    <p>
+      A hosted engine takes no provider keys of its own: <code>connect(provider, api_key=…)</code>
+      and <code>disconnect(provider)</code> raise <code>ProviderConnectionError</code> with the code
+      <code>connection_method_unsupported</code>, and <code>list()</code> reports the providers the
+      OpenMined team has enabled for your account. On a local engine
+      <code>login()</code> raises <code>AuthenticationError</code>.
+    </p>
+
     <h2>Connection</h2>
 
     <p>Sanitized provider state as the engine reports it.</p>
