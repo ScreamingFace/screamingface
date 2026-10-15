@@ -1238,6 +1238,30 @@ class ScoreMetadataEventSchema(BaseModel):
     )
 
 
+class PinnedCacheSchema(BaseModel):
+    """What `GET /v1/scores/by-pinned-cache/{frozen_copy_id}` answers: the score a copy belongs to.
+
+    FEATURE: OME-1596 (spec section 5) — exactly what the SDK's `evaluate(pinned_cache=...)` needs
+    to replay the run and judge the result against the published score. `pinned_cache` is the
+    user-facing name of the frozen copy; inside the board it stays `frozen_copy_id`.
+
+    INVARIANT: no copy contents and nothing about who submitted; the copy itself stays in the
+    gateway. Served for public boards only.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    score_id: UUID
+    benchmark_id: str
+    benchmark_revision: str | None
+    url4_expression: str
+    answer_seed: int | None
+    score: float
+    total_questions: int
+    case_digest: str | None
+    capture_status: CaptureStatus | None
+
+
 class ReproductionClientInfo(ClientInfo):
     """`ClientInfo` with the one field this table stores bounded to its column.
 

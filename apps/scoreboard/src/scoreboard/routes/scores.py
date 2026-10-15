@@ -42,10 +42,12 @@ from scoreboard.routes.dependencies import (
 )
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
+    CaptureStatus,
     CodedErrorResponse,
     FieldErrorDetail,
     FieldErrorResponse,
     MessageErrorResponse,
+    PinnedCacheSchema,
     ReproductionSchema,
     ReproductionSubmission,
     ScoreMetadataEventSchema,
@@ -59,6 +61,7 @@ from scoreboard.scores.store import (
     AuthorsMetadataMismatch,
     BenchmarkVisibilityChanged,
     ConcurrentScoreUpdate,
+    FrozenCopyClaimed,
     PrivateBoardRequiresIdentity,
     ReproductionRunIdConflict,
     ScoreStore,
@@ -137,6 +140,15 @@ SUBMIT_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: {
         "model": FieldErrorResponse,
         "description": "Unknown benchmark_id.",
+    },
+    422: {
+        "model": CodedErrorResponse | ValidationErrorResponse,
+        "description": (
+            "Two shapes. `{code: frozen_copy_claimed}` (`CodedErrorResponse`): another score "
+            "already names this frozen_copy_id; one copy names one score. A list `detail` "
+            "(`ValidationErrorResponse`): the body failed validation, including an "
+            "`authors_metadata` key that is not a credited author."
+        ),
     },
     status.HTTP_503_SERVICE_UNAVAILABLE: {
         "model": MessageErrorResponse,
@@ -257,6 +269,25 @@ def _unmatched_authors_metadata(exc: AuthorsMetadataMismatch) -> RequestValidati
     )
 
 
+def _submission_refusal(
+    exc: AuthorsMetadataMismatch | FrozenCopyClaimed,
+) -> RequestValidationError | HTTPException:
+    """The 422 for a submission the store refused for what it claims (OME-1596).
+
+    WHY one helper for both: `submit_score` sits at the repo's complexity limits, and both are the
+    same kind of answer, a request that cannot be stored as sent.
+    """
+    if isinstance(exc, AuthorsMetadataMismatch):
+        return _unmatched_authors_metadata(exc)
+    return HTTPException(
+        status_code=422,
+        detail={
+            "code": "frozen_copy_claimed",
+            "message": "another score already names this frozen_copy_id",
+        },
+    )
+
+
 def _field_error_detail(field: str, message: str) -> dict[str, str]:
     return FieldErrorDetail(field=field, message=message).model_dump()
 
@@ -364,8 +395,8 @@ async def submit_score(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=CONCURRENT_UPDATE_DETAIL,
             ) from exc
-        except AuthorsMetadataMismatch as exc:
-            raise _unmatched_authors_metadata(exc) from exc
+        except (AuthorsMetadataMismatch, FrozenCopyClaimed) as exc:
+            raise _submission_refusal(exc) from exc
         except PrivateBoardRequiresIdentity as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -457,6 +488,60 @@ async def get_score(
     count, last_reproduced_at = reproductions
     return ScoreSchema.model_validate(score, from_attributes=True).model_copy(
         update={"reproduction_count": count, "last_reproduced_at": last_reproduced_at}
+    )
+
+
+@router.get(
+    "/scores/by-pinned-cache/{frozen_copy_id}",
+    response_model=PinnedCacheSchema,
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "model": MessageErrorResponse,
+            "description": (
+                "No public score names this pinned cache: unknown, malformed, or on a private "
+                "board. One answer for all three."
+            ),
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: SUBMIT_SCORE_RESPONSES[
+            status.HTTP_503_SERVICE_UNAVAILABLE
+        ],
+    },
+)
+async def get_score_by_pinned_cache(frozen_copy_id: str, request: Request) -> PinnedCacheSchema:
+    """The public score a pinned cache (frozen copy) belongs to, with what a replay needs.
+
+    FEATURE: OME-1596 — the SDK's `evaluate(pinned_cache=...)` reads the url4, seed and published
+    result from here, replays from the copy and judges against the score.
+
+    INVARIANT: the SAME 404 (`_score_not_found`, private cache policy included) for an unknown id,
+    a malformed id and a score on a private board, so nobody can learn that a private copy exists.
+    The store reads the board's state last, right before this answer, and takes no identity: a
+    private board's own submitter gets the 404 too.
+    """
+    try:
+        copy = str(UUID(frozen_copy_id))
+    except ValueError:
+        raise _score_not_found() from None
+    store = cast(ScoreStore, request.app.state.score_store)
+    try:
+        score = await store.public_score_for_pinned_cache(copy)
+    except OperationalError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=STORE_UNAVAILABLE_DETAIL,
+        ) from exc
+    if score is None:
+        raise _score_not_found()
+    return PinnedCacheSchema(
+        score_id=score.id,
+        benchmark_id=cast(str, getattr(score, "benchmark_id")),
+        benchmark_revision=score.benchmark_revision,
+        url4_expression=score.url4_expression,
+        answer_seed=score.answer_seed,
+        score=score.score,
+        total_questions=score.total_questions,
+        case_digest=score.case_digest,
+        capture_status=cast("CaptureStatus | None", score.capture_status),
     )
 
 

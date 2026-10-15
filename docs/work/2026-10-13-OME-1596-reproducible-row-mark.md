@@ -77,3 +77,13 @@ Spec §7 and the Linear issue's acceptance list.
     fields for the objects are excluded when null, so events about `authors` or `paper_url`
     alone read as before. The history route (`HistorySubmission`) carries no metadata: it does
     not carry `paper_url` either, and the spec page reads both from `GET /v1/scores/{id}`.
+  - Row 4: the lookup answers `score_id`, `benchmark_id`, `benchmark_revision`,
+    `url4_expression`, `answer_seed`, `score`, `total_questions`, `case_digest` and
+    `capture_status` (`PinnedCacheSchema`). It takes no identity, so a private board's own
+    submitter also gets the 404. The public/private decision lives in the store
+    (`public_score_for_pinned_cache`, reading the board last) rather than the route, so the
+    route has no exit for `test_visibility_exit_guard` to list. The claim refusal is a pre-check
+    in the write's transaction plus a mapping of the unique-index violation, decided by querying
+    who holds the copy (never by the database error's text). Both paths, and the replay fill,
+    were also exercised by hand on PostgreSQL 17 (docker); the shared `tortoise_db` fixture
+    cannot run on PostgreSQL (OME-430), so CI covers them on SQLite.

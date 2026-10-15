@@ -863,6 +863,33 @@ class BenchmarkVisibilityChanged(Exception):
     """
 
 
+class FrozenCopyClaimed(Exception):
+    """The submission names a frozen copy that another score already names.
+
+    FEATURE: OME-1596 (spec section 5) — one copy, one score, so the pinned cache lookup answers
+    with one row. The unique index on `scores.frozen_copy_id` is the guarantee; this exception is
+    the clear refusal, raised by a pre-check and, when a concurrent claim wins between the check
+    and the write, by mapping the index violation. Answered 422 `frozen_copy_claimed`.
+
+    WHY its own type: `IntegrityError` subclasses `OperationalError`, which the route answers 503
+    store-unavailable, and nothing is unavailable here (the reason `ConcurrentScoreUpdate` exists).
+    """
+
+
+async def _copy_held_elsewhere(
+    frozen_copy_id: str | None, other_than: Any, connection: Any
+) -> bool:
+    """Whether a score other than ``other_than`` names ``frozen_copy_id``."""
+    if frozen_copy_id is None:
+        return False
+    holders = Score.filter(frozen_copy_id=frozen_copy_id)
+    if connection is not None:
+        holders = holders.using_db(connection)
+    if other_than is not None:
+        holders = holders.exclude(id=other_than)
+    return await holders.exists()
+
+
 class ConcurrentScoreUpdate(Exception):
     """A deduplicated row changed identity while its provenance was being corrected.
 
@@ -1327,6 +1354,7 @@ class ScoreStore:
                 reclaimable = reclaimable | Q(scheme__isnull=True) | ~Q(scheme=KEY_SCHEME)
             await IdempotencyKey.filter(reclaimable, key=stored_key).using_db(connection).delete()
 
+        await self._precheck_copy_claim(connection, submission.frozen_copy_id, other_than=None)
         # FEATURE: OME-1596 — every `authors_metadata` key must be credited on the row being
         # written. Checked before the insert, inside its transaction, so a refusal writes nothing.
         if submission.authors_metadata is not None:
@@ -1419,21 +1447,28 @@ class ScoreStore:
                 raise BenchmarkVisibilityChanged(cast(str, getattr(existing, "benchmark_id")))
             return readable
 
-        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
-            # This is now a write path. Take the same benchmark lock as insertion so a visibility
-            # flip cannot turn a public, unverified replay into a private-row mutation mid-write.
-            await self._revalidate_visibility(
-                submission.benchmark_id,
-                per_submitter,
-                connection=connection,
-                lock=True,
-            )
-            settled = await self._apply_replay_updates(
-                submission,
-                connection,
-                score_id=existing.id,
-                content_hash=content_hash,
-            )
+        try:
+            async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
+                # This is now a write path. Take the same benchmark lock as insertion so a
+                # visibility flip cannot turn a public, unverified replay into a private-row
+                # mutation mid-write.
+                await self._revalidate_visibility(
+                    submission.benchmark_id,
+                    per_submitter,
+                    connection=connection,
+                    lock=True,
+                )
+                settled = await self._apply_replay_updates(
+                    submission,
+                    connection,
+                    score_id=existing.id,
+                    content_hash=content_hash,
+                )
+        except IntegrityError:
+            # The only unique rule a replay's fills can break is one copy, one score (OME-1596):
+            # a concurrent claim won after the pre-check. Anything else stays the error it was.
+            await self._refuse_claimed_copy(submission.frozen_copy_id, other_than=existing.id)
+            raise
 
         for name, value in settled.items():
             setattr(readable, name, value)
@@ -1501,6 +1536,10 @@ class ScoreStore:
 
         updates = _replay_updates(submission, locked)
         _settle_authors_metadata(updates, locked)
+        if updates.get("frozen_copy_id") is not None:
+            await self._precheck_copy_claim(
+                connection, cast(str, updates["frozen_copy_id"]), other_than=locked.id
+            )
         # FEATURE: OME-1307 — authors and paper link are replaced when given, so a resubmit that
         # really changes one is an edit: it dates the row and writes one `resubmit` event, in this
         # same locked transaction. `enriched_at` is a separate stamp and is not touched by them.
@@ -1753,6 +1792,39 @@ class ScoreStore:
         )
         return row["total"], row["latest"]
 
+    async def _precheck_copy_claim(
+        self, connection: Any, frozen_copy_id: str | None, *, other_than: Any
+    ) -> None:
+        """Refuse a copy another score already names, inside the write's transaction.
+
+        A pre-check for a clear refusal only; the unique index is what guarantees the rule (a
+        concurrent claim can commit after this read, and is mapped by `_refuse_claimed_copy`).
+        """
+        if await _copy_held_elsewhere(frozen_copy_id, other_than, connection):
+            raise FrozenCopyClaimed(frozen_copy_id)
+
+    async def _refuse_claimed_copy(self, frozen_copy_id: str | None, *, other_than: Any) -> None:
+        """After an index violation, raise `FrozenCopyClaimed` if a copy claim is what lost.
+
+        WHY a fresh read and not the database error's text: the error names a constraint in a
+        backend-specific message; whether another score now holds the copy is a fact to query.
+        Runs outside the failed transaction, which PostgreSQL has already aborted.
+        """
+        if await _copy_held_elsewhere(frozen_copy_id, other_than, None):
+            raise FrozenCopyClaimed(frozen_copy_id)
+
+    async def public_score_for_pinned_cache(self, frozen_copy_id: str) -> Score | None:
+        """The score that names this frozen copy; None when there is none or its board is private.
+
+        INVARIANT (OME-894, OME-1596): the board is read LAST, after the score, and nothing else is
+        read before the route answers, so there is no earlier copy of the board's state to go
+        stale. Unknown and private are the same None, so the route answers them identically.
+        """
+        score = await Score.get_or_none(frozen_copy_id=frozen_copy_id)
+        if score is None or await self._links_to_a_private_board(score):
+            return None
+        return score
+
     def visibility_query(
         self,
         benchmark_id: str,
@@ -1947,6 +2019,9 @@ class ScoreStore:
                 if confirmed is not None:
                     return SubmitOutcome(score=_score_to_schema(confirmed), created=False)
             await self._revalidate_visibility(submission.benchmark_id, per_submitter)
+            # OME-1596: nothing resolved, so the clash was not a retry of this recipe. If another
+            # score now names this copy, the index refused a second claim: say so, not 503.
+            await self._refuse_claimed_copy(submission.frozen_copy_id, other_than=None)
             raise
 
     async def get_by_idempotency_key(self, key: str) -> ScoreSchema | None:
