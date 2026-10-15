@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.1...url4-v1.6.0) (2026-10-15)
+
+
+### Features
+
+* **client:** support fusion quorum and per-member optional policy ([#1340](https://github.com/ScreamingFace/screamingface/issues/1340)) ([5e1d30c](https://github.com/ScreamingFace/screamingface/commit/5e1d30ccbc12e0645c6682777d27f129615c60ac))
+
 ## [1.5.1](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.0...url4-v1.5.1) (2026-08-27)
 
 
