@@ -10,7 +10,7 @@ from decimal import Decimal, localcontext
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from screamingface_engine.combine.ports import ACCOUNTING_SIGNALS
+from screamingface_engine.combine.ports import ACCOUNTING_SIGNALS, REPLY_LOGPROB_KEYS
 
 _FIXED_POINT_USD = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 
@@ -151,7 +151,8 @@ class ReplyLogprobs:
 
     def as_signals(self) -> dict[str, float | None]:
         """The numbers keyed by the member reader's reply keys (``combine.ports``, C5)."""
-        raise NotImplementedError
+        numbers = (float(self.tokens), self.logprob_sum, self.entropy_mean)
+        return dict(zip(REPLY_LOGPROB_KEYS, numbers, strict=True))
 
 
 def combine_signal_accounting(rounds: Sequence[SignalAccounting]) -> SignalAccounting:

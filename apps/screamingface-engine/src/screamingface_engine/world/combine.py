@@ -23,7 +23,12 @@ import logging
 from collections.abc import Mapping
 
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE, run_combine
-from screamingface_engine.combine.ports import CallFingerprint, CombineError, MemberSources
+from screamingface_engine.combine.ports import (
+    REPLY_LOGPROB_KEYS,
+    CallFingerprint,
+    CombineError,
+    MemberSources,
+)
 from screamingface_engine.combine.registry import OperatorRegistry
 from screamingface_engine.operation_accounting import SignalAccounting, combine_signal_accounting
 from screamingface_engine.operation_calls import (
@@ -35,6 +40,10 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 logger = logging.getLogger(__name__)
+
+# WHY: the SDK renders a boolean param as "true" (S/_evaluation/policy.py), so a member call that
+# asked for token log-probabilities carries this pair in its fingerprint params.
+_ASKED_FOR_LOGPROBS: tuple[str, str] = ("logprobs", "true")
 
 
 def install_combine_runtime(node: Url4Node, registry: OperatorRegistry) -> None:
@@ -71,11 +80,13 @@ class CombineRoute:
 
 
 def _read_member_accounting(sources: MemberSources) -> dict[str, dict[str, float | None]]:
-    """The accounting signals of each member, from the calls recorded in this case's scope.
+    """The accounting signals and the reply log-probability numbers of each member, from the calls
+    recorded in this case's scope (one fingerprint index for both, P15).
 
     Each source call is looked up by its exact fingerprint (path, params) among the recorded model
-    calls; a member's numbers are the fold of its calls. A call that matches zero or several
-    recorded calls makes the member's numbers unknown, never a guess. Never raises.
+    calls; a member's accounting numbers are the fold of its calls. A call that matches zero or
+    several recorded calls makes the member's numbers unknown, never a guess. The reply numbers
+    (``REPLY_LOGPROB_KEYS``) are known only for a member with exactly one source call. Never raises.
 
     INVARIANT: warnings carry a count only -- never a path, a param or any member text.
     """
@@ -88,15 +99,23 @@ def _read_member_accounting(sources: MemberSources) -> dict[str, dict[str, float
         if call.combine is None:
             index.setdefault((call.path, call.params), []).append(call)
     unmatched = 0
+    asked_without = 0
     result: dict[str, dict[str, float | None]] = {}
     for member, member_calls in sources.items():
         known, missed = _member_numbers(member_calls, index)
         unmatched += missed
-        result[member] = known.as_signals()
+        logprobs, missing = _member_logprobs(member_calls, index)
+        asked_without += missing
+        result[member] = {**known.as_signals(), **logprobs}
     if unmatched:
         logger.warning(
             "combine accounting signals: %d source call(s) matched zero or several recorded calls",
             unmatched,
+        )
+    if asked_without:
+        # LC-E3: a 200 reply without logprobs is a missing value, not a failure (P5).
+        logger.warning(
+            "combine reply logprobs: %d member(s) asked for logprobs and got none", asked_without
         )
     return result
 
@@ -122,6 +141,28 @@ def _member_numbers(
         else:
             rounds.append(recorded)
     return (combine_signal_accounting(rounds) if complete else SignalAccounting()), unmatched
+
+
+def _member_logprobs(
+    member_calls: Mapping[str, CallFingerprint],
+    index: Mapping[CallFingerprint, list[OperationCall]],
+) -> tuple[dict[str, float | None], bool]:
+    """One member's reply log-probability numbers, and whether it asked for them and got none.
+
+    Only a member with exactly one source call that matches exactly one recorded call has numbers
+    (C5, LC-D3). Two source calls are two replies and no rule folds them (LC-D5, the SDK refuses
+    them: DS-I4), so they give None, as zero or several matches do.
+    """
+    unknown: dict[str, float | None] = {key: None for key in REPLY_LOGPROB_KEYS}
+    if len(member_calls) != 1:
+        return unknown, False
+    (fingerprint,) = member_calls.values()
+    matches = index.get(fingerprint, [])
+    recorded = matches[0].reply_logprobs if len(matches) == 1 else None
+    if recorded is not None:
+        return recorded.as_signals(), False
+    asked = len(matches) == 1 and _ASKED_FOR_LOGPROBS in fingerprint[1]
+    return unknown, asked
 
 
 __all__ = ["CombineRoute", "install_combine_runtime"]

@@ -77,7 +77,9 @@ def logprobs_unsupported() -> ResolutionError:
     Permanent: the same model refuses the same params again, and the engine never retries without
     logprobs (ans:Q5). The text is fixed engine text (OME-941).
     """
-    raise NotImplementedError
+    return ResolutionError(
+        LOGPROBS_UNSUPPORTED_TEXT, code=LOGPROBS_UNSUPPORTED_CODE, permanent=True
+    )
 
 
 # INVARIANT: a helper can never mint an undeclared code — checked at import time so a
@@ -88,6 +90,8 @@ for _helper in (benchmark_contract_error, benchmark_definition_error, judge_fail
         raise AssertionError(f"failure class helper mints undeclared code {_code!r}")
 if UPSTREAM_FALLBACK_CODE not in DECLARED_FAILURE_CODES:
     raise AssertionError("upstream fallback code is not declared")
+if logprobs_unsupported().code not in DECLARED_FAILURE_CODES:
+    raise AssertionError("failure class helper mints undeclared code 'logprobs_unsupported'")
 del _helper, _code  # the self-check's loop variables are not module surface
 
 __all__ = [

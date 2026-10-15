@@ -380,8 +380,8 @@ Run: the six new test files, and `tests/test_signals.py`, in each package. No li
 
 ## Unit 3 — logprob capture
 
-Status: in progress. This section covers the RED stage (commit A). The GREEN stage (commit B) is
-not run yet.
+Status: done. The RED stage is commit `8a3ed217d`. The GREEN stage is commit B (see the outcome
+below).
 
 ### Intent
 
@@ -455,9 +455,15 @@ the entropy of the recorded reply, 6.547567880357428e-07.
     `ValueError: unknown activity category`, raised by the closed set check of
     `S/_ui/activity_record.py:138`. This is the D-U3-5 gap, and it is the expected RED reason. The
     LC#15 preflight rows (3) pass as CHAR.
-- **GREEN:** not run (commit B).
-- **Commits:** A: `test(screamingface-engine): RED for E4b part 3 unit 3 logprob-capture` (this
-  commit). B: not yet made.
+- **GREEN (commit B):**
+  - Engine: the seven new unit 3 test files and the three pinned files pass: 122 tests passed. The
+    neighbor tests of the unit spec (14 files) pass: 247 tests passed.
+  - SDK: the three new unit 3 SDK files and the three neighbor SDK files pass: 58 tests passed.
+  - No test file was edited in GREEN. No fixture, schema or public-surface file changed.
+- **Commits:** A: `8a3ed217d` `test(screamingface-engine): RED for E4b part 3 unit 3 logprob-capture`.
+  B: `feat(screamingface-engine): keep reply logprobs and map the logprobs refusal (E4b part 3
+  unit 3)`. Commit B holds the code and this outcome. There is no commit C: the unit spec says the
+  PRD asks for no README or CHANGELOG change in this unit. Unit 5 writes them.
 - **Gates (RED stage, `--base 0f4b9e292`):**
   - `screamingface-engine`: the append-only check listed ONLY the three approved pinned files
     (`test_e4b_catalog_pins.py`, `test_failure_classes.py`, `test_terminal_error_detail.py`). Rerun
@@ -468,6 +474,16 @@ the entropy of the recorded reply, 6.547567880357428e-07.
     (the two SDK RED rows: LC#10 SDK and the activity view), 4269 passed, 32 skipped.
   - `repo`: ALL GATES GREEN.
   - No `--skip-append-only` rerun was needed for the SDK or the repo stack.
+- **Gates (GREEN, `--base 0f4b9e292`):**
+  - `screamingface-engine`: the first run failed on the append-only check only. The check listed
+    ONLY the three approved pinned files: `tests/unit/test_e4b_catalog_pins.py`,
+    `tests/unit/test_failure_classes.py` and `tests/unit/test_terminal_error_detail.py`. The rerun
+    with `--skip-append-only` gave ALL GATES GREEN (ruff check, ruff format, pyright, layering,
+    and pytest with coverage at 80 percent or more). No flaky test appeared.
+  - `screamingface`: ALL GATES GREEN, the append-only check included. No offender was listed.
+  - `repo`: ALL GATES GREEN, the append-only check included.
+- **Pinned edits (unchanged in GREEN; each blob matches the RED stage):** no new edit in this
+  unit. The blobs are the same as the RED section above.
 - **Pinned edits for owner approval** (base blob, then approved blob):
   - `apps/screamingface-engine/tests/unit/test_failure_classes.py`: `1d214eff0af8da49d40f642d5377583209835d12` to `6d8699ab03d5e02491e30bed688356b974d7caad`. One line added to the exact set in `test_the_declared_vocabulary_is_exactly_the_agreed_set`.
   - `apps/screamingface-engine/tests/unit/test_e4b_catalog_pins.py`: `60a41ea9c7ea5001b2d4d298db5f34367deb74a2` to `2fe20d9b61f54f95375331977ce9c51c8a675471`. The file was replaced as the spec says (it had 20 lines).
@@ -483,3 +499,11 @@ the entropy of the recorded reply, 6.547567880357428e-07.
      four branches broke ruff PLR0911. The answers are the same as the spec's.
   4. `ruff check --fix` and `ruff format` changed the import order and the layout of the new files
      and of the stubs. No behavior changed.
+  5. GREEN (commit B), no behavior change: ruff reported PLR0911 (too many returns) on
+     `_content_entries` and `_entropy_mean` in `world/reply_logprobs.py`, and on `_member_logprobs`
+     in `world/combine.py`. The unit spec does not name this rule. I restructured those three
+     functions. `_entropy_mean` moved its top-list loop into a new helper `_top_values`. The return
+     values stay the same. The gate needs the ruff check green.
+  6. GREEN (commit B): two lines longer than 100 characters (a comment in `error_text.py` and a
+     docstring line in `world/reply_logprobs.py`) were wrapped by hand, because ruff format does not
+     wrap comments or docstrings.
