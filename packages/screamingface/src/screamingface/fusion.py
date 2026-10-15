@@ -190,12 +190,13 @@ def _check_logprob_sources(
     and the rule (P14): a vote weight must be greater than 0 (LP-E1, EN-E2), and sf.Logprob or
     sf.Entropy needs each member to be one OpenRouter sf.Model call (DS-I4, LP-E2, LP-E3, EN-E3,
     U4-D1)."""
-    needs = [s for s in (declared or {}).values() if isinstance(s, Logprob | Entropy)]
+    if declared is None:
+        return
+    needs = [s for s in declared.values() if isinstance(s, Logprob | Entropy)]
     if not needs:
         return
-    assert declared is not None
-    if isinstance(synthesizer, Reducer):
-        _check_weight_source(declared, synthesizer)
+    assert isinstance(synthesizer, Reducer)  # _declared refused a model synthesizer
+    _check_weight_source(declared, synthesizer)
     label = f"sf.{type(needs[0]).__name__}"
     for position, member in enumerate(members, 1):
         _check_logprob_member(label, position, member)

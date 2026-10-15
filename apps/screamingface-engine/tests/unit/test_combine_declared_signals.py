@@ -22,7 +22,7 @@ from combine_support import context_text, run, spec_text, vote_spec
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.evidence import SignalRecord
 from screamingface_engine.combine.ports import CombineError
-from screamingface_engine.combine.spec import parse_spec
+from screamingface_engine.combine.spec import VerbalizedSource, parse_spec
 
 CONF_PATTERN = "Confidence: ([0-9]+)"
 CONF_ENTRY = {"source": "verbalized", "pattern": CONF_PATTERN}
@@ -100,6 +100,7 @@ def test_engine_parses_signals_and_refuses_an_undeclared_read() -> None:
     # Positive first: a declared read parses and runs.
     parsed = parse_spec(spec_text(conf_weighted_vote()))
     assert parsed.signals is not None
+    assert isinstance(parsed.signals["conf"], VerbalizedSource)
     assert parsed.signals["conf"].pattern == CONF_PATTERN
     assert parsed.signals["conf"].source == "verbalized"
     outcome = run(

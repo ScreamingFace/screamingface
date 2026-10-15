@@ -691,3 +691,29 @@ RED stage (commit A): the tests and the stubs only.
 - README and CHANGELOG notes for LP-D3 (`sum` favors short replies), EN-D5 (keep k small) and the
   nats unit go to unit 5.
 - Deviations: none in commit A.
+
+### Unit 4 review fixes
+
+- R-1 (pyright, Erratum E-6): `ET/test_combine_declared_signals.py` imports `VerbalizedSource`
+  and asserts `isinstance(parsed.signals["conf"], VerbalizedSource)` before it reads `.pattern`.
+  This is one added assert and one changed import line. It makes the test stronger. The file is
+  NOT on the unit 4 PINNED list, so the owner must approve it. Blob `9a7a101be00f1b0331569c4f0562f8ae947121e4`
+  -> `d6bf10b39b7f42c0b61687495281b21ed34d5a9a`. The append-only gate does not list this file
+  (the change is an insertion and an import). RED: pyright gave the 2 errors at commit B; after
+  the edit pyright gives 0 errors. The test passed at runtime before and after.
+- R-3: the `_reader_numbers` invariant text is now "combine context sources are missing for an
+  accounting or reply-logprob signal". No test pins this text. The pinned `parse_context` text
+  (U4-D11) does not change.
+- R-4: `_check_logprob_sources` in `S/fusion.py` returns early when nothing is declared, and
+  asserts that the synthesizer is a `Reducer` (`_declared` already refuses a model synthesizer).
+  The behavior does not change; the existing LP and EN tests cover it.
+- Not done, as the review says: R-5 (a `declares_reply_sources` SDK predicate, unit 5 or later),
+  R-6 (keep `_injected_names` and the three-form dict, spec choices), R-7 (move
+  `_wrapped_candidate` to a support module later).
+- Gates after the review fixes (base `0f4b9e292`): repo ALL GATES GREEN. Engine and SDK: the
+  only red check is append-only. Engine offenders: the combine-evidence and combine-spec schema
+  snapshots, `test_e4b_catalog_pins.py`, `test_failure_classes.py`,
+  `test_terminal_error_detail.py`. SDK offenders: `public_surface_snapshot.json`,
+  `test_signals.py`. Each one is on an allowed or pinned list. With `--skip-append-only`, engine
+  (ruff, format, pyright 0 errors, layering, pytest with coverage) and SDK (ruff, format, pyright,
+  pytest with coverage, notebooks, build, distribution) are ALL GATES GREEN. No flakes.

@@ -314,7 +314,9 @@ def _reader_numbers(
     # WHY the reader is a port: the core does no I/O and has no recorder; the adapter knows
     # what each source call cost and what each reply carried.
     if context.sources is None:  # parse_context required them for these keys
-        raise RuntimeError("combine context sources are missing for an accounting signal")
+        raise RuntimeError(
+            "combine context sources are missing for an accounting or reply-logprob signal"
+        )
     # WHY only the members that answered (OME-1557): a member a quorum panel left out has no
     # recorded call to match, so asking for it would only log a false warning.
     asked = MappingProxyType({m: c for m, c in context.sources.items() if m in context.outputs})
