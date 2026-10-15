@@ -57,8 +57,8 @@ reads each Case's rounds back from the kept Report to show whether the chain ran
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned, plus `.claude/test-change-approvals/OME-1527.json` (rewritten for
-  this branch: #1407's 29 entries carried over, plus `_board_summary.py`, `_scope.py`,
-  `test_imported_board_smoke.py`).
+  this branch: `_board_summary.py`, `_scope.py`, `test_imported_board_smoke.py`; while stacked,
+  it also carried #1407's entries, dropped once #1407 merged into main on 2026-10-15).
 - **Models:** members `mistralai/ministral-3b-2512` and `microsoft/phi-4` (the recorded ifeval
   golden's members, seeded as "IFEval-fallible by design", non-reasoning; recorded prices
   $0.10/$0.10 and $0.07/$0.14 per million tokens in/out), with the golden's member prompt and
@@ -97,7 +97,8 @@ reads each Case's rounds back from the kept Report to show whether the chain ran
   shelf runner with fake clients printed both entries, the per-Case lines and the warning, and
   kept `ifeval.json` beside `ifeval.corrective-loop.json`. Append-only check by hand (OME-1575),
   against the parent branch and against main's merge base: passes through `OME-1527.json` except
-  #1407's deleted and renamed engine tests, which no manifest can approve (as on #1407).
+  #1407's deleted and renamed engine tests, which no manifest can approve (as on #1407). After
+  #1407 merged and main was merged in, the check against main passes with no exceptions.
 - **Deviations:** none from the brief. The tape could tell which Cases retried (by time order and
   answer content), so the limit comes from the tape, not from the golden's statuses.
 - **Owner verify:** after #1407 and this PR merge, press the paid smoke with `benchmarks=ifeval`
