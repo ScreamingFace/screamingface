@@ -14,7 +14,8 @@ model_token_cap)] and usage {cost 0.0032, out 16400, reasoning 14100} reads
 
 INVARIANT: a view, never a verdict. Nothing here decides pass/fail, so "correct"
 (2 Cases of noise) can never fail a board; it is a hint that answer extraction
-works, not a score.
+works, not a score. A board's `warnings` (e.g. the Corrective Loop entry's "chain not
+exercised") are shown loudly but never turn it red either.
 """
 
 from __future__ import annotations
@@ -50,6 +51,8 @@ class BoardSummary:
     run_id: str | None = None
     #: (real code, outer code when wrapped else None) → how many Cases failed with it.
     failure_counts: tuple[tuple[str, str | None, int], ...] = ()
+    #: Shown in every overview, never a failure (e.g. `_corrective_chain.CHAIN_NOT_EXERCISED`).
+    warnings: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -125,6 +128,7 @@ def detail_lines(summary: BoardSummary) -> list[str]:
     lines: list[str] = [_INDENT + " · ".join(parts)]
     if summary.failure_codes:
         lines.append(f"{_INDENT}└─ {', '.join(summary.failure_codes)}")
+    lines.extend(f"{_INDENT}WARNING {warning}" for warning in summary.warnings)
     return lines
 
 
@@ -137,6 +141,7 @@ def run_summary_lines(summaries: list[BoardSummary], wall_seconds: float) -> lis
         codes: str = ", ".join(summary.failure_codes) or "see the failure block below"
         graded: str = _fraction(summary.graded, summary.cases)
         lines.append(f"  FAILED  {summary.board}  graded {graded}  {codes}")
+    lines.extend(_warning_lines(summaries, "  WARNING  {board}  {warning}"))
     return lines
 
 
@@ -159,7 +164,19 @@ def run_summary_markdown(summaries: list[BoardSummary], wall_seconds: float) -> 
             f"| {', '.join(summary.failure_codes) or '—'} |"
         )
     rows.append(_total_row(summaries, wall_seconds))
+    warnings: list[str] = _warning_lines(summaries, "> ⚠️ **{board}** — {warning}")
+    if warnings:
+        rows += ["", *warnings]
     return "\n".join(rows) + "\n"
+
+
+def _warning_lines(summaries: list[BoardSummary], template: str) -> list[str]:
+    """One line per board warning, boards alphabetical, healthy or failed alike."""
+    return [
+        template.format(board=summary.board, warning=warning)
+        for summary in sorted(summaries, key=lambda summary: summary.board)
+        for warning in summary.warnings
+    ]
 
 
 def _total_row(summaries: list[BoardSummary], wall_seconds: float) -> str:

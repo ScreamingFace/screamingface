@@ -9,6 +9,10 @@ STORY: as the owner, before citing "every Benchmark runs", I run
 `just screamingface test-paid-benchmarks` and get, for a small bounded spend, either a
 green run or the exact Benchmark + failure code that broke.
 
+Every Benchmark runs as a Fusion. When ifeval is picked it also runs as a Corrective Loop,
+its own entry `ifeval · corrective loop` (OME-1527 row 15b): a Fusion never calls the
+Benchmark's mid-run check, so only a loop proves ifeval's Draft Feedback reaches a retry.
+
 WHY shape-only assertions: scores are nondeterministic and protected elsewhere (the
 golden replay lane). This lane fails ONLY on infrastructure failure codes; a wrong,
 refused, or truncated model answer still passes, because model quality is not wiring.
@@ -16,6 +20,7 @@ refused, or truncated model answer still passes, because model quality is not wi
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import time
 from collections.abc import Callable
@@ -34,7 +39,8 @@ from _board_summary import (
     summarize_board,
 )
 from _case_provenance import copy_labels, provenance_markdown
-from _panel import BOARD_CONCURRENCY, CASE_LIMIT, fusion_panel
+from _corrective_chain import ChainEvidence, chain_lines, chain_warning, read_chain_evidence
+from _panel import BOARD_CONCURRENCY, CASE_LIMIT, CORRECTIVE_RUN, FUSION_RUN, SmokeRun
 from _scope import ShelfPick, pick_from_env
 from conftest import PaidStack, assets_root
 
@@ -83,6 +89,10 @@ def test_every_benchmark_runs_end_to_end(
         ]
     pick: ShelfPick = pick_from_env(listed, os.environ)
     boards: list[str] = pick.boards
+    # One entry per Benchmark as a Fusion, plus ifeval as a Corrective Loop when picked.
+    entries: list[tuple[str, SmokeRun]] = [(board, FUSION_RUN) for board in boards] + [
+        (board, CORRECTIVE_RUN) for board in pick.corrective
+    ]
     # A picked kind with nothing listed (e.g. an engine booted without the inspect
     # extra) is a lane bug, and a named Benchmark the engine does not list is a typo;
     # neither is a Benchmark bug, so fail here before spending anything.
@@ -93,10 +103,14 @@ def test_every_benchmark_runs_end_to_end(
     # shelf, so `-v` shows a single line until every board is done. The owner
     # watching a press (terminal or CI log) needs to see a broken board the
     # moment it finishes, not after the whole paid run.
+    loops: str = "".join(
+        f" + {CORRECTIVE_RUN.label(board)} ({CORRECTIVE_RUN.limit} Cases)"
+        for board in pick.corrective
+    )
     with capsys.disabled():
         print(
-            f"\n[paid smoke] {pick.picked_by}: {len(boards)} Benchmarks, {CASE_LIMIT} Cases each, "
-            f"{BOARD_CONCURRENCY} at a time",
+            f"\n[paid smoke] {pick.picked_by}: {len(boards)} Benchmarks, {CASE_LIMIT} Cases each"
+            f"{loops}, {BOARD_CONCURRENCY} at a time",
             flush=True,
         )
 
@@ -110,10 +124,12 @@ def test_every_benchmark_runs_end_to_end(
     )
     press_started: float = time.monotonic()
     summaries: list[BoardSummary] = _run_shelf(
-        open_client, boards, paid_stack.log_dir / "reports", capsys
+        open_client, entries, paid_stack.log_dir / "reports", capsys
     )
     # The press overview, written BEFORE the verdict so a failing press still leaves it.
-    _publish_overview(summaries, time.monotonic() - press_started, paid_stack.log_dir, capsys)
+    _publish_overview(
+        summaries, boards, time.monotonic() - press_started, paid_stack.log_dir, capsys
+    )
 
     problems: list[str] = [problem for summary in summaries for problem in summary.problems]
     assert not problems, (
@@ -124,15 +140,17 @@ def test_every_benchmark_runs_end_to_end(
 
 def _run_shelf(
     open_client: Callable[[], AbstractContextManager[_sf.Client]],
-    boards: list[str],
+    entries: list[tuple[str, SmokeRun]],
     reports_dir: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> list[BoardSummary]:
-    """Smoke every board, BOARD_CONCURRENCY at a time, printing each as it finishes.
+    """Smoke every entry, BOARD_CONCURRENCY at a time, printing each as it finishes.
 
-    Stages: (1) submit one worker per board, each on its own client; (2) as each
+    Stages: (1) submit one worker per entry, each on its own client; (2) as each
     finishes (completion order), read its kept Report back into an overview and
-    print the progress line plus its stats under it. Prints happen on this thread only.
+    print the progress line plus its stats under it; (3) for the Corrective Loop entry,
+    also read each Case's rounds from that Report, print them, and attach the "chain not
+    exercised" warning when no Case got past round 1. Prints happen on this thread only.
 
     WHY read the kept Report back: the overview (graded, correct, cost, tokens, run
     id) is a view of the evidence `_smoke_one_board` already wrote, so the log line
@@ -140,36 +158,46 @@ def _run_shelf(
 
     Args:
         open_client: builds a fresh client context manager per worker.
-        boards: the picked Benchmark ids, from the live engine (see `_scope.pick_shelf`).
-        reports_dir: where each board's Report is kept as ``<board>.json``.
+        entries: (Benchmark id, how it runs) pairs: every picked Benchmark (see
+            `_scope.pick_shelf`) under FUSION_RUN, then ifeval under CORRECTIVE_RUN.
+        reports_dir: where each entry's Report is kept (`SmokeRun.report_name`).
         capsys: pytest's capture fixture, used to print past the capture.
 
     Returns:
-        One overview per board, in completion order; their problems are the verdict.
+        One overview per entry, in completion order; their problems are the verdict.
     """
     summaries: list[BoardSummary] = []
-    # Stage 1 — one worker per board.
+    # Stage 1 — one worker per entry.
     with ThreadPoolExecutor(max_workers=BOARD_CONCURRENCY) as pool:
-        running: dict[Future[tuple[list[str], float]], str] = {
-            pool.submit(_smoke_board_timed, open_client, board, reports_dir): board
-            for board in boards
+        running: dict[Future[tuple[list[str], float]], tuple[str, SmokeRun]] = {
+            pool.submit(_smoke_board_timed, open_client, board, reports_dir, run): (board, run)
+            for board, run in entries
         }
         # Stage 2 — overview + print, in completion order.
         for finished, future in enumerate(as_completed(running), start=1):
             board_problems, seconds = future.result()
-            board: str = running[future]
-            summary: BoardSummary = summarize_board(
-                board, board_problems, seconds, reports_dir / f"{board}.json"
-            )
+            board, run = running[future]
+            label: str = run.label(board)
+            report_path: Path = reports_dir / run.report_name(board)
+            summary: BoardSummary = summarize_board(label, board_problems, seconds, report_path)
+            # Stage 3 — the Corrective Loop entry shows each Case's rounds.
+            chain: list[str] = []
+            if run.reads_chain:
+                evidence: ChainEvidence | None = read_chain_evidence(report_path)
+                chain = chain_lines(evidence)
+                warning: str | None = chain_warning(evidence)
+                if warning is not None:
+                    summary = dataclasses.replace(summary, warnings=(warning,))
             summaries.append(summary)
-            line: str = _progress_line(finished, len(boards), board, board_problems, seconds)
+            line: str = _progress_line(finished, len(entries), label, board_problems, seconds)
             with capsys.disabled():
-                print("\n".join([line, *detail_lines(summary)]), flush=True)
+                print("\n".join([line, *detail_lines(summary), *chain]), flush=True)
     return summaries
 
 
 def _publish_overview(
     summaries: list[BoardSummary],
+    benchmarks: list[str],
     wall_seconds: float,
     log_dir: Path,
     capsys: pytest.CaptureFixture[str],
@@ -181,14 +209,20 @@ def _publish_overview(
     table, "Where the Cases came from" reads each bundle's provenance.json (OME-1492),
     and each of those labels is copied to `provenance/<benchmark>.json` beside it, so
     the debug bundle keeps them after the runner is gone (OME-1524).
+
+    WHY `benchmarks` beside the summaries: an entry's name is not always a Benchmark id
+    (`ifeval · corrective loop` has no bundle of its own), so provenance reads the picked
+    ids, each once, in the order their entries finished.
     """
+    picked: set[str] = set(benchmarks)
+    finished: list[str] = [summary.board for summary in summaries if summary.board in picked]
     with capsys.disabled():
         print("\n" + "\n".join(run_summary_lines(summaries, wall_seconds)), flush=True)
     try:
         (log_dir / "summary.md").write_text(
             run_summary_markdown(summaries, wall_seconds)
             + "\n"
-            + provenance_markdown([summary.board for summary in summaries], assets_root()),
+            + provenance_markdown(finished, assets_root()),
             encoding="utf-8",
         )
     except OSError as exc:
@@ -196,7 +230,7 @@ def _publish_overview(
             print(f"[paid smoke] could not write summary.md — {exc}", flush=True)
     # WHY here and not a workflow step: the local `just` twin writes the same log folder.
     try:
-        copy_labels([summary.board for summary in summaries], assets_root(), log_dir)
+        copy_labels(finished, assets_root(), log_dir)
     except OSError as exc:
         with capsys.disabled():
             print(f"[paid smoke] could not copy the provenance labels — {exc}", flush=True)
@@ -230,9 +264,12 @@ def _progress_line(
 
 
 def _smoke_board_timed(
-    open_client: Callable[[], AbstractContextManager[_sf.Client]], board: str, reports_dir: Path
+    open_client: Callable[[], AbstractContextManager[_sf.Client]],
+    board: str,
+    reports_dir: Path,
+    run: SmokeRun = FUSION_RUN,
 ) -> tuple[list[str], float]:
-    """One parallel worker: open a client of its own, smoke one board, time it.
+    """One parallel worker: open a client of its own, smoke one entry, time it.
 
     INVARIANT: always returns a verdict, never raises. An exception escaping a worker
     would surface from its future and abort the collection loop, hiding every other
@@ -242,48 +279,55 @@ def _smoke_board_timed(
     Args:
         open_client: builds a fresh client context manager (one per worker thread).
         board: the Benchmark id.
-        reports_dir: where the board's Report is kept (see `_smoke_one_board`).
+        reports_dir: where the entry's Report is kept (see `_smoke_one_board`).
+        run: how the entry runs the Benchmark (the Fusion unless told otherwise).
 
     Returns:
-        The board's problems (empty when healthy) and its wall time in seconds.
+        The entry's problems (empty when healthy) and its wall time in seconds.
     """
     started: float = time.monotonic()
     try:
         with open_client() as client:
-            problems: list[str] = _smoke_one_board(client, board, reports_dir)
+            problems: list[str] = _smoke_one_board(client, board, reports_dir, run)
     except Exception as exc:  # noqa: BLE001
-        problems = [f"{board}: client failed — {exc!r}"]
+        problems = [f"{run.label(board)}: client failed — {exc!r}"]
     return problems, time.monotonic() - started
 
 
-def _smoke_one_board(client: _sf.Client, board: str, reports_dir: Path) -> list[str]:
-    """Run one board's Fusion evaluation, keep its Report on disk, and describe its
+def _smoke_one_board(
+    client: _sf.Client, board: str, reports_dir: Path, run: SmokeRun = FUSION_RUN
+) -> list[str]:
+    """Run one entry's evaluation, keep its Report on disk, and describe its
     infrastructure failures.
 
     Args:
         client: the SDK client connected to the paid stack's engine.
         board: the Benchmark id (e.g. ``inspect-gsm8k`` or ``draco``).
-        reports_dir: where this board's full Report lands as ``<board>.json`` — the
-            per-case evidence (member + synthesizer answers, grade, judge reasoning,
-            run and trace ids) that the failure strings below only summarize.
+        reports_dir: where this entry's full Report lands (``<board>.json`` for the
+            Fusion, ``ifeval.corrective-loop.json`` for the loop) — the per-case
+            evidence (member + synthesizer answers, grade, judge reasoning, run and
+            trace ids) that the failure strings below only summarize.
+        run: which Candidate runs and how many Cases (the Fusion unless told otherwise).
 
     Returns:
-        One human-readable line per problem; empty when the board's pipe is healthy.
+        One human-readable line per problem, named by the entry's label; empty when
+        the entry's pipe is healthy.
     """
     import screamingface as sf
 
+    label: str = run.label(board)
     try:
-        report = client.evaluate(fusion_panel(), benchmark=board, limit=CASE_LIMIT, progress=False)
+        report = client.evaluate(run.candidate(), benchmark=board, limit=run.limit, progress=False)
     except sf.ScreamingFaceError as exc:
         # The run never produced a report — a preflight refusal, a dead route, a
         # transport failure. Always a smoke failure; the message names the cause.
-        return [f"{board}: evaluate raised — {exc}"]
+        return [f"{label}: evaluate raised — {exc}"]
     except Exception as exc:  # noqa: BLE001
         # WHY the broad catch (PR #1035 review): this loop's contract is "one broken
         # board never hides the rest". An exception that leaks past the SDK's own
         # error type would otherwise abort the loop and silently discard the other
         # boards' verdicts — it is still recorded as this board's failure, never swallowed.
-        return [f"{board}: evaluate raised unexpectedly — {exc!r}"]
+        return [f"{label}: evaluate raised unexpectedly — {exc!r}"]
 
     problems: list[str] = []
     # WHY export before judging: a failing board's Report IS the debugging evidence,
@@ -291,10 +335,10 @@ def _smoke_one_board(client: _sf.Client, board: str, reports_dir: Path) -> list[
     # — so debugging a failed case meant paying for the run again. It lands in the
     # stack's log dir, which CI uploads and the just recipe prints.
     try:
-        report.export(reports_dir / f"{board}.json")
+        report.export(reports_dir / run.report_name(board))
     except OSError as exc:
-        problems.append(f"{board}: could not keep the report for debugging — {exc}")
-    return problems + _report_problems(board, report)
+        problems.append(f"{label}: could not keep the report for debugging — {exc}")
+    return problems + _report_problems(label, report, run.limit)
 
 
 def _no_graded_reason(codes: list[str]) -> str:
@@ -318,14 +362,17 @@ def _no_graded_reason(codes: list[str]) -> str:
     return "see its case failures below"
 
 
-def _report_problems(board: str, report: _sf.Report) -> list[str]:
-    """Read one board's Report like a referee: did the pipe carry every Case to a
-    grade, and did anything fail that was not the model misbehaving?"""
+def _report_problems(board: str, report: _sf.Report, expected_cases: int = CASE_LIMIT) -> list[str]:
+    """Read one entry's Report like a referee: did the pipe carry every Case to a
+    grade, and did anything fail that was not the model misbehaving?
+
+    The same rules for every entry, the Corrective Loop included: only `expected_cases`
+    differs (CASE_LIMIT for a Fusion, CORRECTIVE_CASE_LIMIT for the loop)."""
     candidate = report.candidates.only
     problems: list[str] = []
-    if len(candidate.cases) != CASE_LIMIT:
+    if len(candidate.cases) != expected_cases:
         problems.append(
-            f"{board}: expected {CASE_LIMIT} cases in the report, got {len(candidate.cases)}"
+            f"{board}: expected {expected_cases} cases in the report, got {len(candidate.cases)}"
         )
     # WHY strict (PR #1035 review): with every Case lost to tolerated model-side codes
     # (e.g. two 429s), the board's GRADING path ran zero times — a pass would claim a
