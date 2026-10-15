@@ -91,8 +91,8 @@ config:
   adminEmails: []
   jwtTtlSeconds: 86400
   # Optional finite positive seconds waiting for provider capacity. Null preserves
-  # the app default: use the effective execution allowance (normally 600s).
-  # Existing Engine clients time out after 600s and start their timer first; set
+  # the app default: use the effective execution allowance (1800s via `extraEnv`).
+  # Existing Engine clients time out after 1800s and start their timer first; set
   # a shorter value (e.g. 30) to receive 503/provider_queue_timeout before disconnect.
   providerQueueTimeoutS: null
   # Provider plugins whose deployment availability is declared by the chart.
@@ -174,6 +174,13 @@ extraEnv:
   # OME-921: finite headroom above Engine's ~32-call fan-out; never set this to 0 in prod.
   - name: AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES
     value: '{"openrouter": 50}'
+  # OME-1616: one provider call may run 30 minutes. Keep these two equal to the Engine's
+  # `[aigateway] timeout_s`; the smallest of the three wins. REQUEST_TIMEOUT is LiteLLM's own
+  # HTTP timeout, which otherwise falls back to 600 s.
+  - name: AIGW_PROVIDER_EXECUTION_TIMEOUT_S
+    value: "1800"
+  - name: REQUEST_TIMEOUT
+    value: "1800"
 
 
 service:
