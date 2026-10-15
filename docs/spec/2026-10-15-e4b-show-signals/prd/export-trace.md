@@ -15,8 +15,11 @@ member gave, and how the step decided, without the SDK and without the live repo
 
 - The owner chose the export as a surface and accepted that it "Makes exports larger; changes the
   export format." [stated ans:Q1]
-- The part 1 rule for a v1 record: "additive edit, no need to care abour versions for now".
-  [existing docs/spec/2026-10-13-e4b-combine-extensions/00-overview.md:86]
+- [proposed] P1: the additive edit of report.v1 is a new decision, by analogy with part 1 ans:Q5
+  ("additive edit, no need to care abour versions for now",
+  docs/spec/2026-10-13-e4b-combine-extensions/00-overview.md:86). That answer was about
+  `combine-spec.v1` (part 1 D5, a new reducer kind), not about report.v1. The owner approves it
+  with plan §6 action 1.
 
 ### 2.1 Current behavior
 
@@ -59,9 +62,21 @@ def _export_cases(self) -> Iterator[dict[str, object]]:
         if case.operations is not None and any(
             operation.combine is not None for operation in case.operations
         ):
-            selected["trace"] = [entry.to_dict() for entry in case_trace(case, graph)]
+            selected["trace"] = _case_entries(case, graph)
         yield selected
 ```
+
+```python
+# S/report.py, module level, next to _candidate_trace
+def _case_entries(
+    case: CaseResult, graph: Mapping[str, OperationInfo]
+) -> list[dict[str, object]]:
+    """One Case's report-trace.v1 entries: the one builder for trace_dict() and the export (EC-I2)."""
+    return [entry.to_dict() for entry in case_trace(case, graph)]
+```
+
+`_candidate_trace` uses it: `"entries": _case_entries(case, graph)` (P20). Its output does not
+change.
 
 ```python
 # S/_report_export.py, iter_report_json
@@ -102,7 +117,9 @@ export also holds each Case's entries as its `trace` key, E4b part 4)". Do not c
   minus `trace` equals `case.to_dict()` (EC-I1), and only the Cases with combine evidence have
   `trace`.
 - **XT-D2** (H×M) [implied] Given member outputs that contain the text `SENTINEL`, then the exported
-  `trace` does not contain `SENTINEL` (EC-I3).
+  `trace` does not contain `SENTINEL` (EC-I3). Fixture limit: the step uses `last_number@1`, so the
+  extracted `raw` and `value` are a number. This row does not cover `whole@1` or `json_object@1`,
+  whose `extract` entries repeat the whole reply (N1).
 - **XT-D3** (M×M) [proposed] Given any exported `trace` entry, then its keys are exactly
   `["kind", *TRACE_FIELDS[kind]]`, in that order. The report-trace.v1 snapshot does not change.
 - **XT-D4** (M×M) [proposed] Given the vote and median report, then each exported `trace` equals the
@@ -151,7 +168,7 @@ Build the Attempts Case as `ST/test_case_attempts.py:59-68` does.
 | 10 | `exported_entries_keep_the_report_trace_v1_field_sets` | unit | XT-D3 | M×M | reuses `TraceEntry.to_dict()` |
 | 11 | `export_minus_trace_is_case_to_dict_for_every_golden_case` | unit | XT-D1, XT-D6 | H×M | uses `combine_report()` (`ST/test_report_v1_identity.py`) and `vote_median_report()` (`ST/test_report_v1_vote_identity.py`) |
 | 12 | PIN `report_v1_goldens_hold_the_trace` | golden | XT-1, P4 | H×H | regenerate the two goldens, then update the two SHA-256 values in `ST/test_e4b_schema_pins.py` (lines 29 and 33); the existing identity tests then pass |
-| 13 | `exported_trace_equals_trace_dict_entries` | unit | XT-D4 | M×M | same graph rule |
+| 13 | `exported_trace_equals_trace_dict_entries` | unit | XT-D4 | M×M | one builder, `_case_entries` (P20) |
 
 Row 12 commands (from `packages/screamingface`):
 

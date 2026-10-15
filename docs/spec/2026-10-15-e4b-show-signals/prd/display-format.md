@@ -17,7 +17,7 @@ data.
   value in a title tooltip; a missing value is an em dash with its reason. [stated ans:Q3]
 - House conventions: the score shows `:g` (6 significant digits) [existing S/_ui/report_view.py:1167-1175];
   a missing figure is `—` with a `title` [existing S/_ui/report_view.py:370-375,597-606]; all data
-  text goes through `html.escape` [existing S/_ui/report_view.py:9]; attribute values are in single
+  text goes through `html.escape` [existing S/_ui/report_view.py:10]; attribute values are in single
   quotes [existing S/_ui/report_view.py:604].
 - Some existing tests assert that a token is NOT in the report HTML (for example
   `"abstained" not in report_html(without)`, `ST/test_case_abstained.py:158`). The new style rules
@@ -49,23 +49,23 @@ if TYPE_CHECKING:
 _DASH = "—"
 _TEXT_CELL = 80  # characters of a member value shown in one cell (P7)
 
-COMBINE_CSS = "\n".join(
-    (
-        ".sf-cmb{margin-top:6px;overflow-x:auto}",
-        ".sf-cmb__t{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px;"
-        "font-variant-numeric:tabular-nums}",
-        '.sf-cmb__t th{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;'
-        "font-weight:600;text-align:left;color:var(--sf-ink-2);padding:4px 8px;"
-        "border-bottom:1px solid var(--sf-line-2)}",
-        ".sf-cmb__t td{padding:4px 8px;border-bottom:1px solid var(--sf-line);"
-        "color:var(--sf-ink);overflow-wrap:anywhere}",
-        ".sf-cmb__out td{color:var(--sf-ink-3)}",
-        ".sf-cmb__na,.sf-cmb__nn{color:var(--sf-ink-3)}",
-        ".sf-cmb__na,.sf-cmb__n{cursor:help}",
-        ".sf-cmb__h{font-size:13px;font-weight:600;margin-top:10px}",
-        ".sf-cmb__nn{font-size:11px}",
-    )
-)
+# WHY one "<style>…</style>" constant: the house precedent (accounting_view.STYLE, joined into
+# report_view._STYLE). WHY text-align on th AND td, and the tbody tr background: JupyterLab's
+# rendered-HTML rules right-align table cells and paint zebra rows; the zebra rule has a higher
+# specificity, so it needs !important (house precedent: report_browser.py:44). Same intent as
+# .sf-eval__table (evaluation_view.py:41,47).
+STYLE = """<style>
+.sf-cmb{margin-top:6px;overflow-x:auto}
+.sf-cmb__t{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px;font-variant-numeric:tabular-nums}
+.sf-cmb__t th{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;font-weight:600;text-align:left;color:var(--sf-ink-2);padding:4px 8px;border-bottom:1px solid var(--sf-line-2)}
+.sf-cmb__t td{padding:4px 8px;text-align:left;border-bottom:1px solid var(--sf-line);color:var(--sf-ink);overflow-wrap:anywhere}
+.sf-cmb__t tbody tr{background:transparent!important}
+.sf-cmb__out td{color:var(--sf-ink-3)}
+.sf-cmb__na,.sf-cmb__nn{color:var(--sf-ink-3)}
+.sf-cmb__na,.sf-cmb__n{cursor:help}
+.sf-cmb__h{font-size:13px;font-weight:600;margin-top:10px}
+.sf-cmb__nn{font-size:11px}
+</style>"""
 
 
 def number_html(value: float | None, reason: str) -> str:
@@ -87,6 +87,7 @@ def text_html(value: str | None, reason: str) -> str:
     """A member value: escaped, at most 80 characters then an ellipsis; None: a dash."""
     if value is None:
         return dash_html(reason)
+    # WHY not report_view._short: report_view imports this module (an import cycle).
     shown = value if len(value) <= _TEXT_CELL else value[:_TEXT_CELL] + "…"
     return escape(shown)
 
@@ -103,9 +104,10 @@ def missing_reason(row: CombineAnswerRow, label: str) -> str:
 __all__: list[str] = []
 ```
 
-`S/_ui/report_view.py`: import `COMBINE_CSS` and put `{COMBINE_CSS}` into the `_STYLE` f-string on
-its own line, directly before the line that starts `@media(max-width:680px)`
-[existing S/_ui/report_view.py:203]. Do not add a `<style>` tag.
+`S/_ui/report_view.py`: add `from screamingface._ui.combine_view import STYLE as COMBINE_STYLE`
+next to the `ACCOUNTING_STYLE` import, and join it after `ACCOUNTING_STYLE`:
+`_STYLE = STYLE + ACCOUNTING_STYLE + COMBINE_STYLE + f"""<style>…"""`
+[existing S/_ui/report_view.py:15,34-37]. Do not put the rules into the report f-string.
 
 ## 3. Scenarios and acceptance criteria
 
@@ -146,10 +148,12 @@ its own line, directly before the line that starts `@media(max-width:680px)`
   `left out by the rule: no_signal`.
 - **DF-D2** (M×M) [existing] The score formatter keeps 6 significant digits:
   `_score_text(0.123456789) == "0.123457"`. The new format does not replace it.
-- **DF-D3** (M×M) [proposed] P9 Every rule of `COMBINE_CSS` has selectors that start with
-  `.sf-cmb`; it has no `#`, no `<`, and none of the tokens `abstained`, `excluded`, `incorrect`,
-  `graded`, `reasoning`, `cost`, `scores`, ` — `, ` · `. `COMBINE_CSS` is in `_STYLE` once, inside
-  the last `<style>…</style>` block, and the number of `<style` in `_STYLE` does not change.
+- **DF-D3** (M×M) [proposed] P9 `combine_view.STYLE` starts with `<style>` and ends with
+  `</style>`. Every rule between the two tags has selectors that start with `.sf-cmb`. Between the
+  tags it has no `#`, no `<`, and none of the tokens `abstained`, `excluded`, `incorrect`, `graded`,
+  `reasoning`, `cost`, `scores`, ` — `, ` · `. The `th` and `td` rules both set `text-align:left`,
+  and `.sf-cmb__t tbody tr` sets `background:transparent!important`. `_STYLE` holds `STYLE` exactly
+  once, directly after `ACCOUNTING_STYLE`.
 - **DF-D4** (M×L) [stated ans:Q1] The module adds no public name: `combine_view.__all__ == []`.
 
 ## 4. Non-functional requirements
@@ -170,7 +174,7 @@ None.
 ## 7. TDD plan
 
 Test file: `ST/test_combine_display_format.py` (new). RED commit: `combine_view.py` with the four
-functions raising `NotImplementedError` and `COMBINE_CSS = ""`.
+functions raising `NotImplementedError` (no render path calls them yet) and `STYLE = ""`.
 
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
@@ -183,5 +187,5 @@ functions raising `NotImplementedError` and `COMBINE_CSS = ""`.
 | 7 | `text_cell_escapes_markup` | unit | DF-E2 | H×M | `escape` |
 | 8 | `missing_text_is_an_em_dash_with_its_reason` | unit | DF-2 | M×M | `text_html(None, …)` |
 | 9 | `missing_reason_follows_the_status` | unit | DF-D1 | M×H | MR-1..MR-3 |
-| 10 | `combine_css_is_scoped_themed_and_has_no_banned_token` | unit | DF-D3 | M×M | the rule list above, `{COMBINE_CSS}` in `_STYLE` |
+| 10 | `combine_style_is_scoped_themed_and_has_no_banned_token` | unit | DF-D3 | M×M | the `STYLE` constant above, joined into `_STYLE` after `ACCOUNTING_STYLE` |
 | 11 | `combine_view_adds_no_public_name` | unit | DF-D4 | M×L | `__all__ = []`; `ST/test_public_surface.py` stays green |

@@ -25,13 +25,13 @@ Ledger: [docs/work/2026-10-15-e4b-show-signals.md](../work/2026-10-15-e4b-show-s
 | # | Unit | PRD rows | Main files | Pinned files |
 |---|---|---|---|---|
 | 0 | docs (spec) | — | this plan, the spec, the ledger | none |
-| 1 | export-trace | XT#1–13 | `S/report.py` (`CandidateResult._export_cases`, `to_dict`, the `trace_dict` docstring), `S/_report_export.py` (`iter_report_json`); new `ST/test_export_trace.py` | `ST/data/report_v1_combine_report.json`, `ST/data/report_v1_vote_median_report.json`, `ST/test_e4b_schema_pins.py` (lines 29 and 33 only) |
-| 2 | display-format | DF#1–11 | new `S/_ui/combine_view.py` (`COMBINE_CSS`, `number_html`, `dash_html`, `text_html`, `missing_reason`), `S/_ui/report_view.py` (`{COMBINE_CSS}` in `_STYLE`); new `ST/test_combine_display_format.py` | none |
-| 3 | case-pane | CP#1–17 | `S/_ui/combine_view.py` (`combine_sections_html`, `_section`), `S/_ui/report_view.py` (`_pane_html` body); new `ST/test_combine_case_pane.py` | none |
-| 4 | run-summary | RS#1–11 | `S/_ui/combine_view.py` (`combine_summary_html`, `_StepSummary`, `_summary_html`), `S/_ui/report_view.py` (`_card_html`); new `ST/test_combine_run_summary.py` | none |
+| 1 | export-trace | XT#1–13 | `S/report.py` (`CandidateResult._export_cases`, `to_dict`, the `trace_dict` docstring, new `_case_entries` used by `_candidate_trace`), `S/_report_export.py` (`iter_report_json`); new `ST/test_export_trace.py` | `ST/data/report_v1_combine_report.json`, `ST/data/report_v1_vote_median_report.json`, `ST/test_e4b_schema_pins.py` (lines 29 and 33 only) |
+| 2 | display-format | DF#1–11 | new `S/_ui/combine_view.py` (`STYLE`, `number_html`, `dash_html`, `text_html`, `missing_reason`), `S/_ui/report_view.py` (`STYLE as COMBINE_STYLE` joined into `_STYLE` after `ACCOUNTING_STYLE`); new `ST/test_combine_display_format.py` | none |
+| 3 | case-pane | CP#1–18 | `S/_ui/combine_view.py` (`combine_sections_html`, `_section`, `_no_evidence_section`, `_is_combine`, `_label`, `_table`), `S/_ui/report_view.py` (`_pane_html` body); new `ST/test_combine_case_pane.py` | none |
+| 4 | run-summary | RS#1–11 | `S/_ui/combine_view.py` (`combine_summary_html`, `_StepSummary`, `_summary_html`; reuses `_label`, `_table`), `S/_ui/report_view.py` (`_card_html`); new `ST/test_combine_run_summary.py` | none |
 | 5 | docs | DC#1–5 | `packages/screamingface/README.md`, `packages/screamingface/CHANGELOG.md`; new `ST/test_show_signals_docs.py` | none |
 
-57 TDD rows in total.
+58 TDD rows in total.
 
 ## 3. Order and dependencies
 
@@ -43,7 +43,7 @@ flowchart LR
 - Unit 1 comes first: it is independent of the HTML, and it holds all the pinned edits, so the
   owner approval covers one commit group.
 - Unit 2 comes before units 3 and 4: both use its helpers and its style rules.
-- Unit 3 comes before unit 4: unit 4 reuses the label rule and the table markup of unit 3.
+- Unit 3 comes before unit 4: unit 4 reuses `_label` and `_table` of unit 3 (P20).
 - Unit 5 is last: it describes what units 1–4 built.
 
 ## 4. Gates per unit
@@ -66,18 +66,27 @@ Run one stack at a time, from the worktree root. Never run two gate stacks at th
 |---|---|
 | Each exported Case with a combine step has `trace`; every other key and Case is unchanged | XT#4, XT#7, XT#11 |
 | The two export paths give the same bytes | XT#2, XT#6 |
-| Every reducer step of a Case has a Combine section, a plain vote included (ans:Q2) | CP#3, CP#13 |
+| Every reducer step of a Case has a Combine section, a plain vote and a step with no evidence included (ans:Q2) | CP#3, CP#13, CP#18 |
 | Numbers: 4 significant digits, the exact value on hover, a missing value is an em dash with its reason (ans:Q3) | DF#3, DF#4, CP#4, RS#4 |
 | Excluded members, rank, cut, judge model and declared sources are visible | CP#6, CP#7, CP#9 |
 | The card summary counts chosen and excluded and means the declared signals | RS#3, RS#6 |
-| No data text reaches the page unescaped | DF#5, DF#7, CP#12, RS#7 |
+| No data text (member ids and signal keys included) reaches the page unescaped | DF#5, DF#7, CP#12, RS#7 |
 | No public API change (ans:Q1) | DF#11, `ST/test_public_surface.py` |
 | No existing HTML test changes; only the listed goldens change | CP#1, RS#1, the gates |
 | Each user decision with a testable effect is pinned by a test | test-plan §2 |
 
 ## 6. User actions
 
-1. Approve the spec and this plan, including the proposed items P1–P18 and the scope notes N1–N5.
+1. Approve the spec and this plan, including the proposed items P1–P20 and the scope notes N1–N5.
+   These items need an explicit decision:
+   - P1: report.v1 gets the additive `trace` key with the same schema id. This is a new decision,
+     by analogy with part 1 ans:Q5 (which was about `combine-spec.v1`).
+   - P15: the combine steps of an Attempt are not shown and not exported. This is an exception to
+     ans:Q2 ("Every reducer step").
+   - P19: a combine step with no evidence gets a short section (`evidence · —`). This applies
+     ans:Q2 to that case.
+   - D3: the run summary names members `member_1`, `member_2`, while the card's members block
+     names the models. A member-cell title with the model label is possible; say if you want it.
 2. Approve the edits to pinned files after the build. Only unit 1 has them:
    - `packages/screamingface/tests/data/report_v1_combine_report.json` (regenerated: a `trace` key
      at the end of Case 3);

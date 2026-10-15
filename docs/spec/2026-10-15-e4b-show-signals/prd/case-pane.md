@@ -17,7 +17,9 @@ and how the step decided, so that I can see why the Case got its answer without 
 - The section is "a 'Combine' section in the HTML report's Case detail pane (_pane_html): one row
   per member, plus the step facts (cut, judge model, agreement, tie)". [stated ans:Q1]
 - It is shown for every reducer step, also for a plain majority vote with no signal data.
-  [stated ans:Q2] (against the recommendation "Only with signal data")
+  [stated ans:Q2] (against the recommendation "Only with signal data"). A combine step with no
+  evidence gets a short section (P19). The combine steps of an Attempt are the one exception (P15,
+  for owner approval).
 - Numbers: [display-format](display-format.md). [stated ans:Q3]
 
 ### 2.1 Current behavior
@@ -47,10 +49,15 @@ body = (
 
 ```python
 def combine_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
-    """One Combine section per combine operation of the Case, in operation order (ans:Q2)."""
-    if case.operations is None or all(op.combine is None for op in case.operations):
+    """One Combine section per combine step of the Case, in operation order (ans:Q2, P19)."""
+    if case.operations is None:
         return ""
     graph = {info.id: info for info in candidate.operations}
+    steps = [
+        op for op in case.operations if op.combine is not None or _is_combine(graph, op.operation_id)
+    ]
+    if not steps:
+        return ""
     reduces = {
         entry.data["operation_id"]: entry.data
         for entry in case_trace(case, graph)
@@ -58,9 +65,40 @@ def combine_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
     }
     return "".join(
         _section(op.operation_id, op.combine, reduces.get(op.operation_id), graph)
-        for op in case.operations
         if op.combine is not None
+        else _no_evidence_section(op.operation_id, graph)
+        for op in steps
     )
+
+
+def _is_combine(graph: Mapping[str, OperationInfo], operation_id: str) -> bool:
+    """The graph node of this operation is a combine step (a step may have no evidence, P19)."""
+    node = graph.get(operation_id)
+    return node is not None and node.kind == "combine"
+
+
+def _label(graph: Mapping[str, OperationInfo], operation_id: str) -> str:
+    """The operation label in the Candidate graph, else the id. Not escaped: the caller escapes."""
+    node = graph.get(operation_id)
+    return operation_id if node is None else node.label
+
+
+def _table(head: str, rows: str) -> str:
+    """One Combine table. ``head`` is the header cells, ``rows`` the ``<tr>`` rows (both HTML)."""
+    return f"<table class='sf-cmb__t'><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>"
+```
+
+Imports of `combine_view` for this unit: `from collections.abc import Mapping`, `from
+screamingface._case_views import case_trace`, and under `TYPE_CHECKING` `CandidateResult`,
+`CaseResult`, `CombineEvidence` and `OperationInfo`. Never import `report_view` (an import cycle).
+
+The run summary ([run-summary](run-summary.md) §2) uses `_label` and `_table` too. Do not write the
+label rule or the table markup a second time (P20).
+
+`_no_evidence_section(operation_id, graph)` writes exactly (P19):
+
+```text
+<div class='sf-cmb'><div class='sf-detail__k' title='{escape(operation_id)}'>combine · {escape(_label(graph, operation_id))}</div><div class='sf-chips'><span class='sf-chip'>evidence · {dash_html("no combine evidence recorded for this step")}</span></div></div>
 ```
 
 `_section` writes exactly this structure (no whitespace between tags):
@@ -69,12 +107,12 @@ def combine_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
 <div class='sf-cmb'>
   <div class='sf-detail__k' title='{escape(operation_id)}'>combine · {escape(label)}</div>
   <div class='sf-chips'>{chips F1..F10, each <span class='sf-chip'>…</span>}</div>
-  <table class='sf-cmb__t'><thead><tr>{th C1..C8}</tr></thead><tbody>{one <tr> per member}</tbody></table>
+  {_table(th C1..C8, one <tr> per member)}
   {tally table, only when evidence.tally is not None}
 </div>
 ```
 
-- `label` = `graph[operation_id].label` when the id is in the graph, else `operation_id`.
+- `label` = `_label(graph, operation_id)`.
 - Chips F1–F10 ([erd §4](../erd.md)). The text of each chip is escaped. F3 is
   `answered · {member_id}` when `result.status == "answered"` and `result.member_id` is set,
   `answered · built` when it is answered with no member, `abstain · {reason}` when it abstained.
@@ -84,22 +122,27 @@ def combine_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
   when `judge_model` is None. F7 is `agreement · ` + `number_html(agreement, "")`. F8 is `tie · yes`
   or `tie · no`. F9 is `dropped · {dropped}`. F10 is `median · ` + `text_html(median, "")` and
   `mean · ` + `text_html(mean, "")`, each only when set.
-- Header cells: `<th>member</th><th>status</th><th>value</th>`, then `<th>weight</th>`,
-  `<th>score</th>`, `<th>rank</th>` (each only when at least one row has that value), then one
-  `<th>` per signal key (first-seen order over the rows' `signals`), then `<th>chosen</th>`.
-  A signal header has `title='{escape(title)}'` when its title is not empty. The title joins, with
-  `; `, `source: {declared[key]["source"]}` (when `evidence.declared` has the key) and
-  `read by the rule` (when `evidence.signal` reads the key).
+- Header cells: `<th scope='col'>member</th><th scope='col'>status</th><th scope='col'>value</th>`,
+  then `<th scope='col'>weight</th>`, `<th scope='col'>score</th>`, `<th scope='col'>rank</th>`
+  (each only when at least one row has that value), then one cell per signal key (first-seen
+  order over the rows' `signals`), then `<th scope='col'>chosen</th>`.
+- A signal header cell is `<th scope='col'{title_attr}>{escape(key)}</th>`. The key text is
+  escaped too: the SDK decoder checks only that a signal key is a `str`
+  (S/_evaluation/combine_evidence.py:190-194). `title_attr` is ` title='{escape(title)}'` when the
+  title is not empty, else `""`. The title joins, with `; `, `source: {declared[key]["source"]}`
+  (when `evidence.declared` has the key) and `read by the rule` (when `evidence.signal` reads the
+  key).
 - Row: `<tr>` for an answered member, `<tr class='sf-cmb__out'>` for a failed or excluded member.
-  Cells: `<td>{member_id}</td>`; status `answered` or `escape(f"{status} · {reason}")`;
+  Cells: `<td>{escape(row.member_id)}</td>`; status `answered` or `escape(f"{status} · {reason}")`;
   `text_html(row.value, missing_reason(row, "value"))`; `number_html(row.weight, missing_reason(row, "weight"))`;
   `number_html(row.score, missing_reason(row, "score"))`; `str(row.rank)` or
   `dash_html(missing_reason(row, "rank"))`; for each signal key
   `number_html(row.signals.get(key), missing_reason(row, key))`; `<td>&check;</td>` when the member
   id is in `evidence.chosen`, else `<td></td>`.
-- Tally table: `<table class='sf-cmb__t'><thead><tr><th>tally value</th><th>score</th><th>holders</th></tr></thead><tbody>`,
+- Tally table: `_table(head, rows)` with the head
+  `<th scope='col'>tally value</th><th scope='col'>score</th><th scope='col'>holders</th>` and
   one `<tr><td>{text_html(value, "")}</td><td>{number_html(score, "")}</td><td>{escape(", ".join(holders))}</td></tr>`
-  per tally row, `</tbody></table>`.
+  per tally row.
 
 ## 3. Scenarios and acceptance criteria
 
@@ -112,13 +155,13 @@ All oracles use the SDK fixture `ST/data/combine_evidence_cases.json` (through
   `operations=fixture_graph(3)` (label `synthesis`), then the pane has one section with the heading
   `combine · synthesis`; the chips are exactly
   `<span class='sf-chip'>reducer · vote</span><span class='sf-chip'>rule · last_number@1 → numeric@1 → mode@1 → first_holder@1</span><span class='sf-chip'>answered · member_1</span><span class='sf-chip'>agreement · <span class='sf-cmb__n' title='1.0'>1</span></span><span class='sf-chip'>tie · no</span><span class='sf-chip'>dropped · 1</span>`;
-  the header is `<tr><th>member</th><th>status</th><th>value</th><th>chosen</th></tr>`; the rows
+  the header is `<tr><th scope='col'>member</th><th scope='col'>status</th><th scope='col'>value</th><th scope='col'>chosen</th></tr>`; the rows
   are `<tr><td>member_1</td><td>answered</td><td>42</td><td>&check;</td></tr>`,
   `<tr class='sf-cmb__out'><td>member_2</td><td>fail · empty</td><td><span class='sf-cmb__na' title='member failed: empty'>—</span></td><td></td></tr>`,
   `<tr><td>member_3</td><td>answered</td><td>42</td><td></td></tr>`; the tally row is
   `<tr><td>42</td><td><span class='sf-cmb__n' title='2.0'>2</span></td><td>member_1, member_3</td></tr>`.
 - **CP-2** Given `fixture_case("vote_field_signal")` (graph `fixture_graph(3)`), then the header is
-  `<tr><th>member</th><th>status</th><th>value</th><th>weight</th><th title='read by the rule'>field:confidence</th><th>chosen</th></tr>`;
+  `<tr><th scope='col'>member</th><th scope='col'>status</th><th scope='col'>value</th><th scope='col'>weight</th><th scope='col' title='read by the rule'>field:confidence</th><th scope='col'>chosen</th></tr>`;
   member_1 has the weight cell `<span class='sf-cmb__n' title='0.9'>0.9</span>`; the chips have
   `reads · field:confidence` (no order) and `agreement · <span class='sf-cmb__n' title='0.5625'>0.5625</span>`;
   the tally rows are `a` with `0.9` and `b` with `0.7`, holders `member_2, member_3`.
@@ -129,10 +172,10 @@ All oracles use the SDK fixture `ST/data/combine_evidence_cases.json` (through
   `signal` `{"key": "conf", "order": null}` and
   `declared` `{"conf": {"source": "verbalized", "pattern": "Confidence: ([0-9]+)"}}` (as
   `ST/test_declared_signals.py:281-288`). The header cell is
-  `<th title='source: verbalized; read by the rule'>conf</th>`; member_1's cell is
+  `<th scope='col' title='source: verbalized; read by the rule'>conf</th>`; member_1's cell is
   `<span class='sf-cmb__n' title='90.0'>90</span>`. [stated ans:Q1] (epic A3)
 - **CP-5** Given the `rank_cut_not_met` wire (§7), then the header is
-  `<tr><th>member</th><th>status</th><th>value</th><th>score</th><th>rank</th><th title='read by the rule'>field:score</th><th>chosen</th></tr>`;
+  `<tr><th scope='col'>member</th><th scope='col'>status</th><th scope='col'>value</th><th scope='col'>score</th><th scope='col'>rank</th><th scope='col' title='read by the rule'>field:score</th><th scope='col'>chosen</th></tr>`;
   the chips have `abstain · cut_not_met`, `cut · top 3 · max`, `reads · field:score · max`;
   member_2's row is `<tr class='sf-cmb__out'><td>member_2</td><td>excluded · no_signal</td>`
   then a value dash with title `left out by the rule: no_signal`, then score, rank and
@@ -148,27 +191,46 @@ All oracles use the SDK fixture `ST/data/combine_evidence_cases.json` (through
   `judge ·`. [existing S/_case_views.py:208-209]
 - **CP-E3** Given a member value `<img src=x onerror=evil()>`, an operation label `a<b>` and a judge
   model `provider/<model>`, then the pane holds `&lt;img src=x onerror=evil()&gt;`, `a&lt;b&gt;` and
-  `provider/&lt;model&gt;`, and does not hold `<img`, `a<b>` or `provider/<model>`. [proposed] P8
+  `provider/&lt;model&gt;`, and does not hold `<img`, `a<b>` or `provider/<model>`. Also, given the
+  `vote_field_signal` wire where each member's `signals` gets one more key `<b>k</b>` with the value
+  `1.0`, and `declared` `{"<b>k</b>": {"source": "<x>"}}`, then the header cell is
+  `<th scope='col' title='source: &lt;x&gt;'>&lt;b&gt;k&lt;/b&gt;</th>`, and the pane does not hold
+  `<b>k` or `source: <x>`. (The SDK decoder accepts both: it checks only that a signal key is a
+  `str`, and it does not check a declared source.) [proposed] P8
+- **CP-E4** (ans:Q2) [proposed] P19 Given the graph `fixture_graph(3)` and a Case whose operations
+  are `op_model_1..3` (`CaseOperation(f"op_model_{k}", f"text {k}", "stop", None)`) and
+  `CaseOperation("op_synthesis_1", "42", "stop", None)` (no `combine`), then the pane holds exactly
+  `<div class='sf-cmb'><div class='sf-detail__k' title='op_synthesis_1'>combine · synthesis</div><div class='sf-chips'><span class='sf-chip'>evidence · <span class='sf-cmb__na' title='no combine evidence recorded for this step'>—</span></span></div></div>`,
+  and it has no `<table class='sf-cmb__t'>`.
 
 ### 3.3 Derived scenarios (risk-ordered)
 
-- **CP-D1** (H×M) [proposed] P18 Given a Case without combine evidence (no operations, or operations
-  without `combine`), then the pane has no `sf-cmb` and no `combine ·`.
-- **CP-D2** (M×M) [stated ans:Q2] Given a Case with two combine operations (`op_synthesis_1`
-  `vote_one_failed`, then `op_synthesis_2` `median_nearest`, label `outer`), then the pane has two
-  sections, `combine · synthesis` before `combine · outer`.
+- **CP-D1** (H×M) [proposed] P18 Given a Candidate graph with no combine node (`fixture_graph(3)[:3]`,
+  the three model nodes only) and a Case with no operations, or with the model operations only
+  (no `combine`), then the pane has no `sf-cmb` and no `combine ·`.
+- **CP-D2** (M×M) [stated ans:Q2] Given the graph
+  `fixture_graph(4, extra=(OperationInfo(id="op_synthesis_2", kind="combine", label="outer", depends_on=("op_model_1", "op_model_2", "op_model_3", "op_model_4")),))`
+  and a Case whose operations are, in this order, `CaseOperation(f"op_model_{k}", f"text {k}", "stop", None)`
+  for k = 1..4, `CaseOperation("op_synthesis_1", "42", "stop", None, combine=evidence_cases()["vote_one_failed"])`
+  and `CaseOperation("op_synthesis_2", "20", "stop", None, combine=evidence_cases()["median_nearest"])`
+  (`median_nearest` has 4 members), then the pane has two sections, `combine · synthesis` before
+  `combine · outer`.
 - **CP-D3** (M×M) [proposed] P10 Given a Case with an answer, a criterion and combine evidence, then
   in the pane `sf-answer-view` < the answer < `combine ·` < the criteria head < `sf-cost-view`.
-- **CP-D4** (M×M) [proposed] P11 Given `vote_one_failed`, then no `<th>weight</th>`,
-  `<th>score</th>` or `<th>rank</th>`; given the CP-4 wire plus a second declared name `ent`
-  (`{"source": "entropy", "top_logprobs": 5}`) with member_3 `ent: null`, then `<th title='source: entropy'>ent</th>`
+- **CP-D4** (M×M) [proposed] P11 Given `vote_one_failed`, then no `<th scope='col'>weight</th>`,
+  `<th scope='col'>score</th>` or `<th scope='col'>rank</th>`; given the CP-4 wire plus a second
+  declared name `ent` (`{"source": "entropy", "top_logprobs": 5}`) with member_3 `ent: null`, then
+  `<th scope='col' title='source: entropy'>ent</th>`
   is shown and member_3's cell has the title `no ent recorded`.
 - **CP-D5** (L×M) [proposed] P16 Given `median_value` (built, `median` `"20"`), then the chips have
   `answered · built` and `median · 20`; given `median_nearest`, the agreement chip shows
   `<span class='sf-cmb__n' title='0.3333333333333333'>0.3333</span>`.
-- **CP-D6** (M×L) [existing] Given a 256-member vote wire (each value `"x" * 50`), then
-  `bounded_pane` returns the short preview (no `sf-cmb`), and `_pane_html` shows the section with 256
-  member rows. [existing S/_ui/report_view.py:798-807] N3
+- **CP-D6** (M×L) [existing] Given the 256-member vote wire of §7 (`_wide_vote_wire()`), the graph
+  `fixture_graph(256)` and a Case whose only operation is
+  `CaseOperation("op_synthesis_1", "x" * 50, "stop", None, combine=<the decoded wire>)`, then
+  `bounded_pane` returns the short preview (no `sf-cmb`), because `case.to_dict()` passes 32,000
+  characters (it is about 51,000). `_pane_html` shows the section with 256 member rows. This row
+  does not test the 24,000-byte pane bound of N3. [existing S/_ui/report_view.py:798-807]
 - **CP-D7** (L×L) [proposed] P9 The pane adds no `<style` tag.
 
 ## 4. Non-functional requirements
@@ -190,7 +252,10 @@ None.
 ## 7. TDD plan
 
 Test file: `ST/test_combine_case_pane.py` (new). Render with
-`_pane_html(candidate, case, "")` (and `bounded_pane` for row 16). Build the Candidate with a copy of
+`_pane_html(candidate, case, "")` (and `bounded_pane` for row 16).
+
+RED stub: `combine_sections_html` returns `""` (it does not raise). Wire its call into `_pane_html`
+in the GREEN commit, so CP#1, CP#2 and the existing report-HTML tests stay green in the RED commit. Build the Candidate with a copy of
 `ST/test_report_trace.py:114-139` (`_candidate`) that takes `operations` and `cases`. Do not bind a
 Case to a graph yourself: a bound Case keeps its first graph (S/case_result.py:645-650), and the
 view reads the Candidate graph. For the judge rows, build the graph `op_model_1..3` (model),
@@ -198,6 +263,28 @@ view reads the Candidate graph. For the judge rows, build the graph `op_model_1.
 `op_judge_1`), the Case operations as `ST/test_judge_link_trace.py:188-215` does, and the evidence
 from `ST/test_judge_link_trace.py:60-74` (`_judge_scores()`, importable). For the criterion of row 14,
 use the `Check` of `ST/test_criterion_chip_passfail.py:27-35`.
+
+The CP-D6 wire builder (in the test file):
+
+```python
+def _wide_vote_wire(count: int = 256) -> dict[str, Any]:
+    ids = [f"member_{k}" for k in range(1, count + 1)]
+    value = "x" * 50
+    wire = evidence_wires()["vote_one_failed"]  # the other keys as a plain vote
+    wire["members"] = [
+        {"member_id": member_id, "raw": value, "value": value, "status": "answered",
+         "reason": None, "signals": {}, "weight": None, "score": None}
+        for member_id in ids
+    ]
+    wire["tally"] = [{"value": value, "score": float(count), "holders": ids}]
+    wire["chosen"] = ["member_1"]
+    wire["agreement"] = 1.0
+    wire["result"] = {"member_id": "member_1", "value": value, "status": "answered", "reason": None}
+    wire["dropped"] = 0
+    return wire
+```
+
+Decode it with `decode_combine_evidence(_wide_vote_wire(), "ev")`.
 
 The `rank_cut_not_met` wire (copy into the test; the Engine file is
 `ET/data/combine_contract/evidence_cases.json`):
@@ -232,9 +319,10 @@ The `rank_cut_not_met` wire (copy into the test; the Engine file is
 | 9 | `judge_step_names_the_judge_model` | unit | CP-3 | M×M | F6 from the reduce entry |
 | 10 | `judge_step_without_accounting_shows_a_dash` | unit | CP-E1 | M×L | F6 dash |
 | 11 | `step_without_a_judge_has_no_judge_chip` | unit | CP-E2 | M×L | F6 guard |
-| 12 | `member_text_label_and_judge_model_are_escaped` | unit | CP-E3 | H×M | P8 |
+| 12 | `member_text_label_and_judge_model_are_escaped` | unit | CP-E3 | H×M | P8; also the signal key `<b>k</b>` and the declared source `<x>` in the header cell |
 | 13 | `two_combine_steps_show_two_sections_in_operation_order` | unit | CP-D2 | M×M | loop over `case.operations` |
 | 14 | `section_sits_between_the_answer_and_the_criteria` | unit | CP-D3 | M×M | `body` order in `_pane_html` |
 | 15 | `median_text_and_built_result_are_shown_as_stored` | unit | CP-D5 | L×M | F3, F7, F10 |
 | 16 | `large_section_falls_back_in_the_preview_and_shows_live` | unit | CP-D6 | M×L | no new bound |
 | 17 | `pane_adds_no_style_tag` | unit | CP-D7 | L×L | style lives in `_STYLE` |
+| 18 | `combine_step_without_evidence_shows_a_short_section` | unit | CP-E4 (ans:Q2) | M×M | `_is_combine`, `_no_evidence_section` |
