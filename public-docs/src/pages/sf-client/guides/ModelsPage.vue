@@ -20,30 +20,30 @@ const namedOut = `Model('openrouter/openai/gpt-5.5', name='gpt-run-2')`
 const policy = `sf.Model(
     "openrouter/openai/gpt-5.5",
     prompt="Answer concisely.",
-    params={"reasoning": "high"},
+    params={"max_tokens": 1024},
 )`
-const policyOut = `Model('openrouter/openai/gpt-5.5', prompt='Answer concisely.', params={'reasoning': 'high'})`
+const policyOut = `Model('openrouter/openai/gpt-5.5', prompt='Answer concisely.', params={'max_tokens': 1024})`
 
 const listing = `sf.models.list()`
-const listingOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=9, tools=2)
-ModelInfo('anthropic/claude-haiku-4-5', provider='anthropic', parameters=9, tools=2)
-ModelInfo('codex/gpt-5.5', provider='codex', parameters=4, tools=1)
-ModelInfo('gemini-cli/gemini-2.5-pro', provider='gemini-cli', parameters=4, tools=1)
-ModelInfo('huggingface/deepseek-ai/DeepSeek-R1:novita', provider='huggingface', parameters=7, tools=0)
-ModelInfo('openrouter/anthropic/claude-opus-4.8', provider='openrouter', parameters=12, tools=2)
-ModelInfo('openrouter/openai/gpt-5.5', provider='openrouter', parameters=12, tools=2)
-ModelInfo('openrouter/google/gemini-3.1-pro-preview', provider='openrouter', parameters=12, tools=2)
-…   # 29 entries across 6 providers on this engine`
+const listingOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=5, tools=1)
+ModelInfo('anthropic/claude-haiku-4-5', provider='anthropic', parameters=7, tools=1)
+ModelInfo('codex/gpt-5.5', provider='codex', parameters=1, tools=0)
+ModelInfo('gemini-cli/gemini-2.5-pro', provider='gemini-cli', parameters=6, tools=1)
+ModelInfo('huggingface/deepseek-ai/DeepSeek-R1~novita', provider='huggingface', parameters=12, tools=1)
+ModelInfo('openrouter/anthropic/claude-opus-4.8', provider='openrouter', parameters=22, tools=1)
+ModelInfo('openrouter/openai/gpt-5.5', provider='openrouter', parameters=22, tools=1)
+ModelInfo('openrouter/google/gemini-3.1-pro-preview', provider='openrouter', parameters=22, tools=1)
+…   # 109 entries across 6 providers on a local engine`
 
 const details = `gpt = sf.models.get("openrouter/openai/gpt-5.5")
-gpt.parameters["reasoning"].enabled, "web_search" in gpt.tools`
-const detailsOut = `(True, True)`
+gpt.parameters["temperature"].enabled, sorted(gpt.tools)`
+const detailsOut = `(True, ['function'])`
 
 const discover = `gpt = sf.models.get("openrouter/openai/gpt-5.5")
 
 # What can I configure on this route?
 len(gpt.parameters), sorted(gpt.parameters)[:4]`
-const discoverOut = `(12, ['frequency_penalty', 'max_tokens', 'presence_penalty', 'reasoning'])`
+const discoverOut = `(22, ['frequency_penalty', 'logprobs', 'max_tokens', 'n'])`
 
 const inspect = `temp = gpt.parameters["temperature"]
 
@@ -175,7 +175,7 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     <p>
       Two things to note. The catalogue spans <strong>every provider the engine knows</strong>, not
       only the ones you have connected: a route you have no credential for will fail at evaluation,
-      not here. And ID shapes differ per provider: <code>anthropic/claude-opus-4-8</code> against
+      not here. The hosted engine lists more routes than a local one (117 against 109 today). And ID shapes differ per provider: <code>anthropic/claude-opus-4-8</code> against
       <code>openrouter/anthropic/claude-opus-4.8</code>. Copy the <code>id</code> rather than
       retyping it.
     </p>
@@ -192,7 +192,10 @@ const inspectOut = `('number', 0.0, 2.0, True)`
       <code>sf.models.get(id)</code> returns the fuller <code>sf.ModelDetails</code> profile for one
       route: each parameter with its schema and whether the gateway currently projects it, the tools
       and transports it supports, and whether the profile is stale. Consulting it is how you learn
-      that <code>params={"reasoning": "high"}</code> will be honoured before a run spends anything.
+      that <code>params={"max_tokens": 1024}</code> is available on a route before a run spends
+      anything. Which parameters a route accepts ultimately depends on the provider: a provider can
+      reject a parameter its profile lists, and the run then fails with
+      <code>provider_error</code>.
     </p>
 
     <div class="not-prose">
@@ -225,8 +228,10 @@ const inspectOut = `('number', 0.0, 2.0, True)`
 
     <p>
       A parameter that isn't listed isn't configurable on that route: setting it in
-      <code>params</code> is refused at pre-flight rather than silently dropped, so a typo costs you
-      nothing.
+      <code>params</code> is refused at pre-flight with <code>PlanningError</code> rather than
+      silently dropped, so a typo costs you nothing. For example, <code>params={"reasoning":
+      "high"}</code> on <code>openrouter/openai/gpt-5.5</code> raises
+      <code>PlanningError: Parameter 'reasoning' is not available</code>.
     </p>
 
     <h2>Links</h2>

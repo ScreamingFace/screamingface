@@ -15,7 +15,7 @@ import {
 const login = `import screamingface as sf
 
 client = sf.Client(engine_url="${SF_ENGINE_URL}")
-client.login()          # opens Cloudflare Access in your browser
+client.login()          # a script opens Cloudflare Access in your browser; a notebook prints a link to open
 client.authenticated    # True once the token arrives`
 
 const panel = `sf.connect()`
@@ -24,10 +24,14 @@ const script = `sf.connect("openrouter", api_key="sk-or-v1-…")`
 
 const local = `sf.configure(engine_url="http://127.0.0.1:9108")`
 
-const readState = `sf.connections.list()`
-const readStateOut = `(Connection(provider='openrouter', display_name='OpenRouter',
-            auth_methods=('api_key',), status='connected',
-            auth_method='api_key', account_label=None),)`
+const readState = `{c.provider: c.status for c in sf.connections.list()}`
+const readStateOut = `{'anthropic': 'not_connected',
+ 'antigravity': 'not_connected',
+ 'codex': 'not_connected',
+ 'gemini-cli': 'not_connected',
+ 'huggingface': 'not_connected',
+ 'openai': 'not_connected',
+ 'openrouter': 'connected'}`
 
 const readOne = `sf.connections.get("openrouter")`
 const readOneOut = `Connection(provider='openrouter', display_name='OpenRouter',
@@ -37,12 +41,13 @@ const readOneOut = `Connection(provider='openrouter', display_name='OpenRouter',
 const remove = `sf.disconnect("openrouter")`
 
 const panelProviders: Provider[] = [
-  { id: 'codex', name: 'OpenAI Codex', status: 'disconnected' },
-  { id: 'gemini', name: 'Google Gemini', status: 'disconnected' },
   { id: 'anthropic', name: 'Anthropic', status: 'disconnected' },
-  { id: 'openrouter', name: 'OpenRouter', status: 'connected' },
+  { id: 'antigravity', name: 'Antigravity', status: 'disconnected' },
+  { id: 'codex', name: 'Codex', status: 'disconnected' },
+  { id: 'gemini-cli', name: 'Gemini CLI', status: 'disconnected' },
   { id: 'huggingface', name: 'Hugging Face', status: 'disconnected' },
-  { id: 'tavily', name: 'Tavily', status: 'disconnected' },
+  { id: 'openai', name: 'OpenAI', status: 'disconnected' },
+  { id: 'openrouter', name: 'OpenRouter', status: 'connected' },
 ]
 </script>
 
@@ -119,8 +124,8 @@ const panelProviders: Provider[] = [
         <tr>
           <td><code>sf.disconnect(provider)</code></td>
           <td>
-            Removes a stored credential; repeated calls are harmless and return the provider back in
-            its <code>disconnected</code> state.
+            Removes a stored credential. On a local engine repeated calls are harmless and return
+            the provider back in its <code>not_connected</code> state.
           </td>
         </tr>
         <tr>
@@ -140,7 +145,8 @@ const panelProviders: Provider[] = [
           <td><code>sf.Client.login()</code> · <code>sf.Client.logout()</code></td>
           <td>
             Log in to and out of a hosted engine behind Cloudflare Access; <code>login()</code>
-            opens a URL in your browser and holds the token in process memory only.
+            prints a URL (a script also opens it in your browser) and holds the token in process
+            memory only.
           </td>
         </tr>
       </tbody>
@@ -156,7 +162,8 @@ const panelProviders: Provider[] = [
       <template #tab-0>
         <p>
           A hosted engine sits behind <strong>Cloudflare Access</strong>. There is no token to
-          paste: <code>login()</code> prints a URL and opens it in your browser, then polls an
+          paste: <code>login()</code> prints a URL (a script also opens it in your browser; a
+          notebook only prints it), then polls an
           encrypted transfer service and decrypts the returned token locally. The token lives only
           in process memory and is sent as <code>Cf-Access-Token</code>.
           <code>logout()</code> forgets it.
@@ -170,13 +177,24 @@ const panelProviders: Provider[] = [
           In a notebook you rarely call this directly: the panel below handles it. A protected
           engine shows a login row first and loads provider rows only once login succeeds.
         </p>
+
+        <p>
+          Logging in is not enough to run an evaluation. The OpenMined team grants hosted access:
+          reach out to them. Until your account has access, every provider shows as unavailable and
+          an evaluation is refused with <code>provider_not_connected</code>. A hosted engine takes
+          no keys of its own, so <code>connect(provider, api_key=…)</code> and
+          <code>disconnect(provider)</code> raise <code>ProviderConnectionError</code> with the code
+          <code>connection_method_unsupported</code>. The rest of this guide, from step 2, describes
+          a local engine.
+        </p>
       </template>
 
       <template #tab-1>
         <p>
           If you run the engine yourself, point the Client at it and skip the login step entirely: a
           local engine advertises no Cloudflare Access, so the panel shows provider rows
-          immediately.
+          immediately. Calling <code>login()</code> on a local engine raises
+          <code>AuthenticationError</code>.
         </p>
 
         <div class="not-prose">
@@ -227,9 +245,9 @@ const panelProviders: Provider[] = [
     </div>
 
     <p>
-      Note the trailing comma: <code>list()</code> returns a <strong>tuple</strong>, not a list, and
-      this engine advertises exactly one provider. Fetch a single one by name when you only care
-      about its state:
+      <code>list()</code> returns a <strong>tuple</strong>, not a list, with one
+      <code>Connection</code> per provider: seven on a local engine. The line above reads just the
+      status of each. Fetch a single one by name when you want its full state:
     </p>
 
     <div class="not-prose">
@@ -245,8 +263,8 @@ const panelProviders: Provider[] = [
     </div>
 
     <p>
-      Repeated calls are harmless. The returned <code>Connection</code> shows the provider back in
-      its <code>disconnected</code> state.
+      On a local engine repeated calls are harmless. The returned <code>Connection</code> shows the
+      provider back in its <code>not_connected</code> state.
     </p>
 
     <h2>What a connection carries</h2>
@@ -259,12 +277,14 @@ const panelProviders: Provider[] = [
 
     <ul>
       <li>
-        <code>status</code>: one of <code>disconnected</code>, <code>pending</code>,
+        <code>status</code>: one of <code>not_connected</code>, <code>pending</code>,
         <code>connected</code>, <code>needs_reauth</code>, <code>error</code>
       </li>
       <li>
-        <code>auth_methods</code>: what the provider supports. The current engine advertises
-        <code>('api_key',)</code> for OpenRouter
+        <code>auth_methods</code>: what the provider supports. A local engine advertises
+        <code>('api_key',)</code> for OpenRouter, OpenAI and Hugging Face,
+        <code>('api_key', 'oauth')</code> for Anthropic and Gemini CLI, and
+        <code>('oauth',)</code> for Codex and Antigravity
       </li>
       <li><code>auth_method</code>: which one is in use, or <code>None</code></li>
       <li><code>account_label</code>: an optional display label</li>
