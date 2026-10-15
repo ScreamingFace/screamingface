@@ -51,7 +51,7 @@ row copies the eval's scorers. It adds no Benchmark and changes no existing row.
 
 - **Actual files:** as planned (`import_replay.py`, `importer.py`, `test_importer_named_scores.py`,
   the mirror, this ledger).
-- **Commits:** `13d404b0c` refuse scorer arguments inspect logs by name; `376851589` refuse an
+- **Commits:** `35a6e7733` refuse scorer arguments inspect logs by name; `977891486` refuse an
   extra scorer with its own whole-run metric; plus the docs commit.
 - **Gates:** `test_importer_named_scores.py`, `test_import_replay.py`, `test_task_replay_rows.py`:
   96 passed. ruff check and format, pyright, and extra-less pyright on the touched files: clean.
