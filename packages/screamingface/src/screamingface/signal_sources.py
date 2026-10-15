@@ -1,4 +1,4 @@
-"""Declared signal sources of a Fusion (E4b part 3): sf.Verbalized; unit 4 adds Logprob, Entropy.
+"""Declared signal sources of a Fusion (E4b part 3): sf.Verbalized, sf.Logprob, sf.Entropy.
 
 FEATURE: a Fusion names a number that each member answer carries (ans:Q1).
 STORY: as a benchmark author, I declare signals={"conf": sf.Verbalized(r"Confidence: ([0-9]+)")}
@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from screamingface._regex_rule import check_signal_pattern
 
@@ -82,8 +82,64 @@ class Verbalized(SignalSource):
         return cls(pattern, ignore_case="ignore_case" in entry)
 
 
+_DEFAULT_TOP_LOGPROBS = 5  # owner decision Q8
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Logprob(SignalSource):
+    """The token log-probability of each member's reply (OpenRouter models only in v1).
+
+    With n reply tokens and s the sum of their log-probabilities: ``"sum"`` is s, ``"mean"`` is
+    s / n, and ``"prob"`` is exp(s / n), a number in (0, 1]. Only ``"prob"`` can be a vote weight,
+    because a weight must be greater than 0. ``"sum"`` favors short replies; ``"mean"`` and
+    ``"prob"`` do not depend on the reply length.
+    """
+
+    source: ClassVar[str] = "logprob"
+    form: Literal["mean", "sum", "prob"]
+
+    def __init__(self, form: Literal["mean", "sum", "prob"]) -> None:
+        object.__setattr__(self, "form", form)  # RED stub (unit 4 commit A): no check yet
+
+    def __repr__(self) -> str:
+        return f"Logprob({self.form!r})"
+
+    def _spec(self) -> dict[str, object]:
+        raise NotImplementedError("E4b part 3 unit 4")
+
+    @classmethod
+    def _from_spec(cls, entry: Mapping[str, object]) -> Logprob:
+        raise NotImplementedError("E4b part 3 unit 4")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Entropy(SignalSource):
+    """The mean token entropy of each member's reply, in nats (OpenRouter models only in v1).
+
+    Each member call asks for its ``top_logprobs`` most likely tokens at each position (1 to 20,
+    default 5). A higher entropy means LESS confidence: read it with ``sf.Pick`` or ``sf.Rank`` and
+    ``order="min"``. It cannot be a vote weight. A Fusion declares at most one ``sf.Entropy``.
+    """
+
+    source: ClassVar[str] = "entropy"
+    top_logprobs: int
+
+    def __init__(self, *, top_logprobs: int = _DEFAULT_TOP_LOGPROBS) -> None:
+        object.__setattr__(self, "top_logprobs", top_logprobs)  # RED stub: no check yet
+
+    def __repr__(self) -> str:
+        return f"Entropy(top_logprobs={self.top_logprobs!r})"
+
+    def _spec(self) -> dict[str, object]:
+        raise NotImplementedError("E4b part 3 unit 4")
+
+    @classmethod
+    def _from_spec(cls, entry: Mapping[str, object]) -> Entropy:
+        raise NotImplementedError("E4b part 3 unit 4")
+
+
 _CANNOT_REBUILD = "URL4 Candidate has a signals declaration this SDK version cannot rebuild"
-# wire word -> class; unit 4 adds "logprob" and "entropy"
+# wire word -> class; unit 4 commit B adds "logprob" and "entropy"
 _SOURCES: Mapping[str, type[SignalSource]] = MappingProxyType({"verbalized": Verbalized})
 
 
@@ -113,4 +169,4 @@ def python_signals(declared: Mapping[str, SignalSource]) -> str:
     )
 
 
-__all__ = ["SignalSource", "Verbalized"]
+__all__ = ["Entropy", "Logprob", "SignalSource", "Verbalized"]
