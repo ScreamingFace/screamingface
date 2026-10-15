@@ -65,7 +65,15 @@ deterministic and needs no guess about the tail. [proposed]
 - **EN-D4** (M×M) [implied] Given a declaration of `sf.Logprob` and `sf.Entropy` together, then the
   calls ask once (`logprobs: true`, `top_logprobs: k`), and both values come from the same reply.
 - **EN-D5** (M×L) [proposed] Given k = 20 and a long reply, then the reply may pass the 1,000,000-byte
-  cache cap; the README says to keep k small for a reproducible replay. (ans:Q8 tradeoff)
+  cache cap or the 2,000,000-byte frozen-copy cap; the README says to keep k small for a reproducible
+  replay. (ans:Q8 tradeoff)
+- **EN-D6** (H×M) [proposed] Given a position whose chosen token is absent from its top-k list, then
+  the position entropy uses the top list only. This is valid.
+- **EN-D7** (H×M) [proposed] Given one top entry that is not a finite number ≤ 0, then the entropy is
+  None, and the logprob values of the same reply stay (LC-D2).
+- **EN-D8** (M×M) [proposed] (review M1) Given a Fusion with a `sf.Entropy` declaration, then its url4
+  rebuilds to Python with `top_logprobs` in the declaration, and the members carry no injected
+  `logprobs` or `top_logprobs` param.
 
 ## 4. Non-functional requirements
 
@@ -94,7 +102,10 @@ Order: core-out. The formula first, with hand-computed oracles.
 | 4 | `entropy_skips_positions_without_top_entries` | unit | EN-D2 | M×M | — |
 | 5 | `entropy_of_a_certain_token_is_zero` | unit | EN-D3 | M×M | `0 ln 0 = 0` |
 | 6 | `entropy_refuses_bad_k` | unit | EN-E1 | M×M | 1..20, int, not bool |
-| 7 | `vote_weight_refuses_entropy_with_an_order_min_hint` | unit | EN-E2 | H×M | — |
+| 7 | `vote_weight_refuses_entropy_with_an_order_min_hint` | unit | EN-E2 | H×M | in the `sf.Fusion` constructor |
 | 8 | `entropy_compiles_top_logprobs_on_each_member_call`, and refuses a non-OpenRouter or Recipe member | unit | EN-4, EN-E3 | H×M | member params; the LP#5 check |
 | 9 | `pick_min_by_entropy` | integration | EN-3 | H×M | `run_candidate`, fake top lists |
 | 10 | `logprob_and_entropy_share_one_reply` | integration | EN-D4 | M×M | — |
+| 11 | `entropy_with_the_chosen_token_outside_the_top_list` | unit | EN-D6 | H×M | — |
+| 12 | `bad_top_entry_gives_none_entropy_and_keeps_logprob` | unit | EN-D7 | H×M | LC#17 |
+| 13 | `entropy_fusion_rebuilds_from_url4_without_injected_params` | unit | EN-D8 | M×M | `to_python`; DS#16 |

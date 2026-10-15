@@ -44,8 +44,10 @@ section "Signal sources"; a CHANGELOG entry; one paid test with the pinned model
 
 ### 3.2 Error paths
 
-- **RC-E1** Given the paid test and a model that refuses logprobs (unit 1 names one), then the call
-  fails with `logprobs_unsupported`. [stated ans:Q5]
+- **RC-E1** Given the paid test and a model that refuses logprobs and that the gateway catalog does
+  NOT mark unsupported (unit 1 names one), then the run passes the SDK preflight, reaches the call,
+  and the call fails with `logprobs_unsupported`. [stated ans:Q5]; [proposed] (orchestrator decision:
+  a catalog-marked model is refused earlier by the preflight, LC-E4)
 - **RC-E2** Given a recipe that uses `sf.Logprob("mean")` as a vote weight, then the README shows the
   compile error and the `prob` fix. [stated ans:Q11]
 
@@ -56,7 +58,10 @@ section "Signal sources"; a CHANGELOG entry; one paid test with the pinned model
 - **RC-D2** (M×M) [proposed] Given S16, then the README states that the larger model still runs; the
   skip is E4c.
 - **RC-D3** (M×L) [stated ans:Q9] Given S12, then the README states: ask every member for the same
-  scale.
+  scale, and put the confidence line within the last 64 KiB of the reply.
+- **RC-D4** (M×L) [existing G/config.py:158-162] Given S14 or S15 with a frozen copy, then the README
+  states the 2,000,000-byte entry cap (request plus reply) and the 1,000,000-byte cache cap, and says
+  to keep `top_logprobs` small.
 
 ## 4. Non-functional requirements
 
@@ -82,6 +87,6 @@ None.
 | 4 | `recipe_s14_logprob_argmax` | integration | RC-1 | H×M | — |
 | 5 | `recipe_s15_entropy_argmin` | integration | RC-1 | M×M | — |
 | 6 | `recipe_s16_logprob_threshold_records_values` | integration | RC-1, RC-D2 | M×M | — |
-| 7 | `readme_signal_sources_blocks_compile_and_carry_the_guidance` | unit | RC-2, RC-E2, RC-D3, VB-D4, LP-D3, EN-D5 | M×L | doc-example test; the guidance sentences (one scale, `sum` favors short replies, keep k small) are checked by text |
+| 7 | `readme_signal_sources_blocks_compile_and_carry_the_guidance` | unit | RC-2, RC-E2, RC-D3, RC-D4, VB-D4, LP-D3, EN-D5 | M×L | doc-example test; the guidance sentences (one scale, 64 KiB window, `sum` favors short replies, keep k small, the two caps) are checked by text |
 | 8 | paid `pinned_openrouter_model_returns_logprobs` | E2E (paid) | RC-3 | H×M | named model from unit 1 |
-| 9 | paid `refusing_model_fails_logprobs_unsupported` | E2E (paid) | RC-E1 | M×M | — |
+| 9 | paid `uncatalogued_refusing_model_fails_logprobs_unsupported` | E2E (paid) | RC-E1 | M×M | a model the catalog does not deny, so the runtime path runs |

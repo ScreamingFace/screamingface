@@ -99,6 +99,12 @@ Purpose: the numbers of the reply that the member returned, computed once at the
   [existing E/world/connector.py:214-219]; [implied]
 - On a gateway cache hit, the body is the cached body, so the numbers are the same.
   [existing G/core/request_cache/store.py:269-274]; [implied]
+- The token values and the top lists are validated apart: a bad or positive token value makes
+  `logprob_sum` None; a bad top entry makes only `entropy_mean` None. The chosen token can be absent
+  from its top-k list. [proposed] (review m8)
+- The combine step gets it from the EXISTING member reader (`_read_member_accounting`), which returns
+  the accounting numbers and the reply logprobs of each member from one fingerprint index. No second
+  port. [existing E/world/combine.py:73-124]; [proposed] (review m7)
 
 ## 4. Combine context `sources`
 
@@ -124,7 +130,11 @@ exactly then [existing E/combine/endpoint.py:206-210]; [existing E/combine/spec.
 ## 6. Failure code
 
 A new declared failure code `logprobs_unsupported` (permanent, not retried). [stated ans:Q5]
-It goes into `DECLARED_FAILURE_CODES` [existing E/benchmarks/contract.py:55] and the SDK mirror.
+It goes into `DECLARED_FAILURE_CODES` [existing E/benchmarks/contract.py:55], the SDK mirror
+[existing S/_report_primitives.py:22] and `ENGINE_ERROR_CODES` [existing E/error_text.py:63-96], so
+that no upstream can send it as its own code (OME-941). [proposed] The mapping lives in
+`_observed_round_trip`, the only place that holds the request body; its message is fixed engine
+text. [existing E/world/connector.py:201-258]
 This is the only new failure code. Part 1 had none (P7). [existing ET/test_e4b_catalog_pins.py:13-20]
 
 ## 7. Migrations
@@ -135,6 +145,11 @@ This is the only new failure code. Part 1 had none (P7). [existing ET/test_e4b_c
   a recorded replay and a frozen copy of an existing recipe do not change, because the request
   digest is over the request body and the body changes only when a Fusion declares `logprob` or
   `entropy`. [existing E/capture_outcomes.py:93-96]; [implied]
+- The SDK url4 → Python rebuild accepts the optional spec key `signals` (today it needs exactly the
+  eight E4a keys) and drops the injected member params. [existing S/_evaluation/combine_spec.py:19-21,143];
+  [existing S/url4.py:97]
+- A frozen-copy entry of a declared recipe is larger. Over 2,000,000 bytes (request plus reply) it is
+  not stored, and the capture reports `failed`. [existing G/config.py:158-162]
 - An old SDK cannot decode evidence with `declared` (strict key sets
   [existing S/_evaluation/combine_evidence.py:39-80]). The SDK and the engine ship together, as in
   part 1. [implied]
