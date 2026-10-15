@@ -536,14 +536,29 @@ None.
 
 ### Unit 5 outcome
 
-- **Status:** in progress. Commit A (RED) is the first step of this unit.
-- **Actual files:** `packages/screamingface/tests/test_show_signals_docs.py` (new).
-- **Commits:** A = (this commit) — test(e4b): RED for E4b part 4 unit 5 docs.
+- **Status:** done. Commit A (RED) is the first commit of this unit; commit C is the docs.
+- **Actual files:** `packages/screamingface/tests/test_show_signals_docs.py` (new), `packages/screamingface/README.md` (R1, R2), `packages/screamingface/CHANGELOG.md` (B1), this ledger.
+- **Commits:** A = `bf00699a8` — test(e4b): RED for E4b part 4 unit 5 docs; C = (see `git log`) — docs(e4b): README and CHANGELOG for the combine views (part 4).
 - **Unit 4 tip (base of the unit 5 append-only check):** `d7754f48a`.
 - **RED record (commit A):** 4 failed (DC#2-5, each on a doc assertion), 1 passed (DC#1 CHAR).
   Regression set (`test_evidence_completeness_docs.py`, `test_pick_output.py`, `test_mean.py`,
   `test_signal_recipes_readme.py`, `test_combine_recipes_readme.py`, `test_fusion_doc_goldens.py`):
   83 passed. `ruff format --check`, `ruff check` and `pyright` are clean on the new file.
-- **Gates:** pending (after commit C).
+- **Gates:** `screamingface --base d7754f48a` (unit 4 tip): all green, append-only included.
+  `screamingface --base 9f42391eb`: append-only offenders are only the three unit 1 pinned files
+  (`tests/data/report_v1_combine_report.json`, `tests/data/report_v1_vote_median_report.json`,
+  `tests/test_e4b_schema_pins.py`); with `--skip-append-only` all green. `repo --base 9f42391eb`:
+  all green. Flakes: none.
 - **Deviations:**
   - The heading uses a colon (`## Unit 5: ...`) like the units 1–4 headings, not an em dash.
+  - README planner additions A1–A5 (not in the PRD delta text, true for the unit 1–4 code, not
+    tested): A1 a step with no evidence record shows `evidence` and an em dash (P19); A2 a Case
+    with no combine evidence has no `trace` key (P1, XT-E1); A3 the combine steps of an Attempt
+    are not in the pane, the summary or the export (P15, owner approval pending); A4 the
+    `whole@1`/`json_object@1` text is in the export two times (N1); A5 a member value over 80
+    characters ends with `…`, and the full value is in the export and in `case.answers()` (P7).
+  - DC#2 also checks `whole@1` and `json_object@1` (N1). DC#3 also checks the `(see "Combine steps
+    in the report")` link and the unchanged `report.v1` phrase. DC#4 also checks that the second
+    bullet is the part 3 "Signal sources" bullet.
+  - Order of commits: the README and CHANGELOG edits were checked (focused tests, diff counts)
+    before commit C; the gate run follows commit C, as the spec says.

@@ -389,9 +389,10 @@ that the SDK accepts and RE2 refuses fails the Case with `combine_spec_invalid`.
 The evidence (the Answer row per member, the tally, the result, the agreement and the chosen member)
 is in the `combine` field of each case's `operations` entry (`op_synthesis_1` for a single reducer).
 `case.answers()` joins each member's text to its Answer. `case.trace()` and `report.trace_dict()`
-show what each block did, in order. `report.trace_dict()` is `screamingface.report-trace.v1`, and
-`report.to_dict()` and `report.export()` stay `report.v1`. This needs an Engine that serves
-`GET /v1/operators`.
+show what each block did, in order. `report.trace_dict()` is `screamingface.report-trace.v1`.
+`report.to_dict()` and `report.export()` stay `report.v1`, and each Case with a combine step also
+has a `trace` key with the same entries (see "Combine steps in the report"). This needs an Engine
+that serves `GET /v1/operators`.
 
 Give a vote weights to make some members count more. A list gives each member a fixed weight, one
 positive number per member in author order. A `sf.signal` weighs each member by a number on its own
@@ -1363,6 +1364,36 @@ Static HTML, including environments without the notebook extra, previews the fir
 results and shortens oversized Case panes. Small JSON downloads remain inline; larger
 ones use explicit export. The complete retained data remains available through the Report
 and JSON export.
+
+### Combine steps in the report
+
+The HTML report and the JSON export show what each combine step did. They show the same evidence
+as `case.answers()` and `case.trace()`, and you do not have to write Python code to see it.
+
+**The Case pane.** Every reducer step of a Case has a Combine section in the **Answer & grading**
+view. The section shows the step facts: the reducer, the rule, the result, the cut, the signal that
+the step reads, the judge model, the agreement, the tie and the dropped count. It has one row per
+member: the status and the reason, the value, the weight, the score, the rank, each signal, and a
+mark for a chosen member. A plain vote has its section too, with its tally. A declared signal
+column names its source on hover. A member value longer than 80 characters ends with `…`. The full
+value is in the export and in `case.answers()`. A step with no evidence record shows only
+`evidence` and an em dash.
+
+**The run summary.** Each Candidate card has one table per reducer step. The table shows how often
+each member was chosen and how often it was excluded, for example `2 of 3`. It also shows the mean
+of each declared signal with `n`, the number of Cases that gave a value. The card has no table when
+no Case of the Candidate has combine evidence.
+
+**The export.** `report.export()` and `report.to_dict()` add a `trace` key to each Case with a
+combine step. It holds the same entries as `report.trace_dict()` for that Case. The trace holds no
+member output text except each member's extracted `raw` and `value`. For `whole@1` and
+`json_object@1` these are the whole reply, so the export holds that text two times. The other keys
+do not change, and the schema stays `report.v1`. A Case with no combine evidence has no `trace`
+key.
+
+Numbers show 4 significant digits; hover a number to see the exact stored value. A missing value
+is an em dash; hover it to see why. The combine steps of an Attempt (`case.attempts`) are not in
+the pane, the summary or the export.
 
 ### Completed accounting breakdown
 
