@@ -685,8 +685,22 @@ CallFingerprint = tuple[str, tuple[tuple[str, str], ...]]
 MemberSources = Mapping[str, Mapping[str, CallFingerprint]]
 
 
+# The reply log-probability keys of the member reader (E4b part 3, C5): the token count, the exact
+# sum of the token log-probabilities, and the mean token entropy of a member's one terminal reply.
+# Port keys only: never a signal key, never on the wire. The `logprob` and `entropy` prefixes are
+# reserved for declared names (P1), so no declared name can be equal to one of them.
+REPLY_TOKENS = "logprob_tokens"
+REPLY_LOGPROB_SUM = "logprob_sum"
+REPLY_ENTROPY_MEAN = "entropy_mean"
+REPLY_LOGPROB_KEYS: tuple[str, str, str] = (REPLY_TOKENS, REPLY_LOGPROB_SUM, REPLY_ENTROPY_MEAN)
+
+
 class AccountingReader(Protocol):
-    """A port the adapter implements: member -> accounting key -> number (None: unknown)."""
+    """A port the adapter implements: member -> key -> number (None: unknown).
+
+    The keys are the accounting signals (``ACCOUNTING_SIGNALS``) and the reply log-probability keys
+    (``REPLY_LOGPROB_KEYS``). A reader may omit a key; the core reads a missing key as None.
+    """
 
     def __call__(self, sources: MemberSources, /) -> Mapping[str, Mapping[str, float | None]]: ...
 
@@ -784,6 +798,10 @@ __all__ = [
     "MAX_OUTPUT_READ_BYTES",
     "OUTPUT_FIELD",
     "READING_TO_ANSWER",
+    "REPLY_ENTROPY_MEAN",
+    "REPLY_LOGPROB_KEYS",
+    "REPLY_LOGPROB_SUM",
+    "REPLY_TOKENS",
     "RESERVED_NAME_PREFIXES",
     "STAGES",
     "AbstainReason",

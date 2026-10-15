@@ -87,6 +87,8 @@ from screamingface_engine.world.model_response import (
     raise_if_unusable,
 )
 from screamingface_engine.world.models.registry import decode_route_id
+from screamingface_engine.world.reply_logprobs import reply_logprobs  # noqa: F401
+
 from screamingface_engine.world.reply_origin import record_reply_origin, round_trip_origin
 from screamingface_engine.world.request_parameters import (
     WEB_SEARCH_PARAM,
@@ -1671,7 +1673,7 @@ def _json_or_raise(resp: httpx.Response) -> dict:
         ) from exc
 
 
-def _raise_for_status(resp: httpx.Response) -> None:
+def _raise_for_status(resp: httpx.Response, *, logprobs_requested: bool = False) -> None:
     """Turn a non-2xx (or redirected) aigateway response into a `ResolutionError`.
 
     A redirect is treated as an interception by a fronting proxy, not a real aigateway response.

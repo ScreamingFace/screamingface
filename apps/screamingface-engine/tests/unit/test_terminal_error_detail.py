@@ -341,6 +341,7 @@ ALLOWLISTED_CODES = (
     "result_too_large",
     "frozen_copy_miss",
     "frozen_copy_unavailable",
+    "logprobs_unsupported",
 )
 
 

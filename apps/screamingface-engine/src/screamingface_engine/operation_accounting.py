@@ -130,6 +130,30 @@ class SignalAccounting:
         return dict(zip(ACCOUNTING_SIGNALS, numbers, strict=True))
 
 
+@dataclass(frozen=True, slots=True)
+class ReplyLogprobs:
+    """The token log-probability numbers of one terminal reply (E4b part 3, erd §3).
+
+    In-process only, like ``SignalAccounting``: never on the wire. It holds four numbers and never
+    a token string or a ``bytes`` array (LC-D1, OME-990). ``None`` means unknown, never zero.
+
+    ``tokens`` is the count of ``choices[0].logprobs.content`` entries. ``logprob_sum`` is their
+    ``math.fsum`` (None when any value is not a finite number <= 0). ``top_k`` is the
+    ``top_logprobs`` the call asked for (None: not asked). ``entropy_mean`` is the mean position
+    entropy in nats (entropy PRD §3), None without ``top_k``, without a top entry, or with one bad
+    top entry.
+    """
+
+    tokens: int
+    logprob_sum: float | None
+    top_k: int | None
+    entropy_mean: float | None
+
+    def as_signals(self) -> dict[str, float | None]:
+        """The numbers keyed by the member reader's reply keys (``combine.ports``, C5)."""
+        raise NotImplementedError
+
+
 def combine_signal_accounting(rounds: Sequence[SignalAccounting]) -> SignalAccounting:
     """Fold the rounds of one semantic operation (a tool loop). Empty -> all None.
 
@@ -182,6 +206,7 @@ __all__ = [
     "OperationAccounting",
     "OperationCache",
     "OperationUsage",
+    "ReplyLogprobs",
     "SignalAccounting",
     "combine_operation_accounting",
     "combine_signal_accounting",

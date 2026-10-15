@@ -377,3 +377,109 @@ Run: the six new test files, and `tests/test_signals.py`, in each package. No li
   coverage >= 95, notebooks, build, distribution check). `run_gates.py repo --base 0f4b9e292` ALL
   GATES GREEN. No flaky test failed.
 - **Commit:** `fix(e4b): review fixes for E4b part 3 unit 2`.
+
+## Unit 3 — logprob capture
+
+Status: in progress. This section covers the RED stage (commit A). The GREEN stage (commit B) is
+not run yet.
+
+### Intent
+
+A member call that asks for `logprobs` keeps the numbers of its terminal reply. The numbers are
+the token count, the exact sum of the token log-probabilities, the asked `top_logprobs` k, and the
+mean token entropy. The one member reader gives them to the combine step. The gateway refuses a
+call with HTTP 404 `unsupported_parameters` when that call has `logprobs: true`. The call then
+fails with the new permanent engine code `logprobs_unsupported` and fixed engine text. The author
+sees the code in the activity view. The rows are LC#1–19 and the engine half of LC#20.
+
+### Planned changes
+
+- New `E/world/reply_logprobs.py`. It holds `reply_logprobs`, the two validations, and the entropy
+  of entropy PRD §3.
+- `E/operation_accounting.py` gets `ReplyLogprobs`. `E/operation_calls.py` gets the
+  `reply_logprobs` field and parameter. `E/combine/ports.py` gets the three reader keys and the
+  port docstring. `E/world/combine.py` gets `_member_logprobs` and one count-only warning.
+  `E/world/connector.py` gets the terminal round, the fail-open parse, and
+  `_raise_for_status(..., logprobs_requested=)`. `E/benchmarks/failure_classes.py` gets
+  `logprobs_unsupported()`. `E/benchmarks/contract.py`, `E/error_text.py` and
+  `E/activity/contract.py` get the code. SDK: `S/_report_primitives.py` and
+  `S/_ui/activity_record.py` get the code.
+- New tests: seven engine files, the helper `ET/logprobs_support.py`, and three SDK files.
+- Pinned edits: `ET/test_failure_classes.py`, `ET/test_e4b_catalog_pins.py`, and
+  `ET/test_terminal_error_detail.py`. `ST/unit/test_failure_code_conformance.py` has no edit.
+
+### Decisions taken in the unit spec (for owner review)
+
+- **D-U3-1.** The refusal mapping is in `_raise_for_status`, with the `logprobs_requested` flag.
+  It is not in `_observed_round_trip`. Only `_raise_for_status` sees the HTTP status, and the
+  callers hold the request body. The code still reaches `observation.failed` in
+  `_observed_round_trip`.
+- **D-U3-2.** The reader port keeps its type. Each member gets three more keys:
+  `logprob_tokens`, `logprob_sum`, and `entropy_mean`. The existing reader fakes stay valid.
+- **D-U3-3.** `ReplyLogprobs` is in `E/operation_accounting.py`. A shared module
+  (`operation_calls.py`) cannot import `world`.
+- **D-U3-4.** The entropy formula is built in this unit, because LC#17 needs it. Unit 4 rows EN#1,
+  EN#2, EN-D1 to EN-D3, and EN-D6 pass at once.
+- **D-U3-5.** `logprobs_unsupported` joins the activity `failure_code` sets of the engine and the
+  SDK. Without it, the activity view shows `internal_error`, and P6 is false. This file was not in
+  the plan's unit table.
+- **D-U3-6.** LC#15 is CHAR in this unit. It uses authored params. Unit 4 adds the injected params
+  and their test.
+- **D-U3-7.** The engine names the gateway code once, in `_PARAMETER_REFUSAL_CODE`. Owner item (a)
+  or (b) of unit 1 changes only this constant.
+
+### Test plan
+
+RED first (commit A), then GREEN (commit B). CHAR rows: LC#1, LC#2, LC#13 (guard), LC#15, LC#18,
+LC#20e (guard), and the fixed-text check of LC#10. RED rows: LC#3–12, LC#14, LC#16, LC#17, and
+LC#19. The oracles are hand-computed in the unit spec: fsum -0.6, EN-1 = 1.0296530140645737, and
+the entropy of the recorded reply, 6.547567880357428e-07.
+
+### Acceptance
+
+- All LC rows pass. The neighbor tests pass. No fixture, schema or public-surface file changes.
+- `run_gates.py screamingface-engine`, `screamingface` and `repo` pass with `--base 0f4b9e292`. The
+  append-only check lists only the approved pinned files.
+
+### Unit 3 outcome
+
+- **Start commit:** `1349f0dce` (unit 2 tip, a descendant of `0f4b9e292`). The §0 checks passed:
+  the unit 2 files are unchanged since the part base, and the `AccountingReader` anchor and the
+  three fixtures exist.
+- **RED (commit A, run 2026-10-15):**
+  - Engine, 10 files: 122 tests, 56 failed, 66 passed. Each failure is an `AssertionError` or a
+    `NotImplementedError` from a stub. No `ImportError` and no collection error. The CHAR rows pass:
+    LC#1 (2), LC#2, LC#13, LC#18, LC#20e (4), and the fixed-text check of LC#10 (10 CHAR tests in all).
+  - SDK, 4 files: 2 failed, 11 passed. `test_logprobs_unsupported_vocabulary.py` fails on an
+    `AssertionError` (the code is not declared). `test_logprobs_unsupported_activity.py` fails with
+    `ValueError: unknown activity category`, raised by the closed set check of
+    `S/_ui/activity_record.py:138`. This is the D-U3-5 gap, and it is the expected RED reason. The
+    LC#15 preflight rows (3) pass as CHAR.
+- **GREEN:** not run (commit B).
+- **Commits:** A: `test(screamingface-engine): RED for E4b part 3 unit 3 logprob-capture` (this
+  commit). B: not yet made.
+- **Gates (RED stage, `--base 0f4b9e292`):**
+  - `screamingface-engine`: the append-only check listed ONLY the three approved pinned files
+    (`test_e4b_catalog_pins.py`, `test_failure_classes.py`, `test_terminal_error_detail.py`). Rerun
+    with `--skip-append-only`: ruff check, ruff format, pyright and layering passed. The suite gave
+    56 failed (the RED rows only), 5868 passed, 108 skipped. The coverage step did not run, because
+    the pytest step failed. The red result is expected at this stage.
+  - `screamingface`: append-only passed. Ruff, format and pyright passed. Pytest gave 2 failed
+    (the two SDK RED rows: LC#10 SDK and the activity view), 4269 passed, 32 skipped.
+  - `repo`: ALL GATES GREEN.
+  - No `--skip-append-only` rerun was needed for the SDK or the repo stack.
+- **Pinned edits for owner approval** (base blob, then approved blob):
+  - `apps/screamingface-engine/tests/unit/test_failure_classes.py`: `1d214eff0af8da49d40f642d5377583209835d12` to `6d8699ab03d5e02491e30bed688356b974d7caad`. One line added to the exact set in `test_the_declared_vocabulary_is_exactly_the_agreed_set`.
+  - `apps/screamingface-engine/tests/unit/test_e4b_catalog_pins.py`: `60a41ea9c7ea5001b2d4d298db5f34367deb74a2` to `2fe20d9b61f54f95375331977ce9c51c8a675471`. The file was replaced as the spec says (it had 20 lines).
+  - `apps/screamingface-engine/tests/unit/test_terminal_error_detail.py`: `6c6824dfd7b379e0efccddd4e3c43b35cb2f7758` to `31a4e7875a33f83816768fda200f39b1c337db58`. One line added to `ALLOWLISTED_CODES`.
+- **Deviations:**
+  1. The spec gives the pinned range of `test_failure_classes.py` as lines 88 to 110. The
+     `combine_input_too_large` line is at line 165, in the same test function. The edit follows the
+     anchor text, not the line range.
+  2. The spec's oracle for LC#3 said that a plain `sum([-0.1, -0.2, -0.3])` differs from -0.6. That
+     is false: it gives -0.6. The premise line was removed from `test_reply_logprobs.py`. The
+     assertions on `reply_logprobs` are unchanged.
+  3. The SDK preflight test handler `_engine` uses one route table, not four `if` branches. The
+     four branches broke ruff PLR0911. The answers are the same as the spec's.
+  4. `ruff check --fix` and `ruff format` changed the import order and the layout of the new files
+     and of the stubs. No behavior changed.
