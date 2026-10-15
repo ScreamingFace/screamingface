@@ -1,0 +1,10 @@
+{
+  "status": 404,
+  "body": {
+    "detail": {
+      "code": "unsupported_parameters",
+      "provider": "openrouter",
+      "message": "No upstream endpoint for this model supports every requested parameter."
+    }
+  }
+}

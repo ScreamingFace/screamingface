@@ -1,0 +1,9 @@
+{
+  "status": 404,
+  "body": {
+    "detail": {
+      "code": "provider_error",
+      "message": "The upstream provider returned an error."
+    }
+  }
+}
