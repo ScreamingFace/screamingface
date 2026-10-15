@@ -1589,8 +1589,8 @@
         "member_id": "member_2",
         "raw": null,
         "value": null,
-        "status": "answered",
-        "reason": null,
+        "status": "excluded",
+        "reason": "no_signal",
         "signals": {
           "field:score": null
         },
@@ -1949,8 +1949,8 @@
         "member_id": "member_2",
         "raw": "99",
         "value": "99",
-        "status": "answered",
-        "reason": null,
+        "status": "excluded",
+        "reason": "no_weight",
         "signals": {
           "field:confidence": 0.0
         },
@@ -2116,6 +2116,159 @@
       "value": null,
       "status": "abstain",
       "reason": "output_missing"
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "vote_weight_excluded": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "json_field@1",
+      "text@1",
+      "weighted_mode@1",
+      "max_weight_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "A",
+        "value": "a",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.9
+        },
+        "weight": 0.9,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "A",
+        "value": "a",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.4
+        },
+        "weight": 0.4,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "B",
+        "value": "b",
+        "status": "excluded",
+        "reason": "no_weight",
+        "signals": {
+          "field:confidence": null
+        },
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "a",
+        "score": 1.3,
+        "holders": [
+          "member_1",
+          "member_2"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1"
+    ],
+    "built": false,
+    "agreement": 1.0,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "field:confidence",
+      "order": null
+    },
+    "result": {
+      "member_id": "member_1",
+      "value": "a",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "filter_signal_excluded": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "selection",
+    "reducer": "filter",
+    "operators": [
+      "filter@1",
+      "kept@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.8
+        },
+        "weight": null,
+        "score": 1.0
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.2
+        },
+        "weight": null,
+        "score": 0.0
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "excluded",
+        "reason": "no_signal",
+        "signals": {
+          "field:confidence": null
+        },
+        "weight": null,
+        "score": 0.0
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1"
+    ],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "field:confidence",
+      "order": null
+    },
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "answered",
+      "reason": null
     },
     "dropped": 0,
     "finish_reason": "stop"
