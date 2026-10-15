@@ -491,6 +491,34 @@ def recorded_scorer_arguments() -> Iterator[None]:
         setattr(scorer_module, "registry_tag", original)
 
 
+def refuse_unrecorded_scorers(task: Any) -> None:
+    """Refuse a scorer of the built Task that the recorder never saw (OME-1602, F1).
+
+    WHY: "not recorded" must never read as "nothing to check". inspect's ``multi_scorer``
+    and ``precomputed_scores`` tag themselves with the registry's own ``registry_tag``,
+    bound when their module loads, so :func:`recorded_scorer_arguments` never sees them
+    and :func:`_resolve_scorer` would write the row from the log alone: ``multi_scorer``'s
+    list of scorers is not a literal, so the row would rebuild it with none.
+
+    Called by the import child once the Task is built, after the recorder has closed.
+    """
+
+    from inspect_ai._util.registry import registry_info
+
+    declared: list[Any] = (
+        task.scorer if isinstance(task.scorer, list) else [task.scorer] if task.scorer else []
+    )
+    for scorer in declared:
+        if getattr(scorer, _PASSED_ARGUMENTS, None) is None:
+            name: str = registry_info(scorer).name.rpartition("/")[2]
+            raise ImporterError(
+                f"scorer {name} was built without passing through inspect's @scorer decorator "
+                "(multi_scorer and precomputed_scores build themselves), so the importer could "
+                "not see its arguments as passed, and the row might rebuild it differently. Add "
+                "the row by hand (OME-1602)"
+            )
+
+
 def _passed_arguments(
     constructor: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> dict[str, Any]:

@@ -59,6 +59,7 @@ from screamingface_engine_inspect.importer import (
     _scorer_facts,
     _solver_list,
     recorded_scorer_arguments,
+    refuse_unrecorded_scorers,
     task_attempts,
 )
 from screamingface_engine_inspect.prepare import (
@@ -348,6 +349,7 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
             )
         )
         task: Any = getattr(module, attribute)(**(task_args or {}))
+    refuse_unrecorded_scorers(task)
     # WHY count here: every Case Source recorded from now on was fetched by a solver while
     # capture rendered a Sample, not by the loader; the row says so (CaseSource.phase).
     loaded: int = len(recorder.sources)

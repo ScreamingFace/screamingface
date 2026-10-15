@@ -551,3 +551,46 @@ def test_an_extra_scorer_with_its_own_whole_run_metric_is_refused() -> None:
         ImporterError, match=r"extra scorer balanced scores the whole run with harmonic_balance"
     ):
         _scorer_facts(task, sys.modules[__name__])
+
+
+# F1, review finding: a scorer the recorder never saw ---------------------------------------
+
+#: A Task scored by inspect's multi_scorer, which never passes through the @scorer decorator
+#: the recorder watches. Imported by the import child only.
+MULTI_SCORED_EVAL: str = textwrap.dedent(
+    """
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import MemoryDataset, Sample
+    from inspect_ai.scorer import exact, includes, multi_scorer
+
+    @task
+    def multi_scored() -> Task:
+        return Task(
+            dataset=MemoryDataset([Sample(input="What is 2 plus 2?", target="4", id=1)]),
+            scorer=multi_scorer([exact(), includes()], "mean"),
+        )
+    """
+)
+
+
+@pytest.fixture
+def multi_scored_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the multi_scorer stand-in eval where the import child can import it."""
+
+    (tmp_path / "fake_multi_scored_eval.py").write_text(MULTI_SCORED_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_multi_scored_eval"
+
+
+def test_a_scorer_the_recorder_never_saw_is_refused_because_unrecorded_is_not_clean(
+    multi_scored_eval: str,
+) -> None:
+    """multi_scorer's list of scorers is no literal: read from the log alone, the row would
+    rebuild multi_scorer with no scorers, and the argument check was skipped for want of a
+    record."""
+
+    with pytest.raises(TaskReplayError, match=r"scorer multi_scorer was built without passing"):
+        replay_for_import(f"{multi_scored_eval}:multi_scored", None)

@@ -63,4 +63,10 @@ row copies the eval's scorers. It adds no Benchmark and changes no existing row.
   three stacked PRs at the owner's call (2026-10-15) because the guards need different review.
   The F5 test's one-Sample Task helper and its `exact` import live in this PR's test block
   rather than in the F2 section where they first appeared.
+- **Second review (2026-10-15):** a scorer the recorder never sees (inspect's `multi_scorer`
+  and `precomputed_scores` bind `registry_tag` from the registry module, not the scorer
+  module) got no record, so the argument check was skipped and the row was written from the
+  log alone. The import child now refuses any declared scorer without a record. The 10 test
+  files that call the import child or the scorer readers: 228 passed; ruff and pyright on the
+  touched files: clean.
 - **Owner verify:** none; nothing paid, no Benchmark changes.
