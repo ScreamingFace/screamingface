@@ -484,3 +484,72 @@ PRD `rank-and-cut`, rows RK#1 to RK#13, and guard RK-N1. Decisions: P6, P7, P11,
     check, ruff format, pyright, pytest with coverage, notebooks, build, distribution check).
   - `repo`: ALL GATES GREEN, the append-only check passes.
 - **Flakes:** none in this round.
+
+## Unit 4 — judge link, SDK view (JM#1–12)
+
+### Intent
+
+The trace `reduce` entry of a combine step names the judge's own operation
+(`judge_operation_id`) and the request model of that call (`judge_model`). The link holds only
+when the evidence shows a judge reading (rule J1–J3) and the step's graph node has exactly one
+`"judge"` dependency; else both keys are null. No wire, spec, engine or url4 change.
+Decisions: Q1, Q2, Q4, P8, P9; E4b part 1 ans:Q5 (additive edit, same v1 id).
+
+### Planned changes
+
+- SDK: `S/_case_views.py` (`_reads_judge`, `_judge_link`; `_operation_entries`,
+  `_combine_entries`, `_reduce_data` pass the link), `S/report_trace.py` (`TRACE_FIELDS["reduce"]`
+  gains `judge_operation_id`, `judge_model`; docstring).
+- Tests (new): `ST/test_judge_link_trace.py`.
+
+### Pinned edits (owner approval)
+
+- U4-P1 `packages/screamingface/tests/data/schemas/screamingface.report-trace.v1.json`
+  (regenerated; `reduce` gains the two names; sha256
+  687605763d666ce2ad69ef6e4c9420eb8ffa3f13e7e8a574f8a662510884567c).
+- U4-P2 `packages/screamingface/tests/test_e4b_schema_pins.py` (one sha256 string: the
+  report-trace.v1 pin moves to the U4-P1 bytes). See Deviations D-4.1.
+
+### Test plan
+
+- 12 PRD rows, 25 test cases, in PRD risk order. CHAR first: JM#1 (the six judge url4 fixtures
+  keep their bytes at 0f4b9e292, sha256 pinned by hand from `git show`), JM#2 (the judge's own
+  model_call entry shows its model).
+- RED: JM#3, JM#4, JM#5, JM#9, JM#12, JM#6, JM#7, JM#10, JM#8, JM#11. No stub: each fails on a
+  missing key or on the field list, not on an import.
+- The judge call has request model `provider/judge-x` and another response model, so a code that
+  reads the response model fails.
+
+### Acceptance
+
+- JM#1–12 green; a judge step's trace names `op_judge_1` and its request model; every unsure case
+  gives null.
+- No url4 file, combine spec, engine file or evidence fixture changes.
+- `report-trace.v1` keeps its id; only `kinds.reduce` gains the two names.
+- SDK gates green except append-only, which lists exactly the unit 1–4 pinned files; repo gates
+  green.
+
+### Deviations
+
+- D-4.1: `ST/test_e4b_schema_pins.py` pins the bytes of `report-trace.v1.json`. The owner
+  approved the snapshot edit (plan §6 unit 4), so this pin must change with it. It is an extra
+  pinned edit (U4-P2) that plan §6 does not name.
+- D-4.2: JM#9 runs in the SDK lane (the url4 replay `_candidate_from_url4` of the committed
+  pre-part-2 fixture, then the trace), not in the engine lane that test-plan §3 lists. The link is
+  SDK-only; the engine run of the same bytes is already proven by `ET/test_combine_recipes.py`,
+  and JM#1 proves the bytes did not change.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** in_progress. Commit A (RED) holds the ledger section and the test file. No code
+  change yet.
+- **Actual files:** `packages/screamingface/tests/test_judge_link_trace.py` (new, RED);
+  `docs/work/2026-10-15-e4b-evidence-completeness.md` (this section).
+- **Commits:** A `…` (RED, pending), B `…` (GREEN, pending), C `…` (ledger outcome, pending).
+- **Gates:** pending (the four runs of spec §5.4, with the append-only offender lists; they run
+  after commit B).
+- **RED log:** commit A. `uv run pytest -q tests/test_judge_link_trace.py` in `packages/screamingface`:
+  `7 passed, 18 failed`. No collection or import error. The 7 passing tests are the six JM#1
+  url4 params and JM#2 (CHAR). Each of the 18 RED rows fails with `AssertionError` on a missing
+  key (`assert {} == {'judge_operation_id': …}`) or on the field list (JM#12, `assert [...] == [...]`).
+- **Approval blobs:** pending (U4-P1 and U4-P2, after commit B).
