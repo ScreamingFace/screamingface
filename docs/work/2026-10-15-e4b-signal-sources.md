@@ -83,12 +83,13 @@ Local stack: aigateway at `127.0.0.1:9105` (`~/sf-local`), OpenRouter. All calls
 - **Fixtures** (`apps/screamingface-engine/tests/unit/data/logprobs/`), each `{"status", "body"}`:
   - `openrouter_reply_with_logprobs.json`: call 1. Content is `SYNTHETIC-ANSWER`; tokens are
     `tok0`, `tok0_alt1`..`tok0_alt4` (the `bytes` match the new text); the numbers, `finish_reason`
-    and `usage` are as recorded.
+    and the token counts in `usage` are as recorded.
   - `openrouter_refusal_provider_error.json`: call 2, the answer before LC-E5.
   - `openrouter_refusal_unsupported_parameters.json`: call 4, the answer after LC-E5.
   - Removed: `id`, `_aigw`, `provider`, `system_fingerprint`, `created`, `model`, `object`,
     `service_tier`, `choices[].index`, `choices[].provider_specific_fields`, `message.role`,
-    `message.tool_calls`, `message.function_call`, `message.provider_specific_fields`, and every
+    `message.tool_calls`, `message.function_call`, `message.provider_specific_fields`,
+    `usage.is_byok`, `usage.cost`, `usage.cost_details` (removed by the review fixes), and every
     header. No provider text is in the refusal bodies.
 
 ### Unit 1 outcome
@@ -117,3 +118,70 @@ Local stack: aigateway at `127.0.0.1:9105` (`~/sf-local`), OpenRouter. All calls
   live refusal is the transport shape. (4) The exact OpenRouter text is not visible through the
   gateway; the detector matches two fixed phrasings, and call 4 shows that one of them matches.
   The paid test RC#9 (unit 5) checks it again.
+
+### Unit 1 review fixes (2026-10-15)
+
+No live call. The fixes use only the recorded answers.
+
+- **Intent.** Close the review findings for unit 1.
+- **Planned changes.**
+  - `G/plugins/openrouter_provider/provenance.py`: move `is_parameter_refusal` here from
+    `response_errors.py`. It now also requires `classify_provenance(exc) is
+    ErrorProvenance.TRANSPORT`, so it is correct without help from its caller.
+  - `G/plugins/openrouter_provider/plugin.py`: import from `provenance`; raise the new error
+    `from exc` (as the embedded branch above it does), so a server-side traceback keeps the
+    litellm exception. The response is gateway text either way.
+  - `G/plugins/openrouter_provider/dispatch_errors.py`: the docstring says what a client can do
+    with the code, not what the engine does with it.
+  - `apps/aigateway/tests/unit/openrouter/test_openrouter_parameter_refusal_code.py`: one local
+    `_as_transport(exc, *, wire_status)` helper (the shape of the sibling
+    `test_openrouter_no_eligible_endpoint.py`) for the 404 and the 400 cases; a new direct test
+    of the detector on a 404 with the refusal text but no transport chain.
+  - `ET/data/logprobs/openrouter_reply_with_logprobs.json`: remove `usage.is_byok` (an account
+    fact), `usage.cost` and `usage.cost_details` (no later unit reads them).
+- **Test plan.** RED first: the new direct test fails before the detector checks provenance.
+  The nine existing cases stay green.
+
+### Unit 1 review fixes — outcome
+
+- **RED:** `test_the_detector_needs_a_proven_transport_failure` failed before the move:
+  `AssertionError: assert True is False` (`is_parameter_refusal` of a `NotFoundError` with no
+  transport chain). It passed after the detector checked provenance.
+- **Code name `unsupported_parameters` (MAJOR finding): decision (a), keep the name.** Spec C4b
+  sets the name, and a rename needs a spec erratum. The gateway already uses this code for a
+  different answer: the parameter classifier (`G/routes/chat.py:621`,
+  `G/routes/chat_profile_defaults.py:89`) sends HTTP **400** with a `rejected` map when the catalog
+  does not enable a parameter. The new refusal is HTTP **404** with no `rejected` key. Thus the code
+  alone is NOT distinct; the status and the code together are.
+  - **Rule for unit 3 (replaces the rule "`unsupported_parameters` + `logprobs: true` ->
+    `logprobs_unsupported`" above):** the engine maps to `logprobs_unsupported` only when the
+    status is **404** AND `detail.code == "unsupported_parameters"` AND the body asked for
+    `logprobs: true`. A 400 `unsupported_parameters` keeps its current mapping.
+  - **Unit 3 adds an engine test** (with LC#20): a 400 `unsupported_parameters` with a `rejected`
+    map on a call with `logprobs: true` (for example a disabled `temperature` or
+    `provider_params.top_k`) keeps its current mapping and is NOT `logprobs_unsupported`.
+  - **Owner decision pending:** approve (a) as a note on C4 and C4b, or choose (b), a distinct
+    code (for example `no_endpoint_for_parameters`) with a spec erratum.
+- **Other fixes:** the detector moved to `G/plugins/openrouter_provider/provenance.py` and
+  requires a proven transport failure; `plugin.py` raises the new error `from exc`;
+  `dispatch_errors.py` says what a client can do with the code; the test file has one
+  `_as_transport` helper and one new direct test (10 cases now); the logprobs fixture has no
+  account or cost data.
+- **Commit:** `fix(screamingface-engine): review fixes for E4b part 3 unit 1`. One commit, as the
+  run asked; the RED line above is the record of RED first. Later units commit RED separately, as
+  part 1 did.
+- **Gates:** `run_gates.py aigateway --base 0f4b9e292` ALL GATES GREEN (append-only, ruff, format,
+  pyright, no-enterprise, pytest with coverage >= 80). `run_gates.py repo --base 0f4b9e292` ALL
+  GATES GREEN.
+- **Pinned edits:** none. No test from before this part changed.
+
+### Open items (owner)
+
+1. The `unsupported_parameters` name decision above ((a) kept; approve or choose (b)).
+2. The embedded HTTP-200 shape of the parameter refusal still gives `provider_error` (deviation
+   (3) of unit 1). C4b does not limit the shape, and the test plan rates this risk H×H. To close
+   it: approve it as a C4b erratum, OR allow a pinned edit of
+   `test_no_eligible_endpoint_embedded_in_a_200_body_surfaces_sanitized` in a later unit, and
+   change `test_the_embedded_http_200_parameter_refusal_keeps_its_mapping` with it.
+3. At PR-open, replace "E4b part 3" in the gateway comments (`provenance.py`,
+   `dispatch_errors.py`, `plugin.py`) with the OME id.

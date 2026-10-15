@@ -108,8 +108,7 @@ def _unsupported_parameters_error() -> _UnsupportedParametersError:
 
     WHY a code of its own: the same 404 also means a routing-control refusal or a missing
     model, so ``provider_error`` cannot tell a client "this model cannot honor a parameter
-    you sent". The engine maps this code (for a call that asked for ``logprobs``) to
-    ``logprobs_unsupported``.
+    you sent". With this code, a client can tell this refusal apart from other 404s.
 
     INVARIANT: takes NO arguments and names no parameter. OpenRouter's text can name an
     internal endpoint, and the gateway does not know which of the supplied parameters

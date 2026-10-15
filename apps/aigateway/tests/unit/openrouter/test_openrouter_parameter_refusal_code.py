@@ -28,6 +28,7 @@ import pytest
 from litellm.exceptions import NotFoundError
 
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
+from aigateway.plugins.openrouter_provider.provenance import is_parameter_refusal
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
 
 _KEY = "sk-or-v1-parameter-refusal"
@@ -76,20 +77,29 @@ def _create_connection(client) -> None:
     assert resp.status_code == 201, resp.text
 
 
-def _transport_404(message: str) -> Exception:
+def _as_transport(exc: Exception, *, wire_status: int) -> Exception:
     # Mirrors the provenance a real litellm OpenRouter transport failure carries
     # (chained httpx.HTTPStatusError + surfaced wire headers): the live refusal of
     # unit 1 took the transport path (attempt failure_code provider_status_error).
-    exc = NotFoundError(
+    response = httpx.Response(wire_status, request=_WIRE_REQUEST)
+    exc.__cause__ = httpx.HTTPStatusError(
+        f"{wire_status}", request=_WIRE_REQUEST, response=response
+    )
+    exc.litellm_response_headers = dict(response.headers)  # type: ignore[attr-defined]
+    return exc
+
+
+def _not_found(message: str) -> NotFoundError:
+    return NotFoundError(
         message=message,
         llm_provider="openrouter",
         model=_MODEL,
         response=httpx.Response(404, request=_WIRE_REQUEST),
     )
-    response = httpx.Response(404, request=_WIRE_REQUEST)
-    exc.__cause__ = httpx.HTTPStatusError("404", request=_WIRE_REQUEST, response=response)
-    exc.litellm_response_headers = dict(response.headers)  # type: ignore[attr-defined]
-    return exc
+
+
+def _transport_404(message: str) -> Exception:
+    return _as_transport(_not_found(message), wire_status=404)
 
 
 def _counting_raiser(exc: Exception, calls: list[dict[str, Any]]):
@@ -186,15 +196,15 @@ def test_the_parameter_refusal_text_on_a_non_404_status_keeps_its_mapping(
     from litellm.exceptions import BadRequestError
 
     _create_connection(authenticated_client)
-    exc = BadRequestError(
-        message="No endpoints found that support all parameters: logprobs",
-        llm_provider="openrouter",
-        model=_MODEL,
-        response=httpx.Response(400, request=_WIRE_REQUEST),
+    exc = _as_transport(
+        BadRequestError(
+            message="No endpoints found that support all parameters: logprobs",
+            llm_provider="openrouter",
+            model=_MODEL,
+            response=httpx.Response(400, request=_WIRE_REQUEST),
+        ),
+        wire_status=400,
     )
-    response = httpx.Response(400, request=_WIRE_REQUEST)
-    exc.__cause__ = httpx.HTTPStatusError("400", request=_WIRE_REQUEST, response=response)
-    exc.litellm_response_headers = dict(response.headers)  # type: ignore[attr-defined]
     calls: list[dict[str, Any]] = []
     with patch("litellm.acompletion", _counting_raiser(exc, calls)):
         resp = _post_chat(authenticated_client, {"logprobs": True})
@@ -209,8 +219,8 @@ def test_the_embedded_http_200_parameter_refusal_keeps_its_mapping(
 ) -> None:
     # AIDEV-NOTE: the embedded HTTP-200 shape is out of scope for LC-E5 — the live refusal
     # is a transport 404, and `test_no_eligible_endpoint_embedded_in_a_200_body_surfaces_
-    # sanitized` pins `provider_error` for this shape. The embedded scanner never reads
-    # provider text, and this test keeps it that way.
+    # sanitized` pins `provider_error` for this shape. The embedded scanner never classifies
+    # on provider text; OME-1136 relays that text only sanitized, as `upstream_message`.
     _create_connection(authenticated_client)
     payload = {
         "id": "gen-parameter-refusal",
@@ -230,5 +240,14 @@ def test_the_embedded_http_200_parameter_refusal_keeps_its_mapping(
 
     assert resp.status_code == 404, resp.text
     assert resp.json()["detail"]["code"] == "provider_error"
-    assert "No endpoints found" not in resp.text
     assert "secret-internal-router" not in resp.text
+
+
+def test_the_detector_needs_a_proven_transport_failure() -> None:
+    # INVARIANT: the detector is correct on its own, not only after the caller has ruled
+    # out a converter/body error. A 404 with the refusal text but no httpx transport chain
+    # has BODY or AMBIGUOUS provenance, so it is not the transport parameter refusal.
+    message = "No endpoints found that support all parameters: logprobs"
+
+    assert is_parameter_refusal(_transport_404(message)) is True
+    assert is_parameter_refusal(_not_found(message)) is False

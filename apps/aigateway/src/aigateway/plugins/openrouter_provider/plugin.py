@@ -90,7 +90,12 @@ from .live_models import (
 )
 from .observations import ROUTING_POLICY_OBSERVATIONS
 from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
-from .provenance import converter_error_message, converter_error_status, is_http200_body_error
+from .provenance import (
+    converter_error_message,
+    converter_error_status,
+    is_http200_body_error,
+    is_parameter_refusal,
+)
 from .response_errors import (
     _embedded_error_status as _embedded_error_status,
 )
@@ -100,10 +105,7 @@ from .response_errors import (
 from .response_errors import (
     _top_level_error_is_meaningful as _top_level_error_is_meaningful,
 )
-from .response_errors import (
-    find_converted_error,
-    is_parameter_refusal,
-)
+from .response_errors import find_converted_error
 from .routing_policy import build_provider_policy
 from .settings import (
     GATEWAY_MODEL_PREFIX,
@@ -586,7 +588,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             # an unsupported parameter gets its own gateway code; any other error is
             # re-raised unchanged for the route's generic mapping.
             if is_parameter_refusal(exc):
-                raise _unsupported_parameters_error() from None
+                raise _unsupported_parameters_error() from exc
             raise
         try:
             payload: Any = response.model_dump() if hasattr(response, "model_dump") else response
