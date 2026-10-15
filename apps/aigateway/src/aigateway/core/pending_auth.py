@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -78,6 +79,29 @@ class PendingAuthTable:
             if expired or matches:
                 self._entries.pop(state, None)
             if matches and not expired:
+                removed.append(state)
+        return removed
+
+    def pop_for_pair(
+        self,
+        account_id: str,
+        provider: str,
+        *,
+        profile_names: Collection[str],
+        connection_ids: Collection[str],
+    ) -> list[str]:
+        """Remove the pending flows of one pair's captured targets (D18 contract §5.2).
+
+        # WHY scoped to the targets, not the whole pair: a flow for an unrelated new Connection
+        # is not the credential a successor PUT or DELETE replaced. A stale callback loses its
+        # pair fence anyway (G0), so this is cleanup, not correctness.
+        """
+        removed: list[str] = []
+        for state, (entry, _ts) in list(self._entries.items()):
+            if entry.account_id != account_id or entry.provider != provider:
+                continue
+            if entry.profile_name in profile_names or entry.connection_id in connection_ids:
+                self._entries.pop(state, None)
                 removed.append(state)
         return removed
 

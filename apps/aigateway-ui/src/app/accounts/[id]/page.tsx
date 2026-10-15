@@ -1,14 +1,15 @@
 import Link from "next/link";
 
-import { deleteProfileAction, setAccountActiveAction } from "@/app/actions";
+import type { ActionState } from "@/app/actions";
+import { deleteConnectionAction, setAccountActiveAction } from "@/app/actions";
 import { Notice } from "@/components/ui";
-import type { AdminAccount, AdminProfile } from "@/lib/aigateway/client";
-import { AdminApiError, getAccount, listProfiles } from "@/lib/aigateway/client";
+import type { AdminAccount, AdminConnectionList } from "@/lib/aigateway/client";
+import { AdminApiError, getAccount, listConnections } from "@/lib/aigateway/client";
 import { describeFailure } from "@/lib/auth";
 
 import { AccountStatusControl } from "./account-status-control";
-import { DeleteProfileButton } from "./delete-profile-button";
-import { AccountFacts, CredentialsTable, NoCredentials } from "./detail";
+import { DeleteConnectionButton } from "./delete-connection-button";
+import { AccountFacts, CredentialConflicts, CredentialsTable, NoCredentials } from "./detail";
 import styles from "./detail.module.css";
 
 /**
@@ -38,11 +39,9 @@ export default async function AccountDetailPage({ params }: PageProps) {
   const { id } = await params;
 
   let account: AdminAccount;
-  let profiles: AdminProfile[];
+  let credentials: AdminConnectionList;
   try {
-    const [fetchedAccount, profileList] = await Promise.all([getAccount(id), listProfiles(id)]);
-    account = fetchedAccount;
-    profiles = profileList.profiles;
+    [account, credentials] = await Promise.all([getAccount(id), listConnections(id)]);
   } catch (error) {
     // A 404 is its own page, not a generic refusal: the operator followed a link to something
     // that is not there, and the only useful next move is back to the list.
@@ -105,25 +104,25 @@ export default async function AccountDetailPage({ params }: PageProps) {
           {attachButton}
         </div>
         <p className={styles.sectionLede}>
-          Static provider API keys this tenant sends requests with. A key is write-only: once
-          submitted it is never shown again, and the gateway returns only the masked label below.
+          One credential per provider that this tenant sends requests with. A key is write-only:
+          once submitted it is never shown again.
         </p>
-        {profiles.length === 0 ? (
+        <CredentialConflicts conflicts={credentials.conflicts} />
+        {/* Empty only when the gateway listed nothing at all: a conflicting pair IS a credential
+            the tenant holds, so "no credentials attached" would be false beside it. */}
+        {credentials.connections.length === 0 && credentials.conflicts.length === 0 ? (
           <NoCredentials action={attachButton} />
-        ) : (
+        ) : credentials.connections.length > 0 ? (
           <CredentialsTable
-            profiles={profiles}
-            renderActions={(profile) => (
-              <DeleteProfileButton
-                provider={profile.provider}
-                name={profile.name}
-                // Bound on the server: the client component receives a reference, never the
-                // account id as browser-supplied input it could be tricked into changing.
-                action={deleteProfileAction.bind(null, account.id, profile.provider, profile.name)}
+            connections={credentials.connections}
+            renderActions={(connection) => (
+              <DeleteConnectionButton
+                provider={connection.provider}
+                action={detachAction(account.id, connection.provider)}
               />
             )}
           />
-        )}
+        ) : null}
       </section>
 
       <section className={styles.section} aria-labelledby="access-heading">
@@ -135,9 +134,31 @@ export default async function AccountDetailPage({ params }: PageProps) {
         <AccountStatusControl
           key={String(account.is_active)}
           isActive={account.is_active}
-          action={setAccountActiveAction.bind(null, account.id, !account.is_active)}
+          action={statusAction(account.id, !account.is_active)}
         />
       </section>
     </main>
   );
+}
+
+/*
+ * Server actions with their target CLOSED OVER, not `.bind`-ed.
+ *
+ * INVARIANT: an allowlisted admin may manage any tenant, so the gateway cannot tell a swapped
+ * account id from a real one. `.bind` arguments travel back from the browser as plain data and can
+ * be rewritten; closed-over values are encrypted and authenticated by Next per build, so the
+ * action acts on exactly the account and provider this page rendered.
+ */
+function detachAction(accountId: string, provider: string) {
+  return async function detach(): Promise<ActionState> {
+    "use server";
+    return deleteConnectionAction(accountId, provider);
+  };
+}
+
+function statusAction(accountId: string, isActive: boolean) {
+  return async function setStatus(): Promise<ActionState> {
+    "use server";
+    return setAccountActiveAction(accountId, isActive);
+  };
 }

@@ -66,4 +66,5 @@ dev = [
     "pytest-asyncio>=1.4.0,<2",
     "pytest-cov>=5",
     "ruff>=0.16.1",
+    "tinycss2>=1.5.1",
 ]

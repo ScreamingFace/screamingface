@@ -53,12 +53,15 @@ mode the named codes exist to prevent, so the mapping here is explicit and close
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
-from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, MutableMapping, Sequence
 from dataclasses import replace
 from typing import Any
 
+from inspect_ai.log._transcript import Transcript
+from inspect_ai.log._transcript import _transcript as _inspect_transcript
 from inspect_ai.model import (
     ChatMessage,
     ChatMessageAssistant,
@@ -222,10 +225,17 @@ def inspect_grade_case(
             file_score(int(request.case_id), score, state)
         return outcome
 
+    return _observed(grade)
+
+
+def _observed(grade: GradeCase) -> GradeCase:
+    """Report each Case's grading activity around ``grade``, in its own inspect Transcript."""
+
     async def observed(request: GradeRequest) -> CaseGradeOutcome:
         report_case_grading(request.case_id, "started")
         try:
-            outcome = await grade(request)
+            with _case_transcript():
+                outcome = await grade(request)
         except Exception:
             report_case_grading(request.case_id, "failed")
             raise
@@ -233,6 +243,26 @@ def inspect_grade_case(
         return outcome
 
     return observed
+
+
+@contextlib.contextmanager
+def _case_transcript() -> Iterator[None]:
+    """Give one Case's grading its own inspect Transcript; put the caller's back after (OME-1607).
+
+    inspect appends every model call a scorer makes (a judge's `ModelEvent`, full prompt
+    included) to the CURRENT Transcript — a ContextVar. Unbound, it is created lazily in the
+    task that first asks; bound in the context the aggregate was called in, every Case's task
+    inherits the SAME one and the run's judge calls pile up in one list. The engine never reads
+    a Transcript, so each Case gets a fresh one that dies with it.
+
+    WHY the private ContextVar: inspect has `init_transcript` but no way to restore the previous
+    value; set/reset on the variable itself is the only exact undo. inspect-ai is pinned.
+    """
+    token = _inspect_transcript.set(Transcript())
+    try:
+        yield
+    finally:
+        _inspect_transcript.reset(token)
 
 
 def _outcome(

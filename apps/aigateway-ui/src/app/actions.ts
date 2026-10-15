@@ -21,10 +21,10 @@ import type { AdminCacheJob, AdminErrorKind } from "@/lib/aigateway/client";
 import {
   AdminApiError,
   createAccount,
-  deleteProfile,
+  deleteConnection,
   listCacheJobs,
   patchAccount,
-  setApiKey,
+  setConnectionApiKey,
   uploadCacheSnapshot,
 } from "@/lib/aigateway/client";
 import { describeFailure } from "@/lib/auth";
@@ -50,6 +50,18 @@ export type ActionState = ActionSuccess | ActionFailure;
 export type FormState = ActionState | null;
 
 const GENERIC_KEY_ERROR = "The gateway rejected that key. Check the value and try again.";
+
+/**
+ * Gateway codes that fault the PROVIDER of an attach, not its key, with the words for each. None
+ * carries a message of its own, and under the key control they would send the operator hunting
+ * for a typo in a field that is fine — most likely when discovery failed and the provider id was
+ * typed by hand.
+ */
+const PROVIDER_FAULTS: Readonly<Record<string, string>> = {
+  unknown_provider: "The gateway has no provider with this id. Check the provider id.",
+  api_key_not_supported: "This provider does not take an API key.",
+  invalid_path_segment: "That is not a valid provider id.",
+};
 
 /**
  * Purge the whole console rather than a computed route.
@@ -148,19 +160,24 @@ export async function setAccountActiveAction(
  * INVARIANT (OME-1138 Stage C, OME-1322): the key is the whole write. Saved request defaults are
  * no longer authored here — fields a stale form still posts (`model`, `temperature`, …) are never
  * read, never validated and never forwarded, so a replacement cannot block on them or carry them.
+ *
+ * INVARIANT (D18 §8): the pair `(account, provider)` is the whole address. A posted `name` is
+ * never read, and no `default` is substituted for it.
+ *
+ * INVARIANT: `accountId` is bound on the server by the page that rendered the form, never read
+ * from the FormData. An allowlisted admin may manage any tenant, so the gateway cannot tell a
+ * rewritten `account_id` from a real one — only the page knows which tenant the operator saw.
  */
 export async function setApiKeyAction(
+  accountId: string,
   _prevState: FormState,
   formData: FormData,
 ): Promise<ActionState> {
-  const accountId = text(formData, "account_id");
   const provider = text(formData, "provider");
-  // Every tenant gets one profile per provider in this console; "default" is that profile's name.
-  const name = text(formData, "name") || "default";
   const apiKey = text(formData, "api_key");
 
   if (!accountId) {
-    return { ok: false, error: "No account was identified for this key.", field: "account_id" };
+    return { ok: false, error: "No account was identified for this key." };
   }
   if (!provider) {
     return { ok: false, error: "Choose a provider.", field: "provider" };
@@ -170,8 +187,12 @@ export async function setApiKeyAction(
   }
 
   try {
-    await setApiKey(accountId, provider, name, { api_key: apiKey });
+    await setConnectionApiKey(accountId, provider, { api_key: apiKey });
   } catch (error) {
+    const code = error instanceof AdminApiError ? error.code : undefined;
+    if (code !== undefined && Object.hasOwn(PROVIDER_FAULTS, code)) {
+      return { ...failure(error, "provider", apiKey), error: PROVIDER_FAULTS[code] };
+    }
     return failure(error, "api_key", apiKey);
   }
 
@@ -179,18 +200,17 @@ export async function setApiKeyAction(
   return { ok: true };
 }
 
-/** Detach a credential profile. The key itself is gone with it — aigateway owns that deletion. */
-export async function deleteProfileAction(
+/** Disconnect a tenant's provider. The key is gone with it — aigateway owns that deletion. */
+export async function deleteConnectionAction(
   accountId: string,
   provider: string,
-  name: string,
 ): Promise<ActionState> {
-  if (!accountId || !provider || !name) {
+  if (!accountId || !provider) {
     return { ok: false, error: "That credential could not be identified." };
   }
 
   try {
-    await deleteProfile(accountId, provider, name);
+    await deleteConnection(accountId, provider);
   } catch (error) {
     return failure(error);
   }

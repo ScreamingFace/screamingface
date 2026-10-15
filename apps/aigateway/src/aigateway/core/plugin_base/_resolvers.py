@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from ..credential_blob.store import CredentialBlobStore
     from ..profile_models import AuthType
 
+_CREDENTIAL_SERVICE_PROVIDER_ALIASES = {"gemini-cli": "gemini"}
+
 
 def credential_service_provider_for(plugin: Any, provider: str) -> str:
     getter = getattr(plugin, "credential_service_provider", None)
@@ -26,7 +28,9 @@ def credential_service_provider_for(plugin: Any, provider: str) -> str:
         value = getter()
         if isinstance(value, str) and value:
             return value
-    return provider
+    # INVARIANT: shipped aliases remain available when a plugin is disabled or retired, so a
+    # stored locator can still be validated without treating its own untrusted value as authority.
+    return _CREDENTIAL_SERVICE_PROVIDER_ALIASES.get(provider, provider)
 
 
 def credential_strategy_from(

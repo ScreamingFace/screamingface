@@ -28,7 +28,24 @@ vi.mock("@/lib/aigateway/client", async (importOriginal) => {
   };
 });
 
-vi.mock("@/app/actions", () => ({ setApiKeyAction: vi.fn(async () => ({ ok: true })) }));
+const setApiKeyAction = vi.fn(async (..._args: unknown[]) => ({ ok: false, error: "x" }));
+vi.mock("@/app/actions", () => ({
+  setApiKeyAction: (...args: unknown[]) => setApiKeyAction(...args),
+}));
+
+// Capture the action the page hands the form, while still rendering the real form.
+type FormProps = import("./form").CredentialFormProps;
+let formProps: FormProps | undefined;
+vi.mock("./form", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./form")>();
+  return {
+    ...actual,
+    CredentialForm: (props: FormProps) => {
+      formProps = props;
+      return actual.CredentialForm(props);
+    },
+  };
+});
 
 const { AdminApiError } = await import("@/lib/aigateway/client");
 const { default: Page } = await import("./page");
@@ -89,6 +106,14 @@ it("keeps the key input write-only", async () => {
   expect(input).not.toHaveAttribute("value");
 });
 
+it("promises no key hint and no profile the pair-addressed API does not have", async () => {
+  // D18 §3: the gateway returns no key hint in this landing, and the pair is the address.
+  render(await Page(props()));
+
+  expect(screen.queryByText(/last four characters/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/profile/i)).not.toBeInTheDocument();
+});
+
 it("turns a missing tenant into a real 404", async () => {
   getAccount.mockRejectedValue(new AdminApiError("not_found", 404, "nope"));
 
@@ -108,4 +133,18 @@ it("lets a real bug reach the error boundary", async () => {
   getAccount.mockRejectedValue(new TypeError("boom"));
 
   await expect(Page(props())).rejects.toThrow(TypeError);
+});
+
+it("binds the write to the account it rendered, whatever the browser posts", async () => {
+  // The browser only holds an opaque reference to the page's action; the account id is closed
+  // over on the server. A posted `account_id` from a rewritten form must not retarget the write.
+  render(await Page(props()));
+  const posted = new FormData();
+  posted.append("account_id", "acc-other-tenant");
+  posted.append("provider", "openai");
+  posted.append("api_key", "k");
+
+  await formProps!.action(null, posted);
+
+  expect(setApiKeyAction).toHaveBeenCalledWith("acc-1", null, posted);
 });
