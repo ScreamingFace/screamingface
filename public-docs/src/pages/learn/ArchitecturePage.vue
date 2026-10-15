@@ -43,7 +43,7 @@ const components = [
 
     <ul>
       <li>
-        <RouterLink to="/learn/url4"><strong>url4:</strong></RouterLink> The protocol. One line
+        <RouterLink to="/learn/url4"><strong>url4:</strong></RouterLink> The protocol is one line
         naming some sources and an intent, which compiles to a typed graph of operations. It can
         fetch data, call models, run code, fan those out, and reduce the results to one answer. A
         source can itself be another url4, so expressions nest into arbitrarily large systems. This
@@ -53,19 +53,19 @@ const components = [
         <RouterLink to="/learn/engine"
           ><strong>The engine:</strong></RouterLink
         >
-        The runtime and trust boundary. Runs a url4 expression: it schedules the graph, sends each model call out to a provider, and
+        It is the runtime and trust boundary, and it runs a url4 expression: it schedules the graph, sends each model call out to a provider, and
         streams back tokens, cost, and the result. It holds the provider credentials, so the Client
         never sees them.
       </li>
       <li>
-        <RouterLink to="/learn/ai-gateway"><strong>The AI gateway:</strong></RouterLink> A
+        <RouterLink to="/learn/ai-gateway"><strong>The AI gateway:</strong></RouterLink> It is a
         LiteLLM-based gateway the engine calls to reach every provider through one OpenAI-shaped
         endpoint. It stores provider credentials encrypted at rest.
       </li>
       <li>
-        <RouterLink to="/sf-client"><strong>The Client:</strong></RouterLink> The Python library
-        researchers use. It composes fusions and benchmarks and talks only to an engine, never to a
-        provider directly.
+        <RouterLink to="/sf-client"><strong>The Client:</strong></RouterLink> It is the Python
+        library researchers use. It composes fusions and benchmarks and talks only to an engine,
+        never to a provider directly.
       </li>
       <!-- Studio is hidden for now.
       <li>
@@ -74,7 +74,7 @@ const components = [
       </li>
       -->
       <li>
-        <RouterLink to="/learn/leaderboard"><strong>The Leaderboard:</strong></RouterLink> Where
+        <RouterLink to="/learn/leaderboard"><strong>The Leaderboard:</strong></RouterLink> It is where
         results go public. Each entry says whether the hosted engine ran it, and keeps the url4 that
         produced it, so a rank can always be checked. The board itself is
         at
