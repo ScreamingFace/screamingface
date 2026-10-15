@@ -213,3 +213,76 @@ key keeps its bytes; `CaseResult.to_dict()` does not change; the schema id stays
   `8a32a2c2f6ba4a7f8f0581e722139415e784b39b`, after commit B `e4e39af0e327d7d63f9e7d8134cb67dde359c70c`.
 - **SHA-256 (new pins):** combine `85fb1253ee37e8debd0efcb5380309e5ac271aed613bfece466dc523e5de911a`;
   vote and median `47c658fbaf7d126da62fb64464c04879b2ae2c70f5f03aa9050c744bb38bc390`.
+
+## Unit 2: display format of the Combine views (`S/_ui/combine_view.py`)
+
+### Intent
+
+PRD `display-format`, rows DF#1–11 (ans:Q3, ans:Q1, P5–P9, P17). A new private module
+`S/_ui/combine_view.py` holds the format helpers and the style rules that units 3 and 4 use:
+`number_html` (a float at 4 significant digits, `repr` as the title), `dash_html` (an em dash with
+its reason as the title), `text_html` (escaped, clipped at 80 characters), `missing_reason`
+(MR-1..MR-3) and the constant `STYLE` (`.sf-cmb` rules only, theme variables only, left-aligned
+cells, no host zebra rows). `STYLE` is joined into `report_view._STYLE` directly after
+`ACCOUNTING_STYLE`. No render path calls the helpers yet. No public name.
+
+### Planned changes
+
+- New `S/_ui/combine_view.py` (`STYLE`, `number_html`, `dash_html`, `text_html`, `missing_reason`,
+  `__all__ = []`).
+- `S/_ui/report_view.py`: import `STYLE as COMBINE_STYLE`; `_STYLE = STYLE + ACCOUNTING_STYLE +
+  COMBINE_STYLE + …`.
+- New test file `ST/test_combine_display_format.py`.
+- Pinned edits: none.
+
+### Test plan
+
+- 11 PRD rows, DF#1–11, 16 collected items (DF#3 has 6 parameters). CHAR: DF#1, DF#2. RED: the
+  others.
+- Stub (commit A): `combine_view.py` with the four functions raising `NotImplementedError`,
+  `STYLE = ""`, no `__all__`. Expected RED: 14 failed, 2 passed; no import error.
+- Invariants: every data text is escaped (quote=True); a missing value always has a reason; the
+  style holds no token that an existing report test forbids; no import cycle with `report_view`.
+
+### Acceptance
+
+- `number_html(0.123456, "x") == "<span class='sf-cmb__n' title='0.123456'>0.1235</span>"`.
+- `number_html(None, "member failed: empty")` is an em dash in `sf-cmb__na` with that title.
+- `text_html("x" * 81, "r") == "x" * 80 + "…"`; `text_html("<img …>", "r")` holds no `<img`.
+- `missing_reason` gives `member failed: empty`, `left out by the rule: no_signal`,
+  `no weight recorded` for the three statuses.
+- `STYLE` is in `_STYLE` once, directly after `ACCOUNTING_STYLE`; `combine_view.__all__ == []`.
+- `screamingface` gate ALL GREEN with `--base <U1>`; with `--base 9f42391eb` the append-only check
+  lists only unit 1's three pinned files; `repo` gate ALL GREEN.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** in_progress. Commit A (RED) is written. GREEN is not started.
+- **Actual files:**
+- **Commits:**
+- **Gates:**
+- **RED log:** `uv run pytest tests/test_combine_display_format.py -q` gives `14 failed, 2 passed
+  in 0.10s` (matches §3.2). Passed: `test_score_text_keeps_six_significant_digits`,
+  `test_cost_cell_dash_has_a_title`. Failed with `NotImplementedError` (`_ui/combine_view.py` lines
+  18, 22, 26, 30): the 6 items of `test_number_shows_four_significant_digits_and_the_exact_title`,
+  `test_missing_number_is_an_em_dash_with_its_reason`, `test_reason_in_the_title_is_escaped`,
+  `test_text_cell_clips_at_80_characters`, `test_text_cell_escapes_markup`,
+  `test_missing_text_is_an_em_dash_with_its_reason`, `test_missing_reason_follows_the_status`.
+  Failed with `AssertionError`: `test_combine_style_is_scoped_themed_and_has_no_banned_token`
+  (`''.startswith('<style>')`), `test_combine_view_adds_no_public_name` (`None == []`). No import
+  error. Also at commit A: `ruff check` and `ruff format --check` exit 0 on the two new files;
+  `pyright` 0 errors; the second focused command (8 existing report test files) gives `96 passed`.
+- **Deviations:** (pre-filled)
+  - D-1: the PRD writes the `.sf-cmb__t`, `.sf-cmb__t th` and `.sf-cmb__t td` rules on one line
+    each; two of those lines are 191 and 128 characters and fail ruff E501 (line length 100). The
+    module wraps the three rules inside their declaration blocks (newline plus two spaces, the
+    `accounting_view.STYLE` precedent). Same selectors, declarations and order.
+  - D-2: planner additions to the PRD oracles, same behavior: DF#6 also checks clip-then-escape
+    (`"<" * 81` → `"&lt;" * 80 + "…"`) and that `""` stays `""`; DF#10 also checks that nothing is
+    outside the rules, that there is no `rgb`, and that every `color:` value is a `var(--sf-…)`
+    (PRD §4 theme NFR).
+  - D-3: DF#9 copies the Engine wire `rank_cut_not_met` into the test as `_RANK_CUT_NOT_MET`
+    (the SDK fixture file does not hold it), as the case-pane PRD §7 does.
+  - D-4: the RED stub has no `__all__`, so DF#11 fails on a value at commit A; the
+    `report_view` join is in commit B only (with `STYLE = ""` it is a no-op).
+- **Pinned edits:** none.
