@@ -972,6 +972,124 @@ no confidence, so `sf.Pick` never returns it. When no member has a confidence, t
 judge reply that is not one JSON object with a finite score for each member fails the Case with
 `judge_reply_invalid`.
 
+### Signal sources
+
+A Fusion can declare named signals: numbers that the run measures from each member answer. Give
+`signals={name: source}` to `sf.Fusion`, and read a name in a rule with `sf.signal(name)`. The
+combine evidence records the value of every declared name for every member, also when no rule
+reads it. A rule that reads a name that the Fusion does not declare raises `ValueError` before any
+call.
+
+- `sf.Verbalized(pattern)` reads a number that the member writes in its text, for example
+  `Confidence: 90`. The pattern is an RE2 pattern with exactly one group. The last match counts,
+  and the number stays as the member wrote it. When nothing matches, or the group is not a decimal
+  number, the member has no value.
+- `sf.Logprob("mean" | "sum" | "prob")` reads the token log-probabilities of the reply, over all
+  reply tokens. `mean` is the mean, `sum` is the sum, and `prob` is `exp(mean)`, a number above 0
+  and at most 1.
+- `sf.Entropy(top_logprobs=5)` is the mean token entropy of the reply, in nats, from the first
+  `top_logprobs` alternatives of each token (1 to 20, default 5). A lower entropy means a more
+  certain model.
+
+Each row is one recipe that you can copy. Each recipe runs offline in the Engine's tests, from the
+url4 that the SDK compiles.
+
+| S | Scenario | Recipe |
+|---|---|---|
+| S12 | A vote weighted by the confidence that each member states | `s12_verbalized_vote` |
+| S13 | A vote weighted by the token probability of each answer | `s13_logprob_vote` |
+| S14 | Return the answer with the highest mean token log-probability | `s14_logprob_best` |
+| S15 | Return the answer with the lowest mean token entropy | `s15_entropy_best` |
+| S16 | Record a small model's mean log-probability against a threshold, then a larger writer | `s16_logprob_threshold` |
+
+```python
+import screamingface as sf
+
+routes = [
+    "openrouter/openai/gpt-4o-mini",
+    "openrouter/openai/gpt-4.1-mini",
+    "openrouter/openai/gpt-4.1-nano",
+]
+# Ask every member for the same confidence scale (0 to 100), and for the answer on the last line.
+stated = (
+    "Answer the request. On the first line write Confidence: and a whole number from 0 to 100. "
+    "On the last line write only your final answer."
+)
+
+s12_verbalized_vote = sf.Fusion(
+    [sf.Model(route, prompt=stated) for route in routes],
+    signals={"conf": sf.Verbalized(r"Confidence: ([0-9]+)")},
+    synthesizer=sf.Vote(weights=sf.signal("conf")),
+)
+s13_logprob_vote = sf.Fusion(
+    routes, signals={"p": sf.Logprob("prob")}, synthesizer=sf.Vote(weights=sf.signal("p"))
+)
+s14_logprob_best = sf.Fusion(
+    routes,
+    signals={"lp": sf.Logprob("mean")},
+    synthesizer=sf.Pick(by_signal=sf.signal("lp"), order="max"),
+)
+s15_entropy_best = sf.Fusion(
+    routes,
+    signals={"ent": sf.Entropy()},
+    synthesizer=sf.Pick(by_signal=sf.signal("ent"), order="min"),
+)
+s16_logprob_threshold = sf.Pipeline(
+    [
+        sf.Fusion(
+            ["openrouter/openai/gpt-4o-mini"],
+            signals={"lp": sf.Logprob("mean")},
+            synthesizer=sf.Filter(where=sf.signal("lp") >= -0.3),
+        ),
+        sf.Model(
+            "openrouter/openai/gpt-4.1",
+            prompt="Write the final answer to the input from the selected answers.",
+        ),
+    ]
+)
+```
+
+Ask every member for the same confidence scale. The Engine does not change the numbers: a member
+that writes 90 and a member that writes 0.9 get very different weights. The Engine reads only the
+last 64 KiB (65,536 characters) of each reply, so put the confidence line in that part. A line
+before a longer text is not found, and that member has no value.
+
+`sum` favors short replies: each token adds a number of 0 or less, so a longer reply has a lower
+sum. `mean` and `prob` do not depend on the reply length, so use them to compare members.
+
+A vote weight must be above 0. A `mean` or a `sum` is 0 or less, so `sf.Vote`, `sf.Median` and
+`sf.Mean` refuse `sf.Logprob("mean")` and `sf.Logprob("sum")` as weights when you build the Fusion.
+They also refuse `sf.Entropy`, because a higher entropy means less confidence: use `sf.Pick` or
+`sf.Rank` with `order="min"` for entropy. Use `sf.Logprob("prob")` as a vote weight. The error
+says so:
+
+```python
+try:
+    sf.Fusion(
+        routes,
+        signals={"lp": sf.Logprob("mean")},
+        synthesizer=sf.Vote(weights=sf.signal("lp")),
+    )
+except ValueError as error:
+    print(error)  # names the fix: sf.Logprob("prob")
+```
+
+`sf.Logprob` and `sf.Entropy` work with OpenRouter models only, and each member must be one model
+call (not a nested Fusion or Pipeline). The SDK asks each member call for `logprobs`, and also for
+`top_logprobs` when the Fusion declares `sf.Entropy`. A model that the gateway parameter catalog
+marks without logprobs is refused before any call. A model that cannot return logprobs at run time
+fails with `logprobs_unsupported` and the Case fails; under a quorum, that member is left out and
+shows as `missing`. A live test verifies one model: `openrouter/openai/gpt-4o-mini`.
+
+Logprobs make each reply larger. The gateway cache does not keep a reply over 1,000,000 bytes, so a
+rerun calls the model again, and the numbers can change. A frozen copy does not keep an entry over
+2,000,000 bytes (request plus reply), and the capture reports `failed`. Keep `top_logprobs` small
+when you need a replay that gives the same numbers.
+
+S16 records the small model's value and whether it passed the Filter. The larger model still runs
+on every Case: a cascade that skips it comes with E4c. When the small model does not pass, the
+writer gets `{"input":"...","selected":[]}`.
+
 ### Fusion as a named recipe
 
 `sf.Fusion(members, synthesizer=sf.Model(p))` is the named recipe Fan-out, then
