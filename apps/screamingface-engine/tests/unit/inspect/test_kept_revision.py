@@ -116,4 +116,8 @@ def test_only_rows_with_an_equivalence_proof_keep_a_revision() -> None:
         spec.key: spec.kept_revision for spec in BENCHMARKS if spec.kept_revision is not None
     }
 
-    assert keeping == {}
+    # healthbench (OME-1527 row 20): the hand-built revisions, kept on the local Task.
+    assert keeping == {
+        "healthbench-worst30": ("39cfd96b068f7230", "f12c3e30661ea9d3"),
+        "healthbench-professional": ("d8fb037307f35415", "44ddda05be338699"),
+    }

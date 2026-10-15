@@ -4498,6 +4498,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # move leaves Fusion bytes and the recorded e2e golden unchanged (OME-1527 decision 5).
         # A conversation Case is already that envelope and is served as written.
         candidate_input_envelope=True,
+        # Keeps the hand-built Benchmark's published revision, so its leaderboard results
+        # stay visible (owner decision, OME-1527): the recorded worst-30 golden replays with
+        # zero misses on the local Task, the proof the exam is unchanged.
+        kept_revision=("39cfd96b068f7230", "f12c3e30661ea9d3"),
         origin="screamingface",
         paper_url="https://arxiv.org/abs/2604.27470",
         authors="Hicks et al., 2026",
@@ -4585,6 +4589,12 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # move leaves Fusion bytes and the recorded e2e golden unchanged (OME-1527 decision 5).
         # A conversation Case is already that envelope and is served as written.
         candidate_input_envelope=True,
+        # Keeps the hand-built Benchmark's published revision, so its leaderboard results
+        # stay visible (owner decision, OME-1527): the recorded worst-30 golden replays with
+        # zero misses on the local Task, the proof the exam is unchanged. Professional has no
+        # golden of its own: it shares that Task package, judge and grader, and all 525 of its
+        # Candidate inputs and 1,135 judge prompts were compared at import (0 differ).
+        kept_revision=("d8fb037307f35415", "44ddda05be338699"),
         origin="screamingface",
         paper_url="https://arxiv.org/abs/2604.27470",
         authors="Hicks et al., 2026",
