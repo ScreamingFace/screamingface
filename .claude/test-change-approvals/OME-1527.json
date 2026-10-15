@@ -1,22 +1,14 @@
 {
   "issue": "OME-1527",
-  "branch": "OME-1527-pr15b-ifeval-corrective-smoke",
-  "approver": "owner \u2014 OME-1527 row 15b (the paid smoke also runs ifeval as a Corrective Loop) requested by the owner; to confirm in PR review",
-  "date": "2026-10-14",
-  "scope": "Row 15b, after #1407 (ifeval \u2192 local inspect Task) merged: the paid smoke's referee takes the expected Case count, its shelf runner runs (Benchmark, how it runs) entries so ifeval also runs as a Corrective Loop and its Cases' rounds are read back (test_imported_board_smoke.py); the shelf pick names the Benchmarks that also run as a loop (_scope.py ShelfPick.corrective); the overview carries warnings that never fail a board (_board_summary.py).",
-  "reason": "Row 15b edits three paid-lane helpers in place because the smoke's entry shape changes from a bare Benchmark id to an entry; every pre-existing behaviour is kept (Fusion entries keep their names, Report files and Case count) and the free tests that call these helpers pass unchanged.",
+  "branch": "OME-1527-pr21-paid-provenance-own-bundle",
+  "approver": "owner \u2014 asked to fix the paid smoke's red free test after OME-1527's last moves merged; to confirm in PR review",
+  "date": "2026-10-15",
+  "scope": "test_each_picked_benchmarks_label_is_copied_for_the_debug_bundle seeds draco-3pass's label in draco-3pass's own bundle instead of draco's, and its docstring says each Benchmark reads its own bundle. #1395 (draco) and #1403 (healthbench) removed the shared-bundle map from _case_provenance.py and deleted the shared-bundle test, but this test still built only a draco bundle and expected draco-3pass to read it; merge CI never collects tests/paid, so it first failed on the 2026-10-15 paid press.",
+  "reason": "The test pinned a mapping the code no longer has (no Benchmark shares a bundle since OME-1527); the assertions keep their shape: one label per picked Benchmark, byte-identical to its bundle's, a missing one skipped.",
   "files": {
-    "packages/screamingface/tests/paid/_board_summary.py": {
-      "base_blob": "0afbd8a9d2770e4f01234a13ec68bbdde592f155",
-      "approved_blob": "2005acead3eaab0fde81b6f66265994db41fef93"
-    },
-    "packages/screamingface/tests/paid/_scope.py": {
-      "base_blob": "9d592f22e95a587b63f008063fd2287e7dbe14fa",
-      "approved_blob": "bb5c9d6feb2a5ca9bc8656310202d4be0aaa8962"
-    },
-    "packages/screamingface/tests/paid/test_imported_board_smoke.py": {
-      "base_blob": "555a035a186013607ce073e4467959f799a53ba2",
-      "approved_blob": "b2b0b97726220e6398a84f5e0a059c9b454c3919"
+    "packages/screamingface/tests/paid/test_case_provenance.py": {
+      "base_blob": "0021386cc70d1d155fe5b1c04de327cd956433eb",
+      "approved_blob": "6369b7389d04ecedc90f0e5df13625e1a0870643"
     }
   }
 }
