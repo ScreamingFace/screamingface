@@ -58,7 +58,12 @@ from screamingface_engine.benchmarks.nltk_data import (
     NltkDataError,
     download_nltk_data,
 )
-from screamingface_engine_inspect.capture import captured_case_records
+from screamingface_engine_inspect.capture import (
+    ModelRead,
+    captured_case_records,
+    model_reads,
+    refuse_model_reads,
+)
 from screamingface_engine_inspect.case_set import what_moved
 from screamingface_engine_inspect.case_source_prefetch import prefetch_case_sources
 from screamingface_engine_inspect.case_sources import CaseSourceRecorder
@@ -120,8 +125,10 @@ def replay_environment(cache_root: Path, base: Mapping[str, str]) -> dict[str, s
     env["XDG_CACHE_HOME"] = str(cache_root / "xdg")
     # INVARIANT: no model is reachable from the child. Capture hands the solvers a stand-in
     # generate, but a solver that calls get_model() itself reads INSPECT_EVAL_MODEL, and the
-    # builder's shell may carry one; "none/none" makes that call raise, so capture refuses
-    # the Sample by name instead of a real model's words landing inside a Case.
+    # builder's shell may carry one. "none/none" does NOT make get_model() raise: it returns
+    # a model named "none", and only that model's generate raises, so capture refuses the
+    # Sample by name instead of a real model's words landing inside a Case. A read of the
+    # model's name alone is refused by capture's model_reads watch (OME-1602, F3).
     env["INSPECT_EVAL_MODEL"] = "none/none"
     env["INSPECT_EVALS_CACHE_DIR"] = str(_inspect_evals_cache(cache_root))
     env["HF_DATASETS_CACHE"] = str(cache_root / "hf_datasets")
@@ -422,7 +429,12 @@ def _replay_in_this_process(spec_path: Path, result_path: Path, cache_root: Path
     task_function: Any = _resolve(spec.task)
     recorder: CaseSourceRecorder = CaseSourceRecorder(cache_root)
     recorder.install(fetch_pins_of(spec))
-    task: Any = task_function(**(spec.task_args or {}))
+    # WHY watched: a task function that reads the model under test (niah sizes its haystack
+    # for the model's tokenizer) would build its Cases for "none" (OME-1602, F3).
+    reads: list[ModelRead]
+    with model_reads() as reads:
+        task: Any = task_function(**(spec.task_args or {}))
+    refuse_model_reads(reads, "the task function")
     # WHY count before capture: capture drops the declaration's excluded Samples, and the
     # block reports both sides of that cut.
     yielded: int = len(task.dataset)

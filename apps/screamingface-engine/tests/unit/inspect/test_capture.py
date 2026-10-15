@@ -565,3 +565,282 @@ def test_the_image_side_child_leaves_the_excluded_samples_out(gap_eval: str) -> 
     prepared = replayed_cases(spec)
 
     assert [case["case"]["input"] for case in prepared] == ["First question?", "Third question?"]
+
+
+# ── OME-1602, F3: the model under test read while the Case is built ──────────
+
+from inspect_ai.model import get_model  # noqa: E402
+
+
+@solver
+def _names_the_model() -> Solver:
+    """InfiniteBench's shape: the prompt is cut or worded for the model being evaluated."""
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        state.user_prompt.text = f"{state.user_prompt.text} (for {get_model().name})"
+        return state
+
+    return solve
+
+
+@solver
+def _reads_the_state_model() -> Solver:
+    """persistbench's shape: the system prompt names ``str(state.model)``."""
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        state.user_prompt.text = f"{state.user_prompt.text} (for {state.model})"
+        return state
+
+    return solve
+
+
+@pytest.fixture
+def child_model_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The model name the replay child carries, so get_model() resolves as it does there."""
+
+    monkeypatch.setenv("INSPECT_EVAL_MODEL", "none/none")
+
+
+@pytest.mark.usefixtures("child_model_name")
+def test_a_solver_reading_the_model_under_test_is_refused_because_the_case_is_built_for_none() -> (
+    None
+):
+    """get_model() returns a model named "none" in the replay child; it never raises, so the
+    Case was cut or worded for "none" and every Candidate got that Case."""
+
+    task = _one_sample_task([_names_the_model(), generate()])
+
+    with pytest.raises(
+        CaptureError, match=r"case 1: the solver read the model under test at test_capture\.py:\d+"
+    ):
+        captured_case_records(task, _spec())
+
+
+def test_a_solver_reading_the_states_model_name_is_refused() -> None:
+    task = _one_sample_task([_reads_the_state_model(), generate()])
+
+    with pytest.raises(CaptureError, match=r"case 1: the solver read the model under test"):
+        captured_case_records(task, _spec())
+
+
+@pytest.mark.usefixtures("child_model_name")
+def test_mmlus_token_sizing_read_is_exempt_because_its_case_is_the_same_under_any_model() -> None:
+    """mmlu_0_shot reads the model only to size max_tokens for its generate call; the prompt
+    it sends is the same under any model name, so its row keeps importing."""
+
+    pytest.importorskip("inspect_evals")
+    from inspect_evals.mmlu.mmlu import mmlu_multiple_choice
+
+    prepared = captured_case_records(_one_sample_task([mmlu_multiple_choice()]), _spec())
+
+    assert "Which port serves HTTPS?" in prepared[0]["case"]["input"]
+
+
+#: A task function that reads the model while it builds the Task: niah's shape, which sizes
+#: its haystack for the model's tokenizer.
+BUILD_READ_EVAL: str = textwrap.dedent(
+    """
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import MemoryDataset, Sample
+    from inspect_ai.model import get_model
+
+    @task
+    def sized() -> Task:
+        name = get_model().name
+        return Task(dataset=MemoryDataset([Sample(input=f"Q for {name}?", target="A")]))
+    """
+)
+
+
+@pytest.fixture
+def build_read_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the stand-in eval where the child process can import it."""
+
+    (tmp_path / "fake_build_read_eval.py").write_text(BUILD_READ_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_build_read_eval"
+
+
+def test_a_task_function_reading_the_model_is_refused_in_the_child(build_read_eval: str) -> None:
+    spec = TaskReplayCasesSpec(task=f"{build_read_eval}:sized", case_count=1, case_digest=_UNSEALED)
+
+    with pytest.raises(
+        TaskReplayError,
+        match=r"the task function read the model under test at fake_build_read_eval\.py:\d+",
+    ):
+        replayed_cases(spec)
+
+
+# ── OME-1602, F4: a judge inside the solver chain ────────────────────────────
+
+
+@solver
+def _judges_a_real_reply() -> Solver:
+    """air_bench's shape: after the answer, the chain asks the model again to judge it, but
+    only when the reply is not empty, so a blank stand-in reply never shows it."""
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        if not state.output.completion:
+            return state
+        state.user_prompt.text = f"Judge this reply: {state.output.completion}"
+        return await generate(state)
+
+    return solve
+
+
+@solver
+def _asks_its_own_judge_after_the_answer() -> Solver:
+    """A judge built inside the chain from the model under test, after a real reply."""
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        if state.output.completion:
+            await get_model().generate(f"Judge: {state.output.completion}")
+        return state
+
+    return solve
+
+
+def test_a_judge_turn_after_a_real_reply_passes_the_blank_capture() -> None:
+    """Why the answered pass exists: on the blank reply the judge never runs, so capture
+    alone seals the Case and every Case then fails at grading."""
+
+    prepared = captured_case_records(
+        _one_sample_task([generate(), _judges_a_real_reply()]), _spec()
+    )
+
+    assert prepared[0]["case"]["input"] == "Which port serves HTTPS?"
+
+
+def test_a_second_ask_after_a_real_reply_is_refused_by_the_answered_pass() -> None:
+    task = _one_sample_task([generate(), _judges_a_real_reply()])
+
+    with pytest.raises(CaptureError, match=r"case 1: after the Candidate answers, the solver asks"):
+        captured_case_records(task, _spec(), answered_pass=True)
+
+
+@pytest.mark.usefixtures("child_model_name")
+def test_a_model_read_after_a_real_reply_is_refused_by_the_answered_pass() -> None:
+    """The judge's own error is ignored in that pass; reading the model after the answer is
+    the refusal."""
+
+    task = _one_sample_task([generate(), _asks_its_own_judge_after_the_answer()])
+
+    with pytest.raises(CaptureError, match=r"case 1: after the Candidate answers"):
+        captured_case_records(task, _spec(), answered_pass=True)
+
+
+def test_post_answer_parsing_and_rewrites_still_pass_the_answered_pass() -> None:
+    """A solver after generate that only reads or rewrites the state is not a judge; the
+    chained multiple_choice parse and the rewrite of #1219 both still capture."""
+
+    rewritten = _one_sample_task([generate(), prompt_template("AFTER: {prompt}")])
+    chained = _one_sample_task([prompt_template(TEMPLATE), multiple_choice()])
+
+    assert captured_case_records(rewritten, _spec(), answered_pass=True)[0]["case"]["input"] == (
+        "Which port serves HTTPS?"
+    )
+    assert captured_case_records(chained, _spec(), answered_pass=True)[0]["case"]["input"] == (
+        EXPECTED_CHAINED_INPUT
+    )
+
+
+#: air_bench's shape as a stand-in eval the import child can import.
+JUDGE_IN_CHAIN_EVAL: str = textwrap.dedent(
+    """
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import MemoryDataset, Sample
+    from inspect_ai.scorer import match
+    from inspect_ai.solver import Generate, Solver, TaskState, generate, solver
+
+    @solver
+    def annotate() -> Solver:
+        async def solve(state: TaskState, generate: Generate) -> TaskState:
+            if not state.output.completion:
+                return state
+            state.user_prompt.text = f"Judge this reply: {state.output.completion}"
+            return await generate(state)
+        return solve
+
+    @task
+    def judged_in_chain() -> Task:
+        return Task(dataset=MemoryDataset([Sample(input="Q?", target="A", id=1)]),
+                    solver=[generate(), annotate()], scorer=match())
+    """
+)
+
+
+@pytest.fixture
+def judge_in_chain_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the stand-in eval where the import child can import it."""
+
+    (tmp_path / "fake_judge_in_chain_eval.py").write_text(JUDGE_IN_CHAIN_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_judge_in_chain_eval"
+
+
+def test_the_import_child_runs_the_answered_pass(judge_in_chain_eval: str) -> None:
+    from screamingface_engine_inspect.import_replay import replay_for_import
+
+    with pytest.raises(TaskReplayError, match=r"after the Candidate answers, the solver asks"):
+        replay_for_import(f"{judge_in_chain_eval}:judged_in_chain", None)
+
+
+# ── review findings: every ask after the answer, and the import child's build watch ──
+
+
+@solver
+def _builds_a_judge_by_role_after_the_answer() -> Solver:
+    """A judge fetched by role after a real reply; its own error must not hide it."""
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        if state.output.completion:
+            await get_model(role="grader").generate(f"Judge: {state.output.completion}")
+        return state
+
+    return solve
+
+
+@solver
+def _builds_a_judge_by_name_after_the_answer() -> Solver:
+    """A judge fetched by name after a real reply: it raises with no key, and is still a judge."""
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        if state.output.completion:
+            await get_model("openai/gpt-4o").generate(f"Judge: {state.output.completion}")
+        return state
+
+    return solve
+
+
+@pytest.mark.usefixtures("child_model_name")
+def test_a_judge_fetched_by_role_after_the_answer_is_refused() -> None:
+    task = _one_sample_task([generate(), _builds_a_judge_by_role_after_the_answer()])
+
+    with pytest.raises(CaptureError, match=r"case 1: after the Candidate answers"):
+        captured_case_records(task, _spec(), answered_pass=True)
+
+
+def test_a_judge_fetched_by_name_after_the_answer_is_refused() -> None:
+    task = _one_sample_task([generate(), _builds_a_judge_by_name_after_the_answer()])
+
+    with pytest.raises(CaptureError, match=r"case 1: after the Candidate answers"):
+        captured_case_records(task, _spec(), answered_pass=True)
+
+
+def test_the_import_child_refuses_a_task_function_reading_the_model(build_read_eval: str) -> None:
+    """The import child builds the Task itself, so it needs its own build-time watch: without
+    it, run 1 seals Cases built for "none"."""
+
+    from screamingface_engine_inspect.import_replay import replay_for_import
+
+    with pytest.raises(
+        TaskReplayError,
+        match=r"the task function read the model under test at fake_build_read_eval\.py:\d+",
+    ):
+        replay_for_import(f"{build_read_eval}:sized", None)
