@@ -10,6 +10,7 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from screamingface._signals import JUDGE_SIGNAL
 from screamingface.answer import Answer
 from screamingface.report_trace import TraceEntry
 
@@ -111,7 +112,7 @@ def case_trace(
     member_of = _member_ids(case.operations, graph)
     entries: list[TraceEntry] = []
     for operation in case.operations:
-        entries.extend(_operation_entries(operation, graph, member_of))
+        entries.extend(_operation_entries(operation, graph, member_of, case.operations))
     return tuple(entries)
 
 
@@ -119,16 +120,20 @@ def _operation_entries(
     operation: CaseOperation,
     graph: Mapping[str, OperationInfo] | None,
     member_of: Mapping[str, str],
+    operations: Sequence[CaseOperation],
 ) -> list[TraceEntry]:
     if operation.combine is not None:
-        return _combine_entries(operation.operation_id, operation.combine)
+        link = _judge_link(operation.operation_id, operation.combine, graph, operations)
+        return _combine_entries(operation.operation_id, operation.combine, link)
     node = None if graph is None else graph.get(operation.operation_id)
     if node is not None and node.kind == "combine":
         return []  # a combine step of a pre-E4a Engine: no evidence, and it makes no model call
     return [_model_call(operation, member_of.get(operation.operation_id))]
 
 
-def _combine_entries(operation_id: str, evidence: CombineEvidence) -> list[TraceEntry]:
+def _combine_entries(
+    operation_id: str, evidence: CombineEvidence, judge_link: Mapping[str, str | None]
+) -> list[TraceEntry]:
     rule = list(evidence.operators[:-2])
     entries = [
         TraceEntry(
@@ -145,11 +150,13 @@ def _combine_entries(operation_id: str, evidence: CombineEvidence) -> list[Trace
         )
         for row in evidence.members
     ]
-    entries.append(TraceEntry("reduce", _reduce_data(operation_id, evidence)))
+    entries.append(TraceEntry("reduce", _reduce_data(operation_id, evidence, judge_link)))
     return entries
 
 
-def _reduce_data(operation_id: str, evidence: CombineEvidence) -> dict[str, object]:
+def _reduce_data(
+    operation_id: str, evidence: CombineEvidence, judge_link: Mapping[str, str | None]
+) -> dict[str, object]:
     return {
         "operation_id": operation_id,
         "op": evidence.reducer,
@@ -160,6 +167,8 @@ def _reduce_data(operation_id: str, evidence: CombineEvidence) -> dict[str, obje
         "signal": _signal_data(evidence),
         "result": evidence.result.to_dict(),
         "dropped": evidence.dropped,
+        "judge_operation_id": judge_link["judge_operation_id"],
+        "judge_model": judge_link["judge_model"],
     }
 
 
@@ -173,6 +182,43 @@ def _reduce_mode(evidence: CombineEvidence) -> str:
     ):
         return "compute"
     return _REDUCE_MODES[evidence.reducer]
+
+
+def _reads_judge(evidence: CombineEvidence) -> bool:
+    """Rule J1-J3 (judge-model PRD, P9): the evidence shows that the step read a judge.
+
+    J1 the judge reducer; J2 scores@1 with a judge reading (source="values" writes none);
+    J3 a signal read of score:judge (Vote, Filter or Pick by the judge score).
+    """
+
+    return (
+        evidence.reducer == "judge"
+        or ("scores@1" in evidence.operators and evidence.judge is not None)
+        or (evidence.signal is not None and evidence.signal.key == JUDGE_SIGNAL)
+    )
+
+
+def _judge_link(
+    operation_id: str,
+    evidence: CombineEvidence,
+    graph: Mapping[str, OperationInfo] | None,
+    operations: Sequence[CaseOperation],
+) -> dict[str, str | None]:
+    """The judge operation of a combine step and its request model (P8); null, never a guess.
+
+    WHY a view and not a wire key (ans:Q4): the judge's own operation record already holds the
+    model, so the combine spec, the evidence and every url4 keep their bytes.
+    """
+
+    node = None if graph is None else graph.get(operation_id)
+    if graph is None or node is None or not _reads_judge(evidence):
+        return {"judge_operation_id": None, "judge_model": None}
+    judges = [item for item in node.depends_on if item in graph and graph[item].kind == "judge"]
+    if len(judges) != 1:
+        return {"judge_operation_id": None, "judge_model": None}
+    accounting = next((op.accounting for op in operations if op.operation_id == judges[0]), None)
+    model = None if accounting is None else accounting.request_model
+    return {"judge_operation_id": judges[0], "judge_model": model}
 
 
 def _signal_data(evidence: CombineEvidence) -> dict[str, object] | None:
