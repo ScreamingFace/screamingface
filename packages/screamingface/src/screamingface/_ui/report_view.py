@@ -15,6 +15,7 @@ from screamingface._report_export import inline_json
 from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
 from screamingface._ui.accounting_view import case_accounting, case_tabs, run_accounting_note
 from screamingface._ui.cards import INVERTED_GRADE_MEANING
+from screamingface._ui.combine_view import STYLE as COMBINE_STYLE
 from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
 from screamingface.report import _candidate_failures
 
@@ -34,6 +35,7 @@ _REASONING_PREVIEW = 400
 _STYLE = (
     STYLE
     + ACCOUNTING_STYLE
+    + COMBINE_STYLE
     + f"""<style>
 .sf-report{{padding:4px 14px 14px}}
 .sf-report__head-row{{display:flex;align-items:flex-start;gap:12px}}
