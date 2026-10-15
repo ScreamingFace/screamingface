@@ -88,10 +88,10 @@ Same rules on submit and on edit (one shared validator, like `_validate_bounded_
   with the same copied/failed feedback as the existing Copy button and a one-line hover ("Replays this
   run's recorded answers at $0 and checks the published score"). SFDS: square corners, existing button
   recipe, no new colours.
-- **Switch (owner, 2026-10-15):** a scoreboard setting, off by default, shows the button. It is turned
-  on after the SDK release with `evaluate(pinned_cache=…)` (`OME-1613`). Off means no `pinned_cache`
-  button in the portal; the API field and the lookup ship regardless. The setting is a `Settings`
-  field passed to the portal the same way other portal config is.
+- **Switch (owner, 2026-10-15):** a constant in `portal/benchmark.js`, off. A one-line PR turns it on
+  after the SDK release with `evaluate(pinned_cache=…)` (`OME-1613`). The portal has no way to read
+  server settings, and the switch flips once, so a code constant was chosen over a `SCOREBOARD_*`
+  setting or a config endpoint. The API field and the lookup ship regardless.
 - **Count line:** remove "Reproduced N times" from the per-submission page (`portal/spec.js`,
   `renderReproduced`). The API keeps returning `reproduction_count`.
 
