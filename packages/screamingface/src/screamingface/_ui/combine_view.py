@@ -10,7 +10,9 @@ from html import escape
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from screamingface.case_result import CaseResult
     from screamingface.combine_evidence import CombineAnswerRow
+    from screamingface.report import CandidateResult
 
 _DASH = "—"
 _TEXT_CELL = 80  # characters of a member value shown in one cell (P7)
@@ -68,6 +70,14 @@ def missing_reason(row: CombineAnswerRow, label: str) -> str:
     if row.status == "excluded":
         return f"left out by the rule: {row.reason}"
     return f"no {label} recorded"
+
+
+# --- the Case pane: one Combine section per combine step (E4b part 4 unit 3) --------------------
+
+
+def combine_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
+    """One Combine section per combine step of the Case, in operation order (ans:Q2, P19)."""
+    return ""  # RED stub (E4b part 4 unit 3, commit A); not called yet
 
 
 __all__: list[str] = []
