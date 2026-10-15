@@ -930,6 +930,18 @@ class ScoreSchema(BaseModel):
     metadata_updated_at: datetime | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    # FEATURE: OME-1596 — author and paper metadata, as stored.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, for the reason `paper_url` records: the private JSONL export
+    # hashes these bytes, and no row without metadata may gain `"authors_metadata": null`.
+    # AIDEV-NOTE: carried as stored for now; the public masking of the email keys and the `url`
+    # read-back into `paper_metadata` arrive with the write path, before anything can store a value.
+    authors_metadata: dict[str, dict[str, Any]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    paper_metadata: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     # FEATURE: OME-1181 — the declared candidate model routes, for classification.
     #
     # INVARIANT: EXCLUDED WHEN ABSENT, like `ranking_notice` below and for the same reason.

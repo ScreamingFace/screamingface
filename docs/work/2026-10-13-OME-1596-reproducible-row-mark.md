@@ -1,7 +1,7 @@
 ---
 ticket: OME-1596
 stack: scoreboard
-status: planned
+status: in_progress
 started: 2026-10-13
 finished:
 ---
@@ -21,9 +21,17 @@ The 2026-10-13 version of this unit (a reproducible / reproduced row mark) was d
 
 ## Planned changes
 
-Pending the plan (`docs/plan/`). Expected areas: `scores/models/score.py`,
-`scores/models/score_metadata_event.py`, migration `0021`, `scores/schemas.py`, `scores/store.py`,
-`routes/scores.py`, `routes/leaderboard.py`, settings, `portal/benchmark.js`, `portal/spec.js`, tests.
+Plan: `docs/plan/2026-10-15-OME-1596-metadata-and-reproduce.md` (rows 2 to 5, one commit each).
+
+- Storage: `scores/models/score.py`, `scores/models/score_metadata_event.py`, migration
+  `scores/migrations/0021_score_metadata_objects.py` (six JSON columns, unique `frozen_copy_id`,
+  duplicate guard), `scores/schemas.py` (read fields, so no column is missing from every read DTO).
+- Metadata: new `scores/credit_metadata.py` (the shared validator), `scores/schemas.py`,
+  `scores/store.py`, `routes/scores.py`.
+- Lookup: `routes/scores.py`, `scores/store.py`, `scores/schemas.py`.
+- Rows and portal: `routes/leaderboard.py`, `portal/benchmark.js`, `portal/spec.js`, a new Node
+  test file listed in `.github/workflows/scoreboard-tests.yml` and `.claude/sdlc.local.md`.
+- Tests: new files under `apps/scoreboard/tests/unit/` and `apps/scoreboard/tests/portal/`.
 
 ## Test plan
 
@@ -35,7 +43,28 @@ Spec §7 and the Linear issue's acceptance list.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files (row 2, storage):** `scores/models/score.py`, `scores/models/score_metadata_event.py`,
+  `scores/migrations/0021_score_metadata_objects.py`, `scores/schemas.py` and `scores/store.py`
+  (read fields), tests `tests/unit/test_migration_0021_metadata_objects.py`,
+  `tests/unit/scores/test_metadata_columns.py`; approved prior-test changes recorded in
+  `.claude/test-change-approvals/OME-1596.json`.
+- **Commits:** row 2 (storage); later rows to follow.
+- **Gates:** see the commit; `run_gates.py scoreboard --base origin/main` green before it.
 - **Deviations:**
+  - The unique rule on `scores.frozen_copy_id` is a constraint (`unique_together` on the model,
+    `AddConstraint` in 0021), not `unique=True` on the field: an AlterField rebuilds `scores` on
+    SQLite and drops it under the foreign keys pointing at it. Owner accepted, 2026-10-15.
+  - Row 2 also adds `authors_metadata` and `paper_metadata` to `ScoreSchema` (excluded when null)
+    and to `_score_to_schema`, because the prior test
+    `test_every_score_field_reaches_at_least_one_read_dto` fails for a Score column no read DTO
+    carries. Masking stays in row 3. Owner accepted, 2026-10-15.
+  - Three prior tests needed changes the spec forces; owner approved all three on 2026-10-15
+    (two in row 2, `reproduced-count.test.js` in row 5), recorded in
+    `.claude/test-change-approvals/OME-1596.json`.
+  - Migration 0021 and its guard were also exercised by hand on PostgreSQL 17 (docker): the guard
+    refused a board with a duplicate copy and applied nothing; after the duplicate was cleared, it
+    applied, and a second score naming the same copy was refused by the constraint.
+  - Row 3 is paused on two owner decisions (casefold-duplicate author keys; matching when
+    `authors` is absent). Decided 2026-10-15 for row 3: `paper_metadata.url` and `paper_url`
+    disagreeing is a 422; `paper_metadata` without `url` clears `paper_url`; `null` clears both;
+    a url alone stores `paper_metadata` as `{}`.

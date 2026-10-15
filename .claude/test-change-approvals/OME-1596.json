@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1596",
+  "branch": "OME-1596-reproducible-row-mark",
+  "approver": "owner (Filip), approved through the coordinator on 2026-10-15; to confirm in PR review",
+  "date": "2026-10-15",
+  "scope": "Two prior tests the approved spec breaks in the storage commit. test_metadata_migration_applies_to_a_populated_database migrated to HEAD and pinned the exact score_metadata_events column set; spec section 2 adds four columns there, so it now migrates to 0019_score_metadata and asserts what 0019 adds (0021 has its own test). test_the_same_run_id_on_another_score_is_a_new_record and test_score_read_shows_the_count_and_the_last_time submitted two scores naming the same frozen copy; spec section 5 (one copy, one score) refuses the second, so the second score and its reproduction record use OTHER_COPY_ID.",
+  "reason": "The tests pinned a schema and a shared frozen copy that the owner-approved OME-1596 spec changes; every assertion keeps its shape and meaning.",
+  "files": {
+    "apps/scoreboard/tests/unit/test_score_metadata_events.py": {
+      "base_blob": "99da8d88fede51bd6f6650f2ccb130fbc0f8b703",
+      "approved_blob": "da8b7d2e37c13fb005d1489afbdb74c2a9e1accf"
+    },
+    "apps/scoreboard/tests/unit/test_score_reproductions.py": {
+      "base_blob": "52eae1f530ac113d0b9e780c7e620000624240ea",
+      "approved_blob": "38122f82d7076a0f04c9468eeccb09ae862e936c"
+    }
+  }
+}

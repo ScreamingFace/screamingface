@@ -168,6 +168,8 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         authors=_resolved_authors(model.authors, model.submitted_by),
         paper_url=model.paper_url,
         metadata_updated_at=model.metadata_updated_at,
+        authors_metadata=model.authors_metadata,
+        paper_metadata=model.paper_metadata,
         # INVARIANT: no fallback, unlike `authors` above. A NULL here means the routes were
         # never declared, and deriving them from `ran_with_providers` is impossible — the
         # Client's truncation is lossy. Inventing a value would turn "we do not know" into a
