@@ -160,7 +160,12 @@ def weighted_mean(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
 OPERATORS: tuple[OperatorDescriptor, ...] = (
     OperatorDescriptor("mode", 1, "reduce", "One vote per member.", mode),
     OperatorDescriptor(
-        "weighted_mode", 1, "reduce", "The member's weight per vote.", weighted_mode
+        "weighted_mode",
+        1,
+        "reduce",
+        "The member's weight per vote.",
+        weighted_mode,
+        reads_weights=True,
     ),
     OperatorDescriptor("median", 1, "reduce", "Median of the numeric values.", median),
     OperatorDescriptor(
@@ -169,6 +174,7 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         "reduce",
         "Weighted median of the numeric values; a member with no usable weight is dropped.",
         weighted_median,
+        reads_weights=True,
     ),
     OperatorDescriptor("mean", 1, "reduce", "Mean of the numeric values.", mean),
     OperatorDescriptor(
@@ -177,6 +183,7 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         "reduce",
         "Weighted mean of the numeric values; a member with no usable weight is dropped.",
         weighted_mean,
+        reads_weights=True,
     ),
 )
 

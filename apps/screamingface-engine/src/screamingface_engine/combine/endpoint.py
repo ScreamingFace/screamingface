@@ -52,6 +52,7 @@ from screamingface_engine.combine.ports import (
     AbstainReason,
     AccountingReader,
     Answer,
+    AnswerReason,
     CombineError,
     CombineInput,
     EvidenceKind,
@@ -63,6 +64,7 @@ from screamingface_engine.combine.ports import (
     OpArgs,
     OperatorDescriptor,
     ReadingStatus,
+    RecordStatus,
     ReduceOp,
     Reduction,
     Selection,
@@ -134,6 +136,7 @@ class _Plan:
     select: _Step[SelectOp]
     signal: SignalRead | None = None
     envelope: bool = False
+    excludes: _Exclusion | None = None
 
     @property
     def operators(self) -> tuple[str, ...]:
@@ -388,6 +391,7 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
         select=cast("_Step[SelectOp]", _bind(select, spec.select)),
         signal=_signal_read(spec, reduce, bound_reduce),
         envelope=select is not None and select.envelope,
+        excludes=_exclusion(spec, reduce, bound_reduce),
     )
 
 
@@ -413,8 +417,19 @@ def _signal_read(
 def _exclusion(
     spec: CombineSpec, reduce: OperatorDescriptor, bound: _Step[ReduceOp]
 ) -> _Exclusion | None:
-    """RED stub (E4b part 2 unit 2): commit B gives the rule."""
-    return None
+    """Which rule of this step can leave a member out (E4b part 2, P13, erd §6).
+
+    X1: the spec weights are a signal and the reduce op counts weights -> "no_weight".
+    X2: the reduce args read a signal (``signal_read``) -> "no_signal".
+    X4, X5, X6: no rule, so no member is excluded.
+    WHY the two sources, not ``_signal_read``'s result: that result merges them, and the reason
+    depends on which source it was. Both at once never get here: ``_signal_read`` refused it.
+    """
+    if isinstance(spec.weights, SignalWeights) and reduce.reads_weights:
+        return _Exclusion("no_weight", spec.weights.signal)
+    hook = reduce.signal_read
+    read = None if hook is None else hook(bound.args)
+    return None if read is None else _Exclusion("no_signal", read.key)
 
 
 def _read_members(
@@ -570,7 +585,7 @@ def _evidence(
         kind=REDUCER_RULES[spec.reducer].kind,
         reducer=spec.reducer,
         operators=list(plan.operators),
-        members=[_member_record(answer, scores) for answer in combine_input.answers],
+        members=[_member_record(answer, scores, plan.excludes) for answer in combine_input.answers],
         tally=_tally_records(reduction),
         judge=_judge_record(reduction),
         fields=_field_records(reduction, plan.reduce.op_id),
@@ -595,17 +610,38 @@ def _evidence(
     )
 
 
-def _member_record(answer: Answer, scores: Mapping[str, Decimal]) -> AnswerRecord:
+def _member_record(
+    answer: Answer, scores: Mapping[str, Decimal], excludes: _Exclusion | None
+) -> AnswerRecord:
+    status, reason = _record_status(answer, excludes)
     return AnswerRecord(
         member_id=answer.member_id,
         raw=answer.raw,
         value=answer.value,
-        status=answer.status,
-        reason=answer.reason,
+        status=status,
+        reason=reason,
         signals=dict(answer.signals),
         weight=None if answer.weight is None else _finite(answer.weight),
         score=_finite(scores[answer.member_id]) if answer.member_id in scores else None,
     )
+
+
+def _record_status(
+    answer: Answer, excludes: _Exclusion | None
+) -> tuple[RecordStatus, AnswerReason | ExcludeReason | None]:
+    """The record status: the member's own, or "excluded" when the step's rule left it out.
+
+    X3: a failure wins over an exclusion, so only an answered member can be excluded. The core
+    ``Answer`` stays "answered" (I-A3, AR-I5): the operators saw the same input as before.
+    """
+    if excludes is None or answer.status != "answered":
+        return answer.status, answer.reason
+    left_out = (
+        answer.weight is None
+        if excludes.reason == "no_weight"
+        else answer.signals.get(excludes.key) is None
+    )
+    return ("excluded", excludes.reason) if left_out else ("answered", None)
 
 
 def _tally_records(reduction: Reduction) -> list[TallyRowRecord] | None:

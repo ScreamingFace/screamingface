@@ -303,6 +303,7 @@ class CombineEvidence:
             fields, CombineFieldReading, "Combine evidence fields"
         )
         _subset(chosen, member_ids, "Combine evidence chosen")
+        _never_excluded(chosen, selected_members)
         for row in selected_tally or ():
             _subset(row.holders, member_ids, "Combine tally holders")
         selected_dropped = _dropped(dropped, selected_members)
@@ -402,6 +403,13 @@ def _subset(values: Sequence[str], members: tuple[str, ...], label: str) -> None
     selected = _member_ids(values, label)
     if unknown := [value for value in selected if value not in members]:
         raise ValueError(f"{label} names {unknown[0]!r}, which is not a member")
+
+
+def _never_excluded(chosen: Sequence[str], members: tuple[CombineAnswerRow, ...]) -> None:
+    """CE-I3 (E4b part 2): a member that a rule left out is never chosen."""
+    excluded = {row.member_id for row in members if row.status == "excluded"}
+    if hit := [member for member in chosen if member in excluded]:
+        raise ValueError(f"Combine evidence chosen names {hit[0]!r}, which is excluded")
 
 
 def _operator_ids(values: object) -> tuple[str, ...]:

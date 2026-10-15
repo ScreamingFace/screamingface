@@ -130,7 +130,7 @@ evidence without a new value keeps its v1 bytes (P11). Decisions: Q3, Q4, P2, P3
 
 ## Unit 2 — member exclusion (EX#1–18, ES#5, ES#10, ES#12)
 
-Status: in_progress (RED commit A being written).
+Status: done (GREEN commit B on top of RED commit A).
 
 ### Intent
 
@@ -199,30 +199,42 @@ Decisions: Q3, Q4, P1, P2, P3, P4, P5, P13.
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:** in_progress
-- **Actual files:** (pending)
-- **Commits:** A (RED): pending. B (GREEN): pending.
-- **Gates:** pending
-- **RED log:** Run at commit A (after the stubs and the RED tests, before the commit).
-  - Engine, focused list of unit spec section 5.2 (`pytest -q -rfE`): 22 failed, 553 passed.
-    - PASS (CHAR or GUARD, as the table says): EX#1 `test_weighted_vote_drops_a_member_with_no_usable_weight`,
-      EX#2 `test_filter_gives_a_missing_signal_mark_zero`, EX#11 `test_authored_weights_never_exclude`,
-      EX#12(a) `test_signal_weight_on_an_unweighted_op_never_excludes` (3 cases).
-    - FAIL on an assertion (the behavior is not there yet, the status is still `answered`):
-      EX#3 (`changed` is an empty set), EX#4, EX#5 (`_rows` lists `answered`), EX#6, EX#7, EX#8, EX#9,
-      EX#10 (3 cases), EX#13, EX#15, EX#16 (2 cases), EX#17, EX#18(a) (`DID NOT RAISE ValidationError`),
-      EX#12(b) (the set of weighted ops is empty), EX#18 world (`members` status), and the byte-for-byte
-      fixture check and count check on the two new scenarios (`KeyError`), and the X-4 line
-      (`test_voter_with_missing_or_invalid_weight_signal_does_not_vote`, `assert False`).
-    - Row 9(c) (the pattern form) is the third assert of the row 9 test. It is not reached at commit A,
-      because (a) fails first. A probe of (c) alone, at commit A, gave pass (`_rows` all answered).
-  - SDK, list of unit spec section 5.2 (`pytest -q -rfE`): 7 failed, 118 passed.
-    - PASS: ES#10 `test_sdk_decodes_excluded_rank_and_cut` (CHAR), ES#12 second function
-      `test_case_answer_of_x1_wire_is_excluded`.
-    - FAIL: ES#12 first function (`set()` is not a superset), EX#14 SDK (`DID NOT RAISE ExecutionError`),
-      ES#5 (`set()` is not a superset), round trip of the two new names (`KeyError`), the name set
-      of the engine fixture (`_EXPECTED_NAMES` has the two new names, the fixture does not yet), and `test_fixture_answers_and_traces_use_the_frozen_fields`
-      (`assert 28 == 30`, X-5).
-  - No collection error on either side. `ruff check`, `ruff format --check` and `pyright` pass on the
-    new and the touched test files. `check_layering.py` prints LAYERING OK.
-- **Approval blobs:** pending
+- **Status:** done. The code is GREEN. Engine and SDK gates pass, except the append-only check. The
+  owner must approve the pinned edits before the part can merge.
+- **Actual files:** `E/combine/ports.py` (`reads_weights` field and guard), `E/combine/operators/reduce.py`
+  (`reads_weights=True` on `weighted_mode@1`, `weighted_median@1`, `weighted_mean@1`),
+  `E/combine/endpoint.py` (`_Exclusion`, `_exclusion`, `_Plan.excludes`, `_record_status`,
+  `_member_record`), `E/combine/evidence.py` (CE-I3 check), `S/combine_evidence.py` (`_never_excluded`,
+  CE-I3 check; D-2). Regenerated pinned file X-1 `ET/data/combine_contract/evidence_cases.json`.
+  No schema snapshot, no `.url4` file and no golden operator fixture changed.
+- **Commits:** A (RED) `9b24dd9d9` (the ledger section, the new tests, the stubs, the appends X-2
+  and X-3, the edits X-4 and X-5). B (GREEN): the commit that adds this text. No commit C: spec §7
+  asks for none in this unit.
+- **Gates:** `run_gates.py screamingface-engine --base 0f4b9e292`: the append-only check fails and
+  lists X-1 `evidence_cases.json`, X-4 `test_combine_weighted_vote.py` and P-1 (unit 1,
+  `screamingface.combine-evidence.v1.json`). The rerun with `--skip-append-only` is ALL GATES GREEN
+  (ruff check, ruff format, pyright, layering, pytest with coverage).
+  `run_gates.py screamingface --base 0f4b9e292`: the append-only check fails and lists P-2
+  (`screamingface.answer.v1.json`), P-3 (`public_surface_snapshot.json`), P-4 (`test_pick_output.py`,
+  unit 1) and X-5 (`test_frozen_record_fields.py`). The rerun with `--skip-append-only` is ALL GATES GREEN (ruff check, ruff format, pyright, pytest with coverage, notebooks, build, distribution check).
+  `run_gates.py repo --base 0f4b9e292`: ALL GATES GREEN, the append-only check passes.
+  Focused engine run (spec §5.2): 577 passed. Focused SDK run (spec §5.2): 127 passed.
+- **Hand-run layering check:** `python3 .claude/scripts/check_layering.py` fails under the system
+  Python 3.9 (`def accumulate[T: ...]` is a syntax error). Under the project Python 3.13 it prints
+  `LAYERING OK`. This is an environment issue, not a code defect. The engine gate uses the venv and
+  passes.
+- **RED log:** see the section above (commit A).
+- **Approval blobs** (`git rev-parse 0f4b9e292:<path>` → `git hash-object <path>` after commit B):
+  - X-1 `apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json`:
+    `ecf2f814a51548ff56df7a12d2f51fd6beab2b44` → `46fa01af12e63b03b12dba799e9bde29aaf30a45`
+  - X-2 `apps/screamingface-engine/tests/unit/test_combine_evidence_contract_fixture.py`:
+    `f55477f5d3686514d18ad1cb0f7183c6cb6385cf` → `57a6642a98463becd181db9f5284356c6aa9260a`
+  - X-3 `packages/screamingface/tests/test_combine_evidence_contract.py`:
+    `fab1c0db10ea4f66ca5f2d8642937d255e7165c4` → `c92903a0a4f8d437f97c9be41e7a2f1e4153b7cb`
+  - X-4 `apps/screamingface-engine/tests/unit/test_combine_weighted_vote.py`:
+    `e70c69eebbd2fe2333a14c28ddfe69644e19e7de` → `16e266abff3ec3f1b55f952ba1b56922aa37d275`
+  - X-5 `packages/screamingface/tests/test_frozen_record_fields.py`:
+    `c6b98604a87c661ede9e7b275fd6fbdd455045e1` → `e70218b1864a349f7fc2cf9c0700977c34be2953`
+- **Flakes:** none seen in the runs above.
+- **Process notes:** `ruff format` reflowed one `members=[...]` line in `endpoint.py` before the
+  engine gate. This is a format-only change.

@@ -174,6 +174,10 @@ class CombineEvidence(_EvidenceModel):
         scored = sum(row.score is not None for row in self.members)
         if ranks and ranks != list(range(1, scored + 1)):
             raise ValueError("combine evidence ranks must be 1..n over the members with a score")
+        # CE-I3 (E4b part 2): a member that a rule left out is never chosen, so never the result.
+        excluded = {row.member_id for row in self.members if row.status == "excluded"}
+        if not excluded.isdisjoint(self.chosen):
+            raise ValueError("combine evidence never chooses an excluded member")
         if self.result.status == "abstain" and (self.chosen or self.built):
             raise ValueError("an abstained combine evidence chooses and builds nothing")
         if self.result.member_id is not None and (
