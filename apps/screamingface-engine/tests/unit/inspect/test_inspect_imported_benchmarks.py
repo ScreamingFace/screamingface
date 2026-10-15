@@ -60,6 +60,9 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # vendored checker from the reply and the instructions alone. The owner's one Draft
     # Feedback offer (OWNER_ALLOWED_DRAFT_FEEDBACK).
     "ifeval": "reply_only",
+    # OME-1481: a local Task; one pinned-judge verdict per Case (the paper's auto-rater), so no
+    # Draft Feedback offer.
+    "frames_oracle": "judged",
     "mmlu": "mcq",
     "arc_easy": "mcq",
     "arc_challenge": "mcq",

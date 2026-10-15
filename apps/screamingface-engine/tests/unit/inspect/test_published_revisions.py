@@ -57,6 +57,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # renumbered 1..541 (owner decision 2), and publishes its old revision (published_revision),
     # so its leaderboard results stay visible.
     "ifeval": "1cba769ece27f7ef",
+    # OME-1481: FRAMES with its gold articles given, a local Task judged by the paper's prompt.
+    "frames_oracle": "eb27d52bf8431b07",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
     "math": "1963559fac28e4a1",
