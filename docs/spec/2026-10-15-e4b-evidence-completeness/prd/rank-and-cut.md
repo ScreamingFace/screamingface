@@ -1,6 +1,6 @@
 # PRD: Rank and cut of a top-k step (`rank`, `cut`)
 
-**Source:** ans:Q1 (epic OME-1290 gap E3) · **Priority:** P1
+**Source:** prompt (epic OME-1290 gap E3) · **Priority:** P1
 **Lifecycle:** existing (characterize + delta)
 **Owner:** unassigned
 Paths: [erd §2, §3, §5](../erd.md) · component: [evidence-schema](evidence-schema.md)
@@ -14,7 +14,7 @@ member was from the cut.
 ## 2. Background and constraints
 
 - Epic OME-1290 behavior 3: "The report shows the score and the rank, including members that were
-  dropped." "The cut is exact: k survivors, originals, author-order tie break." [stated ans:Q1]
+  dropped." "The cut is exact: k survivors, originals, author-order tie break." [stated prompt]
 - The words and keys are owned by [evidence-schema](evidence-schema.md).
 
 ### 2.1 Current behavior
@@ -32,14 +32,20 @@ member was from the cut.
 **Delta.**
 
 1. `OperatorDescriptor` gets two select-only hooks, `ranks` and `cut`, that the catalog does not
-   publish. `top_k@1` sets both. [proposed]
+   publish. `top_k@1` sets both. `ranks(reduction, combine_input, args) -> Mapping[str, int]`;
+   `cut(args) -> Cut`. [proposed]
+   **One name and one home for the cut type (review m10):** `Cut` is a frozen dataclass
+   (`k: int`, `order: SignalOrder`) in `E/combine/ports.py`, next to `SignalRead`, because the
+   operators return it and `ports.py` cannot import the evidence models. `E/combine/evidence.py`
+   (which imports `ports`) has the wire model `CutRecord`, built from a `Cut`. The SDK copy is
+   `sf.report.CombineCut`. No other cut type exists.
 2. `top_k@1` and its `ranks` hook use one shared ordering function, so the rank and the cut can
    never disagree. [proposed]
 3. The endpoint writes `rank` on each scored member and `cut` on the evidence, also when the step
-   abstains with `cut_not_met`. [stated ans:Q1]
+   abstains with `cut_not_met`. [stated prompt]
 
 **Definition [proposed].** The rank is the 1-based position of a member in the `top_k@1` order:
-scored members only, sorted by score (`order="max"`: high first; `"min"`: low first), equal scores
+scored members only (so the largest rank is the number of scored members, review m13), sorted by score (`order="max"`: high first; `"min"`: low first), equal scores
 in author order. Each member has a different rank (ordinal ranking). A member with no score (it
 failed or was excluded) has no rank.
 
@@ -50,18 +56,18 @@ failed or was excluded) has no rank.
 - **RK-1** Given `sf.Rank(2, by_signal=sf.signal("cost_usd"), order="min")` and costs member_1
   0.03, member_2 0.01, member_3 0.02, member_4 0.01, then the ranks are member_2 1, member_4 2,
   member_3 3, member_1 4; `chosen` is `[member_2, member_4]`; `tie` is false; `cut` is
-  `{"k": 2, "order": "min"}`. [stated ans:Q1]
+  `{"k": 2, "order": "min"}`. [stated prompt]
 - **RK-2** Given `sf.Rank(2, by_signal=...)` with the default order and scores member_1 0.9,
   member_2 0.5, member_3 0.5, then the ranks are 1, 2, 3, `chosen` is `[member_1, member_2]`,
   `tie` is true, and `cut` is `{"k": 2, "order": "max"}` (the default is written).
-  [stated ans:Q1] [existing E/combine/operators/selection.py:94]
+  [stated prompt] [existing E/combine/operators/selection.py:94]
 - **RK-3** Given `sf.Rank(1, by=sf.Judge(...))` with judge scores 7, 9, 8, then the ranks are
-  3, 1, 2 and `cut` is `{"k": 1, "order": "max"}`. [stated ans:Q1]
+  3, 1, 2 and `cut` is `{"k": 1, "order": "max"}`. [stated prompt]
 
 ### 3.2 Error paths
 
 - **RK-E1** Given `k=3` and only two scored members, then the step abstains with `cut_not_met` (as
-  today), the two scored members have ranks 1 and 2, and `cut` is `{"k": 3, ...}`. [stated ans:Q1]
+  today), the two scored members have ranks 1 and 2, and `cut` is `{"k": 3, ...}`. [stated prompt]
 - **RK-E2** Given a member with no score (failed, or excluded by
   [member-exclusion](member-exclusion.md)), then its record has no `rank` key. [proposed]
 

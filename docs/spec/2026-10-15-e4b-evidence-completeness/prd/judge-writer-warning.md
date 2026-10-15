@@ -1,6 +1,6 @@
 # PRD: Warn when the writer uses the judge's model (`JudgeWriterWarning`)
 
-**Source:** ans:Q1, ans:Q2 (epic OME-1290 gap E2) · **Priority:** P2
+**Source:** ans:Q1, ans:Q2, ans:Q4 (epic OME-1290 gap E2) · **Priority:** P2
 **Lifecycle:** planned
 **Owner:** unassigned
 Paths: related: [judge-model](judge-model.md)
@@ -16,10 +16,12 @@ scorer" is broken before I spend money on the run.
 - "Record ids + warn": warn, do not fail. One strong model in two roles is a legitimate recipe.
   [stated ans:Q1]
 - The SDK warns at compile time. The combine step never sees the writer's model. [stated ans:Q2]
+- The warning stays as specced after the re-ask; only the recorded judge id moved to the SDK view
+  ([judge-model](judge-model.md)). [stated ans:Q4]
 - The SDK already has a compile-time warning for a reducer Fusion:
   `DuplicateMembersWarning(EvaluationWarning)`, sent once per Fusion object with
   `skip_file_prefixes=(SDK_PACKAGE_ROOT,)`. [existing S/warnings.py:4-16]
-  [existing S/_evaluation/candidate.py:584-590,799-830]
+  [existing S/_evaluation/candidate.py:587-590,799-830]
 - The candidate rebuild from url4 silences `DuplicateMembersWarning`, because the researcher heard
   it at the first compile. [existing S/url4.py:432-442]
 - The Pipeline compile walks the stages in order, and each stage's context is the previous stage's
@@ -30,9 +32,21 @@ scorer" is broken before I spend money on the run.
 ## 3. Scenarios and acceptance criteria
 
 **Rule [proposed].** For each pair of adjacent stages (A, B) of a Pipeline: when A is a Fusion
-whose reducer plan has a `"judge"` model call with route R, and B is a direct `sf.Model` stage (or a
-route string) whose canonical route is R, the compile sends one `JudgeWriterWarning`. The message
-names the Pipeline, the two stage positions and R. It holds no prompt, rubric or member text.
+that reads a judge, and B is a direct `sf.Model` stage (or a route string), and
+`_canonical_model(B.model) == _canonical_model(J.model)` where J is A's `"judge"` model call, the
+compile sends one `JudgeWriterWarning`. The message names the Pipeline, the two stage positions and
+the canonical route. It holds no prompt, rubric or member text.
+
+- **"Reads a judge" (review M1).** The engine reads a judge in three ways: the `judge` reducer; a
+  reduce step `scores@1` with `source="judge"` (Rank by judge); a signal read of `score:judge`
+  (Vote, Filter, Pick by judge score). In the SDK, E4a pairs each of the three with exactly one
+  reducer model call whose key is `"judge"`, and no other reducer has one. So the SDK test is: the
+  reducer plan has a `_ModelSignal` with key `"judge"`. [existing S/reducer.py:53-61,329-370]
+  [existing E/combine/operators/judge.py:70-85] The SDK view uses the same three cases, read from
+  the evidence ([judge-model](judge-model.md) J1–J3).
+- **Canonical form (review M2).** Both sides go through `_canonical_model`, the form the duplicate
+  check uses. The url4 call path is `"/" + model`, so the warning never compares a path with a
+  model id. [existing S/_evaluation/candidate.py:812-818,868-881]
 
 ### 3.1 Happy path
 
