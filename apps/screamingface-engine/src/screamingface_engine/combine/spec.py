@@ -5,8 +5,9 @@ FEATURE: read the spec (``screamingface.combine-spec.v1``, the url4 ``intent``) 
 STORY: as the endpoint, I get a typed spec and context or a ``SpecInvalid`` -- never a half-read
 payload, and never an error message that repeats what a member or a judge wrote.
 
-INVARIANT: every key of the spec is always present; ``null`` is allowed only where the type says
-so. Unknown keys, duplicate JSON keys, NaN/Infinity and nesting beyond 64 levels are rejected.
+INVARIANT: every key of the spec is always present except the optional ``signals`` (E4b part 3);
+``null`` is allowed only where the type says so. Unknown keys, duplicate JSON keys,
+NaN/Infinity and nesting beyond 64 levels are rejected.
 INVARIANT: a failure message names locations and rules, never input values.
 The spec text is the SDK's canonical JSON with ``$`` written as ``\\u0024``; ``json.loads`` gives
 the ``$`` back, so this parser needs no url4 escape handling.
@@ -22,15 +23,25 @@ from types import MappingProxyType
 from typing import Any, Literal
 from urllib.parse import quote, unquote
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidatorFunctionWrapHandler,
+    field_validator,
+    model_validator,
+)
 
 from screamingface_engine.combine.ports import (
+    MAX_DECLARED_SIGNALS,
     CallFingerprint,
     EvidenceKind,
     MemberSources,
     Reducer,
     SpecInvalid,
     is_signal_key,
+    is_signal_name,
     loads_bounded,
 )
 
@@ -165,9 +176,21 @@ class SignalWeights(_SpecModel):
     @field_validator("signal")
     @classmethod
     def _known_signal(cls, value: str) -> str:
-        if not is_signal_key(value):
-            raise ValueError("weights.signal must be a known signal key")
+        if not (is_signal_key(value) or is_signal_name(value)):
+            raise ValueError("weights.signal must be a known signal key or a declared name")
         return value
+
+
+class VerbalizedSource(_SpecModel):
+    """``{"source": "verbalized", "pattern": str, "ignore_case"?: bool}`` (E4b part 3).
+
+    The pattern rules (length, RE2 compile, one group) are the source plugin's; the endpoint checks
+    them at plan time through ``registry.source``.
+    """
+
+    source: Literal["verbalized"]
+    pattern: str
+    ignore_case: bool = False
 
 
 class CombineSpec(_SpecModel):
@@ -181,13 +204,34 @@ class CombineSpec(_SpecModel):
     reduce: StepSpec
     select: StepSpec
     weights: dict[str, float] | SignalWeights | None
+    signals: dict[str, VerbalizedSource] | None = None
+
+    @field_validator("signals", mode="wrap")
+    @classmethod
+    def _quiet_signals(cls, value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+        # WHY: a nested error's location holds the declared name; a failure names rules only.
+        try:
+            return handler(value)
+        except ValidationError:
+            raise ValueError("signals must map declared names to known sources") from None
 
     @model_validator(mode="after")
     def _check(self) -> CombineSpec:
         _check_members(self.members)
         _check_weights(self.weights, self.members)
         _check_stages(self)
+        _check_signals(self)
         return self
+
+
+def _check_signals(spec: CombineSpec) -> None:
+    if "signals" not in spec.model_fields_set:
+        return
+    signals = spec.signals
+    if signals is None or not 1 <= len(signals) <= MAX_DECLARED_SIGNALS:
+        raise ValueError(f"signals must declare 1 to {MAX_DECLARED_SIGNALS} names")
+    if not all(is_signal_name(name) for name in signals):
+        raise ValueError("signals has a name that is not a declared signal name")
 
 
 def _check_members(members: list[str]) -> None:
@@ -443,6 +487,7 @@ __all__ = [
     "REDUCE_SELECT_RULES",
     "CombineContext",
     "CombineSpec",
+    "VerbalizedSource",
     "Presence",
     "ReducerRule",
     "SignalWeights",

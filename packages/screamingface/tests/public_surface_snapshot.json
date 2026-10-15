@@ -72,6 +72,7 @@
       "SelfCorrective",
       "Url4",
       "Usage",
+      "Verbalized",
       "Vote",
       "__version__",
       "analytics",
@@ -507,11 +508,12 @@
       "Fusion": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, name: 'str | None' = None, synthesizer: 'str | Recipe | Reducer', quorum: \"int | Literal['all']\" = 'all', optional: 'bool' = False) -> 'None'",
+          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, name: 'str | None' = None, signals: 'Mapping[str, SignalSource] | None' = None, synthesizer: 'str | Recipe | Reducer', quorum: \"int | Literal['all']\" = 'all', optional: 'bool' = False) -> 'None'",
           "members": "field",
           "name": "field",
           "optional": "field",
           "quorum": "field",
+          "signals": "field",
           "synthesizer": "field",
           "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
         }
@@ -1007,6 +1009,15 @@
           "output_tokens": "field",
           "reasoning_tokens": "field",
           "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "Verbalized": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, pattern: 'str', *, ignore_case: 'bool' = False) -> 'None'",
+          "ignore_case": "field",
+          "pattern": "field",
+          "source": "attribute"
         }
       },
       "Vote": {
@@ -1521,11 +1532,12 @@
       "CombineEvidence": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, kind: 'CombineKind', reducer: 'str', operators: 'Sequence[str]', members: 'Sequence[CombineAnswerRow]', chosen: 'Sequence[str]', built: 'bool', tie: 'bool', result: 'CombineResult', dropped: 'int', finish_reason: 'str', tally: 'Sequence[CombineTallyRow] | None' = None, judge: 'CombineJudgeReading | None' = None, fields: 'Sequence[CombineFieldReading] | None' = None, agreement: 'float | None' = None, median: 'str | None' = None, mean: 'str | None' = None, presentation_order: \"Literal['author'] | None\" = None, separator_collision: 'bool | None' = None, signal: 'CombineSignal | None' = None, cut: 'CombineCut | None' = None) -> 'None'",
+          "__init__": "method (self, *, kind: 'CombineKind', reducer: 'str', operators: 'Sequence[str]', members: 'Sequence[CombineAnswerRow]', chosen: 'Sequence[str]', built: 'bool', tie: 'bool', result: 'CombineResult', dropped: 'int', finish_reason: 'str', tally: 'Sequence[CombineTallyRow] | None' = None, judge: 'CombineJudgeReading | None' = None, fields: 'Sequence[CombineFieldReading] | None' = None, agreement: 'float | None' = None, median: 'str | None' = None, mean: 'str | None' = None, presentation_order: \"Literal['author'] | None\" = None, separator_collision: 'bool | None' = None, signal: 'CombineSignal | None' = None, cut: 'CombineCut | None' = None, declared: 'Mapping[str, Mapping[str, object]] | None' = None) -> 'None'",
           "agreement": "field",
           "built": "field",
           "chosen": "field",
           "cut": "field",
+          "declared": "field",
           "dropped": "field",
           "fields": "field",
           "finish_reason": "field",

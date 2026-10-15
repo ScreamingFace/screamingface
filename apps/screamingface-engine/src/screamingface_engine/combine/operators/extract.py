@@ -6,7 +6,9 @@ STORY: as an author of a majority-vote Candidate, I choose how the answer is rea
 Mental model: a reader with a ruler. ``last_number`` and ``boxed`` look only at a bounded stretch
 of text (the last 128 characters ending at the last digit; 4096 characters after the last box), so
 a hostile 1 MiB reply costs them the same as a short one. The other three make one linear pass
-over the text at C speed (a strip, a ``json.loads`` or a ``rfind``).
+over the text at C speed (a strip, a ``json.loads`` or a ``rfind``). The ``verbalized`` declared
+signal source (E4b part 3) reads the last match of a one-group pattern in the last 65,536
+characters.
 
 regex runs on RE2 (google-re2), whose matching is linear in the text, so no pattern can freeze a
 worker; it reads only the last 1024 characters. RE2 syntax: ``\\d`` and ``\\w`` are ASCII (use
@@ -41,12 +43,14 @@ from screamingface_engine.combine.ports import (
     FIELD_PATH,
     OpArgs,
     OperatorDescriptor,
+    SourceDescriptor,
     SpecInvalid,
     StageResult,
     accepted,
     canonical_json,
     decode_json_reply,
     field_value_text,
+    finite_float,
     rejected,
     walk_field_path,
 )
@@ -241,12 +245,36 @@ _ASCII_DIGIT = re.compile(r"[0-9]")
 _BOX = "\\boxed{"
 
 
+_SIGNAL_WINDOW = 65_536  # characters; a verbalized scan reads text[-_SIGNAL_WINDOW:] (P7)
+_SIGNAL_ARGS = frozenset({"pattern", "ignore_case"})
+_DECIMAL = re.compile(r"[-+]?[0-9]+(?:\.[0-9]+)?")  # ASCII only (I-S2)
+
+
 def check_signal_pattern(args: OpArgs) -> None:
-    raise NotImplementedError("E4b part 3 unit 2")
+    """A verbalized pattern: regex@1's pattern rules and RE2 compile, plus exactly one group."""
+    if "pattern" not in args or not set(args) <= _SIGNAL_ARGS:
+        raise SpecInvalid("a verbalized source takes a pattern and an optional ignore_case")
+    check_regex_pattern(args)
+    if _compile(args).groups != 1:
+        raise SpecInvalid("a verbalized pattern must have exactly one capture group")
 
 
 def verbalized_value(text: str, args: OpArgs, /) -> float | None:
-    raise NotImplementedError("E4b part 3 unit 2")
+    """The group of the LAST match in the last 65,536 characters, as a number, or None (ans:Q9).
+
+    The group is stripped; only an ASCII decimal number counts (no exponent, NaN, inf or comma).
+    A lone surrogate reads as U+FFFD (RE2 reads UTF-8 only), as in regex@1.
+    """
+    window = _SURROGATE.sub("\ufffd", text[-_SIGNAL_WINDOW:])
+    match = _last_match(_compile(args), window)
+    group = None if match is None else match.group(1)
+    if group is None:
+        return None
+    stripped = group.strip()
+    if _DECIMAL.fullmatch(stripped) is None:
+        return None
+    number = finite_float(float(stripped))  # 400 digits overflow to inf: None
+    return None if number is None else number + 0.0  # WHY + 0.0: -0 is recorded as 0.0
 
 
 def _inspect_number_word(value: str) -> str | None:
@@ -363,4 +391,8 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
     OperatorDescriptor("whole", 1, "extract", "The whole text.", whole),
 )
 
-__all__ = ["OPERATORS"]
+SOURCES: tuple[SourceDescriptor, ...] = (
+    SourceDescriptor("verbalized", check_signal_pattern, verbalized_value),
+)
+
+__all__ = ["OPERATORS", "SOURCES"]

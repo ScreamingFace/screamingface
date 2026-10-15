@@ -385,6 +385,24 @@
       ],
       "default": null
     },
+    "declared": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "additionalProperties": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "type": "object"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Declared"
+    },
     "dropped": {
       "title": "Dropped",
       "type": "integer"

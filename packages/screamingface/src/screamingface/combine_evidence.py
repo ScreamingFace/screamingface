@@ -11,11 +11,11 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal, get_args
+from typing import Literal, cast, get_args
 
 from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json, thaw_mapping
 from screamingface._report_primitives import _nonblank_text, _optional_number, _required_number
-from screamingface._signals import is_signal_key
+from screamingface._signals import is_signal_key, is_signal_name
 from screamingface.answer import (
     _MEMBER_ID,
     ABSTAIN_REASONS,
@@ -147,6 +147,18 @@ class CombineSignal:
         if self.order is not None:
             _one_of(self.order, SIGNAL_ORDERS, "Combine signal order")
 
+    @classmethod
+    def _declared(cls, key: str, order: SignalOrder | None) -> CombineSignal:
+        """The read of a declared name (E4b part 3). CombineEvidence checks the name is declared."""
+        if not is_signal_name(key):
+            raise ValueError("Combine signal key must be an E4a signal key or a declared name")
+        if order is not None:
+            _one_of(order, SIGNAL_ORDERS, "Combine signal order")
+        signal = object.__new__(cls)
+        object.__setattr__(signal, "key", key)
+        object.__setattr__(signal, "order", order)
+        return signal
+
     def to_dict(self) -> dict[str, object]:
         return {"key": self.key, "order": self.order}
 
@@ -264,6 +276,7 @@ class CombineEvidence:
     separator_collision: bool | None
     signal: CombineSignal | None
     cut: CombineCut | None
+    declared: Mapping[str, Mapping[str, object]] | None
     result: CombineResult
     dropped: int
     finish_reason: str
@@ -291,6 +304,7 @@ class CombineEvidence:
         separator_collision: bool | None = None,
         signal: CombineSignal | None = None,
         cut: CombineCut | None = None,
+        declared: Mapping[str, Mapping[str, object]] | None = None,
     ) -> None:
         _one_of(kind, REDUCER_KINDS, "Combine evidence kind")
         _one_of(reducer, REDUCER_NAMES, "Combine evidence reducer")
@@ -309,6 +323,14 @@ class CombineEvidence:
         selected_dropped = _dropped(dropped, selected_members)
         _ranks(selected_members)
         selected_result = _result(result, tuple(chosen), built)
+        selected_declared = _declared_map(declared)
+        selected_signal = _optional_instance(signal, CombineSignal, "Combine evidence signal")
+        if (
+            selected_signal is not None
+            and not is_signal_key(selected_signal.key)
+            and (selected_declared is None or selected_signal.key not in selected_declared)
+        ):
+            raise ValueError("Combine evidence signal must read an E4a key or a declared name")
         values = {
             "kind": kind,
             "reducer": reducer,
@@ -327,8 +349,9 @@ class CombineEvidence:
             "separator_collision": _optional_flag(
                 separator_collision, "Combine evidence separator_collision"
             ),
-            "signal": _optional_instance(signal, CombineSignal, "Combine evidence signal"),
+            "signal": selected_signal,
             "cut": _optional_instance(cut, CombineCut, "Combine evidence cut"),
+            "declared": selected_declared,
             "result": selected_result,
             "dropped": selected_dropped,
             "finish_reason": _nonblank_text(finish_reason, "Combine evidence finish_reason"),
@@ -357,10 +380,26 @@ class CombineEvidence:
             "separator_collision": self.separator_collision,
             "signal": None if self.signal is None else self.signal.to_dict(),
             **({} if self.cut is None else {"cut": self.cut.to_dict()}),  # E4b part 2: optional
+            # E4b part 3 (P11): optional on the wire, only a Fusion that declares signals writes it
+            **({} if self.declared is None else {"declared": thaw_mapping(self.declared)}),
             "result": self.result.to_dict(),
             "dropped": self.dropped,
             "finish_reason": self.finish_reason,
         }
+
+
+def _declared_map(value: object) -> Mapping[str, Mapping[str, object]] | None:
+    if value is None:
+        return None
+    frozen = freeze_mapping(value, "Combine evidence declared")
+    if not frozen:
+        raise ValueError("Combine evidence declared must name at least one signal")
+    for name, entry in frozen.items():
+        if not is_signal_name(name):
+            raise ValueError("Combine evidence declared names must be declared signal names")
+        if not isinstance(entry, Mapping) or not isinstance(entry.get("source"), str):
+            raise ValueError("Combine evidence declared entries must name their source")
+    return cast("Mapping[str, Mapping[str, object]]", frozen)
 
 
 def _text(value: object, label: str) -> str:

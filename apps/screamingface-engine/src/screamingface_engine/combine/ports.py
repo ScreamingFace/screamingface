@@ -416,9 +416,6 @@ class OperatorDescriptor:
         }
 
 
-# --- signals ----------------------------------------------------------------------------------
-# AIDEV-NOTE: a copy of url4's field-path grammar (dag/semantics/ensemble.py `_PATH`), extended with
-# a leading `[N]` segment; it lives in ports so json_field@1 (unit 2) and the core share one walk.
 SourceRead = Callable[[str, OpArgs], float | None]
 
 
@@ -436,6 +433,9 @@ class SourceDescriptor:
     read: SourceRead
 
 
+# --- signals ----------------------------------------------------------------------------------
+# AIDEV-NOTE: a copy of url4's field-path grammar (dag/semantics/ensemble.py `_PATH`), extended with
+# a leading `[N]` segment; it lives in ports so json_field@1 (unit 2) and the core share one walk.
 _FIELD_KEY = r"[A-Za-z_][A-Za-z0-9_]*"
 _FIELD_INDEX = r"\[(?:0|[1-9][0-9]*)\]"
 FIELD_PATH = re.compile(rf"(?:{_FIELD_KEY}|{_FIELD_INDEX})(?:\.{_FIELD_KEY}|{_FIELD_INDEX})*")
@@ -484,6 +484,9 @@ def field_value_text(value: object) -> str:
 ACCOUNTING_SIGNALS: tuple[str, ...] = ("cost_usd", "latency_ms", "tokens_in", "tokens_out")
 FIELD_SIGNAL_PREFIX = "field:"
 JUDGE_SIGNAL = "score:judge"  # the SDK's S/_signals.py JUDGE_SIGNAL (STU conformance)
+DECLARED_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
+RESERVED_NAME_PREFIXES: tuple[str, ...] = ("logprob", "entropy", "verbalized", "consistency")
+MAX_DECLARED_SIGNALS = 8
 
 
 def is_signal_key(key: object) -> bool:
@@ -499,7 +502,13 @@ def is_signal_key(key: object) -> bool:
 
 def is_signal_name(key: object) -> bool:
     """E4b P1: a declared name: [a-z][a-z0-9_]{0,31}, not an E4a key, no reserved prefix."""
-    return False
+
+    return (
+        isinstance(key, str)
+        and DECLARED_NAME.fullmatch(key) is not None
+        and key not in ACCOUNTING_SIGNALS
+        and not key.startswith(RESERVED_NAME_PREFIXES)
+    )
 
 
 def finite_float(value: object) -> float | None:
@@ -767,7 +776,10 @@ __all__ = [
     "EXCLUDE_REASONS",
     "FIELD_PATH",
     "FIELD_SIGNAL_PREFIX",
+    "DECLARED_NAME",
     "JUDGE_SIGNAL",
+    "MAX_DECLARED_SIGNALS",
+    "RESERVED_NAME_PREFIXES",
     "MAX_JSON_DEPTH",
     "MAX_JUDGE_REPLY_BYTES",
     "MAX_OUTPUT_READ_BYTES",

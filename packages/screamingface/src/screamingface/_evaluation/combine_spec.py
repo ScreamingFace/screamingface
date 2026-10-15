@@ -20,6 +20,7 @@ _MAX_SPEC_BYTES = 64 * 1024
 _SPEC_KEYS = frozenset(
     {"schema", "reducer", "members", "extract", "normalize", "reduce", "select", "weights"}
 )
+_OPTIONAL_SPEC_KEYS = frozenset({"signals"})  # E4b part 3: written only when a Fusion declares
 _INVALID_SPEC = "URL4 Candidate has an invalid combine spec"
 
 
@@ -54,8 +55,6 @@ def combine_spec_text(
     ``benchmark_rule`` is read only by ``extract='benchmark'`` (GP-1).
     """
 
-    if signals:
-        raise NotImplementedError("E4b part 3 unit 2")
     plan = resolve_benchmark_rule(reducer._plan(), benchmark_rule, operators)
     if plan.reducer not in REDUCER_NAMES:
         raise ValueError(f"{plan.reducer!r} is not a known reducer")
@@ -64,7 +63,7 @@ def combine_spec_text(
     if isinstance(weights, tuple) and len(weights) != member_count:
         raise ValueError(f"{reducer.name} has {len(weights)} weights for {member_count} members")
     members = [f"member_{index}" for index in range(1, member_count + 1)]
-    spec = {
+    spec: dict[str, object] = {
         "schema": COMBINE_SPEC_SCHEMA,
         "reducer": plan.reducer,
         "members": members,
@@ -74,6 +73,8 @@ def combine_spec_text(
         "select": _pinned_step("select", steps.select, operators),
         "weights": _spec_weights(weights, members),
     }
+    if signals:
+        spec["signals"] = {name: source._spec() for name, source in signals.items()}
     text = canonical_json(spec)
     size = len(text.encode("utf-8"))
     if size > _MAX_SPEC_BYTES:
@@ -144,11 +145,15 @@ def _reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def _is_spec(spec: object) -> bool:
-    if not isinstance(spec, dict) or set(spec) != _SPEC_KEYS:
+    if (
+        not isinstance(spec, dict)
+        or not _SPEC_KEYS <= set(spec) <= _SPEC_KEYS | _OPTIONAL_SPEC_KEYS
+    ):
         return False
     members = spec["members"]
     return (
         spec["schema"] == COMBINE_SPEC_SCHEMA
+        and ("signals" not in spec or _is_signals(spec["signals"]))
         and isinstance(spec["reducer"], str)
         and isinstance(members, list)
         and bool(members)
@@ -181,3 +186,11 @@ def spec_operator_pairs(spec: Mapping[str, object]) -> tuple[tuple[Stage, str], 
 
 
 __all__: list[str] = []
+
+
+def _is_signals(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and bool(value)
+        and all(isinstance(name, str) and isinstance(entry, dict) for name, entry in value.items())
+    )

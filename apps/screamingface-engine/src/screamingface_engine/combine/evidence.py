@@ -6,8 +6,8 @@ how the tally came out, and which member's text won -- without the answer text c
 
 INVARIANT: the field order below IS the pinned wire order, every key is always present except
 ``mean`` (written only for the ``mean`` reducer), ``cut`` and the member ``rank`` (written only for
-a ``top_k@1`` step), and a null is written explicitly. The encoder keeps no ``sort_keys`` (the
-envelope never did).
+a ``top_k@1`` step), and ``declared`` (written only when the spec declares signals), and a null is
+written explicitly. The encoder keeps no ``sort_keys`` (the envelope never did).
 INVARIANT: this module imports pydantic and ``combine.ports`` and nothing else. ``benchmarks/
 contract.py`` imports it (unit 3), so it must never import ``benchmarks.*`` or
 ``operation_calls``.
@@ -156,6 +156,11 @@ class CombineEvidence(_EvidenceModel):
     signal: SignalRecord | None
     # E4b part 2: the k and the order of a top_k@1 step. Optional on the wire, like ``mean``.
     cut: CutRecord | None = Field(default=None, exclude_if=lambda value: value is None)
+    # E4b part 3 (P11): the spec's `signals` map as the spec wrote it. Optional on the wire: the key
+    # is written only when the spec declares a source, so every other evidence keeps its v1 bytes.
+    declared: dict[str, dict[str, JsonValue]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     result: ResultRecord
     dropped: int
     finish_reason: Literal["stop"]

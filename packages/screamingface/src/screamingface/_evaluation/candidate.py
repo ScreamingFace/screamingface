@@ -597,6 +597,7 @@ class _CandidateCompiler:
             member_count=len(members),
             operators=self._operators,
             benchmark_rule=self._benchmark_rule,
+            signals=fusion.signals,
         )
         sources = self._claim_accounting_sources(reducer, members)
         # Lazy: reducer_signals imports this module's helpers at module top.

@@ -1,7 +1,8 @@
 """Answer signal keys and the sf.signal seam (OME-1289 gap, signals I-S1, BU-E2).
 
 INVARIANT: FIELD_PATH is the Engine's combine/ports.py field-path grammar, copied line for line;
-STU/test_signal_key_conformance.py binds the copy. E4b adds declared signals through this seam.
+STU/test_signal_key_conformance.py binds the copy. E4b part 3 adds declared signals
+(`is_signal_name`) through this seam.
 """
 
 from __future__ import annotations
@@ -18,6 +19,9 @@ FIELD_PATH = re.compile(rf"(?:{_FIELD_KEY}|{_FIELD_INDEX})(?:\.{_FIELD_KEY}|{_FI
 ACCOUNTING_SIGNALS: tuple[str, ...] = ("cost_usd", "latency_ms", "tokens_in", "tokens_out")
 FIELD_SIGNAL_PREFIX = "field:"
 JUDGE_SIGNAL = "score:judge"
+DECLARED_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
+RESERVED_NAME_PREFIXES: tuple[str, ...] = ("logprob", "entropy", "verbalized", "consistency")
+MAX_DECLARED_SIGNALS = 8
 
 
 def is_signal_key(key: object) -> bool:
@@ -29,6 +33,17 @@ def is_signal_key(key: object) -> bool:
         return True
     return key.startswith(FIELD_SIGNAL_PREFIX) and (
         FIELD_PATH.fullmatch(key[len(FIELD_SIGNAL_PREFIX) :]) is not None
+    )
+
+
+def is_signal_name(key: object) -> bool:
+    """E4b P1: a declared name: [a-z][a-z0-9_]{0,31}, not an E4a key, no reserved prefix."""
+
+    return (
+        isinstance(key, str)
+        and DECLARED_NAME.fullmatch(key) is not None
+        and key not in ACCOUNTING_SIGNALS
+        and not key.startswith(RESERVED_NAME_PREFIXES)
     )
 
 
@@ -54,7 +69,7 @@ class Signal:
             raise TypeError("a signal key must be text")
         if self.key in _RESERVED:
             raise ValueError(_RESERVED[self.key])
-        if not is_signal_key(self.key):
+        if not is_signal_key(self.key) and not is_signal_name(self.key):
             raise ValueError(_rejection(self.key))
 
     def __repr__(self) -> str:
@@ -178,17 +193,23 @@ def _finite(value: float) -> float:
 def _rejection(key: str) -> str:
     if key.startswith(FIELD_SIGNAL_PREFIX):
         return "field signal path must be a JSON path like 'a', 'a.b' or 'a[0].b'"
-    if key.startswith("logprob"):
-        return f"{key!r} comes with E4b (declared signals); E4a signal keys are {_E4A_KEYS}"
+    if key.startswith(RESERVED_NAME_PREFIXES):
+        return (
+            f"{key!r} is reserved: names that start with logprob, entropy, verbalized or "
+            "consistency belong to E4b declared sources; declare a name such as "
+            "signals={'lp': sf.Logprob('mean')} and read sf.signal('lp'); "
+            f"E4a signal keys are {_E4A_KEYS}"
+        )
     return (
-        f"unknown signal key {key!r}; E4a signal keys are {_E4A_KEYS}; "
-        "logprob and other declared signals come with E4b"
+        f"{key!r} is not a signal key or a declared name; E4a signal keys are {_E4A_KEYS}; "
+        "an E4b declared name matches [a-z][a-z0-9_]{0,31}"
     )
 
 
 def signal(key: str) -> Signal:
     """A named number on a member Answer, read by a reducer: cost_usd, latency_ms, tokens_in,
-    tokens_out, score:judge, or field:<path>. A missing value is None, never an error."""
+    tokens_out, score:judge, field:<path>, or a name that the Fusion declares in ``signals=``.
+    A missing value is None, never an error."""
 
     return Signal(key)
 

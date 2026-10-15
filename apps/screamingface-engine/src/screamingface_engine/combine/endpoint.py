@@ -32,7 +32,7 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import Any, cast
 
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from screamingface_engine.combine.evidence import (
     AnswerRecord,
@@ -72,6 +72,7 @@ from screamingface_engine.combine.ports import (
     Selection,
     SelectOp,
     SignalRead,
+    SourceRead,
     SpecInvalid,
     Stage,
     StageResult,
@@ -130,6 +131,15 @@ class _Exclusion:
 
 
 @dataclass(frozen=True, slots=True)
+class _Declared:
+    """One declared name, the source reader that computes it, and the source's checked args."""
+
+    name: str
+    read: SourceRead
+    args: OpArgs
+
+
+@dataclass(frozen=True, slots=True)
 class _Plan:
     """The four resolved stages of one call; ``extract`` and ``normalize`` may be absent.
 
@@ -146,6 +156,7 @@ class _Plan:
     excludes: _Exclusion | None = None
     ranks: Callable[[Reduction, CombineInput, OpArgs], Mapping[str, int]] | None = None
     cut: Cut | None = None
+    declared: tuple[_Declared, ...] = ()
 
     @property
     def operators(self) -> tuple[str, ...]:
@@ -233,38 +244,48 @@ def _combine(
         spec.members,
         sources_expected=plan.signal is not None and plan.signal.key in ACCOUNTING_SIGNALS,
     )
-    signals = _signal_values(plan.signal, spec, context, accounting)
-    combine_input = _read_members(spec, plan, context, signals)
+    recorded = _signal_values(plan, spec, context, accounting)
+    combine_input = _read_members(spec, plan, context, recorded)
     trace.voters = str(len(combine_input.voters))
     if not combine_input.voters:
-        return _abstain(spec, plan, combine_input, None, "no_votes")
-    return _decide(spec, plan, combine_input, context, trace)
+        return _abstain(spec, plan, combine_input, None, "no_votes", recorded=recorded)
+    return _decide(spec, plan, combine_input, context, trace, recorded=recorded)
 
 
 def _signal_values(
-    read: SignalRead | None,
+    plan: _Plan,
     spec: CombineSpec,
     context: CombineContext,
     accounting: AccountingReader | None,
 ) -> dict[str, dict[str, float | None]]:
-    """Each member's signals: the one number the spec reads, or none at all."""
-    if read is None:
+    """Each member's recorded signals: the key the spec reads, then every declared name (EV-I2)."""
+    keys = _recorded_keys(plan)
+    if not keys:
         return {member: {} for member in spec.members}
     if not any(member in context.outputs for member in spec.members):
         # WHY no read (OME-1557): an empty quorum panel abstains with no_votes; reading a signal
         # over no member (a judge reply above all) could only refuse a Case that has no answer.
-        return {member: {read.key: None} for member in spec.members}
-    numbers = _signal_numbers(read.key, spec, context, accounting)
-    return {member: {read.key: numbers[member]} for member in spec.members}
+        return {member: {key: None for key in keys} for member in spec.members}
+    columns = {key: _signal_numbers(key, plan, spec, context, accounting) for key in keys}
+    return {member: {key: columns[key][member] for key in keys} for member in spec.members}
 
 
-def _signal_numbers(
+def _recorded_keys(plan: _Plan) -> tuple[str, ...]:
+    read = () if plan.signal is None else (plan.signal.key,)
+    return (*read, *(item.name for item in plan.declared if item.name not in read))
+
+
+def _signal_numbers(  # noqa: PLR0911 - one branch per kind of signal source
     key: str,
+    plan: _Plan,
     spec: CombineSpec,
     context: CombineContext,
     accounting: AccountingReader | None,
 ) -> Mapping[str, float | None]:
     """One number (or None) for each member, from the source that the signal key names."""
+    declared = next((item for item in plan.declared if item.name == key), None)
+    if declared is not None:
+        return _declared_numbers(declared, spec, context)
     if key in ACCOUNTING_SIGNALS:
         return _accounting_numbers(key, spec, context, accounting)
     if key == JUDGE_SIGNAL:
@@ -292,6 +313,19 @@ def _accounting_numbers(
     return {m: finite_float(looked.get(m, {}).get(key)) for m in spec.members}
 
 
+def _declared_numbers(
+    declared: _Declared, spec: CombineSpec, context: CombineContext
+) -> dict[str, float | None]:
+    numbers: dict[str, float | None] = {}
+    for member in spec.members:
+        text = context.outputs.get(member)  # None: a quorum panel left the member out
+        if text is None or utf8_exceeds(text, MAX_OUTPUT_READ_BYTES):
+            numbers[member] = None
+        else:
+            numbers[member] = finite_float(declared.read(text, declared.args))
+    return numbers
+
+
 def _field_numbers(
     path: str, spec: CombineSpec, context: CombineContext
 ) -> dict[str, float | None]:
@@ -311,23 +345,26 @@ def _decide(
     combine_input: CombineInput,
     context: CombineContext,
     trace: _Trace,
+    *,
+    recorded: Mapping[str, Mapping[str, float | None]],
 ) -> CombineOutcome:
     """Run reduce, then select. Only these two steps may abstain (by raising ``NoVotes``)."""
     try:
         reduction = plan.reduce.run(combine_input, plan.reduce.args)
         _check_tally(reduction, combine_input.members, plan.reduce.op_id)
     except NoVotes as exc:
-        return _abstain(spec, plan, combine_input, None, exc.reason)
+        return _abstain(spec, plan, combine_input, None, exc.reason, recorded=recorded)
     try:
         selection = plan.select.run(reduction, combine_input, plan.select.args)
     except NoVotes as exc:
-        return _abstain(spec, plan, combine_input, reduction, exc.reason)
+        return _abstain(spec, plan, combine_input, reduction, exc.reason, recorded=recorded)
     output = _output(selection, plan.select.op_id, context)
     trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
     trace.tie = "true" if selection.tie else "false"
     result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
     return CombineOutcome(
-        output, _evidence(spec, plan, combine_input, reduction, selection, result)
+        output,
+        _evidence(spec, plan, combine_input, reduction, selection, result, recorded=recorded),
     )
 
 
@@ -337,6 +374,8 @@ def _abstain(
     combine_input: CombineInput,
     reduction: Reduction | None,
     reason: AbstainReason,
+    *,
+    recorded: Mapping[str, Mapping[str, float | None]],
 ) -> CombineOutcome:
     """The normal output of a step that finds no answer: an abstain result, and the text the next
     stage gets.
@@ -349,7 +388,7 @@ def _abstain(
     if utf8_exceeds(output, MAX_RESULT_BYTES):
         raise InputTooLarge("the combine output exceeds 8 MiB")
     result = ResultRecord(member_id=None, value=None, status="abstain", reason=reason)
-    evidence = _evidence(spec, plan, combine_input, reduction, None, result)
+    evidence = _evidence(spec, plan, combine_input, reduction, None, result, recorded=recorded)
     return CombineOutcome(output, evidence)
 
 
@@ -409,6 +448,7 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     bound_extract = cast("_Step[Extractor] | None", _bind(extract, spec.extract))
     bound_normalize = cast("_Step[Normalizer] | None", _bind(normalize, spec.normalize))
     bound_select = cast("_Step[SelectOp]", _bind(select, spec.select))
+    declared = _declared(spec, registry)
     from_weights, from_reduce = _signal_sources(spec, reduce, bound_reduce)
     return _Plan(
         extract=bound_extract,
@@ -420,6 +460,7 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
         excludes=_exclusion(reduce, from_weights, from_reduce),
         ranks=None if select is None else select.ranks,
         cut=_cut(select, bound_select),
+        declared=declared,
     )
 
 
@@ -432,6 +473,23 @@ def _check_pairing(reduce_id: str, select_id: str | None) -> None:
     selects = REDUCE_SELECT_RULES.get(reduce_id)
     if selects is not None and select_id not in selects:
         raise SpecInvalid(f"{reduce_id} pairs only with select {', '.join(sorted(selects))}")
+
+
+def _declared(spec: CombineSpec, registry: OperatorRegistry) -> tuple[_Declared, ...]:
+    if spec.signals is None:
+        return ()
+    found: list[_Declared] = []
+    for name, source in spec.signals.items():
+        descriptor = registry.source(source.source)
+        args: OpArgs = MappingProxyType(source.model_dump(exclude={"source"}, exclude_unset=True))
+        try:
+            descriptor.check_args(args)
+        except SpecInvalid as exc:
+            raise SpecInvalid(
+                f"declared signal source {descriptor.name} is invalid: {exc}"
+            ) from exc
+        found.append(_Declared(name, descriptor.read, args))
+    return tuple(found)
 
 
 def _signal_sources(
@@ -448,10 +506,12 @@ def _signal_sources(
     hook = reduce.signal_read
     from_reduce = None if hook is None else hook(bound.args)
     if from_reduce is not None:
-        if not is_signal_key(from_reduce.key):
+        if not _known(from_reduce.key, spec):
             raise SpecInvalid(f"{bound.op_id} reads an unknown signal")
         if from_reduce.order not in (None, "max", "min"):
             raise RuntimeError(f"{bound.op_id} returned an invalid signal read")  # a plugin bug
+    if from_weights is not None and not _known(from_weights.key, spec):
+        raise SpecInvalid("weights reads an undeclared signal")
     if from_weights is not None and from_reduce is not None:
         raise SpecInvalid("a combine step reads at most one signal")
     return from_weights, from_reduce
@@ -477,20 +537,27 @@ def _exclusion(
     return None if from_reduce is None else _Exclusion("no_signal", from_reduce.key)
 
 
+def _known(key: str, spec: CombineSpec) -> bool:
+    """An E4a key, or a name this spec declares (contracts C1: the plan-level key check)."""
+    return is_signal_key(key) or (spec.signals is not None and key in spec.signals)
+
+
 def _read_members(
     spec: CombineSpec,
     plan: _Plan,
     context: CombineContext,
-    signals: Mapping[str, Mapping[str, float | None]],
+    recorded: Mapping[str, Mapping[str, float | None]],
 ) -> CombineInput:
-    """One ``Answer`` per member in spec order; ``signals`` holds only the signal read (I-S3)."""
+    """One ``Answer`` per member in spec order. An Answer's signals hold only the key the spec
+    reads (I-S3 for operators); the evidence records every declared name too (EV-I2)."""
+    read = () if plan.signal is None else (plan.signal.key,)
     answers = tuple(
         _answer(
             member,
             context.outputs.get(member),
             plan,
-            MappingProxyType(dict(signals[member])),
-            _weight(spec, member, signals[member]),
+            MappingProxyType({key: recorded[member][key] for key in read}),
+            _weight(spec, member, recorded[member]),
         )
         for member in spec.members
     )
@@ -620,6 +687,8 @@ def _evidence(
     reduction: Reduction | None,
     selection: Selection | None,
     result: ResultRecord,
+    *,
+    recorded: Mapping[str, Mapping[str, float | None]],
 ) -> CombineEvidence:
     # An abstain has no selection, and none or only part of a reduction (a select step may abstain).
     reduction = Reduction() if reduction is None else reduction
@@ -633,7 +702,13 @@ def _evidence(
         reducer=spec.reducer,
         operators=list(plan.operators),
         members=[
-            _member_record(answer, scores, plan.excludes, rank=ranks.get(answer.member_id))
+            _member_record(
+                answer,
+                scores,
+                recorded[answer.member_id],
+                plan.excludes,
+                rank=ranks.get(answer.member_id),
+            )
             for answer in combine_input.answers
         ],
         tally=_tally_records(reduction),
@@ -655,15 +730,26 @@ def _evidence(
         if plan.signal is None
         else SignalRecord(key=plan.signal.key, order=plan.signal.order),
         cut=None if plan.cut is None else CutRecord(k=plan.cut.k, order=plan.cut.order),
+        declared=_declared_record(spec),
         result=result,
         dropped=sum(answer.status == "fail" for answer in combine_input.answers),
         finish_reason="stop",
     )
 
 
+def _declared_record(spec: CombineSpec) -> dict[str, dict[str, JsonValue]] | None:
+    if spec.signals is None:
+        return None
+    return {
+        name: source.model_dump(mode="json", exclude_unset=True)
+        for name, source in spec.signals.items()
+    }
+
+
 def _member_record(
     answer: Answer,
     scores: Mapping[str, Decimal],
+    recorded: Mapping[str, float | None],
     excludes: _Exclusion | None,
     *,
     rank: int | None,
@@ -675,7 +761,7 @@ def _member_record(
         value=answer.value,
         status=status,
         reason=reason,
-        signals=dict(answer.signals),
+        signals=dict(recorded),
         weight=None if answer.weight is None else _finite(answer.weight),
         score=_finite(scores[answer.member_id]) if answer.member_id in scores else None,
         rank=rank,
