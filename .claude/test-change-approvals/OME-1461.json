@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1461",
+  "branch": "bershadsky/ome-1461-keep-gateway-dispatch-failures-at-exactly-one-record-when",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-10-14",
+  "scope": "test_openrouter_outcome_persistence_failure_preserves_the_provider_response (#1240) is renamed to test_openrouter_outcome_persistence_failure_becomes_one_sanitized_502 and its contract inverted: a raising outcome persistence now yields 502 provider_error (was the provider's 402 insufficient_credits) and exactly one 'dispatch failed ... outcome=handler_error handler_type=RuntimeError' record. Adds a module-local dispatch_records log-capture fixture and imports PROVIDER_TEXT/_Capture/_only_failure from test_dispatch_failure_records. No other test in the file changes.",
+  "reason": "PR #1230 review (HupBaHa, 2026-10-14, CHANGES_REQUESTED): record_dispatch_outcome's own catch-and-log still double-logged on the migrated path. The reviewer asked for the failure to reach _safe_dispatch_failure_response as one sanitized 502 record; the owner chose those semantics over #1240's preserve-the-402 behaviour.",
+  "files": {
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_dispatch.py": {
+      "base_blob": "790e911aef34dfd65b4a22c6a8a87baa837425a7",
+      "approved_blob": "15087045bd63eedfa98518cbbaefc0d1080520c6"
+    }
+  }
+}

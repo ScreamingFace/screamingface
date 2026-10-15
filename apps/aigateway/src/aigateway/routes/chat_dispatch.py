@@ -71,23 +71,19 @@ async def _dispatch_failure_response(
     its revision-fenced observation. Every unclassified failure, including one
     carrying an observation, falls through to legacy op 5 when the provider's
     status hook marks it; other targets retain existing lifecycle semantics.
+
+    INVARIANT (OME-1461): never catches and logs its own failures — a raising outcome
+    persistence propagates to `_safe_dispatch_failure_response`, which renders the sanitized
+    502 and folds it into the ONE terminal record as `outcome=handler_error`.
     """
     access = provider_access_for(request.app)
     if observation is not None:
         operational_access = operational_access_for(request.app)
         outcome = _classified_operational_outcome(plugin, exc.status_code, exc.detail)
         if operational_access is not None and outcome is not None:
-            try:
-                rewritten = await operational_access.record_dispatch_outcome(
-                    target, observation, outcome, exc.detail, plugin=plugin
-                )
-            except Exception as failure:
-                logger.error(
-                    "dispatch outcome persistence error type=%s status=%s",
-                    type(failure).__name__,
-                    exc.status_code,
-                )
-                return exc
+            rewritten = await operational_access.record_dispatch_outcome(
+                target, observation, outcome, exc.detail, plugin=plugin
+            )
             if rewritten is None:
                 return exc
             return HTTPException(status_code=exc.status_code, detail=rewritten)
@@ -123,6 +119,7 @@ async def _safe_dispatch_failure_response(
     with the final, sanitized exception in hand — so recording here gives exactly one
     terminal record per failing request without each branch having to remember to log.
     """
+    handler_error_type: str | None = None
     try:
         final = await _dispatch_failure_response(
             request,
@@ -132,13 +129,8 @@ async def _safe_dispatch_failure_response(
             observation=observation,
         )
     except Exception as failure:
-        logger.error(
-            "dispatch failure handling error type=%s provider=%s account=%s profile=%s",
-            type(failure).__name__,
-            provider,
-            account_id,
-            profile_name,
-        )
+        # OME-1461: folded into the ONE terminal record below instead of a second ERROR line.
+        handler_error_type = type(failure).__name__
         final = _unknown_provider_exception()
     log_dispatch_failure(
         final,
@@ -146,6 +138,7 @@ async def _safe_dispatch_failure_response(
         error_type=error_type,
         account_id=account_id,
         profile_name=profile_name,
+        handler_error_type=handler_error_type,
     )
     return final
 
@@ -170,25 +163,35 @@ def log_dispatch_failure(
     error_type: str | None,
     account_id: str,
     profile_name: str,
+    handler_error_type: str | None = None,
 ) -> None:
     """Emit the terminal record of a failed non-streaming dispatch (OME-968).
 
     WHY ERROR for 5xx and WARNING for 4xx: an operator alerting on WARNING+ must see every
     failing call (the defect was ZERO records), while a caller's own bad request should not
-    page anyone the way a provider outage does.
+    page anyone the way a provider outage does. The exceptions are `_record_level`'s.
     `gateway_call_id`/`trace_id` are NOT arguments: the OME-938 record factory stamps them
     from the request scope, as on every other line.
-    INVARIANT: class-name-only — `error_type` is `type(exc).__name__`, never `str(exc)`.
+    INVARIANT: class-name-only — `error_type` is `type(exc).__name__`, never `str(exc)`, and
+    `handler_error_type` likewise names only the class that broke failure handling.
+    INVARIANT (OME-1461): exactly one record per failing call — a raising failure handler is
+    `outcome=handler_error` on THIS line, never a line of its own.
     """
+    outcome = "mapped" if handler_error_type is None else "handler_error"
+    suffix = "" if handler_error_type is None else f" handler_type={handler_error_type}"
+    classification = failure_classification(exc.detail)
     logger.log(
-        logging.ERROR if exc.status_code >= 500 else logging.WARNING,
-        "dispatch failed provider=%s classification=%s status=%d type=%s account=%s profile=%s",
+        _record_level(exc.status_code, classification),
+        "dispatch failed provider=%s classification=%s status=%d type=%s account=%s profile=%s "
+        "outcome=%s%s",
         provider,
-        failure_classification(exc.detail),
+        classification,
         exc.status_code,
         error_type or "HTTPException",
         account_id,
         profile_name,
+        outcome,
+        suffix,
     )
 
 
@@ -217,6 +220,27 @@ async def _record_dispatch_success(
             account_id,
             profile_name,
         )
+
+
+# WHY (OME-1461 log-level policy, reasons in docs/work/2026-10-02-ome-1461-*.md): 499 means the
+# client left — nothing an operator can act on, so INFO (still countable, never alerting).
+# 429 is back-pressure, not breakage: under overload it arrives one per rejected call, so
+# WARNING keeps it visible without paging on ERROR.
+_STATUS_LEVELS = {499: logging.INFO, 429: logging.WARNING}
+
+# WHY (owner decision 2026-10-02): a 503 is levelled by ORIGIN, not status. The gateway's own
+# back-pressure (#1153 / OME-1162 admission shedding) is expected overload volume → WARNING; an
+# upstream 503 still failing after retries is an outage and must stay alertable → ERROR.
+# INVARIANT: allowlist, fail loud — only a named gateway back-pressure code is downgraded; an
+# unknown or provider-originated 503 keeps ERROR.
+_GATEWAY_BACKPRESSURE_CODES = frozenset({"provider_queue_timeout"})
+
+
+def _record_level(status: int, classification: str) -> int:
+    if status == 503 and classification in _GATEWAY_BACKPRESSURE_CODES:
+        return logging.WARNING
+    default = logging.ERROR if status >= 500 else logging.WARNING
+    return _STATUS_LEVELS.get(status, default)
 
 
 def _retry_after_headers(exc: Exception) -> dict[str, str]:
