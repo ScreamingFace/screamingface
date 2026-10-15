@@ -16,6 +16,7 @@ from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
 from screamingface._ui.accounting_view import case_accounting, case_tabs, run_accounting_note
 from screamingface._ui.cards import INVERTED_GRADE_MEANING
 from screamingface._ui.combine_view import STYLE as COMBINE_STYLE
+from screamingface._ui.combine_view import combine_sections_html
 from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
 from screamingface.report import _candidate_failures
 
@@ -943,7 +944,7 @@ def _pane_html(candidate: CandidateResult, case: CaseResult, cost_html: str) -> 
         )
     body = (
         f"{answer_html}{refusal_html}{_attempts_html(case)}{_case_failures_html(case)}"
-        f"{checks_head}{checks}"
+        f"{combine_sections_html(candidate, case)}{checks_head}{checks}"
     )
     return (
         "<div class='sf-pane'><div class='sf-pane__h'>"
