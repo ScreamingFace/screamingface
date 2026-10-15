@@ -717,3 +717,103 @@ RED stage (commit A): the tests and the stubs only.
   `test_signals.py`. Each one is on an allowed or pinned list. With `--skip-append-only`, engine
   (ruff, format, pyright 0 errors, layering, pytest with coverage) and SDK (ruff, format, pyright,
   pytest with coverage, notebooks, build, distribution) are ALL GATES GREEN. No flakes.
+
+## Unit 5 — recipes, README, CHANGELOG, paid test
+
+### Intent
+
+Give one tested recipe for each paper shape of part 3 (S12 to S16). The SDK compiles each recipe
+into a url4 fixture. The Engine runs each fixture offline over fake replies to a hand-computed
+answer. Add the README section "Signal sources" with the guidance of the PRDs, a CHANGELOG entry,
+and two paid tests that the owner runs. Spec: `docs/spec/2026-10-15-e4b-signal-sources/prd/recipes.md`
+(RC#1–9). Unit spec: `p3-unit5-recipes.md` (build folder, not in the repo).
+
+### Dependency check (unit 2–4 names, confirmed in the branch code at commit A)
+
+- `sf.Verbalized`, `sf.Logprob`, `sf.Entropy` exist (`screamingface.signal_sources`).
+  `sf.Fusion.__init__` has `signals`.
+- `reply_logprobs` exists: `E/world/reply_logprobs.py`.
+- `logprobs_unsupported` is in `E/error_text.py` (the code name list).
+- Engine refusal text: `LOGPROBS_UNSUPPORTED_TEXT` in `E/benchmarks/failure_classes.py`. It starts
+  "the model cannot return token log-probabilities; choose another OpenRouter model or remove ...".
+  It contains `cannot return token log-probabilities`, so the RC#9 assertion uses the full phrase.
+- Evidence `declared` key: yes, in `E/combine/evidence.py` (field `declared`) and in
+  `S/combine_evidence.py` (`CombineEvidence.declared`). The optional assert of RC#8 is included.
+- The 64 KiB window: `_SIGNAL_WINDOW = 65_536` in `E/combine/operators/extract.py`.
+- Logprob reply helper from units 3–4: `ET/_logprob_world.py` (`run_logprob_candidate`,
+  `by_model`, `logprobs_object`). It takes the reply text per model, the token logprobs and the
+  top lists per model, and returns the decoded run record. The §4.4 rule applies, so F4 uses it.
+  No local `_Reply` or `_gateway` helper is written.
+- `sf.Rank` takes `order=` (`inspect.signature`: `order: Literal['max', 'min']`). The README
+  phrase "`sf.Rank` with `order="min"`" is therefore true. Checked here; the README is written at
+  commit B.
+- The part 1 fixtures (13 files) have the SHA-256 of base `0f4b9e292`, as pinned in
+  `test_signal_recipe_fixtures.py`. Checked with `git show 0f4b9e292:<path> | shasum -a 256`.
+
+### Planned changes
+
+- New `packages/screamingface/tests/_signal_recipes.py`: one builder per recipe S12–S16, its own
+  registry, `compile_signal_recipe`, `write_signal_recipe_fixture`.
+- New `packages/screamingface/tests/test_signal_recipe_fixtures.py`: the CHAR pin of the part 1
+  fixtures (RC#1) and the drift guard of the new fixtures.
+- New `packages/screamingface/tests/test_signal_recipes_readme.py`: the README code compiles to
+  the fixtures and the section has the guidance (RC#7).
+- New `apps/screamingface-engine/tests/unit/test_signal_recipes.py`: engine runs (RC#2–6).
+- New `packages/screamingface/tests/paid/test_signal_sources_paid.py`: RC#8, RC#9 (paid lane).
+- New `apps/screamingface-engine/tests/unit/data/combine_contract/recipe_s12.url4` to
+  `recipe_s16.url4` (generated, commit B).
+- `packages/screamingface/README.md`: new section "Signal sources" before "Fusion as a named
+  recipe" (commit B).
+- `packages/screamingface/CHANGELOG.md`: one entry (commit C).
+- No source change. No pinned test edit. No schema change.
+
+### Test plan
+
+- CHAR first: the 13 part 1 recipe fixtures keep the SHA-256 of base `0f4b9e292`, and the SDK
+  compile gives the same bytes (RC#1).
+- RED next, in the PRD order: S12 vote weighted by stated confidence (B wins, 90 over 20 + 30);
+  S13 vote weighted by `prob` (B wins, 0.8187… over 0.1851…); S14 pick by `mean` (member 2,
+  -0.2; a `sum` pick would choose member 1); S15 pick by entropy `min` (member 2, H = 0); S16
+  Filter `>= -0.3` at -0.1, -0.3 and -0.5 (kept, kept, dropped; the writer runs each time); the
+  README code compiles and the section carries the guidance.
+- Paid (owner only): the pinned model gives a finite `lp` ≤ 0; the refusing model passes the
+  preflight and fails with `logprobs_unsupported`.
+- Invariant protected: the part 1 recipe bytes do not change; the README code is the code that
+  the Engine runs.
+
+### RED record (commit A, before any fixture or README text)
+
+- SDK focused run: `tests/test_signal_recipe_fixtures.py tests/test_signal_recipes_readme.py
+  tests/test_combine_recipe_fixtures.py tests/test_combine_recipes_readme.py
+  tests/test_pick_output_url4_fixtures.py`: 6 failed, 30 passed.
+  - 30 passed: the 13 CHAR cases (`test_recipes_s1_to_s11_fixtures_are_unchanged`), the cover
+    test, and the part 1 guards.
+  - 5 failed: `test_signal_recipe_fixtures_match_the_sdk_compile[recipe_s12..s16.url4]`,
+    `combine_contract/recipe_sNN.url4 is missing - run write_signal_recipe_fixture(...)`.
+  - 1 failed: `test_readme_signal_sources_blocks_compile_and_carry_the_guidance`,
+    `README.md has no '### Signal sources' section`.
+- Engine focused run: `tests/unit/test_signal_recipes.py tests/unit/test_combine_recipes.py`:
+  7 failed, 15 passed. The 7 failures are the 5 S12–S16 runs (S16 has 3 cases):
+  `combine_contract/recipe_sNN.url4 is missing - write it with the SDK`. The 15 passed are the
+  part 1 engine runs.
+- Paid collection with `SCREAMINGFACE_TEST_PAID=1`: 2 tests collected. Not run (no live call).
+
+### Deviations at commit A
+
+- F4 (`test_signal_recipes.py`) imports `by_model` and `run_logprob_candidate` from
+  `_logprob_world.py` (the §4.4 rule). It does not write the §3.4 helpers `_Reply`,
+  `_logprobs_block`, `_gateway` and `_run`. It keeps `_recipe`, `_envelope` and `_member_calls`.
+- F1 and F2 and F3 wrap two 64-character hash values in parentheses in `_PART1_FIXTURE_SHA256`,
+  and wrap one `write_text` call and two comments, to meet the 100-column limit (ruff E501 has no
+  `noqa` convention in this repo). Values are unchanged; the CHAR cases pass.
+- Row 9 (paid) checks the full refusal phrase, not the first 30 characters (§2 found the phrase).
+- Row 8 (paid) includes the optional `combine.declared` assert (§2 found `CombineEvidence.declared`).
+
+### Outcome (fill at the end)
+
+- **Actual files:** (commit A: ledger, F1–F5; commits B and C add the rest)
+- **RED:** see "RED record" above.
+- **Commits:** (A: test(e4b) RED; B: feat(e4b) fixtures and README; C: docs(e4b) CHANGELOG)
+- **Gates:** (after B and C)
+- **Paid:** not run (owner action). Command: see the unit spec §7.5.
+- **Deviations:** see "Deviations at commit A"; more in B and C.
