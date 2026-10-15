@@ -117,4 +117,4 @@ def test_only_rows_with_an_equivalence_proof_keep_a_revision() -> None:
     }
 
     # ifeval (OME-1527 row 15, OME-1610): the hand-built revision, kept on the local Task.
-    assert keeping == {"ifeval": ("1cba769ece27f7ef", "9d88d67cf2ce2be5")}
+    assert keeping == {"ifeval": ("1cba769ece27f7ef", "ada07458a23c55ab")}

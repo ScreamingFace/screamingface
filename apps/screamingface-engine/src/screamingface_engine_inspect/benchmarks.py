@@ -4500,7 +4500,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Keeps the hand-built Benchmark's published revision, so its leaderboard results
         # stay visible (owner decision, OME-1610): the recorded Corrective Loop golden replays
         # with zero misses on the local Task, the proof the exam is unchanged.
-        kept_revision=("1cba769ece27f7ef", "9d88d67cf2ce2be5"),
+        kept_revision=("1cba769ece27f7ef", "ada07458a23c55ab"),
         origin="screamingface",
         paper_url="https://arxiv.org/abs/2311.07911",
         authors="Zhou et al., 2023",

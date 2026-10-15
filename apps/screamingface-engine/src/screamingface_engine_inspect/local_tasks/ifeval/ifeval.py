@@ -58,6 +58,7 @@ from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.scorer import Metric, SampleScore, Score, Scorer, Target, metric, scorer
 from inspect_ai.solver import TaskState, generate
 
+from screamingface_engine.benchmarks.case_records import CANDIDATE_ABSTAINED
 from screamingface_engine_inspect.local_tasks.ifeval.grading import (
     check_case,
     describe_failures,
@@ -270,8 +271,19 @@ def ifeval_accuracy() -> Metric:
     strictly and 1 of 3 loosely → prompt-level strict 1/2 = 0.5, instruction-level strict
     1/4 = 0.25, prompt-level loose 1/2 = 0.5, instruction-level loose 2/4 = 0.5.
 
-    Raises KeyError on a Score that lacks its ``instructions``: only `instruction_following`
-    writes them, and a guessed count would publish a wrong number under the paper's name.
+    An ABSTAINED Case (its Score's metadata carries ``CANDIDATE_ABSTAINED: True``, the lane's
+    abstain mark on the zeroed Score it hands this metric) is a prompt failed strictly and
+    loosely, whatever verdicts its metadata holds: those are the checker's view of an empty
+    answer, and an abstain earns nothing. Its instructions count as failed when the metadata
+    lists them; a bare Score (inspect filed none, so no ``instructions``) counts as one failed
+    prompt with ZERO instructions, since the metric cannot know how many it had and a guessed
+    count would publish a wrong number. Worked example: Case A follows 1 of 1 instruction, an
+    abstained Case B lists 3 (any verdicts), a bare abstained Case C lists none → prompt-level
+    strict 1/3 = 0.3333, instruction-level strict 1/4 = 0.25.
+
+    Raises KeyError on a Score that is not abstained and lacks its ``instructions``: only
+    `instruction_following` writes them, and a guessed count would publish a wrong number under
+    the paper's name.
     """
 
     def compute(scores: list[SampleScore]) -> dict[str, float]:
@@ -280,11 +292,20 @@ def ifeval_accuracy() -> Metric:
         instructions_strict: list[bool] = []
         instructions_loose: list[bool] = []
         for sample_score in scores:
-            records: list[dict[str, Any]] = (sample_score.score.metadata or {})["instructions"]
-            strict: list[bool] = [bool(record["strict"]) for record in records]
-            loose: list[bool] = [bool(record["loose"]) for record in records]
-            prompt_strict.append(all(strict))
-            prompt_loose.append(all(loose))
+            metadata: dict[str, Any] = sample_score.score.metadata or {}
+            abstained: bool = metadata.get(CANDIDATE_ABSTAINED) is True
+            strict: list[bool]
+            loose: list[bool]
+            if abstained:
+                # Every listed instruction failed; a bare Score lists none (see the docstring).
+                strict = loose = [False] * len(metadata.get("instructions") or [])
+            else:
+                records: list[dict[str, Any]] = metadata["instructions"]
+                strict = [bool(record["strict"]) for record in records]
+                loose = [bool(record["loose"]) for record in records]
+            # WHY `not abstained`: all([]) is True, and a bare abstain must still fail its prompt.
+            prompt_strict.append(not abstained and all(strict))
+            prompt_loose.append(not abstained and all(loose))
             instructions_strict.extend(strict)
             instructions_loose.extend(loose)
         inst_level_strict: float = _accuracy(instructions_strict)
