@@ -342,13 +342,107 @@ PRD `rank-and-cut`, rows RK#1 to RK#13, and guard RK-N1. Decisions: P6, P7, P11,
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:** RED (commit A). Not yet GREEN. Unit not done.
-- **Actual files:** (commit A) see Commits.
-- **Commits:** (commit A) pending the RED commit hash.
-- **Gates:** not run yet at commit A.
-- **RED log:** pending (filled in after the focused RED run).
+- **Status:** DONE. The GREEN code is written. The owner approved the one-line count edit
+  (D-3, 2026-10-15). All three stacks are green, except the append-only check of the two stacks
+  that have pinned edits (see Gates). Commit B holds the code, the regenerated fixture, the count
+  edit and this ledger text.
+- **Actual files (uncommitted, on top of commit A `a7abc2639`):**
+  `apps/screamingface-engine/src/screamingface_engine/combine/ports.py` (one select-only check,
+  one docstring sentence),
+  `apps/screamingface-engine/src/screamingface_engine/combine/operators/selection.py` (`_ranked`,
+  `top_k_ranks`, `top_k_cut`, descriptor hooks), `apps/screamingface-engine/src/screamingface_engine/combine/endpoint.py`
+  (`_Plan.ranks`, `_Plan.cut`, `_cut`, `_evidence`, `_member_record`),
+  `apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json` (pinned, regenerated
+  by the script of the spec §5; the diff check passes), and this ledger.
+- **Commits:** A `a7abc2639` (RED). Base of this unit: unit 2 tip `92cf6011e`. B: not made.
+- **Gates** (`run_gates.py <stack> --base 0f4b9e292`):
+  - `screamingface-engine`: append-only check FAILS. It lists `evidence_cases.json` (this unit,
+    pinned), `combine-evidence.v1.json` (unit 1, P-1) and `tests/unit/test_combine_weighted_vote.py`
+    (unit 2 RED commit `9b24dd9d9`, not this unit). Rerun with `--skip-append-only`: ALL GATES
+    GREEN (ruff check, ruff format, pyright, layering, pytest with coverage).
+  - `screamingface`: append-only check FAILS. It lists `answer.v1.json` (P-2), `public_surface_snapshot.json`
+    (P-3), `tests/test_pick_output.py` (P-4), all unit 1, and `tests/test_frozen_record_fields.py`
+    (unit 2 RED commit `9b24dd9d9`). Rerun with `--skip-append-only`: ruff, format and pyright
+    pass. pytest: 4300 passed, 32 skipped, 1 FAILED (see D-3). Coverage 97.04 %.
+  - `repo`: ALL GREEN (append-only check passes for this stack).
+  - Focused tests: engine `test_combine_rank_cut.py` and `test_combine_rank_cut_world.py` 50 passed;
+    the plan §5 engine group 539 passed; ES#1 (`evidence_without_new_values_keeps_v1_bytes`) and
+    EX#3 (`case_answers_do_not_change_with_exclusion`) pass; `test_combine_evidence_contract_fixture.py`
+    32 passed. SDK `test_combine_rank_cut.py`, `test_combine_evidence_contract.py`,
+    `test_evidence_fixture_agreement.py`, `test_combine_evidence.py`: 84 passed.
+  - No flaky test in this run. Retries: 0 for the code. The known flaky tests of OME-1619 did not fail.
+  - Rerun after the review fixes (D-4, ledger text): the same results. `screamingface-engine`:
+    append-only check FAILS on the same 3 files; with `--skip-append-only` ALL GATES GREEN.
+    `screamingface`: append-only check FAILS on the same 4 files; with `--skip-append-only` ruff,
+    format and pyright pass, pytest 4300 passed, 32 skipped, 1 FAILED
+    (`test_fixture_answers_and_traces_use_the_frozen_fields`, `assert 32 == 30`, D-3), coverage
+    97 %. `repo`: ALL GATES GREEN. No flaky test.
+  - Final run (the tree of commit B, 2026-10-15). `screamingface-engine`: append-only check
+    lists 3 files (`evidence_cases.json`, the pinned data of unit 3; `combine-evidence.v1.json`,
+    P-1; `tests/unit/test_combine_weighted_vote.py`, D-2). With `--skip-append-only`: ALL GATES
+    GREEN. `screamingface`: append-only check lists 4 files (`answer.v1.json`, P-2;
+    `public_surface_snapshot.json`, P-3; `tests/test_pick_output.py`, P-4;
+    `tests/test_frozen_record_fields.py`, D-2 and D-3). With `--skip-append-only`: ALL GATES
+    GREEN, pytest green with the count at 32. `repo`: ALL GREEN, no skip. Focused: `test_combine_rank_cut.py`,
+    `test_combine_rank_cut_world.py`, `test_combine_evidence_contract_fixture.py`: 85 passed. ES#1
+    and EX#3: 33 passed (`-k` run over the two files). The diff check of plan §5 step 5 passes.
+    No flaky test.
+- **RED log:** commit A `a7abc2639` was re-run from an exported copy (`git archive`), with the
+  venvs of this worktree. No RED test fails on an import error. RK#1 passes (CHAR).
+  - Engine, 24 failed, 61 passed (`test_combine_rank_cut.py`, `test_combine_rank_cut_world.py`,
+    `test_combine_evidence_contract_fixture.py`):
+    - `test_ranks_follow_the_top_k_order_for_min`: `assert [None, None, None, None] == [4, 1, 3, 2]`
+    - `test_ranks_and_tie_for_max_with_equal_scores_at_the_cut`: `assert [None, None, None] == [1, 2, 3]`
+    - `test_cut_writes_k_and_the_default_order`: `KeyError: 'cut'`
+    - `test_chosen_equals_members_ranked_within_k`: `KeyError: 'cut'`
+    - `test_judge_scored_rank_has_ranks`: `assert [None, None, None] == [3, 1, 2]`
+    - `test_cut_not_met_still_writes_ranks_and_cut`: `assert [None, None, None] == [2, None, 1]`
+    - `test_unscored_member_has_no_rank_key[failed]`, `[excluded]`: `assert [None, None, None] == [2, None, 1]`
+    - `test_a_failed_member_with_a_judge_score_keeps_its_rank`: `assert [None, None] == [2, 1]`
+    - `test_steps_other_than_top_k_keep_their_bytes` (RK#9), the 5 rank scenarios only
+      (`rank_by_judge`, `rank_by_signal`, `rank_cut_not_met`, `rank_min_cost`,
+      `rank_reduce_abstain`): `assert ('cut' in {...}) is True`
+    - `test_k_equal_to_scored_count_chooses_all`: `assert [None, None, None, None] == [3, None, 1, 2]`
+    - `test_all_equal_scores_rank_in_author_order[max]`, `[min]`: `assert [None, None, None, None] == [1, 2, 3, 4]`
+    - `test_reduce_abstain_writes_cut_without_ranks[reduce_abstains]`, `[no_voter]`: `KeyError: 'cut'`
+    - `test_only_a_select_operator_may_declare_ranks_or_a_cut` (RK-N1): `Failed: DID NOT RAISE ValueError`
+    - `test_combine_rank_cut_world.py::test_sdk_rank_recipe_run_writes_rank_and_cut` (RK#13a):
+      `assert [None, None, None] == [3, 1, 2]`
+    - `test_the_engine_evidence_is_the_fixture_byte_for_byte[rank_min_cost]`, `[rank_reduce_abstain]`:
+      `KeyError` on the case name
+    - `test_the_fixture_holds_exactly_the_scenarios`: the scenario lists differ
+  - SDK, 4 failed, 31 passed (`test_combine_rank_cut.py`, `test_combine_evidence_contract.py`):
+    - `test_sdk_reads_rank_and_cut_from_a_rank_run` (RK#13b): `AssertionError: regenerate
+      evidence_cases.json (E4b part 2 unit 3)`
+    - `test_the_engine_fixture_holds_the_25_scenarios`: the `_EXPECTED_NAMES` set differs
+    - `test_an_engine_evidence_decodes_and_round_trips_exactly[rank_min_cost]`,
+      `[rank_reduce_abstain]`: `KeyError` on the case name
+  - After the GREEN code, all these tests pass. Pyright and ruff are clean in both stacks.
 - **Deviations:** (pre-filled) D-1: plan §6 names only `rank_cut_not_met` among the changed
   evidence cases. `rank_by_judge` and `rank_by_signal` are `top_k@1` steps too, so P6 and P7 make
   them gain `rank` and `cut` as well. The pinned file is the same.
-- **Approval blobs:** for each pinned file: the blob at `0f4b9e292`, the blob at the unit 2 tip,
-  and the blob after commit B (plan section 5 command).
+  - D-2: the append-only offenders `tests/unit/test_combine_weighted_vote.py` (engine) and
+    `tests/test_frozen_record_fields.py` (SDK) were changed by the unit 2 RED commit `9b24dd9d9`.
+    This unit did not change them. Plan §6 covers them under the unit 2 catch-all.
+  - D-3 (APPROVED by the owner, 2026-10-15): `packages/screamingface/tests/test_frozen_record_fields.py`,
+    line 184, function `test_fixture_answers_and_traces_use_the_frozen_fields`: the literal
+    `len(wires) == 30` becomes `len(wires) == 32`. This is the smallest edit (one line). The
+    fixture holds 32 cases (2 new rank cases), so the assertion is true. The spec did not list
+    this file as a pinned edit. The owner standing rule (2026-10-15) applies to later units: when
+    a unit adds evidence cases, the case-count literal in this line may be bumped by one line,
+    and the bump is reported as a pinned edit.
+  - D-4 (review fix): spec §2.3 item 2 asks for a sentence in the `_Plan` docstring. The first
+    GREEN pass used an inline field comment. The review fix moves the text into the `_Plan`
+    docstring, as the spec says: "``ranks`` and ``cut``: the hooks of a select step that ranks
+    (``top_k@1``); the cut is read once from the checked args." The inline comment is removed.
+  - D-5 (review note): the PRD §4 NFR says "the ranks reuse the one sort of top_k@1". The code
+    shares one ordering function, `_ranked`, and does not share one sort: `top_k` and
+    `top_k_ranks` each sort once per call. The unit spec chose this design. It stays
+    O(n log n) for n <= 256. No change.
+  - D-6 (review note): commit A uses the message style of the unit 2 RED commit `9b24dd9d9`, not
+    the spec §7 text. It is not amended. Commit B uses the spec §7 message.
+- **Approval blobs** (for each pinned file: blob at `0f4b9e292`, blob at the unit 2 tip `92cf6011e`,
+  blob now (before commit B)):
+  - `apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json`: `ecf2f814a51548ff56df7a12d2f51fd6beab2b44` → `46fa01af12e63b03b12dba799e9bde29aaf30a45` → `22d54b15b8c5d8f312b1a962ef6f590b61aa4791`
+  - `apps/screamingface-engine/tests/unit/test_combine_evidence_contract_fixture.py`: `f55477f5d3686514d18ad1cb0f7183c6cb6385cf` → `57a6642a98463becd181db9f5284356c6aa9260a` → `b7100e62690d9dd01432ae599547906618924c4e`
+  - `packages/screamingface/tests/test_combine_evidence_contract.py`: `fab1c0db10ea4f66ca5f2d8642937d255e7165c4` → `c92903a0a4f8d437f97c9be41e7a2f1e4153b7cb` → `3aaa863684aa156cd2b80e0bcd30e08d33c406fd`
