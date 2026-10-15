@@ -257,10 +257,22 @@ cells, no host zebra rows). `STYLE` is joined into `report_view._STYLE` directly
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:** in_progress. Commit A (RED) is written. GREEN is not started.
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Status:** done. Commit A (RED) and commit B (GREEN) are both on the branch.
+- **Actual files:** `packages/screamingface/src/screamingface/_ui/combine_view.py` (new; the RED
+  stub of commit A, then the GREEN module of commit B); `packages/screamingface/src/screamingface/_ui/report_view.py`
+  (two lines: the `COMBINE_STYLE` import and the join in `_STYLE`); `packages/screamingface/tests/test_combine_display_format.py`
+  (new, commit A only); this ledger. No other file changed. No pinned file changed.
+- **Commits:** commit A `d0cd6dbd3` (`test(e4b): RED for the Combine display format (part 4 unit 2)`,
+  as committed by the RED step). Commit B is the next commit on the branch (`feat(e4b): add the
+  Combine display format helpers and style (part 4 unit 2)`), and it holds this Outcome.
+- **Gates:** `screamingface --base 46641af03` (unit 1 tip): ALL GATES GREEN (append-only check
+  passes, ruff check, ruff format --check, pyright, full pytest with the 95 percent floor,
+  check_notebooks, uv build, check_distribution). `screamingface --base 9f42391eb`: the append-only
+  check lists ONLY the three unit 1 pinned files (`tests/data/report_v1_combine_report.json`,
+  `tests/data/report_v1_vote_median_report.json`, `tests/test_e4b_schema_pins.py`); the runner
+  stops there, as the spec expects. `repo --base 9f42391eb`: ALL GATES GREEN, no skip flag.
+  Focused: `tests/test_combine_display_format.py` gives `16 passed`; the 8 existing report test
+  files give `96 passed`.
 - **RED log:** `uv run pytest tests/test_combine_display_format.py -q` gives `14 failed, 2 passed
   in 0.10s` (matches §3.2). Passed: `test_score_text_keeps_six_significant_digits`,
   `test_cost_cell_dash_has_a_title`. Failed with `NotImplementedError` (`_ui/combine_view.py` lines
