@@ -1,7 +1,7 @@
 ---
 ticket: unfiled   # epic OME-1290 is the parent; the leaf is filed at PR-open
 stack: screamingface, repo
-status: planned   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-15
 finished:
 ---
@@ -113,3 +113,80 @@ A spec review gave 2 MAJOR and 14 MINOR findings. All are applied in the commit
 
 Spec written and reviewed. Build not started. The units append their sections (Intent, Planned changes, Pinned
 edits, Test plan, Acceptance, Deviations, Outcome) below.
+
+## Unit 1: the Case trace in the report.v1 export (`trace`)
+
+### Intent
+
+PRD `export-trace`, rows XT#1–13 (ans:Q1 "Trace in the JSON export"; P1–P4, P15, P20, N1). Each
+exported Case with combine evidence in `case.operations` gets a last key `trace`: its
+`screamingface.report-trace.v1` entries, built with the Candidate's own graph. Every other Case and
+key keeps its bytes; `CaseResult.to_dict()` does not change; the schema id stays
+`screamingface.report.v1`. One private builder, `_case_entries`, serves the export and
+`trace_dict()` (EC-I2 by construction). No public name, no Engine, wire or url4 change.
+
+### Planned changes
+
+- `S/report.py`: `CandidateResult._export_cases` (new private generator), `CandidateResult.to_dict`
+  uses it, module-level `_case_entries` (new), `_candidate_trace` uses it, the `Report.trace_dict`
+  docstring.
+- `S/_report_export.py`: `iter_report_json` uses `candidate._export_cases()`.
+- New test file: `ST/test_export_trace.py` (13 tests).
+
+### Pinned edits
+
+- `packages/screamingface/tests/data/report_v1_combine_report.json`: regenerated; `,"trace":[...]`
+  at the end of Case 3 only.
+- `packages/screamingface/tests/data/report_v1_vote_median_report.json`: regenerated with
+  `write_golden()`; `,"trace":[...]` at the end of Case 1 of `vote` and of `median` only.
+- `packages/screamingface/tests/test_e4b_schema_pins.py`: lines 29 and 33 (the two SHA-256 values
+  of those goldens). Line 25 (report-trace.v1) and the docstring stay (N5).
+
+### Test plan
+
+- 13 PRD rows in PRD §7 order. CHAR: XT#1–3. RED: XT#4–11, XT#13. PIN: XT#12 (reads the golden
+  files; RED until the regeneration).
+- No stub: every test goes through `to_dict`, `to_json`, `export`, `inline_json`, `trace_dict` or
+  the golden files.
+- Invariants: EC-I1 (export minus `trace` == `case.to_dict()`), EC-I2 (`trace` == `trace_dict()`
+  entries), EC-I3 (no member output text except `raw`/`value`; fixture limit `last_number@1`),
+  EC-I4 (`case.to_dict()` has no `trace`), EC-I5 (schema id unchanged). Oracles are hand-computed
+  from `combine_evidence_cases.json` and the vote/median replies.
+
+### Acceptance
+
+- `report.to_dict()`, `report.to_json()`, `report.export(path)` and the inline download link carry
+  the same `trace` on each Case with combine evidence, as the last key (after `abstained`).
+- A Case with no operations, no combine evidence, or Attempts has no `trace` and equals
+  `case.to_dict()`.
+- The two goldens change only by the `trace` keys (§5 step 5 check); their SHA-256 are
+  `85fb1253…e5de911a` and `47c658fb…38bc390`.
+- `screamingface` gates green except the append-only check, which lists only the three pinned
+  files; `repo` gate green.
+
+### Deviations
+
+- (pre-filled) D-1: the copied `_candidate` helper computes `coverage` from its Cases instead of
+  `1.0` (PRD §7 says copy it and add `operations` and `cases`). WHY: `sf.CandidateResult` refuses a
+  coverage that does not match the Cases, and XT#7 holds a failed Case.
+- (pre-filled) D-2: XT#7 and XT#8 each add one Case WITH combine evidence beside the Cases under
+  test, so the row is RED before the change (a pure "no trace" check passes today) and a
+  "trace on every Case" bug fails it.
+- (pre-filled) D-3: XT#12 is a new test in `ST/test_export_trace.py`
+  (`test_report_v1_goldens_hold_the_trace`) that reads the regenerated golden files with
+  hand-computed oracles; the existing identity and pin tests still check the bytes.
+
+### Notes for the review
+
+- `S/_case_views.py:1` says the views are "Never serialized". After this unit the trace is in the
+  export. Not changed here (out of the PRD scope); the reviewer or unit 5 may decide.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:**
+- **Actual files:**
+- **Commits:**
+- **Gates:**
+- **RED log:**
+- **Flakes:**
+- **Approval blobs:** (path, blob at `9f42391eb`, blob after commit B — §5 command)
