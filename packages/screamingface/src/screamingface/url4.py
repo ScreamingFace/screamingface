@@ -51,7 +51,7 @@ from screamingface._operation_bindings import (
 )
 from screamingface.blocks import Reduce
 from screamingface.reducer import Reducer, _ModelSignal
-from screamingface.warnings import DuplicateMembersWarning
+from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
 if TYPE_CHECKING:
     from screamingface._evaluation.benchmark import _CheckSurface
@@ -429,9 +429,10 @@ def _require_recompiles(
     """Refuse a url4 unless the Recipe it describes recompiles to it byte for byte.
 
     The compiler is the protocol's one authoritative implementation. The operators come from the
-    ids the url4 itself pins, so the check needs no I/O. WHY the warning is silenced: this
+    ids the url4 itself pins, so the check needs no I/O. WHY the warnings are silenced: this
     recompile only proves the url4 is canonical; the researcher already heard about a duplicate
-    member when they compiled the Candidate, and recovery runs far from their code.
+    member or a writer that uses the judge's model when they compiled the Candidate, and recovery
+    runs far from their code.
     """
 
     from screamingface._evaluation.candidate import compile_candidate
@@ -439,6 +440,7 @@ def _require_recompiles(
     operators = _OperatorCatalog.from_pinned(_combine_operator_pairs(calls))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DuplicateMembersWarning)
+        warnings.simplefilter("ignore", JudgeWriterWarning)
         expected = compile_candidate(recipe, check_surface=check_surface, operators=operators).url4
     if render(candidate) != expected:
         raise ValueError("URL4 Candidate does not match its Recipe metadata")

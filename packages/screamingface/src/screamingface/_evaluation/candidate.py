@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import re
 import warnings
 from collections import Counter
@@ -46,7 +47,7 @@ from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 from screamingface.reducer import Reducer
-from screamingface.warnings import DuplicateMembersWarning
+from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
 if TYPE_CHECKING:
     from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
@@ -117,6 +118,7 @@ def compile_candidate(
             benchmark_rule=benchmark_rule,
             claims=first.claims,
             warned_fusions=first.warned_fusions,
+            warned_pipelines=first.warned_pipelines,
         ).compile(recipe)
     except RenderError as exc:
         raise PlanningError(
@@ -166,12 +168,14 @@ class _CandidateCompiler:
         benchmark_rule: _BenchmarkAnswerRule | None = None,
         claims: Mapping[CallFingerprint, int] | None = None,
         warned_fusions: set[int] | None = None,
+        warned_pipelines: set[int] | None = None,
     ) -> None:
         self._sources: list[Node] = []
         self._operations: list[OperationInfo] = []
         self._parameter_assignments: list[_ModelParameterAssignment] = []
         self._active: set[int] = set()
         self._warned_fusions: set[int] = set() if warned_fusions is None else warned_fusions
+        self._warned_pipelines: set[int] = set() if warned_pipelines is None else warned_pipelines
         self._model_count = 0
         self._synthesis_count = 0
         self._panel_count = 0
@@ -201,6 +205,12 @@ class _CandidateCompiler:
         """The Fusions that already warned about duplicate members (pass 2 must not warn again)."""
 
         return self._warned_fusions
+
+    @property
+    def warned_pipelines(self) -> set[int]:
+        """The Pipelines that already ran the judge-writer check (pass 2 must not warn again)."""
+
+        return self._warned_pipelines
 
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
         if getattr(recipe, "optional", False):
@@ -683,6 +693,11 @@ class _CandidateCompiler:
             models = _ordered_unique((*models, *resolved.models))
             calls = (*calls, *resolved.calls)
             stage_topologies.append(_required_topology(resolved))
+        # WHY once per Pipeline object: a corrective loop recompiles its member every round, and
+        # the accounting pass compiles the whole Recipe a second time (JW-D2).
+        if id(pipeline) not in self._warned_pipelines:
+            self._warned_pipelines.add(id(pipeline))
+            _warn_judge_writer(pipeline)
         assert resolved is not None
         return _ResolvedRecipe(
             reference=resolved.reference,
@@ -796,6 +811,11 @@ def _fusion_context(
     return render(struct(value))
 
 
+# The key of the reducer model call that scores the members (P9): E4a pairs it with exactly the
+# three ways the Engine reads a judge (the judge reducer, scores@1 by judge, score:judge).
+_JUDGE_CALL_KEY = "judge"
+
+
 def _warn_duplicate_members(fusion: Fusion) -> None:
     """Warn for each group of direct Model members that send one identical request.
 
@@ -832,6 +852,44 @@ def _warn_duplicate_members(fusion: Fusion) -> None:
 def _positions(positions: list[int]) -> str:
     head = ", ".join(str(position) for position in positions[:-1])
     return f"{head} and {positions[-1]}"
+
+
+def _warn_judge_writer(pipeline: Pipeline) -> None:
+    """Warn when a stage writes with the model that judged the stage just before it (JW-1).
+
+    WHY a warning and not an error (ans:Q1): one strong model in two roles is a legal recipe,
+    but the epic rule is "the writer is not the scorer", so the researcher must hear it before
+    the run is paid. Only adjacent stages count, and only a direct Model writer (P10). Both
+    sides go through _canonical_model, so "/a/b" and "a/b" are one model (review M2). The
+    message names the Pipeline, the two stage positions and the route, never a prompt, a
+    rubric or a member.
+    """
+
+    for position, (stage, following) in enumerate(itertools.pairwise(pipeline.stages), start=1):
+        route = _judge_route(stage)
+        if route is None or not isinstance(following, Model):
+            continue
+        if _canonical_model(following.model) != route:
+            continue
+        warnings.warn(
+            f"Pipeline {pipeline.name!r}: stages {position} and {position + 1} use the same "
+            f"model {route!r}: stage {position} scores the members as the judge, and stage "
+            f"{position + 1} writes the answer, so the writer is also the scorer. Give one of "
+            "the two stages another model, or keep both and ignore this warning.",
+            JudgeWriterWarning,
+            skip_file_prefixes=(SDK_PACKAGE_ROOT,),
+        )
+
+
+def _judge_route(stage: Recipe) -> str | None:
+    """The canonical route of the judge that a reducer Fusion stage reads, else None (P9)."""
+
+    reducer = stage.synthesizer if isinstance(stage, Fusion) else None
+    # sf.Reduce("context") has no combine call and no plan to read (the Fusion rewrite owns it).
+    if not isinstance(reducer, Reducer) or not reducer._compiles_to_combine():
+        return None
+    judges = [call for call in reducer._plan().signal_calls if call.key == _JUDGE_CALL_KEY]
+    return _canonical_model(judges[0].model) if judges else None
 
 
 def _member_calls(members: tuple[_ResolvedRecipe, ...]) -> tuple[_SourceCall, ...]:
