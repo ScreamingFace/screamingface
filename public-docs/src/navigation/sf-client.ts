@@ -1,12 +1,12 @@
 import type { NavEntry } from '@/composables/useDocNavigation'
 
-// The screamingface release these pages were written and verified against, shown once
-// in the sidebar footer. Update the label and the PyPI link when the pages are
-// re-verified against a newer release.
+// The screamingface release these pages were built at, shown once in the sidebar footer.
+// `__SF_CLIENT_VERSION__` is the newest release tag, injected at build time by
+// vite.config.ts, so the label follows each release without an edit here.
 export const sfClientVersion = {
   prefix: 'Based on state at',
-  label: '0.1.3',
-  url: 'https://pypi.org/project/screamingface/0.1.3/',
+  label: __SF_CLIENT_VERSION__,
+  url: `https://pypi.org/project/screamingface/${__SF_CLIENT_VERSION__}/`,
 }
 
 // The "Get started with SF Client" navbar tab: everything but the reference —

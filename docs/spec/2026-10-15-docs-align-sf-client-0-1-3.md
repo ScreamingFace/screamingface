@@ -25,7 +25,7 @@ The SF Client docs (`public-docs`) disagree with screamingface 0.1.3, the releas
 | D13 | The Gateway page stays: the AI gateway reaches model providers. | none |
 | D14 | Replace `hle` and the `draco-lite` and `07_ifeval_e2e` links with correct leaderboard links. | guides: Evaluation, Benchmarks, Url4, Leaderboards |
 | D15 | Document `sf.reports`. | Reports API, navigation |
-| D16 | The footer reads "Based on state at 0.1.3" and links the release. | `navigation/sf-client.ts` |
+| D16 | The footer reads "Based on state at <version>" and links that release's PyPI page. The version is the newest non-rc `screamingface-v*` tag, read at build time; the build fails when no tag is reachable. The deploy workflow checks out full history so the tag is found. | `navigation/sf-client.ts`, `vite.config.ts`, `deploy-public-docs.yml` |
 | D17 | The title "Reproduce DRACO state-of-the-art" stays. | Quickstart |
 | D18 | The `EngineUnavailableError` hint is not documented. | none |
 | D19 | Shared model calls: with the cache on, a model call runs once however many candidates use it. Calls are matched by a fingerprint of the route, prompt and parameters, not by model object, so two identical model objects share one call. The first candidate to run stores the response and the next one reuses it. | Caching, Engine, Overview, Quickstart |
@@ -60,7 +60,6 @@ Each is verified false on 0.1.3.
 
 - Package bugs `OME-1620` to `OME-1628`.
 - The url4 SDK page's CLI examples: they belong to the standalone `url4` package, which a screamingface install does not provide.
-- The deploy workflow.
 - Adding `sf.reports` to the public-surface snapshot (package change).
 
 ## Verification

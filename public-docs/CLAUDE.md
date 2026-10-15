@@ -134,9 +134,10 @@ export const sfClientNavigation: NavEntry[] = [
 
 **Versioning.** `sf-client.ts` also exports `sfClientVersion`
 (`{ prefix, label, url }`), rendered once in the sidebar footer rather than on
-each page. It names the `screamingface` release the pages were verified against
-(currently 0.1.3, linking its PyPI page); re-verifying against a newer release
-changes only that object.
+each page. Its label is the newest non-rc `screamingface-v*` git tag reachable from
+HEAD, injected at build time as `__SF_CLIENT_VERSION__` by `vite.config.ts`, and the
+link is that release's PyPI page. The build fails when no tag is reachable, so a CI
+checkout needs `fetch-depth: 0`.
 
 **How pages consume it:**
 
