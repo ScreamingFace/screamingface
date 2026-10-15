@@ -298,3 +298,69 @@ cells, no host zebra rows). `STYLE` is joined into `report_view._STYLE` directly
   - D-4: the RED stub has no `__all__`, so DF#11 fails on a value at commit A; the
     `report_view` join is in commit B only (with `STYLE = ""` it is a no-op).
 - **Pinned edits:** none.
+
+## Unit 3: the Combine section of the Case pane (`case-pane`)
+
+### Intent
+
+PRD `case-pane`, rows CP#1–18 (ans:Q1 "Case pane table", ans:Q2 "Every reducer step", ans:Q3;
+P8–P12, P15, P16, P18–P20). The "Answer & grading" view of each Case pane shows one Combine
+section per combine step, between the failures and the criteria: the step chips (F1–F10), one row
+per member (C1–C8) and the tally. A combine step with no evidence gets a short section with an
+`evidence · —` chip (P19). A Case with no combine step renders as before. All data text is escaped.
+No public name, no new bound, no change to the trace, the export or any record.
+
+### Planned changes
+
+- `S/_ui/combine_view.py`: `combine_sections_html` (called by the pane), `_is_combine`, `_label`,
+  `_table` (shared with unit 4, P20), `_heading`, `_no_evidence_section`, `_section`, `_chips`,
+  `_result_chip`, `_reads_chip`, `_judge_chip`, `_signal_head`, `_member_row`, `_number_cell`,
+  `_tally_html`; constants `_NUMBER_COLUMNS`, `_NO_EVIDENCE`, `_NO_JUDGE_MODEL`.
+- `S/_ui/report_view.py`: import `combine_sections_html`; `_pane_html` puts it between
+  `_case_failures_html(case)` and the criteria.
+- New test file `ST/test_combine_case_pane.py` (CP#1–18).
+- Pinned edits: none.
+
+### Test plan
+
+- 18 PRD rows in the PRD §7 order. CHAR: CP#1, CP#2. RED: CP#3–18.
+- Stub (commit A): `combine_sections_html` returns `""` and is not called; each RED test fails on
+  an assertion, never on an import error.
+- Every oracle is hand-written from CP-1..CP-E4 and CP-D1..CP-D7.
+
+### Acceptance
+
+- A plain majority vote (`vote_one_failed`) shows its whole section (CP-1 exact string).
+- The rank step shows `cut · top 3 · max`, the excluded member with its reason, scores and ranks.
+- The declared signal header names its source; the judge chip names the judge model or shows a
+  dash; a step that reads no judge has no judge chip.
+- Hostile text is escaped; two combine steps give two sections in order; a step with no evidence
+  gives the short section.
+- `screamingface --base <U2>` all green; `screamingface --base 9f42391eb` red only on the unit 1
+  pinned files; `repo` green.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:**
+- **Actual files:**
+- **Commits:**
+- **Gates:**
+- **RED log:**
+- **Deviations:** (pre-filled)
+  - D-1: CP-E3 / CP#12 part 2. The PRD wire declares the name `<b>k</b>`
+    (`declared {"<b>k</b>": {"source": "<x>"}}`). The SDK decoder refuses it: a declared NAME must
+    be a signal name (`is_signal_name`, `[a-z][a-z0-9_]{0,31}`;
+    `S/combine_evidence.py:391-402` `_declared_map`, "Combine evidence declared names must be declared
+    signal names"). The PRD sentence "The SDK decoder accepts both" is true only for the signal
+    key and the source. The test keeps both hostile strings on two columns: the plain signal key
+    `<b>k</b>` (header `<th scope='col'>&lt;b&gt;k&lt;/b&gt;</th>`, no title) and the declared name
+    `conf` with the source `<x>` (header `<th scope='col' title='source: &lt;x&gt;'>conf</th>`).
+    The P8 coverage is the same.
+  - D-2: CP-D4 / CP#8. The PRD oracle "no `<th scope='col'>score</th>`" for `vote_one_failed`
+    is false by construction: the tally table has its own `score` header cell. The test asserts the
+    whole member header `member, status, value, chosen`, no `weight` and no `rank` header, and
+    exactly one `score` header (the tally).
+  - D-3: CP-D6 / CP#16. `case.to_dict()` of the 256-member Case is 65,123 characters, not "about
+    51,000" (the PRD estimate). The oracle (> 32,000, so the preview falls back) holds.
+  - D-4: the PRD names six functions; the code has nine more private helpers so that each function
+    stays inside the SDK ruff limits (C901 8, PLR0912 7, PLR0911 3). Behavior is the PRD §2 text.
