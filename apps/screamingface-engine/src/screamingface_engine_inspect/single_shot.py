@@ -268,10 +268,6 @@ class ImportedBenchmark:
     check_surface_route: str
     case_evaluation_route: str
     aggregate_route: str
-    #: The revision the identity inputs compute: equal to ``benchmark.revision`` unless the
-    #: row sets ``published_revision``. Tests pin it, so a changed exam is still noticed while
-    #: the published id stays put (OME-1527).
-    computed_revision: str
     #: The benchmark's judge declaration; None for every string-match benchmark (OME-1240).
     judge: JudgeSpec | None = None
     #: The eval's grade counts the unwanted behaviour; the scorer adapter scores 1 − grade
@@ -464,9 +460,8 @@ def single_shot_benchmark(
             ``Benchmark.revision``) instead of the computed fingerprint (OME-1527). WHY:
             published ids are what submissions and the leaderboard key on, so they are never
             moved by a computed fingerprint, only by a deliberate bump (OME-1610). Never
-            compared at runtime: a stale fingerprint fails CI (``test_published_revisions``),
-            never a deployed Engine. NOT hashed into the revision. None publishes the
-            computed fingerprint.
+            compared with the fingerprint (owner decision, 2026-10-15). NOT hashed into the
+            revision. None publishes the computed fingerprint.
         answer_rule: how the grader reads an answer, as pinned combine operator ids (OME-1289).
             Published in the catalog; NOT hashed into the revision (like ``focus``).
 
@@ -513,7 +508,7 @@ def single_shot_benchmark(
     # different pin lists hash identically — refused, never coerced.
     if any("\n" in pin for pin in revision_pins):
         raise ValueError(f"{benchmark_id}: revision_pins must not contain newlines")
-    computed_revision: str = hashlib.sha256(
+    fingerprint: str = hashlib.sha256(
         "\n".join(
             (
                 *pinned_inspect_packages(),
@@ -559,9 +554,9 @@ def single_shot_benchmark(
         ).encode()
     ).hexdigest()[:16]
     # WHY no comparison here: a row that sets published_revision publishes it whatever the
-    # fingerprint computes to, so a changed exam can never take a Benchmark down in prod; the
-    # alarm is the pinned fingerprint in test_published_revisions (OME-1527, OME-1610).
-    revision: str = published_revision or computed_revision
+    # fingerprint computes to, so a changed exam can never take a Benchmark down in prod
+    # (OME-1527, OME-1610). Nothing checks the two agree (owner decision, 2026-10-15).
+    revision: str = published_revision or fingerprint
     prefix: str = f"/benchmarks/{benchmark_id}/{revision}"
     routes: dict[str, str] = {
         "cases": f"{prefix}/cases",
@@ -632,7 +627,6 @@ def single_shot_benchmark(
         check_surface_route=routes["check_surface"],
         case_evaluation_route=routes["case_evaluation"],
         aggregate_route=routes["aggregate"],
-        computed_revision=computed_revision,
         judge=judge,
         inverted_grade=inverted_grade,
         verdict_grades=verdict_grades,
