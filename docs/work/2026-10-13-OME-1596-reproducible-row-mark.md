@@ -43,13 +43,30 @@ Spec §7 and the Linear issue's acceptance list.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files (row 2, storage):** `scores/models/score.py`, `scores/models/score_metadata_event.py`,
-  `scores/migrations/0021_score_metadata_objects.py`, `scores/schemas.py` and `scores/store.py`
-  (read fields), tests `tests/unit/test_migration_0021_metadata_objects.py`,
-  `tests/unit/scores/test_metadata_columns.py`; approved prior-test changes recorded in
-  `.claude/test-change-approvals/OME-1596.json`.
-- **Commits:** row 2 (storage); later rows to follow.
-- **Gates:** see the commit; `run_gates.py scoreboard --base origin/main` green before it.
+- **Actual files:**
+  - Row 2 (storage): `scores/models/score.py`, `scores/models/score_metadata_event.py`,
+    `scores/migrations/0021_score_metadata_objects.py`, `scores/schemas.py` and `scores/store.py`
+    (read fields); tests `tests/unit/test_migration_0021_metadata_objects.py`,
+    `tests/unit/scores/test_metadata_columns.py`.
+  - Row 3 (metadata): new `scores/credit_metadata.py`; `scores/schemas.py`, `scores/store.py`,
+    `routes/scores.py`; tests `tests/unit/scores/test_credit_metadata.py`,
+    `tests/unit/test_score_credit_metadata.py`; spec section 3 gains (b) and (c).
+  - Row 4 (lookup): `routes/scores.py`, `scores/store.py`, `scores/schemas.py`; test
+    `tests/unit/test_pinned_cache_lookup.py`.
+  - Row 5 (rows and portal): `routes/leaderboard.py`, `scores/store.py`,
+    `portal/leaderboard-logic.js`, `portal/main.js`, `portal/benchmark.js`, `portal/spec.js`,
+    `portal/portal.css`; tests `tests/unit/test_leaderboard_pinned_cache.py`,
+    `tests/portal/reproduce-button.test.js`, `tests/portal/spec-meta-lines.test.js`;
+    `tests/portal/reproduced-count.test.js` deleted; `.github/workflows/scoreboard-tests.yml` and
+    `.claude/sdlc.local.md` list the two new Node files.
+  - Approved prior-test changes: `.claude/test-change-approvals/OME-1596.json`.
+- **Commits:** `8b8ee2246` storage; `8fa82a70c` metadata; `73f0cca3c` lookup; row 5 is the
+  commit that adds this outcome (`feat(scoreboard): offer a Reproduce button on captured rows`).
+- **Gates:** rows 2 to 4: `run_gates.py scoreboard --base origin/main` all green. Row 5: every
+  scoreboard gate green (ruff, format, pyright, pytest with coverage, the Node portal suite);
+  the append-only check reports only the owner-approved deletion of
+  `tests/portal/reproduced-count.test.js`, which cannot be blob-approved, so it rides the
+  owner's `--skip-append-only` press (the OME-1460 precedent). `run_gates.py repo` green.
 - **Deviations:**
   - The unique rule on `scores.frozen_copy_id` is a constraint (`unique_together` on the model,
     `AddConstraint` in 0021), not `unique=True` on the field: an AlterField rebuilds `scores` on
@@ -87,3 +104,10 @@ Spec §7 and the Linear issue's acceptance list.
     who holds the copy (never by the database error's text). Both paths, and the replay fill,
     were also exercised by hand on PostgreSQL 17 (docker); the shared `tortoise_db` fixture
     cannot run on PostgreSQL (OME-430), so CI covers them on SQLite.
+  - Row 5: `RankedLeaderboardEntry.pinned_cache` is excluded when null rather than served as
+    `null`, so a row with nothing to replay keeps the row shape the prior test
+    `test_ome894_guard_public_board_is_unchanged_anonymously` pins; a client reads absent and
+    null alike (no Reproduce). The Run cell is built by `renderRunCell(entry, showReproduce)`,
+    exposed with the switch on `window.SFBenchmarkPage` so the portal tests can render both
+    settings without editing the shipped constant. `createCopyButton` gained optional
+    `ariaLabel` and `title`; the existing Copy button is unchanged.

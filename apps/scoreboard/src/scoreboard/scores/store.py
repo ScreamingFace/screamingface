@@ -2283,6 +2283,25 @@ class ScoreStore:
             )
         }
 
+    async def pinned_caches_for_score_ids(
+        self, score_ids: Sequence[str], *, connection: BaseDBAsyncClient | None = None
+    ) -> dict[str, str]:
+        """The pinned cache of each listed score whose run was fully captured (OME-1596).
+
+        A score maps to its `frozen_copy_id` only when `capture_status` is `complete` and the id is
+        set; every other score is absent, which the route serves as null (nothing to replay).
+
+        INVARIANT: selects `id`, `frozen_copy_id` and `capture_status` and nothing else, bounded by
+        the page, for the reason `models_for_score_ids` records.
+        """
+        return {
+            str(row["id"]): str(row["frozen_copy_id"])
+            for row in await _chunked_values(
+                score_ids, "id", "frozen_copy_id", "capture_status", connection=connection
+            )
+            if row["capture_status"] == "complete" and row["frozen_copy_id"] is not None
+        }
+
     async def frontier_history_inputs(
         self,
         benchmark_id: str,

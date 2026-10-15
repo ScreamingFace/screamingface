@@ -295,6 +295,15 @@ table .btn { white-space: nowrap; }
   margin: 0 0 var(--space-6);
 }
 
+/* ---- Run column: Reproduce stacked under Copy ------------------------- */
+/* Two copy actions in one cell, one above the other, left-aligned like the single button. */
+.run-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
 /* ---- responsive ------------------------------------------------------ */
 @media (max-width: 639px) {
   /* sf:// deep-links are not useful on narrow screens; collapse the column. */
