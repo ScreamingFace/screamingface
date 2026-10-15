@@ -33,11 +33,25 @@ the wire key `signals`, the evidence key `declared` and the rule "record every d
   [existing E/combine/endpoint.py:381-397]
 - The engine computes only the one read key per member. With no read, `signals` is `{}`.
   [existing E/combine/endpoint.py:219-233]
+- The url4 → Python rebuild (`to_python`) decodes a combine spec only when its keys are exactly the
+  eight E4a keys. [existing S/url4.py:97]; [existing S/_evaluation/combine_spec.py:19-21,143]
 
 **Delta.** Add `signals=` to `sf.Fusion`. `sf.signal` also accepts a name with the declared-name
 syntax. The Fusion checks every name its rules read. The SDK compiles the declaration into the
 spec key `signals`. The engine parses it, computes every declared name for every member, and
-writes the values and the `declared` map into the evidence.
+writes the values and the `declared` map into the evidence. The rebuild accepts the optional
+`signals` key and gives the declaration back, without the injected member params.
+
+**New refusal text of `S/_signals.py:181-185`** [proposed] (it keeps `E4b` and `cost_usd`, so the pins
+`ST/test_signals.py:25-28` still pass):
+
+- a key that starts with a reserved word: `"'logprob_mean' is reserved: names that start with
+  logprob, entropy, verbalized or consistency belong to E4b declared sources; declare a name such as
+  signals={'lp': sf.Logprob('mean')} and read sf.signal('lp'); E4a signal keys are cost_usd,
+  latency_ms, tokens_in, tokens_out, score:judge and field:<path>"`;
+- any other invalid text (`""`, `"Cost_usd"`): `"'Cost_usd' is not a signal key or a declared name;
+  E4a signal keys are cost_usd, latency_ms, tokens_in, tokens_out, score:judge and field:<path>; an
+  E4b declared name matches [a-z][a-z0-9_]{0,31}"`.
 
 ## 3. Scenarios and acceptance criteria
 
@@ -85,10 +99,16 @@ writes the values and the `declared` map into the evidence.
   declared value is None and the Case abstains with `no_votes`, as today.
 - **DS-D7** (M×M) [implied] Given a member that a quorum panel left out (status `fail`, reason
   `missing`), then each of its declared values is None.
-- **DS-D8** (M×L) [implied] Given `repr(fusion)` and its Python form, then the `signals` map
-  round-trips, and a rebuilt Fusion compiles to the same bytes.
+- **DS-D8** (H×M) [implied] Given a compiled Fusion with a declaration, then the url4 → Python rebuild
+  (`to_python`, with `decode_combine_spec` that accepts the optional `signals` key) gives the same
+  Fusion, and `repr(fusion)` round-trips. A rebuilt Fusion compiles to the same bytes.
+  [existing S/url4.py:97]; [existing S/_evaluation/combine_spec.py:19-21,143]
 - **DS-D9** (M×L) [proposed] Given the same source declared under two names, then both names get
   the same value. This is allowed.
+- **DS-D10** (H×M) [proposed] Given a rebuilt Fusion that declares `logprob` or `entropy`, then its
+  members do NOT carry `logprobs` or `top_logprobs` as user params; the rebuild drops the params that
+  the declaration injects. A member param of the same name that the author set by hand, on a Fusion
+  without such a declaration, stays.
 
 ## 4. Non-functional requirements
 
@@ -118,7 +138,7 @@ engine parse, engine record).
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
 | 1 | CHAR `fusion_without_signals_compiles_the_same_bytes` | unit | DS-2 | H×M | passes today |
-| 2 | CHAR `signal_logprob_mean_is_refused_with_the_e4b_message` | unit | DS-D1 | H×H | passes today; must stay green |
+| 2 | CHAR `signal_logprob_mean_is_refused_with_the_e4b_message` | unit | DS-D1 | H×H | passes today; must stay green with the new text above |
 | 3 | CHAR `engine_refuses_undeclared_logprob_mean_everywhere` (weights, by_signal, filter) | unit | DS-D1 | H×H | passes today |
 | 4 | `fusion_refuses_a_rule_that_reads_an_undeclared_name` | unit | DS-E1 | H×H | walk `reducer_signals` references |
 | 5 | `fusion_refuses_invalid_and_reserved_names` | unit | DS-E3 | H×M | name regex, reserved prefixes, E4a keys |
@@ -130,5 +150,6 @@ engine parse, engine record).
 | 11 | `engine_records_every_declared_name_for_every_member` (one case declares one source twice) | unit | DS-3, DS-D3, DS-D9 | H×M | `_signal_values` over read key + declared names |
 | 12 | `evidence_declared_equals_the_spec_signals` | unit | DS-4 | M×M | optional key, `exclude_if` like `mean` |
 | 13 | `empty_panel_and_missing_member_get_none_for_declared_names` | unit | DS-D6, DS-D7 | M×M | — |
-| 14 | `fusion_signals_round_trip_through_repr_and_rebuild` | unit | DS-D8 | M×L | `__repr__`, `_python`, rebuild |
+| 14 | `fusion_signals_round_trip_through_url4_rebuild_and_repr` | unit | DS-D8 | H×M | `decode_combine_spec` accepts `signals`; `to_python`; `__repr__` |
 | 15 | `sdk_decoder_reads_declared_and_rejects_unknown_keys` | unit | DS-4 | M×M | `_OPTIONAL_EVIDENCE_KEYS` |
+| 16 | `rebuild_drops_injected_params_and_keeps_authored_ones` | unit | DS-D10 | H×M | strip only the declared injection |

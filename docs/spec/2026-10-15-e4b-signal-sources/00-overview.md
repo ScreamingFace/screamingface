@@ -21,8 +21,10 @@ them:
 `logprob` and `entropy` work on OpenRouter models only in v1. A model that cannot return logprobs
 fails with the new code `logprobs_unsupported`.
 
-No url4 grammar change and no new schema id. One new failure code (`logprobs_unsupported`). A gateway
-change is possible only if unit 1 shows that the refusal cannot be told apart (see §7).
+No url4 grammar change and no new schema id. One new failure code (`logprobs_unsupported`). The SDK
+preflight refuses a model that the gateway catalog marks without logprobs before any spend. A small
+aigateway change (an own error code for the refusal) is part of this part only if unit 1 shows that
+the refusal cannot be told apart (ans:Q13).
 
 **Path prefixes.** `E/` = `apps/screamingface-engine/src/screamingface_engine/`,
 `S/` = `packages/screamingface/src/screamingface/`, `G/` = `apps/aigateway/src/aigateway/`,
@@ -66,18 +68,19 @@ are on base `0f4b9e292`.
 
 | PRD | Lifecycle | Scenarios (happy / error / derived) | TDD rows |
 |---|---|---|---|
-| [declared-signals](prd/declared-signals.md) | existing | 4 / 3 / 9 | 15 |
-| [logprob-capture](prd/logprob-capture.md) | existing | 4 / 3 / 8 | 14 |
-| [verbalized](prd/verbalized.md) | planned | 3 / 3 / 7 | 10 |
-| [logprob](prd/logprob.md) | planned | 5 / 4 / 6 | 11 |
-| [entropy](prd/entropy.md) | planned | 4 / 3 / 5 | 10 |
-| [recipes](prd/recipes.md) | existing | 3 / 2 / 3 | 9 |
-| **Total** | | **23 / 18 / 38** | **69** |
+| [declared-signals](prd/declared-signals.md) | existing | 4 / 3 / 10 | 16 |
+| [logprob-capture](prd/logprob-capture.md) | existing | 4 / 5 / 10 | 20 |
+| [verbalized](prd/verbalized.md) | planned | 4 / 3 / 7 | 11 |
+| [logprob](prd/logprob.md) | planned | 8 / 4 / 6 | 14 |
+| [entropy](prd/entropy.md) | planned | 4 / 3 / 8 | 13 |
+| [recipes](prd/recipes.md) | existing | 3 / 2 / 4 | 9 |
+| **Total** | | **27 / 20 / 45** | **83** |
 
 ## 5. Interview ledger
 
 The prompt is the E4b epic (OME-1290) and the gap analysis of 2026-10-15. Q1–Q4 are the roadmap
 decisions DB-1, DB-7, DB-3 and DB-2 of that day. Q5–Q11 are the part 3 interview of the same day.
+Q12–Q13 came after the design review of the spec, the same day.
 
 | Id | Question | Answer | Note |
 |---|---|---|---|
@@ -92,6 +95,8 @@ decisions DB-1, DB-7, DB-3 and DB-2 of that day. Q5–Q11 are the part 3 intervi
 | Q9 | `sf.Verbalized`: which match, what scale? | "Last match, raw number" | recommended |
 | Q10 | How do we cut part 3? | "One spec, one PR" | recommended |
 | Q11 | Which forms does `sf.Logprob` offer, given that vote weights must be > 0? | "Add \"prob\", refuse raw weights" | recommended |
+| Q12 | P6: under a quorum panel the evidence shows `missing`, not `logprobs_unsupported`. Accept? | "Accept, show code elsewhere (Recommended)" | recommended |
+| Q13 | May part 3 include a small aigateway change that gives the refusal its own error code, if unit 1 shows it cannot be told apart? | "Yes, small change allowed (Recommended)" | recommended |
 
 ## 6. Global decisions [proposed]
 
@@ -102,18 +107,23 @@ decisions DB-1, DB-7, DB-3 and DB-2 of that day. Q5–Q11 are the part 3 intervi
 | P3 | `logprob` and `entropy` need each member to be one OpenRouter model call (no Recipe member). | [erd §1](erd.md) DS-I4 |
 | P4 | The numbers come from the terminal round of a call; token text is never kept. | [logprob-capture](prd/logprob-capture.md) |
 | P5 | A 200 reply without logprobs gives None values, not a failure; only the gateway refusal is `logprobs_unsupported`. | LC-E3, LC-E1 |
-| P6 | Under a quorum panel, a member refused for logprobs shows `missing` in the evidence (the panel carries no code); the run log names the code. | LC-E2 |
-| P7 | `sf.Verbalized` reads the whole text under the 1 MiB cap with RE2, not the last 1024 characters of regex@1. | [verbalized](prd/verbalized.md) §3 |
+| P6 | APPROVED by the owner (ans:Q12). Under a quorum panel, a member refused for logprobs shows `missing` in the evidence (the panel carries no code). The author sees `logprobs_unsupported` through `observation.failed(code)` in the activity view of the run (E/world/connector.py:250-251, E/activity/observer.py:134,160). The server log line is for operators only. | LC-E2 |
+| P7 | `sf.Verbalized` reads the last 65,536 characters (under the 1 MiB read cap) with RE2, not the last 1024 characters of regex@1; worst case 256 × 8 × 64 KiB = 128 MiB of RE2 input per step. The pattern has exactly one group (new `check_signal_pattern` on `check_regex_pattern`). | [verbalized](prd/verbalized.md) §3–4 |
 | P8 | Entropy is in nats and adds a residual term for the unlisted mass. | [entropy](prd/entropy.md) §3 |
 | P9 | `sf.Entropy` as a vote weight is refused, with a hint to use `order="min"`. | EN-E2 |
 | P10 | `prob = exp(mean)`; an underflow to 0.0 gives None. | LP-D4 |
 | P11 | The evidence gets an optional `declared` map; the read key stays in `signal`. | [erd §5](erd.md) |
+| P12 | The injected `logprobs` and `top_logprobs` params go into `parameter_assignments`, so the SDK preflight (S/_evaluation/model_parameters.py:153-225) refuses a model that the catalog marks unsupported with `unsupported_model_parameter`, before any spend. The runtime `logprobs_unsupported` covers every model the catalog does not know. WHY: the author sees the problem at once, and earlier, which honors ans:Q5 (orchestrator decision). | LC-E4, C2 |
+| P13 | The refusal mapping lives in `_observed_round_trip` (it holds the request body); the message is fixed engine text; `logprobs_unsupported` joins `ENGINE_ERROR_CODES` (OME-941), so no upstream can send it. | [logprob-capture](prd/logprob-capture.md) Delta 4–5 |
+| P14 | The weight refusals (raw logprob, entropy) live in the `sf.Fusion` constructor, the only object that sees the declaration and the rules. | LP-E1, EN-E2 |
+| P15 | One member reader: `_read_member_accounting` returns the accounting numbers and the reply logprobs from one fingerprint index. | C5 |
+| P16 | The url4 → Python rebuild accepts `signals` and drops the injected member params. | C9, DS-D8, DS-D10 |
 
 ## 7. Open and deferred
 
 | # | Item | Default |
 |---|---|---|
-| D1 | The exact gateway answer to an OpenRouter refusal under `require_parameters` | unit 1 records it; map it in the engine; a gateway code only if the answer is not distinct (escalate) |
+| D1 | The exact gateway answer to an OpenRouter refusal under `require_parameters` | decided (ans:Q13): unit 1 records it; if distinct, the engine maps it; if not, unit 1 adds the aigateway code `unsupported_parameters` with its own test (LC-E5, C4b) |
 | D2 | Display of signals in the report | part 4 |
 | D3 | Several signals in one step, coefficients, abstain band | part 6 |
 | D4 | `consistency@N` | part 7 |
@@ -126,17 +136,21 @@ Scope notes:
 - **N2** A Filter on a logprob threshold (S16) records the value and the pass; the larger model still
   runs. The skip is E4c.
 - **N3** A reply over 1,000,000 bytes is not cached by the gateway, so its replay is a live call.
+- **N4** A frozen-copy entry over 2,000,000 bytes (request plus reply) is not stored, and the capture
+  reports `failed` (LC-D9).
 
 ## 8. Owner-approved test edits (needed at build)
 
 | File | Why |
 |---|---|
 | `ST/test_signals.py:33-35` | `sf.signal("cost")` becomes a valid name; the error moves to the Fusion (DS-D2) |
-| `ET/test_e4b_catalog_pins.py:13-20` | the declared failure codes grow from 65 to 66 (`logprobs_unsupported`) |
+| `ET/test_failure_classes.py:88-110` | pins the exact set of declared codes; `logprobs_unsupported` joins it (certain) |
+| `ET/test_e4b_catalog_pins.py:1-20` | its docstring, its test name and its count say "E4b adds no failure code" (65); part 3 adds one, so the file is rewritten for 66 |
+| `ET/test_terminal_error_detail.py:332-349` | pins `ENGINE_ERROR_CODES` by hand; `logprobs_unsupported` joins it (P13) |
 | `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json` | new optional `signals` (frozen by `ET/test_wire_schema_freeze.py`) |
 | `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` | new optional `declared` |
 | `ST/public_surface_snapshot.json` | `Fusion.__init__` gets `signals`; new `Logprob`, `Entropy`, `Verbalized` |
-| `ET/test_failure_classes.py`, `ST/unit/test_failure_code_conformance.py` (if they enumerate codes) | the new code; confirm at RED |
+| `ST/unit/test_failure_code_conformance.py` | only if it enumerates the codes; confirm at RED (the SDK mirror `S/_report_primitives.py:22` is source, not a test) |
 
 The E4a pins that use `logprob_mean` as an unknown key stay unchanged (P1):
 `ST/test_signals.py:25-28`, `ST/unit/test_signal_key_conformance.py:110`,

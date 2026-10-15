@@ -47,6 +47,13 @@ it, and a report can show it.
 - **LP-5** (STEER shape) Given one member and `sf.Filter(where=sf.signal("lp") >= -0.3)` before a
   writer, then the evidence records the member's mean and whether it passed. The skip of the larger
   model is E4c. [stated prompt] (behavior 5)
+- **LP-6** Given `sf.Rank(2, by=sf.signal("lp"))` with `lp = sf.Logprob("mean")` and means `-0.9, -0.2,
+  -0.5`, then members 2 and 3 are kept, in that order, for the next stage. [stated ans:Q11]
+- **LP-7** Given `sum` and `prob` in `sf.Pick` and `sf.Filter`, then both forms are accepted, and the
+  pick and the filter use the form's value (`sum` −0.6 vs −0.9 picks −0.6; `prob ≥ 0.8` keeps
+  0.8187…). [stated ans:Q11]
+- **LP-8** Given a Fusion with a `sf.Logprob` declaration, then its url4 rebuilds to Python with the
+  declaration, and the members carry no injected `logprobs` param. [proposed] (review M1)
 
 ### 3.2 Error paths
 
@@ -103,7 +110,7 @@ Order: core-out. The form arithmetic first, then the compile checks, then engine
 | 1 | `logprob_forms_mean_sum_prob` (LP-1 oracle) | unit | LP-1 | H×M | pure function over `ReplyLogprobs` |
 | 2 | `logprob_of_zero_tokens_is_none` | unit | LP-D2 | H×M | — |
 | 3 | `logprob_prob_underflow_is_none` | unit | LP-D4 | M×M | — |
-| 4 | `vote_weight_refuses_logprob_mean_and_sum_with_a_prob_hint` | unit | LP-E1 | H×H | check in Vote, Median, Mean weight paths |
+| 4 | `vote_weight_refuses_logprob_mean_and_sum_with_a_prob_hint` | unit | LP-E1 | H×H | check in the `sf.Fusion` constructor, the only object that sees the declaration and the rules (Vote, Median, Mean weights) |
 | 5 | `logprob_refuses_non_openrouter_and_recipe_members` | unit | LP-E2, LP-E3 | H×M | route prefix, member kind |
 | 6 | `logprob_compiles_logprobs_true_on_each_member_call` | unit | LC-2 | H×M | member params |
 | 7 | `pick_max_by_logprob_mean` | integration | LP-2 | H×M | `run_candidate`, fake logprobs |
@@ -111,3 +118,6 @@ Order: core-out. The form arithmetic first, then the compile checks, then engine
 | 9 | `filter_by_logprob_threshold_records_the_values` | integration | LP-4, LP-5 | M×M | — |
 | 10 | `samples_members_get_their_own_logprob` | integration | LP-D5 | M×M | — |
 | 11 | `logprob_counts_content_tokens_only` | unit | LP-D6 | M×L | ignore reasoning fields |
+| 12 | `rank_by_logprob_mean_keeps_the_top_k` | integration | LP-6 | M×M | `top_k@1` reads the declared name |
+| 13 | `pick_and_filter_accept_sum_and_prob` | unit + integration | LP-7 | M×M | — |
+| 14 | `logprob_fusion_rebuilds_from_url4_without_injected_params` | unit | LP-8 | M×M | `to_python`; DS#16 |
