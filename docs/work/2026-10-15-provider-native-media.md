@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # OME-1541 already exists; set at PR-open
+ticket: OME-1541
 stack: aigateway
 status: in_progress
 started: 2026-10-15
