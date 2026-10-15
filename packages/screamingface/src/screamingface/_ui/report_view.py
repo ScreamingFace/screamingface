@@ -16,7 +16,7 @@ from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
 from screamingface._ui.accounting_view import case_accounting, case_tabs, run_accounting_note
 from screamingface._ui.cards import INVERTED_GRADE_MEANING
 from screamingface._ui.combine_view import STYLE as COMBINE_STYLE
-from screamingface._ui.combine_view import combine_sections_html
+from screamingface._ui.combine_view import combine_sections_html, combine_summary_html
 from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
 from screamingface.report import _candidate_failures
 
@@ -392,6 +392,7 @@ def _card_html(
         f"{_axes_html(metrics)}"
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
+        f"{combine_summary_html(candidate)}"
         f"{run_accounting_note(candidate, context=context)}"
         f"{_recipe_html(candidate)}</div>"
     )

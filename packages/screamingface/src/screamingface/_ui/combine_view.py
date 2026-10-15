@@ -6,7 +6,9 @@ its exact stored value as the title (ans:Q3); a missing value is an em dash with
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from html import escape
 from typing import TYPE_CHECKING
 
@@ -269,8 +271,90 @@ def _tally_html(evidence: CombineEvidence) -> str:
 
 
 def combine_summary_html(candidate: CandidateResult) -> str:
-    """Per reducer step: chosen and excluded counts, and declared-signal means (ans:Q1, P13)."""
-    return ""  # RED stub (E4b part 4 unit 4): GREEN fills it and wires it into _card_html
+    """Per reducer step: chosen and excluded counts, and declared-signal means (ans:Q1, P13).
+
+    One pass over the Cases. A step is in the summary only when a Case has its evidence, so a
+    combine step with no evidence (P19) and the steps of an Attempt (P15) are not counted.
+    """
+    steps: dict[str, _StepSummary] = {}
+    for case in candidate.cases:
+        for operation in case.operations or ():
+            if operation.combine is not None:
+                steps.setdefault(
+                    operation.operation_id, _StepSummary(operation.combine.reducer)
+                ).add(operation.combine)
+    if not steps:
+        return ""
+    graph = {info.id: info for info in candidate.operations}
+    blocks = "".join(
+        _summary_html(operation_id, step, graph) for operation_id, step in steps.items()
+    )
+    return f"<div class='sf-detail__k'>combine</div><div class='sf-cmb'>{blocks}</div>"
+
+
+@dataclass(slots=True)
+class _StepSummary:
+    """One combine step over the Cases of one Candidate (erd §5). Dicts keep first-seen order."""
+
+    reducer: str
+    cases: int = 0
+    chosen: dict[str, int] = field(default_factory=dict)
+    excluded: dict[str, int] = field(default_factory=dict)
+    declared: dict[str, str] = field(default_factory=dict)
+    values: dict[tuple[str, str], list[float]] = field(default_factory=dict)
+
+    def add(self, evidence: CombineEvidence) -> None:
+        """Count one Case of this step: chosen, excluded, the declared names and the values."""
+        self.cases += 1
+        for name, entry in (evidence.declared or {}).items():
+            self.declared.setdefault(name, str(entry["source"]))
+        for row in evidence.members:
+            self.chosen.setdefault(row.member_id, 0)
+            self.excluded.setdefault(row.member_id, 0)
+            if row.member_id in evidence.chosen:
+                self.chosen[row.member_id] += 1
+            if row.status == "excluded":
+                self.excluded[row.member_id] += 1
+            for name, value in row.signals.items():
+                if value is not None:
+                    self.values.setdefault((row.member_id, name), []).append(value)
+
+
+def _summary_html(operation_id: str, step: _StepSummary, graph: Mapping[str, OperationInfo]) -> str:
+    """One step of the run summary: the heading, then one row per member (P13)."""
+    total = step.cases
+    noun = "case" if total == 1 else "cases"
+    heading = (
+        f"<div class='sf-cmb__h' title='{escape(operation_id)}'>"
+        f"{escape(_label(graph, operation_id))} · {escape(step.reducer)} · {total} {noun}</div>"
+    )
+    head = "<th scope='col'>member</th><th scope='col'>chosen</th><th scope='col'>excluded</th>"
+    head += "".join(
+        f"<th scope='col' title='{escape('source: ' + source)}'>{escape(name)} mean</th>"
+        for name, source in step.declared.items()
+    )
+    rows = "".join(_summary_row(member_id, step) for member_id in step.chosen)
+    return heading + _table(head, rows)
+
+
+def _summary_row(member_id: str, step: _StepSummary) -> str:
+    """One member row: chosen and excluded as `{count} of {N}`, then one mean cell per name."""
+    total = step.cases
+    means = "".join(_mean_cell(step.values.get((member_id, name), [])) for name in step.declared)
+    return (
+        f"<tr><td>{escape(member_id)}</td><td>{step.chosen[member_id]} of {total}</td>"
+        f"<td>{step.excluded[member_id]} of {total}</td>{means}</tr>"
+    )
+
+
+def _mean_cell(values: list[float]) -> str:
+    """The mean of one member's values of one declared name, and their count n (P13, ans:Q3)."""
+    count = len(values)
+    mean = math.fsum(values) / count if count else None
+    return (
+        f"<td>{number_html(mean, 'no Case gave a value')}"
+        f" <span class='sf-cmb__nn'>n={count}</span></td>"
+    )
 
 
 __all__: list[str] = []

@@ -444,11 +444,52 @@ None.
 
 ### Outcome (fill at the end, before commit B)
 
-- **Status:**
-- **Actual files:**
-- **Commits:** A = …, B = …
-- **U3 (unit 3 tip):**
-- **RED log:** (the 9 FAILED lines)
-- **Gates:** screamingface vs 9f42391eb (append-only list), with --skip-append-only, vs U3; repo
+- **Status:** done. The GREEN code of the run summary is on the branch. RS#1–11 pass (11 passed).
+  The gates are green, except the append-only check of `--base 9f42391eb`, which lists only the
+  three unit 1 pinned files (expected). `repo` is green.
+- **Actual files:** `packages/screamingface/src/screamingface/_ui/combine_view.py` (the commit A
+  stub replaced by the GREEN code: imports `math`, `dataclass`, `field`; `combine_summary_html`,
+  `_StepSummary`, `_summary_html`, `_summary_row`, `_mean_cell`); `packages/screamingface/src/screamingface/_ui/report_view.py`
+  (the import of `combine_summary_html` and one line in `_card_html` between the members block
+  and the accounting note); this ledger. The test file `packages/screamingface/tests/test_combine_run_summary.py`
+  was added in commit A only and is not changed. No pinned file changed.
+- **Commits:** A = `bd00dcf71` (`test(e4b): RED for E4b part 4 unit 4 run-summary`, as committed by
+  the RED step). B is the next commit on the branch (`feat(e4b): show the run summary of each
+  reducer step in the Candidate card (part 4 unit 4)`), and it holds this Outcome. No commit C:
+  spec §7 asks for no docs in this unit (unit 5 holds README and CHANGELOG).
+- **U3 (unit 3 tip):** `8c90a6615`. `git diff 8c90a6615 -- packages/screamingface/tests
+  apps/screamingface-engine/tests` lists only `tests/test_combine_run_summary.py` (new, 482
+  insertions). So the append-only check against U3 has no modified or deleted test: green.
+- **RED log:** the RED run of commit A gave `9 failed, 2 passed`. The nine FAILED lines were:
+  `test_summary_counts_chosen_excluded_and_means_the_declared_signal`,
+  `test_mean_title_shows_the_exact_value`,
+  `test_summary_without_declared_signals_shows_chosen_and_excluded_only`,
+  `test_signal_with_no_value_in_any_case_shows_a_dash_and_n_zero`,
+  `test_labels_and_sources_are_escaped`, `test_two_steps_give_two_blocks_in_first_seen_order`,
+  `test_cases_without_case_operations_are_ignored`,
+  `test_summary_sits_after_the_grid_and_before_the_url4_block`,
+  `test_one_case_heading_is_singular`. Each one is an `AssertionError`. The two CHAR rows
+  (`test_card_without_combine_evidence_has_no_summary`, `test_card_shows_the_grid_before_the_url4_block`)
+  passed.
+- **Gates:**
+  - `screamingface --base 9f42391eb`: the append-only check lists ONLY the three unit 1 pinned
+    files (`tests/data/report_v1_combine_report.json`, `tests/data/report_v1_vote_median_report.json`,
+    `tests/test_e4b_schema_pins.py`). Rerun with `--skip-append-only`: ALL GATES GREEN (ruff check,
+    ruff format --check, pyright, pytest with the 95 percent floor, check_notebooks, uv build,
+    check_distribution). The first such run had one failed test (see Flakes); the rerun was green.
+  - `ruff check`, `ruff format --check` and `pyright` (basic) are clean on the SDK package.
+  - Focused: `tests/test_combine_run_summary.py` gives `11 passed`. The 18 neighbour files of the
+    spec §5.2 second command give `262 passed`.
+  - `repo --base 9f42391eb`: ALL GATES GREEN.
 - **Flakes:**
-- **Deviations:** D-1 … D-4 above, plus any new one
+  - `tests/test_connection_panel.py::test_panel_starts_oauth_and_polls_without_blocking_the_notebook`
+    failed once in the first full `screamingface` run (`1 failed, 4489 passed`). It passes alone
+    (`1 passed`) and the whole file passes (`39 passed`). The next full run passed it. It is not in
+    the OME-1619 list. It is recorded here as a flake. It is not changed.
+- **Deviations:**
+  - D-1 … D-4 above (the planner's deviations).
+  - D-5: the helper `_member_row` of the spec §2.1b code has the same name as the unit 3 helper
+    `_member_row(row, evidence, columns, keys)` in the same module. The second `def` would replace
+    the first. Unit 3's Case pane call would then get the wrong function (pyright: `reportRedeclaration`
+    and `reportCallIssue`). So the run-summary helper is named `_summary_row`. Its body and signature
+    are the spec code. No unit 2 or unit 3 code changed.
