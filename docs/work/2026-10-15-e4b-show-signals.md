@@ -183,10 +183,33 @@ key keeps its bytes; `CaseResult.to_dict()` does not change; the schema id stays
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:**
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **RED log:**
-- **Flakes:**
-- **Approval blobs:** (path, blob at `9f42391eb`, blob after commit B — §5 command)
+- **Status:** DONE. The code change is committed. The append-only check lists only the three
+  pinned files, which the owner approves after the build.
+- **Actual files:** `packages/screamingface/src/screamingface/report.py` (`_export_cases` added,
+  `to_dict` uses it, `_case_entries` added, `_candidate_trace` uses it, `trace_dict` docstring);
+  `packages/screamingface/src/screamingface/_report_export.py` (`iter_report_json` uses
+  `_export_cases`); pinned: `packages/screamingface/tests/data/report_v1_combine_report.json`,
+  `packages/screamingface/tests/data/report_v1_vote_median_report.json` (regenerated, no hand
+  edit), `packages/screamingface/tests/test_e4b_schema_pins.py` (lines 29 and 33 only).
+- **Commits:** code commit `e256cee02` (`feat(e4b): export the Case trace as the last key of
+  report.v1 Cases`); docs commit (this ledger) follows it.
+- **Gates:** `screamingface`: the append-only check FAILED and listed exactly the three pinned
+  files (`tests/data/report_v1_combine_report.json`, `tests/data/report_v1_vote_median_report.json`,
+  `tests/test_e4b_schema_pins.py`). With `--skip-append-only` all other gates are green: ruff
+  check, ruff format --check, pyright, pytest with coverage (95 percent floor), notebooks, build,
+  distribution check. `repo`: ALL GREEN, no skip flag.
+- **RED log:** The RED commit `0f1e35253` was not re-run by this unit. In this unit, the focused
+  file `tests/test_export_trace.py` gave 12 passed and 1 failed before the golden regeneration
+  (`test_report_v1_goldens_hold_the_trace`, XT#12, the expected PIN state). After the regeneration
+  and the pin edit, the focused group of §5 gave 139 passed. The golden diff proof (§5 step 5)
+  passed for both files: only `trace` keys differ.
+- **Flakes:** none. No test outside the focused group failed.
+- **Deviations:** none. The pre-filled D-1, D-2 and D-3 are followed as written.
+- **Approval blobs:** `packages/screamingface/tests/data/report_v1_combine_report.json`:
+  base `3115e68f9f70c1ee16cc9fd772626ca45dd2d74a`, after commit B `390ca9ed5abf3ea512593a59c3ee0757e76e9e08`.
+  `packages/screamingface/tests/data/report_v1_vote_median_report.json`: base
+  `10f3247c926236629c8ece7ad05a07bf5c2e5bdb`, after commit B `cbd5d1db7c7d912b0c9b1719442da94027a35002`.
+  `packages/screamingface/tests/test_e4b_schema_pins.py`: base
+  `8a32a2c2f6ba4a7f8f0581e722139415e784b39b`, after commit B `e4e39af0e327d7d63f9e7d8134cb67dde359c70c`.
+- **SHA-256 (new pins):** combine `85fb1253ee37e8debd0efcb5380309e5ac271aed613bfece466dc523e5de911a`;
+  vote and median `47c658fbaf7d126da62fb64464c04879b2ae2c70f5f03aa9050c744bb38bc390`.
