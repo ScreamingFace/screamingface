@@ -809,11 +809,41 @@ and two paid tests that the owner runs. Spec: `docs/spec/2026-10-15-e4b-signal-s
 - Row 9 (paid) checks the full refusal phrase, not the first 30 characters (§2 found the phrase).
 - Row 8 (paid) includes the optional `combine.declared` assert (§2 found `CombineEvidence.declared`).
 
-### Outcome (fill at the end)
+### Outcome
 
-- **Actual files:** (commit A: ledger, F1–F5; commits B and C add the rest)
-- **RED:** see "RED record" above.
-- **Commits:** (A: test(e4b) RED; B: feat(e4b) fixtures and README; C: docs(e4b) CHANGELOG)
-- **Gates:** (after B and C)
+- **Actual files:**
+  - Commit A: this ledger section, `_signal_recipes.py`, `test_signal_recipe_fixtures.py`,
+    `test_signal_recipes_readme.py`, `test_signal_recipes.py` (engine) and
+    `test_signal_sources_paid.py`.
+  - Commit B: the five fixtures `combine_contract/recipe_s12.url4` to `recipe_s16.url4`, made by
+    `write_signal_recipe_fixture`, and the README section "Signal sources".
+  - Commit C: the CHANGELOG bullet and this Outcome.
+  - No file under `S/` or `E/` changed. No schema snapshot changed. No existing test, fixture or
+    pinned data file changed.
+- **RED:** see "RED record" above. The RED run at commit A HEAD gave the same failures.
+- **GREEN:**
+  - SDK focused run (the six files of spec §7.2, SDK part): 76 passed.
+  - Engine focused run (`test_signal_recipes.py` and `test_combine_recipes.py`): 22 passed. That is
+    7 new cases and 15 part 1 cases.
+  - The paid file collects 2 tests with `SCREAMINGFACE_TEST_PAID=1`, and 2 are deselected without it.
+- **Commits:** A `04614e265` (test(e4b) RED); B `a1eab4f88` (feat(e4b) fixtures and README); C is
+  the commit that adds this text (docs(e4b) CHANGELOG and outcome).
+- **Gates:**
+  - `repo`, base `0f4b9e292`: ALL GATES GREEN.
+  - `screamingface`, base `c912513b9`: ALL GATES GREEN.
+  - `screamingface-engine`, base `c912513b9`: ALL GATES GREEN.
+  - Base `0f4b9e292` is red for `screamingface` and `screamingface-engine` on the append-only check
+    only. See Deviations.
+  - No flaky test failed in this unit.
 - **Paid:** not run (owner action). Command: see the unit spec §7.5.
-- **Deviations:** see "Deviations at commit A"; more in B and C.
+- **Deviations:**
+  - See "Deviations at commit A".
+  - The append-only check against `0f4b9e292` lists offenders from units 2 to 4. They are the
+    pinned edits that those units wrote in their ledger sections, with the status "pending owner
+    approval". The engine offenders are `screamingface.combine-evidence.v1.json`,
+    `screamingface.combine-spec.v1.json`, `test_e4b_catalog_pins.py`, `test_failure_classes.py`
+    and `test_terminal_error_detail.py`. The SDK offenders are `public_surface_snapshot.json` and
+    `test_signals.py`. Unit 5 changed none of them. Per unit spec §6, the two stacks were rerun
+    with base `c912513b9` (the branch HEAD before commit A), and both are green.
+  - The unit spec §6 forbids `--skip-append-only`, so it was not used. The rerun with base
+    `c912513b9` gives the same proof.
