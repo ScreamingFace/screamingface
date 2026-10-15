@@ -4801,7 +4801,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             source_url="https://arxiv.org/abs/2409.12941",
             as_of="2024-09",
         ),
-        notebook="12_inspect_evals_benchmarks",
+        notebook="17_frames",
     ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )

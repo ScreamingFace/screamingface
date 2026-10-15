@@ -63,6 +63,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "14_report_accounting.ipynb": _notebook(*accounting_cells()),
         "15_musique.ipynb": _musique_e2e(),
         "16_arc_agi_2.ipynb": _arc_agi_2_e2e(),
+        "17_frames.ipynb": _frames_oracle_e2e(),
     }
 
 
@@ -2050,6 +2051,142 @@ tokens, which on these puzzles usually dominate. There is no spend cap in this s
 
 The public set has been on GitHub since March 2025 and may be in a model's training data; a
 high score says the model solves these puzzles, not that it would solve new ones."""),
+    )
+
+
+def _frames_oracle_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# FRAMES — reasoning across Wikipedia articles, with the articles given
+
+[FRAMES](https://arxiv.org/abs/2409.12941) asks questions that each need facts from 2 to 23
+Wikipedia articles: numbers to compute, tables to read, several constraints to meet, dates to
+order. This Benchmark runs the paper's **Oracle** setting: every question comes with all of its gold
+articles pasted into the prompt, so nothing is searched and the score measures reading and
+reasoning, not retrieval. 822 of the 824 questions; two are left out because their own articles
+cannot answer them.
+
+Grading is the paper's own rater prompt, word for word, sent to our house Judge: the Judge reads
+the question, the model's whole reply and the gold answer (never the articles) and says TRUE or
+FALSE. The headline is plain accuracy. You pay for answer generation and one short Judge call per
+case.
+
+**Three things to know before reading a score.**
+
+- **The prompts are long.** A case averages about 93,000 characters of articles (roughly 23,000
+  tokens) and the longest about 728,000 (roughly 180,000 at four characters a token; tables
+  and numbers often tokenise denser). Use a model with a context window of at least 200k
+  tokens, and expect the longest few cases to be tight even there, tighter still for a
+  synthesiser, which also reads the members' answers. A prompt that does not fit fails its case
+  as `aigateway_http_400`, and the case leaves Coverage instead of scoring 0.
+- **The paper's 0.729 is Gemini-Pro-1.5 rated by Gemini-Pro-1.5.** Our Judge is the house judge
+  every judged Benchmark here uses, so our scores sit beside the paper's, not on its exact scale.
+- **The articles are 2024 revisions drawn with today's templates.** A few tables show a value from
+  2025 or later, and a few templates deleted since draw only their name; the snapshot's card
+  lists both."""),
+        nbformat.v4.new_markdown_cell("""\
+## 0. Before running
+
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
+
+```bash
+screamingface prepare frames_oracle  # first run only: download the questions and the articles
+screamingface up                     # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
+```
+
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
+Stack management stays outside the notebook so **Run All** never starts or stops local
+services."""),
+        nbformat.v4.new_code_cell("""\
+import screamingface as sf
+
+sf.connect()"""),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Read the Benchmark's card
+
+`frames_oracle` is a Benchmark we author ourselves (origin `screamingface`). The card carries the
+two pinned sources (the questions, and the article snapshot), the Judge the Benchmark pins, and
+the paper's score with its caveat."""),
+        nbformat.v4.new_code_cell("""\
+sf.benchmarks.get("frames_oracle")"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Run a few cases with one model
+
+The answer is usually a name, a number or a date, but the model may need to reason through
+several articles to reach it; leave room in `max_tokens`. The Judge reads the whole reply, so a
+model may reason aloud as long as it states its answer."""),
+        nbformat.v4.new_code_cell("""\
+# No `temperature` here on purpose: several current reasoning models reject the parameter
+# outright (see 13_contracteval for the provider-by-provider detail). Add `"temperature": 0.0`
+# back for a model you know accepts it.
+PARAMS = {"max_tokens": 4096}
+
+solo = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARAMS)
+report = sf.evaluate(solo, benchmark="frames_oracle", limit=5)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Compare a Fusion against the same model
+
+Every member and the synthesiser read every article, so a two-member panel costs about three
+times the input tokens of one model. What a panel can add here is a second reading of the
+numbers and tables, where the paper found most of its errors."""),
+        nbformat.v4.new_code_cell("""\
+SYNTHESIS_PROMPT = (
+    "You are given several assistants' answers to a question that combines facts from several "
+    "Wikipedia articles. Check their reasoning against each other, then give one final answer. "
+    "State the answer plainly in your last sentence."
+)
+
+member1 = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARAMS)
+member2 = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+synth = sf.Model(
+    model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
+)
+panel = sf.Fusion(name="frames_panel", members=[member1, member2], synthesizer=synth)
+
+fusion_report = sf.evaluate(panel, benchmark="frames_oracle", limit=5)
+fusion_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Read the per-case outcomes
+
+Each case carries one check: the Judge's verdict. Its evidence holds the Judge's explanation and
+the question's reasoning types (numerical, tabular, multiple constraints, temporal,
+post-processing), so a wrong answer can be read, and a run can be cut by type the way the paper's
+Figure 3 cuts it. A case whose Judge never gave a decision, or whose prompt did not fit the
+model, shows as failed with its failure codes instead."""),
+        nbformat.v4.new_code_cell("""\
+for case in fusion_report.candidates.only.cases:
+    grade = case.grade
+    if grade is None or case.failures:
+        print(case.case_id, case.status, [failure.code for failure in case.failures])
+        continue
+    verdict = grade.checks[0].evidence[0]
+    print(
+        case.case_id,
+        case.status,
+        grade.score,
+        verdict.metadata.get("reasoning_types"),
+        "judge:",
+        verdict.explanation,
+    )"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. Before you scale up
+
+A `limit=N` run is a smoke test, not a ranking: the questions mix five reasoning types, and five
+cases will not sample them evenly, so a point or two between two systems is noise. Run the full
+set before quoting a comparison.
+
+**Know what the full set costs before you start it.** One pass over all 822 questions is roughly
+**19M input tokens per panel member** — multiply by your members, and again by the
+synthesiser, which reads every article as well as their answers: about 57M for the two-member
+panel above. Add one short Judge call per case. There is no spend cap in this stack, so `limit`
+is the only brake. Raise it in steps and read the cost in `report.usage` as you go.
+
+The questions and their Wikipedia articles have been public since 2024 and may be in a model's
+training data; a high score says the model answers these questions, not that it would answer new
+ones."""),
     )
 
 
