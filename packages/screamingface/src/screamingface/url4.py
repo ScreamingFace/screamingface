@@ -51,7 +51,12 @@ from screamingface._operation_bindings import (
 )
 from screamingface.blocks import Reduce
 from screamingface.reducer import Reducer, _ModelSignal
-from screamingface.signal_sources import SignalSource, declared_from_spec, python_signals
+from screamingface.signal_sources import (
+    SignalSource,
+    declared_from_spec,
+    injected_member_params,
+    python_signals,
+)
 from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
 if TYPE_CHECKING:
@@ -269,6 +274,7 @@ def _render_model(
     explicit_name: str | None,
     indent: int,
     force_name: bool = False,
+    drop_params: frozenset[str] = frozenset(),
 ) -> list[str]:
     prefix = " " * indent
     lines = [f"{prefix}sf.Model(", f"{prefix}    {call.model!r},"]
@@ -278,7 +284,7 @@ def _render_model(
     default_prompt = DEFAULT_SYNTHESIS_PROMPT if role == "synthesis" else DEFAULT_ANSWER_PROMPT
     if call.prompt != default_prompt:
         lines.append(f"{prefix}    prompt={call.prompt!r},")
-    params = _editable_params(call)
+    params = _editable_params(call, drop_params)
     if params:
         lines.append(f"{prefix}    params={params!r},")
     lines.append(f"{prefix})")
@@ -290,6 +296,7 @@ def _render_topology(
     calls: dict[str, _Call],
     *,
     indent: int,
+    drop_params: frozenset[str] = frozenset(),
 ) -> list[str]:
     if value.kind == "model":
         assert value.role is not None
@@ -299,6 +306,7 @@ def _render_topology(
             explicit_name=value.name,
             indent=indent,
             force_name=value.named,
+            drop_params=drop_params,
         )
     elif value.kind == "pipeline":
         lines = _render_pipeline_topology(value, calls, indent=indent)
@@ -377,16 +385,17 @@ def _render_fusion_topology(
 ) -> list[str]:
     assert value.synthesizer is not None
     prefix = " " * indent
+    declared = _fusion_signals(value, calls)
+    drop = _injected_names(declared)
     lines = [f"{prefix}sf.Fusion(", f"{prefix}    ["]
     for member in value.members:
-        rendered = _render_topology(member, calls, indent=indent + 8)
+        rendered = _render_topology(member, calls, indent=indent + 8, drop_params=drop)
         rendered[-1] += ","
         lines.extend(rendered)
     lines.append(f"{prefix}    ],")
     inferred_name = "+".join(member.name for member in value.members)
     if value.name != inferred_name:
         lines.append(f"{prefix}    name={value.name!r},")
-    declared = _fusion_signals(value, calls)
     if declared is not None:
         lines.append(f"{prefix}    signals={python_signals(declared)},")
     synthesizer = _render_topology(value.synthesizer, calls, indent=indent + 4)
@@ -609,11 +618,18 @@ def _validate_compiled_corrective(
     _require_recompiles(candidate, recipe, calls, check_surface=check_surface)
 
 
-def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe:
-    """Reconstruct one inert public Recipe without evaluating generated Python."""
+def _recipe_from_topology(
+    value: _RecipeTopology,
+    calls: dict[str, _Call],
+    *,
+    drop_params: frozenset[str] = frozenset(),
+) -> Recipe:
+    """Reconstruct one inert public Recipe without evaluating generated Python.
+
+    ``drop_params`` names the member params that the parent Fusion's declaration injected (P16).
+    """
 
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
-    from screamingface.fusion import Fusion
     from screamingface.model import Model
     from screamingface.pipeline import Pipeline
 
@@ -625,7 +641,7 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
             call.model,
             name=value.name if value.named else None,
             prompt=call.prompt,
-            params=_editable_params(call),
+            params=_editable_params(call, drop_params),
             optional=value.optional,
         )
     elif value.kind == "pipeline":
@@ -635,16 +651,7 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
             optional=value.optional,
         )
     elif value.kind == "fusion":
-        assert value.synthesizer is not None
-        inferred_name = "+".join(member.name for member in value.members)
-        selected = Fusion(
-            [_recipe_from_topology(member, calls) for member in value.members],
-            name=value.name if value.name != inferred_name else None,
-            signals=_fusion_signals(value, calls),
-            synthesizer=_synthesizer_from_topology(value.synthesizer, calls),
-            quorum=value.quorum,
-            optional=value.optional,
-        )
+        selected = _fusion_from_topology(value, calls)
     elif value.kind == "self_corrective":
         assert value.max_rounds is not None
         member = _recipe_from_topology(value.members[0], calls)
@@ -666,6 +673,25 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
     return selected
 
 
+def _fusion_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe:
+    """One Fusion; its members show only the params the author wrote (P16, DS-D10)."""
+
+    from screamingface.fusion import Fusion
+
+    assert value.synthesizer is not None
+    inferred_name = "+".join(member.name for member in value.members)
+    declared = _fusion_signals(value, calls)
+    drop = _injected_names(declared)
+    return Fusion(
+        [_recipe_from_topology(member, calls, drop_params=drop) for member in value.members],
+        name=value.name if value.name != inferred_name else None,
+        signals=declared,
+        synthesizer=_synthesizer_from_topology(value.synthesizer, calls),
+        quorum=value.quorum,
+        optional=value.optional,
+    )
+
+
 def _fusion_signals(
     value: _RecipeTopology, calls: dict[str, _Call]
 ) -> dict[str, SignalSource] | None:
@@ -679,16 +705,24 @@ def _fusion_signals(
     return declared_from_spec(decode_combine_spec(call.raw_intent).get("signals"))
 
 
+def _injected_names(declared: Mapping[str, SignalSource] | None) -> frozenset[str]:
+    """The member params a declaration injects at compile time; the rebuild drops them (P16)."""
+    return frozenset(injected_member_params(declared))
+
+
 def _synthesizer_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe | Reducer:
     if value.kind != "reducer":
         return _recipe_from_topology(value, calls)
     return _reducer_from_topology(value, calls)
 
 
-def _editable_params(call: _Call) -> dict[str, str | int | float | bool]:
+def _editable_params(
+    call: _Call, drop: frozenset[str] = frozenset()
+) -> dict[str, str | int | float | bool]:
     selected: dict[str, str | int | float | bool] = {}
     for name, value in call.params:
-        selected[name] = _scalar(value)
+        if name not in drop:
+            selected[name] = _scalar(value)
     return selected
 
 

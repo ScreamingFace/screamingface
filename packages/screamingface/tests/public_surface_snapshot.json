@@ -19,6 +19,7 @@
       "DuplicateMembersWarning",
       "EngineCapabilityError",
       "EngineUnavailableError",
+      "Entropy",
       "EvaluationWarning",
       "Event",
       "Evidence",
@@ -39,6 +40,7 @@
       "LeaderboardInfo",
       "LeaderboardRankingNotice",
       "LeaderboardScore",
+      "Logprob",
       "Mean",
       "Median",
       "MemberResult",
@@ -364,6 +366,14 @@
           "user_message": "property"
         }
       },
+      "Entropy": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, top_logprobs: 'int' = 5) -> 'None'",
+          "source": "attribute",
+          "top_logprobs": "field"
+        }
+      },
       "EvaluationWarning": {
         "catches_as": [
           "UserWarning",
@@ -622,6 +632,14 @@
           "url4": "field",
           "verified_by_screamingface": "field",
           "version": "field"
+        }
+      },
+      "Logprob": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, form: \"Literal['mean', 'sum', 'prob']\") -> 'None'",
+          "form": "field",
+          "source": "attribute"
         }
       },
       "Mean": {

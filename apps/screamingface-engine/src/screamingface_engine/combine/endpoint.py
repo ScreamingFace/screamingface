@@ -44,12 +44,16 @@ from screamingface_engine.combine.evidence import (
     SignalRecord,
     TallyRowRecord,
 )
+from screamingface_engine.combine.logprob_forms import entropy_value, logprob_value
 from screamingface_engine.combine.ports import (
     ACCOUNTING_SIGNALS,
     FIELD_SIGNAL_PREFIX,
     JUDGE_SIGNAL,
     MAX_OUTPUT_READ_BYTES,
     READING_TO_ANSWER,
+    REPLY_ENTROPY_MEAN,
+    REPLY_LOGPROB_SUM,
+    REPLY_TOKENS,
     AbstainReason,
     AccountingReader,
     Answer,
@@ -94,8 +98,11 @@ from screamingface_engine.combine.spec import (
     REDUCER_RULES,
     CombineContext,
     CombineSpec,
+    EntropySource,
+    LogprobSource,
     SignalWeights,
     StepSpec,
+    declares_reply_sources,
     parse_context,
     parse_spec,
 )
@@ -140,6 +147,22 @@ class _Declared:
 
 
 @dataclass(frozen=True, slots=True)
+class _ReplyDeclared:
+    """One declared name that the member's reply log-probabilities give (logprob, entropy).
+
+    WHY not a ``_Declared``: its value comes from the member reader (the recorded reply), not from
+    the member text, so it has no ``SourceRead``.
+    """
+
+    name: str
+    source: LogprobSource | EntropySource
+
+
+# The member numbers of the one member reader call: member -> reader key -> number (None: unknown).
+type _ReaderNumbers = Mapping[str, Mapping[str, float | None]]
+
+
+@dataclass(frozen=True, slots=True)
 class _Plan:
     """The four resolved stages of one call; ``extract`` and ``normalize`` may be absent.
 
@@ -156,7 +179,7 @@ class _Plan:
     excludes: _Exclusion | None = None
     ranks: Callable[[Reduction, CombineInput, OpArgs], Mapping[str, int]] | None = None
     cut: Cut | None = None
-    declared: tuple[_Declared, ...] = ()
+    declared: tuple[_Declared | _ReplyDeclared, ...] = ()
 
     @property
     def operators(self) -> tuple[str, ...]:
@@ -242,7 +265,8 @@ def _combine(
     context = parse_context(
         context_text,
         spec.members,
-        sources_expected=plan.signal is not None and plan.signal.key in ACCOUNTING_SIGNALS,
+        sources_expected=(plan.signal is not None and plan.signal.key in ACCOUNTING_SIGNALS)
+        or declares_reply_sources(spec),
     )
     recorded = _signal_values(plan, spec, context, accounting)
     combine_input = _read_members(spec, plan, context, recorded)
@@ -267,13 +291,49 @@ def _signal_values(
         # over no member (a judge reply above all) could only refuse a Case that has no answer.
         return {member: {key: None for key in keys} for member in spec.members}
     by_name = {item.name: item for item in plan.declared}
-    columns = {
-        key: _declared_numbers(by_name[key], spec, context)
-        if key in by_name
-        else _signal_numbers(key, spec, context, accounting)
-        for key in keys
-    }
+    looked = _reader_numbers(keys, by_name, context, accounting)
+    columns = {key: _column(key, by_name.get(key), spec, context, looked) for key in keys}
     return {member: {key: columns[key][member] for key in keys} for member in spec.members}
+
+
+def _reader_numbers(
+    keys: tuple[str, ...],
+    by_name: Mapping[str, _Declared | _ReplyDeclared],
+    context: CombineContext,
+    accounting: AccountingReader | None,
+) -> _ReaderNumbers:
+    """The ONE member reader call of a combine call (C5), made only when a recorded key needs it:
+    an accounting signal, or a logprob or entropy name. Empty when no key needs it.
+
+    WHY once: the reader logs a count-only warning per call; two calls would log it twice.
+    """
+    if not any(
+        key in ACCOUNTING_SIGNALS or isinstance(by_name.get(key), _ReplyDeclared) for key in keys
+    ):
+        return {}
+    # WHY the reader is a port: the core does no I/O and has no recorder; the adapter knows
+    # what each source call cost and what each reply carried.
+    if context.sources is None:  # parse_context required them for these keys
+        raise RuntimeError("combine context sources are missing for an accounting signal")
+    # WHY only the members that answered (OME-1557): a member a quorum panel left out has no
+    # recorded call to match, so asking for it would only log a false warning.
+    asked = MappingProxyType({m: c for m, c in context.sources.items() if m in context.outputs})
+    return {} if accounting is None else accounting(asked)
+
+
+def _column(
+    key: str,
+    item: _Declared | _ReplyDeclared | None,
+    spec: CombineSpec,
+    context: CombineContext,
+    looked: _ReaderNumbers,
+) -> Mapping[str, float | None]:
+    """One recorded key's number for each member, from its source."""
+    if isinstance(item, _Declared):
+        return _declared_numbers(item, spec, context)
+    if isinstance(item, _ReplyDeclared):
+        return _reply_numbers(item.source, spec, context, looked)
+    return _signal_numbers(key, spec, context, looked)
 
 
 def _recorded_keys(plan: _Plan) -> tuple[str, ...]:
@@ -285,11 +345,12 @@ def _signal_numbers(
     key: str,
     spec: CombineSpec,
     context: CombineContext,
-    accounting: AccountingReader | None,
+    looked: _ReaderNumbers,
 ) -> Mapping[str, float | None]:
     """One number (or None) for each member, from the source that the signal key names."""
     if key in ACCOUNTING_SIGNALS:
-        return _accounting_numbers(key, spec, context, accounting)
+        # Without a reader (``looked`` is empty) every member's number is unknown.
+        return {m: finite_float(looked.get(m, {}).get(key)) for m in spec.members}
     if key == JUDGE_SIGNAL:
         # WHY strict (F4): the judge reply format is the contract; judge reducers fail the same way.
         present = [member for member in spec.members if member in context.outputs]
@@ -298,21 +359,26 @@ def _signal_numbers(
     return _field_numbers(key[len(FIELD_SIGNAL_PREFIX) :], spec, context)
 
 
-def _accounting_numbers(
-    key: str,
+def _reply_numbers(
+    source: LogprobSource | EntropySource,
     spec: CombineSpec,
     context: CombineContext,
-    accounting: AccountingReader | None,
+    looked: _ReaderNumbers,
 ) -> dict[str, float | None]:
-    # WHY the reader is a port: the core does no I/O and has no recorder; the adapter knows
-    # what each source call cost. Without a reader every member's number is unknown.
-    if context.sources is None:  # parse_context required them for an accounting key
-        raise RuntimeError("combine context sources are missing for an accounting signal")
-    # WHY only the members that answered (OME-1557): a member a quorum panel left out has no
-    # recorded call to match, so asking for it would only log a false accounting warning.
-    asked = MappingProxyType({m: c for m, c in context.sources.items() if m in context.outputs})
-    looked = {} if accounting is None else accounting(asked)
-    return {m: finite_float(looked.get(m, {}).get(key)) for m in spec.members}
+    """One logprob or entropy value per member, from the member's reply numbers (C5). None for a
+    member that a quorum panel left out, or whose reply numbers are unknown."""
+    numbers: dict[str, float | None] = {}
+    for member in spec.members:
+        row = looked.get(member) if member in context.outputs else None
+        if row is None:
+            numbers[member] = None
+        elif isinstance(source, LogprobSource):
+            tokens = finite_float(row.get(REPLY_TOKENS))
+            total = finite_float(row.get(REPLY_LOGPROB_SUM))
+            numbers[member] = logprob_value(tokens, total, source.form)
+        else:
+            numbers[member] = entropy_value(finite_float(row.get(REPLY_ENTROPY_MEAN)))
+    return numbers
 
 
 def _declared_numbers(
@@ -477,11 +543,16 @@ def _check_pairing(reduce_id: str, select_id: str | None) -> None:
         raise SpecInvalid(f"{reduce_id} pairs only with select {', '.join(sorted(selects))}")
 
 
-def _declared(spec: CombineSpec, registry: OperatorRegistry) -> tuple[_Declared, ...]:
+def _declared(
+    spec: CombineSpec, registry: OperatorRegistry
+) -> tuple[_Declared | _ReplyDeclared, ...]:
     if spec.signals is None:
         return ()
-    found: list[_Declared] = []
+    found: list[_Declared | _ReplyDeclared] = []
     for name, source in spec.signals.items():
+        if isinstance(source, LogprobSource | EntropySource):
+            found.append(_ReplyDeclared(name, source))  # read from the reply, not the text
+            continue
         descriptor = registry.source(source.source)
         args: OpArgs = MappingProxyType(source.model_dump(exclude={"source"}, exclude_unset=True))
         try:

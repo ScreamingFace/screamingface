@@ -47,6 +47,7 @@ from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 from screamingface.reducer import Reducer
+from screamingface.signal_sources import injected_member_params
 from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
 if TYPE_CHECKING:
@@ -257,6 +258,7 @@ class _CandidateCompiler:
         input_context: str,
         input_dependencies: tuple[str, ...] = (),
         synthesis: bool,
+        member_params: Mapping[str, bool | int] | None = None,
     ) -> tuple[_ResolvedRecipe, tuple[Node, ...]]:
         """Compile a nested Recipe and detach its sources for isolated placement."""
 
@@ -266,6 +268,7 @@ class _CandidateCompiler:
             input_context=input_context,
             input_dependencies=input_dependencies,
             synthesis=synthesis,
+            member_params=member_params,
         )
         if resolved.selection is not None:
             raise ValueError(
@@ -283,6 +286,7 @@ class _CandidateCompiler:
         input_context: str = "$input",
         input_dependencies: tuple[str, ...] = (),
         synthesis: bool = False,
+        member_params: Mapping[str, bool | int] | None = None,
     ) -> _ResolvedRecipe:
         identity = id(recipe)
         if identity in self._active:
@@ -295,6 +299,7 @@ class _CandidateCompiler:
                     input_context=input_context,
                     input_dependencies=input_dependencies,
                     synthesis=synthesis,
+                    member_params=member_params,
                 )
             if isinstance(recipe, Fusion):
                 return self._compile_fusion(recipe, input_context, input_dependencies)
@@ -312,10 +317,14 @@ class _CandidateCompiler:
     def _compile_fusion(
         self, fusion: Fusion, input_context: str, input_dependencies: tuple[str, ...]
     ) -> _ResolvedRecipe:
+        member_params = injected_member_params(fusion.signals)
         if fusion.quorum == "all" and not any(member.optional for member in fusion.members):
             members = tuple(
                 self._recipe(
-                    member, input_context=input_context, input_dependencies=input_dependencies
+                    member,
+                    input_context=input_context,
+                    input_dependencies=input_dependencies,
+                    member_params=member_params,
                 )
                 for member in fusion.members
             )
@@ -327,6 +336,7 @@ class _CandidateCompiler:
                 input_context=input_context,
                 input_dependencies=input_dependencies,
                 synthesis=False,
+                member_params=member_params,
             )
             for member in fusion.members
         )
@@ -369,10 +379,17 @@ class _CandidateCompiler:
         input_context: str,
         input_dependencies: tuple[str, ...],
         synthesis: bool,
+        member_params: Mapping[str, bool | int] | None = None,
     ) -> _ResolvedRecipe:
         default_prompt = DEFAULT_SYNTHESIS_PROMPT if synthesis else DEFAULT_ANSWER_PROMPT
         prompt = model.prompt or default_prompt
-        params = resolved_params(model.params)
+        # WHY after the author params (U4-D5, P12): a Fusion that declares sf.Logprob or
+        # sf.Entropy adds `logprobs` (and `top_logprobs`) to each member call, and the preflight
+        # reads them from the parameter assignment like any author param.
+        selected: Mapping[str, str | int | float | bool] = (
+            {**model.params, **member_params} if member_params else model.params
+        )
+        params = resolved_params(selected)
         route = _canonical_model(model.model)
         self._model_count += 1
         binding = f"model_{self._model_count}"
@@ -398,7 +415,7 @@ class _CandidateCompiler:
                 depends_on=input_dependencies,
             )
         )
-        self._record_parameter_assignment(operation_id, route, model.params)
+        self._record_parameter_assignment(operation_id, route, selected)
         return _ResolvedRecipe(
             reference=f"${binding}",
             operation_id=operation_id,
@@ -599,7 +616,7 @@ class _CandidateCompiler:
             benchmark_rule=self._benchmark_rule,
             signals=fusion.signals,
         )
-        sources = self._claim_accounting_sources(reducer, members)
+        sources = self._claim_accounting_sources(fusion, reducer, members)
         # Lazy: reducer_signals imports this module's helpers at module top.
         from screamingface._evaluation.reducer_signals import _compile_signals
 
@@ -653,11 +670,13 @@ class _CandidateCompiler:
         )
 
     def _claim_accounting_sources(
-        self, reducer: Reducer, members: tuple[_ResolvedRecipe, ...]
+        self, fusion: Fusion, reducer: Reducer, members: tuple[_ResolvedRecipe, ...]
     ) -> dict[str, dict[str, dict[str, str]]] | None:
-        """The context `sources`, only when the reducer reads an accounting signal (SG#5, SG#6)."""
+        """The context `sources`: only when the reducer reads an accounting signal (SG#5, SG#6),
+        or when the Fusion declares sf.Logprob or sf.Entropy (erd §4: the Engine finds each
+        member's reply logprobs by the same call fingerprints)."""
 
-        if accounting_signal(reducer) is None:
+        if accounting_signal(reducer) is None and not injected_member_params(fusion.signals):
             return None
         self._reads_accounting = True
         return member_sources([member.calls for member in members], self._claims or {})

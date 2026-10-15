@@ -12,12 +12,14 @@ from screamingface._signals import (
     ACCOUNTING_SIGNALS,
     MAX_DECLARED_SIGNALS,
     RESERVED_NAME_PREFIXES,
+    Signal,
     is_signal_key,
     is_signal_name,
 )
+from screamingface.model import Model
 from screamingface.recipe import Recipe, _inferred_name, _name, _optional, _recipe
 from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer, _read_signal
-from screamingface.signal_sources import SignalSource
+from screamingface.signal_sources import INJECTED_PARAMS, Entropy, Logprob, SignalSource
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -70,6 +72,7 @@ class Fusion(Recipe):
         object.__setattr__(self, "members", selected_members)
         object.__setattr__(self, "synthesizer", _synthesizer(synthesizer, selected_members))
         object.__setattr__(self, "signals", _declared(signals, self.synthesizer))
+        _check_logprob_sources(self.signals, selected_members, self.synthesizer)
 
     @property
     def _recipe_marker(self) -> None:
@@ -176,6 +179,62 @@ def _check_reads(reducer: Reducer, declared: Mapping[str, SignalSource] | None) 
     if hint:
         message += f"; did you mean {hint[0]}?"
     raise ValueError(message)
+
+
+def _check_logprob_sources(
+    declared: Mapping[str, SignalSource] | None,
+    members: tuple[Recipe, ...],
+    synthesizer: Recipe | Reducer,
+) -> None:
+    """The checks that only a Fusion can make, because only it sees the declaration, the members
+    and the rule (P14): a vote weight must be greater than 0 (LP-E1, EN-E2), and sf.Logprob or
+    sf.Entropy needs each member to be one OpenRouter sf.Model call (DS-I4, LP-E2, LP-E3, EN-E3,
+    U4-D1)."""
+    needs = [s for s in (declared or {}).values() if isinstance(s, Logprob | Entropy)]
+    if not needs:
+        return
+    assert declared is not None
+    if isinstance(synthesizer, Reducer):
+        _check_weight_source(declared, synthesizer)
+    label = f"sf.{type(needs[0]).__name__}"
+    for position, member in enumerate(members, 1):
+        _check_logprob_member(label, position, member)
+
+
+def _check_weight_source(declared: Mapping[str, SignalSource], reducer: Reducer) -> None:
+    weights = reducer._plan().weights
+    if not isinstance(weights, Signal) or weights.key not in declared:
+        return
+    source = declared[weights.key]
+    if isinstance(source, Logprob) and source.form != "prob":
+        raise ValueError(
+            f"sf.Logprob({source.form!r}) cannot be a vote weight: a weight must be greater "
+            f"than 0 and a log-probability is at most 0; declare {weights.key!r} as "
+            "sf.Logprob('prob') instead"
+        )
+    if isinstance(source, Entropy):
+        raise ValueError(
+            "sf.Entropy cannot be a vote weight: a higher entropy means LESS confidence; read "
+            f"sf.signal({weights.key!r}) with sf.Pick or sf.Rank and order='min'"
+        )
+
+
+def _check_logprob_member(label: str, position: int, member: Recipe) -> None:
+    if not isinstance(member, Model):
+        raise ValueError(
+            f"{label} needs each Fusion member to be one sf.Model call; member {position} "
+            f"({member.name!r}) is a nested Fusion or Pipeline"
+        )
+    if not member.model.removeprefix("/").startswith("openrouter/"):
+        raise ValueError(
+            f"{label} supports OpenRouter models in v1; member {position} uses {member.model!r}"
+        )
+    clash = sorted(INJECTED_PARAMS & set(member.params))
+    if clash:
+        raise ValueError(
+            f"{label} sets the {' and '.join(clash)} param of every member; remove it from "
+            f"member {position} ({member.name!r})"
+        )
 
 
 def _signals_repr(declared: Mapping[str, SignalSource]) -> str:
