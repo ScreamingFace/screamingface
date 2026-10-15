@@ -847,3 +847,61 @@ and two paid tests that the owner runs. Spec: `docs/spec/2026-10-15-e4b-signal-s
     with base `c912513b9` (the branch HEAD before commit A), and both are green.
   - The unit spec §6 forbids `--skip-append-only`, so it was not used. The rerun with base
     `c912513b9` gives the same proof.
+
+## Restack on part 2 (2026-10-15)
+
+The owner set the merge order: part 2, then part 3, then part 4. This branch now sits on E4b part 2
+(`e4b-evidence-completeness`, tip `210c2194d`). Before the restack, the branch tip was `76ec8c808`.
+The backup branch `e4b-signal-sources-pre-stack` keeps that tip.
+
+- **Command:** `git rebase --onto e4b-evidence-completeness 0f4b9e292 e4b-signal-sources` (no `-i`).
+  All 18 part 3 commits applied. No commit was dropped or squashed.
+- **Conflicts and resolutions** (each one keeps the behavior of both parts):
+  - Unit 2 commit (`feat(e4b): declared signals and sf.Verbalized`):
+    - `E/combine/endpoint.py`: part 2 adds `_Exclusion`, `excludes`, `ranks`, `cut`,
+      `_exclusion`, `_record_status` and the member `rank`. Part 3 adds `_Declared`, `declared`,
+      `_known`, `_declared_record` and the `recorded` signals. The merge keeps all of them.
+      `_member_record` takes `recorded` (part 3) and `excludes` and `rank` (part 2). The record
+      `signals` come from `recorded` (every declared name). The exclusion rule still reads
+      `answer.signals`, which holds the key that the step reads.
+    - `E/combine/evidence.py`, `S/combine_evidence.py`, `S/_evaluation/combine_evidence.py`: the
+      evidence has both optional keys, `cut` (part 2) and `declared` (part 3). The decoder optional
+      key set is `{"mean", "cut", "declared"}`.
+    - Wire order: the part 2 contract puts `cut` directly after `signal`. So `declared` now comes
+      after `cut`: `signal`, `cut`, `declared`, `result`. Each key stays optional. The bytes of an
+      evidence that has only one of the two keys do not change. A new test pins this order.
+    - `S/url4.py`: both imports (`JudgeWriterWarning` and the `signal_sources` names).
+  - Unit 2 review fix: `E/combine/ports.py` `__all__` keeps both `DECLARED_NAME` and
+    `EXCLUDE_REASONS`, in sorted order.
+  - Unit 4 commit (`feat(e4b): sf.Logprob and sf.Entropy`): `E/combine/endpoint.py` `_Plan` keeps
+    the part 2 fields and the type `tuple[_Declared | _ReplyDeclared, ...]`. `S/url4.py` and
+    `S/_evaluation/candidate.py`: both imports (`JudgeWriterWarning` and
+    `injected_member_params`).
+  - `README.md`, `CHANGELOG.md` and `evidence_cases.json`: no conflict. The part 3 README delta is
+    the same as before the restack.
+- **Regenerated files** (not merged by hand), in the unit 2 commit:
+  - `screamingface.combine-evidence.v1.json`: deleted, then written with
+    `UPDATE_SCHEMA_SNAPSHOT=1`, then run again (green). Its part 3 delta on the new base is the
+    same as the delta that the owner approved.
+  - `public_surface_snapshot.json`: written with `UPDATE_SURFACE_SNAPSHOT=1`, then run again
+    (green). The only new difference: the `CombineEvidence.__init__` signature has both `cut`
+    and `declared`.
+  - Each later commit applied with no snapshot conflict, so no extra regenerate commit is
+    necessary.
+- **Interaction check (step 4):** probes found no gap. A rule that reads a declared name leaves
+  out a member with no value: `no_weight` for weights (`sf.Verbalized`), `no_signal` for a Pick,
+  a Filter and a Rank (`sf.Verbalized`, `sf.Logprob`). A declared name that no rule reads does
+  not exclude a member. A Rank by a declared name records the member `rank` and the `cut`. The
+  SDK decodes this evidence and writes it back with the same bytes. There is no fix commit. The
+  new test `E/tests/unit/test_combine_declared_exclusion.py` (5 tests) keeps this behavior. It is
+  a new file, so it needs no approval.
+- **Re-pin:** `.claude/test-change-approvals/OME-E4B-P3.json`. Each `base_blob` is now the blob at
+  `e4b-evidence-completeness`, and each `approved_blob` is the blob at the restacked tip. Two
+  entries changed (the combine-evidence v1 snapshot and the public-surface snapshot). The other
+  five keep their blobs. No entry was added or removed. No file needs a new owner approval.
+  `OME-E4B-P2.json` was not changed.
+- **Gates** (`--base e4b-evidence-completeness`): `screamingface-engine`, `screamingface`, `repo`
+  and `aigateway`: ALL GATES GREEN, the append-only check included. A first engine gate run
+  stopped with no progress while the SDK suite ran in parallel. It was stopped, the engine suite
+  then passed alone (6080 passed), and the full engine gate run was green. No known flaky test
+  (OME-1619) failed.
