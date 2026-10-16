@@ -1,7 +1,7 @@
 ---
 ticket: unfiled   # epic OME-1290 is the parent; the leaf is filed at PR-open
 stack: screamingface-engine, screamingface, repo
-status: planned   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-16
 finished:
 ---
@@ -145,3 +145,93 @@ Spec and plan written headless from the owner answers of 2026-10-16. Spec review
 (seven units now). Build not started. The units
 append their sections (Intent, Planned changes, Pinned edits, Test plan, Acceptance, Deviations,
 Outcome) below, in the order of plan §2.
+
+## Unit 1: signal sum in the Engine (`sum-engine`)
+
+### Intent
+
+PRD `signal-sum` (rows SM#1–14); ans:Q1 ("each member gets risk = sum of coefficient x
+component ... recorded like any declared signal"); P1, P3–P6, P16, P17. The combine spec gets a
+fourth `signals` union member `SumSource` (`{"source": "sum", "coefficients": {...}}`) with
+`_check_sum` (declared component, no sum of a sum, no zero coefficient; fixed messages that echo
+no value). The new pure module `E/combine/signal_sum.py` gives `sum_value`: the exact rational sum
+of coefficient x value, rounded once; None when a component is None or the sum is outside the
+float range. `_signal_values` computes the non-sum columns first, then the sums. A Pick, Rank,
+Filter, vote weight and gate read the sum by name with no code change. New contract case
+`pick_sum_min` (37 → 38). No SDK source change, no log change, no new failure code.
+
+### Planned changes
+
+- `E/combine/spec.py`: `SumSource`, the union member, `_check_signals` loop, `_check_sum`,
+  `__all__`.
+- `E/combine/signal_sum.py` (new): `sum_value`, `__all__`.
+- `E/combine/endpoint.py`: import, `_Summed`, `_Plan.declared` type, two-pass `_signal_values`,
+  the sum branch of `_declared`.
+- New tests: `ET/test_combine_signal_sum.py` (15 functions, 26 items),
+  `ET/test_combine_signal_sum_words.py` (2).
+- Test inserts: the `pick_sum_min` block in `ET/test_combine_evidence_contract_fixture.py` (after
+  line 418), one `_EXPECTED_NAMES |=` line in `ST/test_combine_evidence_contract.py` (after line
+  61).
+
+### Pinned edits
+
+- `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`:
+  regenerated; adds `$defs.SumSource`, the `sum` discriminator mapping and one `oneOf` item only.
+- `apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json`: regenerated;
+  adds the case `pick_sum_min` at the end; the 37 old cases keep their bytes.
+- `packages/screamingface/tests/test_frozen_record_fields.py` (line 184: 37 → 38).
+- `apps/screamingface-engine/tests/unit/test_combine_gate.py` (lines 566-567; deviation D-1):
+  `sorted((*L32, *GATE_CASES))` → `sorted((*L32, *GATE_CASES, "pick_sum_min"))`;
+  `list(cases)[-5:]` → `list(cases)[32:37]`.
+
+### Test plan
+
+- 14 PRD rows in PRD §7 order. CHAR: SM#1 (fixed lists L37 and L47, 48 specs). RED: SM#2–11,
+  SM#14. PIN: SM#12 (contract case, both sides), SM#13 (spec v1 snapshot).
+- Stubs in commit A: `SumSource` (final, not in the union), `sum_value` raising
+  `NotImplementedError`. Commit A: ET new files 20 failed / 8 passed; edited ET files 4 failed;
+  SDK 3 failed.
+- Commit A run (the focused lists of §9, real counts): Engine focused list 24 failed / 164
+  passed (the 20 new-file reds above, plus the 4 edited-file reds); SDK focused list 3 failed /
+  154 passed. Every red row fails for its stated reason; no import or collection error.
+- Oracles: fixture S and signals S of signal-sum §3 (exact sums with `fractions.Fraction`), the
+  SM-D1/D2 sums, the fixed rule messages.
+
+### Acceptance
+
+- A spec with a sum parses; each SM-E1 input is `combine_spec_invalid` with its fixed message,
+  no echo.
+- Each member records `risk` = the exact sum rounded once, None when a component is None or the
+  sum is out of range; the key order is unchanged.
+- Pick, Rank, Filter, a vote weight and a gate `chosen:` / `mean:` read the sum by name.
+- `declared` records the sum entry as the spec wrote it.
+- `pick_sum_min` is byte equal on both sides; the 37 old cases and the 48 url4 specs keep their
+  bytes.
+- Gates: append-only lists only the four pinned files; every other gate green; `repo` green.
+
+### Deviations
+
+- (pre-filled) D-1: `ET/test_combine_gate.py:566-567` (part 5) pins the exact case set and the
+  last five case names of `evidence_cases.json`; any new case turns it red. Smallest edit as above;
+  it is a fourth pinned file of this unit (not in spec §8 / plan §6). Unit 4 edits line 566 again
+  (`"vote_gate_band"`); line 567 needs no second edit.
+- (pre-filled) D-2: PRD §7 lists row 1 in both new files; it is in
+  `ET/test_combine_signal_sum_words.py` only. Row 12 also has a named test with hand oracles in
+  `ET/test_combine_signal_sum.py`, beside the parametrized byte tests.
+- (pre-filled) D-3: SM#3 checks that each message ENDS with its rule text; the seven union-level
+  inputs give the existing quiet message, so those seven items pass in commit A too.
+- (pre-filled) D-4: SM#14 (SM-E2) uses the built-in operators (`by_signal@1` reads `sev_a`,
+  weights read `risk`), not the fake registry: the fake registry has no `verbalized` source, so
+  `_declared` would refuse the spec first.
+
+### Notes for the review
+
+- `_check_sum` runs inside the model validator, so its error location is `spec` and the message
+  is `combine spec is invalid: spec: Value error, <rule>`.
+- For unit 4: `ET/test_combine_gate.py:566` must add `"vote_gate_band"` (one more pinned edit).
+- Part 7 (`consistency@N`) adds its own union member and `_declared` branch; a `consistency` name
+  can be a sum component with no change (C10).
+
+### Outcome
+
+(fill at the end of the unit)
