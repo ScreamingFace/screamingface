@@ -78,7 +78,13 @@ path until it is migrated. E4 starts only after the owner reports the census (§
   callback gives it the requested one after revoking the old row). Any other pair is unchanged.
 - Same provider identity as another active row of the pair: that row becomes effective (marker
   CAS, old row revoked, the new row retired as its duplicate, fresh tokens written to its blob),
-  in one transaction.
+  in one transaction. The row must still be `active` under its row lock (the identity lookup runs
+  before the transaction); otherwise the promotion is the native superseded conflict (409
+  `connection_conflict`). Any other failure of the promotion retires this flow's pending row
+  (`error`, 503 `connection_activation_failed`; an integrity conflict revokes it, 409), as the
+  plain activation does.
+- No repair branch touches the Profile document: the callback's compat-document update runs only
+  when the flow replaces nothing (R6, §8 Q7).
 - API-key create (`create_api_key_connection`): the same rule (`effective_to_replace`); in its
   one transaction the fresh row is created under a placeholder label, the marker CAS makes it
   effective, the replaced row is revoked, then the row takes the requested label

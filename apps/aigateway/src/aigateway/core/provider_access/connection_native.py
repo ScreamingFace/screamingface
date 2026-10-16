@@ -187,10 +187,18 @@ async def promote_live_row(
     of the pair — `live` becomes effective and this flow's `pending` row retires as its duplicate.
 
     Same order as the plain repair (marker → rows → the caller's blob write). Returns the
-    replaced row.
+    replaced row. A `live` row that is no longer active under its lock is the native superseded
+    conflict (409 `connection_conflict`); the caller rolls back.
+
+    # INVARIANT: the lookup that found `live` ran before this transaction; only the status read
+    # under the row lock decides — the marker never names a row a refresh failure already broke.
     """
     await replace_effective(observed, connection_id=live.id)
     replaced = await retire_replaced(observed, alongside=(pending.id, live.id))
+    if not await OAuthConnection.filter(
+        id=live.id, account_id=observed.account_id, status="active"
+    ).exists():
+        raise _superseded(pending)
     store = OAuthConnectionStore()
     await store.delete_or_supersede_pending(pending, live)
     await store.touch_last_refreshed(live)

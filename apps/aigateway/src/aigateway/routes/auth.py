@@ -1110,13 +1110,13 @@ async def _record_oauth_connection_completion(
                 # claim and compat-document update commit with the activated row and its blob, or
                 # not at all.
                 await claim_observed(pending.observed_pair)
-                if pending.replaces_effective is not None:
-                    # FEATURE (OME-1209, E1b, R6): this flow repairs a migrated pair whose
-                    # effective row was unusable at start — marker first (D14), the old row
-                    # revoked before this one activates.
+                if pending.replaces_effective is None:
+                    await _mark_profile_authenticated(app, pending, plugin, creds)
+                else:
+                    # FEATURE (OME-1209, E1b, R6): this flow repairs a migrated pair — marker
+                    # first (D14), the old row revoked before this one activates.
+                    # INVARIANT (R6, §8 Q7): a repair writes no Profile document.
                     await replace_effective(pending.replaces_effective, connection_id=connection.id)
-                await _mark_profile_authenticated(app, pending, plugin, creds)
-                if pending.replaces_effective is not None:
                     replaced = await retire_replaced(
                         pending.replaces_effective, alongside=(connection.id,)
                     )
@@ -1171,20 +1171,24 @@ async def _record_oauth_connection_completion(
         raise
     except Exception as exc:
         await store.mark_pending_error(connection, "connection_activation_failed")
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "connection_activation_failed",
-                "provider": pending.provider,
-                "message": "Could not activate OAuth connection. Try again.",
-            },
-        ) from exc
+        raise _activation_failed(pending) from exc
 
 
 def _connection_conflict(pending: PendingAuthEntry) -> HTTPException:
     return HTTPException(
         status_code=409,
         detail={"code": "connection_conflict", "provider": pending.provider},
+    )
+
+
+def _activation_failed(pending: PendingAuthEntry) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={
+            "code": "connection_activation_failed",
+            "provider": pending.provider,
+            "message": "Could not activate OAuth connection. Try again.",
+        },
     )
 
 
@@ -1256,13 +1260,21 @@ async def _repair_into_live_row(
             await _persist_connection_credentials(
                 app, plugin, pending.provider, pending.account_id, str(live.id), creds
             )
-    except PairAuthorityConflict as exc:
+    except (PairAuthorityConflict, WriteConflict) as exc:
         await store.mark_revoked(connection, "superseded")
+        raise _connection_conflict(pending) from exc
+    except IntegrityError as exc:
+        await store.mark_revoked(connection, "connection_conflict")
         raise _connection_conflict(pending) from exc
     except HTTPException as exc:
         if exc.status_code == 503:
             await store.mark_pending_error(connection, "credential_store_unavailable")
         raise
+    except Exception as exc:
+        # WHY: the OAuth state is already consumed — a `pending` row left behind would keep its
+        # label taken with no callback able to finish or clean it up.
+        await store.mark_pending_error(connection, "connection_activation_failed")
+        raise _activation_failed(pending) from exc
     if replaced is not None:
         _invalidate_credential(
             app, plugin, credential_name_of(plugin, replaced, account_id=pending.account_id)

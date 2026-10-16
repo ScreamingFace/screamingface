@@ -60,12 +60,18 @@ Under `apps/aigateway/src/aigateway/`:
   replaced row's cached strategy evicted after commit). Tests: new
   `tests/unit/core/provider_access/test_native_oauth_replaces_unusable_effective.py` (17 cases) and
   `test_native_api_key_replaces_effective.py` (4 cases), and
-  `test_native_unlabelled_targets_effective.py` (4 cases, the unlabelled rule);
+  `test_native_unlabelled_targets_effective.py` (4 cases, the unlabelled rule),
+  `test_native_repair_boundaries.py` (8 cases: the Profile document untouched on every repair
+  branch, a sibling broken after its lookup, unexpected and integrity failures of the promotion),
+  and the PostgreSQL lane `tests/integration/test_native_repair_postgres.py` (3 cases: a repair
+  against a key takeover, against a delete of the replaced row, and a sibling broken after its
+  lookup);
   no prior test changed. Docs: spec R6 and §8 Q7, plan §3 E1b.
 - **Commits:** `feat(aigateway): let a native connection replace a migrated pair's effective credential`;
-  `feat(aigateway): let an unlabelled native connection replace the pair's main credential`
+  `feat(aigateway): let an unlabelled native connection replace the pair's main credential`;
+  `fix(aigateway): keep a native repair off the Profile document and fence the live-row promotion`
   (ticket backfilled at PR-open).
-- **Gates:** `run_gates.py aigateway --base 59545b20b` (the unit's base; main has moved) all green after the review fixes and the unlabelled rule (append-only check, ruff, format, pyright, enterprise check, full suite with coverage).
+- **Gates:** `run_gates.py aigateway --base 59545b20b` (the unit's base; main has moved) all green after the review fixes, the unlabelled rule and review round 2 (append-only check, ruff, format, pyright, enterprise check, full suite with coverage).
 - **Deviations:** review round (independent reviewer) → owner decisions 2026-10-16: a repair
   that signs into another live row's identity promotes that row; a broken effective row is
   replaced whatever its auth type, and a flow that asks for the effective row's own label
@@ -75,5 +81,17 @@ Under `apps/aigateway/src/aigateway/`:
   no label targets the pair's main connection and keeps its real label (owner decision
   2026-10-16, this also lands an unlabelled same-identity re-login on the pair); a repaired pair is not R1-rollbackable (spec §8 Q7). Also fixed
   from the review: lock order with delete, a lost callback's stranded `pending` row, rollback
-  tests for the 503 and integrity paths. The deadlock fix is reasoned for PostgreSQL; the test
-  suite runs on SQLite, which ignores row locks.
+  tests for the 503 and integrity paths. The unit suite runs on SQLite, which ignores row locks;
+  the lock order is exercised by the PostgreSQL lane cases below.
+  Review round 2 (independent): the native repair callback still ran the compat-document update
+  (the base's G0 step), so a repair under the Profile's own name rewrote it, against R6 and Q7 —
+  now skipped whenever the flow replaces the effective row; the same-identity promotion now
+  re-reads the live row under its lock and refuses (409) when a refresh failure broke it after
+  the lookup; an unexpected failure of the promotion now retires the pending row like the plain
+  activation (it had been left `pending`, its OAuth state already consumed). PostgreSQL lane:
+  the 3 new cases pass (the broken-sibling case fails without the fix); 5 snapshot-upload cases
+  fail on the local `pg_dump` 15 against the PostgreSQL 16 container, unrelated to this unit.
+  Known residual, out of scope: a stale refresh rejection that arrives after a promotion commits
+  (it waits on the FK lock the marker update takes on the row) still marks the promoted row
+  `error` — the same class as any in-place re-key of a migrated pair, whose `mark_error` is not
+  generation-fenced.
