@@ -24,6 +24,7 @@ The renderer half hands facts straight to the row renderer, no child.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import textwrap
@@ -855,3 +856,52 @@ def test_a_judge_parameter_left_at_its_default_renders_the_todo_judge() -> None:
     rows: TaskReplayRows = _rows(_facts(scorer=f"{__name__}:judged_by_default", scorer_kwargs={}))
 
     assert 'judge=JudgeSpec(model="TODO"),' in rows.benchmark
+
+
+# --- OME-1602: an extra scorer the importing agent leaves out by name ---
+
+
+def _stereoset_task() -> Any:
+    """stereoset's two scorers on a stand-in dataset, as its real Task declares them."""
+
+    from inspect_ai import Task
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    stereoset_module = importlib.import_module("inspect_evals.stereoset.stereoset")
+
+    return Task(
+        dataset=MemoryDataset([Sample(input="q", target=["A"], choices=["x", "y", "z"])]),
+        scorer=[stereoset_module.multiple_choice_scorer(), stereoset_module.stereoset_scorer()],
+    )
+
+
+def test_an_extra_scorer_dropped_by_name_is_a_named_deviation_on_the_row() -> None:
+    """stereoset's bias score runs a whole-run metric no Named Score column can carry, so the
+    import refuses it as an extra scorer; the owner chose to leave it out by name instead
+    (OME-1602), and the row then shows the drop."""
+
+    stereoset_module = importlib.import_module("inspect_evals.stereoset.stereoset")
+
+    with pytest.raises(ImporterError, match="stereotype_score"):
+        _scorer_facts(_stereoset_task(), stereoset_module)
+
+    facts: ScorerFacts = _scorer_facts(
+        _stereoset_task(), stereoset_module, drop_scorers=("stereoset_scorer",)
+    )
+
+    assert facts.named_scores == ("multiple_choice_scorer",)
+    assert facts.dropped_scorers == ("stereoset_scorer",)
+
+
+@pytest.mark.parametrize(
+    ("name", "reason"),
+    [("multiple_choice_scorer", "headline scorer"), ("bias_scorer", "declares no scorer")],
+)
+def test_the_headline_or_an_unknown_name_cannot_be_dropped(name: str, reason: str) -> None:
+    """Dropping the headline would grade by something else under the eval's name; a name the
+    Task does not declare is a typo that would otherwise drop nothing silently."""
+
+    stereoset_module = importlib.import_module("inspect_evals.stereoset.stereoset")
+
+    with pytest.raises(ImporterError, match=reason):
+        _scorer_facts(_stereoset_task(), stereoset_module, drop_scorers=(name,))

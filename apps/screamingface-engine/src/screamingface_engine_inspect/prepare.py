@@ -102,6 +102,13 @@ class TaskReplayCasesSpec:
     #: Assembly allows it only beside the eval's own judge-free scorer (OME-1527, R5). No
     #: identity pin: the Case Digest seals the empty keys, as it does for has_answer_key.
     empty_answer_key_allowed: bool = False
+    #: Some multiple-choice Cases key several options: a list of option letters (truthfulqa's
+    #: ``["B"]``, stereoset's two related continuations) or one comma-joined string of them
+    #: (chembench's ``"A,D"``, which its pattern scorer compares as text). Accepted only on a
+    #: row that says so, every letter checked against the Case's options (OME-1602, F6); a
+    #: default row still refuses a list beside choices. No identity pin: the Case Digest
+    #: seals the keys.
+    letter_list_key: bool = False
     #: A NAMED DEVIATION: upstream Sample ids (``str(Sample.id)``)
     #: dropped after the task builds its dataset and before capture (sad_stages_full: three
     #: Samples with an empty question). Every id must still be there, or Case Preparation
@@ -1588,6 +1595,7 @@ def prepared_case(
         case_id,
         spec.has_answer_key,
         empty_answer_key_allowed=spec.empty_answer_key_allowed,
+        letter_list_key=spec.letter_list_key,
     )
     record: dict[str, Any] = (
         {"target": target} if choices is None else {"target": target, "choices": choices}
@@ -1692,6 +1700,7 @@ def _validated_answer_key(
     has_answer_key: bool = True,
     *,
     empty_answer_key_allowed: bool = False,
+    letter_list_key: bool = False,
 ) -> tuple[str | list[str], list[str] | None]:
     """The one trust boundary on eval-produced Samples — never prepare an unkeyed Case.
 
@@ -1704,16 +1713,18 @@ def _validated_answer_key(
     FEATURE (OME-1268): a LIST of accepted answers (SQuAD's every accepted span) is a valid
     key on a free-text Case; it is frozen as the list inspect's own f1 and exact read, so
     the grading code is untouched. A list beside multiple-choice options is refused: that
-    would be a multi-answer MCQ, which no row declares.
+    would be a multi-answer MCQ, unless the row declares one (``letter_list_key``, OME-1602
+    F6): then a list of option letters, or one comma-joined string of them, is checked letter
+    by letter against the options and frozen as the eval wrote it.
     """
 
     _require_a_question(sample, case_id)
     target: object = sample.target
-    empty_key: str | list[str] | None = _accepted_empty_key(
-        sample, has_answer_key, empty_answer_key_allowed
+    opted_in: tuple[str | list[str], list[str] | None] | None = _opted_in_key(
+        sample, case_id, has_answer_key, empty_answer_key_allowed, letter_list_key
     )
-    if empty_key is not None:
-        return empty_key, None
+    if opted_in is not None:
+        return opted_in
     key: str | list[str]
     if isinstance(target, list):
         key = _validated_list_key(target, sample, case_id)
@@ -1738,6 +1749,63 @@ def _validated_answer_key(
             "choices nor one of them"
         )
     return target, choices
+
+
+def _opted_in_key(
+    sample: Sample,
+    case_id: int,
+    has_answer_key: bool,
+    empty_answer_key_allowed: bool,
+    letter_list_key: bool,
+) -> tuple[str | list[str], list[str] | None] | None:
+    """The key a row's opt-in accepts (an empty key, or several option letters), or None to
+    check the Sample's key the default way."""
+
+    empty_key: str | list[str] | None = _accepted_empty_key(
+        sample, has_answer_key, empty_answer_key_allowed
+    )
+    if empty_key is not None:
+        return empty_key, None
+    if letter_list_key and sample.choices is not None and _names_several_letters(sample.target):
+        return _validated_letter_list_key(sample.target, sample.choices, case_id)
+    return None
+
+
+def _names_several_letters(target: object) -> bool:
+    """Whether a key beside choices takes the several-letter form: a list, or a comma-joined
+    string (a single letter stays on the one-option path)."""
+
+    return isinstance(target, list) or (isinstance(target, str) and "," in target)
+
+
+def _validated_letter_list_key(
+    target: object, choices: Sequence[Any], case_id: int
+) -> tuple[str | list[str], list[str]]:
+    """A key naming several options, checked against them and frozen as the eval wrote it.
+
+    Worked example, four options A to D: ``["B", "D"]`` and ``"A,D"`` are kept as given;
+    ``["B", "E"]`` names an option past D, ``["B", "B"]`` names one twice, ``[]`` and
+    ``"A,"`` name none for a slot, and ``["Paris"]`` is not a letter, so each is refused.
+    """
+
+    options: list[str] = [str(choice) for choice in choices]
+    if not options or any(not option.strip() for option in options):
+        raise PrepareError(f"case {case_id}: sample carries an empty choice")
+    letters: list[str] = (
+        target.split(",") if isinstance(target, str) else [str(item) for item in target]
+    )
+    valid: str = "".join(chr(ord("A") + index) for index in range(len(options)))
+    if not letters or any(
+        not isinstance(letter, str) or len(letter) != 1 or letter not in valid for letter in letters
+    ):
+        raise PrepareError(
+            f"case {case_id}: target {target!r} must name options by letter, each within "
+            f"{len(options)} choices"
+        )
+    if len(set(letters)) != len(letters):
+        raise PrepareError(f"case {case_id}: target {target!r} names an option twice")
+    key: str | list[str] = target if isinstance(target, str) else list(letters)
+    return key, options
 
 
 def _accepted_empty_key(

@@ -239,7 +239,10 @@ type WholeRunMetricChoice = Literal["honour", "mean"]
 
 
 def _scorer_facts(
-    task: Any, module: Any, whole_run_metric: WholeRunMetricChoice | None = None
+    task: Any,
+    module: Any,
+    whole_run_metric: WholeRunMetricChoice | None = None,
+    drop_scorers: tuple[str, ...] = (),
 ) -> ScorerFacts:
     """Every scorer the Task declares, kept or dropped by name (OME-1268).
 
@@ -258,6 +261,11 @@ def _scorer_facts(
     a role asked in the scorer's body becomes the row's ``judge_role``; a panel of judges,
     or a ``get_model()`` that grades with the model under test, is refused on a single
     scorer and dropped by name beside others (:func:`judge_shape`).
+
+    ``drop_scorers`` are extra scorers the importing agent leaves out by registry name, a
+    Named Deviation the owner decided per Benchmark (stereoset's bias score, OME-1602): they
+    join ``dropped_scorers`` before Stage 4's checks. The headline scorer, or a name the Task
+    does not declare, is refused.
     """
 
     from screamingface_engine_inspect.scorer_metrics import (
@@ -275,6 +283,7 @@ def _scorer_facts(
         _resolve_scorer(scorer, module) for scorer in declared
     ]
     kept, judge_role = _kept_scorers(resolved)
+    kept = _without_dropped_by_name(resolved, kept, drop_scorers)
     if not kept:
         dropped_names: list[str] = [name for _, _, name in resolved]
         raise ImporterError(
@@ -469,6 +478,28 @@ def _whole_run_choice(
     except ValueError as exc:
         raise ImporterError(f"cannot honour {metric}: {exc}; use --whole-run-metric mean") from None
     return reference, None
+
+
+def _without_dropped_by_name(
+    resolved: list[tuple[str, dict[str, Any], str]], kept: list[int], drop_scorers: tuple[str, ...]
+) -> list[int]:
+    """The kept scorers minus the extra ones the agent drops by name (OME-1602).
+
+    Worked example, stereoset: kept [0, 1] (multiple_choice_scorer, stereoset_scorer) and
+    ``drop_scorers=("stereoset_scorer",)`` → [0]. Dropping ``multiple_choice_scorer``, the
+    headline, is refused: the Benchmark would grade by something else under the eval's name.
+    """
+
+    names: list[str] = [name for _, _, name in resolved]
+    for name in drop_scorers:
+        if name not in names:
+            raise ImporterError(f"--drop-scorer {name}: the task declares no scorer {name!r}")
+        if kept and names[kept[0]] == name:
+            raise ImporterError(
+                f"--drop-scorer {name}: that is the headline scorer; only an extra scorer can "
+                "be left out by name"
+            )
+    return [index for index in kept if names[index] not in drop_scorers]
 
 
 def _check_kept_scorers(
@@ -844,9 +875,14 @@ def _named_score_lines(
             "        # Named Deviation (OME-1268): the Task also declares "
             f"{', '.join(dropped_scorers)}, left out"
         )
-        lines.append("        # because it grades with a judge model, and a multi-scorer row pins")
-        lines.append("        # no judge. Name the drop and its effect in the description; the")
-        lines.append("        # dropped name is part of the Benchmark Revision.")
+        lines.append(
+            "        # because it grades with a judge model a multi-scorer row cannot pin,"
+        )
+        lines.append(
+            "        # or because the importing agent dropped it (--drop-scorer). Name the"
+        )
+        lines.append("        # drop and its effect in the description; the dropped name is part")
+        lines.append("        # of the Benchmark Revision.")
         lines.append(f"        dropped_scorers={_tuple_literal(dropped_scorers)},")
     if headline_differs and named_scores:
         lines.append(
@@ -1040,6 +1076,8 @@ class TaskReplayImporter(Protocol):
         keep_sample_metadata: bool,
         whole_run_metric: WholeRunMetricChoice | None = None,
         empty_answer_key_allowed: bool = False,
+        letter_list_key: bool = False,
+        drop_scorers: tuple[str, ...] = (),
     ) -> TaskReplayImport:
         """Seal the Cases by two replays, as import_replay.import_by_task_replay does."""
         ...
@@ -1135,10 +1173,25 @@ def _add_task_replay_arguments(parser: argparse.ArgumentParser) -> None:
         "Samples with a key are checked as usual",
     )
     parser.add_argument(
+        "--letter-list-key",
+        action="store_true",
+        help="multiple-choice Samples key several options by letter, as a list (stereoset) "
+        "or one comma-joined string (chembench's A,D); each letter is checked against the "
+        "options instead of the key being refused",
+    )
+    parser.add_argument(
         "--keep-sample-metadata",
         action="store_true",
         help="keep the Sample metadata although the scorer is inspect's own, because a "
         "Judge template reads it (coconot's rubric)",
+    )
+    parser.add_argument(
+        "--drop-scorer",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="an extra scorer to leave out by its registry name (repeatable), a Named "
+        "Deviation the row shows, e.g. stereoset_scorer (OME-1602)",
     )
     parser.add_argument(
         "--whole-run-metric",
@@ -1229,6 +1282,8 @@ def _import_by_task_replay_cli(
         # passes the import exactly the options it always did.
         **({} if args.whole_run_metric is None else {"whole_run_metric": args.whole_run_metric}),
         **empty_key_option,
+        **({"letter_list_key": True} if args.letter_list_key else {}),
+        **({"drop_scorers": tuple(args.drop_scorer)} if args.drop_scorer else {}),
     )
     imported = _with_nltk_data(imported, args.nltk_resource)
     card: CardLicense = card_license_of(
