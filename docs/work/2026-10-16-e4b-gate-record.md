@@ -1000,3 +1000,14 @@ None.
   - README code block: no change to the spec text was needed. DC#3 compared all four recipes byte
     for byte with the fixtures on the first run.
   - No fix commit was needed.
+
+## Owner decisions after the build (2026-10-16)
+
+- P4 polarity: the keep-majority form (commit f547305cd records it in the overview, C8 and the plan).
+- The owner approved the 10 pinned edits of units 1–3. Manifest:
+  `.claude/test-change-approvals/OME-E4B-P5.json` (placeholder id; rename at PR-open).
+- A failed fallback call fails the Case, also on the majority branch, until E4c skips the call. The
+  CHANGELOG bullet now says this, as the README already did (contracts C2).
+- Cleanup (owner asked): one SDK home for the gate words. `S/combine_evidence.py` holds `GateCmp`,
+  `_GATE_CMPS`, `_GATE_SOURCES` and the new `_is_gate_observe`; `S/gate.py` imports them and keeps
+  only its own error texts and the E4a hint. No behavior change.
