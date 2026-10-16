@@ -585,10 +585,12 @@ def test_a_reply_only_row_is_refused_the_check_surface(monkeypatch: pytest.Monke
 
 # ── some Cases' empty key is their answer: only for the eval's own judge-free scorer (R5) ──
 
-#: The eval's own scorer of a Benchmark whose empty keys are answers, shaped like
-#: contracteval's (no clause spans → the right reply declines). A stand-in reference only;
-#: assembly never imports it.
-_EMPTY_KEY_SCORER: str = "stand_in_contracteval.scorers:quotes_every_span"
+#: The eval's own scorer of a Benchmark whose empty keys are answers: contracteval's (no
+#: clause spans → the right reply declines). Assembly reads its source to confirm it reaches
+#: no judge (a reference it cannot find is refused, OME-1602) and never imports it.
+_EMPTY_KEY_SCORER: str = (
+    "screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval_containment"
+)
 
 
 def _empty_key_snapshot(monkeypatch: pytest.MonkeyPatch, **cases: Any) -> None:
@@ -685,10 +687,10 @@ def test_empty_keys_as_answers_are_refused_the_check_surface(
 
 # ── Draft Feedback without an answer key: only on a Benchmark the owner allowed (R10) ──
 
-#: The eval's own scorer of an IFEval-shaped Benchmark: it grades the reply against the
-#: instructions in each Sample's metadata, never a key. A stand-in reference only; assembly
-#: never imports it.
-_INSTRUCTION_SCORER: str = "stand_in_ifeval.scorers:instructions_followed"
+#: The eval's own scorer of an IFEval Benchmark: it grades the reply against the
+#: instructions in each Sample's metadata, never a key. Assembly reads its source to confirm
+#: it reaches no judge (a reference it cannot find is refused, OME-1602) and never imports it.
+_INSTRUCTION_SCORER: str = "inspect_evals.ifeval.ifeval:instruction_following"
 
 
 def _ifeval_shaped_spec(**overrides: Any) -> BenchmarkSpec:
@@ -778,3 +780,196 @@ def test_the_owner_allowed_benchmark_is_still_refused_draft_feedback_over_an_emp
 
     with pytest.raises(ValueError, match="would leak the answer"):
         _assembled(spec, monkeypatch)
+
+
+# ── OME-1602, F2: judges the row cannot see in its kwargs ────────────────────
+
+import textwrap  # noqa: E402
+
+#: A stand-in eval module whose scorers reach a judge without naming one in their kwargs. Its
+#: first line raises, so a test using it also proves assembly reads the source and never
+#: imports the eval (inspect stays off the Engine's run path).
+_UNIMPORTABLE_JUDGED_SCORERS: str = textwrap.dedent(
+    """
+    raise RuntimeError("assembly imported the eval's scorer module")
+
+    from inspect_ai.model import get_model
+
+    def takes_a_judge(include_history=None, judge_model=None):
+        async def score(state, target):
+            return None
+        return score
+
+    async def _ask_the_grader(question):
+        return await get_model(role="grader").generate(question)
+
+    def asks_the_grader():
+        async def score(state, target):
+            await _ask_the_grader("Is it right?")
+        return score
+
+    def judge_free():
+        async def score(state, target):
+            return None
+        return score
+
+    def asks_two_roles():
+        async def score(state, target):
+            await get_model(role="grader").generate("Is it right?")
+            await get_model(role="critic").generate("Is it fair?")
+        return score
+    """
+)
+
+
+@pytest.fixture
+def judged_scorers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Put the stand-in scorer module on the import path; return its module name."""
+
+    (tmp_path / "stand_in_judged_scorers.py").write_text(
+        _UNIMPORTABLE_JUDGED_SCORERS, encoding="utf-8"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    return "stand_in_judged_scorers"
+
+
+def test_a_panel_of_judges_in_the_kwargs_is_refused_even_with_a_declared_judge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The declared judge is called, and so is every other judge in the list, unmetered
+    and outside benchmark identity: the old check only looked for the declared one."""
+
+    spec = _judged_spec(
+        scorer_kwargs={
+            "model": "screamingface/judge-4",
+            "grader_models": ["screamingface/judge-4", "openai/gpt-4o"],
+        }
+    )
+
+    with pytest.raises(ValueError, match=r"grader_models names a panel of 2 judges"):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_judge_free_row_whose_scorer_takes_a_judge_parameter_is_refused(
+    judged_scorers: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """niah's shape: the scorer takes judge_model and nobody passes it, so it would grade
+    with its default, a judge outside benchmark identity."""
+
+    spec = _judged_spec(scorer=f"{judged_scorers}:takes_a_judge", scorer_kwargs={}, judge=None)
+
+    with pytest.raises(
+        ValueError, match=r"takes_a_judge reaches a judge \(parameter judge_model\)"
+    ):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_judge_free_row_whose_scorer_asks_for_the_grader_role_is_refused(
+    judged_scorers: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """simpleqa's shape, one helper down: the role is asked in the body, never in a kwarg."""
+
+    spec = _judged_spec(scorer=f"{judged_scorers}:asks_the_grader", scorer_kwargs={}, judge=None)
+
+    with pytest.raises(ValueError, match=r"asks_the_grader reaches a judge \(get_model\(role="):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_judge_free_row_whose_scorer_reaches_no_judge_still_assembles(
+    judged_scorers: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = _judged_spec(scorer=f"{judged_scorers}:judge_free", scorer_kwargs={}, judge=None)
+
+    assert _assembled(spec, monkeypatch).judge is None
+
+
+def test_a_scorer_from_a_package_not_installed_is_refused_naming_the_missing_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An Engine without the inspect extra cannot read inspect_evals' scorers; the refusal
+    must name the missing install, not blame a judge the reader never saw."""
+
+    # A package name chosen so no environment installs it, standing in for inspect_evals.
+    spec = _judged_spec(
+        scorer="stand_in_never_installed_evals.scorers:judge_free", scorer_kwargs={}, judge=None
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"comes from stand_in_never_installed_evals, which is not installed",
+    ):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_missing_module_inside_an_installed_package_is_still_refused_as_unread(
+    judged_scorers: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The install check only speaks for a package that is absent; a wrong path inside an
+    installed one stays unread, and unread is never judge-free."""
+
+    spec = _judged_spec(scorer=f"{judged_scorers}.nowhere:judge_free", scorer_kwargs={}, judge=None)
+
+    with pytest.raises(ValueError, match=r"judge_free reaches a judge \(unread: "):
+        _assembled(spec, monkeypatch)
+
+
+def test_an_extra_scorer_that_reaches_a_judge_is_refused(
+    judged_scorers: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Extra scorers are built bare at grading time, so a judge they reach is never the
+    row's pinned one: the check reads every extra scorer, not only the headline."""
+
+    spec = _judged_spec(
+        scorer="inspect_ai.scorer:match",
+        scorer_kwargs={},
+        judge=None,
+        extra_scorers=(f"{judged_scorers}:takes_a_judge",),
+        named_scores=("match", "takes_a_judge"),
+    )
+
+    with pytest.raises(ValueError, match=r"extra scorer takes_a_judge reaches a judge"):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_role_judged_row_whose_scorer_asks_only_that_role_assembles(
+    judged_scorers: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = _judged_spec(
+        scorer=f"{judged_scorers}:asks_the_grader",
+        scorer_kwargs={},
+        judge=JudgeSpec(model="judge-4", model_role="grader"),
+    )
+
+    assert _assembled(spec, monkeypatch).judge is not None
+
+
+def test_a_role_judged_row_whose_scorer_asks_a_second_role_is_refused(
+    judged_scorers: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The row binds one role to its pinned judge; inspect hands the unbound second role
+    the Candidate's own model, so the Candidate would mark its own answers. Once a human
+    pins the judge, assembly is the only check that still reads the scorer."""
+
+    spec = _judged_spec(
+        scorer=f"{judged_scorers}:asks_two_roles",
+        scorer_kwargs={},
+        judge=JudgeSpec(model="judge-4", model_role="grader"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"the judge fills the 'grader' role, but the scorer also reaches the "
+        r"role\(s\) 'critic'",
+    ):
+        _assembled(spec, monkeypatch)
+
+
+def test_the_older_judge_kwarg_lists_stay_inside_the_judge_parameters() -> None:
+    """Three lists name the judge kwargs; a name added to one of the older two but not to
+    the judge-shape reader's would let that judge through the reader unseen."""
+
+    from screamingface_engine_inspect.importer import _JUDGE_MODEL_KWARG_NAMES
+    from screamingface_engine_inspect.judge_shape import JUDGE_PARAMETERS
+
+    assert benchmarks._JUDGE_MODEL_KWARGS <= JUDGE_PARAMETERS
+    assert _JUDGE_MODEL_KWARG_NAMES <= JUDGE_PARAMETERS
