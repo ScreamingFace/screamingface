@@ -13,10 +13,11 @@ Stages of ``replay_for_import``, in execution order:
 
     Stage 1 — parent: write request.json (task, args, cache root); build the clean-room
               environment exactly as the image side does (replay_environment).
-    Stage 2 — child: import the task module, THEN install the Case Source recorder, so a
-              name the module bound at import (`from inspect_ai.util import download`) is
-              rebound too; call the task function with its args. The recorder learns the
-              Hub commits (no pins exist yet) and forces the dev's seeds (OME-1460).
+    Stage 2 — child: with the scorer-argument recorder open (OME-1602), import the task
+              module, THEN install the Case Source recorder, so a name the module bound at
+              import (`from inspect_ai.util import download`) is rebound too; call the task
+              function with its args. The recorder learns the Hub commits (no pins exist
+              yet) and forces the dev's seeds (OME-1460).
     Stage 3 — child: read the facts off the built Task with the importer's own readers
               (_scorer_facts, _custom_metrics, plus the multiple_choice witness); render
               the Samples by capture (the Task's own solvers with a stand-in generate).
@@ -57,6 +58,8 @@ from screamingface_engine_inspect.importer import (
     _hub_dataset_info,
     _scorer_facts,
     _solver_list,
+    recorded_scorer_arguments,
+    refuse_unrecorded_scorers,
     task_attempts,
 )
 from screamingface_engine_inspect.prepare import (
@@ -328,20 +331,25 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     task_ref: str = request["task"]
     task_args: dict[str, Any] | None = request["task_args"]
     module_name, _, attribute = task_ref.partition(":")
-    module: Any = import_module(module_name)
-    # Stage 2 — the recorder installs AFTER the import, so names bound at import are rebound.
-    # It is never uninstalled: this process exists only for this one replay.
-    recorder: CaseSourceRecorder = CaseSourceRecorder(Path(request["cache_root"]))
-    # WHY source_pins=None: this run is where the Hub commits are learned (OME-1460); the
-    # seeds are the dev's, known already, so they are forced here as in every later run.
-    recorder.install(
-        FetchPins(
-            source_pins=None,
-            shuffle_seed=request["shuffle_seed"],
-            choice_shuffle_seed=request["choice_shuffle_seed"],
+    # WHY before the import: a scorer built at import or by the task function keeps its
+    # arguments as passed, so the scorer readers can refuse one inspect logs as a name or a
+    # dict (OME-1602, F1). The record stays on each scorer after the block closes.
+    with recorded_scorer_arguments():
+        module: Any = import_module(module_name)
+        # Stage 2 — the recorder installs AFTER the import, so names bound at import are
+        # rebound. It is never uninstalled: this process exists only for this one replay.
+        recorder: CaseSourceRecorder = CaseSourceRecorder(Path(request["cache_root"]))
+        # WHY source_pins=None: this run is where the Hub commits are learned (OME-1460); the
+        # seeds are the dev's, known already, so they are forced here as in every later run.
+        recorder.install(
+            FetchPins(
+                source_pins=None,
+                shuffle_seed=request["shuffle_seed"],
+                choice_shuffle_seed=request["choice_shuffle_seed"],
+            )
         )
-    )
-    task: Any = getattr(module, attribute)(**(task_args or {}))
+        task: Any = getattr(module, attribute)(**(task_args or {}))
+    refuse_unrecorded_scorers(task)
     # WHY count here: every Case Source recorded from now on was fetched by a solver while
     # capture rendered a Sample, not by the loader; the row says so (CaseSource.phase).
     loaded: int = len(recorder.sources)

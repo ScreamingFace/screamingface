@@ -374,3 +374,223 @@ def test_a_single_scorer_row_carries_no_named_score_line() -> None:
         "not reproduced",
     ):
         assert marker not in plain
+
+
+# --- OME-1602: shapes the importer used to write wrongly, now refused by name -------------
+
+import sys  # noqa: E402
+from collections.abc import Callable  # noqa: E402
+
+from inspect_ai import Task  # noqa: E402
+from inspect_ai.dataset import MemoryDataset, Sample  # noqa: E402
+from inspect_ai.model import GenerateConfig  # noqa: E402
+from inspect_ai.scorer import Score, Scorer, Target, accuracy, scorer  # noqa: E402
+from inspect_ai.solver import TaskState  # noqa: E402
+
+from screamingface_engine_inspect.importer import (  # noqa: E402
+    ImporterError,
+    ScorerFacts,
+    _scorer_facts,
+    recorded_scorer_arguments,
+)
+
+
+def extract_answer(completion: str) -> str:
+    """A stand-in for drop's answer extractor: the function a scorer is handed."""
+
+    return completion.strip()
+
+
+@scorer(metrics=[accuracy()])
+def keyed(answer_fn: Callable[[str], str] | None = None) -> Scorer:
+    """A stand-in for drop's scorer, which takes the function that pulls out the answer."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        return Score(value="C")
+
+    return score
+
+
+@scorer(metrics=[accuracy()])
+def worded(words: tuple[str, ...] = (), config: GenerateConfig | None = None) -> Scorer:
+    """A stand-in for a scorer whose arguments are a tuple of words and a config object."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        return Score(value="C")
+
+    return score
+
+
+def _built_with_recorder(made: Callable[[], Scorer]) -> Task:
+    """One-Sample Task whose scorer is created while the import child's recorder listens."""
+
+    with recorded_scorer_arguments():
+        return Task(dataset=MemoryDataset([Sample(input="q", target="a")]), scorer=made())
+
+
+def test_a_function_scorer_argument_is_refused_because_inspect_logs_only_its_name() -> None:
+    """drop's shape: inspect logs answer_fn=extract_answer as the string 'extract_answer',
+    so the row would rebuild the scorer with a string where the eval passed a function."""
+
+    task: Task = _built_with_recorder(lambda: keyed(extract_answer))
+
+    with pytest.raises(
+        ImporterError, match=r"keyed is created with answer_fn='extract_answer'.*function"
+    ):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+def test_an_object_scorer_argument_is_refused_because_its_logged_dict_is_not_the_object() -> None:
+    """An object inspect logs as a dict was written into the row as that dict, so the row
+    rebuilt the scorer with a dict where the eval passed a GenerateConfig."""
+
+    task: Task = _built_with_recorder(lambda: worded(config=GenerateConfig(temperature=0.0)))
+
+    with pytest.raises(ImporterError, match=r"worded is created with config=.*GenerateConfig"):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+def test_a_tuple_scorer_argument_still_imports_because_it_round_trips_as_the_logged_list() -> None:
+    """A tuple is logged as the equal list; the row writes the list and nothing is lost."""
+
+    task: Task = _built_with_recorder(lambda: worded(("yes", "no")))
+
+    facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
+
+    assert facts.scorer_kwargs == {"words": ["yes", "no"]}
+
+
+#: A stand-in eval for the import child: each task is the smallest Task with one OME-1602
+#: shape. It proves the child's wiring, not any real eval's scorer.
+GUARDED_EVAL: str = textwrap.dedent(
+    """
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import MemoryDataset, Sample
+    from inspect_ai.scorer import Score, Target, accuracy, scorer
+    from inspect_ai.solver import TaskState
+
+    def extract_answer(completion):
+        return completion.strip()
+
+    @scorer(metrics=[accuracy()])
+    def keyed(answer_fn=None):
+        async def score(state: TaskState, target: Target) -> Score:
+            return Score(value="C")
+        return score
+
+    def _task(scorers):
+        return Task(dataset=MemoryDataset([Sample(input="What is 2 plus 2?", target="4", id=1)]),
+                    scorer=scorers)
+
+    @task
+    def function_argument() -> Task:
+        return _task(keyed(extract_answer))
+    """
+)
+
+
+@pytest.fixture
+def guarded_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the OME-1602 stand-in eval where the import child can import it."""
+
+    (tmp_path / "fake_guarded_eval.py").write_text(GUARDED_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_guarded_eval"
+
+
+def test_the_import_child_records_scorer_arguments_so_a_function_argument_is_refused(
+    guarded_eval: str,
+) -> None:
+    """Without the recorder in the child, the function would import as its logged name."""
+
+    with pytest.raises(TaskReplayError, match=r"answer_fn='extract_answer'"):
+        replay_for_import(f"{guarded_eval}:function_argument", None)
+
+
+# F5 — an extra scorer's own whole-run metric
+
+from inspect_ai.scorer import Metric, SampleScore, exact, metric  # noqa: E402
+
+
+@metric
+def harmonic_balance() -> Metric:
+    """A stand-in for stereoset's whole-run formula: not a mean of the per-Case scores."""
+
+    def compute(scores: list[SampleScore]) -> float:
+        return 0.0
+
+    return compute
+
+
+@scorer(metrics=[harmonic_balance()])
+def balanced() -> Scorer:
+    """A stand-in for stereoset's second scorer, scored over the run by its own formula."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        return Score(value=1.0)
+
+    return score
+
+
+def _one_sample_task(scorers: Scorer | list[Scorer]) -> Task:
+    """One-Sample Task with the given scorers, built in this process."""
+
+    return Task(dataset=MemoryDataset([Sample(input="q", target="a")]), scorer=scorers)
+
+
+def test_an_extra_scorer_with_its_own_whole_run_metric_is_refused() -> None:
+    """stereoset's shape: only the headline's metric was checked, so the extra scorer's
+    formula quietly became a mean published under its Named Score column."""
+
+    task: Task = _one_sample_task([exact(), balanced()])
+
+    with pytest.raises(
+        ImporterError, match=r"extra scorer balanced scores the whole run with harmonic_balance"
+    ):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+# F1, review finding: a scorer the recorder never saw ---------------------------------------
+
+#: A Task scored by inspect's multi_scorer, which never passes through the @scorer decorator
+#: the recorder watches. Imported by the import child only.
+MULTI_SCORED_EVAL: str = textwrap.dedent(
+    """
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import MemoryDataset, Sample
+    from inspect_ai.scorer import exact, includes, multi_scorer
+
+    @task
+    def multi_scored() -> Task:
+        return Task(
+            dataset=MemoryDataset([Sample(input="What is 2 plus 2?", target="4", id=1)]),
+            scorer=multi_scorer([exact(), includes()], "mean"),
+        )
+    """
+)
+
+
+@pytest.fixture
+def multi_scored_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the multi_scorer stand-in eval where the import child can import it."""
+
+    (tmp_path / "fake_multi_scored_eval.py").write_text(MULTI_SCORED_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_multi_scored_eval"
+
+
+def test_a_scorer_the_recorder_never_saw_is_refused_because_unrecorded_is_not_clean(
+    multi_scored_eval: str,
+) -> None:
+    """multi_scorer's list of scorers is no literal: read from the log alone, the row would
+    rebuild multi_scorer with no scorers, and the argument check was skipped for want of a
+    record."""
+
+    with pytest.raises(TaskReplayError, match=r"scorer multi_scorer was built without passing"):
+        replay_for_import(f"{multi_scored_eval}:multi_scored", None)
