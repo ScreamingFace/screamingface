@@ -595,3 +595,98 @@ files and the two fixtures are new files.
   No deviation changes the PRD, so no line was added to overview §10.
 - **Pinned edits:** none made in this unit. The owner must review D-U4-3, the one edit to a test that
   commit A added.
+
+## Unit 5: url4 rebuild and replay (`consistency-rebuild`)
+
+### Intent
+
+PRD `consistency-rebuild`, rows CB#1 to CB#9 (P8, P16, P18, CN-I6, erd §7, C5). A consistency
+url4 rebuilds and replays. `Url4.to_python()` writes `signals={'cons': sf.Consistency(n=3,
+temperature=1.0)}` and the members as the author wrote them, and leaves out every sample call. A
+replay shows the compile's operations (kind `sample`, label `{member} sample`) in the compile
+order, pins the match operators against the Engine before any spend, and lists no sample call as
+a fixed-seed call. A hand-edited url4 fails with one of the four existing C5 texts.
+
+### Planned changes
+
+- `S/_evaluation/topology.py`: `_decode_synthesizer` accepts `samples`; new `_decode_samples`
+  and `_decode_sample_source` (every break is the reducer error); `_visit_reducer` takes the
+  Fusion's `operations`, visits the sample calls (member rule) before the signal calls, and gives
+  the reducer the context order `(fusion context, samples, signals)` and the operation order
+  `(members, signals, samples)`.
+- `S/url4.py`: `_require_call_kind` needs the binding param first on a `sample` call.
+- `S/signal_sources.py`: `Consistency._from_spec` (keys exactly `source`, `n`, `temperature`,
+  `match`; `match` keys exactly `extract`, `normalize`); `_SOURCES` adds `consistency`.
+- `S/_evaluation/combine_spec.py`: `spec_operator_pairs` adds the match pairs (name order, each
+  pair once); new `_match_pairs`, `_MATCH_STAGES`.
+- `S/_evaluation/url4.py`: the replay `seeded` tuple leaves out the `sample` operations.
+- New test file `ST/test_consistency_rebuild.py`. No Engine change. No public name.
+
+### Pinned edits
+
+None. The test file is new.
+
+### Test plan
+
+- 9 PRD rows: CB#1 CHAR (5 items, list L5); CB#2 (2 items), CB#3, CB#4 (2 functions), CB#5
+  (6 hand edits and 13 malformed `samples` shapes), CB#6, CB#7, CB#8, CB#9 RED.
+- RED stub: none new. The RED reason is the decoder's refusal of `samples` (CB#2-6, CB#9), the
+  two step pairs of `spec_operator_pairs` (CB#7) and unit 3's `_from_spec` stub (CB#8). The CB#5
+  functions start with a control rebuild of the untouched F1 url4, so no case passes in RED for
+  the wrong reason.
+- Invariants: CN-I6 (`_from_spec(_entry(match)) == source`), erd §7 (the two dependency orders),
+  C5 (four texts), P18 (no sample in `seeded`).
+
+### Acceptance
+
+- F1 and F2 rebuild to the exact Python text of the unit spec §4 and recompile to the fixture
+  bytes. F3 and a two-stage Pipeline round-trip. The replay operations equal the compile
+  operations.
+- Each hand edit E1..E6 fails with its exact C5 text in `to_python` and in the replay; every
+  malformed `samples` shape is "invalid Reducer topology metadata"; a `samples` key without a
+  declaration is "does not match its Recipe metadata".
+- `spec_operator_pairs` lists `last_line@1` and `text@1` for F1; a replay against a catalog
+  without `text@1` fails before the transport runs.
+- `screamingface` and `repo` gates are green (the append-only check names only the plan §6 files
+  of units 1 and 3).
+
+### Deviations
+
+- D-1 (planner): PRD §3 F3 writes `sf.Vote(judge=sf.Judge(...))`. `sf.Vote` refuses that ("Vote
+  judge is read only by weights=sf.signal('score:judge')"). F3 adds
+  `weights=sf.signal("score:judge")`, the existing judge-weighted vote shape
+  (`judge_vote_candidate.url4`). The bindings and both dependency orders of CB-3 do not change.
+- D-2 (planner): CB#4 adds a second function, a two-stage Pipeline (CA-D6 shape). It checks the
+  new `operations` argument of `_visit_reducer`; at the top level that argument is `()` and a bug
+  would not show.
+- D-3 (planner): CB#5 adds a second function with 13 malformed `samples` shapes (PRD delta 1:
+  "Any break: ValueError(_REDUCER_INVALID)"), and both CB#5 functions start with a control rebuild.
+- D-4 (planner): `spec_operator_pairs` lists each pair once (`dict.fromkeys`). A median's match
+  repeats its own steps (F2); every existing spec has four different pairs, so no existing result
+  changes. CB#7 checks F2.
+- D-5 (planner): CB#2 also checks F2, and CB#3 adds hand-written kinds, labels and dependencies
+  next to the compile comparison.
+- D-U5-1 (build, commit A): `ruff format` rewrapped the lines of `ST/test_consistency_rebuild.py`
+  (wrapping only, no token changed) so that `ruff check` passes. The spec §6.1 text is otherwise
+  kept.
+- D-U5-2 (build, commit A): the ledger section is in commit A (spec §12 puts it in commit C).
+  Commit C fills the Outcome.
+- (build) Any C5 text corrected at the first GREEN run: none / <row, old text, new text>.
+
+### Outcome
+
+- **Status:** in progress. RED written and committed (commit A). GREEN not started.
+- **Actual files (commit A):** `packages/screamingface/tests/test_consistency_rebuild.py` (new),
+  this ledger section.
+- **RED log (focused file at commit A):** `packages/screamingface/tests/test_consistency_rebuild.py`:
+  5 passed, 28 failed. The 5 CB#1 items pass. Each failure has its expected reason:
+  - CB#2 (F1, F2), CB#3, CB#4 (2), CB#6, and the 19 CB#5 items (6 hand edits, 13 malformed
+    shapes): `ValueError: URL4 Candidate has invalid Reducer topology metadata` (the decoder
+    refuses `samples`). The CB#5 items fail at the control rebuild of the untouched F1 url4.
+  - CB#7: the F1 pairs assertion (only the two step pairs are listed).
+  - CB#8: `NotImplementedError` from unit 3's `Consistency._from_spec` stub.
+  - CB#9: `str(exc)` is `_REDUCER`, and the test expects `_METADATA`.
+  No import or collection error.
+- **GREEN log:** not run yet.
+- **Gates:** not run yet (RED step runs only the focused file).
+- **Pinned edits:** none.
