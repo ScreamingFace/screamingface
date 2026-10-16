@@ -139,3 +139,104 @@ Spec written headless from the owner interview of 2026-10-16; spec review fixes 
 day. Build not started. The units append
 their sections (Intent, Planned changes, Pinned edits, Test plan, Acceptance, Deviations, Outcome)
 below.
+
+## Unit 1: gate words, spec key and evidence record (`gate-record`)
+
+### Intent
+
+PRDs `gate-record` (rows GR#1, GR#3–11, GR#13, GR#17) and `verifier-slot` (rows VS#1–3); ans:Q1
+("records the comparison and the branch"), ans:Q4 (reserved `verifier`); P1, P3, P4, P9, P15.
+The Engine gets the gate words (`GateCmp`, `GateOtherwise`, `GateBranch`, `GATE_OBSERVE`), the
+optional spec key `gate` (`GateSpec`, vote only, `_check_gate` with fixed messages), the optional
+evidence record `gate` (`GateRecord`, after `declared`, before `result`) and the reserved
+`verifier` key (typed null, never written), with GR-I1, GR-I2, GR-I4 and GR-I5. The SDK gets
+`sf.report.CombineGate`, `CombineEvidence(gate=...)` with the same checks, a strict `gate`
+decoder, a null-only `verifier` rule, and the spec key `gate` in `_OPTIONAL_SPEC_KEYS`. No code
+writes a gate record yet (unit 2). The word `gate_not_met` and GR-I3 are unit 2. No schema id
+changes; every existing evidence, spec and url4 keeps its bytes.
+
+### Planned changes
+
+- `E/combine/ports.py`: `GateCmp`, `GateOtherwise`, `GateBranch`, `GATE_OBSERVE`, `__all__`.
+- `E/combine/spec.py`: `GateSpec`, `CombineSpec.gate`, `_quiet_gate`, `_check_gate`,
+  `_check_agreement_gate`, the module INVARIANT, `__all__`.
+- `E/combine/evidence.py`: `GateRecord` (`_check`: observe grammar, GR-I1, GR-I2),
+  `CombineEvidence.gate`, `CombineEvidence.verifier`, module `_check_gate` (GR-I1 evidence part,
+  GR-I4, GR-I5), the module INVARIANT, `__all__`.
+- `S/combine_evidence.py`: `GateCmp`, `GateBranch`, `GateOtherwise`, `CombineGate`,
+  `_gate_observe`, `_check_gate`, `CombineEvidence.gate`, `__all__`.
+- `S/_evaluation/combine_evidence.py`: `_OPTIONAL_EVIDENCE_KEYS` (+ `gate`, `verifier`),
+  `_GATE_KEYS`, `_gate`, the null-only `verifier` rule.
+- `S/_evaluation/combine_spec.py`: `_OPTIONAL_SPEC_KEYS` (+ `gate`), `_is_spec`.
+- `S/report.py`: export `CombineGate`.
+- New tests: `ET/test_combine_gate_words.py` (19 items), `ST/test_gate_words.py` (24 items).
+
+### Pinned edits
+
+- `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`:
+  regenerated; adds `$defs.GateSpec` and `properties.gate` only.
+- `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`:
+  regenerated; adds `$defs.GateRecord`, `properties.gate`, `properties.verifier` only.
+- `packages/screamingface/tests/public_surface_snapshot.json`: regenerated; `CombineGate` (export
+  and class entry), `CombineEvidence.__init__` `gate`, `CombineEvidence.gate`.
+
+### Test plan
+
+- 15 PRD rows in PRD §7 order. CHAR: GR#1 (two functions, ET and ST; fixed lists L32 and L43,
+  44 specs). RED: GR#3–GR#11, GR#17, VS#2, VS#3. PIN: GR#13, VS#1 (read the regenerated
+  snapshots).
+- Stubs in commit A: the Engine words (final), `GateSpec` and `GateRecord` unwired and without
+  checks, the SDK aliases and a `CombineGate` stub without checks (`to_dict` raises
+  `NotImplementedError`). Commit A: ET 18 failed / 1 passed, ST 23 failed / 1 passed.
+- Oracles: fixture V of gate-decision §3 (agreement `0.6666666666666666`), the GD-3 / GD-4 /
+  GD-D1 forms, the fixed rule messages of the unit spec.
+
+### Acceptance
+
+- A vote spec with `gate` parses on the Engine; a gate on another reducer, an explicit null, an
+  undeclared name, a bad word, an agreement gate with `<` / `<=` or a threshold outside [0, 1]
+  is `combine_spec_invalid` with a fixed message that echoes no value.
+- The evidence writes `gate` after `declared` and before `result`, keys in record order; the
+  invariants refuse mismatches on both sides; `verifier` is null only and never written.
+- The SDK decodes and writes back every gate form byte for byte; `sf.report.CombineGate` exists.
+- The 32 cases of L32 and the 44 specs of L43 keep their bytes and have no gate.
+- Gates: append-only lists only the three pinned files; every other gate green; `repo` green.
+
+### Deviations
+
+- (pre-filled) D-1: GR-I1 is also checked on the evidence in this unit: a gate that did not run
+  (`passed` null) goes with an abstained result (erd §4 GR-I1). The "reason other than
+  `gate_not_met`" half comes with GR-I3 in unit 2.
+- (pre-filled) D-2: the Engine `GateRecord` also checks the `observe` grammar (`GATE_OBSERVE`),
+  and the SDK `CombineGate` checks it with the declared-name rule (`is_signal_name`), so the SDK
+  also refuses `chosen:cost_usd`. The PRD names the grammar check only for the SDK.
+- (pre-filled) D-3: GR#1 is two test functions (ET and ST) for one row. The L43 part reads each
+  combine spec of a url4 file with `json.JSONDecoder().raw_decode` at each `{"extract":`, and
+  checks `"gate" not in parse_spec(text).model_fields_set`, so the CHAR row passes before the
+  change too.
+- (pre-filled) D-4: an evidence `"gate": null` is accepted and not written back on both sides (the
+  `cut` precedent). A spec `"gate": null` is refused on both sides.
+- (pre-filled) D-5: GR#4 uses `rank_signal_spec(3, 2, "cost_usd", "min")` for the rank case;
+  GR#5 adds a `bool` threshold case to the GR-E2 list.
+
+### Notes for the review
+
+- Interim gap: until unit 3, `Url4.to_python()` rebuilds a hand-written gated vote spec as an
+  `sf.Vote` without its gate (the spec decoder accepts `gate` from this unit on). Unit 3 (GA#12a)
+  closes it.
+- For unit 2: GR-I3 goes directly before the Engine call `_check_gate(self)` in
+  `CombineEvidence._check`, and directly before the SDK call `_check_gate(selected_gate, ...)` in
+  `CombineEvidence.__init__` (the local variable is `selected_gate`).
+- The SDK aliases `GateCmp`, `GateBranch`, `GateOtherwise` live in `S/combine_evidence.py`. Unit 3
+  may define its own `GateCmp` in `S/gate.py`; the two aliases do not conflict.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:**
+- **Actual files:**
+- **Commits:**
+- **Gates:**
+- **RED log:** commit A (stubs and RED tests). ET: 1 passed (GR#1), 18 failed. ST: 1 passed (GR#1), 23 failed. Each failure is the reason of the spec §5 table: extra key `gate` or `verifier`, `DID NOT RAISE`, `unsupported field 'gate'`, `module 'screamingface.report' has no attribute 'CombineGate'`, a snapshot `None` (PIN). No ImportError, no NameError.
+- **Flakes:**
+- **Deviations:**
+- **Approval blobs:**

@@ -27,6 +27,9 @@ from screamingface_engine.combine.ports import (
     AnswerReason,
     EvidenceKind,
     ExcludeReason,
+    GateBranch,
+    GateCmp,
+    GateOtherwise,
     RecordStatus,
     Reducer,
     SignalOrder,
@@ -103,6 +106,22 @@ class CutRecord(_EvidenceModel):
     # The bound of top_k@1 (operators/selection.py _MAX_K). This module cannot import a plugin.
     k: int = Field(ge=1, le=256)
     order: SignalOrder
+
+
+class GateRecord(_EvidenceModel):
+    """What the gate compared and which branch the step took (E4b part 5, ans:Q1).
+
+    ``passed`` and ``branch`` are null when the gate did not run (the vote found no answer); then
+    ``observed`` is null too (GR-I1). ``observed`` is also null when the gate ran and had no number.
+    """
+
+    observe: str
+    observed: float | None
+    cmp: GateCmp
+    threshold: float
+    passed: bool | None
+    branch: GateBranch | None
+    otherwise: GateOtherwise
 
 
 class TallyRowRecord(_EvidenceModel):
@@ -198,6 +217,7 @@ __all__ = [
     "CombineEvidence",
     "CutRecord",
     "FieldReadingRecord",
+    "GateRecord",
     "JudgeReadingRecord",
     "ResultRecord",
     "SignalRecord",

@@ -36,6 +36,10 @@ COMBINE_EVIDENCE_SCHEMA = "screamingface.combine-evidence.v1"
 type CombineKind = _ReducerKind
 type ResultStatus = Literal["answered", "abstain"]
 type JudgeReturns = Literal["label", "scores"]
+# E4b part 5: the words of a vote gate. ``GateCmp`` is the condition that keeps the majority.
+type GateCmp = Literal[">=", ">", "<=", "<"]
+type GateBranch = Literal["majority", "fallback"]
+type GateOtherwise = Literal["abstain", "judge", "writer"]
 
 # One source for each vocabulary: the Literal is the list, the set is derived from it.
 _RESULT_STATUSES = frozenset(get_args(ResultStatus.__value__))
@@ -183,6 +187,22 @@ class CombineCut:
 
     def to_dict(self) -> dict[str, object]:
         return {"k": self.k, "order": self.order}
+
+
+@dataclass(frozen=True, slots=True)
+class CombineGate:
+    """RED stub (E4b part 5 unit 1): the fields only; commit B adds the checks."""
+
+    observe: str
+    observed: float | None
+    cmp: GateCmp
+    threshold: float
+    passed: bool | None
+    branch: GateBranch | None
+    otherwise: GateOtherwise
+
+    def to_dict(self) -> dict[str, object]:
+        raise NotImplementedError
 
 
 @dataclass(frozen=True, slots=True)
@@ -548,6 +568,7 @@ __all__ = [
     "CombineCut",
     "CombineEvidence",
     "CombineFieldReading",
+    "CombineGate",
     "CombineJudgeReading",
     "CombineResult",
     "CombineSignal",
