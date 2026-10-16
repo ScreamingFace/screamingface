@@ -230,13 +230,50 @@ changes; every existing evidence, spec and url4 keeps its bytes.
 - The SDK aliases `GateCmp`, `GateBranch`, `GateOtherwise` live in `S/combine_evidence.py`. Unit 3
   may define its own `GateCmp` in `S/gate.py`; the two aliases do not conflict.
 
-### Outcome (fill at the end — required before COMMIT)
+### Outcome
 
-- **Status:**
-- **Actual files:**
-- **Commits:**
+- **Status:** Done. Commit B is built and gated. The three pinned files are regenerated. The
+  append-only check lists only those three files, as planned. Every other gate is green.
+- **Actual files:** Commit B changes 7 source files: `E/combine/ports.py`, `E/combine/spec.py`,
+  `E/combine/evidence.py`, `S/combine_evidence.py`, `S/_evaluation/combine_evidence.py`,
+  `S/_evaluation/combine_spec.py`, `S/report.py`. It also changes the 3 pinned files: the two
+  engine schema snapshots and `packages/screamingface/tests/public_surface_snapshot.json`. No test
+  file is edited. No file under `.claude/test-change-approvals/` is touched.
+- **Commits:** A `689eeffe4` (RED tests and stubs). B `5fc1c78c2` (code and pinned regeneration).
+  C: this section and the overview errata E1.
 - **Gates:**
+  - Focused runs after B: ET `test_combine_gate_words.py` 19 passed. ST `test_gate_words.py` 24
+    passed. Engine group of §9 254 passed. SDK group of §9 132 passed.
+  - `screamingface-engine`, run 1: red only on the append-only check. The check lists
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json` and
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`. Run 2 with
+    `--skip-append-only`: ALL GATES GREEN (ruff, ruff format, pyright, layering, pytest with
+    coverage 80 percent).
+  - `screamingface`, run 1: red only on the append-only check. The check lists
+    `tests/public_surface_snapshot.json`. Run 2 with `--skip-append-only`: ALL GATES GREEN (ruff,
+    ruff format, pyright, pytest with coverage 95 percent, notebooks, build, distribution).
+  - `repo`, no flag: ALL GATES GREEN (append-only check passed).
+  - Appendix E check printed `snapshot diff OK`. Appendix F check: the surface diff has 17
+    insertions and 1 deletion, as the spec states.
 - **RED log:** commit A (stubs and RED tests). ET: 1 passed (GR#1), 18 failed. ST: 1 passed (GR#1), 23 failed. Each failure is the reason of the spec §5 table: extra key `gate` or `verifier`, `DID NOT RAISE`, `unsupported field 'gate'`, `module 'screamingface.report' has no attribute 'CombineGate'`, a snapshot `None` (PIN). No ImportError, no NameError.
-- **Flakes:**
+- **Flakes:** None seen in the runs of this unit. The known flaky tests (OME-1619) were not run
+  alone, because no test failed outside the append-only check.
 - **Deviations:**
+  - Spec §9 names `tests/unit/test_combine_evidence.py`. This file is not in the tree. The focused
+    engine run stopped with "file not found", and it ran again without that name (254 passed). The
+    full engine gate ran every test file. The spec name is wrong. No code changed for it.
+  - Appendix F of the unit spec shows the `CombineEvidence` hunk with an added `to_dict` tail. The
+    real regenerated diff has the same added lines (the `gate` field, the `gate` argument, and the
+    `CombineGate` class entry), with the stat the spec states. The regeneration tool wrote the file.
+  - The restore step of §11 used `git checkout 62060ebec -- <the 7 source files>`. It stages the
+    restore before the two patches are applied. Commit B includes the result.
+  - Wisdom check: the implementer checked the diff against §2 and §5 by reading it. No separate
+    design review ran in this unit.
+  - The pre-filled deviations D-1 to D-5 apply as written.
 - **Approval blobs:**
+  - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`
+    base `b3acb2a5cd5c489c570a57384cd40fa5c9f30273` after `b62a7858ca4c9877398bf4cfaa2208ae178bb47e`
+  - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`
+    base `406747a92a4c44d05aff27f0922e7582250cc31a` after `1cbdad39b71843479e77805e8448eadb3735b28f`
+  - `packages/screamingface/tests/public_surface_snapshot.json`
+    base `8b961b377cf44c46d7b4fc39a0fd596c53ba451f` after `e3cd603c7ea291b6085715788478a0152b3b8b6d`

@@ -229,4 +229,7 @@ finding and the two places where the fix differs from the review text.
 
 ## 11. Build errata
 
-None yet. The build appends here.
+- **E1 (unit 1).** The Engine `GateRecord` and the SDK `CombineGate` also check the `observe`
+  grammar (the SDK with the declared-name rule, so it also refuses `chosen:cost_usd`). GR-I1 is
+  also checked on the evidence: a gate that did not run goes with an abstained result. An evidence
+  `"gate": null` is accepted and not written back (the `cut` precedent).
