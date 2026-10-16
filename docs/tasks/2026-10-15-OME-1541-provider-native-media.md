@@ -1,12 +1,12 @@
 ---
 id: OME-1541
 linear_url: https://linear.app/openmined/issue/OME-1541/send-images-and-pdfs-to-gemini-antigravity-and-codex-through-one
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [aigateway, agentic, autonomous]
 created: 2026-10-15
-closed:
+closed: 2026-10-16
 ---
 
 # Send images and PDFs to Gemini, Antigravity and Codex through one shared content-part translator

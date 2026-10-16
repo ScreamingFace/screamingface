@@ -1,9 +1,9 @@
 ---
 ticket: OME-1541
 stack: aigateway
-status: in_progress
+status: done
 started: 2026-10-15
-finished:
+finished: 2026-10-16
 ---
 
 # provider-native-media — send images and PDFs to Gemini, Antigravity and Codex natively

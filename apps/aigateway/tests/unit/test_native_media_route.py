@@ -4,9 +4,10 @@ FEATURE: image and file input across the gateway (OME-1529).
 STORY: as a caller sending a part my provider cannot carry, I get a 422 naming the provider
 and the part type — not a 500, not a remapped 502, and never a 200 that ignored the part.
 
-INVARIANT: the refusal is raised in `prepare_chat_body`, before cache planning, credential
-use and dispatch, so a refused request never reaches the provider. Unit tests elsewhere call
-`prepare_chat_body` directly; these pin the same contract through the real route.
+INVARIANT: the refusal is raised in `prepare_chat_body`, before credential injection and
+dispatch, so a refused request never reaches the provider. (The global-cache stage runs
+earlier; these providers use `CacheBypass`.) Unit tests elsewhere call `prepare_chat_body`
+directly; these pin the same contract through the real route.
 """
 
 from __future__ import annotations
