@@ -115,7 +115,10 @@ jobs:
           # A skipped workbench notebook fails the run (spec §3.4): the hook only guards
           # tests/e2e/workbench test_notebook, so the other lanes' loud skips stay skips.
           SCREAMINGFACE_WORKBENCH_REQUIRE_ALL: "1"
-        run: uv run pytest tests/e2e -rs -v
+        # --extra runtime: test_local_boot (tests/e2e/workbench) runs the real `screamingface up`,
+        # whose servers live in that extra. Declared here rather than inherited from the prepare
+        # step's `uv run --extra runtime`, which only left them installed by an inexact sync.
+        run: uv run --extra runtime pytest tests/e2e -rs -v
 
       - name: Upload workbench evidence
         if: always()

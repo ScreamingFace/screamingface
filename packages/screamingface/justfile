@@ -384,7 +384,9 @@ test-paid-benchmarks scope="all" benchmarks="":
 # (summary.md + <target>/<notebook>/). `replay` is free and keyless (docker + prepared ifeval
 # assets); `local` boots the SDK runtime and SPENDS real tokens — it additionally needs
 # SCREAMINGFACE_TEST_PAID=1 and OPENROUTER_API_KEY, and skips without them.
+# --extra runtime: the local target (and the keyless test_local_boot) runs `screamingface up`,
+# whose servers live in that optional extra; the default sync does not install it.
 [doc("Run the e2e workbench notebooks against a target (replay | local); evidence → ./workbench-out")]
 workbench target="replay":
     SCREAMINGFACE_TEST_E2E=1 SCREAMINGFACE_WORKBENCH_TARGET={{target}} SCREAMINGFACE_WORKBENCH_OUT=./workbench-out \
-      uv run pytest tests/e2e/workbench -v -rs
+      uv run --extra runtime pytest tests/e2e/workbench -v -rs
