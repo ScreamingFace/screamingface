@@ -315,3 +315,13 @@ short/hex IPv4 rule (only before a port or a `/`-letter path, so `3.5/5`, `1.2` 
 email back to an unbounded local part anchored at a run boundary of its own class (linear, no
 prefix); host labels ≤ 32. Worst of 36 adversarial 16 KiB inputs: ~34 ms. Guard:
 `test_parser_accepted_host_forms_never_survive`.
+
+**Fail-closed backstop (owner decision 2026-10-16).** Three security passes in a row each found a
+host form the redaction denylist missed. Decision: keep redaction, and if an address-shaped
+token SURVIVES it, withhold the whole text (generic sentence). `_ADDRESS_RESIDUE`: bare dotted
+hostname with alphabetic TLD and no `_` (so `response_format.type`, `messages[0].content`,
+`claude-3.5-sonnet` still relay; `file.json` is withheld — accepted cost), `%` + alnum
+(percent-encoding, IPv6 zone ids; `100% ` relays), `::`, U+3002 (IDNA dot NFKC keeps), `\w@`.
+Runs on the uncapped redacted text. Full aigateway unit suite unchanged otherwise.
+Guards: `test_an_address_surviving_redaction_withholds_the_text`,
+`test_ordinary_text_without_addresses_still_relays`.

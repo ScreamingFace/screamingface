@@ -226,3 +226,40 @@ def test_a_leading_separator_never_shields_a_host_or_email(text, leak) -> None:
 def test_parser_accepted_host_forms_never_survive(text, leak) -> None:
     result = sanitize_upstream_text(text)
     assert result is None or leak not in result
+
+
+# --- owner decision 2026-10-16: withhold when an address-like token survives redaction ----
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # STORY: as the gateway owner, a host form no redaction rule anticipated withholds the
+        # WHOLE provider text (generic sentence) instead of leaking — redaction is best effort,
+        # this residual check is the fail-closed backstop.
+        "connect to db.internal.corp failed",
+        "contact the admin at internal.example today",
+        "fe80::1%eth0 refused",
+        "see internal%2Eexample%2Fadmin",
+        "see internal。example/admin",
+        "see internal｡example/admin",
+        "mailbox user@[10.0.0.1] rejected",
+    ],
+)
+def test_an_address_surviving_redaction_withholds_the_text(text) -> None:
+    assert sanitize_upstream_text(text) is None
+    assert plugin_error_message(text, status=400) == PROVIDER_ERROR_MESSAGES["provider_error"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Invalid parameter: 'response_format.type' must be one of json_object, text",
+        "messages[0].content is required",
+        "Model claude-3.5-sonnet does not support logprobs",
+        "You have used 100% of your quota",
+        "Unsupported parameter: 'temperature' is not supported with this model.",
+    ],
+)
+def test_ordinary_text_without_addresses_still_relays(text) -> None:
+    assert sanitize_upstream_text(text) == text

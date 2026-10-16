@@ -139,6 +139,26 @@ _REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"'[^']{41,}'|\"[^\"]{41,}\"|`[^`]{41,}`"), "'[…]'"),
 )
 
+# FEATURE (owner decision 2026-10-16, #1233 security passes): the fail-closed BACKSTOP behind
+# `_REDACTIONS`. Redaction is a denylist and three review rounds each found a host form it missed;
+# if an address-shaped token SURVIVES redaction, the whole text is withheld (generic sentence).
+# INVARIANT: every pattern is linear (bounded or single-start) and runs on the uncapped text.
+_ADDRESS_RESIDUE: tuple[re.Pattern[str], ...] = (
+    # A bare hostname: dotted, hyphen/alnum labels, alphabetic TLD. `_` is excluded on purpose —
+    # hostnames cannot carry it, JSON paths and parameters (`response_format.type`) do.
+    re.compile(r"(?i)(?<![\w.-])(?:[a-z0-9-]{1,63}\.){1,32}[a-z]{2,63}(?![\w-])"),
+    # Percent-encoding (`%2F`) and IPv6 zone ids (`%eth0`); a bare `100%` before a space relays.
+    re.compile(r"%[0-9A-Za-z]"),
+    re.compile(r"::"),  # IPv6 residue, incl. zone ids (`fe80::1%eth0`)
+    re.compile("[\u3002]"),  # ideographic full stop — an IDNA dot NFKC does not fold
+    re.compile(r"\w@"),  # an email/userinfo fragment left behind
+)
+
+
+def _address_survives(text: str) -> bool:
+    return any(pattern.search(text) for pattern in _ADDRESS_RESIDUE)
+
+
 # INVARIANT (Gate 1): a VERBATIM port of the engine's `error_text.public_message` withhold
 # predicate (`apps/screamingface-engine/src/screamingface_engine/error_text.py`). The apps do
 # not import each other, so parity is pinned by one shared fixture run through both
@@ -257,7 +277,10 @@ def sanitize_upstream_text(text: object, *, forbidden: Iterable[str] = ()) -> st
         # Gate 2, on the raw text: the call's own credential, in any shape.
         if _contains_credential(text, forbidden):
             return None
-        result = _cap(_redact(_normalise(text)))
+        redacted = _redact(_normalise(text))
+        if _address_survives(redacted):
+            return None
+        result = _cap(redacted)
         if not result or _contains_credential(result, forbidden) or engine_would_withhold(result):
             return None
         return result
