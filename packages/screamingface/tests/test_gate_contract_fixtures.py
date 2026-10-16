@@ -75,3 +75,58 @@ def assert_fixture_matches(name: str) -> None:
 @pytest.mark.parametrize("name", _CORE_FIXTURES)
 def test_gate_url4_fixtures_match_the_sdk_compile(name: str) -> None:
     assert_fixture_matches(name)
+
+
+# ---- E4b part 5 unit 4 (gate-api-fallback): GA#17b ----
+
+
+def gate_judge_vote_url4() -> str:
+    """GA-2: an agreement gate whose fallback is a label judge (GA-D6)."""
+
+    recipe = sf.Fusion(
+        ["prov/alpha", "prov/beta", "prov/gamma"],
+        name="vote",
+        synthesizer=sf.Vote(
+            gate=sf.Gate(
+                "agreement",
+                ">=",
+                0.7,
+                otherwise=sf.Judge("prov/judge", returns="label", rubric="Pick the best answer."),
+            )
+        ),
+    )
+    return compile_candidate(recipe, operators=engine_operators()).url4
+
+
+def gate_writer_vote_url4() -> str:
+    """GA-3: an agreement gate whose fallback is a writing model (GA-D6)."""
+
+    recipe = sf.Fusion(
+        ["prov/alpha", "prov/beta", "prov/gamma"],
+        name="vote",
+        synthesizer=sf.Vote(
+            gate=sf.Gate(
+                "agreement",
+                ">=",
+                0.7,
+                otherwise=sf.Model("prov/writer", prompt="Write one answer."),
+            )
+        ),
+    )
+    return compile_candidate(recipe, operators=engine_operators()).url4
+
+
+_FALLBACK_BUILDERS: dict[str, Callable[[], str]] = {
+    "gate_judge_vote_candidate.url4": gate_judge_vote_url4,
+    "gate_writer_vote_candidate.url4": gate_writer_vote_url4,
+}
+BUILDERS |= _FALLBACK_BUILDERS
+
+
+@requires_engine_app
+@pytest.mark.parametrize("name", sorted(_FALLBACK_BUILDERS))
+def test_gate_fallback_url4_fixtures_match_the_sdk_compile(name: str) -> None:
+    fixture = COMBINE_CONTRACT / name
+    assert ENGINE_APP.exists()
+    assert fixture.exists(), f"combine_contract/{name} is missing - run write_fixture({name!r})"
+    assert fixture.read_text(encoding="utf-8").removesuffix("\n") == BUILDERS[name]()

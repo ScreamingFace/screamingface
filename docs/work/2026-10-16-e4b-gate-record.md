@@ -654,3 +654,110 @@ verbalized) run offline in the Engine world. The judge and writer fallback calls
   - Format: `ruff format` wrapped two lines (in `S/gate.py` and `S/reducer.py`). No meaning changed.
   - PINNED snapshot: the diff has exactly the three changes of spec §8 (`Gate` in `__all__`, `Gate`
     in `exports`, and the `Vote.__init__` and members lines).
+
+## Unit 4: the judge and writer fallback calls (`gate-api-fallback`)
+
+### Intent
+
+PRD `gate-api`, rows GA#3, GA#4, GA#10, GA#11, GA#12b, GA#13 to GA#16, GA#17b and GA#18b (ans:Q1,
+ans:Q3, P5 to P7, P17, FC-I1, FC-I3, C2, C6, C7). An `sf.Gate` with an `sf.Judge(returns="label")`
+or an `sf.Model` fallback compiles to one more model call. The call is the source `judge_N` or
+`writer_N`. It has the operation `{fusion} fallback judge` (kind `judge`) or `{fusion} fallback
+write` (kind `writer`), one rider signal, and the context key `fallback_judge` or
+`fallback_writer`. `Url4.to_python()` rebuilds the gate with its fallback. A hand-edited url4
+cannot rebuild. Two SDK-compiled fixtures run offline in the Engine world, and the gateway gets
+four requests: the fallback call runs on every Case (ans:Q1).
+
+### Planned changes
+
+- `S/gate.py`: `Gate._signal_call` returns `replace(judge._signal_call(), key="fallback_judge")`
+  for an `sf.Judge`, and `_ModelSignal("fallback_writer", ...)` for an `sf.Model`. The default
+  prompt is `DEFAULT_SYNTHESIS_PROMPT`.
+- `S/reducer.py`: constants `_FALLBACK_JUDGE_KEY` and `_FALLBACK_WRITER_KEY`; `_vote_plan`
+  signal order; `_rebuilt_fallback` and `_rebuilt_gate`; the signal split in `Vote._rebuild`;
+  `Vote._from_spec_parts` takes the fallback call.
+- `S/_evaluation/topology.py`: `_FALLBACK_ROLES`, `_signal_role`, `_decode_signal` (FC-I3) and
+  `_operation_shape`.
+- `S/_evaluation/reducer_signals.py`: `_signal_call_role` (FC-I3).
+- `S/url4.py`: `_model_signal` (the outputs form of the fallback judge) and `_rebuilt_reducer`
+  (no `sf.Reduce` fallback for a gated spec).
+- Tests appended: `ST/test_gate_api.py`, `ST/test_gate_contract_fixtures.py` and
+  `ET/test_combine_gate_run.py`.
+- New fixtures: `ET/data/combine_contract/gate_judge_vote_candidate.url4` and
+  `ET/data/combine_contract/gate_writer_vote_candidate.url4`. The SDK writes both.
+- No Engine source change. No public name.
+
+### Pinned edits
+
+None. The three test files are new since `4e622af75` (unit 3 created them). The two fixtures are
+new files.
+
+### Test plan
+
+- 11 PRD rows, all RED: GA#3, GA#4, GA#10 (2 items), GA#11 (2 items), GA#12b (3 items), GA#13
+  (4 items and 1 function), GA#14, GA#15, GA#16, GA#17b (2 items), GA#18b (2 items).
+- RED stub: the `NotImplementedError` of unit 3 in `Gate._signal_call`. Commit A adds no stub.
+- Expected RED: every new item fails. Only
+  `test_hand_edited_gate_urls_cannot_rebuild[judge_gate_without_its_call]` may pass, because unit 3
+  already refuses a judge gate with no call.
+- Invariants: FC-I1 (one fallback call, after the weights judge call), FC-I2 (the combine
+  operation depends on it), FC-I3 (a projection only for `writer_<field>`), C7 (the rebuild split,
+  and no `sf.Reduce` fallback for a gate).
+
+### Acceptance
+
+- The judge fixture compiles to `judge_1` on `/prov/judge` with the label template and the
+  rubric. The context has `signals: {fallback_judge: '$judge_1'}`. The operation is
+  `vote fallback judge`.
+- The writer fixture compiles to `writer_1` with no projection. The operation is
+  `vote fallback write`.
+- Each gated vote with a fallback rebuilds from its url4 and recompiles to the same bytes.
+- The Engine world runs each fixture. It makes four requests. The output is `"B"` (judge) or
+  `"C written"` (writer). The gate record is `{agreement, 0.6666666666666666, >=, 0.7, false,
+  fallback, <otherwise>}`.
+- `screamingface-engine`, `screamingface` and `repo` gates are green. The append-only check
+  names only the plan section 6 files of units 1 to 3.
+
+### Deviations
+
+- D-1 (planner): the PRD GA-5 says the rebuilt recipe has the same `repr` as the original. For a
+  default `sf.Vote(...)` the rebuilt steps come back pinned (`extract='last_line@1',
+  normalize='text@1'`), as for every rebuilt vote since E4a, so the whole-recipe `repr` differs.
+  GA#12b checks the byte-equal recompile, the gate equality and the gate `repr` instead (the same
+  check as GA#12a).
+- D-2 (planner): GA#13 adds a fifth case, two fallback calls on one vote (FC-I1), checked on
+  `Vote._rebuild` directly.
+- D-3 (test mechanics, RED): the spec table of `_fb_hand_edits` built all four recipes at
+  once. Then every hand-edit case failed at the build of the judge fallback (`NotImplementedError`),
+  and `gate_on_a_median` never reached its "DID NOT RAISE" check. Each case now holds a recipe
+  builder (`lambda`), so each case runs only its own compile. The assertions do not change.
+- D-4 (RED reasons observed): GA#13 `judge_gate_without_its_call` fails with "DID NOT RAISE",
+  not as a pass: unit 3 does not refuse a judge gate whose call is missing. This is the planned
+  failure of C7. `test_hand_edited_gate_vote_with_two_fallback_calls_cannot_rebuild` fails with
+  `NotImplementedError`, not with "cannot rebuild": `combine_spec_text` plans the judge fallback
+  first. This is the unit 3 stub, as the table of section 6 names for the judge cases.
+
+### Outcome
+
+- **Status:** RED only. Commit A is written. Commits B and C are not started.
+- **Actual files:** `ST/test_gate_api.py` (import block edited; 9 PRD rows appended),
+  `ST/test_gate_contract_fixtures.py` (1 `|=` line and GA#17b appended),
+  `ET/test_combine_gate_run.py` (GA#18b appended), and this ledger. No source file changed.
+  No pinned file changed. The two fixtures are not written yet (commit B).
+- **Commits:** A = the commit that adds this text (its sha is in `git log`). B and C: not made.
+- **Start commit:** `ba8ed4b65` (unit 3 tip).
+- **RED log (focused runs, commit A):**
+  - SDK `tests/test_gate_api.py` and `tests/test_gate_contract_fixtures.py`: 15 passed,
+    19 failed. Failure reasons: 16 items raise `NotImplementedError` from
+    `S/gate.py` line 86 (the unit 3 stub). GA#16 `test_signal_key_bind_accepts_the_fallback_keys`
+    fails with `AssertionError` (`_signal_role` gives `None` for both fallback keys). GA#17b
+    (2 items) fails with `AssertionError`: the fixture file is missing. Unit 3 items: all pass.
+    GA#13 `judge_gate_without_its_call` fails with `DID NOT RAISE ValueError` (D-4).
+  - ET `tests/unit/test_combine_gate_run.py`: 2 passed (unit 3), 2 failed (GA#18b, the
+    fixture file is missing: `AssertionError`, as planned).
+  - No ImportError and no collection error.
+- **Lint:** `ruff check` and `ruff format --check` pass on the three test files.
+- **Gates:** not run. Gate runs start with commit B (RED step rule).
+- **Flakes:** none seen.
+- **Deviations:** D-1 and D-2 (planner), D-3 and D-4 (RED build).
+- **Pinned edits:** none.
