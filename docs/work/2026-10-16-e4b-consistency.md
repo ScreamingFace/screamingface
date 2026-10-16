@@ -671,13 +671,24 @@ None. The test file is new.
   kept.
 - D-U5-2 (build, commit A): the ledger section is in commit A (spec §12 puts it in commit C).
   Commit C fills the Outcome.
-- (build) Any C5 text corrected at the first GREEN run: none / <row, old text, new text>.
+- D-U5-3 (build, commit B): pyright reports an error in the RED file. `_compiled` is annotated
+  `-> Candidate`, but `compile_candidate` returns `_CompiledCandidate`. The fix changes the
+  return annotation to `_CompiledCandidate` and adds that name to the existing import from
+  `screamingface._evaluation.candidate`. No assertion changed. This is the one edit to a test
+  that commit A added. The owner must review it.
+- (build) Any C5 text corrected at the first GREEN run: none. All 33 items passed at the first
+  GREEN run, and no expected text changed.
 
 ### Outcome
 
-- **Status:** in progress. RED written and committed (commit A). GREEN not started.
-- **Actual files (commit A):** `packages/screamingface/tests/test_consistency_rebuild.py` (new),
-  this ledger section.
+- **Status:** DONE. Commit B holds the code and the D-U5-3 fix. Commit C holds this Outcome.
+  All gates are green. The append-only check of `screamingface` is skipped (see Gates).
+- **Actual files (commit B):** `packages/screamingface/src/screamingface/_evaluation/topology.py`,
+  `_evaluation/combine_spec.py`, `_evaluation/url4.py`, `packages/screamingface/src/screamingface/signal_sources.py`,
+  `packages/screamingface/src/screamingface/url4.py`, and `packages/screamingface/tests/test_consistency_rebuild.py`
+  (the D-U5-3 fix only).
+- **Commits:** A = 9ef3c1a58 (RED). B = eb8772a14 (code and D-U5-3). C = the commit that adds
+  this Outcome; its sha is the head of the branch at the end of the unit.
 - **RED log (focused file at commit A):** `packages/screamingface/tests/test_consistency_rebuild.py`:
   5 passed, 28 failed. The 5 CB#1 items pass. Each failure has its expected reason:
   - CB#2 (F1, F2), CB#3, CB#4 (2), CB#6, and the 19 CB#5 items (6 hand edits, 13 malformed
@@ -687,6 +698,20 @@ None. The test file is new.
   - CB#8: `NotImplementedError` from unit 3's `Consistency._from_spec` stub.
   - CB#9: `str(exc)` is `_REDUCER`, and the test expects `_METADATA`.
   No import or collection error.
-- **GREEN log:** not run yet.
-- **Gates:** not run yet (RED step runs only the focused file).
-- **Pinned edits:** none.
+- **GREEN log:**
+  - `packages/screamingface`: `tests/test_consistency_rebuild.py`: 33 passed (all CB#1 to CB#9
+    items).
+  - The focused list of spec §10 (17 files, with `test_consistency_rebuild.py`): 308 passed. The
+    run came before two line wraps (formatting only). The full `screamingface` pytest run below
+    came after them.
+- **Gates:**
+  - `screamingface` (`--base 633fec3a1`): the first run stopped at the append-only check. Its only
+    offender is `tests/public_surface_snapshot.json`, the PINNED edit of unit 3 (plan §6,
+    da12433b7). Unit 5 adds no change to it (checked against f2a848c27). The second run failed on
+    pyright (D-U5-3). The third run, with `--skip-append-only`, was green: ruff check, ruff format
+    check, pyright, pytest with the 95 percent coverage floor, the notebook check, uv build and the
+    distribution check.
+  - `repo` (`--base 633fec3a1`): green, including the append-only check.
+- **Flakes:** none seen in this unit. No test was rerun.
+- **Pinned edits:** none. The D-U5-3 fix is an edit to a test that commit A added, not a PINNED
+  edit.
