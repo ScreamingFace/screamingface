@@ -31,6 +31,7 @@ from tortoise.expressions import Q
 from tortoise.queryset import QuerySet
 
 from .models import RequestCacheEntry
+from .tavily_retrieval import TAVILY_PROVIDER
 
 PAGE_SCHEMA: Final = "screamingface.cache-page.v1"
 MAX_PAGE_ROWS: Final = 5000
@@ -86,7 +87,7 @@ class PageCursor:
 def _eligible(models: Sequence[str], now: datetime) -> QuerySet[RequestCacheEntry]:
     # WHY no Tavily: its keys hash the caller's account id — one account's private entries,
     # useless (and nobody else's business) anywhere else.
-    rows = RequestCacheEntry.exclude(provider="tavily").filter(
+    rows = RequestCacheEntry.exclude(provider=TAVILY_PROVIDER).filter(
         Q(expires_at__isnull=True) | Q(expires_at__gt=now)
     )
     return rows.filter(model__in=list(models)) if models else rows
