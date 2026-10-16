@@ -962,11 +962,41 @@ None.
   phrase; DC#5 also checks the README pointer `the README section "Gate the majority"`.
 
 ### Unit 6 outcome
-
-- **Status:** in_progress (commit A written; commit C not started)
-- **Unit 5 tip (base of the unit 6 append-only check):**
-- **Commits:** A = — test(e4b): RED for E4b part 5 unit 6 docs; C = — docs(e4b): README and
-  CHANGELOG for the gate (part 5).
-- **RED record (commit A):**
+- **Status:** Done. The docs are written and the four gates are green. Commit A is the RED commit.
+  Commit B is not needed (no code in this unit, spec §11). Commit C holds the docs.
+- **Unit 5 tip (base of the unit 6 append-only check):** `76a4323d0`
+  (`feat(e4b): show the gate in the Case pane, the run summary and the judge link (part 5 unit 5)`).
+- **Commits:** A = `a092e0b2d` — test(e4b): RED for E4b part 5 unit 6 docs; B = none; C = the commit
+  whose subject is `docs(e4b): README and CHANGELOG for the gate (part 5)`.
+- **Actual files (commit C):** `packages/screamingface/README.md` (R1 section `### Gate the majority`,
+  86 lines; R2 paragraph `**The gate.**`, 9 lines; 0 lines removed), `packages/screamingface/CHANGELOG.md`
+  (B1 bullet at position 2 of the first `### Features`; 2 lines added, 0 removed), this ledger file.
+  No code, test, golden, schema, snapshot or pinned file changed in commit C.
+- **RED record (commit A):** `uv run pytest tests/test_gate_docs.py -q`: `1 passed, 4 failed`. DC#1
+  passes. DC#2, DC#3, DC#4 and DC#5 fail as the spec §6 table says (the heading list, the missing
+  `### Gate the majority` section, the missing `**The gate.**` text and the missing part 5 bullet).
 - **Gates:**
+  - Focused (spec §9 step 4): `tests/test_gate_docs.py`, `test_show_signals_docs.py`,
+    `test_evidence_completeness_docs.py`, `test_signal_recipes_readme.py`,
+    `test_combine_recipes_readme.py`, `test_pick_output.py`, `test_mean.py`,
+    `test_fusion_doc_goldens.py`, `test_gate_contract_fixtures.py`: `97 passed`.
+  - Line length: `awk 'length > 100' README.md | wc -l` gives `37` (the same count as before).
+    No added line ends with a space.
+  - `screamingface --base 76a4323d0` (unit 5 tip): ALL GATES GREEN, the append-only check included.
+  - `screamingface --base 4e622af75`: red only on the append-only check. The offenders are
+    `tests/data/schemas/screamingface.answer.v1.json`, `tests/public_surface_snapshot.json`,
+    `tests/test_evidence_words.py`, `tests/test_frozen_record_fields.py` and `tests/test_pick_output.py`.
+    All five are the pinned edits of units 1 to 3. This unit adds no change to them.
+  - `screamingface --base 4e622af75 --skip-append-only`: ALL GATES GREEN (ruff check, ruff format,
+    pyright, pytest with coverage 95, notebooks, build, distribution check).
+  - `repo --base 4e622af75`: ALL GATES GREEN, the append-only check included.
+- **Flakes:** none seen. The OME-1619 tests ran inside the pytest gate and passed.
+- **Pinned edits:** none.
 - **Deviations:**
+  - Gate order. The gates ran on the final working tree before commit C, not after it (spec §11 says
+    after). The tree held the same doc content that commit C records, so the result is the same.
+  - DC#3 reads the four fixture files, not the four builders (PRD docs §7). This is the planned
+    deviation of §10. The drift guard `test_gate_contract_fixtures.py` keeps each file equal to its builder.
+  - README code block: no change to the spec text was needed. DC#3 compared all four recipes byte
+    for byte with the fixtures on the first run.
+  - No fix commit was needed.
