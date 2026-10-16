@@ -41,7 +41,12 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine_inspect.capture import captured_case_records
+from screamingface_engine_inspect.capture import (
+    ModelRead,
+    captured_case_records,
+    model_reads,
+    refuse_model_reads,
+)
 from screamingface_engine_inspect.case_set import case_set_digest
 from screamingface_engine_inspect.case_sources import RENDER_PHASE, CaseSource, CaseSourceRecorder
 from screamingface_engine_inspect.fetch_pins import (
@@ -108,6 +113,9 @@ class TaskReplayFacts:
     #: The Task's own any-of-N epoch reducer by inspect's name (``max``), only when Attempts
     #: meet an honoured whole-run metric (OME-1527); None on every other import.
     epoch_reducer: str | None = None
+    #: The model role the scorer asks for in its body (``"grader"``), so the row's TODO judge
+    #: fills that role (OME-1602, F2); None on every other import.
+    judge_role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -302,6 +310,7 @@ def _facts_of(
         mean_instead_of=scorers.mean_instead_of,
         attempts=attempts,
         epoch_reducer=epoch_reducer,
+        judge_role=scorers.judge_role,
     )
 
 
@@ -348,7 +357,12 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
                 choice_shuffle_seed=request["choice_shuffle_seed"],
             )
         )
-        task: Any = getattr(module, attribute)(**(task_args or {}))
+        # WHY watched: a task function that reads the model under test would build its
+        # Cases for "none", as on the image side (OME-1602, F3).
+        reads: list[ModelRead]
+        with model_reads() as reads:
+            task: Any = getattr(module, attribute)(**(task_args or {}))
+    refuse_model_reads(reads, "the task function")
     refuse_unrecorded_scorers(task)
     # WHY count here: every Case Source recorded from now on was fetched by a solver while
     # capture rendered a Sample, not by the loader; the row says so (CaseSource.phase).
@@ -379,7 +393,9 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
             else tuple(request["excluded_sample_ids"])
         ),
     )
-    prepared: list[PreparedCase] = captured_case_records(task, spec)
+    # WHY the answered pass here only: a judge inside the solver chain is an import-time
+    # refusal (OME-1602, F4); image builds replay a declaration that already passed it.
+    prepared: list[PreparedCase] = captured_case_records(task, spec, answered_pass=True)
     sources: list[CaseSource] = [
         source if index < loaded else replace(source, phase=RENDER_PHASE)
         for index, source in enumerate(recorder.sources)

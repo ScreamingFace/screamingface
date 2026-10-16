@@ -54,6 +54,12 @@ from screamingface_engine.benchmarks.nltk_data import (
     NltkDataError,
     download_nltk_data,
 )
+from screamingface_engine_inspect.judge_shape import (
+    JUDGE_PARAMETERS,
+    UNKNOWN_ROLE,
+    JudgeShape,
+    judge_shape,
+)
 
 # WHY a runtime import is safe here: provenance_facts imports only the stdlib and yaml,
 # never this module, so no cycle (OME-1455).
@@ -223,6 +229,9 @@ class ScorerFacts:
     #: The eval's whole-run metric the row does NOT honour, keeping the mean: a Named
     #: Deviation the row states in a comment.
     mean_instead_of: str | None = None
+    #: The model role the headline scorer asks inspect for in its body (simpleqa's
+    #: ``get_model(role="grader")``), so the row's judge must fill it (OME-1602, F2).
+    judge_role: str | None = None
 
 
 #: The importing agent's per-Benchmark choice for a headline metric that is not a plain mean.
@@ -244,6 +253,11 @@ def _scorer_facts(
               the importing agent chose for this Benchmark (``whole_run_metric``): honour the
               eval's metric, or keep the mean under a Named Deviation (OME-1527). Any other
               metric on a kept scorer is noted as not reproduced.
+
+    A judge the scorer kwargs do not name (OME-1602, F2) counts as a judge in Stages 2 and 3:
+    a role asked in the scorer's body becomes the row's ``judge_role``; a panel of judges,
+    or a ``get_model()`` that grades with the model under test, is refused on a single
+    scorer and dropped by name beside others (:func:`judge_shape`).
     """
 
     from screamingface_engine_inspect.scorer_metrics import (
@@ -260,15 +274,7 @@ def _scorer_facts(
     resolved: list[tuple[str, dict[str, Any], str]] = [
         _resolve_scorer(scorer, module) for scorer in declared
     ]
-    kept: list[int] = (
-        [0]
-        if len(declared) == 1
-        else [
-            index
-            for index, (ref, params, _) in enumerate(resolved)
-            if not _is_judged_by(ref, params)
-        ]
-    )
+    kept, judge_role = _kept_scorers(resolved)
     if not kept:
         dropped_names: list[str] = [name for _, _, name in resolved]
         raise ImporterError(
@@ -310,6 +316,7 @@ def _scorer_facts(
             dropped_metrics=extra_metric_names(headline_scorer),
             whole_run_metric=honoured,
             mean_instead_of=kept_mean,
+            judge_role=judge_role,
         )
     _check_kept_scorers(declared, resolved, kept)
     dropped_metrics: list[str] = []
@@ -329,6 +336,103 @@ def _scorer_facts(
         whole_run_metric=honoured,
         mean_instead_of=kept_mean,
     )
+
+
+def _kept_scorers(
+    resolved: list[tuple[str, dict[str, Any], str]],
+) -> tuple[list[int], str | None]:
+    """Stages 2 and 3 of :func:`_scorer_facts`: which scorers the row keeps, and the model
+    role a single scorer's judge must fill.
+
+    One scorer is always kept; its unseen judge is refused or read as a role. Among several,
+    each scorer that grades with a judge, named in its kwargs or not, is left out.
+    """
+
+    shapes: list[JudgeShape] = [judge_shape(ref) for ref, _, _ in resolved]
+    if len(resolved) == 1:
+        return [0], _unseen_judge_role(resolved[0][2], resolved[0][1], shapes[0])
+    return [
+        index
+        for index, (ref, params, _) in enumerate(resolved)
+        if not _is_judged_by(ref, params) and not _reaches_an_unseen_judge(params, shapes[index])
+    ], None
+
+
+def _judge_panel(params: Mapping[str, Any]) -> tuple[str, int] | None:
+    """The judge parameter that holds a list of judges, and how many: fortress's
+    ``grader_models=[...]``; None when no judge parameter holds a list."""
+
+    for name, value in params.items():
+        if name in JUDGE_PARAMETERS and isinstance(value, list | tuple):
+            return name, len(value)
+    return None
+
+
+def _reaches_an_unseen_judge(params: Mapping[str, Any], shape: JudgeShape) -> bool:
+    """True when the scorer reaches a judge its kwargs do not name: a panel, or any of the
+    reader's findings, a judge parameter left at its default included.
+
+    WHY the signature rule here too: beside other scorers, a kept scorer becomes an extra
+    scorer, built bare at grading time, so a ``judge_model`` default would grade its Named
+    Score outside benchmark identity (review finding on the first cut).
+    """
+
+    return bool(_judge_panel(params) or shape.reaches_a_judge)
+
+
+#: The one model role a row binds to its pinned judge (assembly's supported roles, OME-1370).
+_GRADER_ROLE: str = "grader"
+
+
+def _unseen_judge_role(name: str, params: Mapping[str, Any], shape: JudgeShape) -> str | None:
+    """A single scorer's judge the kwargs do not name: refused for a panel, the model under
+    test, a role the reader cannot name, a scorer it could not read, or any role but one
+    ``grader``; the role a judge must fill when the body asks for one, else None (F2).
+
+    WHY refuse a panel: a Benchmark pins one judge into its identity; every other judge in
+    the list would be called unmetered. WHY refuse ``get_model()``: it grades with whatever
+    model is being evaluated, or grades differently by its name (infinite_bench's math_calc
+    drops a number for "gpt" models), so Candidates would not be graded alike. WHY refuse
+    an unread scorer: "could not read" is never "judge-free" (sciknoweval picks its judge
+    from a lookup table). WHY one ``grader`` role: the row binds one role to its pinned
+    judge, and assembly binds only ``grader``; a second role would be left unbound at
+    grading, so inspect would hand it the Candidate's own model.
+    """
+
+    panel: tuple[str, int] | None = _judge_panel(params)
+    if panel is not None:
+        raise ImporterError(
+            f"scorer {name} grades with a panel of {panel[1]} judges ({panel[0]}); a Benchmark "
+            "pins one judge, and the row would call the others unmetered. Add the row by hand "
+            "(OME-1602)"
+        )
+    if shape.model_under_test:
+        raise ImporterError(
+            f"scorer {name} reads the model under test (get_model() in "
+            f"{shape.model_under_test[0]}): it grades with the Candidate's own model or "
+            "grades differently by the Candidate's name, so Candidates would not be graded "
+            "alike. Add the row by hand (OME-1602)"
+        )
+    unread: list[str] = [where for role, where in shape.roles if role == UNKNOWN_ROLE]
+    if unread:
+        raise ImporterError(
+            f"scorer {name} asks for a model role held in a variable (get_model(role=...) in "
+            f"{unread[0]}), so no row can name the judge that fills it. Add the row by hand "
+            "(OME-1602)"
+        )
+    if shape.unread:
+        raise ImporterError(
+            f"scorer {name} could not be read in full ({shape.unread[0]}), so the importer "
+            "cannot tell whether it reaches a judge. Add the row by hand (OME-1602)"
+        )
+    roles: list[str] = [role for role, _ in shape.roles]
+    if len(roles) > 1 or (roles and roles[0] != _GRADER_ROLE):
+        raise ImporterError(
+            f"scorer {name} asks for the model role(s) {', '.join(map(repr, roles))}; a row "
+            f"binds its pinned judge to the one {_GRADER_ROLE!r} role, so any other role "
+            "would grade with the Candidate's own model. Add the row by hand (OME-1602)"
+        )
+    return roles[0] if roles else None
 
 
 def _whole_run_choice(
@@ -628,12 +732,14 @@ def _scorer_lines(
     whole_run_metric: str | None = None,
     mean_instead_of: str | None = None,
     whole_run_headline: str | None = None,
+    judge_role: str | None = None,
 ) -> list[str]:
     """The scorer, metric, judge and check-surface lines of a BenchmarkSpec row.
 
     Written once here, so every Task-replay row declares its scorer the same way. With
     Named Scores (OME-1268) the row also declares the extra scorers, the score names
-    (headline first) and any dropped scorer.
+    (headline first) and any dropped scorer. A judged row whose scorer asks for a model
+    role (``judge_role``, OME-1602) gets a TODO judge that fills that role.
     """
 
     benchmark_lines: list[str] = [f'        scorer="{scorer}",']
@@ -675,7 +781,9 @@ def _scorer_lines(
         benchmark_lines.append(
             "        # to convert between the two) in the benchmark's description."
         )
-    if judged:
+    if judged and judge_role is not None:
+        benchmark_lines.extend(_role_judge_lines(judge_role))
+    elif judged:
         # OME-1240: a judged row must never land silently — the TODO model is
         # refused at assembly by name, so an unreviewed judge cannot ship.
         benchmark_lines.append(
@@ -696,6 +804,23 @@ def _scorer_lines(
     # written by hand with a comment naming it (owner rule 2026-10-07, OME-1513) — never a
     # default, never inferred from the grading family.
     return benchmark_lines
+
+
+def _role_judge_lines(judge_role: str) -> list[str]:
+    """The TODO judge of a row whose scorer asks inspect for a model role (OME-1602, F2).
+
+    WHY TODO: the scorer names no judge; it asks for a role. The TODO model is refused at
+    assembly by name until a human pins the judge the role binds to (OME-1240, OME-1370).
+    """
+
+    role: str = json.dumps(judge_role)
+    return [
+        f"        # TODO(review): this scorer asks for the {role} model role instead of",
+        "        # naming a judge. Pin the judge through our gateway: replace TODO with the",
+        "        # gateway model id the role binds to (plus pinned params) — both join the",
+        "        # benchmark's identity.",
+        f'        judge=JudgeSpec(model="TODO", model_role={role}),',
+    ]
 
 
 def _named_score_lines(
@@ -806,6 +931,17 @@ def _is_judged_by(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
     if scorer.rpartition(":")[2].startswith("model_graded_"):
         return True
     return any(name in _JUDGE_MODEL_KWARG_NAMES for name in scorer_kwargs)
+
+
+def _leaves_a_judge_parameter_unpassed(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
+    """True when the scorer constructor takes a judge parameter the row's kwargs leave at its
+    default (niah's ``judge_model``), so the scorer grades with a judge nobody pinned.
+
+    WHY at import: the row is then written judged, with the TODO judge, and fails by name
+    the moment it is reviewed, not later in CI's assembly lane (OME-1602, F2).
+    """
+
+    return any(name not in scorer_kwargs for name in judge_shape(scorer).parameters)
 
 
 def _python_literal_source(value: Any) -> str:
