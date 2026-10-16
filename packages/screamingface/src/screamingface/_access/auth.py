@@ -29,6 +29,8 @@ from screamingface._access.contract import (
     _raise_if_cancelled,
     _require_positive_timeout,
     _token_audiences,
+    _token_claims,
+    _token_from_claims,
 )
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface.errors import AuthenticationError
@@ -101,16 +103,18 @@ def _seed_access_tokens(
     """Pre-load a caller-supplied Access token (e2e workbench spec §6, option B).
 
     WHY seed the store rather than add a header: the challenge path (`_adopt_cached_challenge`)
-    only reuses a token once the origin PROVES its audience, so a token is never sent to an
-    origin of another audience, the same rule a browser-acquired token follows.
+    only reuses a token once the origin asserts its audience, so a token is never sent to an
+    origin of another audience, the same rule a browser-acquired token follows. That assertion
+    is trusted because it comes from the configured HTTPS origin, not because it is verified.
     """
 
     value = environ.get(ACCESS_TOKEN_ENV, "").strip()
     if not value:
         return
     try:
-        audiences = _token_audiences(value)
-        token = _access_token(value, monotonic_now, wall_now)
+        claims = _token_claims(value)
+        audiences = _token_audiences(claims)
+        token = _token_from_claims(value, claims, monotonic_now, wall_now)
     except AuthenticationError:
         # `from None`: the inner error's cause chain may carry decode details of the token.
         raise AuthenticationError(

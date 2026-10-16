@@ -17,6 +17,7 @@ from screamingface._access.auth import (
     _CloudflareAccessAuth,
     _seed_access_tokens,
 )
+from screamingface._access.contract import _access_token
 
 _AUDIENCE = "a" * 64
 _OTHER = "b" * 64
@@ -32,6 +33,18 @@ def _jwt(exp: float, aud: object) -> str:
     header = _b64u(json.dumps({"alg": "RS256"}).encode())
     payload = _b64u(json.dumps({"exp": exp, "aud": aud}).encode())
     return f"{header}.{payload}.sig"
+
+
+_HEADER = _b64u(b'{"alg": "RS256"}')
+
+
+def _raw(payload: str, *, header: str = _HEADER, signature: str = "sig") -> str:
+    """A compact token from raw payload JSON text, for values json.dumps cannot spell."""
+
+    return f"{header}.{_b64u(payload.encode())}.{signature}"
+
+
+_PAYLOAD = json.dumps({"exp": 1_800_000_900.0, "aud": _AUDIENCE})
 
 
 def test_no_env_var_seeds_nothing() -> None:
@@ -60,6 +73,19 @@ def test_token_is_stored_under_every_audience_it_names(aud: str | list[str]) -> 
         _jwt(1_800_000_900.0, None),  # no aud
         _jwt(1_800_000_900.0, []),  # empty aud list
         _jwt(1_800_000_900.0, ["short"]),  # aud fails _VALID_AUDIENCE
+        _raw(f'{{"exp": NaN, "aud": "{_AUDIENCE}"}}'),
+        _raw(f'{{"exp": Infinity, "aud": "{_AUDIENCE}"}}'),
+        _raw(f'{{"exp": -Infinity, "aud": "{_AUDIENCE}"}}'),
+        _raw(f'{{"exp": 1e309, "aud": "{_AUDIENCE}"}}'),  # overflows to inf
+        _raw(f'{{"exp": 1800000900, "aud": "{_AUDIENCE}", "nbf": NaN}}'),
+        _raw(_PAYLOAD, header=""),  # empty protected header
+        _raw(_PAYLOAD, header=_b64u(b"not json")),
+        _raw(_PAYLOAD, header=_b64u(b'["RS256"]')),  # JSON, but not an object
+        _raw(_PAYLOAD, header="!!"),  # header not base64url
+        _raw(_PAYLOAD, signature=""),  # empty signature
+        _raw(_PAYLOAD, signature="a"),  # impossible base64url length
+        _raw(_PAYLOAD, signature="si+g"),  # outside the base64url alphabet
+        _raw(f'{{"exp": 1800000900, "aud": "{_AUDIENCE}", "nbf": 1800000600}}'),  # future nbf
     ],
 )
 def test_an_unusable_env_token_fails_loudly_without_echoing_it(token: str) -> None:
@@ -184,3 +210,26 @@ def test_a_token_for_another_audience_falls_back_to_the_browser_login() -> None:
         wall_now=1_800_000_000.0,
     )
     assert store.usable(_AUDIENCE, 100.0) is None
+
+
+def test_a_token_whose_nbf_has_passed_is_accepted() -> None:
+    token = _raw(f'{{"exp": 1800000900, "aud": "{_AUDIENCE}", "nbf": 1799999000}}')
+    store = _AccessTokenStore()
+    _seed_access_tokens(
+        store, {"SCREAMINGFACE_ACCESS_TOKEN": token}, monotonic_now=100.0, wall_now=1_800_000_000.0
+    )
+    assert store.usable(_AUDIENCE, 100.0) == token
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        _raw(f'{{"exp": Infinity, "aud": "{_AUDIENCE}"}}'),
+        _raw(_PAYLOAD, signature=""),
+        _raw(_PAYLOAD, header=""),
+    ],
+)
+def test_a_malformed_browser_transfer_token_keeps_its_own_code(token: str) -> None:
+    with pytest.raises(sf.AuthenticationError) as caught:
+        _access_token(token, 100.0, 1_800_000_000.0)
+    assert caught.value.code == "access_invalid_token"

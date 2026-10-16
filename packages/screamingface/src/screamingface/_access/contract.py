@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import re
 import threading
 import webbrowser
@@ -21,6 +22,9 @@ from screamingface.errors import AuthenticationError
 _MAX_TRANSFER_BYTES = 1_000_000
 _REFRESH_SKEW_SECONDS = 30.0
 _VALID_AUDIENCE = re.compile(r"[A-Za-z0-9_-]{16,256}\Z")
+# A compact JWS segment: unpadded base64url only. `b64decode(altchars=b"-_")` alone would also
+# accept the standard alphabet's `+` and `/`.
+_JWS_SEGMENT = re.compile(r"[A-Za-z0-9_-]+\Z")
 # Cloudflare Access challenges an unauthenticated caller with a 302 to its login origin, and
 # refuses a policy-blocked one with 401/403. It does not challenge with 301/303/307/308, and
 # a 2xx is never a challenge — widening this set would add false-positive surface to the very
@@ -138,37 +142,74 @@ def _decrypt_transfer(response: httpx.Response, private_key: PrivateKey) -> str:
 
 
 def _access_token(value: str, monotonic_now: float, wall_now: float) -> _AccessToken:
+    return _token_from_claims(value, _token_claims(value), monotonic_now, wall_now)
+
+
+def _token_claims(value: str) -> dict[str, object]:
+    """The payload claims of a compact JWS, parsed once and strictly.
+
+    The signature is NOT verified here: the Access edge verifies it. This only rejects a value
+    that cannot be a compact JWS at all, so a malformed token fails at construction instead of
+    being sent and refused later: three segments, a non-empty base64url JSON-object header, a
+    base64url JSON-object payload, and a non-empty base64url signature. Non-standard JSON
+    constants (NaN, Infinity, -Infinity) are refused.
+    """
+
     parts = value.split(".")
-    if len(parts) != 3:
+    if len(parts) != 3 or not all(_JWS_SEGMENT.fullmatch(part) for part in parts):
         raise _invalid_token()
     try:
-        payload = json.loads(_base64url_decode(parts[1]))
-    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        header = _strict_json(_base64url_decode(parts[0]))
+        payload = _strict_json(_base64url_decode(parts[1]))
+        _base64url_decode(parts[2])
+    except (ValueError, TypeError) as exc:
         raise _invalid_token() from exc
-    expires = payload.get("exp") if isinstance(payload, dict) else None
-    if not isinstance(expires, int | float) or isinstance(expires, bool):
+    if not isinstance(header, dict) or not isinstance(payload, dict):
         raise _invalid_token()
-    lifetime = float(expires) - wall_now
-    if lifetime <= _REFRESH_SKEW_SECONDS:
-        raise _invalid_token()
-    return _AccessToken(value, monotonic_now + lifetime)
+    return payload
 
 
-def _token_audiences(value: str) -> tuple[str, ...]:
-    """Every Access audience a token names in its ``aud`` claim (string or list).
+def _token_from_claims(
+    value: str, claims: Mapping[str, object], monotonic_now: float, wall_now: float
+) -> _AccessToken:
+    """Check the time claims and pin the expiry to the monotonic clock.
+
+    ``exp`` is required; ``nbf``, when present, must not lie in the future beyond the same
+    skew the refresh margin allows (a token minted on a slightly faster clock stays usable).
+    """
+
+    expires = _finite_number(claims.get("exp"))
+    lifetime = expires - wall_now
+    if not math.isfinite(lifetime) or lifetime <= _REFRESH_SKEW_SECONDS:
+        raise _invalid_token()
+    if "nbf" in claims and _finite_number(claims["nbf"]) > wall_now + _REFRESH_SKEW_SECONDS:
+        raise _invalid_token()
+    expires_at = monotonic_now + lifetime
+    if not math.isfinite(expires_at):
+        raise _invalid_token()
+    return _AccessToken(value, expires_at)
+
+
+def _finite_number(claim: object) -> float:
+    if not isinstance(claim, int | float) or isinstance(claim, bool):
+        raise _invalid_token()
+    try:
+        number = float(claim)
+    except OverflowError as exc:  # an int too large for a float
+        raise _invalid_token() from exc
+    if not math.isfinite(number):
+        raise _invalid_token()
+    return number
+
+
+def _token_audiences(claims: Mapping[str, object]) -> tuple[str, ...]:
+    """Every Access audience a token's claims name in ``aud`` (string or list).
 
     The signature is NOT verified here: the Access edge verifies it. This only decides which
     store slots a caller-supplied token may occupy.
     """
 
-    parts = value.split(".")
-    if len(parts) != 3:
-        raise _invalid_token()
-    try:
-        payload = json.loads(_base64url_decode(parts[1]))
-    except (ValueError, TypeError, json.JSONDecodeError) as exc:
-        raise _invalid_token() from exc
-    claim = payload.get("aud") if isinstance(payload, dict) else None
+    claim = claims.get("aud")
     values: object = [claim] if isinstance(claim, str) else claim
     if not isinstance(values, list) or not values:
         raise _invalid_token()
@@ -178,6 +219,16 @@ def _token_audiences(value: str) -> tuple[str, ...]:
             raise _invalid_token()
         audiences.append(item)
     return tuple(audiences)
+
+
+def _reject_constant(name: str) -> object:
+    raise ValueError(f"non-standard JSON constant {name}")
+
+
+def _strict_json(raw: bytes) -> object:
+    """``json.loads`` that refuses NaN/Infinity/-Infinity (``ValueError``, like bad JSON)."""
+
+    return json.loads(raw, parse_constant=_reject_constant)
 
 
 def _base64url_padded(value: bytes) -> str:
