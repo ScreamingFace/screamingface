@@ -538,15 +538,26 @@ files and the two fixtures are new files.
   allows (see Gates).
 - **Actual files (commit B):** `packages/screamingface/src/screamingface/_evaluation/candidate.py`,
   `_evaluation/combine_spec.py`, `_evaluation/topology.py` (encode side only),
-  `_evaluation/corrective.py`, `_evaluation/runner.py`, `_evaluation/url4.py` (not touched),
+  `_evaluation/corrective.py`, `_evaluation/runner.py`,
   `packages/screamingface/src/screamingface/url4.py` (comment only), `accounting.py`,
   `packages/screamingface/tests/test_consistency_api.py` (one annotation, D-U4-3), and the two new
   fixtures `apps/screamingface-engine/tests/unit/data/combine_contract/consistency_pick_candidate.url4`
   and `consistency_median_candidate.url4`, written with the SDK writer.
 - **Commits:** A = 114ecdfa8 (RED). B = 8a765c59d (code, fixtures, D-U4-3). C = the commit that adds
   this Outcome; its sha is the head of the branch at the end of the unit.
-- **RED log:** recorded in commit A (see the RED log of the commit A section above). This build did
-  not run the RED state again.
+- **RED log (focused tests at commit A):**
+  - `packages/screamingface`: `tests/test_consistency_api.py` and
+    `tests/test_consistency_contract_fixtures.py`: 33 passed, 17 failed. The 5 CA#1 items and the
+    unit 3 tests pass. The 17 failures are the RED rows, each for its expected reason: root names
+    and panels (CA#4, CA#13 quorum), missing `match` and `samples` in the context (CA#5), operation
+    list (CA#8), rider `samples` (CA#9), "DID NOT RAISE PlanningError" (CA#10 x2), KeyError of
+    `model_4` and `model_3` (CA#4 member params, CA#11 x2), 0 sample operations (CA#12), missing
+    accounting row (CA#12), `PlanningError` for mid-run checking instead of the ValueError
+    (CA#13 x3), missing fixture (CA#6 x2).
+  - `apps/screamingface-engine`: `tests/unit/test_combine_consistency_run.py`: 1 failed on
+    "combine_contract/consistency_pick_candidate.url4 is missing - write it with the SDK" (CA#7).
+  - Ruff check and ruff format: see the commit A check.
+  - This build did not run the RED state again.
 - **GREEN checks run on the commit B tree:**
   - `packages/screamingface`: `tests/test_consistency_api.py` and
     `tests/test_consistency_contract_fixtures.py`: 50 passed. The focused list of spec §10 (14
@@ -567,6 +578,19 @@ files and the two fixtures are new files.
     floor, the notebook check, uv build and the distribution check.
   - `repo` (`--base 633fec3a1`): green, including the append-only check.
 - **Flakes:** none seen in this unit. No test was rerun.
+- **Follow-ups (not in this unit, for the orchestrator):**
+  - Refactor: `_sample_call` (`_evaluation/candidate.py`), `_CandidateCompiler._model` and
+    `_model_signal_source` (`_evaluation/reducer_signals.py`) repeat the same steps to build one
+    model call. One helper `_bound_model_call(route, context, prompt, params, binding)` can serve
+    the sample and signal paths.
+  - E4c backlog: `budget.py` (SDK and Engine) has no stage for operation kind `sample`. When E4c
+    charges calls per operation kind, map `sample` to budget stage `model`.
+  - Review text: the `_refuse_consistency` docstring WHY (D-2) says the refusal shows on every
+    benchmark. Through the runner, the check-surface preflight runs first. The text is verbatim
+    from the spec, so the owner must choose the wording.
+  - Unit 5 scope: the url4 decoder does not know the `samples` key yet. Decode for the plain F1/F2
+    fixtures, the judge-fallback shape (CB-3) and a Consistency Fusion inside a quorum Fusion
+    member must come in unit 5.
 - **Deviations:** D-1 to D-4 (planner), D-U4-1 and D-U4-2 (commit A), D-U4-3 and D-U4-4 (commit B).
   No deviation changes the PRD, so no line was added to overview §10.
 - **Pinned edits:** none made in this unit. The owner must review D-U4-3, the one edit to a test that
