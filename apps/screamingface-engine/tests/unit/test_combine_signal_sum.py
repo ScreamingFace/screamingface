@@ -382,3 +382,14 @@ def test_contract_case_pick_sum_min_is_byte_equal_on_both_sides() -> None:
         "source": "sum",
         "coefficients": {"sev_a": 0.5, "sev_b": 0.3},
     }
+
+
+# --- SM#4 (review fix, unit 1): an underflowing negative sum is +0.0, never -0.0 ----------------
+
+
+def test_sum_value_never_gives_negative_zero() -> None:
+    # The exact sum -1e-200 x 1e-200 = -1e-400 underflows to -0.0 in float(Fraction); the invariant
+    # of signal_sum.py says the result is never -0.0 (logprob_forms.py guards it with + 0.0).
+    assert str(sum_value((("a", -1e-200),), {"a": 1e-200})) == "0.0"
+    # The exact sum -5e-324 x 0.5 + 1.0 x 0.0 = -2^-1075 is a tie that rounds to -0.0.
+    assert str(sum_value((("a", -5e-324), ("b", 1.0)), {"a": 0.5, "b": 0.0})) == "0.0"
