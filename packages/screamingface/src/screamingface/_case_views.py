@@ -198,16 +198,22 @@ def _reduce_mode(evidence: CombineEvidence) -> str:
 
 
 def _reads_judge(evidence: CombineEvidence) -> bool:
-    """Rule J1-J3 (judge-model PRD, P9): the evidence shows that the step read a judge.
+    """Rule J1-J4 (judge-model PRD, P9; E4b part 5 P16): the evidence shows the step read a judge.
 
     J1 the judge reducer; J2 scores@1 with a judge reading (source="values" writes none);
-    J3 a signal read of score:judge (Vote, Filter or Pick by the judge score).
+    J3 a signal read of score:judge (Vote, Filter or Pick by the judge score);
+    J4 a gate that took its fallback judge (the judge reply was read only on that branch).
     """
 
     return (
         evidence.reducer == "judge"
         or ("scores@1" in evidence.operators and evidence.judge is not None)
         or (evidence.signal is not None and evidence.signal.key == JUDGE_SIGNAL)
+        or (
+            evidence.gate is not None
+            and evidence.gate.branch == "fallback"
+            and evidence.gate.otherwise == "judge"
+        )
     )
 
 
