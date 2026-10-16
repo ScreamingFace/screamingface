@@ -4,6 +4,7 @@ chain agree (e2e workbench spec §2 D3)."""
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import nbformat
@@ -29,13 +30,20 @@ def _supports(path: Path, target: str) -> bool:
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("path", NOTEBOOKS, ids=lambda p: f"{_TARGET}-{p.stem}")
-def test_notebook(path: Path, live_target: LiveTarget, workbench_out: Path) -> None:
+def test_notebook(
+    path: Path,
+    live_target: LiveTarget,
+    workbench_out: Path,
+    record_property: Callable[[str, object], None],
+) -> None:
     if not _supports(path, live_target.name):
         pytest.skip(f"{path.stem} does not declare target {live_target.name}")
     params = {"ENGINE_URL": live_target.engine_url, "SCOREBOARD_URL": live_target.scoreboard_url}
     run = run_notebook(path, params | live_target.params)
 
     trace_ids = [str(t) for t in (run.result or {}).get("trace_ids", [])]
+    # Spec §3.3: the junit entry carries the trace id(s), so CI links a test row to its trace.
+    record_property("trace_ids", ",".join(trace_ids))
     chain = collect(trace_ids, live_target.sources)
     reasons: list[str] = []
     if run.error:
@@ -57,4 +65,5 @@ def test_notebook(path: Path, live_target: LiveTarget, workbench_out: Path) -> N
         passed=not reasons,
         reasons=reasons,
     )
+    record_property("bundle", str(bundle))
     assert not reasons, f"{'; '.join(reasons)} — evidence: {bundle}"

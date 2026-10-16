@@ -53,6 +53,9 @@ Each notebook writes a bundle, whether it passes or fails:
     logs/<hop>.txt              # the log lines matching the trace ids (engine, aigateway | runtime)
 ```
 
+With `--junitxml`, each `test_notebook` entry also carries the properties `trace_ids`
+(comma-joined) and `bundle` (the bundle path).
+
 Secrets are redacted before anything is written. The patterns are `sk-…` keys, JWT-shaped
 tokens, and `Bearer …`.
 
