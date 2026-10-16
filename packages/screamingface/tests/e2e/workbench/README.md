@@ -9,13 +9,23 @@ Reviewable notebooks executed by pytest against a live target. Design:
 
 1. The notebook runs top to bottom and its own `assert`s hold, score band included.
    `SCORE_BAND` is set by hand per scenario in the `parameters` cell.
-2. Every trace id the notebook reports (its `workbench-result` cell prints
+2. The notebook's `WORKBENCH_RESULT` payload is well-formed (`result_check.py`): it has every
+   key the notebook declares in `workbench.required_result`, `trace_ids` is a list, and each id
+   is 32 lowercase hex characters. A missing payload, a non-list `trace_ids`, or a malformed id
+   is a failure reason. Only well-formed ids go on to the chain check.
+3. Every trace id the notebook reports (its `workbench-result` cell prints
    `WORKBENCH_RESULT={"trace_ids": [...]}`) is found in each of the target's required log
-   sources. On `replay` those are the engine and the aigateway. Every matched aigateway line
-   must also carry a `gateway_call_id`.
+   sources. On both targets those are the engine and the aigateway hops. Every matched aigateway
+   line must also carry a `gateway_call_id`.
 
 If no trace id is reported, the test fails. It never passes on an empty chain. Engine lifecycle
 lines are collected into `trace.json` but not yet required.
+
+The notebook always builds `sf.Client(engine_url=ENGINE_URL, scoreboard_url=SCOREBOARD_URL)`
+and raises if `SCOREBOARD_URL` is empty, so it can never fall back to the hosted leaderboard
+(spec §3.1). `local` injects its own Scoreboard (`:9106`). `replay` has no Scoreboard and
+injects an unused loopback placeholder (`http://127.0.0.1:9`); the notebook never calls the
+leaderboard there.
 
 ## Running it
 
@@ -49,6 +59,18 @@ It needs prepared ifeval assets; from `apps/screamingface-engine`:
 
 `test_local_boot.py` boots that stack for real with no key (gate: `SCREAMINGFACE_TEST_E2E=1`
 only, no docker) and asserts the Engine lists ifeval. It spends nothing.
+
+## What is verified, and what is not
+
+| Check | Key needed | Status (2026-10-16) |
+|---|---|---|
+| Unit tests (runner, evidence, bundle, targets, builder, result check, `REQUIRE_ALL`) | none | pass |
+| `test_notebook[replay-quickstart]`: notebook + engine/aigateway chain on the replay stack | none | pass locally; CI runs it on every PR |
+| `test_local_boot.py`: real `screamingface up` + inspect Engine boots and lists ifeval | none | pass locally (needs prepared assets) |
+| `test_notebook[local-quickstart]`: the notebook itself on `local` | `OPENROUTER_API_KEY` + `SCREAMINGFACE_TEST_PAID=1` | **not run yet**: needs one paid run |
+
+So on `local`, the stack wiring is checked without a key, but the notebook's evaluate call, the
+score band, and the trace chain through the real Gateway have not been exercised.
 
 ## Evidence bundle
 
