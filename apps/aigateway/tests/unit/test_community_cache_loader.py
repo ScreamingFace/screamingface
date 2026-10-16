@@ -232,3 +232,16 @@ def test_the_parameter_contract_must_be_on_both_sides(
         check_revisions(remote, local)
 
     assert refused.value.reason == "revision_mismatch"
+
+
+def test_an_adapter_the_hosted_side_does_not_report_is_refused() -> None:
+    # WHY: the hosted gateway may hold rows for an adapter it no longer loads, keyed under a
+    # revision it cannot vouch for; they would load here and never hit. Fail closed.
+    with pytest.raises(PageRejected) as refused:
+        check_revisions(
+            {"parameter_contract": "r1"},
+            {"parameter_contract": "r1", "openrouter_adapter": "o1"},
+        )
+
+    assert refused.value.reason == "revision_mismatch"
+    assert "openrouter_adapter" in str(refused.value)

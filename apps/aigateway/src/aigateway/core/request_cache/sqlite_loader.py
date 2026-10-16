@@ -72,15 +72,25 @@ def check_revisions(remote: Mapping[str, str], local: Mapping[str, str]) -> None
     """Refuse a page whose cache keys were computed under revisions this gateway does not use.
 
     A revision both sides report must be equal, and the core parameter contract must be on
-    both. An adapter revision only one side reports is not a mismatch: a local process may load
-    fewer provider plugins than the hosted gateway, and rows for a provider it lacks are never
-    looked up there, so they cannot mis-hit.
+    both. The two one-sided cases are not symmetric:
+
+    - Only the hosted side reports it: allowed. A local process may load fewer provider plugins
+      than the hosted gateway, and rows for a provider it lacks are never looked up there, so
+      they cannot mis-hit.
+    - Only the local side reports it: refused. The hosted gateway may still hold rows for an
+      adapter it no longer loads, keyed under a revision it cannot vouch for; they would load
+      here and never hit.
     """
     if PARAMETER_CONTRACT_KEY not in remote or PARAMETER_CONTRACT_KEY not in local:
         raise PageRejected("revision_mismatch", f"{PARAMETER_CONTRACT_KEY} missing on one side")
     differing = sorted(k for k in remote.keys() & local.keys() if remote[k] != local[k])
     if differing:
         raise PageRejected("revision_mismatch", f"differs for {', '.join(differing)}")
+    # AIDEV-NOTE: a plugin that only ever runs locally and registers a revision would trip this
+    # on every pull; refine the rule (e.g. per provider) before adding one.
+    unvouched = sorted(local.keys() - remote.keys())
+    if unvouched:
+        raise PageRejected("revision_mismatch", f"not reported upstream: {', '.join(unvouched)}")
 
 
 def _timestamp(value: Any, *, nullable: bool = False) -> str | None:
