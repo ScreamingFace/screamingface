@@ -1853,7 +1853,7 @@ def _names_several_letters(target: object) -> bool:
 
 
 def _validated_letter_list_key(
-    target: object, choices: Sequence[Any], case_id: int
+    target: str | list[Any], choices: Sequence[Any], case_id: int
 ) -> tuple[str | list[str], list[str]]:
     """A key naming several options, checked against them and frozen as the eval wrote it.
 

@@ -1273,6 +1273,12 @@ def _import_by_task_replay_cli(
     empty_key_option: dict[str, Any] = (
         {"empty_answer_key_allowed": True} if args.empty_answer_key_allowed else {}
     )
+    # WHY only when given, like the empty-key option: a command without these flags passes the
+    # import exactly the options it always did (OME-1602).
+    letter_option: dict[str, Any] = {"letter_list_key": True} if args.letter_list_key else {}
+    drop_option: dict[str, Any] = (
+        {"drop_scorers": tuple(args.drop_scorer)} if args.drop_scorer else {}
+    )
     imported: TaskReplayImport = (import_by_task_replay or replay_both_times)(
         args.task_ref,
         _parse_task_args(args.task_arg),
@@ -1285,8 +1291,8 @@ def _import_by_task_replay_cli(
         # passes the import exactly the options it always did.
         **({} if args.whole_run_metric is None else {"whole_run_metric": args.whole_run_metric}),
         **empty_key_option,
-        **({"letter_list_key": True} if args.letter_list_key else {}),
-        **({"drop_scorers": tuple(args.drop_scorer)} if args.drop_scorer else {}),
+        **letter_option,
+        **drop_option,
     )
     imported = _with_nltk_data(imported, args.nltk_resource)
     card: CardLicense = card_license_of(
