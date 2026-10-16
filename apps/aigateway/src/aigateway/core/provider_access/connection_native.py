@@ -13,16 +13,21 @@
 # FEATURE (OME-1497, G0 writer floor §5.3): on a `none`/`quarantined` pair a native create, OAuth
 # start, key replacement or delete is an ownership change — `claim_native_write` claims the pair
 # it observed, keeping the state (no auto-promotion, D14), as the FIRST write of its transaction.
+# FEATURE (OME-1209, E1b, spec R6): a native OAuth flow started while a `migrated` pair's
+# effective row was unusable takes the pair over at its callback — `replace_effective` moves the
+# marker to the new row, `retire_replaced` revokes the old one. Connection side only, so the
+# repair outlives the Profile routes and the Profile index.
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any
 
 from tortoise.queryset import QuerySet
 
 from aigateway.core.oauth.models import OAuthConnection
-from aigateway.core.oauth.store import credential_locator_for
+from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.core.plugin_base import credential_service_provider_for
 from aigateway.core.profile_index import ProfileIndexStore, ProfileTransitionConflict
 
@@ -72,6 +77,104 @@ async def effective_pair_of(connection: OAuthConnection) -> PairAuthority | None
     if pair.migration_state != "migrated" or pair.effective_connection_id != connection.id:
         return None
     return pair
+
+
+# WHY these two: a row in `error` or `revoked` serves nothing — a new OAuth flow replaces it
+# whatever its auth type, as the Profile facade did.
+UNUSABLE_EFFECTIVE = frozenset({"error", "revoked"})
+
+
+async def effective_to_replace(
+    observed: PairAuthority, *, requested_label: str | None
+) -> PairAuthority | None:
+    """Start time: the observed `migrated` pair when this native flow replaces its effective row.
+
+    It does when that row is unusable, or when the flow asks for the row's own label — the native
+    flow's only way to address a connection, i.e. "re-authorise THAT one" (the Profile facade's
+    re-auth by name). Otherwise a working effective row stays and the flow adds a plain row.
+    """
+    if observed.migration_state != "migrated" or observed.effective_connection_id is None:
+        return None
+    effective = await OAuthConnection.filter(
+        id=observed.effective_connection_id, account_id=observed.account_id
+    ).first()
+    if effective is None:
+        return None
+    if effective.status in UNUSABLE_EFFECTIVE:
+        return observed
+    if requested_label is not None and effective.label == requested_label:
+        return observed
+    return None
+
+
+async def replace_effective(observed: PairAuthority, *, connection_id: Any) -> None:
+    """Callback time, the FIRST write of its transaction (D14): `connection_id` becomes effective.
+
+    # INVARIANT: compare-and-set from the generation observed at start — a newer start, a delete
+    # or a key write in between raises `PairAuthorityConflict` and the caller rolls back, so the
+    # pair never names two effective rows and never loses the one a newer writer published.
+    """
+    await PairAuthorityStore().advance(
+        observed.account_id,
+        observed.provider,
+        expected_generation=observed.generation,
+        migration_state="migrated",
+        effective_connection_id=connection_id,
+    )
+
+
+async def retire_replaced(
+    observed: PairAuthority, *, alongside: Collection[Any] = ()
+) -> OAuthConnection | None:
+    """Callback time, after `replace_effective` and BEFORE the new row activates: revoke the
+    row it replaced. Returns that row (its cached strategy is the caller's to evict).
+
+    # INVARIANT: the replaced row and every row in `alongside` lock in ONE ascending id order —
+    # the order delete uses (`lock_lower_addressers`) — so a concurrent delete cannot deadlock it.
+    # WHY before activation: `identity_sub` and `label` are unique per pair whatever the status;
+    # revocation frees both, so the new row can take them.
+    """
+    ids = {observed.effective_connection_id, *alongside}
+    await OAuthConnection.filter(id__in=list(ids)).order_by("id").select_for_update()
+    replaced = await OAuthConnection.filter(
+        id=observed.effective_connection_id, account_id=observed.account_id
+    ).first()
+    if replaced is None or replaced.status == "revoked":
+        return replaced
+    return await OAuthConnectionStore().mark_revoked(replaced, "replaced")
+
+
+async def take_over_effective(
+    observed: PairAuthority, connection: OAuthConnection
+) -> OAuthConnection | None:
+    """API-key create, inside its transaction after the fresh row exists (the marker's FK needs
+    it; nobody can contend a row whose UUID no one has seen): `connection` becomes effective and
+    the row it replaces is revoked. Returns the replaced row.
+
+    A lost compare-and-set is the native superseded conflict (409 `connection_conflict`).
+    """
+    try:
+        await replace_effective(observed, connection_id=connection.id)
+    except PairAuthorityConflict as exc:
+        raise _superseded(connection) from exc
+    return await retire_replaced(observed, alongside=(connection.id,))
+
+
+async def promote_live_row(
+    observed: PairAuthority, *, pending: OAuthConnection, live: OAuthConnection
+) -> OAuthConnection | None:
+    """Callback time: the repair signed into the provider identity of `live`, another active row
+    of the pair — `live` becomes effective and this flow's `pending` row retires as its duplicate.
+
+    Same order as the plain repair (marker → rows → the caller's blob write). Returns the
+    replaced row.
+    """
+    await replace_effective(observed, connection_id=live.id)
+    replaced = await retire_replaced(observed, alongside=(pending.id, live.id))
+    store = OAuthConnectionStore()
+    await store.delete_or_supersede_pending(pending, live)
+    await store.touch_last_refreshed(live)
+    return replaced
 
 
 def _live_rows(connection: OAuthConnection) -> QuerySet[OAuthConnection]:
@@ -200,7 +303,12 @@ __all__ = [
     "credential_has_other_owner",
     "credential_name_of",
     "effective_pair_of",
+    "effective_to_replace",
     "lock_lower_addressers",
+    "promote_live_row",
+    "replace_effective",
     "republish_effective_api_key",
     "retire_effective",
+    "retire_replaced",
+    "take_over_effective",
 ]

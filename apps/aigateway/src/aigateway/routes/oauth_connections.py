@@ -36,15 +36,18 @@ from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import credential_service_provider_for, credential_strategy_from
 from aigateway.core.provider_access import (
     ConnectionRefreshOwner,
+    PairAuthority,
     PairAuthorityStore,
     claim_for_connection,
     claim_native_write,
     credential_has_other_owner,
     credential_name_of,
+    effective_to_replace,
     guard_refresh,
     lock_lower_addressers,
     republish_effective_api_key,
     retire_effective,
+    take_over_effective,
 )
 from aigateway.core.provider_access.connection_locator import credential_strategy_for_connection
 from aigateway.core.provider_access.writer_floor import mark_error_checked, observe_pair_of
@@ -113,14 +116,22 @@ async def start_connection_oauth(
             request, body.provider, cfg, state, body.redirect_uri
         )
     store = _store(request)
-    if body.label and await store.find_by_label(account_id, body.provider, body.label) is not None:
+    # FEATURE (OME-1497, G0): the start is an ownership change on a legacy-owned pair; its
+    # callback claims the pair this start published.
+    observed = await PairAuthorityStore().read(account_id, body.provider)
+    # FEATURE (OME-1209, E1b, R6): on a migrated pair this flow may replace the effective row.
+    replaces_effective = await effective_to_replace(observed, requested_label=body.label)
+    taken = await store.find_by_label(account_id, body.provider, body.label) if body.label else None
+    if taken is not None and (
+        replaces_effective is None or taken.id != replaces_effective.effective_connection_id
+    ):
         raise HTTPException(
             status_code=409,
             detail={"code": "label_conflict", "provider": body.provider, "label": body.label},
         )
-    # FEATURE (OME-1497, G0): the start is an ownership change on a legacy-owned pair; its
-    # callback claims the pair this start published.
-    observed = await PairAuthorityStore().read(account_id, body.provider)
+    # WHY a placeholder: the row it replaces may still hold the requested label (unique per pair
+    # whatever the status); the callback revokes that row, then gives this one the label.
+    row_label = f"pending-{connection_id}" if replaces_effective is not None else label
     # WHY (OME-307 Blocker 5): bind the redirect (a loopback listener keyed by `state`) BEFORE the
     # claim — a start that cannot bind must not supersede the flow in flight.
     if redirect_uri is None:
@@ -132,7 +143,7 @@ async def start_connection_oauth(
                 await store.create_pending(
                     account_id=account_id,
                     provider=body.provider,
-                    label=label,
+                    label=row_label,
                     connection_id=connection_id,
                     credential_provider=credential_service_provider_for(plugin, body.provider),
                 )
@@ -158,6 +169,7 @@ async def start_connection_oauth(
             connection_id=str(connection_id),
             requested_label=body.label,
             observed_pair=published,
+            replaces_effective=replaces_effective,
         ),
     )
 
@@ -224,13 +236,16 @@ async def create_api_key_connection(
         )
     label = body.label or f"api-key-{connection_id}"
     store = _store(request)
-    if await store.label_exists(account_id, body.provider, label):
+    # FEATURE (OME-1497, G0, §5.3): capture the pair BEFORE the validation's network I/O.
+    observed = await PairAuthorityStore().read(account_id, body.provider)
+    # FEATURE (OME-1209, E1b, R6): on a migrated pair this key may replace the effective row.
+    replaces_effective = await effective_to_replace(observed, requested_label=body.label)
+    replaced_label = await _label_of(store, account_id, replaces_effective)
+    if label != replaced_label and await store.label_exists(account_id, body.provider, label):
         raise HTTPException(
             status_code=409,
             detail={"code": "label_conflict", "provider": body.provider, "label": label},
         )
-    # FEATURE (OME-1497, G0, §5.3): capture the pair BEFORE the validation's network I/O.
-    observed = await PairAuthorityStore().read(account_id, body.provider)
     await require_valid_api_key(request, plugin, body.provider, api_key)
     # WHY (OME-307 Unit 4): persist the key and create the connection row in ONE short
     # transaction so ROLLBACK — not best-effort except-cleanup — is the atomicity mechanism.
@@ -241,6 +256,7 @@ async def create_api_key_connection(
     # never catch, but the transaction boundary rolls it back regardless. Persist runs before
     # the row inside the transaction, writing the blob slot keyed by the already-generated
     # connection_id — the exact slot the chat path reads (SF-291 review F4 ordering).
+    replaced: OAuthConnection | None = None
     try:
         with refusals_as_http():
             async with in_transaction():
@@ -249,10 +265,14 @@ async def create_api_key_connection(
                 connection = await store.create_api_key(
                     account_id=account_id,
                     provider=body.provider,
-                    label=label,
+                    # WHY a placeholder: the replaced row may hold the label until it is revoked.
+                    label=label if replaces_effective is None else f"api-key-{connection_id}",
                     connection_id=connection_id,
                     credential_provider=credential_service_provider_for(plugin, body.provider),
                 )
+                if replaces_effective is not None:
+                    replaced = await take_over_effective(replaces_effective, connection)
+                    connection = await store.patch_active_label(connection, label) or connection
     except IntegrityError as exc:
         # Duplicate label lost the race with a concurrent create. The transaction already
         # rolled the blob back, so no orphan remains — just surface the retryable conflict.
@@ -261,7 +281,21 @@ async def create_api_key_connection(
             detail={"code": "label_conflict", "provider": body.provider, "label": label},
         ) from exc
     credential_strategy_cache(request.app).evict(credential_key_for(account_id, connection_id))
+    if replaced is not None:
+        credential_strategy_cache(request.app).evict(
+            credential_name_of(plugin, replaced, account_id=account_id)
+        )
     return response_from_connection(connection)
+
+
+async def _label_of(
+    store: OAuthConnectionStore, account_id: str, pair: PairAuthority | None
+) -> str | None:
+    """The label of the effective row a write replaces — free for that write to take."""
+    if pair is None or pair.effective_connection_id is None:
+        return None
+    row = await store.get(account_id, pair.effective_connection_id)
+    return None if row is None else row.label
 
 
 @router.put(

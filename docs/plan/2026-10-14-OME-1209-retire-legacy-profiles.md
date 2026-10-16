@@ -1,7 +1,7 @@
 ---
 ticket: OME-1209
 parent: OME-1138
-status: accepted   # owner approval 2026-10-14; each landing gets its own leaf issue under OME-1138 at PR-open
+status: accepted   # owner approval 2026-10-14; E1b and the E3 catalog delta amended 2026-10-15; each landing gets its own leaf issue under OME-1138 at PR-open
 created: 2026-10-14
 base: origin/main 9be66ecb0
 spec: docs/spec/2026-10-14-OME-1209-retire-legacy-profiles.md
@@ -34,14 +34,14 @@ Paths are relative to `apps/aigateway/src/aigateway` unless stated.
 ## 2. Sequence
 
 ```
-E1 successor pointers ─┐
-                       ├─▶ E3 route retirement ─▶ (census + backfill, owner) ─▶ E4 authority end
-E2a neutral types ─────┤
-E2b dead defaults ─────┘
+E1 successor pointers ─▶ E1b native re-authorisation ─┐
+                                                      ├─▶ E3 route retirement ─▶ (census + backfill, owner) ─▶ E4 authority end
+E2a neutral types ────────────────────────────────────┤
+E2b dead defaults ────────────────────────────────────┘
 ```
 
 E1, E2a and E2b are independent and may be open at the same time; each is one PR. E3 starts after
-E1 is merged **and** the census shows no Profile-owned pair in any environment: on such a pair the
+E1 and E1b are merged **and** the census shows no Profile-owned pair in any environment: on such a pair the
 successor does not fix an errored credential (§1), so its Profile route is the tenant's only repair
 path until it is migrated. E4 starts only after the owner reports the census (§3 E4). E5 is a separate issue
 (spec §7 Q4).
@@ -67,6 +67,34 @@ path until it is migrated. E4 starts only after the owner reports the census (§
   contract change the spec approved (R2); it goes through an approval manifest
   `.claude/test-change-approvals/OME-<E1>.json` listing each file and assertion, shown to the
   owner before commit.
+
+### E1b — native repair of a migrated OAuth pair (spec R6)
+
+- Start (`routes/oauth_connections.py` `start_connection_oauth`): the pair it already observes
+  is checked: when it is `migrated` and its effective row is unusable (`error`/`revoked`, any
+  auth type) or carries the requested label, the pending entry records that observed pair (new
+  field `PendingAuthEntry.replaces_effective`) and the pending row takes a placeholder label (the
+  callback gives it the requested one after revoking the old row). Any other pair is unchanged.
+- Same provider identity as another active row of the pair: that row becomes effective (marker
+  CAS, old row revoked, the new row retired as its duplicate, fresh tokens written to its blob),
+  in one transaction.
+- API-key create (`create_api_key_connection`): the same rule (`effective_to_replace`); in its
+  one transaction the fresh row is created under a placeholder label, the marker CAS makes it
+  effective, the replaced row is revoked, then the row takes the requested label
+  (`take_over_effective`). A lost CAS is 409 `connection_conflict`; nothing is created.
+- Rows touched by the callback lock in one ascending id order (the order delete uses); a lost
+  callback revokes its own row so its label is freed.
+- Callback (`routes/auth.py` `_record_oauth_connection_completion`, native branch), inside its
+  existing transaction and in the D14 lock order: marker CAS from the observed generation to
+  `effective_connection_id=<new row>` → (existing compat step) → `mark_revoked` of the old
+  effective row (which also frees its `identity_sub` and label, both unique regardless of status,
+  so a re-login of the same provider identity can activate) → `complete_pending` of the new row →
+  blob. A lost CAS is the native superseded conflict (409 `connection_conflict`), and the
+  transaction rolls back. The strategy cache entry of the old row is evicted.
+- The two steps live in `core/provider_access/connection_native.py` beside
+  `republish_effective_api_key`, using `PairAuthorityStore.advance` and the Connection store only:
+  no Profile index, no `writer_floor`, so E4 keeps them unchanged.
+- No route, OpenAPI or `reauth_url` change; E1 tests untouched.
 
 ### E2a — neutral types
 
@@ -97,6 +125,12 @@ path until it is migrated. E4 starts only after the owner reports the census (§
   (path → successor) without reading the body or touching storage. The old handlers, their
   request/response schemas and `_begin_legacy_pending` are deleted. The OAuth callbacks stay
   (their legacy-pending branch is E4).
+- Catalog delta (spec §8 Q6), in the design repository, before E3 merges: the retired
+  operations and schemas are recorded as retired with historical provenance in the aigateway
+  catalog (`protocol/http-api/openapi.yaml`, `protocol/provider-access` with
+  `workflows/oauth-profile.yaml`, `datamodel/patch-profile-request`, `_coverage`), and the E1b
+  repair rule is described on the Connection OAuth flow. Nothing is deleted to make a check pass; the catalog write follows a
+  semantic review; catalog checks green.
 - `apps/aigateway-ui/src/lib/aigateway/schema.d.ts` is regenerated with the pinned
   `openapi-typescript` from the E3 OpenAPI; the UI imports nothing that disappears (checked by
   `npm run typecheck`).
@@ -132,6 +166,7 @@ read-only census command and its expected output; it does not run it.
 | Landing | Mandatory cases |
 | --- | --- |
 | E1 | every refusal kind (missing, pending, reauth at resolve, reauth at authorize, refresh) on both a migrated and an unmigrated pair carries a successor that the app's router resolves to a live route; no response body names `/profiles`; api-key Connection URL unchanged |
+| E1b | errored (and revoked) effective OAuth row on a migrated pair → native start → callback → new row effective, old row revoked, chat 200 on the new row; same provider identity re-login activates; a usable effective row is not displaced; a newer start, a delete or a key write in between → 409 and nothing half-published; non-migrated pairs unchanged |
 | E2a | full suite green with only import lines changed; boundary test fails when a non-Profile module imports `profile_models` |
 | E2b | chat on a stored target builds no defaults; deleted names absent (`git grep` check in the ledger); full suite green |
 | E3 | each of the 13 paths × each method it served → 410, R1 body, `Cache-Control: private, no-store`, with and without a body, with no storage read (spy) and no audit write; a malformed body still gets 410, not 422; OpenAPI has no `/profiles` path and none of the retired schemas; successor routes' OpenAPI fragments byte-identical before and after; callbacks unchanged |
@@ -156,5 +191,14 @@ AIGW_TEST_PG=1 uv run pytest -m needs_postgres -v
   deletion are reviewed apart.
 - Spec §4 E4 says `ProfileIndexStore` is "no longer wired"; this plan keeps its offline reads
   until E5 (§3 E4), consistent with R5.
+
+- Added 2026-10-15 (spec §8 Q5): E1b, because the test map for E3 showed the Profile facade is
+  the only in-place re-authorisation of a migrated OAuth pair. E1's note that an OAuth re-auth
+  "supersedes an errored Connection" holds for a pair the legacy Profile owns, not for a migrated
+  pair, whose marker ignores a new native row.
+- Order: E3 retires the routes before E4 ends Profile authority, whereas the OME-1138 rollout
+  ends authority before cleaning up the legacy surface (spec §8). Accepted because every pair
+  with a Profile document is `migrated`.
+- E3 gains the catalog delta (spec §8 Q6), which this plan did not list.
 
 The spec's §4 table was updated to match on approval.
