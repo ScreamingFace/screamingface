@@ -1,7 +1,7 @@
 # Community cache for local engines — plan (epic OME-1311)
 
-Spec: `docs/spec/2026-10-15-community-cache.md`. Three PRs, one leaf each under
-OME-1311, merged in order.
+Spec: `docs/spec/2026-10-15-community-cache.md`. Four PRs, one leaf each under
+OME-1311, each stacked on the one before and merged in order.
 
 ## PR 1 — `aigateway`: the page route and the SQLite loader
 
@@ -38,18 +38,36 @@ No settings; one index migration. Ledger:
   decision 6).
 - Merging this PR is what makes the pull reachable in prod.
 
-## PR 3 — `client-sf`: `sf.cache`
+## PR 3 — `client-sf`: `sf.cache.pull_from_remote` and `use_cache=`
 
-- `sf.cache.pull_from_remote(models=None)`: page through the Engine route with the signed-in
-  identity; parse each page line by line; check the header's revisions against the local
-  gateway's `active_cache_revisions()` on every page; discard a page without its trailer; load
-  page N while page N+1 downloads; send `count=true` on the first request of every session,
-  fresh or resumed, and show progress against `remaining`; record the cursor after each page
-  commits and resume from it.
-- `sf.cache.enable()` / `disable()` / `status()`; the local request cache on by default in the
-  local runtime.
-- CLI `screamingface cache pull [--model …]`.
-- Public docs: the caching page.
+- `screamingface/cache.py` (public namespace) over a private `_cache` package:
+  - the hosted page client: its own `Client`-style httpx session against `url` (default
+    `DEFAULT_ENGINE_URL`) with the Access auth, `stream("GET", "/v1/cache/entries", …)` with the
+    replay-safe extension, gzip accepted, problem+json mapped to SDK errors;
+  - the page reader: NDJSON header / rows / trailer, line by line; a page without its trailer
+    is discarded and retried;
+  - the pull loop: `count=true` on the first request of a call, revisions checked on every
+    header against the local revisions (plugins loaded first), page N loaded while page N+1
+    downloads, transient failures retried with backoff, the cursor kept in memory per
+    `(url, models)` for a repeat call in the same process;
+  - the loader call: `aigateway…sqlite_loader.load_page` into `<data_dir>/aigateway.sqlite3`,
+    imported lazily behind `require_runtime_extra()`; `not_a_gateway_database` and
+    `outdated_gateway_database` turned into "run `screamingface up`" messages;
+  - progress: a notebook card through an IPython display handle, a terminal line on stderr,
+    the `evaluate` tri-state.
+- `use_cache: bool = True` on `Client.evaluate`, `AsyncClient.evaluate`, `sf.evaluate`, carried
+  down the same path as `capture` to the run request's `Cache-Control: no-cache`.
+- `_runtime/bootstrap.py`: `AIGW_REQUEST_CACHE_ENABLED=true` in `LOCAL_GATEWAY_DEFAULTS`.
+- `_runtime/cli.py`: `screamingface cache pull`, a thin wrapper over the same function.
+- `__init__.py` / public-surface snapshot, `README.md`, `CHANGELOG.md`.
+
+## PR 4 — `public-docs`: the caching page and the API reference
+
+- `public-docs/src/pages/learn/CachingPage.vue`: the community cache now reaches a local
+  engine — `pull_from_remote`, the model filter, sign-in, what crosses, the local cache on by
+  default, `use_cache=False`.
+- `public-docs/src/pages/sf-client/api/ModulesPage.vue`: an `sf.cache` section and `use_cache=`
+  on `evaluate`.
 
 ## Follow-ups (separate tickets)
 
