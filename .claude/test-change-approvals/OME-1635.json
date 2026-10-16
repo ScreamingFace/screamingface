@@ -1,0 +1,22 @@
+{
+  "issue": "OME-1635",
+  "branch": "OME-1635-community-cache-engine",
+  "approver": "owner",
+  "date": "2026-10-16",
+  "scope": "The same four migration-target edits as OME-1631, byte for byte: this branch is stacked on OME-1631-community-cache and carries its commits. No test is changed by OME-1635 itself.",
+  "reason": "Inherited, not new: the owner approved these edits for OME-1631 in chat on 2026-10-16 and asked for this PR to be stacked on it, so the pre-push gate re-checks OME-1631's diff against main under this branch name. The blobs are identical to OME-1631.json.",
+  "files": {
+    "apps/aigateway/tests/unit/test_migration_0010_simplify_request_cache.py": {
+      "base_blob": "e0c5e133468e533047ba7b09c6013256e071358e",
+      "approved_blob": "f850c54109e399c54ae19b6b8a56d9a2b2e12f80"
+    },
+    "apps/aigateway/tests/unit/test_migration_0011_cache_entry_metadata.py": {
+      "base_blob": "ef4bee339e2ebc0668659051e2302ebaab6ba737",
+      "approved_blob": "9609907789596fa24f9b926dc74136f948a67a2d"
+    },
+    "apps/aigateway/tests/integration/test_global_cache_store_postgres.py": {
+      "base_blob": "cacfd33c149a5dd2c4d413c210f1461c6acc2f2b",
+      "approved_blob": "aadff8cddf2da3c55a09ec5ef459238cc281d8a9"
+    }
+  }
+}
