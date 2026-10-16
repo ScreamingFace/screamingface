@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Protocol
 
 from screamingface_engine.catalog.admission import (
@@ -12,6 +12,8 @@ from screamingface_engine.catalog.admission import (
     is_dynamically_admissible,
 )
 from screamingface_engine.catalog.cache import CacheCounters, CatalogService
+from screamingface_engine.catalog.json_projection import replace_json_string_at_path
+from screamingface_engine.catalog.local_models import LocalModels
 from screamingface_engine.catalog.port import (
     CatalogBadResponse,
     Credential,
@@ -59,12 +61,14 @@ class ExecutableCatalog:
         model_ids: frozenset[str],
         *,
         admitted: AdmittedModels | None = None,
+        local: LocalModels | None = None,
         admission_source: ModelAdmissionSource | None = None,
         on_admitted: Callable[[], None] | None = None,
     ) -> None:
         self._source = source
         self._model_ids = model_ids
         self._admitted = admitted if admitted is not None else AdmittedModels()
+        self._local = local
         parameter_source = source.model_parameter_source
         self._model_parameter_source = (
             None
@@ -73,6 +77,8 @@ class ExecutableCatalog:
                 parameter_source,
                 model_ids,
                 admitted=self._admitted,
+                local=self._local,
+                refresh_local=self.refresh_local_models,
                 admission_source=admission_source,
                 on_admitted=on_admitted,
             )
@@ -88,8 +94,9 @@ class ExecutableCatalog:
 
     @property
     def admitted_model_ids(self) -> tuple[str, ...]:
-        """The overlay's ids — what the App injects into a run's env (OME-880)."""
-        return self._admitted.ids
+        """Every dynamic URL4 route the App injects into a run's env."""
+        local_ids = () if self._local is None else self._local.route_ids
+        return tuple(sorted(set(self._admitted.ids) | set(local_ids)))
 
     async def fetch(self, credential: Credential) -> ModelCatalog:
         catalog = await self._source.fetch(credential)
@@ -116,10 +123,20 @@ class ExecutableCatalog:
                 {**item, "id": encode_route_id(item["id"])}
                 for item in data
                 if isinstance(item, Mapping)
-                and (item.get("id") in self._model_ids or item.get("id") in self._admitted)
+                and (
+                    item.get("id") in self._model_ids
+                    or item.get("id") in self._admitted
+                    or (self._local is not None and item.get("id") in self._local)
+                )
             ],
         }
         return ModelCatalog(body=body, etag=compute_etag(body))
+
+    async def refresh_local_models(self, credential: Credential) -> None:
+        """Refresh the local snapshot through the existing caller-scoped cache policy."""
+
+        if self._local is not None:
+            await self.fetch(credential)
 
     def max_age_s(self, credential: Credential) -> int:
         return self._source.max_age_s(credential)
@@ -154,6 +171,30 @@ def _refusal_response(model: str, code: str | None, message: str | None) -> Mode
     )
 
 
+def _route_model_response(
+    response: ModelParameterResponse,
+    *,
+    route_model: str,
+    real_model: str,
+) -> ModelParameterResponse:
+    if response.status != 200 or route_model == real_model:
+        return response
+    content = replace_json_string_at_path(
+        response.content,
+        path=("model", "id"),
+        expected=real_model,
+        replacement=route_model,
+    )
+    if content != response.content:
+        # WHY rewrite only the target token: the SDK requires the route id it requested,
+        # while this proxy promises every unrelated upstream byte remains verbatim.
+        response = ModelParameterResponse(
+            status=response.status,
+            content=content,
+        )
+    return response
+
+
 class ExecutableModelParameterSource:
     """Reject model-parameter lookups outside the same declared execution world.
 
@@ -177,12 +218,16 @@ class ExecutableModelParameterSource:
         model_ids: frozenset[str],
         *,
         admitted: AdmittedModels | None = None,
+        local: LocalModels | None = None,
+        refresh_local: Callable[[Credential], Awaitable[None]] | None = None,
         admission_source: ModelAdmissionSource | None = None,
         on_admitted: Callable[[], None] | None = None,
     ) -> None:
         self._source = source
         self._model_ids = model_ids
         self._admitted = admitted if admitted is not None else AdmittedModels()
+        self._local = local
+        self._refresh_local = refresh_local
         self._admission_source = admission_source
         self._on_admitted = on_admitted
 
@@ -202,23 +247,59 @@ class ExecutableModelParameterSource:
         # never heard of '~', so both the membership check and the forwarded call need the
         # decoded form; `ModelNotInstalled` echoes back what the caller actually sent.
         real_model = decode_route_id(model)
+        response: ModelParameterResponse | None = None
         if real_model in self._model_ids:
-            return await self._source.fetch_model_parameters(
-                credential, real_model, traceparent=traceparent
+            response = await self._forward(credential, model, real_model, traceparent)
+        elif self._local is not None and self._local.accepts(real_model):
+            response = await self._refresh_and_forward_local(
+                credential, model, real_model, traceparent
             )
-        if real_model in self._admitted:
+        elif real_model in self._admitted:
             response = await self._source.fetch_model_parameters(
                 credential, real_model, traceparent=traceparent
             )
-            if response.status != 404:
-                return response
-            # HEAL (review F1): a 404 for an OVERLAY id means the gateway restarted
-            # and forgot the admission (its admitted set is deliberately in-memory).
-            # The overlay must never contradict the gateway's latest answer, so the
-            # stale entry is dropped and admission decides afresh — bounded to one
-            # retry: whatever the re-admitted fetch returns is the answer.
-            self._admitted.discard(real_model)
+            if response.status == 404:
+                # HEAL (review F1): a 404 for an OVERLAY id means the gateway restarted
+                # and forgot the admission (its admitted set is deliberately in-memory).
+                self._admitted.discard(real_model)
+                response = None
+            else:
+                response = _route_model_response(
+                    response,
+                    route_model=model,
+                    real_model=real_model,
+                )
+        if response is not None:
+            return response
         return await self._admit_and_fetch(credential, model, real_model, traceparent)
+
+    async def _refresh_and_forward_local(
+        self,
+        credential: Credential,
+        route_model: str,
+        real_model: str,
+        traceparent: str | None,
+    ) -> ModelParameterResponse:
+        if self._refresh_local is not None:
+            await self._refresh_local(credential)
+        if self._local is None or real_model not in self._local:
+            raise ModelNotInstalled(route_model)
+        return await self._forward(credential, route_model, real_model, traceparent)
+
+    async def _forward(
+        self,
+        credential: Credential,
+        route_model: str,
+        real_model: str,
+        traceparent: str | None,
+    ) -> ModelParameterResponse:
+        return _route_model_response(
+            await self._source.fetch_model_parameters(
+                credential, real_model, traceparent=traceparent
+            ),
+            route_model=route_model,
+            real_model=real_model,
+        )
 
     async def _admit_and_fetch(
         self,
@@ -242,8 +323,12 @@ class ExecutableModelParameterSource:
         self._admitted.add(real_model)
         if self._on_admitted is not None:
             self._on_admitted()
-        return await self._source.fetch_model_parameters(
-            credential, real_model, traceparent=traceparent
+        return _route_model_response(
+            await self._source.fetch_model_parameters(
+                credential, real_model, traceparent=traceparent
+            ),
+            route_model=model,
+            real_model=real_model,
         )
 
 

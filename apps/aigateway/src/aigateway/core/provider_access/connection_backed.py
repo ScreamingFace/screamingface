@@ -21,6 +21,7 @@ from typing import Any
 
 from ..credential_blob import DispatchObservation, OperationalOutcome
 from ..oauth.models import OAuthConnection
+from .auth_mode import available_auth_modes
 from .connection_authority import (
     MigratedBacking,
     authorize_migrated,
@@ -34,7 +35,7 @@ from .connection_authority import (
 )
 from .pair_authority import PairAuthority, PairAuthorityStore
 from .profile_authorize import oauth_connection_store
-from .profile_backed import ProfileBackedProviderAccess
+from .profile_backed import ProfileBackedProviderAccess, targetless
 from .selector import Selector
 from .types import (
     Authorization,
@@ -97,6 +98,8 @@ class ConnectionBackedProviderAccess(ProfileBackedProviderAccess):
         plugin: Any,
         policy: ResolvePolicy = ResolvePolicy.DISPATCH,
     ) -> CredentialTarget:
+        if available_auth_modes(plugin) == ("none",):
+            return targetless(account_id, plugin)
         pair = await self._markers.read(account_id, provider)
         if pair.migration_state != "migrated":
             target = await super().resolve(

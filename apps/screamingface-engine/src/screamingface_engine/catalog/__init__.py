@@ -20,6 +20,7 @@ from screamingface_engine.catalog.executable import (
     ExecutableCatalog,
     ExecutableModelParameterSource,
 )
+from screamingface_engine.catalog.local_models import LocalCatalogSource, LocalModels
 from screamingface_engine.catalog.port import (
     CatalogBadResponse,
     CatalogError,
@@ -35,6 +36,7 @@ from screamingface_engine.catalog.port import (
     compute_etag,
 )
 from screamingface_engine.config import Settings
+from screamingface_engine.network_policy import is_numeric_loopback_url
 from screamingface_engine.world.config import WorldConfigError, declared_model_ids
 
 logger = logging.getLogger(__name__)
@@ -48,13 +50,18 @@ _UPSTREAM_TIMEOUT_S = 30.0
 
 
 def _default_client(base_url: str) -> httpx.AsyncClient:
-    return httpx.AsyncClient(base_url=base_url, timeout=_UPSTREAM_TIMEOUT_S)
+    return httpx.AsyncClient(
+        base_url=base_url,
+        timeout=_UPSTREAM_TIMEOUT_S,
+        trust_env=not is_numeric_loopback_url(base_url),
+    )
 
 
 def build_catalog_service(
     settings: Settings,
     *,
     client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
+    local: LocalModels | None = None,
 ) -> CachedCatalog | None:
     """Wire the aigateway-backed, cached catalog service from ``settings``.
 
@@ -65,10 +72,11 @@ def build_catalog_service(
     if not base_url:
         return None
     client = client_factory(base_url)
-    source = AigatewayCatalogSource(client)
+    gateway = AigatewayCatalogSource(client)
+    source = LocalCatalogSource(gateway, local) if local is not None else gateway
     return CachedCatalog(
         source,
-        parameter_source=source,
+        parameter_source=gateway,
         ttl_s=settings.models_cache_ttl_s,
         stale_max_s=settings.models_cache_stale_max_s,
         error_backoff_s=settings.models_cache_error_backoff_s,
@@ -83,6 +91,7 @@ def build_executable_catalog_service(
     env: Mapping[str, str],
     *,
     client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
+    local_model_prefixes: tuple[str, ...] = (),
 ) -> ExecutableCatalog | None:
     """Wire Gateway discovery through the Engine routes, validating them when configured.
 
@@ -110,7 +119,8 @@ def build_executable_catalog_service(
         logger.error("model discovery disabled: the declared world is unusable", exc_info=True)
         return None
     logger.info("model discovery projects onto %d declared route(s)", len(model_ids))
-    source = build_catalog_service(settings, client_factory=client_factory)
+    local = LocalModels(prefixes=local_model_prefixes) if local_model_prefixes else None
+    source = build_catalog_service(settings, client_factory=client_factory, local=local)
     # OME-880: dynamic admission wiring. The gateway adapter doubles as the admission source
     # (structural check, so a future parameter-only source simply gets no dynamic admission);
     # a grant invalidates the cached catalog so `GET /v1/models` re-reads upstream.
@@ -128,6 +138,7 @@ def build_executable_catalog_service(
             source,
             model_ids,
             admitted=AdmittedModels(),
+            local=local,
             admission_source=admission_source,
             on_admitted=source.invalidate,
         )

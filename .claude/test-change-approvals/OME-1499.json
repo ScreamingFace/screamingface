@@ -1,0 +1,54 @@
+{
+  "issue": "OME-1499",
+  "branch": "OME-1499-local-models-fusion-benchmarks",
+  "approver": "owner (in the OME-1499 implementation session)",
+  "date": "2026-10-16",
+  "scope": "Complete and polish the local-model Fusion path: preserve cold-start/vLLM compatibility while forwarding executor cleanup, declaring honest local capabilities, retaining sanitized upstream status, making the opt-in live harness strict, and moving its pure selection checks into the CI unit suite.",
+  "reason": "Prepared execution closes its inner generator, local and Ollama routes do not claim unsupported retrieval, retryable statuses survive without bodies, nonnumeric configuration is diagnosed safely, and an explicitly enabled live run requires one named model. Pure selection checks moved out of the module-level live marker so ordinary CI executes them.",
+  "files": {
+    "apps/aigateway/tests/live/test_local_provider_live.py": {
+      "base_blob": "f727d5389e13bf4376d46bdd5ec28dc69409a0ff",
+      "approved_blob": "aa9731dedce0ec8c61f9869ca65d29311d1a0542"
+    },
+    "apps/aigateway/tests/unit/_global_cache_registry_sweep.py": {
+      "base_blob": "7fd9a459456010dc7b8737723883e21aca226bd4",
+      "approved_blob": "d78149e2fe674a5adb7e439f44a570cbd3a4f909"
+    },
+    "apps/aigateway/tests/unit/local_provider/test_dispatch.py": {
+      "base_blob": "362ca3c7d7e2cf52e5fc94aed630f12d90d52186",
+      "approved_blob": "233b31469658a598e44ed394eb757af021605917"
+    },
+    "apps/aigateway/tests/unit/local_provider/test_discovery.py": {
+      "base_blob": "8c522c912b8b0d693704732240eb693b71f329ec",
+      "approved_blob": "f030307eb804af3d5ea279e9136ef0b7e447988b"
+    },
+    "apps/aigateway/tests/unit/local_provider/test_route.py": {
+      "base_blob": "21ac3d1d01358d2b88249f0d910a1e0765c4b44c",
+      "approved_blob": "4bdc34f04387b1511304c52f893e1a6458181255"
+    },
+    "apps/screamingface-engine/tests/integration/test_local_model_fusion_benchmark.py": {
+      "base_blob": "2f817b2e72bdf78af28b1b52d9513201e459e537",
+      "approved_blob": "6b01fee411b738c58fab20d6ecfceb8c8bf227e0"
+    },
+    "apps/screamingface-engine/tests/unit/test_local_model_overlay.py": {
+      "base_blob": "8123a6402f12d6d3584fd9b69f8632f2644d580c",
+      "approved_blob": "ef040cc1c993e90f0ec82f98cf5affc9c866c422"
+    },
+    "apps/screamingface-engine/tests/unit/test_adapters_extra_models.py": {
+      "base_blob": "516bbf0a4d780eb02e73d877492f84a964c34e04",
+      "approved_blob": "e68324cd0b2f4487f6f979fee701c3827b9f7446"
+    },
+    "apps/screamingface-engine/tests/unit/test_dynamic_model_admission.py": {
+      "base_blob": "2007d79bcdd9db09a65a0c38d9fa14183d45640f",
+      "approved_blob": "7431ca0fde0af51761b7302131f7be084ba3f91d"
+    },
+    "apps/screamingface-engine/tests/unit/test_local_model_overlay_wiring.py": {
+      "base_blob": "87d8ad8dc7b95f228287471ad6a3738b6daf25cb",
+      "approved_blob": "501107f6786843850b8e1428ffd66ba808a31ba1"
+    },
+    "packages/screamingface/tests/e2e/test_local_provider_full_stack.py": {
+      "base_blob": "31c784807ade242cd8454ceca21378ba274b134f",
+      "approved_blob": "40837eb2ecdc3d30bd711e15983071cec3745c89"
+    }
+  }
+}

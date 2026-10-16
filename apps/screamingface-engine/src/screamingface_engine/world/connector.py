@@ -45,6 +45,7 @@ from screamingface_engine.capture_outcomes import (
 from screamingface_engine.error_text import ENGINE_RESERVED_CODES
 from screamingface_engine.grading_call_scope import grading_call_log_suffix
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
+from screamingface_engine.network_policy import is_numeric_loopback_url
 from screamingface_engine.observations import ModelCall, current_model_call
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
@@ -521,6 +522,7 @@ async def build_aigateway_world(
         else httpx.AsyncClient(
             base_url=cfg.base_url,
             timeout=httpx.Timeout(cfg.timeout_s, read=cfg.transport_timeout_s),
+            trust_env=not is_numeric_loopback_url(cfg.base_url),
         )
     )
     routes = routes_for(cfg.models)

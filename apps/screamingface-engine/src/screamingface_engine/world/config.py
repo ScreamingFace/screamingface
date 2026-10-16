@@ -49,6 +49,7 @@ from pathlib import Path
 from screamingface_engine import job_env
 from screamingface_engine.world.models.builtins import BUILTIN_MODEL_WORLD
 from screamingface_engine.world.models.registry import (
+    LOCAL_MODEL_PROVIDERS,
     ROUTE_ID_RE,
     ModelRegistry,
     decode_route_id,
@@ -535,7 +536,16 @@ def _apply_extra_models(section: AigatewaySection, env: Mapping[str, str]) -> Ai
     if not value:
         return section
     declared_ids = {model.id for model in section.models}
-    extras = tuple(ModelSpec(id=model_id) for model_id in value if model_id not in declared_ids)
+    extras = tuple(
+        ModelSpec(
+            id=model_id,
+            # INVARIANT: local declares no tools; Ollama declares tools but not
+            # `tool_choice`. Engine retrieval needs both, so neither route may claim it.
+            web_search=model_id.partition("/")[0] not in LOCAL_MODEL_PROVIDERS,
+        )
+        for model_id in value
+        if model_id not in declared_ids
+    )
     if not extras:
         return section
     return replace(section, models=section.models + extras)
