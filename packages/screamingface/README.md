@@ -789,8 +789,11 @@ and Report decoding behind `sf.evaluate(...)`.
 
 ### Hosted caller authentication
 
-Hosted Engines may be protected by Cloudflare Access. No authentication selector,
-Cloudflare service token, or provider key is passed to the Client:
+Hosted Engines may be protected by Cloudflare Access. The Client logs in through the browser on
+first use. For an unattended run that a person started (for example the e2e workbench), set
+`SCREAMINGFACE_ACCESS_TOKEN` to an Access application token (`cloudflared access token -app=<engine
+url>`); the Client uses it for every origin whose Access audience matches the token's `aud`, and
+falls back to the browser login otherwise. The token acts as the person it was issued to.
 
 ```python
 client = sf.Client(engine_url="https://fusion.dev.screamingface.ai")

@@ -28,6 +28,7 @@ from screamingface._access.contract import (
     _present_access_logout,
     _raise_if_cancelled,
     _require_positive_timeout,
+    _token_audiences,
 )
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface.errors import AuthenticationError
@@ -85,6 +86,41 @@ class _AccessTokenStore:
 
 _BrowserPresenter = Callable[[str], None]
 _DiscoveryError = Callable[[str], BaseException]
+
+
+ACCESS_TOKEN_ENV = "SCREAMINGFACE_ACCESS_TOKEN"
+
+
+def _seed_access_tokens(
+    store: _AccessTokenStore,
+    environ: Mapping[str, str],
+    *,
+    monotonic_now: float,
+    wall_now: float,
+) -> None:
+    """Pre-load a caller-supplied Access token (e2e workbench spec §6, option B).
+
+    WHY seed the store rather than add a header: the challenge path (`_adopt_cached_challenge`)
+    only reuses a token once the origin PROVES its audience, so a token is never sent to an
+    origin of another audience, the same rule a browser-acquired token follows.
+    """
+
+    value = environ.get(ACCESS_TOKEN_ENV, "").strip()
+    if not value:
+        return
+    try:
+        audiences = _token_audiences(value)
+        token = _access_token(value, monotonic_now, wall_now)
+    except AuthenticationError:
+        # `from None`: the inner error's cause chain may carry decode details of the token.
+        raise AuthenticationError(
+            f"{ACCESS_TOKEN_ENV} is not a usable Cloudflare Access token "
+            "(malformed, expired, or without a valid aud claim)",
+            code="access_env_token_invalid",
+            permanent=True,
+        ) from None
+    for audience in audiences:
+        store.put(audience, token)
 
 
 def _access_discovery_error(origin: str) -> AuthenticationError:

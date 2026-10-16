@@ -51,6 +51,10 @@ def _isolated_screamingface_data_dir(
     # the refusal instead of exercising its own contract. Tests that need the variable
     # set it themselves via monkeypatch.
     monkeypatch.delenv("AIGATEWAY_DATABASE_URL", raising=False)
+    # INVARIANT: every Client seeds its Access store from SCREAMINGFACE_ACCESS_TOKEN (e2e
+    # workbench U1); a token exported in the dev's shell or by the workbench would otherwise
+    # change every Access test. Tests that need it set it via monkeypatch.
+    monkeypatch.delenv("SCREAMINGFACE_ACCESS_TOKEN", raising=False)
 
 
 __all__: list[str] = []

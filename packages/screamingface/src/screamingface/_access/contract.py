@@ -154,6 +154,32 @@ def _access_token(value: str, monotonic_now: float, wall_now: float) -> _AccessT
     return _AccessToken(value, monotonic_now + lifetime)
 
 
+def _token_audiences(value: str) -> tuple[str, ...]:
+    """Every Access audience a token names in its ``aud`` claim (string or list).
+
+    The signature is NOT verified here: the Access edge verifies it. This only decides which
+    store slots a caller-supplied token may occupy.
+    """
+
+    parts = value.split(".")
+    if len(parts) != 3:
+        raise _invalid_token()
+    try:
+        payload = json.loads(_base64url_decode(parts[1]))
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise _invalid_token() from exc
+    claim = payload.get("aud") if isinstance(payload, dict) else None
+    values: object = [claim] if isinstance(claim, str) else claim
+    if not isinstance(values, list) or not values:
+        raise _invalid_token()
+    audiences: list[str] = []
+    for item in values:
+        if not isinstance(item, str) or not _VALID_AUDIENCE.fullmatch(item):
+            raise _invalid_token()
+        audiences.append(item)
+    return tuple(audiences)
+
+
 def _base64url_padded(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("ascii")
 
