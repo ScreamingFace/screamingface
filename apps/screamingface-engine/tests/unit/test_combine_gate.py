@@ -692,3 +692,32 @@ def test_mean_signal_gate_stays_finite_when_the_exact_sum_overflows() -> None:
     observed = wire(combine(spec, texts))["gate"]
     assert 0 < observed["observed"] < float("inf")
     assert observed["passed"] is True
+
+
+# --- orchestrator fix (E4b part 5 unit 2): the mean and the chosen read never fail ---------------
+
+
+@pytest.mark.parametrize("count", [3, 7, 1000])
+def test_mean_of_values_at_the_float_limit_is_finite(count: int) -> None:
+    from sys import float_info
+
+    from screamingface_engine.combine.gate import observed_number
+    from screamingface_engine.combine.ports import Selection
+    from screamingface_engine.combine.spec import GateSpec
+
+    members = [f"member_{k}" for k in range(1, count + 1)]
+    recorded = {member: {"conf": float_info.max} for member in members}
+    gate_spec = GateSpec(observe="mean:conf", cmp=">=", threshold=0.0, otherwise="abstain")
+
+    assert observed_number(gate_spec, Selection(("member_1",)), recorded, members) == float_info.max
+
+
+def test_chosen_signal_with_no_chosen_member_is_missing() -> None:
+    from screamingface_engine.combine.gate import observed_number
+    from screamingface_engine.combine.ports import Selection
+    from screamingface_engine.combine.spec import GateSpec
+
+    gate_spec = GateSpec(observe="chosen:conf", cmp=">=", threshold=0.5, otherwise="abstain")
+    selection = Selection((), output="20")
+
+    assert observed_number(gate_spec, selection, {"member_1": {"conf": 0.9}}, ["member_1"]) is None
