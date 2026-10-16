@@ -841,9 +841,46 @@ None.
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:** in_progress (RED: commit A pending)
+- **Status:** GREEN. All gates pass. Commit B holds the code. No pinned edit was made.
 - **Actual files:**
+  - `packages/screamingface/src/screamingface/_ui/combine_view.py`: the eleven edits of spec §3.1
+    (the import, two constants, the samples chip, `_SampleFacts` and its helpers,
+    `_signal_cell`, `_sample_record`, `_consistency_reason`, three `_StepSummary` fields,
+    `_add_samples`, `_samples_line`, and the `_summary_html` return).
+  - `packages/screamingface/tests/test_consistency_display.py` (new in commit A, not edited here).
+  - `docs/work/2026-10-16-e4b-consistency.md` (this section).
 - **Commits:**
+  - A: `15646902d` (`test(e4b): RED for E4b part 7 unit 6 consistency-display`). It holds the
+    test file and this section.
+  - B: `feat(e4b): show consistency samples in the Case pane and the run summary (part 7 unit 6)`.
 - **Gates:**
-- **RED log:**
+  - `screamingface --base 633fec3a1`: the append-only check was red for one file only,
+    `tests/public_surface_snapshot.json`. That file is a pinned file of units 1 and 3. This unit
+    did not edit it. Rerun with `--skip-append-only`: ALL GREEN (ruff check, ruff format check,
+    pyright, pytest with coverage at the 95 percent floor, check_notebooks, uv build,
+    check_distribution).
+  - `screamingface --base 15646902d`: ALL GREEN, append-only check included, no skip flag.
+  - `repo --base 633fec3a1`: ALL GREEN, append-only check included.
+  - `repo --base 15646902d`: ALL GREEN.
+  - Focused (`test_consistency_display.py`): 8 passed.
+  - Neighbour regression (the 13 files of §11): 168 passed.
+  - Lint: ruff check and ruff format check clean on the two touched files; pyright 0 errors.
+  - Coverage: `combine_view.py` at 100 percent line coverage, from the focused file and the
+    existing view tests.
+  - Flakes: none seen in this unit.
+- **RED log:** before commit B, `pytest tests/test_consistency_display.py -q -p no:randomly`
+  gave `5 failed, 3 passed`. The five failures are CD#2 (`test_the_step_chip_counts_the_failed_samples`),
+  CD#3 (`test_each_member_cell_shows_its_value_and_its_failed_samples`), CD#4
+  (`test_a_missing_value_names_why`), CD#5 (`test_the_run_summary_sums_the_failed_samples`), and
+  CD#5 (`test_a_case_without_evidence_is_not_counted`). The line for the last one was
+  `assert heading + _line("samples · cons · failed 6 of 12") + _TABLE in summary` (AssertionError).
+  CD#1, CD#6 and CD#7 passed at RED, as the spec says. After commit B the focused file gives
+  `8 passed`.
 - **Deviations:**
+  - D-7 (process, commits): the RED commit `15646902d` already held the test file and this
+    section. The §2 item 2 check "No such file" was true only before that commit. No content
+    changed.
+  - D-8 (gate, append-only): the first `screamingface --base 633fec3a1` run stopped on the
+    append-only check. Its offender was `tests/public_surface_snapshot.json`, a pinned file of
+    units 1 and 3. The stack then ran again with `--skip-append-only`, as §11 allows.
+  - No oracle was changed. No existing test was edited. No overview errata was needed.
