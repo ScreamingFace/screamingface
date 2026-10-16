@@ -305,3 +305,13 @@ security pass. Final fix: original `\b` anchoring with LENGTH-BOUNDED runs (DNS 
 adversarial 16 KiB inputs: ~22 ms. Bypass guard:
 `test_a_leading_separator_never_shields_a_host_or_email`. Guard: `test_sanitizing_a_max_size_adversarial_text_is_fast`. The
 sanitizer is new in this PR, so main was never exposed.
+
+**Parser-differential fix (security pass on `b8fad9d4f`).** Probed forms an HTTP client accepts
+as a host: trailing-dot FQDN (`internal.example./admin`, `api.corp.:8443`), backslash separator
+(`internal.example\admin`), short/hex IPv4 (`10.1/admin`, `0x0a.0.0.1/admin`,
+`0x7f000001:8080`) all leaked; the email bound left a prefix on a > 64-char local part and the
+16-label bound left leading labels. Fixes: optional trailing dot + `[/\\]` separator; a
+short/hex IPv4 rule (only before a port or a `/`-letter path, so `3.5/5`, `1.2` still relay);
+email back to an unbounded local part anchored at a run boundary of its own class (linear, no
+prefix); host labels ≤ 32. Worst of 36 adversarial 16 KiB inputs: ~34 ms. Guard:
+`test_parser_accepted_host_forms_never_survive`.

@@ -206,3 +206,23 @@ def test_sanitizing_a_max_size_adversarial_text_is_fast(unit) -> None:
 def test_a_leading_separator_never_shields_a_host_or_email(text, leak) -> None:
     result = sanitize_upstream_text(text)
     assert result is None or leak not in result
+
+
+@pytest.mark.parametrize(
+    ("text", "leak"),
+    [
+        # WHY: forms a URL parser / HTTP client accepts as a host must not slip past the
+        # redaction rules (a parser differential), nor may a length bound leave a prefix behind.
+        ("jane.doe.patient." + "x" * 60 + "@corp.example", "jane.doe"),
+        (".".join(f"l{i}" for i in range(20)) + ".internal.example/admin", "l0.l1"),
+        ("internal.example./admin", "internal.example"),
+        ("api.corp.:8443 refused", "api.corp"),
+        ("see internal.example\\admin", "internal.example"),
+        ("10.1/admin", "10.1"),
+        ("0x0a.0.0.1/admin", "0x0a"),
+        ("upstream 0x7f000001:8080 refused", "0x7f000001"),
+    ],
+)
+def test_parser_accepted_host_forms_never_survive(text, leak) -> None:
+    result = sanitize_upstream_text(text)
+    assert result is None or leak not in result

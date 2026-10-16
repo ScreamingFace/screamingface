@@ -79,9 +79,10 @@ _VACUOUS = frozenset({"", "provider returned error", "error in response object"}
 _DROPPED_CATEGORIES = frozenset({"Cc", "Cf", "Co", "Cs", "Cn"})
 
 # INVARIANT (ReDoS): every rule that may start inside a long run is LENGTH-BOUNDED (DNS label
-# ≤ 63, ≤ 16 labels, scheme ≤ 32, email local part ≤ 64), so each start position costs bounded
-# work and a 16 KiB run of `1.` / `a.` / `x` stays linear. WHY not a run-boundary lookbehind:
-# it let a leading `.` shield the host (`.internal.example/admin`) — a redaction bypass.
+# ≤ 63, ≤ 32 labels, scheme ≤ 32) or starts at a run boundary of its OWN class (email), so each
+# start costs bounded work and a 16 KiB run of `1.` / `a.` / `x` stays linear. WHY no host
+# lookbehind: one wider than the start class let a leading `.` shield the host
+# (`.internal.example/admin`) — a redaction bypass.
 # INVARIANT: applied in THIS order. URLs go before emails and paths, or `https://a/b` would
 # leave a `[path]` behind its scheme; key shapes go before the long-id rule, so a known key is
 # named `[redacted]` rather than `[id]`.
@@ -91,12 +92,26 @@ _REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     # WHY (#1233 review): a provider-internal host needs no scheme — `internal.example/admin`,
     # `api.corp:8443/v2`. A dotted name with an alphabetic TLD followed by `/` or `:<port>` is
     # treated as a URL; a bare dotted name (`gpt-4.1`, `file.json`) without either is not.
-    (re.compile(r"(?i)\b(?:[a-z0-9-]{1,63}\.){1,16}[a-z]{2,63}(?::\d+)?/\S*"), "[url]"),
-    (re.compile(r"(?i)\b(?:[a-z0-9-]{1,63}\.){1,16}[a-z]{2,63}:\d+\b"), "[url]"),
+    (
+        re.compile(r"(?i)\b(?:[a-z0-9-]{1,63}\.){1,32}[a-z]{2,63}\.?(?::\d+)?[/\\]\S*"),
+        "[url]",
+    ),
+    (re.compile(r"(?i)\b(?:[a-z0-9-]{1,63}\.){1,32}[a-z]{2,63}\.?:\d+\b"), "[url]"),
     # WHY (#1233 second review): IP literals and localhost are internal by definition, with or
     # without a port/path — bracketed (`[fd00::1]:8443`) and bare (`fd00::1`, `10.0.0.1/admin`).
     (re.compile(r"\[[0-9A-Fa-f.]{0,4}:[0-9A-Fa-f:.]{1,45}\](?::\d+)?(?:/\S*)?"), "[url]"),
     (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:/\S*)?"), "[url]"),
+    # WHY (parser differential): HTTP clients also accept short (`10.1`) and hex (`0x0a.0.0.1`,
+    # `0x7f000001`) IPv4 forms. Only redacted before a port or a `/`-letter path, so ratios and
+    # versions (`3.5/5`, `1.2`) still relay.
+    (
+        re.compile(
+            r"(?i)\b(?:0x[0-9a-f]{1,8}|(?:0x[0-9a-f]{1,8}|\d{1,10})"
+            r"(?:\.(?:0x[0-9a-f]{1,8}|\d{1,10})){1,3})"
+            r"(?=:\d|[/\\][a-z])(?::\d+)?(?:[/\\]\S*)?"
+        ),
+        "[url]",
+    ),
     (
         re.compile(
             r"(?i)(?<![\w:.])(?=[0-9a-f:]{0,39}::|(?:[0-9a-f]{1,4}:){7})"
@@ -105,7 +120,9 @@ _REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
         "[url]",
     ),
     (re.compile(r"(?i)\blocalhost(?::\d+)?(?:/\S*)?"), "[url]"),
-    (re.compile(r"[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,16}"), "[email]"),
+    # WHY a run-boundary lookbehind here (not a bound): the lookbehind class IS the local-part
+    # class, so the match starts exactly at the run start — linear, and no prefix is left.
+    (re.compile(r"(?<![\w.+-])[\w.+-]+@[\w-]{1,63}(?:\.[\w-]{1,63}){1,127}"), "[email]"),
     (re.compile(r"(?i)\bbearer\s+\S+"), "[redacted]"),
     (re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+"), "[redacted]"),
     (re.compile(r"\bsk-[\w-]{8,}"), "[redacted]"),
