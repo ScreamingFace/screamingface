@@ -802,3 +802,83 @@ new files.
   - D-8 (review): no separate design review ran in this unit. The unit was checked against
     spec §3, §7 and §8 by reading the diff. The orchestrator runs the design review.
 - **Pinned edits:** none.
+
+## Unit 5: show the gate in the report (`gate-display`)
+
+### Intent
+
+PRD `gate-display`, rows GS#1–12 (ans:Q1 "records the comparison and the branch"; P16; part 4
+ans:Q1–Q3 surfaces and number format). The Case pane Combine section of a gated vote gets one gate
+chip right after the agreement chip: `gate · {observe} {cmp} {threshold} · observed {observed} ·
+{verdict}` (verdict `majority`, `fallback · {otherwise}` or `not run`; a missing number is an em
+dash with its reason). The run summary of a gated step gets one line between its heading and its
+table: `gate · majority {m} of {N} · fallback {f} of {N}` (+ ` · not run {r} of {N}`). Rule J4: a
+gate that took its fallback judge counts as a judge read, so the judge chip and the trace
+`judge_model` name the fallback judge (exactly one judge operation, as before). The export already
+holds `operations[].combine.gate`; no export, trace or schema change. An ungated step keeps its
+bytes.
+
+### Planned changes
+
+- `S/_ui/combine_view.py`: constants `_GATE_NOT_RUN`, `_GATE_NO_NUMBER`; `_gate_chip`,
+  `_gate_verdict`; one `_chips` item after the agreement chip; `_StepSummary` fields `gated`,
+  `majority`, `fallback`, `not_run` and the method `_add_gate`; `_gate_line`; `_summary_html`
+  returns `heading + _gate_line(step) + _table(...)`.
+- `S/_case_views.py`: `_reads_judge` rule J4.
+- New test file `ST/test_gate_display.py` (GS#1–12). It reads
+  `COMBINE_CONTRACT / "evidence_cases.json"` under `requires_engine_app` and builds each Case by
+  hand; it never uses `_answer_fixtures.fixture_case` and never edits
+  `ST/data/combine_evidence_cases.json`.
+
+### Pinned edits
+
+None.
+
+### Test plan
+
+- 12 PRD rows in the PRD §7 order. CHAR: GS#1 (the 32 L32 cases, sha256 of section + summary
+  taken on the `4e622af75` SDK), GS#11 (the export; "no change expected"). RED: GS#2–10, GS#12.
+- No stub: the tests import no new name. Each RED row fails on an assertion.
+- Every chip and line oracle is hand-written from gate-display §3 and the GD-D9 numbers.
+
+### Acceptance
+
+- The five gate cases show their chip (majority, abstain, judge, writer, not run) and the GS-D2
+  dash; the comparison is escaped.
+- The run summary counts majority, fallback and not run; an ungated step has no line.
+- The fallback judge is linked only when it was read, and never with two judge operations.
+- The export holds the gate record; the reduce trace keeps its 11 fields.
+- `screamingface --base <U4>` all green; `screamingface --base 4e622af75` red only on the unit 1–3
+  pinned files; `repo` green.
+
+### Deviations
+
+- D-1 (test design, GS#10): the PRD row names an ungated step only, which passes before the
+  change. The test holds a gated step (`op_synthesis_1`, `vote_gate_majority`) and an ungated step
+  (`op_synthesis_2`, `vote_one_failed`) in one Case, so the row fails before the change (test-plan
+  §2, RED first) and proves the `gated > 0` rule per step.
+- D-2 (test design, GS#8): the escape row reads the page path only: `vote_gate_majority` (`>=`)
+  and a GS-D2 copy with `cmp "<"` (`mean:conf`, a declared name, so any comparison is valid). It
+  does not call `_gate_chip`.
+- D-3 (kind, GS#11): CHAR, not RED. Units 1–2 already export the record (PRD "no change
+  expected").
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** in progress. Commit A written (RED tests and this ledger section). Commit B not
+  started.
+- **Start commit:** `55182850c` (unit 4 tip, `U4`). Part base `4e622af75`.
+- **Actual files:** commit A: `packages/screamingface/tests/test_gate_display.py` (new), this
+  ledger file.
+- **Commits:**
+- **Gates:**
+- **RED log:** commit A, focused run `uv run pytest tests/test_gate_display.py -q -p no:randomly`:
+  `Pytest: 2 passed, 10 failed`. The 2 passed are GS#1 (CHAR, 32 digests) and GS#11 (CHAR, export).
+  The 10 failed rows are GS#2–10 and GS#12, each an `AssertionError` in the test body (for
+  example `assert [] == [<gate chip>]` for GS#2–7; `assert 0 == 1` for GS#8; the heading + line
+  + table substring for GS#9 and GS#10; `assert {...judge_model: None} == {...provider/judge-x}`
+  for GS#12). No ImportError, no collection error, no KeyError.
+- **Flakes:** none seen.
+- **Deviations:**
+  - D-1, D-2, D-3 (planner): see the Deviations section above.
+- **Pinned edits:** none.
