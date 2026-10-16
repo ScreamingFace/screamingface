@@ -222,6 +222,17 @@ class EntropySource(_SpecModel):
     top_logprobs: int = Field(ge=1, le=20)
 
 
+class SumSource(_SpecModel):
+    """``{"source": "sum", "coefficients": {name: number}}`` (E4b part 6, ans:Q1).
+
+    The value is sum(coefficient x value) over the components, per member. The core computes it
+    (``combine/signal_sum.py``), so it has no source plugin.
+    """
+
+    source: Literal["sum"]
+    coefficients: dict[str, float] = Field(min_length=1, max_length=MAX_DECLARED_SIGNALS - 1)
+
+
 # WHY a tagged union: the `source` word picks the one model, so a bad entry fails on its own keys.
 DeclaredSource = Annotated[
     VerbalizedSource | LogprobSource | EntropySource, Field(discriminator="source")
@@ -614,6 +625,7 @@ __all__ = [
     "ReducerRule",
     "SignalWeights",
     "StepSpec",
+    "SumSource",
     "VerbalizedSource",
     "canonical_params",
     "declares_reply_sources",

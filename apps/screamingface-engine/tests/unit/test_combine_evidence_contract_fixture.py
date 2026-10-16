@@ -418,6 +418,22 @@ SCENARIOS["vote_gate_writer"] = _vote_gate_writer  # E4b part 5 unit 2
 SCENARIOS["vote_gate_not_run"] = _vote_gate_not_run  # E4b part 5 unit 2
 
 
+# E4b part 6 unit 1 (SM-2, SM-5): a pick reads a declared sum; member_3 has no sev_b, so no risk.
+_SUM_SIGNALS: dict[str, Any] = {
+    "risk": {"source": "sum", "coefficients": {"sev_a": 0.5, "sev_b": 0.3}},
+    "sev_a": {"source": "verbalized", "pattern": "A: ([0-9]+)"},
+    "sev_b": {"source": "verbalized", "pattern": "B: ([0-9]+)"},
+}
+
+
+def _pick_sum_min() -> CombineEvidence:
+    spec = {**argmax_spec(3, "risk", "min"), "signals": _SUM_SIGNALS}
+    return _evidence(spec, ["A: 4\nB: 10\nThe answer is 9", "A: 2\nB: 5\nSo 9", "A: 6\nI get 12"])
+
+
+SCENARIOS["pick_sum_min"] = _pick_sum_min  # E4b part 6 unit 1
+
+
 def canonical_evidence(evidence: CombineEvidence) -> str:
     """The bytes the Candidate envelope writes for one evidence (same encoder, same options)."""
     return json.dumps(evidence.model_dump(by_alias=True), ensure_ascii=False, separators=(",", ":"))
