@@ -470,7 +470,9 @@ def _has_executable_fusion_policy(candidate: Expression) -> bool:
 
 
 def _has_fusion_policy(value: _RecipeTopology) -> bool:
-    if value.quorum != "all" or value.optional:
+    # WHY samples (E4b part 7): a sample slot is optional and a panel quorum is policy, so a node
+    # with samples is policy even when its markers are hand-removed (the recompile must run).
+    if value.quorum != "all" or value.optional or value.samples:
         return True
     children = (*value.members, *value.stages)
     if value.synthesizer is not None:
