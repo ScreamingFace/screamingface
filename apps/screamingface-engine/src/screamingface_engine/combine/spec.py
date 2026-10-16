@@ -7,7 +7,8 @@ payload, and never an error message that repeats what a member or a judge wrote.
 
 INVARIANT: every key of the spec is always present except the optional ``signals`` (E4b part 3)
 and ``gate`` (E4b part 5); ``null`` is allowed only where the type says so. Unknown keys,
-duplicate JSON keys, NaN/Infinity and nesting beyond 64 levels are rejected.
+duplicate JSON keys, NaN/Infinity and nesting beyond 64 levels are rejected. The ``gate`` object
+has one optional key of its own, ``abstain_band`` (E4b part 6).
 INVARIANT: a failure message names locations and rules, never input values.
 The spec text is the SDK's canonical JSON with ``$`` written as ``\\u0024``; ``json.loads`` gives
 the ``$`` back, so this parser needs no url4 escape handling.
@@ -250,6 +251,10 @@ class GateSpec(_SpecModel):
     cmp: GateCmp
     threshold: float
     otherwise: GateOtherwise
+    # E4b part 6 (ans:Q2): the closed band [lo, hi] in which the Case abstains instead of comparing.
+    # WHY a comment and not a docstring line: the class docstring is the schema ``description``,
+    # and the pinned spec v1 snapshot keeps that text.
+    abstain_band: list[float] | None = Field(default=None, min_length=2, max_length=2)
 
 
 class CombineSpec(_SpecModel):
@@ -360,6 +365,7 @@ def _check_gate(spec: CombineSpec) -> None:
         _check_agreement_gate(gate)
     elif gate.observe.partition(":")[2] not in (spec.signals or {}):
         raise ValueError("gate reads a name the spec does not declare")
+    _check_band(gate)
 
 
 def _check_agreement_gate(gate: GateSpec) -> None:
@@ -367,6 +373,26 @@ def _check_agreement_gate(gate: GateSpec) -> None:
         raise ValueError("an agreement gate compares with >= or >")
     if not 0 <= gate.threshold <= 1:
         raise ValueError("an agreement gate threshold is between 0 and 1")
+
+
+def _check_band(gate: GateSpec) -> None:
+    """The ``abstain_band`` rules (E4b part 6, P7). Each message names a rule, never a value.
+
+    The model already holds two finite floats (strict, ``allow_inf_nan=False``); a list that is not
+    two numbers fails inside ``GateSpec`` with the quiet ``gate`` message.
+    """
+    # WHY the guard here and not in ``_check_gate``: that function is at the branch limit.
+    if "abstain_band" not in gate.model_fields_set:
+        return
+    band = gate.abstain_band
+    # WHY an explicit null is refused although the schema types it: as for ``signals``.
+    if band is None:
+        raise ValueError("gate abstain_band must be a pair when present")
+    low, high = band
+    if low > high:
+        raise ValueError("a gate abstain_band needs lo <= hi")
+    if gate.observe == "agreement" and not 0 <= low <= high <= 1:
+        raise ValueError("an agreement gate abstain_band is between 0 and 1")
 
 
 def _check_members(members: list[str]) -> None:
