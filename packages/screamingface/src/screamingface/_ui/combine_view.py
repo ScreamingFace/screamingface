@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         CombineEvidence,
         CombineGate,
         CombineResult,
+        CombineSampleCount,
         CombineSignal,
     )
     from screamingface.operation import OperationInfo
@@ -35,6 +36,8 @@ _NO_EVIDENCE = "no combine evidence recorded for this step"
 _NO_JUDGE_MODEL = "no model recorded for the judge call"
 _GATE_NOT_RUN = "the vote found no answer, so the gate did not run"
 _GATE_NO_NUMBER = "no number to compare, so the gate took the fallback"
+_EVERY_SAMPLE_FAILED = "every sample failed"  # E4b part 7 (P15, ans:Q4): no sample answered
+_NO_ANSWER_TO_COMPARE = "no answer to compare"  # E4b part 7 (P11): the member has no match value
 
 # WHY one "<style>…</style>" constant: the house precedent (accounting_view.STYLE, joined into
 # report_view._STYLE). WHY text-align on th AND td, and the tbody tr background: JupyterLab's
@@ -180,7 +183,7 @@ def _section(
 
 
 def _chips(evidence: CombineEvidence, link: Mapping[str, str | None]) -> str:
-    """The step facts F1-F10 (erd §4) and the gate (E4b part 5, P16), in order; text is escaped."""
+    """The step facts F1-F10 (erd §4), the gate (part 5, P16), the samples (part 7, P15)."""
     chips = [
         escape(f"reducer · {evidence.reducer}"),
         escape("rule · " + " → ".join(evidence.operators)),
@@ -196,6 +199,7 @@ def _chips(evidence: CombineEvidence, link: Mapping[str, str | None]) -> str:
         f"dropped · {evidence.dropped}",
         "" if evidence.median is None else "median · " + text_html(evidence.median, ""),
         "" if evidence.mean is None else "mean · " + text_html(evidence.mean, ""),
+        _samples_chip(evidence),
     ]
     return "".join(f"<span class='sf-chip'>{chip}</span>" for chip in chips if chip)
 
@@ -211,6 +215,45 @@ def _reads_chip(signal: CombineSignal) -> str:
     """F5: the signal the rule reads, and its order when it has one."""
     order = "" if signal.order is None else f" · {signal.order}"
     return escape(f"reads · {signal.key}{order}")
+
+
+@dataclass(frozen=True, slots=True)
+class _SampleFacts:
+    """The consistency samples of one Case of a step (E4b part 7, P15)."""
+
+    name: str  # the declared consistency name
+    per_member: int  # n: the extra calls of each member
+    failed: int  # the failed extra calls over the members
+    total: int  # n × the members
+
+
+def _sample_facts(evidence: CombineEvidence) -> _SampleFacts | None:
+    """The samples of a step that declares consistency; None for any other step.
+
+    WHY the record sums, not ``declared[name]["n"]``: CS-I3 (checked by ``CombineEvidence``) makes
+    ``succeeded + failed == n`` for every member, and a record holds typed ints, while a declared
+    entry value is an ``object``.
+    """
+    if evidence.consistency is None:
+        return None
+    name, records = next(iter(evidence.consistency.items()))  # CS-I1: exactly one name
+    return _SampleFacts(
+        name=name,
+        per_member=records[0].succeeded + records[0].failed,  # CS-I2: one record per member
+        failed=sum(record.failed for record in records),
+        total=sum(record.succeeded + record.failed for record in records),
+    )
+
+
+def _samples_chip(evidence: CombineEvidence) -> str:
+    """The sample facts of the step (E4b part 7, P15); a step without consistency: no chip."""
+    facts = _sample_facts(evidence)
+    if facts is None:
+        return ""
+    return escape(
+        f"samples · {facts.name} · {facts.per_member} per member"
+        f" · failed {facts.failed} of {facts.total}"
+    )
 
 
 def _judge_chip(link: Mapping[str, str | None]) -> str:
@@ -302,15 +345,40 @@ def _member_row(
     opening = "<tr>" if row.status == "answered" else "<tr class='sf-cmb__out'>"
     status = "answered" if row.status == "answered" else f"{row.status} · {row.reason}"
     numbers = "".join(f"<td>{_number_cell(row, column)}</td>" for column in columns)
-    signals = "".join(
-        f"<td>{number_html(row.signals.get(key), missing_reason(row, key))}</td>" for key in keys
-    )
+    signals = "".join(f"<td>{_signal_cell(row, evidence, key)}</td>" for key in keys)
     chosen = "&check;" if row.member_id in evidence.chosen else ""
     return (
         f"{opening}<td>{escape(row.member_id)}</td><td>{escape(status)}</td>"
         f"<td>{text_html(row.value, missing_reason(row, 'value'))}</td>"
         f"{numbers}{signals}<td>{chosen}</td></tr>"
     )
+
+
+def _signal_cell(row: CombineAnswerRow, evidence: CombineEvidence, key: str) -> str:
+    """C7: one declared value; the consistency name adds the failed samples (E4b part 7, P15)."""
+    value = row.signals.get(key)
+    record = _sample_record(evidence, row.member_id, key)
+    if record is None:
+        return number_html(value, missing_reason(row, key))
+    note = f" <span class='sf-cmb__nn'>{record.failed} failed</span>" if record.failed else ""
+    return number_html(value, _consistency_reason(row, key, record)) + note
+
+
+def _sample_record(
+    evidence: CombineEvidence, member_id: str, key: str
+) -> CombineSampleCount | None:
+    """This member's sample record when ``key`` is the consistency name; else None."""
+    if evidence.consistency is None or key not in evidence.consistency:
+        return None
+    # CS-I2: the record list names every member once
+    return next(record for record in evidence.consistency[key] if record.member_id == member_id)
+
+
+def _consistency_reason(row: CombineAnswerRow, key: str, record: CombineSampleCount) -> str:
+    """Why a consistency value is missing: the member reason first, then the samples (P15)."""
+    if row.status != "answered":
+        return missing_reason(row, key)
+    return _EVERY_SAMPLE_FAILED if record.succeeded == 0 else _NO_ANSWER_TO_COMPARE
 
 
 def _number_cell(row: CombineAnswerRow, column: str) -> str:
@@ -388,15 +456,19 @@ class _StepSummary:
     excluded: dict[str, int] = field(default_factory=dict)
     declared: dict[str, str] = field(default_factory=dict)
     values: dict[tuple[str, str], list[float]] = field(default_factory=dict)
+    sample_name: str | None = None  # E4b part 7 (P15): the consistency name, then its samples
+    samples_failed: int = 0
+    samples_total: int = 0
     majority: int = 0  # E4b part 5: one counter per gate branch
     fallback: int = 0
     band: int = 0  # E4b part 6: the Cases that abstained inside the gate band
     not_run: int = 0
 
     def add(self, evidence: CombineEvidence) -> None:
-        """Count one Case of this step: chosen, excluded, the declared names, values and gate."""
+        """Count one Case: chosen, excluded, the declared names, values, gate and samples."""
         self.cases += 1
         self._add_gate(evidence.gate)
+        self._add_samples(evidence)
         for name, entry in (evidence.declared or {}).items():
             if name not in self.declared:  # WHY: the first Case wins; build its text once
                 self.declared[name] = _source_text(entry)
@@ -420,6 +492,15 @@ class _StepSummary:
         """The Cases with a gate record: each one counts in exactly one branch."""
         return self.majority + self.fallback + self.band + self.not_run
 
+    def _add_samples(self, evidence: CombineEvidence) -> None:
+        """Add the samples of one Case of a step that declares consistency (E4b part 7, P15)."""
+        facts = _sample_facts(evidence)
+        if facts is None:
+            return
+        self.sample_name = facts.name
+        self.samples_failed += facts.failed
+        self.samples_total += facts.total
+
     def _add_gate(self, gate: CombineGate | None) -> None:
         """Count the branch of one gated Case: majority, fallback, band or not run (E4b part 6)."""
         if gate is None:
@@ -435,7 +516,7 @@ class _StepSummary:
 
 
 def _summary_html(operation_id: str, step: _StepSummary, graph: Mapping[str, OperationInfo]) -> str:
-    """One step of the run summary: the heading, the gate line, then one row per member (P13)."""
+    """One step of the run summary: heading, gate line, samples line, member rows (P13, P15)."""
     total = step.cases
     noun = "case" if total == 1 else "cases"
     heading = (
@@ -448,7 +529,7 @@ def _summary_html(operation_id: str, step: _StepSummary, graph: Mapping[str, Ope
         for name, source in step.declared.items()
     )
     rows = "".join(_summary_row(member_id, step) for member_id in step.chosen)
-    return heading + _gate_line(step) + _table(head, rows)
+    return heading + _gate_line(step) + _samples_line(step) + _table(head, rows)
 
 
 def _gate_line(step: _StepSummary) -> str:
@@ -465,6 +546,14 @@ def _gate_line(step: _StepSummary) -> str:
         f"{band}{tail}"
         "</span></div>"
     )
+
+
+def _samples_line(step: _StepSummary) -> str:
+    """The failed samples of a consistency step over its Cases; any other step: no line (P15)."""
+    if step.sample_name is None:
+        return ""
+    text = f"samples · {step.sample_name} · failed {step.samples_failed} of {step.samples_total}"
+    return f"<div class='sf-chips'><span class='sf-chip'>{escape(text)}</span></div>"
 
 
 def _summary_row(member_id: str, step: _StepSummary) -> str:
