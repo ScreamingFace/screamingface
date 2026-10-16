@@ -226,3 +226,6 @@ snapshot is rewritten with `UPDATE_SURFACE_SNAPSHOT=1` (the run fails), then che
 - **E2 (unit 2).** New private names: `_SampleDeclared.match_value`, `_sample_item`,
   `_sample_source`, `_consistency_record`. The `_Recorded` field is `numbers`. Two `RuntimeError`
   guards (`_sample_counts`, `_column`) are plugin-bug checks, never declared codes.
+- Unit 5 (consistency-rebuild), D-1: in consistency-rebuild §3 F3, the vote is
+  `sf.Vote(weights=sf.signal("score:judge"), judge=sf.Judge("prov/judge", returns="scores",
+  rubric="Score each answer from 0 to 10."))`; `sf.Vote` refuses a judge without these weights.
