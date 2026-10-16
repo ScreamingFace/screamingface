@@ -343,3 +343,87 @@ None. New files only, plus the source edits above.
 - **Gates:** Engine stack: the append-only check lists only `screamingface.combine-spec.v1.json` and `screamingface.combine-evidence.v1.json`, both changed by unit 1 commit `b2ae6be62`. The run passed with `--skip-append-only`: ruff check, ruff format, pyright, layering check and pytest (coverage floor 80 percent) all pass. SDK stack: the append-only check lists only `tests/public_surface_snapshot.json`, changed by unit 1 commit `b2ae6be62`. The run passed with `--skip-append-only`: ruff check, ruff format, pyright, pytest (coverage floor 95 percent), notebooks, build and distribution all pass. Repo stack: all green with no flag. Focused runs: the three Engine consistency files give 116 passed; the 16 regression files give 365 passed; the SDK contract files give 66 passed; `check_layering.py` (under `uv run`) passes.
 - **RED log:** commit A. Engine (`test_combine_consistency.py` + `test_combine_consistency_contract.py`): 28 failed, 38 passed (37 CV#1 items and CV#6 `samples-without-a-declaration`). Failures: `SpecInvalid: a declared signal source is not registered` (CV#2 endpoint, CV#3, CV#4, CV#5, CV#6 params 1-2, CV#7 four params with the wrong code or message, CV#8, CV#9, CV#10, CV#11, CV#12); `NotImplementedError` from the stub (CV#2 pure test); `missing contract fixture` (CV#13, three byte params, two fixture tests). SDK (`test_consistency_evidence_contract.py`): 0 passed, 5 failed, all `missing Engine contract fixture`. Ruff check, ruff format and pyright are clean on the new files.
 - **Pinned edits made:** none
+
+## Unit 3: consistency-api-source (`sf.Consistency`, the Fusion rules)
+
+### Intent
+
+PRD `consistency-api` rows CA#2, CA#3, CA#14 (ans:Q3; P2, P4, P5; erd CN-I1..CN-I6). The SDK gets
+the public source `sf.Consistency(n, *, temperature=1.0)`: `n` an int from 1 to 32,
+`temperature` finite and at least 0 (stored as a float), its repr and Python form, `_spec()` (the
+entry without `match`) and `_entry(match)` (the full wire entry). New helper
+`consistency_seed(k, j)` (erd §2). `sf.Fusion` refuses, before any call: two `sf.Consistency`
+sources, a member that is not one `sf.Model`, more than 1024 extra calls, and a member seed equal
+to a sample seed of any member. No compile path reads a `Consistency` yet (unit 4).
+
+### Planned changes
+
+- `S/signal_sources.py`: `Consistency` (`n`, `temperature`, `__repr__`, `_spec`, `_entry`, a
+  `_from_spec` stub), `_MAX_CONSISTENCY_N`, `_sample_temperature`, `consistency_seed`; the module
+  docstring line 1 and INVARIANT; the `SignalSource.source` comment; `__all__`.
+- `S/__init__.py`: export `Consistency`.
+- `S/fusion.py`: the one-`sf.Consistency` rule in `_declaration`; `_MAX_CONSISTENCY_CALLS`,
+  `_check_consistency_source`, `_check_sample_seeds`; one call in `Fusion.__init__`.
+- New test file `ST/test_consistency_api.py` (6 tests, 28 ids).
+
+### Pinned edits
+
+- `packages/screamingface/tests/public_surface_snapshot.json` (regenerated with
+  `UPDATE_SURFACE_SNAPSHOT=1`): `Consistency` in `screamingface.__all__` and `exports` (its
+  `__init__`, the fields `n` and `temperature`, the attribute `source`).
+
+### Test plan
+
+- 3 rows: RED CA#2 (`test_consistency_holds_n_and_the_temperature`,
+  `test_consistency_refuses_bad_values`, `test_consistency_seed_gives_the_erd_seeds`); RED CA#3
+  (`test_fusion_refuses_a_bad_consistency_declaration_before_any_call`, 8 ids, of which
+  `model-synthesizer` is CHAR) with the CHAR control
+  `test_fusion_accepts_a_consistency_declaration_at_the_limits`; PIN CA#14
+  (`test_public_surface_has_sf_consistency` and the regenerated snapshot).
+- Stubs (commit A): `Consistency` with the exact `__init__` signature that stores `n` and
+  `temperature` with no check; `_spec`, `_entry`, `_from_spec` and `consistency_seed` raise
+  `NotImplementedError`; `sf.Consistency` exported. Expected RED: `26 failed, 2 passed` in the new
+  file; `test_public_surface_matches_the_committed_snapshot` fails.
+- Oracles: the PRD texts (CA-E1, CA-E2), the erd §2 seeds, the hand-written snapshot entry.
+
+### Acceptance
+
+- The 28 ids pass. The CHAR ids pass before and after the change.
+- The snapshot diff against `U2` is only the two hunks of the pinned edit.
+- `git diff U2 --stat` on the test folders lists only the new file and the snapshot; on the
+  source folders only `S/signal_sources.py`, `S/fusion.py`, `S/__init__.py`.
+- Gates: `screamingface`, `repo` green, except the append-only check against `633fec3a1`, which
+  lists only the pinned files of units 1 and 3; green with `--skip-append-only`.
+
+### Deviations
+
+- D-U3-1 (`_from_spec` stub): `SignalSource._from_spec` is abstract, so `Consistency` needs one to
+  be constructible. This unit adds a stub that raises `NotImplementedError`; `_SOURCES` does not
+  list `consistency`, so no path calls it. Unit 5 (consistency-rebuild) replaces it (PRD delta 3)
+  and adds `_SOURCES["consistency"]`. Until then the module INVARIANT states the target of unit 5.
+- D-U3-2 (the seed comparison, CN-I5): the PRD says "a member `seed` param equal to
+  `consistency_seed(k, j)`". The built rule compares the url4 text (`str(seed)`), because the url4
+  carries a param as text (`_scalar`, S/_evaluation/policy.py:26-29): an `int` seed and a `str`
+  seed with the same digits are refused; a `float` seed (`2063835758.0`, other text) and a `bool`
+  seed are not.
+- D-U3-3 (helpers): `_MAX_CONSISTENCY_N`, `_sample_temperature`, `_MAX_CONSISTENCY_CALLS`,
+  `_check_sample_seeds` are private helpers that the PRD does not name. They keep the ruff caps.
+- D-U3-4 (more cases): CA#2 adds `n` -1, 3.0, "3", None and `temperature` inf, None, 10**400
+  (an `int` beyond the float range; `OverflowError` is caught), and the check order. CA#3 adds a
+  Pipeline member, a seed given as text (s(3,2), j ≠ 1), and a CHAR control test (the 1024 limit,
+  seeds that are not refused).
+- D-U3-5 (CA#14 test): the introspection test also reads the snapshot JSON, so it is RED until the
+  pinned edit is made.
+- D-U3-6 (line 1): the docstring summary says "(E4b)" instead of "(E4b part 3)", to name
+  `sf.Consistency` in 100 characters.
+
+### Outcome (fill at the end, before commit B)
+
+- **Status:** in_progress (commit A: RED tests and stubs)
+- **Actual files:**
+- **Commits:** A = , B =
+- **U2 (unit 2 tip):**
+- **RED log:**
+- **Gates:**
+- **Flakes:**
+- **Deviations (build):**

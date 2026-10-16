@@ -252,6 +252,33 @@ def _is_wire_term(name: object, value: object) -> bool:
     return isinstance(name, str) and isinstance(value, int | float) and not isinstance(value, bool)
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class Consistency(SignalSource):
+    """How often the member gives the same answer again (E4b part 7). RED stub: no checks yet."""
+
+    source: ClassVar[str] = "consistency"
+    n: int
+    temperature: float
+
+    def __init__(self, n: int, *, temperature: float = 1.0) -> None:
+        object.__setattr__(self, "n", n)
+        object.__setattr__(self, "temperature", temperature)
+
+    def _spec(self) -> dict[str, object]:
+        raise NotImplementedError("sf.Consistency._spec")
+
+    def _entry(self, match: Mapping[str, object]) -> dict[str, object]:
+        raise NotImplementedError("sf.Consistency._entry")
+
+    @classmethod
+    def _from_spec(cls, entry: Mapping[str, object]) -> Consistency:
+        raise NotImplementedError("sf.Consistency._from_spec")
+
+
+def consistency_seed(k: int, j: int) -> int:
+    raise NotImplementedError("consistency_seed")
+
+
 # The member params that a Logprob or Entropy declaration owns (P12, DS-D10, U4-D1).
 INJECTED_PARAMS: frozenset[str] = frozenset({"logprobs", "top_logprobs"})
 
@@ -306,4 +333,4 @@ def python_signals(declared: Mapping[str, SignalSource]) -> str:
     )
 
 
-__all__ = ["Entropy", "Logprob", "SignalSource", "Sum", "Verbalized"]
+__all__ = ["Consistency", "Entropy", "Logprob", "SignalSource", "Sum", "Verbalized"]
