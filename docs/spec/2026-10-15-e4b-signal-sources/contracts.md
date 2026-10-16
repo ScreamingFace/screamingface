@@ -106,6 +106,9 @@ One section per connection. Path prefixes as in [erd](erd.md).
 - **Policies.** Additive; absent when nothing is declared, so the bytes of every existing evidence case
   stay the same. The SDK decoder adds `declared` to `_OPTIONAL_EVIDENCE_KEYS`.
   [existing S/_evaluation/combine_evidence.py:39-80]
+- **Key order.** With E4b part 2 below this part, the top-level keys are in this order: `signal`,
+  `cut`, `declared`, `result`. An evidence that has only one of `cut` and `declared` keeps its bytes.
+  [stated owner 2026-10-15, after the restack on part 2; pinned by `ET/test_combine_declared_exclusion.py`]
 - **Failure behavior.** An SDK without the key refuses such evidence (strict key sets). The SDK and the
   engine ship together. [implied]
 - **Contract tests.** DS#12, DS#15.
