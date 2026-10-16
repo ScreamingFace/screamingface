@@ -426,7 +426,18 @@ def _validate_topology(
             raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
         _require_call_kind(binding.node, calls[name])
     # INVARIANT: default-valued metadata cannot conceal executable policy.
-    if _has_fusion_policy(value) or _has_executable_fusion_policy(candidate):
+    # WHY the signals clause (E4b part 7 unit 5): a declared source adds calls, so it must prove
+    # its bytes. Hand edit: add a consistency entry to the spec of a plain Median url4; without
+    # this clause it rebuilds as an sf.Consistency recipe and replays with no sample calls.
+    if (
+        _has_fusion_policy(value)
+        or _has_executable_fusion_policy(candidate)
+        or any(
+            "signals" in decode_combine_spec(call.raw_intent)
+            for call in calls.values()
+            if call.model == COMBINE_MODEL
+        )
+    ):
         # WHY the pinned catalog (OME-1289 unit 13): a quorum Fusion may end in a reducer.
         _require_recompiles(candidate, _recipe_from_topology(value, calls), calls)
 

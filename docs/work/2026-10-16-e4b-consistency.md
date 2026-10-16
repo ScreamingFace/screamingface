@@ -686,6 +686,17 @@ None. The test file is new.
   (`test_a_consistency_url4_without_its_policy_markers_does_not_rebuild`,
   `test_a_samples_key_without_a_declaration_and_policy_markers_does_not_rebuild`). Both expect
   the metadata C5 text in `to_python` and in the replay. The PRD is not edited in this unit.
+- D-U5-5 (review fix, RED 5a9b60242 and the fix commit after it): the recompile trigger in
+  `_validate_topology` (`S/url4.py`) now also covers any combine spec that declares `signals`.
+  Before, the trigger read only `_has_fusion_policy` and `_has_executable_fusion_policy`. Hand
+  edit: add a consistency entry to the spec `signals` of a plain Median url4 (no sample calls).
+  Both predicates were False, so no recompile ran. `to_python` printed
+  `signals={'cons': sf.Consistency(...)}` (a recipe that compiles to a different url4, with
+  sample calls), and the replay ran with no samples. Unit 5 opened this path: before it,
+  `signal_sources._SOURCES` had no `consistency`. WHY: a declared source adds calls, so it must
+  prove its bytes. One test was added
+  (`test_a_consistency_source_added_to_a_plain_url4_does_not_rebuild`). It expects the metadata
+  C5 text in `to_python` and in the replay.
 - (build) Any C5 text corrected at the first GREEN run: none. All 33 items passed at the first
   GREEN run, and no expected text changed.
 
