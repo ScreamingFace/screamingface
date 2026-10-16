@@ -1,7 +1,8 @@
 # E2E notebook workbench: reviewable notebooks, any target, evidence by trace id
 
-Status: draft for owner review, 2026-10-16.
-Refs: unfiled (ledger `docs/work/2026-10-16-e2e-notebook-workbench.md`).
+Status: in implementation. Epic OME-1636 is in Triage with scope review requested; unit 1 is
+OME-1637 (PR #1438); unit 2 is not yet filed.
+Refs: OME-1636 (ledger `docs/work/2026-10-16-e2e-notebook-workbench.md`).
 Plans: `docs/plan/2026-10-16-e2e-workbench-u1-client-pairing-and-token.md`,
 `docs/plan/2026-10-16-e2e-workbench-u2-core.md`.
 Explainer: https://claude.ai/artifact/XzJH59USTJ8GwFSHhNv1eP (private).

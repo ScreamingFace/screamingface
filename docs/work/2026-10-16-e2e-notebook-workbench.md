@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1636   # umbrella epic (Triage, scope review requested)
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-10-16
-finished:
+finished: 2026-10-16
 ---
 
 # e2e-notebook-workbench — spec for a notebook-driven, target-switchable e2e workbench
@@ -40,4 +40,6 @@ views the bundles. This unit is spec only, with no code.
 - **Actual files:** spec + ledger + plans for units 1 and 2
 - **Commits:** docs(spec): e2e notebook workbench
 - **Gates:** docs-only; every repo anchor in the spec checked to exist
+- **Tracking:** epic OME-1636 (Triage, scope review requested). Unit 1 = OME-1637, PR #1438,
+  which carries this spec. Unit 2 is not yet filed.
 - **Deviations:** the workbench moves to `packages/screamingface/tests/e2e/workbench/` so it reuses the replay harness (spec §3 updated). Hosted defaults are now prod hosts (spec §1 updated). Owner decisions 2026-10-16: pairing raises; score bands are hand-set.
