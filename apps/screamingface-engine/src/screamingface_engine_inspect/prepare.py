@@ -1533,6 +1533,26 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         #  (its malformed header hides it from the Hub).
         license="apache-2.0",
     ),
+    # air_bench — imported by Task replay on 2026-10-16 from
+    #   screamingface_engine_inspect.local_tasks.air_bench.air_bench:air_bench.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face stanford-crfm/air-bench-2024/judge_prompts
+    #     pin revision 976d9fbb0f52bce704dcbef5bd7a2652e65f2a21
+    #   hugging-face stanford-crfm/air-bench-2024
+    #     pin revision 976d9fbb0f52bce704dcbef5bd7a2652e65f2a21
+    "air_bench": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.air_bench.air_bench:air_bench",
+        case_count=5694,
+        case_digest="f8623ed77621ff625d572860cde1656c3fcf233233d29049760ee42890a90f66",
+        case_set_digest="a9f9793ab533f624bfc8da5fa3e08cd47cc186aef4a5202d9cfee3e009dc44d6",
+        keep_sample_metadata=True,
+        has_answer_key=False,
+        source_pins={
+            "stanford-crfm/air-bench-2024": "976d9fbb0f52bce704dcbef5bd7a2652e65f2a21",
+        },
+        # License: cc-by-4.0, the stanford-crfm/air-bench-2024 card.
+        license="cc-by-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

@@ -154,6 +154,7 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "strong_reject": "judged",
     "uccb": "judged",
     "infinite_bench_math_find": "free_text",
+    "air_bench": "judged",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))

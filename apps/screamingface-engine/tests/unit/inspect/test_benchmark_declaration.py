@@ -251,6 +251,7 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-strong_reject": ("coverage_declare", "single_shot", "easy"),
         "inspect-uccb": ("coverage_declare", "single_shot", "medium"),
         "infinite_bench_math_find": ("coverage_declare", "single_shot", "medium"),
+        "air_bench": ("coverage_declare", "single_shot", "medium"),
         # OME-1513: a local Task keeps its bare key as its id — nothing came from inspect_evals.
         "musique": ("coverage_declare", "single_shot", "hard"),
         # OME-1476: the second local Task, and the first published Benchmark with Attempts.
