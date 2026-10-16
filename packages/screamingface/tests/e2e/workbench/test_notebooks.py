@@ -52,10 +52,7 @@ def test_notebook(
         last = (_ANSI.sub("", run.error).strip().splitlines() or ["?"])[-1]
         reasons.append(f"notebook failed: {last}")
     reasons += result_reasons
-    if trace_ids and (missing := chain.missing(live_target.required_hops)):
-        reasons.append(f"trace {trace_ids} not found in: {', '.join(missing)}")
-    if chain.unattributed:
-        reasons.append(f"{len(chain.unattributed)} aigateway lines lack gateway_call_id")
+    reasons += chain.reasons(live_target.required_hops)
 
     bundle = write_bundle(
         workbench_out,
