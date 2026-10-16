@@ -128,9 +128,7 @@ One section per connection. Path prefixes as in [erd](erd.md).
 - **Polarity (P4).** The stored `cmp` keeps the majority when true. E4c's API and report show this
   stored form: an author's `agreement < 0.8` (escalate when) is stored and shown as
   `agreement >= 0.8` (keep when), and the branch says which way the step went. E4c needs no wire
-  change to read it. If the owner picks the other polarity at review (store the escalate
-  condition: `cmp` true → fallback, and `agreement` takes only `<` or `<=`), that change is made in
-  this part, before any wire ships.
+  change to read it. **Owner approved 2026-10-16: the keep-majority form.** [stated owner 2026-10-16]
 - **Policies.** FB-I1: the majority branch never reads the fallback reply. GR-I1: when the vote finds
   no answer, the gate does not run and no fallback output is used. So E4c can skip the call on the
   majority branch and on the "not run" branch and produce the same evidence bytes. [proposed] P8

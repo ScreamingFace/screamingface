@@ -99,7 +99,7 @@ Run one stack at a time, from the worktree root. Never run two gate stacks at th
    - P1, P2: the gate lives on `sf.Vote` only, and the public name is `sf.Gate` (the corrective-loop
      route `/gate` is a different, internal concept).
    - P4: `>=` keeps the majority at equality; an agreement gate takes only `>=` or `>`.
-   - P4 polarity (for E4c, OME-1291): the stored `cmp` is the condition that KEEPS the majority.
+   - P4 polarity (for E4c, OME-1291) — **owner approved 2026-10-16: keep-majority form.** The stored `cmp` is the condition that KEEPS the majority.
      E4c's `agreement < 0.8` is stored as `{agreement, >=, 0.8}`, and E4c's API and report show
      this form. The other choice: store the escalate condition (`cmp` true → fallback; `agreement`
      takes only `<` or `<=`). Pick one before the wire ships; C8 records it.
