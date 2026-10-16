@@ -317,3 +317,114 @@ The review gave 10 MINOR findings. No finding is about behavior, so no RED test 
     pinned). With `--skip-append-only`: ALL GATES GREEN.
   - `repo`, no flag: ALL GATES GREEN.
 - **Flakes:** none seen.
+
+## Unit 2: gate decision (`gate-decision`)
+
+### Intent
+
+PRD `gate-decision` rows GD#1–21 and PRD `gate-record` rows GR#2, GR#12, GR#14, GR#15, GR#16
+(ans:Q1–Q3, P4, P8, P10–P14, P18–P21). The vote gate chooses and records: after the select step,
+the Engine core computes the gate number (agreement, `chosen:<name>`, `mean:<name>`), compares it
+with the threshold, and takes the majority or the fallback (abstain with `gate_not_met`, the
+`fallback_judge` label member, or the `fallback_writer` text). The evidence `gate` record holds the
+number, the comparison and the branch. The majority branch never reads a fallback reply (FB-I1). A
+vote with no answer does not run the gate (GR-I1). The word `gate_not_met` joins the abstain words
+on both sides, with GR-I3. The contract fixture gets five gate cases (32 → 37).
+
+### Planned changes
+
+- `E/combine/ports.py`: `gate_not_met` in `AbstainReason`, `AnswerReason` (last), `ABSTAIN_REASONS`;
+  `parse_label` and `_LABEL_INVALID` moved here from the judge plugin; `judge_reply(..., *, key="judge")`.
+- `E/combine/operators/judge.py`: imports `parse_label` from ports, keeps it in `__all__`; docstring.
+- `E/combine/spec.py`: `_SIGNAL` accepts `fallback_judge`, `fallback_writer` (one literal).
+- New `E/combine/gate.py` (pure): `observed_number`, `passes`, `fallback_label`, `fallback_text`,
+  `check_fallback_signals`, `FALLBACK_JUDGE`, `FALLBACK_WRITER`.
+- `E/combine/endpoint.py`: `check_fallback_signals` after `parse_context`; `_decide` → new `_choose`
+  → new `_gated` → new `_fallback`; new `_kept`, `_not_run`, `_presentation_order`; `_abstain` and
+  `_evidence` get keyword `selection` / `gate`; the chosen / built / presentation-order rules;
+  module INVARIANT and `_decide` docstrings.
+- `E/combine/evidence.py`: GR-I3 (`_gate_reason_holds`), first among the gate rules.
+- `S/answer.py`: `gate_not_met` in `AbstainReason` and `AnswerReason`.
+- `S/combine_evidence.py`: GR-I3 (`_gate_reason`) in `CombineEvidence.__init__`.
+- Tests: new `ET/test_combine_gate.py`; appends to `ET/test_combine_gate_words.py`,
+  `ST/test_gate_words.py`, `ET/test_combine_evidence_contract_fixture.py`,
+  `ST/test_combine_evidence_contract.py`.
+
+### Pinned edits
+
+`ET/test_combine_pick_output.py` (:341-343, :352), `ET/test_combine_evidence_words.py` (:320 +1),
+`ST/test_pick_output.py` (:250, :254 +1), `ST/test_evidence_words.py` (:373, :460, :466 +1),
+`ST/test_frozen_record_fields.py` (:184 32 → 37), and the regenerated
+`ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`,
+`ST/data/schemas/screamingface.answer.v1.json`, `ET/data/combine_contract/evidence_cases.json`.
+Append-only, not flagged: `ET/test_combine_evidence_contract_fixture.py`,
+`ST/test_combine_evidence_contract.py`.
+
+### Test plan
+
+- 26 rows (GD 21, GR 5). CHAR: GD#1. PIN: GD#19, GR#15. RED: the others. Commit A changes no
+  source file: unit 1's endpoint ignores the gate, the base `_SIGNAL` refuses `fallback_*`, and the
+  word is absent, so each row fails on its behavior, not on an import.
+- Expected RED: `ET/test_combine_gate.py` 25 items, 1 passed (GD#1), 24 failed.
+
+### Acceptance
+
+- Fixture V `{agreement,>=,0.6,abstain}`: output `"A"`, gate passed / majority, the rest of the
+  evidence equals the ungated bytes.
+- Fixture V `{agreement,>=,0.7,abstain}`: output `""`, evidence equals `GATE_ABSTAIN_WIRE`
+  (`gate_not_met`, `chosen []`, tally / agreement / tie kept).
+- Judge fallback `" member_3\n"`: output `"B"`, judge reading recorded, presentation order author.
+- Writer fallback `"C written"`: output `"C written"`, value `"c written"`, built.
+- The majority branch gives the same bytes with no reply, a good reply and a bad reply.
+- `evidence_cases.json` has 37 cases; the 32 old cases keep their bytes.
+- Gates: `screamingface-engine`, `screamingface`, `repo` green (append-only offenders = §8 files only).
+
+### Deviations
+
+- `_gated` takes the narrowed `gate: GateSpec` as its first parameter (the PRD signature has no
+  `gate`), and a new `_choose` holds today's answer path, so `_decide` keeps 3 returns (ruff
+  `max-returns = 3`). New `_fallback` for the same reason.
+- The trace `agreement` and `tie` fields are set in `_gated` before the branch, so a gate abstain
+  logs them (GD-D8).
+- The SDK GR-I3 check is in `CombineEvidence.__init__` (the class has a hand-written `__init__`;
+  the PRD says `__post_init__`). GR-I3 runs first among the gate rules on both sides, so one message
+  names it.
+- GR#16 is two test functions, one per side, counted as one row. GR#2 is on the Engine side; the
+  SDK side of the word is GR#12.
+- `ST/test_evidence_words.py`: the 12 → 13 count is on line 373 (plan: 372).
+- The GD#19 test function is in `ET/test_combine_gate.py`.
+- RED build: the spec §5 text says "25 items, 24 failed" for `ET/test_combine_gate.py`. The file
+  has 26 items (the table has 21 rows; GD#11, GD#12 and GD#13 are parametrized into 8 items).
+  The run gave 1 passed (GD#1) and 25 failed. Every failure has the reason of the §5 table.
+- RED build: `WEIGHTED` in `ET/test_combine_gate.py` is annotated `dict[str, Any]`. Pyright reads
+  `**WEIGHTED` as an argument for `member_count` and fails without it. A typing change only; no
+  value changed.
+- RED build: four section header comments are cut to 100 columns (ruff E501). No test changed.
+- RED build: the SDK GR#16 positive control fails with `ExecutionError` (the decoder reads the
+  unknown word), not with `ValueError`. The row still fails for the right reason.
+- RED build: pyright reports 2 errors in `ET/test_combine_gate_words.py` (GR#2, lines 766-767)
+  and 2 errors in `ST/test_gate_words.py` (GR#12, lines 541 and 544). Each is the unknown word
+  `gate_not_met` in a `Literal` type. The word enters with commit B, so these clear in B.
+- (Add any change made during the build here.)
+
+### Notes for the review
+
+- FB-I1: grep shows `fallback_judge` / `fallback_writer` read only in `combine/gate.py`.
+- C9: `combine/gate.py` imports only the standard library, `combine.ports`, `combine.spec`.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** IN_PROGRESS. Commit A (RED tests) is written. The Outcome is filled in commit B.
+- **Actual files:**
+- **Commits:**
+- **Gates:**
+- **RED log:** commit A. ET `test_combine_gate.py`: 26 items, 1 passed (GD#1), 25 failed.
+  ET `test_combine_gate_words.py`: 2 new failed (GR#2, GR#16 positive control); the 19 unit 1
+  tests pass. ET fixture: 5 byte tests (`KeyError`), `holds_exactly`, `cover_the_evidence_shapes`
+  fail; `test_the_envelope_writes...` passes. ET pinned: `test_answer_and_evidence_v1_list_output_missing`
+  and `test_answer_v1_and_evidence_v1_snapshots_match` fail. ET total: 152 passed, 36 failed,
+  0 errors at collection. ST `test_gate_words.py`: 4 new failed (GR#12, GR#14, GR#15, GR#16).
+  ST `test_combine_evidence_contract.py`: `holds_the_25_scenarios` and 5 new params fail. ST
+  pinned: `test_pick_output` 1, `test_evidence_words` 2, `test_frozen_record_fields` 1. ST total:
+  127 passed, 14 failed, 0 errors at collection. Every failure is the behavior, not an import.
+- **Pinned edits made:**

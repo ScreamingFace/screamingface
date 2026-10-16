@@ -247,11 +247,12 @@ def test_answer_v1_lists_output_missing() -> None:
 
     snapshot = Path(__file__).parent / "data" / "schemas" / "screamingface.answer.v1.json"
     data = json.loads(snapshot.read_text(encoding="utf-8"))
-    assert data["abstain_reason"] == ["cut_not_met", "no_votes", "output_missing"]
+    assert data["abstain_reason"] == ["cut_not_met", "gate_not_met", "no_votes", "output_missing"]
     assert data["reason"] == [
         "cut_not_met",
         "empty",
         "field_missing",
+        "gate_not_met",
         "missing",
         "no_match",
         "no_signal",

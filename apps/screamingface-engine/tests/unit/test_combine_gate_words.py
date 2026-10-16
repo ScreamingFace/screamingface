@@ -19,7 +19,7 @@ import copy
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from combine_signal_support import rank_signal_spec
@@ -30,8 +30,15 @@ from screamingface_engine.combine.evidence import (
     COMBINE_EVIDENCE_SCHEMA,
     CombineEvidence,
     GateRecord,
+    ResultRecord,
 )
-from screamingface_engine.combine.ports import SpecInvalid
+from screamingface_engine.combine.ports import (
+    ABSTAIN_REASONS,
+    AbstainReason,
+    AnswerReason,
+    NoVotes,
+    SpecInvalid,
+)
 from screamingface_engine.combine.spec import COMBINE_SPEC_SCHEMA, GateSpec, parse_spec
 
 _DATA = Path(__file__).parent / "data" / "combine_contract"
@@ -678,3 +685,115 @@ def test_engine_evidence_refuses_a_non_null_verifier_and_never_writes_it() -> No
     for name, wire in cases.items():
         assert "verifier" not in wire, name
         assert "verifier" not in _dump(wire), name
+
+
+# E4b part 5 unit 2: the whole evidence of a gate abstain on fixture V (GD-2, the GR-I3 base wire).
+GATE_ABSTAIN_WIRE: dict[str, Any] = {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": ["last_line@1", "text@1", "mode@1", "first_holder@1"],
+    "members": [
+        {
+            "member_id": "member_1",
+            "raw": "A",
+            "value": "a",
+            "status": "answered",
+            "reason": None,
+            "signals": {},
+            "weight": None,
+            "score": None,
+        },
+        {
+            "member_id": "member_2",
+            "raw": "A",
+            "value": "a",
+            "status": "answered",
+            "reason": None,
+            "signals": {},
+            "weight": None,
+            "score": None,
+        },
+        {
+            "member_id": "member_3",
+            "raw": "B",
+            "value": "b",
+            "status": "answered",
+            "reason": None,
+            "signals": {},
+            "weight": None,
+            "score": None,
+        },
+    ],
+    "tally": [
+        {"value": "a", "score": 2.0, "holders": ["member_1", "member_2"]},
+        {"value": "b", "score": 1.0, "holders": ["member_3"]},
+    ],
+    "judge": None,
+    "fields": None,
+    "chosen": [],
+    "built": False,
+    "agreement": 0.6666666666666666,
+    "tie": False,
+    "median": None,
+    "presentation_order": None,
+    "separator_collision": None,
+    "signal": None,
+    "gate": {
+        "observe": "agreement",
+        "observed": 0.6666666666666666,
+        "cmp": ">=",
+        "threshold": 0.7,
+        "passed": False,
+        "branch": "fallback",
+        "otherwise": "abstain",
+    },
+    "result": {"member_id": None, "value": None, "status": "abstain", "reason": "gate_not_met"},
+    "dropped": 0,
+    "finish_reason": "stop",
+}
+
+
+# --- GR#2 (unit 2): the abstain word gate_not_met -------------------------------------------------
+
+
+def test_gate_not_met_is_an_abstain_word_on_both_sides() -> None:
+    words = ("no_votes", "cut_not_met", "output_missing", "gate_not_met")
+
+    assert get_args(AbstainReason) == words
+    assert ABSTAIN_REASONS == words
+    assert get_args(AnswerReason)[-1] == "gate_not_met"
+    assert NoVotes(reason="gate_not_met").reason == "gate_not_met"
+    result = ResultRecord(member_id=None, value=None, status="abstain", reason="gate_not_met")
+    assert result.reason == "gate_not_met"
+
+
+# --- GR#16 (unit 2): GR-I3 on the Engine model ----------------------------------------------------
+
+
+def _broken(change: str) -> dict[str, Any]:
+    wire = copy.deepcopy(GATE_ABSTAIN_WIRE)
+    if change == "no_gate":
+        del wire["gate"]
+    elif change == "majority":
+        wire["gate"].update(passed=True, branch="majority")
+    elif change == "judge":
+        wire["gate"]["otherwise"] = "judge"
+    else:  # "answered": the gate took the abstain fallback, the result answered
+        wire["result"] = {
+            "member_id": "member_1",
+            "value": "a",
+            "status": "answered",
+            "reason": None,
+        }
+        wire["chosen"] = ["member_1"]
+    return wire
+
+
+def test_gate_not_met_needs_a_fallback_abstain_gate() -> None:
+    assert CombineEvidence.model_validate(copy.deepcopy(GATE_ABSTAIN_WIRE)).result.reason == (
+        "gate_not_met"
+    )
+    for change in ("no_gate", "majority", "judge", "answered"):
+        with pytest.raises(ValidationError, match="gate_not_met goes with"):
+            CombineEvidence.model_validate(_broken(change))
