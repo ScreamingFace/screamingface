@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Literal, cast
 
+from screamingface._evaluation.policy import DEFAULT_SYNTHESIS_PROMPT
 from screamingface._signals import is_signal_key, is_signal_name
 from screamingface.judge import Judge
 from screamingface.model import Model
-from screamingface.reducer import _ModelSignal
+from screamingface.reducer import _FALLBACK_JUDGE_KEY, _FALLBACK_WRITER_KEY, _ModelSignal
 
 type GateCmp = Literal[">=", ">", "<=", "<"]
 
@@ -77,15 +78,22 @@ class Gate:
         }
 
     def _signal_call(self) -> _ModelSignal | None:
-        """The fallback model call the vote's combine step reads; None for abstain.
+        """None for abstain; else the one model call whose reply the vote reads (P5, C2)."""
 
-        SEAM (plan §2): E4b part 5 unit 4 builds the judge and writer calls here.
-        """
-        if isinstance(self.otherwise, str):
-            return None
-        raise NotImplementedError(
-            "a judge or model gate fallback compiles from E4b part 5 unit 4 on"
-        )
+        otherwise = self.otherwise
+        if isinstance(otherwise, Judge):
+            # WHY replace: Judge._signal_call builds the label template and the rubric; this
+            # never builds the judge prompt a second time (C7).
+            return replace(otherwise._signal_call(), key=_FALLBACK_JUDGE_KEY)
+        if isinstance(otherwise, Model):
+            # The model synthesizer's default prompt (S/_evaluation/candidate.py).
+            return _ModelSignal(
+                _FALLBACK_WRITER_KEY,
+                otherwise.model,
+                otherwise.prompt or DEFAULT_SYNTHESIS_PROMPT,
+                otherwise.params,
+            )
+        return None
 
     def _declared_name(self) -> str | None:
         """<name> of chosen:<name> / mean:<name>; None for agreement."""

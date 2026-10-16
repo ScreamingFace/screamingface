@@ -50,7 +50,7 @@ from screamingface._operation_bindings import (
     OPERATION_BINDING_PARAM,
 )
 from screamingface.blocks import Reduce
-from screamingface.reducer import Reducer, _ModelSignal
+from screamingface.reducer import _FALLBACK_JUDGE_KEY, Reducer, _ModelSignal
 from screamingface.signal_sources import (
     SignalSource,
     declared_from_spec,
@@ -535,16 +535,26 @@ def _reducer_from_topology(node: _RecipeTopology, calls: dict[str, _Call]) -> Re
     return _rebuilt_reducer(spec, tuple(_model_signal(signal, calls) for signal in node.signals))
 
 
-def _rebuilt_reducer(spec: dict[str, object], signals: tuple[_ModelSignal, ...]) -> Reducer:
+def _rebuilt_reducer(  # noqa: PLR0911
+    spec: dict[str, object], signals: tuple[_ModelSignal, ...]
+) -> Reducer:
     """The named reducer when its own _rebuild accepts the spec exactly (BK-D2), else sf.Reduce.
 
     WHY suppress: a named class refusing a spec (step args, weights it cannot hold) means only
     "not this named form"; sf.Reduce then rebuilds it. When both refuse, the named class's error
     is the one raised, because it says what the spec was meant to be.
+
+    A spec with ``gate`` rebuilds only through sf.Vote (P17): sf.Reduce has no gate and would drop
+    it, so there is no sf.Reduce fallback, and a gate on another reducer is that reducer's
+    "cannot rebuild" error.
     """
 
     # WHY through the module: the registry may be replaced as a whole (tests do).
     named = reducer_module._REDUCER_CLASSES.get(str(spec["reducer"]))
+    if "gate" in spec:
+        if named is None or spec["reducer"] != "vote":
+            raise reducer_module._cannot_rebuild(str(spec["reducer"]))
+        return named._rebuild(spec, signals)
     if named is None:
         return Reduce._rebuild(spec, signals)
     try:
@@ -565,7 +575,7 @@ def _model_signal(signal: _SignalTopology, calls: dict[str, _Call]) -> _ModelSig
     )
     field = _projected_field(signal, calls, call)
     prompt = call.prompt
-    if signal.key == _JUDGE_CALL:
+    if signal.key in (_JUDGE_CALL, _FALLBACK_JUDGE_KEY):
         # Lazy: screamingface.judge imports the reducer registry that this module also feeds.
         from screamingface.judge import outputs_form_prompt
 
