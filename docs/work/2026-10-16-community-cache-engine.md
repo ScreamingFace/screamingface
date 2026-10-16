@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1635
 stack: screamingface-engine
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-16
@@ -17,7 +17,7 @@ trace context and the query parameters to the gateway's route of the same path (
 OME-1631), and streams the gateway's NDJSON page back as it arrives, still compressed, without
 decoding or buffering it (a page can be ~235 MB of rows). Spec and plan:
 `docs/spec/2026-10-15-community-cache.md` and `docs/plan/2026-10-15-community-cache.md`
-(merged with #1433; decision 6 and "PR 2" are this unit).
+(in #1433 / OME-1631, which this PR is stacked on; decision 6 and "PR 2" are this unit).
 
 ## Planned changes
 
