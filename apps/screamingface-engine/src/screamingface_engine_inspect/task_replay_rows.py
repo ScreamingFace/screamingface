@@ -435,6 +435,7 @@ def _benchmark_row_lines(
             mean_instead_of=facts.mean_instead_of,
             whole_run_headline=whole_run_headline,
             judge_role=facts.judge_role,
+            scorer_function_kwargs=facts.scorer_function_kwargs,
         )
     )
     if facts.multiple_correct:
