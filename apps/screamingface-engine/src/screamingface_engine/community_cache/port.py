@@ -58,6 +58,8 @@ class CommunityCacheError(Exception):
     status = 502
     title = "Bad Gateway"
     detail = "AI Gateway returned an unusable community-cache response"
+    # Whole seconds the caller should wait before retrying, when the gateway said so.
+    retry_after: int | None = None
 
 
 class CommunityCacheBadResponse(CommunityCacheError):
@@ -74,6 +76,16 @@ class CommunityCacheInvalidRequest(CommunityCacheError):
     status = 422
     title = "Unprocessable Content"
     detail = "the community-cache page request is invalid"
+
+
+class CommunityCacheRateLimited(CommunityCacheError):
+    status = 429
+    title = "Too Many Requests"
+    detail = "community-cache reads are temporarily rate limited"
+
+    def __init__(self, retry_after: int | None = None) -> None:
+        super().__init__()
+        self.retry_after = retry_after
 
 
 class CommunityCacheUnavailable(CommunityCacheError):
@@ -95,6 +107,7 @@ __all__ = [
     "CommunityCacheBadResponse",
     "CommunityCacheError",
     "CommunityCacheInvalidRequest",
+    "CommunityCacheRateLimited",
     "CommunityCacheRejected",
     "CommunityCacheTimeout",
     "CommunityCacheUnavailable",
