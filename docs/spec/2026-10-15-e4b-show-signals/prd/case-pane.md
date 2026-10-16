@@ -196,7 +196,8 @@ All oracles use the SDK fixture `ST/data/combine_evidence_cases.json` (through
   `1.0`, and `declared` `{"<b>k</b>": {"source": "<x>"}}`, then the header cell is
   `<th scope='col' title='source: &lt;x&gt;'>&lt;b&gt;k&lt;/b&gt;</th>`, and the pane does not hold
   `<b>k` or `source: <x>`. (The SDK decoder accepts both: it checks only that a signal key is a
-  `str`, and it does not check a declared source.) [proposed] P8
+  `str`, and it does not check a declared source.) [proposed] P8 **Erratum E1:** the decoder
+  refuses a declared NAME that is not a signal name; the test splits the oracle (overview §9).
 - **CP-E4** (ans:Q2) [proposed] P19 Given the graph `fixture_graph(3)` and a Case whose operations
   are `op_model_1..3` (`CaseOperation(f"op_model_{k}", f"text {k}", "stop", None)`) and
   `CaseOperation("op_synthesis_1", "42", "stop", None)` (no `combine`), then the pane holds exactly
@@ -221,7 +222,8 @@ All oracles use the SDK fixture `ST/data/combine_evidence_cases.json` (through
   `<th scope='col'>score</th>` or `<th scope='col'>rank</th>`; given the CP-4 wire plus a second
   declared name `ent` (`{"source": "entropy", "top_logprobs": 5}`) with member_3 `ent: null`, then
   `<th scope='col' title='source: entropy'>ent</th>`
-  is shown and member_3's cell has the title `no ent recorded`.
+  is shown and member_3's cell has the title `no ent recorded`. **Erratum E2:** the tally table has
+  its own `score` header, so the pane has exactly one `score` header (overview §9).
 - **CP-D5** (L×M) [proposed] P16 Given `median_value` (built, `median` `"20"`), then the chips have
   `answered · built` and `median · 20`; given `median_nearest`, the agreement chip shows
   `<span class='sf-cmb__n' title='0.3333333333333333'>0.3333</span>`.
@@ -229,7 +231,7 @@ All oracles use the SDK fixture `ST/data/combine_evidence_cases.json` (through
   `fixture_graph(256)` and a Case whose only operation is
   `CaseOperation("op_synthesis_1", "x" * 50, "stop", None, combine=<the decoded wire>)`, then
   `bounded_pane` returns the short preview (no `sf-cmb`), because `case.to_dict()` passes 32,000
-  characters (it is about 51,000). `_pane_html` shows the section with 256 member rows. This row
+  characters (it is about 65,000; erratum E3). `_pane_html` shows the section with 256 member rows. This row
   does not test the 24,000-byte pane bound of N3. [existing S/_ui/report_view.py:798-807]
 - **CP-D7** (L×L) [proposed] P9 The pane adds no `<style` tag.
 

@@ -1,6 +1,6 @@
 # E4b part 4: show signals — overview
 
-**Status:** draft, spec review fixes applied (2026-10-15), waiting for the owner approval. **Epic:** E4b (OME-1290). **Leaf:** filed at
+**Status:** built (2026-10-15); the owner approved P1, P15 and the three unit 1 pinned edits on 2026-10-15. **Epic:** E4b (OME-1290). **Leaf:** filed at
 PR-open.
 **Base:** branch `e4b-signal-sources` (E4b part 3, restacked on part 2 `e4b-evidence-completeness`)
 at `9f42391eb`. Part 4 reads the values that parts 2 and 3 write.
@@ -97,7 +97,7 @@ Option texts the owner saw (they set the scope):
 
 | # | Decision | Where |
 |---|---|---|
-| P1 | The export key is `trace`. It holds the whole Case trace (`model_call`, `extract` and `reduce` entries of `screamingface.report-trace.v1`), not only the combine entries, because the `model_call` entries name which operation is which member, and report.v1 does not have that link today. The key is on a Case only when at least one of its `operations` has combine evidence. It is the last key of the Case object. The schema id stays `screamingface.report.v1` (additive edit). This is a new decision for report.v1, by analogy with part 1 ans:Q5. That answer was about `combine-spec.v1` (part 1 D5), not about report.v1, so the owner approves it here (plan §6 action 1). | [export-trace](prd/export-trace.md) §2 |
+| P1 | The export key is `trace`. It holds the whole Case trace (`model_call`, `extract` and `reduce` entries of `screamingface.report-trace.v1`), not only the combine entries, because the `model_call` entries name which operation is which member, and report.v1 does not have that link today. The key is on a Case only when at least one of its `operations` has combine evidence. It is the last key of the Case object. The schema id stays `screamingface.report.v1` (additive edit). This is a new decision for report.v1, by analogy with part 1 ans:Q5. That answer was about `combine-spec.v1` (part 1 D5), not about report.v1, so the owner approves it here (plan §6 action 1). **Owner approved 2026-10-15: same id, additive.** | [export-trace](prd/export-trace.md) §2 |
 | P2 | The export adds the key at the report level (`CandidateResult._export_cases`), with the Candidate's own operation graph, as `report.trace_dict()` does. `CaseResult.to_dict()` does not change: it mirrors the Engine wire, and the strict decoder `_case_result` (S/_evaluation/results.py:360-383) refuses an unknown key. | [export-trace](prd/export-trace.md) §2.1 |
 | P3 | No new size cap. The trace of one Case has one entry per non-combine operation, one per member of each combine step, and one per combine step. It copies no member output text except each member's extracted `raw` and `value` in the `extract` entries. For `whole@1` and `json_object@1` these are the whole reply (N1). The Engine already bounds them. | [export-trace](prd/export-trace.md) §4, N1 |
 | P4 | The two report.v1 byte goldens and their two SHA-256 pins change. This is unavoidable under ans:Q1: both goldens hold a Case with combine evidence. Each is an owner-approved pinned edit. | [export-trace](prd/export-trace.md) XT#12 |
@@ -111,7 +111,7 @@ Option texts the owner saw (they set the scope):
 | P12 | The judge chip reads the trace `reduce` entry of the step (`judge_operation_id`, `judge_model`, part 2 P8), so the view and the trace use one rule. The pane builds the trace with the Candidate graph, as the export does. | [case-pane](prd/case-pane.md) CP-3 |
 | P13 | The run summary groups the evidence by the combine `operation_id`. "chosen" = the member id is in `evidence.chosen` for that Case. "excluded" = the member row has `status == "excluded"`. Both show as `{count} of {N}`, so the two columns read the same way. The mean of a declared signal = `math.fsum` of the member's non-None values over the step's Cases, divided by their count `n`; every row status counts. Member rows and steps are in first-seen order. One pass over the Cases. The block is absent when no Case has combine evidence. | [run-summary](prd/run-summary.md) |
 | P14 | The run summary shows the declared signals only (the epic word). The E4a keys (`cost_usd`, `field:<path>`, `score:judge`, …) show per Case in the Combine section. | [run-summary](prd/run-summary.md) §5 |
-| P15 | **Exception to ans:Q2 (the owner approves it, plan §6 action 1).** The combine steps of an Attempt (`case.attempts[i].operations`) are not shown and not exported in this part, as `case.trace()` does not trace them today. No Benchmark declares more than one Attempt today, so the risk is low. | D1 |
+| P15 | **Exception to ans:Q2 (the owner approves it, plan §6 action 1).** The combine steps of an Attempt (`case.attempts[i].operations`) are not shown and not exported in this part, as `case.trace()` does not trace them today. No Benchmark declares more than one Attempt today, so the risk is low. **Owner approved 2026-10-15: accept; follow-up when a reducer Benchmark declares Attempts.** | D1 |
 | P16 | The `median` and `mean` evidence keys are text (the answer itself). The section shows them as stored text, not as a rounded number. | [case-pane](prd/case-pane.md) CP-D5 |
 | P17 | All new code is private: the new module `S/_ui/combine_view.py` has `__all__ = []`, and the new report method is `_export_cases`. The public surface snapshot `ST/public_surface_snapshot.json` does not change (ans:Q1). | [display-format](prd/display-format.md) DF#11 |
 | P18 | No existing HTML test, snapshot or golden changes because of ans:Q2. Checked on `9f42391eb`: no report-HTML test renders a Case with combine evidence (24 HTML test files; `ST/test_case_abstained.py` uses `abstained=True` without operations; `ST/test_reducer_slot.py:122-123` renders the Fusion repr, not a report). Checked again on `b556d25c7` for P19: no report-HTML test renders a Candidate graph with a `kind == "combine"` node. The only test files with such a node are `ST/_answer_fixtures.py`, `ST/test_answers.py`, `ST/test_judge_reducer.py`, `ST/test_merge_writer_compile.py`, `ST/test_reducer_slot.py` and `ST/data/report_v1_vote_median_report.json`; none of them renders the report HTML. The node `op_opus_aggregate` of `ST/data/report_v1_combine_report.json` has kind `aggregation`. The section is emitted only for a Case with a combine step. | [case-pane](prd/case-pane.md) CP#1 |
@@ -155,4 +155,14 @@ Scope notes:
 
 ## 9. Build errata
 
-None yet.
+- **E1 (CP-E3, CP#12).** A declared NAME must be a signal name (`S/combine_evidence.py` `_declared_map`),
+  so the decoder refuses the declared name `<b>k</b>`. The test puts the two hostile strings on two
+  columns: the plain signal key `<b>k</b>` (header `<th scope='col'>&lt;b&gt;k&lt;/b&gt;</th>`, no
+  title) and the declared name `conf` with the source `<x>` (header
+  `<th scope='col' title='source: &lt;x&gt;'>conf</th>`). The P8 coverage is the same. (ledger unit 3 D-1)
+- **E2 (CP-D4, CP#8).** The tally table of `vote_one_failed` has its own `score` header. The pane has
+  exactly one `<th scope='col'>score</th>` (the tally), and no `weight` or `rank` header. (ledger unit 3 D-2)
+- **E3 (CP-D6, CP#16).** `case.to_dict()` of the 256-member Case is about 65,000 characters, not about
+  51,000. The oracle (more than 32,000) holds. (ledger unit 3 D-3)
+- **E4 (run summary).** The spec name `_member_row` collides with the unit 3 helper of the same name in
+  `S/_ui/combine_view.py`. The run-summary helper is `_summary_row`. (ledger unit 4 D-5)

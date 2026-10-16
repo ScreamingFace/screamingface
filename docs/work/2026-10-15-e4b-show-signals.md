@@ -562,3 +562,16 @@ None.
     bullet is the part 3 "Signal sources" bullet.
   - Order of commits: the README and CHANGELOG edits were checked (focused tests, diff counts)
     before commit C; the gate run follows commit C, as the spec says.
+
+## Owner approvals (2026-10-15)
+
+- The owner approved the three unit 1 pinned edits (the two report.v1 goldens and the two SHA-256
+  lines in `ST/test_e4b_schema_pins.py`). Manifest: `.claude/test-change-approvals/OME-E4B-P4.json`
+  (placeholder id; rename at PR-open).
+- P1 approved: `trace` is an additive key under the same id `screamingface.report.v1`.
+- P15 approved: the combine steps of Attempts are not shown or exported in this part; follow-up when a
+  reducer Benchmark declares Attempts.
+- The evidence key order `signal, cut, declared, result` is confirmed and is written in the part 3
+  contract C6.
+- The build errata E1–E4 are in the spec overview §9.
+- Part 4 was rebased onto the part 3 tip that holds the key-order note (docs-only change).
