@@ -60,6 +60,7 @@ _EXPECTED_NAMES |= {  # E4b part 5 unit 2: the five gate cases
     "vote_gate_writer",
 }
 _EXPECTED_NAMES |= {"pick_sum_min"}  # E4b part 6 unit 1: a pick reads a declared sum
+_EXPECTED_NAMES |= {"vote_gate_band"}  # E4b part 6 unit 4: the abstain band case
 
 
 def _cases() -> dict[str, Any]:

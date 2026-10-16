@@ -642,7 +642,7 @@ def test_schema_snapshots_hold_the_gate_and_the_verifier() -> None:
     ]
     assert record.get("additionalProperties") is False
     assert record["properties"]["branch"] == {
-        "anyOf": [{"enum": ["majority", "fallback"], "type": "string"}, {"type": "null"}],
+        "anyOf": [{"enum": ["majority", "fallback", "band"], "type": "string"}, {"type": "null"}],
         "title": "Branch",
     }
     assert record["properties"]["passed"] == {
@@ -758,11 +758,11 @@ GATE_ABSTAIN_WIRE: dict[str, Any] = {
 
 
 def test_gate_not_met_is_an_abstain_word_on_both_sides() -> None:
-    words = ("no_votes", "cut_not_met", "output_missing", "gate_not_met")
+    words = ("no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band")
 
     assert get_args(AbstainReason) == words
     assert ABSTAIN_REASONS == words
-    assert get_args(AnswerReason)[-1] == "gate_not_met"
+    assert get_args(AnswerReason)[-2:] == ("gate_not_met", "in_band")
     assert NoVotes(reason="gate_not_met").reason == "gate_not_met"
     result = ResultRecord(member_id=None, value=None, status="abstain", reason="gate_not_met")
     assert result.reason == "gate_not_met"

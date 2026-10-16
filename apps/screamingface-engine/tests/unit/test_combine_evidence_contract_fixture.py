@@ -434,6 +434,15 @@ def _pick_sum_min() -> CombineEvidence:
 SCENARIOS["pick_sum_min"] = _pick_sum_min  # E4b part 6 unit 1
 
 
+# E4b part 6 unit 4 (AB-2, P17): fixture B with a band around 2/3. The number is inside the closed
+# band [0.6, 0.7], so the Case abstains with in_band and no comparison is made.
+def _vote_gate_band() -> CombineEvidence:
+    return _vote_gate({**_agreement_gate(0.7, "abstain"), "abstain_band": [0.6, 0.7]})
+
+
+SCENARIOS["vote_gate_band"] = _vote_gate_band  # E4b part 6 unit 4
+
+
 def canonical_evidence(evidence: CombineEvidence) -> str:
     """The bytes the Candidate envelope writes for one evidence (same encoder, same options)."""
     return json.dumps(evidence.model_dump(by_alias=True), ensure_ascii=False, separators=(",", ":"))

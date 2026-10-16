@@ -506,3 +506,123 @@ unit 4; the SDK keyword is unit 5.
     build, distribution).
   - `repo`: all green, including the append-only check against `633fec3a1`.
 - Flakes: none recorded in this unit.
+
+## Unit 4: band-record (`band-record`)
+
+**Status:** in_progress
+
+### Intent
+
+PRD `abstain-band` rows AB#4–14, AB#15 (evidence v1 and answer.v1 half), AB#16–18 (ans:Q2, P8–P12,
+P17, P18). The vote gate checks the abstain band before the comparison. Inside the closed band the
+Case abstains with the new reason `in_band`, for every `otherwise`, and no comparison is made
+(`passed` null, `branch` "band"). Outside the band, or with no number, the gate compares as in part
+5. The gate record holds the band (`abstain_band`, after `otherwise`, only when set). The band
+branch never reads a fallback reply (FB-I1, C8). `in_band` and `band` join the words on both sides,
+with GB-I1 to GB-I4. The SDK mirror and the contract case `vote_gate_band` come in the same unit
+(38 → 39 cases).
+
+### Planned changes
+
+- `E/combine/ports.py`: `in_band` in `AbstainReason`, `AnswerReason` (last), `ABSTAIN_REASONS`;
+  `band` in `GateBranch`.
+- `E/combine/gate.py`: new pure `in_band(observed, band)`.
+- `E/combine/endpoint.py`: `_gated` checks the band first (one flow, `banded` flag);
+  `_gate_record(gate, observed, passed, branch)` copies the band; `_not_run`; docstrings.
+- `E/combine/evidence.py`: `GateRecord.abstain_band`; `_check_band_record` (GB-I1–I3, GR-I1');
+  `_band_reason_holds` (GB-I4); `_check_gate_reasons` (GB-I4, then GR-I3); GR-I4' reads `branch`.
+- `S/answer.py`: `in_band` in `AbstainReason` and `AnswerReason`.
+- `S/combine_evidence.py`: `GateBranch` gains `band`; `CombineGate.abstain_band`; `_gate_band`;
+  `_check_band_gate`; `_gate_reason` GB-I4 first; GR-I4' reads `branch`.
+- `S/_evaluation/combine_evidence.py`: `_OPTIONAL_GATE_KEYS`, `_gate` reads the band,
+  `_abstain_band`.
+- Tests: appends to `ET/test_combine_band.py`; new `ST/test_band_words.py`; the `vote_gate_band`
+  block in `ET/test_combine_evidence_contract_fixture.py`; one line in
+  `ST/test_combine_evidence_contract.py`.
+
+### Pinned edits
+
+Made in commit A (test text only, on the approved list):
+`ET/test_combine_gate_words.py` (:645, :761, :765), `ET/test_combine_pick_output.py` (:341-343,
+:352), `ET/test_combine_evidence_words.py` (:321 +1), `ST/test_gate_words.py` (:524, :567, :582,
+:583, :586 +1), `ST/test_evidence_words.py` (:373, :460, :467 +1), `ST/test_pick_output.py`
+(:250, :255 +1), `ST/test_frozen_record_fields.py` (:184 38 → 39).
+
+Regenerated in commit B (data only): `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`,
+`ST/data/schemas/screamingface.answer.v1.json`, `ET/data/combine_contract/evidence_cases.json`,
+`ST/public_surface_snapshot.json`.
+
+Append-only, not flagged: `ET/test_combine_evidence_contract_fixture.py`,
+`ST/test_combine_evidence_contract.py`.
+
+### Test plan
+
+- 15 rows (AB#4–14, AB#15 unit 4 half, AB#16–18), 17 test functions. All RED in commit A; commit A
+  changes no source file, and every test imports only names that exist, so each row fails on its
+  behavior. AB#15, AB#16, AB#18 are PIN rows (regenerated files).
+- Expected RED: `ET/test_combine_band.py` unit 4 part: 12 items failed; `ST/test_band_words.py`: 6
+  failed; the pinned tests of the spec §8 items 1–8 failed.
+- Actual RED (commit A): `ET/test_combine_band.py` 12 failed, 15 passed (the 15 unit 3 cases pass).
+  The six focused Engine files: 18 failed, 210 passed. `ST/test_band_words.py` 6 failed. The six
+  focused SDK files: 14 failed, 141 passed (the 6 band tests, and 8 pinned or contract tests).
+  `ruff check` and `ruff format --check` clean on `tests/unit` (engine) and `tests` (SDK).
+
+### Acceptance
+
+- Fixture B, `band(0.6, 0.7, 0.7, abstain)`: output `""`, evidence = the AB-2 wire (`in_band`,
+  `branch "band"`, `passed null`, `abstain_band [0.6, 0.7]`, tally / agreement / tie kept).
+- Both edges of the band are inside; the adjacent floats are outside.
+- `band(0.7, 0.9, 0.6, …)` gives the part 5 majority bytes plus the band key.
+- Judge and writer: the same bytes with and without the fallback reply.
+- The log line ends with `outcome=abstain_in_band`; the Case is a final abstain.
+- `evidence_cases.json` has 39 cases; the 38 old cases keep their bytes.
+- Gates: `screamingface-engine`, `screamingface`, `repo` green (append-only offenders = the pinned
+  files only).
+
+### Deviations
+
+- `_gated` uses one flow (a `banded` flag and one abstain return for `in_band` and `gate_not_met`)
+  and not an early band return, because ruff `max-returns = 3`. The behavior is the PRD's: the band
+  is checked before the comparison, and `passes` is not called inside the band.
+- The Engine `_check_gate` calls the new helper `_check_gate_reasons` (GB-I4, then GR-I3) on its
+  first line, in place of its GR-I3 `if`, because ruff `max-branches = 7` and mccabe 8. The PRD
+  said "calls `_band_reason_holds` on its first line, then the existing GR-I3 check": the order is
+  the same.
+- NOT MADE in commit A (open question for the owner): `ST/test_gate_words.py:326` (the `_one_of`
+  message lists the sorted branch words, so it reads `band, fallback, majority` after this unit).
+  The unit spec §8 item 4 names this edit, but the approved pin list of this unit does not. The
+  line is left as it is in commit A. It passes in commit A and fails after commit B.
+- NOT MADE in commit A (open question for the owner): `ET/test_combine_gate.py:566-567` (the GD#19
+  test lists the whole fixture; the spec §8 item 8 sets the final text). The approved pin list of
+  this unit does not name it. Unit 1 already edited these lines (unit 1 ledger). In commit A the
+  test fails because the fixture now holds `vote_gate_band`.
+- AB#15 (unit 4 half), AB#16 and AB#18 are in `ST/test_band_words.py` (the PRD names no file). The
+  Engine half of AB#16 is the existing parametrized fixture byte test.
+- New helper names (not in the PRD): Engine `_check_gate_reasons`, `_BAND_REASON`; SDK `_gate_band`
+  (`S/combine_evidence.py`), `_abstain_band` and `_OPTIONAL_GATE_KEYS`
+  (`S/_evaluation/combine_evidence.py`).
+- AB#5 also checks the upper edge (`band(0.6, 2/3)` is inside) and the adjacent floats.
+- RED reason, AB#7 (judge and writer): the run without a reply raises `SpecInvalid` (a subclass of
+  `CombineError`), from the part 5 `fallback_label` / `fallback_text` step. The PRD names
+  `CombineError`. The failure is the same: the fallback runs before the band exists.
+- RED reason, AB#13 (SDK refusals): the decoder refuses the key `abstain_band` first
+  (`ExecutionError`), so the first line of the test fails. The PRD names a `TypeError` from the
+  keyword. The failure is the same: no band support yet.
+- (Add any change made during the build here.)
+
+### Notes for the review
+
+- FB-I1: grep shows `fallback_judge` / `fallback_writer` read only in `combine/gate.py`, and
+  `_fallback` is reached only when `banded` is False.
+- C9: `combine/gate.py` imports only the standard library, `combine.ports`, `combine.spec`;
+  `combine/evidence.py` imports only pydantic and `combine.ports`.
+- C10 (part 7): this unit adds no union member and does not touch `_declared`.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:**
+- **Actual files:**
+- **Commits:**
+- **Gates:**
+- **RED log:**
+- **Pinned edits made:**
