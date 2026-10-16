@@ -1,0 +1,50 @@
+{
+  "issue": "OME-E4B-P5",
+  "branch": "e4b-gate-record",
+  "approver": "owner",
+  "date": "2026-10-16",
+  "scope": "E4b part 5 (gate record and verifier slot). Unit 1: the combine-spec v1 schema gains the optional gate; the combine-evidence v1 schema gains the optional gate record and the reserved null-only verifier; the public-surface snapshot adds CombineGate and CombineEvidence.gate. Unit 2: the new abstain reason gate_not_met in the combine-evidence v1 and answer v1 schemas and in the word lists of test_combine_evidence_words, test_combine_pick_output, test_evidence_words and test_pick_output; evidence_cases.json gains 5 gate cases (the 32 old cases keep their bytes), so the case-count literal in test_frozen_record_fields goes from 32 to 37. Unit 3: the public-surface snapshot adds sf.Gate and the gate and verify arguments of sf.Vote. No assertion is removed or weakened.",
+  "reason": "Owner approved these 10 pinned test edits in chat on 2026-10-16 after the build reported them (plan section 6). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-show-signals (4e622af75); approved_blob is the blob at the part 5 tip.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json": {
+      "base_blob": "22d54b15b8c5d8f312b1a962ef6f590b61aa4791",
+      "approved_blob": "a69e97eff8b8109a628a51fb79edcb96c94a9713"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "406747a92a4c44d05aff27f0922e7582250cc31a",
+      "approved_blob": "9f150b3bc73cb4d1e07f59800091c7d41d626616"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json": {
+      "base_blob": "b3acb2a5cd5c489c570a57384cd40fa5c9f30273",
+      "approved_blob": "b62a7858ca4c9877398bf4cfaa2208ae178bb47e"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_evidence_words.py": {
+      "base_blob": "a8abea4cf427116c897af10aa23874cc8ba35570",
+      "approved_blob": "c1669df9481f462b8cc20974ae1aafd9b08a879b"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_pick_output.py": {
+      "base_blob": "261838c2846433a27196cd8a7d7ef724221229b1",
+      "approved_blob": "7880a8f245c003107534681b2c35e1e796702a42"
+    },
+    "packages/screamingface/tests/data/schemas/screamingface.answer.v1.json": {
+      "base_blob": "6524c2d068967d7f3455329323aa9dbd02ca5065",
+      "approved_blob": "5f3e8e25bf1acff2a0895e179c1ac3249ddcc458"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "8b961b377cf44c46d7b4fc39a0fd596c53ba451f",
+      "approved_blob": "385cda6769a9672677a911b732a85372beffd513"
+    },
+    "packages/screamingface/tests/test_evidence_words.py": {
+      "base_blob": "370c43c4377cc9e8726ea85aca7ceab9f07ac114",
+      "approved_blob": "dcd1a7e2fe4fb8271b7a024b8d89ff7e5ba96a4c"
+    },
+    "packages/screamingface/tests/test_frozen_record_fields.py": {
+      "base_blob": "b0f1493ec8e1616c733b193f14b7c8ef280234b8",
+      "approved_blob": "37a499ec3a87cb9a682149e6c7f5940a4b121e72"
+    },
+    "packages/screamingface/tests/test_pick_output.py": {
+      "base_blob": "03c12205ca6e56715e55f754c7f5e016ffbe6082",
+      "approved_blob": "6b758b7122ba3f172f0ed1e0f48ae042f068f50a"
+    }
+  }
+}
