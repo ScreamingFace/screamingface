@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import ClassVar, Literal, cast
+from typing import Any, ClassVar, Literal, cast
 
 from screamingface._regex_rule import check_signal_pattern
 
@@ -162,6 +162,29 @@ class Entropy(SignalSource):
         return cls(top_logprobs=top_logprobs)
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class Sum(SignalSource):
+    """A fixed linear sum of other declared signals of the same member (E4b part 6, ans:Q1).
+
+    STUB (E4b part 6 unit 2, commit A): commit B builds it.
+    """
+
+    source: ClassVar[str] = "sum"
+    coefficients: Mapping[str, float]
+
+    def __init__(self, coefficients: Mapping[str, float]) -> None:
+        raise NotImplementedError("sf.Sum is built in E4b part 6 unit 2")
+
+    def _spec(self) -> dict[str, object]:
+        raise NotImplementedError("sf.Sum is built in E4b part 6 unit 2")
+
+    @classmethod
+    def _from_spec(cls, entry: Mapping[str, object]) -> Sum:
+        raise NotImplementedError("sf.Sum is built in E4b part 6 unit 2")
+
+    __hash__: ClassVar[Any] = None
+
+
 # The member params that a Logprob or Entropy declaration owns (P12, DS-D10, U4-D1).
 INJECTED_PARAMS: frozenset[str] = frozenset({"logprobs", "top_logprobs"})
 
@@ -216,4 +239,4 @@ def python_signals(declared: Mapping[str, SignalSource]) -> str:
     )
 
 
-__all__ = ["Entropy", "Logprob", "SignalSource", "Verbalized"]
+__all__ = ["Entropy", "Logprob", "SignalSource", "Sum", "Verbalized"]

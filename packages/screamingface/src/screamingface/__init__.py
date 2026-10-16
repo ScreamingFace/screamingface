@@ -72,7 +72,7 @@ from screamingface.report import (
     Usage,
 )
 from screamingface.selection import Concat, Filter, Rank
-from screamingface.signal_sources import Entropy, Logprob, Verbalized
+from screamingface.signal_sources import Entropy, Logprob, Sum, Verbalized
 from screamingface.url4 import Url4
 from screamingface.warnings import (
     DuplicateMembersWarning,
@@ -162,6 +162,7 @@ __all__ = [
     "ScoreMetadataEvent",
     "ScreamingFaceError",
     "SelfCorrective",
+    "Sum",
     "signal",
     "OperationAccounting",
     "OperationCache",

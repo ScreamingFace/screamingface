@@ -307,3 +307,82 @@ Gates after the fix (base `633fec3a1`):
 - `repo`: ALL GATES GREEN, with the append-only check on.
 
 Pinned edits in this fix: none new. Every pinned edit is from the earlier unit 1 commits.
+
+## Unit 2: sum-api (`sf.Sum`)
+
+### Intent
+
+PRD `sum-api` rows SA#1–SA#14 (ans:Q1; P2–P4, P13, P15, P17). The SDK gets the public declared
+derived signal `sf.Sum(coefficients)`: a `SignalSource` with the wire word `"sum"`, its terms
+sorted by name as floats in a read-only mapping, every constructor check of the PRD table, and no
+hash. `sf.Fusion` refuses, before any call, a sum component that it does not declare, a sum of a
+sum (also of itself), and a vote weight that reads a sum which adds `sf.Logprob("mean")`,
+`sf.Logprob("sum")` or `sf.Entropy`. The compile writes `{"source": "sum", "coefficients": {...}}`;
+`Url4.to_python()` rebuilds it through `_SOURCES`. One SDK-compiled fixture (recipe R, a Pick of
+the lowest `risk`) runs offline in the Engine world with exactly three calls.
+
+### Planned changes
+
+- `S/signal_sources.py`: `Sum`, `_MAX_SUM_TERMS`; helpers `_sum_terms`, `_sum_name`,
+  `_sum_coefficient`, `_is_wire_term`; `_SOURCES["sum"]`; `__all__`; module docstring.
+- `S/fusion.py`: `_check_sums` (called from `_declaration`), `_check_sum_component`,
+  `_check_sum_weight` (called from `_check_weight_source`); `Fusion` docstring sentence.
+- `S/__init__.py`: export `Sum` (after `"SelfCorrective"`, before `"signal"`).
+- New tests `ST/test_signal_sum_api.py` (45 ids), `ST/test_sum_contract_fixtures.py` (1 id),
+  `ET/test_combine_sum_run.py` (1 id). New data
+  `ET/data/combine_contract/sum_pick_candidate.url4`.
+
+### Pinned edits
+
+- `packages/screamingface/tests/public_surface_snapshot.json` (regenerated with
+  `UPDATE_SURFACE_SNAPSHOT=1`): `"Sum"` in the `screamingface` `__all__`, and the `exports` entry
+  `Sum` (`__init__(self, coefficients: 'Mapping[str, float]')`, field `coefficients`, attribute
+  `source`).
+
+### Test plan
+
+- 14 rows: CHAR SA#1; RED SA#2–SA#13; PIN SA#14 (the regenerated snapshot, checked by the
+  existing `test_public_surface_matches_the_committed_snapshot`).
+- Stubs (commit A): `Sum` with the exact `__init__` signature, whose `__init__`, `_spec` and
+  `_from_spec` raise `NotImplementedError`; exported from `screamingface` and
+  `screamingface.signal_sources`. No `_SOURCES` entry yet. Expected RED: SDK `44 failed, 2 passed`
+  for the two new files; the snapshot test fails; Engine `1 failed` (fixture missing).
+- Oracles: the PRD messages (exact), recipe R and its decoded signals, fixture S with the
+  hand-computed sums 5.0 and 2.5 (signal-sum PRD §3).
+
+### Acceptance
+
+- The 14 rows pass. SA#1 passes before and after the change.
+- The snapshot diff is only the two hunks of the pinned edit.
+- `git diff U1 --stat` on the two test folders lists only the new files and the snapshot.
+- Gates: `screamingface-engine`, `screamingface`, `repo` green, except the append-only check
+  against `633fec3a1`, which lists only the pinned files of units 1–2; green with
+  `--skip-append-only`.
+
+### Deviations
+
+- D-1 (SA-E2 `listed`): the PRD says "the declared names joined by ', '" with no order. Built
+  rule: the names are sorted (`", ".join(sorted(declared))`), as the Fusion stores them; SA#4
+  checks both dict orders. The PRD oracle (`declared: risk, sev_a`) is unchanged.
+- D-2 (SA#6 scope): the row also checks `sf.Median` and `sf.Mean` weights (the same
+  `_check_weight_source` path; the part 3 `_WEIGHTED` precedent in `ST/test_logprob_source.py`).
+- D-3 (SA#1 oracle): the two fixtures also hold no `"source":"sum"`.
+- D-4 (SA#11 addition): a direct `declared_from_spec` test (one rebuild, seven refusals), as part 3
+  did for Logprob and Entropy.
+- D-5 (helpers): `_sum_terms`, `_sum_name`, `_sum_coefficient`, `_is_wire_term`,
+  `_check_sum_component`, `_check_sum_weight` are private helpers the PRD does not name. They keep
+  the ruff caps (max-branches 7, max-returns 3, mccabe 8).
+- D-6 (`_check_sums` call): `_check_sums(value)` runs on the unsorted map, as the PRD says; it
+  sorts inside, so the result does not depend on the dict order.
+
+### Outcome (fill at the end, before commit B)
+
+- **Status:**
+- **Actual files:**
+- **Commits:** A = , B =
+- **U1 (unit 1 tip):**
+- **RED log:**
+- **Gates:**
+- **Append-only list:**
+- **Flakes:**
+- **Deviations (build):**
