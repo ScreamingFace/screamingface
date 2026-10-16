@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import nbformat
 import pytest
@@ -13,6 +14,7 @@ import pytest
 from workbench.build_notebooks import NOTEBOOK_DIR
 from workbench.bundle import write_bundle
 from workbench.evidence import collect
+from workbench.result_check import check_result
 from workbench.runner import run_notebook
 from workbench.targets import LiveTarget, selected_target
 
@@ -23,9 +25,8 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")  # nbclient tracebacks carry colour codes
 _TARGET = selected_target()
 
 
-def _supports(path: Path, target: str) -> bool:
-    meta = nbformat.read(path, as_version=4).metadata.get("workbench", {})
-    return target in meta.get("targets", [])
+def _meta(path: Path) -> dict[str, Any]:
+    return dict(nbformat.read(path, as_version=4).metadata.get("workbench", {}))
 
 
 @pytest.mark.e2e
@@ -36,12 +37,13 @@ def test_notebook(
     workbench_out: Path,
     record_property: Callable[[str, object], None],
 ) -> None:
-    if not _supports(path, live_target.name):
+    meta = _meta(path)
+    if live_target.name not in meta.get("targets", []):
         pytest.skip(f"{path.stem} does not declare target {live_target.name}")
     params = {"ENGINE_URL": live_target.engine_url, "SCOREBOARD_URL": live_target.scoreboard_url}
     run = run_notebook(path, params | live_target.params)
 
-    trace_ids = [str(t) for t in (run.result or {}).get("trace_ids", [])]
+    trace_ids, result_reasons = check_result(run.result, meta.get("required_result", []))
     # Spec §3.3: the junit entry carries the trace id(s), so CI links a test row to its trace.
     record_property("trace_ids", ",".join(trace_ids))
     chain = collect(trace_ids, live_target.sources)
@@ -49,9 +51,8 @@ def test_notebook(
     if run.error:
         last = (_ANSI.sub("", run.error).strip().splitlines() or ["?"])[-1]
         reasons.append(f"notebook failed: {last}")
-    if not trace_ids:
-        reasons.append("no trace id reported by the notebook")
-    elif missing := chain.missing(live_target.required_hops):
+    reasons += result_reasons
+    if trace_ids and (missing := chain.missing(live_target.required_hops)):
         reasons.append(f"trace {trace_ids} not found in: {', '.join(missing)}")
     if chain.unattributed:
         reasons.append(f"{len(chain.unattributed)} aigateway lines lack gateway_call_id")
