@@ -1241,6 +1241,64 @@ s2_band_gate = sf.Fusion(
 The Case pane, the run summary and the export show the sum and the band (see "Combine steps in the
 report").
 
+### Consistency samples
+
+`sf.Consistency(n, temperature=1.0)` is a declared signal that measures how often a member gives
+its answer again: `signals={"cons": sf.Consistency(n=5)}`. Each member makes `n` more calls with
+distinct seeds at the stated `temperature`; its other params do not change. The value of a member
+is the share of the extra answers that equal the member's answer after the step's own extract and
+normalize, a number from 0 to 1. A step that has no extract, such as `sf.Pick(by_signal=...)`,
+compares the last line with the `text` normalizer. The extra answers never vote: they feed only
+this number, and the step reads the members' answers as before.
+
+An extra answer with nothing to extract is a successful extra call that does not match. The value
+is also missing when the member has no answer to compare (it failed, or nothing was extracted). A
+rule that reads a missing value leaves the member out, as for any declared signal.
+
+Each member makes n more calls on every Case: a Fusion of M members makes M × n extra calls, and
+you pay for them. The extra calls run also when the member call fails. A failed extra call does
+not fail the Case: the value is the share of matches over the extra calls that answered, and when
+every extra call fails, the value is missing. The extra calls use fixed seeds that the recipe
+sets, so a replay returns the same samples; they do not change with the run seed. The free
+preflight checks that each member's model takes `seed` and `temperature` before any call.
+
+The rules: one `sf.Consistency` per Fusion; each member is one `sf.Model` or a route, not a
+Pipeline or a Fusion; `n` from 1 to 32, with no default; `temperature` a finite number of 0 or
+more; at most 1024 extra calls per Fusion (members × n); the synthesizer is a reducer, not a
+model. A Fusion that breaks a rule raises `ValueError` before any call. `sf.Consistency` is not
+allowed inside a corrective loop in this version.
+
+The SDK tests compile each recipe below to a fixed url4, and the Engine's tests run the first one
+offline. The routes are placeholders: put your own model routes in their place.
+
+```python
+import screamingface as sf
+
+panel = ["prov/alpha", "prov/beta", "prov/gamma"]
+# Each member answers 3 more times at temperature 1.0. The answer comes from the member whose
+# extra answers agree most often with its own answer.
+c1_pick_most_consistent = sf.Fusion(
+    panel,
+    name="pick",
+    signals={"cons": sf.Consistency(n=3)},
+    synthesizer=sf.Pick(by_signal=sf.signal("cons")),
+)
+# Each member answers 2 more times at temperature 0.7. The median compares the last number of
+# each answer, and the evidence records each member's value.
+c2_median_consistency = sf.Fusion(
+    panel,
+    name="median",
+    signals={"cons": sf.Consistency(n=2, temperature=0.7)},
+    synthesizer=sf.Median(),
+)
+```
+
+`sf.Vote(weights=sf.signal("cons"))` weights each member by its value; a member with the value 0
+has no weight and does not vote.
+
+The Case pane, the run summary and the export show the value and the failed extra calls (see
+"Combine steps in the report").
+
 ## Install
 
 ```bash
@@ -1568,6 +1626,15 @@ band, for example `gate · majority 1 of 3 · fallback 1 of 3 · in band 1 of 3`
 only when a Case is in the band. The export holds the band in
 `operations[].combine.gate.abstain_band` as `[lo, hi]`, and the record of a Case in the band has
 `"branch": "band"` and `"passed": null`.
+
+**Consistency.** A step that declares `sf.Consistency` has one more chip in its Combine section,
+for example `samples · cons · 4 per member · failed 6 of 12`: the declared name, `n`, and how
+many extra calls of the step failed, out of all of them. The `cons` cell of a member shows its
+value, and a note such as `2 failed` when some of its extra calls failed. A missing value names
+why on hover, for example `every sample failed` or `no answer to compare`. The run summary of the
+step has one line before its table, for example `samples · cons · failed 12 of 24`. The export
+holds the counts in `operations[].combine.consistency`: for each member, `member_id`, `matched`,
+`succeeded` and `failed`.
 
 Numbers show 4 significant digits; hover a number to see the exact stored value. A missing value
 is an em dash; hover it to see why. The combine steps of an Attempt (`case.attempts`) are not in

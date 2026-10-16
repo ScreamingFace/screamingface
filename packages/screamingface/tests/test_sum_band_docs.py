@@ -38,6 +38,7 @@ _SIGNALS = "### Signal sources"
 _GATE = "### Gate the majority"
 _FUSION = "### Fusion as a named recipe"
 _SUM = "### Sum signals and the abstain band"
+_CONSISTENCY = "### Consistency samples"  # E4b part 7, after the restack on part 6
 _INSTALL = "## Install"
 _BROWSE = "### Browse completed Case results"
 _COMBINE = "### Combine steps in the report"
@@ -119,7 +120,8 @@ def test_readme_sum_section_sits_after_fusion_and_states_the_rules() -> None:
     assert "in_band" in ANSWER_REASONS
     assert "abstain_band" in inspect.signature(sf.Gate).parameters
     assert repr(sys.float_info.max / 256) == _MAX_WEIGHT_TEXT
-    assert _headings_between(_FUSION, _INSTALL) == [_FUSION, _SUM]
+    # Restack on part 6 (2026-10-16): part 7 adds its section directly after this one.
+    assert _headings_between(_FUSION, _INSTALL) == [_FUSION, _SUM, _CONSISTENCY]
     assert _headings_between(_SIGNALS, _FUSION) == [_SIGNALS, _GATE]
     section = _section(_SUM)
     for phrase in (
