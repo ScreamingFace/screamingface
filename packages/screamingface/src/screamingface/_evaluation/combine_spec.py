@@ -213,15 +213,44 @@ def _is_signals(value: object) -> bool:
     )
 
 
+# The two stages a consistency ``match`` pins (E4b part 7, P3).
+_MATCH_STAGES: tuple[Stage, ...] = ("extract", "normalize")
+
+
 def spec_operator_pairs(spec: Mapping[str, object]) -> tuple[tuple[Stage, str], ...]:
-    """The (stage, pinned id) pairs a decoded spec uses, in step order."""
+    """The (stage, pinned id) pairs a decoded spec uses: its steps in step order, then the
+    ``match`` steps of each ``signals`` entry that has one, in name order; each pair once.
+
+    WHY the match steps (E4b part 7, P16): the url4 recompile builds its operator catalog only
+    from these pairs, and a replay pins them against the Engine before it spends. A match can
+    name ids that no step uses: ``sf.Pick`` has no extract, so its match is ``last_line@1`` and
+    ``text@1``.
+    """
 
     pairs: list[tuple[Stage, str]] = []
     for stage in STAGES:
         step = spec[stage]
         if step is not None:
             pairs.append((stage, str(cast(Mapping[str, object], step)["op"])))
-    return tuple(pairs)
+    signals = spec.get("signals")
+    if isinstance(signals, Mapping):
+        for name in sorted(signals):
+            entry = signals[name]
+            match = entry.get("match") if isinstance(entry, Mapping) else None
+            if isinstance(match, Mapping):
+                pairs.extend(_match_pairs(match))
+    return tuple(dict.fromkeys(pairs))
+
+
+def _match_pairs(match: Mapping[str, object]) -> list[tuple[Stage, str]]:
+    """A match's pinned steps. A value that is not a step is skipped: ``_from_spec`` refuses a
+    bad match, and the recompile refuses any other change."""
+
+    return [
+        (stage, str(cast(Mapping[str, object], step)["op"]))
+        for stage in _MATCH_STAGES
+        if (step := match.get(stage)) is not None and _is_step(step)
+    ]
 
 
 __all__: list[str] = []

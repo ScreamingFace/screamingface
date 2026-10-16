@@ -228,7 +228,7 @@ class _TopologyWalker:
         for member in node.members:
             self._visit(member, context, operations)
         assert node.judge is not None
-        self._visit_reducer(node.judge, node.members, context)
+        self._visit_reducer(node.judge, node.members, context, operations)
 
     def _fusion(
         self,
@@ -239,24 +239,37 @@ class _TopologyWalker:
         for member in node.members:
             self._visit(member, context, operations)
         assert node.synthesizer is not None
-        self._visit_reducer(node.synthesizer, node.members, context)
+        self._visit_reducer(node.synthesizer, node.members, context, operations)
 
     def _visit_reducer(
         self,
         reducer: _RecipeTopology,
         members: tuple[_RecipeTopology, ...],
         context: tuple[str, ...],
+        operations: tuple[str, ...],
     ) -> None:
         member_bindings = tuple(member.binding for member in members)
         fusion_context = tuple(dict.fromkeys((*context, *member_bindings)))
+        # A sample call repeats its member's call, so it reads what a member reads (the Fusion's
+        # context and operations). WHY before the signals: the compile adds the sample calls before
+        # the signal calls, so the replayed operation order is the compile order (P8).
+        for entry in reducer.samples:
+            for source in entry.sources:
+                self._model(source, context, operations)
+        sample_bindings = tuple(
+            source.binding for entry in reducer.samples for source in entry.sources
+        )
         # A reducer's signal calls read the members; the reducer's own call then reads them too.
         for signal in reducer.signals:
             self._signal(signal, fusion_context, member_bindings)
         signal_bindings = tuple(signal.source.binding for signal in reducer.signals)
+        # WHY two orders (erd §7): the context follows the context keys (samples before signals,
+        # P9); the operations keep the members first (S/_case_views.py reads
+        # depends_on[:len(members)] as the member producers), then the signals, then the samples.
         self._visit(
             reducer,
-            tuple(dict.fromkeys((*fusion_context, *signal_bindings))),
-            (*member_bindings, *signal_bindings),
+            tuple(dict.fromkeys((*fusion_context, *sample_bindings, *signal_bindings))),
+            (*member_bindings, *signal_bindings, *sample_bindings),
         )
 
     def _signal(
@@ -503,18 +516,37 @@ def _decode_fusion(
 
 
 def _decode_synthesizer(value: object) -> _RecipeTopology:
-    """A Fusion synthesizer is an ordinary node, or a reducer leaf (the only reducer position)."""
+    """A Fusion synthesizer is an ordinary node, or a reducer leaf (the only reducer position).
+
+    A reducer node has ``binding``, ``kind`` and ``name``, and may have ``signals`` (OME-1289) and
+    ``samples`` (E4b part 7, erd §7).
+    """
 
     if not isinstance(value, dict) or value.get("kind") != "reducer":
         return _decode_node(value)
-    if set(value) not in ({"binding", "kind", "name"}, {"binding", "kind", "name", "signals"}):
+    if (
+        not {"binding", "kind", "name"}
+        <= set(value)
+        <= {
+            "binding",
+            "kind",
+            "name",
+            "signals",
+            "samples",
+        }
+    ):
         raise ValueError(_REDUCER_INVALID)
     binding = _text(value["binding"])
     if SYNTHESIS_BINDING.fullmatch(binding) is None:
         raise ValueError(_REDUCER_INVALID)
     signals = _decode_signals(value["signals"]) if "signals" in value else ()
+    samples = _decode_samples(value["samples"]) if "samples" in value else ()
     return _RecipeTopology(
-        kind="reducer", name=_text(value["name"]), binding=binding, signals=signals
+        kind="reducer",
+        name=_text(value["name"]),
+        binding=binding,
+        signals=signals,
+        samples=samples,
     )
 
 
@@ -585,6 +617,62 @@ def _decode_signal_source(source: object, role: _SignalRole) -> _RecipeTopology:
     return _RecipeTopology(
         kind="model", name=_text(source["name"]), binding=binding, named=source["named"], role=role
     )
+
+
+def _decode_samples(value: object) -> tuple[_SampleTopology, ...]:
+    """The sample calls of a reducer (E4b part 7, erd §7): one entry per member, in member order.
+
+    Each entry is exactly ``{"member", "sources"}``; ``member`` is ``member_1``, ``member_2``, ...
+    in order; ``sources`` is a non-empty list of sample nodes; every list has one length; no
+    binding twice. Any break is the reducer error, so a hand edit never rebuilds as something
+    else. WHY no check against the spec ``n`` or the member count here: the url4 recompile
+    (``_require_recompiles``) proves both, byte for byte.
+    """
+
+    if not isinstance(value, list) or not value:
+        raise ValueError(_REDUCER_INVALID)
+    samples: list[_SampleTopology] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, dict) or set(item) != {"member", "sources"}:
+            raise ValueError(_REDUCER_INVALID)
+        sources = item["sources"]
+        if item["member"] != f"member_{index}" or not isinstance(sources, list) or not sources:
+            raise ValueError(_REDUCER_INVALID)
+        samples.append(
+            _SampleTopology(
+                member=f"member_{index}",
+                sources=tuple(_decode_sample_source(source) for source in sources),
+            )
+        )
+    bindings = [source.binding for entry in samples for source in entry.sources]
+    if len({len(entry.sources) for entry in samples}) != 1 or len(set(bindings)) != len(bindings):
+        raise ValueError(_REDUCER_INVALID)
+    return tuple(samples)
+
+
+def _decode_sample_source(source: object) -> _RecipeTopology:
+    """One sample node: the five model keys, kind ``model``, role ``sample``, ``model_N``."""
+
+    if not isinstance(source, dict) or set(source) != {
+        "binding",
+        "kind",
+        "name",
+        "named",
+        "role",
+    }:
+        raise ValueError(_REDUCER_INVALID)
+    binding, name, named = source["binding"], source["name"], source["named"]
+    if (
+        source["kind"] != "model"
+        or source["role"] != "sample"
+        or not isinstance(named, bool)
+        or not isinstance(name, str)
+        or not name.strip()
+        or not isinstance(binding, str)
+        or re.fullmatch(r"model_\d+", binding) is None
+    ):
+        raise ValueError(_REDUCER_INVALID)
+    return _RecipeTopology(kind="model", name=name, binding=binding, named=named, role="sample")
 
 
 def _decode_corrective_loop(
