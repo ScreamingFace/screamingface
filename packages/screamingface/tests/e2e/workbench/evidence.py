@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,34 @@ class FileLogSource:
 
     def read(self) -> str:
         return self.path.read_text(errors="replace") if self.path.is_file() else ""
+
+
+# `screamingface._runtime.runtime_logging.RuntimeLog._write_line`: "<iso-ts> [<service>] <line>".
+_RUNTIME_TAG = re.compile(r"^\S+ \[([^\]]+)\] ")
+
+
+@dataclass(frozen=True)
+class ServiceLogSource:
+    """One service's lines of the local runtime's shared ``runtime.log``, as its own hop.
+
+    WHY: ``screamingface up`` runs the engine and the gateway in one process writing one log;
+    each line carries its service tag (``engine``, ``gateway``, ``scoreboard``, ``supervisor``),
+    so filtering by tag gives the same per-hop view the replay stack's separate files give.
+    """
+
+    name: str
+    path: Path
+    service: str
+
+    def read(self) -> str:
+        if not self.path.is_file():
+            return ""
+        kept = [
+            ln
+            for ln in self.path.read_text(errors="replace").splitlines()
+            if (tag := _RUNTIME_TAG.match(ln)) is not None and tag.group(1) == self.service
+        ]
+        return "".join(f"{ln}\n" for ln in kept)
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from harness.trace_evidence import unattributed_gateway_lines
 
-from workbench.evidence import FileLogSource, collect
+from workbench.evidence import FileLogSource, ServiceLogSource, collect
 
 TID = "4bf92f3577b34da6a3ce929d0e0e4736"
 OTHER = "00f067aa0ba902b7aaaaaaaaaaaaaaaa"
@@ -52,3 +52,39 @@ def test_chain_json_is_serialisable_and_names_each_hop(tmp_path: Path) -> None:
     payload = json.loads(json.dumps(chain.to_json()))
     assert payload["hops"][0]["name"] == "engine"
     assert payload["hops"][0]["found"] is True
+
+
+def test_service_source_keeps_only_its_tagged_runtime_lines(tmp_path: Path) -> None:
+    log = tmp_path / "runtime.log"
+    log.write_text(
+        f"2026-10-16T10:00:00+00:00 [engine] run scheduled trace_id={TID}\n"
+        f"2026-10-16T10:00:01+00:00 [gateway] gateway_call_id=c1 trace_id={TID} POST\n"
+        "2026-10-16T10:00:02+00:00 [supervisor] ScreamingFace is ready.\n"
+        "2026-10-16T10:00:03+00:00 [scoreboard] seeded\n"
+        "a stray untagged line [engine] in the middle\n"
+    )
+    engine = ServiceLogSource("engine", log, service="engine")
+    gateway = ServiceLogSource("aigateway", log, service="gateway")
+    assert engine.read().splitlines() == [
+        f"2026-10-16T10:00:00+00:00 [engine] run scheduled trace_id={TID}"
+    ]
+    assert gateway.read().splitlines() == [
+        f"2026-10-16T10:00:01+00:00 [gateway] gateway_call_id=c1 trace_id={TID} POST"
+    ]
+
+
+def test_service_sources_split_one_runtime_log_into_separate_hops(tmp_path: Path) -> None:
+    log = tmp_path / "runtime.log"
+    log.write_text(
+        f"2026-10-16T10:00:00+00:00 [engine] run scheduled trace_id={TID}\n"
+        "2026-10-16T10:00:01+00:00 [gateway] POST /v1/chat/completions\n"
+    )
+    chain = collect(
+        [TID],
+        [ServiceLogSource("engine", log, "engine"), ServiceLogSource("aigateway", log, "gateway")],
+    )
+    assert chain.missing(["engine", "aigateway"]) == ["aigateway"]
+
+
+def test_service_source_reads_empty_when_the_log_is_absent(tmp_path: Path) -> None:
+    assert ServiceLogSource("engine", tmp_path / "nope.log", "engine").read() == ""
