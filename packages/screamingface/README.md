@@ -1171,6 +1171,76 @@ multi-stage synthesizer in the block form, give it a name: `sf.Pipeline` makes a
 Pipeline flat, so `sf.Pipeline([sf.Fusion(m, sf.Reduce("context")), sf.Pipeline([j, w])])` is read as
 `[Fusion, j, w]`. Use `sf.Pipeline([j, w], name="judge-write")`, or a Fusion, as the synthesizer.
 
+### Sum signals and the abstain band
+
+A sum is a declared signal that adds other declared signals of the same member, each multiplied
+by a fixed coefficient: `signals={"risk": sf.Sum({"sev_a": 0.5, "sev_b": 0.3}), ...}` gives each
+member `risk = 0.5 × sev_a + 0.3 × sev_b`. Each component is another name that the same Fusion
+declares in `signals=`, never an E4a key (such as `cost_usd` or `score:judge`) and never another
+`sf.Sum`; any other component raises `ValueError` before any call. A sum has 1 to 7 components.
+Each coefficient is a finite number that is not zero; a negative coefficient is allowed, and the
+Engine does not normalize the coefficients. The sum counts toward the 8 names that a Fusion can
+declare.
+
+When a component is missing, the sum is missing, not zero. A rule leaves the member out, as for
+any declared signal. The Engine adds the exact products and rounds once, so the order of the
+components does not change the value. A sum that is too large for a float is missing too.
+
+A rule or a gate reads the sum by its name: `sf.Pick`, `sf.Rank`, `sf.Filter`, a vote weight, and
+a gate on `"chosen:risk"` or `"mean:risk"`. The evidence records the sum of each member like any
+declared signal. A sum that adds `sf.Logprob("mean")`, `sf.Logprob("sum")` or `sf.Entropy(...)`
+cannot be a vote weight: `sf.Fusion` raises `ValueError` before any call. A member whose sum is
+zero or less, or larger than `7.022238808055921e+305` (the largest float divided by 256), gets
+no weight, and the vote leaves it out with `no_weight`.
+
+The abstain band is a range of the gate's number where the Case abstains and gives no verdict:
+`sf.Gate(..., abstain_band=(lo, hi))`. `lo` and `hi` are finite numbers, and `lo <= hi`; a band of
+one point is valid. For an agreement gate, `lo` and `hi` must be from 0 to 1. The band is closed
+(both ends are in it). The Engine checks the band before the comparison. When the observed number
+is in the band, the Case abstains with the reason `in_band` for every `otherwise`, also a judge
+or a writer. When the number is outside the band, the gate compares as before. A missing number
+skips the band, and the gate takes the fallback as before. The gate record shows
+`"branch": "band"` and `"passed": null`. Coverage counts the Case with the other abstains.
+
+A judge or writer fallback still runs on every Case, also when the number is in the band; its
+reply is not read.
+
+A sum adds the signals of one member. To compare the panel, gate on `"mean:<name>"`.
+
+Each recipe below runs offline in the Engine's tests, from the url4 that the SDK compiles. The
+routes are placeholders: put your own model routes in their place.
+
+```python
+import screamingface as sf
+
+panel = ["prov/alpha", "prov/beta", "prov/gamma"]
+# Each member writes two severity lines, such as "A: 2" and "B: 5" (see "Signal sources").
+severity = {
+    "risk": sf.Sum({"sev_a": 0.5, "sev_b": 0.3}),
+    "sev_a": sf.Verbalized(r"A: ([0-9]+)"),
+    "sev_b": sf.Verbalized(r"B: ([0-9]+)"),
+}
+
+# The member with the lowest risk gives the answer.
+s1_sum_pick = sf.Fusion(
+    panel,
+    name="pick",
+    signals=severity,
+    synthesizer=sf.Pick(by_signal=sf.signal("risk"), order="min"),
+)
+# The Case abstains with in_band when the mean risk is from 2.5 to 3.5. Else the vote keeps
+# its majority when the mean risk is 3.0 or less, and abstains with gate_not_met when not.
+s2_band_gate = sf.Fusion(
+    panel,
+    name="vote",
+    signals=severity,
+    synthesizer=sf.Vote(gate=sf.Gate("mean:risk", "<=", 3.0, abstain_band=(2.5, 3.5))),
+)
+```
+
+The Case pane, the run summary and the export show the sum and the band (see "Combine steps in the
+report").
+
 ## Install
 
 ```bash
@@ -1487,6 +1557,17 @@ vote found no answer. The run summary of a gated step has one line before its ta
 The export holds the gate record in `operations[].combine.gate`, with the keys `observe`,
 `observed`, `cmp`, `threshold`, `passed`, `branch` and `otherwise`. When the step read a judge
 fallback, the judge chip and the trace `judge_model` name that judge.
+
+**Sums and the band.** A sum is one more signal column in the Combine section. Hover its header
+to see the formula, for example `source: sum of 0.5 × sev_a + 0.3 × sev_b`. The run summary
+shows the mean of a sum as it shows the mean of any declared signal. A gate with a band shows the
+band in its chip, for example
+`gate · agreement >= 0.7 · band [0.6, 0.7] · observed 0.6667 · in band · abstain`.
+The result chip of that Case is `abstain · in_band`. The run summary line counts the Cases in the
+band, for example `gate · majority 1 of 3 · fallback 1 of 3 · in band 1 of 3`; the count shows
+only when a Case is in the band. The export holds the band in
+`operations[].combine.gate.abstain_band` as `[lo, hi]`, and the record of a Case in the band has
+`"branch": "band"` and `"passed": null`.
 
 Numbers show 4 significant digits; hover a number to see the exact stored value. A missing value
 is an em dash; hover it to see why. The combine steps of an Attempt (`case.attempts`) are not in
