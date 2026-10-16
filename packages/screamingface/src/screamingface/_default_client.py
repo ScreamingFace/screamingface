@@ -105,6 +105,7 @@ def evaluate(
     progress: bool | None = None,
     answer_seed: int | None = None,
     capture: bool = True,
+    use_cache: bool = True,
 ) -> Report: ...
 
 
@@ -118,6 +119,7 @@ def evaluate(
     progress: bool | None = None,
     answer_seed: int | None = None,
     capture: bool = True,
+    use_cache: bool = True,
 ) -> Report: ...
 
 
@@ -130,6 +132,7 @@ def evaluate(
     progress: bool | None = None,
     answer_seed: int | None = None,
     capture: bool = True,
+    use_cache: bool = True,
 ) -> Report:
     """Evaluate Recipes or a complete URL4 through the lazy default Client.
 
@@ -152,6 +155,7 @@ def evaluate(
             progress=progress,
             answer_seed=answer_seed,
             capture=capture,
+            use_cache=use_cache,
         )
     if benchmark is None:
         raise TypeError("benchmark is required when evaluating Recipes")
@@ -163,6 +167,7 @@ def evaluate(
         progress=progress,
         answer_seed=answer_seed,
         capture=capture,
+        use_cache=use_cache,
     )
 
 

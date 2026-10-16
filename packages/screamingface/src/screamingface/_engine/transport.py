@@ -356,6 +356,7 @@ class Url4CloudTransport:
                 answer_seed=candidate.answer_seed,
                 capture=candidate.capture,
                 replay_frozen_copy=candidate.replay_frozen_copy,
+                use_cache=candidate.use_cache,
                 admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
                 on_event=on_event,
                 wait=self._abort.wait,
@@ -757,6 +758,7 @@ class AsyncUrl4CloudTransport:
                 answer_seed=candidate.answer_seed,
                 capture=candidate.capture,
                 replay_frozen_copy=candidate.replay_frozen_copy,
+                use_cache=candidate.use_cache,
                 admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
                 on_event=on_event,
                 wait=self._wait_unless_aborted,
@@ -1061,6 +1063,7 @@ def _start_sync(
     answer_seed: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    use_cache: bool = True,
     admission: _AdmissionWait | None = None,
     on_event: object = None,
     wait: Callable[[float], bool] | None = None,
@@ -1085,6 +1088,7 @@ def _start_sync(
             answer_seed=answer_seed,
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
+            use_cache=use_cache,
         )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
@@ -1105,6 +1109,7 @@ def _send_start_sync(
     answer_seed: int | None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    use_cache: bool = True,
 ) -> httpx.Response:
     """One start request, re-sent only while the WebSocket attach is still registering."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -1120,6 +1125,7 @@ def _send_start_sync(
                     **_trace_headers(trace),
                     **_answer_seed_header(answer_seed),
                     **_frozen_copy_headers(capture, replay_frozen_copy),
+                    **_cache_headers(use_cache),
                 },
             )
         except httpx.HTTPError as exc:
@@ -1306,6 +1312,7 @@ async def _start_async(
     answer_seed: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    use_cache: bool = True,
     admission: _AdmissionWait | None = None,
     on_event: object = None,
     wait: Callable[[float], Awaitable[bool]] | None = None,
@@ -1323,6 +1330,7 @@ async def _start_async(
             answer_seed=answer_seed,
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
+            use_cache=use_cache,
         )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
@@ -1343,6 +1351,7 @@ async def _send_start_async(
     answer_seed: int | None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    use_cache: bool = True,
 ) -> httpx.Response:
     """Async twin of `_send_start_sync`."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -1358,6 +1367,7 @@ async def _send_start_async(
                     **_trace_headers(trace),
                     **_answer_seed_header(answer_seed),
                     **_frozen_copy_headers(capture, replay_frozen_copy),
+                    **_cache_headers(use_cache),
                 },
             )
         except httpx.HTTPError as exc:
@@ -1381,6 +1391,16 @@ def _answer_seed_header(answer_seed: int | None) -> dict[str, str]:
     if answer_seed is None:
         return {}
     return {"X-Answer-Seed": str(answer_seed)}
+
+
+def _cache_headers(use_cache: bool) -> dict[str, str]:
+    """The run's cache intent as a start header; nothing for a run that may use the cache.
+
+    FEATURE (OME-1311): `Cache-Control: no-cache` is the standard request directive the Engine
+    collapses to `use-cache: false` on every model call of the run (its `cache_intent`), so the
+    report shows those calls as `bypass` / `opted_out`. Absence is the Engine's ON default.
+    """
+    return {} if use_cache else {"Cache-Control": "no-cache"}
 
 
 def _frozen_copy_headers(capture: bool, replay_frozen_copy: str | None) -> dict[str, str]:
