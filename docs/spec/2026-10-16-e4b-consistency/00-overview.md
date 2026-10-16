@@ -216,3 +216,13 @@ snapshot is rewritten with `UPDATE_SURFACE_SNAPSHOT=1` (the run fails), then che
   `CombineSampleCount` checks `member_id` with the member-id rule. CR#15 is a CHAR row (the SDK
   spec decoder already accepted the entry). The context samples are parsed by a private helper
   `_parse_samples` that calls `_panel_rows`.
+- **E2 (unit 2).** `_column` ends with one conditional return, because ruff `max-returns = 3`.
+  The `_SampleDeclared` branch stays first.
+- **E2 (unit 2).** New test support module `ET/combine_consistency_support.py` holds fixtures V
+  and W. The row tests and the contract test share it.
+- **E2 (unit 2).** Extra checks: CV#2 has the pure `count_samples` test, CV#7 has a normalize
+  case, CV#9 has a 12 over the read cap and a control, CV#11 has a passing gate, and CV#12 has a
+  member text over the read cap.
+- **E2 (unit 2).** New private names: `_SampleDeclared.match_value`, `_sample_item`,
+  `_sample_source`, `_consistency_record`. The `_Recorded` field is `numbers`. Two `RuntimeError`
+  guards (`_sample_counts`, `_column`) are plugin-bug checks, never declared codes.
