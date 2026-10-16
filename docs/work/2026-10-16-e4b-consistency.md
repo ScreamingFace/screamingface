@@ -142,3 +142,125 @@ Spec written headless from the owner answers of 2026-10-16; spec review fixes ap
 started. The units append
 their sections (Intent, Planned changes, Pinned edits, Test plan, Acceptance, Deviations, Outcome)
 below.
+
+## Unit 1: consistency words, samples context key and evidence record (`consistency-record`)
+
+### Intent
+
+PRD `consistency-record` (rows CR#1–CR#15); ans:Q3 (the source sets the temperature), ans:Q4
+("the count of failed samples is recorded"); P4 (one consistency source), P9 (the context key),
+P13 (the evidence record between `cut` and `declared`), P14 (the SDK mirror). The Engine gets the
+spec entry `{"source": "consistency", "n", "temperature", "match"}` (`ConsistencySource`,
+`ConsistencyMatch`, every key required, at most one per spec, `declares_consistency`), the
+context key `samples` (`parse_context(samples_n=)`, `CombineContext.samples`, the shared url4 row
+helper `_panel_rows` that `_panel_outputs` now calls with its old texts), and the optional evidence
+record `consistency` (`SampleCountRecord`, CS-I1..CS-I5). The SDK gets
+`sf.report.CombineSampleCount`, `CombineEvidence(consistency=...)` with the same checks, and a
+strict `consistency` decoder. No code computes a value yet (unit 2). No schema id changes; every
+existing evidence, spec, context and url4 keeps its bytes.
+
+### Planned changes
+
+- `E/combine/spec.py`: `ConsistencyMatch`, `ConsistencySource`, the `DeclaredSource` union, the
+  one-consistency rule in `_check_signals`, `declares_consistency`, `CombineContext.samples` and
+  its docstring, `_CONTEXT_KEYS`, `parse_context(samples_n=)`, `_parse_samples`, `_panel_rows`
+  (moved out of `_panel_outputs`), `__all__`.
+- `E/combine/evidence.py`: `SampleCountRecord` (`_check`: CS-I4), `CombineEvidence.consistency`
+  (between `cut` and `declared`), `_check_consistency` (CS-I1, CS-I2, CS-I3, CS-I5), the module
+  INVARIANT, `__all__`.
+- `S/combine_evidence.py`: `CombineSampleCount`, `CombineEvidence.consistency` and its keyword,
+  `_consistency_map`, `_sample_number`, `to_dict`, `__all__`.
+- `S/_evaluation/combine_evidence.py`: `_OPTIONAL_EVIDENCE_KEYS` (+ `consistency`),
+  `_SAMPLE_COUNT_KEYS`, `_consistency`, `_sample_count`.
+- `S/report.py`: export `CombineSampleCount`.
+- New tests: `ET/test_combine_consistency_words.py` (50 items),
+  `ST/test_consistency_words.py` (22 items).
+
+### Pinned edits
+
+- `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`:
+  regenerated; adds `$defs.ConsistencySource`, `$defs.ConsistencyMatch` and the `consistency`
+  member of the `signals` union only.
+- `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`:
+  regenerated; adds `properties.consistency` and `$defs.SampleCountRecord` only.
+- `packages/screamingface/tests/public_surface_snapshot.json`: regenerated; `CombineSampleCount`
+  (export and class entry), the `CombineEvidence.__init__` keyword `consistency`,
+  `CombineEvidence.consistency`.
+
+### Test plan
+
+- 15 PRD rows in PRD §7 order. CHAR: CR#1 (two functions, ET and ST; fixed lists L37 and L47,
+  48 specs), CR#2, CR#15, and the CR#6 companion `test_the_quorum_panel_keeps_its_messages`. RED:
+  CR#3–CR#12, CR#14. PIN: CR#13, CR#14 (surface).
+- Stubs in commit A: `ConsistencyMatch` / `ConsistencySource` not in the union,
+  `declares_consistency` raises `NotImplementedError`, `CombineContext.samples` (default None),
+  an unread `samples_n` keyword, an Engine `SampleCountRecord` with no bounds and no check, an SDK
+  `CombineSampleCount` with no checks (`to_dict` raises `NotImplementedError`). Commit A: ET 45
+  failed / 5 passed, ST 20 failed / 2 passed.
+- Oracles: CR-2 (`("x", "z")`, j order), CR-3 (`2/4 = 0.5`, `2/2 = 1.0`, all failed → null), the
+  fixed messages of the unit spec §3 and CR-E2.
+
+### Acceptance
+
+- A spec with one consistency entry parses on the Engine; a bad entry (bounds, missing keys, extra
+  keys, two entries) is `combine_spec_invalid` with a fixed message that echoes no value; the bare
+  entry stays refused.
+- `parse_context(..., samples_n=n)` gives each member's sample texts in j order; a missing, extra
+  or bad `samples` value is `combine_spec_invalid` with the exact CR-E2 text; the quorum panel keeps
+  its texts.
+- The evidence writes `consistency` between `cut` and `declared`, record keys in order; CS-I1..CS-I5
+  refuse mismatches on both sides.
+- The SDK decodes and writes back the record byte for byte; `sf.report.CombineSampleCount` exists.
+- The 37 cases of L37 and the 48 specs of L47 keep their bytes and have no consistency.
+- Gates: append-only lists only the three pinned files; every other gate green; `repo` green.
+
+### Deviations
+
+- (pre-filled) D-1: CR#15 is a CHAR row: the SDK spec decoder already accepts any object entry in
+  `signals` (`_is_signals`), so the test passes at commit A (PRD §7 row 15 asked to record this).
+- (pre-filled) D-2: CR#1 is two test functions (ET and ST). The L47 part checks the `source` words
+  of each parsed spec and the absence of a url4 struct key `samples:` (regex), not
+  `declares_consistency`, so that the CHAR row uses no new name and passes at commit A. The L47
+  files hold 48 combine specs.
+- (pre-filled) D-3: CR#6 has a CHAR companion, `test_the_quorum_panel_keeps_its_messages`
+  (3 params): no existing test pins the quorum panel texts, and `_panel_rows` moves them.
+- (pre-filled) D-4: CR#4 and CR#6 start each param with a positive control (the CR-1 entry parses;
+  the CR-2 context parses). Without it, 11 of the 12 CR#4 params and 2 of the CR#6 params would
+  pass at commit A with the same message for the wrong reason.
+- (pre-filled) D-5: CS-I5 also refuses a member row without the declared name in `signals` (a
+  missing key is not read as None), and CS-I3 refuses an `n` that is not an `int` (a bool
+  included). Both sides.
+- (pre-filled) D-6: the SDK `CombineSampleCount` checks `member_id` with the member-id rule
+  (`member_N`), as `CombineAnswerRow` does; the Engine keeps a plain `str` (CS-I2 ties it to the
+  members). The SDK keyword `consistency` is the LAST keyword of `CombineEvidence.__init__`; the
+  stored field and the wire key sit between `cut` and `declared`.
+- (pre-filled) D-7: the samples parse is a private helper `_parse_samples` (the PRD wrote it
+  inline in `parse_context`). CR#8 adds three cases to CR-E3: `matched -1`, the record under
+  another name (CS-I1), and a member without the value key (CS-I5).
+
+### Notes for the review
+
+- Interim gap until unit 2: a spec with a consistency entry parses, but the endpoint refuses it at
+  `_declared` (`a declared signal source is not registered`, `combine_spec_invalid`), and the
+  endpoint never passes `samples_n`. No released code has this state.
+- For unit 2: build `SampleCountRecord` with KEYWORDS (`SampleCountRecord(member_id=m,
+  matched=c.matched, succeeded=c.succeeded, failed=c.failed)`); the consistency-value PRD writes it
+  positionally as shorthand. `parse_context(..., samples_n=entry.n)` with `entry` from
+  `declares_consistency(spec)`. `context.samples[m]` is a tuple of texts in j order.
+- `CombineContext.samples` and the SDK `CombineEvidence.consistency` are `MappingProxyType`
+  values (read-only), as `sources` and `signals` are.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** DONE. Commit B is green on all three stacks, except the append-only check, which lists only the three pinned files (see Gates).
+- **Actual files:** the Engine files `combine/spec.py` and `combine/evidence.py`; the SDK files `combine_evidence.py`, `_evaluation/combine_evidence.py` and `report.py`; the three pinned files. The stubs of commit A were replaced by the code of Appendices A and B (applied as patches against `f5db24fe7`). No test file changed after commit A.
+- **Commits:** A `a3d577f72` (RED tests and stubs). B `b2ae6be62` (code and pinned regeneration). C: this docs commit.
+- **Gates:** Engine stack: ruff check, ruff format, pyright, layering check and pytest (coverage floor 80 percent) all pass. The append-only check lists only `screamingface.combine-spec.v1.json` and `screamingface.combine-evidence.v1.json`; the run passed again with `--skip-append-only`. SDK stack: ruff check, ruff format, pyright, pytest (coverage floor 95 percent), notebooks, build and distribution all pass. The append-only check lists only `tests/public_surface_snapshot.json`; the run passed again with `--skip-append-only`. Repo stack: all green with no flag.
+- **Focused runs:** Engine `test_combine_consistency_words.py` 50 of 50 passed, then the spec group of 308 passed. SDK `test_consistency_words.py` and the spec group of 166 passed. `test_wire_schema_freeze.py` 10 passed. The schema diff check (Appendix F) printed `snapshot diff OK`. The surface diff matches Appendix G (14 insertions, 1 deletion).
+- **RED log:** commit A. Engine file: 45 failed, 5 passed. SDK file: 20 failed, 2 passed. Every failure has the reason of spec section 5; no import, collection or name error. The CHAR rows pass. `ET/test_wire_schema_freeze.py` (10 passed) and `packages/screamingface/tests/test_public_surface.py` (8 passed) stay green. Ruff format and ruff check pass on both new files. Before the pinned regeneration, the only red test in the Engine file was CR#13 (`KeyError: 'consistency'`), as the spec expects.
+- **Flakes:** none in this unit.
+- **Deviations:** none beyond the pre-filled items D-1 to D-7. The pinned schema files were removed and regenerated with the procedure of spec section 8.2; the line counts match (58 and 62 insertions).
+- **Approval blobs (base, after):**
+  - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`: base `b62a7858ca4c9877398bf4cfaa2208ae178bb47e`, after `837a7ee3531b4049e069457cb9c5711cf0a4378f`
+  - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`: base `9f150b3bc73cb4d1e07f59800091c7d41d626616`, after `ebb34ae62020e6a6c12b62cf01312fd60acbd818`
+  - `packages/screamingface/tests/public_surface_snapshot.json`: base `385cda6769a9672677a911b732a85372beffd513`, after `8400871fb64d20c385ccccacb0ae6e1aba4aa6d1`

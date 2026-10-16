@@ -211,4 +211,8 @@ snapshot is rewritten with `UPDATE_SURFACE_SNAPSHOT=1` (the run fails), then che
 
 ## 10. Build errata
 
-None yet. The build appends one item per deviation from this spec.
+- **E1 (unit 1).** CS-I5 also refuses a member row without the declared name in `signals` (a
+  missing key is not read as None), and CS-I3 refuses a non-integer `n` (both sides). The SDK
+  `CombineSampleCount` checks `member_id` with the member-id rule. CR#15 is a CHAR row (the SDK
+  spec decoder already accepted the entry). The context samples are parsed by a private helper
+  `_parse_samples` that calls `_panel_rows`.
