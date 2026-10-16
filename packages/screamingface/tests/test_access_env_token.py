@@ -119,6 +119,50 @@ def test_client_uses_the_env_token_and_never_opens_a_browser(
     assert browser_urls == []
 
 
+@pytest.mark.asyncio
+async def test_async_client_uses_the_env_token_and_never_opens_a_browser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = _jwt(time.time() + 900, _AUDIENCE)
+    monkeypatch.setenv("SCREAMINGFACE_ACCESS_TOKEN", token)
+    browser_urls: list[str] = []
+    seen: list[str | None] = []
+
+    def auth(
+        origin: str,
+        *,
+        token_store: _AccessTokenStore | None = None,
+        discovery_error: Callable[[str], BaseException] | None = None,
+    ) -> _CloudflareAccessAuth:
+        return _CloudflareAccessAuth(
+            origin,
+            access_transport=httpx.MockTransport(lambda request: httpx.Response(500)),
+            browser_presenter=browser_urls.append,
+            token_store=token_store,
+            discovery_error=discovery_error or access_auth_module._access_discovery_error,
+        )
+
+    def scoreboard(request: httpx.Request) -> httpx.Response:
+        sent = request.headers.get("Cf-Access-Token")
+        seen.append(sent)
+        if sent is None:
+            login = f"https://team.cloudflareaccess.com/cdn-cgi/access/login?kid={_AUDIENCE}"
+            return httpx.Response(302, headers={"location": login})
+        return httpx.Response(404)
+
+    monkeypatch.setattr(access_auth_module, "_client_caller_auth", auth)
+    async with sf.AsyncClient(
+        engine_url=_ENGINE,
+        scoreboard_url=_SCOREBOARD,
+        scoreboard_transport=httpx.MockTransport(scoreboard),
+    ) as client:
+        with pytest.raises(sf.LeaderboardError):
+            await client.leaderboards.get_score("00000000-0000-0000-0000-000000000001")
+
+    assert seen == [None, token]
+    assert browser_urls == []
+
+
 def test_a_malformed_env_token_fails_at_client_construction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
