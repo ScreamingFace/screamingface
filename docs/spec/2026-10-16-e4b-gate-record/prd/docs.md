@@ -50,6 +50,8 @@ No README text and no CHANGELOG bullet name `sf.Gate`, `gate_not_met` or `verify
    - the cost sentence, verbatim: "In this version the fallback call runs on every Case, also when
      the gate keeps the majority, and you pay for it. The gate chooses and records; a cascade that
      skips the call comes with E4c.";
+   - the failure sentence, verbatim (contracts C2): "If the fallback call fails, the Case fails,
+     also when the gate keeps the majority.";
    - the missing-number rule: no number to compare takes the fallback; a vote with no answer does
      not run the gate and abstains with `no_votes`;
    - one `python` code block that assigns the four recipes `g1_agreement_abstain`,
@@ -112,7 +114,7 @@ New test file: `ST/test_gate_docs.py`. It imports `_section` from `test_evidence
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
 | 1 | CHAR `readme_keeps_the_signal_sources_and_report_anchors` (each of the five headings of §2 once, in order) | unit | — | M×M | passes today |
-| 2 | `readme_gate_section_sits_after_signal_sources_and_states_the_rules` (phrases: `gate_not_met`, `chosen:<name>`, `mean:<name>`, `>=`, the cost sentence, `E4c`, `no_votes`, `verify=None`, `returns="label"`, `corrective loop`) | unit | DC-1 | M×M | README |
+| 2 | `readme_gate_section_sits_after_signal_sources_and_states_the_rules` (phrases: `gate_not_met`, `chosen:<name>`, `mean:<name>`, `>=`, the cost sentence, the failure sentence "If the fallback call fails, the Case fails, also when the gate keeps the majority.", `E4c`, `no_votes`, `verify=None`, `returns="label"`, `corrective loop`) | unit | DC-1 | M×M | README |
 | 3 | `readme_gate_recipes_compile_to_the_gate_fixtures` | unit | DC-1 | H×M | README code block |
 | 4 | `combine_report_section_names_the_gate` | unit | DC-D1 | M×L | README paragraph |
 | 5 | `changelog_has_one_part_5_bullet_at_position_2_without_counted_tokens` | unit | DC-2, DC-D2 | M×M | CHANGELOG |

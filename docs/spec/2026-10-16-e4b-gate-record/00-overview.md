@@ -82,13 +82,13 @@ combine route, no new operation kind, no new url4 grammar.
 
 | PRD | Lifecycle | Scenarios (happy / error / derived) | TDD rows |
 |---|---|---|---|
-| [gate-record](prd/gate-record.md) | existing | 5 / 4 / 6 | 14 |
+| [gate-record](prd/gate-record.md) | existing | 5 / 4 / 6 | 17 |
 | [verifier-slot](prd/verifier-slot.md) | planned | 3 / 2 / 2 | 6 |
-| [gate-decision](prd/gate-decision.md) | existing | 8 / 5 / 10 | 20 |
+| [gate-decision](prd/gate-decision.md) | existing | 8 / 6 / 10 | 21 |
 | [gate-api](prd/gate-api.md) | existing | 6 / 4 / 9 | 20 |
 | [gate-display](prd/gate-display.md) | existing | 5 / 1 / 5 | 12 |
 | [docs](prd/docs.md) | existing | 2 / 0 / 2 | 5 |
-| **Total** | | **29 / 16 / 34** | **77** |
+| **Total** | | **29 / 17 / 34** | **81** |
 
 ## 5. Interview ledger
 
@@ -123,9 +123,9 @@ owner approves or changes them at review (plan §6).
 | P1 | **Where the gate lives.** On `sf.Vote` only, as `sf.Vote(..., gate=sf.Gate(...))`. In the url4 it is the optional top-level key `gate` of the vote's combine spec (`screamingface.combine-spec.v1`), next to `signals`. A spec with `gate` and a reducer other than `vote` is refused. WHY: ans:Q2 names the vote's agreement; one place keeps the rule small. Other reducers are deferred (D3). | [erd §1](erd.md), [gate-api](prd/gate-api.md) |
 | P2 | **The name `gate`.** The public names are `sf.Gate` and the evidence key `gate`. The corrective loop has an internal route `/ensemble/corrective/v1/gate` (S/_evaluation/corrective.py:57, E/benchmarks/ensemble/policy.py:23). That is a different concept (a per-round check of a corrective loop), it is not public API, and this part does not change it. The README says so in one sentence. | [docs](prd/docs.md) |
 | P3 | **The gate is data.** `sf.Gate(observe, cmp, threshold, *, otherwise="abstain")`. `observe` is text: `"agreement"`, `"chosen:<name>"` or `"mean:<name>"`, where `<name>` is a name that the Fusion declares (part 3). An E4a key (`cost_usd`, `score:judge`, `field:<path>`) is refused (ans:Q2: "a declared signal"). The spec holds `{"cmp", "observe", "otherwise", "threshold"}`, so E4c can read the same object to skip a branch. | [erd §1](erd.md), C1 |
-| P4 | **The comparison is the PASS condition.** `cmp` is one of `>=`, `>`, `<=`, `<`. When `observed cmp threshold` is true, the gate passes and the answer is the majority. For `agreement`, only `>=` and `>` are allowed, and the threshold is in `[0, 1]`. `>=` takes the majority at equality (the epic: "at least a threshold"). A declared signal takes any finite threshold and any of the four comparisons (an entropy uses `<=`). | [gate-decision](prd/gate-decision.md) §2 |
+| P4 | **The comparison is the PASS condition.** `cmp` is one of `>=`, `>`, `<=`, `<`. When `observed cmp threshold` is true, the gate passes and the answer is the majority. For `agreement`, only `>=` and `>` are allowed, and the threshold is in `[0, 1]`. `>=` takes the majority at equality (the epic: "at least a threshold"). A declared signal takes any finite threshold and any of the four comparisons (an entropy uses `<=`). **Polarity (owner decision at review, plan §6):** the stored `cmp` is the condition that KEEPS the majority. E4c's escalate condition `agreement < 0.8` (OME-1291) is stored as `{agreement, >=, 0.8}`, and E4c's API and report show this stored form. The other choice is to store the escalate condition (`cmp` true → fallback; `agreement` takes only `<` or `<=`); it must be picked in this part, before the wire ships. C8 records the choice. | [gate-decision](prd/gate-decision.md) §2, C1, C8 |
 | P5 | **How a fallback runs (ans:Q1).** A judge or writer fallback is ONE extra model call that the vote's combine step reads, the same way a judge-weighted vote reads its judge today (`_ModelSignal`, S/reducer.py:52-62). Its reply reaches the combine call as `context.signals["fallback_judge"]` or `context.signals["fallback_writer"]`. The call reads the Fusion context (the question and the members, or the quorum panel), as the judge and the model synthesizer do. No new route, no new combine call, no new operation kind (`judge` and `writer` exist). | [erd §2–3](erd.md), C2 |
-| P6 | **Judge fallback.** `sf.Judge(model, returns="label", rubric=...)` only, with the existing label template (`judge-template@1 returns=label`). The Engine parses the reply with `parse_label` over the members that answered (E/combine/operators/judge.py:47-58), and the answer is that member's text, byte for byte. A `returns="scores"` judge is refused with a clear message (D2). | [gate-decision](prd/gate-decision.md) GD-3 |
+| P6 | **Judge fallback.** `sf.Judge(model, returns="label", rubric=...)` only, with the existing label template (`judge-template@1 returns=label`). The Engine parses the reply with `parse_label` over the present members that the step did not exclude (GD-E6: a member that a weight or signal rule left out is never a valid label), and the answer is that member's text, byte for byte. A `returns="scores"` judge is refused with a clear message (D2). | [gate-decision](prd/gate-decision.md) GD-3 |
 | P7 | **Writer fallback.** `sf.Model(model, prompt=..., params=...)` without `name=` and without `optional=True` (neither can round-trip through the url4 of a signal call). The prompt default is `DEFAULT_SYNTHESIS_PROMPT`, as for a model synthesizer (S/_evaluation/candidate.py:502). The reply is the answer, verbatim (a built result). | [gate-decision](prd/gate-decision.md) GD-4 |
 | P8 | **FB-I1: the fallback reply is read only on the fallback branch.** On the majority branch the Engine never reads `fallback_judge` or `fallback_writer`: a missing or bad reply there changes nothing. So the evidence of a passed gate is the same bytes whether the fallback call ran (E4b) or not (E4c). This is the property that lets E4c add the skip with no wire change. | [gate-decision](prd/gate-decision.md) GD-8, C8 |
 | P9 | **Evidence gate record.** Optional top-level key `gate` of `screamingface.combine-evidence.v1`, written only when the spec has a gate, so every existing evidence keeps its bytes. Key order of the record: `observe`, `observed`, `cmp`, `threshold`, `passed`, `branch`, `otherwise`. Place: after `declared`, before `result` (the order rule of parts 2 and 3: `signal`, `cut`, `declared`, `gate`, `result`). | [erd §4](erd.md), C3 |
@@ -133,14 +133,14 @@ owner approves or changes them at review (plan §6).
 | P11 | **`agreement` is the recorded number.** The gate reads the evidence `agreement` as the select step computes it (E/combine/operators/select.py:42-48): the winner's count over the voters for a plain vote, the winner's weight share for a weighted vote. The record's `observed` equals the evidence `agreement` exactly, so a reader can replay the comparison from the evidence alone. | [gate-decision](prd/gate-decision.md) GD-D6 |
 | P12 | **`chosen:<name>` and `mean:<name>`.** `chosen:<name>` is the value of the vote's chosen member (`selection.chosen[0]`) for that declared name. `mean:<name>` is `math.fsum` of the non-None values of that name over every member row (any status), divided by their count. | [gate-decision](prd/gate-decision.md) GD-5, GD-6 |
 | P13 | **New abstain reason `gate_not_met`.** It is appended to `AbstainReason` and `AnswerReason` on both sides (the E4a precedent of `output_missing`, and the binding test ST/test_evidence_words.py:372 needs the two sides equal). It is a scored decline. It is not an error and not a failure code. E4c's `fail_closed` will be a failure code, so the two never share a status code. | [gate-record](prd/gate-record.md) GR-5 |
-| P14 | **Evidence on the fallback branch.** `tally`, `agreement` and `tie` stay the vote's numbers. `chosen` is `[<judge pick>]` for a judge, `[]` for a writer and for an abstain. `built` is true only for a writer. The judge reading goes into the existing `judge` key (`returns: "label"`). `presentation_order` is `"author"` when the fallback judge reading is recorded, and keeps today's rule otherwise. | [gate-decision](prd/gate-decision.md) GD-2–GD-4 |
+| P14 | **Evidence on the fallback branch.** `tally`, `agreement` and `tie` stay the vote's numbers. `chosen` is `[<judge pick>]` for a judge, `[]` for a writer and for an abstain. `built` is true only for a writer. The judge reading goes into the existing `judge` key (`returns: "label"`). `presentation_order` is `"author"` when the fallback judge reading is recorded, and keeps today's rule otherwise. **Writer value:** `result.value` is the vote's own extract and normalize applied to the writer text (`_stages(text, plan)[2]`), None when nothing is extracted. WHY: every other `value` of a vote is the normalized answer, so `value` keeps one meaning, and the evidence does not hold a second copy of a reply of up to 8 MiB. The raw writer text is the output. | [gate-decision](prd/gate-decision.md) GD-2–GD-4 |
 | P15 | **Verifier slot (ans:Q4).** `sf.Vote(verify=None)`: the attribute `verify` is always None; any other value raises `ValueError` that names `verify=` as reserved. The combine spec gets NO key in this part: a later part adds an optional `verify` key, as this part adds `gate`. The evidence model has an optional field `verifier` typed `null`, never written; the schema snapshot shows it. The SDK decoder accepts the key only with the value `null`. | [verifier-slot](prd/verifier-slot.md) |
 | P16 | **Display (part 4 surfaces).** The Case pane gets one gate chip after the agreement chip. The run summary gets one gate line per gated step. The JSON export carries the record in `operations[].combine.gate` with no export change. The report-trace.v1 field set does NOT change: a `branch` trace kind is E4c's report-trace.v2 (docs/spec/2026-10-02-e4a-gap-closure/00-overview.md:131). The judge-link rule gets J4 (a fallback judge that was read), so the judge chip and `judge_model` name the fallback judge. | [gate-display](prd/gate-display.md) |
 | P17 | **Rebuild.** `Url4.to_python()` rebuilds a gated vote: the gate, its fallback judge or model, `verify` left out. A spec with `gate` rebuilds only as `sf.Vote`, never as `sf.Reduce`. A hand-edited url4 (a gate on another reducer, a fallback call with no gate, a gate whose fallback call is missing) fails with the existing "cannot rebuild" error. | [gate-api](prd/gate-api.md) GA-5, GA-D4 |
 | P18 | **Context signal keys.** The Engine context accepts `fallback_judge` and `fallback_writer` (the `_SIGNAL` pattern, E/combine/spec.py:53). A fallback signal that the spec gate does not name is refused with `combine_spec_invalid`. A fallback signal that the fallback branch needs and that is absent is refused with `combine_spec_invalid`. | [gate-decision](prd/gate-decision.md) GD-E2, GD-E3 |
 | P19 | **Contract data.** The evidence contract fixture gets five gate scenarios (`vote_gate_majority`, `vote_gate_abstain`, `vote_gate_judge`, `vote_gate_writer`, `vote_gate_not_run`): 32 → 37 cases. Each gated recipe gets an SDK-compiled url4 fixture with its own drift guard, and the Engine runs it offline. | [gate-decision](prd/gate-decision.md) GD#19, [gate-api](prd/gate-api.md) GA#17 |
 | P20 | **No log change.** The one combine log line keeps its format; a gate abstain logs `outcome=abstain_gate_not_met` through the existing rule (E/combine/endpoint.py:244-245). | GD-D8 |
-| P21 | **The core stays pure.** The gate logic is a new pure module `E/combine/gate.py` (no I/O, no clock), called by `endpoint._decide`. The layering gate enforces it. | C9 |
+| P21 | **The core stays pure.** The gate logic is a new pure module `E/combine/gate.py` (no I/O, no clock), called by `endpoint._decide`. It imports only the standard library, `combine.ports` and `combine.spec`. The layering gate enforces it. | C9 |
 
 ## 7. Open and deferred
 
@@ -175,20 +175,36 @@ No approval manifest is written by the build.
 | File | Unit | Why |
 |---|---|---|
 | `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json` | 1 | new optional `gate` (frozen by `ET/test_wire_schema_freeze.py`) |
-| `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` | 1 | new optional `gate`, `verifier`; `gate_not_met` in two reason enums |
-| `ST/data/schemas/screamingface.answer.v1.json` | 1 | `gate_not_met` in `abstain_reason` and `reason` |
+| `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` | 1, 2 | new optional `gate`, `verifier` (unit 1); `gate_not_met` in two reason enums (unit 2) |
 | `ST/public_surface_snapshot.json` | 1, 3 | `sf.report.CombineGate`, `CombineEvidence.gate` (unit 1); `sf.Gate`, `Vote.__init__` `gate`, `verify` (unit 3) |
-| `ST/test_pick_output.py:250-264` | 1 | the exact sorted reason lists of `answer.v1.json` gain `gate_not_met` |
-| `ST/test_evidence_words.py:372` and `:460-475` | 1 | `len(ANSWER_REASONS)` 12 → 13; the exact `answer.v1.json` dict |
-| `ET/test_combine_pick_output.py:341-352` | 1 | the exact `AbstainReason` tuple, the last `AnswerReason`, the last word of each `no_votes` enum list |
-| `ET/test_combine_evidence_words.py:310-322` | 1 | the exact `AnswerRecord.reason` enum list gains `gate_not_met` |
+| `ST/data/schemas/screamingface.answer.v1.json` | 2 | `gate_not_met` in `abstain_reason` and `reason` |
+| `ST/test_pick_output.py:250-264` | 2 | the exact sorted reason lists of `answer.v1.json` gain `gate_not_met` |
+| `ST/test_evidence_words.py:372` and `:460-475` | 2 | `len(ANSWER_REASONS)` 12 → 13; the exact `answer.v1.json` dict |
+| `ET/test_combine_pick_output.py:341-352` | 2 | the exact `AbstainReason` tuple, the last `AnswerReason`, the last word of each `no_votes` enum list |
+| `ET/test_combine_evidence_words.py:310-322` | 2 | the exact `AnswerRecord.reason` enum list gains `gate_not_met` |
 | `ET/data/combine_contract/evidence_cases.json` | 2 | five new gate cases; the 32 existing cases keep their bytes |
-| `ET/test_combine_evidence_contract_fixture.py` | 2 | five new scenario builders and `SCENARIOS[...]` lines (append only) |
-| `ST/test_combine_evidence_contract.py:54` | 2 | one appended `_EXPECTED_NAMES \|= {...}` line |
 | `ST/test_frozen_record_fields.py:184` | 2 | the case count 32 → 37 |
 
-Units 4 and 5: no pinned file. If the append-only gate names another file, the unit stops and the
-ledger records it as a deviation.
+Unit 2 also changes two test files that are append-only. The append-only check does not flag them
+(new module-level statements after the protected ranges are allowed, `.claude/scripts/run_gates.py`
+`append_only_check`), so they need no approval unless the gate names them:
+
+| File | Unit | Change |
+|---|---|---|
+| `ET/test_combine_evidence_contract_fixture.py` | 2 | five new scenario builders and `SCENARIOS[...]` lines, appended |
+| `ST/test_combine_evidence_contract.py` | 2 | one appended `_EXPECTED_NAMES \|= {...}` line after :54 |
+
+The word `gate_not_met` and its pinned edits are in unit 2, not unit 1:
+`ET/test_combine_evidence_contract_fixture.py:413-421` needs every `AbstainReason` in the contract
+scenarios, and the scenario that uses the word (`vote_gate_abstain`) needs the unit 2 endpoint.
+
+How to regenerate: a schema snapshot is deleted, then written once with
+`UPDATE_SCHEMA_SNAPSHOT=1` (the run fails), then checked by a plain run; the public surface
+snapshot is rewritten with `UPDATE_SURFACE_SNAPSHOT=1` (the run fails), then checked by a plain
+run (test-plan §2).
+
+Units 4, 5 and 6: no pinned file. If the append-only gate names another file, the unit stops and
+the ledger records it as a deviation.
 
 ## 9. What changes for related work
 
@@ -202,6 +218,15 @@ ledger records it as a deviation.
 - **The verifier part** adds the optional spec key `verify` and writes the reserved `verifier`
   record.
 
-## 10. Build errata
+## 10. Spec review (2026-10-16)
+
+A design review of this spec gave 6 MAJOR and 12 MINOR findings. All are applied. The main
+changes: the word `gate_not_met` moved from unit 1 to unit 2; the gate-api unit is now two units
+(3 core, 4 fallback calls), so the part has six build units; the CHAR rows use fixed lists
+(test-plan §6); a fallback judge cannot pick an excluded member (GD-E6, GD#21); the writer value
+is normalized (P14); P4 names the polarity for E4c as an owner decision. The ledger records each
+finding and the two places where the fix differs from the review text.
+
+## 11. Build errata
 
 None yet. The build appends here.

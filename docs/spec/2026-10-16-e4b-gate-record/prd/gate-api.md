@@ -65,9 +65,11 @@ class Gate:
     def _spec(self) -> dict[str, object]:
         """{"cmp", "observe", "otherwise": "abstain" | "judge" | "writer", "threshold": float}."""
     def _signal_call(self) -> _ModelSignal | None:
-        """None for abstain; else _ModelSignal("fallback_judge", judge.model,
-        judge_intent("label", judge.rubric), judge.params) or _ModelSignal("fallback_writer",
-        model.model, model.prompt or DEFAULT_SYNTHESIS_PROMPT, model.params)."""
+        """None for abstain. For a Judge: dataclasses.replace(self.otherwise._signal_call(),
+        key="fallback_judge") (reuse Judge._signal_call, S/judge.py:190-196; never rebuild the
+        prompt by hand). For a Model: _ModelSignal("fallback_writer", model.model,
+        model.prompt or DEFAULT_SYNTHESIS_PROMPT, model.params).
+        Unit 3 (plan §2): the Judge and Model branches raise NotImplementedError; unit 4 fills them."""
     def _declared_name(self) -> str | None:
         """<name> of chosen:<name> / mean:<name>; None for agreement."""
     def __repr__(self) -> str:   # Gate('agreement', '>=', 0.7) [+ ", otherwise=" + repr]
@@ -111,10 +113,30 @@ Changes to existing code:
   `fallback_writer`.
 - `S/_evaluation/reducer_signals.py`: `_signal_call_role` checks "a projection field exactly for a
   `writer_<field>` key" (FC-I3) instead of "exactly for the writer role".
+- `S/reducer.py` `Vote._rebuild` (unit 4): a `fallback_judge` signal becomes the gate's judge with
+  `judge_from_signals((dataclasses.replace(signal, key="judge"),), "label")`. The signature of
+  `judge_from_signals` does not change (C7).
 - `S/url4.py`: `_model_signal` gives `fallback_judge` the outputs-form prompt like `judge`.
   `_rebuilt_reducer`: a spec with `gate` rebuilds only through `sf.Vote._rebuild` (no `sf.Reduce`
   fallback); a `gate` on another reducer raises the "cannot rebuild" error of that reducer.
 - `S/__init__.py`: export `Gate`.
+
+**Build split (plan §2, spec review 2026-10-16).** This PRD is built in two units:
+
+- Unit 3 (gate-api-core): `S/gate.py` with the full constructor and its checks, `repr` and
+  `_python`; `_signal_call` returns None for abstain and raises `NotImplementedError` for a Judge
+  or a Model (the test-plan §2 stub rule); `Vote(gate=, verify=)`; `_ReducerPlan.gate`;
+  `_render`; `Vote._rebuild` and `_from_spec_parts` for a gate with no fallback call; the Fusion
+  name check; `combine_spec_text` writes `gate`; `S/__init__.py`; the fixtures
+  `gate_abstain_vote_candidate.url4` and `gate_verbalized_vote_candidate.url4`. Rows 1, 2, 5, 6,
+  7, 8, 9, 12a, 17a, 18a, 19, 20; verifier-slot rows 4–6.
+- Unit 4 (gate-api-fallback): the judge and writer fallback calls: `Gate._signal_call` for a Judge
+  and a Model; `_vote_plan` signal order; topology `_signal_role`, `_decode_signal`,
+  `_operation_shape`; `_signal_call_role`; url4 `_model_signal`, `_rebuilt_reducer`; the
+  `Vote._rebuild` signal split; the fixtures `gate_judge_vote_candidate.url4` and
+  `gate_writer_vote_candidate.url4`. Rows 3, 4, 10, 11, 12b, 13, 14, 15, 16, 17b, 18b.
+
+`ST/public_surface_snapshot.json` is pinned in unit 3 only; unit 4 adds no public name.
 
 ## 3. Scenarios and acceptance criteria
 
@@ -130,8 +152,9 @@ synthesizer=sf.Vote(gate=...))`, compiled with the Engine operator catalog
   combine context has no `signals` key. [stated ans:Q3]
 - **GA-2** Given F with `gate=sf.Gate("agreement", ">=", 0.7, otherwise=sf.Judge("prov/judge",
   returns="label", rubric="Pick the best answer."))`, then the url4 has one more source `judge_1` on
-  route `/prov/judge` whose intent starts with `judge-template@1 returns=label\n` and ends with
-  `Rubric:\nPick the best answer.`; its params are `binding=judge_1`; the combine context has
+  route `/prov/judge` whose decoded `_Call.prompt` (Python form, newlines as `\n`; the url4 text
+  holds U+2028 for each newline, S/_evaluation/candidate.py:969-980) starts with
+  `judge-template@1 returns=label\n` and ends with `Rubric:\nPick the best answer.`; its params are `binding=judge_1`; the combine context has
   `signals: {fallback_judge: '$judge_1'}`; the operations hold
   `{"id": "op_judge_1", "kind": "judge", "label": "vote fallback judge", "depends_on":
   ["op_model_1", "op_model_2", "op_model_3"]}` and the combine operation depends on `op_judge_1`
@@ -188,8 +211,9 @@ synthesizer=sf.Vote(gate=...))`, compiled with the Engine operator catalog
   `Fallback_judge` are refused by both.
 - **GA-D6** (H×M) [proposed] P19 Four SDK-compiled url4 fixtures (new files, each with a drift guard
   that compares the file to the compile): `gate_abstain_vote_candidate.url4` (GA-1 with
-  `>= 0.7`), `gate_judge_vote_candidate.url4` (GA-2), `gate_writer_vote_candidate.url4` (GA-3) and
-  `gate_verbalized_vote_candidate.url4` (GA-4).
+  `>= 0.7`) and `gate_verbalized_vote_candidate.url4` (GA-4) in unit 3;
+  `gate_judge_vote_candidate.url4` (GA-2) and `gate_writer_vote_candidate.url4` (GA-3) in unit 4.
+  Unit 4 appends its two builders to the builder table of unit 3 with a `|=` line.
 - **GA-D7** (H×H) [stated ans:Q1] Given each GA-D6 fixture run offline in the Engine world with the
   member replies `prov/alpha "A"`, `prov/beta "A"`, `prov/gamma "B"` (and, for GA-4, the texts
   `"Confidence: 90\nA"`, `"Confidence: 60\nA"`, `"Confidence: 30\nB"`), the judge reply
@@ -225,11 +249,12 @@ None.
 Order: characterize the ungated vote, then the constructor, then the compile, then the rebuild,
 then the fixtures and the Engine runs. New test files: `ST/test_gate_api.py` (rows 1–16, 19, and
 verifier-slot rows 4–6), `ST/test_gate_contract_fixtures.py` (row 17), `ET/test_combine_gate_run.py`
-(row 18). Row 20 is the pinned public surface.
+(row 18). Row 20 is the pinned public surface. Unit 3 builds rows 1, 2, 5–9, 12a, 17a, 18a, 19,
+20; unit 4 builds rows 3, 4, 10, 11, 12b, 13–16, 17b, 18b (test-plan §2, the `a` / `b` rule).
 
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
-| 1 | CHAR `vote_without_gate_keeps_its_bytes_repr_and_rebuild` (every `ET/data/combine_contract/*.url4` fixture recompiles byte-equal; `repr(sf.Vote())` unchanged) | unit | GA-6 | H×M | passes today |
+| 1 | CHAR `vote_without_gate_keeps_its_bytes_repr_and_rebuild` (each of the 43 url4 files of list L43 recompiles byte-equal; `repr(sf.Vote())` unchanged). A fixed list, never a glob, so later units cannot turn it red (test-plan §6) | unit | GA-6 | H×M | passes today |
 | 2 | `gate_abstain_compiles_the_spec_gate_and_no_extra_call` | unit | GA-1 | H×H | `_ReducerPlan.gate`, `combine_spec_text` |
 | 3 | `judge_fallback_compiles_one_label_judge_call` | unit | GA-2 | H×H | `Gate._signal_call`, topology |
 | 4 | `writer_fallback_compiles_one_writer_call_without_projection` | unit | GA-3 | H×H | `_signal_call_role`, `_operation_shape` |
@@ -240,12 +265,15 @@ verifier-slot rows 4–6), `ST/test_gate_contract_fixtures.py` (row 17), `ET/tes
 | 9 | `vote_refuses_a_gate_that_is_not_a_gate` | unit | GA-E3 | M×L | — |
 | 10 | `quorum_panel_gives_the_fallback_the_panel` | unit | GA-D1 | H×M | existing panel rule |
 | 11 | `fallback_params_go_to_the_preflight` | unit | GA-D2 | H×M | existing assignment |
-| 12 | `gated_votes_round_trip_through_to_python` (GA-1..GA-4, GA-D4) | unit | GA-5 | H×H | `Vote._rebuild`, url4 |
+| 12a | `gated_votes_round_trip_through_to_python` (GA-1, GA-4: abstain and verbalized) | unit | GA-5 | H×H | `Vote._rebuild`, url4 |
+| 12b | `gated_votes_with_a_fallback_call_round_trip_through_to_python` (GA-2, GA-3, GA-D4) | unit | GA-5 | H×H | the `_rebuild` signal split |
 | 13 | `hand_edited_gate_urls_cannot_rebuild` | unit | GA-E4 | H×M | `_rebuilt_reducer` |
 | 14 | `writer_default_prompt_rebuilds_without_prompt` | unit | GA-D3 | M×M | — |
 | 15 | `judge_weighted_vote_with_a_judge_fallback_has_two_judge_calls` | unit | GA-D4 | M×M | signal order |
 | 16 | `signal_key_bind_accepts_the_fallback_keys` | unit | GA-D5 | H×M | Engine `_SIGNAL` (unit 2), SDK `_signal_role` |
-| 17 | `gate_url4_fixtures_match_the_sdk_compile` (writes 4 new fixture files) | unit | GA-D6 | H×M | `write_fixtures()` |
-| 18 | `engine_runs_each_gated_fixture_offline` | integration (Engine world, fake gateway) | GA-D7 | H×H | no Engine change expected |
+| 17a | `gate_url4_fixtures_match_the_sdk_compile` (abstain, verbalized: 2 new fixture files) | unit | GA-D6 | H×M | `write_fixtures()` |
+| 17b | `gate_fallback_url4_fixtures_match_the_sdk_compile` (judge, writer: 2 new fixture files) | unit | GA-D6 | H×M | `write_fixtures()` |
+| 18a | `engine_runs_each_gated_fixture_offline` (abstain, verbalized: three requests each) | integration (Engine world, fake gateway) | GA-D7 | H×H | no Engine change expected |
+| 18b | `engine_runs_each_fallback_fixture_offline` (judge, writer: four requests each) | integration (Engine world, fake gateway) | GA-D7 | H×H | no Engine change expected |
 | 19 | `gate_repr_and_python_form` | unit | GA-D8 | M×L | `__repr__`, `_python` |
 | 20 | PIN `public_surface_lists_gate_and_the_vote_parameters` (regenerate `ST/public_surface_snapshot.json`) | unit | GA-D9 | M×M | pinned edit |

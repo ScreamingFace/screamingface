@@ -64,7 +64,8 @@ check comes with no new join type and no rename.
 ### 3.3 Derived scenarios
 
 - **VS-D1** (M×M) [proposed] Given any evidence the Engine writes in this part, then it has no
-  `verifier` key (the 37 contract cases).
+  `verifier` key: every case in `evidence_cases.json` (32 at unit 1, 37 after unit 2). The row
+  loops over the file, not over a count, so it stays true when unit 2 adds cases.
 - **VS-D2** (M×L) [proposed] Given a compiled Vote, then `repr(vote)` and `Url4.to_python()` have
   no `verify`, and a rebuilt Vote has `verify is None`.
 

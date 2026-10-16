@@ -47,15 +47,23 @@ and the branch, so that I can check and replay the decision from the evidence.
 
 **Delta.**
 
+0. The build unit of this PRD (plan unit 2) also adds the abstain word `gate_not_met` and GR-I3 of
+   [gate-record](gate-record.md) (rows GR#2, GR#12, GR#14, GR#15, GR#16), because the contract
+   scenarios must cover every `AbstainReason` in the same unit that adds the word.
 1. `E/combine/spec.py`: `_SIGNAL = re.compile(r"judge|fallback_judge|fallback_writer|writer_[A-Za-z_][A-Za-z0-9_]*")`
    (one string literal: `ST/unit/test_signal_key_conformance.py:115-127` reads it with `ast`).
 2. `E/combine/ports.py`: move `parse_label` and `_LABEL_INVALID` here, beside `parse_scores`.
    `E/combine/operators/judge.py` imports `parse_label` from ports and keeps it in its `__all__`, so
    `from screamingface_engine.combine.operators.judge import parse_label` still works. Give
-   `judge_reply` a keyword `key: str = "judge"`; the message for a missing key becomes
-   `f"{owner} needs the {key} signal"` only when `key != "judge"` (the `judge` text stays the same).
-3. New pure module `E/combine/gate.py` (imports `math`, `operator`, `collections.abc`, and
-   `combine.ports`, `combine.spec` types only):
+   `judge_reply(signals, owner, *, key="judge")` a keyword `key`: it reads `signals.get(key)` and
+   always raises `SpecInvalid(f"{owner} needs the {key} signal")` when the key is absent. The text
+   for `judge` stays the same.
+   Docstring updates (they become false otherwise): the module docstring of
+   `E/combine/operators/judge.py` (:15-16, "`parse_label` stays here") says that `parse_label`
+   moved to ports so that the core can read the fallback label (part 3 erratum E1).
+3. New pure module `E/combine/gate.py` (imports only the standard library (`math`, `operator`,
+   `collections.abc`), `combine.ports` and `combine.spec`; never `combine.operators` or
+   `combine.builtins`, C9):
 
    ```python
    def observed_number(
@@ -68,8 +76,9 @@ and the branch, so that I can check and replay the decision from the evidence.
    def passes(observed: float | None, cmp: GateCmp, threshold: float) -> bool:
        """False when observed is None (P10); else operator.ge/gt/le/lt(observed, threshold)."""
 
-   def fallback_label(signals: Mapping[str, str], present: Sequence[str]) -> JudgeReading:
-       """judge_reply(signals, "the gate fallback", key="fallback_judge"), then parse_label over present."""
+   def fallback_label(signals: Mapping[str, str], kept: Sequence[str]) -> JudgeReading:
+       """judge_reply(signals, "the gate fallback", key="fallback_judge"), then parse_label over
+       kept: the present members that the step did not exclude (GD-E6)."""
 
    def fallback_text(signals: Mapping[str, str]) -> str:
        """signals["fallback_writer"]; SpecInvalid("the gate fallback needs the fallback_writer signal")."""
@@ -80,6 +89,8 @@ and the branch, so that I can check and replay the decision from the evidence.
    ```
 
 4. `E/combine/endpoint.py`:
+   - Docstring updates: the module INVARIANT (:15-18) and `_decide` (:420, "Only these two steps
+     may abstain") name the gate as a third source of an abstain (`gate_not_met`).
    - `_combine`: after `parse_context`, call `check_fallback_signals(spec.gate, context.signals)`.
    - Every "the vote found no answer" path (`no_votes` with no voter; a `NoVotes` from reduce or
      select) passes `gate=_not_run(spec)`: `None` when the spec has no gate, else
@@ -92,7 +103,19 @@ and the branch, so that I can check and replay the decision from the evidence.
      | true | any | `selection` | `_output(selection, ...)` (today) | `_result(...)` (today) | `gate.branch = "majority"` |
      | false | `abstain` | — | `""` | `ResultRecord(None, None, "abstain", "gate_not_met")` | `chosen=[]`, `built=False`; `tally`, `agreement`, `tie` from `selection` |
      | false | `judge` | `Selection(chosen=(label,), tie=selection.tie, agreement=selection.agreement)` | the label member's text, byte for byte | that member's value | `judge` = the label reading; `presentation_order="author"` |
-     | false | `writer` | `Selection(chosen=(), output=text, tie=selection.tie, agreement=selection.agreement)` | `text` (8 MiB cap through `_output`) | built, `value=text` | `built=True`, `chosen=[]` |
+     | false | `writer` | `Selection(chosen=(), output=text, tie=selection.tie, agreement=selection.agreement)` | `text` (8 MiB cap through `_output`) | built, `value = _stages(text, plan)[2]` (P14) | `built=True`, `chosen=[]` |
+
+   - Judge row, GD-E6: `kept` = the members of `combine_input.present`, in that order, whose
+     `_record_status(answer, plan.excludes)[0] != "excluded"` (the same rule that writes the member
+     records). `reading = fallback_label(context.signals, kept)`; `label = reading.parsed`. A label
+     that names an excluded member raises `JudgeReplyInvalid` ("the judge reply is not exactly one
+     member id"), never a pydantic error from CE-I3 (E/combine/evidence.py:182-185).
+   - Judge row: `_gated` passes `dataclasses.replace(reduction, judge=reading)` to `_evidence`, so
+     `_judge_record` (E/combine/endpoint.py:851-856) writes the fallback reading into `judge`.
+   - Writer row, P14: `output = _output(...)` first (it raises `InputTooLarge` over 8 MiB). Then
+     `value` is the vote's own extract and normalize applied to the writer text:
+     `_stages(text, plan)[2]`, which is None when nothing is extracted. So `value` has one meaning
+     in a vote: the normalized answer. The raw writer text is the output, not the value.
 
    - `_abstain` gets the keywords `selection: Selection | None = None` and `gate: GateRecord | None = None`.
    - `_evidence` gets the keyword `gate: GateRecord | None = None` and these two rules (they keep
@@ -130,8 +153,8 @@ agreement is 2/3 = `0.6666666666666666` (the float of `Decimal(2) / Decimal(3)`)
   `gate.branch = "fallback"`, `gate.otherwise = "judge"`. [stated ans:Q3]
 - **GD-4** Given fixture V, `gate = {agreement, >=, 0.7, writer}` and `fallback_writer =
   "C written"`, then the output is `"C written"`, `result = {"member_id": null, "value":
-  "C written", "status": "answered", "reason": null}`, `built = true`, `chosen = []`,
-  `presentation_order = null`. [stated ans:Q3]
+  "c written", "status": "answered", "reason": null}` (`last_line@1`, then `text@1` casefolds),
+  `built = true`, `chosen = []`, `presentation_order = null`. [stated ans:Q3]; [proposed] P14
 - **GD-5** Given a spec that declares `signals = {"conf": {"source": "verbalized", "pattern":
   "Confidence: ([0-9]+)"}}`, the V operators, the texts `"Confidence: 90\nA"`,
   `"Confidence: 60\nA"`, `"Confidence: 30\nB"`, and `gate = {chosen:conf, >=, 80, abstain}`, then
@@ -164,6 +187,15 @@ agreement is 2/3 = `0.6666666666666666` (the float of `Decimal(2) / Decimal(3)`)
   then `InputTooLarge` (`combine_input_too_large`). [existing E/combine/endpoint.py:690-691]
 - **GD-E5** Given `gate = {agreement, >=, 0.7, judge}` and a `fallback_judge` of 64 KiB + 1 byte,
   then `JudgeReplyInvalid` (`"the judge reply exceeds 64 KiB"`). [existing E/combine/ports.py:601-613]
+- **GD-E6** Given the `vote_weight_excluded` spec and texts (`json_field@1 path=answer`, `text@1`,
+  `weighted_mode@1`, `max_weight_holder@1`, `weights = {"signal": "field:confidence"}`; the texts
+  `{"answer":"A","confidence":0.9}`, `{"answer":"A","confidence":0.4}`, `{"answer":"B"}`, so
+  member_3 has no weight and is `excluded` / `no_weight`, and `agreement = 1.0`), `gate =
+  {agreement, >, 1.0, judge}` (1.0 > 1.0 is false, so the step takes the fallback) and
+  `fallback_judge = "member_3"`, then `run_combine` raises `JudgeReplyInvalid` ("the judge reply is
+  not exactly one member id"), not a pydantic `ValidationError`. With `fallback_judge = "member_2"`
+  the result is `{"member_id": "member_2", "value": "a", "status": "answered", "reason": null}`.
+  [proposed] (CE-I3, E/combine/evidence.py:182-185)
 
 ### 3.3 Derived scenarios (risk-ordered)
 
@@ -201,7 +233,7 @@ agreement is 2/3 = `0.6666666666666666` (the float of `Decimal(2) / Decimal(3)`)
   `vote_gate_majority` (`{agreement, >=, 0.6, abstain}`), `vote_gate_abstain`
   (`{agreement, >=, 0.7, abstain}`), `vote_gate_judge` (`{agreement, >=, 0.7, judge}`,
   `fallback_judge = "member_3"`), `vote_gate_writer` (`{agreement, >=, 0.7, writer}`,
-  `fallback_writer = "It is 10"`), and `vote_gate_not_run` (texts `"none"`, `"no number"`,
+  `fallback_writer = "It is 10"`; result value `"10"`, P14), and `vote_gate_not_run` (texts `"none"`, `"no number"`,
   `"nothing"`; `{agreement, >=, 0.6, abstain}`). The 32 existing cases keep their bytes, and the
   abstain reasons of the scenarios cover `get_args(AbstainReason)`.
 - **GD-D10** (M×M) [proposed] FC-I1 Given a judge-weighted vote (`weights = {"signal":
@@ -232,7 +264,10 @@ None.
 
 Order: characterize the ungated vote, then the four branches on fixture V, then the declared-signal
 numbers, then the errors, then the derived rows, then the contract fixture. New test file:
-`ET/test_combine_gate.py` (rows 1–18, 20). Row 19 is the pinned contract fixture.
+`ET/test_combine_gate.py` (rows 1–18, 20, 21). Row 19 is the contract fixture: the builders and
+the `SCENARIOS[...]` lines are appended (the append-only check does not flag new module-level
+statements), and the regenerated `evidence_cases.json` and `ST/test_frozen_record_fields.py:184`
+are the true pinned edits.
 
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
@@ -254,5 +289,6 @@ numbers, then the errors, then the derived rows, then the contract fixture. New 
 | 16 | `missing_observed_number_takes_the_fallback` | unit | GD-D2, GD-D3 | H×M | `passes(None)` is false |
 | 17 | `weighted_vote_gate_reads_the_weight_share` | unit | GD-D6 | H×M | — |
 | 18 | `gate_abstain_marks_the_case_abstained_and_logs_its_reason` | unit | GD-D7, GD-D8 | H×M | no change expected (CHAR-like after GREEN) |
-| 19 | PIN `evidence_contract_fixture_has_the_five_gate_cases` (append builders and `SCENARIOS[...]` lines to `ET/test_combine_evidence_contract_fixture.py`; regenerate `evidence_cases.json`; append the names to `ST/test_combine_evidence_contract.py`; `ST/test_frozen_record_fields.py:184` 32 → 37) | unit | GD-D9 | H×M | pinned edits |
+| 19 | PIN `evidence_contract_fixture_has_the_five_gate_cases` (append builders and `SCENARIOS[...]` lines to `ET/test_combine_evidence_contract_fixture.py`; regenerate `evidence_cases.json`; append one `_EXPECTED_NAMES \|= {...}` line to `ST/test_combine_evidence_contract.py`; `ST/test_frozen_record_fields.py:184` 32 → 37) | unit | GD-D9 | H×M | pinned edits: `evidence_cases.json`, `test_frozen_record_fields.py:184`; append only: the two test files |
 | 20 | `judge_weighted_vote_with_a_judge_fallback_reads_both_signals` | unit | GD-D10 | M×M | key `judge` vs `fallback_judge` |
+| 21 | `fallback_judge_cannot_pick_an_excluded_member` | unit | GD-E6 | H×M | `kept` in `_gated` |

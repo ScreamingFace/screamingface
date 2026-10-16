@@ -14,6 +14,18 @@ This is a component PRD. It owns the WORDS and the WIRE KEYS of the gate on both
 `sf.report.CombineGate`. No code writes a gate record yet; [gate-decision](gate-decision.md) does
 that. The part 2 unit 1 precedent ("words and schema") applies.
 
+**Build split (plan §2, spec review 2026-10-16).** This PRD is built in two units:
+
+- Unit 1 (gate-record): the spec key `gate`, `GateRecord` with GR-I1, GR-I2, GR-I4, GR-I5, the
+  reserved `verifier`, `CombineGate` and the decoder. Rows 1, 3–11, 13, 17.
+- Unit 2 (gate-decision): the abstain word `gate_not_met` on both sides (Engine `AbstainReason`,
+  `AnswerReason`, `ABSTAIN_REASONS`; `S/answer.py`) and GR-I3. Rows 2, 12, 14, 15, 16.
+
+WHY: `ET/test_combine_evidence_contract_fixture.py:413-421` asserts that the abstain reasons of the
+contract scenarios equal `set(get_args(AbstainReason))`. The only scenario with `gate_not_met`
+(`vote_gate_abstain`) needs the unit 2 endpoint. If unit 1 added the word, the unit 1 Engine gate
+would be red.
+
 ## 2. Background and constraints
 
 - "Records the comparison and the branch." [stated ans:Q1]
@@ -40,9 +52,11 @@ that. The part 2 unit 1 precedent ("words and schema") applies.
 
 ```python
 # E/combine/ports.py
+# unit 2 (the reason word):
 AbstainReason = Literal["no_votes", "cut_not_met", "output_missing", "gate_not_met"]
 AnswerReason = Literal[..., "no_votes", "cut_not_met", "output_missing", "gate_not_met"]
 ABSTAIN_REASONS: tuple[AbstainReason, ...] = ("no_votes", "cut_not_met", "output_missing", "gate_not_met")
+# unit 1 (the gate words):
 GateCmp = Literal[">=", ">", "<=", "<"]
 GateOtherwise = Literal["abstain", "judge", "writer"]
 GateBranch = Literal["majority", "fallback"]
@@ -98,18 +112,19 @@ class CombineEvidence(_EvidenceModel):
     verifier: None = Field(default=None, exclude_if=lambda value: value is None)           # new, verifier-slot
     result: ResultRecord
     ...
-    # _check adds GR-I3, GR-I4, GR-I5 (erd §4)
+    # _check adds GR-I4, GR-I5 (unit 1) and GR-I3 (unit 2) (erd §4)
 ```
 
 **Delta (SDK).**
 
-- `S/answer.py`: add `"gate_not_met"` to `AbstainReason` and to `AnswerReason` (after
+- `S/answer.py` (unit 2): add `"gate_not_met"` to `AbstainReason` and to `AnswerReason` (after
   `"output_missing"`, before the exclude reasons).
 - `S/combine_evidence.py`: new frozen dataclass `CombineGate` with the seven fields in record order,
   `__post_init__` checks (types, the `observe` grammar, GR-I1, GR-I2), and `to_dict()` in record
-  order. `CombineEvidence` gets the keyword `gate: CombineGate | None = None`; it checks GR-I3,
-  GR-I4, GR-I5 and writes `**({} if self.gate is None else {"gate": self.gate.to_dict()})` after
-  `declared` and before `result`.
+  order. `CombineEvidence` gets the keyword `gate: CombineGate | None = None`; it checks GR-I4
+  and GR-I5 (unit 1), then GR-I3 (unit 2), and writes
+  `**({} if self.gate is None else {"gate": self.gate.to_dict()})` after `declared` and before
+  `result`.
 - `S/report.py`: export `CombineGate` (`sf.report.CombineGate`, beside `CombineCut`, :43, :1107).
 - `S/_evaluation/combine_evidence.py`: `_OPTIONAL_EVIDENCE_KEYS` adds `"gate"` (and `"verifier"`,
   [verifier-slot](verifier-slot.md)); `_GATE_KEYS = {"observe", "observed", "cmp", "threshold",
@@ -126,15 +141,16 @@ class CombineEvidence(_EvidenceModel):
   `parse_spec` returns a `CombineSpec` whose `gate` is
   `GateSpec(observe="agreement", cmp=">=", threshold=0.7, otherwise="abstain")`. [stated ans:Q2]
 - **GR-2** Given a `CombineEvidence` with
-  `gate=GateRecord(observe="agreement", observed=0.6666666666666666, cmp=">=", threshold=0.7,
-  passed=False, branch="fallback", otherwise="abstain")` and
-  `result=ResultRecord(member_id=None, value=None, status="abstain", reason="gate_not_met")`, then
+  `gate=GateRecord(observe="agreement", observed=0.6666666666666666, cmp=">=", threshold=0.6,
+  passed=True, branch="majority", otherwise="abstain")`, `chosen=["member_1"]` and
+  `result=ResultRecord(member_id="member_1", value="a", status="answered", reason=None)` (the
+  majority branch: unit 1 has no `gate_not_met` word yet), then
   `model_dump(mode="json", by_alias=True)` has the top-level keys in this order: `schema`, `kind`,
   `reducer`, `operators`, `members`, `tally`, `judge`, `fields`, `chosen`, `built`, `agreement`,
   `tie`, `median`, `presentation_order`, `separator_collision`, `signal`, `gate`, `result`,
   `dropped`, `finish_reason`; and `gate` has the keys `observe`, `observed`, `cmp`, `threshold`,
   `passed`, `branch`, `otherwise`, in that order. [proposed] P9
-- **GR-3** Given that wire (GR-2, `agreement` 0.6666666666666666, `chosen` [], tally
+- **GR-3** Given that wire (GR-2, `agreement` 0.6666666666666666, `chosen` `["member_1"]`, tally
   `[{"value":"a","score":2.0,"holders":["member_1","member_2"]},{"value":"b","score":1.0,"holders":["member_3"]}]`),
   then `decode_combine_evidence(wire, "x")` returns a `CombineEvidence` whose `gate` is a
   `CombineGate` with the same seven values, and `to_dict() == wire`. [proposed]
@@ -155,11 +171,17 @@ class CombineEvidence(_EvidenceModel):
   `observe: "chosen:cost_usd"`; `observe: "consensus"`; `cmp: "=="`; `observe: "agreement"` with
   `cmp: "<"`; `observe: "agreement"` with `threshold: 9.5`; `otherwise: "retry"`; a missing
   `threshold`; an extra key `"note": 1`. [proposed]
-- **GR-E3** Given an Engine `GateRecord` with `passed=True, branch="fallback"`, or `passed=None,
-  branch="majority"`, or `passed=None, observed=0.5`, then a `ValidationError`. Given a
-  `CombineEvidence` with `result.reason == "gate_not_met"` and no gate, or a gate with
-  `branch="fallback", otherwise="judge"` and `result.reason == "gate_not_met"`, or an agreement gate
-  with `observed=0.5` and `agreement=0.6`, then a `ValidationError`. [proposed] GR-I1..I5
+- **GR-E3** (unit 1: GR-I1, GR-I2, GR-I4, GR-I5) Given an Engine `GateRecord` with `passed=True,
+  branch="fallback"`, or `passed=None, branch="majority"`, or `passed=None, observed=0.5`, then a
+  `ValidationError`. Given a `CombineEvidence` with an agreement gate with `observed=0.5` and
+  `agreement=0.6`; or a gate with `branch="fallback", otherwise="writer"` and `built=False`; or a
+  gate with `branch="fallback", otherwise="judge"` and `judge=None`, then a `ValidationError`. A
+  gate with `branch="majority"` and `otherwise="judge"` or `"writer"`, with `judge=None` and the
+  result of the chosen member, is valid (GR-I5 reads only the fallback branch). [proposed]
+- **GR-E3b** (unit 2: GR-I3) Given a `CombineEvidence` with `result.reason == "gate_not_met"` and
+  no gate, or a gate with `branch="fallback", otherwise="judge"` and `result.reason ==
+  "gate_not_met"`, then a `ValidationError` in the Engine model and a `ValueError` in the SDK
+  `CombineEvidence`. [proposed] GR-I3
 - **GR-E4** Given the GR-3 wire with an extra gate key, a missing gate key, `"passed": "no"`, or
   `"branch": "maybe"`, then `decode_combine_evidence` raises `ExecutionError`. [existing strict decoder]
 
@@ -169,10 +191,10 @@ class CombineEvidence(_EvidenceModel):
   then the keys are in the order `signal`, `cut`, `declared`, `gate`, `result`.
 - **GR-D2** (H×M) [implied] The schema ids stay `screamingface.combine-spec.v1` and
   `screamingface.combine-evidence.v1`; the new keys are not in `required`.
-- **GR-D3** (M×M) [proposed] The Engine `ABSTAIN_REASONS` is
+- **GR-D3** (M×M) [proposed] (unit 2) The Engine `ABSTAIN_REASONS` is
   `("no_votes", "cut_not_met", "output_missing", "gate_not_met")`, and `NoVotes(reason="gate_not_met")`
   is accepted (the gate does not use it; the word set is one list).
-- **GR-D4** (H×M) [existing ST/test_evidence_words.py:361-372] The SDK `ANSWER_REASONS` equals the
+- **GR-D4** (H×M) [existing ST/test_evidence_words.py:361-372] (unit 2) The SDK `ANSWER_REASONS` equals the
   Engine `AnswerRecord.reason` enum words: 13 words, that is the Engine `AnswerReason` (11 with
   `gate_not_met`) and the two exclude words.
 - **GR-D5** (M×M) [proposed] A `CombineGate` refuses `observed=float("nan")`, `threshold=True`, an
@@ -199,27 +221,37 @@ None.
 ## 7. TDD plan
 
 Order: characterize the existing bytes, then the words, then the Engine models, then the SDK mirror.
-New test files: `ET/test_combine_gate_words.py`, `ST/test_gate_words.py`.
+New test files: `ET/test_combine_gate_words.py`, `ST/test_gate_words.py`. Unit 1 builds rows 1,
+3–11, 13 and 17. Unit 2 builds rows 2, 12, 14, 15 and 16 (the `gate_not_met` word and GR-I3); it
+appends its test functions to the two files of unit 1. The two files are new in this branch, so
+the append-only check does not read them.
 
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
-| 1 | CHAR `existing_evidence_and_specs_have_no_gate_key` (the 32 cases on both sides; every `ET/data/combine_contract/*.url4` spec parses with `gate is None`) | unit | GR-4 | H×M | passes today |
-| 2 | `gate_not_met_is_an_abstain_word_on_both_sides` | unit | GR-5, GR-D3 | H×M | ports and S/answer.py |
+| 1 | CHAR `existing_evidence_and_specs_have_no_gate_key` (the 32 cases of list L32 on both sides; each combine spec in the 43 url4 files of list L43 parses with `gate is None`). A fixed list, never a glob, so later units cannot turn it red (test-plan §6) | unit | GR-4 | H×M | passes today |
+| 2 | (unit 2) `gate_not_met_is_an_abstain_word_on_both_sides` | unit | GR-5, GR-D3 | H×M | ports and S/answer.py |
 | 3 | `engine_parses_a_gate_on_a_vote_spec` | unit | GR-1 | H×M | `GateSpec`, `CombineSpec.gate` |
 | 4 | `engine_refuses_a_gate_on_another_reducer_and_an_explicit_null` | unit | GR-E1 | H×M | `_check_gate` |
 | 5 | `engine_refuses_bad_gate_fields_without_echo` (parametrized, GR-E2 list) | unit | GR-E2 | H×M | wrap validator, fixed messages |
 | 6 | `gate_record_serializes_in_the_pinned_key_order` | unit | GR-2 | H×M | field order |
-| 7 | `gate_record_and_evidence_invariants_refuse_mismatches` | unit | GR-E3 | H×M | `_check` |
+| 7 | `gate_record_and_evidence_invariants_refuse_mismatches` (GR-I1, GR-I2, GR-I4, GR-I5) | unit | GR-E3 | H×M | `_check` |
 | 8 | `evidence_with_every_optional_key_orders_signal_cut_declared_gate_result` | unit | GR-D1 | H×M | field placement |
 | 9 | `sdk_decodes_and_round_trips_a_gate_record` | unit | GR-3 | H×M | `_gate`, `CombineGate.to_dict` |
-| 10 | `sdk_decoder_refuses_bad_gate_records` | unit | GR-E4 | M×M | exact keys, words |
+| 10 | `sdk_decoder_refuses_bad_gate_records` (also a GR-I4 or GR-I5 break, and a judge-fallback gate whose chosen member is `excluded`) | unit | GR-E4, GR-E3 | M×M | exact keys, words, `CombineEvidence` checks |
 | 11 | `sdk_combine_gate_refuses_bad_values` | unit | GR-D5 | M×M | `__post_init__` |
-| 12 | `sdk_answer_and_result_accept_gate_not_met` | unit | GR-5 | M×M | words |
-| 13 | PIN `schema_snapshots_hold_the_gate_and_gate_not_met` (spec v1: `gate` property, not required; evidence v1: `gate`, `verifier` properties, not required, `GateRecord` def keys; answer.v1: the word in both lists) — regenerate the three snapshots (pinned edits) | unit | GR-D2 | H×M | regenerate with the existing update variable |
-| 14 | `sdk_reason_words_equal_the_engine_enum` (13 words; `decode_combine_spec` accepts a gate dict, refuses a gate list) | unit | GR-D4, GR-D6 | H×M | — |
+| 12 | (unit 2) `sdk_answer_and_result_accept_gate_not_met` | unit | GR-5 | M×M | words |
+| 13 | PIN `schema_snapshots_hold_the_gate_and_the_verifier` (spec v1: `gate` property, not required; evidence v1: `gate`, `verifier` properties, not required, `GateRecord` def keys). It never asserts a reason enum, so unit 2 cannot turn it red. Regenerate the spec v1 and evidence v1 snapshots (pinned edits) | unit | GR-D2 | H×M | delete the pinned file, run the freeze test once with `UPDATE_SCHEMA_SNAPSHOT=1` (it writes the file and fails), then run it again without the variable (test-plan §2) |
+| 14 | (unit 2) `sdk_reason_words_equal_the_engine_enum` (13 words) | unit | GR-D4 | H×M | — |
+| 15 | (unit 2) PIN `schema_snapshots_hold_gate_not_met` (evidence v1: `gate_not_met` in the two reason enums; answer.v1: the word in both lists). Regenerate the evidence v1 and answer.v1 snapshots (pinned edits) | unit | GR-D2, GR-5 | H×M | the delete-then-regenerate steps of row 13 |
+| 16 | (unit 2) `gate_not_met_needs_a_fallback_abstain_gate` (GR-I3 on the Engine model and the SDK `CombineEvidence`) | unit | GR-E3b | H×M | `_check`, `__post_init__` |
+| 17 | `sdk_spec_decoder_accepts_a_gate_dict_and_refuses_a_gate_list` | unit | GR-D6 | M×L | `_OPTIONAL_SPEC_KEYS` |
 
-Pinned edits of this PRD (owner approval, plan §6): the three schema snapshots,
-`ST/public_surface_snapshot.json` (`CombineGate`, `CombineEvidence.gate`), `ST/test_pick_output.py:250-264`,
-`ST/test_evidence_words.py:372` and `:460-475`, `ET/test_combine_pick_output.py:341-352`,
-`ET/test_combine_evidence_words.py:310-322`. Each edit adds `gate_not_met` (or the new count) and
-changes nothing else.
+Pinned edits of this PRD (owner approval, plan §6):
+
+- Unit 1: the spec v1 and evidence v1 schema snapshots (`gate`, `verifier`, `GateRecord`) and
+  `ST/public_surface_snapshot.json` (`CombineGate`, `CombineEvidence.gate`).
+- Unit 2: the evidence v1 schema snapshot again (`gate_not_met` in the two reason enums),
+  `ST/data/schemas/screamingface.answer.v1.json`, `ST/test_pick_output.py:250-264`,
+  `ST/test_evidence_words.py:372` and `:460-475`, `ET/test_combine_pick_output.py:341-352`,
+  `ET/test_combine_evidence_words.py:310-322`. Each edit adds `gate_not_met` (or the new count)
+  and changes nothing else.

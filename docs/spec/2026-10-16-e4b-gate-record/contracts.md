@@ -16,6 +16,10 @@ One section per connection. Path prefixes as in [erd](erd.md).
   ```
 
   [stated ans:Q1, ans:Q2, ans:Q3]; [proposed] P3, P4
+- **Polarity.** `cmp` is the condition that KEEPS the majority: `observed cmp threshold` true →
+  `branch: "majority"`. An escalate-when condition of E4c (`agreement < 0.8`) is stored as its
+  keep form (`{"observe": "agreement", "cmp": ">=", "threshold": 0.8}`). [proposed] P4, owner
+  decision at review (plan §6)
 - **Policies.** The spec is closed (`extra="forbid"`, E/combine/spec.py:106). The key is valid only
   with `"reducer": "vote"`. `<name>` must be a key of the spec `signals`. For `agreement`: `cmp` is
   `>=` or `>`, and `0 <= threshold <= 1`. An explicit `"gate": null` is refused, as for `signals`
@@ -95,7 +99,7 @@ One section per connection. Path prefixes as in [erd](erd.md).
 - **Failure behavior.** A fallback key with no matching gate, or a missing key on the fallback
   branch: `combine_spec_invalid`. A bad label: `judge_reply_invalid`. An oversize writer reply:
   `combine_input_too_large`. [existing codes]
-- **Contract tests.** GD#11–GD#15, GA#16.
+- **Contract tests.** GD#11–GD#15, GD#21, GA#16.
 
 ## C7 Rebuild — url4 → SDK Python (`Url4.to_python`)
 
@@ -107,8 +111,12 @@ One section per connection. Path prefixes as in [erd](erd.md).
   rule), `fallback_*` → the gate fallback. A fallback judge prompt is recovered in its outputs form
   (`outputs_form_prompt`, S/judge.py:257-265) like a `judge` key. A writer prompt equal to
   `DEFAULT_SYNTHESIS_PROMPT` rebuilds as `prompt=None` (the url4.py:284 rule). A spec with `gate`
-  rebuilds only as `sf.Vote` (`_rebuilt_reducer` gives no `sf.Reduce` fallback for it).
-  [proposed] P17
+  rebuilds only as `sf.Vote` (`_rebuilt_reducer` gives no `sf.Reduce` fallback for it). The fallback
+  judge is rebuilt with the existing helper, unchanged:
+  `judge_from_signals((dataclasses.replace(signal, key="judge"),), "label")` (S/judge.py:275-296
+  refuses any key other than `judge`, so the key is renamed before the call). The compile side
+  uses `dataclasses.replace(judge._signal_call(), key="fallback_judge")`, so the prompt is never
+  built twice. [proposed] P17
 - **Failure behavior.** A hand edit gives `ValueError("URL4 Candidate has a vote spec this SDK
   version cannot rebuild")` or the topology error `_REDUCER_INVALID`. [existing S/reducer.py:185-186]
 - **Contract tests.** GA#5, GA#12, GA#13.
@@ -117,6 +125,12 @@ One section per connection. Path prefixes as in [erd](erd.md).
 
 - **Shape.** E4c reads: the spec `gate` (C1), the topology signal key of the fallback call (C2), and
   writes the same evidence record (C3).
+- **Polarity (P4).** The stored `cmp` keeps the majority when true. E4c's API and report show this
+  stored form: an author's `agreement < 0.8` (escalate when) is stored and shown as
+  `agreement >= 0.8` (keep when), and the branch says which way the step went. E4c needs no wire
+  change to read it. If the owner picks the other polarity at review (store the escalate
+  condition: `cmp` true → fallback, and `agreement` takes only `<` or `<=`), that change is made in
+  this part, before any wire ships.
 - **Policies.** FB-I1: the majority branch never reads the fallback reply. GR-I1: when the vote finds
   no answer, the gate does not run and no fallback output is used. So E4c can skip the call on the
   majority branch and on the "not run" branch and produce the same evidence bytes. [proposed] P8
@@ -127,5 +141,6 @@ One section per connection. Path prefixes as in [erd](erd.md).
 ## C9 Dependency rule
 
 The combine core (`E/combine/`) stays pure: the gate logic is in `E/combine/gate.py`, which imports
-only `combine.ports` and the standard library. It does no I/O. [existing E/combine/endpoint.py:11-14]
+only the standard library, `combine.ports` and `combine.spec` (never `combine.operators` or
+`combine.builtins`, the `COMBINE_CORE_FORBIDDEN` rule of `check_layering.py`). It does no I/O. [existing E/combine/endpoint.py:11-14]
 The layering gate (`run_gates.py screamingface-engine`) enforces it. [existing .claude/sdlc.local.md]
