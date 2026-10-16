@@ -31,10 +31,24 @@ from typing import Any, Final
 from .revisions import PARAMETER_CONTRACT_KEY
 
 _TABLE: Final = "request_cache_entries"
+_COLUMNS: Final = (
+    "id",
+    "key_hash",
+    "prompt_hash",
+    "provider",
+    "model",
+    "response_json",
+    "response_size_bytes",
+    "created_at",
+    "updated_at",
+    "expires_at",
+    "last_hit_at",
+    "hit_count",
+    "metadata_json",
+)
 _INSERT: Final = (
-    f"INSERT INTO {_TABLE} (id, key_hash, prompt_hash, provider, model, response_json,"
-    " response_size_bytes, created_at, updated_at, expires_at, last_hit_at, hit_count,"
-    " metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?)"
+    f"INSERT INTO {_TABLE} ({', '.join(_COLUMNS)})"
+    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?)"
     " ON CONFLICT(key_hash) DO NOTHING"
 )
 _TEXT_FIELDS: Final = ("key_hash", "prompt_hash", "provider", "model", "response_json")
@@ -102,6 +116,21 @@ def _parameters(row: Mapping[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def _check_schema(conn: sqlite3.Connection, database: Path) -> None:
+    # WHY the columns, not only the table: a local gateway not started since a migration that
+    # added a column (0011's metadata_json) has the table, and the INSERT would fail with a raw
+    # sqlite3.OperationalError instead of a reason the client can explain.
+    present = {row[1] for row in conn.execute(f"PRAGMA table_info({_TABLE})")}
+    if not present:
+        raise PageRejected("not_a_gateway_database", f"{database} has no {_TABLE} table")
+    missing = [column for column in _COLUMNS if column not in present]
+    if missing:
+        raise PageRejected(
+            "outdated_gateway_database",
+            f"{database} lacks {', '.join(missing)}; apply the gateway's migrations to it first",
+        )
+
+
 def load_page(rows: Sequence[Mapping[str, Any]], database: Path) -> PageLoad:
     """Insert one page's rows into the local gateway database, in one transaction."""
     try:
@@ -109,11 +138,7 @@ def load_page(rows: Sequence[Mapping[str, Any]], database: Path) -> PageLoad:
     except (KeyError, ValueError) as exc:
         raise PageRejected("malformed_row", str(exc)) from exc
     with closing(sqlite3.connect(database, timeout=30.0)) as conn, conn:
-        exists = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (_TABLE,)
-        ).fetchone()
-        if exists is None:
-            raise PageRejected("not_a_gateway_database", f"{database} has no {_TABLE} table")
+        _check_schema(conn, database)
         before = conn.total_changes
         conn.executemany(_INSERT, parameters)
         return PageLoad(rows=len(parameters), inserted=conn.total_changes - before)

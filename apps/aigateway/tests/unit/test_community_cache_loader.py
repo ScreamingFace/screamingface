@@ -168,6 +168,27 @@ def test_a_file_that_is_not_a_gateway_database_is_refused(tmp_path: Path) -> Non
     assert refused.value.reason == "not_a_gateway_database"
 
 
+def test_a_gateway_database_from_before_the_metadata_column_is_refused(tmp_path: Path) -> None:
+    # WHY: a local gateway not started since migration 0011 has the table but no
+    # metadata_json column; the client must get a PageRejected it can explain, not a raw
+    # sqlite3.OperationalError from the INSERT.
+    old = tmp_path / "old.sqlite3"
+    with sqlite3.connect(old) as conn:
+        conn.execute(
+            "create table request_cache_entries (id, key_hash unique, prompt_hash, provider,"
+            " model, response_json, response_size_bytes, created_at, updated_at, expires_at,"
+            " last_hit_at, hit_count)"
+        )
+
+    with pytest.raises(PageRejected) as refused:
+        load_page([_row("a")], old)
+
+    assert refused.value.reason == "outdated_gateway_database"
+    assert "metadata_json" in str(refused.value)
+    with sqlite3.connect(old) as conn:
+        assert conn.execute("select count(*) from request_cache_entries").fetchone() == (0,)
+
+
 # --- revisions -----------------------------------------------------------------------------------
 
 
