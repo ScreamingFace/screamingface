@@ -405,26 +405,59 @@ Append-only, not flagged: `ET/test_combine_evidence_contract_fixture.py`,
 - RED build: pyright reports 2 errors in `ET/test_combine_gate_words.py` (GR#2, lines 766-767)
   and 2 errors in `ST/test_gate_words.py` (GR#12, lines 541 and 544). Each is the unknown word
   `gate_not_met` in a `Literal` type. The word enters with commit B, so these clear in B.
-- (Add any change made during the build here.)
+- Build: the GR-I3 check of §2.6 is the first line of `_check_gate`, not a separate call in
+  `CombineEvidence._check`. `_check` with the extra call had 9 branches (ruff C901 and PLR0912
+  allow 8 and 7). `_check_gate` is called by `_check`, so GR-I3 is still the first gate rule and
+  still runs before GR-I1, GR-I4 and GR-I5. Its docstring names GR-I3.
+- Build: the SDK GR-I3 call (`_gate_reason`) is placed as the spec says: before `_check_gate` in
+  `CombineEvidence.__init__`, and the helper sits after `_result`.
+- Build: `ruff format` reflowed `endpoint.py`, `evidence.py` and the SDK files. No test changed.
 
 ### Notes for the review
 
 - FB-I1: grep shows `fallback_judge` / `fallback_writer` read only in `combine/gate.py`.
 - C9: `combine/gate.py` imports only the standard library, `combine.ports`, `combine.spec`.
 
-### Outcome (fill at the end — required before COMMIT)
+### Outcome
 
-- **Status:** IN_PROGRESS. Commit A (RED tests) is written. The Outcome is filled in commit B.
-- **Actual files:**
-- **Commits:**
+- **Status:** Done. Commit B is built and gated. The engine and SDK data snapshots and the
+  contract fixture are regenerated. The append-only check lists only the pinned files of spec §8
+  and the unit 1 pinned files. Every other gate is green.
+- **Actual files:** Commit B changes 11 source and data files: `E/combine/gate.py` (new),
+  `E/combine/endpoint.py`, `E/combine/evidence.py`, `E/combine/ports.py`, `E/combine/spec.py`,
+  `E/combine/operators/judge.py`, `S/answer.py`, `S/combine_evidence.py`, and the regenerated
+  data files `ET/data/combine_contract/evidence_cases.json`,
+  `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` and
+  `ST/data/schemas/screamingface.answer.v1.json`. No test file is edited in commit B. No file under
+  `.claude/test-change-approvals/` is touched.
+- **Commits:** A `bf4ad7e9f` (RED tests, the pinned test edits of spec §8 items 1-5, the ledger
+  section). B: `feat(e4b): the vote gate chooses and records (part 5 unit 2)`. C: the overview
+  errata for unit 2, `docs(e4b): record the E4b part 5 unit 2 build errata`.
 - **Gates:**
-- **RED log:** commit A. ET `test_combine_gate.py`: 26 items, 1 passed (GD#1), 25 failed.
-  ET `test_combine_gate_words.py`: 2 new failed (GR#2, GR#16 positive control); the 19 unit 1
-  tests pass. ET fixture: 5 byte tests (`KeyError`), `holds_exactly`, `cover_the_evidence_shapes`
-  fail; `test_the_envelope_writes...` passes. ET pinned: `test_answer_and_evidence_v1_list_output_missing`
-  and `test_answer_v1_and_evidence_v1_snapshots_match` fail. ET total: 152 passed, 36 failed,
-  0 errors at collection. ST `test_gate_words.py`: 4 new failed (GR#12, GR#14, GR#15, GR#16).
-  ST `test_combine_evidence_contract.py`: `holds_the_25_scenarios` and 5 new params fail. ST
-  pinned: `test_pick_output` 1, `test_evidence_words` 2, `test_frozen_record_fields` 1. ST total:
-  127 passed, 14 failed, 0 errors at collection. Every failure is the behavior, not an import.
-- **Pinned edits made:**
+  - Focused runs before the gates. Engine: `test_combine_gate.py`, `test_combine_gate_words.py`,
+    the contract fixture, the pick and words tests, the wire schema freeze, the judge, endpoint,
+    abstain, declared-signal and exclusion tests: 318 passed. SDK: `test_gate_words.py`, the
+    contract, pick, words, frozen-field, exclusion, agreement and signal-key tests: 156 passed.
+  - `screamingface-engine`, run 1 with base `4e622af75`: red only on the append-only check. The
+    check lists `tests/unit/data/combine_contract/evidence_cases.json`,
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`,
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json` (unit 1 pinned),
+    `tests/unit/test_combine_evidence_words.py` and `tests/unit/test_combine_pick_output.py`.
+    Run 2 with `--skip-append-only`: ALL GATES GREEN (ruff, ruff format, pyright, layering, pytest
+    with coverage 80 percent).
+  - `screamingface`, run 1 with base `4e622af75`: red only on the append-only check. The check
+    lists `tests/data/schemas/screamingface.answer.v1.json`, `tests/public_surface_snapshot.json`
+    (unit 1 pinned), `tests/test_evidence_words.py`, `tests/test_frozen_record_fields.py` and
+    `tests/test_pick_output.py`. Run 2 with `--skip-append-only`: ALL GATES GREEN (ruff, ruff
+    format, pyright, pytest with coverage 95 percent, notebooks, build, distribution).
+  - `repo`, base `4e622af75`, no flag: ALL GATES GREEN (append-only check passed).
+  - The spec §9 step 7 also names the base `<unit 1 tip>` (`abee4d5cf`). This unit ran only the
+    base `4e622af75`, the base the build task named.
+- **RED log:** the RED log of commit A is in the section above. Commit B did not re-run it.
+- **Flakes:** None seen. No test failed outside the append-only check, so the three known flaky
+  tests (OME-1619) were not run alone.
+- **Pinned edits made:** Commit A holds the §8 test edits (items 1-5). Commit B holds the data
+  regenerations of §8 items 6-8: the engine evidence v1 snapshot (two words: `gate_not_met` in
+  the two enum lists), the SDK `answer.v1` snapshot (two words: `gate_not_met` in
+  `abstain_reason` and `reason`), and `evidence_cases.json` (five cases appended; the script of
+  spec §9 step 3 showed the 32 old cases keep their bytes). No other pinned file changed.

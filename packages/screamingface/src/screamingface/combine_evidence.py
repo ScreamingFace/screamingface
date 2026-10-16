@@ -398,6 +398,7 @@ class CombineEvidence:
         selected_judge = _optional_instance(judge, CombineJudgeReading, "Combine evidence judge")
         selected_agreement = _agreement(agreement)
         selected_gate = _optional_instance(gate, CombineGate, "Combine evidence gate")
+        _gate_reason(selected_gate, selected_result)
         _check_gate(
             selected_gate,
             agreement=selected_agreement,
@@ -486,7 +487,7 @@ def _check_gate(
     built: object,
     result: CombineResult,
 ) -> None:
-    """GR-I1 (evidence part), GR-I4 and GR-I5 of the E4b part 5 erd §4."""
+    """GR-I1 (evidence part), GR-I4 and GR-I5 of the E4b part 5 erd §4 (GR-I3: _gate_reason)."""
     if gate is None:
         return
     if gate.passed is None and result.status != "abstain":
@@ -618,6 +619,15 @@ def _result(value: object, chosen: tuple[str, ...], built: object) -> CombineRes
     if value.member_id is not None and (built or chosen != (value.member_id,)):
         raise ValueError("a member Combine result must be the one chosen member and not built")
     return value
+
+
+def _gate_reason(gate: CombineGate | None, result: CombineResult) -> None:
+    """GR-I3: result.reason "gate_not_met" goes with a gate that took the abstain fallback only."""
+    abstained = gate is not None and gate.branch == "fallback" and gate.otherwise == "abstain"
+    if (result.reason == "gate_not_met") != abstained:
+        raise ValueError(
+            "gate_not_met goes with a gate that took the abstain fallback, and only with it"
+        )
 
 
 def _agreement(value: object) -> float | None:

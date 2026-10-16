@@ -50,7 +50,9 @@ ReadingStatus = Literal[
 ]
 AnswerStatus = Literal["answered", "abstain", "fail"]
 MemberStatus = Literal["answered", "fail"]  # I-A3: a member is never "abstain"
-AbstainReason = Literal["no_votes", "cut_not_met", "output_missing"]
+# E4b part 5 (P13): gate_not_met = the vote gate took the abstain fallback. A scored decline,
+# never a failure code (E4c's fail_closed will be a failure code, so they never share a status).
+AbstainReason = Literal["no_votes", "cut_not_met", "output_missing", "gate_not_met"]
 AnswerReason = Literal[
     "empty",
     "not_numeric",
@@ -63,8 +65,14 @@ AnswerReason = Literal[
     "no_votes",
     "cut_not_met",
     "output_missing",
+    "gate_not_met",
 ]
-ABSTAIN_REASONS: tuple[AbstainReason, ...] = ("no_votes", "cut_not_met", "output_missing")
+ABSTAIN_REASONS: tuple[AbstainReason, ...] = (
+    "no_votes",
+    "cut_not_met",
+    "output_missing",
+    "gate_not_met",
+)
 # E4b part 5 (gate-record PRD): the words of a vote gate. ``GateCmp`` is the PASS condition: when
 # ``observed cmp threshold`` holds, the step keeps the majority (P4).
 GateCmp = Literal[">=", ">", "<=", "<"]
@@ -614,19 +622,33 @@ MAX_JUDGE_REPLY_BYTES = 64 * 1024
 _SCORES_INVALID = "the judge reply is not one JSON object with a finite score for each member"
 _JUDGE_REPLY_TOO_LARGE = "the judge reply exceeds 64 KiB"
 _JUDGE_FENCE = "```"  # the strict rule; decode_json_reply keeps its own loose _FENCE_CLOSE
+_LABEL_INVALID = "the judge reply is not exactly one member id"
 
 
-def judge_reply(signals: Mapping[str, str], owner: str) -> str:
-    """The context's ``judge`` text that ``owner`` (an op id, or score:judge) reads.
+def judge_reply(signals: Mapping[str, str], owner: str, *, key: str = "judge") -> str:
+    """The context's ``key`` text (``judge`` by default) that ``owner`` reads.
 
-    SpecInvalid(f"{owner} needs the judge signal") when absent; JudgeReplyInvalid over 64 KiB.
+    ``key`` is ``fallback_judge`` for the gate fallback (E4b part 5). SpecInvalid(f"{owner} needs
+    the {key} signal") when absent; JudgeReplyInvalid over 64 KiB.
     """
-    raw = signals.get("judge")
+    raw = signals.get(key)
     if raw is None:
-        raise SpecInvalid(f"{owner} needs the judge signal")
+        raise SpecInvalid(f"{owner} needs the {key} signal")
     if utf8_exceeds(raw, MAX_JUDGE_REPLY_BYTES):
         raise JudgeReplyInvalid(_JUDGE_REPLY_TOO_LARGE)
     return raw
+
+
+def parse_label(raw: str, members: Sequence[str]) -> str:
+    """The one member id ``raw`` names. Only surrounding whitespace is trimmed (``str.strip``).
+
+    WHY in ports (E4b part 5): the core reads the gate fallback label with it, and the core never
+    imports a plugin (part 3 erratum E1). ``operators/judge.py`` re-exports it.
+    """
+    label = raw.strip()
+    if label not in members:
+        raise JudgeReplyInvalid(_LABEL_INVALID)
+    return label
 
 
 def _unfenced_judge_reply(text: str) -> str:
@@ -872,6 +894,7 @@ __all__ = [
     "loads_bounded",
     "no_args",
     "output_field_text",
+    "parse_label",
     "parse_scores",
     "rejected",
     "selection_envelope",

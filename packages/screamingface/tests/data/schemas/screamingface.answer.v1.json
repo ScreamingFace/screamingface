@@ -1,6 +1,7 @@
 {
   "abstain_reason": [
     "cut_not_met",
+    "gate_not_met",
     "no_votes",
     "output_missing"
   ],
@@ -22,6 +23,7 @@
     "cut_not_met",
     "empty",
     "field_missing",
+    "gate_not_met",
     "missing",
     "no_match",
     "no_signal",
