@@ -41,3 +41,10 @@ in any spelling still pairs; a valid env token is used without a browser login; 
   `test_default_client_local_discovery`/`test_public_surface` changed to remove the leak
   (approved, `.claude/test-change-approvals/OME-1637.json`); examples `generated_by_version`
   regenerated to the current package version; `sf.Client(...)` deliberately unchanged.
+- **Review round 1 (HupBaHa, CHANGES_REQUESTED on PR #1438):** blocker 1 — Access tokens are
+  parsed once and strictly (finite `exp`/lifetime/expiry, NaN/Infinity refused, non-empty
+  JSON header + decodable signature, future `nbf` rejected), no-echo test extended; blocker 2 —
+  an Access challenge over plain HTTP raises `access_requires_https` and no token is sent
+  over HTTP or ws (sync + async); non-blocking — the hosted-default check normalizes the
+  scheme-default port (`:443`), "proves" → "asserts", umbrella spec/ledger updated to the
+  real OME-1636/OME-1637 state.
