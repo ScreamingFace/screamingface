@@ -27,6 +27,23 @@
       "additionalProperties": false,
       "description": "``gate``: keep the majority when ``observe cmp threshold`` holds (E4b part 5).\n\n``otherwise`` names the fallback that answers when the comparison is false. The fallback call\nitself is in the url4, not in the spec.",
       "properties": {
+        "abstain_band": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Abstain Band"
+        },
         "cmp": {
           "enum": [
             ">=",

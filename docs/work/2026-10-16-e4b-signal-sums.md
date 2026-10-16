@@ -487,8 +487,22 @@ unit 4; the SDK keyword is unit 5.
 
 ### Outcome (fill at the end, before commit B)
 
-- RED result: …
-- GREEN result: …
-- Snapshot diff: …
-- Gates: …
-- Flakes: …
+- RED result: commit A (`1a41af431`) gave `6 failed, 9 passed` in `ET/test_combine_band.py`.
+- GREEN result: `15 passed` in `ET/test_combine_band.py`. The related set of nine Engine test files
+  gave `140 passed`. `ruff check`, `ruff format --check` and `pyright` were clean on the two files.
+- Snapshot diff: one hunk, 17 added lines, in `$defs.GateSpec.properties` before `cmp`. No removed
+  line. The file was deleted and regenerated with `UPDATE_SCHEMA_SNAPSHOT=1`, then passed
+  `test_wire_schema_freeze.py`.
+- Gates (commit B code, before the ledger Outcome was written):
+  - `screamingface-engine`: append-only check red. Offenders, all unit 1 or unit 2 pins:
+    `tests/unit/data/combine_contract/evidence_cases.json`,
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json` (this unit's
+    pin), and `tests/unit/test_combine_gate.py` (lines 566-567, unit 1 D-1; not in the spec list
+    of units 1-3 pins, but recorded in the unit 1 ledger). Rerun with `--skip-append-only`: all
+    green (ruff check, ruff format, pyright, layering, pytest with coverage).
+  - `screamingface`: append-only check red. Offenders, both unit 1 or unit 2 pins:
+    `tests/public_surface_snapshot.json` and `tests/test_frozen_record_fields.py` (line 184).
+    Rerun with `--skip-append-only`: all green (ruff, pyright, pytest with coverage 95, notebooks,
+    build, distribution).
+  - `repo`: all green, including the append-only check against `633fec3a1`.
+- Flakes: none recorded in this unit.
