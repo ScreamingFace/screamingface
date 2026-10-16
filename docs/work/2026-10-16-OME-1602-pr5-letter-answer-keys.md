@@ -1,9 +1,9 @@
 ---
 ticket: OME-1602
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-16
-finished:
+finished: 2026-10-16
 ---
 
 # OME-1602-pr5-letter-answer-keys: multi-letter answer keys (F6) and the Benchmarks they unblock
@@ -45,8 +45,25 @@ owner decision 2026-10-16).
 
 ## Outcome
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, plus `--drop-scorer` (stereoset's bias scorer, an owner
+  decision), `test_letter_list_key_imports.py` (new: each row graded on its real hook), and
+  chembench's stand-in metadata in `replayed_cases_helpers.py`.
+- **Commits:** the mechanism; the lone-Named-Score fix; the four rows; typing; the review fixes.
+- **Gates:** the inspect unit lane plus the row-reading tests outside it: 2347 passed with the
+  inspect extra; ruff check and format, and pyright on the touched files: clean. All 81 rows
+  assemble; every existing row's revision is unchanged (checked by the review).
 - **Deviations:**
-- **Owner verify:**
+  - A Task with two scorers and one dropped was written with a lone Named Score, which the
+    grader reads as a dict scorer, so every Case failed. Grading stereoset end to end found it.
+    One kept scorer now writes no Named Scores; two PR 2 tests that pinned the old shape were
+    changed (owner-approved, 2026-10-16).
+  - Review fixes: `multiple_correct` now pins into the revision (only cyse4 sets it); a moved
+    headline is flagged even with one scorer left; `--drop-scorer` refuses a scorer already
+    dropped as judged; chembench's description says letters must be comma-joined exactly.
+  - chembench and stereoset carry no upstream case count: eval.yaml's 2,786 and 4,299 do not
+    describe the pinned data (2,785; 2,123 records, 8 dropped by the eval as id collisions).
+  - cyse4_threat_intelligence is deferred: its 26 report PDFs need a mirror, an HF dataset
+    under the ScreamingFace org (owner decision, 2026-10-16). The bundle is prepared: all 26
+    PDFs match upstream's pinned sha256.
+- **Owner verify:** create the ScreamingFace HF dataset and upload the 26-PDF bundle; then
+  threat_intelligence lands as its own follow-up. Nothing paid in this unit.

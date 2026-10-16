@@ -63,7 +63,14 @@ _FOUR: list[str] = ["benzene", "toluene", "ethanol", "phenol"]
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("reply", "score"), [("[ANSWER]A,D[/ANSWER]", 1.0), ("[ANSWER]A[/ANSWER]", 0.0)]
+    ("reply", "score"),
+    [
+        ("[ANSWER]A,D[/ANSWER]", 1.0),
+        ("[ANSWER]A[/ANSWER]", 0.0),
+        # Upstream's pattern scorer compares the string, so a space between letters misses;
+        # the row's description says so.
+        ("[ANSWER]A, D[/ANSWER]", 0.0),
+    ],
 )
 async def test_chembench_grades_a_comma_joined_key_as_its_pattern_scorer_reads_it(
     reply: str, score: float
@@ -146,3 +153,20 @@ async def test_stereoset_scores_either_related_continuation_and_not_the_unrelate
     outcome: CaseGradeOutcome = await _grade("stereoset", sample, reply)
 
     assert outcome.score == score
+
+
+def test_several_letter_answers_are_benchmark_identity() -> None:
+    """Flipping multiple_correct changes how "ANSWER: B, D" scores, so it moves the revision;
+    rows without it pin nothing new, so no published revision moves."""
+
+    from dataclasses import replace
+
+    from screamingface_engine_inspect import benchmarks
+
+    spec = next(row for row in benchmarks.BENCHMARKS if row.key == "cyse4_malware_analysis")
+
+    assert benchmarks._multiple_correct_pins(spec) == ("multiple_correct=1",)
+    assert benchmarks._multiple_correct_pins(replace(spec, multiple_correct=False)) == ()
+    assert [row.key for row in benchmarks.BENCHMARKS if row.multiple_correct] == [
+        "cyse4_malware_analysis"
+    ]

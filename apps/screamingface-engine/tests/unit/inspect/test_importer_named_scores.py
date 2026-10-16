@@ -912,3 +912,16 @@ def test_the_headline_or_an_unknown_name_cannot_be_dropped(name: str, reason: st
 
     with pytest.raises(ImporterError, match=reason):
         _scorer_facts(_stereoset_task(), stereoset_module, drop_scorers=(name,))
+
+
+def test_a_scorer_already_dropped_as_judged_cannot_be_dropped_again_by_name() -> None:
+    """A --drop-scorer that names a scorer the import already left out would read as a
+    decision with no effect; it is refused so the flag always means what it says."""
+
+    task: Task = Task(
+        dataset=MemoryDataset([Sample(input="q", target="a")]),
+        scorer=[asks_the_grader(), exact()],
+    )
+
+    with pytest.raises(ImporterError, match="already left out"):
+        _scorer_facts(task, sys.modules[__name__], drop_scorers=("asks_the_grader",))
