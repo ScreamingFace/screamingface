@@ -31,7 +31,7 @@ def sum_value(
             return None
         total += Fraction(coefficient) * Fraction(value)
     try:
-        return float(total)
+        return float(total) + 0.0  # WHY + 0.0: an underflowing negative sum gives -0.0
     except OverflowError:  # the exact sum is outside the float range
         return None
 

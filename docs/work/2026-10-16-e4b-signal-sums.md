@@ -277,3 +277,33 @@ Flakes: none seen in this unit.
 
 Pinned edits: the four files of the Pinned edits section above. No other test file was edited in
 commit B.
+
+### Review fixes
+
+Review of commit `43c73bc4b` (and the ledger commit `845c451d7`) gave four findings. Results:
+
+- MINOR, `-0.0` from `sum_value`: fixed. RED commit `0c5734402` adds
+  `test_sum_value_never_gives_negative_zero` (it failed with `-0.0`). Fix commit: `sum_value`
+  returns `float(total) + 0.0`, the same idiom as `logprob_forms.py`. The module docstring
+  invariant ("never -0.0") is now true. Unit spec §6 row "-0.0 cannot happen" was wrong; recorded
+  as erratum E2 in `docs/spec/2026-10-16-e4b-signal-sums/00-overview.md` §11.
+- MINOR, `ET/test_combine_gate.py:566-567` not in the PINNED list: no code change. It is already
+  pinned in this unit (D-1, erratum E1). Owner approval is still needed after the build. Unit 4
+  must also edit line 566 (`"vote_gate_band"`).
+- MINOR, RED commit subject differs from spec §11 A: no change. History is not rewritten.
+- MINOR (optional), `sum_value` takes name and value maps: no change. The spec pins the
+  signature.
+
+Gates after the fix (base `633fec3a1`):
+
+- `screamingface-engine`: the append-only check was the only red result, with the same three
+  pinned offenders (`evidence_cases.json`, `screamingface.combine-spec.v1.json`,
+  `test_combine_gate.py` lines 566-567). Rerun with `--skip-append-only`: ALL GATES GREEN (ruff
+  check, ruff format, pyright, check_layering, pytest with coverage).
+- `screamingface`: the append-only check was the only red result in the earlier unit, with the
+  pinned offender `test_frozen_record_fields.py` line 184. Rerun with `--skip-append-only`: ALL
+  GATES GREEN (ruff, pyright, pytest with coverage, check_notebooks, `uv build`,
+  check_distribution).
+- `repo`: ALL GATES GREEN, with the append-only check on.
+
+Pinned edits in this fix: none new. Every pinned edit is from the earlier unit 1 commits.
