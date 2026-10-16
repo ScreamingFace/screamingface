@@ -65,6 +65,7 @@ CHECK_INTENT = "check"
 _MIN_MEMBERS = 2
 MEMBER_LABEL_SCHEME = "lowercase-base26"
 _NESTED_INPUT_REF = "$_sf_recipe_input"
+_CONSISTENCY_IN_LOOP = "sf.Consistency is not supported inside a corrective loop in this version"
 
 RETRY_INSTRUCTION = (
     "Write a new answer to the original request. Correct every requirement named in the "
@@ -128,6 +129,7 @@ def _compile_corrective(
 ) -> _ResolvedRecipe:
     """Render one corrective loop as sources on the compiler, root-position only."""
 
+    _refuse_consistency(recipe)
     if check_surface is None:
         # WHY fail here too: the runner preflights this with the benchmark's name
         # before compiling, but compile_candidate is also a public seam — a loop
@@ -139,6 +141,28 @@ def _compile_corrective(
             permanent=True,
         )
     return _LoopRenderer(compiler, recipe, check_surface).render()
+
+
+def _refuse_consistency(recipe: CorrectiveLoop | SelfCorrective) -> None:
+    """Refuse a loop that holds a Fusion with sf.Consistency at any depth (E4b part 7 P19, D2).
+
+    WHY before the check-surface check: this is a Recipe shape error, so it shows on every
+    benchmark, also on one without mid-run checking.
+    """
+
+    # Lazy: candidate imports this module lazily, so the two modules never load in a cycle.
+    from screamingface._evaluation.candidate import _children, _consistency_source
+    from screamingface.fusion import Fusion
+    from screamingface.reducer import Reducer
+
+    pending: list[Recipe | Reducer] = [recipe]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, Reducer):
+            continue
+        if isinstance(value, Fusion) and _consistency_source(value) is not None:
+            raise ValueError(_CONSISTENCY_IN_LOOP)
+        pending.extend(_children(value))
 
 
 class _LoopRenderer:

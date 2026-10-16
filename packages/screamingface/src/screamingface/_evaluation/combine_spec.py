@@ -10,8 +10,8 @@ from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule, resolve_
 from screamingface._evaluation.operators import STAGES, Stage, _OperatorCatalog
 from screamingface._immutable_json import thaw_mapping
 from screamingface._signals import ACCOUNTING_SIGNALS, Signal
-from screamingface.reducer import REDUCER_NAMES, Reducer, _read_signal, _Step
-from screamingface.signal_sources import SignalSource
+from screamingface.reducer import REDUCER_NAMES, Reducer, _read_signal, _Step, _Steps
+from screamingface.signal_sources import Consistency, SignalSource
 
 COMBINE_ROUTE = "/ensemble/combine/v1"
 COMBINE_MODEL = COMBINE_ROUTE.removeprefix("/")  # how url4._calls sees the route
@@ -53,7 +53,8 @@ def combine_spec_text(
 ) -> str:
     """Build the canonical combine spec for ``reducer`` with every operator pinned.
 
-    ``benchmark_rule`` is read only by ``extract='benchmark'`` (GP-1).
+    ``benchmark_rule`` is read only by ``extract='benchmark'`` (GP-1). An ``sf.Consistency`` entry
+    also holds the step's ``match`` (E4b part 7 P3); every other source writes ``_spec()``.
     """
 
     plan = resolve_benchmark_rule(reducer._plan(), benchmark_rule, operators)
@@ -75,7 +76,14 @@ def combine_spec_text(
         "weights": _spec_weights(weights, members),
     }
     if signals:
-        spec["signals"] = {name: source._spec() for name, source in signals.items()}
+        spec["signals"] = {
+            name: (
+                source._entry(_consistency_match(steps, operators))
+                if isinstance(source, Consistency)
+                else source._spec()
+            )
+            for name, source in signals.items()
+        }
     if plan.gate is not None:
         spec["gate"] = plan.gate._spec()
     text = canonical_json(spec)
@@ -101,6 +109,25 @@ def _pinned_step(
     if step is None:
         return None
     return {"op": operators.pin(stage, step.op), "args": thaw_mapping(step.args)}
+
+
+def _consistency_match(steps: _Steps, operators: _OperatorCatalog) -> dict[str, object]:
+    """The ``match`` of an sf.Consistency entry (E4b part 7 P3): the step's own pinned extract and
+    normalize when the step has an extract, else the E4a vote default ``last_line`` and ``text``.
+
+    WHY in the spec: a Pick or Rank by a signal has no extract of its own, and the pinned ids make
+    a replay compare the samples exactly as the first run did.
+    """
+
+    if steps.extract is not None:
+        return {
+            "extract": _pinned_step("extract", steps.extract, operators),
+            "normalize": _pinned_step("normalize", steps.normalize, operators),
+        }
+    return {
+        "extract": _pinned_step("extract", _Step("last_line"), operators),
+        "normalize": _pinned_step("normalize", _Step("text"), operators),
+    }
 
 
 def accounting_signal(reducer: Reducer) -> str | None:

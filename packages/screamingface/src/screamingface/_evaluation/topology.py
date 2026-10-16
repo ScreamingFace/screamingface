@@ -25,7 +25,9 @@ _BINDING = TOPOLOGY_BINDING
 type _TopologyKind = Literal[
     "model", "fusion", "pipeline", "corrective_loop", "self_corrective", "reducer"
 ]
-type _OperationRole = Literal["model", "synthesis", "judge", "writer"]
+# `sample`: one consistency sample call of a member (E4b part 7). It is never a Recipe node;
+# it is only in a reducer node's `samples`.
+type _OperationRole = Literal["model", "synthesis", "judge", "writer", "sample"]
 # The roles of the model calls a reducer reads (its signals); each is also an _OperationRole.
 type _SignalRole = Literal["judge", "writer"]
 _SIGNAL_ROLES: tuple[str, ...] = get_args(_SignalRole.__value__)
@@ -47,6 +49,15 @@ class _SignalTopology:
     source: _RecipeTopology
     # A writer's input: the combine call that projects one field's values (not the Fusion context).
     projection: _RecipeTopology | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _SampleTopology:
+    """The consistency sample calls of one member (E4b part 7): ``member`` is ``member_k``,
+    and ``sources`` holds its n model nodes (role ``sample``) in sample order."""
+
+    member: str
+    sources: tuple[_RecipeTopology, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +83,8 @@ class _RecipeTopology:
     protocol: str | None = None
     # The model calls a reducer node reads besides its members (OME-1289).
     signals: tuple[_SignalTopology, ...] = ()
+    # The consistency sample calls a reducer node reads, one entry per member (E4b part 7).
+    samples: tuple[_SampleTopology, ...] = ()
 
 
 def _writer_key(field: str) -> str:
@@ -109,6 +122,8 @@ def _operation_shape(node: _RecipeTopology, signal: str | None = None) -> tuple[
         shape = ("judge", "fallback judge" if signal == _FALLBACK_JUDGE_KEY else "judge")
     elif node.role == "synthesis":
         shape = ("synthesis", "synthesis")
+    elif node.role == "sample":
+        shape = ("sample", "sample")
     else:
         shape = ("model", "answer")
     return shape
@@ -367,6 +382,11 @@ def _encode_reducer(value: _RecipeTopology) -> dict[str, object]:
     encoded: dict[str, object] = {"binding": value.binding, "kind": value.kind, "name": value.name}
     if value.signals:  # written only when present, so a reducer without signals keeps its bytes
         encoded["signals"] = [_encode_signal(signal) for signal in value.signals]
+    if value.samples:  # written only when present, so every other reducer keeps its bytes
+        encoded["samples"] = [
+            {"member": sample.member, "sources": [_encode_model(node) for node in sample.sources]}
+            for sample in value.samples
+        ]
     return encoded
 
 

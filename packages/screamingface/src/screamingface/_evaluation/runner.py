@@ -640,12 +640,16 @@ def _warn_fixed_seed(name: str, calls: tuple[str, ...]) -> None:
 
 
 def _own_seed_calls(candidate: Candidate) -> tuple[str, ...]:
-    """Each compiled model call whose resolved params carry a ``seed``, as ``id (label)``."""
-    labels = {operation.id: operation.label for operation in candidate.operations}
+    """Each compiled model call whose resolved params carry a ``seed``, as ``id (label)``.
+
+    A consistency sample call (kind ``sample``, E4b part 7 P18) is left out: its seed is part of
+    the method, so the author cannot drop it.
+    """
+    operations = {operation.id: operation for operation in candidate.operations}
     return tuple(
-        f"{assignment.operation_id} ({labels[assignment.operation_id]})"
+        f"{assignment.operation_id} ({operations[assignment.operation_id].label})"
         for assignment in candidate.parameter_assignments
-        if _SEED_PARAM in assignment.params
+        if _SEED_PARAM in assignment.params and operations[assignment.operation_id].kind != "sample"
     )
 
 

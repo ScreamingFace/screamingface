@@ -601,7 +601,7 @@ def test_sample_fingerprints_never_meet_member_fingerprints() -> None:
     """CA-D2 (SC-I1): the binding param keeps every sample apart from the members."""
     sources = _ca_sources(_ca_compiled(consistency_pick_recipe()).url4)
 
-    def fingerprint(binding: str) -> tuple[str, tuple[tuple[str, str], ...]]:
+    def fingerprint(binding: str) -> tuple[str, tuple[tuple[str, str | None], ...]]:
         call = _ca_call(sources, binding)
         return call.path, tuple(sorted(call.params))
 
