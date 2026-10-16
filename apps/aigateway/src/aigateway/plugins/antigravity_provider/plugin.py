@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from litellm.llms.custom_llm import CustomLLMError
 from litellm.types.utils import ModelResponse
 
+from aigateway.core.content_parts import check_messages
 from aigateway.core.google_code_assist import (
     account_label_from_credentials,
     extract_account_identity,
@@ -195,6 +196,15 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
         return ANTIGRAVITY_OBSERVATIONS
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        # INVARIANT (OME-1541): refuse here, in the route, every part the adapter cannot
+        # carry, so the caller gets the typed 422 instead of LiteLLM's remapped error — and
+        # never a silent drop.
+        check_messages(
+            body.get("messages") or [],
+            provider="antigravity",
+            media_roles=frozenset({"user", "assistant"}),
+            allow_remote_images=False,
+        )
         # Layer 1 of the two-layer caller-auth strip (findings U4): drop
         # gateway-owned headers a caller tried to supply, BEFORE the gateway
         # merges the OAuth strategy's headers. The chat handler re-filters the

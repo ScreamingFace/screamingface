@@ -9,6 +9,7 @@ from litellm.types.utils import ModelResponse
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
+from aigateway.core.content_parts import check_messages
 from aigateway.core.google_code_assist import (
     account_label_from_credentials,
     extract_account_identity,
@@ -287,6 +288,15 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         return await discover_gemini_snapshot(client=client, limits=limits)
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        # INVARIANT (OME-1541): refuse here, in the route, every part the adapter cannot
+        # carry, so the caller gets the typed 422 instead of LiteLLM's remapped error — and
+        # never a silent drop.
+        check_messages(
+            body.get("messages") or [],
+            provider="gemini-cli",
+            media_roles=frozenset({"user", "assistant"}),
+            allow_remote_images=False,
+        )
         out = dict(body)
         # API-key fallback is gateway-owned via environment, not caller-supplied per request.
         out.pop("api_key", None)

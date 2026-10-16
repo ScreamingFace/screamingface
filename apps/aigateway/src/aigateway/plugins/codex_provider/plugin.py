@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from litellm.llms.custom_llm import CustomLLMError
 from litellm.types.utils import ModelResponse
 
+from aigateway.core.content_parts import check_messages
 from aigateway.core.oauth.identity import AccountIdentity, identity_from_id_token
 from aigateway.core.plugin_base import (
     ModelEntry,
@@ -121,6 +122,15 @@ class CodexProviderPlugin(ProviderPluginBase):
         return CODEX_OBSERVATIONS
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        # INVARIANT (OME-1541): refuse here, in the route, every part the adapter cannot
+        # carry, so the caller gets the typed 422 instead of LiteLLM's remapped error — and
+        # never a silent drop.
+        check_messages(
+            body.get("messages") or [],
+            provider="codex",
+            media_roles=frozenset({"user"}),
+            allow_remote_images=True,
+        )
         if "reasoning_effort" in body:
             effort = body.pop("reasoning_effort")
             if effort is not None and "reasoning" not in body:
