@@ -19,10 +19,11 @@ with the 2026-10-16 live evidence. Docs only.
 
 - `docs/spec/2026-10-16-OME-1535-file-input-execution.md` (new)
 - `docs/diagrams/file-input-path.svg` + `.png` (new)
+- `docs/tasks/2026-10-16-OME-1535-file-input-execution-spec.md` (mirror)
 
 ## Test plan
 
-- Every file:line cited re-checked against `origin/main` at `8edd994bf`.
+- Every file:line cited re-checked against `origin/main` at `637594595` (40 citations, 37 unique; 0 wrong).
 - url4 parse behaviour reproduced with `url4.core.grammar.parse`.
 - Diagram rendered with `rsvg-convert` and inspected.
 
@@ -35,4 +36,6 @@ with the 2026-10-16 live evidence. Docs only.
 - **Actual files:** as planned.
 - **Commits:** see the branch (`docs(spec): draft the file-input execution spec`).
 - **Gates:** docs only; no app gates apply.
-- **Deviations:** draft — not yet reviewed; items marked UNVERIFIED in the spec were not re-run.
+- **Deviations:** rebased on `637594595` and updated for OME-1541 (#1431), the Ollama file-part
+  refusal (OME-1641, #1447), the 2026-10-16 live provider results, the Gemini CLI deprecation (I-26) and
+  the stale Codex catalog (OME-1634). Items marked UNVERIFIED in the spec were not re-run.
