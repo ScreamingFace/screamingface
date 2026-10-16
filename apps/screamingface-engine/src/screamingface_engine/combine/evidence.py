@@ -6,9 +6,10 @@ how the tally came out, and which member's text won -- without the answer text c
 
 INVARIANT: the field order below IS the pinned wire order, every key is always present except
 ``mean`` (written only for the ``mean`` reducer), ``cut`` and the member ``rank`` (written only for
-a ``top_k@1`` step), ``declared`` (written only when the spec declares signals), ``gate`` (written
-only when the spec has a gate) and ``verifier`` (reserved, never written in E4b part 5), and a null
-is written explicitly. The encoder keeps no ``sort_keys`` (the envelope never did).
+a ``top_k@1`` step), ``consistency`` (written only when the spec declares a consistency source),
+``declared`` (written only when the spec declares signals), ``gate`` (written only when the spec
+has a gate) and ``verifier`` (reserved, never written in E4b part 5), and a null is written
+explicitly. The encoder keeps no ``sort_keys`` (the envelope never did).
 INVARIANT: this module imports pydantic and ``combine.ports`` and nothing else. ``benchmarks/
 contract.py`` imports it (unit 3), so it must never import ``benchmarks.*`` or
 ``operation_calls``.
@@ -111,12 +112,23 @@ class CutRecord(_EvidenceModel):
 
 
 class SampleCountRecord(_EvidenceModel):
-    """RED stub (E4b part 7 unit 1): the fields only; commit B adds the bounds and the check."""
+    """One member's samples of the declared consistency source (E4b part 7, ans:Q4).
+
+    ``succeeded`` samples answered and ``failed`` did not; ``matched`` of the succeeded samples
+    gave the member's answer. ``matched`` is null when the member has no value (CS-I4, CS-I5).
+    """
 
     member_id: str
-    matched: int | None
-    succeeded: int
-    failed: int
+    matched: int | None = Field(ge=0)
+    succeeded: int = Field(ge=0)
+    failed: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _check(self) -> SampleCountRecord:
+        # CS-I4
+        if self.matched is not None and (self.succeeded < 1 or self.matched > self.succeeded):
+            raise ValueError("matched is at most succeeded, and a match needs a successful sample")
+        return self
 
 
 class GateRecord(_EvidenceModel):
@@ -262,6 +274,13 @@ class CombineEvidence(_EvidenceModel):
     signal: SignalRecord | None
     # E4b part 2: the k and the order of a top_k@1 step. Optional on the wire, like ``mean``.
     cut: CutRecord | None = Field(default=None, exclude_if=lambda value: value is None)
+    # E4b part 7 (P13, ans:Q4): each member's sample counts of the one declared consistency source.
+    # Optional on the wire: written only when the spec declares consistency, so every other
+    # evidence keeps its v1 bytes. WHY between `cut` and `declared`: older tests pin `cut` right
+    # after `signal`, and `gate`, `verifier` right after `declared`.
+    consistency: dict[str, list[SampleCountRecord]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     # E4b part 3 (P11): the spec's `signals` map as the spec wrote it. Optional on the wire: the key
     # is written only when the spec declares a source, so every other evidence keeps its v1 bytes.
     declared: dict[str, dict[str, JsonValue]] | None = Field(
@@ -301,7 +320,29 @@ class CombineEvidence(_EvidenceModel):
         ):
             raise ValueError("a member result must be the one chosen member and not built")
         _check_gate(self)
+        _check_consistency(self)
         return self
+
+
+def _check_consistency(evidence: CombineEvidence) -> None:
+    """CS-I1, CS-I2, CS-I3 and CS-I5 (E4b part 7, erd §6); CS-I4 is SampleCountRecord._check."""
+    declared = evidence.declared or {}
+    names = [name for name, entry in declared.items() if entry.get("source") == "consistency"]
+    if evidence.consistency is None and not names:
+        return
+    if evidence.consistency is None or len(names) != 1 or list(evidence.consistency) != names:
+        raise ValueError("a consistency record goes with one declared consistency source")
+    name = names[0]
+    records = evidence.consistency[name]
+    if [record.member_id for record in records] != [row.member_id for row in evidence.members]:
+        raise ValueError("a consistency record names every member in order")
+    n = declared[name].get("n")
+    for record, row in zip(records, evidence.members, strict=True):
+        if type(n) is not int or record.succeeded + record.failed != n:
+            raise ValueError("succeeded and failed samples add up to n")
+        expected = None if record.matched is None else record.matched / record.succeeded
+        if name not in row.signals or row.signals[name] != expected:
+            raise ValueError("a consistency value is matched over succeeded")
 
 
 def _check_gate(evidence: CombineEvidence) -> None:

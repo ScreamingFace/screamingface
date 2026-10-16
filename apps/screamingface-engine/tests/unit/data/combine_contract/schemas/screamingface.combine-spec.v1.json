@@ -1,5 +1,63 @@
 {
   "$defs": {
+    "ConsistencyMatch": {
+      "additionalProperties": false,
+      "description": "How a sample is compared with the member's answer (E4b part 7): the E4a stages.\n\nBoth are pinned operator ids, as in the spec's own steps; ``normalize`` may be null.",
+      "properties": {
+        "extract": {
+          "$ref": "#/$defs/StepSpec"
+        },
+        "normalize": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "extract",
+        "normalize"
+      ],
+      "title": "ConsistencyMatch",
+      "type": "object"
+    },
+    "ConsistencySource": {
+      "additionalProperties": false,
+      "description": "``{\"source\": \"consistency\", \"n\": 1..32, \"temperature\": >= 0, \"match\": {...}}`` (E4b part 7).\n\nThe value is the fraction of a member's ``n`` extra calls (the context ``samples``) whose\nanswer matches the member's answer after ``match``. Every key is required.",
+      "properties": {
+        "match": {
+          "$ref": "#/$defs/ConsistencyMatch"
+        },
+        "n": {
+          "maximum": 32,
+          "minimum": 1,
+          "title": "N",
+          "type": "integer"
+        },
+        "source": {
+          "const": "consistency",
+          "title": "Source",
+          "type": "string"
+        },
+        "temperature": {
+          "minimum": 0,
+          "title": "Temperature",
+          "type": "number"
+        }
+      },
+      "required": [
+        "source",
+        "n",
+        "temperature",
+        "match"
+      ],
+      "title": "ConsistencySource",
+      "type": "object"
+    },
     "EntropySource": {
       "additionalProperties": false,
       "description": "``{\"source\": \"entropy\", \"top_logprobs\": 1..20}`` (E4b part 3).\n\nThe value is the mean token entropy of each member's reply, in nats (the member reader).",
@@ -272,6 +330,7 @@
           "additionalProperties": {
             "discriminator": {
               "mapping": {
+                "consistency": "#/$defs/ConsistencySource",
                 "entropy": "#/$defs/EntropySource",
                 "logprob": "#/$defs/LogprobSource",
                 "sum": "#/$defs/SumSource",
@@ -291,6 +350,9 @@
               },
               {
                 "$ref": "#/$defs/SumSource"
+              },
+              {
+                "$ref": "#/$defs/ConsistencySource"
               }
             ]
           },

@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Literal, cast, get_args
 
 from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json, thaw_mapping
@@ -260,15 +261,39 @@ class CombineGate:
 
 @dataclass(frozen=True, slots=True)
 class CombineSampleCount:
-    """RED stub (E4b part 7 unit 1): the fields only; commit B adds the checks."""
+    """One member's extra samples of the declared ``sf.Consistency`` source (E4b part 7).
+
+    ``succeeded`` samples answered and ``failed`` did not (ans:Q4: the failed count is recorded);
+    ``matched`` of the succeeded samples gave the member's answer. The member's value, in its answer
+    row ``signals``, is ``matched / succeeded``. ``matched`` is None when the member has no value:
+    no sample answered, or the member has no answer to compare.
+    """
 
     member_id: str
     matched: int | None
     succeeded: int
     failed: int
 
+    def __post_init__(self) -> None:
+        _member_id(self.member_id, "Combine sample count member_id")
+        if self.matched is not None:
+            _sample_number(self.matched, "Combine sample count matched")
+        _sample_number(self.succeeded, "Combine sample count succeeded")
+        _sample_number(self.failed, "Combine sample count failed")
+        # CS-I4
+        if self.matched is not None and (self.succeeded < 1 or self.matched > self.succeeded):
+            raise ValueError(
+                "Combine sample count matched is at most succeeded, "
+                "and a match needs a successful sample"
+            )
+
     def to_dict(self) -> dict[str, object]:
-        raise NotImplementedError
+        return {
+            "member_id": self.member_id,
+            "matched": self.matched,
+            "succeeded": self.succeeded,
+            "failed": self.failed,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -362,6 +387,7 @@ class CombineEvidence:
     separator_collision: bool | None
     signal: CombineSignal | None
     cut: CombineCut | None
+    consistency: Mapping[str, tuple[CombineSampleCount, ...]] | None
     declared: Mapping[str, Mapping[str, object]] | None
     gate: CombineGate | None
     result: CombineResult
@@ -393,6 +419,7 @@ class CombineEvidence:
         cut: CombineCut | None = None,
         declared: Mapping[str, Mapping[str, object]] | None = None,
         gate: CombineGate | None = None,
+        consistency: Mapping[str, Sequence[CombineSampleCount]] | None = None,
     ) -> None:
         _one_of(kind, REDUCER_KINDS, "Combine evidence kind")
         _one_of(reducer, REDUCER_NAMES, "Combine evidence reducer")
@@ -452,6 +479,7 @@ class CombineEvidence:
             ),
             "signal": selected_signal,
             "cut": _optional_instance(cut, CombineCut, "Combine evidence cut"),
+            "consistency": _consistency_map(consistency, selected_declared, selected_members),
             "declared": selected_declared,
             "gate": selected_gate,
             "result": selected_result,
@@ -482,6 +510,17 @@ class CombineEvidence:
             "separator_collision": self.separator_collision,
             "signal": None if self.signal is None else self.signal.to_dict(),
             **({} if self.cut is None else {"cut": self.cut.to_dict()}),  # E4b part 2: optional
+            # E4b part 7 (P13): optional on the wire, only a Fusion with sf.Consistency writes it
+            **(
+                {}
+                if self.consistency is None
+                else {
+                    "consistency": {
+                        name: [record.to_dict() for record in records]
+                        for name, records in self.consistency.items()
+                    }
+                }
+            ),
             # E4b part 3 (P11): optional on the wire, only a Fusion that declares signals writes it
             **({} if self.declared is None else {"declared": thaw_mapping(self.declared)}),
             # E4b part 5 (P9): optional on the wire, only a gated vote writes it
@@ -568,6 +607,45 @@ def _check_gate(
         raise ValueError(
             "Combine evidence judge fallback records its label reading and chooses that member"
         )
+
+
+def _consistency_map(
+    value: object,
+    declared: Mapping[str, Mapping[str, object]] | None,
+    members: tuple[CombineAnswerRow, ...],
+) -> Mapping[str, tuple[CombineSampleCount, ...]] | None:
+    """CS-I1, CS-I2, CS-I3 and CS-I5 of the E4b part 7 erd §6 (CS-I4: CombineSampleCount)."""
+    names = [
+        name for name, entry in (declared or {}).items() if entry.get("source") == "consistency"
+    ]
+    if value is None and not names:
+        return None
+    if value is not None and not isinstance(value, Mapping):
+        raise TypeError("Combine evidence consistency must be a mapping")
+    if value is None or declared is None or len(names) != 1 or list(value) != names:
+        raise ValueError(
+            "Combine evidence consistency record goes with one declared consistency source"
+        )
+    name = names[0]
+    records = _typed_tuple(value[name], CombineSampleCount, "Combine evidence consistency")
+    if tuple(record.member_id for record in records) != tuple(row.member_id for row in members):
+        raise ValueError("Combine evidence consistency record names every member in order")
+    n = declared[name].get("n")
+    for record, row in zip(records, members, strict=True):
+        if type(n) is not int or record.succeeded + record.failed != n:
+            raise ValueError("Combine evidence succeeded and failed samples add up to n")
+        expected = None if record.matched is None else record.matched / record.succeeded
+        if name not in row.signals or row.signals[name] != expected:
+            raise ValueError("Combine evidence consistency value is matched over succeeded")
+    return MappingProxyType({name: records})
+
+
+def _sample_number(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{label} must be an integer")
+    if value < 0:
+        raise ValueError(f"{label} must not be negative")
+    return value
 
 
 def _declared_map(value: object) -> Mapping[str, Mapping[str, object]] | None:

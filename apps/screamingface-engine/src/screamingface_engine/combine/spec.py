@@ -60,7 +60,7 @@ FALLBACK_WRITER = "fallback_writer"
 # WHY "writer_" and not "writer.": the SDK builds the context with url4 struct, whose keys are
 # [A-Za-z0-9_]+ only, so a dotted signal key cannot be written (OME-1289 unit 8-10 spec, P1).
 _SIGNAL = re.compile(r"judge|fallback_judge|fallback_writer|writer_[A-Za-z_][A-Za-z0-9_]*")
-_CONTEXT_KEYS = frozenset({"input", "outputs", "panel", "signals", "sources"})
+_CONTEXT_KEYS = frozenset({"input", "outputs", "panel", "samples", "signals", "sources"})
 _PANEL_ROW_KEYS = frozenset({"source_position", "source_name", "result"})
 _CALL_KEY = re.compile(r"[A-Za-z0-9_]+")
 _MAX_ERRORS_SHOWN = 5
@@ -259,7 +259,8 @@ class ConsistencySource(_SpecModel):
 
 # WHY a tagged union: the `source` word picks the one model, so a bad entry fails on its own keys.
 DeclaredSource = Annotated[
-    VerbalizedSource | LogprobSource | EntropySource | SumSource, Field(discriminator="source")
+    VerbalizedSource | LogprobSource | EntropySource | SumSource | ConsistencySource,
+    Field(discriminator="source"),
 ]
 
 
@@ -335,6 +336,9 @@ def _check_signals(spec: CombineSpec) -> None:
     # could not each get the k they declare.
     if sum(isinstance(entry, EntropySource) for entry in signals.values()) > 1:
         raise ValueError("signals declares more than one entropy source")
+    # E4b part 7 (P4): one sample panel per member, so one consistency source per spec.
+    if sum(isinstance(entry, ConsistencySource) for entry in signals.values()) > 1:
+        raise ValueError("signals declares at most one consistency source")
     for entry in signals.values():
         if isinstance(entry, SumSource):  # E4b part 6
             _check_sum(entry, signals)
@@ -499,7 +503,10 @@ def declares_consistency(spec: CombineSpec) -> tuple[str, ConsistencySource] | N
 
     Its context then carries ``samples`` (erd §4); ``_check_signals`` allows at most one.
     """
-    raise NotImplementedError
+    for name, entry in (spec.signals or {}).items():
+        if isinstance(entry, ConsistencySource):
+            return name, entry
+    return None
 
 
 def parse_spec(intent: str) -> CombineSpec:
@@ -562,13 +569,14 @@ def parse_context(
     members: Sequence[str],
     *,
     sources_expected: bool = False,
-    samples_n: int | None = None,  # RED stub (E4b part 7 unit 1): read in commit B
+    samples_n: int | None = None,
 ) -> CombineContext:
     """Parse the combine context against the spec's members.
 
     The members arrive as ``outputs`` (every member) or as a quorum ``panel`` (the members that
     answered), never both. ``sources`` must be present exactly when the spec reads an accounting
-    signal.
+    signal. ``samples`` must be present exactly when ``samples_n`` (the declared consistency
+    ``n``, E4b part 7) is not None.
     """
     try:
         decoded = loads_bounded(context, unique_keys=True)
@@ -593,7 +601,38 @@ def parse_context(
             "combine context sources are present exactly when the spec reads an accounting signal"
         )
     sources = _parse_sources(decoded["sources"], members) if sources_expected else None
-    return CombineContext(question, MappingProxyType(outputs), MappingProxyType(signals), sources)
+    if ("samples" in decoded) != (samples_n is not None):
+        raise SpecInvalid(
+            "combine context samples are present exactly when the spec declares consistency"
+        )
+    samples = None if samples_n is None else _parse_samples(decoded["samples"], members, samples_n)
+    return CombineContext(
+        question, MappingProxyType(outputs), MappingProxyType(signals), sources, samples
+    )
+
+
+def _parse_samples(
+    value: object, members: Sequence[str], samples_n: int
+) -> Mapping[str, tuple[str, ...]]:
+    """``{member: rows text}`` with every member named; each member's sample texts in j order.
+
+    The rows are url4's broadcast rows of the member's sample panel: slot ``sample_j`` at position
+    j, for j in 1..samples_n. A failed sample is left out by url4, so a member may have fewer rows.
+    """
+    texts = _text_map(value)
+    if set(texts) != set(members):
+        raise SpecInvalid("combine context samples do not match the spec members")
+    names = [f"sample_{index}" for index in range(1, samples_n + 1)]
+    parsed: dict[str, tuple[str, ...]] = {}
+    for member in members:
+        rows = _panel_rows(
+            texts[member],
+            names,
+            what="samples",
+            mismatch="combine context samples do not match the sample slots",
+        )
+        parsed[member] = tuple(rows[name] for name in names if name in rows)
+    return MappingProxyType(parsed)
 
 
 def _parse_sources(value: object, members: Sequence[str]) -> MemberSources:
@@ -655,34 +694,49 @@ def _member_outputs(decoded: Mapping[str, object], members: Sequence[str]) -> di
 def _panel_outputs(value: object, members: Sequence[str]) -> dict[str, str]:
     """The texts of a quorum panel: url4's broadcast rows, one per member that answered.
 
-    A row is ``{"source_position": i, "source_name": "member_i", "result": text}``. url4 leaves
-    out an optional member that failed and checks the quorum before this call runs (OME-1557), so
-    an absent member is not an error here. Any other shape is: the rows are url4's own output.
+    url4 leaves out an optional member that failed and checks the quorum before this call runs
+    (OME-1557), so an absent member is not an error here.
+    """
+    return _panel_rows(
+        value,
+        members,
+        what="panel",
+        mismatch="combine context panel does not match the spec members",
+    )
+
+
+def _panel_rows(value: object, names: Sequence[str], *, what: str, mismatch: str) -> dict[str, str]:
+    """url4 broadcast rows keyed by name; ``names[i]`` sits at position ``i + 1`` (CX-I2, OME-1557).
+
+    A row is ``{"source_position": i, "source_name": names[i - 1], "result": text}``. A name may
+    be absent (url4 leaves out a failed optional slot). Any other shape is an error, with a fixed
+    message that never holds a text: the rows are url4's own output. The quorum panel and the
+    consistency samples (E4b part 7) share this one row contract.
     """
     if not isinstance(value, str):
-        raise SpecInvalid("combine context panel has the wrong shape")
+        raise SpecInvalid(f"combine context {what} has the wrong shape")
     try:
         rows = loads_bounded(value, unique_keys=True)
     except ValueError as exc:
-        raise SpecInvalid("combine context panel is not valid JSON") from exc
+        raise SpecInvalid(f"combine context {what} is not valid JSON") from exc
     if not isinstance(rows, list):
-        raise SpecInvalid("combine context panel has the wrong shape")
-    positions = {member: index for index, member in enumerate(members, 1)}
-    outputs: dict[str, str] = {}
+        raise SpecInvalid(f"combine context {what} has the wrong shape")
+    positions = {name: index for index, name in enumerate(names, 1)}
+    texts: dict[str, str] = {}
     for row in rows:
         if not isinstance(row, dict) or set(row) != _PANEL_ROW_KEYS:
-            raise SpecInvalid("combine context panel has the wrong shape")
+            raise SpecInvalid(f"combine context {what} has the wrong shape")
         name, position, text = row["source_name"], row["source_position"], row["result"]
         if (
             not isinstance(name, str)
-            or name in outputs
+            or name in texts
             or type(position) is not int
             or positions.get(name) != position
             or not isinstance(text, str)
         ):
-            raise SpecInvalid("combine context panel does not match the spec members")
-        outputs[name] = text
-    return outputs
+            raise SpecInvalid(mismatch)
+        texts[name] = text
+    return texts
 
 
 def _text_map(value: object) -> dict[str, str]:

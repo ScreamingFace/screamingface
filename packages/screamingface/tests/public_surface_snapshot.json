@@ -1365,6 +1365,7 @@
       "CombineCut",
       "CombineEvidence",
       "CombineGate",
+      "CombineSampleCount",
       "Evidence",
       "EvidenceProducer",
       "Failure",
@@ -1480,10 +1481,11 @@
       "CombineEvidence": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, kind: 'CombineKind', reducer: 'str', operators: 'Sequence[str]', members: 'Sequence[CombineAnswerRow]', chosen: 'Sequence[str]', built: 'bool', tie: 'bool', result: 'CombineResult', dropped: 'int', finish_reason: 'str', tally: 'Sequence[CombineTallyRow] | None' = None, judge: 'CombineJudgeReading | None' = None, fields: 'Sequence[CombineFieldReading] | None' = None, agreement: 'float | None' = None, median: 'str | None' = None, mean: 'str | None' = None, presentation_order: \"Literal['author'] | None\" = None, separator_collision: 'bool | None' = None, signal: 'CombineSignal | None' = None, cut: 'CombineCut | None' = None, declared: 'Mapping[str, Mapping[str, object]] | None' = None, gate: 'CombineGate | None' = None) -> 'None'",
+          "__init__": "method (self, *, kind: 'CombineKind', reducer: 'str', operators: 'Sequence[str]', members: 'Sequence[CombineAnswerRow]', chosen: 'Sequence[str]', built: 'bool', tie: 'bool', result: 'CombineResult', dropped: 'int', finish_reason: 'str', tally: 'Sequence[CombineTallyRow] | None' = None, judge: 'CombineJudgeReading | None' = None, fields: 'Sequence[CombineFieldReading] | None' = None, agreement: 'float | None' = None, median: 'str | None' = None, mean: 'str | None' = None, presentation_order: \"Literal['author'] | None\" = None, separator_collision: 'bool | None' = None, signal: 'CombineSignal | None' = None, cut: 'CombineCut | None' = None, declared: 'Mapping[str, Mapping[str, object]] | None' = None, gate: 'CombineGate | None' = None, consistency: 'Mapping[str, Sequence[CombineSampleCount]] | None' = None) -> 'None'",
           "agreement": "field",
           "built": "field",
           "chosen": "field",
+          "consistency": "field",
           "cut": "field",
           "declared": "field",
           "dropped": "field",
@@ -1518,6 +1520,17 @@
           "otherwise": "field",
           "passed": "field",
           "threshold": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "CombineSampleCount": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, member_id: 'str', matched: 'int | None', succeeded: 'int', failed: 'int') -> None",
+          "failed": "field",
+          "matched": "field",
+          "member_id": "field",
+          "succeeded": "field",
           "to_dict": "method (self) -> 'dict[str, object]'"
         }
       },
