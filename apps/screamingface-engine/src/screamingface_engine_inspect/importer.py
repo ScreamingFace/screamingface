@@ -336,7 +336,10 @@ def _scorer_facts(
         scorer_kwargs=headline_kwargs,
         scorer_name=headline_name,
         extra_scorers=tuple(resolved[index][0] for index in kept[1:]),
-        named_scores=tuple(resolved[index][2] for index in kept),
+        # WHY none for one kept scorer: a lone Named Score tells the grader the scorer returns
+        # a dict keyed by it (simpleqa's), so a plain "C" would fail every Case. With the rest
+        # dropped, the row grades like a single-scorer row and still names the drop.
+        named_scores=(tuple(resolved[index][2] for index in kept) if len(kept) > 1 else ()),
         dropped_scorers=tuple(
             resolved[index][2] for index in range(len(declared)) if index not in kept
         ),

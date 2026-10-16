@@ -646,7 +646,9 @@ def test_a_role_judged_scorer_beside_an_exact_one_is_dropped_by_name() -> None:
 
     facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
 
-    assert (facts.named_scores, facts.dropped_scorers) == (("exact",), ("asks_the_grader",))
+    # One scorer kept grades like a single-scorer row: no lone Named Score (OME-1602 PR 5,
+    # owner-approved change; a lone name tells the grader to expect a dict).
+    assert (facts.named_scores, facts.dropped_scorers) == ((), ("asks_the_grader",))
 
 
 def test_the_import_child_carries_the_grader_role_back(guarded_eval: str) -> None:
@@ -780,7 +782,9 @@ def test_an_extra_scorer_judging_with_its_default_judge_is_dropped_by_name() -> 
 
     facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
 
-    assert (facts.named_scores, facts.dropped_scorers) == (("exact",), ("judged_by_default",))
+    # One scorer kept grades like a single-scorer row: no lone Named Score (OME-1602 PR 5,
+    # owner-approved change; a lone name tells the grader to expect a dict).
+    assert (facts.named_scores, facts.dropped_scorers) == ((), ("judged_by_default",))
 
 
 def test_a_role_held_in_a_variable_is_refused_because_no_row_can_name_it() -> None:
@@ -889,7 +893,10 @@ def test_an_extra_scorer_dropped_by_name_is_a_named_deviation_on_the_row() -> No
         _stereoset_task(), stereoset_module, drop_scorers=("stereoset_scorer",)
     )
 
-    assert facts.named_scores == ("multiple_choice_scorer",)
+    # One scorer left grades like a single-scorer row: no lone Named Score, which would tell
+    # the grader to expect a dict and fail every Case on the scorer's plain "C".
+    assert facts.named_scores == ()
+    assert facts.scorer == "inspect_evals.stereoset.stereoset:multiple_choice_scorer"
     assert facts.dropped_scorers == ("stereoset_scorer",)
 
 
