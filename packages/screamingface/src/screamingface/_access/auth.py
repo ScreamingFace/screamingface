@@ -8,7 +8,7 @@ import time
 from collections.abc import AsyncGenerator, Callable, Generator, Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 from nacl.public import PrivateKey
@@ -125,6 +125,29 @@ def _seed_access_tokens(
         ) from None
     for audience in audiences:
         store.put(audience, token)
+
+
+def _is_https(url: str | httpx.URL) -> bool:
+    return (url.scheme if isinstance(url, httpx.URL) else urlsplit(url).scheme) == "https"
+
+
+def _require_https(origin: str, url: str | httpx.URL) -> None:
+    """Refuse an Access challenge received over plaintext (PR #1438 review, blocker 2).
+
+    WHY: the challenge only ASSERTS the origin's audience; that assertion is trusted because
+    it arrives from the configured HTTPS origin. Over http:// anyone on the path can assert
+    a matching audience and harvest the bearer token from the retry, so the token is never
+    adopted for, nor sent to, a plaintext origin. A plain-HTTP stack that never challenges
+    is unaffected: this runs only once a challenge was seen.
+    """
+
+    if not (_is_https(origin) and _is_https(url)):
+        raise _auth_error(
+            f"{origin} requires Cloudflare Access, which is only supported over https://; "
+            "configure the HTTPS origin",
+            code="access_requires_https",
+            permanent=True,
+        )
 
 
 def _access_discovery_error(origin: str) -> AuthenticationError:
@@ -246,6 +269,7 @@ class _CloudflareAccessAuth(_ClientAuth):
                     code="access_not_advertised",
                     status=response.status_code,
                 )
+            _require_https(self._origin, self._origin)
             with self._lock:
                 self._audience = audience
                 if self._usable_token() is not None:
@@ -302,7 +326,7 @@ class _CloudflareAccessAuth(_ClientAuth):
 
     def websocket_headers(self) -> Mapping[str, str]:
         with self._lock:
-            token = self._usable_token()
+            token = self._usable_token() if _is_https(self._origin) else None
             return {} if token is None else {"Cf-Access-Token": token}
 
     async def websocket_headers_async(self) -> Mapping[str, str]:
@@ -336,6 +360,7 @@ class _CloudflareAccessAuth(_ClientAuth):
         audience = _access_audience(response)
         if audience is None:
             return
+        _require_https(self._origin, request.url)
         response.read()
         self._authenticate_after_redirect(audience, authorization, _DEFAULT_LOGIN_TIMEOUT)
         _require_replay_safe(request, response)
@@ -352,6 +377,7 @@ class _CloudflareAccessAuth(_ClientAuth):
         audience = _access_audience(response)
         if audience is None:
             return
+        _require_https(self._origin, request.url)
         await response.aread()
         await self._cancellable_thread_call(
             self._authenticate_after_redirect,
@@ -366,12 +392,13 @@ class _CloudflareAccessAuth(_ClientAuth):
     def _authorize_request(self, request: httpx.Request) -> _RequestAuthorization:
         with self._lock:
             self._require_open()
-            token = self._usable_token()
+            token = self._usable_token() if _is_https(request.url) else None
             if token is not None:
                 request.headers["Cf-Access-Token"] = token
             return _RequestAuthorization(self._generation, token)
 
     def _set_access_token(self, request: httpx.Request) -> None:
+        _require_https(self._origin, request.url)
         with self._lock:
             token = self._usable_token()
             if token is None:
