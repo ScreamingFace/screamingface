@@ -35,8 +35,20 @@ def count_samples(
     n: int,
     read: Callable[[str], str | None],
 ) -> SampleCount:
-    """Stub (E4b part 7 unit 2, commit A): the body lands in commit B."""
-    raise NotImplementedError("count_samples is built in E4b part 7 unit 2")
+    """The counts of one member's ``n`` samples, of which ``texts`` answered (P10, P11).
+
+    ``succeeded`` is ``len(texts)`` and ``failed`` is ``n - succeeded``. ``matched`` is the count
+    of texts whose ``read(text)`` equals ``member_value``; a text that ``read`` maps to None is a
+    successful sample that does not match. ``matched`` is None when ``member_value`` is None or no
+    sample answered; then ``read`` is not called.
+    """
+    succeeded = len(texts)
+    if succeeded > n:
+        raise ValueError("more sample texts than samples")
+    if member_value is None or succeeded == 0:
+        return SampleCount(None, succeeded, n - succeeded)
+    matched = sum(1 for text in texts if read(text) == member_value)
+    return SampleCount(matched, succeeded, n - succeeded)
 
 
 __all__ = ["SampleCount", "count_samples"]

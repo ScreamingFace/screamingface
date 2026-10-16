@@ -20,6 +20,8 @@ abstain band: ``in_band``, E4b part 6) is not a failure: it returns evidence wit
 Filter) returns the empty envelope instead (E4b fix 2026-10-14).
 INVARIANT (FB-I1, E4b part 5): only the fallback branch of a gate reads a ``fallback_*`` reply.
 The band branch (E4b part 6) never reads one.
+INVARIANT: a consistency value reads the ``samples`` context of the members' extra calls; the
+samples never vote (E4b part 7).
 INVARIANT: a failure message names ids, counts and limits -- never member text or arg values.
 WHY no ``record_model_outcome``: the step is not a model call, so the Candidate's terminal finish
 reason stays the members' common reason; the operation's own finish reason is ``stop``.
@@ -30,7 +32,7 @@ from __future__ import annotations
 import logging
 import math
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from types import MappingProxyType
@@ -38,6 +40,7 @@ from typing import Any, Literal, cast
 
 from pydantic import JsonValue, ValidationError
 
+from screamingface_engine.combine.consistency import SampleCount, count_samples
 from screamingface_engine.combine.evidence import (
     AnswerRecord,
     CombineEvidence,
@@ -46,6 +49,7 @@ from screamingface_engine.combine.evidence import (
     GateRecord,
     JudgeReadingRecord,
     ResultRecord,
+    SampleCountRecord,
     SignalRecord,
     TallyRowRecord,
 )
@@ -114,12 +118,14 @@ from screamingface_engine.combine.spec import (
     REDUCER_RULES,
     CombineContext,
     CombineSpec,
+    ConsistencySource,
     EntropySource,
     GateSpec,
     LogprobSource,
     SignalWeights,
     StepSpec,
     SumSource,
+    declares_consistency,
     declares_reply_sources,
     parse_context,
     parse_spec,
@@ -188,6 +194,54 @@ class _Summed:
     terms: tuple[tuple[str, float], ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _SampleDeclared:
+    """One declared consistency name (E4b part 7): ``n`` extra samples per member, and the match
+    steps (the E4a extract, then normalize) that read the member's text and each sample's text.
+
+    WHY not a ``_Declared``: its value comes from the ``samples`` context and the counts of
+    ``_sample_counts``, not from the member text alone.
+    """
+
+    name: str
+    n: int
+    extract: _Step[Extractor]
+    normalize: _Step[Normalizer] | None
+
+    def match_value(self, text: str) -> str | None:
+        """The text's value after the read cap, then extract, then normalize (P10).
+
+        None for a text over ``MAX_OUTPUT_READ_BYTES`` or when no value is extracted:
+        ``_checked`` makes the value non-None exactly when the stage voted.
+        """
+        if utf8_exceeds(text, MAX_OUTPUT_READ_BYTES):
+            return None
+        return _extract_then_normalize(text, self.extract, self.normalize)[2]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _Recorded(Mapping[str, Mapping[str, float | None]]):
+    """Each member's recorded signals, as a read-only mapping (member -> key -> number), plus the
+    sample counts of the declared consistency source (None when the spec declares none).
+
+    WHY one carrier (consistency-value PRD §2, P22): ``recorded=`` already reaches every exit
+    (answer, abstain, gate, fallback), so the counts reach ``_evidence`` with no new keyword and no
+    call-site change. WHY ``eq=False``: the ``Mapping`` equality (by items) stays.
+    """
+
+    numbers: Mapping[str, Mapping[str, float | None]]
+    samples: Mapping[str, SampleCount] | None = None
+
+    def __getitem__(self, key: str, /) -> Mapping[str, float | None]:
+        return self.numbers[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.numbers)
+
+    def __len__(self) -> int:
+        return len(self.numbers)
+
+
 # The member numbers of the one member reader call: member -> reader key -> number (None: unknown).
 type _ReaderNumbers = Mapping[str, Mapping[str, float | None]]
 
@@ -209,7 +263,7 @@ class _Plan:
     excludes: _Exclusion | None = None
     ranks: Callable[[Reduction, CombineInput, OpArgs], Mapping[str, int]] | None = None
     cut: Cut | None = None
-    declared: tuple[_Declared | _ReplyDeclared | _Summed, ...] = ()
+    declared: tuple[_Declared | _ReplyDeclared | _Summed | _SampleDeclared, ...] = ()
 
     @property
     def operators(self) -> tuple[str, ...]:
@@ -292,14 +346,17 @@ def _combine(
     if len(spec.members) > MAX_MEMBERS:
         raise InputTooLarge(f"a combine call takes at most {MAX_MEMBERS} members")
     plan = _plan(spec, registry)
+    consistency = declares_consistency(spec)
     context = parse_context(
         context_text,
         spec.members,
         sources_expected=(plan.signal is not None and plan.signal.key in ACCOUNTING_SIGNALS)
         or declares_reply_sources(spec),
+        samples_n=None if consistency is None else consistency[1].n,
     )
     check_fallback_signals(spec.gate, context.signals)
-    recorded = _signal_values(plan, spec, context, accounting)
+    counts = _sample_counts(plan, spec, context)
+    recorded = _Recorded(_signal_values(plan, spec, context, accounting, counts), counts)
     combine_input = _read_members(spec, plan, context, recorded)
     trace.voters = str(len(combine_input.voters))
     if not combine_input.voters:
@@ -314,10 +371,12 @@ def _signal_values(
     spec: CombineSpec,
     context: CombineContext,
     accounting: AccountingReader | None,
+    counts: Mapping[str, SampleCount] | None,
 ) -> dict[str, dict[str, float | None]]:
     """Each member's recorded signals: the key the spec reads, then every declared name (EV-I2).
 
     A declared sum is computed last, from the columns of its components (E4b part 6, SU-I1).
+    A consistency name reads its value from ``counts`` (E4b part 7).
     """
     keys = _recorded_keys(plan)
     if not keys:
@@ -329,12 +388,13 @@ def _signal_values(
     sums = {item.name: item for item in plan.declared if isinstance(item, _Summed)}
     # WHY a sum key never reaches _column: it would fall through to _signal_numbers and read a
     # quiet, wrong field number. Every component is a declared non-sum name (SU-I1, SU-I2), so its
-    # column exists before the sums are computed.
+    # column exists before the sums are computed; a consistency component reads its column from
+    # ``counts``, which _combine computes first (E4b part 7).
     by_name = {item.name: item for item in plan.declared if not isinstance(item, _Summed)}
     plain = tuple(key for key in keys if key not in sums)
     looked = _reader_numbers(plain, by_name, context, accounting)
     columns: dict[str, Mapping[str, float | None]] = {
-        key: _column(key, by_name.get(key), spec, context, looked) for key in plain
+        key: _column(key, by_name.get(key), spec, context, looked, counts) for key in plain
     }
     for name, item in sums.items():
         columns[name] = {
@@ -344,9 +404,38 @@ def _signal_values(
     return {member: {key: columns[key][member] for key in keys} for member in spec.members}
 
 
+def _sample_counts(
+    plan: _Plan, spec: CombineSpec, context: CombineContext
+) -> Mapping[str, SampleCount] | None:
+    """Each member's sample counts for the one declared consistency source, in member order
+    (E4b part 7, erd §5); None when the spec declares none. ``_combine`` computes them once.
+
+    The member's text and each sample text go through the same match steps
+    (``_SampleDeclared.match_value``). A member that failed, or that a quorum panel left out, has
+    no match value, so its ``matched`` is None (P11).
+    """
+    item = _sample_item(plan)
+    if item is None:
+        return None
+    samples = context.samples
+    if samples is None:  # parse_context required them for a consistency spec
+        raise RuntimeError("combine context samples are missing for a consistency signal")
+    counts: dict[str, SampleCount] = {}
+    for member in spec.members:
+        text = context.outputs.get(member)  # None: a quorum panel left the member out
+        own = None if text is None else item.match_value(text)
+        counts[member] = count_samples(own, samples[member], item.n, item.match_value)
+    return MappingProxyType(counts)
+
+
+def _sample_item(plan: _Plan) -> _SampleDeclared | None:
+    """The plan's one consistency source (a spec declares at most one); None when it has none."""
+    return next((item for item in plan.declared if isinstance(item, _SampleDeclared)), None)
+
+
 def _reader_numbers(
     keys: tuple[str, ...],
-    by_name: Mapping[str, _Declared | _ReplyDeclared],
+    by_name: Mapping[str, _Declared | _ReplyDeclared | _SampleDeclared],
     context: CombineContext,
     accounting: AccountingReader | None,
 ) -> _ReaderNumbers:
@@ -373,17 +462,25 @@ def _reader_numbers(
 
 def _column(
     key: str,
-    item: _Declared | _ReplyDeclared | None,
+    item: _Declared | _ReplyDeclared | _SampleDeclared | None,
     spec: CombineSpec,
     context: CombineContext,
     looked: _ReaderNumbers,
+    counts: Mapping[str, SampleCount] | None,
 ) -> Mapping[str, float | None]:
     """One recorded key's number for each member, from its source."""
+    if isinstance(item, _SampleDeclared):
+        if counts is None:  # _combine computes the counts whenever the plan has this item
+            raise RuntimeError("consistency counts are missing for a consistency signal")
+        return {member: counts[member].value for member in spec.members}
     if isinstance(item, _Declared):
         return _declared_numbers(item, spec, context)
-    if isinstance(item, _ReplyDeclared):
-        return _reply_numbers(item.source, spec, context, looked)
-    return _signal_numbers(key, spec, context, looked)
+    # WHY one conditional return: ruff max-returns is 3.
+    return (
+        _signal_numbers(key, spec, context, looked)
+        if item is None
+        else _reply_numbers(item.source, spec, context, looked)
+    )
 
 
 def _recorded_keys(plan: _Plan) -> tuple[str, ...]:
@@ -499,7 +596,7 @@ def _decide(
     context: CombineContext,
     trace: _Trace,
     *,
-    recorded: Mapping[str, Mapping[str, float | None]],
+    recorded: _Recorded,
 ) -> CombineOutcome:
     """Run reduce, then select, then the gate when the spec has one (E4b part 5).
 
@@ -578,7 +675,7 @@ def _gated(
     selection: Selection,
     trace: _Trace,
     *,
-    recorded: Mapping[str, Mapping[str, float | None]],
+    recorded: _Recorded,
 ) -> CombineOutcome:
     """Check the band, then compare the gate number with the threshold; record it and take one
     branch (ans:Q1; E4b part 6 ans:Q2).
@@ -635,7 +732,7 @@ def _fallback(
     reduction: Reduction,
     selection: Selection,
     *,
-    recorded: Mapping[str, Mapping[str, float | None]],
+    recorded: _Recorded,
 ) -> CombineOutcome:
     """The judge or the writer fallback answer (gate-decision §2 delta 4, P14).
 
@@ -720,7 +817,7 @@ def _abstain(
     reduction: Reduction | None,
     reason: AbstainReason,
     *,
-    recorded: Mapping[str, Mapping[str, float | None]],
+    recorded: _Recorded,
     selection: Selection | None = None,
     gate: GateRecord | None = None,
 ) -> CombineOutcome:
@@ -828,16 +925,19 @@ def _check_pairing(reduce_id: str, select_id: str | None) -> None:
 
 def _declared(
     spec: CombineSpec, registry: OperatorRegistry
-) -> tuple[_Declared | _ReplyDeclared | _Summed, ...]:
+) -> tuple[_Declared | _ReplyDeclared | _Summed | _SampleDeclared, ...]:
     if spec.signals is None:
         return ()
-    found: list[_Declared | _ReplyDeclared | _Summed] = []
+    found: list[_Declared | _ReplyDeclared | _Summed | _SampleDeclared] = []
     for name, source in spec.signals.items():
         if isinstance(source, SumSource):  # computed by the core, no source plugin (E4b part 6)
             found.append(_Summed(name, tuple(source.coefficients.items())))
             continue
         if isinstance(source, LogprobSource | EntropySource):
             found.append(_ReplyDeclared(name, source))  # read from the reply, not the text
+            continue
+        if isinstance(source, ConsistencySource):
+            found.append(_sample_source(name, source, registry))  # read from the samples
             continue
         descriptor = registry.source(source.source)
         args: OpArgs = MappingProxyType(source.model_dump(exclude={"source"}, exclude_unset=True))
@@ -849,6 +949,26 @@ def _declared(
             ) from exc
         found.append(_Declared(name, descriptor.read, args))
     return tuple(found)
+
+
+def _sample_source(
+    name: str, source: ConsistencySource, registry: OperatorRegistry
+) -> _SampleDeclared:
+    """The resolved match steps of a consistency source (E4b part 7, P3).
+
+    The same resolve and bind as a spec step: an unknown id is ``combine_operator_unknown``; a
+    wrong stage or bad args is ``combine_spec_invalid``. WHY resolve both before binding either:
+    as in ``_plan``, an unknown operator wins over bad args.
+    """
+    match = source.match
+    extract = registry.resolve(match.extract.op, "extract")
+    normalize = _resolve(registry, match.normalize, "normalize")
+    return _SampleDeclared(
+        name=name,
+        n=source.n,
+        extract=cast("_Step[Extractor]", _bind(extract, match.extract)),
+        normalize=cast("_Step[Normalizer] | None", _bind(normalize, match.normalize)),
+    )
 
 
 def _signal_sources(
@@ -1047,7 +1167,7 @@ def _evidence(
     selection: Selection | None,
     result: ResultRecord,
     *,
-    recorded: Mapping[str, Mapping[str, float | None]],
+    recorded: _Recorded,
     gate: GateRecord | None = None,
 ) -> CombineEvidence:
     # An abstain has no selection (a gate abstain has one: P14), and none or only part of a
@@ -1093,6 +1213,7 @@ def _evidence(
         if plan.signal is None
         else SignalRecord(key=plan.signal.key, order=plan.signal.order),
         cut=None if plan.cut is None else CutRecord(k=plan.cut.k, order=plan.cut.order),
+        consistency=_consistency_record(plan, recorded),
         declared=_declared_record(spec),
         gate=gate,
         result=result,
@@ -1116,6 +1237,27 @@ def _declared_record(spec: CombineSpec) -> dict[str, dict[str, JsonValue]] | Non
     return {
         name: source.model_dump(mode="json", exclude_unset=True)
         for name, source in spec.signals.items()
+    }
+
+
+def _consistency_record(
+    plan: _Plan, recorded: _Recorded
+) -> dict[str, list[SampleCountRecord]] | None:
+    """The evidence ``consistency`` record: the counts of the one declared consistency name, in
+    member order (P13); None when the spec declares none, so the key is not written."""
+    item = _sample_item(plan)
+    if item is None or recorded.samples is None:
+        return None
+    return {
+        item.name: [
+            SampleCountRecord(
+                member_id=member,
+                matched=count.matched,
+                succeeded=count.succeeded,
+                failed=count.failed,
+            )
+            for member, count in recorded.samples.items()
+        ]
     }
 
 
