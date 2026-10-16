@@ -32,6 +32,7 @@ from screamingface.combine_evidence import (
     CombineJudgeReading,
     CombineKind,
     CombineResult,
+    CombineSampleCount,
     CombineSignal,
     CombineTallyRow,
     GateBranch,
@@ -66,12 +67,14 @@ _EVIDENCE_KEYS = {
 # E4b P8 mean (mean reducer only); E4b part 2 cut (top_k@1 only); E4b part 3 P11 declared
 # (written only by a Fusion that declares signals).
 # E4b part 5: gate (written only by a gated vote) and verifier (reserved, null only, never kept).
-_OPTIONAL_EVIDENCE_KEYS = frozenset({"mean", "cut", "declared", "gate", "verifier"})
+# E4b part 7: consistency (written only by a Fusion that declares sf.Consistency).
+_OPTIONAL_EVIDENCE_KEYS = frozenset({"mean", "cut", "consistency", "declared", "gate", "verifier"})
 _MEMBER_KEYS = {"member_id", "raw", "value", "status", "reason", "signals", "weight", "score"}
 _OPTIONAL_MEMBER_KEYS = frozenset({"rank"})  # E4b part 2: written only by a top_k@1 step
 _CUT_KEYS = {"k", "order"}
 _GATE_KEYS = {"observe", "observed", "cmp", "threshold", "passed", "branch", "otherwise"}
 _OPTIONAL_GATE_KEYS = frozenset({"abstain_band"})  # E4b part 6: written only with a spec band
+_SAMPLE_COUNT_KEYS = {"member_id", "matched", "succeeded", "failed"}
 _RESULT_KEYS = {"member_id", "value", "status", "reason"}
 _SIGNAL_KEYS = {"key", "order"}
 _RESULT_STATUSES = frozenset({"answered", "abstain"})
@@ -126,6 +129,7 @@ def decode_combine_evidence(value: object, label: str) -> CombineEvidence | None
             cut=_cut(raw.get("cut"), f"{label} cut"),
             declared=declared,
             gate=_gate(raw.get("gate"), f"{label} gate"),
+            consistency=_consistency(raw.get("consistency"), f"{label} consistency"),
             result=_result(raw["result"], f"{label} result"),
             dropped=_integer(raw["dropped"], f"{label} dropped"),
             finish_reason=_text(raw["finish_reason"], f"{label} finish_reason"),
@@ -229,6 +233,31 @@ def _abstain_band(value: object, label: str) -> tuple[float, float]:
     if len(items) != 2:
         raise ExecutionError(f"{label} must be two numbers")
     return (_number(items[0], label), _number(items[1], label))
+
+
+def _consistency(value: object, label: str) -> dict[str, list[CombineSampleCount]] | None:
+    """``{name: [{member_id, matched, succeeded, failed}, ...]}``; CombineEvidence checks CS-I*."""
+    if value is None:
+        return None
+    raw = _mapping(value, label)
+    return {
+        name: [
+            _sample_count(item, f"{label} {name!r}[{index}]")
+            for index, item in enumerate(_list(records, f"{label} {name!r}"))
+        ]
+        for name, records in raw.items()
+    }
+
+
+def _sample_count(value: object, label: str) -> CombineSampleCount:
+    raw = _mapping(value, label)
+    _exact_keys(raw, _SAMPLE_COUNT_KEYS, label)
+    return CombineSampleCount(
+        member_id=_text(raw["member_id"], f"{label} member_id"),
+        matched=_optional_integer(raw["matched"], f"{label} matched"),
+        succeeded=_integer(raw["succeeded"], f"{label} succeeded"),
+        failed=_integer(raw["failed"], f"{label} failed"),
+    )
 
 
 def _signals(value: object, label: str) -> dict[str, float | None]:

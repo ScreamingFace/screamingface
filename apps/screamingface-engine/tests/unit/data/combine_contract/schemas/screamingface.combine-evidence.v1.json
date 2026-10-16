@@ -392,6 +392,46 @@
       "title": "ResultRecord",
       "type": "object"
     },
+    "SampleCountRecord": {
+      "additionalProperties": false,
+      "description": "One member's samples of the declared consistency source (E4b part 7, ans:Q4).\n\n``succeeded`` samples answered and ``failed`` did not; ``matched`` of the succeeded samples\ngave the member's answer. ``matched`` is null when the member has no value (CS-I4, CS-I5).",
+      "properties": {
+        "failed": {
+          "minimum": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "matched": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Matched"
+        },
+        "member_id": {
+          "title": "Member Id",
+          "type": "string"
+        },
+        "succeeded": {
+          "minimum": 0,
+          "title": "Succeeded",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "member_id",
+        "matched",
+        "succeeded",
+        "failed"
+      ],
+      "title": "SampleCountRecord",
+      "type": "object"
+    },
     "SignalRecord": {
       "additionalProperties": false,
       "description": "The one signal the spec reads, and the order a reducer asked for (None: no order).",
@@ -476,6 +516,24 @@
       },
       "title": "Chosen",
       "type": "array"
+    },
+    "consistency": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/SampleCountRecord"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Consistency"
     },
     "cut": {
       "anyOf": [
