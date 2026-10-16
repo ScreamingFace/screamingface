@@ -44,6 +44,10 @@ type GateOtherwise = Literal["abstain", "judge", "writer"]
 # One source for each vocabulary: the Literal is the list, the set is derived from it.
 _RESULT_STATUSES = frozenset(get_args(ResultStatus.__value__))
 _RETURNS = frozenset(get_args(JudgeReturns.__value__))
+_GATE_CMPS = frozenset(get_args(GateCmp.__value__))
+_GATE_BRANCHES = frozenset(get_args(GateBranch.__value__))
+_GATE_OTHERWISE = frozenset(get_args(GateOtherwise.__value__))
+_GATE_SOURCES = ("chosen", "mean")
 _OPERATOR_ID = re.compile(r"[a-z][a-z0-9_]*@[1-9][0-9]*")
 _MAX_CUT_K = _MAX_REDUCER_MEMBERS  # the bound of sf.Rank k (blocks.py _MAX_K)
 
@@ -191,7 +195,14 @@ class CombineCut:
 
 @dataclass(frozen=True, slots=True)
 class CombineGate:
-    """RED stub (E4b part 5 unit 1): the fields only; commit B adds the checks."""
+    """What the gate of a vote compared and which branch the step took (``sf.Gate``, E4b part 5).
+
+    ``observe`` is ``"agreement"``, ``"chosen:<name>"`` or ``"mean:<name>"``. ``cmp`` is the
+    condition that keeps the majority: when ``observed cmp threshold`` holds, ``passed`` is True
+    and ``branch`` is ``"majority"``; else the ``otherwise`` fallback answered. ``passed`` and
+    ``branch`` are None when the vote found no answer, so the gate did not run; ``observed`` is
+    then None too. ``observed`` is also None when the gate ran and had no number to compare.
+    """
 
     observe: str
     observed: float | None
@@ -201,8 +212,38 @@ class CombineGate:
     branch: GateBranch | None
     otherwise: GateOtherwise
 
+    def __post_init__(self) -> None:
+        _gate_observe(self.observe)
+        object.__setattr__(
+            self, "observed", _optional_number(self.observed, "Combine gate observed")
+        )
+        _one_of(self.cmp, _GATE_CMPS, "Combine gate cmp")
+        object.__setattr__(
+            self, "threshold", _required_number(self.threshold, "Combine gate threshold")
+        )
+        _optional_flag(self.passed, "Combine gate passed")
+        if self.branch is not None:
+            _one_of(self.branch, _GATE_BRANCHES, "Combine gate branch")
+        _one_of(self.otherwise, _GATE_OTHERWISE, "Combine gate otherwise")
+        # GR-I1
+        if (self.passed is None) != (self.branch is None):
+            raise ValueError("Combine gate has a branch exactly when it has a comparison result")
+        if self.passed is None and self.observed is not None:
+            raise ValueError("Combine gate that did not run observed no number")
+        # GR-I2
+        if self.passed is not None and self.passed != (self.branch == "majority"):
+            raise ValueError("Combine gate that passed keeps the majority, and only it does")
+
     def to_dict(self) -> dict[str, object]:
-        raise NotImplementedError
+        return {
+            "observe": self.observe,
+            "observed": self.observed,
+            "cmp": self.cmp,
+            "threshold": self.threshold,
+            "passed": self.passed,
+            "branch": self.branch,
+            "otherwise": self.otherwise,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +338,7 @@ class CombineEvidence:
     signal: CombineSignal | None
     cut: CombineCut | None
     declared: Mapping[str, Mapping[str, object]] | None
+    gate: CombineGate | None
     result: CombineResult
     dropped: int
     finish_reason: str
@@ -325,6 +367,7 @@ class CombineEvidence:
         signal: CombineSignal | None = None,
         cut: CombineCut | None = None,
         declared: Mapping[str, Mapping[str, object]] | None = None,
+        gate: CombineGate | None = None,
     ) -> None:
         _one_of(kind, REDUCER_KINDS, "Combine evidence kind")
         _one_of(reducer, REDUCER_NAMES, "Combine evidence reducer")
@@ -351,17 +394,28 @@ class CombineEvidence:
             and (selected_declared is None or selected_signal.key not in selected_declared)
         ):
             raise ValueError("Combine evidence signal must read an E4a key or a declared name")
+        selected_judge = _optional_instance(judge, CombineJudgeReading, "Combine evidence judge")
+        selected_agreement = _agreement(agreement)
+        selected_gate = _optional_instance(gate, CombineGate, "Combine evidence gate")
+        _check_gate(
+            selected_gate,
+            agreement=selected_agreement,
+            judge=selected_judge,
+            chosen=tuple(chosen),
+            built=built,
+            result=selected_result,
+        )
         values = {
             "kind": kind,
             "reducer": reducer,
             "operators": _operator_ids(operators),
             "members": selected_members,
             "tally": selected_tally,
-            "judge": _optional_instance(judge, CombineJudgeReading, "Combine evidence judge"),
+            "judge": selected_judge,
             "fields": selected_fields,
             "chosen": tuple(chosen),
             "built": _flag(built, "Combine evidence built"),
-            "agreement": _agreement(agreement),
+            "agreement": selected_agreement,
             "tie": _flag(tie, "Combine evidence tie"),
             "median": _optional_text(median, "Combine evidence median"),
             "mean": _optional_text(mean, "Combine evidence mean"),
@@ -372,6 +426,7 @@ class CombineEvidence:
             "signal": selected_signal,
             "cut": _optional_instance(cut, CombineCut, "Combine evidence cut"),
             "declared": selected_declared,
+            "gate": selected_gate,
             "result": selected_result,
             "dropped": selected_dropped,
             "finish_reason": _nonblank_text(finish_reason, "Combine evidence finish_reason"),
@@ -402,10 +457,56 @@ class CombineEvidence:
             **({} if self.cut is None else {"cut": self.cut.to_dict()}),  # E4b part 2: optional
             # E4b part 3 (P11): optional on the wire, only a Fusion that declares signals writes it
             **({} if self.declared is None else {"declared": thaw_mapping(self.declared)}),
+            # E4b part 5 (P9): optional on the wire, only a gated vote writes it
+            **({} if self.gate is None else {"gate": self.gate.to_dict()}),
             "result": self.result.to_dict(),
             "dropped": self.dropped,
             "finish_reason": self.finish_reason,
         }
+
+
+def _gate_observe(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("Combine gate observe must be text")
+    source, separator, name = value.partition(":")
+    if value != "agreement" and not (
+        separator and source in _GATE_SOURCES and is_signal_name(name)
+    ):
+        raise ValueError("Combine gate observe must be agreement, chosen:<name> or mean:<name>")
+    return value
+
+
+def _check_gate(
+    gate: CombineGate | None,
+    *,
+    agreement: float | None,
+    judge: CombineJudgeReading | None,
+    chosen: tuple[str, ...],
+    built: object,
+    result: CombineResult,
+) -> None:
+    """GR-I1 (evidence part), GR-I4 and GR-I5 of the E4b part 5 erd §4."""
+    if gate is None:
+        return
+    if gate.passed is None and result.status != "abstain":
+        raise ValueError("Combine evidence gate that did not run goes with an abstained result")
+    if gate.observe == "agreement" and gate.passed is not None and gate.observed != agreement:
+        raise ValueError("Combine evidence agreement gate observes the evidence agreement")
+    if gate.branch != "fallback":
+        return
+    if gate.otherwise == "writer" and not (
+        built is True and not chosen and result.member_id is None
+    ):
+        raise ValueError("Combine evidence writer fallback builds the answer and chooses no member")
+    if gate.otherwise == "judge" and (
+        judge is None
+        or judge.returns != "label"
+        or result.member_id is None
+        or chosen != (result.member_id,)
+    ):
+        raise ValueError(
+            "Combine evidence judge fallback records its label reading and chooses that member"
+        )
 
 
 def _declared_map(value: object) -> Mapping[str, Mapping[str, object]] | None:

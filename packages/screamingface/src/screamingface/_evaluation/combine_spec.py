@@ -20,7 +20,8 @@ _MAX_SPEC_BYTES = 64 * 1024
 _SPEC_KEYS = frozenset(
     {"schema", "reducer", "members", "extract", "normalize", "reduce", "select", "weights"}
 )
-_OPTIONAL_SPEC_KEYS = frozenset({"signals"})  # E4b part 3: written only when a Fusion declares
+# E4b part 3 signals: written only when a Fusion declares; E4b part 5 gate: only a gated vote.
+_OPTIONAL_SPEC_KEYS = frozenset({"signals", "gate"})
 _INVALID_SPEC = "URL4 Candidate has an invalid combine spec"
 
 
@@ -154,6 +155,7 @@ def _is_spec(spec: object) -> bool:
     return (
         spec["schema"] == COMBINE_SPEC_SCHEMA
         and ("signals" not in spec or _is_signals(spec["signals"]))
+        and ("gate" not in spec or isinstance(spec["gate"], dict))
         and isinstance(spec["reducer"], str)
         and isinstance(members, list)
         and bool(members)
