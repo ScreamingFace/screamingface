@@ -1105,15 +1105,26 @@ confirmed to emit both lines. This is a known, stated gap, not a placeholder; it
 
 - [ ] **Step 2: Run the replay lane locally**
 
+`ifeval` is a local-Task bundle (OME-1527), so `screamingface prepare` does not build it; the
+Engine's own preparer does, exactly as `.github/workflows/screamingface-e2e-replay.yml` runs it.
+
 ```bash
-cd packages/screamingface
-uv run --extra runtime screamingface prepare ifeval
-SCREAMINGFACE_TEST_E2E=1 SCREAMINGFACE_WORKBENCH_OUT=/tmp/wb uv run pytest tests/e2e/workbench -v -rs
+# 1. Build the ifeval bundle with the Engine's preparer (refuses a non-empty directory)
+cd apps/screamingface-engine
+uv run --extra benchmarks python -m screamingface_engine.benchmarks.prepare \
+  --root /tmp/screamingface-data/benchmark-assets --bundle ifeval
+
+# 2. Run the workbench against the replay target
+cd ../../packages/screamingface
+SCREAMINGFACE_TEST_E2E=1 \
+SCREAMINGFACE_E2E_ASSETS=/tmp/screamingface-data/benchmark-assets \
+SCREAMINGFACE_WORKBENCH_OUT=/tmp/wb \
+  uv run pytest tests/e2e/workbench -v -rs
 cat /tmp/wb/summary.md
 ```
 
 Expected:
-- `test_notebook[quickstart]` PASSES
+- `test_notebook[replay-quickstart]` PASSES (id is `test_notebook[<target>-<stem>]`)
 - `/tmp/wb/replay/quickstart/{executed.ipynb,trace.json,logs/engine.txt,logs/aigateway.txt}`
   exist
 - `trace.json` shows both hops `found: true`
