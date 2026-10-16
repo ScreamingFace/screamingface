@@ -52,4 +52,7 @@ See `docs/plan/2026-10-15-provider-native-media.md` steps 1–5.
     `--skip-append-only` for that change only.
   - PR #1431 follow-up review: a non-string `image_url.detail` (list/dict, unhashable) raised
     TypeError → 500; now a typed 422. Tests appended only.
+  - Route-level coverage: `tests/unit/test_native_media_route.py` drives `/v1/chat/completions`
+    (Codex) and pins the typed 422 reaching the HTTP caller with no dispatch; mutation-checked
+    (gate disabled → 4 of 5 fail).
   - Not yet verified live: the external 12-call run after the staging deploy answers `OME-1598`.
