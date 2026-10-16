@@ -180,7 +180,7 @@ on `local` it is the authored open-source fusion below, run with your OpenRouter
 
 _QUICKSTART_PARAMETERS = """
 ENGINE_URL = "http://127.0.0.1:9108"
-SCOREBOARD_URL = None
+SCOREBOARD_URL = "http://127.0.0.1:9106"  # always explicit; replay has none and never calls it
 RECIPE = "authored"  # "golden" on replay: the exact recipe the ifeval tape recorded
 BENCHMARK = "ifeval"
 LIMIT = 1
@@ -194,11 +194,9 @@ import os
 
 import screamingface as sf
 
-client = (
-    sf.Client(engine_url=ENGINE_URL, scoreboard_url=SCOREBOARD_URL)
-    if SCOREBOARD_URL
-    else sf.Client(engine_url=ENGINE_URL)
-)
+if not SCOREBOARD_URL:  # spec §3.1: never fall back to the hosted leaderboard
+    raise ValueError("SCOREBOARD_URL must be explicit")
+client = sf.Client(engine_url=ENGINE_URL, scoreboard_url=SCOREBOARD_URL)
 if os.environ.get("OPENROUTER_API_KEY") and RECIPE == "authored":
     client.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])
 """

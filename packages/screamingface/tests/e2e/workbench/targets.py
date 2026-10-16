@@ -41,13 +41,17 @@ KEY_ENV: Final = "OPENROUTER_API_KEY"
 _LOCAL_GATEWAY_PORT: Final = 9105
 _LOCAL_ENGINE_PORT: Final = 9108
 _LOCAL_SCOREBOARD_PORT: Final = 9106
+# Spec §3.1: scoreboard_url is always explicit. The replay stack runs no Scoreboard and the
+# notebook never calls the leaderboard there, so this loopback (discard port) is UNUSED on
+# replay — it only keeps the SDK off its hosted default.
+REPLAY_SCOREBOARD_URL: Final = "http://127.0.0.1:9"
 
 
 @dataclass(frozen=True)
 class LiveTarget:
     name: str
     engine_url: str
-    scoreboard_url: str | None  # None on replay: the replay stack has no Scoreboard
+    scoreboard_url: str  # always explicit (spec §3.1); a placeholder on replay
     sources: tuple[LogSource, ...]
     required_hops: tuple[str, ...]
     params: dict[str, Any] = field(default_factory=dict)  # merged into injected parameters
@@ -85,7 +89,7 @@ def _replay(work_dir: Path) -> Iterator[LiveTarget]:
         yield LiveTarget(
             name="replay",
             engine_url=stack.engine_url,
-            scoreboard_url=None,
+            scoreboard_url=REPLAY_SCOREBOARD_URL,
             sources=(
                 FileLogSource("engine", work_dir / "engine.log"),
                 FileLogSource("aigateway", work_dir / "aigateway.log"),
