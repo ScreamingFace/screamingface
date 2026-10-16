@@ -20,6 +20,8 @@ views the bundles. This unit is spec only, with no code.
 ## Planned changes
 
 - `docs/spec/2026-10-16-e2e-notebook-workbench.md` (new)
+- `docs/plan/2026-10-16-e2e-workbench-u1-client-pairing-and-token.md` (new)
+- `docs/plan/2026-10-16-e2e-workbench-u2-core.md` (new)
 - this ledger
 
 ## Test plan
@@ -35,7 +37,7 @@ views the bundles. This unit is spec only, with no code.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned (spec + ledger)
+- **Actual files:** spec + ledger + plans for units 1 and 2
 - **Commits:** docs(spec): e2e notebook workbench
 - **Gates:** docs-only; every repo anchor in the spec checked to exist
-- **Deviations:** none; awaiting owner review before a plan
+- **Deviations:** the workbench moves to `packages/screamingface/tests/e2e/workbench/` so it reuses the replay harness (spec §3 updated). Hosted defaults are now prod hosts (spec §1 updated). Owner decisions 2026-10-16: pairing raises; score bands are hand-set.

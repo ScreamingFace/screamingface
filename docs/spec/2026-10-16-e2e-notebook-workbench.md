@@ -2,6 +2,8 @@
 
 Status: draft for owner review, 2026-10-16.
 Refs: unfiled (ledger `docs/work/2026-10-16-e2e-notebook-workbench.md`).
+Plans: `docs/plan/2026-10-16-e2e-workbench-u1-client-pairing-and-token.md`,
+`docs/plan/2026-10-16-e2e-workbench-u2-core.md`.
 Explainer: https://claude.ai/artifact/XzJH59USTJ8GwFSHhNv1eP (private).
 
 ## 1. Problem
@@ -16,9 +18,10 @@ the same recipes on a local BYOK stack. It has four problems:
   check.
 - **No evidence of where it ran.** A green notebook does not show that the request crossed
   engine → runner → aigateway, under which trace, or what each hop logged.
-- **A publication hole.** `sf.configure(engine_url=…)` defaults `scoreboard_url` to
-  `https://leaderboard.dev.screamingface.ai` (`packages/screamingface/src/screamingface/_default_client.py:67-71`),
-  so Part B with `SUBMIT=True` publishes a local-engine score to the shared dev leaderboard.
+- **A publication hole.** `sf.configure(engine_url=…)` defaults `scoreboard_url` to the hosted
+  leaderboard, now `https://leaderboard.screamingface.ai` (`client.py:40-41`,
+  `_default_client.py:67-71`). Part B with `SUBMIT=True` therefore publishes a local-engine score
+  to the public leaderboard.
 
 The pieces to fix this already exist but are split across three places:
 
@@ -39,18 +42,23 @@ The pieces to fix this already exist but are split across three places:
 ## 3. Shape
 
 ```
-e2e/workbench/
+packages/screamingface/tests/e2e/workbench/
   notebooks/            # scenarios; generated, committed output-free
   build_notebooks.py    # deterministic builder (the examples/ rule)
+  runner.py             # nbclient execution + parameter injection
   targets.py            # Target profiles + lifecycle
-  evidence.py           # tailers, collectors, chain assertions, bundle writer
-  conftest.py           # --target, --require-all, --budget, fixtures
+  evidence.py           # log sources, trace chain
+  bundle.py             # evidence bundle writer (redacting)
+  conftest.py           # env-selected target, require-all, fixtures
   test_notebooks.py     # one parametrized test per notebook
-  ui/                   # local web app: launcher + bundle viewer
 ```
 
-It sits under `e2e/`, next to `failor`, not inside `packages/screamingface`. That keeps the SDK
-wheel free of test tooling, and the workbench consumes the SDK the way a user does.
+It sits inside the existing replay suite, so it reuses `tests/e2e/harness` (replay stack,
+gating, assets, goldens) instead of copying it, and the existing replay workflow runs it. The
+SDK wheel excludes `tests/`, so test tooling still never ships. Selection uses env vars
+(`SCREAMINGFACE_WORKBENCH_TARGET`, `…_OUT`, `…_REQUIRE_ALL`) rather than CLI options, which a
+nested conftest cannot register. Where the local UI (unit 4) lives is decided in that unit's
+plan.
 
 ### 3.1 Target
 
@@ -198,9 +206,9 @@ acceptable for human-launched runs and is why B is not used for CI.
 
 - **Preview Access app.** Do previews share the dev Access application (audience, team domain)?
   It isn't in this repo, and B depends on it.
-- **Fix in unit 1:** should `configure(engine_url=X)` with no `scoreboard_url` raise, or derive
-  the matching scoreboard? Deriving is friendlier, raising is explicit. It changes a public SDK
-  signature, so the owner decides.
-- **Score bands:** taken from goldens' recorded scores, or hand-set per scenario?
+- ~~Unit 1 pairing~~: decided 2026-10-16. A non-default engine without a scoreboard
+  **raises**, in `configure()` and on the env path. `sf.Client` is unchanged; see the unit 1
+  plan.
+- ~~Score bands~~: decided 2026-10-16. **Hand-set per scenario** in the parameters cell.
 - **OTLP span query:** which backend API the collector calls for cloud spans, and with what
   credential.
