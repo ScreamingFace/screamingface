@@ -1027,3 +1027,9 @@ None.
   - The gate results are in a follow-up ledger commit, not in commit C. The gates run after
     commit C (spec §11), so their results are not known when commit C is made.
   - No other deviation from the spec text. The spec §10 planned deviations apply as written.
+
+## Owner approvals (2026-10-16)
+
+- The owner approved the 14 pinned edits of units 1, 2, 4 and 5 (including the unit 1 D-1 edit of
+  `ET/test_combine_gate.py`). Manifest: `.claude/test-change-approvals/OME-E4B-P6.json` (placeholder
+  id; rename at PR-open).
