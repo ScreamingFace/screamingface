@@ -105,13 +105,46 @@ class _Summed:
 # _Plan.declared: tuple[_Declared | _ReplyDeclared | _Summed, ...]
 # _declared: a SumSource entry -> _Summed(name, tuple(entry.coefficients.items())), BEFORE the
 #   registry lookup (a sum has no source plugin).
-# _signal_values: compute every column that is not a _Summed first (today's code), then each
-#   _Summed column from those columns with sum_value, member by member.
 ```
 
-`_reader_numbers`, `_signal_read`, `_exclusion`, `_weight`, `_read_members` and `_recorded_keys` do
-not change. A sum of logprob names gets its reader call through the logprob names
-(`declares_reply_sources` already sees them).
+`_signal_values` after the change (the exact shape; the early returns stay as they are):
+
+```python
+    keys = _recorded_keys(plan)
+    ...  # the two early returns of today, unchanged
+    sums = {item.name: item for item in plan.declared if isinstance(item, _Summed)}
+    by_name = {
+        item.name: item for item in plan.declared if not isinstance(item, _Summed)
+    }  # the same Mapping[str, _Declared | _ReplyDeclared] as today
+    plain = tuple(key for key in keys if key not in sums)
+    looked = _reader_numbers(plain, by_name, context, accounting)
+    columns: dict[str, Mapping[str, float | None]] = {
+        key: _column(key, by_name.get(key), spec, context, looked) for key in plain
+    }
+    for name, item in sums.items():
+        columns[name] = {
+            member: sum_value(item.terms, {c: columns[c][member] for c, _ in item.terms})
+            for member in spec.members
+        }
+    return {member: {key: columns[key][member] for key in keys} for member in spec.members}
+```
+
+Rules for this shape:
+
+- `_reader_numbers` and `_column` get only `plain` keys and the non-sum `by_name`, so their types
+  (`_Declared | _ReplyDeclared`) do not change. WHY: a sum key that reaches `_column` falls through
+  to `_signal_numbers`, which calls `_field_numbers(key[6:])` and gives quiet, wrong values with no
+  error.
+- Every component of a sum is a declared non-sum name (SM-E1), and `_recorded_keys` holds every
+  declared name, so `columns[c]` exists for each component.
+- The returned map keeps the key order of `keys` (SM-2 checks it).
+
+`_reader_numbers`, `_column`, `_signal_read`, `_exclusion`, `_weight`, `_read_members` and
+`_recorded_keys` do not change. A sum of logprob names gets its reader call through the logprob
+names (`declares_reply_sources` already sees them).
+
+Exports: add `"SumSource"` to `E/combine/spec.py` `__all__` (:495-515, after `"StepSpec"`, before
+`"VerbalizedSource"`), and `__all__ = ["sum_value"]` to the new `E/combine/signal_sum.py`.
 
 ## 3. Scenarios and acceptance criteria
 
@@ -141,6 +174,14 @@ which rounds to `2.5`.
   None}` in this key order; member_3 has `status "excluded"`, `reason "no_signal"`; `chosen ==
   ["member_2"]`; `signal == {"key": "risk", "order": "min"}`; `result.member_id == "member_2"`; the
   output is the member_2 text byte for byte. [stated ans:Q1 "Pick/Rank/Filter"]
+- **SM-2b** Given fixture S and signals S, then a Rank and a Filter read the sum by name (helpers
+  in `ET/combine_signal_support.py`, with `"signals"` set to signals S as
+  `ET/test_combine_declared_exclusion.py:65-71` does):
+  - `rank_signal_spec(3, 1, "risk", "min")` gives `chosen == ["member_2"]`, and member_3 has
+    `status "excluded"`, `reason "no_signal"`;
+  - `filter_spec(3, {"key": "risk", "cmp": "le", "value": 3.0})` keeps member_2 only:
+    `chosen == ["member_2"]`, and member_3 has `status "excluded"`, `reason "no_signal"`.
+  [stated ans:Q1 "Pick/Rank/Filter"]
 - **SM-3** Given a weighted vote (`extract last_number@1`, `normalize numeric@1`, `reduce
   weighted_mode@1`, `select max_weight_holder@1`, `weights {"signal": "risk"}`) with signals S and
   the texts `"A: 4\nB: 10\nThe answer is 9"`, `"A: 2\nB: 5\nI get 12"`, `"A: 0\nB: 0\nSo 12"`,
@@ -195,7 +236,8 @@ which rounds to `2.5`.
 - **SM-D5** (M×M) [implied] A spec without a sum entry gives the same evidence bytes as on base:
   the 37 cases of list L37 (test-plan §6) and the specs of the 47 url4 files of list L47 parse with
   no `SumSource`.
-- **SM-D6** (M×L) [proposed] The trace log line keeps its format (`outcome=ok` for SM-2).
+- **SM-D6** (M×L) [proposed] The log line keeps its format: for SM-2, the one combine log line
+  ends with `outcome=ok` (exemplar for the log capture: `ET/test_combine_gate.py:523-537`).
 
 ## 4. Non-functional requirements
 
@@ -216,9 +258,17 @@ None.
 ## 7. TDD plan
 
 New test files: `ET/test_combine_signal_sum.py` (all rows except 12, 13),
-`ET/test_combine_signal_sum_words.py` (rows 1, 13). Row 12 appends one scenario builder to
-`ET/test_combine_evidence_contract_fixture.py` and one `_EXPECTED_NAMES |=` line to
-`ST/test_combine_evidence_contract.py` (append-only, not flagged).
+`ET/test_combine_signal_sum_words.py` (rows 1, 13). Row 12 inserts one scenario builder
+`_pick_sum_min` and the line `SCENARIOS["pick_sum_min"] = _pick_sum_min` into
+`ET/test_combine_evidence_contract_fixture.py` directly after line 418 (the part 5 gate block, the
+line `SCENARIOS["vote_gate_not_run"] = ...`) and before `def canonical_evidence` (line 421). Do
+NOT append it at the end of the file: the file ends with `if __name__ == "__main__":
+write_fixture()` (lines 491-492), so a line after it is not run when the file runs as a script
+(test-plan §2), and `@pytest.mark.parametrize("name", sorted(SCENARIOS))` (line 442) reads
+`SCENARIOS` when the decorator runs, so a later scenario gets no byte test. Part 5 inserted its
+block in the same way (lines 378-418). Row 12 also appends one `_EXPECTED_NAMES |=` line to
+`ST/test_combine_evidence_contract.py` after line 61. The append-only check does not flag these
+two files: a new module-level statement between protected ranges is not inside a range.
 
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
@@ -228,7 +278,7 @@ New test files: `ET/test_combine_signal_sum.py` (all rows except 12, 13),
 | 4 | `sum_value_is_the_exact_sum_rounded_once` (SM-D1 oracles, both term orders) | unit | SM-D1 | H×H | `signal_sum.sum_value` |
 | 5 | `sum_value_is_missing_when_a_component_is_missing_or_out_of_range` (SM-D2) | unit | SM-D2 | H×M | `sum_value` |
 | 6 | `every_member_records_the_sum_after_its_components` (SM-2 signal maps, in key order) | unit | SM-2 | H×H | `_Summed`, two-pass `_signal_values` |
-| 7 | `a_pick_reads_the_sum_by_name_and_excludes_a_member_with_no_sum` (SM-2 rest) | unit | SM-2 | H×M | — |
+| 7 | `a_pick_reads_the_sum_by_name_and_excludes_a_member_with_no_sum` (SM-2 rest) and `a_rank_and_a_filter_read_the_sum_by_name` (SM-2b) | unit | SM-2, SM-2b | H×M | — |
 | 8 | `a_vote_weight_reads_the_sum_and_a_zero_sum_has_no_weight` | unit | SM-3 | H×M | — |
 | 9 | `a_gate_reads_a_sum_as_chosen_and_as_mean` | unit | SM-4 | H×M | — |
 | 10 | `the_evidence_declares_the_sum_entry` | unit | SM-5 | M×M | — |

@@ -53,7 +53,8 @@ No README text and no CHANGELOG bullet name `sf.Sum`, `abstain_band` or `in_band
    - one sentence: a rule or a gate reads the sum by its name: `sf.Pick`, `sf.Rank`, `sf.Filter`,
      a vote weight, and a gate on `"chosen:risk"` or `"mean:risk"`;
    - the weight sentence: a sum that adds `sf.Logprob("mean")`, `sf.Logprob("sum")` or
-     `sf.Entropy(...)` cannot be a vote weight; a sum of zero or less gives the member no weight;
+     `sf.Entropy(...)` cannot be a vote weight; a sum of zero or less, or too large to be a
+     weight, gives the member no weight;
    - one paragraph on the band: `sf.Gate(..., abstain_band=(lo, hi))`; the band is closed (both
      ends are in it); the Engine checks the band before the comparison; inside the band the Case
      abstains with `in_band` for every `otherwise`; outside it the gate compares as before; a

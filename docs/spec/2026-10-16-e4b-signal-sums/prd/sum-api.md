@@ -86,7 +86,9 @@ constructor error, raises `ValueError(_CANNOT_REBUILD)`.
 def _check_sums(declared: Mapping[str, SignalSource]) -> None: ...
 # _check_weight_source: when declared[weights.key] is a Sum, refuse it when any component is a
 #   Logprob whose form is not "prob", or an Entropy.
-# S/__init__.py: export Sum ("Sum" in __all__, after "Signal...", in the sorted list).
+# S/__init__.py: export Sum. Import it with the other sources; in __all__ put "Sum" directly
+#   after "SelfCorrective" and before "signal" (__all__ is not sorted; the public surface
+#   snapshot sorts the names, so the place does not change the snapshot).
 ```
 
 `_check_sums` walks the sums in name order and their components in name order. Messages (exact):
