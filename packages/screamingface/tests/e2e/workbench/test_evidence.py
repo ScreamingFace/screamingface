@@ -26,18 +26,18 @@ def test_hops_are_found_only_by_this_runs_trace_id(tmp_path: Path) -> None:
     )
     gateway = _src(tmp_path, "aigateway", f"gateway_call_id=c1 trace_id={OTHER} POST\n")
     chain = collect([TID], [engine, gateway])
-    assert chain.missing(["engine", "aigateway"]) == ["aigateway"]
+    assert chain.missing(["engine", "aigateway"]) == [f"aigateway: trace {TID} absent"]
     assert chain.lifecycle == {"scheduled": True, "terminated": True}
 
 
 def test_a_missing_log_file_is_a_missing_hop_not_a_crash(tmp_path: Path) -> None:
     chain = collect([TID], [FileLogSource("engine", tmp_path / "absent.log")])
-    assert chain.missing(["engine"]) == ["engine"]
+    assert chain.missing(["engine"]) == [f"engine: trace {TID} absent"]
 
 
 def test_no_trace_ids_means_every_hop_is_missing(tmp_path: Path) -> None:
     engine = _src(tmp_path, "engine", f"anything {TID}\n")
-    assert collect([], [engine]).missing(["engine"]) == ["engine"]
+    assert collect([], [engine]).missing(["engine"]) == ["engine: no trace id to match"]
 
 
 def test_gateway_lines_inside_the_request_window_need_a_call_id() -> None:
@@ -83,8 +83,101 @@ def test_service_sources_split_one_runtime_log_into_separate_hops(tmp_path: Path
         [TID],
         [ServiceLogSource("engine", log, "engine"), ServiceLogSource("aigateway", log, "gateway")],
     )
-    assert chain.missing(["engine", "aigateway"]) == ["aigateway"]
+    assert chain.missing(["engine", "aigateway"]) == [f"aigateway: trace {TID} absent"]
 
 
 def test_service_source_reads_empty_when_the_log_is_absent(tmp_path: Path) -> None:
     assert ServiceLogSource("engine", tmp_path / "nope.log", "engine").read() == ""
+
+
+def _engine_with(tmp_path: Path, *ids: str) -> FileLogSource:
+    return _src(tmp_path, "engine", "".join(f"run scheduled trace_id={t}\n" for t in ids))
+
+
+def test_every_reported_trace_id_must_be_in_every_required_hop(tmp_path: Path) -> None:
+    # Engine has both ids, the gateway only TID: one id present is not the chain for both.
+    engine = _engine_with(tmp_path, TID, OTHER)
+    gateway = _src(tmp_path, "aigateway", f"gateway_call_id=c1 trace_id={TID} POST\n")
+    chain = collect([TID, OTHER], [engine, gateway])
+    assert chain.missing(["engine", "aigateway"]) == [f"aigateway: trace {OTHER} absent"]
+    hops = {h["name"]: h for h in chain.to_json()["hops"]}
+    assert hops["aigateway"]["found"] is False
+    assert hops["aigateway"]["missing_ids"] == [OTHER]
+    assert hops["engine"]["found"] is True
+
+
+def test_missing_names_each_absent_id_in_each_hop(tmp_path: Path) -> None:
+    engine = _engine_with(tmp_path, TID)
+    gateway = _src(tmp_path, "aigateway", "")
+    chain = collect([TID, OTHER], [engine, gateway])
+    assert chain.missing(["engine", "aigateway"]) == [
+        f"engine: trace {OTHER} absent",
+        f"aigateway: trace {TID} absent",
+        f"aigateway: trace {OTHER} absent",
+    ]
+
+
+def test_a_required_hop_with_no_source_is_named(tmp_path: Path) -> None:
+    chain = collect([TID], [_engine_with(tmp_path, TID)])
+    assert chain.missing(["engine", "aigateway"]) == ["aigateway: no log source"]
+
+
+def test_a_gateway_that_emits_no_call_ids_fails(tmp_path: Path) -> None:
+    # The id is present, but on no identified line: the hop exists, the call is unattributable.
+    engine = _engine_with(tmp_path, TID)
+    gateway = _src(tmp_path, "aigateway", f"POST /v1/chat/completions trace_id={TID}\n")
+    chain = collect([TID], [engine, gateway])
+    assert chain.missing(["engine", "aigateway"]) == [
+        f"aigateway: trace {TID} on no line carrying gateway_call_id"
+    ]
+
+
+def test_a_call_id_on_another_runs_line_does_not_identify_this_run(tmp_path: Path) -> None:
+    engine = _engine_with(tmp_path, TID)
+    gateway = _src(
+        tmp_path,
+        "aigateway",
+        f"gateway_call_id=c9 trace_id={OTHER} POST\nPOST /v1/chat/completions trace_id={TID}\n",
+    )
+    chain = collect([TID], [engine, gateway])
+    assert chain.missing(["engine", "aigateway"]) == [
+        f"aigateway: trace {TID} on no line carrying gateway_call_id"
+    ]
+
+
+def test_call_id_rule_applies_only_when_aigateway_is_required(tmp_path: Path) -> None:
+    gateway = _src(tmp_path, "aigateway", f"POST trace_id={TID}\n")
+    chain = collect([TID], [_engine_with(tmp_path, TID), gateway])
+    assert chain.missing(["engine"]) == []
+
+
+def test_identified_gateway_line_for_every_id_passes(tmp_path: Path) -> None:
+    engine = _engine_with(tmp_path, TID, OTHER)
+    gateway = _src(
+        tmp_path,
+        "aigateway",
+        f"gateway_call_id=c1 trace_id={TID} POST\ngateway_call_id=c2 trace_id={OTHER} POST\n",
+    )
+    chain = collect([TID, OTHER], [engine, gateway])
+    assert chain.missing(["engine", "aigateway"]) == []
+    assert chain.reasons(["engine", "aigateway"]) == []
+
+
+def test_reasons_join_missing_and_unattributed_lines(tmp_path: Path) -> None:
+    engine = _engine_with(tmp_path, TID)
+    gateway = _src(
+        tmp_path,
+        "aigateway",
+        f"gateway_call_id=c1 trace_id={TID} a\nanonymous mid-request\ngateway_call_id=c1 b\n",
+    )
+    chain = collect([TID, OTHER], [engine, gateway])
+    assert chain.reasons(["engine", "aigateway"]) == [
+        f"trace chain incomplete: engine: trace {OTHER} absent; aigateway: trace {OTHER} absent",
+        "1 aigateway lines lack gateway_call_id",
+    ]
+
+
+def test_reasons_skip_the_chain_when_no_id_was_reported(tmp_path: Path) -> None:
+    # check_result already fails a run with no id; the chain must not double-report it.
+    chain = collect([], [_engine_with(tmp_path, TID)])
+    assert chain.reasons(["engine"]) == []

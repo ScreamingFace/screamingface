@@ -8,12 +8,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from harness.trace_evidence import unattributed_gateway_lines
+from harness.trace_evidence import CALL_ID_MARK, unattributed_gateway_lines
 
 _MAX_LINES = 500
 # The stable prefixes of `screamingface_engine.run_evidence` (SCHEDULED, TERMINATED).
 _SCHEDULED = "run scheduled"
 _TERMINATED = "run terminated"
+_GATEWAY = "aigateway"
 
 
 class LogSource(Protocol):
@@ -63,9 +64,14 @@ class ServiceLogSource:
 
 @dataclass(frozen=True)
 class Hop:
+    """One log source's view of the run. ``found`` means EVERY trace id is in it."""
+
     name: str
     found: bool
     lines: tuple[str, ...]
+    found_ids: tuple[str, ...] = ()
+    # Ids that appear on at least one line also carrying a ``gateway_call_id``.
+    identified_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -76,13 +82,57 @@ class TraceChain:
     unattributed: list[str] = field(default_factory=list)
 
     def missing(self, required: Sequence[str]) -> list[str]:
-        found = {h.name for h in self.hops if h.found}
-        return [name for name in required if name not in found]
+        """Every (required hop, trace id) gap, each naming the hop and the absent id.
+
+        WHY per id: a run reporting two ids whose second never reached the gateway is a broken
+        chain, though a per-hop "any id matched" check would pass it.
+
+        The ``aigateway`` hop also needs, per id, a line carrying BOTH that id and a
+        ``gateway_call_id``: a gateway that logs the trace id but no call id has a hop that
+        exists yet attributes no call. This is the workbench's form of the correlation
+        ladder's rung 3 (which wants >=2 identified lines in its own window): >=1 identified
+        line per id, bound to this run by the id rather than by a time window, so another
+        run's identified lines in a shared log cannot satisfy it.
+        """
+        by_name = {h.name: h for h in self.hops}
+        gaps: list[str] = []
+        for name in required:
+            hop = by_name.get(name)
+            if hop is None:
+                gaps.append(f"{name}: no log source")
+                continue
+            if not self.trace_ids:
+                gaps.append(f"{name}: no trace id to match")
+                continue
+            for tid in self.trace_ids:
+                if tid not in hop.found_ids:
+                    gaps.append(f"{name}: trace {tid} absent")
+                elif name == _GATEWAY and tid not in hop.identified_ids:
+                    gaps.append(f"{name}: trace {tid} on no line carrying gateway_call_id")
+        return gaps
+
+    def reasons(self, required: Sequence[str]) -> list[str]:
+        """The chain's failure reasons for the test verdict. No ids → no chain reason, since
+        ``check_result`` already fails that run (it would only be reported twice)."""
+        out: list[str] = []
+        if self.trace_ids and (gaps := self.missing(required)):
+            out.append(f"trace chain incomplete: {'; '.join(gaps)}")
+        if self.unattributed:
+            out.append(f"{len(self.unattributed)} aigateway lines lack gateway_call_id")
+        return out
 
     def to_json(self) -> dict[str, Any]:
         return {
             "trace_ids": list(self.trace_ids),
-            "hops": [{"name": h.name, "found": h.found, "lines": len(h.lines)} for h in self.hops],
+            "hops": [
+                {
+                    "name": h.name,
+                    "found": h.found,
+                    "lines": len(h.lines),
+                    "missing_ids": [t for t in self.trace_ids if t not in h.found_ids],
+                }
+                for h in self.hops
+            ],
             "lifecycle": dict(self.lifecycle),
             "unattributed_gateway_lines": len(self.unattributed),
         }
@@ -106,10 +156,16 @@ def collect(trace_ids: Sequence[str], sources: Sequence[LogSource]) -> TraceChai
     unattributed: list[str] = []
     for source in sources:
         text = source.read()
+        all_lines = text.splitlines()
+        found = tuple(t for t in trace_ids if any(t in ln for ln in all_lines))
+        identified = tuple(
+            t for t in found if any(t in ln and CALL_ID_MARK in ln for ln in all_lines)
+        )
         lines = _matching(text, trace_ids)
-        hops.append(Hop(source.name, bool(lines), lines))
+        every = bool(trace_ids) and len(found) == len(trace_ids)
+        hops.append(Hop(source.name, every, lines, found, identified))
         lifecycle["scheduled"] |= _has_event(lines, _SCHEDULED)
         lifecycle["terminated"] |= _has_event(lines, _TERMINATED)
-        if source.name == "aigateway":
+        if source.name == _GATEWAY:
             unattributed += unattributed_gateway_lines(text)[1]
     return TraceChain(tuple(trace_ids), tuple(hops), lifecycle, unattributed)

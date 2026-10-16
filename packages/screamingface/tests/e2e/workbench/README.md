@@ -5,7 +5,7 @@ Reviewable notebooks executed by pytest against a live target. Design:
 
 ## What it proves
 
-`test_notebook[<target>-<stem>]` passes only when **both** hold:
+`test_notebook[<target>-<stem>]` passes only when **all** of these hold:
 
 1. The notebook runs top to bottom and its own `assert`s hold, score band included.
    `SCORE_BAND` is set by hand per scenario in the `parameters` cell.
@@ -13,13 +13,26 @@ Reviewable notebooks executed by pytest against a live target. Design:
    key the notebook declares in `workbench.required_result`, `trace_ids` is a list, and each id
    is 32 lowercase hex characters. A missing payload, a non-list `trace_ids`, or a malformed id
    is a failure reason. Only well-formed ids go on to the chain check.
-3. Every trace id the notebook reports (its `workbench-result` cell prints
-   `WORKBENCH_RESULT={"trace_ids": [...]}`) is found in each of the target's required log
-   sources. On both targets those are the engine and the aigateway hops. Every matched aigateway
-   line must also carry a `gateway_call_id`.
+3. The trace chain is complete (`TraceChain.missing` / `TraceChain.reasons` in `evidence.py`).
+   The notebook's `workbench-result` cell prints `WORKBENCH_RESULT={"trace_ids": [...]}`, and
+   the check runs **per trace id**: every reported id must appear in every one of the target's
+   required hops. On both targets those are `engine` and `aigateway`. Each gap is a reason that
+   names the hop and the id, for example `aigateway: trace <id> absent`. A required hop with no
+   configured log source is a reason too (`<hop>: no log source`).
+4. When `aigateway` is required, each id must also appear on at least one aigateway line that
+   carries a `gateway_call_id` (`aigateway: trace <id> on no line carrying gateway_call_id`
+   otherwise). So a gateway that logs the trace id but emits no call ids fails. This is the
+   workbench's version of correlation-ladder rung 3. The rung needs at least two identified
+   lines in its own window. The workbench needs one per id, and it ties the line to this run by
+   the trace id rather than by a time window, so another run's identified lines in a shared log
+   cannot satisfy it.
+5. Inside the aigateway request window (first to last line carrying a `gateway_call_id`, over
+   the hop's whole text, not only the matched lines, from `harness.trace_evidence.unattributed_gateway_lines`), no line lacks a
+   `gateway_call_id`. Startup and shutdown lines outside that window are not counted.
 
-If no trace id is reported, the test fails. It never passes on an empty chain. Engine lifecycle
-lines are collected into `trace.json` but not yet required.
+If no trace id is reported, the test fails (from the result check). It never passes on an empty
+chain, and the chain check adds no second reason for that case. Engine lifecycle lines are
+collected into `trace.json` but not yet required.
 
 The notebook always builds `sf.Client(engine_url=ENGINE_URL, scoreboard_url=SCOREBOARD_URL)`
 and raises if `SCOREBOARD_URL` is empty, so it can never fall back to the hosted leaderboard
@@ -81,7 +94,7 @@ Each notebook writes a bundle, whether it passes or fails:
   summary.md                    # one row per notebook: target | notebook | outcome | trace ids | reasons
   <target>/<notebook>/
     executed.ipynb              # the run with outputs, tracebacks included
-    trace.json                  # hops found/missing, verdict, reasons, the reported result
+    trace.json                  # per hop: found (every id), missing_ids; verdict, reasons, result
     logs/<hop>.txt              # the log lines matching the trace ids (engine, aigateway | runtime)
 ```
 
