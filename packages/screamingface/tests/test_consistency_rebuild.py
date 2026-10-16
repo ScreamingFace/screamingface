@@ -638,3 +638,37 @@ def test_a_samples_key_without_a_declaration_does_not_rebuild() -> None:
     assert '"samples":[' in tampered  # the rider still lists the sample calls
     assert _error_text(lambda: sf.Url4(tampered).to_python()) == _METADATA
     assert _error_text(lambda: _candidate_from_url4(_linked(tampered))) == _METADATA
+
+
+# --- review fix (MAJOR): a sample slot is policy; a url4 without its policy markers is refused ---
+
+
+def _without_policy_markers(url4: str) -> str:
+    """Drop the ``;optional`` and ``;quorum=0`` markers of a consistency url4 (the review's probe).
+
+    WHY: the recompile trigger for the url4 reads these markers only. A url4 without them must
+    still take the byte-for-byte recompile: a sample slot is optional, and a quorum is policy.
+    """
+    assert ";optional" in url4 and ";quorum=0" in url4
+    return url4.replace(";optional", "").replace(";quorum=0", "")
+
+
+def test_a_consistency_url4_without_its_policy_markers_does_not_rebuild() -> None:
+    url4 = BUILDERS[_PICK]()
+
+    tampered = _without_policy_markers(url4)
+
+    assert tampered != url4
+    assert _error_text(lambda: sf.Url4(tampered).to_python()) == _METADATA
+    assert _error_text(lambda: _candidate_from_url4(_linked(tampered))) == _METADATA
+
+
+def test_a_samples_key_without_a_declaration_and_policy_markers_does_not_rebuild() -> None:
+    url4 = BUILDERS[_MEDIAN]()
+    dropped = _replace_source(url4, "synthesis_1", _with_spec(_drop_signals))
+
+    tampered = _without_policy_markers(dropped)
+
+    assert '"samples":[' in tampered  # the rider still lists the sample calls
+    assert _error_text(lambda: sf.Url4(tampered).to_python()) == _METADATA
+    assert _error_text(lambda: _candidate_from_url4(_linked(tampered))) == _METADATA
