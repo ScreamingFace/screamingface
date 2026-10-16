@@ -676,6 +676,16 @@ None. The test file is new.
   return annotation to `_CompiledCandidate` and adds that name to the existing import from
   `screamingface._evaluation.candidate`. No assertion changed. This is the one edit to a test
   that commit A added. The owner must review it.
+- D-U5-4 (review fix, commits ef9393309 and ea1ff0ee0): PRD `consistency-rebuild` §2 says
+  "Each sample slot is optional, so every consistency url4 takes this check" and marks the
+  premise [implied]. The premise was wrong for a hand-edited url4. The recompile ran only when
+  the url4 had `;optional`, `quorum=` or quorum/optional metadata. A url4 with its `;optional`
+  and `;quorum=0` markers removed skipped it, and it rebuilt as a plain Fusion (F1) or as a
+  plain Median with 6 paid sample calls that feed nothing (F2). The fix adds `or value.samples`
+  to `_has_fusion_policy` (`S/url4.py`). A node with samples is now policy. Two tests were added
+  (`test_a_consistency_url4_without_its_policy_markers_does_not_rebuild`,
+  `test_a_samples_key_without_a_declaration_and_policy_markers_does_not_rebuild`). Both expect
+  the metadata C5 text in `to_python` and in the replay. The PRD is not edited in this unit.
 - (build) Any C5 text corrected at the first GREEN run: none. All 33 items passed at the first
   GREEN run, and no expected text changed.
 
@@ -715,3 +725,31 @@ None. The test file is new.
 - **Flakes:** none seen in this unit. No test was rerun.
 - **Pinned edits:** none. The D-U5-3 fix is an edit to a test that commit A added, not a PINNED
   edit.
+
+### Review fixes (round 1, unit 5)
+
+- **Findings applied:** the MAJOR finding (the policy-marker gap) and its tests. Commits:
+  `ef9393309` (RED: two tests, both fail with "DID NOT RAISE" at first), `ea1ff0ee0` (fix:
+  `_has_fusion_policy` reads `samples`), then the commit of this block (ledger). Deviation
+  D-U5-4 records the wrong premise of PRD §2.
+- **Gates after the fix:** `screamingface` run 1 stopped at the append-only check. Its only
+  offender is `packages/screamingface/tests/public_surface_snapshot.json` (the unit 3 PINNED
+  edit, plan §6). Run 2 used `--skip-append-only` and was green (ruff check, ruff format check,
+  pyright, pytest with the 95 percent floor, notebook check, uv build, distribution check).
+  `repo` was green with the append-only check on.
+- **Focused run:** `test_consistency_rebuild.py`: 35 passed (33 from unit 5 plus 2 new).
+- **Findings not applied (open for the orchestrator):**
+  - MINOR, a sample binding equal to a member binding (for example `model_4` set to
+    `model_1`) fails in the walker with "Evaluation URL4 has conflicting Recipe topology
+    metadata", not with a C5 text. The url4 still fails closed. The fix needs a decision: accept
+    and record it in the PRD, or refuse it in `_decode_fusion` with `_REDUCER_INVALID`. Not done.
+  - MINOR, `_decode_sample_source` repeats the model-leaf checks of `_decode_signal_source`. The
+    spec §3.1 pins the body. A shared `_decode_model_leaf` helper is optional. Not done.
+  - MINOR, `spec_operator_pairs` and `url4._combine_operator_pairs` both de-duplicate pairs
+    (D-4). Kept as the spec §3.4 pins it. Not done.
+  - MINOR, two dicts built from `recovered.operations` (`url4.py`), and the wrapped subset check
+    in `_decode_synthesizer`. Both are style only. The spec §3.1 and §3.5 pin the exact text.
+    Not done.
+  - MINOR, D-U5-3 (the RED file edit). No action in this unit. The owner must approve it.
+- **Flakes:** none seen in this round. No test was rerun.
+- **Pinned edits:** none in this round.
