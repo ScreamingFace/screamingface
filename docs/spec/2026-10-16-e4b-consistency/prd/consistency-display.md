@@ -103,6 +103,9 @@ The cases are the three scenarios of `ET/data/combine_contract/consistency_evide
 ## 5. Out of scope
 
 - A per-sample table (the sample texts are in the Case operations, not in the evidence).
+- A grouped view of the sample operations. Each sample is one `model_call` trace entry and one
+  step row with no member: up to 1024 more rows per Case at the cap. This version accepts these
+  rows (overview N8, D9).
 
 ## 6. Open questions
 

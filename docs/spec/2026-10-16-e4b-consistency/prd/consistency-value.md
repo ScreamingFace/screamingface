@@ -43,8 +43,9 @@ failed samples.
 
 **Delta.**
 
-1. New pure module `E/combine/consistency.py` (imports: the standard library, `combine.ports`,
-   `combine.spec` only):
+1. New pure module `E/combine/consistency.py` (imports: the standard library only; the layering
+   gate checks it, C7). The rows parse is NOT here: `parse_context` gives the texts already parsed
+   (consistency-record, `_panel_rows`):
 
    ```python
    @dataclass(frozen=True, slots=True)
@@ -56,10 +57,6 @@ failed samples.
        @property
        def value(self) -> float | None:
            return None if self.matched is None else self.matched / self.succeeded
-
-   def sample_texts(rows_text: str, n: int) -> tuple[str, ...]:
-       """The texts of one member's sample panel rows, in j order (CX-I2). SpecInvalid on any
-       other shape: 'combine context samples have the wrong shape'. Never echoes a text."""
 
    def count_samples(
        member_value: str | None, texts: Sequence[str], n: int, read: Callable[[str], str | None]
@@ -74,18 +71,30 @@ failed samples.
      None)`. `_declared` builds it for a `ConsistencySource`: the match steps go through
      `_resolve(registry, step, stage)` and `_bind` (the same checks as a spec step: an unknown id
      is `combine_operator_unknown`; a wrong stage or bad args is `combine_spec_invalid`).
-   - `_combine` passes `samples_expected=declares_consistency(spec) is not None` to
-     `parse_context`, then computes the counts once: `counts = _sample_counts(plan, spec,
-     context)` → `Mapping[str, SampleCount] | None` (member order). The match value of a text is
-     `_extract_then_normalize` with the match steps after the read cap (`_stages` logic): None
-     unless the status is `voted`.
-   - the column of the consistency name (in `_column`) is `{m: counts[m].value}`. The
-     `_signal_values` early return (no member answered) keeps its all-None column, which is the
-     same values (CS-I5 holds, because then every `matched` is None).
-   - `_evidence` gets `consistency={name: [SampleCountRecord(m, c.matched, c.succeeded,
-     c.failed) for m in spec.members]}` when the spec declares consistency, else None. The counts
-     travel beside `recorded` (a keyword `samples=` on `_decide`, `_choose`, `_gated`,
-     `_fallback`, `_abstain`, `_evidence`), so every exit (answer, abstain, gate) writes them.
+   - `_Plan.declared` holds `_Declared | _ReplyDeclared | _SampleDeclared`.
+   - `_combine` passes `samples_n=` (the declared `n`, or None when `declares_consistency(spec)`
+     is None) to `parse_context`, then computes the counts once, before the signal values:
+     `counts = _sample_counts(plan, spec, context)` → `Mapping[str, SampleCount] | None` (member
+     order; None when the spec declares no consistency). It reads `context.samples[m]` (the texts,
+     already parsed). The match value of a text is `_extract_then_normalize` with the match steps
+     after the read cap (`_stages` logic): None unless the status is `voted`.
+   - pinned signatures: `_signal_values(plan, spec, context, accounting, counts: Mapping[str,
+     SampleCount] | None)` and `_column(key, item, spec, context, looked, counts)`, with `item:
+     _Declared | _ReplyDeclared | _SampleDeclared | None`. `_column` gets the first branch
+     `if isinstance(item, _SampleDeclared): return {m: counts[m].value for m in spec.members}`
+     (`counts` is not None when such an item exists). The `_signal_values` early return (no member
+     answered) keeps its all-None column, which is the same values (CS-I5 holds, because then every
+     `matched` is None).
+   - `recorded` carries the counts: new `_Recorded(Mapping[str, Mapping[str, float | None]])`, a
+     read-only mapping over the signal values (every read `recorded[member]` stays as it is) with
+     one more attribute `samples: Mapping[str, SampleCount] | None`. `_combine` builds
+     `recorded = _Recorded(_signal_values(...), counts)`. The `recorded:` annotations of the exit
+     functions become `_Recorded`; NO call site changes and no exit gets a new keyword. WHY:
+     `recorded=` already goes through every exit (answer, abstain, gate, fallback), and part 6
+     changes the same file in parallel, so one carrier keeps the rebase small.
+   - `_evidence` writes `consistency={name: [SampleCountRecord(m, c.matched, c.succeeded,
+     c.failed) for m, c in recorded.samples.items()]}` when `recorded.samples` is not None, else
+     None, so every exit writes the record.
    - The endpoint module docstring INVARIANT gets one sentence: "A consistency value reads the
      `samples` context of the members' extra calls; the samples never vote (E4b part 7)."
 3. The one combine log line does not change. [proposed] P21
@@ -143,13 +152,14 @@ Fixture W (hand-computed, the default match). Spec: `argmax_spec(3, "cons", "max
 
 ### 3.2 Error paths
 
-- **CV-E1** Given fixture V's spec, then each of these contexts is `combine_spec_invalid`, and the
-  message holds no member or sample text: no `samples` key; `samples` without the member_2 key;
-  member_1 rows `"not json"`; rows `"{}"` (not a list); a row with `source_name` `"sample_5"`
-  (n is 4); a row with `source_name` `"sample_2"` and `source_position` 3; two rows with
-  `"sample_1"`; a row with `"result": 12`; a row with an extra key. Given fixture V's context and a
-  spec WITHOUT the declaration, then `combine_spec_invalid` (samples present, not expected).
-  [proposed] CX-I1, CX-I2
+- **CV-E1** (the endpoint wiring; the full list of map and row shapes is consistency-record
+  CR-E2) Given fixture V's spec, then each of these contexts is `combine_spec_invalid` through the
+  combine call, and the message holds no member or sample text: no `samples` key ("combine
+  context samples are present exactly when the spec declares consistency"); member_1 rows with a
+  row `"sample_5"` ("combine context samples do not match the sample slots": the endpoint passes
+  `samples_n=4`). Given fixture V's context and a spec WITHOUT the declaration, then
+  `combine_spec_invalid` ("combine context samples are present exactly when the spec declares
+  consistency"). [proposed] CX-I1, CX-I2
 - **CV-E2** Given fixture V with `match.extract.op` `"nope@1"`, then `combine_operator_unknown`;
   with `match.extract.op` `"numeric@1"` (a normalize operator), then `combine_spec_invalid`; with
   `match.extract` `{"op": "regex@1", "args": {}}` (a missing pattern), then
@@ -198,28 +208,31 @@ None.
 
 ## 7. TDD plan
 
-New test files: `ET/test_combine_consistency.py` (rows 1–13), `ET/test_combine_consistency_contract.py`
-(row 14), `ST/test_consistency_evidence_contract.py` (row 15). New data file:
+New test files: `ET/test_combine_consistency.py` (rows 1–12), `ET/test_combine_consistency_contract.py`
+(row 13), `ST/test_consistency_evidence_contract.py` (row 14). New data file:
 `ET/data/combine_contract/consistency_evidence_cases.json` (three scenarios). The 37-case
 `evidence_cases.json` and its count pins do NOT change (overview P20).
 
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
 | 1 | CHAR `a_spec_without_consistency_writes_no_consistency_key` (the scenario builders of the 37 names of list L37, imported from `test_combine_evidence_contract_fixture.SCENARIOS` by name; each evidence has no `consistency` key) | unit | CR-5 | H×M | passes today |
-| 2 | `fixture_v_records_the_values_and_the_counts` | unit | CV-1, CV-3 | H×H | `consistency.py`, `_SampleDeclared`, `_sample_counts`, `_evidence` |
+| 2 | `fixture_v_records_the_values_and_the_counts` | unit | CV-1, CV-3 | H×H | `consistency.py`, `_SampleDeclared`, `_sample_counts`, `_Recorded`, `_evidence` |
 | 3 | `fixture_w_picks_the_most_consistent_member_with_the_default_match` | unit | CV-2 | H×H | `_column` branch |
 | 4 | `every_failed_sample_gives_a_missing_value_and_the_rule_excludes_the_member` | unit | CV-4 | H×H | — |
 | 5 | `a_weighted_vote_reads_consistency_as_the_weight` | unit | CV-5 | M×M | — |
-| 6 | `bad_samples_contexts_are_spec_invalid_without_echo` (parametrized, CV-E1 list) | unit | CV-E1 | H×M | `sample_texts`, `parse_context` wiring |
+| 6 | `bad_samples_contexts_are_spec_invalid_without_echo` (parametrized, CV-E1 list) | unit | CV-E1 | H×M | `parse_context(samples_n=)` wiring in `_combine` |
 | 7 | `bad_match_operators_use_the_step_codes` | unit | CV-E2 | M×M | `_declared` resolve and bind |
 | 8 | `the_samples_never_vote` | unit | CV-D2 | H×M | — |
 | 9 | `an_unreadable_sample_counts_as_succeeded_and_not_matched` (nothing extracted; over 1 MiB) | unit | CV-D3 | H×M | read cap |
-| 10 | `a_left_out_member_keeps_its_sample_counts` and `no_voters_still_record_the_counts` | unit | CV-D4, CV-D5 | M×M | `_abstain` passes `samples=` |
-| 11 | `a_gate_reads_the_chosen_members_consistency` | unit | CV-D6 | M×M | `_gated` passes `samples=` |
+| 10 | `a_left_out_member_keeps_its_sample_counts` and `no_voters_still_record_the_counts` | unit | CV-D4, CV-D5 | M×M | `_abstain` gets the counts inside `recorded` |
+| 11 | `a_gate_reads_the_chosen_members_consistency` | unit | CV-D6 | M×M | `_gated` gets the counts inside `recorded` |
 | 12 | `a_member_with_no_match_value_has_no_value` and `the_row_order_does_not_change_the_counts` | unit | CV-D7, CV-D8 | M×L | — |
-| 13 | `the_consistency_core_imports_only_ports_and_spec` (an `ast` read of `E/combine/consistency.py`: imports are standard library, `screamingface_engine.combine.ports`, `screamingface_engine.combine.spec`) | unit | C7 | M×M | — (the layering gate also checks it) |
-| 14 | `the_engine_consistency_evidence_is_the_fixture_byte_for_byte` (scenarios `consistency_vote` = fixture V, `consistency_pick_default_match` = fixture W, `consistency_no_votes` = CV-D5; a `write_fixture()` that runs when the file runs as a script; a missing file FAILS, as in `ET/test_combine_evidence_contract_fixture.py`) | contract | CV-1, CV-2, CV-D5 | H×M | new data file |
-| 15 | `sdk_decodes_the_consistency_contract_cases` (reads the new file under `@requires_engine_app`; the exact name set of the three scenarios; each wire decodes and `to_dict() == wire`) | contract | C4 | H×M | — |
+| 13 | `the_engine_consistency_evidence_is_the_fixture_byte_for_byte` (scenarios `consistency_vote` = fixture V, `consistency_pick_default_match` = fixture W, `consistency_no_votes` = CV-D5; a `write_fixture()` that runs when the file runs as a script; a missing file FAILS, as in `ET/test_combine_evidence_contract_fixture.py`) | contract | CV-1, CV-2, CV-D5 | H×M | new data file |
+| 14 | `sdk_decodes_the_consistency_contract_cases` (reads the new file under `@requires_engine_app`; the exact name set of the three scenarios; each wire decodes and `to_dict() == wire`) | contract | C4 | H×M | — |
+
+The import rule of `E/combine/consistency.py` (C7) is checked by the layering gate
+(`COMBINE_CORE_FORBIDDEN`, .claude/scripts/check_layering.py:103-109), not by a test row: the
+earlier parts have no import test for a combine module.
 
 Pinned edits of this PRD: none. The new files are not in the append-only check. If the gate names
 another file, the unit stops and the ledger records it.

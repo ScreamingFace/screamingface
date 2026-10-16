@@ -40,16 +40,21 @@ seeds"]; [stated ans:Q3]
 
 Invariants:
 
-- **CN-I1** A Fusion declares at most one `sf.Consistency`. [proposed] P4
+- **CN-I1** A Fusion declares at most one `sf.Consistency` (checked in `_declaration`, S/fusion.py,
+  beside the one-`sf.Entropy` rule). [proposed] P4
 - **CN-I2** Each member of a Fusion that declares `sf.Consistency` is ONE `sf.Model` (any
   provider). A nested Fusion or Pipeline member is refused at construction. [proposed] P4
 - **CN-I3** `len(members) * n <= 1024`. [proposed] P4
 - **CN-I4** The declaration needs a reducer synthesizer (part 3 DS-I3, unchanged).
   [existing S/fusion.py:108-121]
-- **CN-I5** A member whose own `seed` param equals one of its derived sample seeds is refused at
-  construction. [proposed] P5
-- **CN-I6** `match` is written by the compile (`combine_spec_text`), never by the source object:
-  only the compile sees the step. [proposed] P3
+- **CN-I5** A member whose own `seed` param equals any derived sample seed of the Fusion (`s(k, j)`
+  for every member k and every j in 1..n) is refused at construction. WHY every member, not only
+  its own samples: a member of the same route with `temperature=t` and `seed=s(k, j)` sends the
+  same gateway body as sample j of member k, so the two share one cached reply. [proposed] P5; the
+  gap across two Fusions is overview N7
+- **CN-I6** The source writes its full entry with `Consistency._entry(match)`; the compile
+  (`combine_spec_text`) gives it `match`, because only the compile sees the step. `_spec()` is the
+  entry without `match`; `_from_spec(source._entry(match)) == source`. [proposed] P3
 
 Wire shape in `screamingface.combine-spec.v1` (an additive entry of the optional `signals` map;
 canonical JSON sorts the keys):
@@ -74,7 +79,7 @@ Purpose: one extra call of one member. It runs on every Case, in parallel with t
 | context | the member's input context (`$input`, or the earlier stage) | [implied] |
 | params, in order | `binding=model_N`, then the member's author params without `seed` and `temperature` (author order), then `temperature=<t>`, then `seed=<s(k, j)>` | [stated ans:Q3 "the member's other params unchanged"]; [proposed] P5 order |
 | injected logprob params | not sent (`logprobs`, `top_logprobs` stay on the member call only) | [proposed] P5 |
-| seed `s(k, j)` | `int.from_bytes(sha256(f"consistency:{k}:{j}".encode()).digest()[:4], "big") >> 1`, with k the member position (1-based) and j the sample index (1..n) | [proposed] P5 (the `derive_attempt_seed` idea, E/world/request_parameters.py:133-145) |
+| seed `s(k, j)` | `int.from_bytes(sha256(f"consistency:{k}:{j}".encode()).digest()[:4], "big") >> 1`, with k the member position (1-based) and j the sample index (1..n) | [proposed] P5 (the idea of `derive_attempt_seed`, E/world/request_parameters.py:133-145, and of the `sf.samples()` seeds; not their code: overview P5 gives the reason) |
 | binding | `model_N`, the next number of the compiler's model counter, after the members | [proposed] P6 |
 | operation | id `op_model_N`, kind `sample`, label `"{member name} sample"`, `depends_on` = the Fusion's input dependencies | [proposed] P7 |
 | claimant | never (not counted in the I-C2 claims) | [existing S/_evaluation/candidate.py:672-674 precedent] |
@@ -116,7 +121,7 @@ Purpose: gather the replies of one member's samples without letting a failed sam
 
 | Key | Value | When | Source |
 |---|---|---|---|
-| `samples` | `{"member_1": "<rows text>", ...}`: every spec member, each value the text of its sample panel | exactly when the spec declares a consistency source | [proposed] P9 |
+| `samples` | wire: `{"member_1": "<rows text>", ...}`: every spec member, each value the text of its sample panel. Parsed: `CombineContext.samples: Mapping[str, tuple[str, ...]]`, the texts of the rows in j order | exactly when the spec declares a consistency source | [proposed] P9 |
 
 - The SDK writes the key after `outputs` (or `panel`) and before `signals` and `sources`
   (`_fusion_context`, S/_evaluation/candidate.py:804-836). url4 `struct` keeps the insertion order,
@@ -126,7 +131,9 @@ Purpose: gather the replies of one member's samples without letting a failed sam
 - **CX-I2** Each rows text is a JSON list. Each row has the keys `source_position`,
   `source_name`, `result`; `source_name` is `sample_j` with `1 <= j <= n` and
   `source_position == j`; no `j` twice; `result` is text. Any other shape is
-  `combine_spec_invalid`. [proposed]
+  `combine_spec_invalid`. `parse_context` checks it with the row helper `_panel_rows`, which the
+  quorum panel also uses (`_panel_outputs`, the OME-1557 rule: the same row keys, unique names, an
+  int position equal to the name's index), so the row contract has one home. [proposed]
 
 ## 5. Sample count (engine, in process) and the value
 
@@ -161,9 +168,12 @@ Purpose: the numbers of one member's samples. [stated ans:Q4]
 | `declared[name]` | the spec entry as written, `match` included | [existing E/combine/endpoint.py:985-991] |
 
 Key order of the evidence top level with every optional key present:
-`... signal, cut, declared, consistency, gate, verifier, result, dropped, finish_reason`. The key is
+`... signal, cut, consistency, declared, gate, verifier, result, dropped, finish_reason`. The key is
 written only when the spec declares a consistency source (`exclude_if`), so every existing
 evidence keeps its v1 bytes. [existing E/combine/evidence.py:200-213 precedent]; [proposed] P13
+WHY between `cut` and `declared`: ET/test_combine_gate_words.py:667 pins the fields from `declared`
+to `result` as `[gate, verifier]`, and ET/test_combine_evidence_words.py:354 pins `cut` directly
+after `signal`. This place keeps both green with no pinned edit.
 
 Record key order: `member_id`, `matched`, `succeeded`, `failed`.
 
@@ -192,6 +202,11 @@ Invariants (checked by the Engine model and by the SDK `CombineEvidence`):
   dependencies become `(*member_bindings, *signal_bindings, *sample_bindings)`. The walker visits
   the samples before the signals, so the replayed operation order is the compile order.
   [proposed] P8
+- WHY the two orders differ: the context dependencies follow the context keys (samples before
+  signals, P9). The operation dependencies keep the members first, because `_operation_answers`
+  and `_member_ids` (S/_case_views.py:41-45, :277) take `depends_on[:len(evidence.members)]` as
+  the member producers; the signals keep their existing place, and the samples go last. A
+  reorder of the operation dependencies would attach the wrong text to the member answers.
 
 ## 8. Display records (in process, no wire)
 

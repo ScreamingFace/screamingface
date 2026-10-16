@@ -44,7 +44,8 @@ combine step as one panel that never fails, so a failed sample costs a sample, n
 - `S/signal_sources.py` has `Verbalized`, `Logprob`, `Entropy` and `_SOURCES` (:188-190). There is
   no `Consistency`.
 - `Fusion.__init__` (S/fusion.py:53-76) checks the declaration (`_declared`, :108-121) and the
-  logprob members (`_check_logprob_sources`, :201-219).
+  logprob members (`_check_logprob_sources`, :201-219). `_declaration` (:124-142) holds the
+  one-`sf.Entropy` rule (:137-141).
 - `_CandidateCompiler._reducer_synthesizer` (S/_evaluation/candidate.py:588-676) compiles the spec,
   the accounting `sources`, the signal calls, then the combine call; `_fusion_context` (:804-836)
   writes `input`, `outputs` or `panel`, `signals`, `sources`.
@@ -72,7 +73,9 @@ combine step as one panel that never fails, so a failed sample costs a sample, n
        def __init__(self, n: int, *, temperature: float = 1.0) -> None: ...
        def __repr__(self) -> str:  # "Consistency(n=5, temperature=1.0)", always both
        def _spec(self) -> dict[str, object]:  # {"source": "consistency", "n": n, "temperature": t}
-       # _from_spec: consistency-rebuild
+       def _entry(self, match: Mapping[str, object]) -> dict[str, object]:
+           # the full wire entry: {**self._spec(), "match": dict(match)}
+       # _from_spec: consistency-rebuild (it rebuilds an equal source from the _entry(...) dict)
    ```
 
    `n`: an int from 1 to 32, else `ValueError("sf.Consistency n must be an int from 1 to 32, not
@@ -80,18 +83,29 @@ combine step as one panel that never fails, so a failed sample costs a sample, n
    `float(t) + 0.0`, else `ValueError("sf.Consistency temperature must be a finite number of at
    least 0, not {t!r}")` (a bool is refused). `__all__` and `S/__init__.py` export `Consistency`
    (`sf.Consistency`). New helper `consistency_seed(k: int, j: int) -> int` (erd §2 formula).
-2. `S/fusion.py`: `_check_consistency_source(declared, members)` after `_check_logprob_sources`:
-   - more than one `Consistency` → `ValueError("a Fusion declares at most one sf.Consistency
-     source: every member gets one set of samples")`;
+   The module text changes with it (else it is false): line 1 names `sf.Consistency` too; the
+   INVARIANT (S/signal_sources.py:6-7) becomes "a source compiles to one entry of the combine
+   spec ``signals`` map, and ``_from_spec`` rebuilds an equal source from that entry (url4 →
+   Python). ``sf.Consistency`` is the one source whose entry also holds the step's ``match``:
+   the compile gives it to ``_entry(match)``, and ``_spec()`` is the entry without
+   ``match``."; the `source` ClassVar comment of `SignalSource` lists `"consistency"`.
+2. `S/fusion.py`:
+   - in `_declaration`, directly after the one-`sf.Entropy` rule (the same place for the same
+     kind of rule): `sum(source.source == "consistency" for source in value.values()) > 1` →
+     `ValueError("a Fusion declares at most one sf.Consistency source: every member gets one set
+     of samples")`;
+   - new `_check_consistency_source(declared, members)` after `_check_logprob_sources` holds the
+     three member-aware rules below:
    - a member that is not an `sf.Model` → `ValueError(f"sf.Consistency needs each Fusion member to
      be one sf.Model call; member {position} ({member.name!r}) is a nested Fusion or Pipeline")`;
    - `len(members) * n > 1024` → `ValueError(f"sf.Consistency(n={n}) on {count} members makes
      {count * n} extra calls; the limit is 1024 per Fusion")`;
-   - a member `seed` param equal to `consistency_seed(position, j)` for a j in 1..n →
-     `ValueError(f"member {position} ({member.name!r}) sets seed={seed}, which is the seed of its
-     consistency sample {j}; choose another seed")`.
-3. `S/_evaluation/combine_spec.py` `combine_spec_text`: a `Consistency` entry is `source._spec()`
-   plus `"match": {"extract": <pinned step>, "normalize": <pinned step or None>}`: the plan's
+   - a member `seed` param equal to `consistency_seed(k, j)` for ANY member position k and any j
+     in 1..n (erd CN-I5) → `ValueError(f"member {position} ({member.name!r}) sets seed={seed},
+     which is the seed of consistency sample {j} of member {k}; choose another seed")`.
+3. `S/_evaluation/combine_spec.py` `combine_spec_text`: one `isinstance(source, Consistency)`
+   branch writes `source._entry({"extract": <pinned step>, "normalize": <pinned step or None>})`
+   (every other source keeps `source._spec()`): the plan's
    extract and normalize (after `resolve_benchmark_rule`) when the plan has an extract, else
    `_pinned_step("extract", _Step("last_line"), operators)` and
    `_pinned_step("normalize", _Step("text"), operators)`.
@@ -112,9 +126,13 @@ combine step as one panel that never fails, so a failed sample costs a sample, n
      call is NOT passed to `_count_call` (never a claimant). The panel name takes the next
      `self._panel_count`;
    - the combine context: `_fusion_context(..., samples={member_k: "$panel_M"})`; `_fusion_context`
-     writes `samples` after `outputs` or `panel` and before `signals`;
+     writes `samples` after `outputs` or `panel` and before `signals`. Its docstring says "Key
+     order is input, outputs (or panel), samples, signals, sources", and the comment at
+     S/url4.py:83-85 says the context is "{input, outputs or panel, samples, signals, sources}"
+     (the samples precede the signals, so `_CONTEXT_SIGNALS` still finds `signals` at the end);
    - the combine `depends_on` becomes `(*dependencies, *signals.operation_ids,
-     *sample_operation_ids)`;
+     *sample_operation_ids)`. WHY the samples go last: S/_case_views.py:41-45 and :277 take
+     `depends_on[:len(members)]` as the member producers (overview P7);
    - the reducer topology node gets `samples=tuple(_SampleTopology(f"member_{k}", nodes))`;
    - a corrective loop (`_compile_corrective`, S/_evaluation/corrective.py:124-141) refuses a
      Recipe in which any Fusion declares `sf.Consistency`: `ValueError("sf.Consistency is not
@@ -140,7 +158,9 @@ Recipe F2 (fixture `consistency_median_candidate.url4`): the same members, `name
 
 - **CA-1** Given `sf.Consistency(n=5)`, then `n == 5`, `temperature == 1.0`, `repr ==
   "Consistency(n=5, temperature=1.0)"`, `_spec() == {"source": "consistency", "n": 5,
-  "temperature": 1.0}`; `sf.Consistency(3, temperature=0)` has `temperature == 0.0`. [stated
+  "temperature": 1.0}` (the entry without `match`), and `_entry(M) == {"source": "consistency",
+  "n": 5, "temperature": 1.0, "match": M}` with M the F1 match of CA-3;
+  `sf.Consistency(3, temperature=0)` has `temperature == 0.0`. [stated
   ans:Q3]
 - **CA-2** Given F1 compiled with the Engine catalog, then the url4 has the member calls
   `model_1`..`model_3` (no new param), then the sample calls `model_4`..`model_12` (alpha j=1..3,
@@ -187,7 +207,10 @@ Recipe F2 (fixture `consistency_median_candidate.url4`): the same members, `name
   `ValueError` with the texts of delta 1. [proposed]
 - **CA-E2** A Fusion with two `sf.Consistency` names; a Fusion whose member 2 is an `sf.Fusion`;
   33 members with `sf.Consistency(n=32)`; a member 1 with `params={"seed": 2063835758}` and
-  `sf.Consistency(n=1)`; a Fusion with a model synthesizer and `signals={"cons":
+  `sf.Consistency(n=1)` ("member 1 ('alpha') sets seed=2063835758, which is the seed of
+  consistency sample 1 of member 1; choose another seed"); a member 2 with `params={"seed":
+  2063835758}` and `sf.Consistency(n=1)` ("member 2 ('beta') sets seed=2063835758, which is the
+  seed of consistency sample 1 of member 1; choose another seed"); a Fusion with a model synthesizer and `signals={"cons":
   sf.Consistency(n=2)}` — each raises `ValueError` at construction, before any call, with the
   texts of delta 2 (the last one with the existing DS-I3 text). [proposed]
 - **CA-E3** Given F1 and a model catalog whose `prov/alpha` row marks `seed` with
@@ -239,7 +262,14 @@ None.
 
 ## 7. TDD plan
 
-New test files: `ST/test_consistency_api.py` (rows 1–5, 8–13), `ST/test_consistency_contract_fixtures.py`
+This PRD is built in two units (plan §2). Unit 3 (`consistency-api-source`): rows 2, 3, 14 (the
+source, `_entry`, the seed helper, the Fusion rules, the exports, the public surface PIN). No
+compile path reads a `Consistency` in unit 3, and no test compiles one, so the gates stay
+green. Unit 4 (`consistency-api-compile`): rows 1, 4–13 (the compile, the topology encode,
+accounting, the runner, the corrective refusal, the fixtures, the Engine run).
+
+New test files: `ST/test_consistency_api.py` (rows 1–5, 8–13; unit 3 creates it, unit 4 appends
+to it), `ST/test_consistency_contract_fixtures.py`
 (row 6, the drift guard with a `BUILDERS` map and `write_fixture`, as in
 `ST/test_gate_contract_fixtures.py`), `ET/test_combine_consistency_run.py` (row 7; its own
 `httpx.MockTransport` responder keyed by model and seed, built like
@@ -250,13 +280,13 @@ New test files: `ST/test_consistency_api.py` (rows 1–5, 8–13), `ST/test_cons
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
 | 1 | CHAR `recipes_without_consistency_compile_to_the_same_url4` (the builders of a fixed list of five existing fixtures from L47: `vote_candidate.url4`, `quorum_vote_candidate.url4`, `logprob_pick_mean_candidate.url4`, `gate_judge_vote_candidate.url4`, `samples_vote_candidate.url4`, by name, compared with the file) | unit | CA-D1 | H×M | passes today |
-| 2 | `consistency_holds_n_and_the_temperature` and `consistency_refuses_bad_values` | unit | CA-1, CA-E1 | H×M | `Consistency` |
-| 3 | `fusion_refuses_a_bad_consistency_declaration_before_any_call` (parametrized, CA-E2) | unit | CA-E2 | H×H | `_check_consistency_source` |
+| 2 | `consistency_holds_n_and_the_temperature` and `consistency_refuses_bad_values` | unit | CA-1, CA-E1 | H×M | `Consistency`, `_entry`, the module text |
+| 3 | `fusion_refuses_a_bad_consistency_declaration_before_any_call` (parametrized, CA-E2) | unit | CA-E2 | H×H | the `_declaration` rule, `_check_consistency_source` |
 | 4 | `the_sample_calls_have_distinct_seeds_and_the_stated_temperature` (F1 bindings, panels, params; CA-7 params) | unit | CA-2, CA-7 | H×H | `_sample_panels` |
 | 5 | `the_context_and_the_spec_carry_samples_and_the_match` (F1, F2) | unit | CA-3 | H×H | `_fusion_context`, `combine_spec_text` |
 | 6 | `consistency_url4_fixtures_match_the_sdk_compile` (F1, F2; a fixed tuple `_FIXTURES`) | contract | CA-2, CA-3 | H×M | write the two files with `write_fixture` |
 | 7 | `the_engine_runs_the_consistency_pick_and_a_failed_sample_does_not_fail_the_case` (two runs, CA-6) | engine world | CA-6 | H×H | — (units 1–2 and this unit) |
-| 8 | `the_operations_and_the_preflight_assignments_list_every_sample` | unit | CA-4 | H×M | `_compiled_operation`, `_record_parameter_assignment` |
+| 8 | `the_operations_and_the_preflight_assignments_list_every_sample` (also: the combine `depends_on` starts with the member operations, P7 WHY) | unit | CA-4 | H×M | `_compiled_operation`, `_record_parameter_assignment` |
 | 9 | `the_reducer_topology_lists_the_samples` | unit | CA-5 | M×M | `_encode_reducer`, `_SampleTopology` |
 | 10 | `the_preflight_refuses_a_model_without_seed_or_temperature_before_any_call` | unit | CA-E3 | H×M | — (uses `preflight_sync` with a fake details loader, as the `sf.samples` preflight tests do) |
 | 11 | `sample_fingerprints_never_meet_member_fingerprints` and `the_logprob_params_stay_on_the_members` | unit | CA-D2, CA-D8 | H×M | — |

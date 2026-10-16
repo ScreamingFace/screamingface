@@ -91,8 +91,10 @@ call `judge_1`).
 ### 3.2 Error paths
 
 Each hand edit below starts from the F1 url4 and must fail `to_python` (and the replay) with a
-`ValueError`. The expected message is listed; the RED run confirms it, and a different one of the
-listed url4 messages is a ledger deviation, not a test change.
+`ValueError` whose message EQUALS the listed text (`str(exc) == text`). If the first run after
+GREEN shows another of the four C5 texts for a row, the build corrects that one expected text once,
+before the unit commit, and records it in the ledger and in overview §10 (build errata). No other
+change to these rows is allowed.
 
 - **CB-E1** The binding param removed from `model_4`: "URL4 Candidate Recipe topology does not
   match its model calls".
@@ -118,8 +120,10 @@ listed url4 messages is a ledger deviation, not a test change.
   (("reduce", "by_signal@1"), ("select", "best_holder@1"), ("extract", "last_line@1"),
   ("normalize", "text@1"))`; and a replay against an Engine catalog without `text@1` fails
   before any spend with the existing pin error (`_require_known_operators`).
-- **CB-D4** (M×M) [proposed] `Consistency._from_spec` refuses an entry without `n`, with `n: true`,
-  with `temperature: "1"`, with `match: []`, with `match` without `normalize`.
+- **CB-D4** (M×M) [proposed] `Consistency._from_spec(c._entry(M)) == c` for
+  `c = sf.Consistency(n=3)` and M the F1 match (the INVARIANT of S/signal_sources.py).
+  `_from_spec` refuses an entry without `n`, with `n: true`, with `temperature: "1"`, with
+  `match: []`, with `match` without `normalize`, and the `_spec()` dict (it has no `match`).
 - **CB-D5** (M×L) [implied] A topology `samples` key on a reducer node of a url4 whose spec declares
   no consistency fails the recompile ("URL4 Candidate does not match its Recipe metadata").
 
@@ -137,7 +141,7 @@ None.
 
 ## 7. TDD plan
 
-New test file: `ST/test_consistency_rebuild.py`. It reads the F1 and F2 fixtures of unit 3 through
+New test file: `ST/test_consistency_rebuild.py`. It reads the F1 and F2 fixtures of unit 4 through
 the builders of `ST/test_consistency_contract_fixtures.py`.
 
 | # | Test (RED) | Level | Source | Risk | GREEN note |

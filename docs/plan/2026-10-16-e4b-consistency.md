@@ -27,29 +27,37 @@ Ledger: [docs/work/2026-10-16-e4b-consistency.md](../work/2026-10-16-e4b-consist
 | # | Unit | PRD rows | Main files | Stacks | Pinned files |
 |---|---|---|---|---|---|
 | 0 | docs (spec) | — | this plan, the spec, the ledger | repo | none |
-| 1 | consistency-record | CR#1–15 | `E/combine/spec.py` (`ConsistencyMatch`, `ConsistencySource`, the `DeclaredSource` union, `_check_signals` one-consistency rule, `declares_consistency`, `CombineContext.samples`, `parse_context(samples_expected=)`, `_CONTEXT_KEYS`), `E/combine/evidence.py` (`SampleCountRecord`, `CombineEvidence.consistency`, `_check_consistency`); `S/combine_evidence.py` (`CombineSampleCount`, `CombineEvidence.consistency`, CS-I1..I5), `S/_evaluation/combine_evidence.py` (`_OPTIONAL_EVIDENCE_KEYS`, `_consistency`), `S/report.py` (export); new `ET/test_combine_consistency_words.py`, `ST/test_consistency_words.py` | screamingface-engine, screamingface, repo | `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`, `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`, `packages/screamingface/tests/public_surface_snapshot.json` |
-| 2 | consistency-value | CV#1–15 | new `E/combine/consistency.py` (`SampleCount`, `sample_texts`, `count_samples`), `E/combine/endpoint.py` (`_SampleDeclared`, `_declared`, `_combine`, `_sample_counts`, `_column`, the `samples=` keyword through `_decide`, `_choose`, `_gated`, `_fallback`, `_abstain`, `_evidence`; the module INVARIANT); new `ET/test_combine_consistency.py`, `ET/test_combine_consistency_contract.py`, `ET/data/combine_contract/consistency_evidence_cases.json`, `ST/test_consistency_evidence_contract.py` | screamingface-engine, screamingface, repo | none |
-| 3 | consistency-api | CA#1–14 | `S/signal_sources.py` (`Consistency`, `consistency_seed`, `__all__`), `S/__init__.py`, `S/fusion.py` (`_check_consistency_source`), `S/_evaluation/combine_spec.py` (`match` in `combine_spec_text`), `S/_evaluation/candidate.py` (`input_dependencies` threading, `_sample_panels`, `_fusion_context(samples=)`, combine `depends_on`, the reducer node `samples`), `S/_evaluation/topology.py` (encode only: `_SampleTopology`, `_RecipeTopology.samples`, role `sample`, `_encode_reducer`, `_operation_shape`), `S/_evaluation/corrective.py` (refusal), `S/accounting.py` (`_ACCOUNTED_STAGES`), `S/_evaluation/runner.py` (`_own_seed_calls`); new `ST/test_consistency_api.py`, `ST/test_consistency_contract_fixtures.py`, `ET/data/combine_contract/consistency_pick_candidate.url4`, `ET/data/combine_contract/consistency_median_candidate.url4`, `ET/test_combine_consistency_run.py` | screamingface-engine, screamingface, repo | `packages/screamingface/tests/public_surface_snapshot.json` |
-| 4 | consistency-rebuild | CB#1–9 | `S/_evaluation/topology.py` (`_decode_synthesizer`, `_decode_samples`, the walker), `S/url4.py` (`_require_call_kind`), `S/signal_sources.py` (`Consistency._from_spec`, `_SOURCES`), `S/_evaluation/combine_spec.py` (`spec_operator_pairs`), `S/_evaluation/url4.py` (`seeded` leaves out `sample`); new `ST/test_consistency_rebuild.py` | screamingface, repo | none |
-| 5 | consistency-display | CD#1–7 | `S/_ui/combine_view.py` (`_chips`, `_member_row`, `_StepSummary`, `_summary_html`); new `ST/test_consistency_display.py` (reads `COMBINE_CONTRACT / "consistency_evidence_cases.json"`, hand-built Case) | screamingface, repo | none |
-| 6 | docs | DC#1–5 | `packages/screamingface/README.md` (`### Consistency samples` before `## Install`; the `**Consistency.**` paragraph), `packages/screamingface/CHANGELOG.md`; new `ST/test_consistency_docs.py` | screamingface, repo | none |
+| 1 | consistency-record | CR#1–15 | `E/combine/spec.py` (`ConsistencyMatch`, `ConsistencySource`, the `DeclaredSource` union, `_check_signals` one-consistency rule, `declares_consistency`, the row helper `_panel_rows` (moved out of `_panel_outputs`, which now calls it), `parse_context(samples_n=)`, `CombineContext.samples: Mapping[str, tuple[str, ...]] \| None` and its docstring, `_CONTEXT_KEYS`), `E/combine/evidence.py` (`SampleCountRecord`, `CombineEvidence.consistency` between `cut` and `declared`, `_check_consistency`, the module INVARIANT text); `S/combine_evidence.py` (`CombineSampleCount`, `CombineEvidence.consistency`, CS-I1..I5, `to_dict` place between `cut` and `declared`), `S/_evaluation/combine_evidence.py` (`_OPTIONAL_EVIDENCE_KEYS`, `_consistency`), `S/report.py` (export); new `ET/test_combine_consistency_words.py`, `ST/test_consistency_words.py` | screamingface-engine, screamingface, repo | `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`, `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`, `packages/screamingface/tests/public_surface_snapshot.json` |
+| 2 | consistency-value | CV#1–14 | new `E/combine/consistency.py` (`SampleCount`, `count_samples`; standard library only), `E/combine/endpoint.py` (`_SampleDeclared`, the `_Plan.declared` union `_Declared \| _ReplyDeclared \| _SampleDeclared`, `_declared`, `_combine` (`samples_n=`, `counts`), `_sample_counts`, `_signal_values(..., counts)`, `_column(..., counts)`, `_Recorded` (a mapping over the signal values with `samples`; the `recorded:` annotations of the exits change, no call site and no keyword), `_evidence` reads `recorded.samples`; the module INVARIANT); new `ET/test_combine_consistency.py`, `ET/test_combine_consistency_contract.py`, `ET/data/combine_contract/consistency_evidence_cases.json`, `ST/test_consistency_evidence_contract.py` | screamingface-engine, screamingface, repo | none |
+| 3 | consistency-api-source | CA#2, CA#3, CA#14 | `S/signal_sources.py` (`Consistency` with `_spec` and `_entry(match)`, `consistency_seed`, `__all__`, the module docstring and the `SignalSource` INVARIANT text), `S/__init__.py`, `S/fusion.py` (the one-`sf.Consistency` rule in `_declaration`; `_check_consistency_source`: one `sf.Model` per member, the 1024 cap, the seed rule over every member); new `ST/test_consistency_api.py` (rows 2, 3) | screamingface, repo | `packages/screamingface/tests/public_surface_snapshot.json` |
+| 4 | consistency-api-compile | CA#1, CA#4–13 | `S/_evaluation/combine_spec.py` (one `isinstance` branch: `source._entry(match)` in `combine_spec_text`), `S/_evaluation/candidate.py` (`input_dependencies` threading, `_sample_panels`, `_fusion_context(samples=)` and its docstring, combine `depends_on`, the reducer node `samples`), `S/url4.py` (the context-order comment at :83-85 only), `S/_evaluation/topology.py` (encode only: `_SampleTopology`, `_RecipeTopology.samples`, role `sample`, `_encode_reducer`, `_operation_shape`), `S/_evaluation/corrective.py` (refusal), `S/accounting.py` (`_ACCOUNTED_STAGES`), `S/_evaluation/runner.py` (`_own_seed_calls`); `ST/test_consistency_api.py` (appends rows 1, 4, 5, 8–13), new `ST/test_consistency_contract_fixtures.py`, `ET/data/combine_contract/consistency_pick_candidate.url4`, `ET/data/combine_contract/consistency_median_candidate.url4`, `ET/test_combine_consistency_run.py` | screamingface-engine, screamingface, repo | none |
+| 5 | consistency-rebuild | CB#1–9 | `S/_evaluation/topology.py` (`_decode_synthesizer`, `_decode_samples`, the walker), `S/url4.py` (`_require_call_kind`), `S/signal_sources.py` (`Consistency._from_spec`, `_SOURCES`), `S/_evaluation/combine_spec.py` (`spec_operator_pairs`), `S/_evaluation/url4.py` (`seeded` leaves out `sample`); new `ST/test_consistency_rebuild.py` | screamingface, repo | none |
+| 6 | consistency-display | CD#1–7 | `S/_ui/combine_view.py` (`_chips`, `_member_row`, `_StepSummary`, `_summary_html`); new `ST/test_consistency_display.py` (reads `COMBINE_CONTRACT / "consistency_evidence_cases.json"`, hand-built Case) | screamingface, repo | none |
+| 7 | docs | DC#1–5 | `packages/screamingface/README.md` (`### Consistency samples` before `## Install`; the `**Consistency.**` paragraph), `packages/screamingface/CHANGELOG.md`; new `ST/test_consistency_docs.py` | screamingface, repo | none |
 
-65 TDD rows in total (CR 15, CV 15, CA 14, CB 9, CD 7, DC 5).
+64 TDD rows in total (CR 15, CV 14, CA 14 in units 3 and 4, CB 9, CD 7, DC 5).
+
+WHY two units for consistency-api (spec review): one unit with ten source files, 14 rows, three
+new test files, two fixtures and an Engine-world run is too large for one implementer. Unit 3 adds
+the public source and the construction rules. No compile path reads a `Consistency` in unit 3, and
+no test compiles one, so the gates stay green. Unit 4 wires the compile.
 
 ## 3. Order and dependencies
 
 ```mermaid
 flowchart LR
-    U0[0 spec] --> U1[1 consistency-record] --> U2[2 consistency-value] --> U3[3 consistency-api] --> U4[4 consistency-rebuild] --> U5[5 consistency-display] --> U6[6 docs]
+    U0[0 spec] --> U1[1 consistency-record] --> U2[2 consistency-value] --> U3[3 consistency-api-source] --> U4[4 consistency-api-compile] --> U5[5 consistency-rebuild] --> U6[6 consistency-display] --> U7[7 docs]
 ```
 
-- Unit 1 comes first: every other unit uses its words, its context key and its records.
-- Unit 2 before unit 3: the Engine must compute the value before the SDK fixture of unit 3 can run
-  in the Engine world (CA#7). Unit 2 also writes the contract cases that unit 5 reads.
-- Unit 3 before unit 4: unit 4 decodes the topology that unit 3 encodes, and reads the unit 3
+- Unit 1 comes first: every other unit uses its words, its context key, its row parse and its
+  records.
+- Unit 2 before unit 4: the Engine must compute the value before the SDK fixture of unit 4 can run
+  in the Engine world (CA#7). Unit 2 also writes the contract cases that unit 6 reads.
+- Unit 3 before unit 4: the compile reads `sf.Consistency`, `_entry` and `consistency_seed`.
+- Unit 4 before unit 5: unit 5 decodes the topology that unit 4 encodes, and reads the unit 4
   fixtures through their builders.
-- Unit 5 after unit 2 (the contract cases); it is placed after unit 4 to keep one linear order.
-- Unit 6 is last: its code block compiles to the two fixtures of unit 3.
+- Unit 6 after unit 2 (the contract cases); it is placed after unit 5 to keep one linear order.
+- Unit 7 is last: its code block compiles to the two fixtures of unit 4.
 
 ## 4. Gates per unit
 
@@ -58,7 +66,7 @@ worktree.
 
 - Engine venv: `cd apps/screamingface-engine && uv sync --dev` (no `inspect` extra).
 - SDK venv: `cd packages/screamingface && uv sync --extra notebook`.
-- `uv run .claude/scripts/run_gates.py screamingface-engine --base 633fec3a1` (units 1, 2, 3)
+- `uv run .claude/scripts/run_gates.py screamingface-engine --base 633fec3a1` (units 1, 2, 4)
 - `uv run .claude/scripts/run_gates.py screamingface --base 633fec3a1` (every unit)
 - `uv run .claude/scripts/run_gates.py repo --base 633fec3a1` (every unit)
 - Append-only: units 1 and 3 edit pinned files. If the append-only check is the only red result,
@@ -93,23 +101,32 @@ worktree.
 
 ## 6. User actions
 
-1. Approve the spec and this plan, including the proposed items P1–P22 and the scope notes N1–N6.
+1. Approve the spec and this plan, including the proposed items P1–P22 and the scope notes N1–N8.
    These items need an explicit decision:
    - P2: `n` from 1 to 32 with no default; `temperature >= 0`, default 1.0.
    - P3: the match operators are written in the spec entry; a step with no extract compares the
      last line with the `text` normalizer.
    - P4: one `sf.Consistency` per Fusion; each member one `sf.Model`; at most 1024 extra calls per
      Fusion.
-   - P5: the seed formula, and the extra calls do not carry the `logprobs` params.
-   - P7: the new operation kind `sample`, accounted as `generation`.
+   - P5: the seed formula; a member seed equal to any sample seed of the Fusion is refused (the gap
+     across two Fusions is N7); the extra calls do not carry the `logprobs` params; the sampler
+     idea is used, not the `sf.samples()` function.
+   - P7: the new operation kind `sample` and its accounting stage. Two options:
+     - `generation` (proposed): a sample is one more answer of the member's model, so its cost
+       shows with the member answers.
+     - `synthesis` (the house precedent): the reducer-side signal calls (`judge`, `writer`) are
+       `synthesis` rows (S/accounting.py:36-40), and the samples, too, feed only the combine
+       signal. With `generation`, the generation cost per member answer goes up in the breakdown.
    - P10: a sample with nothing extracted is a successful sample that does not match (it is in the
      denominator). The other choice: count it as a failed sample.
    - P11: the value is also missing when the member itself has no answer to compare.
-   - P13: the failed count lives in a new optional evidence record `consistency`, not in the member
-     record.
+   - P13: the failed count lives in a new optional evidence record `consistency` (between `cut`
+     and `declared`), not in the member record.
    - P18: the sample seeds do not follow the run seed, and the fixed-seed warning leaves them out.
    - P19: `sf.Consistency` is refused inside a corrective loop in this version.
    - P20: the contract cases go into a new file, not into `evidence_cases.json`.
+   - N8 / D9: the sample operations show as rows with no member in the Case pane and the trace; a
+     grouped view is deferred.
 2. Approve the edits to pinned files after the build (exact list; each is the smallest edit):
    - unit 1:
      - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json` (regenerated: the `ConsistencySource` and `ConsistencyMatch` defs in the `signals` union);
@@ -117,8 +134,10 @@ worktree.
      - `packages/screamingface/tests/public_surface_snapshot.json` (regenerated: `CombineSampleCount`, `CombineEvidence.consistency`, the `CombineEvidence.__init__` keyword).
    - unit 3:
      - `packages/screamingface/tests/public_surface_snapshot.json` (regenerated again: `Consistency`, its `__init__` and fields).
-   - units 2, 4, 5, 6: no pinned file. If the append-only gate names another file, the build stops
-     that unit and records it in the ledger.
+   - units 2, 4, 5, 6, 7: no pinned file. The evidence field order (P13) keeps
+     `ET/test_combine_gate_words.py:667` and `ET/test_combine_evidence_words.py:354` green, so they
+     are not pinned. If the append-only gate names another file, the build stops that unit and
+     records it in the ledger.
    - How to regenerate: delete a schema snapshot, run its freeze test once with
      `UPDATE_SCHEMA_SNAPSHOT=1` (it writes the missing file and fails), then run it plainly. The
      public surface snapshot: run `UPDATE_SURFACE_SNAPSHOT=1 uv run pytest

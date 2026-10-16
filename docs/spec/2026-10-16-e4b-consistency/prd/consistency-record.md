@@ -36,6 +36,7 @@ precedent ("words and schema") applies.
 - `_check_signals` (E/combine/spec.py:227-235) checks 1..8 names and the name rule.
 - `parse_context` (E/combine/spec.py:363-395) accepts the keys `input`, `outputs`, `panel`,
   `signals`, `sources` (`_CONTEXT_KEYS`, :58). `CombineContext` (:340-351) has no samples.
+  `_panel_outputs` (:454-484) parses the url4 broadcast rows of a quorum panel.
 - `CombineEvidence` (E/combine/evidence.py:177-242) writes `declared`, then `gate`, `verifier`,
   `result`. No sample record.
 - SDK: `CombineEvidence` (S/combine_evidence.py:319-460) has no `consistency`;
@@ -73,15 +74,37 @@ def declares_consistency(spec: CombineSpec) -> tuple[str, ConsistencySource] | N
 class CombineContext:
     ...
     sources: MemberSources | None = None
-    samples: Mapping[str, str] | None = None     # new: member -> the rows text of its sample panel
+    samples: Mapping[str, tuple[str, ...]] | None = None
+    # new: member -> the texts of its sample panel rows, in j order (the samples that answered).
+    # The docstring gets: "``samples`` (E4b part 7): each member's sample texts in j order,
+    # present exactly when the spec declares consistency."
 
-def parse_context(context, members, *, sources_expected=False, samples_expected=False): ...
+def _panel_rows(
+    value: object, names: Sequence[str], *, what: str, mismatch: str
+) -> dict[str, str]:
+    """url4 broadcast rows keyed by name; the position of names[i] is i + 1 (CX-I2, OME-1557).
+
+    The body moves out of _panel_outputs with no change of behavior. Fixed messages, never a text:
+    f"combine context {what} has the wrong shape" (not text, not a list, a row that is not a
+    mapping or has other keys); f"combine context {what} is not valid JSON"; and ``mismatch`` (a
+    name not in names, a name twice, a position that is not an int or not the name's index, a
+    result that is not text)."""
+
+def _panel_outputs(value: object, members: Sequence[str]) -> dict[str, str]:
+    return _panel_rows(value, members, what="panel",
+                       mismatch="combine context panel does not match the spec members")
+    # the same texts as today: every existing quorum panel test stays green with no edit
+
+def parse_context(context, members, *, sources_expected=False, samples_n: int | None = None): ...
 #   _CONTEXT_KEYS gains "samples".
-#   ("samples" in decoded) != samples_expected -> SpecInvalid(
+#   ("samples" in decoded) != (samples_n is not None) -> SpecInvalid(
 #       "combine context samples are present exactly when the spec declares consistency")
 #   samples present: _text_map(...) and set(keys) == set(members), else SpecInvalid(
 #       "combine context samples do not match the spec members")
-#   The rows text itself is parsed in consistency-value (it needs n).
+#   each member: names = [f"sample_{j}" for j in 1..samples_n];
+#       rows = _panel_rows(text, names, what="samples",
+#                          mismatch="combine context samples do not match the sample slots")
+#       samples[member] = tuple(rows[name] for name in names if name in rows)   # j order
 ```
 
 ```python
@@ -96,12 +119,15 @@ class SampleCountRecord(_EvidenceModel):
 
 class CombineEvidence(_EvidenceModel):
     ...
-    declared: ... = Field(default=None, exclude_if=lambda value: value is None)
+    cut: CutRecord | None = ...
     consistency: dict[str, list[SampleCountRecord]] | None = Field(
         default=None, exclude_if=lambda value: value is None
-    )                                           # new, between declared and gate
+    )                                           # new, between cut and declared (overview P13)
+    declared: ... = Field(default=None, exclude_if=lambda value: value is None)
     gate: GateRecord | None = ...
     # _check adds _check_consistency(self): CS-I1, CS-I2, CS-I3, CS-I5 (erd §6)
+    # The module INVARIANT (E/combine/evidence.py:7-11) lists one more optional key:
+    # "``consistency`` (written only when the spec declares a consistency source)".
 ```
 
 `_check_consistency` messages (fixed text, never a value): `"a consistency record goes with one
@@ -118,8 +144,8 @@ match needs a successful sample"` (CS-I4).
   `consistency: Mapping[str, Sequence[CombineSampleCount]] | None = None`; it stores
   `Mapping[str, tuple[CombineSampleCount, ...]]` (read-only), checks CS-I1, CS-I2, CS-I3, CS-I5
   with `ValueError`, and `to_dict` writes
-  `**({} if self.consistency is None else {"consistency": {...}})` after `declared` and before
-  `gate`.
+  `**({} if self.consistency is None else {"consistency": {...}})` after `cut` and before
+  `declared`.
 - `S/report.py`: export `CombineSampleCount` (`sf.report.CombineSampleCount`, beside `CombineGate`).
 - `S/_evaluation/combine_evidence.py`: `_OPTIONAL_EVIDENCE_KEYS` adds `"consistency"`;
   `_SAMPLE_COUNT_KEYS = {"member_id", "matched", "succeeded", "failed"}` exact; a
@@ -137,17 +163,19 @@ match needs a successful sample"` (CS-I4).
   `declares_consistency(spec) == ("cons", spec.signals["cons"])`. [stated ans:Q3]
 - **CR-2** Given that spec's members and the context
   `{"input": "q", "outputs": {"member_1": "a", "member_2": "b", "member_3": "c"}, "samples":
-  {"member_1": "[]", "member_2": "[]", "member_3": "[]"}}`, then
-  `parse_context(text, members, samples_expected=True).samples == {"member_1": "[]",
-  "member_2": "[]", "member_3": "[]"}`. Without `samples` and with `samples_expected=False`,
-  `samples is None`. [proposed] P9
+  {"member_1": R1, "member_2": "[]", "member_3": "[]"}}`, with R1 the rows text
+  `[{"source_position": 3, "source_name": "sample_3", "result": "z"}, {"source_position": 1,
+  "source_name": "sample_1", "result": "x"}]`, then `parse_context(text, members,
+  samples_n=4).samples == {"member_1": ("x", "z"), "member_2": (), "member_3": ()}` (j order, not
+  row order). Without `samples` and with `samples_n=None` (the default), `samples is None`.
+  [proposed] P9
 - **CR-3** Given a `CombineEvidence` with `declared={"cons": {<the CR-1 entry>}}`, members with
   `signals` `{"cons": 0.5}`, `{"cons": 1.0}`, `{"cons": None}`, and
   `consistency={"cons": [SampleCountRecord("member_1", 2, 4, 0), SampleCountRecord("member_2", 2,
   2, 2), SampleCountRecord("member_3", None, 0, 4)]}`, then `model_dump(mode="json",
   by_alias=True)` has the top-level keys in this order: `schema`, `kind`, `reducer`, `operators`,
   `members`, `tally`, `judge`, `fields`, `chosen`, `built`, `agreement`, `tie`, `median`,
-  `presentation_order`, `separator_collision`, `signal`, `declared`, `consistency`, `result`,
+  `presentation_order`, `separator_collision`, `signal`, `consistency`, `declared`, `result`,
   `dropped`, `finish_reason`; and each record has the keys `member_id`, `matched`, `succeeded`,
   `failed`, in that order. [proposed] P13
 - **CR-4** Given that wire, then `decode_combine_evidence(wire, "x")` returns a `CombineEvidence`
@@ -164,10 +192,21 @@ match needs a successful sample"` (CS-I4).
   with `temperature: -0.5`; without `temperature`; without `match`; with `match.extract: null`;
   with an extra key `"flags": 1`; with `match` holding an extra key; two consistency entries
   (`"cons"` and `"cons2"`). [proposed]
-- **CR-E2** Given the CR-2 members, then `parse_context` raises `SpecInvalid` for: `samples`
-  present with `samples_expected=False`; `samples` absent with `samples_expected=True`; `samples`
-  that leave out `member_3`; `samples` with an extra `member_4`; a `samples` value that is not
-  text (`{"member_1": []}`); `samples` that is a list. [proposed]
+- **CR-E2** Given the CR-2 members and `samples_n=4` (unless the case says other), then
+  `parse_context` raises `SpecInvalid` with the exact message below, and the message holds no
+  sample text:
+  - `samples` present with `samples_n=None`; `samples` absent with `samples_n=4`: "combine context
+    samples are present exactly when the spec declares consistency";
+  - `samples` that leave out `member_3`; `samples` with an extra `member_4`: "combine context
+    samples do not match the spec members";
+  - a `samples` value that is not text (`{"member_1": []}`); `samples` that is a list: "combine
+    context has the wrong shape" (`_text_map`);
+  - member_1 rows `"not json"`: "combine context samples is not valid JSON";
+  - rows `"{}"` (not a list); a row that is a list; a row with an extra key: "combine context
+    samples has the wrong shape";
+  - a row `"sample_5"` (n is 4); a row `"sample_2"` with `source_position` 3; two rows
+    `"sample_1"`; a row with `source_position` `true`; a row with `"result": 12`: "combine
+    context samples do not match the sample slots". [proposed] CX-I1, CX-I2
 - **CR-E3** Given an Engine `SampleCountRecord` with `matched=3, succeeded=2`, or `matched=0,
   succeeded=0`, or `failed=-1`, then a `ValidationError`. Given a `CombineEvidence` with a
   `consistency` record and no consistency entry in `declared` (CS-I1); a record list that leaves out
@@ -180,9 +219,11 @@ match needs a successful sample"` (CS-I4).
 
 ### 3.3 Derived scenarios (risk-ordered)
 
-- **CR-D1** (H×M) [proposed] Given an evidence with `signal`, `cut`, `declared`, `consistency` and
-  `gate` all set, then the keys are in the order `signal`, `cut`, `declared`, `consistency`,
-  `gate`, `result`.
+- **CR-D1** (H×M) [proposed] Given an evidence with `signal`, `cut`, `consistency`, `declared` and
+  `gate` all set, then the keys are in the order `signal`, `cut`, `consistency`, `declared`,
+  `gate`, `result`; and in `list(CombineEvidence.model_fields)`, `consistency` comes directly after
+  `cut` and `declared` directly after `consistency` (so ET/test_combine_gate_words.py:667 and
+  ET/test_combine_evidence_words.py:354 stay green with no edit).
 - **CR-D2** (M×M) [proposed] A `CombineSampleCount` refuses `matched=True`, `succeeded=-1`,
   `failed=1.0`, `member_id=""`, and `matched=3, succeeded=2`, with `TypeError` or `ValueError`.
 - **CR-D3** (H×M) [implied] The schema ids stay `screamingface.combine-spec.v1` and
@@ -202,7 +243,8 @@ match needs a successful sample"` (CS-I4).
 
 - The computation of the counts and the value (consistency-value), the SDK `sf.Consistency`
   (consistency-api), the display (consistency-display).
-- The rows text parse of one sample panel (consistency-value: it needs `n`).
+- The counting over the parsed texts (consistency-value). The rows parse is in this PRD
+  (`_panel_rows`, `parse_context(samples_n=)`).
 
 ## 6. Open questions
 
@@ -219,15 +261,15 @@ mirror. New test files: `ET/test_combine_consistency_words.py`, `ST/test_consist
 | 2 | CHAR `a_bare_consistency_entry_is_still_refused` (the existing refusals of `ET/test_combine_declared_signals.py:135`, `:240`, written again as a separate test so that unit 1 cannot make them pass by a default) | unit | §2 | H×M | passes today; stays green because n, temperature and match have no default |
 | 3 | `engine_parses_a_consistency_entry` | unit | CR-1 | H×M | `ConsistencySource`, union, `declares_consistency` |
 | 4 | `engine_refuses_bad_consistency_entries_without_echo` (parametrized, CR-E1 list) | unit | CR-E1 | H×M | model fields, `_check_signals` |
-| 5 | `engine_context_reads_samples_exactly_when_expected` | unit | CR-2 | H×M | `parse_context`, `CombineContext.samples` |
-| 6 | `engine_context_refuses_bad_samples_maps` (parametrized, CR-E2 list) | unit | CR-E2 | H×M | `parse_context` |
+| 5 | `engine_context_reads_samples_exactly_when_expected` | unit | CR-2 | H×M | `parse_context(samples_n=)`, `_panel_rows`, `CombineContext.samples` |
+| 6 | `engine_context_refuses_bad_samples_maps_and_rows` (parametrized, CR-E2 list, exact messages) | unit | CR-E2 | H×M | `parse_context`, `_panel_rows`; `_panel_outputs` calls the helper, and the existing quorum panel tests stay green with no edit |
 | 7 | `consistency_record_serializes_in_the_pinned_key_order` | unit | CR-3 | H×M | field order |
 | 8 | `sample_count_and_evidence_invariants_refuse_mismatches` (CS-I1..CS-I5) | unit | CR-E3 | H×M | `_check`, `_check_consistency` |
-| 9 | `evidence_with_every_optional_key_orders_declared_consistency_gate` | unit | CR-D1 | H×M | field placement |
+| 9 | `evidence_with_every_optional_key_orders_cut_consistency_declared_gate` | unit | CR-D1 | H×M | field placement; the module INVARIANT text |
 | 10 | `sdk_decodes_and_round_trips_a_consistency_record` | unit | CR-4 | H×M | `_consistency`, `CombineSampleCount.to_dict` |
 | 11 | `sdk_decoder_refuses_bad_consistency_records` | unit | CR-E4 | M×M | exact keys, `CombineEvidence` checks |
 | 12 | `sdk_sample_count_refuses_bad_values` | unit | CR-D2 | M×M | `__post_init__` |
-| 13 | PIN `schema_snapshots_hold_the_consistency_entry_and_record` (spec v1: the `ConsistencySource` and `ConsistencyMatch` defs are in the `signals` union; evidence v1: the `consistency` property, not required, and the `SampleCountRecord` def keys). Regenerate the two pinned snapshots | unit | CR-D3 | H×M | delete the pinned file, run the freeze test once with `UPDATE_SCHEMA_SNAPSHOT=1` (it writes the file and fails), then run it again without the variable (test-plan §2) |
+| 13 | PIN `schema_snapshots_hold_the_consistency_entry_and_record`. Spec v1: `properties.signals.anyOf[0].additionalProperties` has `discriminator.mapping["consistency"] == "#/$defs/ConsistencySource"` and `{"$ref": "#/$defs/ConsistencySource"}` in `oneOf`; `$defs.ConsistencySource.required == ["source", "n", "temperature", "match"]`, `additionalProperties is False`, `properties.source == {"const": "consistency", "title": "Source", "type": "string"}`, `properties.n` has `type "integer"`, `minimum 1`, `maximum 32`, `properties.temperature` has `type "number"`, `minimum 0`; `$defs.ConsistencyMatch.required == ["extract", "normalize"]`, `additionalProperties is False`; `len(required) == 8`. Evidence v1: `properties.consistency == {"anyOf": [{"additionalProperties": {"items": {"$ref": "#/$defs/SampleCountRecord"}, "type": "array"}, "type": "object"}, {"type": "null"}], "default": None, "title": "Consistency"}` (the shape of `declared`); `"consistency" not in required`; `len(required) == 18`; `$defs.SampleCountRecord.required == ["member_id", "matched", "succeeded", "failed"]`, `additionalProperties is False`. Regenerate the two pinned snapshots | unit | CR-D3 | H×M | delete the pinned file, run the freeze test once with `UPDATE_SCHEMA_SNAPSHOT=1` (it writes the file and fails), then run it again without the variable (test-plan §2) |
 | 14 | `sdk_report_exports_combine_sample_count` (`sf.report.CombineSampleCount is CombineSampleCount`; `CombineEvidence` has the keyword `consistency`). PIN: regenerate `ST/public_surface_snapshot.json` | unit | §2 delta | M×M | `S/report.py`; `UPDATE_SURFACE_SNAPSHOT=1` (test-plan §2) |
 | 15 | `sdk_spec_decoder_accepts_a_consistency_entry` | unit | CR-D4 | M×L | none expected (passes at GREEN of row 3; if it is green at RED, record it as a CHAR row in the ledger) |
 
