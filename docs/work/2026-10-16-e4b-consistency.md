@@ -325,7 +325,8 @@ None. New files only, plus the source edits above.
   `_sample_source`, `_consistency_record`; the `_Recorded` field is `numbers`; two `RuntimeError`
   guards (`_sample_counts`, `_column`); `count_samples` raises `ValueError` for more texts than n
   and does not call `read` when there is nothing to compare.
-- (Add any change made during the build here.)
+- No change beyond the list above. The §6.7 patch applied with `git apply` on the commit A tree.
+  The contract file was written by `write_fixture()`, not by hand.
 
 ### Notes for the review
 
@@ -336,9 +337,9 @@ None. New files only, plus the source edits above.
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:** in_progress (RED, commit A)
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Status:** DONE. Commit B is green on all three stacks. The append-only check named only the pinned files of unit 1 (see Gates).
+- **Actual files:** `E/combine/consistency.py` (the commit A stub replaced by the full module); `E/combine/endpoint.py` (the §6.7 patch, 21 hunks); new `ET/data/combine_contract/consistency_evidence_cases.json` (three scenarios, written by `write_fixture()`). No test file changed after commit A.
+- **Commits:** A `e4e8b4b83` (RED tests and stub). B: the code and the contract data file (this build). C: the docs commit (overview errata and this Outcome).
+- **Gates:** Engine stack: the append-only check lists only `screamingface.combine-spec.v1.json` and `screamingface.combine-evidence.v1.json`, both changed by unit 1 commit `b2ae6be62`. The run passed with `--skip-append-only`: ruff check, ruff format, pyright, layering check and pytest (coverage floor 80 percent) all pass. SDK stack: the append-only check lists only `tests/public_surface_snapshot.json`, changed by unit 1 commit `b2ae6be62`. The run passed with `--skip-append-only`: ruff check, ruff format, pyright, pytest (coverage floor 95 percent), notebooks, build and distribution all pass. Repo stack: all green with no flag. Focused runs: the three Engine consistency files give 116 passed; the 16 regression files give 365 passed; the SDK contract files give 66 passed; `check_layering.py` (under `uv run`) passes.
 - **RED log:** commit A. Engine (`test_combine_consistency.py` + `test_combine_consistency_contract.py`): 28 failed, 38 passed (37 CV#1 items and CV#6 `samples-without-a-declaration`). Failures: `SpecInvalid: a declared signal source is not registered` (CV#2 endpoint, CV#3, CV#4, CV#5, CV#6 params 1-2, CV#7 four params with the wrong code or message, CV#8, CV#9, CV#10, CV#11, CV#12); `NotImplementedError` from the stub (CV#2 pure test); `missing contract fixture` (CV#13, three byte params, two fixture tests). SDK (`test_consistency_evidence_contract.py`): 0 passed, 5 failed, all `missing Engine contract fixture`. Ruff check, ruff format and pyright are clean on the new files.
 - **Pinned edits made:** none
