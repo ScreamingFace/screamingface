@@ -1,8 +1,8 @@
 """OME-1136: the gateway's relayed provider message survives into the report.
 
 The gateway composes `detail.message` from a sanitized upstream explanation. These tests prove
-the engine side carries it — unchanged — through `_raise_for_status`, URL4 collection and
-`public_error` into the case failure's message, with the gateway code kept as `source_code`.
+the engine side carries it — unchanged — through `_raise_for_status` and `public_error` into
+the report's failure message, with the gateway code kept as `source_code`.
 
 The input is ``apps/aigateway/tests/fixtures/provider_error_relay/relayed_detail.json``, which
 the gateway's own route test asserts it produces byte-for-byte; the Gate-1 parity list lives
@@ -19,8 +19,8 @@ from pathlib import Path
 
 import httpx
 import pytest
-from test_ifeval_provider_failure_stage import _aggregate, _collect_candidate_error
 
+from screamingface_engine.benchmarks.aggregation import public_error
 from screamingface_engine.error_text import public_message
 from screamingface_engine.world.connector import _raise_for_status
 from url4.core.errors import ResolutionError
@@ -30,19 +30,29 @@ _FIXTURES = _REPO_ROOT / "apps/aigateway/tests/fixtures/provider_error_relay"
 _DETAIL = json.loads((_FIXTURES / "relayed_detail.json").read_text(encoding="utf-8"))
 
 
-@pytest.mark.asyncio
-async def test_relayed_gateway_message_reaches_the_case_failure() -> None:
+def test_relayed_gateway_message_reaches_the_case_failure() -> None:
+    # WHY no URL4-collect hop: main deleted the hand-built ifeval aggregate this test used to
+    # drive (2d04f7810); `_raise_for_status` -> `public_error` is the report boundary that
+    # remains, as in `test_gateway_internal_error_code.py`.
     with pytest.raises(ResolutionError) as caught:
         _raise_for_status(httpx.Response(400, json={"detail": _DETAIL}))
     assert caught.value.code == "bad_request"
 
-    result = _aggregate(await _collect_candidate_error(caught.value))
+    failure = public_error(
+        {
+            "kind": type(caught.value).__name__,
+            "code": caught.value.code,
+            "message": str(caught.value),
+            "permanent": caught.value.permanent,
+        },
+        default_code="case_execution_failed",
+        default_message="Candidate Case execution failed",
+    )
 
-    failure = result["cases"][0]["failures"][0]
-    assert failure["message"] == _DETAIL["message"]
-    assert "Unsupported parameter: 'temperature'" in failure["message"]
-    assert failure["metadata"]["source_code"] == "bad_request"
-    assert failure["retryable"] is False
+    assert failure.message == _DETAIL["message"]
+    assert "Unsupported parameter: 'temperature'" in failure.message
+    assert failure.source_code == "bad_request"
+    assert failure.retryable is False
 
 
 def test_the_relayed_message_passes_public_message_unchanged() -> None:
