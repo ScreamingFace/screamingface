@@ -8,13 +8,17 @@ Pinned here: the route demands an authenticated caller, any account rather than 
 is a header line (schema, revisions, and ``remaining`` only when asked), one line per row, and a
 trailer line carrying the next cursor; the cursor walks every eligible row exactly once; the
 model filter and ``limit`` reach the query; bad parameters are 422; the body is gzip'd when the
-client accepts it; and nothing on the route may be cached by an intermediary.
+client accepts it; nothing on the route may be cached by an intermediary; and encoding rows and
+gzip run off the event loop.
 """
 
 from __future__ import annotations
 
 import gzip
 import json
+import threading
+import types
+import zlib
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -24,6 +28,7 @@ from fastapi.testclient import TestClient
 from aigateway.core.request_cache.community_pages import PAGE_FIELDS, PAGE_SCHEMA, PageCursor
 from aigateway.core.request_cache.models import RequestCacheEntry
 from aigateway.core.request_cache.revisions import active_cache_revisions
+from aigateway.routes import cache_entries
 
 _URL = "/v1/cache/entries"
 _T0 = datetime(2026, 10, 1, 12, 0, 0, tzinfo=UTC)
@@ -178,3 +183,50 @@ def test_the_body_is_gzipped_when_accepted_and_plain_otherwise(
     assert "accept-encoding" in zipped.headers["vary"].lower()
     assert gzip.decompress(raw).decode() == plain.text
     assert "content-encoding" not in plain.headers
+
+
+def test_row_encoding_and_gzip_run_off_the_event_loop(
+    authenticated_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT: a page's per-batch work (JSON-encoding rows, gzip) never runs on the event
+    # loop. gzip is the route's largest cost (~57 ms per 1,000 rows), and on the loop it would
+    # stall every other request on the pod, cache hits included, for each batch.
+    _seed(authenticated_client, ("a", "m1", 0), ("b", "m1", 1))
+    assert authenticated_client.portal is not None
+    loop_thread = authenticated_client.portal.call(threading.get_ident)
+    threads: list[int] = []
+
+    real_wire = cache_entries._wire
+
+    def wire(row: dict) -> dict:
+        threads.append(threading.get_ident())
+        return real_wire(row)
+
+    class Compressor:
+        def __init__(self) -> None:
+            self._inner = zlib.compressobj(wbits=31)
+
+        def compress(self, data: bytes) -> bytes:
+            threads.append(threading.get_ident())
+            return self._inner.compress(data)
+
+        def flush(self) -> bytes:
+            threads.append(threading.get_ident())
+            return self._inner.flush()
+
+    monkeypatch.setattr(cache_entries, "_wire", wire)
+    monkeypatch.setattr(
+        cache_entries, "zlib", types.SimpleNamespace(compressobj=lambda **_: Compressor())
+    )
+
+    with authenticated_client.stream("GET", _URL, headers={"Accept-Encoding": "gzip"}) as zipped:
+        raw = b"".join(zipped.iter_raw())
+
+    assert [
+        json.loads(line)["key_hash"][0] for line in gzip.decompress(raw).splitlines()[1:-1]
+    ] == [
+        "a",
+        "b",
+    ]
+    assert threads
+    assert loop_thread not in threads
