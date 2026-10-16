@@ -165,6 +165,15 @@ class FieldReadingRecord(_EvidenceModel):
     result: JsonValue
 
 
+_GATE_REASON = "gate_not_met goes with a gate that took the abstain fallback, and only with it"
+
+
+def _gate_reason_holds(gate: GateRecord | None, result: ResultRecord) -> bool:
+    """GR-I3: reason "gate_not_met" <=> gate.branch == "fallback" and otherwise abstain."""
+    abstained = gate is not None and gate.branch == "fallback" and gate.otherwise == "abstain"
+    return (result.reason == "gate_not_met") == abstained
+
+
 class CombineEvidence(_EvidenceModel):
     """Everything one combine step decided, minus the answer text."""
 
@@ -234,7 +243,10 @@ class CombineEvidence(_EvidenceModel):
 
 
 def _check_gate(evidence: CombineEvidence) -> None:
-    """GR-I1 (evidence part), GR-I4 and GR-I5 (E4b part 5, erd §4)."""
+    """GR-I3, GR-I1 (evidence part), GR-I4 and GR-I5 (E4b part 5, erd §4)."""
+    # WHY first: a gate_not_met result with no gate fails GR-I3 before any other gate rule.
+    if not _gate_reason_holds(evidence.gate, evidence.result):
+        raise ValueError(_GATE_REASON)
     gate = evidence.gate
     if gate is None:
         return

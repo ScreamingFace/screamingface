@@ -13,9 +13,11 @@ INVARIANT: this module imports no ``url4`` module -- the adapter owns the route,
 INVARIANT: pure CPU work -- no HTTP client, no clock, no cache, no module state. Order always
 comes from ``spec.members``; nothing iterates a dict or set to decide an output.
 INVARIANT: only a ``CombineError`` is a declared failure. A plugin bug stays loud. A step that
-finds no answer (no usable member, or a reduce or select step raising ``NoVotes``) is not a
-failure: it returns evidence with ``result.status == "abstain"`` and the empty text. A select
-operator with ``envelope`` (Rank, Filter) returns the empty envelope instead (E4b fix 2026-10-14).
+finds no answer (no usable member, a reduce or select step raising ``NoVotes``, or a vote gate that
+takes the abstain fallback: ``gate_not_met``, E4b part 5) is not a failure: it returns evidence
+with ``result.status == "abstain"`` and the empty text. A select operator with ``envelope`` (Rank,
+Filter) returns the empty envelope instead (E4b fix 2026-10-14).
+INVARIANT (FB-I1, E4b part 5): only the fallback branch of a gate reads a ``fallback_*`` reply.
 INVARIANT: a failure message names ids, counts and limits -- never member text or arg values.
 WHY no ``record_model_outcome``: the step is not a model call, so the Candidate's terminal finish
 reason stays the members' common reason; the operation's own finish reason is ``stop``.
@@ -27,10 +29,10 @@ import logging
 import math
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from pydantic import JsonValue, ValidationError
 
@@ -39,10 +41,18 @@ from screamingface_engine.combine.evidence import (
     CombineEvidence,
     CutRecord,
     FieldReadingRecord,
+    GateRecord,
     JudgeReadingRecord,
     ResultRecord,
     SignalRecord,
     TallyRowRecord,
+)
+from screamingface_engine.combine.gate import (
+    check_fallback_signals,
+    fallback_label,
+    fallback_text,
+    observed_number,
+    passes,
 )
 from screamingface_engine.combine.logprob_forms import entropy_value, logprob_value
 from screamingface_engine.combine.ports import (
@@ -100,6 +110,7 @@ from screamingface_engine.combine.spec import (
     CombineContext,
     CombineSpec,
     EntropySource,
+    GateSpec,
     LogprobSource,
     SignalWeights,
     StepSpec,
@@ -269,11 +280,14 @@ def _combine(
         sources_expected=(plan.signal is not None and plan.signal.key in ACCOUNTING_SIGNALS)
         or declares_reply_sources(spec),
     )
+    check_fallback_signals(spec.gate, context.signals)
     recorded = _signal_values(plan, spec, context, accounting)
     combine_input = _read_members(spec, plan, context, recorded)
     trace.voters = str(len(combine_input.voters))
     if not combine_input.voters:
-        return _abstain(spec, plan, combine_input, None, "no_votes", recorded=recorded)
+        return _abstain(
+            spec, plan, combine_input, None, "no_votes", recorded=recorded, gate=_not_run(spec)
+        )
     return _decide(spec, plan, combine_input, context, trace, recorded=recorded)
 
 
@@ -454,16 +468,53 @@ def _decide(
     *,
     recorded: Mapping[str, Mapping[str, float | None]],
 ) -> CombineOutcome:
-    """Run reduce, then select. Only these two steps may abstain (by raising ``NoVotes``)."""
+    """Run reduce, then select, then the gate when the spec has one (E4b part 5).
+
+    Three things may abstain: the reduce and the select steps (by raising ``NoVotes``) and the gate
+    (``gate_not_met``). When reduce or select abstains, the gate does not run (GR-I1, P10).
+    """
     try:
         reduction = plan.reduce.run(combine_input, plan.reduce.args)
         _check_tally(reduction, combine_input.members, plan.reduce.op_id)
     except NoVotes as exc:
-        return _abstain(spec, plan, combine_input, None, exc.reason, recorded=recorded)
+        return _abstain(
+            spec, plan, combine_input, None, exc.reason, recorded=recorded, gate=_not_run(spec)
+        )
     try:
         selection = plan.select.run(reduction, combine_input, plan.select.args)
     except NoVotes as exc:
-        return _abstain(spec, plan, combine_input, reduction, exc.reason, recorded=recorded)
+        return _abstain(
+            spec, plan, combine_input, reduction, exc.reason, recorded=recorded, gate=_not_run(spec)
+        )
+    return _choose(
+        spec, plan, combine_input, context, reduction, selection, trace, recorded=recorded
+    )
+
+
+def _choose(
+    spec: CombineSpec,
+    plan: _Plan,
+    combine_input: CombineInput,
+    context: CombineContext,
+    reduction: Reduction,
+    selection: Selection,
+    trace: _Trace,
+    *,
+    recorded: Mapping[str, Mapping[str, float | None]],
+) -> CombineOutcome:
+    """The selection's own answer (today's path), or the branch the gate takes."""
+    if spec.gate is not None:
+        return _gated(
+            spec.gate,
+            spec,
+            plan,
+            combine_input,
+            context,
+            reduction,
+            selection,
+            trace,
+            recorded=recorded,
+        )
     output = _output(selection, plan.select.op_id, context)
     trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
     trace.tie = "true" if selection.tie else "false"
@@ -471,6 +522,132 @@ def _decide(
     return CombineOutcome(
         output,
         _evidence(spec, plan, combine_input, reduction, selection, result, recorded=recorded),
+    )
+
+
+def _gated(
+    gate: GateSpec,
+    spec: CombineSpec,
+    plan: _Plan,
+    combine_input: CombineInput,
+    context: CombineContext,
+    reduction: Reduction,
+    selection: Selection,
+    trace: _Trace,
+    *,
+    recorded: Mapping[str, Mapping[str, float | None]],
+) -> CombineOutcome:
+    """Compare the gate number with the threshold, record it, and take one branch (ans:Q1).
+
+    True: the majority answer. False: the fallback (abstain, judge or writer). FB-I1: the majority
+    branch never reads a fallback reply, so E4c can skip that call with no wire change.
+    """
+    observed = observed_number(gate, selection, recorded, combine_input.members)
+    passed = passes(observed, gate.cmp, gate.threshold)
+    record = GateRecord(
+        observe=gate.observe,
+        observed=observed,
+        cmp=gate.cmp,
+        threshold=float(gate.threshold),
+        passed=passed,
+        branch="majority" if passed else "fallback",
+        otherwise=gate.otherwise,
+    )
+    trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
+    trace.tie = "true" if selection.tie else "false"
+    if passed:
+        output = _output(selection, plan.select.op_id, context)
+        result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
+        evidence = _evidence(
+            spec, plan, combine_input, reduction, selection, result, recorded=recorded, gate=record
+        )
+        return CombineOutcome(output, evidence)
+    if gate.otherwise == "abstain":
+        return _abstain(
+            spec,
+            plan,
+            combine_input,
+            reduction,
+            "gate_not_met",
+            recorded=recorded,
+            selection=selection,
+            gate=record,
+        )
+    return _fallback(
+        gate, record, spec, plan, combine_input, context, reduction, selection, recorded=recorded
+    )
+
+
+def _fallback(
+    gate: GateSpec,
+    record: GateRecord,
+    spec: CombineSpec,
+    plan: _Plan,
+    combine_input: CombineInput,
+    context: CombineContext,
+    reduction: Reduction,
+    selection: Selection,
+    *,
+    recorded: Mapping[str, Mapping[str, float | None]],
+) -> CombineOutcome:
+    """The judge or the writer fallback answer (gate-decision §2 delta 4, P14).
+
+    Judge: the label member's text, byte for byte; the reading goes into the evidence ``judge``.
+    Writer: the reply text is the output (8 MiB cap first); the value is the vote's own extract and
+    normalize of that text (``_stages``), None when nothing is extracted.
+    The vote's tally, agreement and tie stay in the evidence.
+    """
+    if gate.otherwise == "judge":
+        reading = fallback_label(context.signals, _kept(combine_input, plan.excludes))
+        final = Selection(
+            chosen=(cast("str", reading.parsed),),
+            tie=selection.tie,
+            agreement=selection.agreement,
+        )
+        output = _output(final, plan.select.op_id, context)
+        result = _result(final, REDUCER_RULES[spec.reducer].kind, output, combine_input)
+        reduction = replace(reduction, judge=reading)
+    else:
+        text = fallback_text(context.signals)
+        final = Selection(chosen=(), output=text, tie=selection.tie, agreement=selection.agreement)
+        output = _output(final, plan.select.op_id, context)  # InputTooLarge over 8 MiB, first
+        result = ResultRecord(
+            member_id=None, value=_stages(text, plan)[2], status="answered", reason=None
+        )
+    evidence = _evidence(
+        spec, plan, combine_input, reduction, final, result, recorded=recorded, gate=record
+    )
+    return CombineOutcome(output, evidence)
+
+
+def _kept(combine_input: CombineInput, excludes: _Exclusion | None) -> tuple[str, ...]:
+    """GD-E6: the present members that the step did not exclude, in spec order.
+
+    The same rule writes the member records (``_record_status``), so a fallback label can never name
+    a member that the evidence marks ``excluded`` (CE-I3).
+    """
+    answers = {answer.member_id: answer for answer in combine_input.answers}
+    return tuple(
+        member
+        for member in combine_input.present
+        if _record_status(answers[member], excludes)[0] != "excluded"
+    )
+
+
+def _not_run(spec: CombineSpec) -> GateRecord | None:
+    """GR-I1, P10: the record of a gate that did not run (the vote found no answer); None when the
+    spec has no gate. The fallback reply is not read."""
+    gate = spec.gate
+    if gate is None:
+        return None
+    return GateRecord(
+        observe=gate.observe,
+        observed=None,
+        cmp=gate.cmp,
+        threshold=float(gate.threshold),
+        passed=None,
+        branch=None,
+        otherwise=gate.otherwise,
     )
 
 
@@ -482,6 +659,8 @@ def _abstain(
     reason: AbstainReason,
     *,
     recorded: Mapping[str, Mapping[str, float | None]],
+    selection: Selection | None = None,
+    gate: GateRecord | None = None,
 ) -> CombineOutcome:
     """The normal output of a step that finds no answer: an abstain result, and the text the next
     stage gets.
@@ -489,12 +668,16 @@ def _abstain(
     That text is empty, except for a select step that hands on the selection envelope (Rank and
     Filter): it hands on the empty envelope ``{"input":"...","selected":[]}``, so the next stage
     still sees the input (E4b ans:Q7 with ans:Q4). The 8 MiB result cap applies to it too.
+    A gate abstain (gate_not_met) passes the vote's selection, so the evidence keeps the tally, the
+    agreement and the tie (P14).
     """
     output = selection_envelope((), combine_input) if plan.envelope else ""
     if utf8_exceeds(output, MAX_RESULT_BYTES):
         raise InputTooLarge("the combine output exceeds 8 MiB")
     result = ResultRecord(member_id=None, value=None, status="abstain", reason=reason)
-    evidence = _evidence(spec, plan, combine_input, reduction, None, result, recorded=recorded)
+    evidence = _evidence(
+        spec, plan, combine_input, reduction, selection, result, recorded=recorded, gate=gate
+    )
     return CombineOutcome(output, evidence)
 
 
@@ -800,8 +983,10 @@ def _evidence(
     result: ResultRecord,
     *,
     recorded: Mapping[str, Mapping[str, float | None]],
+    gate: GateRecord | None = None,
 ) -> CombineEvidence:
-    # An abstain has no selection, and none or only part of a reduction (a select step may abstain).
+    # An abstain has no selection (a gate abstain has one: P14), and none or only part of a
+    # reduction (a select step may abstain).
     reduction = Reduction() if reduction is None else reduction
     scores = reduction.scores or {}
     # E4b part 2 (P6, P7): the rank of each scored member of a top_k@1 step, also on an abstain.
@@ -825,8 +1010,10 @@ def _evidence(
         tally=_tally_records(reduction),
         judge=_judge_record(reduction),
         fields=_field_records(reduction, plan.reduce.op_id),
-        chosen=[] if selection is None else list(selection.chosen),
-        built=selection is not None and selection.output is not None,
+        chosen=[] if result.status == "abstain" or selection is None else list(selection.chosen),
+        built=result.status == "answered"
+        and selection is not None
+        and selection.output is not None,
         agreement=(
             None
             if selection is None or selection.agreement is None
@@ -835,17 +1022,27 @@ def _evidence(
         tie=selection is not None and selection.tie,
         median=None if statistic is None or is_mean else canonical_decimal(statistic),
         mean=canonical_decimal(statistic) if is_mean and statistic is not None else None,
-        presentation_order="author" if "judge" in combine_input.signals else None,
+        presentation_order=_presentation_order(combine_input, gate),
         separator_collision=reduction.separator_collision,
         signal=None
         if plan.signal is None
         else SignalRecord(key=plan.signal.key, order=plan.signal.order),
         cut=None if plan.cut is None else CutRecord(k=plan.cut.k, order=plan.cut.order),
         declared=_declared_record(spec),
+        gate=gate,
         result=result,
         dropped=sum(answer.status == "fail" for answer in combine_input.answers),
         finish_reason="stop",
     )
+
+
+def _presentation_order(
+    combine_input: CombineInput, gate: GateRecord | None
+) -> Literal["author"] | None:
+    """ "author" when the step read a judge: the context ``judge`` signal, or a fallback judge that
+    the gate branch used (E4b part 5, P14)."""
+    fallback_judge = gate is not None and gate.branch == "fallback" and gate.otherwise == "judge"
+    return "author" if "judge" in combine_input.signals or fallback_judge else None
 
 
 def _declared_record(spec: CombineSpec) -> dict[str, dict[str, JsonValue]] | None:

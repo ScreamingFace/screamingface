@@ -44,7 +44,8 @@
                 "missing",
                 "no_votes",
                 "cut_not_met",
-                "output_missing"
+                "output_missing",
+                "gate_not_met"
               ],
               "type": "string"
             },
@@ -331,7 +332,8 @@
               "enum": [
                 "no_votes",
                 "cut_not_met",
-                "output_missing"
+                "output_missing",
+                "gate_not_met"
               ],
               "type": "string"
             },

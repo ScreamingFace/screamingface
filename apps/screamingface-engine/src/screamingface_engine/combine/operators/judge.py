@@ -12,8 +12,9 @@ INVARIANT: each operator is pure and holds no mutable state; there is NO fallbac
 parse failure always raises). A message names the rule, never the judge's text.
 WHY not ``shared_grading/judge_evidence.py``: that parser is lenient on presentation and its
 failures are retryable. Here the format is the contract, and the failure is permanent.
-WHY the scores parse is in ports: the core reads ``score:judge`` with the same parser (OME-1289 gap
-SG#13); ``parse_label`` stays here.
+WHY the scores parse and the label parse are in ports: the core reads ``score:judge`` with the same
+scores parser (OME-1289 gap SG#13), and the gate fallback label with ``parse_label`` (E4b part 5,
+part 3 erratum E1: the core never imports a plugin). ``parse_label`` stays in ``__all__`` here.
 AIDEV-NOTE: the label format, the whole-reply fence rule and the 64 KiB cap are v1 behavior
 pinned by the golden fixtures. A change is a new ``@version``, never an edit.
 """
@@ -21,7 +22,6 @@ pinned by the golden fixtures. A change is a new ``@version``, never an edit.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 from decimal import Decimal
 from types import MappingProxyType
 
@@ -29,27 +29,18 @@ from screamingface_engine.combine.ports import (
     MAX_JUDGE_REPLY_BYTES,
     CombineInput,
     JudgeReading,
-    JudgeReplyInvalid,
     OpArgs,
     OperatorDescriptor,
     Reduction,
     Selection,
     SpecInvalid,
     judge_reply,
+    parse_label,
     parse_scores,
 )
 
-_LABEL_INVALID = "the judge reply is not exactly one member id"
 # WHY only this form: it is what numeric@1 writes (see reduce.py `_CANONICAL_NUMBER`).
 _CANONICAL_NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
-
-
-def parse_label(raw: str, members: Sequence[str]) -> str:
-    """The one member id ``raw`` names. Only surrounding whitespace is trimmed (``str.strip``)."""
-    label = raw.strip()
-    if label not in members:
-        raise JudgeReplyInvalid(_LABEL_INVALID)
-    return label
 
 
 def label(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
