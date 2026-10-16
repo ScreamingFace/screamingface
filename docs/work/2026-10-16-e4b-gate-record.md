@@ -739,14 +739,18 @@ new files.
 
 ### Outcome
 
-- **Status:** RED only. Commit A is written. Commits B and C are not started.
-- **Actual files:** `ST/test_gate_api.py` (import block edited; 9 PRD rows appended),
-  `ST/test_gate_contract_fixtures.py` (1 `|=` line and GA#17b appended),
-  `ET/test_combine_gate_run.py` (GA#18b appended), and this ledger. No source file changed.
-  No pinned file changed. The two fixtures are not written yet (commit B).
-- **Commits:** A = the commit that adds this text (its sha is in `git log`). B and C: not made.
+- **Status:** Done. Commit B is built and gated. Every gate is green. Only the append-only
+  check is red for two stacks, and every file it names is on the units 1 and 2 pinned list. This
+  unit adds no pinned edit.
+- **Actual files:** Commit B changes 5 source files: `S/gate.py`, `S/reducer.py`,
+  `S/url4.py`, `S/_evaluation/topology.py`, `S/_evaluation/reducer_signals.py`. It adds 2 url4
+  fixtures: `ET/data/combine_contract/gate_judge_vote_candidate.url4` and
+  `ET/data/combine_contract/gate_writer_vote_candidate.url4`. It edits one RED test function
+  annotation (see Deviations D-5). No Engine source file changed. No public name changed.
+- **Commits:** A `7e59358ee` (RED tests). B `fabd36c2e` (code, fixtures, one annotation). C: this
+  section.
 - **Start commit:** `ba8ed4b65` (unit 3 tip).
-- **RED log (focused runs, commit A):**
+- - **RED log (focused runs, commit A):**
   - SDK `tests/test_gate_api.py` and `tests/test_gate_contract_fixtures.py`: 15 passed,
     19 failed. Failure reasons: 16 items raise `NotImplementedError` from
     `S/gate.py` line 86 (the unit 3 stub). GA#16 `test_signal_key_bind_accepts_the_fallback_keys`
@@ -756,8 +760,45 @@ new files.
   - ET `tests/unit/test_combine_gate_run.py`: 2 passed (unit 3), 2 failed (GA#18b, the
     fixture file is missing: `AssertionError`, as planned).
   - No ImportError and no collection error.
-- **Lint:** `ruff check` and `ruff format --check` pass on the three test files.
-- **Gates:** not run. Gate runs start with commit B (RED step rule).
-- **Flakes:** none seen.
-- **Deviations:** D-1 and D-2 (planner), D-3 and D-4 (RED build).
+- **Gates (run in order, one stack at a time, from the worktree root, base `4e622af75`):**
+  - `screamingface-engine`: run 1 red only on the append-only check. The check lists 5 files:
+    `tests/unit/data/combine_contract/evidence_cases.json`,
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`,
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`,
+    `tests/unit/test_combine_evidence_words.py`, `tests/unit/test_combine_pick_output.py`. All 5
+    are units 1 and 2 pinned files (plan §6). Run 2 with `--skip-append-only`: ALL GATES GREEN
+    (ruff, ruff format, pyright, layering, pytest with coverage 80 percent).
+  - `screamingface`: run 1 red only on the append-only check. The check lists 5 files:
+    `tests/data/schemas/screamingface.answer.v1.json`, `tests/public_surface_snapshot.json`,
+    `tests/test_evidence_words.py`, `tests/test_frozen_record_fields.py`,
+    `tests/test_pick_output.py`. All 5 are units 1 and 2 pinned files. Run 2 with
+    `--skip-append-only` failed once at pyright (D-5). After the D-5 fix, run 3 with
+    `--skip-append-only`: ALL GATES GREEN (ruff, ruff format, pyright, pytest with coverage 95
+    percent, notebooks, build, distribution).
+  - `repo`: run 1, no flag: ALL GATES GREEN (append-only check passed).
+  - Focused runs after B: SDK `tests/test_gate_api.py`, `tests/test_gate_contract_fixtures.py`,
+    `tests/unit/test_signal_key_conformance.py`, `tests/test_judge_url4_round_trip.py`,
+    `tests/test_judge_quorum.py`, `tests/test_judge_reducer.py`,
+    `tests/test_merge_writer_compile.py`, `tests/test_reducer_url4_round_trip.py`,
+    `tests/test_quorum_url4_contract_fixtures.py`, `tests/test_verbalized_contract_fixture.py`,
+    `tests/test_public_surface.py`: 97 passed, 0 failed. Engine
+    `tests/unit/test_combine_gate_run.py` and `tests/unit/test_sdk_candidate_contracts.py`: 8
+    passed. The two GA#18b items (`judge`, `writer`) pass.
+  - Lint after B: `ruff check` and `ruff format` pass on the touched SDK source files.
+- **Flakes:** None seen. The known flaky tests (OME-1619) did not fail, so none was rerun alone.
+- **Deviations:**
+  - D-1 and D-2 (planner): see the RED section above.
+  - D-3 and D-4 (RED build): see the RED section above.
+  - D-5 (test edit, a real type bug): `tests/test_gate_api.py`, helper `_fb_fusion`, parameter
+    `quorum` changed from `int | str` to `Any`. Pyright rejected the annotation, because
+    `sf.Fusion` takes `int | Literal["all"]`. No assertion changed. The gate failed on this
+    line only.
+  - D-6 (lint): `S/_evaluation/topology.py` `_signal_role` and `S/url4.py` `_rebuilt_reducer` have
+    4 returns each, so ruff PLR0911 (max 3) fails. Each function keeps the code of the spec and
+    gets `# noqa: PLR0911` on its `def` line. This form has precedent in the repo
+    (`_runtime/cli.py`, `tests/test_connection_panel.py`).
+  - D-7 (no change): spec §3.1 `_vote_plan` already had the judge-then-fallback order from unit 3.
+    Nothing changed there.
+  - D-8 (review): no separate design review ran in this unit. The unit was checked against
+    spec §3, §7 and §8 by reading the diff. The orchestrator runs the design review.
 - **Pinned edits:** none.
