@@ -33,6 +33,7 @@
       "Filter",
       "FixedSeedSittingWarning",
       "Fusion",
+      "Gate",
       "Judge",
       "JudgeWriterWarning",
       "Leaderboard",
@@ -526,6 +527,16 @@
           "signals": "field",
           "synthesizer": "field",
           "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+        }
+      },
+      "Gate": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, observe: 'str', cmp: 'GateCmp', threshold: 'float', *, otherwise: \"Literal['abstain'] | Judge | Model\" = 'abstain') -> 'None'",
+          "cmp": "field",
+          "observe": "field",
+          "otherwise": "field",
+          "threshold": "field"
         }
       },
       "Judge": {
@@ -1041,11 +1052,13 @@
       "Vote": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, extract: 'str' = 'last_line', normalize: 'str | None' = 'text', weights: 'Sequence[float] | Signal | None' = None, judge: 'Judge | None' = None) -> 'None'",
+          "__init__": "method (self, *, extract: 'str' = 'last_line', normalize: 'str | None' = 'text', weights: 'Sequence[float] | Signal | None' = None, judge: 'Judge | None' = None, gate: 'Gate | None' = None, verify: 'None' = None) -> 'None'",
           "extract": "field",
+          "gate": "field",
           "judge": "field",
           "name": "field",
           "normalize": "field",
+          "verify": "field",
           "weights": "field"
         }
       },

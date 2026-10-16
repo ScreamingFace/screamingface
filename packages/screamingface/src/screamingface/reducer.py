@@ -14,6 +14,7 @@ from screamingface._immutable_json import freeze_mapping, thaw_mapping
 from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal
 
 if TYPE_CHECKING:
+    from screamingface.gate import Gate
     from screamingface.judge import Judge
 
 type _ReducerKind = Literal["answer", "selection", "projection"]
@@ -85,6 +86,8 @@ class _ReducerPlan:
     # The signal a by_signal reduce step reads (Pick by signal; 10S adds Rank and Filter). A
     # weighted vote reads its signal through ``weights`` instead; see ``_read_signal``.
     reads: Signal | None = None
+    # E4b part 5 (P1): the vote's gate; combine_spec_text writes its _spec() as "gate".
+    gate: Gate | None = None
 
 
 _MAX_PATH_CHARS = 256
@@ -388,6 +391,26 @@ def _check_judge_weights(weights: object, judge: object, label: str) -> None:
     )
 
 
+def _vote_gate(gate: object) -> Gate | None:
+    """``gate`` when it is None or an sf.Gate, else TypeError (GA-E3)."""
+
+    if gate is None:
+        return None
+    # WHY lazy: gate.py imports judge.py, which imports this module (cycle)
+    from screamingface.gate import Gate
+
+    if not isinstance(gate, Gate):
+        raise TypeError("Vote gate must be an sf.Gate")
+    return gate
+
+
+def _check_verify(verify: object) -> None:
+    """The reserved verifier slot (ans:Q4, P15): only None now; a later part adds the check."""
+
+    if verify is not None:
+        raise ValueError("sf.Vote verify= is reserved for a later part; pass None or leave it out")
+
+
 def _vote_plan(
     extract: _Step | None,
     normalize: _Step | None,
@@ -395,6 +418,7 @@ def _vote_plan(
     *,
     benchmark_rule: bool,
     judge: Judge | None = None,
+    gate: Gate | None = None,
 ) -> _ReducerPlan:
     """The one plan behind sf.Vote and sf.Reduce('plurality'|'weighted') (BK-1, BK#4)."""
 
@@ -405,13 +429,16 @@ def _vote_plan(
         extract=extract,
         normalize=normalize,
     )
+    calls = () if judge is None else (judge._signal_call(),)
+    fallback = None if gate is None else gate._signal_call()
     return _ReducerPlan(
         "vote",
         "answer",
         steps,
         weights,
         benchmark_rule=benchmark_rule,
-        signal_calls=() if judge is None else (judge._signal_call(),),
+        signal_calls=calls if fallback is None else (*calls, fallback),
+        gate=gate,
     )
 
 
@@ -452,6 +479,27 @@ def _recovered_member_weights(weights: object, members: object) -> tuple[float, 
     return tuple(values)
 
 
+_GATE_KEYS: frozenset[str] = frozenset({"cmp", "observe", "otherwise", "threshold"})
+
+
+def _recovered_gate(spec: Mapping[str, object]) -> Gate | None:
+    """The gate of a decoded vote spec, else the vote's "cannot rebuild" error (C7).
+
+    This version rebuilds a gate with no fallback call (``otherwise: "abstain"``). A judge or
+    writer fallback comes with its own model call, which ``Vote._rebuild`` reads (unit 4).
+    """
+
+    if "gate" not in spec:
+        return None
+    raw = spec["gate"]
+    if not isinstance(raw, Mapping) or set(raw) != _GATE_KEYS or raw["otherwise"] != "abstain":
+        raise _cannot_rebuild("vote")
+    # WHY lazy: see _vote_gate
+    from screamingface.gate import Gate
+
+    return _decoded("vote", Gate, raw["observe"], raw["cmp"], raw["threshold"])
+
+
 def _as_python(value: object) -> str:
     python = getattr(value, "_python", None)
     return repr(value) if python is None else python()
@@ -468,6 +516,10 @@ class Vote(Reducer):
     ``judge=sf.Judge(..., returns='scores')`` goes with ``weights=sf.signal('score:judge')`` and
     never alone: the judge scores each member in one call, and each answer weighs the scores of its
     holders. A half pair raises ``ValueError`` when the vote is built.
+
+    ``gate=sf.Gate(...)`` keeps the majority only when one recorded number passes a threshold;
+    else the gate's fallback answers (see ``sf.Gate``). ``verify=`` is reserved for a later
+    verifier check and takes only None.
     """
 
     name: str
@@ -475,6 +527,8 @@ class Vote(Reducer):
     normalize: str | None
     weights: tuple[float, ...] | Signal | None
     judge: Judge | None
+    gate: Gate | None
+    verify: None
 
     def __init__(
         self,
@@ -483,6 +537,8 @@ class Vote(Reducer):
         normalize: str | None = _DEFAULT_NORMALIZE,
         weights: Sequence[float] | Signal | None = None,
         judge: Judge | None = None,
+        gate: Gate | None = None,
+        verify: None = None,
     ) -> None:
         _Step(extract)  # TypeError for a non-str or blank name
         object.__setattr__(self, "name", "vote")
@@ -493,6 +549,9 @@ class Vote(Reducer):
         )
         _check_judge_weights(self.weights, judge, "Vote")
         object.__setattr__(self, "judge", judge)
+        object.__setattr__(self, "gate", _vote_gate(gate))
+        _check_verify(verify)
+        object.__setattr__(self, "verify", None)
 
     @property
     def _is_benchmark(self) -> bool:
@@ -506,6 +565,7 @@ class Vote(Reducer):
             self.weights,
             benchmark_rule=benchmark,
             judge=self.judge,
+            gate=self.gate,
         )
 
     def _check_members(self, count: int) -> None:
@@ -540,7 +600,13 @@ class Vote(Reducer):
         if extract is None or pair != expected:
             raise _cannot_rebuild("vote")
         return _decoded(
-            "vote", cls, extract=extract, normalize=ops["normalize"], weights=weights, judge=judge
+            "vote",
+            cls,
+            extract=extract,
+            normalize=ops["normalize"],
+            weights=weights,
+            judge=judge,
+            gate=_recovered_gate(spec),
         )
 
     def __repr__(self) -> str:
@@ -552,9 +618,12 @@ class Vote(Reducer):
     def _render(self, head: str, show: Callable[[object], str]) -> str:
         weights = "" if self.weights is None else f", weights={show(self.weights)}"
         judge = "" if self.judge is None else f", judge={show(self.judge)}"
+        gate = "" if self.gate is None else f", gate={show(self.gate)}"
         if self._is_benchmark:
-            return f"{head}(extract={self.extract!r}{weights}{judge})"
-        return f"{head}(extract={self.extract!r}, normalize={self.normalize!r}{weights}{judge})"
+            return f"{head}(extract={self.extract!r}{weights}{judge}{gate})"
+        return (
+            f"{head}(extract={self.extract!r}, normalize={self.normalize!r}{weights}{judge}{gate})"
+        )
 
     __hash__: ClassVar[Any] = None
 

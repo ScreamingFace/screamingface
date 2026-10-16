@@ -76,6 +76,8 @@ def combine_spec_text(
     }
     if signals:
         spec["signals"] = {name: source._spec() for name, source in signals.items()}
+    if plan.gate is not None:
+        spec["gate"] = plan.gate._spec()
     text = canonical_json(spec)
     size = len(text.encode("utf-8"))
     if size > _MAX_SPEC_BYTES:

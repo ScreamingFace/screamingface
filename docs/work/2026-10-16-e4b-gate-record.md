@@ -604,13 +604,53 @@ verbalized) run offline in the Engine world. The judge and writer fallback calls
   and `_observe` there. Commit A follows §2.2. The owner or the orchestrator decides the home
   before commit B.
 
-### Outcome (fill at the end, before commit B)
+### Outcome
 
-- **Status:** in_progress (commit A: RED tests and stubs)
-- **Actual files:**
-- **Commits:** A = , B =
-- **U2 (unit 2 tip):**
-- **RED log:**
-- **Gates:**
-- **Flakes:**
+- **Status:** Done. Commit B is built and gated. The three stacks pass every gate except the
+  append-only check. That check lists only files that units 1 to 3 changed on purpose (the
+  pinned files). Each stack is green with `--skip-append-only`.
+- **Actual files:** Commit B changes 9 files. The source files are `S/gate.py` (the full module
+  of spec §2.1), `S/reducer.py` (§2.4), `S/fusion.py` (§2.5) and `S/_evaluation/combine_spec.py`
+  (§2.6). The data files are the two fixtures `ET/data/combine_contract/gate_abstain_vote_candidate.url4`
+  and `ET/data/combine_contract/gate_verbalized_vote_candidate.url4` (written by the SDK, spec §9),
+  and the PINNED `ST/public_surface_snapshot.json`. The test file `ST/test_gate_api.py` gets one
+  assert edit (see Deviations). The ledger is the 9th file. No Engine code changed. No file under
+  `.claude/test-change-approvals/` was touched.
+- **Commits:** A = `70a483af6` (RED tests and stubs). B = the commit that adds this text (its sha is
+  in `git log`). C = none (spec §11).
+- **U2 (unit 2 tip):** `d88bec796`. `git diff d88bec796 --stat` on the two test folders lists only
+  the new unit 3 test files, the new fixtures (untracked until commit B) and the PINNED snapshot.
+- **RED log:** Before the code, the RED run gave `13 passed, 2 failed` for `tests/test_gate_api.py`
+  and `tests/test_gate_contract_fixtures.py`. The 2 failures were the missing fixture files
+  (`AssertionError`), as the spec expects. The snapshot was regenerated after the code.
+- **Gates:** Focused runs after commit B's code. SDK: `test_gate_api.py`, `test_gate_contract_fixtures.py`,
+  `test_public_surface.py`: 23 passed. The related SDK set of spec §9: 259 passed. Engine: the four
+  gate and verbalized run tests: 55 passed.
+  - `screamingface-engine`, base `4e622af75`: red only on the append-only check. It lists
+    `tests/unit/data/combine_contract/evidence_cases.json`,
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`,
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`,
+    `tests/unit/test_combine_evidence_words.py` and `tests/unit/test_combine_pick_output.py`. All five
+    are units 1 and 2 pinned edits. With `--skip-append-only`: ALL GATES GREEN (ruff check, ruff
+    format, pyright, layering, pytest with coverage).
+  - `screamingface`, base `4e622af75`: red only on the append-only check. It lists
+    `tests/data/schemas/screamingface.answer.v1.json`, `tests/public_surface_snapshot.json` (the PINNED
+    edit of this unit), `tests/test_evidence_words.py`, `tests/test_frozen_record_fields.py` and
+    `tests/test_pick_output.py`. The last four are units 1 and 2 pinned edits. With
+    `--skip-append-only`: ALL GATES GREEN (ruff check, ruff format, pyright, pytest with coverage 95,
+    notebooks, build, distribution check).
+  - `repo`, base `4e622af75`: ALL GATES GREEN, the append-only check included.
+- **Flakes:** None seen. The OME-1619 tests ran in the stacks that reached pytest, and they passed.
 - **Deviations (build):**
+  - D-9 (test fix, pyright): `ST/test_gate_api.py` line 197 read `assert "signals" not in context`.
+    `RelExpr.context` has type `str | None`, so pyright failed the gate (`reportOperatorIssue`). The
+    edit is `assert context is not None and "signals" not in context`. The previous assert already
+    shows that the context is a string, so the meaning is the same. This is the only edit to a test
+    that commit `70a483af6` added. It is not a PINNED edit.
+  - D-8 (still open): the unit 2 review asked for one SDK home for `GateCmp`, `_GATE_CMPS` and
+    `_gate_observe`. This commit follows spec §2.1: `GateCmp` and `_observe` live in `S/gate.py`.
+    `S/combine_evidence.py` keeps its own `GateCmp`, `_GATE_CMPS` and `_gate_observe`. Two homes
+    exist. The owner or the orchestrator must still decide the single home.
+  - Format: `ruff format` wrapped two lines (in `S/gate.py` and `S/reducer.py`). No meaning changed.
+  - PINNED snapshot: the diff has exactly the three changes of spec §8 (`Gate` in `__all__`, `Gate`
+    in `exports`, and the `Vote.__init__` and members lines).
