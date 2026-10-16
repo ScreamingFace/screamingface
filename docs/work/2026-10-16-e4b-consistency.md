@@ -968,11 +968,14 @@ None.
 
 - **Status:** in_progress
 - **Unit 6 tip (base of the unit 7 append-only check):** 75c87c03f
-- **Commits:** A = — test(e4b): RED for E4b part 7 unit 7 docs; B = none; C = — docs(e4b): README
-  and CHANGELOG for consistency samples (part 7).
+- **Commits:** A = 8bc09d7f5 test(e4b): RED for E4b part 7 unit 7 docs; B = none; C = the docs commit
+  `docs(e4b): README and CHANGELOG for consistency samples (part 7)` (the hash is in the git log).
 - **RED record (commit A):** `uv run pytest tests/test_consistency_docs.py -q` in `packages/screamingface`: `4 failed, 1 passed`. DC#1 passed (CHAR). DC#2 failed at `between.count(_CONSISTENCY) == 1` (`0 == 1`). DC#3 failed with `README.md has no '### Consistency samples' section`. DC#4 failed on `**Consistency.**`. DC#5 failed at `len(_part_7_bullets()) == 1` (`0 == 1`). The three code asserts of DC#2 passed (`sf.Consistency`, `CombineSampleCount`, temperature 1.0). Lint of the new file: `ruff format --check`, `ruff check` and `pyright` clean.
-- **Gates:**
-- **Deviations:**
+- **Gates:** focused set (§9 step 4, 13 files): `148 passed`. Diff checks: README `68 0`,
+  CHANGELOG `2 0`, 37 lines over 100 bytes, no added line with trailing whitespace. The gate
+  runs (`screamingface` and `repo`, §9 step 5) are recorded in the next commit.
+- **Deviations:** none beyond the planned deviations above. The R1, R2 and B1 texts were copied
+  from the spec by script, not retyped.
 - **Rebase note for part 6 (contracts C8):** part 6's docs test pins `_headings_between(_FUSION,
   _INSTALL) == [_FUSION, _SUM]` and its bullet at index 3; when the two parts stack, the second
   rebase must turn those into order checks (this unit's tests already accept both orders).
