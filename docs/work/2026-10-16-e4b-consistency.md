@@ -764,3 +764,86 @@ None. The test file is new.
   - MINOR, D-U5-3 (the RED file edit). No action in this unit. The owner must approve it.
 - **Flakes:** none seen in this round. No test was rerun.
 - **Pinned edits:** none in this round.
+
+## Unit 6: show consistency in the report (`consistency-display`)
+
+### Intent
+
+PRD `consistency-display`, rows CD#1–7 (ans:Q4 "the count of failed samples is recorded"; P15;
+part 4 surfaces and number format). The Case pane Combine section of a step that declares
+`sf.Consistency` gets one step chip after the mean chip:
+`samples · {name} · {n} per member · failed {F} of {T}`. In the column of the consistency name,
+each member cell shows the value, then ` {f} failed` (class `sf-cmb__nn`) when the member has
+failed samples; a missing value is a dash whose reason is the member reason (fail or excluded),
+else `every sample failed`, else `no answer to compare`. The run summary of the step gets one line
+after the gate line: `samples · {name} · failed {F} of {T}` over the Cases with evidence. The
+export already holds `operations[].combine.consistency`; no export, trace or schema change. A step
+without consistency keeps its bytes. The sample operations stay as rows with no member (N8, D9
+deferred).
+
+Unit base: `f2fddb97170fe19d4170feadf775d9a869a9495c` (the unit 5 tip).
+
+### Planned changes
+
+- `S/_ui/combine_view.py`: constants `_EVERY_SAMPLE_FAILED`, `_NO_ANSWER_TO_COMPARE`;
+  `_SampleFacts`, `_sample_facts`, `_samples_chip` (after `_reads_chip`); one `_chips` item after
+  the mean chip; `_member_row` calls `_signal_cell`; `_signal_cell`, `_sample_record`,
+  `_consistency_reason` (after `_member_row`); `_StepSummary` fields `sample_name`,
+  `samples_failed`, `samples_total` (after `values`), `add` calls `_add_samples`; `_samples_line`
+  (after `_gate_line`); `_summary_html` writes `heading + gate line + samples line + table`. Each
+  edit keeps one unchanged line between it and a part 6 edit of the same file (contracts C8).
+- New test file `ST/test_consistency_display.py` (CD#1–7). It reads
+  `COMBINE_CONTRACT / "consistency_evidence_cases.json"` under `requires_engine_app` and builds
+  each Case by hand; it never uses `_answer_fixtures.fixture_case`.
+
+### Pinned edits
+
+None.
+
+### Test plan
+
+- 7 PRD rows (8 test functions) in the PRD §7 order. CHAR: CD#1 (the fixed list L37: no sample
+  fact), CD#6 (the export), CD#7 (the trace field sets). RED: CD#2–CD#5.
+- No stub: the tests import no new name. Each RED row fails on an assertion.
+- Every chip, cell and line oracle is hand-written from consistency-display §3 and the fixture V
+  and W tables of consistency-value §3.
+
+### Acceptance
+
+- V shows `samples · cons · 4 per member · failed 6 of 12` as the last chip; W shows
+  `... 3 per member · failed 0 of 9` and no note; no_votes shows the V chip.
+- The cells of V, no_votes and the CD-D4 copy have the exact values, notes and reasons of
+  CD-2, CD-D3, CD-D4.
+- The run summary of two V Cases has `samples · cons · failed 12 of 24` directly after the
+  heading and the cons means 0.5, 1 and a dash; a Case without evidence is not counted.
+- The export holds the record between `signal` and `declared`; the trace keeps the v1 fields.
+- `screamingface --base <U5>` and `repo --base <U5>` all green; `--base 633fec3a1` red only on
+  the unit 1 and 3 pinned files.
+
+### Deviations
+
+- D-1 (kind, CD#6): CHAR, not RED. Units 1–2 already export the record (PRD row 6: "if green at
+  RED, the ledger records it as a CHAR row").
+- D-2 (code, CD-1): the chip reads `n` and `T` from the record sums (`succeeded + failed` of the
+  first record; the sum over the records), not from `declared[name]["n"]`. CS-I3 makes them equal
+  (the SDK `CombineEvidence` checks it), and a record holds typed ints while a declared entry
+  value is an `object`.
+- D-3 (test design, CD#2): the row also checks the no_votes chip (`failed 6 of 12`): a step with
+  no voter still shows its samples. One more assert, not a new row.
+- D-4 (test design, CD-D4): the "hand-built CombineEvidence" is the `consistency_vote` wire with
+  member_1 `signals.cons` and `consistency.cons[0].matched` set to None, decoded by the SDK
+  decoder (so CS-I5 is checked).
+- D-5 (test design, CD#1): no sha256 digests; the bytes of the existing sections are pinned by the
+  L32 digests of `ST/test_gate_display.py` (green with no edit), and part 6 changes some of these
+  bytes later, so a second digest list would only add rebase work.
+- D-6 (process, RED): the test file was written before this ledger section. The section was
+  appended before commit A. No test text or oracle changed by this order.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** in_progress (RED: commit A pending)
+- **Actual files:**
+- **Commits:**
+- **Gates:**
+- **RED log:**
+- **Deviations:**
