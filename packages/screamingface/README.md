@@ -41,6 +41,28 @@ with `--gateway-port`, `--scoreboard-port`, and `--engine-port`, or the correspo
 environment variables. `screamingface up` prints the resolved SDK environment variables; the SDK
 does not switch away from its hosted defaults automatically.
 
+The local gateway caches model responses by default (`AIGW_REQUEST_CACHE_ENABLED=false` before
+`screamingface up` turns it off). To start from the community cache instead of an empty one, pull
+it into the local gateway — from a notebook or a shell:
+
+```python
+import screamingface as sf
+
+sf.cache.pull_from_remote()  # everything
+sf.cache.pull_from_remote(["openrouter/anthropic/claude-opus-5.5"])  # only these models
+```
+
+```bash
+screamingface cache pull --model openrouter/anthropic/claude-opus-5.5
+```
+
+The pull signs in to the hosted Engine (a browser opens once per process), shows its progress, and
+keeps rows you already have. Models are named exactly as the hosted cache names them, and a run
+can only hit rows of the models its candidates and judge use, so a filtered pull loses no hits.
+If it stops, calling it again in the same process continues where it left off; a new process
+starts over, re-reading but not re-adding what is already local. One evaluation opts out of the
+cache with `evaluate(..., use_cache=False)`.
+
 For scripts and troubleshooting:
 
 ```bash

@@ -1,0 +1,219 @@
+"""The community-cache pull loop (epic OME-1311, spec decisions 8–11 and 14).
+
+Page after page from the hosted Engine into the local gateway, until the cursor runs out:
+
+- the first request of a call asks for `count=true`, the total the progress shows rows against;
+- every page header's revisions are checked before any of its rows is loaded;
+- rows are loaded in batches as the page streams in, so download and load overlap and no page is
+  held whole;
+- a transient failure (a dropped connection, 502/503/504, a cut page) is retried with backoff;
+- the cursor is kept in memory per `(url, models)`, so calling again in the same process after a
+  failure continues from the last completed page (spec decision 9: nothing is written to disk).
+
+INVARIANT: the cursor only ever advances past a page that ended with its trailer. Rows loaded from
+a page that did not are still valid entries, and loading them again adds nothing.
+"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import AbstractContextManager
+from dataclasses import dataclass
+from functools import partial
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Final, Protocol
+
+from screamingface._cache.pages import CutPage, MalformedPage, PageHeader, walk_page
+from screamingface._cache.progress import Reporter, Snapshot, reporter
+from screamingface._cache.remote import TransientPageError
+from screamingface.cache import CachePullError, PullResult
+from screamingface.errors import ScreamingFaceError
+
+if TYPE_CHECKING:
+    from screamingface._cache.local import LocalGateway
+
+# WHY 4 attempts with 2/4/8 s between them: enough to ride out a gateway restart or an edge blip
+# (~14 s) without turning a genuinely unavailable Engine into a minute of silence.
+_ATTEMPTS: Final = 4
+_BACKOFF_S: Final = (2.0, 4.0, 8.0)
+
+
+class PageSource(Protocol):
+    @property
+    def origin(self) -> str: ...
+
+    def open(
+        self, *, after: str | None, count: bool
+    ) -> AbstractContextManager[tuple[Iterator[str], Callable[[], int]]]: ...
+
+
+class Destination(Protocol):
+    def prepare(self) -> None: ...
+
+    def check(self, remote: Any, result: PullResult) -> None: ...
+
+    def load(self, rows: Sequence[Any], result: PullResult) -> int: ...
+
+
+@dataclass
+class _Cursor:
+    """One pull's progress, kept for a repeat call in the same process."""
+
+    after: str | None = None
+    rows_read: int = 0
+    rows_added: int = 0
+    pages: int = 0
+
+
+# INVARIANT (spec decision 9): process memory only. A finished pull's entry is removed, so the
+# next call starts over — a v1 pull always walks from the start.
+_CURSORS: dict[tuple[str, tuple[str, ...]], _Cursor] = {}
+
+
+def pull_into(
+    models: tuple[str, ...], *, url: str | None, data_dir: Path, progress: bool | None
+) -> PullResult:
+    """Pull from the hosted Engine at `url` (production when None) into `data_dir`'s gateway."""
+    from screamingface._cache.local import LocalGateway, gateway_database
+    from screamingface._cache.remote import HostedPages
+    from screamingface.client import DEFAULT_ENGINE_URL, Client
+
+    empty = PullResult(rows_read=0, rows_added=0, pages=0, resumed=False, complete=False)
+    destination: LocalGateway = LocalGateway(gateway_database(data_dir), empty=empty)
+    with Client(engine_url=url or DEFAULT_ENGINE_URL) as client:
+        source = HostedPages(client._http, models)  # noqa: SLF001 — the Access-signed session
+        return run_pull(source, destination, models=models, report=reporter(progress))
+
+
+def run_pull(
+    source: PageSource,
+    destination: Destination,
+    *,
+    models: tuple[str, ...],
+    report: Reporter,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> PullResult:
+    loop = _Loop(source, destination, (source.origin, models), report, clock=clock)
+    report.preparing(source.origin)
+    try:
+        destination.prepare()
+        return loop.walk(sleep)
+    except CachePullError as error:
+        report.stopped(loop.snapshot(), error.message)
+        raise
+    except ScreamingFaceError as error:
+        report.stopped(loop.snapshot(), error.message)
+        raise CachePullError(
+            error.message, code=error.code, hint=error.hint, result=loop.result(complete=False)
+        ) from error
+    except KeyboardInterrupt:
+        report.stopped(loop.snapshot(), "interrupted")
+        raise
+
+
+class _Loop:
+    """One call's walk: the cursor it continues, its counts, and the progress display."""
+
+    def __init__(
+        self,
+        source: PageSource,
+        destination: Destination,
+        key: tuple[str, tuple[str, ...]],
+        report: Reporter,
+        *,
+        clock: Callable[[], float],
+    ) -> None:
+        self._source = source
+        self._destination = destination
+        self._key = key
+        self._resumed = key in _CURSORS
+        self._cursor = _CURSORS.setdefault(key, _Cursor())
+        self._report = report
+        self._clock = clock
+        self._started = clock()
+        self._total: int | None = None
+        self._bytes_before = 0
+        self._bytes: Callable[[], int] = lambda: 0
+
+    def walk(self, sleep: Callable[[float], None]) -> PullResult:
+        first = True
+        while True:
+            after = _with_retries(partial(self.page, count=first), self, sleep)
+            first = False
+            self._cursor.after, self._cursor.pages = after, self._cursor.pages + 1
+            if after is None:
+                del _CURSORS[self._key]
+                result = self.result(complete=True)
+                self._report.finished(self.snapshot(), result)
+                return result
+
+    def page(self, *, count: bool) -> str | None:
+        read = [0]
+
+        def header(value: PageHeader) -> None:
+            self._destination.check(value.revisions, self.result(complete=False))
+            if value.remaining is not None:
+                self._total = self._cursor.rows_read + value.remaining
+
+        def rows(batch: list[Any]) -> None:
+            self._cursor.rows_added += self._destination.load(batch, self.result(complete=False))
+            read[0] += len(batch)
+            self._report.update(self.snapshot(extra_rows=read[0]))
+
+        with self._source.open(after=self._cursor.after, count=count) as (lines, received):
+            self._bytes = received
+            try:
+                after = walk_page(lines, on_header=header, on_rows=rows)
+            finally:
+                self._bytes_before += received()
+                self._bytes = lambda: 0
+        self._cursor.rows_read += read[0]
+        return after
+
+    def result(self, *, complete: bool) -> PullResult:
+        return PullResult(
+            rows_read=self._cursor.rows_read,
+            rows_added=self._cursor.rows_added,
+            pages=self._cursor.pages,
+            resumed=self._resumed,
+            complete=complete,
+        )
+
+    def snapshot(self, *, extra_rows: int = 0) -> Snapshot:
+        return Snapshot(
+            origin=self._source.origin,
+            rows_read=self._cursor.rows_read + extra_rows,
+            rows_added=self._cursor.rows_added,
+            total=self._total,
+            bytes_received=self._bytes_before + self._bytes(),
+            elapsed_s=self._clock() - self._started,
+        )
+
+
+def _with_retries(
+    read: Callable[[], str | None], loop: _Loop, sleep: Callable[[float], None]
+) -> str | None:
+    for attempt in range(_ATTEMPTS):
+        try:
+            return read()
+        except (TransientPageError, CutPage) as exc:
+            if attempt == _ATTEMPTS - 1:
+                raise CachePullError(
+                    f"The hosted Engine stopped answering: {exc}",
+                    code="community_cache_unavailable",
+                    hint="Call pull_from_remote() again to continue from the last loaded page.",
+                    result=loop.result(complete=False),
+                ) from exc
+            sleep(_BACKOFF_S[attempt])
+        except MalformedPage as exc:
+            raise CachePullError(
+                f"The hosted Engine sent a page this client cannot read: {exc}",
+                code="malformed_page",
+                result=loop.result(complete=False),
+            ) from exc
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+__all__ = ["pull_into", "run_pull"]

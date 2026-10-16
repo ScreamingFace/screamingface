@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-16
-finished:
+finished: 2026-10-16
 ---
 
 # community-cache-sdk — `sf.cache.pull_from_remote` and `use_cache=` (epic OME-1311, PR 3/4)
@@ -76,7 +76,33 @@ settled item by item with the owner on 2026-10-16.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** `screamingface/cache.py` (`pull_from_remote`, `PullResult`, `CachePullError`);
+  `screamingface/_cache/{pages,remote,local,pull,progress}.py`; `use_cache` through
+  `_evaluation/model.py` (Candidate field + `_without_cache`), `_evaluation/runner.py`,
+  `_evaluation/url4.py`, `_engine/transport.py` (`_cache_headers`), `client.py`,
+  `_default_client.py`; `_runtime/bootstrap.py` (cache on by default); `_runtime/cli.py`
+  (`cache pull`); `__init__.py`; `README.md`; `CHANGELOG.md`. Tests: `test_use_cache.py`,
+  `test_cache_{pages,remote,local,pull,progress,public,cli}.py`. Spec decisions 9 and 14, out
+  of scope, and the plan (PR 3, new PR 4) updated to the design settled with the owner.
+- **Commits:** `docs: settle the SDK surface for the community-cache pull …`;
+  `feat(screamingface): sf.cache.pull_from_remote, use_cache=, and the local cache on by default`.
+- **Gates:** `run_gates.py screamingface` green except append-only (run with
+  `--skip-append-only` until the approval manifest exists): ruff, format, pyright, pytest with
+  coverage ≥ 95%, notebooks, build, distribution. New tests: 123 passed. The local side was also
+  checked against the real gateway (runtime extra installed temporarily): the plugins loaded
+  give `openrouter_adapter` beside the core revisions, and a reloaded row adds nothing.
 - **Deviations:**
+  - Prior tests changed, owner-approved (2026-10-16): the two local-defaults tests in
+    `test_runtime_cli.py` gain `AIGW_REQUEST_CACHE_ENABLED`; `test_public_surface.py` pins
+    `screamingface.cache`; `public_surface_snapshot.json` regenerated (+`sf.cache`,
+    +`use_cache` on three `evaluate` signatures). `test_parser_exposes_public_commands` is NOT
+    changed (it parses bare commands; `cache` needs a subcommand) — `cache pull` is covered in
+    `test_cache_cli.py`.
+  - Rows load in 500-row batches as a page streams in, one transaction per batch, rather than
+    one transaction per page (spec decision 11): it bounds client memory on a ~235 MB page and
+    overlaps download with load without threads. The cursor still advances only past a page
+    that ended with its trailer, and loading is idempotent, so the guarantees are unchanged.
+  - The runtime-extra check reuses the runtime's module probe but not `require_runtime_extra()`,
+    which also writes the gateway's env defaults into `os.environ` — wrong for a notebook process.
+  - `main` in `_runtime/cli.py` gains `PLR0915` beside its existing `C901, PLR0912` noqa (it was
+    at the statement limit).

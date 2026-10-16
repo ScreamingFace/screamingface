@@ -223,6 +223,7 @@ class Client:
         progress: bool | None = None,
         answer_seed: int | None = None,
         capture: bool = True,
+        use_cache: bool = True,
     ) -> Report: ...
 
     @overload
@@ -236,6 +237,7 @@ class Client:
         progress: bool | None = None,
         answer_seed: int | None = None,
         capture: bool = True,
+        use_cache: bool = True,
     ) -> Report: ...
 
     def evaluate(
@@ -248,6 +250,7 @@ class Client:
         progress: bool | None = None,
         answer_seed: int | None = None,
         capture: bool = True,
+        use_cache: bool = True,
     ) -> Report:
         """Evaluate Recipes, or replay one complete evaluation URL4 unchanged.
 
@@ -255,6 +258,10 @@ class Client:
         in a frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
         `capture=False` turns it off. An Engine that did not capture a run is reported with an
         `EvaluationWarning`.
+
+        `use_cache` is on by default: every model call may be answered from the request cache.
+        `use_cache=False` opts this evaluation out (the calls are made fresh, and the report shows
+        them as cache `bypass` / `opted_out`).
         """
 
         from screamingface._evaluation.runner import evaluate_sync
@@ -264,6 +271,7 @@ class Client:
         # FEATURE (OME-1193): validate the declared sitting at the door — a bad seed must
         # fail before any token is minted or run scheduled.
         selected_seed = _answer_seed_value(answer_seed)
+        _use_cache_value(use_cache)
         if isinstance(candidates, str):
             _raw_url4_options(benchmark, limit)
             return evaluate_url4_sync(
@@ -273,6 +281,7 @@ class Client:
                 progress,
                 answer_seed=selected_seed,
                 capture=capture,
+                use_cache=use_cache,
                 load_operators=self._operator_catalog.load,
             )
         if benchmark is None:
@@ -289,6 +298,7 @@ class Client:
             progress,
             answer_seed=selected_seed,
             capture=capture,
+            use_cache=use_cache,
             load_operators=self._operator_catalog.load,
         )
 
@@ -598,6 +608,7 @@ class AsyncClient:
         progress: bool | None = None,
         answer_seed: int | None = None,
         capture: bool = True,
+        use_cache: bool = True,
     ) -> Report: ...
 
     @overload
@@ -611,6 +622,7 @@ class AsyncClient:
         progress: bool | None = None,
         answer_seed: int | None = None,
         capture: bool = True,
+        use_cache: bool = True,
     ) -> Report: ...
 
     async def evaluate(
@@ -623,6 +635,7 @@ class AsyncClient:
         progress: bool | None = None,
         answer_seed: int | None = None,
         capture: bool = True,
+        use_cache: bool = True,
     ) -> Report:
         """Asynchronously evaluate Recipes, or replay one complete evaluation URL4.
 
@@ -630,6 +643,10 @@ class AsyncClient:
         in a frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
         `capture=False` turns it off. An Engine that did not capture a run is reported with an
         `EvaluationWarning`.
+
+        `use_cache` is on by default: every model call may be answered from the request cache.
+        `use_cache=False` opts this evaluation out (the calls are made fresh, and the report shows
+        them as cache `bypass` / `opted_out`).
         """
 
         from screamingface._evaluation.runner import evaluate_async
@@ -638,6 +655,7 @@ class AsyncClient:
         self._require_open()
         # FEATURE (OME-1193): see the sync twin — validate at the door.
         selected_seed = _answer_seed_value(answer_seed)
+        _use_cache_value(use_cache)
         if isinstance(candidates, str):
             _raw_url4_options(benchmark, limit)
             return await evaluate_url4_async(
@@ -647,6 +665,7 @@ class AsyncClient:
                 progress,
                 answer_seed=selected_seed,
                 capture=capture,
+                use_cache=use_cache,
                 load_operators=self._operator_catalog.load,
             )
         if benchmark is None:
@@ -663,6 +682,7 @@ class AsyncClient:
             progress,
             answer_seed=selected_seed,
             capture=capture,
+            use_cache=use_cache,
             load_operators=self._operator_catalog.load,
         )
 
@@ -765,6 +785,12 @@ class AsyncClient:
             headers=headers,
             extensions={_REPLAY_SAFE: replay_safe},
         )
+
+
+def _use_cache_value(use_cache: object) -> None:
+    """Refuse a non-bool `use_cache` at the door, before any token is minted (OME-1311)."""
+    if not isinstance(use_cache, bool):
+        raise TypeError("use_cache must be True or False")
 
 
 def _raw_url4_options(benchmark: str | None, limit: int | None) -> None:
