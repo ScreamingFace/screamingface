@@ -279,7 +279,9 @@ def test_rules_and_gates_read_a_sum_by_name(reader: Callable[[], Reducer]) -> No
     fusion = _recipe_r(synthesizer=reader())
     assert fusion.signals is not None
     assert list(fusion.signals) == ["risk", "sev_a", "sev_b"]
-    spec = spec_of(_compiled(fusion))
+    # WHY the Pipeline: a Rank or a Filter ends a candidate with a selection, and the compile
+    # refuses that unless another stage follows (test_rank_by_signal.py _wrapped precedent)
+    spec = spec_of(_compiled(sf.Pipeline([fusion, "provider/next"])))
     assert spec["signals"] == _SPEC_SIGNALS
     # the rule or the gate names the sum outside the signals map
     assert "risk" in json.dumps({key: value for key, value in spec.items() if key != "signals"})
