@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # bug leaf under OME-1529, filed at PR-open
+ticket: OME-1641
 stack: aigateway
 status: in_progress
 started: 2026-10-16
