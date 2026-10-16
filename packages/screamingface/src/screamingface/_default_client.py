@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from threading import Lock
 from typing import TYPE_CHECKING, Literal, overload
+from urllib.parse import urlsplit
 
 from screamingface._client_connections import _engine_origin
 from screamingface.client import DEFAULT_ENGINE_URL, DEFAULT_SCOREBOARD_URL, Client
@@ -25,6 +26,23 @@ _client: Client | None = None
 _lock = Lock()
 
 
+_SCHEME_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _comparable_origin(engine_url: str) -> tuple[str, str, int]:
+    """``(scheme, host, port)`` of an Engine origin, spelling-normalized for equality.
+
+    WHY: `_engine_origin` keeps the caller's spelling, but scheme and host are
+    case-insensitive and a scheme's default port is the same origin —
+    `HTTPS://FUSION.SCREAMINGFACE.AI:443/` IS the hosted Engine.
+    """
+
+    parts = urlsplit(_engine_origin(engine_url))
+    scheme = parts.scheme.casefold()
+    port = parts.port if parts.port is not None else _SCHEME_DEFAULT_PORTS[scheme]
+    return scheme, (parts.hostname or "").casefold(), port
+
+
 def _paired_scoreboard(engine_url: str, scoreboard_url: str | None, *, hint: str) -> str:
     """The Scoreboard for ``engine_url``: the explicit one, else the hosted default for the
     hosted Engine, else refuse.
@@ -36,9 +54,7 @@ def _paired_scoreboard(engine_url: str, scoreboard_url: str | None, *, hint: str
 
     if scoreboard_url is not None:
         return scoreboard_url
-    # WHY casefold: `_engine_origin` keeps the host's spelling, but an origin's scheme and
-    # host are case-insensitive — `HTTPS://FUSION.SCREAMINGFACE.AI/` IS the hosted Engine.
-    if _engine_origin(engine_url).casefold() == _engine_origin(DEFAULT_ENGINE_URL).casefold():
+    if _comparable_origin(engine_url) == _comparable_origin(DEFAULT_ENGINE_URL):
         return DEFAULT_SCOREBOARD_URL
     raise ValueError(
         f"engine_url {engine_url!r} is not the hosted Engine, so its Scoreboard must be "

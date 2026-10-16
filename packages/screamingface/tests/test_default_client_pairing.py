@@ -41,13 +41,35 @@ def test_a_failed_configure_keeps_the_previous_default_client_open(isolated: Non
 
 
 @pytest.mark.parametrize(
-    "spelling", [DEFAULT_ENGINE_URL, DEFAULT_ENGINE_URL + "/", DEFAULT_ENGINE_URL.upper()]
+    "spelling",
+    [
+        DEFAULT_ENGINE_URL,
+        DEFAULT_ENGINE_URL + "/",
+        DEFAULT_ENGINE_URL.upper(),
+        DEFAULT_ENGINE_URL + ":443",
+        DEFAULT_ENGINE_URL.upper() + ":443/",
+    ],
 )
 def test_the_default_engine_in_any_spelling_pairs_with_the_default_scoreboard(
     isolated: None, spelling: str
 ) -> None:
     client = sf.configure(engine_url=spelling)
     assert client.scoreboard_url == DEFAULT_SCOREBOARD_URL
+
+
+@pytest.mark.parametrize(
+    "engine_url",
+    [
+        "https://fusion.screamingface.ai:8443",
+        "http://fusion.screamingface.ai",
+        "http://fusion.screamingface.ai:443",
+    ],
+)
+def test_a_non_default_port_or_scheme_is_not_the_hosted_engine(
+    isolated: None, engine_url: str
+) -> None:
+    with pytest.raises(ValueError, match="scoreboard_url"):
+        sf.configure(engine_url=engine_url)
 
 
 def test_configure_with_both_urls_is_unchanged(isolated: None) -> None:
