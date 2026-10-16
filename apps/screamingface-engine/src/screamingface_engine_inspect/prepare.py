@@ -1418,6 +1418,121 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # is CC BY-SA 4.0 from the snapshot, named in the row's licence note (OME-1481).
         license="apache-2.0",
     ),
+    # aime26 — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.aime2026.aime2026:aime2026.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face math-ai/aime26
+    #     pin revision 79037aebdb6580008fb960d17cb21fd3099083e3
+    "aime26": TaskReplayCasesSpec(
+        task="inspect_evals.aime2026.aime2026:aime2026",
+        case_count=30,
+        case_digest="11ebfb3a18283c166b8da1b51f54e6151204a6c8fb02c47e4084ea0a89ccfdc2",
+        case_set_digest="1bb68c6a15389dcc2a15cb96b1ad7afd91e2f231c537342b87e224e2f70db295",
+        keep_sample_metadata=True,
+        source_pins={
+            "math-ai/aime26": "79037aebdb6580008fb960d17cb21fd3099083e3",
+        },
+        license="apache-2.0",
+    ),
+    # simpleqa — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.simpleqa.simpleqa:simpleqa.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://openaipublic.blob.core.windows.net/simple-evals/simple_qa_test_set.csv
+    #     pin sha256 feee3f7e7db3617e94e8fcf1977b756ec420ef8568f4e0fcbbe0e92e9d5fc032
+    "simpleqa": TaskReplayCasesSpec(
+        task="inspect_evals.simpleqa.simpleqa:simpleqa",
+        task_args={"scorer": "original"},
+        case_count=4326,
+        case_digest="a05718287923d85d1cbd1bee99df507a19571c7edaf10b490d701de868d1ffdf",
+        case_set_digest="d652851634954e43eb414e1389ad7653ac925de691c1d714a58fedf737665df8",
+        keep_sample_metadata=True,
+        # License: MIT, the openai/simple-evals LICENSE; the CSV ships with that repository.
+        license="mit",
+    ),
+    # simpleqa_verified — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.simpleqa.simpleqa:simpleqa_verified.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face codelion/SimpleQA-Verified
+    #     pin revision 5a913f57326d89935cbed0ac071494e7e624b876
+    "simpleqa_verified": TaskReplayCasesSpec(
+        task="inspect_evals.simpleqa.simpleqa:simpleqa_verified",
+        task_args={"scorer": "original"},
+        case_count=1000,
+        case_digest="244b7d2bebe405521eea531eef0263f4a9191d393878ab286c00476c741824d8",
+        case_set_digest="2c6443b2448bef6ff808b2a89d4056cc6a48c8aab29dfbda117391896b2da1d8",
+        keep_sample_metadata=True,
+        source_pins={
+            "codelion/SimpleQA-Verified": "5a913f57326d89935cbed0ac071494e7e624b876",
+        },
+        license="mit",
+    ),
+    # fortress_benign — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.fortress.fortress:fortress_benign.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face ScaleAI/fortress_public
+    #     pin revision 0c096becbc75bb12065c8059a53960c7f0d4d35c
+    "fortress_benign": TaskReplayCasesSpec(
+        task="inspect_evals.fortress.fortress:fortress_benign",
+        case_count=500,
+        case_digest="261f40fc5ea0cf03cfa4fb33410ccd91ed912d89e34032331d425e2d3bbed6fc",
+        case_set_digest="510afdc47760868416efe6638c94877fcf9c78e794d15135d8a4cbd26e766123",
+        keep_sample_metadata=True,
+        source_pins={
+            "ScaleAI/fortress_public": "0c096becbc75bb12065c8059a53960c7f0d4d35c",
+        },
+        license="cc-by-4.0",
+    ),
+    # strong_reject — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.strong_reject.strong_reject:strong_reject.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/alexandrasouly/strongreject/3432b2d696b428f242bd507df96d80f686571d5e/strongreject_dataset/strongreject_dataset.csv
+    #     pin commit 3432b2d696b428f242bd507df96d80f686571d5e
+    "strong_reject": TaskReplayCasesSpec(
+        task="inspect_evals.strong_reject.strong_reject:strong_reject",
+        case_count=313,
+        case_digest="ee4381029189ea167b7b3f6f3cdf99c723b5e9795f8c6b7a5c569318bab2c68f",
+        case_set_digest="a0778a2a59b3032445f3b969759eccd2718ca2ee705dd4caa297c50410722efe",
+        keep_sample_metadata=True,
+        # License: MIT, the alexandrasouly/strongreject LICENSE; the CSV is pinned from it.
+        license="mit",
+    ),
+    # uccb — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.uccb.uccb:uccb.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face CraneAILabs/UCCB
+    #     pin revision c08d96b5574d3c772b0ae7e61b0f278066f18134
+    "uccb": TaskReplayCasesSpec(
+        task="inspect_evals.uccb.uccb:uccb",
+        case_count=1039,
+        case_digest="0e16ae919456fe254c79c4419985dfe29b57a28ba4b0c74c3ebb29315b483fc8",
+        case_set_digest="57fb89a7d8457b82ad614bf5ee35f72d2fcd725c6d5138485e1e2a5516a583ac",
+        keep_sample_metadata=True,
+        source_pins={
+            "CraneAILabs/UCCB": "c08d96b5574d3c772b0ae7e61b0f278066f18134",
+        },
+        shuffle_seed=20260917,
+        # License: owner decision on OME-1602, 2026-10-14: CC-BY-NC-SA-4.0, the
+        #  CraneAILabs/UCCB card; non-commercial use only.
+        license="cc-by-nc-sa-4.0",
+    ),
+    # infinite_bench_math_find — imported by Task replay on 2026-10-16 from
+    #   screamingface_engine_inspect.local_tasks.infinite_bench.infinite_bench
+    #   :infinite_bench_math_find.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face xinrongzhang2022/InfiniteBench/default
+    #     pin revision 90f0394333616266d9fe85824ceaf505093cbaa5
+    "infinite_bench_math_find": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.infinite_bench.infinite_bench:infinite_bench_math_find",
+        case_count=350,
+        case_digest="f2705c26a2f89ce16de0018febc0cd71a7e073f8d98cfba22efd556d7e150bca",
+        case_set_digest="bcd5242e94f0148bd5c7e92b06fcac2924dc06b82aee587c2d49a6a5e14260ab",
+        source_pins={
+            "xinrongzhang2022/InfiniteBench": "90f0394333616266d9fe85824ceaf505093cbaa5",
+        },
+        # License: owner decision on OME-1602, 2026-10-14: apache-2.0, the card's licence line
+        #  (its malformed header hides it from the Hub).
+        license="apache-2.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

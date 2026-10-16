@@ -144,6 +144,16 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # graded by two of the eval's three scorers (the self-grading one dropped by name).
     "squad": "free_text",
     "math": "free_text",
+    # OME-1602: aime26 copies aime25; the rest are judged — the SimpleQA pair through the
+    # grader role, the refusal Benchmarks and UCCB by a named judge, and air_bench by a local
+    # Task's scorer. infinite_bench's local Task grades by inspect's exact match.
+    "aime26": "free_text",
+    "simpleqa": "judged",
+    "simpleqa_verified": "judged",
+    "fortress_benign": "judged",
+    "strong_reject": "judged",
+    "uccb": "judged",
+    "infinite_bench_math_find": "free_text",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -278,6 +288,8 @@ def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         "lab_bench_cloning_scenarios",
         "frontierscience",
         "onet_m6",
+        # OME-1602: UCCB shuffles with no seed; the import forces 20260917.
+        "uccb",
     }
 
 
