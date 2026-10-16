@@ -249,6 +249,11 @@ finding and the two places where the fix differs from the review text.
   The line is 373. The pinned edit is on line 373.
 - **E6 (unit 2, review fix).** The PRD rule GD-6 and the note in §4 name `math.fsum / count` as the
   mean. The exact sum of the members can pass the float range when each value is finite. `math.fsum`
-  then raises `OverflowError`, which is not a `CombineError`. The core takes `math.fsum` of the
-  quotients (each value divided by the count) in that case. The result for normal values does not
-  change, and the result does not depend on the member order.
+  then raises `OverflowError`, which is not a `CombineError`. In that case the core computes the
+  exact mean with `fractions.Fraction` and rounds it to a float. The mean of finite values is
+  always finite. (The first review fix took `math.fsum` of the quotients; that sum can still
+  overflow after rounding, for example three values of `sys.float_info.max`.) The result for
+  normal values does not change, and the result does not depend on the member order.
+- **E7 (unit 2, orchestrator fix).** A select step that builds the answer chooses no member. Then
+  `chosen:<n>` has no member to read. The observed number is None (missing), so the comparison is
+  false and the fallback answers (P10). Before this fix the read raised `IndexError`.

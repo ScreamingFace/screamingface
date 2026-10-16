@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 import operator
 from collections.abc import Callable, Mapping, Sequence
+from fractions import Fraction
 from types import MappingProxyType
 
 from screamingface_engine.combine.ports import (
@@ -44,15 +45,15 @@ def observed_number(
     """The number the gate compares (P11, P12).
 
     ``agreement``: the select step's agreement. ``chosen:<n>``: the chosen member's recorded value
-    of ``<n>``. ``mean:<n>``: ``math.fsum`` of the non-None values of ``<n>`` over ``members`` (any
-    status), divided by their count; None when no member has a value. Past the float range the
-    mean is ``math.fsum`` of the quotients (E6).
+    of ``<n>``; None when the step chose no member (it built the answer). ``mean:<n>``:
+    ``math.fsum`` of the non-None values of ``<n>`` over ``members`` (any status), divided by their
+    count; None when no member has a value. Past the float range the mean is exact (E6).
     """
     source, _, name = gate.observe.partition(":")
     if source == "agreement":
         return selection.agreement
     if source == "chosen":
-        return recorded[selection.chosen[0]][name]
+        return recorded[selection.chosen[0]][name] if selection.chosen else None
     values = [number for member in members if (number := recorded[member][name]) is not None]
     return _mean(values)
 
@@ -63,8 +64,10 @@ def _mean(values: Sequence[float]) -> float | None:
         return None
     try:
         return math.fsum(values) / len(values)
-    except OverflowError:  # the exact sum leaves the float range; each term does not (review fix)
-        return math.fsum(value / len(values) for value in values)
+    except OverflowError:
+        # WHY Fraction: the sum of finite values can leave the float range, but their mean cannot;
+        # the exact rational mean rounds to a finite float.
+        return float(sum(map(Fraction, values), Fraction(0)) / len(values))
 
 
 def passes(observed: float | None, cmp: GateCmp, threshold: float) -> bool:
