@@ -71,11 +71,17 @@ def in_band(observed: float | None, band: Sequence[float] | None) -> bool:
 
 # E/combine/endpoint.py, _gated: after `observed = observed_number(...)`, and BEFORE `passes`:
 #   if in_band(observed, gate.abstain_band):
-#       record = _gate_record(gate, observed, None, band=True)
+#       record = _gate_record(gate, observed, None, "band")
 #       return _abstain(spec, plan, combine_input, reduction, "in_band", recorded=recorded,
 #                       selection=selection, gate=record)
 #   (trace.agreement and trace.tie are set before this check, as part 5 erratum E2 says.)
-# _gate_record(gate, observed, passed, *, band=False): branch "band" when band is True; copies
+#   Outside the band: passed = passes(...), then
+#   record = _gate_record(gate, observed, passed, "majority" if passed else "fallback").
+# _gate_record(gate, observed, passed, branch: GateBranch | None): the caller gives the branch;
+#   the function no longer derives it from `passed`. _gated gives "band", "majority" or
+#   "fallback"; _not_run gives _gate_record(gate, None, None, None). WHY a branch argument and not
+#   a `band: bool` flag: a flag is valid only with passed=None, so a caller could build a record
+#   that the model refuses at run time. The function copies
 #   abstain_band = list(gate.abstain_band) when the spec has one, else None.
 
 # E/combine/evidence.py
@@ -108,9 +114,18 @@ A list that is not two numbers fails inside `GateSpec` and gives the existing qu
 5. GB-I3: `abstain_band` set, `branch` in (`majority`, `fallback`), `observed` a number →
    `observed < lo or observed > hi`, else `"a gate that compared observed a number outside its band"`.
 
+Rules 2, 3 and 5 go in a new module-level helper `_check_band_record(record: GateRecord) -> None`
+in E/combine/evidence.py. `_check` calls it after rule 1, and runs rule 4 only when
+`branch != "band"`. WHY a helper: part 5 erratum E3 says the gate checks are at the lint
+complexity limit (PLR0912, C901); three more rules inside `_check` would fail the lint gate.
+
 `CombineEvidence._check_gate` gets GB-I4 FIRST, before GR-I3 (message `"in_band goes with a gate
 that abstained inside its band, and only with it"`), and GR-I4 reads `gate.branch is not None`
-instead of `gate.passed is not None`.
+instead of `gate.passed is not None`. GB-I4 is a new small helper
+`_band_reason_holds(gate: GateRecord | None, result: ResultRecord) -> bool` (the twin of
+`_gate_reason_holds`, E/combine/evidence.py:168-174): `(result.reason == "in_band") == (gate is
+not None and gate.branch == "band")`. `_check_gate` calls it on its first line, then the
+existing GR-I3 check.
 
 **Delta (SDK).**
 
@@ -118,10 +133,14 @@ instead of `gate.passed is not None`.
 - `S/combine_evidence.py`: `GateBranch` gains `"band"`. `CombineGate` gets the last field
   `abstain_band: tuple[float, float] | None = None`; `__post_init__` checks it (two finite numbers,
   `lo <= hi`; a list is stored as a tuple of floats) and runs the same rules 3–5 with the prefix
-  `"Combine gate"` (for example `"Combine gate in its band made no comparison"`). `to_dict()`
-  writes `"abstain_band": [lo, hi]` after `"otherwise"`, only when set. `_check_gate` reads
-  `branch is not None` for GR-I4. `_gate_reason` gets the GB-I4 twin (the same message as the
-  Engine).
+  `"Combine gate"` (for example `"Combine gate in its band made no comparison"`). The band rules
+  go in a module-level helper `_check_band_gate(gate: CombineGate) -> None` that `__post_init__`
+  calls (the same lint reason as the Engine helper). `to_dict()` writes `"abstain_band": [lo, hi]`
+  after `"otherwise"`, only when set. `_check_gate` reads `branch is not None` for GR-I4.
+  `_gate_reason` checks GB-I4 FIRST (the same message as the Engine), then GR-I3. WHY this order:
+  `CombineEvidence.__init__` calls `_gate_reason` before `_check_gate` (part 5 erratum E3); with
+  GR-I3 first, a `band` gate with the reason `gate_not_met` (the second AB-E3 input) fails with
+  the GR-I3 message, and AB-E3 expects the `in_band` message.
 - `S/_evaluation/combine_evidence.py`: `_gate` accepts the exact key set `_GATE_KEYS` or
   `_GATE_KEYS | {"abstain_band"}`; the band value is a list of two numbers (not bool).
 
@@ -194,8 +213,8 @@ part 5 `_GATE_TEXTS`, ET/test_combine_evidence_contract_fixture.py:380). The tal
   `abstain_band is None`.
 - **AB-D6** (M×M) [existing E/benchmarks/operation_outputs.py:94-111] An operation whose evidence is
   the AB-2 evidence is final-abstained: `final_operation_abstained("$synthesis_1", [op]) is True`
-  (exemplar: the part 5 `gate_not_met` test of the same rule, if any; else a hand-built
-  `OperationOutput`).
+  (exemplar: `ET/test_combine_gate.py:540-557`, which builds the `OperationOutput` and asserts
+  `final_operation_abstained(expression, operations) is True` for `gate_not_met`).
 - **AB-D7** (M×M) [existing P20 of part 5] The combine log line of AB-2 ends with
   `outcome=abstain_in_band`.
 - **AB-D8** (M×M) [proposed] P12 The Engine `ABSTAIN_REASONS` is
@@ -223,8 +242,20 @@ None.
 ## 7. TDD plan
 
 New test files: `ET/test_combine_band.py` (rows 1–11), `ST/test_band_words.py` (rows 12–14).
-Row 16 appends one scenario builder to `ET/test_combine_evidence_contract_fixture.py` and one
-`_EXPECTED_NAMES |=` line to `ST/test_combine_evidence_contract.py` (append-only, not flagged).
+Row 16 inserts one scenario builder `_vote_gate_band` and the line
+`SCENARIOS["vote_gate_band"] = _vote_gate_band` into `ET/test_combine_evidence_contract_fixture.py`
+directly after the unit 1 `pick_sum_min` block, which is after line 418 (the part 5 gate block) and
+before `def canonical_evidence` (line 421 on base). Do NOT append it at the end of the file: the
+file ends with `if __name__ == "__main__": write_fixture()` (lines 491-492), so a line after it is
+not run when the file runs as a script, and `@pytest.mark.parametrize("name", sorted(SCENARIOS))`
+(line 442) reads `SCENARIOS` when the decorator runs, so a later scenario gets no byte test. Row 16
+also appends one `_EXPECTED_NAMES |=` line to `ST/test_combine_evidence_contract.py` after line 61
+(after the unit 1 line). The append-only check does not flag these two files: a new module-level
+statement between protected ranges is not inside a range.
+
+Units (plan §2): rows 1–3 and the spec v1 half of row 15 are unit 3 (band-spec); rows 4–14, the
+evidence v1 and answer.v1 half of row 15, and rows 16–18 are unit 4 (band-record). The SDK mirror
+stays in unit 4 with the contract case, because the SDK tests loop over every Engine case.
 
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
@@ -242,7 +273,7 @@ Row 16 appends one scenario builder to `ET/test_combine_evidence_contract_fixtur
 | 12 | `sdk_decodes_and_round_trips_a_band_record` (the AB-2 wire; `CombineGate.abstain_band == (0.6, 0.7)`; `to_dict() == wire`) | unit | AB-2 | H×M | `_gate`, `CombineGate` |
 | 13 | `sdk_refuses_bad_band_records` (AB-E2 and AB-E3 twins, an extra gate key, `"abstain_band": [0.6]`, `[true, 0.7]`) | unit | AB-E2, AB-E3 | M×M | `__post_init__`, `_gate_reason` |
 | 14 | `sdk_reason_words_equal_the_engine_enum_with_in_band` (AB-D8, 14 words) | unit | AB-D8 | H×M | `S/answer.py` |
-| 15 | PIN `schema_snapshots_hold_the_band` (spec v1: `GateSpec.abstain_band`, not required; evidence v1: `GateRecord.abstain_band`, not required, `branch` enum `["majority", "fallback", "band"]`, `in_band` last in the two reason enums; answer.v1 holds `in_band` in both lists). Regenerate the three snapshots, and make the pinned test edits of plan §6 unit 3 | unit | erd §7 | H×M | delete, `UPDATE_SCHEMA_SNAPSHOT=1`, plain run (test-plan §2) |
+| 15 | PIN, two test functions. Unit 3: `spec_schema_snapshot_holds_the_band` (spec v1: `GateSpec.abstain_band`, not required); regenerate the spec v1 snapshot. Unit 4: `evidence_and_answer_snapshots_hold_the_band` (evidence v1: `GateRecord.abstain_band`, not required, `branch` enum `["majority", "fallback", "band"]`, `in_band` last in the two reason enums; answer.v1 holds `in_band` in both lists); regenerate the evidence v1 and answer.v1 snapshots, and make the pinned test edits of plan §6 unit 4. Two functions, so unit 4 adds a test and does not edit the unit 3 test | unit | erd §7 | H×M | delete, `UPDATE_SCHEMA_SNAPSHOT=1`, plain run (test-plan §2) |
 | 16 | PIN `contract_case_vote_gate_band_is_byte_equal_on_both_sides` (new scenario `vote_gate_band` = AB-2). Regenerate `evidence_cases.json` (38 → 39; the 38 keep their bytes); `ST/test_frozen_record_fields.py:184` 38 → 39 | unit | AB-2 | H×M | `write_fixture` |
 | 17 | `the_majority_branch_record_with_a_band_is_the_part_5_record_plus_the_band` (AB-3 bytes against the `vote_gate_majority` case) | unit | AB-3, AB-D5 | H×M | key order |
 | 18 | PIN `public_surface_holds_the_combine_gate_band` (`ST/public_surface_snapshot.json`: `CombineGate` gains the field and the `__init__` keyword `abstain_band`) | unit | AB-2 | M×M | `UPDATE_SURFACE_SNAPSHOT=1`, then a plain run |

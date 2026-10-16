@@ -29,31 +29,40 @@ Ledger: [docs/work/2026-10-16-e4b-signal-sums.md](../work/2026-10-16-e4b-signal-
 | # | Unit | PRD rows | Main files | Stacks | Pinned files |
 |---|---|---|---|---|---|
 | 0 | docs (spec) | — | this plan, the spec, the ledger | repo | none |
-| 1 | sum-engine | SM#1–14 | `E/combine/spec.py` (`SumSource`, union, `_check_sum`), new `E/combine/signal_sum.py` (`sum_value`), `E/combine/endpoint.py` (`_Summed`, `_declared` branch, two-pass `_signal_values`); new `ET/test_combine_signal_sum.py`, `ET/test_combine_signal_sum_words.py`; appends to `ET/test_combine_evidence_contract_fixture.py` (`pick_sum_min`) and `ST/test_combine_evidence_contract.py` | screamingface-engine, screamingface, repo | `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`, `ET/data/combine_contract/evidence_cases.json`, `ST/test_frozen_record_fields.py` (:184, 37 → 38) |
+| 1 | sum-engine | SM#1–14 | `E/combine/spec.py` (`SumSource`, union, `_check_sum`), new `E/combine/signal_sum.py` (`sum_value`), `E/combine/endpoint.py` (`_Summed`, `_declared` branch, two-pass `_signal_values`); new `ET/test_combine_signal_sum.py`, `ET/test_combine_signal_sum_words.py`; the `pick_sum_min` block INSERTED into `ET/test_combine_evidence_contract_fixture.py` after line 418 and before `def canonical_evidence` (spec §8), one line appended to `ST/test_combine_evidence_contract.py` after line 61 | screamingface-engine, screamingface, repo | `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`, `ET/data/combine_contract/evidence_cases.json`, `ST/test_frozen_record_fields.py` (:184, 37 → 38) |
 | 2 | sum-api | SA#1–14 | `S/signal_sources.py` (`Sum`, `_SOURCES`, `__all__`), `S/fusion.py` (`_check_sums`, `_check_weight_source`, docstring), `S/__init__.py` (`Sum`); new `ST/test_signal_sum_api.py`, `ST/test_sum_contract_fixtures.py`, `ET/test_combine_sum_run.py`, `ET/data/combine_contract/sum_pick_candidate.url4` | screamingface-engine, screamingface, repo | `ST/public_surface_snapshot.json` |
-| 3 | band-record | AB#1–18 | `E/combine/ports.py` (`in_band`, `band`), `E/combine/spec.py` (`GateSpec.abstain_band`, `_check_band`), `E/combine/gate.py` (`in_band`), `E/combine/endpoint.py` (`_gated` band check, `_gate_record`, docstrings), `E/combine/evidence.py` (`GateRecord.abstain_band`, GR-I1', GR-I4', GB-I1–I4); `S/answer.py`, `S/combine_evidence.py` (`GateBranch`, `CombineGate.abstain_band`, checks), `S/_evaluation/combine_evidence.py` (`_gate`); new `ET/test_combine_band.py`, `ST/test_band_words.py`; appends to the two contract test files (`vote_gate_band`) | screamingface-engine, screamingface, repo | `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`, `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`, `ST/data/schemas/screamingface.answer.v1.json`, `ET/test_combine_gate_words.py` (:645, :761, :765), `ET/test_combine_pick_output.py` (:341-343, :352), `ET/test_combine_evidence_words.py` (:310-322), `ST/test_gate_words.py` (:524, :567, :582-589), `ST/test_evidence_words.py` (:373, :460-475), `ST/test_pick_output.py` (:250-265), `ET/data/combine_contract/evidence_cases.json`, `ST/test_frozen_record_fields.py` (:184, 38 → 39), `ST/public_surface_snapshot.json` |
-| 4 | band-api | BA#1–9 | `S/gate.py` (`abstain_band`, `_band`, `_spec`, `_render`), `S/reducer.py` (`_rebuilt_gate`); new `ST/test_band_api.py`; appends to `ST/test_sum_contract_fixtures.py` and `ET/test_combine_sum_run.py`; `ET/data/combine_contract/gate_band_vote_candidate.url4` | screamingface-engine, screamingface, repo | `ST/public_surface_snapshot.json` |
-| 5 | sum-band-display | SD#1–10 | `S/_ui/combine_view.py` (`_source_text`, `_signal_head`, `_gate_chip`, `_gate_verdict`, `_StepSummary.band`, `_add_gate`, `_gate_line`, `_mean_cell`); new `ST/test_sum_band_display.py` | screamingface, repo | none |
-| 6 | docs | DC#1–5 | `packages/screamingface/README.md` (`### Sum signals and the abstain band` after `### Fusion as a named recipe`; the `**Sums and the band.**` paragraph), `packages/screamingface/CHANGELOG.md` (bullet 3); new `ST/test_sum_band_docs.py` | screamingface, repo | none |
+| 3 | band-spec | AB#1–3, AB#15 (spec v1 half: `spec_schema_snapshot_holds_the_band`) | `E/combine/spec.py` (`GateSpec.abstain_band`, `_check_band`); new `ET/test_combine_band.py` | screamingface-engine, screamingface, repo | `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json` |
+| 4 | band-record | AB#4–14, AB#15 (evidence v1 and answer.v1 half: `evidence_and_answer_snapshots_hold_the_band`), AB#16–18 | `E/combine/ports.py` (`in_band`, `band`), `E/combine/gate.py` (`in_band`), `E/combine/endpoint.py` (`_gated` band check, `_gate_record(gate, observed, passed, branch)`, `_not_run`, docstrings), `E/combine/evidence.py` (`GateRecord.abstain_band`, `_check_band_record`, `_band_reason_holds`, GR-I1', GR-I4', GB-I1–I4); `S/answer.py`, `S/combine_evidence.py` (`GateBranch`, `CombineGate.abstain_band`, `_check_band_gate`, `_gate_reason` GB-I4 first), `S/_evaluation/combine_evidence.py` (`_gate`); appends to `ET/test_combine_band.py`; new `ST/test_band_words.py`; the `vote_gate_band` block INSERTED into `ET/test_combine_evidence_contract_fixture.py` after the unit 1 block and before `def canonical_evidence`, one line appended to `ST/test_combine_evidence_contract.py` | screamingface-engine, screamingface, repo | `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`, `ST/data/schemas/screamingface.answer.v1.json`, `ET/test_combine_gate_words.py` (:645, :761, :765), `ET/test_combine_pick_output.py` (:341-343, :352), `ET/test_combine_evidence_words.py` (:310-322), `ST/test_gate_words.py` (:524, :567, :582-589), `ST/test_evidence_words.py` (:373, :460-475), `ST/test_pick_output.py` (:250-265), `ET/data/combine_contract/evidence_cases.json`, `ST/test_frozen_record_fields.py` (:184, 38 → 39), `ST/public_surface_snapshot.json` |
+| 5 | band-api | BA#1–9 | `S/gate.py` (`abstain_band`, `_band`, `_spec`, `_render`), `S/reducer.py` (`_rebuilt_gate`); new `ST/test_band_api.py`; appends to `ST/test_sum_contract_fixtures.py` and `ET/test_combine_sum_run.py`; `ET/data/combine_contract/gate_band_vote_candidate.url4` | screamingface-engine, screamingface, repo | `ST/public_surface_snapshot.json`, `ST/test_gate_api.py` (:472) |
+| 6 | sum-band-display | SD#1–10 | `S/_ui/combine_view.py` (`_source_text`, `_signal_head`, `_gate_chip`, `_gate_verdict`, `_StepSummary.band`, `_add_gate`, `_gate_line`, `_mean_cell`); new `ST/test_sum_band_display.py` | screamingface, repo | none |
+| 7 | docs | DC#1–5 | `packages/screamingface/README.md` (`### Sum signals and the abstain band` after `### Fusion as a named recipe`; the `**Sums and the band.**` paragraph), `packages/screamingface/CHANGELOG.md` (bullet 3); new `ST/test_sum_band_docs.py` | screamingface, repo | none |
 
-70 TDD rows in total (SM 14, SA 14, AB 18, BA 9, SD 10, DC 5).
+70 TDD rows in total (SM 14, SA 14, AB 18, BA 9, SD 10, DC 5). AB#15 is two test functions, one
+in unit 3 and one in unit 4.
+
+WHY the band is two units (spec review): the old unit 3 had 18 rows, about 10 source files in two
+packages and 12 pinned files, too much for one implementer spec. Unit 3 is the spec key only. Unit
+4 keeps the words, the decision, the record, the SDK mirror and the contract case together,
+because the SDK tests loop over every Engine contract case, and the `in_band` word must come with
+the case that uses it (part 5 lesson).
 
 ## 3. Order and dependencies
 
 ```mermaid
 flowchart LR
-    U0[0 spec] --> U1[1 sum-engine] --> U2[2 sum-api] --> U3[3 band-record] --> U4[4 band-api] --> U5[5 sum-band-display] --> U6[6 docs]
+    U0[0 spec] --> U1[1 sum-engine] --> U2[2 sum-api] --> U3[3 band-spec] --> U4[4 band-record] --> U5[5 band-api] --> U6[6 sum-band-display] --> U7[7 docs]
 ```
 
 - Unit 1 before unit 2: the Engine must parse and compute a sum before the SDK fixture of unit 2
   can run in the Engine world (SA#13).
-- Unit 2 before unit 3: unit 3 is independent of the SDK sum, but the band fixture of unit 4 uses
-  `sf.Sum`, and the order keeps one public surface regeneration per unit.
-- Unit 3 before unit 4: the Engine must decide and record the band before the SDK band fixture can
-  run (BA#8). Unit 3 also adds `in_band`, together with the contract case that uses it.
-- Unit 5 after units 1 and 3: the display tests read the contract cases `pick_sum_min` and
+- Unit 2 before unit 3: units 3 and 4 are independent of the SDK sum, but the band fixture of unit
+  5 uses `sf.Sum`, and the order keeps one public surface regeneration per unit.
+- Unit 3 before unit 4: the Engine must parse the band before it can decide on it.
+- Unit 4 before unit 5: the Engine must decide and record the band before the SDK band fixture
+  can run (BA#8). Unit 4 also adds `in_band`, together with the contract case that uses it.
+- Unit 6 after units 1 and 4: the display tests read the contract cases `pick_sum_min` and
   `vote_gate_band`.
-- Unit 6 is last: its code block compiles to the fixtures of units 2 and 4.
+- Unit 7 is last: its code block compiles to the fixtures of units 2 and 5.
 
 ## 4. Gates per unit
 
@@ -62,10 +71,10 @@ worktree. Part 7 builds in parallel on this machine, so the load is higher.
 
 - Engine venv: `cd /Users/junior/workspace/screamingface/.claude/worktrees/e4b-signal-sums/apps/screamingface-engine && uv sync --dev` (no `inspect` extra).
 - SDK venv: `cd /Users/junior/workspace/screamingface/.claude/worktrees/e4b-signal-sums/packages/screamingface && uv sync --extra notebook`.
-- `uv run .claude/scripts/run_gates.py screamingface-engine --base 633fec3a1` (units 1, 2, 3, 4)
+- `uv run .claude/scripts/run_gates.py screamingface-engine --base 633fec3a1` (units 1, 2, 3, 4, 5)
 - `uv run .claude/scripts/run_gates.py screamingface --base 633fec3a1` (every unit)
 - `uv run .claude/scripts/run_gates.py repo --base 633fec3a1` (every unit)
-- Append-only: units 1–4 edit pinned files. If the append-only check is the only red result, list
+- Append-only: units 1–5 edit pinned files. If the append-only check is the only red result, list
   every offending file, then rerun that stack with `--skip-append-only` to prove the rest is green.
   The build never writes or edits `.claude/test-change-approvals/`; the owner approves after the
   build (§6).
@@ -84,7 +93,7 @@ worktree. Part 7 builds in parallel on this machine, so the load is higher.
 | Criterion | Closed by |
 |---|---|
 | Each member gets `risk = Σ coefficient × component` as a declared signal, missing when a component is missing (ans:Q1) | SM#4–6 |
-| A vote weight, Pick, Rank, Filter and a gate `chosen:` / `mean:` read a sum by name (ans:Q1) | SM#7–9, SA#7 |
+| A vote weight, Pick, Rank, Filter and a gate `chosen:` / `mean:` read a sum by name (ans:Q1) | SM#7 (Pick, and Rank and Filter in the Engine: SM-2b), SM#8, SM#9, SA#7 |
 | The evidence records the sum like any declared signal (ans:Q1) | SM#10, SM#12 |
 | An undeclared component, a sum of a sum and a raw-logprob or entropy sum as a weight fail before any call | SA#4–6, SM#3 |
 | Inside the closed band the Case abstains with `in_band`; outside it the gate compares as in part 5 (ans:Q2) | AB#4–6, BA#8 |
@@ -122,13 +131,15 @@ worktree. Part 7 builds in parallel on this machine, so the load is higher.
      - `packages/screamingface/tests/test_frozen_record_fields.py` (line 184: 37 → 38).
      - Append-only, not flagged by the gate (no approval needed unless the gate names them):
        `apps/screamingface-engine/tests/unit/test_combine_evidence_contract_fixture.py` (one
-       builder and one `SCENARIOS[...]` line, appended) and
-       `packages/screamingface/tests/test_combine_evidence_contract.py` (one appended
-       `_EXPECTED_NAMES |= {...}` line).
+       builder and one `SCENARIOS[...]` line, INSERTED after line 418 and before
+       `def canonical_evidence`, never after the `__main__` block; spec §8) and
+       `packages/screamingface/tests/test_combine_evidence_contract.py` (one
+       `_EXPECTED_NAMES |= {...}` line, appended after line 61).
    - unit 2:
      - `packages/screamingface/tests/public_surface_snapshot.json` (regenerated: `Sum`).
    - unit 3:
-     - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json` (regenerated again: `GateSpec.abstain_band`);
+     - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json` (regenerated again: `GateSpec.abstain_band`).
+   - unit 4:
      - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` (regenerated: `GateRecord.abstain_band`, the branch word `band`, `in_band` in the two reason enums);
      - `packages/screamingface/tests/data/schemas/screamingface.answer.v1.json` (regenerated: `in_band`);
      - `apps/screamingface-engine/tests/unit/test_combine_gate_words.py` (line 645: `"band"` after `"fallback"` in the branch enum; line 761: `"in_band"` at the end of the words tuple; line 765: `get_args(AnswerReason)[-1] == "gate_not_met"` → `get_args(AnswerReason)[-2:] == ("gate_not_met", "in_band")`);
@@ -141,11 +152,13 @@ worktree. Part 7 builds in parallel on this machine, so the load is higher.
      - `packages/screamingface/tests/test_frozen_record_fields.py` (line 184: 38 → 39);
      - `packages/screamingface/tests/public_surface_snapshot.json` (regenerated: `CombineGate` field and keyword `abstain_band`).
      - Append-only, not flagged: the same two contract test files as unit 1 (one more builder and
-       `SCENARIOS` line; one more `_EXPECTED_NAMES |=` line).
+       `SCENARIOS` line, inserted after the unit 1 block and before `def canonical_evidence`; one
+       more `_EXPECTED_NAMES |=` line).
      - If `ruff format` wraps an edited tuple line, the wrap is part of the same smallest edit.
-   - unit 4:
-     - `packages/screamingface/tests/public_surface_snapshot.json` (regenerated: `Gate` field and `__init__` keyword `abstain_band`).
-   - units 5–6: no pinned file. If the append-only gate names another file, the build stops that
+   - unit 5:
+     - `packages/screamingface/tests/public_surface_snapshot.json` (regenerated: `Gate` field and `__init__` keyword `abstain_band`);
+     - `packages/screamingface/tests/test_gate_api.py` (line 472: `["observe", "cmp", "threshold", "otherwise"]` → `["observe", "cmp", "threshold", "otherwise", "abstain_band"]`; the keyword kind and default are asserted in the new BA#2 test, not in this file).
+   - units 6–7: no pinned file. If the append-only gate names another file, the build stops that
      unit and records it in the ledger.
    - How to regenerate: test-plan §2.
 3. At PR-open: file the leaf under the E4b epic OME-1290, and the approval manifest for the pinned

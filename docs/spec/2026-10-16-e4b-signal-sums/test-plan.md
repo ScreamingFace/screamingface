@@ -52,8 +52,8 @@ Test ids are `<PREFIX>#<n>`, with the row number from each PRD's §7. Prefixes: 
   a division or a rounding is written as its exact Python repr (`0.6666666666666666`,
   `3.1666666666666665`, `0.31`).
 - Each user decision has a test that fails if the decision breaks:
-  Q1 SM#6 (each member gets the sum), SM#7 (Pick), SM#8 (weights), SM#9 (gate chosen and mean),
-  SM#10 (recorded), SA#7, SA#10 · Q2 AB#4 (inside: abstain with `in_band`), AB#6 (outside: as
+  Q1 SM#6 (each member gets the sum), SM#7 (Pick, Rank, Filter), SM#8 (weights), SM#9 (gate
+  chosen and mean), SM#10 (recorded), SA#7, SA#10 · Q2 AB#4 (inside: abstain with `in_band`), AB#6 (outside: as
   today), AB#4 and AB#12 (recorded), BA#2, BA#8.
 - No live provider call, no paid test, no eval run. All Engine runs use the Engine-world fake
   gateway (`ET/_signal_world.py`).
@@ -63,7 +63,7 @@ Test ids are `<PREFIX>#<n>`, with the row number from each PRD's §7. Prefixes: 
 | Lane | Where | What |
 |---|---|---|
 | Engine unit | `ET/test_combine_signal_sum.py`, `ET/test_combine_signal_sum_words.py`, `ET/test_combine_band.py` | spec parse, sum value, band decision, record model |
-| Engine contract fixture | `ET/test_combine_evidence_contract_fixture.py` (append) + `evidence_cases.json` (pinned) | `pick_sum_min`, `vote_gate_band` |
+| Engine contract fixture | `ET/test_combine_evidence_contract_fixture.py` (insert before `def canonical_evidence`) + `evidence_cases.json` (pinned) | `pick_sum_min`, `vote_gate_band` |
 | Engine world | `ET/test_combine_sum_run.py` | the SDK-compiled fixtures run offline |
 | Schema freeze | `ET/test_wire_schema_freeze.py` (unchanged) + pinned snapshots | spec v1, evidence v1 |
 | SDK unit | `ST/test_signal_sum_api.py`, `ST/test_band_words.py`, `ST/test_band_api.py`, `ST/test_sum_band_display.py`, `ST/test_sum_band_docs.py` | API, compile, rebuild, words, display, docs |
@@ -95,7 +95,7 @@ Test ids are `<PREFIX>#<n>`, with the row number from each PRD's §7. Prefixes: 
 ## 6. Fixed lists (taken on base `633fec3a1`)
 
 A CHAR row uses these lists as they are written here. It never reads a glob or the whole file,
-because units 1–4 add two evidence cases and two url4 files to the same places.
+because units 1–5 add two evidence cases and two url4 files to the same places.
 
 **L37: the 37 evidence case names** of `ET/data/combine_contract/evidence_cases.json`. The test
 writes the names as a literal tuple; it does not import `_EXPECTED_NAMES`.
@@ -129,6 +129,6 @@ writes the names as a literal tuple; it does not import `_EXPECTED_NAMES`.
 `signal_vote_candidate.url4`, `two_reducers_candidate.url4`, `verbalized_vote_candidate.url4`,
 `vote_candidate.url4`, `weighted_median_confidence_candidate.url4`.
 
-The new names of this part: cases `pick_sum_min` (unit 1) and `vote_gate_band` (unit 3); url4
-files `sum_pick_candidate.url4` (unit 2) and `gate_band_vote_candidate.url4` (unit 4). No name
+The new names of this part: cases `pick_sum_min` (unit 1) and `vote_gate_band` (unit 4); url4
+files `sum_pick_candidate.url4` (unit 2) and `gate_band_vote_candidate.url4` (unit 5). No name
 starts with `recipe_` (the README recipe tests read that prefix).

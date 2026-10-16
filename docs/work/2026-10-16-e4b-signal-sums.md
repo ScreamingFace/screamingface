@@ -51,10 +51,11 @@ Plan §2 is the source.
 |---|---|---|---|---|
 | 1 | sum-engine | SM#1–14 | screamingface-engine, screamingface, repo | `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`, `ET/data/combine_contract/evidence_cases.json`, `ST/test_frozen_record_fields.py` (:184); append-only, not flagged: `ET/test_combine_evidence_contract_fixture.py`, `ST/test_combine_evidence_contract.py` |
 | 2 | sum-api | SA#1–14 | screamingface-engine, screamingface, repo | `ST/public_surface_snapshot.json` |
-| 3 | band-record | AB#1–18 | screamingface-engine, screamingface, repo | `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`, `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`, `ST/data/schemas/screamingface.answer.v1.json`, `ET/test_combine_gate_words.py` (:645, :761, :765), `ET/test_combine_pick_output.py` (:341-343, :352), `ET/test_combine_evidence_words.py` (:310-322), `ST/test_gate_words.py` (:524, :567, :582-589), `ST/test_evidence_words.py` (:373, :460-475), `ST/test_pick_output.py` (:250-265), `ET/data/combine_contract/evidence_cases.json`, `ST/test_frozen_record_fields.py` (:184), `ST/public_surface_snapshot.json`; append-only, not flagged: the two contract test files |
-| 4 | band-api | BA#1–9 | screamingface-engine, screamingface, repo | `ST/public_surface_snapshot.json` |
-| 5 | sum-band-display | SD#1–10 | screamingface, repo | none |
-| 6 | docs | DC#1–5 | screamingface, repo | none |
+| 3 | band-spec | AB#1–3, AB#15 (spec v1 half) | screamingface-engine, screamingface, repo | `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json` |
+| 4 | band-record | AB#4–14, AB#15 (evidence v1 and answer.v1 half), AB#16–18 | screamingface-engine, screamingface, repo | `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`, `ST/data/schemas/screamingface.answer.v1.json`, `ET/test_combine_gate_words.py` (:645, :761, :765), `ET/test_combine_pick_output.py` (:341-343, :352), `ET/test_combine_evidence_words.py` (:310-322), `ST/test_gate_words.py` (:524, :567, :582-589), `ST/test_evidence_words.py` (:373, :460-475), `ST/test_pick_output.py` (:250-265), `ET/data/combine_contract/evidence_cases.json`, `ST/test_frozen_record_fields.py` (:184), `ST/public_surface_snapshot.json`; append-only, not flagged: the two contract test files |
+| 5 | band-api | BA#1–9 | screamingface-engine, screamingface, repo | `ST/public_surface_snapshot.json`, `ST/test_gate_api.py` (:472) |
+| 6 | sum-band-display | SD#1–10 | screamingface, repo | none |
+| 7 | docs | DC#1–5 | screamingface, repo | none |
 
 `ET/` = `apps/screamingface-engine/tests/unit/`, `ST/` = `packages/screamingface/tests/`.
 
@@ -97,11 +98,11 @@ Plan §2 is the source.
   (`math.fsum` raises `OverflowError` for `[1e308, 1e308]`).
 - Abstain to coverage: `final_operation_abstained` E/benchmarks/operation_outputs.py:94-111 reads
   only `combine.result.status`.
-- Tests that enumerate the words or the branch (pinned in unit 3): ET/test_combine_gate_words.py:645
+- Tests that enumerate the words or the branch (pinned in unit 4): ET/test_combine_gate_words.py:645
   (branch enum), :761-766; ET/test_combine_pick_output.py:341-352; ET/test_combine_evidence_words.py:310-322;
   ST/test_gate_words.py:524, :567, :582-589; ST/test_evidence_words.py:373, :460-475;
   ST/test_pick_output.py:250-265. ET/test_combine_evidence_contract_fixture.py:461-463 needs every
-  `AbstainReason` in the contract scenarios, so `in_band` comes with its contract case in unit 3.
+  `AbstainReason` in the contract scenarios, so `in_band` comes with its contract case in unit 4.
 - Contract data on base: 37 evidence cases (list L37), 47 url4 files (list L47);
   ST/test_frozen_record_fields.py:184 counts 37. `ET/test_combine_gate_words.py:618` pins the
   `GateSpec` required list (an optional key keeps it), and :634-642 the `GateRecord` required list.
@@ -116,10 +117,31 @@ Plan §2 is the source.
 
 ### Spec review
 
-Not run yet. The orchestrator runs it before unit 1; the findings and their fixes go here.
+Run on 2026-10-16, before unit 1. 15 findings: 3 MAJOR, 12 MINOR (one of them STRUCTURAL, plan
+shape only). All are fixed in commit `docs(e4b): review fixes for the E4b part 6 spec`. No finding
+conflicts with an owner answer.
+
+| # | Sev | Finding | Fix |
+|---|---|---|---|
+| R1 | MAJOR | `ST/test_gate_api.py:472` pins the exact `sf.Gate` parameter list; the new keyword turns it red. It was missing from the pinned list. | Added to spec §8, plan §2 and §6 (unit 5), band-api §7 row 9, and the units table. Smallest edit: append `"abstain_band"` to the list. The keyword kind and default go in the new BA#2 test. |
+| R2 | MAJOR | `_rebuilt_gate` passed a non-list band to the constructor, so a hand-edited `null` rebuilt as a gate with no band. | band-api delta: a present key with a non-list value raises `_cannot_rebuild("vote")` directly (null included); only a list goes to the constructor. `null` stays in BA-E2. |
+| R3 | MAJOR | The spec said to APPEND the contract scenarios to `ET/test_combine_evidence_contract_fixture.py`. A line after `if __name__ == "__main__": write_fixture()` (:491-492) is not run by the script, and `parametrize(sorted(SCENARIOS))` (:442) is read at decoration time. | Spec §8, signal-sum §7, abstain-band §7, test-plan §3 and plan §2/§6: INSERT the block after line 418 and before `def canonical_evidence` (:421); the band block goes after the sum block. |
+| R4 | MINOR | The SDK `_gate_reason` check order was not given; with GR-I3 first, the second AB-E3 input fails with the wrong message. | abstain-band SDK delta: `_gate_reason` checks GB-I4 first, then GR-I3 (with the WHY). |
+| R5 | MINOR | The two-pass `_signal_values` put `_Summed` items in `by_name`, which breaks the types of `_reader_numbers` and `_column`; a sum key in `_column` would give quiet, wrong values. `SumSource` was not in `spec.__all__`. | signal-sum delta: the exact code shape (`plain` keys and a non-sum `by_name` for the two helpers, then the sum columns with `sum_value`); `SumSource` in `spec.__all__`, `sum_value` in `signal_sum.__all__`. |
+| R6 | MINOR | "Zero or less" missed the `MAX_WEIGHT` upper limit of `_weight`. | P13, N3 and the docs PRD weight sentence name the upper limit too. |
+| R7 | MINOR | BA-E2 cited `S/reducer.py:185-186`. | Now `S/reducer.py:195-196` (`_cannot_rebuild`). |
+| R8 | MINOR | AB-D6 exemplar was vague. | Exemplar is `ET/test_combine_gate.py:540-557`. |
+| R9 | MINOR | "after "Signal...", in the sorted list" for `S/__init__.py`; `__all__` is not sorted. | sum-api: `"Sum"` after `"SelfCorrective"`, before `"signal"`. |
+| R10 | MINOR | Rank and Filter never read a sum in an Engine run. | New scenario SM-2b (rank `top_k@1` k=1 min and filter `le 3.0` over fixture S, both choose member_2, member_3 `no_signal`) in SM#7; plan §5 and test-plan §2 updated. |
+| R11 | MINOR (STRUCTURAL, plan shape) | Old unit 3 (18 rows, about 10 files, 12 pins) was too large for one implementer spec. | Split: unit 3 band-spec (AB#1–3, spec v1 half of AB#15), unit 4 band-record (the rest, SDK mirror with the contract case). AB#15 is two test functions. Old units 4–6 are now 5–7. |
+| R12 | MINOR | `_gate_record(..., *, band=False)` allowed records that are not valid. | `_gate_record(gate, observed, passed, branch)`: `_gated` gives the branch, `_not_run` gives None. |
+| R13 | MINOR | The new record and evidence rules would pass the lint complexity limit (part 5 erratum E3). | Helpers `_check_band_record` (rules 2, 3, 5) and `_band_reason_holds` (GB-I4, called first in `_check_gate`); SDK `_check_band_gate`. |
+| R14 | MINOR | SM-D6 oracle was not exact. | "the one combine log line ends with `outcome=ok`", exemplar `ET/test_combine_gate.py:523-537`. |
+| R15 | MINOR | `_mean_cell` overflow fallback is a second copy of the Engine `_mean` rule. | Kept; one WHY comment names `E/combine/gate.py` `_mean` as its twin. |
 
 ### Status
 
-Spec and plan written headless from the owner answers of 2026-10-16. Build not started. The units
+Spec and plan written headless from the owner answers of 2026-10-16. Spec review done and fixed
+(seven units now). Build not started. The units
 append their sections (Intent, Planned changes, Pinned edits, Test plan, Acceptance, Deviations,
 Outcome) below, in the order of plan §2.

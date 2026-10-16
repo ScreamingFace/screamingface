@@ -47,9 +47,12 @@ class Gate:
     # _render: adds ", abstain_band=(lo, hi)" after otherwise, only when set.
 
 # S/reducer.py _rebuilt_gate: the key set is the four part 5 keys, or those four plus
-#   "abstain_band"; with the key, pass abstain_band=tuple(raw["abstain_band"]) when it is a list,
-#   else pass the raw value (the constructor refuses it, and _decoded turns that into the
-#   "cannot rebuild" error).
+#   "abstain_band". When the key is present and its value is not a list, raise
+#   _cannot_rebuild("vote") directly; a null value is in this rule. Pass only a list to the
+#   constructor, as abstain_band=tuple(raw["abstain_band"]); a constructor error then becomes the
+#   "cannot rebuild" error through _decoded. WHY not pass the raw value: the constructor takes
+#   abstain_band=None as "no band", so a hand-edited null would rebuild as a gate with no band,
+#   which compiles to different bytes (BA-E2 expects "cannot rebuild").
 ```
 
 Band rules in the constructor, checked after `_check_agreement` (exact messages):
@@ -116,7 +119,7 @@ sf.Fusion(
 - **BA-E2** Given the url4 of recipe G with its spec `gate.abstain_band` hand-edited to `null`,
   `[2.5]`, `[2.5, 3.5, 4.5]`, `["a", 3.5]` or `[3.5, 2.5]`, or with an extra gate key `"note"`,
   then `Url4(...).to_python()` raises `ValueError("URL4 Candidate has a vote spec this SDK version
-  cannot rebuild")`. [existing S/reducer.py:185-186 error]; [proposed]
+  cannot rebuild")`. [existing S/reducer.py:195-196 error]; [proposed]
 
 ### 3.3 Derived scenarios (risk-ordered)
 
@@ -150,11 +153,14 @@ test function to `ET/test_combine_sum_run.py` (new in unit 2). New data file
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
 | 1 | CHAR `a_gate_without_a_band_keeps_its_part_5_form` (BA-D1) | unit | BA-D1 | H×M | passes today |
-| 2 | `gate_takes_a_closed_band` (BA-1, BA-D2) | unit | BA-1 | H×M | `Gate.abstain_band` |
+| 2 | `gate_takes_a_closed_band` (BA-1, BA-D2; also `inspect.signature(sf.Gate).parameters["abstain_band"]` has `kind is KEYWORD_ONLY` and `default is None`, asserted in this new test, not in the pinned file) | unit | BA-1 | H×M | `Gate.abstain_band` |
 | 3 | `gate_refuses_bad_bands` (parametrized, BA-E1, exact messages) | unit | BA-E1 | H×M | `_band` |
 | 4 | `compile_writes_the_band` | unit | BA-2 | H×M | `_spec` |
 | 5 | `url4_rebuilds_a_band_with_and_without_a_fallback_judge` | unit | BA-3 | H×M | `_rebuilt_gate`, `_render` |
 | 6 | `rebuild_refuses_a_hand_edited_band` | unit | BA-E2, BA-D3 | M×M | `_rebuilt_gate` |
 | 7 | `gate_band_fixture_matches_the_sdk_compile` (drift guard) | unit | BA-2 | H×M | new data file |
 | 8 | `engine_runs_the_band_fixture_offline` (run 1 and run 2 of BA-4) | world | BA-4 | H×H | — |
-| 9 | PIN public surface snapshot (`Gate`: field and `__init__` keyword `abstain_band`) | unit | BA-1 | H×M | `UPDATE_SURFACE_SNAPSHOT=1`, then a plain run |
+| 9 | PIN public surface snapshot (`Gate`: field and `__init__` keyword `abstain_band`), and the existing `ST/test_gate_api.py:472` parameter list: `["observe", "cmp", "threshold", "otherwise"]` → `["observe", "cmp", "threshold", "otherwise", "abstain_band"]` (the smallest edit; the new keyword turns this line red) | unit | BA-1 | H×M | `UPDATE_SURFACE_SNAPSHOT=1`, then a plain run; the one-line edit |
+
+Pinned edits of this PRD (owner approval, plan §6 unit 5): `ST/public_surface_snapshot.json`,
+`ST/test_gate_api.py:472`.

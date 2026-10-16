@@ -54,7 +54,8 @@ def _gate_verdict(gate): # branch None -> "not run"; "band" -> "in band · absta
 # _StepSummary: new counter `band`; _add_gate counts branch None as not run, "band" as band.
 # _gate_line: "... · fallback {f} of {N}" + (" · in band {b} of {N}" if b) + (" · not run ..." if r).
 # _mean_cell: math.fsum(values) / count; on OverflowError the exact Fraction mean, rounded once
-#   (the part 5 erratum E6 rule, E/combine/gate.py:61-70).
+#   (the part 5 erratum E6 rule, E/combine/gate.py:61-70). Add one WHY comment in _mean_cell
+#   that names E/combine/gate.py `_mean` as its twin, so a later edit changes both copies.
 ```
 
 ## 3. Scenarios and acceptance criteria

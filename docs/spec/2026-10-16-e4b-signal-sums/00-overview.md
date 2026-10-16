@@ -123,11 +123,11 @@ the planning brief.
 | P10 | **(e) Record of the band branch.** `branch: "band"` (a new `GateBranch` word), `passed: null` (no comparison was made), `observed`: the number inside the band. GR-I1 and GR-I4 of part 5 are restated (erd §4: GR-I1', GR-I4'); the part 5 cases keep their messages. New invariants GB-I1 to GB-I5 let a reader replay the decision from the record alone. | erd §4 |
 | P11 | **(e) Record key.** The record gets the optional key `abstain_band` (`[lo, hi]`) after `otherwise`, written only when the spec has a band, so every part 5 gate record keeps its bytes. The record of a gate that did not run also keeps the band. | AB-D4, AB-D5 |
 | P12 | **(e) The new reason `in_band`.** Appended after `gate_not_met` to `AbstainReason` and `AnswerReason` on both sides. It is a scored decline, not a failure code, and it is distinct from `gate_not_met` (the comparison failed) and from E4c's `fail_closed` (an error). The other name considered: `gate_in_band`. | erd §5, C7 |
-| P13 | **(d) A sum as a vote weight.** The part 3 Q11 rule extends to sums: a vote weight that reads a sum is refused when the sum adds an `sf.Logprob("mean")`, an `sf.Logprob("sum")` or an `sf.Entropy` (the `sf.Fusion` constructor, part 3 P14). Other sums may be weights; a member whose sum is zero or less has no usable weight and is excluded with `no_weight` (the existing Engine rule). The Engine needs no change for this. | [sum-api](prd/sum-api.md) SA-E4 |
+| P13 | **(d) A sum as a vote weight.** The part 3 Q11 rule extends to sums: a vote weight that reads a sum is refused when the sum adds an `sf.Logprob("mean")`, an `sf.Logprob("sum")` or an `sf.Entropy` (the `sf.Fusion` constructor, part 3 P14). Other sums may be weights; a member whose sum is not a usable weight (zero or less, or above `MAX_WEIGHT`, E/combine/spec.py:67; the existing `_weight` rule, E/combine/endpoint.py:800-806) is excluded with `no_weight`. The Engine needs no change for this. | [sum-api](prd/sum-api.md) SA-E4 |
 | P14 | **(f) Display.** The sum is one more signal column with no column code change; its header title (Case pane and run summary) is `source: sum of 0.5 × sev_a + 0.3 × sev_b`. The gate chip shows ` · band [lo, hi]` and the verdict `in band · abstain`. The run summary gate line adds ` · in band {b} of {N}` when `b > 0`. The verdict and the counters read `branch`, not `passed`. The run summary mean gets the exact fallback for an overflow (a sum makes large means likely). The export carries the record with no change. The report-trace.v1 field set does not change. | [sum-band-display](prd/sum-band-display.md) |
 | P15 | **(g) Rebuild.** `Url4.to_python()` rebuilds `sf.Sum` through `_SOURCES` and `Sum._from_spec`, and the band through `_rebuilt_gate`. The repr writes `abstain_band=(lo, hi)` after `otherwise=`. A hand-edited sum or band fails with the existing "cannot rebuild" errors. | SA-4, BA-3, C3, C6 |
 | P16 | **Additive Engine edits (part 7 runs in parallel).** The union gets one member; `_declared` gets one branch before the registry lookup; `_signal_values` computes the non-sum columns first (today's code), then the sums; the sum arithmetic lives in its own pure module. Generated files are regenerated after a rebase, never merged by hand (C10). | C10 |
-| P17 | **Contract data.** Two new evidence contract cases (`pick_sum_min` in unit 1, `vote_gate_band` in unit 3): 37 → 39 cases. Two SDK-compiled url4 fixtures (`sum_pick_candidate.url4`, `gate_band_vote_candidate.url4`), each with a drift guard; the Engine runs each offline. | SM#12, AB#16, SA#12, BA#7 |
+| P17 | **Contract data.** Two new evidence contract cases (`pick_sum_min` in unit 1, `vote_gate_band` in unit 4): 37 → 39 cases. Two SDK-compiled url4 fixtures (`sum_pick_candidate.url4`, `gate_band_vote_candidate.url4`), each with a drift guard; the Engine runs each offline. | SM#12, AB#16, SA#12, BA#7 |
 | P18 | **No log change.** The one combine log line keeps its format; a band abstain logs `outcome=abstain_in_band` through the existing rule (E/combine/endpoint.py:256). | AB-D7 |
 | P19 | **(h) Pinned files.** Each unit lists its exact pinned files (§8, plan §6). The build reports them; the owner approves after the build. | §8 |
 
@@ -155,7 +155,7 @@ Scope notes:
 - **N2** A judge or writer fallback still runs and costs money on every Case, also when the number
   is in the band (part 5 N1). Its reply is not read in the band.
 - **N3** A sum can be negative. As a Pick or Rank key it orders as any number; as a vote weight a
-  value of zero or less excludes the member (`no_weight`).
+  value of zero or less, or above `MAX_WEIGHT`, excludes the member (`no_weight`).
 - **N4** A declared sum is computed and recorded on every Case, also when no rule reads it (part 3
   ans:Q7 "Record every declared").
 - **N5** A sum of a logprob or entropy name needs the same OpenRouter members as that name (part 3
@@ -169,31 +169,42 @@ The build lists each file below as a pinned edit. The owner approves them after 
 | File | Unit | Why |
 |---|---|---|
 | `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json` | 1, 3 | the `SumSource` union member (unit 1); `GateSpec.abstain_band` (unit 3) |
-| `ET/data/combine_contract/evidence_cases.json` | 1, 3 | the new cases `pick_sum_min` (unit 1) and `vote_gate_band` (unit 3); every existing case keeps its bytes |
-| `ST/test_frozen_record_fields.py:184` | 1, 3 | the case count 37 → 38 (unit 1), 38 → 39 (unit 3) |
-| `ST/public_surface_snapshot.json` | 2, 3, 4 | `sf.Sum` (unit 2); `CombineGate.abstain_band` (unit 3); `Gate` `abstain_band` (unit 4) |
-| `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` | 3 | `GateRecord.abstain_band`, the branch word `band`, `in_band` in the two reason enums |
-| `ST/data/schemas/screamingface.answer.v1.json` | 3 | `in_band` in `abstain_reason` and `reason` |
-| `ET/test_combine_gate_words.py:645`, `:761`, `:765` | 3 | the branch enum gains `band`; the exact abstain word tuple and the last `AnswerReason` gain `in_band` |
-| `ET/test_combine_pick_output.py:341-343`, `:352` | 3 | the exact `AbstainReason` and `ABSTAIN_REASONS` tuples, the last `AnswerReason`, the last word of each `no_votes` enum list |
-| `ET/test_combine_evidence_words.py:310-322` | 3 | the exact `AnswerRecord.reason` enum list gains `in_band` after `gate_not_met` (line 321) |
-| `ST/test_gate_words.py:524`, `:567`, `:582-589` | 3 | the word set, the count 13 → 14, the last words of the two enum lists, the `answer.v1` abstain list |
-| `ST/test_evidence_words.py:373`, `:460-475` | 3 | the count 13 → 14; the exact `answer.v1.json` dict |
-| `ST/test_pick_output.py:250-265` | 3 | the exact sorted reason lists of `answer.v1.json` gain `in_band` |
+| `ET/data/combine_contract/evidence_cases.json` | 1, 4 | the new cases `pick_sum_min` (unit 1) and `vote_gate_band` (unit 4); every existing case keeps its bytes |
+| `ST/test_frozen_record_fields.py:184` | 1, 4 | the case count 37 → 38 (unit 1), 38 → 39 (unit 4) |
+| `ST/public_surface_snapshot.json` | 2, 4, 5 | `sf.Sum` (unit 2); `CombineGate.abstain_band` (unit 4); `Gate` `abstain_band` (unit 5) |
+| `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` | 4 | `GateRecord.abstain_band`, the branch word `band`, `in_band` in the two reason enums |
+| `ST/data/schemas/screamingface.answer.v1.json` | 4 | `in_band` in `abstain_reason` and `reason` |
+| `ET/test_combine_gate_words.py:645`, `:761`, `:765` | 4 | the branch enum gains `band`; the exact abstain word tuple and the last `AnswerReason` gain `in_band` |
+| `ET/test_combine_pick_output.py:341-343`, `:352` | 4 | the exact `AbstainReason` and `ABSTAIN_REASONS` tuples, the last `AnswerReason`, the last word of each `no_votes` enum list |
+| `ET/test_combine_evidence_words.py:310-322` | 4 | the exact `AnswerRecord.reason` enum list gains `in_band` after `gate_not_met` (line 321) |
+| `ST/test_gate_words.py:524`, `:567`, `:582-589` | 4 | the word set, the count 13 → 14, the last words of the two enum lists, the `answer.v1` abstain list |
+| `ST/test_evidence_words.py:373`, `:460-475` | 4 | the count 13 → 14; the exact `answer.v1.json` dict |
+| `ST/test_pick_output.py:250-265` | 4 | the exact sorted reason lists of `answer.v1.json` gain `in_band` |
+| `ST/test_gate_api.py:472` | 5 | the exact `sf.Gate` parameter list gains `"abstain_band"`: `["observe", "cmp", "threshold", "otherwise"]` → `["observe", "cmp", "threshold", "otherwise", "abstain_band"]` |
 
-Units 1 and 3 also change two test files that are append-only. The append-only check does not flag
-them (new module-level statements after the protected ranges are allowed), so they need no approval
-unless the gate names them: `ET/test_combine_evidence_contract_fixture.py` (one scenario builder
-and one `SCENARIOS[...]` line per unit, appended) and `ST/test_combine_evidence_contract.py` (one
-`_EXPECTED_NAMES |= {...}` line per unit, appended after line 61).
+Units 1 and 4 also change two test files that are append-only. The append-only check does not flag
+them (a new module-level statement between or after the protected ranges is not inside a range),
+so they need no approval unless the gate names them:
 
-The word `in_band` and its pinned edits are in unit 3 with the contract case that uses it:
+- `ET/test_combine_evidence_contract_fixture.py`: one scenario builder and one `SCENARIOS[...]`
+  line per unit, INSERTED directly after line 418 (the part 5 gate block) and before
+  `def canonical_evidence` (line 421 on base). Unit 1 inserts the `pick_sum_min` block; unit 4
+  inserts the `vote_gate_band` block after the unit 1 block. Never append at the end of the file:
+  the file ends with `if __name__ == "__main__": write_fixture()` (lines 491-492), so a line after
+  it does not run when the file runs as a script (test-plan §2), and
+  `@pytest.mark.parametrize("name", sorted(SCENARIOS))` (line 442) reads `SCENARIOS` when the
+  decorator runs, so a later scenario gets no byte test. Part 5 inserted its block the same way
+  (lines 378-418).
+- `ST/test_combine_evidence_contract.py`: one `_EXPECTED_NAMES |= {...}` line per unit, appended
+  after line 61.
+
+The word `in_band` and its pinned edits are in unit 4 with the contract case that uses it:
 `ET/test_combine_evidence_contract_fixture.py:461-463` needs every `AbstainReason` in the contract
 scenarios (the part 5 lesson, part 5 overview §10).
 
 How to regenerate: test-plan §2.
 
-Units 5 and 6: no pinned file. If the append-only gate names another file, the unit stops and the
+Unit 3 pins only the spec v1 snapshot. Units 6 and 7: no pinned file. If the append-only gate names another file, the unit stops and the
 ledger records it as a deviation.
 
 ## 9. What changes for related work
@@ -209,8 +220,16 @@ ledger records it as a deviation.
 
 ## 10. Spec review
 
-Not run yet. The orchestrator runs a design review of this spec before the build; its findings and
-their fixes go into the ledger and into this section.
+Run on 2026-10-16 (commit `docs(e4b): review fixes for the E4b part 6 spec`). 15 findings: 3
+MAJOR, 12 MINOR (1 STRUCTURAL, plan shape only). All are fixed in the spec and the plan; the ledger
+"Spec review" note lists each finding and its fix. The main changes:
+
+- §8 and plan §6: `ST/test_gate_api.py:472` is a pinned edit of the band-api unit.
+- band-api: a hand-edited `"abstain_band": null` fails to rebuild (no pass-through of a non-list).
+- §8, signal-sum §7, abstain-band §7: the contract scenarios are INSERTED before
+  `def canonical_evidence`, not appended after the `__main__` block.
+- The plan splits the old unit 3 (band-record) into unit 3 (band-spec) and unit 4
+  (band-record). Old units 4, 5 and 6 are now units 5, 6 and 7.
 
 ## 11. Build errata
 
