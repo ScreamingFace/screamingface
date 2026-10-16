@@ -240,5 +240,9 @@ MAJOR, 12 MINOR (1 STRUCTURAL, plan shape only). All are fixed in the spec and t
 - **E2 (unit 1, review fix).** `sum_value` can return `-0.0` when a negative exact sum
   underflows. The unit spec §6 row "-0.0 cannot happen" was wrong. Fix: `float(total) + 0.0`, as
   in `logprob_forms.py`. Test: `test_sum_value_never_gives_negative_zero`.
+- **E3 (unit 2).** `test_rules_and_gates_read_a_sum_by_name` compiled each reader as the root
+  candidate. The existing compile refuses a Rank or a Filter that ends a candidate. Fix: the test
+  compiles `sf.Pipeline([fusion, "provider/next"])`, the precedent of `ST/test_rank_by_signal.py`
+  (`_wrapped`). One test edit in `ST/test_signal_sum_api.py`, reported in the ledger (B-1).
 
 The build appends E1, E2, ... here, one line group per deviation from this spec.
