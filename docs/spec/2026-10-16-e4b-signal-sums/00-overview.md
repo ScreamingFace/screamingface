@@ -172,12 +172,14 @@ The build lists each file below as a pinned edit. The owner approves them after 
 | `ET/data/combine_contract/evidence_cases.json` | 1, 4 | the new cases `pick_sum_min` (unit 1) and `vote_gate_band` (unit 4); every existing case keeps its bytes |
 | `ST/test_frozen_record_fields.py:184` | 1, 4 | the case count 37 → 38 (unit 1), 38 → 39 (unit 4) |
 | `ST/public_surface_snapshot.json` | 2, 4, 5 | `sf.Sum` (unit 2); `CombineGate.abstain_band` (unit 4); `Gate` `abstain_band` (unit 5) |
-| `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` | 4 | `GateRecord.abstain_band`, the branch word `band`, `in_band` in the two reason enums |
+| `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` | 4 | `GateRecord.abstain_band`, the branch word `band`, `in_band` in the two reason enums (and the `GateRecord` docstring in `description`, E9) |
 | `ST/data/schemas/screamingface.answer.v1.json` | 4 | `in_band` in `abstain_reason` and `reason` |
 | `ET/test_combine_gate_words.py:645`, `:761`, `:765` | 4 | the branch enum gains `band`; the exact abstain word tuple and the last `AnswerReason` gain `in_band` |
 | `ET/test_combine_pick_output.py:341-343`, `:352` | 4 | the exact `AbstainReason` and `ABSTAIN_REASONS` tuples, the last `AnswerReason`, the last word of each `no_votes` enum list |
 | `ET/test_combine_evidence_words.py:310-322` | 4 | the exact `AnswerRecord.reason` enum list gains `in_band` after `gate_not_met` (line 321) |
 | `ST/test_gate_words.py:524`, `:567`, `:582-589` | 4 | the word set, the count 13 → 14, the last words of the two enum lists, the `answer.v1` abstain list |
+| `ST/test_gate_words.py:326` | 4 | the `_one_of` branch message lists the sorted words `band, fallback, majority` (E6) |
+| `ET/test_combine_gate.py:566` | 4 | the GD#19 case set gains `"vote_gate_band"` (E1, E7) |
 | `ST/test_evidence_words.py:373`, `:460-475` | 4 | the count 13 → 14; the exact `answer.v1.json` dict |
 | `ST/test_pick_output.py:250-265` | 4 | the exact sorted reason lists of `answer.v1.json` gain `in_band` |
 | `ST/test_gate_api.py:472` | 5 | the exact `sf.Gate` parameter list gains `"abstain_band"`: `["observe", "cmp", "threshold", "otherwise"]` → `["observe", "cmp", "threshold", "otherwise", "abstain_band"]` |
@@ -244,5 +246,28 @@ MAJOR, 12 MINOR (1 STRUCTURAL, plan shape only). All are fixed in the spec and t
   candidate. The existing compile refuses a Rank or a Filter that ends a candidate. Fix: the test
   compiles `sf.Pipeline([fusion, "provider/next"])`, the precedent of `ST/test_rank_by_signal.py`
   (`_wrapped`). One test edit in `ST/test_signal_sum_api.py`, reported in the ledger (B-1).
+
+- **E4 (unit 4).** `_gated` takes one flow, not an early band return. It has a `banded` flag and
+  one abstain return for `in_band` and `gate_not_met`. Reason: ruff `max-returns = 3`. The band is
+  still checked before the comparison, and `passes` is not called inside the band.
+- **E5 (unit 4).** The Engine `_check_gate` calls the new helper `_check_gate_reasons` on its first
+  line. That helper runs GB-I4 (`_band_reason_holds`), then GR-I3 (`_gate_reason_holds`). It
+  replaces the GR-I3 `if`. Reason: ruff `max-branches = 7` and mccabe 8. The order of the rules is
+  the one this spec gives.
+- **E6 (unit 4).** `ST/test_gate_words.py:326` is a new pinned text edit. The `_one_of` message
+  lists the sorted branch words, so it now reads `band, fallback, majority`. Not in §8 or plan §6
+  when the spec was written.
+- **E7 (unit 4).** The `ET/test_combine_gate.py:566` edit of E1 was made in the unit 4 code commit,
+  not in the RED commit. Unit 1 had already written line 567 as `[32:37]`. Only line 566 changed.
+- **E8 (unit 4).** AB#15 (the unit 4 half), AB#16 and AB#18 are in the new file
+  `ST/test_band_words.py`. The PRD names no file. The Engine half of AB#16 is the existing
+  parametrized fixture byte test.
+- **E9 (unit 4).** The `GateRecord` docstring gained the E4b part 6 paragraph. So the regenerated
+  Engine evidence v1 schema also shows a changed `description` for `GateRecord`. §8 item 9 of the
+  unit spec did not name it. A ruff re-wrap of one `_abstain` comment line has no effect on
+  behavior.
+- **E10 (unit 4).** New helper names, not in the PRD: Engine `_check_gate_reasons` and
+  `_BAND_REASON`; SDK `_gate_band` and `_check_band_gate` (`S/combine_evidence.py`), `_abstain_band`
+  and `_OPTIONAL_GATE_KEYS` (`S/_evaluation/combine_evidence.py`).
 
 The build appends E1, E2, ... here, one line group per deviation from this spec.

@@ -140,12 +140,14 @@ worktree. Part 7 builds in parallel on this machine, so the load is higher.
    - unit 3:
      - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json` (regenerated again: `GateSpec.abstain_band`).
    - unit 4:
-     - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` (regenerated: `GateRecord.abstain_band`, the branch word `band`, `in_band` in the two reason enums);
+     - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` (regenerated: `GateRecord.abstain_band`, the branch word `band`, `in_band` in the two reason enums, and the `GateRecord` docstring text in `description`);
      - `packages/screamingface/tests/data/schemas/screamingface.answer.v1.json` (regenerated: `in_band`);
+     - `apps/screamingface-engine/tests/unit/test_combine_gate.py` (line 566: `"vote_gate_band"` added to the sorted case set; line 567 is unit 1's `[32:37]`; not in §8 or this list when the spec was written, see overview E1 and E7);
      - `apps/screamingface-engine/tests/unit/test_combine_gate_words.py` (line 645: `"band"` after `"fallback"` in the branch enum; line 761: `"in_band"` at the end of the words tuple; line 765: `get_args(AnswerReason)[-1] == "gate_not_met"` → `get_args(AnswerReason)[-2:] == ("gate_not_met", "in_band")`);
      - `apps/screamingface-engine/tests/unit/test_combine_pick_output.py` (lines 341-342: `"in_band"` at the end of the two tuples; line 343: `[-1] == "gate_not_met"` → `[-2:] == ("gate_not_met", "in_band")`; line 352: `items[-1] == "gate_not_met"` → `items[-1] == "in_band"`);
      - `apps/screamingface-engine/tests/unit/test_combine_evidence_words.py` (one line `"in_band",` after line 321);
      - `packages/screamingface/tests/test_gate_words.py` (line 524: `"in_band"` in the set; line 567: 13 → 14; line 582: `answer_reason[-2:] == ["output_missing", "gate_not_met"]` → `answer_reason[-3:] == ["output_missing", "gate_not_met", "in_band"]`; line 583: `"in_band"` at the end; lines 584-589: `"in_band"` after `"gate_not_met"`);
+     - `packages/screamingface/tests/test_gate_words.py` (line 326: `"Combine gate branch must be one of band, fallback, majority"`; not in §8 or this list when the spec was written, see overview E6);
      - `packages/screamingface/tests/test_evidence_words.py` (line 373: 13 → 14; line 460: `"in_band"` after `"gate_not_met"`; one line `"in_band",` after line 467);
      - `packages/screamingface/tests/test_pick_output.py` (line 250: `"in_band"` after `"gate_not_met"`; one line `"in_band",` after line 255);
      - `apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json` (regenerated: the new case `vote_gate_band`; the 38 cases keep their bytes);
