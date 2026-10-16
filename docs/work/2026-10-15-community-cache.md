@@ -98,3 +98,45 @@ SQLite loader the local runtime calls per page. The Engine proxy (PR 2) and
     `OAuthConnection.account` `AlterField` dropped, as in 0012/0014.
   - `main.py` was already over 450 lines (506); this unit adds 2.
   - Installed the mandatory `tortoise-dev` companion skill (user scope) at the user's request.
+
+## Review round 1 (PR #1433 `/code-review`, verified 2026-10-16)
+
+Owner chose: fix the five confirmed findings plus the cheap wording fixes; #2 is a
+documentation correction only; #4 (filtered-walk index) and #9 (timestamp text form) are
+dropped as not real.
+
+- **Planned, one commit each:**
+  1. #6 — `community_pages._eligible` excludes Tavily by `TAVILY_PROVIDER`, not a literal.
+  2. #7 — `sqlite_loader` uses `revisions.PARAMETER_CONTRACT_KEY`, not a copy.
+  3. #2 + #1 — spec, `community_pages` docstring, DEPLOYMENT.md: a *replace* restore keeps the
+     archive's `updated_at` (only *merge* stamps `now()`), so a pull under way misses those
+     rows until the next pull; the "same walk reaches it" claim is qualified by decision 13.
+  4. #3 — route docstring, spec decision 4, DEPLOYMENT.md: 401 in every authenticating mode;
+     `AIGW_AUTH_MODE=disabled` serves the anonymous account, loopback-only.
+  5. #8 — `load_page` checks the table's columns and refuses an unmigrated local database
+     with a `PageRejected` instead of a raw `sqlite3.OperationalError`. New test.
+  6. #5 — the route's per-batch JSON encoding and gzip run in a worker thread, not on the
+     event loop. New test.
+  7. #10 — `check_revisions` and a revision only the local side reports (approach confirmed
+     with the owner before coding).
+- **Test plan:** new tests only (append-only); 1, 2 and the docs are covered by the existing
+  suite. Gates: `run_gates.py aigateway`.
+- **Outcome (2026-10-16):** all seven landed as planned, one commit each:
+  `refactor(aigateway): exclude Tavily rows from community pages by TAVILY_PROVIDER`;
+  `refactor(aigateway): check the parameter contract by revisions.PARAMETER_CONTRACT_KEY`;
+  `docs(aigateway): a replace restore and a late commit can fall behind a pull's cursor`;
+  `docs(aigateway): the cache-entries route serves the anonymous account when auth is disabled`;
+  `fix(aigateway): refuse a local database missing a cache column as outdated_gateway_database`;
+  `perf(aigateway): encode and gzip community-cache batches in a worker thread`;
+  `fix(aigateway): refuse a page whose gateway does not report a revision the local side uses`.
+  Gates (`run_gates.py aigateway`): ruff check, ruff format, pyright, no-enterprise, full pytest
+  with coverage ≥80% — all green. Three new tests; no prior test changed.
+- **Deviations:**
+  - #8's message tells the user to apply the gateway's migrations, not to start the gateway:
+    migrations never run at app startup (DEPLOYMENT.md "Migrations").
+  - #10 reverses the earlier deviation for one direction only: a revision only the local side
+    reports is now `revision_mismatch` (owner's choice, fail closed); a revision only the hosted
+    side reports still passes. A local-only plugin that registers a revision would need the rule
+    refined first (AIDEV-NOTE in `check_revisions`).
+  - New loader reason `outdated_gateway_database` beside `not_a_gateway_database` and
+    `revision_mismatch`; the client (PR 2) should handle it.
