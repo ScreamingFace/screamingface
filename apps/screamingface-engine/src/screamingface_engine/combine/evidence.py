@@ -110,6 +110,15 @@ class CutRecord(_EvidenceModel):
     order: SignalOrder
 
 
+class SampleCountRecord(_EvidenceModel):
+    """RED stub (E4b part 7 unit 1): the fields only; commit B adds the bounds and the check."""
+
+    member_id: str
+    matched: int | None
+    succeeded: int
+    failed: int
+
+
 class GateRecord(_EvidenceModel):
     """What the gate compared and which branch the step took (E4b part 5, ans:Q1).
 
@@ -334,6 +343,7 @@ __all__ = [
     "GateRecord",
     "JudgeReadingRecord",
     "ResultRecord",
+    "SampleCountRecord",
     "SignalRecord",
     "TallyRowRecord",
 ]

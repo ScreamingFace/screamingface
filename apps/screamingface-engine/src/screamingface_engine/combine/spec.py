@@ -234,6 +234,29 @@ class SumSource(_SpecModel):
     coefficients: dict[str, float] = Field(min_length=1, max_length=MAX_DECLARED_SIGNALS - 1)
 
 
+class ConsistencyMatch(_SpecModel):
+    """How a sample is compared with the member's answer (E4b part 7): the E4a stages.
+
+    Both are pinned operator ids, as in the spec's own steps; ``normalize`` may be null.
+    """
+
+    extract: StepSpec
+    normalize: StepSpec | None
+
+
+class ConsistencySource(_SpecModel):
+    """``{"source": "consistency", "n": 1..32, "temperature": >= 0, "match": {...}}`` (E4b part 7).
+
+    The value is the fraction of a member's ``n`` extra calls (the context ``samples``) whose
+    answer matches the member's answer after ``match``. Every key is required.
+    """
+
+    source: Literal["consistency"]
+    n: int = Field(ge=1, le=32)
+    temperature: float = Field(ge=0)
+    match: ConsistencyMatch
+
+
 # WHY a tagged union: the `source` word picks the one model, so a bad entry fails on its own keys.
 DeclaredSource = Annotated[
     VerbalizedSource | LogprobSource | EntropySource | SumSource, Field(discriminator="source")
@@ -471,6 +494,14 @@ def declares_reply_sources(spec: CombineSpec) -> bool:
     return any(isinstance(entry, LogprobSource | EntropySource) for entry in signals.values())
 
 
+def declares_consistency(spec: CombineSpec) -> tuple[str, ConsistencySource] | None:
+    """The name and the one consistency source of the spec (E4b part 7), or None.
+
+    Its context then carries ``samples`` (erd §4); ``_check_signals`` allows at most one.
+    """
+    raise NotImplementedError
+
+
 def parse_spec(intent: str) -> CombineSpec:
     """Parse the combine intent; a failure never repeats a value from the text."""
     try:
@@ -506,12 +537,15 @@ class CombineContext:
 
     ``outputs`` names every member, except when the context is a quorum ``panel``: then it names
     only the members that answered (OME-1557).
+    ``samples`` (E4b part 7): each member's sample texts in j order, present exactly when the spec
+    declares consistency.
     """
 
     input: str
     outputs: Mapping[str, str]
     signals: Mapping[str, str]
     sources: MemberSources | None = None
+    samples: Mapping[str, tuple[str, ...]] | None = None
 
 
 def canonical_params(pairs: Iterable[tuple[str, str]]) -> str:
@@ -524,7 +558,11 @@ def canonical_params(pairs: Iterable[tuple[str, str]]) -> str:
 
 
 def parse_context(
-    context: str, members: Sequence[str], *, sources_expected: bool = False
+    context: str,
+    members: Sequence[str],
+    *,
+    sources_expected: bool = False,
+    samples_n: int | None = None,  # RED stub (E4b part 7 unit 1): read in commit B
 ) -> CombineContext:
     """Parse the combine context against the spec's members.
 
@@ -665,6 +703,8 @@ __all__ = [
     "REDUCE_SELECT_RULES",
     "CombineContext",
     "CombineSpec",
+    "ConsistencyMatch",
+    "ConsistencySource",
     "DeclaredSource",
     "EntropySource",
     "GateSpec",
@@ -676,6 +716,7 @@ __all__ = [
     "SumSource",
     "VerbalizedSource",
     "canonical_params",
+    "declares_consistency",
     "declares_reply_sources",
     "parse_context",
     "parse_spec",

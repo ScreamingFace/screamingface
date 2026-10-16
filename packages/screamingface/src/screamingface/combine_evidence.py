@@ -259,6 +259,19 @@ class CombineGate:
 
 
 @dataclass(frozen=True, slots=True)
+class CombineSampleCount:
+    """RED stub (E4b part 7 unit 1): the fields only; commit B adds the checks."""
+
+    member_id: str
+    matched: int | None
+    succeeded: int
+    failed: int
+
+    def to_dict(self) -> dict[str, object]:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True, slots=True)
 class CombineTallyRow:
     """One candidate value of a vote: its score and the members holding it."""
 
@@ -740,6 +753,7 @@ __all__ = [
     "CombineGate",
     "CombineJudgeReading",
     "CombineResult",
+    "CombineSampleCount",
     "CombineSignal",
     "CombineTallyRow",
 ]
