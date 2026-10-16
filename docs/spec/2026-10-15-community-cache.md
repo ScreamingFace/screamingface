@@ -29,8 +29,9 @@ added 118k rows and 961 MB.
 
 `updated_at` records when a row's content was last written to this database: a live write
 sets it on insert (live writes never overwrite an existing key, `set_if_absent`), and an admin
-snapshot restore sets it to the restore time, both for rows it inserts and for rows it
-overwrites. A cache hit never touches it (0 rows have `updated_at` equal to `last_hit_at`).
+snapshot *merge* restore sets it to the restore time, both for rows it inserts and for rows it
+overwrites. A *replace* restore is the exception: it empties the table and keeps each archived
+row's own `updated_at` (decision 13). A cache hit never touches it (0 rows have `updated_at` equal to `last_hit_at`).
 `created_at` is not an addition date: restored rows keep their source's value (206,745 rows
 share `2026-08-26 00:00`), and three restores on 2026-10-07/08 rewrote ~470k rows.
 
@@ -66,10 +67,11 @@ the same.
    gets one page plus the next cursor, repeating until the cursor is null. Pages are ordered by
    `(updated_at, key_hash)`: `key_hash` breaks ties (a restore stamps many rows with one
    time), and the cursor is the last row's pair, sent as an opaque token. Ordering by write
-   time means a row written during a pull lands after the cursor and is picked up by the same
-   pull, and it leaves incremental pulls open for later. `updated_at` rather than `created_at`,
-   because a restore inserts rows with old `created_at` values and overwrites rows without
-   changing it; `updated_at` moves in both cases and a hit never moves it. A new index,
+   time means a row written during a pull normally lands after the cursor and is picked up by
+   the same pull (decision 13 has the exceptions), and it leaves incremental pulls open for
+   later. `updated_at` rather than `created_at`, because a merge restore inserts rows with old
+   `created_at` values and overwrites rows without changing it; `updated_at` moves in both
+   cases and a hit never moves it. A new index,
    `(updated_at, key_hash)`, added by this unit's migration, makes each page an index range
    read.
 2. **Through the ORM, in short queries.** The gateway reads a page through the ORM in batches
@@ -137,8 +139,10 @@ the same.
 13. **What a pull promises.** Every eligible row written before the pull reaches the end is
     included, apart from a row whose write commits after the cursor has passed its timestamp:
     `updated_at` is set when the write starts, not when it commits. For a live write that window
-    is milliseconds; for a restore it is as long as the restore's transaction. Such a row comes
-    with the next pull. A row a restore overwrites mid-pull arrives again later in the same
+    is milliseconds; for a merge restore it is as long as the restore's transaction. A replace
+    restore keeps the archive's `updated_at` values, so a pull under way when it commits misses
+    every restored row behind its cursor. Such rows come with the next pull, which in v1 always
+    walks from the start (a finished pull ends with `next: null`). A row a restore overwrites mid-pull arrives again later in the same
     pull, and the loader keeps whichever version is already local (decision 11).
 14. **SDK surface.** `sf.cache.pull_from_remote(models=None)` pulls from the hosted Engine into
     the local gateway, with a progress bar, resuming an interrupted pull (`models=None` pulls
