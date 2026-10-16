@@ -2980,5 +2980,96 @@
     },
     "dropped": 0,
     "finish_reason": "stop"
+  },
+  "vote_gate_band": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "mode@1",
+      "first_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "9",
+        "value": "9",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "9",
+        "value": "9",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "12",
+        "value": "12",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "9",
+        "score": 2.0,
+        "holders": [
+          "member_1",
+          "member_2"
+        ]
+      },
+      {
+        "value": "12",
+        "score": 1.0,
+        "holders": [
+          "member_3"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [],
+    "built": false,
+    "agreement": 0.6666666666666666,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "gate": {
+      "observe": "agreement",
+      "observed": 0.6666666666666666,
+      "cmp": ">=",
+      "threshold": 0.7,
+      "passed": null,
+      "branch": "band",
+      "otherwise": "abstain",
+      "abstain_band": [
+        0.6,
+        0.7
+      ]
+    },
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "abstain",
+      "reason": "in_band"
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
   }
 }

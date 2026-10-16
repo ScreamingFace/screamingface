@@ -115,6 +115,8 @@ class GateRecord(_EvidenceModel):
 
     ``passed`` and ``branch`` are null when the gate did not run (the vote found no answer); then
     ``observed`` is null too (GR-I1). ``observed`` is also null when the gate ran and had no number.
+    E4b part 6 (ans:Q2): ``branch`` "band" = the number was inside the closed ``abstain_band``, so
+    the step abstained with ``in_band`` and made no comparison (``passed`` null, P10).
     """
 
     observe: str
@@ -124,11 +126,19 @@ class GateRecord(_EvidenceModel):
     passed: bool | None
     branch: GateBranch | None
     otherwise: GateOtherwise
+    # E4b part 6 (P11): the spec band. Optional on the wire, like CombineEvidence.mean: the key is
+    # written only when it is set, so every part 5 gate record keeps its bytes.
+    abstain_band: list[float] | None = Field(
+        default=None, min_length=2, max_length=2, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _check(self) -> GateRecord:
         if GATE_OBSERVE.fullmatch(self.observe) is None:
             raise ValueError("a gate record observes agreement, chosen:<name> or mean:<name>")
+        _check_band_record(self)
+        if self.branch == "band":
+            return self  # GR-I1': the band branch has no comparison result (P10)
         # GR-I1
         if (self.passed is None) != (self.branch is None):
             raise ValueError("a gate record has a branch exactly when it has a comparison result")
@@ -138,6 +148,28 @@ class GateRecord(_EvidenceModel):
         if self.passed is not None and self.passed != (self.branch == "majority"):
             raise ValueError("a gate that passed keeps the majority, and only it does")
         return self
+
+
+def _check_band_record(record: GateRecord) -> None:
+    """GB-I1, GB-I2 and GB-I3 (E4b part 6, erd §4): a reader can replay the band decision.
+
+    WHY a helper: the gate record checks are at the lint complexity limit (part 5 erratum E3).
+    """
+    band = record.abstain_band
+    observed = record.observed
+    # GB-I1
+    if band is not None and band[0] > band[1]:
+        raise ValueError("a gate band is two numbers lo <= hi")
+    inside = band is not None and observed is not None and band[0] <= observed <= band[1]
+    if record.branch == "band":
+        # GR-I1' and GB-I2: inside the band no comparison is made.
+        if record.passed is not None:
+            raise ValueError("a gate in its band made no comparison")
+        if not inside:
+            raise ValueError("a gate band branch observed a number inside its band")
+    elif record.branch is not None and inside:
+        # GB-I3: a gate that compared had its number outside the band.
+        raise ValueError("a gate that compared observed a number outside its band")
 
 
 class TallyRowRecord(_EvidenceModel):
@@ -172,6 +204,27 @@ def _gate_reason_holds(gate: GateRecord | None, result: ResultRecord) -> bool:
     """GR-I3: reason "gate_not_met" <=> gate.branch == "fallback" and otherwise abstain."""
     abstained = gate is not None and gate.branch == "fallback" and gate.otherwise == "abstain"
     return (result.reason == "gate_not_met") == abstained
+
+
+_BAND_REASON = "in_band goes with a gate that abstained inside its band, and only with it"
+
+
+def _band_reason_holds(gate: GateRecord | None, result: ResultRecord) -> bool:
+    """GB-I4: reason "in_band" <=> gate.branch == "band" (E4b part 6, P12)."""
+    return (result.reason == "in_band") == (gate is not None and gate.branch == "band")
+
+
+def _check_gate_reasons(gate: GateRecord | None, result: ResultRecord) -> None:
+    """GB-I4, then GR-I3: each gate abstain word goes with its branch, and only with it.
+
+    WHY GB-I4 first: a band gate with the reason gate_not_met breaks both rules; the in_band
+    message names the band (AB-E3). WHY a helper: ``_check_gate`` is at the lint branch limit
+    (part 5 erratum E3).
+    """
+    if not _band_reason_holds(gate, result):
+        raise ValueError(_BAND_REASON)
+    if not _gate_reason_holds(gate, result):
+        raise ValueError(_GATE_REASON)
 
 
 class CombineEvidence(_EvidenceModel):
@@ -243,10 +296,9 @@ class CombineEvidence(_EvidenceModel):
 
 
 def _check_gate(evidence: CombineEvidence) -> None:
-    """GR-I3, GR-I1 (evidence part), GR-I4 and GR-I5 (E4b part 5, erd §4)."""
-    # WHY first: a gate_not_met result with no gate fails GR-I3 before any other gate rule.
-    if not _gate_reason_holds(evidence.gate, evidence.result):
-        raise ValueError(_GATE_REASON)
+    """GB-I4, GR-I3, GR-I1 (evidence part), GR-I4' and GR-I5 (E4b parts 5 and 6, erd §4)."""
+    # WHY first: an in_band or gate_not_met result with no gate fails on its word first.
+    _check_gate_reasons(evidence.gate, evidence.result)
     gate = evidence.gate
     if gate is None:
         return
@@ -254,7 +306,7 @@ def _check_gate(evidence: CombineEvidence) -> None:
         raise ValueError("a gate that did not run goes with an abstained result")
     if (
         gate.observe == "agreement"
-        and gate.passed is not None
+        and gate.branch is not None
         and gate.observed != evidence.agreement
     ):
         raise ValueError("an agreement gate observes the evidence agreement")

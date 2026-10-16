@@ -608,7 +608,15 @@ Append-only, not flagged: `ET/test_combine_evidence_contract_fixture.py`,
 - RED reason, AB#13 (SDK refusals): the decoder refuses the key `abstain_band` first
   (`ExecutionError`), so the first line of the test fails. The PRD names a `TypeError` from the
   keyword. The failure is the same: no band support yet.
-- (Add any change made during the build here.)
+- Build change, schema text: the `GateRecord` docstring of the Engine evidence v1 schema now
+  has the E4b part 6 paragraph (§2.4 gives that text). So the regenerated
+  `screamingface.combine-evidence.v1.json` also shows a changed `description` for `GateRecord`.
+  The §8 item 9 list did not name it. No other change in the schema.
+- Build change, lint: one comment line in `E/combine/endpoint.py` (`_abstain`) was re-wrapped to 100
+  columns (ruff E501). No behavior change.
+- Build change, pinned edits made in commit B (not in commit A): `ST/test_gate_words.py:326`
+  (§8 item 4, the `_one_of` message) and `ET/test_combine_gate.py:566` (§8 item 8, only line 566;
+  line 567 came from unit 1). Both are named in this section above. The owner approves them.
 
 ### Notes for the review
 
@@ -620,9 +628,58 @@ Append-only, not flagged: `ET/test_combine_evidence_contract_fixture.py`,
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:**
+- **Status:** GREEN. The unit is built. Every gate is green or green except the append-only
+  check. The append-only offenders are listed below and all are pinned files.
 - **Actual files:**
-- **Commits:**
+  - Engine source: `E/combine/ports.py`, `E/combine/gate.py`, `E/combine/endpoint.py`,
+    `E/combine/evidence.py`.
+  - SDK source: `S/answer.py`, `S/combine_evidence.py`, `S/_evaluation/combine_evidence.py`.
+  - Regenerated data: `ET/data/combine_contract/evidence_cases.json` (39 cases),
+    `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`,
+    `ST/data/schemas/screamingface.answer.v1.json`, `ST/public_surface_snapshot.json`.
+  - Pinned test edits in this commit: `ST/test_gate_words.py:326`, `ET/test_combine_gate.py:566`.
+  - Test files from commit A are not changed by this unit's GREEN work, except those two lines.
+- **Commits:** A = `e1fe049d2` (RED, made before this build). B = the code commit of this unit
+  (this section and its Outcome). C = the docs commit of this unit (the errata in the overview).
 - **Gates:**
-- **RED log:**
+  - Focused Engine run (`tests/unit/test_combine_*.py`, `test_wire_schema_freeze.py`,
+    `test_abstain_*.py`): 1297 passed.
+  - Focused SDK run (14 test files of spec §9 step 7): 266 passed, 2 warnings.
+  - Pyright, both stacks (touched files): 0 errors.
+  - `screamingface-engine`, base `4cbf26582`: append-only red (offenders below). With
+    `--skip-append-only`: ruff check, ruff format, pyright, layering, pytest (cov 80%): green.
+  - `screamingface`, base `4cbf26582`: append-only red (offenders below). With
+    `--skip-append-only`: ruff check, ruff format, pyright, pytest (cov 95%), notebooks, build,
+    distribution: green.
+  - `repo`, base `4cbf26582`: green (append-only check passed).
+  - `screamingface-engine`, base `633fec3a1`: append-only red (offenders below). With
+    `--skip-append-only`: green.
+  - `screamingface`, base `633fec3a1`: append-only red (offenders below). With
+    `--skip-append-only`: green.
+  - `repo`, base `633fec3a1`: green.
+  - Append-only offenders, base `4cbf26582`, Engine: `ET/data/combine_contract/evidence_cases.json`,
+    `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`,
+    `ET/test_combine_evidence_words.py`, `ET/test_combine_gate.py`,
+    `ET/test_combine_gate_words.py`, `ET/test_combine_pick_output.py`.
+  - Append-only offenders, base `4cbf26582`, SDK: `ST/data/schemas/screamingface.answer.v1.json`,
+    `ST/public_surface_snapshot.json`, `ST/test_evidence_words.py`,
+    `ST/test_frozen_record_fields.py`, `ST/test_gate_words.py`, `ST/test_pick_output.py`.
+  - Base `633fec3a1` adds one more Engine offender: the unit 3 pinned file
+    `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`. All offenders are
+    pinned files. None is a test file that this unit did not pin.
+  - Flakes: none in these runs. No known timing flake failed.
+- **RED log:** Engine: 18 failed, 210 passed (the six files of spec §9). The failures are the
+  unit 4 tests, the pinned snapshot tests and `vote_gate_band`. SDK: 14 failed, 141 passed. The
+  failures are `test_band_words.py` (6), the pinned tests and the `vote_gate_band` tests. No
+  `ImportError` and no `NameError`. Pyright was not run on the RED tree.
 - **Pinned edits made:**
+  - In commit A (already committed, §8 items 1–7): `ET/test_combine_gate_words.py`,
+    `ET/test_combine_pick_output.py`, `ET/test_combine_evidence_words.py`,
+    `ST/test_gate_words.py` (except line 326), `ST/test_evidence_words.py`,
+    `ST/test_pick_output.py`, `ST/test_frozen_record_fields.py`.
+  - In commit B (this build): the regenerated files of §8 items 9–12 (the Engine evidence v1
+    schema with its `GateRecord` description, the SDK answer v1 snapshot, the 39-case
+    `evidence_cases.json`, the public surface snapshot). The two text edits: `ST/test_gate_words.py:326`
+    and `ET/test_combine_gate.py:566`.
+  - The 38 old cases of `evidence_cases.json` kept their bytes (checked with a script before
+    commit B).

@@ -1508,7 +1508,8 @@
       "CombineGate": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, observe: 'str', observed: 'float | None', cmp: 'GateCmp', threshold: 'float', passed: 'bool | None', branch: 'GateBranch | None', otherwise: 'GateOtherwise') -> None",
+          "__init__": "method (self, observe: 'str', observed: 'float | None', cmp: 'GateCmp', threshold: 'float', passed: 'bool | None', branch: 'GateBranch | None', otherwise: 'GateOtherwise', abstain_band: 'tuple[float, float] | None' = None) -> None",
+          "abstain_band": "field",
           "branch": "field",
           "cmp": "field",
           "observe": "field",

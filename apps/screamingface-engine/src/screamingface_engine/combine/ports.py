@@ -50,9 +50,10 @@ ReadingStatus = Literal[
 ]
 AnswerStatus = Literal["answered", "abstain", "fail"]
 MemberStatus = Literal["answered", "fail"]  # I-A3: a member is never "abstain"
-# E4b part 5 (P13): gate_not_met = the vote gate took the abstain fallback. A scored decline,
-# never a failure code (E4c's fail_closed will be a failure code, so they never share a status).
-AbstainReason = Literal["no_votes", "cut_not_met", "output_missing", "gate_not_met"]
+# E4b part 5 (P13): gate_not_met = the vote gate took the abstain fallback. E4b part 6 (P12):
+# in_band = the gate number was inside the abstain band. Both are scored declines, never a failure
+# code (E4c's fail_closed will be a failure code, so they never share a status).
+AbstainReason = Literal["no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band"]
 AnswerReason = Literal[
     "empty",
     "not_numeric",
@@ -66,18 +67,21 @@ AnswerReason = Literal[
     "cut_not_met",
     "output_missing",
     "gate_not_met",
+    "in_band",
 ]
 ABSTAIN_REASONS: tuple[AbstainReason, ...] = (
     "no_votes",
     "cut_not_met",
     "output_missing",
     "gate_not_met",
+    "in_band",
 )
 # E4b part 5 (gate-record PRD): the words of a vote gate. ``GateCmp`` is the PASS condition: when
 # ``observed cmp threshold`` holds, the step keeps the majority (P4).
 GateCmp = Literal[">=", ">", "<=", "<"]
 GateOtherwise = Literal["abstain", "judge", "writer"]
-GateBranch = Literal["majority", "fallback"]
+# E4b part 6 (P10): "band" = the number was inside the abstain band; no comparison was made.
+GateBranch = Literal["majority", "fallback", "band"]
 SignalOrder = Literal["max", "min"]
 # E4b part 2 (ans:Q3, P2): the status of an evidence record. "excluded" exists only in the
 # record: the core Answer keeps MemberStatus (I-A3), so no operator ever sees it.

@@ -6,6 +6,8 @@ INVARIANT: pure functions of their arguments (C9): no I/O, no clock, no model ca
 computed, never asked of a model.
 INVARIANT (FB-I1): only ``fallback_label`` and ``fallback_text`` read a fallback reply, and the
 endpoint calls them only on the fallback branch.
+E4b part 6 (P8, P9): the abstain band is checked before the comparison. Inside the band the step
+abstains with ``in_band`` for every ``otherwise``, and no fallback reply is read.
 """
 
 from __future__ import annotations
@@ -73,6 +75,17 @@ def passes(observed: float | None, cmp: GateCmp, threshold: float) -> bool:
     return observed is not None and bool(_COMPARE[cmp](observed, threshold))
 
 
+def in_band(observed: float | None, band: Sequence[float] | None) -> bool:
+    """True when the spec has a band and ``lo <= observed <= hi`` (closed, P8).
+
+    False for a missing number (P10): the gate then compares as in part 5.
+    """
+    if band is None or observed is None:
+        return False
+    low, high = band
+    return low <= observed <= high
+
+
 def fallback_label(signals: Mapping[str, str], kept: Sequence[str]) -> JudgeReading:
     """The label reading of the ``fallback_judge`` reply over ``kept`` (GD-E6).
 
@@ -101,6 +114,7 @@ __all__ = [
     "check_fallback_signals",
     "fallback_label",
     "fallback_text",
+    "in_band",
     "observed_number",
     "passes",
 ]

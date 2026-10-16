@@ -563,7 +563,7 @@ def test_gate_abstain_marks_the_case_abstained_and_logs_its_reason(
 def test_evidence_contract_fixture_has_the_five_gate_cases() -> None:
     cases = json.loads(CONTRACT.read_text(encoding="utf-8"))
 
-    assert sorted(cases) == sorted((*L32, *GATE_CASES, "pick_sum_min"))
+    assert sorted(cases) == sorted((*L32, *GATE_CASES, "pick_sum_min", "vote_gate_band"))
     assert list(cases)[32:37] == list(GATE_CASES)
     majority, abstain, judge, writer, not_run = (cases[name] for name in GATE_CASES)
     tally = [
