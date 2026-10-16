@@ -64,7 +64,10 @@ pip install "screamingface[notebook]"
 ```python
 import screamingface as sf
 
-sf.configure(engine_url="http://127.0.0.1:9108")   # your own engine, or a hosted one
+sf.configure(
+    engine_url="http://127.0.0.1:9108",      # your own engine...
+    scoreboard_url="http://127.0.0.1:9106",  # ...and its own scoreboard
+)
 
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 flash = sf.Model("openrouter/google/gemini-3-flash-preview")

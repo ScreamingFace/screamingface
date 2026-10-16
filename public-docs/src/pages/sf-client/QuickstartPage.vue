@@ -209,7 +209,10 @@ const publishedDraco = [
 
 const configure = `import screamingface as sf
 
-sf.configure(engine_url="http://127.0.0.1:9108")`
+sf.configure(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)`
 
 const connect = `sf.connect()`
 
@@ -300,9 +303,11 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limi
     </div>
 
     <p>
-      <code>sf.configure()</code> validates and stores the URL without making a network request. The
-      example above points at a <strong>local engine</strong> on
-      <code>http://127.0.0.1:9108</code> — to run one yourself, install the
+      <code>sf.configure()</code> validates and stores the URLs without making a network request.
+      The example above points at a <strong>local engine</strong> on
+      <code>http://127.0.0.1:9108</code> and its leaderboard on <code>http://127.0.0.1:9106</code>
+      (a non-default engine must name its scoreboard, so local scores never reach the public
+      leaderboard) — to run one yourself, install the
       <code>[runtime]</code> extra and start the stack with <code>screamingface up</code>. The
       <RouterLink to="/sf-client/installation">Installation</RouterLink> guide walks through that
       end to end.

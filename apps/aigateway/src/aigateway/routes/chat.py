@@ -73,6 +73,7 @@ from ..core.provider_access import (
     operational_access_for,
     provider_access_for,
 )
+from ..core.provider_error_text import credential_values
 from ..core.registry import ProviderRegistry
 from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
 from ..core.retry import case_insensitive_header
@@ -210,7 +211,7 @@ async def _dispatch_and_finalize_accounting(
         )
         raise await _safe_dispatch_failure_response(
             request,
-            _litellm_http_exception(exc),
+            _litellm_http_exception(exc, forbidden=credential_values(body)),
             plugin=plugin,
             provider=provider,
             account_id=account_id,

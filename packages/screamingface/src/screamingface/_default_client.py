@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 from threading import Lock
 from typing import TYPE_CHECKING, Literal, overload
+from urllib.parse import urlsplit
 
+from screamingface._client_connections import _engine_origin
 from screamingface.client import DEFAULT_ENGINE_URL, DEFAULT_SCOREBOARD_URL, Client
 
 if TYPE_CHECKING:
@@ -22,6 +24,42 @@ if TYPE_CHECKING:
 
 _client: Client | None = None
 _lock = Lock()
+
+
+_SCHEME_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _comparable_origin(engine_url: str) -> tuple[str, str, int]:
+    """``(scheme, host, port)`` of an Engine origin, spelling-normalized for equality.
+
+    WHY: `_engine_origin` keeps the caller's spelling, but scheme and host are
+    case-insensitive and a scheme's default port is the same origin —
+    `HTTPS://FUSION.SCREAMINGFACE.AI:443/` IS the hosted Engine.
+    """
+
+    parts = urlsplit(_engine_origin(engine_url))
+    scheme = parts.scheme.casefold()
+    port = parts.port if parts.port is not None else _SCHEME_DEFAULT_PORTS[scheme]
+    return scheme, (parts.hostname or "").casefold(), port
+
+
+def _paired_scoreboard(engine_url: str, scoreboard_url: str | None, *, hint: str) -> str:
+    """The Scoreboard for ``engine_url``: the explicit one, else the hosted default for the
+    hosted Engine, else refuse.
+
+    WHY refuse rather than default: a local or preview Engine paired with the hosted
+    Scoreboard publishes that Engine's scores to the public leaderboard (e2e workbench spec
+    §1). The pairing must be stated, never inferred.
+    """
+
+    if scoreboard_url is not None:
+        return scoreboard_url
+    if _comparable_origin(engine_url) == _comparable_origin(DEFAULT_ENGINE_URL):
+        return DEFAULT_SCOREBOARD_URL
+    raise ValueError(
+        f"engine_url {engine_url!r} is not the hosted Engine, so its Scoreboard must be "
+        f"named too: {hint}"
+    )
 
 
 def default_client() -> Client:
@@ -58,10 +96,13 @@ def default_client() -> Client:
                         f"connected to the local stack at {engine_url} — "
                         "set SCREAMINGFACE_ENGINE_URL to override"
                     )
+            resolved_engine = engine_url if engine_url is not None else DEFAULT_ENGINE_URL
             _client = Client(
-                engine_url=engine_url if engine_url is not None else DEFAULT_ENGINE_URL,
-                scoreboard_url=(
-                    scoreboard_url if scoreboard_url is not None else DEFAULT_SCOREBOARD_URL
+                engine_url=resolved_engine,
+                scoreboard_url=_paired_scoreboard(
+                    resolved_engine,
+                    scoreboard_url,
+                    hint="set SCREAMINGFACE_SCOREBOARD_URL alongside SCREAMINGFACE_ENGINE_URL",
                 ),
             )
     return _client
@@ -70,12 +111,18 @@ def default_client() -> Client:
 def configure(
     *,
     engine_url: str = DEFAULT_ENGINE_URL,
-    scoreboard_url: str = DEFAULT_SCOREBOARD_URL,
+    scoreboard_url: str | None = None,
 ) -> Client:
-    """Replace the process-wide Client used by module-level convenience functions."""
+    """Replace the process-wide Client used by module-level convenience functions.
+
+    A non-default ``engine_url`` needs an explicit ``scoreboard_url``; see
+    ``_paired_scoreboard``. A refused call leaves the previous Client installed and open.
+    """
 
     global _client
-    replacement = Client(engine_url=engine_url, scoreboard_url=scoreboard_url)
+    # INVARIANT: validate before the swap — a refused configure never closes the old Client.
+    paired = _paired_scoreboard(engine_url, scoreboard_url, hint="pass scoreboard_url=...")
+    replacement = Client(engine_url=engine_url, scoreboard_url=paired)
     with _lock:
         previous = _client
         _client = replacement

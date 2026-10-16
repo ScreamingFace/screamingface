@@ -56,6 +56,84 @@ def test_portal_pages_include_plausible_analytics(tmp_path: Path) -> None:
             assert "plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js" in response.text, path
 
 
+def test_portal_pages_carry_a_link_preview_image_served_from_this_origin(tmp_path: Path) -> None:
+    """Every page shares as a large-image card, and the card image is one this app serves.
+
+    Without og:image, Slack, X and LinkedIn render a shared board link as a grey placeholder.
+    Crawlers need an absolute URL, so the tag names the public host; the path it names must
+    still resolve here, so the image cannot drift out of the vendored assets unnoticed.
+    """
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        for path in ("/index.html", "/about.html", "/benchmark.html", "/spec.html", "/data.html"):
+            markup = client.get(path).text
+            assert '<meta name="twitter:card" content="summary_large_image">' in markup, path
+            match = re.search(
+                r'<meta property="og:image" content="https://[^/"]+(/[^"]+)">', markup
+            )
+            assert match is not None, f"{path} has no absolute og:image"
+            asset = client.get(match.group(1))
+            assert asset.status_code == 200, f"{path} names an og:image this app does not serve"
+            assert asset.headers["content-type"] == "image/png"
+
+
+PUBLIC_ORIGIN = "https://leaderboard.screamingface.ai"
+
+
+class _PreviewMeta(HTMLParser):
+    """Collect a page's Open Graph and Twitter card tags, keyed by property or name."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags: dict[str, str] = {}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = {name: value or "" for name, value in attrs}
+        key = attributes.get("property") or attributes.get("name") or ""
+        if tag == "meta" and key.startswith(("og:", "twitter:")):
+            self.tags[key] = attributes.get("content", "")
+
+
+def _preview_meta(markup: str) -> dict[str, str]:
+    parser = _PreviewMeta()
+    parser.feed(markup)
+    return parser.tags
+
+
+def test_link_preview_images_name_the_public_origin_and_agree(tmp_path: Path) -> None:
+    """og:image sits on the public host, and twitter:image names the same file.
+
+    The image-served check above matches on path alone, so a wrong host with the right path
+    would still pass it.
+    """
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        for path in ("/index.html", "/about.html", "/benchmark.html", "/spec.html", "/data.html"):
+            tags = _preview_meta(client.get(path).text)
+            image = tags.get("og:image", "")
+            assert image.startswith(f"{PUBLIC_ORIGIN}/"), f"{path} og:image is off the public host"
+            assert tags.get("twitter:image") == image, f"{path} twitter:image differs from og:image"
+
+
+def test_parameter_pages_declare_no_og_url_that_drops_the_shared_item(tmp_path: Path) -> None:
+    """A shared deep link keeps its identity: no og:url collapses it onto the bare page.
+
+    benchmark.html, spec.html and data.html only show something with their query parameters,
+    and the static page cannot echo them back. og:url is the object's identity for preview
+    services, so a fixed value would make every benchmark share the same "No benchmark
+    specified." destination. Home and About have one fixed identity and keep theirs.
+    """
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        for path in (
+            "/benchmark.html?id=draco-3pass",
+            "/benchmark.html?id=inspect-frontierscience",
+            "/spec.html?benchmark=draco-3pass&spec=example",
+            "/data.html?file=example.jsonl",
+        ):
+            assert "og:url" not in _preview_meta(client.get(path).text), path
+        assert _preview_meta(client.get("/index.html").text)["og:url"] == f"{PUBLIC_ORIGIN}/"
+        about = _preview_meta(client.get("/about.html").text)
+        assert about["og:url"] == f"{PUBLIC_ORIGIN}/about.html"
+
+
 def test_about_page_is_public_structured_and_linked(tmp_path: Path) -> None:
     """A short About page, public, with its four sections, and linked from the rail on every page.
 

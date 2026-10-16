@@ -20,6 +20,7 @@ import pytest
 from fastapi import HTTPException
 from litellm.llms.custom_llm import CustomLLMError
 
+from aigateway.core.provider_error_text import plugin_error_message
 from aigateway.plugins.codex_provider.plugin import CodexProviderPlugin
 
 _HANDLER = "aigateway.plugins.codex_provider.plugin.get_litellm_codex_handler"
@@ -105,11 +106,15 @@ async def test_typed_detail_carries_no_upstream_text() -> None:
     ],
 )
 async def test_other_codex_errors_are_unchanged(status: int, message: str) -> None:
-    err = await _dispatch(
-        CustomLLMError(status_code=status, message=message), _jwt({"chatgpt_plan_type": "free"})
-    )
+    api_key = _jwt({"chatgpt_plan_type": "free"})
+    err = await _dispatch(CustomLLMError(status_code=status, message=message), api_key)
     assert err.status_code == status
-    assert err.detail == {"code": "provider_error", "message": message}
+    # WHY the screen: "unchanged" means main's OME-1136 provider_error mapping, which relays
+    # the message through the plugin screen.
+    assert err.detail == {
+        "code": "provider_error",
+        "message": plugin_error_message(message, status=status, forbidden=(api_key,)),
+    }
 
 
 def test_plan_refusal_does_not_mark_the_credential_errored() -> None:

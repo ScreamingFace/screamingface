@@ -326,6 +326,7 @@ def test_default_client_is_lazy_and_reads_environment_once(
 ) -> None:
     monkeypatch.setattr(_default_client, "_client", None)
     monkeypatch.setenv("SCREAMINGFACE_ENGINE_URL", "https://first.example")
+    monkeypatch.setenv("SCREAMINGFACE_SCOREBOARD_URL", "https://first-scoreboard.example")
 
     first = _default_client.default_client()
     monkeypatch.setenv("SCREAMINGFACE_ENGINE_URL", "https://second.example")

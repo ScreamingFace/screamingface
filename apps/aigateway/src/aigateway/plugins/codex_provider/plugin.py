@@ -15,6 +15,7 @@ from aigateway.core.plugin_base import (
     OAuthStrategy,
     ProviderPluginBase,
 )
+from aigateway.core.provider_error_text import credential_values, plugin_error_message
 
 from .auth import (
     CodexOAuth,
@@ -194,7 +195,12 @@ class CodexProviderPlugin(ProviderPluginBase):
                 raise await _model_unsupported(body) from exc
             raise HTTPException(
                 status_code=exc.status_code,
-                detail={"code": "provider_error", "message": exc.message},
+                detail={
+                    "code": "provider_error",
+                    "message": plugin_error_message(
+                        exc.message, status=exc.status_code, forbidden=credential_values(body)
+                    ),
+                },
             ) from exc
 
 

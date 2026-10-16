@@ -95,7 +95,8 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
     <Note>
       <code>DEFAULT_ENGINE_URL</code> is a hosted engine, so a <code>Client()</code> with no
       arguments talks to one we operate. To use a local engine, pass its address explicitly, or set
-      <code>SCREAMINGFACE_ENGINE_URL</code> and use the module-level functions.
+      <code>SCREAMINGFACE_ENGINE_URL</code> together with <code>SCREAMINGFACE_SCOREBOARD_URL</code>
+      and use the module-level functions.
       <code>DEFAULT_SCOREBOARD_URL</code> is the matching hosted ScreamingFace Leaderboard. Both
       constants live in <code>screamingface.client</code>.
     </Note>
