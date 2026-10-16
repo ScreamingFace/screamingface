@@ -234,4 +234,46 @@ Filter, vote weight and gate read the sum by name with no code change. New contr
 
 ### Outcome
 
-(fill at the end of the unit)
+Status: done. Unit 1 is built. Commit A (`1c2788a40`) holds the RED tests, the stubs and the
+pinned edits of §8.3 and §8.4. Commit B (`43c73bc4b`) holds the code and the two regenerated files.
+Commit C holds this outcome. The part stays `in_progress`.
+
+Files of commit B:
+
+- `E/combine/spec.py`: `SumSource`, the union member, `_check_signals` loop, `_check_sum`.
+- `E/combine/signal_sum.py`: `sum_value` (exact `Fraction` sum, rounded once).
+- `E/combine/endpoint.py`: import, `_Summed`, `_Plan.declared` type, two-pass `_signal_values`,
+  the sum branch of `_declared`.
+- `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`: 30 lines added, 0 removed.
+- `ET/data/combine_contract/evidence_cases.json`: 94 lines added, 0 removed (`pick_sum_min`).
+
+Test counts:
+
+- Focused Engine tests, after commit B: 189 passed (the nine files of spec §9).
+- New Engine files before the regeneration of §8.1 and §8.2: 26 passed, 2 failed (the byte test of
+  `pick_sum_min` and the schema snapshot test). Both pass after the regeneration.
+- Focused SDK tests, after commit B: 158 passed.
+- Lint on the changed Engine files (`ruff format --check`, `ruff check`, `pyright`): clean.
+
+Append-only check (first run, before `--skip-append-only`):
+
+- `screamingface-engine`: three offenders, all pinned. `tests/unit/data/combine_contract/evidence_cases.json`,
+  `tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`,
+  `tests/unit/test_combine_gate.py` (lines 566 and 567, D-1).
+- `screamingface`: one offender, pinned. `tests/test_frozen_record_fields.py` (line 184).
+- `repo`: green with the check on.
+
+Gate results:
+
+- `screamingface-engine`: the append-only check was the only red result. The rerun with
+  `--skip-append-only` gave ALL GATES GREEN (ruff check, ruff format, pyright, check_layering,
+  pytest with coverage).
+- `screamingface`: the append-only check was the only red result. The rerun with
+  `--skip-append-only` gave ALL GATES GREEN (ruff, pyright, pytest with coverage, notebooks,
+  `uv build`, distribution check).
+- `repo`: ALL GATES GREEN, with the append-only check on.
+
+Flakes: none seen in this unit.
+
+Pinned edits: the four files of the Pinned edits section above. No other test file was edited in
+commit B.

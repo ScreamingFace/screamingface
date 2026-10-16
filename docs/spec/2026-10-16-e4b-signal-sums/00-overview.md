@@ -233,4 +233,9 @@ MAJOR, 12 MINOR (1 STRUCTURAL, plan shape only). All are fixed in the spec and t
 
 ## 11. Build errata
 
-None yet. The build appends E1, E2, ... here, one line group per deviation from this spec.
+- **E1 (unit 1).** `ET/test_combine_gate.py:566-567` pins the exact case set and the last five
+  cases of `evidence_cases.json`, so each new contract case needs a pinned edit there. Unit 1:
+  `sorted((*L32, *GATE_CASES, "pick_sum_min"))` and `list(cases)[32:37]`. Unit 4: add
+  `"vote_gate_band"` to line 566. Not in §8 or plan §6 when the spec was written.
+
+The build appends E1, E2, ... here, one line group per deviation from this spec.
