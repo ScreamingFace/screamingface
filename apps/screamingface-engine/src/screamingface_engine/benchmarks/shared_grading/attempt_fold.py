@@ -99,9 +99,11 @@ def _validated(base: CaseResult, update: dict[str, object]) -> CaseResult:
 
     WHY re-validate: ``model_copy`` skips validators, and the folded Case must obey the same
     scored-or-failed rules, plus the Attempts rules, as any Case on the wire.
+    WHY by_alias: a Fusion's combine evidence only accepts its wire key ``schema``, never
+    the field name ``schema_id``, so the round trip must use wire names.
     """
 
-    return CaseResult.model_validate(base.model_copy(update=update).model_dump())
+    return CaseResult.model_validate(base.model_copy(update=update).model_dump(by_alias=True))
 
 
 def _case_attempt(number: int, result: CaseResult) -> CaseAttempt:
