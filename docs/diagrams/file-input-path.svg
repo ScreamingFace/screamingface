@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 668" font-family="JetBrains Mono, Menlo, SF Mono, monospace">
+<style>text{fill:#e2e8f0}.t{font-size:18px;font-weight:700}.h{font-size:15px;font-weight:700;text-anchor:middle}.l{font-size:12px;text-anchor:middle;fill:#cbd5e1}.a{font-size:11px;text-anchor:middle;fill:#94a3b8}.c{font-size:12px;fill:#94a3b8}</style>
+<rect width="1500" height="668" fill="#0f172a"/>
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/></marker></defs>
+<text class="t" x="40" y="40">File input path — url4 → engine → gateway → provider (OME-1535)</text>
+<text class="t" x="40" y="90" style="font-size:14px">TODAY (main 8edd994bf) — a file cannot reach a model through url4/engine</text>
+<rect x="40" y="110" width="240" height="150" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
+<text class="h" x="160.0" y="150">caller</text>
+<text class="l" x="160.0" y="190">GET /?q=&lt;url4&gt;</text>
+<text class="l" x="160.0" y="215">text in the URL, 8 KiB cap</text>
+<line x1="282" y1="185.0" x2="328" y2="185.0" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<text class="a" x="305.0" y="288.0">text only</text>
+<rect x="330" y="110" width="240" height="150" rx="10" fill="#1e293b" stroke="#e5484d" stroke-width="2.5"/>
+<text class="h" x="450.0" y="150">url4</text>
+<text class="l" x="450.0" y="190">Payload = str</text>
+<text class="l" x="450.0" y="215">data: source → ParseError</text>
+<line x1="572" y1="185.0" x2="618" y2="185.0" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<text class="a" x="595.0" y="288.0">str context</text>
+<rect x="620" y="110" width="240" height="150" rx="10" fill="#1e293b" stroke="#e5484d" stroke-width="2.5"/>
+<text class="h" x="740.0" y="150">engine connector</text>
+<text class="l" x="740.0" y="190">content must be text</text>
+<text class="l" x="740.0" y="215">invalid_candidate_input</text>
+<line x1="862" y1="185.0" x2="908" y2="185.0" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<text class="a" x="885.0" y="288.0">chat/completions</text>
+<rect x="910" y="110" width="240" height="150" rx="10" fill="#1e293b" stroke="#f5a524" stroke-width="2.5"/>
+<text class="h" x="1030.0" y="150">gateway</text>
+<text class="l" x="1030.0" y="190">native image/PDF (OME-1541)</text>
+<text class="l" x="1030.0" y="215">else typed 422; no body cap</text>
+<line x1="1152" y1="185.0" x2="1198" y2="185.0" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<text class="a" x="1175.0" y="288.0">inlineData / input_*</text>
+<rect x="1200" y="110" width="240" height="150" rx="10" fill="#1e293b" stroke="#f5a524" stroke-width="2.5"/>
+<text class="h" x="1320.0" y="150">provider</text>
+<text class="l" x="1320.0" y="190">Gemini / Antigravity ✓</text>
+<text class="l" x="1320.0" y="215">Codex: plan-gated (OME-1634)</text>
+<text class="t" x="40" y="380" style="font-size:14px">TARGET — files travel by reference, become content parts at one point</text>
+<rect x="40" y="400" width="240" height="150" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
+<text class="h" x="160.0" y="440">caller / Case</text>
+<text class="l" x="160.0" y="480">blob refs or Case $input</text>
+<text class="l" x="160.0" y="505">inline data: ≤ 1 MiB run spec</text>
+<line x1="282" y1="475.0" x2="328" y2="475.0" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<text class="a" x="305.0" y="578.0">ref as text</text>
+<rect x="330" y="400" width="240" height="150" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
+<text class="h" x="450.0" y="440">url4</text>
+<text class="l" x="450.0" y="480">C1–C9 refs, node by node</text>
+<text class="l" x="450.0" y="505">bytes fetch (bytes, media_type)</text>
+<line x1="572" y1="475.0" x2="618" y2="475.0" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<text class="a" x="595.0" y="578.0">sha256 pinned</text>
+<rect x="620" y="400" width="240" height="150" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
+<text class="h" x="740.0" y="440">engine</text>
+<text class="l" x="740.0" y="480">blob store, fetch once + pin</text>
+<text class="l" x="740.0" y="505">connector → data: parts</text>
+<line x1="862" y1="475.0" x2="908" y2="475.0" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<text class="a" x="885.0" y="578.0">image_url / file</text>
+<rect x="910" y="400" width="240" height="150" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
+<text class="h" x="1030.0" y="440">gateway</text>
+<text class="l" x="1030.0" y="480">gate 422 · body cap</text>
+<text class="l" x="1030.0" y="505">/v1/models input_modalities</text>
+<line x1="1152" y1="475.0" x2="1198" y2="475.0" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<text class="a" x="1175.0" y="578.0">native parts</text>
+<rect x="1200" y="400" width="240" height="150" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
+<text class="h" x="1320.0" y="440">members + fusion</text>
+<text class="l" x="1320.0" y="480">all see the file</text>
+<text class="l" x="1320.0" y="505">grader stays text-only</text>
+<rect x="40" y="616" width="22" height="14" rx="3" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
+<text class="c" x="72" y="628">works / target</text>
+<rect x="300" y="616" width="22" height="14" rx="3" fill="#1e293b" stroke="#f5a524" stroke-width="2.5"/>
+<text class="c" x="332" y="628">partial</text>
+<rect x="560" y="616" width="22" height="14" rx="3" fill="#1e293b" stroke="#e5484d" stroke-width="2.5"/>
+<text class="c" x="592" y="628">blocks files today</text>
+</svg>
