@@ -1,0 +1,26 @@
+{
+  "issue": "OME-E4B-P7",
+  "branch": "e4b-consistency",
+  "approver": "owner",
+  "date": "2026-10-16",
+  "scope": "E4b part 7 (consistency@N), stacked on part 6. The combine-spec v1 schema gains the consistency source entry (n, temperature, match); the combine-evidence v1 schema gains the optional consistency record (sample and failed counts); the public-surface snapshot adds sf.Consistency; test_sum_band_docs (part 6) pins the README sections between Fusion and Install as [Fusion, Sum, Consistency] instead of [Fusion, Sum], still an exact list. No assertion is removed or weakened.",
+  "reason": "Owner approved the 3 build pinned edits and the restack edit of test_sum_band_docs.py in chat on 2026-10-16. Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-signal-sums (part 6 tip 642d385d1); approved_blob is the blob at the restacked part 7 tip.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "d7dd3788e7c358a3567d9c0b69d4219482a66180",
+      "approved_blob": "a008edd2edf22ac699ec3c22f17b8446e5a506d4"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json": {
+      "base_blob": "7a4892829d7bc16a92f075ba45c9d2c520129260",
+      "approved_blob": "e06e002a6c9334c35aece4bdf12319ffdb8529d2"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "de441441874f607c042268992b7fe836c09a7772",
+      "approved_blob": "46bcf5333ae12b4b5c419bba1fad1f0f11e825b2"
+    },
+    "packages/screamingface/tests/test_sum_band_docs.py": {
+      "base_blob": "c220f646e700d5544fd15f4bdd3a74e3e00e2ea3",
+      "approved_blob": "b81b6d55ce567c1d43e3a028eb01994bd5e5f109"
+    }
+  }
+}
