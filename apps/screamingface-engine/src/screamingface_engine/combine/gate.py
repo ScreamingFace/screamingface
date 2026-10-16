@@ -45,7 +45,8 @@ def observed_number(
 
     ``agreement``: the select step's agreement. ``chosen:<n>``: the chosen member's recorded value
     of ``<n>``. ``mean:<n>``: ``math.fsum`` of the non-None values of ``<n>`` over ``members`` (any
-    status), divided by their count; None when no member has a value.
+    status), divided by their count; None when no member has a value. Past the float range the
+    mean is ``math.fsum`` of the quotients (E6).
     """
     source, _, name = gate.observe.partition(":")
     if source == "agreement":
@@ -53,7 +54,17 @@ def observed_number(
     if source == "chosen":
         return recorded[selection.chosen[0]][name]
     values = [number for member in members if (number := recorded[member][name]) is not None]
-    return math.fsum(values) / len(values) if values else None
+    return _mean(values)
+
+
+def _mean(values: Sequence[float]) -> float | None:
+    """``math.fsum`` of ``values`` over their count; None when there are none."""
+    if not values:
+        return None
+    try:
+        return math.fsum(values) / len(values)
+    except OverflowError:  # the exact sum leaves the float range; each term does not (review fix)
+        return math.fsum(value / len(values) for value in values)
 
 
 def passes(observed: float | None, cmp: GateCmp, threshold: float) -> bool:

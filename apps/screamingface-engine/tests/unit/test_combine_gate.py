@@ -679,3 +679,16 @@ def test_fallback_judge_cannot_pick_an_excluded_member() -> None:
         "status": "answered",
         "reason": None,
     }
+
+
+# --- review fix (E4b part 5 unit 2): the mean cannot overflow the float range ---------------------
+
+
+def test_mean_signal_gate_stays_finite_when_the_exact_sum_overflows() -> None:
+    huge = "1" + "7" * 308  # about 1.7e308: finite on its own, the sum of two overflows
+    texts = [f"Confidence: {huge}\nA", f"Confidence: {huge}\nA", "Confidence: 1\nB"]
+    spec = gated(gate("mean:conf", ">=", 50.0, "abstain"), signals=CONF)
+
+    observed = wire(combine(spec, texts))["gate"]
+    assert 0 < observed["observed"] < float("inf")
+    assert observed["passed"] is True

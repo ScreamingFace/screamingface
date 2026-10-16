@@ -423,7 +423,7 @@ Append-only, not flagged: `ET/test_combine_evidence_contract_fixture.py`,
 - **Status:** Done. Commit B is built and gated. The engine and SDK data snapshots and the
   contract fixture are regenerated. The append-only check lists only the pinned files of spec §8
   and the unit 1 pinned files. Every other gate is green.
-- **Actual files:** Commit B changes 11 source and data files: `E/combine/gate.py` (new),
+- **Actual files:** Commit B changes 12 files (the ledger is the 12th): the 11 source and data files: `E/combine/gate.py` (new),
   `E/combine/endpoint.py`, `E/combine/evidence.py`, `E/combine/ports.py`, `E/combine/spec.py`,
   `E/combine/operators/judge.py`, `S/answer.py`, `S/combine_evidence.py`, and the regenerated
   data files `ET/data/combine_contract/evidence_cases.json`,
@@ -461,3 +461,48 @@ Append-only, not flagged: `ET/test_combine_evidence_contract_fixture.py`,
   the two enum lists), the SDK `answer.v1` snapshot (two words: `gate_not_met` in
   `abstain_reason` and `reason`), and `evidence_cases.json` (five cases appended; the script of
   spec §9 step 3 showed the 32 old cases keep their bytes). No other pinned file changed.
+
+### Review fixes (unit 2)
+
+The review gave one MAJOR finding and six MINOR findings. The MAJOR finding is about behavior, so
+RED came first.
+
+- **MAJOR, applied (RED first).** A `mean:<n>` gate raised a bare `OverflowError` when the exact
+  sum of the member values passed the float range. Each value was finite, so the Case crashed
+  with an error that is not a `CombineError`. The RED test
+  `test_mean_signal_gate_stays_finite_when_the_exact_sum_overflows` failed with that error. The
+  fix in `E/combine/gate.py` (`_mean`): `math.fsum` of the values over their count, and when that
+  overflows, `math.fsum` of the quotients. The test passes. The PRD gap is erratum E6 in
+  `docs/spec/2026-10-16-e4b-gate-record/00-overview.md`.
+- **MINOR, applied.** `_gate_record(gate, observed, passed)` in `E/combine/endpoint.py` builds
+  the record for `_gated` and `_not_run`. No behavior change.
+- **MINOR, applied.** The ledger Outcome of unit 2 counts 12 files, not 11 (the ledger is the 12th).
+- **MINOR, not applied (orchestrator).** `_choose` and the passed branch of `_gated` repeat the
+  answer path. The shape is the spec-dictated E2 split. The owner decides whether to merge them.
+- **MINOR, not applied (orchestrator).** `_fallback` uses `cast("str", reading.parsed)` and
+  rebinds `reduction`. Spec text. No change.
+- **MINOR, not applied (open question).** `observed_number` with `chosen:<n>` reads
+  `selection.chosen[0]`. A vote with an output-building select has no chosen member, so the read
+  raises `IndexError`. The built-in vote selects (`first_holder`, `max_weight_holder`) never do
+  this. The fix needs one decision: return None (the comparison is false), or refuse the pair at
+  spec check time.
+- **MINOR, applied.** Gates were run at both bases named in spec §9 step 7 (see Gates below).
+- **Pinned edits.** No pinned file changed in this fix. The pinned set is the same as in Outcome
+  of unit 2.
+
+### Gates (unit 2 review fixes)
+
+- Base `4e622af75`:
+  - `screamingface-engine`: run 1 red only on the append-only check (the unit 2 pinned files
+    only). Run 2 with `--skip-append-only`: ALL GATES GREEN.
+  - `screamingface`: run 1 red only on the append-only check (the unit 2 pinned files and the
+    unit 1 pinned `public_surface_snapshot.json`). Run 2 with `--skip-append-only`: ALL GATES
+    GREEN.
+  - `repo`: ALL GATES GREEN, append-only check passed.
+- Base `abee4d5cf` (unit 1 tip, spec §9 step 7):
+  - `screamingface-engine`: run 1 red only on the append-only check (the four unit 2 pinned
+    files). Run 2 with `--skip-append-only`: ALL GATES GREEN.
+  - `screamingface`: run 1 red only on the append-only check (the four unit 2 pinned files).
+    Run 2 with `--skip-append-only`: ALL GATES GREEN.
+  - `repo`: ALL GATES GREEN, append-only check passed.
+- Flakes: none seen.
