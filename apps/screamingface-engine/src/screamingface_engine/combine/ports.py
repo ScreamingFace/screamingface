@@ -65,6 +65,11 @@ AnswerReason = Literal[
     "output_missing",
 ]
 ABSTAIN_REASONS: tuple[AbstainReason, ...] = ("no_votes", "cut_not_met", "output_missing")
+# E4b part 5 (gate-record PRD): the words of a vote gate. ``GateCmp`` is the PASS condition: when
+# ``observed cmp threshold`` holds, the step keeps the majority (P4).
+GateCmp = Literal[">=", ">", "<=", "<"]
+GateOtherwise = Literal["abstain", "judge", "writer"]
+GateBranch = Literal["majority", "fallback"]
 SignalOrder = Literal["max", "min"]
 # E4b part 2 (ans:Q3, P2): the status of an evidence record. "excluded" exists only in the
 # record: the core Answer keeps MemberStatus (I-A3), so no operator ever sees it.
@@ -487,6 +492,9 @@ JUDGE_SIGNAL = "score:judge"  # the SDK's S/_signals.py JUDGE_SIGNAL (STU confor
 DECLARED_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
 RESERVED_NAME_PREFIXES: tuple[str, ...] = ("logprob", "entropy", "verbalized", "consistency")
 MAX_DECLARED_SIGNALS = 8
+# E4b part 5: what a gate reads: the agreement, or a declared name of the chosen member or of the
+# mean over the members. The name part is DECLARED_NAME; the spec checks the name is declared.
+GATE_OBSERVE = re.compile(r"agreement|(chosen|mean):[a-z][a-z0-9_]{0,31}")
 
 
 def is_signal_key(key: object) -> bool:
@@ -791,6 +799,7 @@ __all__ = [
     "EXCLUDE_REASONS",
     "FIELD_PATH",
     "FIELD_SIGNAL_PREFIX",
+    "GATE_OBSERVE",
     "JUDGE_SIGNAL",
     "MAX_DECLARED_SIGNALS",
     "MAX_JSON_DEPTH",
@@ -818,6 +827,9 @@ __all__ = [
     "ExcludeReason",
     "Extractor",
     "FieldReading",
+    "GateBranch",
+    "GateCmp",
+    "GateOtherwise",
     "InputTooLarge",
     "JudgeReading",
     "JudgeReplyInvalid",

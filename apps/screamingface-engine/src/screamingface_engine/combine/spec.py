@@ -37,6 +37,8 @@ from screamingface_engine.combine.ports import (
     MAX_DECLARED_SIGNALS,
     CallFingerprint,
     EvidenceKind,
+    GateCmp,
+    GateOtherwise,
     MemberSources,
     Reducer,
     SpecInvalid,
@@ -218,6 +220,19 @@ class EntropySource(_SpecModel):
 DeclaredSource = Annotated[
     VerbalizedSource | LogprobSource | EntropySource, Field(discriminator="source")
 ]
+
+
+class GateSpec(_SpecModel):
+    """``gate``: keep the majority when ``observe cmp threshold`` holds (E4b part 5).
+
+    ``otherwise`` names the fallback that answers when the comparison is false. The fallback call
+    itself is in the url4, not in the spec.
+    """
+
+    observe: str
+    cmp: GateCmp
+    threshold: float
+    otherwise: GateOtherwise
 
 
 class CombineSpec(_SpecModel):
@@ -550,6 +565,7 @@ __all__ = [
     "CombineSpec",
     "DeclaredSource",
     "EntropySource",
+    "GateSpec",
     "LogprobSource",
     "Presence",
     "ReducerRule",
