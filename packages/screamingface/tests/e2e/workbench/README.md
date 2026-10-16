@@ -71,7 +71,14 @@ It needs prepared ifeval assets; from `apps/screamingface-engine`:
 `uv run --extra benchmarks python -m screamingface_engine.benchmarks.prepare --root <assets> --bundle ifeval`.
 
 `test_local_boot.py` boots that stack for real with no key (gate: `SCREAMINGFACE_TEST_E2E=1`
-only, no docker) and asserts the Engine lists ifeval. It spends nothing.
+only, no docker) and asserts the Engine lists ifeval. It spends nothing, so it also runs in the
+CI replay lane (`screamingface-e2e-replay.yml`, keyless). It binds the fixed loopback ports
+9105 (Gateway), 9106 (Scoreboard) and 9108 (the runtime's own Engine, unused), plus one free
+port for the inspect Engine, so a runtime already up on those ports makes it fail. The run needs
+the SDK's `runtime` extra; `just screamingface workbench` and the CI step pass `--extra runtime`.
+
+If `up` or the Engine fails partway, the target still tears down what it started: `down` runs
+once `up` was invoked, and the Engine is stopped once its start was attempted.
 
 ## What is verified, and what is not
 
