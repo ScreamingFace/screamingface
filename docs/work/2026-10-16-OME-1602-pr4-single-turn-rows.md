@@ -67,6 +67,10 @@ and its 2026-10-16 comment.
     ids are bare keys, as the plugin's origin test requires.
   - strong_reject carries no upstream case count: eval.yaml says 324, the pinned CSV and the
     paper hold 313.
+  - air_bench fails a Case with no reply instead of scoring it 0 as HELM does: a refusal the
+    provider writes reaches the scorer as no reply, so 0 would read it as compliance (review
+    finding, 2026-10-16). It also keeps only the rubric's grades 0, 0.5 and 1; any other
+    number is redrawn, then fails the Case.
   - The fixed 128k cut never fires on Math.Find today (longest input 120,155 characters), so
     its Cases are upstream's whole inputs (41 MB in all).
 - **Owner verify:** a small paid run per judged row before trusting its numbers: the SimpleQA
