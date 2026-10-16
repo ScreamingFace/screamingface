@@ -24,7 +24,7 @@ from test_consistency_contract_fixtures import BUILDERS
 from url4 import Binding, Expression, RelExpr, Source, Text, build, expr, render, src, text
 
 import screamingface as sf
-from screamingface._evaluation.candidate import compile_candidate
+from screamingface._evaluation.candidate import _CompiledCandidate, compile_candidate
 from screamingface._evaluation.combine_spec import (
     canonical_json,
     decode_combine_spec,
@@ -133,7 +133,7 @@ _PYTHON: dict[str, str] = {
 }
 
 
-def _compiled(recipe: sf.Recipe) -> Candidate:
+def _compiled(recipe: sf.Recipe) -> _CompiledCandidate:
     return compile_candidate(recipe, operators=engine_operators())
 
 

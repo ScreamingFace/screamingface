@@ -293,9 +293,23 @@ class Consistency(SignalSource):
 
     @classmethod
     def _from_spec(cls, entry: Mapping[str, object]) -> Consistency:
-        # WHY a stub: the url4 rebuild of sf.Consistency is not built yet. _SOURCES does not
-        # list "consistency", so declared_from_spec never calls this.
-        raise NotImplementedError("the url4 rebuild of sf.Consistency is not built yet")
+        # WHY match is checked only for its keys: the recompile proves the step ids, because the
+        # compile writes the step's own match and any other match changes the bytes (C5).
+        n = entry.get("n")
+        temperature = entry.get("temperature")
+        match = entry.get("match")
+        if (
+            set(entry) != {"source", "n", "temperature", "match"}
+            or entry.get("source") != "consistency"
+        ):
+            raise ValueError(_CANNOT_REBUILD)
+        if isinstance(n, bool) or not isinstance(n, int):
+            raise ValueError(_CANNOT_REBUILD)
+        if isinstance(temperature, bool) or not isinstance(temperature, int | float):
+            raise ValueError(_CANNOT_REBUILD)
+        if not isinstance(match, Mapping) or set(match) != {"extract", "normalize"}:
+            raise ValueError(_CANNOT_REBUILD)
+        return cls(n, temperature=temperature)
 
 
 def _sample_temperature(value: object) -> float:
@@ -347,7 +361,13 @@ def injected_member_params(declared: Mapping[str, SignalSource] | None) -> dict[
 _CANNOT_REBUILD = "URL4 Candidate has a signals declaration this SDK version cannot rebuild"
 # wire word -> class
 _SOURCES: Mapping[str, type[SignalSource]] = MappingProxyType(
-    {"verbalized": Verbalized, "logprob": Logprob, "entropy": Entropy, "sum": Sum}
+    {
+        "verbalized": Verbalized,
+        "logprob": Logprob,
+        "entropy": Entropy,
+        "sum": Sum,
+        "consistency": Consistency,
+    }
 )
 
 

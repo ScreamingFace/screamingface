@@ -489,8 +489,9 @@ def _require_call_kind(node: _RecipeTopology, call: _Call) -> None:
         raise ValueError(_MODEL_CALLS)
     if node.kind == "reducer":
         _require_reducer_call(node, call)
-    elif node.role in _SIGNAL_ROLES:
-        # INVARIANT: the binding param also keeps a signal call apart from a same-route member.
+    elif node.role in _SIGNAL_ROLES or node.role == "sample":
+        # INVARIANT: the binding param also keeps a signal or a sample call apart from a
+        # same-route member (a sample repeats its member's route and prompt; E4b part 7 SC-I1).
         if not _binding_first(call):
             raise ValueError(_MODEL_CALLS)
     elif any(name == OPERATION_BINDING_PARAM for name, _ in call.params):
