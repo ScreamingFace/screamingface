@@ -51,7 +51,7 @@ Under `apps/aigateway/src/aigateway/`:
 
 - **Actual files:** as planned, plus `core/provider_access/__init__.py` (exports). Source:
   `core/pending_auth.py` (`replaces_effective`), `core/provider_access/connection_native.py`
-  (`effective_to_replace`, `replace_effective`, `retire_replaced`, `promote_live_row`,
+  (`effective_to_replace`, `replaced_label`, `replace_effective`, `retire_replaced`, `promote_live_row`,
   `take_over_effective`),
   `routes/oauth_connections.py` (OAuth start records the pair; API-key create takes over the
   effective row by the same rule), `routes/auth.py` (callback: marker CAS
@@ -59,16 +59,21 @@ Under `apps/aigateway/src/aigateway/`:
   identity as another live row → that row promoted; a lost native callback revokes its row; the
   replaced row's cached strategy evicted after commit). Tests: new
   `tests/unit/core/provider_access/test_native_oauth_replaces_unusable_effective.py` (17 cases) and
-  `test_native_api_key_replaces_effective.py` (4 cases);
+  `test_native_api_key_replaces_effective.py` (4 cases), and
+  `test_native_unlabelled_targets_effective.py` (4 cases, the unlabelled rule);
   no prior test changed. Docs: spec R6 and §8 Q7, plan §3 E1b.
-- **Commits:** `feat(aigateway): let a native connection replace a migrated pair's effective credential` (single commit; ticket backfilled at PR-open).
-- **Gates:** `run_gates.py aigateway --base origin/main` all green after the review fixes (append-only check, ruff, format, pyright, enterprise check, full suite with coverage).
+- **Commits:** `feat(aigateway): let a native connection replace a migrated pair's effective credential`;
+  `feat(aigateway): let an unlabelled native connection replace the pair's main credential`
+  (ticket backfilled at PR-open).
+- **Gates:** `run_gates.py aigateway --base 59545b20b` (the unit's base; main has moved) all green after the review fixes and the unlabelled rule (append-only check, ruff, format, pyright, enterprise check, full suite with coverage).
 - **Deviations:** review round (independent reviewer) → owner decisions 2026-10-16: a repair
   that signs into another live row's identity promotes that row; a broken effective row is
   replaced whatever its auth type, and a flow that asks for the effective row's own label
   replaces it even when it works (the Profile facade's re-auth by name — a working API key
   switches to OAuth in one step); the same rule for a native API-key create, the successor of the
-  Profile key write (a working OAuth pair switches to a key in one step); a repaired pair is not R1-rollbackable (spec §8 Q7). Also fixed
+  Profile key write (a working OAuth pair switches to a key in one step); a native write with
+  no label targets the pair's main connection and keeps its real label (owner decision
+  2026-10-16, this also lands an unlabelled same-identity re-login on the pair); a repaired pair is not R1-rollbackable (spec §8 Q7). Also fixed
   from the review: lock order with delete, a lost callback's stranded `pending` row, rollback
   tests for the 503 and integrity paths. The deadlock fix is reasoned for PostgreSQL; the test
   suite runs on SQLite, which ignores row locks.

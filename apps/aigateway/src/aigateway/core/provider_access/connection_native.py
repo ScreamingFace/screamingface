@@ -84,27 +84,47 @@ async def effective_pair_of(connection: OAuthConnection) -> PairAuthority | None
 UNUSABLE_EFFECTIVE = frozenset({"error", "revoked"})
 
 
+# WHY: `mark_error`, `mark_revoked` and a pending start park a row under these — never a name.
+_PLACEHOLDER_LABEL_PREFIXES = ("error:", "revoked:", "pending-")
+
+
 async def effective_to_replace(
     observed: PairAuthority, *, requested_label: str | None
 ) -> PairAuthority | None:
-    """Start time: the observed `migrated` pair when this native flow replaces its effective row.
+    """Start time: the observed `migrated` pair when this native write replaces its effective row.
 
-    It does when that row is unusable, or when the flow asks for the row's own label — the native
-    flow's only way to address a connection, i.e. "re-authorise THAT one" (the Profile facade's
-    re-auth by name). Otherwise a working effective row stays and the flow adds a plain row.
+    It does when that row is unusable, when the write names no label ("no label = the pair's main
+    connection", as the Profile API's default name), or when it asks for the row's own label (the
+    native write's only address — "re-authorise THAT one"). Otherwise a working effective row
+    stays and the write adds a plain row beside it.
     """
-    if observed.migration_state != "migrated" or observed.effective_connection_id is None:
-        return None
-    effective = await OAuthConnection.filter(
-        id=observed.effective_connection_id, account_id=observed.account_id
-    ).first()
+    effective = await _effective_row(observed)
     if effective is None:
         return None
-    if effective.status in UNUSABLE_EFFECTIVE:
-        return observed
-    if requested_label is not None and effective.label == requested_label:
+    if (
+        effective.status in UNUSABLE_EFFECTIVE
+        or requested_label is None
+        or effective.label == requested_label
+    ):
         return observed
     return None
+
+
+async def replaced_label(observed: PairAuthority | None) -> str | None:
+    """The replaced effective row's label when it is a real name — the one an unlabelled write
+    keeps, and the one a write naming it may take."""
+    effective = None if observed is None else await _effective_row(observed)
+    if effective is None or effective.label.startswith(_PLACEHOLDER_LABEL_PREFIXES):
+        return None
+    return effective.label
+
+
+async def _effective_row(observed: PairAuthority) -> OAuthConnection | None:
+    if observed.migration_state != "migrated" or observed.effective_connection_id is None:
+        return None
+    return await OAuthConnection.filter(
+        id=observed.effective_connection_id, account_id=observed.account_id
+    ).first()
 
 
 async def replace_effective(observed: PairAuthority, *, connection_id: Any) -> None:
@@ -307,6 +327,7 @@ __all__ = [
     "lock_lower_addressers",
     "promote_live_row",
     "replace_effective",
+    "replaced_label",
     "republish_effective_api_key",
     "retire_effective",
     "retire_replaced",

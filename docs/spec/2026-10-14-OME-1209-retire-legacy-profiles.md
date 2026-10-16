@@ -121,9 +121,11 @@ are not Profile routes; only their legacy-pending branch retires, at E4.
   (`POST /v1/auth/{provider}/profiles` → `begin_connection_oauth`); the native
   `POST /v1/oauth/connections` opens a row that never becomes the pair's effective Connection
   (`claim_native_write` is a no-op on a `migrated` pair), so chat keeps reading the errored row.
-  The native flow therefore takes over the effective row in two cases, as the Profile facade
-  did: when that row is unusable (`error` or `revoked`, OAuth or API key), and when the flow asks
-  for that row's own label — the native flow's only way to address a connection, i.e.
+  The native flow therefore takes over the effective row in three cases, as the Profile facade
+  did: when that row is unusable (`error` or `revoked`, OAuth or API key); when the flow names no
+  label — "no label = the pair's main connection", as the Profile API's default name did — and
+  then the new row keeps the replaced row's label unless that is a placeholder (`error:`,
+  `revoked:`, `pending-`); and when the flow asks for that row's own label — the native flow's only way to address a connection, i.e.
   "re-authorise that one", which is also how a working API key switches to OAuth with no window
   without a credential. The callback of that flow makes the new row effective and revokes the
   old one in one transaction, fenced by the marker generation observed at start — never two
@@ -132,7 +134,8 @@ are not Profile routes; only their legacy-pending branch retires, at E4.
   duplicate. With any other label a working (`active` or `pending`) effective row stays, and
   the flow adds a plain row beside it. The same rule applies to a native API-key create
   (`POST /v1/oauth/connections/api-key`, the successor of the Profile key write): the new key
-  becomes effective when the effective row is unusable or when it asks for that row's label, in
+  becomes effective when the effective row is unusable, when it names no label, or when it asks
+  for that row's label, in
   the create's own transaction, fenced by the pair captured before the key validation. This uses only the Connection side (rows
   and the pair marker), which outlives E4; it reads and writes no Profile document. No route and
   no `reauth_url` changes: the E1 pointer `/v1/oauth/connections` is the repair. API-key pairs

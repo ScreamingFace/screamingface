@@ -36,7 +36,6 @@ from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import credential_service_provider_for, credential_strategy_from
 from aigateway.core.provider_access import (
     ConnectionRefreshOwner,
-    PairAuthority,
     PairAuthorityStore,
     claim_for_connection,
     claim_native_write,
@@ -45,6 +44,7 @@ from aigateway.core.provider_access import (
     effective_to_replace,
     guard_refresh,
     lock_lower_addressers,
+    replaced_label,
     republish_effective_api_key,
     retire_effective,
     take_over_effective,
@@ -121,13 +121,20 @@ async def start_connection_oauth(
     observed = await PairAuthorityStore().read(account_id, body.provider)
     # FEATURE (OME-1209, E1b, R6): on a migrated pair this flow may replace the effective row.
     replaces_effective = await effective_to_replace(observed, requested_label=body.label)
-    taken = await store.find_by_label(account_id, body.provider, body.label) if body.label else None
+    # WHY: an unlabelled write targets the main connection and keeps its name.
+    requested_label = body.label or await replaced_label(replaces_effective)
+    label = requested_label or label
+    taken = (
+        await store.find_by_label(account_id, body.provider, requested_label)
+        if requested_label
+        else None
+    )
     if taken is not None and (
         replaces_effective is None or taken.id != replaces_effective.effective_connection_id
     ):
         raise HTTPException(
             status_code=409,
-            detail={"code": "label_conflict", "provider": body.provider, "label": body.label},
+            detail={"code": "label_conflict", "provider": body.provider, "label": requested_label},
         )
     # WHY a placeholder: the row it replaces may still hold the requested label (unique per pair
     # whatever the status); the callback revokes that row, then gives this one the label.
@@ -167,7 +174,7 @@ async def start_connection_oauth(
             code_verifier=code_verifier,
             redirect_uri=redirect_uri,
             connection_id=str(connection_id),
-            requested_label=body.label,
+            requested_label=requested_label,
             observed_pair=published,
             replaces_effective=replaces_effective,
         ),
@@ -240,8 +247,10 @@ async def create_api_key_connection(
     observed = await PairAuthorityStore().read(account_id, body.provider)
     # FEATURE (OME-1209, E1b, R6): on a migrated pair this key may replace the effective row.
     replaces_effective = await effective_to_replace(observed, requested_label=body.label)
-    replaced_label = await _label_of(store, account_id, replaces_effective)
-    if label != replaced_label and await store.label_exists(account_id, body.provider, label):
+    kept = await replaced_label(replaces_effective)
+    # WHY: an unlabelled key targets the main connection and keeps its name.
+    label = body.label or kept or label
+    if label != kept and await store.label_exists(account_id, body.provider, label):
         raise HTTPException(
             status_code=409,
             detail={"code": "label_conflict", "provider": body.provider, "label": label},
@@ -286,16 +295,6 @@ async def create_api_key_connection(
             credential_name_of(plugin, replaced, account_id=account_id)
         )
     return response_from_connection(connection)
-
-
-async def _label_of(
-    store: OAuthConnectionStore, account_id: str, pair: PairAuthority | None
-) -> str | None:
-    """The label of the effective row a write replaces — free for that write to take."""
-    if pair is None or pair.effective_connection_id is None:
-        return None
-    row = await store.get(account_id, pair.effective_connection_id)
-    return None if row is None else row.label
 
 
 @router.put(

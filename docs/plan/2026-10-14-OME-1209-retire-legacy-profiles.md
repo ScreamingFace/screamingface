@@ -72,7 +72,8 @@ path until it is migrated. E4 starts only after the owner reports the census (§
 
 - Start (`routes/oauth_connections.py` `start_connection_oauth`): the pair it already observes
   is checked: when it is `migrated` and its effective row is unusable (`error`/`revoked`, any
-  auth type) or carries the requested label, the pending entry records that observed pair (new
+  auth type), the flow names no label (the main connection; the replaced row's real label is
+  inherited, a placeholder one is not), or it carries the requested label, the pending entry records that observed pair (new
   field `PendingAuthEntry.replaces_effective`) and the pending row takes a placeholder label (the
   callback gives it the requested one after revoking the old row). Any other pair is unchanged.
 - Same provider identity as another active row of the pair: that row becomes effective (marker
