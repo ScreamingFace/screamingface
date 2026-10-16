@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import time
 from collections.abc import Mapping, Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal, overload
@@ -59,6 +61,7 @@ class Client:
         from screamingface._access.auth import (
             _AccessTokenStore,
             _client_caller_auth,
+            _seed_access_tokens,
         )
         from screamingface._engine.benchmark import BenchmarkResources
         from screamingface._engine.catalog import Benchmarks, Models, OperatorCatalogResource
@@ -71,6 +74,9 @@ class Client:
         self._closed = False
         self._auth_listeners = _AuthListeners()
         self._access_tokens = _AccessTokenStore()
+        _seed_access_tokens(
+            self._access_tokens, os.environ, monotonic_now=time.monotonic(), wall_now=time.time()
+        )
         self._engine_auth = _client_caller_auth(
             self._engine_url,
             token_store=self._access_tokens,
@@ -424,6 +430,7 @@ class AsyncClient:
         from screamingface._access.auth import (
             _AccessTokenStore,
             _client_caller_auth,
+            _seed_access_tokens,
         )
         from screamingface._engine.benchmark import AsyncBenchmarkResources
         from screamingface._engine.catalog import (
@@ -440,6 +447,9 @@ class AsyncClient:
         self._closed = False
         self._auth_listeners = _AuthListeners()
         self._access_tokens = _AccessTokenStore()
+        _seed_access_tokens(
+            self._access_tokens, os.environ, monotonic_now=time.monotonic(), wall_now=time.time()
+        )
         self._engine_auth = _client_caller_auth(
             self._engine_url,
             token_store=self._access_tokens,

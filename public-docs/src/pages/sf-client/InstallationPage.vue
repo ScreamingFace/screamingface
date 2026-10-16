@@ -5,7 +5,7 @@ import CodeBlock from '@/components/ui/CodeBlock.vue'
 import Collapsible from '@/components/ui/Collapsible.vue'
 import Tabs from '@/components/ui/Tabs.vue'
 import NbCell from '@/components/nb/NbCell.vue'
-import { SF_ENGINE_URL } from '@/lib/engine'
+import { SF_ENGINE_URL, SF_SCOREBOARD_URL } from '@/lib/engine'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
@@ -21,7 +21,10 @@ len(sf.__all__)   # 56`
 
 const point = `import screamingface as sf
 
-sf.configure(engine_url="${SF_ENGINE_URL}")`
+sf.configure(
+    engine_url="${SF_ENGINE_URL}",
+    scoreboard_url="${SF_SCOREBOARD_URL}",
+)`
 
 const loginCode = `client = sf.Client(engine_url="${SF_ENGINE_URL}")
 client.login()          # opens Cloudflare Access in your browser
@@ -37,7 +40,10 @@ ScreamingFace is ready.
   Engine      http://127.0.0.1:9108
   Logs        /Users/you/.screamingface/runtime.log`
 
-const localPoint = `sf.configure(engine_url="http://127.0.0.1:9108")`
+const localPoint = `sf.configure(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)`
 
 const localBoth = `sf.configure(engine_url="http://127.0.0.1:9108", scoreboard_url="http://127.0.0.1:9106")`
 
@@ -210,8 +216,9 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
       </p>
       <CodeBlock :code="ports" language="bash" />
       <p>
-        If you move the <em>engine</em> port, point the client at the new one:
-        <code>sf.configure(engine_url="http://127.0.0.1:9208")</code>.
+        If you move the <em>engine</em> port, point the client at the new one, next to its
+        scoreboard (a non-default engine always needs both):
+        <code>sf.configure(engine_url="http://127.0.0.1:9208", scoreboard_url=…)</code>.
       </p>
       <p>
         One caveat worth knowing: the environment variables are read by <code>up</code>,
@@ -246,9 +253,11 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
     <Collapsible title="Submit to my own leaderboard, not the hosted one">
       <p>
-        By default the Client reads and writes the hosted ScreamingFace Leaderboard even when the
-        rest of your stack is local. Point it at your local one by passing
-        <code>scoreboard_url</code> next to <code>engine_url</code>:
+        A local engine always names its leaderboard: <code>sf.configure()</code> with a non-default
+        <code>engine_url</code> and no <code>scoreboard_url</code> raises, and so does
+        <code>SCREAMINGFACE_ENGINE_URL</code> without <code>SCREAMINGFACE_SCOREBOARD_URL</code>.
+        Your local scores therefore never reach the hosted ScreamingFace Leaderboard by accident.
+        Pass both:
       </p>
       <CodeBlock :code="localBoth" language="python" />
     </Collapsible>

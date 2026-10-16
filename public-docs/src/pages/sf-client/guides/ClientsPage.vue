@@ -215,9 +215,12 @@ client = sf.Client(
 
     <p>
       <code>sf.configure(...)</code> takes only <code>engine_url</code> and
-      <code>scoreboard_url</code>. For anything more, construct a <code>Client</code> yourself.
-      <code>sf.close()</code> closes the default and forgets it, so the next shortcut builds a fresh
-      one; it is the tidy end to a script.
+      <code>scoreboard_url</code>, and a non-default <code>engine_url</code> must come with its
+      <code>scoreboard_url</code> — the call raises otherwise, as does
+      <code>SCREAMINGFACE_ENGINE_URL</code> without <code>SCREAMINGFACE_SCOREBOARD_URL</code>. For
+      anything more, construct a <code>Client</code> yourself. <code>sf.close()</code> closes the
+      default and forgets it, so the next shortcut builds a fresh one; it is the tidy end to a
+      script.
     </p>
 
     <Note>

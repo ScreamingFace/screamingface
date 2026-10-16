@@ -8,7 +8,7 @@ import time
 from collections.abc import AsyncGenerator, Callable, Generator, Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 from nacl.public import PrivateKey
@@ -28,6 +28,9 @@ from screamingface._access.contract import (
     _present_access_logout,
     _raise_if_cancelled,
     _require_positive_timeout,
+    _token_audiences,
+    _token_claims,
+    _token_from_claims,
 )
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface.errors import AuthenticationError
@@ -85,6 +88,66 @@ class _AccessTokenStore:
 
 _BrowserPresenter = Callable[[str], None]
 _DiscoveryError = Callable[[str], BaseException]
+
+
+ACCESS_TOKEN_ENV = "SCREAMINGFACE_ACCESS_TOKEN"
+
+
+def _seed_access_tokens(
+    store: _AccessTokenStore,
+    environ: Mapping[str, str],
+    *,
+    monotonic_now: float,
+    wall_now: float,
+) -> None:
+    """Pre-load a caller-supplied Access token (e2e workbench spec §6, option B).
+
+    WHY seed the store rather than add a header: the challenge path (`_adopt_cached_challenge`)
+    only reuses a token once the origin asserts its audience, so a token is never sent to an
+    origin of another audience, the same rule a browser-acquired token follows. That assertion
+    is trusted because it comes from the configured HTTPS origin, not because it is verified.
+    """
+
+    value = environ.get(ACCESS_TOKEN_ENV, "").strip()
+    if not value:
+        return
+    try:
+        claims = _token_claims(value)
+        audiences = _token_audiences(claims)
+        token = _token_from_claims(value, claims, monotonic_now, wall_now)
+    except AuthenticationError:
+        # `from None`: the inner error's cause chain may carry decode details of the token.
+        raise AuthenticationError(
+            f"{ACCESS_TOKEN_ENV} is not a usable Cloudflare Access token "
+            "(malformed, expired, or without a valid aud claim)",
+            code="access_env_token_invalid",
+            permanent=True,
+        ) from None
+    for audience in audiences:
+        store.put(audience, token)
+
+
+def _is_https(url: str | httpx.URL) -> bool:
+    return (url.scheme if isinstance(url, httpx.URL) else urlsplit(url).scheme) == "https"
+
+
+def _require_https(origin: str, url: str | httpx.URL) -> None:
+    """Refuse an Access challenge received over plaintext (PR #1438 review, blocker 2).
+
+    WHY: the challenge only ASSERTS the origin's audience; that assertion is trusted because
+    it arrives from the configured HTTPS origin. Over http:// anyone on the path can assert
+    a matching audience and harvest the bearer token from the retry, so the token is never
+    adopted for, nor sent to, a plaintext origin. A plain-HTTP stack that never challenges
+    is unaffected: this runs only once a challenge was seen.
+    """
+
+    if not (_is_https(origin) and _is_https(url)):
+        raise _auth_error(
+            f"{origin} requires Cloudflare Access, which is only supported over https://; "
+            "configure the HTTPS origin",
+            code="access_requires_https",
+            permanent=True,
+        )
 
 
 def _access_discovery_error(origin: str) -> AuthenticationError:
@@ -206,6 +269,7 @@ class _CloudflareAccessAuth(_ClientAuth):
                     code="access_not_advertised",
                     status=response.status_code,
                 )
+            _require_https(self._origin, self._origin)
             with self._lock:
                 self._audience = audience
                 if self._usable_token() is not None:
@@ -262,7 +326,7 @@ class _CloudflareAccessAuth(_ClientAuth):
 
     def websocket_headers(self) -> Mapping[str, str]:
         with self._lock:
-            token = self._usable_token()
+            token = self._usable_token() if _is_https(self._origin) else None
             return {} if token is None else {"Cf-Access-Token": token}
 
     async def websocket_headers_async(self) -> Mapping[str, str]:
@@ -296,6 +360,7 @@ class _CloudflareAccessAuth(_ClientAuth):
         audience = _access_audience(response)
         if audience is None:
             return
+        _require_https(self._origin, request.url)
         response.read()
         self._authenticate_after_redirect(audience, authorization, _DEFAULT_LOGIN_TIMEOUT)
         _require_replay_safe(request, response)
@@ -312,6 +377,7 @@ class _CloudflareAccessAuth(_ClientAuth):
         audience = _access_audience(response)
         if audience is None:
             return
+        _require_https(self._origin, request.url)
         await response.aread()
         await self._cancellable_thread_call(
             self._authenticate_after_redirect,
@@ -326,12 +392,13 @@ class _CloudflareAccessAuth(_ClientAuth):
     def _authorize_request(self, request: httpx.Request) -> _RequestAuthorization:
         with self._lock:
             self._require_open()
-            token = self._usable_token()
+            token = self._usable_token() if _is_https(request.url) else None
             if token is not None:
                 request.headers["Cf-Access-Token"] = token
             return _RequestAuthorization(self._generation, token)
 
     def _set_access_token(self, request: httpx.Request) -> None:
+        _require_https(self._origin, request.url)
         with self._lock:
             token = self._usable_token()
             if token is None:
@@ -366,7 +433,7 @@ class _CloudflareAccessAuth(_ClientAuth):
             previous_audience = self._audience
             self._audience = audience
             current = self._usable_token()
-            # A new origin first proves its Access audience via the challenge. Only then may
+            # A new origin first asserts its Access audience via the challenge. Only then may
             # it reuse a credential learned from another origin with the same audience.
             reusable = current is not None and (
                 authorization.generation != self._generation

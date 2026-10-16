@@ -88,12 +88,16 @@ code("""
 # --- edit these -------------------------------------------------------------------
 NAMESPACE       = "default"              # where the stack runs
 ENGINE_URL      = "http://127.0.0.1:9108"  # deployed engine, or a port-forward
+SCOREBOARD_URL  = "http://127.0.0.1:9106"  # its own scoreboard, never the public one
 AIGATEWAY_DEPLOY = "deploy/aigateway"     # `kubectl get deploy -n $NAMESPACE` to confirm
 BENCHMARK_ID    = "draco"
 CANDIDATE       = "openrouter/google/gemini-3-flash-preview"
 KUBECTL         = "kubectl"
 # ----------------------------------------------------------------------------------
-print(f"namespace={NAMESPACE} engine={ENGINE_URL} gateway={AIGATEWAY_DEPLOY}")
+print(
+    f"namespace={NAMESPACE} engine={ENGINE_URL} scoreboard={SCOREBOARD_URL} "
+    f"gateway={AIGATEWAY_DEPLOY}"
+)
 """)
 
 md("## 2. Preflight — cluster reachable, pods present")
@@ -162,7 +166,7 @@ stream — `sf.Event.traceparent` — which after `OME-967` is the id the client
 code("""
 import screamingface as sf
 
-sf.configure(engine_url=ENGINE_URL)
+sf.configure(engine_url=ENGINE_URL, scoreboard_url=SCOREBOARD_URL)
 
 seen_traceparents = []
 

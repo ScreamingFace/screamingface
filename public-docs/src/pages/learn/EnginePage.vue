@@ -8,7 +8,10 @@ const GH_TREE = 'https://github.com/ScreamingFace/screamingface/tree/main'
 
 const point = `import screamingface as sf
 
-sf.configure(engine_url="http://127.0.0.1:9108")   # the Client talks only to an Engine`
+sf.configure(
+    engine_url="http://127.0.0.1:9108",      # the Client talks only to an Engine...
+    scoreboard_url="http://127.0.0.1:9106",  # ...and the leaderboard it publishes to
+)`
 
 const runLocal = `pip install "screamingface[runtime]"
 screamingface prepare draco   # benchmark data, once
