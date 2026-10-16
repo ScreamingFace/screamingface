@@ -102,6 +102,7 @@ from screamingface_engine.combine.ports import (
     utf8_exceeds,
 )
 from screamingface_engine.combine.registry import OperatorRegistry
+from screamingface_engine.combine.signal_sum import sum_value
 from screamingface_engine.combine.spec import (
     MAX_MEMBERS,
     MAX_WEIGHT,
@@ -114,6 +115,7 @@ from screamingface_engine.combine.spec import (
     LogprobSource,
     SignalWeights,
     StepSpec,
+    SumSource,
     declares_reply_sources,
     parse_context,
     parse_spec,
@@ -170,6 +172,18 @@ class _ReplyDeclared:
     source: LogprobSource | EntropySource
 
 
+@dataclass(frozen=True, slots=True)
+class _Summed:
+    """One declared sum: its name and its (component, coefficient) terms in spec order (E4b part 6).
+
+    WHY not a ``_Declared``: its value comes from the other declared values of the same member,
+    not from the member text or the reply, so it has no source reader.
+    """
+
+    name: str
+    terms: tuple[tuple[str, float], ...]
+
+
 # The member numbers of the one member reader call: member -> reader key -> number (None: unknown).
 type _ReaderNumbers = Mapping[str, Mapping[str, float | None]]
 
@@ -191,7 +205,7 @@ class _Plan:
     excludes: _Exclusion | None = None
     ranks: Callable[[Reduction, CombineInput, OpArgs], Mapping[str, int]] | None = None
     cut: Cut | None = None
-    declared: tuple[_Declared | _ReplyDeclared, ...] = ()
+    declared: tuple[_Declared | _ReplyDeclared | _Summed, ...] = ()
 
     @property
     def operators(self) -> tuple[str, ...]:
@@ -297,7 +311,10 @@ def _signal_values(
     context: CombineContext,
     accounting: AccountingReader | None,
 ) -> dict[str, dict[str, float | None]]:
-    """Each member's recorded signals: the key the spec reads, then every declared name (EV-I2)."""
+    """Each member's recorded signals: the key the spec reads, then every declared name (EV-I2).
+
+    A declared sum is computed last, from the columns of its components (E4b part 6, SU-I1).
+    """
     keys = _recorded_keys(plan)
     if not keys:
         return {member: {} for member in spec.members}
@@ -305,9 +322,21 @@ def _signal_values(
         # WHY no read (OME-1557): an empty quorum panel abstains with no_votes; reading a signal
         # over no member (a judge reply above all) could only refuse a Case that has no answer.
         return {member: {key: None for key in keys} for member in spec.members}
-    by_name = {item.name: item for item in plan.declared}
-    looked = _reader_numbers(keys, by_name, context, accounting)
-    columns = {key: _column(key, by_name.get(key), spec, context, looked) for key in keys}
+    sums = {item.name: item for item in plan.declared if isinstance(item, _Summed)}
+    # WHY a sum key never reaches _column: it would fall through to _signal_numbers and read a
+    # quiet, wrong field number. Every component is a declared non-sum name (SU-I1, SU-I2), so its
+    # column exists before the sums are computed.
+    by_name = {item.name: item for item in plan.declared if not isinstance(item, _Summed)}
+    plain = tuple(key for key in keys if key not in sums)
+    looked = _reader_numbers(plain, by_name, context, accounting)
+    columns: dict[str, Mapping[str, float | None]] = {
+        key: _column(key, by_name.get(key), spec, context, looked) for key in plain
+    }
+    for name, item in sums.items():
+        columns[name] = {
+            member: sum_value(item.terms, {c: columns[c][member] for c, _ in item.terms})
+            for member in spec.members
+        }
     return {member: {key: columns[key][member] for key in keys} for member in spec.members}
 
 
@@ -775,11 +804,14 @@ def _check_pairing(reduce_id: str, select_id: str | None) -> None:
 
 def _declared(
     spec: CombineSpec, registry: OperatorRegistry
-) -> tuple[_Declared | _ReplyDeclared, ...]:
+) -> tuple[_Declared | _ReplyDeclared | _Summed, ...]:
     if spec.signals is None:
         return ()
-    found: list[_Declared | _ReplyDeclared] = []
+    found: list[_Declared | _ReplyDeclared | _Summed] = []
     for name, source in spec.signals.items():
+        if isinstance(source, SumSource):  # computed by the core, no source plugin (E4b part 6)
+            found.append(_Summed(name, tuple(source.coefficients.items())))
+            continue
         if isinstance(source, LogprobSource | EntropySource):
             found.append(_ReplyDeclared(name, source))  # read from the reply, not the text
             continue

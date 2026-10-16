@@ -13,6 +13,7 @@ WHY not ``math.fsum`` of the float products: each product is rounded before the 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from fractions import Fraction
 
 
 def sum_value(
@@ -23,7 +24,16 @@ def sum_value(
     None when a component value is None (SU-I3: missing is not zero), or when the exact sum is
     outside the float range. Every name of ``terms`` is a key of ``values``; every number is finite.
     """
-    raise NotImplementedError("E4b part 6 unit 1")
+    total = Fraction(0)
+    for name, coefficient in terms:
+        value = values[name]
+        if value is None:
+            return None
+        total += Fraction(coefficient) * Fraction(value)
+    try:
+        return float(total)
+    except OverflowError:  # the exact sum is outside the float range
+        return None
 
 
 __all__ = ["sum_value"]

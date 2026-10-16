@@ -235,7 +235,7 @@ class SumSource(_SpecModel):
 
 # WHY a tagged union: the `source` word picks the one model, so a bad entry fails on its own keys.
 DeclaredSource = Annotated[
-    VerbalizedSource | LogprobSource | EntropySource, Field(discriminator="source")
+    VerbalizedSource | LogprobSource | EntropySource | SumSource, Field(discriminator="source")
 ]
 
 
@@ -307,6 +307,9 @@ def _check_signals(spec: CombineSpec) -> None:
     # could not each get the k they declare.
     if sum(isinstance(entry, EntropySource) for entry in signals.values()) > 1:
         raise ValueError("signals declares more than one entropy source")
+    for entry in signals.values():
+        if isinstance(entry, SumSource):  # E4b part 6
+            _check_sum(entry, signals)
     _check_weight_source(spec.weights, signals)
 
 
@@ -329,6 +332,17 @@ def _cannot_weigh(source: DeclaredSource | None) -> bool:
     return isinstance(source, EntropySource) or (
         isinstance(source, LogprobSource) and source.form != "prob"
     )
+
+
+def _check_sum(entry: SumSource, signals: Mapping[str, DeclaredSource]) -> None:
+    """SU-I1, SU-I2 and the non-zero rule (E4b part 6, P3, P4). A message names the rule only."""
+    for name, coefficient in entry.coefficients.items():
+        if name not in signals:
+            raise ValueError("a sum adds only names the spec declares")
+        if isinstance(signals[name], SumSource):
+            raise ValueError("a sum does not add another sum")
+        if coefficient == 0:
+            raise ValueError("a sum coefficient is not zero")  # 0.0 == -0.0, so both fail
 
 
 def _check_gate(spec: CombineSpec) -> None:
