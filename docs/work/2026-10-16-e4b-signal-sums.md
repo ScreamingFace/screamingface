@@ -1002,10 +1002,15 @@ None.
 
 ### Unit 7 outcome
 
-- **Status:** in_progress (RED, commit A)
-- **Unit 6 tip (base of the unit 7 append-only check):** `8c8297257` (the unit 6 code commit).
-- **Commits:** A = — test(e4b): RED for E4b part 6 unit 7 docs; B = none; C = — docs(e4b): README
-  and CHANGELOG for sums and the abstain band (part 6).
-- **RED record (commit A):** `test_sum_band_docs.py`: `1 passed, 4 failed`. DC#1 passes (CHAR). DC#2 fails on the heading list (`_headings_between(_FUSION, _INSTALL)` lacks `### Sum signals and the abstain band`). DC#3 fails on `README.md has no '### Sum signals and the abstain band' section`. DC#4 fails on `**Sums and the band.**`. DC#5 fails on `0 == 1` (no part 6 bullet). Lint: `ruff format --check`, `ruff check` and `pyright` clean on the new file.
-- **Gates:**
-- **Deviations:**
+- **Status:** Built. The README section, the README paragraph and the CHANGELOG bullet are in
+  commit C. The docs tests of this unit pass. No code and no test file changed in this unit.
+- **Unit 6 tip (base of the unit 7 append-only check):** `8c8297257`.
+- **Commits:** A = `78732b606` (test(e4b): RED for E4b part 6 unit 7 docs); B = none; C = the commit
+  `docs(e4b): README and CHANGELOG for sums and the abstain band (part 6)` that holds this outcome.
+- **RED record (commit A):** `tests/test_sum_band_docs.py`: 1 passed, 4 failed. DC#1 passes; DC#2
+  to DC#5 fail on the missing doc text, as the spec §6 table says.
+- **Gates:** Before commit C, the focused list of spec §9 step 4 (12 files) gave 122 passed. The
+  README diff is 81 added and 0 removed lines; the CHANGELOG diff is 2 added lines. The count of
+  lines over 100 bytes stays 37, and no added line ends with a space. `ruff format --check`,
+  `ruff check` and `pyright` on the new test file are clean. The gate stacks run after commit C.
+- **Deviations:** None from the spec text. The spec §10 planned deviations apply as written.
