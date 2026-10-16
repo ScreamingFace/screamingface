@@ -114,7 +114,7 @@ _REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
-            r"(?i)(?<![\w:.])(?=[0-9a-f:]{0,39}::|(?:[0-9a-f]{1,4}:){7})"
+            r"(?i)(?<![\w:.])(?=[0-9a-f:]{0,39}::|(?:[0-9a-f]{1,4}:){7})(?=:*[0-9a-f])"
             r"[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?:/\d+)?(?![\w:])"
         ),
         "[url]",
@@ -149,7 +149,12 @@ _ADDRESS_RESIDUE: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?i)(?<![\w.-])(?:[a-z0-9-]{1,63}\.){1,32}[a-z]{2,63}(?![\w-])"),
     # Percent-encoding (`%2F`) and IPv6 zone ids (`%eth0`); a bare `100%` before a space relays.
     re.compile(r"%[0-9A-Za-z]"),
-    re.compile(r"::"),  # IPv6 residue, incl. zone ids (`fe80::1%eth0`)
+    # IPv6 residue — `::` next to a hex digit; a bare `::` (C++ scope operator) is not one.
+    re.compile(r"(?i)[0-9a-f]::|::[0-9a-f]"),
+    # WHY (#1233 review at 39e0c0452): the path rule stops at whitespace, so a Windows path with
+    # a space (`C:\Users\Jane Doe\secret`) leaves a backslash suffix. Any surviving backslash
+    # withholds — with or without an extension.
+    re.compile(r"\\"),
     re.compile("[\u3002]"),  # ideographic full stop — an IDNA dot NFKC does not fold
     re.compile(r"\w@"),  # an email/userinfo fragment left behind
 )

@@ -325,3 +325,11 @@ hostname with alphabetic TLD and no `_` (so `response_format.type`, `messages[0]
 Runs on the uncapped redacted text. Full aigateway unit suite unchanged otherwise.
 Guards: `test_an_address_surviving_redaction_withholds_the_text`,
 `test_ordinary_text_without_addresses_still_relays`.
+
+**HupBaHa review at `39e0c0452` (and the two at `b66b363df` / `7a13b8cfb` I missed while chasing
+the security passes).** Scoped IPv6 confirmed fixed by the backstop. Remaining blocker: a
+Windows path with a space (`C:\Users\Jane Doe\secret`) left a backslash suffix, and the `.txt`
+variant only withheld via the dotted-host residue. Fix: any backslash surviving redaction
+withholds, extension or not (regressions for both, a quoted `Program Files` path and UNC).
+Fidelity nit: a bare `::` (C++ scope operator) is no longer redacted as IPv6 — the bare-IPv6
+rule needs a hex digit and the `::` residue needs a hex neighbour.

@@ -263,3 +263,24 @@ def test_an_address_surviving_redaction_withholds_the_text(text) -> None:
 )
 def test_ordinary_text_without_addresses_still_relays(text) -> None:
     assert sanitize_upstream_text(text) == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # WHY (#1233 review at 39e0c0452): a Windows path with a space is cut by the `\S+` path
+        # rule; the backslash suffix (`Doe\secret`) must withhold on its own, extension or not.
+        "failed at endpoint=C:\\Users\\Jane Doe\\secret",
+        "failed at endpoint=C:\\Users\\Jane Doe\\secret.txt",
+        "failed at 'C:\\Program Files\\corp app\\config'",
+        "share \\\\fileserver\\Jane Doe\\inbox unavailable",
+    ],
+)
+def test_a_surviving_backslash_path_fragment_withholds_the_text(text) -> None:
+    assert sanitize_upstream_text(text) is None
+
+
+def test_a_cpp_scope_operator_is_not_mistaken_for_an_ipv6_address() -> None:
+    # Fidelity (non-blocking review note): `::` with no hex neighbour is not an address.
+    text = "C++ error near :: operator"
+    assert sanitize_upstream_text(text) == text
