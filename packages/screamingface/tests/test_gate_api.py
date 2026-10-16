@@ -469,7 +469,7 @@ def test_public_surface_lists_gate_and_the_vote_parameters() -> None:
     assert str(vote_parameters["verify"]) == "verify: 'None' = None"
     assert "Gate" in sf.__all__
     gate_parameters = inspect.signature(sf.Gate).parameters
-    assert list(gate_parameters) == ["observe", "cmp", "threshold", "otherwise"]
+    assert list(gate_parameters) == ["observe", "cmp", "threshold", "otherwise", "abstain_band"]
     assert gate_parameters["otherwise"].kind is inspect.Parameter.KEYWORD_ONLY
     assert gate_parameters["otherwise"].default == "abstain"
 

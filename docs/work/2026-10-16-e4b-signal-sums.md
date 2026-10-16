@@ -683,3 +683,88 @@ Append-only, not flagged: `ET/test_combine_evidence_contract_fixture.py`,
     and `ET/test_combine_gate.py:566`.
   - The 38 old cases of `evidence_cases.json` kept their bytes (checked with a script before
     commit B).
+
+## Unit 5: band-api (`sf.Gate(..., abstain_band=(lo, hi))`)
+
+**Status:** in_progress
+
+### Intent
+
+PRD `band-api` rows BA#1–9 (ans:Q2; P7, P8, P11, P15; contracts C4, C6). The SDK gate gets the
+keyword-only `abstain_band=None` and the last field `abstain_band`. The constructor checks the
+band (a pair of finite numbers, `lo <= hi`, an agreement band in `[0, 1]`) and stores two floats.
+The spec gate gets `"abstain_band": [lo, hi]` only when set; the repr and `Url4.to_python()` write
+`abstain_band=(lo, hi)` after `otherwise=`. `_rebuilt_gate` accepts the part 5 keys plus the
+optional band; a present non-list band (null included) is "cannot rebuild". The SDK-compiled
+fixture `gate_band_vote_candidate.url4` (recipe G) runs offline in the Engine world: in the band
+the Case abstains with `in_band`; below it the majority stands.
+
+### Planned changes
+
+- `S/gate.py`: field and keyword `abstain_band`; `_band`, `_band_pair`, `_BAND_PAIR`,
+  `_BAND_FINITE`; `_spec`, `_render`; docstrings.
+- `S/reducer.py`: `_GATE_SPEC_KEYS`, `_BAND_KEY`, `_rebuilt_band`; `_rebuilt_gate` key check and
+  `abstain_band=` pass-through.
+- New `ST/test_band_api.py` (rows 1–6, 24 test ids). Appended to `ST/test_sum_contract_fixtures.py`:
+  builder `gate_band_vote_url4`, one `BUILDERS |=` line, `test_gate_band_fixture_matches_the_sdk_compile`.
+  Appended to `ET/test_combine_sum_run.py`: `test_engine_runs_the_band_fixture_offline` (2 ids).
+  New data `ET/data/combine_contract/gate_band_vote_candidate.url4`.
+
+### Pinned edits
+
+- `packages/screamingface/tests/public_surface_snapshot.json` (regenerated with
+  `UPDATE_SURFACE_SNAPSHOT=1`): `Gate.__init__` gains
+  `abstain_band: 'tuple[float, float] | None' = None`; `Gate` member `abstain_band`.
+- `packages/screamingface/tests/test_gate_api.py` line 472: the parameter list gains
+  `"abstain_band"`.
+
+### Test plan
+
+- 9 rows: CHAR BA#1; RED BA#2–8 (BA#6 also has one guard function that passes in commit A);
+  PIN BA#9.
+- Stub (commit A): `Gate.__init__` takes `abstain_band` and stores None. Expected RED:
+  `test_band_api.py` 22 failed, 2 passed; BA#7 1 failed; BA#8 2 failed. No import or keyword
+  error.
+- Oracles: the PRD messages; exact sums with `fractions.Fraction` (risk 5.0, 2.5, 2.0 → mean
+  `3.1666666666666665`; 1.0, 1.0, 2.0 → `1.3333333333333333`); the judge text rendered by part 5
+  `Gate._python()`.
+
+### Acceptance
+
+- The 9 rows pass. BA#1 passes before and after the change.
+- The snapshot diff is only the two `Gate` lines; `test_gate_api.py` differs only at line 472.
+- `git diff U4 --stat` on `packages` and `apps` lists only the files of the unit spec §9.
+- Gates: `screamingface-engine`, `screamingface`, `repo` green, except the append-only check
+  against `633fec3a1`, which lists only the pinned files of units 1–5; green with
+  `--skip-append-only`.
+
+### Deviations
+
+- D-1 (BA-3 oracle): the PRD writes the fallback as `sf.Judge("prov/judge", returns="label")`,
+  but `sf.Judge` requires `rubric=`. The test uses `rubric="Pick the best answer."` (the part 5
+  `_FB_RUBRIC`), so the text is `sf.Gate('mean:risk', '<=', 3.0, otherwise=sf.Judge('prov/judge',
+  returns='label', rubric='Pick the best answer.'), abstain_band=(2.5, 3.5))`. Erratum in
+  overview §11 (commit C).
+- D-2 (helpers): `_band`, `_band_pair` (S/gate.py) and `_rebuilt_band`, `_GATE_SPEC_KEYS`,
+  `_BAND_KEY` (S/reducer.py) are private names the PRD does not give. They keep the ruff caps
+  (max-branches 7, max-returns 3, mccabe 8).
+- D-3 (rows): BA#3 adds one input beyond the PRD list, `(0.0, float("inf"))`. BA#6 is two
+  functions: the hand edits (BA-E2) and the declared-name guard (BA-D3, with
+  `signals={"conf": ...}` so its message does not depend on unit 2).
+- D-4 (BA#8 oracle): the PRD gives the full gate record of run 1 only. Run 2's record is
+  hand-derived (`observed 1.3333333333333333`, `passed True`, `branch "majority"`, the band
+  kept, GB-I3). The test also checks the member signals, the declared map and the record key
+  order (erd §4).
+- D-5 (commit split): the snapshot and the line 472 edits are in commit A, because the stub
+  already has the final signature.
+
+### Outcome (fill at the end, before commit B)
+
+- **Status:**
+- **Actual files:**
+- **Commits:** A = , B = , C =
+- **U4 (unit 4 tip):**
+- **RED log:**
+- **Gates:**
+- **Flakes:**
+- **Deviations (build):**

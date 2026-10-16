@@ -66,3 +66,34 @@ def assert_fixture_matches(name: str) -> None:
 @pytest.mark.parametrize("name", _SUM_FIXTURES)
 def test_sum_pick_fixture_matches_the_sdk_compile(name: str) -> None:
     assert_fixture_matches(name)
+
+
+# ---- E4b part 6 unit 5 (band-api): BA#7 ----
+
+
+def gate_band_vote_url4() -> str:
+    """BA-2: recipe G, a vote gated on the mean of a declared sum, with an abstain band."""
+
+    recipe = sf.Fusion(
+        ["prov/alpha", "prov/beta", "prov/gamma"],
+        name="vote",
+        signals={
+            "risk": sf.Sum({"sev_a": 0.5, "sev_b": 0.3}),
+            "sev_a": sf.Verbalized("A: ([0-9]+)"),
+            "sev_b": sf.Verbalized("B: ([0-9]+)"),
+        },
+        synthesizer=sf.Vote(gate=sf.Gate("mean:risk", "<=", 3.0, abstain_band=(2.5, 3.5))),
+    )
+    return compile_candidate(recipe, operators=engine_operators()).url4
+
+
+BUILDERS |= {"gate_band_vote_candidate.url4": gate_band_vote_url4}
+
+
+@requires_engine_app
+def test_gate_band_fixture_matches_the_sdk_compile() -> None:
+    name = "gate_band_vote_candidate.url4"
+    fixture = COMBINE_CONTRACT / name
+    assert ENGINE_APP.exists()
+    assert fixture.exists(), f"combine_contract/{name} is missing - run write_fixture({name!r})"
+    assert fixture.read_text(encoding="utf-8").removesuffix("\n") == BUILDERS[name]()
