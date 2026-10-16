@@ -1047,6 +1047,93 @@ S16 records the small model's value and whether it passed the Filter. The larger
 on every Case: a cascade that skips it comes with E4c. When the small model does not pass, the
 writer gets `{"input":"...","selected":[]}`.
 
+### Gate the majority
+
+A gate decides when a majority vote is strong enough to keep. It compares one named number with
+one threshold. The gate is data, not code, so a reader can replay it from the recipe:
+`sf.Vote(gate=sf.Gate(observe, cmp, threshold, otherwise=...))`. `observe` is `"agreement"`,
+`"chosen:<name>"` (a declared signal of the chosen member) or `"mean:<name>"` (the mean of a
+declared signal over the members). `<name>` must be a name that the Fusion declares in `signals=`
+(see "Signal sources"); any other name raises `ValueError` before any call. `cmp` is `>=`, `>`,
+`<=` or `<`, and it is the condition that keeps the majority: when `observed cmp threshold` is
+true, the answer is the majority answer. `>=` keeps the majority at equality. An agreement gate
+takes only `>=` or `>`, and a threshold from 0 to 1. The agreement is the winner's share of the
+votes; for a weighted vote, it is the winner's share of the weight. When the comparison is false,
+the fallback gives the answer:
+
+- `otherwise="abstain"` (the default): the Case abstains with the reason `gate_not_met`. This is a
+  scored decline, not a wrong answer and not a failure, and coverage counts it with the other
+  abstains.
+- `otherwise=sf.Judge(..., returns="label")`: the judge names one member, and the answer is that
+  member's text.
+- `otherwise=sf.Model(...)`: the model writes the answer.
+
+In this version the fallback call runs on every Case, also when the gate keeps the majority, and
+you pay for it. The gate chooses and records; a cascade that skips the call comes with E4c. If the
+fallback call fails, the Case fails, also when the gate keeps the majority.
+
+When there is no number to compare (the chosen member has no value for the name, or no member has
+a value for a mean), the gate takes the fallback. A vote with no answer does not run the gate: the
+Case abstains with `no_votes`, as it does without a gate.
+
+Each recipe below runs offline in the Engine's tests, from the url4 that the SDK compiles. The
+routes are placeholders: put your own model routes in their place.
+
+```python
+import screamingface as sf
+
+panel = ["prov/alpha", "prov/beta", "prov/gamma"]
+
+# Keep the majority when at least 70% of the votes agree; else the Case abstains.
+g1_agreement_abstain = sf.Fusion(
+    panel, name="vote", synthesizer=sf.Vote(gate=sf.Gate("agreement", ">=", 0.7))
+)
+# Below 70%, a judge names one member, and the answer is that member's text.
+g2_agreement_judge = sf.Fusion(
+    panel,
+    name="vote",
+    synthesizer=sf.Vote(
+        gate=sf.Gate(
+            "agreement",
+            ">=",
+            0.7,
+            otherwise=sf.Judge("prov/judge", returns="label", rubric="Pick the best answer."),
+        )
+    ),
+)
+# Below 70%, a model writes the answer.
+g3_agreement_writer = sf.Fusion(
+    panel,
+    name="vote",
+    synthesizer=sf.Vote(
+        gate=sf.Gate(
+            "agreement",
+            ">=",
+            0.7,
+            otherwise=sf.Model("prov/writer", prompt="Write one answer."),
+        )
+    ),
+)
+# Keep the majority when the chosen member states a confidence of 80 or more.
+# Each member must write a line such as "Confidence: 90" (see "Signal sources").
+g4_confidence_gate = sf.Fusion(
+    panel,
+    name="vote",
+    signals={"conf": sf.Verbalized(r"Confidence: ([0-9]+)")},
+    synthesizer=sf.Vote(gate=sf.Gate("chosen:conf", ">=", 80)),
+)
+```
+
+For a logprob cascade, declare `signals={"lp": sf.Logprob("prob")}` and gate on `"chosen:lp"`:
+the majority stays when the token probability of the chosen member's answer is high enough.
+
+`sf.Vote(verify=None)` is a reserved place for a later verifier; any other value raises
+`ValueError`.
+
+This gate is not the per-round gate of a corrective loop.
+
+The Case pane, the run summary and the export show the gate (see "Combine steps in the report").
+
 ### Fusion as a named recipe
 
 `sf.Fusion(members, synthesizer=sf.Model(p))` is the named recipe Fan-out, then
@@ -1390,6 +1477,16 @@ member output text except each member's extracted `raw` and `value`. For `whole@
 `json_object@1` these are the whole reply, so the export holds that text two times. The other keys
 do not change, and the schema stays `report.v1`. A Case with no combine evidence has no `trace`
 key.
+
+**The gate.** A gated vote has one more chip in its Combine section, right after the agreement
+chip, for example `gate · agreement >= 0.7 · observed 0.6667 · fallback · judge`. The chip shows
+the number that the gate read, the comparison, the threshold, the observed value and the branch:
+`majority`, `fallback` with its fallback (`abstain`, `judge` or `writer`), or `not run` when the
+vote found no answer. The run summary of a gated step has one line before its table, for example
+`gate · majority 2 of 3 · fallback 1 of 3`, with `not run` added when a Case did not run the gate.
+The export holds the gate record in `operations[].combine.gate`, with the keys `observe`,
+`observed`, `cmp`, `threshold`, `passed`, `branch` and `otherwise`. When the step read a judge
+fallback, the judge chip and the trace `judge_model` name that judge.
 
 Numbers show 4 significant digits; hover a number to see the exact stored value. A missing value
 is an em dash; hover it to see why. The combine steps of an Attempt (`case.attempts`) are not in
