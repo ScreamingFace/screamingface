@@ -518,3 +518,99 @@ RED came first.
   `test_chosen_signal_with_no_chosen_member_is_missing` failed with `OverflowError` and
   `IndexError`, then passed after the fix. The review comment "(review fix)" in `gate.py` is now a
   `WHY` comment.
+
+## Unit 3: gate-api-core (`sf.Gate`, `sf.Vote(gate=, verify=)`)
+
+### Intent
+
+PRD `gate-api` rows GA#1, GA#2, GA#5–9, GA#12a, GA#17a, GA#18a, GA#19, GA#20 and PRD
+`verifier-slot` rows VS#4–6 (ans:Q1–Q4; P1, P3, P4, P7, P15, P17). The SDK gets the public class
+`sf.Gate(observe, cmp, threshold, *, otherwise="abstain")` with every constructor check, its repr
+and Python form. `sf.Vote` gets `gate=` and the reserved `verify=None`. The combine spec gets the
+key `gate`. `sf.Fusion` refuses a gate that reads an undeclared name before any call.
+`Url4.to_python()` rebuilds a gate with no fallback call. Two SDK-compiled fixtures (abstain,
+verbalized) run offline in the Engine world. The judge and writer fallback calls are unit 4:
+`Gate._signal_call` raises `NotImplementedError` for them here.
+
+### Planned changes
+
+- New `S/gate.py`: `Gate`, `GateCmp`; helpers `_observe`, `_cmp`, `_threshold`,
+  `_check_agreement`, `_otherwise`, `_otherwise_word`, `_python_form`.
+- `S/reducer.py`: `_ReducerPlan.gate`; `Vote` fields `gate`, `verify`; `Vote.__init__(...,
+  gate=None, verify=None)`; `_vote_gate`, `_check_verify`, `_recovered_gate`, `_GATE_KEYS`;
+  `_vote_plan(..., gate=None)`; `Vote._plan`, `_from_spec_parts`, `_render`.
+- `S/fusion.py`: `_check_gate_name` called from `_declared`; docstring sentence.
+- `S/_evaluation/combine_spec.py`: `combine_spec_text` writes `gate`.
+- `S/__init__.py`: export `Gate`.
+- New tests `ST/test_gate_api.py` (13 tests), `ST/test_gate_contract_fixtures.py` (2 ids),
+  `ET/test_combine_gate_run.py` (2 ids). New data
+  `ET/data/combine_contract/gate_abstain_vote_candidate.url4`,
+  `ET/data/combine_contract/gate_verbalized_vote_candidate.url4`.
+
+### Pinned edits
+
+- `packages/screamingface/tests/public_surface_snapshot.json` (regenerated with
+  `UPDATE_SURFACE_SNAPSHOT=1`): `Gate` in `__all__` and `exports`; `Vote.__init__` gains
+  `gate: 'Gate | None' = None, verify: 'None' = None`; `Vote` members `gate`, `verify`.
+
+### Test plan
+
+- 15 rows: CHAR GA#1; RED GA#2, 5, 6, 7, 8, 9, 12a, 17a, 18a, 19, VS#4, 5, 6; PIN GA#20 (the
+  regenerated snapshot plus one introspection test).
+- Stubs (commit A): `S/gate.py` with the exact `Gate.__init__` signature whose body raises
+  `NotImplementedError`; `sf.Gate` exported. `sf.Vote` gets no new keyword in commit A, so the
+  `gate=` / `verify=` rows fail on the missing keyword. Expected RED: SDK `14 failed, 1 passed`
+  for the two new files; `test_public_surface_matches_the_committed_snapshot` fails; Engine
+  `2 failed`.
+- Oracles: hand-derived spec texts (unit spec §3.2), the PRD messages, fixture V numbers
+  (agreement `0.6666666666666666`), GD-2 and GD-5 for the Engine runs.
+
+### Acceptance
+
+- The 15 rows pass. GA#1 passes before and after the change.
+- The snapshot diff is only the three changes of the pinned edit.
+- `git diff U2 --stat` on the two test folders lists only the new files and the snapshot.
+- Gates: `screamingface-engine`, `screamingface`, `repo` green, except the append-only check
+  against `4e622af75`, which lists only the pinned files of units 1–3; green with
+  `--skip-append-only`.
+
+### Deviations
+
+- D-1 (GA-5 oracle): "a recipe whose repr equals the original's" cannot hold literally: the url4
+  rebuild keeps the pinned operator ids (`extract='last_line@1', normalize='text@1'`, part 3
+  erratum E9). GA#12a compares the rebuilt repr with a hand-written literal that holds the `@1`
+  ids, checks that the rebuilt gate equals the original gate, and checks the byte-equal recompile.
+- D-2 (GA#1 method): "recompiles byte-equal" uses the operator ids that each url4 pins
+  (`_OperatorCatalog.from_pinned`), and for `corrective_vote_candidate.url4` the IFEval check
+  route the url4 holds (`feedback_intent="feedback"`, as its drift guard). Checked on
+  `62060ebec`: 43 of 43 equal.
+- D-3 (plan §2 file split): `_vote_plan` appends the gate fallback call after the judge call in
+  this unit, not in unit 4. So a judge or model fallback fails loudly (`NotImplementedError` at
+  plan time) and never compiles a spec with `otherwise: "judge"` and no call. Unit 4 only fills
+  `Gate._signal_call` and tests the order (GA#15).
+- D-4 (PRD constructor table): the TypeError row names "a route string", but a route string is a
+  `str`, which the ValueError row covers. Built rule: every `str` other than `"abstain"` →
+  ValueError; every other object that is not an `sf.Judge` or an `sf.Model` → TypeError.
+- D-5 (addition): `Gate.__hash__ = None`, as `sf.Vote`: a gate may hold an `sf.Model`, which is
+  unhashable.
+- D-6 (addition): GA#20 also gets a small introspection test in `ST/test_gate_api.py`; it checks
+  names, kinds and defaults only, so a later signature change does not turn it red.
+- D-7 (helpers): `_observe`, `_cmp`, `_threshold`, `_check_agreement`, `_otherwise`,
+  `_otherwise_word`, `_python_form`, `_vote_gate`, `_check_verify`, `_recovered_gate`,
+  `_check_gate_name` are private helpers the PRD does not name. They keep the ruff caps
+  (max-branches 7, max-returns 3, mccabe 8).
+- D-8 (open, commit A): the unit 2 review routed "one SDK home for `GateCmp`, `_GATE_CMPS` and
+  `_gate_observe`" to this unit. The unit spec §2.1 still defines `type GateCmp` in `S/gate.py`
+  and `_observe` there. Commit A follows §2.2. The owner or the orchestrator decides the home
+  before commit B.
+
+### Outcome (fill at the end, before commit B)
+
+- **Status:** in_progress (commit A: RED tests and stubs)
+- **Actual files:**
+- **Commits:** A = , B =
+- **U2 (unit 2 tip):**
+- **RED log:**
+- **Gates:**
+- **Flakes:**
+- **Deviations (build):**
