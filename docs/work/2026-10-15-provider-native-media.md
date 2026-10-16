@@ -55,4 +55,7 @@ See `docs/plan/2026-10-15-provider-native-media.md` steps 1–5.
   - Route-level coverage: `tests/unit/test_native_media_route.py` drives `/v1/chat/completions`
     (Codex) and pins the typed 422 reaching the HTTP caller with no dispatch; mutation-checked
     (gate disabled → 4 of 5 fail).
-  - Not yet verified live: the external 12-call run after the staging deploy answers `OME-1598`.
+  - Live (2026-10-16, local gateway, real OAuth): Antigravity reads the PNG (4827) and the PDF
+    (ZEBRA-4127) correctly — image +1098, PDF +527 prompt tokens. Gemini CLI blocked by account
+    onboarding (text fails too). Codex 400s on every model, text too → bug `OME-1634`; Codex media
+    stays unverified live until that is fixed. Results posted to `OME-1598`.
