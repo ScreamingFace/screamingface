@@ -323,7 +323,7 @@ def _not_run_but_answered() -> dict[str, Any]:
         pytest.param(_with_gate(passed="no"), "gate passed must be a boolean", id="passed-no"),
         pytest.param(
             _with_gate(branch="maybe"),
-            "Combine gate branch must be one of fallback, majority",
+            "Combine gate branch must be one of band, fallback, majority",
             id="branch-maybe",
         ),
         pytest.param(

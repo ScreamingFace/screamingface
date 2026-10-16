@@ -14,10 +14,12 @@ INVARIANT: pure CPU work -- no HTTP client, no clock, no cache, no module state.
 comes from ``spec.members``; nothing iterates a dict or set to decide an output.
 INVARIANT: only a ``CombineError`` is a declared failure. A plugin bug stays loud. A step that
 finds no answer (no usable member, a reduce or select step raising ``NoVotes``, or a vote gate that
-takes the abstain fallback: ``gate_not_met``, E4b part 5) is not a failure: it returns evidence
-with ``result.status == "abstain"`` and the empty text. A select operator with ``envelope`` (Rank,
+takes the abstain fallback: ``gate_not_met``, E4b part 5, or that finds its number inside the
+abstain band: ``in_band``, E4b part 6) is not a failure: it returns evidence with
+``result.status == "abstain"`` and the empty text. A select operator with ``envelope`` (Rank,
 Filter) returns the empty envelope instead (E4b fix 2026-10-14).
 INVARIANT (FB-I1, E4b part 5): only the fallback branch of a gate reads a ``fallback_*`` reply.
+The band branch (E4b part 6) never reads one.
 INVARIANT: a failure message names ids, counts and limits -- never member text or arg values.
 WHY no ``record_model_outcome``: the step is not a model call, so the Candidate's terminal finish
 reason stays the members' common reason; the operation's own finish reason is ``stop``.
@@ -51,6 +53,7 @@ from screamingface_engine.combine.gate import (
     check_fallback_signals,
     fallback_label,
     fallback_text,
+    in_band,
     observed_number,
     passes,
 )
@@ -74,6 +77,7 @@ from screamingface_engine.combine.ports import (
     EvidenceKind,
     ExcludeReason,
     Extractor,
+    GateBranch,
     InputTooLarge,
     MemberSources,
     Normalizer,
@@ -500,7 +504,8 @@ def _decide(
     """Run reduce, then select, then the gate when the spec has one (E4b part 5).
 
     Three things may abstain: the reduce and the select steps (by raising ``NoVotes``) and the gate
-    (``gate_not_met``). When reduce or select abstains, the gate does not run (GR-I1, P10).
+    (``gate_not_met``, or ``in_band`` inside the abstain band, E4b part 6). When reduce or select
+    abstains, the gate does not run (GR-I1, P10).
     """
     try:
         reduction = plan.reduce.run(combine_input, plan.reduce.args)
@@ -575,16 +580,22 @@ def _gated(
     *,
     recorded: Mapping[str, Mapping[str, float | None]],
 ) -> CombineOutcome:
-    """Compare the gate number with the threshold, record it, and take one branch (ans:Q1).
+    """Check the band, then compare the gate number with the threshold; record it and take one
+    branch (ans:Q1; E4b part 6 ans:Q2).
 
-    True: the majority answer. False: the fallback (abstain, judge or writer). FB-I1: the majority
-    branch never reads a fallback reply, so E4c can skip that call with no wire change.
+    Inside the band (P8, P9): an abstain with ``in_band`` for every ``otherwise``; no comparison.
+    Outside it: true keeps the majority answer; false takes the fallback (abstain, judge or writer).
+    FB-I1: the majority and the band branches never read a fallback reply, so E4c can skip that
+    call with no wire change (C8).
     """
     observed = observed_number(gate, selection, recorded, combine_input.members)
-    passed = passes(observed, gate.cmp, gate.threshold)
-    record = _gate_record(gate, observed, passed)
-    # E2: set before the branch, so a gate abstain logs them too.
+    # Part 5 erratum E2: the log fields are set before any branch, so an abstain logs them too.
     _trace_selection(trace, selection)
+    # WHY one flow and not an early band return: this function is at the lint limit of 3 returns.
+    banded = in_band(observed, gate.abstain_band)
+    passed = None if banded else passes(observed, gate.cmp, gate.threshold)
+    branch: GateBranch = "band" if banded else ("majority" if passed else "fallback")
+    record = _gate_record(gate, observed, passed, branch)
     if passed:
         return _majority(
             spec,
@@ -597,13 +608,14 @@ def _gated(
             recorded=recorded,
             gate=record,
         )
-    if gate.otherwise == "abstain":
+    if banded or gate.otherwise == "abstain":
+        reason: AbstainReason = "in_band" if banded else "gate_not_met"
         return _abstain(
             spec,
             plan,
             combine_input,
             reduction,
-            "gate_not_met",
+            reason,
             recorded=recorded,
             selection=selection,
             gate=record,
@@ -673,19 +685,31 @@ def _not_run(spec: CombineSpec) -> GateRecord | None:
     """GR-I1, P10: the record of a gate that did not run (the vote found no answer); None when the
     spec has no gate. The fallback reply is not read."""
     gate = spec.gate
-    return None if gate is None else _gate_record(gate, None, None)
+    return None if gate is None else _gate_record(gate, None, None, None)
 
 
-def _gate_record(gate: GateSpec, observed: float | None, passed: bool | None) -> GateRecord:
-    """The record of one gate comparison; ``passed`` None is a gate that did not run (GR-I1)."""
+def _gate_record(
+    gate: GateSpec, observed: float | None, passed: bool | None, branch: GateBranch | None
+) -> GateRecord:
+    """The record of one gate decision. The caller names the branch: ``"band"`` (inside the band,
+    no comparison, so ``passed`` is None), ``"majority"``, ``"fallback"``, or None (the gate did
+    not run, GR-I1). The record copies the spec band (P11).
+
+    WHY a branch argument and not a ``band`` flag: a flag is valid only with ``passed`` None, so a
+    caller could build a record that the model refuses at run time (spec review R12).
+    """
+    band = gate.abstain_band
     return GateRecord(
         observe=gate.observe,
         observed=observed,
         cmp=gate.cmp,
         threshold=float(gate.threshold),
         passed=passed,
-        branch=None if passed is None else ("majority" if passed else "fallback"),
+        branch=branch,
         otherwise=gate.otherwise,
+        # WHY a list and ``float(...)``: the record model is strict; it refuses a tuple, and the
+        # wire is a JSON list.
+        abstain_band=None if band is None else [float(value) for value in band],
     )
 
 
@@ -706,8 +730,8 @@ def _abstain(
     That text is empty, except for a select step that hands on the selection envelope (Rank and
     Filter): it hands on the empty envelope ``{"input":"...","selected":[]}``, so the next stage
     still sees the input (E4b ans:Q7 with ans:Q4). The 8 MiB result cap applies to it too.
-    A gate abstain (gate_not_met) passes the vote's selection, so the evidence keeps the tally, the
-    agreement and the tie (P14).
+    A gate abstain (gate_not_met, in_band) passes the vote's selection, so the evidence keeps the
+    tally, the agreement and the tie (P14).
     """
     output = selection_envelope((), combine_input) if plan.envelope else ""
     if utf8_exceeds(output, MAX_RESULT_BYTES):

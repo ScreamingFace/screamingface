@@ -26,7 +26,7 @@ from screamingface._report_primitives import _optional_number
 ANSWER_SCHEMA = "screamingface.answer.v1"
 type AnswerStatus = Literal["answered", "abstain", "fail", "excluded"]
 type MemberStatus = Literal["answered", "fail", "excluded"]
-type AbstainReason = Literal["no_votes", "cut_not_met", "output_missing", "gate_not_met"]
+type AbstainReason = Literal["no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band"]
 type ExcludeReason = Literal["no_signal", "no_weight"]
 type AnswerReason = Literal[
     "empty",
@@ -41,6 +41,7 @@ type AnswerReason = Literal[
     "cut_not_met",
     "output_missing",
     "gate_not_met",
+    "in_band",
     # A rule of the combine step left an answered member out (E4b part 2): no signal, no weight.
     "no_signal",
     "no_weight",

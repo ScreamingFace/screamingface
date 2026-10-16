@@ -38,7 +38,8 @@ type ResultStatus = Literal["answered", "abstain"]
 type JudgeReturns = Literal["label", "scores"]
 # E4b part 5: the words of a vote gate. ``GateCmp`` is the condition that keeps the majority.
 type GateCmp = Literal[">=", ">", "<=", "<"]
-type GateBranch = Literal["majority", "fallback"]
+# E4b part 6: "band" = inside the abstain band, no comparison.
+type GateBranch = Literal["majority", "fallback", "band"]
 type GateOtherwise = Literal["abstain", "judge", "writer"]
 
 # One source for each vocabulary: the Literal is the list, the set is derived from it.
@@ -202,6 +203,9 @@ class CombineGate:
     and ``branch`` is ``"majority"``; else the ``otherwise`` fallback answered. ``passed`` and
     ``branch`` are None when the vote found no answer, so the gate did not run; ``observed`` is
     then None too. ``observed`` is also None when the gate ran and had no number to compare.
+    E4b part 6 (ans:Q2): ``abstain_band`` is the spec band ``(lo, hi)`` or None. ``branch``
+    ``"band"`` = the number was inside the closed band, so the step abstained with ``in_band``
+    and made no comparison (``passed`` None).
     """
 
     observe: str
@@ -211,6 +215,7 @@ class CombineGate:
     passed: bool | None
     branch: GateBranch | None
     otherwise: GateOtherwise
+    abstain_band: tuple[float, float] | None = None
 
     def __post_init__(self) -> None:
         _gate_observe(self.observe)
@@ -225,6 +230,10 @@ class CombineGate:
         if self.branch is not None:
             _one_of(self.branch, _GATE_BRANCHES, "Combine gate branch")
         _one_of(self.otherwise, _GATE_OTHERWISE, "Combine gate otherwise")
+        object.__setattr__(self, "abstain_band", _gate_band(self.abstain_band))
+        _check_band_gate(self)
+        if self.branch == "band":
+            return  # GR-I1': the band branch has no comparison result (P10)
         # GR-I1
         if (self.passed is None) != (self.branch is None):
             raise ValueError("Combine gate has a branch exactly when it has a comparison result")
@@ -235,7 +244,7 @@ class CombineGate:
             raise ValueError("Combine gate that passed keeps the majority, and only it does")
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        data: dict[str, object] = {
             "observe": self.observe,
             "observed": self.observed,
             "cmp": self.cmp,
@@ -244,6 +253,9 @@ class CombineGate:
             "branch": self.branch,
             "otherwise": self.otherwise,
         }
+        if self.abstain_band is not None:
+            data["abstain_band"] = list(self.abstain_band)
+        return data
 
 
 @dataclass(frozen=True, slots=True)
@@ -483,6 +495,35 @@ def _gate_observe(value: object) -> str:
     return value
 
 
+def _gate_band(value: object) -> tuple[float, float] | None:
+    """The band as a pair of finite floats (a list becomes a tuple); None: no band."""
+    if value is None:
+        return None
+    if isinstance(value, str | bytes) or not isinstance(value, Sequence) or len(value) != 2:
+        raise TypeError("Combine gate abstain_band must be two finite numbers")
+    label = "Combine gate abstain_band"
+    return (_required_number(value[0], label), _required_number(value[1], label))
+
+
+def _check_band_gate(gate: CombineGate) -> None:
+    """GB-I1, GB-I2 and GB-I3 (E4b part 6), the twin of the Engine ``_check_band_record``.
+
+    WHY a helper: ``CombineGate.__post_init__`` is at the lint complexity limit (part 5 E3).
+    """
+    band = gate.abstain_band
+    observed = gate.observed
+    if band is not None and band[0] > band[1]:
+        raise ValueError("Combine gate band is two numbers lo <= hi")
+    inside = band is not None and observed is not None and band[0] <= observed <= band[1]
+    if gate.branch == "band":
+        if gate.passed is not None:
+            raise ValueError("Combine gate in its band made no comparison")
+        if not inside:
+            raise ValueError("Combine gate band branch observed a number inside its band")
+    elif gate.branch is not None and inside:
+        raise ValueError("Combine gate that compared observed a number outside its band")
+
+
 def _check_gate(
     gate: CombineGate | None,
     *,
@@ -492,12 +533,12 @@ def _check_gate(
     built: object,
     result: CombineResult,
 ) -> None:
-    """GR-I1 (evidence part), GR-I4 and GR-I5 of the E4b part 5 erd §4 (GR-I3: _gate_reason)."""
+    """GR-I1 (evidence part), GR-I4' and GR-I5 of erd §4 (GB-I4 and GR-I3: _gate_reason)."""
     if gate is None:
         return
     if gate.passed is None and result.status != "abstain":
         raise ValueError("Combine evidence gate that did not run goes with an abstained result")
-    if gate.observe == "agreement" and gate.passed is not None and gate.observed != agreement:
+    if gate.observe == "agreement" and gate.branch is not None and gate.observed != agreement:
         raise ValueError("Combine evidence agreement gate observes the evidence agreement")
     if gate.branch != "fallback":
         return
@@ -627,7 +668,18 @@ def _result(value: object, chosen: tuple[str, ...], built: object) -> CombineRes
 
 
 def _gate_reason(gate: CombineGate | None, result: CombineResult) -> None:
-    """GR-I3: result.reason "gate_not_met" goes with a gate that took the abstain fallback only."""
+    """GB-I4, then GR-I3: ``in_band`` goes with the band branch only (E4b part 6), and
+    ``gate_not_met`` goes with a gate that took the abstain fallback only (part 5).
+
+    WHY GB-I4 first: ``CombineEvidence.__init__`` calls this before ``_check_gate``; a band gate
+    with the reason ``gate_not_met`` must fail with the ``in_band`` message (AB-E3), as in the
+    Engine.
+    """
+    banded = gate is not None and gate.branch == "band"
+    if (result.reason == "in_band") != banded:
+        raise ValueError(
+            "in_band goes with a gate that abstained inside its band, and only with it"
+        )
     abstained = gate is not None and gate.branch == "fallback" and gate.otherwise == "abstain"
     if (result.reason == "gate_not_met") != abstained:
         raise ValueError(

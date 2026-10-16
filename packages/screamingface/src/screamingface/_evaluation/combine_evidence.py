@@ -71,6 +71,7 @@ _MEMBER_KEYS = {"member_id", "raw", "value", "status", "reason", "signals", "wei
 _OPTIONAL_MEMBER_KEYS = frozenset({"rank"})  # E4b part 2: written only by a top_k@1 step
 _CUT_KEYS = {"k", "order"}
 _GATE_KEYS = {"observe", "observed", "cmp", "threshold", "passed", "branch", "otherwise"}
+_OPTIONAL_GATE_KEYS = frozenset({"abstain_band"})  # E4b part 6: written only with a spec band
 _RESULT_KEYS = {"member_id", "value", "status", "reason"}
 _SIGNAL_KEYS = {"key", "order"}
 _RESULT_STATUSES = frozenset({"answered", "abstain"})
@@ -201,7 +202,12 @@ def _gate(value: object, label: str) -> CombineGate | None:
     if value is None:
         return None
     raw = _mapping(value, label)
-    _exact_keys(raw, _GATE_KEYS, label)
+    _exact_keys(raw, _GATE_KEYS | {key for key in _OPTIONAL_GATE_KEYS if key in raw}, label)
+    band = (
+        _abstain_band(raw["abstain_band"], f"{label} abstain_band")
+        if "abstain_band" in raw
+        else None
+    )
     return CombineGate(
         observe=_text(raw["observe"], f"{label} observe"),
         observed=_optional_number(raw["observed"], f"{label} observed"),
@@ -210,7 +216,19 @@ def _gate(value: object, label: str) -> CombineGate | None:
         passed=_optional_boolean(raw["passed"], f"{label} passed"),
         branch=cast(GateBranch | None, _optional_text(raw["branch"], f"{label} branch")),
         otherwise=cast(GateOtherwise, _text(raw["otherwise"], f"{label} otherwise")),
+        abstain_band=band,
     )
+
+
+def _abstain_band(value: object, label: str) -> tuple[float, float]:
+    """E4b part 6: a list of exactly two numbers (a bool is not a number; null is refused).
+
+    ``CombineGate`` checks that both are finite and that ``lo <= hi``.
+    """
+    items = _list(value, label)
+    if len(items) != 2:
+        raise ExecutionError(f"{label} must be two numbers")
+    return (_number(items[0], label), _number(items[1], label))
 
 
 def _signals(value: object, label: str) -> dict[str, float | None]:

@@ -2,6 +2,7 @@
   "abstain_reason": [
     "cut_not_met",
     "gate_not_met",
+    "in_band",
     "no_votes",
     "output_missing"
   ],
@@ -24,6 +25,7 @@
     "empty",
     "field_missing",
     "gate_not_met",
+    "in_band",
     "missing",
     "no_match",
     "no_signal",

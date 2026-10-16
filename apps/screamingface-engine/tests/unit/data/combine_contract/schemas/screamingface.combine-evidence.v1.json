@@ -45,7 +45,8 @@
                 "no_votes",
                 "cut_not_met",
                 "output_missing",
-                "gate_not_met"
+                "gate_not_met",
+                "in_band"
               ],
               "type": "string"
             },
@@ -192,14 +193,32 @@
     },
     "GateRecord": {
       "additionalProperties": false,
-      "description": "What the gate compared and which branch the step took (E4b part 5, ans:Q1).\n\n``passed`` and ``branch`` are null when the gate did not run (the vote found no answer); then\n``observed`` is null too (GR-I1). ``observed`` is also null when the gate ran and had no number.",
+      "description": "What the gate compared and which branch the step took (E4b part 5, ans:Q1).\n\n``passed`` and ``branch`` are null when the gate did not run (the vote found no answer); then\n``observed`` is null too (GR-I1). ``observed`` is also null when the gate ran and had no number.\nE4b part 6 (ans:Q2): ``branch`` \"band\" = the number was inside the closed ``abstain_band``, so\nthe step abstained with ``in_band`` and made no comparison (``passed`` null, P10).",
       "properties": {
+        "abstain_band": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Abstain Band"
+        },
         "branch": {
           "anyOf": [
             {
               "enum": [
                 "majority",
-                "fallback"
+                "fallback",
+                "band"
               ],
               "type": "string"
             },
@@ -333,7 +352,8 @@
                 "no_votes",
                 "cut_not_met",
                 "output_missing",
-                "gate_not_met"
+                "gate_not_met",
+                "in_band"
               ],
               "type": "string"
             },
