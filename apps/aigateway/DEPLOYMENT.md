@@ -465,7 +465,8 @@ total is submitted to the leaderboard.**
 one page at a time. Spec: `docs/spec/2026-10-15-community-cache.md`.
 
 **Who can call it.** Any authenticated account — not only admins — and never an anonymous
-caller (401). The gateway has no public ingress, so in prod the route is reachable only once the
+caller (401). The exception is `AIGW_AUTH_MODE=disabled`, which is loopback-only: there every
+caller is the anonymous account and may read. The gateway has no public ingress, so in prod the route is reachable only once the
 Engine proxies it. There is no feature flag and no setting.
 
 **What crosses.** Rows of `request_cache_entries` only, minus `provider = 'tavily'` rows (their

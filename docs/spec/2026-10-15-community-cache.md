@@ -84,7 +84,8 @@ the same.
    pull loses no hits. Values match the `model` column exactly as stored (e.g.
    `openrouter/anthropic/claude-opus-5.5`); an unknown model yields an empty first page.
 4. **Signed-in only, not admin.** The route takes any authenticated account (`CurrentAccount`)
-   and answers 401 to an anonymous caller. The gateway has no public ingress, so callers reach it
+   and answers 401 to an anonymous caller (under `AIGW_AUTH_MODE=disabled`, which is
+   loopback-only, every caller is the anonymous account and may read). The gateway has no public ingress, so callers reach it
    through the Engine (`fusion.dev.screamingface.ai`, behind Cloudflare Access), which forwards
    the caller's identity as it does for its other gateway calls.
 5. **No feature flag, no limits of its own.** It is an ordinary authenticated route, always
